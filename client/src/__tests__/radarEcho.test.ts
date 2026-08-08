@@ -32,7 +32,7 @@
 //     allocates no heatmap at all.
 
 import { describe, it, expect, vi } from 'vitest';
-import { Container, Texture, type Graphics } from 'pixi.js';
+import { Container, Graphics, Texture } from 'pixi.js';
 import {
   CONFIG,
   paintCoverage,
@@ -47,11 +47,18 @@ import { Radar } from '../render/radar.js';
 import { fogHoleRadiusU } from '../render/fog.js';
 import { blipCool, blipLifeMs } from '../render/phosphor.js';
 
-// jsdom has no 2d canvas, so the baked sweep wedge can't rasterize here; the
-// heatmap buffer (what this file is about) needs no canvas at all.
+// jsdom has no 2d canvas, so neither baked texture the adapter builds at
+// construction — the sweep wedge and the Story 4.11 near-range dim mask — can
+// rasterize here. Both are stubbed; the heatmap buffer needs no canvas at all,
+// and the mask's PLACEMENT (which is all these suites assert about it) is a
+// sprite transform that does not depend on the texture's contents.
 vi.mock('../render/textures.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../render/textures.js')>();
-  return { ...actual, bakeSweepTexture: (): Texture => Texture.EMPTY };
+  return {
+    ...actual,
+    bakeSweepTexture: (): Texture => Texture.EMPTY,
+    bakeDimMaskTexture: (): Texture => Texture.EMPTY,
+  };
 });
 
 const OWN = { x: 0, y: 0 };
@@ -588,6 +595,15 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     k: 'blip', id: 'trk-s', x: 0, y: 500, t: 1000, cls: 'battleship', heading: 0, speed: 20,
   };
 
+  /** The blip's Graphics. Selected BY TYPE, not by index: since Story 4.11 the
+   *  layer's first child is the near-range dim mask sprite (added in the
+   *  constructor), which `children[0]` would otherwise hand back. */
+  function blipGraphics(layer: Container): Graphics {
+    const g = layer.children.find((c): c is Graphics => c instanceof Graphics);
+    if (g === undefined) throw new Error('no blip Graphics in the layer');
+    return g;
+  }
+
   /** The color a Graphics was actually stroked with (Pixi keeps the draw
    *  instructions on the context; `tint` is a separate multiplier). */
   function strokeColor(g: Graphics): number {
@@ -619,7 +635,7 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     const { radar, layer } = makeSilhouette();
     radar.render(OWN, 900);
     radar.onBlip(POSE);
-    const g = layer.children[0] as Graphics;
+    const g = blipGraphics(layer);
     expect(radar.liveBlips).toBe(1);
     expect(hue(strokeColor(g))).toBeCloseTo(hue(HUE), 0);
     // True-scale silhouette + ARPA vector, drawn once at acquire.
@@ -630,7 +646,7 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     const { radar, layer } = makeSilhouette();
     radar.render(OWN, 900);
     radar.onBlip(POSE);
-    const g = layer.children[0] as Graphics;
+    const g = blipGraphics(layer);
     const stroked = strokeColor(g);
     for (const now of [1000, 2000, 4000, 8000, 12_000]) {
       radar.render(OWN, now);
@@ -663,7 +679,7 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     const { radar, layer } = makeSilhouette();
     radar.render(OWN, 900);
     radar.onBlip(close);
-    const g = layer.children[0] as Graphics;
+    const g = blipGraphics(layer);
     const stroked = strokeColor(g);
     const bounds = g.getLocalBounds().width;
     expect(radar.liveBlips).toBe(1);

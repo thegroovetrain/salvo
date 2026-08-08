@@ -89,6 +89,19 @@ const COLORS = {
   echoFaint: 0x00ff00, // "honestly not sure, could be something tiny" — green
   echoFuzzy: 0x0000ff, // "probably a thing, but fuzzy" — blue
   echoSolid: 0xff0000, // "this is definitely a thing" — red
+  // NO-DATA GREY (Story 4.11, amendment 180) — the FOURTH appearance on the
+  // scope, and deliberately NOT a fourth band. Where terrain has shadowed the
+  // beam the set learns nothing, and the ratified three-register grammar had no
+  // way to SAY "no information": red/blue/green are return STRENGTH, and this is
+  // the absence of a return altogether. The rule underneath amendment 160 is the
+  // one that must not bend, so grey carries NO strength channel — one colour,
+  // one opacity (`blip.heatmap.bandAlpha`, exactly as every band), no ramp, no
+  // band index. Age still decays it exactly as it decays a return (amendment
+  // 161). Neutral by construction: ~7% HSV saturation, so it can never read as a
+  // lit, coloured mark the way all three registers do (tokens.test.ts's
+  // `readsAsEcho` bar is 0.35), and darker than the near-grey `splash` ring so
+  // the two do not trade places on the water.
+  echoNoData: 0x8c9196,
   // combat effects
   splash: 0xb8ccc6, // miss splash — replaces retired #66FFAA double-duty
   muzzle: 0xe8f2ec,
@@ -1946,6 +1959,71 @@ export const CLIENT_CONFIG = {
          *  physical object of its own size, not a region whose extent grows as
          *  the ring closes. */
         stormBandU: 60,
+      },
+      /**
+       * THE NO-DATA GREY (Story 4.11, amendment 180) — one colour, and that is
+       * the whole block on purpose.
+       *
+       * Where a bearing's radar shadow (shared/sim/radarShadow.ts) has taken the
+       * illuminated fraction to zero, the beam learns NOTHING out to the rim, and
+       * the march emits NO-DATA cells there instead of returns. They draw in this
+       * colour at `bandAlpha` — the SAME single opacity every band draws at —
+       * scaled only by phosphor age, so a shadow fades exactly as a return does
+       * (amendment 161).
+       *
+       * THERE IS NO STRENGTH KNOB HERE AND THERE MUST NEVER BE ONE. Grey is not
+       * a fourth band: it carries no threshold, no ramp and no band index, and it
+       * is NOT a member of `bands` (which is contractually exactly three,
+       * amendment 77). A `noDataAlpha` sibling to `bandAlpha` would be the cycle
+       * 63 per-band opacity ramp arriving through a side door — see amendment
+       * 163's standing note about reaching for brightness.
+       */
+      noData: COLORS.echoNoData,
+      /**
+       * NEAR-RANGE DIMMING (Story 4.11, amendment 181) — Eric: *"radar is most
+       * effective outside of truesight range... I want everything painted at max
+       * intensity (0.8 alpha) at all times. I want it DISPLAYED muted based on
+       * how close to the ship it is."*
+       *
+       * A LIVE DISPLAY MASK, NOT A PAINT PROPERTY. This is the ONE place in the
+       * whole grammar where something viewport-and-observer-derived touches what
+       * is drawn, and it is safe for exactly one reason: it is a transparency
+       * mask over the composited layer, so no paint record is read back,
+       * recomputed or mutated (amendment 83 forbids re-EVALUATING a frozen paint,
+       * which is what cycles 54/55/57 each shipped a bug on — it does not forbid
+       * a presentation transform). Implemented as a baked radial-gradient mask
+       * sprite on `blipLayer`, never as a per-cell recompute inside
+       * `quantizeInto`.
+       *
+       * BOTH RADII LAND ON THE EIGHTHS LADDER (amendment 113), never on literals:
+       * 1/8 and 5/8 of BASE `CONFIG.vision.radar` — 82.5u and 412.5u at the
+       * shipped rung. Retuning `SIGHT` moves them with everything else.
+       */
+      dim: {
+        /** Flat `minScale` at and inside this radius (u) — 1/8 intel range. */
+        innerU: CONFIG.vision.radar / 8,
+        /** Full painted opacity from this radius out (u) — 5/8 intel range. */
+        outerU: (CONFIG.vision.radar * 5) / 8,
+        /** Displayed fraction of the painted opacity inside `innerU`. Eric's
+         *  number: *"painted at 20% its usual opacity within 1/8 intel range"*.
+         *  It is a DISPLAY scale on top of age, so the two compose
+         *  multiplicatively and the stored record is byte-identical throughout. */
+        minScale: 0.2,
+        /**
+         * Half-extent (u) of the baked mask sprite in world units.
+         *
+         * IT IS A COVERAGE BOUND, NOT A LOOK KNOB. The mask is flat at full
+         * opacity everywhere past `outerU`, but a Pixi sprite mask CLIPS to its
+         * own frame — anything outside it is hidden outright — so the sprite has
+         * to reach past the furthest cell the radar layer can draw. That bound is
+         * a boon-widened scope (~2.01× base = ~1327u) plus the distance own hull
+         * can travel during a paint's ~12s phosphor life (a boon-scaled hull at
+         * ~60 u/s ≈ 720u): ~2047u, comfortably inside 4× base radar (2640u). It
+         * is deliberately NOT sized to the viewport — the camera can show water
+         * no paint has ever reached, and hiding a mask-less region that holds
+         * nothing costs nothing.
+         */
+        spanU: CONFIG.vision.radar * 4,
       },
     },
   },

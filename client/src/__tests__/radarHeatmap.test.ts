@@ -148,6 +148,13 @@ function bandAt(g: HeatGrid, x: number, y: number): number {
   return bandIndex(sampleGrid(g, x, y).w, BANDS);
 }
 
+/** Is the buffer holding a NO-DATA mark at a world point (Story 4.11)? The third
+ *  channel's own reader — deliberately NOT reachable through `bandAt`, which
+ *  answers about the three REGISTERS and nothing else. */
+function ndAt(g: HeatGrid, x: number, y: number): boolean {
+  return sampleGrid(g, x, y).nd !== 0;
+}
+
 /** Rasterize a slice list at `now`, exactly as render/radar.ts does. */
 function raster(g: HeatGrid, slices: MarchSlice[], now = 0): void {
   rasterize(g, slices, { now, lifeMs: LIFE, alphaFloor: 0 });
@@ -194,7 +201,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
     for (let i = 0; i < g.w.length; i++) g.w[i] = (i % 40) / 40;
     g.a.fill(1);
     const out = new Uint8Array(g.cols * g.rows * 4);
-    quantizeInto(g, BANDS, CFG.bandAlpha, out);
+    quantizeInto(g, BANDS, CFG.bandAlpha, CFG.noData, out);
     const tokens = new Set(BANDS.map((b) => b.color));
     for (let i = 0; i < out.length; i += 4) {
       if (out[i + 3] === 0) continue;
@@ -220,7 +227,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
     for (let i = 0; i < g.w.length; i++) g.w[i] = probes[i % probes.length];
     g.a.fill(1); // same age everywhere — the only channel allowed to move opacity
     const out = new Uint8Array(g.cols * g.rows * 4);
-    quantizeInto(g, BANDS, CFG.bandAlpha, out);
+    quantizeInto(g, BANDS, CFG.bandAlpha, CFG.noData, out);
     const alphas = new Set<number>();
     for (let i = 0; i < out.length; i += 4) if (out[i + 3] > 0) alphas.add(out[i + 3]);
     expect(alphas.size, `lit pixels used ${[...alphas].join('/')} — expected ONE`).toBe(1);
@@ -232,7 +239,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
     g.w.fill(0.99); // all red, so band can never be the cause
     for (let i = 0; i < g.a.length; i++) g.a[i] = i % 2 === 0 ? 1 : 0.4;
     const out = new Uint8Array(g.cols * g.rows * 4);
-    quantizeInto(g, BANDS, CFG.bandAlpha, out);
+    quantizeInto(g, BANDS, CFG.bandAlpha, CFG.noData, out);
     const alphas = new Set<number>();
     for (let i = 0; i < out.length; i += 4) if (out[i + 3] > 0) alphas.add(out[i + 3]);
     expect(alphas.size, 'two ages must give two opacities').toBe(2);
@@ -350,15 +357,15 @@ describe('the buffer is WORLD-anchored, so paints do not shimmer with the camera
       sampleGrid(g, cellCentre(4, g.cellU), cellCentre(4, g.cellU));
 
     // A strong, OLD paint (low alpha = aged).
-    writeCell(g, 4, 4, 0.9, 0.2);
+    writeCell(g, 4, 4, 0.9, 0, 0.2);
     // A WEAKER but FRESH one must still take the cell, both channels. Under the
     // retired rule this write was dropped outright — the reported defect.
-    writeCell(g, 4, 4, 0.3, 1);
+    writeCell(g, 4, 4, 0.3, 0, 1);
     expect(read().w, 'the fresh paint owns the cell').toBeCloseTo(0.3, 6);
     expect(read().a, 'and it is at FULL freshness, not the stale alpha').toBeCloseTo(1, 6);
 
     // An older paint can never claw it back.
-    writeCell(g, 4, 4, 0.95, 0.2);
+    writeCell(g, 4, 4, 0.95, 0, 0.2);
     expect(read().w).toBeCloseTo(0.3, 6);
     expect(read().a).toBeCloseTo(1, 6);
   });
@@ -368,20 +375,20 @@ describe('the buffer is WORLD-anchored, so paints do not shimmer with the camera
     const g = grid();
     const read = (): { w: number; a: number } =>
       sampleGrid(g, cellCentre(4, g.cellU), cellCentre(4, g.cellU));
-    writeCell(g, 4, 4, 0.4, 0.7); // terrain, say
-    writeCell(g, 4, 4, 0.8, 0.7); // hull in the same slice — same age
+    writeCell(g, 4, 4, 0.4, 0, 0.7); // terrain, say
+    writeCell(g, 4, 4, 0.8, 0, 0.7); // hull in the same slice — same age
     expect(read().w).toBeCloseTo(0.8, 6);
-    writeCell(g, 4, 4, 0.5, 0.7); // weaker, same age: loses
+    writeCell(g, 4, 4, 0.5, 0, 0.7); // weaker, same age: loses
     expect(read().w).toBeCloseTo(0.8, 6);
   });
 
   it('an out-of-buffer cell is dropped silently, and `clearGrid` blanks both '
     + 'channels', () => {
     const g = grid();
-    writeCell(g, g.baseGx - 5, g.baseGy - 5, 1, 1);
-    writeCell(g, g.baseGx + g.cols + 1, g.baseGy, 1, 1);
+    writeCell(g, g.baseGx - 5, g.baseGy - 5, 1, 0, 1);
+    writeCell(g, g.baseGx + g.cols + 1, g.baseGy, 1, 0, 1);
     expect(bandCounts(g)).toEqual([0, 0, 0]);
-    writeCell(g, g.baseGx + 2, g.baseGy + 2, 1, 1);
+    writeCell(g, g.baseGx + 2, g.baseGy + 2, 1, 0, 1);
     clearGrid(g);
     expect(bandCounts(g)).toEqual([0, 0, 0]);
   });
@@ -556,8 +563,8 @@ describe('SEA CLUTTER is texture and nothing else (amendments 130 + 133 + 136)',
   // clutter rule.
   it('and a `minPeak` echo sharing a cell with it outranks it at the same age', () => {
     const g = grid(CFG);
-    writeCell(g, 0, 0, worst(MODEL.clutter), 1); // luckiest clutter draw
-    writeCell(g, 0, 0, best(MODEL.minPeak), 1); // unluckiest real echo, same paint
+    writeCell(g, 0, 0, worst(MODEL.clutter), 0, 1); // luckiest clutter draw
+    writeCell(g, 0, 0, best(MODEL.minPeak), 0, 1); // unluckiest real echo, same paint
     expect(
       sampleGrid(g, 3, 3).w,
       'the faintest legitimate return still beats the strongest sea state',
@@ -624,7 +631,14 @@ describe('the WATERLINE is green and still outranks sea state (amendment 129)', 
 
 describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
   + 'cycle-62 review gate)', () => {
-  const OBS: Vec2 = { x: -260, y: 0 };
+  // THE OBSERVER IS AT SEA, EAST OF THE COAST, and Story 4.11 is why it moved:
+  // it used to sit at x = -260, which this fixture calls LAND. That was harmless
+  // while nothing occluded anything, but a set standing on its own landmass now
+  // shadows itself on every westward bearing (and `marchBeam` refuses to paint
+  // from an aground observer at all), so the rasterized bound below would have
+  // been proved against an empty scope. Same coastline, same fringe, same
+  // bounds — read from water that can actually see it.
+  const OBS: Vec2 = { x: 460, y: 0 };
   // A straight coastline: land for x <= -50, open water for x > -50, far
   // enough from the observer's own hull that only the fringe is under test.
   const COAST = rasterWithPyramid(700, (x) => (x <= -50 ? 200 : 0));
@@ -659,7 +673,7 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
     expect(near, 'a water sample near the coast paints surf').not.toBeNull();
     expect(near!.refl).toBeCloseTo(MODEL.surf, 6);
     // Deep open water, well past both the coastline and the clutter compute
-    // bound (own hull sits at x=-260, `clutterRangeU` is 100).
+    // bound (own hull sits at x=460, `clutterRangeU` is 100).
     const far = field.sampleAt(300, 0);
     expect(far, 'far out to sea, nothing paints').toBeNull();
   });
@@ -707,28 +721,203 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
     expect(blueOrRed, 'not one surf cell in the forbidden bands').toBe(0);
   });
 
-  it('paints on EVERY side of an island, including the side facing away from '
-    + 'the observer — nothing occludes anything (amendment 140)', () => {
+  it('THE NEAR FACE PAINTS AND THE FAR FACE IS NO-DATA (Story 4.11, amendments '
+    + '176-180) — REPLACES the amendment-140 test that asserted the far face '
+    + 'painted "exactly as strongly, unshadowed"', () => {
+    // RETIRED, NOT ADAPTED. The struck-out test counted lit cells in the whole
+    // northern half of a ring around the island, which included cells no ray had
+    // to cross the island to reach — so it would have gone on passing while
+    // meaning nothing. The directed statement is the one that has teeth: on the
+    // bearing that runs THROUGH the island, the near side paints and the far
+    // side is grey.
     const RADIUS = 60;
     const ISLAND = rasterWithPyramid(400, (x, y) => (Math.hypot(x, y) <= RADIUS ? 200 : 0));
+    expect(200, 'the fixture is hard cover').toBeGreaterThanOrEqual(CONFIG.vision.radarMastQ);
     const g = scope({ x: 0, y: -300 }, { raster: ISLAND }, CFG);
-    let near = 0; // south of the island: the NEAR face, closest to the observer
-    let far = 0; // north of the island: the FAR face, on the OPPOSITE side
-    for (let cy = 0; cy < g.rows; cy++) {
-      for (let cx = 0; cx < g.cols; cx++) {
-        const b = bandIndex(g.w[cy * g.cols + cx], BANDS);
-        if (b < 0) continue;
-        const x = cellCentre(g.baseGx + cx, g.cellU);
-        const y = cellCentre(g.baseGy + cy, g.cellU);
-        const d = Math.hypot(x, y);
-        if (d <= RADIUS || d > RADIUS + MODEL.surfBandU * 3) continue; // the
-        // island itself, or open water well past the fringe — not surf
-        if (y < 0) near++;
-        else if (y > 0) far++;
-      }
+    // Scanned rather than probed at one cell: the 9u heat lattice and the 14u
+    // raster do not line up, so which cell holds the seaward rim is an artefact
+    // of the two spacings and not the property under test.
+    const column = (lo: number, hi: number): number[] => {
+      const out: number[] = [];
+      for (let y = lo; y <= hi; y += CFG.cellU / 2) out.push(y);
+      return out;
+    };
+    expect(
+      column(-RADIUS - 4, -RADIUS + 24).some((y) => bandAt(g, 4, y) >= 0),
+      'the near face paints',
+    ).toBe(true);
+    for (const y of column(RADIUS - 24, RADIUS + 4)) {
+      expect(bandAt(g, 4, y), `the FAR face does not paint at y=${y}`).toBe(-1);
+      expect(ndAt(g, 4, y), `and reads NO-DATA at y=${y}, not empty water`).toBe(true);
     }
-    expect(near, 'near-face fringe painted').toBeGreaterThan(0);
-    expect(far, 'far-face fringe painted too, exactly as strongly — unshadowed').toBeGreaterThan(0);
+    // ...while a bearing that CLEARS the island is untouched: this is a wedge,
+    // not a disc of suppression. Two identical hulls, one abeam and one directly
+    // behind, make that the whole statement.
+    const hulls = [
+      { id: 'clear', x: 200, y: 0, heading: 0, cls: 'battleship' as const },
+      { id: 'hidden', x: 0, y: 200, heading: 0, cls: 'battleship' as const },
+    ];
+    const h = scope({ x: 0, y: -300 }, { raster: ISLAND, hulls }, CFG);
+    expect(bandAt(h, 200, 0), 'the hull abeam of the island paints')
+      .toBeGreaterThanOrEqual(0);
+    expect(bandAt(h, 0, 200), 'the one directly behind it does not').toBe(-1);
+    expect(ndAt(h, 0, 200), 'and its water reads NO-DATA').toBe(true);
+  });
+});
+
+// --- 5c. THE NO-DATA CHANNEL (Story 4.11, amendment 180) ----------------------
+//
+// Grey is the FOURTH appearance on the scope and deliberately not a fourth band.
+// What is contract here:
+//
+//   • It rides its OWN channel. Not `w` (the march drops sub-threshold
+//     intensities and `quantizeInto` skips `!(w > 0)`), not `a` (whose f32
+//     compare is the freshest-wins ordering key, amendment 164).
+//   • `writeCell` still compares PURE AGE, and at EQUAL age a return beats a
+//     no-data mark — learning something outranks learning nothing.
+//   • A SHADOWED FRESH paint still beats an UNSHADOWED STALE one, because age
+//     is the primary key and the shadow is not in it.
+//   • Grey carries no strength channel: one colour, one opacity, decayed by age
+//     exactly as a return is.
+
+describe('the NO-DATA channel', () => {
+  const CENTRE = (): number => cellCentre(4, CLEAN.cellU);
+  const read = (g: HeatGrid): { w: number; a: number; nd: number } =>
+    sampleGrid(g, CENTRE(), CENTRE());
+
+  it('at EQUAL age a RETURN beats a NO-DATA mark, in both arrival orders', () => {
+    const a = grid();
+    writeCell(a, 4, 4, 0, 1, 0.7); // shadow first
+    writeCell(a, 4, 4, 0.5, 0, 0.7); // then a return of the same age
+    expect(read(a).w, 'the return owns the cell').toBeCloseTo(0.5, 6);
+    expect(read(a).nd, 'and the mark is cleared with it').toBe(0);
+
+    const b = grid();
+    writeCell(b, 4, 4, 0.5, 0, 0.7); // return first
+    writeCell(b, 4, 4, 0, 1, 0.7); // a same-age shadow must NOT take it back
+    expect(read(b).w).toBeCloseTo(0.5, 6);
+    expect(read(b).nd).toBe(0);
+  });
+
+  it('but a FRESHER no-data mark supersedes an older return — the sweep came '
+    + 'round and learned nothing there, which is news', () => {
+    const g = grid();
+    writeCell(g, 4, 4, 0.9, 0, 0.3); // a strong, aged return
+    writeCell(g, 4, 4, 0, 1, 1); // this revolution: shadowed
+    expect(read(g).w, 'the old return is gone').toBe(0);
+    expect(read(g).nd, 'and the cell reads no-data').toBe(1);
+    expect(read(g).a, 'at the fresh age').toBeCloseTo(1, 6);
+  });
+
+  it('A SHADOWED FRESH PAINT STILL BEATS AN UNSHADOWED STALE ONE: age is the '
+    + 'primary key and the shadow is not in it', () => {
+    const g = grid();
+    writeCell(g, 4, 4, 0.95, 0, 0.25); // last revolution, in the clear, strong
+    writeCell(g, 4, 4, 0, 1, 0.8); // this revolution, shadowed
+    expect(read(g).nd).toBe(1);
+    expect(read(g).a).toBeCloseTo(0.8, 6);
+    // ...and the converse: once the shadow is stale, a fresh return takes it.
+    writeCell(g, 4, 4, 0.4, 0, 0.95);
+    expect(read(g).w).toBeCloseTo(0.4, 6);
+    expect(read(g).nd).toBe(0);
+  });
+
+  it('an OLDER no-data mark can never claw a cell back', () => {
+    const g = grid();
+    writeCell(g, 4, 4, 0.4, 0, 0.9);
+    writeCell(g, 4, 4, 0, 1, 0.2);
+    expect(read(g).w).toBeCloseTo(0.4, 6);
+    expect(read(g).nd).toBe(0);
+  });
+
+  it('`clearGrid` blanks the third channel too — a hidden buffer must not answer '
+    + 'with last frame\'s shadow', () => {
+    const g = grid();
+    writeCell(g, 4, 4, 0, 1, 1);
+    expect(read(g).nd).toBe(1);
+    clearGrid(g);
+    expect(read(g).nd).toBe(0);
+  });
+
+  it('QUANTIZED: a no-data cell draws the grey token at the SAME single opacity '
+    + 'every band draws at, scaled only by age', () => {
+    const g = grid();
+    writeCell(g, 4, 4, 0, 1, 1); // fresh shadow
+    writeCell(g, 6, 4, 0, 1, 0.5); // half-decayed shadow
+    writeCell(g, 8, 4, 0.9, 0, 1); // a fresh return alongside
+    const out = new Uint8Array(g.cols * g.rows * 4);
+    quantizeInto(g, BANDS, CFG.bandAlpha, CFG.noData, out);
+    const px = (gx: number): { rgb: number; a: number } => {
+      const i = ((4 - g.baseGy) * g.cols + (gx - g.baseGx)) * 4;
+      return { rgb: (out[i] << 16) | (out[i + 1] << 8) | out[i + 2], a: out[i + 3] };
+    };
+    expect(px(4).rgb, 'the grey token, verbatim').toBe(CLIENT_CONFIG.colors.echoNoData);
+    expect(px(4).a, 'at bandAlpha × age').toBe(Math.round(255 * CFG.bandAlpha));
+    expect(px(6).rgb, 'the same colour when half-decayed — no strength channel')
+      .toBe(CLIENT_CONFIG.colors.echoNoData);
+    expect(px(6).a, 'age, and only age, moves it').toBe(Math.round(255 * CFG.bandAlpha * 0.5));
+    expect(px(8).rgb, 'and a return is still a band token').toBe(BANDS[2].color);
+  });
+
+  it('GREY IS NOT A FOURTH BAND: it is not in `bands`, it has no threshold, and '
+    + 'it never reads as an echo', () => {
+    expect(BANDS, 'still exactly three registers').toHaveLength(3);
+    expect(BANDS.map((b) => b.color)).not.toContain(CFG.noData);
+    // Whatever intensity you hand `bandIndex`, it can never answer "grey".
+    for (let v = -1; v <= 2; v += 0.017) {
+      const b = bandIndex(v, BANDS);
+      expect(b, `intensity ${v.toFixed(3)}`).toBeLessThan(3);
+    }
+  });
+
+  it('A RETURN OUTRANKS GREY AT DISPLAY TIME: a cell carrying both draws the '
+    + 'return, so no rendering rule can hide a real echo', () => {
+    const g = grid();
+    // Both channels set on one cell — what the march's sticky-OR merge produces
+    // when adjacent bearings disagree about whether terrain is in the way.
+    writeCell(g, 4, 4, 0.9, 1, 1);
+    const out = new Uint8Array(g.cols * g.rows * 4);
+    quantizeInto(g, BANDS, CFG.bandAlpha, CFG.noData, out);
+    const i = ((4 - g.baseGy) * g.cols + (4 - g.baseGx)) * 4;
+    expect((out[i] << 16) | (out[i + 1] << 8) | out[i + 2]).toBe(BANDS[2].color);
+  });
+
+  it('and the RASTERIZED bytes are only ever a band token, the grey, or nothing '
+    + '— there is no fourth colour anywhere between here and the screen', () => {
+    const g = grid();
+    for (let i = 0; i < g.w.length; i++) {
+      g.w[i] = i % 3 === 0 ? 0 : (i % 40) / 40;
+      g.nd[i] = i % 3 === 0 ? 1 : 0;
+      g.a[i] = 1;
+    }
+    const out = new Uint8Array(g.cols * g.rows * 4);
+    quantizeInto(g, BANDS, CFG.bandAlpha, CFG.noData, out);
+    const allowed = new Set<number>([...BANDS.map((b) => b.color), CFG.noData]);
+    for (let i = 0; i < out.length; i += 4) {
+      if (out[i + 3] === 0) continue;
+      const rgb = (out[i] << 16) | (out[i + 1] << 8) | out[i + 2];
+      expect(allowed.has(rgb), `pixel ${i / 4} is a token`).toBe(true);
+    }
+  });
+
+  it('a slice carrying only no-data cells still stamps them (the `freeze` and '
+    + '`stampSlice` halves of the same guarantee)', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const wall = rasterWithPyramid(760, (x, y) => (y > 120 ? 255 : 0));
+    const field = buildField({
+      obs,
+      raster: wall,
+      ships: new Map(),
+      ring: null,
+      cellU: CFG.cellU,
+      model: { ...MODEL, clutter: 0, surf: 0 },
+    });
+    const s = marchSlice(obs, Math.PI / 2 - 0.02, Math.PI / 2 + 0.02, field, RADAR, 0, CFG);
+    expect(s, 'the slice survived `freeze`').not.toBeNull();
+    const g = grid(CFG, 0, 0);
+    raster(g, [s!]);
+    expect(ndAt(g, 0, 400), 'and reached the buffer').toBe(true);
+    expect(bandAt(g, 0, 400), 'as grey, not as a return').toBe(-1);
   });
 });
 

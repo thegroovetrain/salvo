@@ -59,6 +59,9 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     observerId: me.id,
     now: world.now,
     islands: world.map.islands,
+    // Story 4.11: the blip gate's shadow-march substrate (the raster alone,
+    // never the whole GameMap — the narrow-context principle).
+    heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
@@ -80,6 +83,9 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     observerId,
     now: world.now,
     islands: world.map.islands,
+    // Inert on this path (spectators get live contacts, never blips) — rides
+    // every context uniformly so the context stays one shape.
+    heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,

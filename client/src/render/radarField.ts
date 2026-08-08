@@ -59,16 +59,29 @@
 //      131's ruled seaward taper: `surfSample` records why the read cannot
 //      express one and what changing that would cost.
 //
-// NOTHING OCCLUDES ANYTHING (amendment 140). There is no near-face terminator, no
-// cross-island LOS filter and no clutter occluder mask in this file: a sample
-// paints on the far side of a landmass, and behind another landmass, exactly as
-// it does on the near face. This is a KNOWING, TEMPORARY regression against the
-// 2026-08-02 "islands block every sensor" ruling, scoped to the radar PAINT LAYER
-// and accepted on the explicit promise that Story 4.11 restores it as a
-// height-derived shadow length along this same ray — a strictly better answer
-// than the binary segment tests being removed. NO SERVER-SIDE SENSOR GATE MOVES:
-// `blipGate`, `pointSighted`, `pointDetected`, the muzzle and smoke halos and the
-// foghorn muffle all still enforce LOS and are untouched.
+// OCCLUSION IS BACK, AND IT IS NOT IN THIS FILE (Story 4.11, amendments 176-180
+// — cashing the promise cycle 62 made when amendment 140 removed the binary
+// tests). THE FIELD STILL ANSWERS "what is at (x, y)?" AND NOTHING ELSE: there
+// is no near-face terminator here, no cross-island LOS filter and no clutter
+// occluder mask, and a sample on the far side of a landmass is still described
+// exactly as one on the near face. What changed is that the MARCH
+// (render/radarMarch.ts) now folds terrain height into the shared shadow
+// accumulator (shared/sim/radarShadow.ts) as it walks, and scales what it does
+// with this file's answer by the illuminated fraction — so occlusion is a
+// property of the RAY, which is the only place it can be O(1) and the only place
+// the server can share the same code. Past the shadow's reach the march emits
+// NO-DATA cells and stops asking this file anything at all.
+//
+// THE RASTER IS EXPOSED ON THE SEAM (`RadarField.raster`) FOR EXACTLY THAT, and
+// for one reason beyond convenience: `solidAt` below uses `sampleHeight(...) > 0`
+// as the land test, and the accumulator must not introduce a second, disagreeing
+// one. Handing the march the SAME raster object this field was built from makes
+// "is this land, and how tall" one answer with one source.
+//
+// NO SERVER-SIDE SENSOR GATE MOVES ON THIS SIDE OF THE WIRE: `pointSighted`,
+// `pointDetected`, the muzzle and smoke halos and the foghorn muffle all still
+// enforce binary island LOS, and only the server's `blipGate` adopts the shadow
+// (amendment 179).
 //
 // A FIELD IS A FROZEN RECORD (amendment 83). Everything it can answer — the
 // observer the clutter disc hangs on, the ring the wall tracks, where every hull
@@ -127,6 +140,16 @@ export interface FieldSample {
  * itself, and every layer still answers in pure material terms.
  */
 export interface RadarField {
+  /**
+   * THE ELEVATION AUTHORITY THIS FIELD WAS BUILT FROM, or null for a field with
+   * no terrain at all — the march's shadow accumulator reads it (Story 4.11).
+   *
+   * It is carried on the seam rather than passed alongside so that there is
+   * exactly ONE land answer: `solidAt` tests `sampleHeight(raster, …) > 0` and
+   * the accumulator folds heights out of the same array, so the two cannot drift
+   * into disagreeing about where a coastline is.
+   */
+  readonly raster: HeightRaster | null;
   sampleAt(x: number, y: number, dist?: number): FieldSample | null;
 }
 
@@ -480,6 +503,7 @@ export function buildField(f: FieldSpec): RadarField {
   const m = f.model;
   const surfLevel = f.raster === null ? -1 : surfPyramidLevel(f.raster, m.surfBandU);
   return {
+    raster: f.raster,
     sampleAt(x: number, y: number, dist = 0): FieldSample | null {
       const solid = solidAt(f, x, y, dist);
       if (solid !== null) return solid;
@@ -501,9 +525,19 @@ export function buildField(f: FieldSpec): RadarField {
  * without painting the hull a whole revolution stale — but the intensity, the
  * noise, the slice record and the stamping are all still the march's, applied to
  * a field that contains only that hull. One model, one primitive, one list.
+ *
+ * IT CARRIES NO RASTER, AND THAT IS DELIBERATE — THIS PATH IS NEVER SHADOWED
+ * (Story 4.11). The wire echo has ALREADY been gated by the server's own
+ * `blipGate`, which now runs the same shadow model along the same ray; running a
+ * second, client-side occlusion test over the result could only ever SUPPRESS a
+ * blip the server legitimately disclosed, and amendment 127 forbids that in as
+ * many words — anything the server blips paints at least a speck. A null raster
+ * makes the shadow walk fail open, so the march here is byte-identical to the
+ * pre-4.11 one.
  */
 export function shipOnlyField(ships: ShipStamp, cellU: number): RadarField {
   return {
+    raster: null,
     sampleAt(x: number, y: number): FieldSample | null {
       if (ships.size === 0) return null;
       return ships.get(cellKey(cellOf(x, cellU), cellOf(y, cellU))) ?? null;

@@ -142,6 +142,60 @@ export function bakeVignetteTexture(): Texture {
   return Texture.from(canvas);
 }
 
+// --- near-range radar dimming mask -------------------------------------------
+
+/**
+ * Baked at this square size; scaled so the texture's half-width covers
+ * `CLIENT_CONFIG.blip.heatmap.dim.spanU` world units.
+ *
+ * THE RAMP IS EXACTLY LINEAR IN RADIUS, which is what makes a coarse bake
+ * honest rather than merely cheap: bilinear filtering reproduces a linear ramp
+ * exactly, so the only places resolution shows are the two kinks (at `innerU`
+ * and `outerU`), and there it costs a few screen pixels of rounding on a
+ * gradient nobody can locate by eye anyway. At the shipped span one texel is
+ * ~5.2u, i.e. ~4 screen px at max zoom.
+ */
+export const DIM_MASK_TEXTURE_SIZE = 1024;
+
+/**
+ * Bake the near-range dim mask (Story 4.11, amendment 181): a radial ramp from
+ * `minScale` at the centre out to `innerU`, rising LINEARLY to full at `outerU`,
+ * flat at full everywhere beyond.
+ *
+ * IT IS DRAWN IN THE RED CHANNEL AT FULL ALPHA, and that is a Pixi contract
+ * rather than a style choice. A sprite mask samples the RED channel by default
+ * (`MaskFilter`'s `uChannel`), and its alpha term is folded in as
+ * `masky.a × masky.r` — so an alpha-only gradient on a premultiplied upload
+ * would square the ramp. An opaque greyscale ramp makes the mask exactly the
+ * grey level, whatever the upload's alpha mode does.
+ *
+ * Follows `bakeFogTexture`'s `createRadialGradient` precedent, and like every
+ * other bake here it happens ONCE — the mask is positioned and scaled per frame,
+ * never re-baked.
+ */
+export function bakeDimMaskTexture(): Texture {
+  const { innerU, outerU, minScale, spanU } = CLIENT_CONFIG.blip.heatmap.dim;
+  const size = DIM_MASK_TEXTURE_SIZE;
+  const { canvas, ctx } = makeCanvas(size, size);
+  const c = size / 2;
+  const px = c / spanU; // world units -> texture px
+  // Full opacity everywhere first: the flat region past `outerU` reaches the
+  // corners, which is the whole point of the sprite being span-sized.
+  ctx.fillStyle = cssRgba(C.white, 1);
+  ctx.fillRect(0, 0, size, size);
+  const r0 = Math.max(0, innerU * px);
+  const r1 = Math.max(r0 + 1, outerU * px);
+  const grad = ctx.createRadialGradient(c, c, r0, c, c, r1);
+  const floor = Math.round(255 * Math.max(0, Math.min(1, minScale)));
+  grad.addColorStop(0, cssRgba((floor << 16) | (floor << 8) | floor, 1));
+  grad.addColorStop(1, cssRgba(C.white, 1));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(c, c, r1, 0, Math.PI * 2);
+  ctx.fill();
+  return Texture.from(canvas);
+}
+
 // --- 3. blip soft-dot --------------------------------------------------------
 
 /** Blip texture size (px); scaled down to world units and tinted per blip. */

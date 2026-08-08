@@ -21,7 +21,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const SIGHT = CONFIG.vision.sight;
@@ -34,6 +34,9 @@ const DROP_OFFSET = CONFIG.shipClasses.mineLayer.hull.length / 2 + CONFIG.mine.t
 function bareWorld(seed = 31, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
+  // Story 4.11: flatten the height raster too — the real generated terrain
+  // must not radar-shadow a world the test built as empty water.
+  w.map.heightRaster = flatRaster();
   return w;
 }
 
@@ -219,12 +222,20 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     expect(f.decoys?.map((d) => d.id)).toEqual(['close']); // truesight sees the buoy for what it is
   });
 
-  it('an island blocks the decoy blip exactly like a ship (LOS parity)', () => {
+  it('terrain shadows the decoy blip exactly like a ship (Story 4.11 parity): hard cover blocks, low cover discloses', () => {
+    // Radar occlusion is the HEIGHT RASTER now, never island polygons — and
+    // the buoy rides the identical gate a hull does, so hard (q255 ≥ mast)
+    // cover deletes the lie…
     const { w, b } = observed();
-    w.map.islands.push(circleIsland(200, 0, 40));
+    w.map.heightRaster = rasterFrom(700, ridgeField(200, 0, 40, 40, 255));
     injectDecoy(w, 'd1', 'a', 400, 0);
     windowAround(b, 0);
     expect(blipsOf(buildFrame(w, 'b'))).toEqual([]);
+    // …while LOW (q16) cover on the same bearing leaves the buoy partially
+    // illuminated — disclosed, exactly as a ship at that position would be.
+    w.map.heightRaster = rasterFrom(700, ridgeField(200, 0, 40, 40, 16));
+    windowAround(b, 0);
+    expect(blipsOf(buildFrame(w, 'b')).map((e) => e.x)).toEqual([400]);
   });
 
   it('NEVER blips to its owner (the lie is for others)', () => {

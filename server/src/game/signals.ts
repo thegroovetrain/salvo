@@ -7,13 +7,16 @@
 // visible()/materialize()/counterIntel(); nothing spatial leaves the server
 // outside a row.
 //
-// THE LOS RULE (one rule for everything): a point is line-of-sight-clear from
-// the observer iff the segment observer→point crosses no island COASTLINE
-// (islandBlocksSegment — bounding-circle broadphase, `core` early-out, then
-// the exact polygon test). Sight, radar, shells, booms, spawns, and sinks all
-// use it. ALL island-geometry branching stays inside losClear: no visible()/
-// materialize() row may iterate polygon edges itself, or the 14 rows blow the
-// ESLint complexity ceiling.
+// THE LOS RULE (one rule for everything OPTICAL): a point is line-of-sight-
+// clear from the observer iff the segment observer→point crosses no island
+// COASTLINE (islandBlocksSegment — bounding-circle broadphase, `core`
+// early-out, then the exact polygon test). Sight, shells, booms, spawns, and
+// sinks all use it. ALL island-geometry branching stays inside losClear: no
+// visible()/materialize() row may iterate polygon edges itself, or the 14 rows
+// blow the ESLint complexity ceiling. THE ONE EXCEPTION (Story 4.11, amendment
+// 179): the RADAR blip gate's occlusion term is the shared height-aware shadow
+// march (visibilityTo over the height raster) rather than binary island LOS —
+// see blipGate. Every other sensor keeps binary island LOS byte-identical.
 //
 // Rows see a NARROW SignalContext (the ActivationContext pattern from
 // equipment/index.ts) — the observer's ship record, tick time, islands for LOS,
@@ -39,6 +42,7 @@ import {
   bearing,
   islandBlocksSegment,
   paintCoverage,
+  visibilityTo,
   wrapAngle,
   wrapPositive,
   type BallisticEvent,
@@ -51,6 +55,7 @@ import {
   type FoghornEvent,
   type GameEvent,
   type HealEvent,
+  type HeightRaster,
   type HitCallEvent,
   type HullCoverage,
   type HullId,
@@ -85,6 +90,12 @@ interface SignalContextBase {
   now: number;
   /** Island landmasses for the one LOS rule (bounding circle + coastline). */
   islands: readonly Island[];
+  /** The map's quantized height raster + max-height pyramid — the radar blip
+   *  gate's ONLY occlusion input (Story 4.11: the shared shadow march). The
+   *  raster alone rides the context, never the whole GameMap (the narrow-
+   *  context principle above); no other row may read it — every optical
+   *  sensor keeps binary island LOS through `islands`. */
+  readonly heightRaster: HeightRaster;
   /** Ship records by id — victim/wreck lookups (boom stripping, sunk gating). */
   ships: ReadonlyMap<string, ShipRecord>;
   /** All ACTIVE star-shell lit zones (Story 1.7) — the owned-zone truesight
@@ -264,8 +275,14 @@ function sweptThisTick(me: ShipRecord, brg: number): boolean {
  *  the SAME dazzle-scaled sightOf every sight predicate uses, so "sight wins
  *  inside its radius" stays coherent for a dazzled observer: the shrunk band
  *  becomes paintable annulus, never a dead ring). Sight wins inside its
- *  radius (a LOS-blocked ship inside sight is simply invisible — it is not in
- *  the annulus, so it cannot paint). Point-based so the decoy counterIntel
+ *  radius — and since Story 4.11 that is carried by THIS annulus exclusion
+ *  alone, not by any shared occlusion predicate: sight occludes on binary
+ *  island LOS while radar occludes on the height-aware shadow march, so an
+ *  island-LOS-blocked ship inside sight is simply invisible (not in the
+ *  annulus, so it cannot paint) even where a low island would leave it
+ *  radar-visible. The two tiers' occlusion rules are DIFFERENT predicates by
+ *  ruling (amendment 179), and the annulus is what keeps them from ever
+ *  answering for the same point. Point-based so the decoy counterIntel
  *  (Story 1.8) runs the IDENTICAL test on a buoy position. */
 function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
   const dx = p.x - me.state.x;
@@ -279,13 +296,29 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
 /**
  * THE ship-blip gate (one function, two callers — FR10's temporal
  * indistinguishability by construction): sight < dist ≤ radar (the annulus) ∧
- * the observer's beam crossed the point's bearing this tick ∧ island-LOS
- * clear. The genuine ship scan and the decoy counterIntel both call THIS, so a
- * buoy paints exactly when a ship at that position would — same tick, same
- * boundaries, same LOS shadowing. Do not fork it.
+ * the observer's beam crossed the point's bearing this tick ∧ the target is
+ * at least PARTIALLY illuminated under the height-aware radar shadow (Story
+ * 4.11, amendment 179 — the shared `visibilityTo` march over the height
+ * raster replaced binary island LOS on this one gate; a partially shadowed
+ * hull still returns something and is therefore disclosed, and only vis = 0 —
+ * past the residual reach, or behind hard cover ≥ mast height — deletes the
+ * blip). The march is the SAME shared function the client's beam march runs
+ * (the story's one-implementation constraint), which is what keeps the scope
+ * and the gate from ever disagreeing. Term ordering is load-bearing for cost:
+ * annulus → swept-this-tick → shadow march, so the expensive term runs only
+ * for candidates already in this tick's beam wedge. The genuine ship scan and
+ * the decoy counterIntel both call THIS, so a buoy paints exactly when a ship
+ * at that position would — same tick, same boundaries, same shadowing. Do not
+ * fork it, and do not give a decoy its own height: observer and target are
+ * both at mast height (amendment 101), which is what makes the model
+ * symmetric and the deception structurally indistinguishable (amendment 11).
  */
-function blipGate(me: ShipRecord, p: Vec2, islands: readonly Island[], now: number): boolean {
-  return inRadarAnnulus(me, p, now) && sweptThisTick(me, bearing(me.state, p)) && losClear(me.state, p, islands);
+function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster, now: number): boolean {
+  return (
+    inRadarAnnulus(me, p, now) &&
+    sweptThisTick(me, bearing(me.state, p)) &&
+    visibilityTo(raster, me.state.x, me.state.y, p.x, p.y) > 0
+  );
 }
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
@@ -499,7 +532,9 @@ const decoySignal: SignalSpec<Decoy, DecoyView> = {
 
 /**
  * `blip` — the radar tier: sight < dist ≤ radar (both boundaries as written)
- * ∧ LOS-clear ∧ the observer's beam crossed the target's bearing this tick
+ * ∧ shadow-visible (Story 4.11: `visibilityTo` over the height raster > 0 —
+ * partial illumination discloses; only full shadow deletes) ∧ the observer's
+ * beam crossed the target's bearing this tick
  * (the half-open window [prev, cur) — wrap-safe, each bearing painted exactly
  * once per revolution). Paints carry position-at-paint-time; the server keeps
  * no blip history (phosphor decay is client render math). ONLY SHIPS PAINT —
@@ -512,8 +547,8 @@ const decoySignal: SignalSpec<Decoy, DecoyView> = {
  * COUNTER-INTEL (Story 1.8, FR10): the row also implements the registry's
  * counterIntel seam for DECOY BUOYS — the first lying signal. For a fogged
  * NON-OWNER observer, a live buoy emits a blip through the EXACT ship-blip
- * gate (blipGate — same annulus, same swept-this-tick window, same island
- * LOS) and the EXACT wire shaper (blipShape), carrying the OWNER's ship id at
+ * gate (blipGate — same annulus, same swept-this-tick window, same height-
+ * aware shadow march) and the EXACT wire shaper (blipShape), carrying the OWNER's ship id at
  * the BUOY's position: on the wire and in time it is indistinguishable from
  * the owner's own hull painting there. It NEVER lies to its owner, never
  * fires unfogged (spectators see the truth via the decoy row), and — zone
@@ -530,7 +565,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     const me = ctx.me;
     if (!target.alive || target.id === me.id) return false;
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
-    return blipGate(me, target.state, ctx.islands, ctx.now);
+    return blipGate(me, target.state, ctx.heightRaster, ctx.now);
   },
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
@@ -559,7 +594,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // the real hull in truesight).
     const owner = ctx.ships.get(decoy.ownerId);
     if (owner !== undefined && contactSignal.visible(ctx, owner)) return null;
-    if (!blipGate(me, decoy, ctx.islands, ctx.now)) return null;
+    if (!blipGate(me, decoy, ctx.heightRaster, ctx.now)) return null;
     // The lie: the genuine blip shape with the OWNER's ship id at the buoy's
     // position. `t` = ctx.now, like every real paint. The pose is the buoy's
     // FROZEN drop-time snapshot at speed 0 (Story 4.2, amendment 11) — TRUE

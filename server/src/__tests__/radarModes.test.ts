@@ -33,6 +33,7 @@ import {
   type WorldOptions,
 } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { flatRaster } from './islandFixture.js';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
 import { PlayerMeta } from '../rooms/schema/ArenaState.js';
 import type { SanitizedRoomOptions } from '../rooms/roomOptions.js';
@@ -41,9 +42,12 @@ const RADAR = CONFIG.vision.radar;
 
 // ---------- construction helpers (the perception.test idiom) ------------------
 
+/** Islands cleared AND the raster flattened (Story 4.11): real terrain must
+ *  not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 50, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 

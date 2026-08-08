@@ -72,7 +72,8 @@ import { buildFrame } from '../game/frames.js';
 // file stays independently reimplemented (see the header), so a perception
 // refactor cannot silently agree with its own bug via a row's own visible().
 import { SIGNAL_REGISTRY } from '../game/signals.js';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
+import type { HeightRaster } from '@salvo/shared';
 
 const TAU = Math.PI * 2;
 const SIGHT = CONFIG.vision.sight;
@@ -148,12 +149,113 @@ function inPaintWindow(me: ShipRecord, brg: number): boolean {
   return wrapPositive(brg - me.prevSweepAngle) < window;
 }
 
+// ---------- Story 4.11: the radar-shadow oracle (independently re-derived) ----
+//
+// The blip row's occlusion term is no longer island LOS: it is the height-
+// aware shadow (amendment 179). Re-derived here from the ruling's LAW — never
+// the production radarShadow module (the header's reimplementation rule):
+// fold every LAND raster cell the observer→target ray ENTERS at distance
+// 0 < entry < dist into
+//
+//     a_i = (1 − q_i/64) / entry + entry / 108_900
+//
+// (H = q64 mast height and K = 660²/4 written as LITERALS, never
+// CONFIG.vision.radarMastQ / radar — and K is the BASE radar range squared
+// over 4 even for a boon-widened observer, amendment 185), and the target is
+// disclosed iff dist · (min_i a_i − dist/108_900) > 0 — a PARTIALLY
+// illuminated hull still paints; only full shadow deletes the blip. The
+// observer's own cell (entry ≤ 0) never occludes, and off-raster travel is
+// transparent. TRAVERSAL IS DELIBERATELY DIFFERENT from production: instead
+// of the DDA + max-height-pyramid walk, this oracle slab-tests every raster
+// cell in the segment's bounding box — but every entry distance is derived
+// from the same cell-boundary coordinates ((boundary − origin) / dir), and
+// the direction is normalized twice exactly as the production one-shot path
+// normalizes it, so the two implementations can only ever disagree on a
+// target sitting exactly on the visibility root.
+
+/** CONFIG.vision.radarMastQ as a literal (the oracle rule). */
+const MAST_Q = 64;
+/** Base CONFIG.vision.radar² / 4 as a literal — never the observer's
+ *  boon-widened radar range (amendment 185: K is a world constant). */
+const SHADOW_K = 108_900;
+
+/** [tEnter, tExit] of the ray against one axis slab, or null for a miss. */
+function axisSlab(o: number, dir: number, min: number, max: number): readonly [number, number] | null {
+  if (dir === 0) return o >= min && o <= max ? [-Infinity, Infinity] : null;
+  const t1 = (min - o) / dir;
+  const t2 = (max - o) / dir;
+  return t1 < t2 ? [t1, t2] : [t2, t1];
+}
+
+/** a_i for raster cell (i, j) against the unit ray, or null when the cell is
+ *  sea, missed, the observer's own (entry ≤ 0), or at/past the target. A
+ *  corner graze (exit == entry) folds — the DDA folds the corner cell too. */
+function cellAOracle(
+  r: HeightRaster,
+  ox: number,
+  oy: number,
+  ux: number,
+  uy: number,
+  len: number,
+  i: number,
+  j: number,
+): number | null {
+  const q = r.height[j * r.n + i];
+  if (q <= 0) return null;
+  const sx = axisSlab(ox, ux, r.x0 + (i - 0.5) * r.cell, r.x0 + (i + 0.5) * r.cell);
+  const sy = axisSlab(oy, uy, r.y0 + (j - 0.5) * r.cell, r.y0 + (j + 0.5) * r.cell);
+  if (sx === null || sy === null) return null;
+  const entry = Math.max(sx[0], sy[0]);
+  if (Math.min(sx[1], sy[1]) < entry) return null; // ray misses the cell square
+  if (entry <= 0 || entry >= len) return null; // own cell never occludes; fold strictly nearer only
+  return (1 - q / MAST_Q) / entry + entry / SHADOW_K;
+}
+
+/** min a_i over every land cell in the segment's bounding box (±1 cell). */
+function shadowAMinOracle(r: HeightRaster, ox: number, oy: number, ux: number, uy: number, len: number): number {
+  const tx = ox + ux * len;
+  const ty = oy + uy * len;
+  const iLo = Math.max(0, Math.floor((Math.min(ox, tx) - r.x0) / r.cell - 0.5) - 1);
+  const iHi = Math.min(r.n - 1, Math.ceil((Math.max(ox, tx) - r.x0) / r.cell + 0.5) + 1);
+  const jLo = Math.max(0, Math.floor((Math.min(oy, ty) - r.y0) / r.cell - 0.5) - 1);
+  const jHi = Math.min(r.n - 1, Math.ceil((Math.max(oy, ty) - r.y0) / r.cell + 0.5) + 1);
+  let aMin = Infinity;
+  for (let j = jLo; j <= jHi; j++) {
+    for (let i = iLo; i <= iHi; i++) {
+      const a = cellAOracle(r, ox, oy, ux, uy, len, i, j);
+      if (a !== null && a < aMin) aMin = a;
+    }
+  }
+  return aMin;
+}
+
+/** The oracle's gate decision: is `p` at least partially illuminated on the
+ *  observer→p bearing? Degenerate rays fail OPEN (the ruling's rule — fail
+ *  closed would hide legitimate contacts). */
+function shadowVisible(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  const dx = p.x - me.state.x;
+  const dy = p.y - me.state.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (!Number.isFinite(len) || len <= 0) return true;
+  // The production one-shot path normalizes dx/len and then re-normalizes the
+  // result; mirror both steps so entry distances are bit-identical and only a
+  // true root-sitter could ever disagree.
+  const nx = dx / len;
+  const ny = dy / len;
+  const ul = Math.sqrt(nx * nx + ny * ny);
+  const aMin = shadowAMinOracle(w.map.heightRaster, me.state.x, me.state.y, nx / ul, ny / ul, len);
+  return aMin === Infinity || len * (aMin - len / SHADOW_K) > 0;
+}
+
 // ---------- world construction helpers ---------------------------------------
 
-/** World whose islands are cleared for exact-geometry directed cases. */
+/** World whose islands are cleared for exact-geometry directed cases. The
+ *  height raster is flattened too (Story 4.11): the real generated terrain
+ *  must not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 1): World {
   const w = new World(seed);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 
@@ -343,13 +445,52 @@ describe('perception — radar paint window (exact)', () => {
     expect(blipsOf(f)).toEqual([]);
   });
 
-  it('an island blocks radar exactly like sight', () => {
+  it('HARD terrain cover (h ≥ mast) blocks the blip; a LOW island on the same bearing discloses it (Story 4.11, amendment 179)', () => {
+    // Terrain occlusion is now the height raster, never the island polygons:
+    // a q255 wall between observer and target kills the paint outright…
     const w = bareWorld();
-    w.map.islands.push(circleIsland(200, 0, 40));
+    w.map.heightRaster = rasterFrom(700, ridgeField(200, 0, 40, 40, 255));
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 400, 0);
     windowAround(a, 0);
     expect(blipsOf(buildFrame(w, 'a'))).toEqual([]);
+    // …while a quarter-mast (q16) island on the identical bearing leaves the
+    // target PARTIALLY illuminated (0 < vis < 1) — and partial discloses.
+    // This is the genuine disclosure widening the ruling accepts: the old
+    // binary rule deleted this blip.
+    w.map.heightRaster = rasterFrom(700, ridgeField(200, 0, 40, 40, 16));
+    windowAround(a, 0);
+    expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+  });
+
+  it('soft cover still goes dark past its residual reach (the shadow runs to the rim)', () => {
+    // A half-mast (q32) ridge whose worst-case reach lands INSIDE the scope:
+    // ridge at ~233u (the √(uK) worst placement), target beyond the root.
+    const w = bareWorld();
+    w.map.heightRaster = rasterFrom(700, ridgeField(233, 0, 20, 40, 32));
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 640, 0); // annulus, beam swept — but past the ~470u reach
+    windowAround(a, 0);
+    expect(blipsOf(buildFrame(w, 'a'))).toEqual([]);
+    // The SAME ridge does not touch a nearer target on the same bearing.
+    w.ships.get('b')!.state.x = 400; // inside the residual reach
+    windowAround(a, 0);
+    expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+  });
+
+  it('a polygon island with NO raster presence no longer occludes radar (sight keeps binary island LOS)', () => {
+    // The seam made explicit: circleIsland is polygon geometry only. It still
+    // blocks SIGHT (losClear is untouched) but casts no radar shadow — the
+    // raster is the blip gate's ONLY occlusion input.
+    const w = bareWorld();
+    w.map.islands.push(circleIsland(200, 0, 40));
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 400, 0); // annulus, behind the polygon — still paints
+    place(w, 'c', 250, 0); // inside sight, behind the polygon — still invisible
+    windowAround(a, 0);
+    const f = buildFrame(w, 'a');
+    expect(f.contacts).toEqual([]); // sight stays island-LOS-blocked
+    expect(blipsOf(f).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
   });
 });
 
@@ -1175,16 +1316,20 @@ function verifyLitZone(
 type EventVerifier = (w: World, me: ShipRecord, e: GameEvent) => void;
 
 /** The ship-blip predicate at a POINT, reimplemented test-locally: annulus
- *  (sight < d ≤ radar), island LOS, this-tick paint window, and never inside a
- *  zone the viewer owns (contact/truth tier there). One function because the
- *  decoy deception is DEFINED as this exact predicate at the buoy's position
- *  (Story 1.8 / FR10). */
+ *  (sight < d ≤ radar), the height-aware radar shadow (Story 4.11 — the
+ *  independently re-derived shadowVisible above, NEVER island LOS: a low
+ *  island no longer deletes a blip, hard cover ≥ mast height does), this-tick
+ *  paint window, and never inside a zone the viewer owns (contact/truth tier
+ *  there). One function because the decoy deception is DEFINED as this exact
+ *  predicate at the buoy's position (Story 1.8 / FR10 — and the decoy's
+ *  target treatment under the shadow is identical to a hull's: no height
+ *  parameter exists to differ on, amendment 101). */
 function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
   const d = dist(me.state, p);
   return (
     d > effSight(me, w.now) &&
     d <= effRadar(me) &&
-    clearLos(me.state, p, w.map.islands) &&
+    shadowVisible(w, me, p) &&
     inPaintWindow(me, bearing(me.state, p)) &&
     !zoneCovers(w, me, p)
   );

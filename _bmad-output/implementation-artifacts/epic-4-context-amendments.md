@@ -2913,3 +2913,75 @@ the ruling and my implementation reading stay separable. Neither touches anythin
      reaches PAST its own sea horizon, since the annulus grows and `K` does not. That incoherence is
      already shipped — boons have always stretched radar past the 8/8 rung — and the alternative
      breaks a ratified design line to fix a fiction nobody can observe.
+
+186. **AMENDMENT 102's "CLOSER TO A LOW ISLAND = LONGER SHADOW" IS INCONSISTENT WITH ITS OWN FORMULA, AND
+     THE FORMULA WINS.** Found at cycle 68 wave 1, flagged by the implementing agent and verified
+     independently before acting on it. Amendment 102 carries a section headed CORRECTION OF RECORD which
+     states *"The relationship is INVERSE: closer to a low island = longer shadow"*, with the intuition
+     *"a low wall at arm's length blocks much of the world"*, and derives from it the accepted design
+     consequence that **coast-hugging carries a real cost**. Under amendment 176's reading — and under
+     amendment 101's uniform antenna height, which amendment 102 itself invokes — that is backwards.
+
+     Worked at the shipped constants (`H = q64`, `K = 108,900`), for a half-mast obstacle (`h = q32`):
+
+     | obstacle distance `d₀` | reach | shadow inside the 660u scope? |
+     |---|---|---|
+     | 50u (hugging it) | 1,139u | **none** |
+     | 233u (`√(uK)`, the worst place) | 466u | 466 → 660 |
+     | 600u | 691u | **none** |
+
+     The reason is the premise, not the algebra: if the target's antenna is at mast height too, an
+     obstacle BELOW mast height that you are standing next to is something your own antenna simply looks
+     over. The "low wall at arm's length" intuition is the flat-earth picture with the target at SEA
+     LEVEL, which amendment 101 explicitly ruled out — *"target and observer are the same height, which
+     is what collapses the shadow math to amendment 102's single term."* You cannot keep both.
+
+     **What actually holds, and it is still good gameplay:** SOFT cover (`h < H`) bites hardest at MID
+     range and fades to nothing both up close and near the rim; HARD cover (`h ≥ H`) is absolute at every
+     range including point blank. So "duck behind a real island" works exactly as Eric expects — 39% of
+     land-crossing bearings are hard cover at `q64` — while low terrain is a mid-range consideration
+     rather than a close-quarters one. **Eric's `q64` ruling is UNAFFECTED**: amendment 177's measured
+     table was computed with the formula, not with the prose, so the numbers he chose against already
+     describe this behaviour.
+
+     Recorded rather than quietly implemented because amendment 102's coast-hugging consequence was
+     stated as ACCEPTED design, and a future cycle reading it would otherwise treat the shipped behaviour
+     as a bug. **Flag for Eric**: if he wants coast-hugging to carry a cost with LOW terrain specifically,
+     that needs a different premise (a target height below mast height), which would break amendment
+     101's simplification and is a ruling, not a fix.
+
+187. **THE ORDERING RULE IS "QUERY, THEN FOLD" AT THE CALLER'S OWN SAMPLE CADENCE — my wave-2b ruling had
+     it backwards and would have made every tall island invisible.** Amendment 178 says a sample is
+     evaluated against the accumulator as it stood BEFORE that sample was folded in. I translated that
+     into an instruction to call `advanceTo(d)` then `visibilityAt(d)`, on the premise that the shared
+     walk's strictly-nearer folding would handle the ordering. It does not, and the gap is exactly one
+     level of granularity: `advanceTo(d)` folds every raster cell whose ENTRY distance is `< d`, and a
+     caller's sample at `d` almost always sits INSIDE a cell entered earlier — so the sample's own cell is
+     folded before it is queried. On hard cover that is fatal: `vis` at the obstacle is `1 − h/H ≤ 0`, so
+     every land cell evaluates to zero and **a tall island paints nothing at all**.
+
+     The implementing agent caught it, tested it, and deviated deliberately rather than shipping the
+     ruling — which is the behaviour this workflow wants. The correct order is `visibilityAt(d)` THEN
+     `advanceTo(d)`: each sample is evaluated against the accumulator as of the previous sample, so the
+     fold can be at most one heat cell (~9u, finer than the 14u raster) LATE and never EARLY. Pinned by a
+     directed near-face test that reads 0 if the two lines are swapped.
+
+     **Server/client parity is unaffected**, and the reason is worth stating so nobody "fixes" the
+     asymmetry: the server's one-shot `visibilityTo` folds the target's own cell before querying, but a
+     ship's own cell is WATER and folds nothing, so both sides agree on every reachable case. The
+     difference only bites for a query point standing ON land, which is the client's paint path and never
+     the gate's.
+
+188. **MEASURED CONSEQUENCE, and it is the biggest VISUAL change in this cycle: a tall island now paints a
+     thin seaward RIM in colour and a grey body behind it.** Verified on real generated terrain (seed 3,
+     the four tallest-cored islands, observer 300u off aimed at the core): of 94 land samples along a ray
+     crossing a 245u-radius island, **8 paint** — a coloured land depth of 32u — and the scope goes dark
+     12-32u past the first land. The other three islands paint 12-20u deep.
+
+     This is physically right (a real marine set shows the near coastline and shadow behind it, not a
+     filled blob) and it is amendment 180 working as ruled — **the island does not vanish, its interior
+     renders as grey NO-DATA**, so the mass is still legible, just not as a return. But it is a large
+     departure from the shipped look that Eric approved as recently as cycle 66 (*"Islands look pretty
+     good right now"*), and it was NOT something any amendment predicted. **Flag for Eric.** The knob if
+     he wants more coloured depth is `radarMastQ` upward — at the cost of the hard-cover reliability he
+     chose q64 for, so it is a trade and not a free tune.

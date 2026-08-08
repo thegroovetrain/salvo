@@ -27,6 +27,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { flatRaster } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
@@ -36,9 +37,12 @@ const SLOT_TORPEDO = 1;
 /** Battleship fit [gun, cannon, starShells, empty]. */
 const SLOT_CANNON = 1;
 
+/** Islands cleared AND the raster flattened (Story 4.11): real terrain must
+ *  not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 1, opts?: WorldOptions): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 

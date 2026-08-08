@@ -15,12 +15,15 @@ import { CONFIG, PROTOCOL_VERSION, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, flatRaster } from './islandFixture.js';
 
-/** World with no islands (directed cases add their own geometry). */
+/** World with no islands (directed cases add their own geometry). The height
+ *  raster is flattened too (Story 4.11): real terrain must not radar-shadow a
+ *  world the test built as empty water. */
 function bareWorld(seed = 7): World {
   const w = new World(seed);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 

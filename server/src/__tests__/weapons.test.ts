@@ -25,7 +25,7 @@ import {
   slotAmmo,
   type MineState,
 } from '../game/equipment/index.js';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, flatRaster } from './islandFixture.js';
 
 // Slot indices under the universal fit (loadout order: gun / torpedo / mine).
 const SLOT_GUN = 0;
@@ -38,9 +38,12 @@ const HALF_PI = Math.PI / 2;
 let idSeq = 0;
 const mkId = (): string => `t${++idSeq}`;
 
+/** Islands cleared AND the raster flattened (Story 4.11): real terrain must
+ *  not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 3): World {
   const w = new World(seed);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 
