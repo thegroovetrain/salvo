@@ -28,20 +28,57 @@
 // is still no terminator, no segment test and no per-object occluder list. There
 // is ONE running scalar: `beginShadowWalk` (shared/sim/radarShadow.ts) folds
 // every LAND raster cell the ray crosses and answers, at each sample distance,
-// what FRACTION of a target there is illuminated. That fraction multiplies the
-// sample's intensity, so a shadowed return walks red → blue → green → gone
-// instead of cutting at a line (amendment 104's soft edge, and colour still
-// means intensity — amendment 105 obeyed, not bent). Past the walk's own reach
-// nothing is illuminated at all, and the ray emits NO-DATA cells to the rim
-// WITHOUT querying the field, which is where the cost saving lives.
+// how high the grazing ray stands there. That answer masks the sample, so a
+// shadowed return walks red → blue → green → gone instead of cutting at a line
+// (amendment 104's soft edge, and colour still means intensity — amendment 105
+// obeyed, not bent).
+//
+// TWO INSTANCES OF ONE RULE, AND WHICH ONE A SAMPLE GETS DEPENDS ON WHAT IT IS
+// (cycle 69, Eric on 0.17.68: *"i assumed that more of the islands would get
+// painted? like, if im looking at a side of an island and there's a mountain, my
+// radar should pick up all the way to the peak on that side, right, and then the
+// shadow lives on the other side?"*). He is right, and the defect was that EVERY
+// sample was masked with the SHIP answer:
+//
+//   • A HULL, a wave crest, a clutter speck, the storm wall — everything afloat —
+//     is a COLUMN from the waterline to the masthead, genuinely masked from the
+//     bottom up. `visibilityAt` (= `illuminatedFraction` at mast height) is that
+//     instance, it is what the server gate calls, and it is what amendment 104's
+//     PROPORTIONAL soft edge was written about. Unchanged here.
+//   • A TERRAIN SAMPLE IS A POINT ON A SURFACE. It is above the grazing ray or it
+//     is below it; a mountainside that sticks out over the ray is fully lit and
+//     returns per its material, because you are looking UP at it. So terrain is a
+//     SOFT STEP at the ray (`terrainIllumination`), not a fraction — and it is
+//     masked by ITS OWN height, never by the mast's. Feeding the mast answer to
+//     terrain stopped every near slope at roughly mast height and hid the summit
+//     behind it, which is the reported defect in one line.
+//
+// AND THE REACH IS A SHIP-ONLY STOPPING RULE (cycle 69). The walk's `reach()` is
+// where a MAST-HEIGHT target goes dark; past it `requiredHeightAt` keeps rising
+// but stays finite, so a mountain out there legitimately paints. The march used
+// to stop asking the walk anything past the reach and mark the rest of the
+// bearing NO-DATA — which suppressed exactly the peaks this cycle exists to
+// paint, and (worse) froze the accumulator, so terrain further out would have
+// been measured against a stale ray. The early-out is gone; nothing here reads
+// `reach()` any more.
+//
+// A SHADOW IS UNPAINTED WATER, NOT A GREY WASH (cycle 69 — Eric: *"i don't like
+// the grey showing radar shadow, i think its better to just leave it uncolored
+// and infer there's a shadow there because you can't see behind it and half the
+// island is cut off."*). THIS REVERSES AMENDMENT 180, which was Eric's own
+// earlier call — made at a question gate, before he had seen it on the water. The
+// NO-DATA channel is DELETED, not disabled: no `nd` array, no grey token, no
+// config block, nothing to "restore". A bearing that learned nothing simply
+// stores nothing, and the shadow reads as a shadow because the far half of the
+// island is missing from the scope. Do not re-add it.
 //
 // EXCEPT ON A DISCLOSED FIELD, WHERE THE SHADOW MAY ATTENUATE BUT NEVER SUPPRESS
 // (`RadarField.disclosed`, review gate). A wire echo has already been through the
 // server's gate, so the ray scales it by the same fraction and then FLOORS the
 // result at the material's own guarantee (`shade`, `model.minPeak`) rather than
-// letting it reach zero, and emits no NO-DATA on that bearing at all. That is how
-// amendment 127 ("anything the server blips paints at least a speck") and the
-// story's fade criterion are held at once; `shipOnlyField` carries the argument.
+// letting it reach zero. That is how amendment 127 ("anything the server blips
+// paints at least a speck") and the story's fade criterion are held at once;
+// `shipOnlyField` carries the argument.
 //
 // THE MODEL IS SHARED WITH THE SERVER'S BLIP GATE, ON PURPOSE, AND THE TWO SIDES
 // DELIBERATELY DO NOT AGREE CELL FOR CELL. The WALK owns the folding cadence, not
@@ -53,6 +90,19 @@
 // plus one step (~13u at the shipped 9u/4u pair). THE DIRECTION IS THE SAFE ONE
 // AND THAT IS THE POINT: the client can only ever paint at least as much as the
 // server discloses, never more, so no lag here can leak anything (amendment 179).
+//
+// AND THE WALK ADVANCES TO THE SAMPLE'S OWN CELL ENTRY, NOT TO THE SAMPLE
+// (cycle 69, `ShadowWalk.cellEntryAt`). A terrain sample stands ON land, i.e. it
+// is a query point inside a raster cell, and the module's standing rule is that a
+// cell never occludes a query point inside it — at either end of the ray. The
+// server's one-shot gets that for free (`visibilityTo` folds only up to the
+// target's cell entry); an incremental march has to ask. Advancing to `d` instead
+// folds a cell before the second sample inside it is queried, and `required`
+// there is then exactly that cell's OWN height, so a continuously visible slope
+// paints in stripes at the 14u raster pitch. MEASURED BOTH WAYS: 11 lit runs
+// with 29 dark samples on a seed-3 island, and on the unit fixture (a smooth
+// 200u cone) a slope that paints as one 21-row run comes apart into 8 runs with
+// 7 dark rows the moment the walk advances to `d`.
 //
 // QUERY BEFORE FOLD, AND THE ORDER IS LOAD-BEARING (amendment 178). A sample is
 // evaluated against the accumulator as it stood BEFORE that sample was folded
@@ -96,7 +146,7 @@
 // LIST by anything viewport-derived, which is what makes a paint recorded
 // off-screen at 1.5x appear on zoom-out.
 
-import { beginShadowWalk, wrapPositive, type HeightRaster, type Vec2 } from '@salvo/shared';
+import { beginShadowWalk, sampleHeight, wrapPositive, type HeightRaster, type Vec2 } from '@salvo/shared';
 import { clamp01 } from '../util/math.js';
 import { attenuation, noiseAmplitude, type NoiseEnvelope } from './radarFalloff.js';
 import { FULL_TURN, cellOf, noiseMul, paintSeed, type HeatmapOpts } from './radarHeatmap.js';
@@ -169,32 +219,22 @@ export interface MarchSlice {
   kind: 'slice';
   /** Absolute world cell indices, interleaved [gx0, gy0, gx1, gy1, ...]. */
   cells: Int32Array;
-  /** Frozen per-cell intensity, parallel to `cells`. Exactly 0 on a cell that
-   *  carries only a NO-DATA mark — a shadow is the ABSENCE of a return, never a
-   *  weak one, and encoding it as a small intensity would be dropped twice on
-   *  the way to the screen (see `nd`). */
-  w: Float32Array;
   /**
-   * THE THIRD CHANNEL (Story 4.11, amendment 180): 1 where this slice found the
-   * bearing SHADOWED at that cell, 0 otherwise. Parallel to `cells`.
+   * Frozen per-cell intensity, parallel to `cells`. A slice records ONLY what
+   * some ray returned something from: a shadowed cell is absent from the record
+   * entirely (cycle 69 — see the module header on the retired NO-DATA channel),
+   * never present at intensity 0.
    *
-   * THE CROSS-RAY MERGE RULE IS EXPLICIT, because a slice's rays are close
-   * enough together to share cells for their whole length (~6u apart at the rim
-   * against a 9u lattice) and two adjacent bearings can legitimately disagree
-   * about whether terrain is in the way:
-   *
-   *   • `w` merges MAX-WINS, unchanged — the strongest return any ray in this
-   *     quantum got from that cell.
-   *   • `nd` merges STICKY-OR — the cell records that SOME bearing was blind
-   *     there, and no later ray can un-record it.
-   *   • The two are then arbitrated at DISPLAY time, not here (`quantizeInto`):
-   *     a return outranks a no-data mark. Grey therefore fills only what no ray
-   *     returned anything from, and the shadow's edge can be up to one cell
-   *     NARROWER than the truth but never wider. That direction is the safe one:
-   *     painting "no information" over a cell a bearing did return from would be
-   *     a rendering rule hiding a real echo.
+   * ONE MERGE RULE, MAX-WINS, and it is the only one left now that the third
+   * channel is gone: a slice's rays are close enough to share cells for their
+   * whole length (~6u apart at the rim against a 9u lattice), and where two
+   * adjacent bearings disagree about whether terrain is in the way, the cell
+   * keeps the strongest reading any of them got. So the shadow's edge can be up
+   * to one cell narrower than the truth and never wider — the safe direction,
+   * since blanking a cell a bearing did return from would be a rendering rule
+   * hiding a real echo.
    */
-  nd: Uint8Array;
+  w: Float32Array;
   /** How many cells are actually used (the arrays may be over-allocated). */
   n: number;
   /** Server paint time (ms) — the age channel, and the ONLY thing that retires
@@ -331,7 +371,6 @@ const SEEN = new Map<number, number>();
 let sGx = new Int32Array(4096);
 let sGy = new Int32Array(4096);
 let sW = new Float32Array(4096);
-let sND = new Uint8Array(4096);
 let sN = 0;
 
 /** Double the scratch arrays, preserving what is in them. */
@@ -339,29 +378,12 @@ function growScratch(): void {
   const gx = new Int32Array(sGx.length * 2);
   const gy = new Int32Array(sGy.length * 2);
   const w = new Float32Array(sW.length * 2);
-  const nd = new Uint8Array(sND.length * 2);
   gx.set(sGx);
   gy.set(sGy);
   w.set(sW);
-  nd.set(sND);
   sGx = gx;
   sGy = gy;
   sW = w;
-  sND = nd;
-}
-
-/** Claim a fresh scratch slot for a cell, growing the arrays if needed. Every
- *  channel is written explicitly: the scratch is REUSED across slices (only `sN`
- *  is reset), so a stale `nd` from a previous slice would otherwise leak into a
- *  cell this one only ever saw a return from. */
-function newCell(key: number, gx: number, gy: number, i: number, nd: number): void {
-  if (sN === sGx.length) growScratch();
-  sGx[sN] = gx;
-  sGy[sN] = gy;
-  sW[sN] = i;
-  sND[sN] = nd;
-  SEEN.set(key, sN);
-  sN++;
 }
 
 /** Record one cell's intensity, keeping the stronger of two readings. */
@@ -371,23 +393,12 @@ function pushCell(key: number, gx: number, gy: number, i: number): void {
     if (i > sW[at]) sW[at] = i;
     return;
   }
-  newCell(key, gx, gy, i, 0);
-}
-
-/** Mark one cell NO-DATA — the shadow's own channel (amendment 180).
- *
- *  STICKY-OR, and it never touches `w`: a bearing that could not see through
- *  learned nothing there, and that record must survive an adjacent bearing that
- *  could (which is what makes the shadow edge a property of the terrain rather
- *  than of which ray happened to run last). The arbitration between the two
- *  channels happens at display time — see `MarchSlice.nd`. */
-function pushNoData(key: number, gx: number, gy: number): void {
-  const at = SEEN.get(key);
-  if (at !== undefined) {
-    sND[at] = 1;
-    return;
-  }
-  newCell(key, gx, gy, 0, 1);
+  if (sN === sGx.length) growScratch();
+  sGx[sN] = gx;
+  sGy[sN] = gy;
+  sW[sN] = i;
+  SEEN.set(key, sN);
+  sN++;
 }
 
 /**
@@ -431,7 +442,13 @@ function sampleIntensity(
  *
  * `min` is `FieldSample.min`: `model.minPeak` for a hull, 0 for everything else.
  * So for terrain, surf, clutter and the storm wall this is exactly `raw × vis`,
- * bit for bit — a landmass still goes fully dark and the grey still paints.
+ * bit for bit — a landmass still goes fully dark, and a fully dark cell is simply
+ * not stored.
+ *
+ * `vis` here is whichever INSTANCE of the illumination rule the sample earned
+ * (module header): the mast fraction for anything afloat, the soft step against
+ * its own height for terrain. This function does not care which — it only holds
+ * the floor.
  *
  * FOR A HULL IT IS THE WHOLE OF AMENDMENT 127 UNDER OCCLUSION. Shadow may only
  * ever WEAKEN a hull's mark, never brighten it and never erase it:
@@ -454,13 +471,54 @@ export function shade(raw: number, vis: number, min: number): number {
   return Math.max(raw * vis, Math.min(raw, min));
 }
 
+/**
+ * THE TERRAIN INSTANCE OF THE ILLUMINATION RULE (cycle 69) — a SOFT STEP at the
+ * grazing ray, and the one place it is written down.
+ *
+ * `hq` is the sample's OWN quantized raster height (`FieldSample.terrainQ`, > 0
+ * by construction on terrain and 0 on everything else) and `requiredQ` is the
+ * grazing ray's height there (`ShadowWalk.requiredHeightAt`). A point on a
+ * surface is above the ray or below it — it has no waterline-to-masthead column
+ * to be masked from the bottom up — so the answer is 1 above, 0 below, with a
+ * `softQ`-wide ramp across the crossing so the shadow's edge is soft rather than
+ * a hard line.
+ *
+ * WHY NOT `illuminatedFraction`, which is RIGHT THERE and shares the rule.
+ * Because the honest fraction `(h − required)/h` is the COLUMN answer, and on a
+ * real upper slope it measures 0.02-0.15 — so using it as an intensity
+ * multiplier would render the newly-painted mountainside at ~3% and the fix
+ * would look like nothing had changed. The fraction is the correct occlusion
+ * answer for a ship and the wrong intensity for a surface.
+ *
+ * THE RAMP IS NEVER WIDER THAN THE SAMPLE'S OWN HEIGHT, and that clamp is
+ * load-bearing rather than defensive: on a clear bearing `requiredQ` is 0, so a
+ * fixed `softQ` would dim every low coastal flat that has never been shadowed by
+ * anything (a q5 mudflat would paint at 5/16 of its material). With the clamp,
+ * clear ground always answers exactly 1, and for terrain shorter than the band
+ * this degenerates to `illuminatedFraction(hq, requiredQ)` — the shared rule,
+ * unchanged, at the only heights where the column reading is also right.
+ *
+ * A non-terrain sample (`hq <= 0`) answers 0 rather than failing open: water has
+ * no height of its own to clear the ray with, and feeding its 0 in here would
+ * erase the shadow it is standing in. Callers must hand water, surf, clutter,
+ * storm and hulls to the MAST instance (`ShadowWalk.visibilityAt`) instead.
+ *
+ * A non-positive `softQ` is the HARD STEP — lit or dark, no ramp at all. It is
+ * the documented value of the knob, not a degenerate input.
+ */
+export function terrainIllumination(hq: number, requiredQ: number, softQ: number): number {
+  if (!(hq > 0)) return 0;
+  if (!(softQ > 0)) return hq > requiredQ ? 1 : 0;
+  return clamp01((hq - requiredQ) / Math.min(softQ, hq));
+}
+
 /** Everything one march run needs beyond the arc it is walking. */
 interface RunCtx {
   obs: Vec2;
   field: RadarField;
   /** `RadarField.disclosed` — TRUE for the wire-echo field, whose contents the
    *  server already disclosed. On such a ray the shadow attenuates (floored by
-   *  `shade`) and never suppresses, and no NO-DATA mark is ever emitted. */
+   *  `shade`) and never suppresses. */
   disclosed: boolean;
   /** The field's OWN height raster (`RadarField.raster`) — one land answer, one
    *  source. Null on a field with no terrain, which makes the shadow walk fail
@@ -484,19 +542,22 @@ interface RunCtx {
  * the step is deliberately finer than a cell so a ray cannot skip one, and the
  * key compare is what stops that oversampling costing a field query.
  *
- * AND IT CARRIES THE SHADOW (Story 4.11). One walk per ray; at every queried
- * sample the illuminated fraction is read BEFORE the sample's own cell is folded
- * (see the module header — the reverse order makes hard cover shadow itself),
- * applied to the intensity by `shade`, and once the walk's reach is behind us the
- * ray stops asking the walk anything at all. On the world field it then marks
- * NO-DATA out to its terminus without querying the field either; on a DISCLOSED
- * field it keeps painting, floored (see `paintSample`).
+ * AND IT CARRIES THE SHADOW (Story 4.11, corrected in cycle 69). One walk per
+ * ray. At every queried sample BOTH readings of the accumulator are taken BEFORE
+ * anything at that sample's own distance is folded (see the module header — the
+ * reverse order makes hard cover shadow itself): the mast fraction for whatever
+ * is afloat there, and the grazing ray's own height for whatever terrain is. The
+ * walk is then advanced to the sample's own CELL ENTRY rather than to the sample,
+ * which is the far-end half of "a cell never occludes a query point inside it"
+ * and the difference between a slope painting continuously and painting in
+ * stripes at raster pitch.
  *
  * The walk's own DDA decides which cells fold and at what distance, independent
  * of `stepU` — that is what keeps the client's fold cadence the SAME as the
  * server gate's, though not its query order: the client is up to one sample plus
- * one step behind at a shadow's leading edge, in the over-painting direction
- * only (module header, amendment 187).
+ * one step plus (since cycle 69) one raster cell behind at a shadow's leading
+ * edge. All three are the OVER-painting direction, which is the only one that
+ * cannot leak (module header, amendment 187).
  */
 function marchRay(bearing: number, c: RunCtx): void {
   const cellU = c.o.cellU;
@@ -517,7 +578,6 @@ function marchRay(bearing: number, c: RunCtx): void {
   // `advanceTo(0)` folds nothing (the observer's own cell never occludes), so
   // this is inert there and only ever bites on the wire-echo slab.
   walk.advanceTo(c.fromU);
-  let reach = walk.reach();
   let lastKey = Number.NaN;
   for (let d = c.fromU; d <= c.toU; d += step) {
     const x = c.obs.x + dx * d;
@@ -527,16 +587,13 @@ function marchRay(bearing: number, c: RunCtx): void {
     const key = cellKey(gx, gy);
     if (key === lastKey) continue; // consecutive samples in one cell: price it once
     lastKey = key;
-    // PAST THE WALK'S REACH NOTHING IS ILLUMINATED AND THE WALK IS NOT ASKED
-    // AGAIN: `vis` is monotone past its own root and folding more land can only
-    // lower it, so the answer is 0 by construction and the query is pure cost.
-    let vis = 0;
-    if (d < reach) {
-      vis = walk.visibilityAt(d); // QUERY, then fold — see the module header
-      walk.advanceTo(d);
-      reach = walk.reach();
-    }
-    paintSample(c, x, y, d, gx, gy, key, vis);
+    // QUERY, then fold — see the module header. NOTHING SHORT-CIRCUITS ON THE
+    // REACH any more (cycle 69): past it a mast-height target is dark, but the
+    // grazing ray keeps rising and terrain that stands over it still paints, so
+    // the accumulator must keep advancing or a far peak would be measured
+    // against a stale ray.
+    paintSample(c, x, y, d, gx, gy, key, walk.visibilityAt(d), walk.requiredHeightAt(d));
+    walk.advanceTo(walk.cellEntryAt(d));
   }
 }
 
@@ -544,14 +601,23 @@ function marchRay(bearing: number, c: RunCtx): void {
  * Record ONE sample: the shadow's verdict, then the field's answer through the
  * model, then the store threshold.
  *
- * THE DARK BRANCH IS A PROPERTY OF THE FIELD, NOT OF THE RAY (review gate). On
- * the world field a fully shadowed sample is a bearing the observer learned
- * NOTHING on, so it marks NO-DATA and never queries the field at all — which is
- * where the cost saving lives. On a DISCLOSED field (the wire echo) the server
- * has already answered that bearing, so the sample is still priced and merely
- * attenuated: `shade` floors it at the material's guarantee, so it fades and
- * never cuts. Nothing there can be no-data either, because nothing there was
- * unknown.
+ * `vis` is the MAST instance of the illumination rule and `req` the grazing ray's
+ * own height, both read from the accumulator as it stood before this sample's own
+ * cell folded. Which one masks the sample is decided by WHAT THE FIELD ANSWERED
+ * WITH, not by what the ray guessed: `FieldSample.terrainQ` is non-zero on
+ * exactly the terrain layer, so a hull hugging a coastline is still masked as a
+ * hull even though its cell is land (module header).
+ *
+ * THE DARK BRANCH SKIPS THE FIELD QUERY, AND THAT IS WHERE THE COST SAVING LIVES,
+ * but it may only skip a sample that can return NOTHING. Two ways to be dark:
+ * the mast answer is 0 AND no terrain stands over the ray here. The second test
+ * is one `Uint8Array` read against the field's own raster — far cheaper than the
+ * five-layer field query it avoids, and it is the whole reason a summit behind a
+ * shadowed foreslope reaches the scope at all.
+ *
+ * On a DISCLOSED field (the wire echo) the server has already answered that
+ * bearing, so the sample is always priced and merely attenuated: `shade` floors
+ * it at the material's guarantee, so it fades and never cuts.
  */
 function paintSample(
   c: RunCtx,
@@ -562,32 +628,42 @@ function paintSample(
   gy: number,
   key: number,
   vis: number,
+  req: number,
 ): void {
-  if (!(vis > 0) && !c.disclosed) {
-    pushNoData(key, gx, gy);
-    return;
-  }
+  if (!(vis > 0) && !c.disclosed && !terrainOverRay(c, x, y, req)) return;
   const s = c.field.sampleAt(x, y, d);
   if (s === null) return;
-  const i = shade(sampleIntensity(s, d, gx, gy, c.o.noise), vis, s.min);
+  const lit = s.terrainQ > 0 ? terrainIllumination(s.terrainQ, req, c.o.terrainSoftQ) : vis;
+  if (!(lit > 0) && !c.disclosed) return; // a surface below the grazing ray
+  const i = shade(sampleIntensity(s, d, gx, gy, c.o.noise), lit, s.min);
   if (!(i >= c.minStore)) return; // NaN-safe: a non-finite sample stores nothing
   pushCell(key, gx, gy, i);
+}
+
+/** Is there terrain at this point standing OVER the grazing ray? The cheap
+ *  pre-test that lets a fully shadowed bearing skip the field query without
+ *  skipping the mountain past the shadow (`paintSample`). Reads the SAME raster
+ *  the field's own land test reads (`RadarField.raster`), so the two can never
+ *  disagree about where a coastline is. */
+function terrainOverRay(c: RunCtx, x: number, y: number, req: number): boolean {
+  if (c.raster === null) return false;
+  const h = sampleHeight(c.raster, x, y);
+  return h > 0 && h > req; // `h > 0` IS the land test — water has no height
 }
 
 /**
  * Freeze the accumulator into a slice record, or null when nothing painted.
  *
- * A SLICE WHOSE ONLY CONTENT IS NO-DATA IS NOT NOTHING (Story 4.11). A fully
- * shadowed bearing paints no returns at all, and returning null for it — which
- * both call sites read as "drop this slice" — would make a hard-cover shadow
- * silently VANISH instead of drawing grey. `sN` counts both channels, so this
- * holds by construction rather than by a clause.
+ * A FULLY SHADOWED QUANTUM IS NOW LEGITIMATELY NOTHING (cycle 69). While the
+ * NO-DATA channel existed, such a slice still had cells in it and returning null
+ * would have made a hard-cover shadow vanish instead of drawing grey. With the
+ * channel deleted a bearing that learned nothing records nothing, `sN` is 0, and
+ * both call sites correctly drop the slice — there is no record to keep.
  */
 function freeze(t: number, cellU: number): MarchSlice | null {
   if (sN === 0) return null;
   const cells = new Int32Array(sN * 2);
   const w = new Float32Array(sW.subarray(0, sN));
-  const nd = new Uint8Array(sND.subarray(0, sN));
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -602,7 +678,7 @@ function freeze(t: number, cellU: number): MarchSlice | null {
     maxX = Math.max(maxX, (gx + 1) * cellU);
     maxY = Math.max(maxY, (gy + 1) * cellU);
   }
-  return { kind: 'slice', cells, w, nd, n: sN, t, minX, minY, maxX, maxY };
+  return { kind: 'slice', cells, w, n: sN, t, minX, minY, maxX, maxY };
 }
 
 /**

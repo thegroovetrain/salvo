@@ -18,11 +18,16 @@
 //   • TERRAIN CASTS A HEIGHT-DERIVED SHADOW (Story 4.11, amendments 176-180),
 //     and SHIPS STILL NEVER SHADOW SHIPS (amendment 107/141). A ray folds every
 //     land raster cell it crosses into the SHARED accumulator the server's blip
-//     gate calls, so an obstacle's near face paints at full strength, what is
-//     behind it fades through the weakest band, and past the reach the ray emits
-//     grey NO-DATA to the rim. The amendment-140 block this replaces asserted
-//     that NOTHING occluded anything — it is RETIRED, not adapted, because it
-//     pinned exactly the behaviour cycle 62 promised 4.11 would remove.
+//     gate calls, so an obstacle's near face paints at full strength and what is
+//     behind it fades through the weakest band and then off the scope. The
+//     amendment-140 block this replaces asserted that NOTHING occluded anything —
+//     it is RETIRED, not adapted, because it pinned exactly the behaviour cycle
+//     62 promised 4.11 would remove.
+//
+//   • AND SINCE CYCLE 69 TERRAIN IS MASKED BY ITS OWN HEIGHT (section 2c), while
+//     everything afloat keeps the mast-height instance (section 2b). A shadow is
+//     UNPAINTED scope — the NO-DATA grey and every test that pinned it are
+//     retired, on Eric's ruling.
 //
 //   • WHICH MEANS A FIXTURE'S PYRAMID IS NOW LOAD-BEARING. `rasterFrom` ships an
 //     EMPTY pyramid on purpose (it makes `tileCeilingAt` answer sea level, so
@@ -54,7 +59,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  beginShadowWalk,
   buildHeightRaster,
+  illuminatedFraction,
   hullSilhouette,
   rasterizeHullCoverage,
   sampleHeight,
@@ -92,6 +99,7 @@ import {
   planMarch,
   rayStep,
   sliceCount,
+  terrainIllumination,
   type MarchSlice,
 } from '../render/radarMarch.js';
 
@@ -342,7 +350,6 @@ describe('ships never shadow ships', () => {
     const s = marchAll(obs, field);
     expect(near(s, 0, 150, 12), 'the near hull').toBe(true);
     expect(near(s, 0, 300, 12), 'the one directly behind it').toBe(true);
-    expect([...s.nd].some((v) => v === 1), 'and nothing was marked no-data').toBe(false);
   });
 });
 
@@ -359,26 +366,6 @@ describe('ships never shadow ships', () => {
 
 describe('terrain casts a height-derived shadow', () => {
   const MAST = CONFIG.vision.radarMastQ;
-
-  /** Every cell of a slice that carries a NO-DATA mark, as world centres. */
-  function noDataCells(s: MarchSlice, o = CLEAN): { x: number; y: number }[] {
-    const out: { x: number; y: number }[] = [];
-    for (let k = 0; k < s.n; k++) {
-      if (s.nd[k] === 0) continue;
-      out.push({ x: cellCentre(s.cells[k * 2], o.cellU), y: cellCentre(s.cells[k * 2 + 1], o.cellU) });
-    }
-    return out;
-  }
-
-  /** Is the cell containing a world point marked NO-DATA by this slice? */
-  function noDataAt(s: MarchSlice, x: number, y: number, o = CLEAN): boolean {
-    const gx = cellOf(x, o.cellU);
-    const gy = cellOf(y, o.cellU);
-    for (let k = 0; k < s.n; k++) {
-      if (s.cells[k * 2] === gx && s.cells[k * 2 + 1] === gy) return s.nd[k] === 1;
-    }
-    return false;
-  }
 
   /** A field carrying one hull over a chosen raster. */
   function hullOver(obs: Vec2, raster: HeightRaster, y: number): RadarField {
@@ -406,26 +393,45 @@ describe('terrain casts a height-derived shadow', () => {
     const openWalk = marchAll(obs, terrainField(rasterFrom(700, () => 0), obs, CFG), CFG);
     expect(shadowed.n).toBe(openWalk.n);
     expect([...shadowed.w]).toEqual([...openWalk.w]);
-    expect([...shadowed.nd].some((v) => v === 1), 'and nothing is no-data').toBe(false);
   });
 
   it('A BEACH COSTS ALMOST NOTHING (amendment 176): the worst reach terrain of '
     + 'height `h` can leave is `radarRange × √(1 − h/H)`, so the lowest land the '
-    + 'generator can build blacks out only the last few units of the scope', () => {
+    + 'generator can build costs a hull nothing at any range that matters', () => {
     // `h = 1` is the floor the closure pass stamps, so this is the faintest land
     // that exists — 654.7u of a 660u scope survives it. That closed form is
     // amendment 114's pin doing its job (only ELEVATION buys cover), and it is
     // re-derived here from literals rather than read out of production: if a
     // mudflat ever starts eating real scope, the pin has been broken.
+    //
+    // OBSERVED THROUGH A HULL, not through grey (cycle 69). The NO-DATA channel
+    // this used to read is deleted, and open water past the beach paints nothing
+    // either way — so the claim is made where it is actually visible: a hull well
+    // inside the closed-form reach paints exactly as strongly behind the beach as
+    // it does over clear water.
     const obs: Vec2 = { x: 0, y: 0 };
     const floorReach = RADAR * Math.sqrt(1 - 1 / MAST);
     expect(floorReach, 'a beach keeps essentially the whole scope').toBeGreaterThan(RADAR - 8);
-    const raster = rasterWithPyramid(760, box(0, 200, 400, 7, 1));
-    const s = marchAll(obs, terrainField(raster, obs, CFG), CFG);
-    for (const c of noDataCells(s, CFG)) {
-      expect(Math.hypot(c.x, c.y), 'nothing inside the worst-case reach goes dark')
-        .toBeGreaterThan(floorReach - CFG.cellU);
+    const beach = rasterWithPyramid(760, box(0, 200, 400, 7, 1));
+    const sea = rasterWithPyramid(760, () => 0);
+    const hull = (raster: HeightRaster, y: number): { x: number; y: number; w: number }[] =>
+      cellsOf(marchAll(obs, hullOver(obs, raster, y), CFG), CFG)
+        .filter((c) => Math.abs(c.x) < 70 && Math.abs(c.y - y) < 30);
+
+    // At 300u the beach costs the hull NOTHING — bit for bit the clear-water
+    // reading, because `vis` is still clamped at 1 there.
+    const over = hull(beach, 300);
+    const clear = hull(sea, 300);
+    expect(over.length, 'the hull behind the beach paints every cell').toBe(clear.length);
+    for (let k = 0; k < clear.length; k++) {
+      expect(over[k].w, `cell ${k} is undimmed`).toBeCloseTo(clear[k].w, 6);
     }
+    // ...and out at 650u, still inside the closed-form reach, it is dimmer but
+    // every cell of it is still on the scope. Nothing a beach can do blacks a
+    // hull out inside that reach, which is the claim.
+    const far = hull(beach, 650);
+    expect(far.length, 'and at 650u it still paints in full').toBe(hull(sea, 650).length);
+    for (const c of far) expect(c.w, 'above the transparent threshold').toBeGreaterThan(BANDS[0].at);
   });
 
   it('HARD COVER: terrain at or above the mast height goes dark IMMEDIATELY '
@@ -437,9 +443,10 @@ describe('terrain casts a height-derived shadow', () => {
     expect(near(s, 0, 256, 6, CFG), 'the near face still paints').toBe(true);
     // Everything on that bearing behind it: the island's own far half, and open
     // water past it all the way out to the terminus.
+    // Everything on that bearing behind it paints NOTHING — which since cycle 69
+    // is the whole of what a shadow is: unpainted scope, no grey mark.
     for (const y of [300, 340, 420, 500, 600, 650]) {
-      expect(noDataAt(s, 0, y, CFG), `no-data at y=${y}`).toBe(true);
-      expect(at(s, 0, y, CFG), `and no return at y=${y}`).toBe(0);
+      expect(at(s, 0, y, CFG), `no return at y=${y}`).toBe(0);
     }
   });
 
@@ -490,34 +497,12 @@ describe('terrain casts a height-derived shadow', () => {
     expect(dim400.length, 'and it still paints at 400u').toBeGreaterThan(10);
     expect(bandsOf(dim400), 'every cell GREEN').toEqual(new Set([0]));
 
-    // Past the reach there is no return at all — and the cells are NO-DATA,
-    // which is a different statement from "open water" and has to be.
+    // Past the reach there is no return at all, and nothing else either: a
+    // shadowed cell is simply absent from the record (cycle 69).
     const s = marchAll(obs, hullOver(obs, covered, 520), CFG);
     expect(at(s, 0, 520, CFG), 'gone').toBe(0);
-    expect(noDataAt(s, 0, 520, CFG), 'and reported as no-data, not as empty sea').toBe(true);
   });
 
-  it('A FULLY SHADOWED SLICE IS STILL A SLICE: `freeze` must not answer null for '
-    + 'one that holds only no-data cells, or the shadow silently vanishes', () => {
-    const obs: Vec2 = { x: 0, y: 0 };
-    // A wall of hard cover starting almost on top of the observer, so the wedge
-    // under test contains no return of any kind past its first cell.
-    const raster = rasterWithPyramid(760, box(0, 400, 400, 280, 255));
-    const field = buildField({
-      obs,
-      raster,
-      ships: new Map(),
-      ring: null,
-      cellU: CFG.cellU,
-      // Clutter and surf zeroed, so the near field cannot smuggle a return in.
-      model: { ...CFG.model, clutter: 0, surf: 0 },
-    });
-    const s = marchSlice(obs, Math.PI / 2 - 0.02, Math.PI / 2 + 0.02, field, RADAR, 0, CFG);
-    expect(s, 'the slice is enrolled').not.toBeNull();
-    const nd = noDataCells(s!, CFG);
-    expect(nd.length, 'and it is nearly all no-data').toBeGreaterThan(30);
-    expect(Math.max(...nd.map((c) => c.y)), 'marked out to the terminus').toBeGreaterThan(600);
-  });
 
   // THE WIRE-ECHO PATH: ATTENUATED, NEVER SUPPRESSED (review gate).
   //
@@ -588,19 +573,188 @@ describe('terrain casts a height-derived shadow', () => {
     }
   });
 
-  it('and a disclosed bearing is never reported as NO-DATA: the server answered '
-    + 'it, so the client did not learn nothing there', () => {
-    const obs: Vec2 = { x: 0, y: 0 };
-    const wall = rasterWithPyramid(760, box(0, 270, 400, 30, 255));
-    const stamp = buildShipStamp(
-      [{ id: 'a', x: 0, y: 450, heading: 0, cls: 'battleship' }],
-      CFG.model,
-      CFG.cellU,
-    );
-    const field = shipOnlyField(stamp, CFG.cellU, wall);
-    expect(field.disclosed, 'the one-hull field is a disclosed field').toBe(true);
-    const s = marchAll(obs, field, CFG);
-    expect([...s.nd].some((v) => v === 1), 'nothing was blacked out').toBe(false);
+});
+
+// --- 2c. TERRAIN IS MASKED BY ITS OWN HEIGHT (cycle 69) --------------------------
+//
+// THE REPORTED DEFECT, AS A TEST. Eric, on the shipped 0.17.68 build: *"i assumed
+// that more of the islands would get painted? like, if im looking at a side of an
+// island and there's a mountain, my radar should pick up all the way to the peak
+// on that side, right, and then the shadow lives on the other side?"* He is right,
+// and the cause was a category error: every sample — terrain included — was masked
+// with `visibilityAt`, which answers "is a target standing at MAST height visible
+// past this?". A mountainside is not a target at mast height. Section 2b above
+// still pins the SHIP instance, unchanged; this block pins the terrain one.
+//
+// EVERY BOUND HERE IS AT THE SHIPPED GRAIN (`CFG`, amendment 135). A bound proved
+// with the noise switched off is a weaker claim than the one being made.
+
+describe('terrain is masked by its OWN height, not by the mast', () => {
+  const MAST = CONFIG.vision.radarMastQ;
+  const OBS: Vec2 = { x: 0, y: 0 };
+
+  /** A cone: linear from `peak` at the centre to the waterline at radius `r`.
+   *  A straight slope is the honest shape for this claim — its whole seaward
+   *  face stands above the grazing ray from the antenna by construction, so ANY
+   *  break in the paint is the renderer's doing and not the terrain's. */
+  function cone(cx: number, cy: number, r: number, peak: number) {
+    return (x: number, y: number): number => {
+      const d = Math.hypot(x - cx, y - cy);
+      return d >= r ? 0 : Math.max(1, Math.round(peak * (1 - d / r)));
+    };
+  }
+
+  /** The mountain under test: base at 200u, summit 255 (well over the mast) at
+   *  400u, back to the waterline at 600u — dead ahead, up the +y axis. */
+  const MOUNTAIN = cone(0, 400, 200, 255);
+  const RASTER = rasterWithPyramid(760, MOUNTAIN);
+
+  /** The strongest paint in each cell ROW within `halfW` of the +y axis. */
+  function column(s: MarchSlice, halfW = 6): Map<number, number> {
+    const out = new Map<number, number>();
+    for (let k = 0; k < s.n; k++) {
+      const x = cellCentre(s.cells[k * 2], CFG.cellU);
+      if (Math.abs(x) > halfW) continue;
+      const gy = s.cells[k * 2 + 1];
+      out.set(gy, Math.max(out.get(gy) ?? 0, s.w[k]));
+    }
+    return out;
+  }
+
+  it('THE PREMISE: at the summit the MAST answer is fully dark, so anything '
+    + 'painted there is painted by the terrain rule and nothing else', () => {
+    // The ship instance, taken from the shared module the SERVER GATE calls —
+    // this is the number that shipped, and it is still exactly what a hull gets.
+    const walk = beginShadowWalk(RASTER, OBS.x, OBS.y, 0, 1);
+    let cut = 0;
+    let hq = 0;
+    let req = 0;
+    for (let d = 4; d <= 396; d += 4) {
+      if (cut === 0 && walk.visibilityAt(d) <= 0) cut = d;
+      // The summit sample, read in the march's own order: query, then fold this
+      // sample's own cell.
+      hq = sampleHeight(RASTER, 0, d);
+      req = walk.requiredHeightAt(d);
+      walk.advanceTo(walk.cellEntryAt(d));
+    }
+    expect(cut, 'a mast-height target goes dark barely up the slope').toBeLessThan(280);
+    expect(sampleHeight(RASTER, 0, cut), 'i.e. at about mast height').toBeLessThan(MAST * 2);
+    // ...and yet at the summit the GROUND still stands over the grazing ray,
+    // which is why the terrain rule paints what the mast rule cut.
+    expect(hq, 'the summit really is the summit').toBeGreaterThan(240);
+    expect(hq - req, 'and it stands over the ray').toBeGreaterThan(0);
+    // AND THIS IS THE INTENSITY TRAP, IN ONE ASSERTION. The honest COLUMN
+    // fraction on a real upper slope is a couple of percent — a slope is only
+    // ever measured against the ray grazing the cell just below it — so using
+    // `illuminatedFraction` as a multiplier would render the newly-painted
+    // mountainside at under 1% and the whole fix would look like nothing
+    // changed. The soft STEP is nearly two orders of magnitude away from it.
+    expect(illuminatedFraction(hq, req), 'the column fraction is ~nothing')
+      .toBeLessThan(0.02);
+    expect(terrainIllumination(hq, req, CFG.terrainSoftQ), 'the step is not')
+      .toBeGreaterThan(10 * illuminatedFraction(hq, req));
+  });
+
+  it('THE FIX: the near slope paints CONTINUOUSLY from the waterline to the '
+    + 'peak — one unbroken run, no striping at raster pitch', () => {
+    const s = marchAll(OBS, terrainField(RASTER, OBS, CFG), CFG);
+    const col = column(s);
+    // The paint starts AT THE WATERLINE — the first lit row is the first row the
+    // cone puts any land in, within one cell of the 200u coastline.
+    const summit = cellOf(391, CFG.cellU);
+    let firstLit = summit;
+    while (firstLit > 0 && (col.get(firstLit - 1) ?? 0) > 0) firstLit--;
+    expect(cellCentre(firstLit, CFG.cellU), 'the lit run starts at the waterline')
+      .toBeLessThan(200 + 2 * CFG.cellU);
+    // ...and from there to the summit there is not one dark row. THIS IS THE
+    // STRIPING TRAP: advancing the walk to the sample instead of to its own cell
+    // entry folds each raster cell before the second sample inside it is
+    // queried, and `required` is then that cell's own height. Measured with that
+    // one line changed, this exact fixture comes apart into 8 lit runs with 7
+    // dark rows — alternating stripes at the raster pitch on ground that is
+    // visible end to end.
+    const dark: number[] = [];
+    let runs = 0;
+    let inRun = false;
+    for (let gy = firstLit; gy <= summit; gy++) {
+      const lit = (col.get(gy) ?? 0) > 0;
+      if (!lit) dark.push(Math.round(cellCentre(gy, CFG.cellU)));
+      if (lit && !inRun) runs++;
+      inRun = lit;
+    }
+    expect(dark, 'not one row of the near slope is missing').toEqual([]);
+    expect(runs, 'and it is ONE run, not a stripe pattern').toBe(1);
+    expect(cellCentre(summit, CFG.cellU) - cellCentre(firstLit, CFG.cellU),
+      'the run is the whole slope, not a seaward rim').toBeGreaterThan(150);
+    // It really does reach the top: the summit row paints, at the saturated
+    // register (q245 there, against a `refHeight` of 90).
+    expect(sampleHeight(RASTER, 0, cellCentre(summit, CFG.cellU)), 'which IS the peak')
+      .toBeGreaterThan(240);
+    expect(bandIndex(col.get(summit) ?? 0, BANDS), 'the peak is red').toBe(2);
+  });
+
+  it('...AND THE SHADOW LIVES ON THE OTHER SIDE: the far slope, which lies below '
+    + 'the ray that grazed the summit, paints nothing at all', () => {
+    const s = marchAll(OBS, terrainField(RASTER, OBS, CFG), CFG);
+    for (const y of [410, 460, 520, 580]) {
+      expect(sampleHeight(RASTER, 0, y), 'y=' + y + ' really is land').toBeGreaterThan(0);
+      expect(at(s, 0, y, CFG), 'and it paints nothing at y=' + y).toBe(0);
+    }
+    // Nothing anywhere on the far half, not merely on the axis.
+    const past = cellsOf(s, CFG).filter((c) => Math.abs(c.x) < 60 && c.y > 430 && c.y < 600);
+    expect(past, 'the far half of the island is missing from the scope').toEqual([]);
+  });
+
+  it('A MOUNTAIN PAST THE SHIP REACH STILL PAINTS: the reach is where a '
+    + 'MAST-HEIGHT target goes dark, and terrain that stands over the ray out '
+    + 'there is visible because you are looking UP at it', () => {
+    // A q70 wall at 100u is hard cover (over the mast), so the ship reach is 0 —
+    // no hull paints anywhere behind it. The grazing ray it leaves rises to
+    // ~q117 at 300u, so a q200 peak out there clears it and a q100 hill does not.
+    const wall = box(0, 100, 400, 7, 70);
+    const tall = rasterWithPyramid(760, both(wall, box(0, 300, 40, 20, 200)));
+    const low = rasterWithPyramid(760, both(wall, box(0, 300, 40, 20, 100)));
+
+    const walk = beginShadowWalk(tall, OBS.x, OBS.y, 0, 1);
+    for (let d = 4; d <= 120; d += 4) walk.advanceTo(walk.cellEntryAt(d));
+    expect(walk.reach(), 'the ship reach really is spent at the wall').toBe(0);
+    expect(walk.requiredHeightAt(300), 'and the ray at 300u sits between the two')
+      .toBeGreaterThan(100);
+    expect(walk.requiredHeightAt(300)).toBeLessThan(200);
+
+    // Read at the block's NEAR FACE: a flat-topped plateau legitimately shadows
+    // its own top surface past the near rim (you are looking up at the rim), so
+    // the seaward face is where "does terrain past the reach paint?" is asked.
+    expect(at(marchAll(OBS, terrainField(tall, OBS, CFG), CFG), 0, 285, CFG),
+      'the q200 peak paints past the reach').toBeGreaterThan(BANDS[0].at);
+    expect(at(marchAll(OBS, terrainField(low, OBS, CFG), CFG), 0, 285, CFG),
+      'the q100 hill, under the same ray, does not').toBe(0);
+  });
+
+  it('THE SOFT STEP: clear ground is NEVER dimmed by the ramp, however low it '
+    + 'is, because the band is clamped to the sample own height', () => {
+    // On a clear bearing `requiredHeightAt` is 0, so a fixed 16-unit ramp would
+    // paint a q5 mudflat at 5/16 of its material. The clamp is what stops that,
+    // and it is why this knob cannot quietly become a brightness control.
+    expect(terrainIllumination(5, 0, CFG.terrainSoftQ), 'a q5 flat on a clear bearing').toBe(1);
+    expect(terrainIllumination(255, 0, CFG.terrainSoftQ), 'and a summit on one').toBe(1);
+    // ...including land SHORTER than the band, where the clamp is what saves it.
+    expect(CFG.terrainSoftQ, 'the shipped band is wider than the faintest land')
+      .toBeGreaterThan(1);
+    expect(terrainIllumination(1, 0, CFG.terrainSoftQ), 'the q1 closure floor').toBe(1);
+    // Across the crossing it ramps rather than cutting...
+    expect(terrainIllumination(200, 200, 16), 'exactly on the ray: dark').toBe(0);
+    expect(terrainIllumination(200, 192, 16), 'half a band over it').toBeCloseTo(0.5, 9);
+    expect(terrainIllumination(200, 184, 16), 'a full band over it').toBe(1);
+    expect(terrainIllumination(200, 260, 16), 'well under it: dark').toBe(0);
+    // ...and it is NOT the mast fraction, which is what would make the fix
+    // invisible: on a real upper slope that fraction measures 0.02-0.15.
+    expect(terrainIllumination(200, 190, 16), 'the step is not the fraction')
+      .toBeGreaterThan(10 * illuminatedFraction(200, 190));
+    // Water has no height of its own: 0 here means "not terrain", never "sea
+    // level", and it must NOT fail open the way the shared rule does.
+    expect(terrainIllumination(0, 200, 16), 'a water sample is not terrain').toBe(0);
+    expect(illuminatedFraction(0, 200), 'while the shared rule fails OPEN').toBe(1);
   });
 });
 

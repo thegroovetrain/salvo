@@ -89,19 +89,15 @@ const COLORS = {
   echoFaint: 0x00ff00, // "honestly not sure, could be something tiny" — green
   echoFuzzy: 0x0000ff, // "probably a thing, but fuzzy" — blue
   echoSolid: 0xff0000, // "this is definitely a thing" — red
-  // NO-DATA GREY (Story 4.11, amendment 180) — the FOURTH appearance on the
-  // scope, and deliberately NOT a fourth band. Where terrain has shadowed the
-  // beam the set learns nothing, and the ratified three-register grammar had no
-  // way to SAY "no information": red/blue/green are return STRENGTH, and this is
-  // the absence of a return altogether. The rule underneath amendment 160 is the
-  // one that must not bend, so grey carries NO strength channel — one colour,
-  // one opacity (`blip.heatmap.bandAlpha`, exactly as every band), no ramp, no
-  // band index. Age still decays it exactly as it decays a return (amendment
-  // 161). Neutral by construction: ~7% HSV saturation, so it can never read as a
-  // lit, coloured mark the way all three registers do (tokens.test.ts's
-  // `readsAsEcho` bar is 0.35), and darker than the near-grey `splash` ring so
-  // the two do not trade places on the water.
-  echoNoData: 0x8c9196,
+  // THERE IS NO FOURTH APPEARANCE ON THE SCOPE (cycle 69). Story 4.11 added an
+  // `echoNoData` grey here — a fourth token drawn wherever terrain had shadowed
+  // the beam. Eric, on the shipped 0.17.68 build: *"i don't like the grey showing
+  // radar shadow, i think its better to just leave it uncolored and infer there's
+  // a shadow there because you can't see behind it and half the island is cut
+  // off."* That REVERSES amendment 180, which was his own earlier call taken
+  // before he had seen it on the water. The token is deleted rather than unused:
+  // a shadow is unpainted scope, and the three registers above are the whole
+  // grammar again.
   // combat effects
   splash: 0xb8ccc6, // miss splash — replaces retired #66FFAA double-duty
   muzzle: 0xe8f2ec,
@@ -1961,24 +1957,44 @@ export const CLIENT_CONFIG = {
         stormBandU: 60,
       },
       /**
-       * THE NO-DATA GREY (Story 4.11, amendment 180) — one colour, and that is
-       * the whole block on purpose.
+       * THE TERRAIN SHADOW'S SOFT EDGE (cycle 69), in the height raster's own
+       * QUANTIZED units — the same 0-255 scale `CONFIG.vision.radarMastQ` (64)
+       * lives on, NOT world units and not a fraction.
        *
-       * Where a bearing's radar shadow (shared/sim/radarShadow.ts) has taken the
-       * illuminated fraction to zero, the beam learns NOTHING out to the rim, and
-       * the march emits NO-DATA cells there instead of returns. They draw in this
-       * colour at `bandAlpha` — the SAME single opacity every band draws at —
-       * scaled only by phosphor age, so a shadow fades exactly as a return does
-       * (amendment 161).
+       * A terrain sample is a POINT ON A SURFACE: it stands over the grazing ray
+       * or under it, so its illumination is a STEP, not the mast-height fraction
+       * a ship gets (render/radarMarch.ts's `terrainIllumination` carries the
+       * argument in full). This is the width of the ramp across that step — a
+       * sample clearing the ray by this much is fully lit, one exactly on it is
+       * dark, and the crossing fades between.
        *
-       * THERE IS NO STRENGTH KNOB HERE AND THERE MUST NEVER BE ONE. Grey is not
-       * a fourth band: it carries no threshold, no ramp and no band index, and it
-       * is NOT a member of `bands` (which is contractually exactly three,
-       * amendment 77). A `noDataAlpha` sibling to `bandAlpha` would be the cycle
-       * 63 per-band opacity ramp arriving through a side door — see amendment
-       * 163's standing note about reaching for brightness.
+       * WHY 4, AND IT IS MEASURED RATHER THAN CHOSEN. The number that bounds
+       * this is not the height scale, it is HOW MUCH CLEARANCE A CONTINUOUSLY
+       * VISIBLE SLOPE ACTUALLY HAS. A sample is measured against the ray grazing
+       * the last raster cell that folded, so on a smooth slope the clearance
+       * only ever accumulates across ONE 14u cell: about (cell/d)·(slope·base +
+       * H) — ~11 quantized units at 400u on the smoothest thing the generator
+       * can build (a 200u-wide, 255-high cone). A band anywhere near that dims
+       * ground that is not in shadow at all. Measured on that cone, sampling the
+       * near slope row by row: at 16 the slope mottles (0.21 / 0.33 / 0.38 rows
+       * between 0.95s) and at 8 it still dips to 0.42, while at 4 it is flat
+       * within the grain. On the real seed-3 generator the same sweep moves the
+       * 25th-percentile land intensity from 0.63 (at 4) to 0.44 (at 16).
+       *
+       * SO THE RAMP IS DELIBERATELY NARROW. On a steep coast the clearance
+       * gradient is a few units per world unit, so 4 spreads the boundary over
+       * roughly a world unit — sub-cell, i.e. the edge is as hard as the 9u
+       * lattice can draw anyway. Where it BUYS something is shallow ground,
+       * which is exactly where a long shadow edge would otherwise read as a
+       * ruled line across the water.
+       *
+       * IT IS A FEEL KNOB, NOT A COMBAT ONE. Nothing on the wire and no server
+       * gate reads it; it moves how a coastline's shadow boundary LOOKS and
+       * nothing else. Raising it past a sample's own height is harmless by
+       * construction (the ramp is clamped to that height, so clear ground still
+       * paints at full strength); 0 is the documented HARD STEP.
        */
-      noData: COLORS.echoNoData,
+      terrainSoftQ: 4,
       /**
        * NEAR-RANGE DIMMING (Story 4.11, amendment 181) — Eric: *"radar is most
        * effective outside of truesight range... I want everything painted at max
