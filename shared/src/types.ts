@@ -452,6 +452,48 @@ export interface ReturnBlipEvent {
 export type BlipEvent = SilhouetteBlipEvent | ReturnBlipEvent;
 
 /**
+ * One wake ribbon SEGMENT the observer's sweep crossed this tick (Story 4.12,
+ * amendments 194-196) — disturbed water rasterized onto the SAME radar
+ * lattice as `ReturnBlipEvent` (`CONFIG.vision.radarCellU`,
+ * `rasterizeSegmentCoverage` in sim/radarRaster.ts), in the same
+ * world-anchored cell-rect + packed-mask shape, gated per segment by the same
+ * three clauses `blipGate` enforces (annulus + swept-this-tick + the shadow
+ * accumulator) — NOT a declared exception to the master perception invariant;
+ * what is new is that the subject is water rather than a ship.
+ *
+ * THE PAYLOAD CARRIES NO IDENTITY OF ANY KIND (amendment 194): no ship id,
+ * no class, no hue, no owner, and no hull↔wake linkage. A wake cell says
+ * "the water here was disturbed, this recently" — which is precisely and
+ * only what a radar reads off a track. Correlating a track to a hull is the
+ * player's inference, never the wire's statement.
+ *
+ * WHY AGE IS ON THE WIRE AND COURSE IS NOT: the client cannot infer which
+ * end of a painted ribbon is the NEW end — that inference is exactly the
+ * identity linkage this payload refuses to carry — so the quantized
+ * water-age bucket `a` IS the recency channel, and course falls out for
+ * free as the age gradient along the ribbon. `a` is quantized to
+ * `WAKE_AGE_BUCKETS` (sim/wake.ts — 4; both the wire and the client read
+ * that one constant) because the presentation consumes age only as an
+ * intensity multiplier that matters near the lit threshold, and the wire
+ * may carry no finer resolution than the presentation actually consumes
+ * (Story 4.9's standing rule, amendment 124).
+ *
+ * WIRE LAYOUT mirrors `ReturnBlipEvent` (same `gx`/`gy`/`w`/`h`/`bits`
+ * semantics, signed int32 mask words). KEY ORDER (msgpack key-insertion
+ * order, load-bearing): k,t,a,gx,gy,w,h,bits.
+ */
+export interface WakeBlipEvent {
+  k: 'wk';
+  t: number; // ms — server time the segment was painted (drives phosphor decay)
+  a: number; // quantized water-age bucket, 0..WAKE_AGE_BUCKETS-1 (the recency channel)
+  gx: number; // absolute world cell index (x) of the rect's min corner
+  gy: number; // absolute world cell index (y) of the rect's min corner
+  w: number; // rect width in cells
+  h: number; // rect height in cells
+  bits: number[]; // packed row-major coverage mask (32 bits/word, LSB-first, signed int32 words)
+}
+
+/**
  * A ballistic projectile entering your vision, sent once — position and
  * velocity AT REVEAL TIME (launch for the owner, first-sight for everyone
  * else). The client dead-reckons it: pos = (x,y) + (vx,vy) * (serverNow - t),
@@ -941,6 +983,7 @@ export interface DeniedView {
 /** Per-tick, per-client events. Discriminated union on `k`. */
 export type GameEvent =
   | BlipEvent
+  | WakeBlipEvent
   | BallisticEvent
   | TorpedoUpdateEvent
   | BoomEvent

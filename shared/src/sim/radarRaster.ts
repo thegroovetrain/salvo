@@ -257,6 +257,184 @@ function fillSpine(cover: HullCoverage, local: readonly Vec2[], x: number, y: nu
 }
 
 // ---------------------------------------------------------------------------
+// SEGMENT COVERAGE (Story 4.12, amendment 194): the wake ribbon's sibling of
+// `rasterizeHullCoverage` — one segment of disturbed water projected onto the
+// same lattice, in the same `HullCoverage` shape.
+// ---------------------------------------------------------------------------
+
+/** Scratch quad for the segment's core rectangle — consumed synchronously
+ *  inside `rasterizeSegmentCoverage` (the POSE_SCRATCH pattern). */
+const CAPSULE_SCRATCH: Vec2[] = [
+  { x: 0, y: 0 },
+  { x: 0, y: 0 },
+  { x: 0, y: 0 },
+  { x: 0, y: 0 },
+];
+
+/**
+ * Project one wake segment onto the radar grid: every cell whose CENTRE lies
+ * inside the segment's width-`widthU` core rectangle (square caps — extended
+ * `widthU/2` past each endpoint along the axis, so consecutive ribbon
+ * segments overlap at a turn instead of leaving a notch), plus every cell the
+ * segment's CENTRE-LINE passes through. Same lattice, same `HullCoverage`
+ * shape as the hull's mask.
+ *
+ * DELIBERATELY NOT ROUTED THROUGH `fuzzCoverage` (spec ruling): dilation +
+ * glint is the HULL's beam-smear model (amendments 156-158) — it exists to
+ * blur six distinct hull templates together, and applied here it would smear
+ * a one-cell torpedo ribbon into a blob. A wake segment carries no class to
+ * hide; its geometry goes on the lattice sharp.
+ *
+ * THE CENTRE-LINE WALK IS `fillSpine`'s LESSON APPLIED: a ribbon thinner than
+ * a cell (a torpedo's, or a torpedo boat's 9u beam) at the straddling lattice
+ * phase would otherwise collapse to a scatter exactly as the cycle-63 hull
+ * spine bug did — so the walk visits the segment at quarter-cell steps, and
+ * bridges any diagonal step so the spine is 4-connected as it is laid. A
+ * final bridge pass (`bridgeCoverageDiagonals`) closes any diagonal-only
+ * adjacency the width fill introduces at the rounded flanks, so the whole
+ * mask is 4-connected by construction — a march ray at ~45° never falls
+ * through a corner gap (the cycle-62 guarantee, kept).
+ *
+ * DEGRADE, NEVER THROW (the per-tick-scan contract `rasterizeHullCoverage`
+ * carries, amendment 193's lesson): a non-finite endpoint drops that endpoint
+ * (the segment collapses to its finite end); both endpoints non-finite, or a
+ * degenerate lattice, degrade to a single-cell mask. A non-finite or
+ * non-positive `widthU` rasterizes the centre-line only. All bit writes are
+ * bounds-checked (`setBitInRect`) — the `>>> 5` word-index safety the
+ * cycle-63 gate added holds here too.
+ */
+export function rasterizeSegmentCoverage(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  widthU: number,
+  cellU: number,
+): HullCoverage {
+  const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
+  const degenerate = degenerateSegment(ax, ay, bx, by, grid);
+  if (degenerate !== null) return degenerate;
+  // At least one endpoint is finite here; a non-finite one collapses onto it.
+  const [sx, sy] = finitePoint(ax, ay) ? [ax, ay] : [bx, by];
+  const [ex, ey] = finitePoint(bx, by) ? [bx, by] : [ax, ay];
+  const halfW = coreHalfWidth(widthU);
+  const poly = capsuleQuad(sx, sy, ex, ey, halfW);
+  const cover = emptyRectFor(poly, grid);
+  if (halfW > 0) fillCoverage(cover, poly, grid);
+  walkSegmentCells(cover, sx, sy, ex, ey, grid);
+  bridgeCoverageDiagonals(cover);
+  return cover;
+}
+
+/** True iff both coordinates are finite. */
+function finitePoint(x: number, y: number): boolean {
+  return Number.isFinite(x) && Number.isFinite(y);
+}
+
+/** Clamp a core width to a usable half-width: non-finite or non-positive
+ *  widths degrade to 0 (centre-line only), never throw. */
+function coreHalfWidth(widthU: number): number {
+  return Number.isFinite(widthU) && widthU > 0 ? widthU / 2 : 0;
+}
+
+/** The segment degrade ladder: a fail-soft single-cell mask when both
+ *  endpoints are non-finite (origin cell) or the lattice is degenerate (the
+ *  finite endpoint's cell) — or null when the real rasterization should run. */
+function degenerateSegment(ax: number, ay: number, bx: number, by: number, grid: number): HullCoverage | null {
+  const cell = grid === 0 ? 1 : grid;
+  const aOk = finitePoint(ax, ay);
+  if (!aOk && !finitePoint(bx, by)) return centreCellCoverage(0, 0, cell);
+  if (grid === 0) return centreCellCoverage(aOk ? ax : bx, aOk ? ay : by, cell);
+  return null;
+}
+
+/** The segment's core rectangle with square caps: the segment Minkowski-grown
+ *  by `halfW` along both its axis and its normal. A zero-length segment
+ *  (axis degenerates to +x) becomes an axis-aligned square; a zero `halfW`
+ *  collapses to the bare segment (zero-area quad — `emptyRectFor` still
+ *  reads its bbox, `fillCoverage` marks nothing, the spine walk covers it). */
+function capsuleQuad(ax: number, ay: number, bx: number, by: number, halfW: number): readonly Vec2[] {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const ux = len > 0 ? dx / len : 1;
+  const uy = len > 0 ? dy / len : 0;
+  const exx = ux * halfW; // axial cap extension
+  const exy = uy * halfW;
+  const nx = -uy * halfW; // normal half-width
+  const ny = ux * halfW;
+  const p = CAPSULE_SCRATCH;
+  p[0].x = ax - exx + nx;
+  p[0].y = ay - exy + ny;
+  p[1].x = bx + exx + nx;
+  p[1].y = by + exy + ny;
+  p[2].x = bx + exx - nx;
+  p[2].y = by + exy - ny;
+  p[3].x = ax - exx - nx;
+  p[3].y = ay - exy - ny;
+  return p;
+}
+
+/** Walk the segment at quarter-cell steps setting every visited cell — the
+ *  `fillSpine` cadence (a step strictly under half a cell cannot skip a cell
+ *  on either axis), plus in-walk diagonal bridging: when one step crosses
+ *  both a column and a row boundary, the corner cell `(pcol, row)` is set so
+ *  the laid spine is 4-connected, deterministically. */
+function walkSegmentCells(cover: HullCoverage, ax: number, ay: number, bx: number, by: number, cellU: number): void {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const span = Math.max(Math.abs(dx), Math.abs(dy));
+  const steps = Math.max(1, Math.ceil((span / cellU) * 4));
+  let pcol = Math.floor(ax / cellU) - cover.gx;
+  let prow = Math.floor(ay / cellU) - cover.gy;
+  setBitInRect(cover, pcol, prow);
+  for (let i = 1; i <= steps; i++) {
+    const col = Math.floor((ax + (dx * i) / steps) / cellU) - cover.gx;
+    const row = Math.floor((ay + (dy * i) / steps) / cellU) - cover.gy;
+    if (col !== pcol && row !== prow) setBitInRect(cover, pcol, row);
+    setBitInRect(cover, col, row);
+    pcol = col;
+    prow = row;
+  }
+}
+
+/** Close every diagonal-only adjacency in a packed mask, to a fixed point —
+ *  `bridgeDiagonals`' rule (the `\` diagonal bridges through the top-right
+ *  cell, the `/` through the top-left) applied to a `HullCoverage` directly:
+ *  segment masks are a handful of cells, so the packed-bit reads cost less
+ *  than staging through the fuzz scratch grids. Each pass only ADDS cells,
+ *  so it terminates. */
+function bridgeCoverageDiagonals(cover: HullCoverage): void {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let row = 0; row < cover.h - 1; row++) {
+      for (let col = 0; col < cover.w - 1; col++) {
+        if (bridgeCoverageBlock(cover, col, row)) changed = true;
+      }
+    }
+  }
+}
+
+/** One 2×2 block of a packed mask: bridge an exactly-diagonal covered pair.
+ *  Returns true when a bridge cell was added. */
+function bridgeCoverageBlock(cover: HullCoverage, col: number, row: number): boolean {
+  const a = coverageHas(cover, col, row);
+  const b = coverageHas(cover, col + 1, row);
+  const c = coverageHas(cover, col, row + 1);
+  const d = coverageHas(cover, col + 1, row + 1);
+  if (a && d && !b && !c) {
+    setBitInRect(cover, col + 1, row);
+    return true;
+  }
+  if (b && c && !a && !d) {
+    setBitInRect(cover, col, row);
+    return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // THE FUZZ (cycle-63 review gate, amendments 156-157): dilation + per-paint
 // edge glint, applied to the sharp geometric mask before anything consumes it.
 // ---------------------------------------------------------------------------

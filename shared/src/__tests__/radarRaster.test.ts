@@ -183,8 +183,8 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('the radar lattice is pinned beside the protocol version', () => {
-  it('radarCellU is 9 at PROTOCOL_VERSION 31 — retune both together, deliberately', () => {
-    expect(PROTOCOL_VERSION).toBe(31);
+  it('radarCellU is 9 at PROTOCOL_VERSION 32 — retune both together, deliberately (PV 31 → 32 was Story 4.12 adding the `wk` wake event; the lattice itself did not move)', () => {
+    expect(PROTOCOL_VERSION).toBe(32);
     expect(CONFIG.vision.radarCellU).toBe(9);
     // The fuzz knobs are wire-authoritative for the same reason (they shape
     // the bits the server sends): pinned with the lattice.

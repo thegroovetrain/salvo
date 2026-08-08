@@ -3,6 +3,18 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  32: RADAR WAKES (Story 4.12, Eric rulings 2026-08-08, amendments 194-196)
+ *  — new `wk` GameEvent (WakeBlipEvent {k,t,a,gx,gy,w,h,bits}): a wake ribbon
+ *  SEGMENT the observer's sweep crossed this tick, rasterized onto the same
+ *  radar lattice as the `return`-grammar hull mask (new shared sim/wake.ts +
+ *  rasterizeSegmentCoverage in sim/radarRaster.ts ride the barrel), carrying
+ *  geometry plus a quantized water-age bucket `a` and NO identity of any kind
+ *  (no ship id, class, hue, owner, or hull↔wake linkage — amendment 194).
+ *  CONFIG.vision gains wakeLifeMs/wakeSampleU/wakeTorpLifeFactor (ride the
+ *  welcome config snapshot). The torpedo ENTITY still never paints and its
+ *  3/8 detect gate is untouched; its WAKE now does (amendment 196). A stale
+ *  client would drop `wk` events on the floor and draw a scope disagreeing
+ *  with the server's disclosure, so the bump is a hard compatibility gate.
  *  31: THE SERVER RASTERIZES THE HULL (cycle 63, Eric ruling 2026-08-07,
  *  amendments 151-155) — the `return`-grammar blip payload is REPLACED:
  *  {k,id,x,y,t,ext} becomes {k,t,gx,gy,w,h,bits}, a world-anchored coverage
@@ -275,7 +287,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 31;
+export const PROTOCOL_VERSION = 32;
 
 // Tunables
 export * from './constants.js';
@@ -310,4 +322,5 @@ export * from './sim/map.js';
 export * from './sim/noise.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
+export * from './sim/wake.js';
 export * from './sim/zone.js';

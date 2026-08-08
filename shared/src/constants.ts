@@ -323,6 +323,54 @@ export const CONFIG = {
        *  amendment 127's `minPeak` floor always has a footprint to land on. */
       glintP: 0.35,
     },
+    // ms — THE ONE WAKE CLOCK (Story 4.12, Eric ruling 2026-08-08, amendment
+    // 205): how long a stretch of disturbed water physically persists behind
+    // the hull that laid it, before it flattens and stops existing — on the
+    // water AND on the radar lattice, because there is exactly ONE wake with
+    // exactly ONE length (amendment 204: the on-water foam and the radar
+    // ribbon are two RENDERINGS of the same geometry, never two objects with
+    // two lifetimes). Promoted from the client-only `CLIENT_CONFIG.wake.life`
+    // (1.1s) the moment the server started rasterizing the same ribbon —
+    // the standing rule that a value becomes shared CONFIG when it becomes
+    // gameplay-load-bearing.
+    //
+    // AN ERIC-RULED FIXED LITERAL, chosen against real ship wakes rather than
+    // feel (205): a real wake's visible aerated foam runs ~5-20 ship lengths
+    // and lasts 1-3 minutes; the de-aerated turbulent "scar" radar actually
+    // images runs 50-200 lengths (10-20km behind a real warship) — UNBUILDABLE
+    // here as a scale fact, one to four times the diameter of the whole 2400u
+    // ocean. Eric picked the bottom edge of the playable-and-real foam band:
+    // at 12s a full-ahead track is torpedo boat 540u (5.4 hull lengths), mine
+    // layer 480u (5.5), battleship 420u (3.4). Length stays `speed × life` —
+    // longer wake = faster ship — untouched. NOTHING MAY PURCHASE IT (no
+    // stat, boon or card; the wake carries no observer scaling of any kind).
+    //
+    // THREE CLOCKS AGREE BY COINCIDENCE and a retune of any one must check
+    // the other two (205): water dissipation (this, 12s), the phosphor paint
+    // window (~12s, amendment 195 — a wake paint decays on the STANDARD
+    // three-paint persistence window, no wake-specific lifetime exists), and
+    // the wake material's ~412u reach (amendment 203) against a 420-540u
+    // full-ahead track. Pinned as a fixed literal in zone.test.ts.
+    wakeLifeMs: 12000,
+    // u — the wake pose-history SAMPLE CADENCE (Story 4.12): a source records
+    // a new wake sample only after travelling this far since its last one, so
+    // the ribbon is a chain of ~12u segments (sim/wake.ts). One sample per
+    // 9u `radarCellU` lattice cell plus margin: consecutive segments
+    // rasterize contiguously (each segment's centre-line walk bridges its own
+    // cells, so no spacing can open a gap) without oversampling — and the
+    // per-SEGMENT disclosure gate stays about as tight as the hull's centre
+    // predicate already is, because a segment spans roughly one cell of
+    // bearing. MUST STAY > radarCellU (pinned with the ladder in
+    // zone.test.ts); a fixed literal, never a computed quantity.
+    wakeSampleU: 12,
+    // × wakeLifeMs — the TORPEDO wake's life fraction (Story 4.12, Eric
+    // ruling 2026-08-08, amendment 196: "roughly half"). 6s at the fixed
+    // 60 u/s torpedo speed ≈ 360u of one-cell-wide ribbon: findable if you
+    // happen to be watching that stretch of water, easy to miss. The FISH
+    // itself still never paints and keeps its 3/8 `detect` gate — see the
+    // CONFIG.torpedo header; what paints is the water behind it. Nothing may
+    // purchase this either.
+    wakeTorpLifeFactor: 0.5,
   },
 
   /**
@@ -435,7 +483,14 @@ export const CONFIG = {
   },
 
   /**
-   * Torpedoes (slot 1): bow tube. Never painted by radar. One-deep ammo pool
+   * Torpedoes (slot 1): bow tube. The FISH itself is never painted by radar —
+   * no blip, and its 3/8 `detect` gate is untouched — but since Story 4.12
+   * (Eric ruling 2026-08-08, amendment 196) its WAKE is: the ribbon of
+   * disturbed water behind a running torpedo paints as a weak, one-cell-wide
+   * surface return at roughly half a ship's wake life
+   * (`CONFIG.vision.wakeLifeMs × wakeTorpLifeFactor`). The torpedo keeps its
+   * identity as the quiet weapon and gains a tell rather than losing its
+   * stealth. One-deep ammo pool
    * (owner play test 2026-07-13: two tubes fired both fish within ~2 ticks of
    * one click, masking the reload — 12s at the time, 30s since the 2026-08-04
    * balance pass; one fish per click + a real reload is the intended

@@ -111,7 +111,15 @@ describe('shared barrel', () => {
     // sim/radarRaster.ts). Disclosure REDUCES: no id, no ext, no exact
     // position — a stale client would read the old fields as undefined and
     // paint nothing, so the bump is a hard gate.
-    expect(PROTOCOL_VERSION).toBe(31);
+    // RADAR WAKES (PV 32, Story 4.12, Eric rulings 2026-08-08, amendments
+    // 194-196): new `wk` GameEvent (WakeBlipEvent {k,t,a,gx,gy,w,h,bits}) —
+    // a wake ribbon segment the observer's sweep crossed this tick, geometry
+    // plus a quantized water-age bucket and NO identity of any kind; CONFIG
+    // gains vision.wakeLifeMs/wakeSampleU/wakeTorpLifeFactor (ride the
+    // welcome snapshot). A stale client would drop `wk` events and draw a
+    // scope disagreeing with the server's disclosure, so the bump is a hard
+    // gate.
+    expect(PROTOCOL_VERSION).toBe(32);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no

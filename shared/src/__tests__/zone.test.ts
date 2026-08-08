@@ -142,6 +142,27 @@ describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height',
   });
 });
 
+// Radar-wake constants (Story 4.12), pinned beside the ladder they sit under.
+// The wake clock is sacred the way land is: a COMPUTED lifetime would drift
+// with tuning elsewhere, and the three clocks that agree by coincidence
+// (water dissipation 12s, phosphor ~12s, material reach ~412u vs a 420-540u
+// full-ahead track — amendment 205) would silently desynchronise.
+describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
+  it('wakeLifeMs is the FIXED literal 12000 — Eric-ruled against real ship wakes (amendment 205), never a computed quantity', () => {
+    expect(CONFIG.vision.wakeLifeMs).toBe(12000);
+    expect(Number.isInteger(CONFIG.vision.wakeLifeMs)).toBe(true);
+  });
+
+  it('wakeSampleU is the FIXED literal 12 — one sample per lattice cell plus margin, never a computed quantity', () => {
+    expect(CONFIG.vision.wakeSampleU).toBe(12);
+    expect(Number.isInteger(CONFIG.vision.wakeSampleU)).toBe(true);
+  });
+
+  it('wakeSampleU > radarCellU — consecutive segments rasterize contiguously without oversampling the lattice', () => {
+    expect(CONFIG.vision.wakeSampleU).toBeGreaterThan(CONFIG.vision.radarCellU);
+  });
+});
+
 describe('closing-rate criterion (amendment 7) — pinned over committed CONFIG', () => {
   it('worst-case escape per close = (1 + offsetCap) × max Δr ≤ a battleship-minute, ≈80%', () => {
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);
