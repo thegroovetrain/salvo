@@ -80,7 +80,6 @@
 import {
   coverageHas,
   paintCoverage,
-  perpendicularExtent,
   sampleHeight,
   SEA_HEIGHT,
   tileCeilingAt,
@@ -170,6 +169,14 @@ export interface EchoHull {
  * class, one reference range and one floor (`hullSample`), so the coefficient
  * orders them identically at every range — there is no exponent swap to worry
  * about the way there is between steel and rock.
+ *
+ * SINCE CYCLE 67 EVERY HULL SAMPLE IS THE SAME COEFFICIENT, so this comparison
+ * is a tie in every case a shipped caller can produce and the guard is a no-op.
+ * It stays because the INVARIANT is what matters, not the current arithmetic:
+ * `Map.set` is last-wins, and the moment any hull-like material differs from
+ * steel (a decoy, a wreck, a surfaced hulk) iteration order would silently
+ * decide the reading. A no-op guard on a stated invariant is cheap; discovering
+ * you deleted it is not.
  */
 function putShip(stamp: ShipStamp, key: number, s: FieldSample): void {
   const cur = stamp.get(key);
@@ -178,24 +185,44 @@ function putShip(stamp: ShipStamp, key: number, s: FieldSample): void {
 }
 
 /**
- * A HULL'S MATERIAL (amendments 118 + 127, unchanged in substance from the
- * cycle-61 peak).
+ * A HULL'S MATERIAL — the coefficient, full stop (cycle 67, amendments 171-175).
  *
- * `ext` is the aspect-projected extent — since cycle 63 the mask-derived
- * `coverageExtent`, as the wire no longer states a scalar — so a bow-on hull
- * genuinely returns less than a broadside one at the same range: aspect is
- * still a strength channel and not merely a size one (amendment 127 is
- * explicit about that). `strongExtent`
- * normalizes it and is the same constant the red->blue crossover is FITTED
- * against, which is why the fit still holds after the kernel that used to apply
- * it was deleted. `minPeak` is the floor that makes radar range mean ONE number
- * for every hull: dropping it so signature becomes stealth is a ruled-out design,
- * not a missing feature.
+ * COLOUR IS MATERIAL AND RANGE. NOTHING ELSE. Every hull on the water is steel,
+ * so every hull reads the same register at the same range; what tells you it is
+ * a battleship rather than a torpedo boat is the SIZE of the mark. Size carries
+ * size, colour carries strength-vs-range, and neither carries the other.
+ *
+ * WHAT WAS DELETED, AND WHY IT WAS A DOUBLE-COUNT. This used to return
+ * `ship x ext / strongExtent`, where `ext` was the hull's extent projected
+ * perpendicular to the observer. `ext` was ratified as the aspect channel by
+ * amendment 66 — back when a return was an ELLIPSE SIZED BY `ext` and the scalar
+ * was the only aspect information the client had. Since cycle 63 the COVERAGE
+ * MASK carries aspect: a bow-on hull rasterizes to a genuinely small mark all by
+ * itself. `ext`'s second job — dimming the return for the same underlying reason
+ * the mask was already shrinking it — was never removed, so a bow-on hull was
+ * made small by the mask AND dim by the coefficient, twice for one physics.
+ *
+ * AND THE NUMBER UNDERNEATH IT WAS WRONG. Eric asked why a bow-on hull reflects
+ * less, and honestly it barely does. A warship's radar cross-section is dominated
+ * by CORNER REFLECTORS — the hull-sea dihedral, and the right angles all over the
+ * superstructure — which retroreflect across a wide span of incident angles.
+ * Broadside is a peak, but bow-on is typically only ~10 dB down and still an
+ * enormous absolute RCS; on a gain-controlled marine set a ship reads as a solid
+ * bright target from any aspect. The "steel bow-on ~0.25" figure this was built on
+ * comes from amendment 106's coefficient table, which says IN THAT AMENDMENT that
+ * it is an assistant handwave and the first thing to tune. It was treated as
+ * authority, and it should not have been.
+ *
+ * `minPeak` SURVIVES UNCHANGED (amendment 127): the floor that makes radar range
+ * mean ONE number for every hull. It no longer binds anywhere inside the scope —
+ * a uniform steel coefficient clears it at every range out to the rim — but
+ * dropping it so signature becomes stealth is a ruled-out design, not a missing
+ * feature, and the guarantee is asserted directly rather than trusted to the
+ * curve.
  */
-export function hullSample(ext: number, m: ReturnModelOpts): FieldSample {
-  const strong = m.strongExtent > 0 ? m.strongExtent : 1;
+export function hullSample(m: ReturnModelOpts): FieldSample {
   return {
-    refl: (m.ship * Math.max(0, ext)) / strong,
+    refl: m.ship,
     geom: POINT,
     ref: m.pointRef,
     floor: m.pointFloor,
@@ -283,130 +310,58 @@ export function coverageCentre(cov: HullCoverage, cellU: number): Vec2 {
   return { x: (cov.gx + cov.w / 2) * cellU, y: (cov.gy + cov.h / 2) * cellU };
 }
 
-/** Vec2 pool for `coverageExtent` — grow-only, NEVER truncated (the cycle-63
- *  review gate found the old single-array version setting `.length = n` after
- *  filling, which dropped every pooled Vec2 past `n` and re-allocated them on
- *  the next call: a pool that defeated itself). */
-const COVER_POOL: Vec2[] = [];
-/** The view handed to `perpendicularExtent` — resized per call, but its
- *  elements are references INTO `COVER_POOL`, so truncating the view drops
- *  nothing. */
-const COVER_VIEW: Vec2[] = [];
-
 /**
- * The footprint's ASPECT EXTENT as seen from `obs` (u): the covered cell
- * centres projected on the axis perpendicular to the observer→footprint
- * bearing, max−min, minus THREE CELLS of fuzz compensation, floored at one
- * cell.
+ * Stamp one coverage footprint into the ship layer. EVERY COVERED CELL CARRIES
+ * THE SAME MATERIAL — a hull is uniform steel, so its return is uniform.
  *
- * THIS IS THE CELL-QUANTIZED RECONSTRUCTION OF THE RETIRED WIRE `ext`, derived
- * from data the observer already holds — the wire no longer states it (cycle
- * 63, amendment 152: the payload is a coverage footprint and nothing else),
- * and BOTH hull sources compute it from their mask through this one function,
- * so a hull's echo strength cannot change character crossing the truesight
- * seam. It feeds `hullSample` exactly as the wire scalar did.
+ * THE CORE→EDGE RAMP THIS REPLACES WAS AN INVENTION, AND IT IS WHY SHIPS READ
+ * GREEN (cycle 66, amendment 167). Cycle 63 scaled each cell by
+ * `depth ÷ maxDepth` — its own distance into the mask over the mask's deepest
+ * point — to satisfy amendment 77's "one return shows more than one band". On a
+ * landmass that is harmless; on a hull it is fatal, because a hull is THREE
+ * CELLS THICK at the shipped 9u lattice. Measured: a torpedo boat is 11.1 × 1.0
+ * cells sharp and 13 × 3 dilated, so `maxDepth` is 2 and **72% of the ship
+ * lands at HALF reflectivity**; a mine layer 58%. The core was red exactly as
+ * the amendment-118 fit intended — and then two thirds of the mark around it
+ * was drawn at half strength, into blue and green. That is the reported defect
+ * in one line of arithmetic.
  *
- * WHY MINUS THREE CELLS (re-derived at the cycle-63 review gate for the FUZZED
- * mask — every mask this function sees is now dilated + stretched + glinted,
- * amendments 156-157): dilation adds exactly one cell per end, the stretch
- * draws average half a cell per end, and centre-sampling undershoots the true
- * edge by about half a cell per end, so the covered-centre span overshoots the
- * true extent by ~1.5 cells per end. Measured on the calibration mine-layer
- * broadside across 200 lattice phases × glint seeds: raw fuzzed span 99-126u
- * (mean 114.9) against the true 88u — minus 27u centres it on 87.9. Every
- * paint lands within 2 cells of truth and the MEAN within half a cell (pinned
- * in radarHeatmap.test.ts, together with the amendment-118 crossover BAND this
- * scintillation produces). A single-cell mask reads the floor, which the
- * `minPeak` floor dominates anyway.
- */
-export function coverageExtent(cov: HullCoverage, obs: Vec2, cellU: number): number {
-  const c = coverageCentre(cov, cellU);
-  const brg = Math.atan2(c.y - obs.y, c.x - obs.x);
-  let n = 0;
-  for (let row = 0; row < cov.h; row++) {
-    for (let col = 0; col < cov.w; col++) {
-      if (!coverageHas(cov, col, row)) continue;
-      const p = COVER_POOL[n] ?? (COVER_POOL[n] = { x: 0, y: 0 });
-      p.x = (cov.gx + col + 0.5) * cellU;
-      p.y = (cov.gy + row + 0.5) * cellU;
-      COVER_VIEW[n] = p;
-      n++;
-    }
-  }
-  if (n === 0) return cellU;
-  COVER_VIEW.length = n;
-  return Math.max(cellU, perpendicularExtent(COVER_VIEW, brg) - 3 * cellU);
-}
-
-/**
- * CITY-BLOCK DEPTH INTO THE COVERAGE MASK — the amendment-77 core→edge term's
- * geometry (cycle 63, amendment 152: *"'distance into the coverage' is exactly
- * the core→edge term the flat `hullSample` lost"*). For every covered cell:
- * the 4-neighbour step count to the nearest UNCOVERED cell (cells outside the
- * rect count as uncovered), so a mask-edge cell reads 1 and the interior
- * climbs. Two-pass chamfer, O(w·h), on a mask that is at most ~22×22 cells.
- * Uncovered cells read 0.
- */
-export function coverageDepths(cov: HullCoverage): Int32Array {
-  const { w, h } = cov;
-  const d = new Int32Array(w * h);
-  const at = (col: number, row: number): number =>
-    col < 0 || row < 0 || col >= w || row >= h ? 0 : d[row * w + col];
-  for (let row = 0; row < h; row++) {
-    for (let col = 0; col < w; col++) {
-      if (!coverageHas(cov, col, row)) continue;
-      d[row * w + col] = Math.min(w * h, at(col - 1, row) + 1, at(col, row - 1) + 1);
-    }
-  }
-  for (let row = h - 1; row >= 0; row--) {
-    for (let col = w - 1; col >= 0; col--) {
-      const i = row * w + col;
-      if (d[i] === 0) continue;
-      d[i] = Math.min(d[i], at(col + 1, row) + 1, at(col, row + 1) + 1);
-    }
-  }
-  return d;
-}
-
-/**
- * Stamp one coverage footprint into the ship layer, with the CORE→EDGE term
- * baked into each cell's material.
+ * WHY UNIFORM IS THE PHYSICALLY RIGHT ANSWER, not merely the one that looks
+ * better. Amendment 106's own table is the argument: reflectivity is a MATERIAL
+ * property, and a hull is one material end to end — steel, the strongest thing
+ * on the water at 1.0, against a rock cliff's 0.5. Terrain earns its internal
+ * gradient honestly, because terrain's reflectivity genuinely varies across its
+ * extent (height, amendment 129); a hull's does not. The ramp was manufacturing
+ * a variation the object does not have, to satisfy a rule written about objects
+ * that do.
  *
- * THE DEEPEST CELLS CARRY THE FULL `hullSample` PEAK, and that is what keeps
- * every shipped calibration valid verbatim: `refl = ship × ext / strongExtent`
- * lands unchanged on the mask's core, so the amendment-118 crossover fit, the
- * four pinned readings and `minPeak`'s amendment-127 floor all still hold
- * where they always held. Shallower cells scale by depth ÷ maxDepth —
- * NORMALIZED, deliberately, so the term is pure mask geometry with no new
- * tunable (amendment 135 has no new coefficient to bound): a 1-cell-deep
- * bow-on needle is all core (its weakness is already carried by its tiny
- * extent), while a broadside battleship grades fringe → surround → core
- * across its own beam. Every cell keeps `min = minPeak`, so no fringe cell of
- * anything the server disclosed can ever fall below the floor that makes
- * radar range one number for every hull.
+ * SO AMENDMENT 77 IS SATISFIED BY TERRAIN, NOT BY EVERY OBJECT INDIVIDUALLY. Its
+ * concern was colour becoming a per-object LABEL — a mark whose colour said
+ * *which thing* rather than *how strong* (amendment 76's diagnosis). A uniform
+ * hull whose register tracks aspect and range is colour-as-INTENSITY, which is
+ * the rule; and at three cells across there is no room for a gradient that
+ * means anything anyway.
+ *
+ * AND THE MATERIAL NO LONGER DEPENDS ON THE OBSERVER AT ALL (cycle 67,
+ * amendments 171-175). `stampCoverage` used to take the observer's position,
+ * for one reason: to reconstruct the hull's aspect-projected extent from the
+ * mask (`coverageExtent`) and scale reflectivity by it. That was the aspect
+ * DOUBLE-COUNT — the mask this function is stamping already carries aspect —
+ * and with it gone the parameter went too, rather than lingering as an argument
+ * that implies a hull's material varies with who is looking at it. `refl = ship`
+ * is now the whole of amendment 118's crossover fit, and `min = minPeak` is
+ * amendment 127's floor; both land on every cell of the mark.
  */
 export function stampCoverage(
   stamp: ShipStamp,
   cov: HullCoverage,
-  obs: Vec2,
   m: ReturnModelOpts,
-  cellU: number,
 ): void {
-  const core = hullSample(coverageExtent(cov, obs, cellU), m);
-  const depths = coverageDepths(cov);
-  let maxDepth = 1;
-  for (let i = 0; i < depths.length; i++) {
-    if (depths[i] > maxDepth) maxDepth = depths[i];
-  }
-  const byDepth: FieldSample[] = [core];
-  for (let d = maxDepth - 1; d >= 1; d--) {
-    byDepth[maxDepth - d] = { ...core, refl: (core.refl * d) / maxDepth };
-  }
+  const steel = hullSample(m);
   for (let row = 0; row < cov.h; row++) {
     for (let col = 0; col < cov.w; col++) {
-      const depth = depths[row * cov.w + col];
-      if (depth === 0) continue;
-      putShip(stamp, cellKey(cov.gx + col, cov.gy + row), byDepth[maxDepth - depth]);
+      if (!coverageHas(cov, col, row)) continue;
+      putShip(stamp, cellKey(cov.gx + col, cov.gy + row), steel);
     }
   }
 }
@@ -435,14 +390,13 @@ export function stampCoverage(
  */
 export function buildShipStamp(
   hulls: readonly EchoHull[],
-  obs: Vec2,
   m: ReturnModelOpts,
   cellU: number,
   seedT = 0,
 ): ShipStamp {
   const stamp: ShipStamp = new Map();
   for (const h of hulls) {
-    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), obs, m, cellU);
+    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), m);
   }
   return stamp;
 }

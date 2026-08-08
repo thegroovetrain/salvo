@@ -46,9 +46,15 @@
 // 143). Intensity was always `coefficient x falloff x shape`; what the grain does
 // to it is now part of the same model rather than a flat multiplier bolted on
 // afterwards, because how STEADY a return is is itself a reading of signal
-// strength. See `noiseAmplitude`. Nothing else in this file moved: the exponents,
-// the curve, `fitPointRef` and `heightReflectivity` are byte-identical to the
-// cycle-61 model they were tuned as.
+// strength. See `noiseAmplitude`. The exponents, the curve and
+// `heightReflectivity` are byte-identical to the cycle-61 model they were tuned
+// as.
+//
+// CYCLE 67 SIMPLIFIES THE FIT (amendments 171-175). A hull's shape term is gone:
+// its reflectivity is MATERIAL and nothing else, so `fitPointRef` no longer takes
+// a calibration hull at all. See its own comment — the short version is that the
+// crossover became a pure statement about RANGE, which is what amendment 118 asked
+// for in the first place.
 
 /** Fixed cross-section: a hull. Radar equation's 1/d^4. */
 export const POINT = 4;
@@ -101,17 +107,14 @@ export function attenuation(dist: number, ref: number, exponent: number, floor: 
 
 /** Everything `fitPointRef` needs to solve for the point-target reference. */
 export interface PointFit {
-  /** Range (u) at which the fitted curve must put the calibration hull's peak
-   *  exactly on `band`. The caller passes the ladder's 7/8 rung, and
-   *  client/src/config.ts is the ONLY place that constant may be read. */
+  /** Range (u) at which the fitted curve must put a hull's return exactly on
+   *  `band`. The caller passes the ladder's 7/8 rung, and client/src/config.ts
+   *  is the ONLY place that constant may be read. */
   crossover: number;
-  /** The calibration hull's aspect-projected extent (u) at the presented aspect. */
-  ext: number;
-  /** Attenuated extent (u) that reads as a full-strength core (`strongExtent`). */
-  strongExtent: number;
   /** Target intensity at the crossover — the red->blue boundary, `bands[2].at`. */
   band: number;
-  /** The material coefficient the same peak is multiplied by (steel = 1). */
+  /** The hull MATERIAL's coefficient (steel = 1). Since cycle 67 this is the
+   *  whole of a hull's pre-range reflectivity — there is no second term. */
   coef: number;
   /** The point curve's asymptotic floor (`ship.attenFloor`). */
   floor: number;
@@ -119,12 +122,12 @@ export interface PointFit {
 
 /**
  * THE CALIBRATION (amendment 118): solve for the reference range that puts a
- * mid-size hull's peak EXACTLY on the red->blue boundary at `crossover`.
+ * hull's return EXACTLY on the red->blue boundary at `crossover`.
  *
- * The peak a ship kernel reads is `coef * ext * atten(d) / strongExtent`
- * (radarHeatmap.shipPeak), so the required attenuation at the crossover is
+ * A hull's return is `coef * atten(d)` (radarField.hullSample), so the
+ * attenuation required at the crossover is simply
  *
- *     A = band * strongExtent / (coef * ext)
+ *     A = band / coef
  *
  * and inverting the curve at `n = POINT` gives
  *
@@ -135,17 +138,37 @@ export interface PointFit {
  * per frame and never per cell — which is why the fourth root is allowed to be
  * a `Math.pow`.
  *
+ * CYCLE 67 REMOVED THE CALIBRATION HULL FROM THIS FIT, AND THAT MAKES AMENDMENT
+ * 118 CLEANER RATHER THAN LOOSER (amendments 171-175). Until now the solve also
+ * took an `ext` — an aspect-projected extent — and a `strongExtent` normalizer,
+ * because a hull's reflectivity carried an aspect term. It no longer does: the
+ * COVERAGE MASK carries aspect (a bow-on hull rasterizes to a genuinely small
+ * mark), so scaling reflectivity by extent as well was counting the same physics
+ * twice. Eric's ruling is that colour is MATERIAL and RANGE only. What survives
+ * here is therefore a PURE STATEMENT ABOUT RANGE: **every hull crosses red->blue
+ * at 7/8 intel range, whatever its class and whatever its aspect** — which is
+ * what amendment 118 actually asks for, and which no longer needs a nominated
+ * "mid-size hull broadside" to be meaningful.
+ *
+ * IT ALSO RETIRES THE CYCLE-63 "CROSSOVER IS A LATTICE-PHASE BAND" PROBLEM
+ * ENTIRELY (amendment 158's second bullet, and the `coverageExtent` correction at
+ * amendment 159k). That band existed because the fit's `ext` input was
+ * reconstructed from the FUZZED mask, so lattice phase and per-paint glint
+ * scintillated the crossover across roughly [rung - 60u, rung + 35u]. No
+ * mask-derived quantity reaches intensity any more, so the crossover is an exact
+ * range again — and exactly steady under the grain too, since `noise.solidAt` is
+ * pinned to this same `band`, where the SNR envelope's amplitude is zero.
+ *
  * DEGENERATE FITS ANSWER `crossover` rather than NaN or Infinity: `A` outside
- * `(floor, 1)` means the calibration hull cannot land on that band at that
- * range under this floor at all (the ill-conditioning that made lowering
- * `attenFloor` necessary — see the config comment). Returning the crossover
- * keeps the curve sane and lets the calibration TEST fail loudly instead of the
- * renderer failing silently.
+ * `(floor, 1)` means the material cannot land on that band at that range under
+ * this floor at all (the ill-conditioning that made lowering `attenFloor`
+ * necessary — see the config comment). Returning the crossover keeps the curve
+ * sane and lets the calibration TEST fail loudly instead of the renderer failing
+ * silently.
  */
 export function fitPointRef(o: PointFit): number {
-  const denom = o.coef * o.ext;
-  if (!(o.crossover > 0) || !(denom > 0) || !(o.strongExtent > 0)) return Math.max(1, o.crossover);
-  const a = (o.band * o.strongExtent) / denom;
+  if (!(o.crossover > 0) || !(o.coef > 0)) return Math.max(1, o.crossover);
+  const a = o.band / o.coef;
   if (!(a > o.floor) || !(a < 1)) return Math.max(1, o.crossover);
   const ratioN = (1 - a) / (a - o.floor);
   return o.crossover / Math.pow(ratioN, 1 / POINT);

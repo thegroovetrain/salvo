@@ -293,7 +293,7 @@ describe('nothing occludes anything this cycle', () => {
       { id: 'near', x: 0, y: 150, heading: 0, cls: 'battleship' },
       { id: 'far', x: 0, y: 300, heading: 0, cls: 'battleship' },
     ];
-    const stamp = buildShipStamp(hulls, obs, CLEAN.model, CLEAN.cellU);
+    const stamp = buildShipStamp(hulls, CLEAN.model, CLEAN.cellU);
     const s = marchAll(obs, shipOnlyField(stamp, CLEAN.cellU));
     expect(near(s, 0, 150, 12), 'the near hull').toBe(true);
     expect(near(s, 0, 300, 12), 'the one directly behind it').toBe(true);
@@ -449,7 +449,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
   /** Extent of the painted region across the observer's bearing, for one hull. */
   function beamWidth(heading: number): number {
     const hull: EchoHull = { id: 'a', x: 0, y: 300, heading, cls: 'battleship' };
-    const stamp = buildShipStamp([hull], OBS, CLEAN.model, CLEAN.cellU);
+    const stamp = buildShipStamp([hull], CLEAN.model, CLEAN.cellU);
     const s = marchAll(OBS, shipOnlyField(stamp, CLEAN.cellU));
     const xs = cellsOf(s).map((c) => c.x);
     return Math.max(...xs) - Math.min(...xs);
@@ -468,7 +468,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
 
   it('and it is the SHARED silhouette that decides the footprint, not a kernel', () => {
     const hull: EchoHull = { id: 'a', x: 0, y: 300, heading: 0, cls: 'battleship' };
-    const stamp = buildShipStamp([hull], OBS, CLEAN.model, CLEAN.cellU);
+    const stamp = buildShipStamp([hull], CLEAN.model, CLEAN.cellU);
     const poly = transformPolygon(hullSilhouette('battleship'), hull.x, hull.y, 0, []);
     const maxX = Math.max(...poly.map((p) => p.x));
     const s = marchAll(OBS, shipOnlyField(stamp, CLEAN.cellU));
@@ -483,7 +483,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
     + 'carries strength', () => {
     const read = (dist: number): number => {
       const hull: EchoHull = { id: 'a', x: 0, y: dist, heading: 0, cls: 'battleship' };
-      const stamp = buildShipStamp([hull], OBS, CLEAN.model, CLEAN.cellU);
+      const stamp = buildShipStamp([hull], CLEAN.model, CLEAN.cellU);
       const s = marchAll(OBS, shipOnlyField(stamp, CLEAN.cellU));
       return Math.max(...cellsOf(s).map((c) => c.w));
     };
@@ -498,7 +498,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
     const needle: HullCoverage = {
       gx: Math.floor(0 / CFG.cellU), gy: Math.floor((RADAR - 20) / CFG.cellU), w: 1, h: 1, bits: [1],
     };
-    stampCoverage(stamp, needle, { x: 0, y: 0 }, CFG.model, CFG.cellU);
+    stampCoverage(stamp, needle, CFG.model);
     const s = marchSlice(
       { x: 0, y: 0 }, -0.2, 0.2 + Math.PI, shipOnlyField(stamp, CFG.cellU), RADAR, 0, CFG,
     );
@@ -515,7 +515,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
     // centre cell plus at most its fuzz halo — bounded by the 5×5 the
     // dilation + stretch growth can reach, never a hull-sized ghost.
     const bad = [{ id: 'x', x: 0, y: 200, heading: 0, cls: 'notAHull' as never }];
-    const stamp = buildShipStamp(bad, OBS, CLEAN.model, CLEAN.cellU);
+    const stamp = buildShipStamp(bad, CLEAN.model, CLEAN.cellU);
     expect(stamp.size).toBeGreaterThanOrEqual(1);
     expect(stamp.size).toBeLessThanOrEqual(25);
     expect(stamp.has(cellKey(cellOf(0, CLEAN.cellU), cellOf(200, CLEAN.cellU))), 'the centre cell is lit').toBe(true);
@@ -798,7 +798,6 @@ describe('no NaN may ever reach a cell write', () => {
       raster: RASTER,
       ships: buildShipStamp(
         [{ id: 'a', x: 40, y: -160, heading: 0.7, cls: 'mineLayer' }],
-        obs,
         CFG.model,
         CFG.cellU,
       ),
@@ -837,7 +836,7 @@ describe('an echo inside its own reach subtends a FULL TURN, and paints', () => 
     // exceeds its distance, so its bearing window is the whole circle.
     const cov = rasterizeHullCoverage('battleship', 4, 0, 0.3, CLEAN.cellU);
     const stamp: ShipStamp = new Map();
-    stampCoverage(stamp, cov, obs, CLEAN.model, CLEAN.cellU);
+    stampCoverage(stamp, cov, CLEAN.model);
     const c = coverageCentre(cov, CLEAN.cellU);
     const arc = echoArc(obs, c.x, c.y, Math.hypot(cov.w, cov.h) * CLEAN.cellU);
     expect(arc.half, 'the whole circle').toBeCloseTo(Math.PI, 9);
@@ -862,7 +861,7 @@ describe('a wire coverage footprint paints at EVERY heading (amendment 127 throu
       const heading = (k * TAU) / 32;
       const cov = rasterizeHullCoverage('torpedoBoat', 400, 300, heading, CLEAN.cellU);
       const stamp: ShipStamp = new Map();
-      stampCoverage(stamp, cov, obs, CLEAN.model, CLEAN.cellU);
+      stampCoverage(stamp, cov, CLEAN.model);
       const c = coverageCentre(cov, CLEAN.cellU);
       const arc = echoArc(obs, c.x, c.y, Math.hypot(cov.w, cov.h) * CLEAN.cellU);
       const pad = arc.reach + 2 * CLEAN.cellU;
@@ -888,7 +887,7 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
     const field = buildField({
       obs: OBS,
       raster,
-      ships: buildShipStamp([HULL], OBS, CLEAN.model, CLEAN.cellU),
+      ships: buildShipStamp([HULL], CLEAN.model, CLEAN.cellU),
       ring: null,
       cellU: CLEAN.cellU,
       model: CLEAN.model,
@@ -909,7 +908,7 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
     // weaker than rock at 400u.
     stampCoverage(needle, {
       gx: Math.floor(HULL.x / CLEAN.cellU), gy: Math.floor(HULL.y / CLEAN.cellU), w: 1, h: 1, bits: [1],
-    }, OBS, CLEAN.model, CLEAN.cellU);
+    }, CLEAN.model);
     const field = buildField({
       obs: OBS, raster, ships: needle, ring: null, cellU: CLEAN.cellU, model: CLEAN.model,
     });
@@ -921,30 +920,38 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
   });
 
   it('two hulls sharing cells resolve max-wins PER CELL, whatever order they arrive in', () => {
-    // Since cycle 63 a hull's cells carry a core→edge gradient, so the winner
-    // of a shared cell is decided cell-for-cell (a battleship FRINGE cell can
-    // legitimately lose to a torpedo-boat CORE cell) — what must hold is that
-    // iteration ORDER never changes one reading, and that the strongest shared
-    // reading is the stronger hull's own core.
+    // RETIRES the clause that asserted "the battleship really is the stronger
+    // echo". That was the aspect/size term inside a hull's REFLECTIVITY talking,
+    // and cycle 67 deleted it: colour is MATERIAL and RANGE, so a battleship and
+    // a torpedo boat are the same steel and read the same register (amendments
+    // 171-175). Adapting the clause would have re-pinned the defect; it is
+    // retired and the rule it was one example of is asserted instead.
+    //
+    // WHAT STILL HAS TO HOLD, and is the whole reason `putShip` exists: `Map.set`
+    // is LAST-WINS, so iteration ORDER must never decide a shared cell's reading.
+    // Every hull carrying one coefficient makes that a tie today rather than a
+    // contest — so the pin is order-invariance plus "the shared reading is what
+    // either hull alone would have written", which stays exactly as meaningful
+    // the moment any hull-like material stops being plain steel.
     const strong: EchoHull = { id: 'big', x: 0, y: 300, heading: 0, cls: 'battleship' };
     const weak: EchoHull = { id: 'small', x: 2, y: 302, heading: 0, cls: 'torpedoBoat' };
-    const a = buildShipStamp([strong, weak], OBS, CLEAN.model, CLEAN.cellU);
-    const b = buildShipStamp([weak, strong], OBS, CLEAN.model, CLEAN.cellU);
-    // Each hull's own core coefficient, from its own single-hull stamp.
+    const a = buildShipStamp([strong, weak], CLEAN.model, CLEAN.cellU);
+    const b = buildShipStamp([weak, strong], CLEAN.model, CLEAN.cellU);
+    // Each hull's own coefficient, from its own single-hull stamp.
     const one = (h: EchoHull): number => {
-      const m = buildShipStamp([h], OBS, CLEAN.model, CLEAN.cellU);
+      const m = buildShipStamp([h], CLEAN.model, CLEAN.cellU);
       return Math.max(...[...m.values()].map((s) => s.refl));
     };
-    expect(one(strong), 'the battleship really is the stronger echo')
-      .toBeGreaterThan(one(weak));
+    expect(one(strong), 'both hulls are the same steel').toBe(one(weak));
+    expect(one(strong), 'and that steel is the material coefficient').toBe(CLEAN.model.ship);
     const shared = [...a.keys()].filter((k) => b.has(k));
     expect(shared.length, 'the two footprints really overlap').toBeGreaterThan(10);
     for (const k of shared) {
       expect(a.get(k)!.refl, 'order never changes a cell').toBeCloseTo(b.get(k)!.refl, 12);
       // Max-wins really ran: no shared cell reads weaker than BOTH single-hull
       // stamps say it should.
-      const singleStrong = buildShipStamp([strong], OBS, CLEAN.model, CLEAN.cellU).get(k);
-      const singleWeak = buildShipStamp([weak], OBS, CLEAN.model, CLEAN.cellU).get(k);
+      const singleStrong = buildShipStamp([strong], CLEAN.model, CLEAN.cellU).get(k);
+      const singleWeak = buildShipStamp([weak], CLEAN.model, CLEAN.cellU).get(k);
       const floor = Math.max(singleStrong?.refl ?? 0, singleWeak?.refl ?? 0);
       expect(a.get(k)!.refl).toBeCloseTo(floor, 12);
     }

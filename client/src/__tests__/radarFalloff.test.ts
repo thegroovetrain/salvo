@@ -20,14 +20,24 @@
 //   • THE CROSSOVER IS FITTED, NEVER BRANCHED (amendment 118 + 132). The
 //     red→blue boundary must EMERGE at 7/8 intel range from the curve's own
 //     shape. `CONFIG.vision.farRadar` is an input to the fit and appears nowhere
-//     on a paint path — `grep -rn farRadar client/src/render/` is empty, and
-//     the four readings below are what the fit is actually judged on.
+//     on a paint path — `grep -rn farRadar client/src/render/` is empty.
 //
-//   • THE FLOORS SURVIVE THE PHYSICS (amendment 127). 1/d⁴ is steep enough that
-//     a small hull bow-on at the rim would genuinely vanish — "signature becomes
-//     stealth" — and that is a RULED-OUT design, not a missing feature. The
-//     asymptote and `minPeak` are both asserted here, at the rim, on the
-//     weakest legitimate return in the game.
+//   • AND SINCE CYCLE 67 IT IS A PURE STATEMENT ABOUT RANGE (amendments
+//     171-175). A hull's reflectivity is its MATERIAL and nothing else, so
+//     EVERY hull crosses red→blue at 7/8 intel range — every class, every
+//     aspect. What used to be pinned here as "the mid hull crosses at the rung
+//     and a battleship broadside stays red past the rim" was the fit's old
+//     `ext` term talking, and that term was an aspect DOUBLE-COUNT against the
+//     coverage mask. Class and aspect still read; they read off the SIZE of the
+//     mark, which is pinned in radarHeatmap.test.ts and radarMarch.test.ts
+//     where masks actually exist.
+//
+//   • THE FLOORS SURVIVE THE PHYSICS (amendment 127). `minPeak` no longer binds
+//     anywhere inside the scope — uniform steel clears it at every range out to
+//     the rim — but it is still the guarantee that radar range means ONE number
+//     for every hull, so it is asserted directly rather than trusted to the
+//     curve, and its worst-draw bound is re-proved at the shipped envelope
+//     (amendment 135). "Signature becomes stealth" remains a RULED-OUT design.
 //
 //   • HEIGHT IS REFLECTIVITY, CLAMPED AT BOTH ENDS (amendment 129).
 
@@ -54,19 +64,19 @@ const GREEN = BANDS[0].at;
 const BLUE = BANDS[1].at;
 const RIM = CONFIG.vision.radar; // 8/8 — 660u
 const CROSS = CONFIG.vision.farRadar; // 7/8 — 577.5u
-/** The calibration hull: a Mine Layer presented broadside (amendment 131). */
-const MID_HULL = CONFIG.shipClasses.mineLayer.hull.length;
-/** A battleship presented broadside — the biggest RCS on the water. */
-const BIG_HULL = CONFIG.shipClasses.battleship.hull.length;
 
 /**
- * A HULL'S PEAK READING at a range — the model's own two seams composed, which is
- * exactly what the march does per sample. Cycle 62 retired `shipPeak` along with
- * the kernel that used it; the CALIBRATION it carried did not move, so this is
- * the same quantity through the surviving path.
+ * A HULL'S READING at a range — the model's own two seams composed, which is
+ * exactly what the march does per sample.
+ *
+ * IT TAKES NO HULL, AND THAT IS THE CYCLE-67 RULING IN THE SIGNATURE
+ * (amendments 171-175). `hullSample` used to take an aspect-projected extent;
+ * colour is now MATERIAL and RANGE only, so range is the only argument there is
+ * left to pass. Every assertion below that would once have needed a class and an
+ * aspect now needs neither, which is the point rather than a convenience.
  */
-function hullPeak(ext: number, dist: number): number {
-  return returnStrength(hullSample(ext, MODEL), dist);
+function hullPeak(dist: number): number {
+  return returnStrength(hullSample(MODEL), dist);
 }
 
 /**
@@ -146,25 +156,16 @@ describe('the curve is the shipped one, generalized', () => {
 
 // --- 2. THE CALIBRATION (amendment 118) -----------------------------------------
 
-describe('the red→blue crossover EMERGES at 7/8 intel range', () => {
+describe('the red→blue crossover EMERGES at 7/8 intel range, for EVERY hull', () => {
   it('the fit is solved, not typed in — and it moves with `farRadar`', () => {
     expect(MODEL.pointRef).toBeGreaterThan(0);
     expect(MODEL.pointRef).toBeCloseTo(
-      fitPointRef({
-        crossover: CROSS,
-        ext: MID_HULL,
-        strongExtent: MODEL.strongExtent,
-        band: RED,
-        coef: MODEL.ship,
-        floor: MODEL.pointFloor,
-      }),
+      fitPointRef({ crossover: CROSS, band: RED, coef: MODEL.ship, floor: MODEL.pointFloor }),
       12,
     );
     // Retuning the rung retunes the reference, with no other edit anywhere.
     const wider = fitPointRef({
       crossover: CROSS * 1.2,
-      ext: MID_HULL,
-      strongExtent: MODEL.strongExtent,
       band: RED,
       coef: MODEL.ship,
       floor: MODEL.pointFloor,
@@ -172,38 +173,62 @@ describe('the red→blue crossover EMERGES at 7/8 intel range', () => {
     expect(wider).toBeCloseTo(MODEL.pointRef * 1.2, 6);
   });
 
-  it('READING 1 — the mid hull lands EXACTLY on the red→blue boundary at '
+  it('the fit takes NO HULL — so the crossover cannot be a statement about one '
+    + 'class at one aspect (amendments 171-175)', () => {
+    // The structural half of the ruling, pinned at the seam rather than
+    // inferred from readings: `hullSample` is a function of the MODEL alone, so
+    // there is no argument a class or an aspect could enter through. The
+    // behavioural half — same register, different SIZE — needs real masks and
+    // lives in radarHeatmap.test.ts.
+    expect(hullSample(MODEL).refl).toBe(MODEL.ship);
+    expect(hullSample.length, '`hullSample(m)` — one argument, the model').toBe(1);
+    expect(fitPointRef.length).toBe(1);
+    for (const k of ['ext', 'strongExtent']) {
+      expect(MODEL, `\`${k}\` is deleted, not merely unread`).not.toHaveProperty(k);
+    }
+  });
+
+  it('RULE 1 — a hull lands EXACTLY on the red→blue boundary at '
     + `${CROSS}u`, () => {
-    expect(hullPeak(MID_HULL, CROSS)).toBeCloseTo(RED, 9);
+    expect(hullPeak(CROSS)).toBeCloseTo(RED, 9);
   });
 
-  it('READING 2 — and saturates red well inside the rim', () => {
-    expect(hullPeak(MID_HULL, 330)).toBe(1);
-    // Find where it saturates, so the number is observed rather than asserted.
-    let sat = 0;
-    for (let d = 0; d <= RIM; d += 1) if (hullPeak(MID_HULL, d) >= 1) sat = d;
-    expect(sat, 'saturation range (u)').toBeGreaterThan(400);
-    expect(sat).toBeLessThan(CROSS);
+  it('RULE 2 — and reads RED everywhere inside that, out to the hull itself', () => {
+    for (let d = 0; d < CROSS; d += 0.5) {
+      expect(hullPeak(d), `${d}u`).toBeGreaterThanOrEqual(RED);
+    }
+    expect(hullPeak(0), 'a hull at zero range saturates the scale').toBe(1);
   });
 
-  it('READING 3 — and still reads BLUE at the 660u rim (not green, not red)', () => {
-    const peak = hullPeak(MID_HULL, RIM);
-    expect(peak).toBeGreaterThanOrEqual(BLUE);
-    expect(peak).toBeLessThan(RED);
+  it('RULE 3 — and BLUE from there to the 660u rim, never green', () => {
+    for (let d = CROSS + 0.5; d <= RIM; d += 0.5) {
+      const peak = hullPeak(d);
+      expect(peak, `${d}u`).toBeGreaterThanOrEqual(BLUE);
+      expect(peak, `${d}u`).toBeLessThan(RED);
+    }
   });
 
-  it('READING 4 — a battleship broadside still reads RED at the rim: a larger '
-    + 'RCS legitimately reaches further (amendment 68)', () => {
-    expect(hullPeak(BIG_HULL, RIM)).toBeGreaterThanOrEqual(RED);
+  it('RULE 4 — and BOTH registers hold at the worst AND best draw of the shipped '
+    + 'envelope, so the read never flickers across a band (amendment 135)', () => {
+    // The grain is zero at or above `solidAt`, which is pinned to RED itself, so
+    // the whole red half is steady by construction. Only the blue half can
+    // wobble, and it must not wobble across either boundary.
+    for (let d = CROSS + 0.5; d <= RIM; d += 0.5) {
+      const peak = hullPeak(d);
+      const amp = noiseAmplitude(peak, CFG.noise);
+      expect(peak * (1 + amp), `${d}u luckiest draw`).toBeLessThan(RED);
+      expect(peak * (1 - amp), `${d}u unluckiest draw`).toBeGreaterThan(BLUE);
+    }
+    expect(noiseAmplitude(hullPeak(CROSS), CFG.noise), 'the crossover itself is grain-free').toBe(0);
   });
 
-  it('and the crossover is a CONSEQUENCE of the curve — the peak crosses the '
+  it('and the crossover is a CONSEQUENCE of the curve — the return crosses the '
     + 'boundary once, at that range, on a continuous sweep', () => {
     let crossedAt = -1;
     let crossings = 0;
-    let prev = hullPeak(MID_HULL, 0);
+    let prev = hullPeak(0);
     for (let d = 1; d <= RIM; d += 0.5) {
-      const v = hullPeak(MID_HULL, d);
+      const v = hullPeak(d);
       if (prev >= RED && v < RED) {
         crossings++;
         crossedAt = d;
@@ -218,54 +243,65 @@ describe('the red→blue crossover EMERGES at 7/8 intel range', () => {
 });
 
 describe('the floors survive the physics (amendment 127)', () => {
-  it('a sub-cell needle at the rim falls to `minPeak` and STILL PAINTS green', () => {
-    const peak = hullPeak(8, RIM); // narrower than one 6u display cell, bow-on
-    expect(peak).toBe(MODEL.minPeak);
-    // AT THE WORST DRAW OF THE SHIPPED ENVELOPE, not at nominal (amendment 135):
-    // the grain's amplitude is a function of the intensity it is applied to, so
-    // the bound has to be stated at this peak's own amplitude.
-    expect(peak * (1 - noiseAmplitude(peak, CFG.noise)), 'even at the worst draw')
-      .toBeGreaterThan(GREEN);
-  });
-
-  it('and so does a ZERO-extent return — nothing inside radar range paints '
-    + 'nothing, at any aspect, at any size', () => {
-    for (const d of [1, 330, RIM, RIM * 2]) {
-      expect(hullPeak(0, d), `${d}u`).toBe(MODEL.minPeak);
+  it('NOTHING THE SERVER BLIPS PAINTS NOTHING: every range inside the scope '
+    + 'clears the transparency threshold at the WORST draw', () => {
+    for (let d = 0; d <= RIM; d += 5) {
+      const peak = hullPeak(d);
+      expect(peak, `${d}u`).toBeGreaterThanOrEqual(MODEL.minPeak);
+      expect(peak * (1 - noiseAmplitude(peak, CFG.noise)), `${d}u worst draw`)
+        .toBeGreaterThan(GREEN);
     }
   });
 
-  it('but aspect still MATTERS: a bow-on hull reads far weaker than the same '
-    + 'hull abeam at the same range', () => {
-    const beam = CONFIG.shipClasses.mineLayer.hull.beam;
-    expect(hullPeak(beam, 480)).toBeLessThan(hullPeak(MID_HULL, 480));
+  it('and `minPeak` is still a real floor rather than a vestige — it catches the '
+    + 'curve once the material alone would fall under it', () => {
+    // Uniform steel clears `minPeak` everywhere inside the scope, so the floor
+    // stops binding in normal play — that is the RULING landing, not the floor
+    // going away. It still engages, and the range where it takes over is
+    // OBSERVED here rather than asserted, so a retune moves the number instead
+    // of breaking the test.
+    let bindsAt = Infinity;
+    for (let d = 0; d <= 4000; d += 1) {
+      if (hullPeak(d) <= MODEL.minPeak) {
+        bindsAt = d;
+        break;
+      }
+    }
+    expect(bindsAt, 'the floor engages somewhere').toBeLessThan(4000);
+    expect(bindsAt, 'and only well OUTSIDE the scope').toBeGreaterThan(RIM);
+    expect(hullPeak(1e6), 'and it holds all the way out').toBe(MODEL.minPeak);
+  });
+
+  it('aspect no longer changes the register — colour is MATERIAL and RANGE '
+    + '(amendments 171-175)', () => {
+    // REPLACES the cycle-61 pin "a bow-on hull reads far weaker than the same
+    // hull abeam at the same range", which asserted the aspect DOUBLE-COUNT as
+    // correct and would have defended it against this fix (the pattern named in
+    // amendment 169). A ship's RCS is dominated by corner reflectors and is
+    // large from every aspect; the mask, not the colour, is where aspect lives.
+    // There is now no aspect ARGUMENT to vary — so the pin is that two ranges
+    // differ and nothing else can.
+    expect(hullPeak(480)).toBe(hullPeak(480));
+    expect(hullPeak(480)).toBeGreaterThan(hullPeak(600));
   });
 });
 
 // --- 3. the fit's own edges -----------------------------------------------------
 
 describe('a degenerate fit answers the crossover rather than a garbage range', () => {
-  const base = {
-    crossover: CROSS,
-    ext: MID_HULL,
-    strongExtent: 60,
-    band: RED,
-    coef: 1,
-    floor: 0.02,
-  };
+  const base = { crossover: CROSS, band: RED, coef: 1, floor: 0.02 };
 
-  it('when the hull cannot reach the band at that range under that floor', () => {
+  it('when the material cannot reach the band at that range under that floor', () => {
     // floor above the required attenuation: unreachable at ANY range.
     expect(fitPointRef({ ...base, floor: 0.9 })).toBe(CROSS);
-    // required attenuation above 1: the hull is too small to ever read red.
-    expect(fitPointRef({ ...base, ext: 1 })).toBe(CROSS);
+    // required attenuation above 1: too weak a material to ever read red.
+    expect(fitPointRef({ ...base, coef: 0.5 })).toBe(CROSS);
   });
 
   it('and when an input is zero or non-finite', () => {
     expect(fitPointRef({ ...base, crossover: 0 })).toBe(1);
-    expect(fitPointRef({ ...base, ext: 0 })).toBe(CROSS);
     expect(fitPointRef({ ...base, coef: 0 })).toBe(CROSS);
-    expect(fitPointRef({ ...base, strongExtent: 0 })).toBe(CROSS);
+    expect(fitPointRef({ ...base, coef: Number.NaN })).toBe(CROSS);
     expect(Number.isFinite(fitPointRef({ ...base, band: Number.NaN }))).toBe(true);
   });
 });
