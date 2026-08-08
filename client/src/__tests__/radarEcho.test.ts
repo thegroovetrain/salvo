@@ -35,6 +35,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Container, Graphics, Texture } from 'pixi.js';
 import {
   CONFIG,
+  buildHeightRaster,
   paintCoverage,
   type HeightRaster,
   type HullId,
@@ -84,6 +85,20 @@ function rasterFrom(reachU: number, h: (x: number, y: number) => number): Height
     for (let i = 0; i < n; i++) height[j * n + i] = h(x0 + i * RCELL, x0 + j * RCELL);
   }
   return { n, cell: RCELL, x0, y0: x0, seaLevel: 0, peak: 255, height, pyramid: [] };
+}
+
+/** Like `rasterFrom`, but with a REAL max-height pyramid — the production shape,
+ *  and the only one the Story 4.11 shadow walk will march (it fails OPEN without
+ *  one, which is what keeps every other fixture in this file unshadowed). */
+function rasterWithPyramid(reachU: number, h: (x: number, y: number) => number): HeightRaster {
+  const k = Math.ceil(reachU / RCELL);
+  const n = 2 * k + 1;
+  const x0 = -k * RCELL;
+  const v = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) v[j * n + i] = h(x0 + i * RCELL, x0 + j * RCELL);
+  }
+  return buildHeightRaster({ n, cell: RCELL, x0, y0: x0, v }, 0, 255);
 }
 
 /** A rectangular ridge of land at a uniform height. */
@@ -361,6 +376,64 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
     expect(radar.livePaints, 'the sea state still paints').toBeGreaterThan(0);
   });
 });
+
+// --- THE WIRE ECHO IS SHADOWED TOO (Story 4.11 review gate) ---------------------
+//
+// THE ADAPTER IS WHERE THIS CAN BREAK, which is why it is pinned here as well as
+// in radarMarch.test.ts: the one-hull field only shadows what it is HANDED, so
+// `marchEcho` failing to pass `heightRaster` would leave every wire echo painting
+// at full strength while the scope around it went grey — and no march-level test
+// could see it. Beyond truesight the wire is the ONLY source of a hull, so this
+// is the tier the whole feature is about.
+
+describe('a wire echo fades in terrain shadow, and is floored so it cannot vanish', () => {
+  /** The echo used here sits on bearing 0 at 500u, with the cover between. */
+  const ECHO = wireEcho('battleship', 500, 0, 0);
+
+  /** What the buffer reads at the echo's centre, over a given terrain. NO BEAM
+   *  ADVANCE: the sweep sample and the two frames share one timestamp, so the
+   *  only slice in the list is the echo's own and nothing the beam painted can
+   *  be mistaken for it. */
+  function echoIntensity(raster: HeightRaster | null): number {
+    const { radar } = makeRadar();
+    if (raster !== null) radar.setHeightRaster(raster);
+    radar.render(OWN, 1000);
+    radar.onBlip({ ...ECHO.e, t: 1000 });
+    expect(radar.livePaints, 'the echo marched').toBe(1);
+    radar.render(OWN, 1000);
+    return radar.intensityAt(ECHO.x, ECHO.y);
+  }
+
+  const SEA = rasterWithPyramid(900, () => 0);
+  const SOFT = rasterWithPyramid(900, ridge(250, 0, 60, 200, CONFIG.vision.radarMastQ / 2));
+  const HARD = rasterWithPyramid(900, ridge(250, 0, 60, 200, 255));
+
+  it('SOFT COVER on the bearing dims it — the same echo, weaker', () => {
+    const lit = echoIntensity(SEA);
+    const dim = echoIntensity(SOFT);
+    expect(lit, 'the echo paints over open water').toBeGreaterThan(0);
+    expect(dim, 'and reads weaker behind half-mast terrain').toBeLessThan(lit);
+    expect(dim, 'while still painting').toBeGreaterThan(0);
+  });
+
+  it('HARD COVER floors it at `minPeak` rather than erasing it (amendment 127)', () => {
+    const dark = echoIntensity(HARD);
+    expect(dark, 'a fully shadowed disclosed echo still paints its speck')
+      .toBeCloseTo(Math.min(echoIntensity(SEA), CLIENT_CONFIG.blip.heatmap.model.minPeak), 6);
+    expect(radarDraws(dark), 'and it is above the transparent threshold').toBe(true);
+  });
+
+  it('and a raster with no pyramid changes nothing — the walk fails OPEN, which '
+    + 'is what every other fixture in this file relies on', () => {
+    expect(echoIntensity(rasterFrom(900, ridge(250, 0, 60, 200, 255))))
+      .toBeCloseTo(echoIntensity(null), 12);
+  });
+});
+
+/** Would the heatmap draw this intensity at all (i.e. is it in a band)? */
+function radarDraws(w: number): boolean {
+  return w >= CLIENT_CONFIG.blip.heatmap.bands[0].at;
+}
 
 // --- THE SCOPE PAINTS EVERYTHING IN RANGE, through the adapter (cycle 56) -------
 

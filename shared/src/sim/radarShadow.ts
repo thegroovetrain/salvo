@@ -46,20 +46,46 @@
 // face paints at full strength and only what is BEHIND it is masked
 // (amendment 178's ordering rule). `advanceTo(d)` folds every cell the ray
 // entered at distance < d; `visibilityAt(d)` evaluates the accumulator as it
-// stands. The server calls the pair once at a target's distance
-// (`visibilityTo`, built ON TOP of the stepper); the client calls them at
-// each of its own march samples. Both fold IDENTICAL cells at IDENTICAL
-// distances by construction — every entry distance is derived directly from
-// the crossed cell boundary's coordinate, never from an accumulated float —
-// so an incremental march and a one-shot query agree bit-for-bit, which is
-// what keeps the scope and the gate from ever disagreeing.
+// stands. The server drives the stepper once per candidate (`visibilityTo`,
+// which advances to the entry of the TARGET's own cell and queries at the
+// target's distance); the client drives it at each of its own march samples.
+//
+// WHAT IS BIT-EXACT IS THE CADENCE, NOT THE TWO SIDES' ANSWERS. Every entry
+// distance is derived directly from the crossed cell boundary's coordinate,
+// never from an accumulated float, so a RESUMED walk folds the same cells at
+// the same distances as a fresh one advanced straight to the same frontier —
+// resume parity is exact, and `visibilityAt` is a pure function of the
+// frontier. The two CALLERS nevertheless differ, on purpose, and the header
+// must not pretend otherwise:
+//
+//   • ORDER. The server advances then queries; the CLIENT queries then
+//     advances (amendment 187 — advancing first makes `vis` at a land sample
+//     `1 − h/H ≤ 0`, so every tall island would paint nothing at all).
+//   • LAG. The client only calls `advanceTo` when its march enters a NEW heat
+//     cell — consecutive samples deduped by cell key skip the call entirely
+//     (render/radarMarch.ts) — so its frontier trails its query distance by
+//     one heat-cell crossing plus one step: ~13u at the shipped 9u cell / 4u
+//     step, and up to ~17u on a diagonal, where a 9u cell's chord is 9√2.
+//     NOT "half a raster cell": the raster's 14u cells do not bound this, the
+//     client's own sample cadence does.
+//   • DIRECTION, and this is why the difference is safe rather than a desync:
+//     a trailing frontier has folded a SUBSET of the server's land, and `vis`
+//     is monotone non-increasing in folds, so the client always paints AT
+//     LEAST what the server disclosed and never more. A leak would need the
+//     opposite sign.
 //
 // DEGENERATE INPUTS FAIL OPEN (vis = 1): a missing raster, a non-finite
 // coordinate or direction, a zero direction, a non-positive H or non-finite K
 // mean "no terrain data, therefore no shadow" — today's behaviour. Fail
 // CLOSED would be wrong here: the server gate would hide legitimate contacts.
-// Off-raster travel is transparent (`sampleHeight` clamps to sea), and the
-// observer's own cell (entry distance 0) never occludes.
+// Off-raster travel is transparent (`sampleHeight` clamps to sea).
+//
+// A CELL NEVER OCCLUDES A QUERY POINT INSIDE IT, AT EITHER END OF THE RAY:
+// the observer's own cell is exempt by `foldCell`'s `entry ≤ 0` guard, and the
+// target's own by `visibilityTo`'s `cellEntryOf` fold limit. That is what makes
+// the one-shot SYMMETRIC — A paints B exactly when B paints A, as the spec's
+// Always clause requires — and without the far-end half a hull whose centre
+// rounds into a hard-cover cell would be a one-way stealth pocket.
 //
 // COST. The max-height pyramid (heightField.ts) is consulted one tile at a
 // time: a tile whose ceiling is SEA_HEIGHT is skipped in a single test, so an
@@ -186,6 +212,7 @@ function rayGridExit(r: HeightRaster, ox: number, oy: number, dx: number, dy: nu
  * it. Strictly-nearer-only ordering is the caller's job; the observer's own
  * cell (entry ≤ 0) never occludes — nothing at distance 0 stands between the
  * antenna and anything else, and u/d is undefined there (the d = 0 guard).
+ * `visibilityTo` mirrors this at the far end (`cellEntryOf`).
  */
 function foldCell(s: WalkState, i: number, j: number, entry: number): void {
   if (entry <= 0) return;
@@ -270,9 +297,15 @@ function advance(s: WalkState, d: number): void {
   if (!Number.isFinite(d) || d <= s.t) return;
   const limit = Math.min(d, s.tExit);
   // Belt-and-braces loop bound: legitimately ≤ ~2·n tile/cell segments per
-  // call; exhausting it (float pathology only) fails OPEN for the remainder,
-  // identically on both sides. `limit` is finite by construction and every
-  // stepTile advances ≥ EPS, so this terminates twice over.
+  // call; exhausting it (float pathology only) would fail OPEN for the
+  // remainder of THIS CALL. That is deliberately NOT symmetric between the two
+  // sides — the server's one-shot spends one budget on the whole ray, while an
+  // incremental march gets a fresh budget per `advanceTo` — so an exhausted
+  // guard would be a divergence, not a shared fail-open. It is unreachable
+  // rather than handled, on two separate grounds: `limit` is finite and every
+  // stepTile advances the frontier by ≥ EPS, so the loop TERMINATES; and each
+  // step that is not that degenerate floor clears a whole cell or tile, so the
+  // count stays inside the budget.
   let guard = 4 * s.r.n + 64;
   while (s.t < limit && guard > 0) {
     s.t = stepTile(s, limit);
@@ -297,6 +330,36 @@ function reachOf(aMin: number, k: number): number {
   return root > 0 ? root : 0;
 }
 
+/** Build the marching state, or null for any degenerate input (fail open). */
+function newWalkState(
+  raster: HeightRaster | null | undefined,
+  ox: number,
+  oy: number,
+  dirX: number,
+  dirY: number,
+): WalkState | null {
+  const h = CONFIG.vision.radarMastQ;
+  const k = radarShadowK();
+  if (!walkable(raster, ox, oy, dirX, dirY, h, k)) return null;
+  const len = Math.sqrt(dirX * dirX + dirY * dirY);
+  if (!positiveFinite(len)) return null;
+  const dx = dirX / len;
+  const dy = dirY / len;
+  return {
+    r: raster,
+    ox,
+    oy,
+    dx,
+    dy,
+    h,
+    k,
+    level: Math.max(0, Math.min(SKIP_LEVEL, raster.pyramid.length - 1)),
+    tExit: rayGridExit(raster, ox, oy, dx, dy),
+    t: 0,
+    aMin: Infinity,
+  };
+}
+
 /**
  * Begin a shadow walk from (`ox`, `oy`) along (`dirX`, `dirY`) — a unit
  * direction by contract, though any non-zero finite vector is normalized
@@ -310,26 +373,8 @@ export function beginShadowWalk(
   dirX: number,
   dirY: number,
 ): ShadowWalk {
-  const h = CONFIG.vision.radarMastQ;
-  const k = radarShadowK();
-  if (!walkable(raster, ox, oy, dirX, dirY, h, k)) return OPEN_WALK;
-  const len = Math.sqrt(dirX * dirX + dirY * dirY);
-  if (!positiveFinite(len)) return OPEN_WALK;
-  const dx = dirX / len;
-  const dy = dirY / len;
-  const s: WalkState = {
-    r: raster,
-    ox,
-    oy,
-    dx,
-    dy,
-    h,
-    k,
-    level: Math.max(0, Math.min(SKIP_LEVEL, raster.pyramid.length - 1)),
-    tExit: rayGridExit(raster, ox, oy, dx, dy),
-    t: 0,
-    aMin: Infinity,
-  };
+  const s = newWalkState(raster, ox, oy, dirX, dirY);
+  if (s === null) return OPEN_WALK;
   return {
     advanceTo: (d: number): void => advance(s, d),
     visibilityAt: (d: number): number => visAt(s.aMin, s.k, d),
@@ -338,11 +383,44 @@ export function beginShadowWalk(
 }
 
 /**
+ * Distance at which the ray ENTERS the raster cell containing (`px`, `py`),
+ * clamped to `len` — the exclusive fold limit for a one-shot query at that
+ * point. THE FAR-END MIRROR OF `foldCell`'s `entry <= 0` GUARD, and the reason
+ * the model is symmetric by construction (`vis(A→B) > 0 ⟺ vis(B→A) > 0`): a
+ * cell that CONTAINS a query point cannot stand between that point and
+ * anything, at either end of the ray. Without it a hull whose centre rounds
+ * into a hard-cover cell — navigable water sits in cells up to ~q58 against
+ * the q64 threshold, and nothing structural pins that gap — would be a one-way
+ * stealth pocket: invisible to everyone, seeing everyone.
+ *
+ * It exempts EXACTLY one cell, never a neighbour: the limit is that cell's own
+ * entry distance, derived from the SAME boundary coordinate expression the DDA
+ * uses (`x0 + (i ∓ ½)·cell`, differenced against the origin and divided by the
+ * same normalized direction — `s.dx`/`s.dy`, not a re-normalization), so it is
+ * bit-identical to the entry `walkCells` would compute. A cell ending 0.001u
+ * before the target still has `entry < limit` and still folds.
+ */
+function cellEntryOf(s: WalkState, px: number, py: number, len: number): number {
+  const { r } = s;
+  const i = Math.round((px - r.x0) / r.cell);
+  const j = Math.round((py - r.y0) / r.cell);
+  // A zero component never crosses a boundary on that axis, so it imposes no
+  // entry constraint (boundaryCross's +Infinity is the EXIT convention).
+  const ex = s.dx === 0 ? -Infinity : boundaryCross(s.ox, s.dx, r.x0 + (i - (s.dx > 0 ? 0.5 : -0.5)) * r.cell);
+  const ey = s.dy === 0 ? -Infinity : boundaryCross(s.oy, s.dy, r.y0 + (j - (s.dy > 0 ? 0.5 : -0.5)) * r.cell);
+  const e = Math.max(ex, ey);
+  return e < len ? e : len; // NaN (unreachable: state is finite) ⇒ len
+}
+
+/**
  * One-shot convenience for the server's single observer→target ray: the
  * illuminated fraction of a target at (`tx`, `ty`) as seen from (`ox`, `oy`).
- * Implemented ON TOP of the stepper — the parity contract forbids a second
- * marching code path. A target on the observer (d = 0), or any non-finite
- * coordinate, fails OPEN.
+ * Marches the SAME stepper — the parity contract forbids a second marching
+ * code path. A target on the observer (d = 0), or any non-finite coordinate,
+ * fails OPEN.
+ *
+ * Folds every cell the ray entered BEFORE the target's own cell; the target's
+ * cell is exempt, mirroring the observer's (see `cellEntryOf`).
  */
 export function visibilityTo(
   raster: HeightRaster | null | undefined,
@@ -355,7 +433,8 @@ export function visibilityTo(
   const dy = ty - oy;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (!positiveFinite(len)) return 1;
-  const walk = beginShadowWalk(raster, ox, oy, dx / len, dy / len);
-  walk.advanceTo(len);
-  return walk.visibilityAt(len);
+  const s = newWalkState(raster, ox, oy, dx / len, dy / len);
+  if (s === null) return 1;
+  advance(s, cellEntryOf(s, tx, ty, len));
+  return visAt(s.aMin, s.k, len);
 }

@@ -70,7 +70,10 @@
 // with this file's answer by the illuminated fraction — so occlusion is a
 // property of the RAY, which is the only place it can be O(1) and the only place
 // the server can share the same code. Past the shadow's reach the march emits
-// NO-DATA cells and stops asking this file anything at all.
+// NO-DATA cells and stops asking this file anything at all — on the WORLD field.
+// On the wire-echo field (`shipOnlyField`, `disclosed: true`) the shadow may
+// attenuate but never suppress, because the server already disclosed what is
+// there; the floor that discharges amendment 127 is `FieldSample.min`.
 //
 // THE RASTER IS EXPOSED ON THE SEAM (`RadarField.raster`) FOR EXACTLY THAT, and
 // for one reason beyond convenience: `solidAt` below uses `sampleHeight(...) > 0`
@@ -125,7 +128,10 @@ export interface FieldSample {
   /** Asymptotic floor of that curve. */
   floor: number;
   /** Floor on the FINAL intensity — non-zero only for hulls, where amendment
-   *  127's guarantee lives: nothing the server blips ever paints nothing. */
+   *  127's guarantee lives: nothing the server blips ever paints nothing. It
+   *  floors the return BEFORE the range term (`returnStrength`) and again AFTER
+   *  the shadow term (`shade`), which is what lets an occluded hull fade without
+   *  ever being erased. */
   min: number;
 }
 
@@ -150,6 +156,19 @@ export interface RadarField {
    * into disagreeing about where a coastline is.
    */
   readonly raster: HeightRaster | null;
+  /**
+   * TRUE when everything this field can answer was ALREADY DISCLOSED by the
+   * server (the wire-echo path — `shipOnlyField`), FALSE for the world field the
+   * beam walks.
+   *
+   * It governs ONE thing in the march: whether the shadow may SUPPRESS. On a
+   * disclosed field it may not — the ray attenuates what it finds and floors it
+   * at the material's own guarantee (`FieldSample.min`), and it emits no NO-DATA
+   * marks at all, because a bearing the server already answered is not a bearing
+   * the client learned nothing on. On the world field the shadow is free to go
+   * fully dark, which is what paints the grey.
+   */
+  readonly disclosed: boolean;
   sampleAt(x: number, y: number, dist?: number): FieldSample | null;
 }
 
@@ -504,6 +523,7 @@ export function buildField(f: FieldSpec): RadarField {
   const surfLevel = f.raster === null ? -1 : surfPyramidLevel(f.raster, m.surfBandU);
   return {
     raster: f.raster,
+    disclosed: false,
     sampleAt(x: number, y: number, dist = 0): FieldSample | null {
       const solid = solidAt(f, x, y, dist);
       if (solid !== null) return solid;
@@ -526,18 +546,47 @@ export function buildField(f: FieldSpec): RadarField {
  * noise, the slice record and the stamping are all still the march's, applied to
  * a field that contains only that hull. One model, one primitive, one list.
  *
- * IT CARRIES NO RASTER, AND THAT IS DELIBERATE — THIS PATH IS NEVER SHADOWED
- * (Story 4.11). The wire echo has ALREADY been gated by the server's own
- * `blipGate`, which now runs the same shadow model along the same ray; running a
- * second, client-side occlusion test over the result could only ever SUPPRESS a
- * blip the server legitimately disclosed, and amendment 127 forbids that in as
- * many words — anything the server blips paints at least a speck. A null raster
- * makes the shadow walk fail open, so the march here is byte-identical to the
- * pre-4.11 one.
+ * IT CARRIES THE RASTER, AND THE SHADOW ATTENUATES WHAT IT PAINTS WITHOUT EVER
+ * SUPPRESSING IT (Story 4.11, corrected at the review gate).
+ *
+ * THE POSITION THIS REPLACES, AND WHY IT WAS WRONG. This path shipped with
+ * `raster: null` — a deliberate choice, argued from amendment 127: the wire echo
+ * has ALREADY been gated by the server's own `blipGate`, which runs the same
+ * shadow model along the same ray, so a second client-side occlusion test could
+ * only ever SUPPRESS a blip the server legitimately disclosed, and *"anything
+ * the server blips paints at least a speck"* forbids that in as many words. The
+ * reasoning is sound and it still binds. The CONCLUSION did not follow: a null
+ * raster does not merely refuse to suppress, it refuses to ATTENUATE, so beyond
+ * truesight — the one tier this feature governs, since inside it a hull arrives
+ * as a `Contact` and is painted through `buildField` — a 5%-illuminated hull
+ * painted at FULL strength right up to the tick the server's gate flipped, and
+ * then vanished. That is exactly the cut Story 4.11's acceptance criterion
+ * forbids (*"a ship crossing into a shadow ... fades through the weakest band
+ * rather than cutting at a line"*), and it also let a full-strength echo sit
+ * inside water this same scope paints as grey NO-DATA.
+ *
+ * SUPPRESSION IS FORBIDDEN; ATTENUATION-WITH-A-FLOOR IS NOT, AND THE FLOOR IS
+ * WHAT DISCHARGES AMENDMENT 127. The march scales every sample by the ray's
+ * illuminated fraction and then floors the result at the material's own
+ * guarantee (`hullSample`'s `min` = `model.minPeak` — the existing "nothing the
+ * server disclosed ever vanishes" constant, not a new knob), so a partially
+ * shadowed hull reads WEAKER and a fully shadowed one still paints its speck.
+ * `disclosed` is what carries that rule into the march: on this field the shadow
+ * may never take a sample to nothing and the ray emits no NO-DATA marks (the
+ * grey is the beam's own business — it walks the same bearing on its own
+ * revolution).
+ *
+ * A caller with no terrain still passes `null`, which makes the shadow walk fail
+ * open exactly as before.
  */
-export function shipOnlyField(ships: ShipStamp, cellU: number): RadarField {
+export function shipOnlyField(
+  ships: ShipStamp,
+  cellU: number,
+  raster: HeightRaster | null = null,
+): RadarField {
   return {
-    raster: null,
+    raster,
+    disclosed: true,
     sampleAt(x: number, y: number): FieldSample | null {
       if (ships.size === 0) return null;
       return ships.get(cellKey(cellOf(x, cellU), cellOf(y, cellU))) ?? null;

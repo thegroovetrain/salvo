@@ -770,6 +770,16 @@ export class Radar {
    * unconditionally, and nothing was ever ruled to narrow that: anything the
    * server blips paints at least a speck. Widening the bound cannot paint
    * anything else, because the field contains this hull and nothing else.
+   *
+   * AND IT IS SHADOWED — ATTENUATED, NEVER SUPPRESSED (review gate). The
+   * one-hull field carries the SAME height raster the beam march reads, so the
+   * echo's cells are scaled by the ray's illuminated fraction at their own range
+   * and then floored at `minPeak` (`shade`, radarMarch.ts). Beyond truesight the
+   * wire is the ONLY way a hull reaches the scope, so without this a hull sliding
+   * into cover painted at full strength until the server's gate flipped and then
+   * cut out — the very line Story 4.11 exists to soften. The floor is what keeps
+   * amendment 127 intact through the change: a disclosed echo can be dimmed to
+   * its speck and no further, ever.
    */
   private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
@@ -786,7 +796,7 @@ export class Radar {
       own,
       arc.centre - arc.half,
       arc.centre + arc.half,
-      shipOnlyField(stamp, cfg.cellU),
+      shipOnlyField(stamp, cfg.cellU, this.heightRaster),
       reach,
       e.t,
       cfg,
@@ -999,9 +1009,20 @@ export class Radar {
    * WITH NO OWN POSE THE MASK COMES OFF, rather than being left centred on the
    * origin: a sprite mask CLIPS to its own frame, so a stale mask would hide
    * every spectate-mode contact outside a square around (0, 0).
+   *
+   * A NON-FINITE POSE IS THE SAME CASE, AND IT HAS TO BE HANDLED HERE (review
+   * gate). This is a mask, so it does not DEGRADE under a NaN: a sprite whose
+   * position is NaN has no frame, and Pixi clips the whole layer away — the heat
+   * buffer and the `silhouette` grammar's Graphics alike. So one non-finite own
+   * coordinate would blank the entire radar layer rather than mis-dim it. The
+   * rest of this file already treats a non-finite observer as reachable rather
+   * than impossible (`marchSlice`'s `marchable` guard checks `obs.x + obs.y` for
+   * exactly this reason), and the degradation is chosen deliberately: an UNDIMMED
+   * scope is strictly better than a HIDDEN one, since the dim is a legibility
+   * ruling (amendment 181) while the returns are the instrument.
    */
   private updateDimMask(own: OwnPoint | null): void {
-    if (own === null) {
+    if (own === null || !Number.isFinite(own.x + own.y)) {
       this.blipLayer.mask = null;
       return;
     }

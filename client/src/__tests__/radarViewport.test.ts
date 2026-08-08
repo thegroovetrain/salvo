@@ -1203,6 +1203,34 @@ describe('the near-range dim mask', () => {
     expect(layer.mask ?? null, 'cleared').toBeNull();
   });
 
+  it('COMES OFF FOR A NON-FINITE OWN POSE TOO — a mask does not DEGRADE under a '
+    + 'NaN, it BLANKS THE WHOLE LAYER (review gate)', () => {
+    // A sprite mask clips to its own frame, and a sprite positioned at NaN has
+    // no frame — so one non-finite own coordinate would hide every heat cell and
+    // every `silhouette` blip on the scope, not merely dim them wrongly. The
+    // march already treats a non-finite observer as reachable (`marchable`
+    // checks `obs.x + obs.y`), so this is the same input arriving one method
+    // over. Detaching is the deliberate degradation: an UNDIMMED scope beats a
+    // HIDDEN one, because the dim is legibility and the returns are the
+    // instrument.
+    const { radar, layer } = harness();
+    const cam = camera(1);
+    frame(radar, cam, { x: 300, y: 300 }, 0);
+    expect(layer.mask).toBe(radar.dimMask);
+
+    for (const own of [{ x: Number.NaN, y: 300 }, { x: 300, y: Infinity }]) {
+      radar.render(own, 500, null, cam.worldView);
+      expect(layer.mask ?? null, `own = (${own.x}, ${own.y}): the mask comes off`).toBeNull();
+      expect(Number.isFinite(radar.dimMask.position.x), 'and never takes a NaN position')
+        .toBe(true);
+      expect(Number.isFinite(radar.dimMask.position.y)).toBe(true);
+    }
+
+    // ...and a finite pose puts it straight back.
+    frame(radar, cam, { x: 300, y: 300 }, 900);
+    expect(layer.mask, 'recovered').toBe(radar.dimMask);
+  });
+
   it('MASKS THE `silhouette` GRAMMAR TOO — it is a property of the display, not '
     + 'of the return grammar', () => {
     const layer = new Container();

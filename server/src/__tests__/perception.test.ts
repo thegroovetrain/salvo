@@ -163,9 +163,17 @@ function inPaintWindow(me: ShipRecord, brg: number): boolean {
 // CONFIG.vision.radarMastQ / radar — and K is the BASE radar range squared
 // over 4 even for a boon-widened observer, amendment 185), and the target is
 // disclosed iff dist · (min_i a_i − dist/108_900) > 0 — a PARTIALLY
-// illuminated hull still paints; only full shadow deletes the blip. The
-// observer's own cell (entry ≤ 0) never occludes, and off-raster travel is
-// transparent. TRAVERSAL IS DELIBERATELY DIFFERENT from production: instead
+// illuminated hull still paints; only full shadow deletes the blip.
+//
+// A CELL NEVER OCCLUDES A QUERY POINT INSIDE IT, AT EITHER END OF THE RAY: the
+// observer's own cell is exempt (its entry is ≤ 0 — nothing at distance 0
+// stands between the antenna and anything, and u/d is undefined there), and so
+// is the TARGET's own cell (the ray has not LEFT it by the time it reaches the
+// target). That two-ended rule is what makes the model SYMMETRIC — A paints B
+// exactly when B paints A — and without the far end a hull whose centre rounds
+// into a hard-cover cell would be a one-way stealth pocket: invisible to
+// everyone, seeing everyone. Off-raster travel is transparent.
+// TRAVERSAL IS DELIBERATELY DIFFERENT from production: instead
 // of the DDA + max-height-pyramid walk, this oracle slab-tests every raster
 // cell in the segment's bounding box — but every entry distance is derived
 // from the same cell-boundary coordinates ((boundary − origin) / dir), and
@@ -188,8 +196,16 @@ function axisSlab(o: number, dir: number, min: number, max: number): readonly [n
 }
 
 /** a_i for raster cell (i, j) against the unit ray, or null when the cell is
- *  sea, missed, the observer's own (entry ≤ 0), or at/past the target. A
- *  corner graze (exit == entry) folds — the DDA folds the corner cell too. */
+ *  sea, missed, or EXEMPT AT EITHER END OF THE RAY — the observer's own cell
+ *  (entry ≤ 0) and the TARGET's own cell, plus anything past the target.
+ *  The far-end rule is RE-DERIVED here from the slab geometry rather than
+ *  copied from production's "entry distance of the target's cell" fold limit:
+ *  a cell occludes only once the ray has LEFT it before reaching the target,
+ *  i.e. iff its EXIT distance is at or before `len`. The cell CONTAINING the
+ *  target is the one the ray is still inside at `len` (exit > len), so it
+ *  never folds — which is exactly what keeps the model symmetric (see the
+ *  section header). A corner graze (exit == entry) folds — the DDA folds the
+ *  corner cell too. */
 function cellAOracle(
   r: HeightRaster,
   ox: number,
@@ -206,8 +222,10 @@ function cellAOracle(
   const sy = axisSlab(oy, uy, r.y0 + (j - 0.5) * r.cell, r.y0 + (j + 0.5) * r.cell);
   if (sx === null || sy === null) return null;
   const entry = Math.max(sx[0], sy[0]);
-  if (Math.min(sx[1], sy[1]) < entry) return null; // ray misses the cell square
-  if (entry <= 0 || entry >= len) return null; // own cell never occludes; fold strictly nearer only
+  const exit = Math.min(sx[1], sy[1]);
+  if (exit < entry) return null; // ray misses the cell square
+  if (entry <= 0 || entry >= len) return null; // observer's own cell; fold strictly nearer only
+  if (exit > len) return null; // the target's own cell: the ray is still inside it at `len`
   return (1 - q / MAST_Q) / entry + entry / SHADOW_K;
 }
 
@@ -491,6 +509,32 @@ describe('perception — radar paint window (exact)', () => {
     const f = buildFrame(w, 'a');
     expect(f.contacts).toEqual([]); // sight stays island-LOS-blocked
     expect(blipsOf(f).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+  });
+
+  it('a hull whose CENTRE sits inside a hard-cover cell still paints, from every bearing (the far-end exemption)', () => {
+    // The symmetry clause: a cell cannot occlude a query point INSIDE it, at
+    // either end of the ray. Navigable water sits in cells well under the q64
+    // mast threshold, but nothing structural pins that gap — and a hull whose
+    // centre rounded into a hard-cover cell would otherwise be a ONE-WAY
+    // stealth pocket (it paints everyone, nobody paints it), breaking "A paints
+    // B exactly when B paints A". A fresh world per bearing so the only hulls
+    // on the water are this observer and this target.
+    for (let n = 0; n < 16; n++) {
+      const brg = (n * TAU) / 16;
+      const w = bareWorld();
+      // Exactly ONE land sample — the q255 raster cell centred on the origin.
+      // Every other cell, and therefore the whole of every ray up to the
+      // target's own cell, is open water.
+      w.map.heightRaster = rasterFrom(700, ridgeField(0, 0, 1, 1, 255));
+      const b = place(w, 'b', 2, 1); // inside that cell, off its centre
+      const a = place(w, 'a', 400 * Math.cos(brg), 400 * Math.sin(brg));
+      windowAround(a, bearing(a.state, b.state));
+      // Non-vacuous: the target really is in the radar annulus, not sighted.
+      expect(dist(a.state, b.state)).toBeGreaterThan(effSight(a, w.now));
+      expect(dist(a.state, b.state)).toBeLessThanOrEqual(effRadar(a));
+      expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+      expect(shadowVisible(w, a, b.state)).toBe(true); // …and the oracle agrees
+    }
   });
 });
 

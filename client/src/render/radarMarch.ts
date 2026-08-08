@@ -35,11 +35,24 @@
 // nothing is illuminated at all, and the ray emits NO-DATA cells to the rim
 // WITHOUT querying the field, which is where the cost saving lives.
 //
-// THE MODEL IS SHARED WITH THE SERVER'S BLIP GATE, ON PURPOSE. Both sides fold
-// identical cells at identical distances because the WALK owns the cadence, not
-// the caller — so a client's scope can never disagree with the server's
-// disclosure, which is what makes an occlusion model on the paint layer safe at
-// all (amendment 179).
+// EXCEPT ON A DISCLOSED FIELD, WHERE THE SHADOW MAY ATTENUATE BUT NEVER SUPPRESS
+// (`RadarField.disclosed`, review gate). A wire echo has already been through the
+// server's gate, so the ray scales it by the same fraction and then FLOORS the
+// result at the material's own guarantee (`shade`, `model.minPeak`) rather than
+// letting it reach zero, and emits no NO-DATA on that bearing at all. That is how
+// amendment 127 ("anything the server blips paints at least a speck") and the
+// story's fade criterion are held at once; `shipOnlyField` carries the argument.
+//
+// THE MODEL IS SHARED WITH THE SERVER'S BLIP GATE, ON PURPOSE, AND THE TWO SIDES
+// DELIBERATELY DO NOT AGREE CELL FOR CELL. The WALK owns the folding cadence, not
+// the caller, so both sides fold the same cells at the same distances — but the
+// CLIENT queries visibility BEFORE folding each sample (amendment 187: advancing
+// first makes a tall island paint nothing at all), while the server's one-shot
+// `visibilityTo` folds the target's own cell before querying. So at a shadow's
+// leading edge the client's accumulator lags the server's by up to one heat cell
+// plus one step (~13u at the shipped 9u/4u pair). THE DIRECTION IS THE SAFE ONE
+// AND THAT IS THE POINT: the client can only ever paint at least as much as the
+// server discloses, never more, so no lag here can leak anything (amendment 179).
 //
 // QUERY BEFORE FOLD, AND THE ORDER IS LOAD-BEARING (amendment 178). A sample is
 // evaluated against the accumulator as it stood BEFORE that sample was folded
@@ -48,9 +61,10 @@
 // interior dark, which is what a real marine set draws. Reversing the two lines
 // makes hard cover (`h >= radarMastQ`) shadow ITSELF: `vis` at the obstacle is
 // `1 - h/H <= 0`, so every land cell would evaluate to zero and a tall island
-// would paint NOTHING AT ALL. The lag is bounded by one queried sample (~one
-// heat cell, finer than the 14u raster the walk folds on), so the fold can be at
-// most half a raster cell late and never early.
+// would paint NOTHING AT ALL. The lag is bounded by one queried sample plus one
+// step (~13u at the shipped 9u cell / 4u step), so the fold is at most that late
+// and NEVER early — which is the direction that can only over-paint, never
+// under-paint, and therefore never leak.
 //
 // A SLICE IS A HISTORICAL RECORD (amendment 83). Its cells and their intensities
 // are decided ONCE, here, and afterwards only alpha moves, via phosphor decay.
@@ -411,10 +425,43 @@ function sampleIntensity(
   return raw * noiseMul(MARCH_SEED, gx, gy, noiseAmplitude(raw, env));
 }
 
+/**
+ * APPLY THE RAY'S ILLUMINATED FRACTION TO ONE SAMPLE, FLOORED AT THE MATERIAL'S
+ * OWN GUARANTEE (Story 4.11, corrected at the review gate).
+ *
+ * `min` is `FieldSample.min`: `model.minPeak` for a hull, 0 for everything else.
+ * So for terrain, surf, clutter and the storm wall this is exactly `raw × vis`,
+ * bit for bit — a landmass still goes fully dark and the grey still paints.
+ *
+ * FOR A HULL IT IS THE WHOLE OF AMENDMENT 127 UNDER OCCLUSION. Shadow may only
+ * ever WEAKEN a hull's mark, never brighten it and never erase it:
+ *
+ *   • `Math.min(raw, min)` is the floor — the material's guarantee, or the
+ *     sample's own unshadowed reading when that is already below it (a rim echo
+ *     whose grain drew under `minPeak`). Clamping to the SMALLER of the two is
+ *     what stops a shadow from making a faint echo BRIGHTER than it was.
+ *   • The floor cannot be dropped by the store threshold: `returnStrength`
+ *     floors a hull at `minPeak` = 0.2 BEFORE the grain, and the grain's worst
+ *     draw there is 0.136 — above `bands[0].at` = 0.12. A disclosed echo
+ *     therefore paints at least a green speck at any shadow depth, which is the
+ *     property `raster: null` used to buy by refusing to attenuate at all.
+ *
+ * A partially shadowed hull reads weaker (`raw × vis` while that is above the
+ * floor, so it walks red → blue → green exactly as the AC asks) and then holds
+ * at the floor instead of cutting out.
+ */
+export function shade(raw: number, vis: number, min: number): number {
+  return Math.max(raw * vis, Math.min(raw, min));
+}
+
 /** Everything one march run needs beyond the arc it is walking. */
 interface RunCtx {
   obs: Vec2;
   field: RadarField;
+  /** `RadarField.disclosed` — TRUE for the wire-echo field, whose contents the
+   *  server already disclosed. On such a ray the shadow attenuates (floored by
+   *  `shade`) and never suppresses, and no NO-DATA mark is ever emitted. */
+  disclosed: boolean;
   /** The field's OWN height raster (`RadarField.raster`) — one land answer, one
    *  source. Null on a field with no terrain, which makes the shadow walk fail
    *  open and the march byte-identical to the pre-4.11 one. */
@@ -440,10 +487,16 @@ interface RunCtx {
  * AND IT CARRIES THE SHADOW (Story 4.11). One walk per ray; at every queried
  * sample the illuminated fraction is read BEFORE the sample's own cell is folded
  * (see the module header — the reverse order makes hard cover shadow itself),
- * multiplied into the intensity, and once the walk's reach is behind us the ray
- * stops asking the field anything and simply marks NO-DATA out to its terminus.
+ * applied to the intensity by `shade`, and once the walk's reach is behind us the
+ * ray stops asking the walk anything at all. On the world field it then marks
+ * NO-DATA out to its terminus without querying the field either; on a DISCLOSED
+ * field it keeps painting, floored (see `paintSample`).
+ *
  * The walk's own DDA decides which cells fold and at what distance, independent
- * of `stepU`, which is what keeps this in lockstep with the server's gate.
+ * of `stepU` — that is what keeps the client's fold cadence the SAME as the
+ * server gate's, though not its query order: the client is up to one sample plus
+ * one step behind at a shadow's leading edge, in the over-painting direction
+ * only (module header, amendment 187).
  */
 function marchRay(bearing: number, c: RunCtx): void {
   const cellU = c.o.cellU;
@@ -457,7 +510,14 @@ function marchRay(bearing: number, c: RunCtx): void {
   // miss it, which no fixed-step march can avoid and no consumer depends on.)
   const step = Math.min(c.o.march.stepU, cellU * 0.5);
   const walk = beginShadowWalk(c.raster, c.obs.x, c.obs.y, dx, dy);
-  let reach = Infinity;
+  // A RADIAL WINDOW IS A COMPUTE BOUND, NEVER A SHADOW ONE: a ray clipped to a
+  // slab still crossed everything between the antenna and that slab, so the walk
+  // is advanced to the window's start before the FIRST query rather than being
+  // handed its whole history one sample late. `fromU` is 0 on the beam march and
+  // `advanceTo(0)` folds nothing (the observer's own cell never occludes), so
+  // this is inert there and only ever bites on the wire-echo slab.
+  walk.advanceTo(c.fromU);
+  let reach = walk.reach();
   let lastKey = Number.NaN;
   for (let d = c.fromU; d <= c.toU; d += step) {
     const x = c.obs.x + dx * d;
@@ -467,23 +527,51 @@ function marchRay(bearing: number, c: RunCtx): void {
     const key = cellKey(gx, gy);
     if (key === lastKey) continue; // consecutive samples in one cell: price it once
     lastKey = key;
-    if (d >= reach) {
-      pushNoData(key, gx, gy); // fully shadowed to the rim: no field query at all
-      continue;
+    // PAST THE WALK'S REACH NOTHING IS ILLUMINATED AND THE WALK IS NOT ASKED
+    // AGAIN: `vis` is monotone past its own root and folding more land can only
+    // lower it, so the answer is 0 by construction and the query is pure cost.
+    let vis = 0;
+    if (d < reach) {
+      vis = walk.visibilityAt(d); // QUERY, then fold — see the module header
+      walk.advanceTo(d);
+      reach = walk.reach();
     }
-    const vis = walk.visibilityAt(d);
-    walk.advanceTo(d);
-    reach = walk.reach();
-    if (!(vis > 0)) {
-      pushNoData(key, gx, gy);
-      continue;
-    }
-    const s = c.field.sampleAt(x, y, d);
-    if (s === null) continue;
-    const i = sampleIntensity(s, d, gx, gy, c.o.noise) * vis;
-    if (!(i >= c.minStore)) continue; // NaN-safe: a non-finite sample stores nothing
-    pushCell(key, gx, gy, i);
+    paintSample(c, x, y, d, gx, gy, key, vis);
   }
+}
+
+/**
+ * Record ONE sample: the shadow's verdict, then the field's answer through the
+ * model, then the store threshold.
+ *
+ * THE DARK BRANCH IS A PROPERTY OF THE FIELD, NOT OF THE RAY (review gate). On
+ * the world field a fully shadowed sample is a bearing the observer learned
+ * NOTHING on, so it marks NO-DATA and never queries the field at all — which is
+ * where the cost saving lives. On a DISCLOSED field (the wire echo) the server
+ * has already answered that bearing, so the sample is still priced and merely
+ * attenuated: `shade` floors it at the material's guarantee, so it fades and
+ * never cuts. Nothing there can be no-data either, because nothing there was
+ * unknown.
+ */
+function paintSample(
+  c: RunCtx,
+  x: number,
+  y: number,
+  d: number,
+  gx: number,
+  gy: number,
+  key: number,
+  vis: number,
+): void {
+  if (!(vis > 0) && !c.disclosed) {
+    pushNoData(key, gx, gy);
+    return;
+  }
+  const s = c.field.sampleAt(x, y, d);
+  if (s === null) return;
+  const i = shade(sampleIntensity(s, d, gx, gy, c.o.noise), vis, s.min);
+  if (!(i >= c.minStore)) return; // NaN-safe: a non-finite sample stores nothing
+  pushCell(key, gx, gy, i);
 }
 
 /**
@@ -583,6 +671,7 @@ export function marchSlice(
   const ctx: RunCtx = {
     obs,
     field,
+    disclosed: field.disclosed,
     raster: field.raster,
     fromU: w.fromU,
     toU: w.toU,

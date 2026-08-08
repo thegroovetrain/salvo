@@ -519,19 +519,88 @@ describe('terrain casts a height-derived shadow', () => {
     expect(Math.max(...nd.map((c) => c.y)), 'marked out to the terminus').toBeGreaterThan(600);
   });
 
-  it('THE WIRE-ECHO PATH IS NEVER SHADOWED (amendment 127): a one-hull field '
-    + 'carries no raster, so a resolved blip always paints', () => {
-    const obs: Vec2 = { x: 0, y: 0 };
+  // THE WIRE-ECHO PATH: ATTENUATED, NEVER SUPPRESSED (review gate).
+  //
+  // WHAT THESE REPLACE. This block shipped with one test asserting the opposite
+  // — that a one-hull field carries NO raster, so a resolved blip always paints
+  // at full strength. The ruling behind it (amendment 127: anything the server
+  // blips paints at least a speck, so a client-side occlusion test must never
+  // suppress one) still binds and is asserted below; the CONCLUSION did not
+  // follow. Beyond truesight the wire is the ONLY way a hull reaches the scope,
+  // so refusing to attenuate meant a 5%-illuminated hull painted at FULL
+  // strength until the server's gate flipped and then cut out — the exact line
+  // the story's AC forbids, on the one tier this feature governs.
+
+  /** One wire echo's painted cells, marched through the one-hull field exactly
+   *  as `Radar.marchEcho` does — optionally over a raster that shadows it. */
+  function echoCells(obs: Vec2, y: number, raster: HeightRaster | null): number[] {
     const stamp = buildShipStamp(
-      [{ id: 'a', x: 0, y: 600, heading: 0, cls: 'battleship' }],
+      [{ id: 'a', x: 0, y, heading: 0, cls: 'battleship' }],
       CFG.model,
       CFG.cellU,
     );
-    const field = shipOnlyField(stamp, CFG.cellU);
-    expect(field.raster, 'no terrain reaches this path').toBeNull();
+    const s = marchAll(obs, shipOnlyField(stamp, CFG.cellU, raster), CFG);
+    return cellsOf(s, CFG).map((c) => c.w);
+  }
+
+  it('A PARTIALLY SHADOWED WIRE ECHO PAINTS WEAKER THAN AN UNSHADOWED ONE — the '
+    + 'fade the AC asks for, on the tier where the wire is the only source', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const sea = rasterWithPyramid(760, () => 0);
+    const covered = rasterWithPyramid(760, box(0, 200, 400, 7, MAST / 2));
+    const lit = echoCells(obs, 250, sea);
+    const dim = echoCells(obs, 250, covered);
+
+    expect(lit.length, 'the echo paints unshadowed').toBeGreaterThan(10);
+    expect(dim.length, 'and every one of those cells still paints shadowed').toBe(lit.length);
+    for (let k = 0; k < lit.length; k++) {
+      expect(dim[k], `cell ${k} is weaker`).toBeLessThan(lit[k]);
+    }
+    // ...and the weakening is a real walk down the register, not a token dip:
+    // the same half-mast cover moves the whole mark RED → BLUE, exactly as it
+    // does on the truesight contact path one test above.
+    expect(new Set(lit.map((w) => bandIndex(w, BANDS))), 'unshadowed: RED').toEqual(new Set([2]));
+    expect(new Set(dim.map((w) => bandIndex(w, BANDS))), 'shadowed: BLUE').toEqual(new Set([1]));
+  });
+
+  it('...AND A FULLY SHADOWED ONE STILL PAINTS, AT THE FLOOR (amendment 127): a '
+    + 'disclosed echo can be dimmed to its speck and no further, ever', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const sea = rasterWithPyramid(760, () => 0);
+    // HARD COVER across the whole bearing: `vis` is 0 at the hull, not merely
+    // small, so this is the case the old `raster: null` path existed to protect
+    // and the case a bare `raw × vis` would erase.
+    const wall = rasterWithPyramid(760, box(0, 270, 400, 30, 255));
+    const lit = echoCells(obs, 450, sea);
+    const dark = echoCells(obs, 450, wall);
+
+    expect(lit.length, 'the echo paints unshadowed').toBeGreaterThan(10);
+    expect(dark.length, 'and NOT ONE CELL OF IT IS LOST TO THE SHADOW').toBe(lit.length);
+    for (let k = 0; k < dark.length; k++) {
+      // `shade(raw, 0, minPeak)` — the material's guarantee, or the cell's own
+      // unshadowed reading when the grain already drew it under that (a shadow
+      // may never BRIGHTEN an echo either).
+      // (to f32 precision — a slice stores its intensities in a Float32Array.)
+      expect(dark[k], `cell ${k} sits exactly on the floor`)
+        .toBeCloseTo(Math.min(lit[k], CFG.model.minPeak), 7);
+      expect(dark[k], 'which is above the transparent threshold, so it draws')
+        .toBeGreaterThan(BANDS[0].at);
+    }
+  });
+
+  it('and a disclosed bearing is never reported as NO-DATA: the server answered '
+    + 'it, so the client did not learn nothing there', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const wall = rasterWithPyramid(760, box(0, 270, 400, 30, 255));
+    const stamp = buildShipStamp(
+      [{ id: 'a', x: 0, y: 450, heading: 0, cls: 'battleship' }],
+      CFG.model,
+      CFG.cellU,
+    );
+    const field = shipOnlyField(stamp, CFG.cellU, wall);
+    expect(field.disclosed, 'the one-hull field is a disclosed field').toBe(true);
     const s = marchAll(obs, field, CFG);
-    expect(s.n, 'the echo painted').toBeGreaterThan(0);
-    expect([...s.nd].some((v) => v === 1), 'and nothing was blacked out').toBe(false);
+    expect([...s.nd].some((v) => v === 1), 'nothing was blacked out').toBe(false);
   });
 });
 

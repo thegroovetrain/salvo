@@ -2950,6 +2950,82 @@ the ruling and my implementation reading stay separable. Neither touches anythin
      that needs a different premise (a target height below mast height), which would break amendment
      101's simplification and is a ruling, not a fix.
 
+## 2026-08-08 — Cycle 68 review gate
+
+189. **THE MODEL WAS ASYMMETRIC AND THAT WAS A ONE-WAY STEALTH POCKET — the gate's worst defect, caught
+     by two independent reviewers.** The observer's own cell was correctly exempted from occluding
+     (nothing at distance 0 stands between you and anything), but the TARGET's cell had no mirror:
+     `visibilityTo` folded every cell entered before the target, INCLUDING the one the target sits in.
+     Reproduced: a target inside a `q200` cell read visibility **0 from every bearing** while reading
+     **1** in the reverse direction — invisible to everyone, seeing everyone, and a decoy dropped there
+     would silently never fire its lie. That directly contradicts the spec's own Always clause (*"A
+     paints B exactly when B paints A"*), and amendment 187 waved it off on a premise — *"a ship's own
+     cell is WATER and folds nothing"* — that is **false in general**: scanning five real seeds,
+     navigable water sits inside land raster cells up to `q58` against the `q64` threshold. No seed
+     crossed it, so this was one generator retune from live rather than shipped-broken.
+
+     Fixed by exempting the target's own cell, so the rule is now two-ended and symmetric BY
+     CONSTRUCTION: **a cell never occludes a query point that lies inside it, at either end of the ray.**
+     The exemption is exactly one cell wide — an obstacle whose cell ends 0.001u short of the target
+     still folds, and there is a test pinning that it does.
+
+190. **THE ANNULUS TIER CUT WHERE THE STORY SAYS IT MUST FADE — my implementation ruling was wrong and
+     both the in-family reviewer and Codex said so independently.** I told the client agent not to
+     shadow the wire-echo path, on amendment 127's grounds (*"anything the server blips paints at least
+     a speck"* — a client-side occlusion test could only ever SUPPRESS a disclosure). Correct premise,
+     wrong conclusion: beyond truesight a hull reaches the client ONLY as a wire echo, so on the ONE
+     tier this feature governs, a 5%-illuminated hull painted at FULL strength and then vanished — which
+     is exactly the cut the acceptance criterion forbids. The fade the client tests proved was on the
+     truesight contact path.
+
+     The answer both reviewers converged on, and it is obvious in hindsight: **suppression is forbidden,
+     attenuation with a FLOOR is not.** The echo is now multiplied by its own visibility and floored at
+     `min(raw, minPeak)` — the existing "nothing the server disclosed ever vanishes" constant — so a
+     partially-shadowed hull reads weaker and a fully-shadowed one still paints its speck. Amendment 127
+     is discharged by the floor rather than by refusing to attenuate. **Generalizable lesson: when an
+     invariant forbids a DIRECTION of change, check whether it forbids the MAGNITUDE too — "never zero"
+     and "never dim" are different rules, and I conflated them.**
+
+191. **CORRECTION TO AMENDMENT 177's TABLE: the absolute-cover share is ~45%, not 38.8%.** The
+     review-gate guardrail (the cross-seed pin amendment 184 promised and the implementation had
+     omitted) measures the shipped generator at **45.2% pooled** absolute cover of land-crossing
+     bearings, per-seed 35.9-54.8%, with land-crossing share **14.8%** — against my 38.8% / 17.4%.
+     Cause: my probe stopped marching once a bearing went dark, so terrain past that point never
+     entered the chord spine and hard cover was undercounted. The whole H-table shifts by about the
+     same ~5pp (q32 66.3%, q64 44.2%, q96 28.2%, q128 15.8% under the corrected methodology).
+
+     **Eric's `q64` ruling stands**: he chose against the SHAPE — a graze is ~free, a spine crossing
+     reliably breaks a lock, the middle band is wide and range-dependent — and the shape is unchanged.
+     The pin is written against the measured truth rather than the prose figure, because a guardrail
+     pinning a number the code does not produce guards nothing. Bands: pooled ∈ (37%, 53%), per-seed ∈
+     (25%, 70%), land-crossing ∈ (9%, 22%) — roughly 9σ of binomial noise at n≈3200, and tight enough
+     to fire before the character drifts halfway to a neighbouring mast rung.
+
+192. **THE PARITY CLAIM WAS OVERSTATED IN THREE PLACES, and in this module that is a hazard rather than
+     a cosmetic issue (amendment 148).** The shared header claimed an incremental march and a one-shot
+     query *"agree bit-for-bit, which is what keeps the scope and the gate from ever disagreeing"*.
+     What is bit-exact is the FOLDING CADENCE; the two callers deliberately differ in QUERY ORDER
+     (amendment 187), so the client trails the server at a shadow's leading edge. Also corrected: the
+     lag bound is **not** "half a raster cell" — the client only advances the walk on entering a new
+     HEAT cell (9u) and deduped samples skip `advanceTo` entirely, so the real bound is one heat-cell
+     crossing plus one step, ~13u and up to ~17u on a diagonal; and the loop guard does **not** "fail
+     open identically on both sides" (the one-shot gets one budget per ray, an incremental march gets a
+     fresh budget per call). **The divergence is safe by DIRECTION, not by absence** — the client folds
+     a subset and `vis` is monotone non-increasing, so the client always paints at least what the server
+     disclosed; a leak would need the opposite sign. That is what the comments now say.
+
+193. **Gate outcome.** Two Fable adversarial reviewers plus a cross-model Codex pass on the same diff;
+     verdict **build-on-it** with no finding that corrupts state, desyncs prediction, or leaks
+     perception. Five patches applied (the symmetry fix, the floored echo attenuation, the missing
+     cross-seed pin, a non-finite-pose guard that would otherwise have blanked the entire radar layer,
+     and the comment corrections), each with a regression test observed FAILING before its fix. The
+     perception oracle gained the matching two-ended rule, re-derived from slab geometry rather than
+     copied. Five findings deferred (see `deferred-work.md`), the sharpest being **invisible occluders**:
+     landmasses under `minIslandArea` are dropped from `islands[]` but stay LAND in the raster, so they
+     now cast shadow and delete blips from water that draws as empty and that ships sail through — a
+     generation-side fix, and pre-existing as a paint artifact since cycle 61. Final: 3,584 tests
+     (624 shared / 1,000 server / 1,960 client).
+
 187. **THE ORDERING RULE IS "QUERY, THEN FOLD" AT THE CALLER'S OWN SAMPLE CADENCE — my wave-2b ruling had
      it backwards and would have made every tall island invisible.** Amendment 178 says a sample is
      evaluated against the accumulator as it stood BEFORE that sample was folded in. I translated that

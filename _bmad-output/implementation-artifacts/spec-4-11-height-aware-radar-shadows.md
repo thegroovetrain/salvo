@@ -2,10 +2,11 @@
 title: 'Story 4.11 — Height-Aware Radar Shadows'
 type: 'feature'
 created: '2026-08-08'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'd7c1242'
+final_revision: 'PENDING'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context-amendments.md'
@@ -227,6 +228,106 @@ where the player aims by eye.
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-08 — Review pass
+
+Two adversarial reviewers (Blind Hunter, Edge Case Hunter) plus a cross-model Codex pass on the same
+diff. Verdict: **build-on-it** — nothing found corrupts state, desyncs prediction, or leaks perception.
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 5, low 2)
+- defer: 5: (high 0, medium 2, low 3)
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` **The model was asymmetric — a one-way radar-stealth pocket.** `visibilityTo`
+    folded the TARGET's own raster cell (the observer's was exempt, the target's was not), so a hull
+    whose centre rounds into a hard-cover cell read visibility 0 from every bearing while reading 1 in
+    reverse — contradicting the spec's Always clause. Flagged by both Fable reviewers. Fixed with a
+    two-ended exemption (a cell never occludes a query point inside it), pinned by a 16-bearing symmetry
+    ring, a 4,000-pair randomized sweep, and a test that the exemption is exactly one cell wide.
+  - `[medium]` `[patch]` **The annulus tier cut where the AC requires a fade.** Beyond truesight a hull
+    arrives only as a wire echo, and my implementation ruling left that path unshadowed on amendment
+    127's grounds — so a 5%-illuminated hull painted at full strength then vanished. Flagged
+    independently by Blind Hunter and Codex. Fixed by attenuating the echo by its own visibility with a
+    floor at `min(raw, minPeak)`: suppression stays forbidden, dimming does not, and the floor is what
+    discharges amendment 127.
+  - `[medium]` `[patch]` **The cross-seed guardrail amendment 184 promised was never built.** Added; it
+    measures the shipped generator at 45.2% pooled absolute cover (not the 38.8% amendment 177 recorded
+    — my original probe stopped marching once a bearing went dark and undercounted). Pinned against
+    measured truth with derived bands; see amendment 191.
+  - `[medium]` `[patch]` **A non-finite own pose blanked the ENTIRE radar layer.** A Pixi sprite mask
+    clips to its own frame, so a NaN pose hid every heat and silhouette blip rather than degrading. The
+    codebase already treats a non-finite observer as reachable (`marchable` guards it). Now detaches the
+    mask — an undimmed scope beats a hidden one.
+  - `[medium]` `[patch]` **The perception oracle no longer mirrored the gate.** Its far-end rule excluded
+    cells entered past the target but not the cell CONTAINING it; it passed only because no seeded world
+    had yet placed a hull centre inside a land cell. Re-derived from slab geometry (exit ≤ len), not
+    copied from production, with a directed 16-bearing test.
+  - `[low]` `[patch]` **Three overstated parity claims** in load-bearing comments — "agree bit-for-bit",
+    a "half a raster cell" lag bound that is really ~13u (up to ~17u diagonal), and "fails open
+    identically on both sides". In this module an overclaiming comment is a documented hazard
+    (amendment 148). Corrected to state that the divergence is safe by DIRECTION, not absent.
+  - `[low]` `[patch]` **The perf Block-If was undischarged in the deliverable** — measured but not
+    recorded. Numbers now in Auto Run Result below.
+
+## Auto Run Result
+
+**Status: done.** Cycle 68, version 0.17.68, `PROTOCOL_VERSION` unchanged at 31.
+
+**What changed.** Terrain occlusion was in two contradictory states: the server deleted any blip whose
+line crossed an island polygon at any range however low, while the client painted straight through
+everything (cycle 62 removed occlusion on the promise 4.11 would restore it). One shared pure module now
+answers both. A ray folds each land cell it enters into a single running scalar
+`aMin = min(u_i/d_i + d_i/K)`; `vis(D) = clamp01(D·(aMin − D/K))` is the illuminated fraction of a target
+at `D`, **and its root is the reach**, so the soft edge and the gate are the same function rather than
+two rules that can drift. O(1) per sample. Plus Eric's side task: a live radial dim mask that quiets the
+scope inside the range where he aims by eye.
+
+**Files changed:**
+- `shared/src/sim/radarShadow.ts` (NEW) — the one model: two-ended cell exemption, DDA over the 14u
+  raster with pyramid skips, `beginShadowWalk`/`advanceTo`/`visibilityAt`/`reach`/`visibilityTo`.
+- `shared/src/constants.ts` — `CONFIG.vision.radarMastQ = 64`, fixed and unpurchasable.
+- `shared/src/__tests__/radarShadow.test.ts` (NEW), `zone.test.ts` — the I/O matrix, both closed forms,
+  the symmetry sweep, the cross-seed hard-cover pin, and the build-failing `2RH = radarRange²/4` pin.
+- `server/src/game/signals.ts` — `blipGate`'s LOS term becomes `visibilityTo(...) > 0`; `losClear` and
+  its five other callers byte-identical. `SignalContextBase` carries the raster.
+- `server/src/game/perception.ts` — both contexts pass `world.map.heightRaster`.
+- `server/src/__tests__/islandFixture.ts` + 11 test files — the raster fixture seam (`rasterFrom`,
+  `flatRaster`, `ridgeField`); the blip oracle re-derived independently; golden frames re-recorded.
+- `client/src/render/radarMarch.ts`, `radarField.ts`, `radarHeatmap.ts`, `radar.ts`, `textures.ts`,
+  `config.ts` — the shadow in the march, the NO-DATA third channel, the grey token, the dim mask.
+- `VERSION`, `package.json`, both trackers, `CLAUDE.md`.
+
+**Review findings:** 7 patches applied (5 medium, 2 low), 5 deferred, 1 rejected, 0 intent gaps, 0 spec
+defects. Each patch carries a regression test observed FAILING before its fix.
+
+**Verification:** `npm run build -w shared` then `npm run check` — **exit 0, 3,584 tests** (624 shared /
+1,000 server / 1,960 client), lint clean at complexity ≤ 10, all three type-checks clean.
+
+**Measured cost (the AC required measured, not assumed):**
+- *Server* — the new gate is CHEAPER than the `islandBlocksSegment` path it replaces, measured on the
+  same fixture in the same run: 0.54 µs vs 0.74 µs on open water, 1.43 µs vs 2.58 µs on a land-crossing
+  bearing. Adversarial 20×20 pair count: 278 µs vs 423 µs per tick — 0.6% of a 50 ms tick.
+- *Client* — DEARER, not cheaper: 1.55 / 0.81 / 0.80 ms at 0.5× / 1.0× / 1.5× zoom on a median-land
+  observer, and 1.97 / 1.38 / 1.24 ms on the most-coastal observer, against a pre-change baseline of
+  1.50 / 0.89 / 0.84 ms and a 2.5 ms bar. Live cells +92% on a coastal scope, because no-data cells are
+  stored. **Amendment 183's prediction that the reach short-circuit would make the march cheaper is
+  FALSE** — the saved field queries do not pay for the stored grey.
+
+**Residual risks:**
+1. **Client headroom at min zoom is now thin** — 1.97 ms against 2.5 ms on an adversarial coastal
+   position, and the dim mask routes `blipLayer` through a Pixi `MaskFilter` render-target pass that a
+   headless harness cannot see and which is NOT in that number. First thing to watch on real hardware.
+2. **Invisible occluders** (deferred): sub-`minIslandArea` blobs are dropped from `islands[]` but stay
+   LAND in the raster, so they now delete blips from water that draws as empty.
+3. **The visual change is larger than anything predicted it** — a tall island paints a ~12-32u seaward
+   rim with a grey body behind it (amendment 188). Correct and still legible, but Eric approved the
+   current island look as recently as cycle 66 and should see this before it is called right.
+4. **Amendment 102's ratified "coast-hugging carries a real cost" does not hold for low terrain**
+   (amendment 186) — the formula says you look over it. Hard cover is unaffected.
+5. The gate is a point predicate while the paint is a footprint (deferred) — bounded and not
+   exploitable, but they are not the same predicate.
 
 ## Design Notes
 
