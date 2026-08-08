@@ -140,9 +140,28 @@ export interface HeatBand {
   at: number;
   /** The band's color — used VERBATIM, never lerped toward a neighbour. */
   color: number;
-  /** Peak opacity of a FRESH pixel in this band (age scales it down). */
-  alpha: number;
 }
+
+/**
+ * THE BANDS CARRY NO OPACITY OF THEIR OWN, AND THAT ABSENCE IS THE RULING
+ * (cycle 64, Eric: *"I told you pretty clearly not to vary the intensity per
+ * color band. At all. The garmin radar doesn't do that... any particular point
+ * is either red, blue, green, or none of the above. There's no darker blue
+ * because its 'less intense in the moderate band.' That's not what the colors
+ * are for."*).
+ *
+ * Cycle 63 shipped a per-band opacity ramp (green 0.4 / blue 0.56 / red 0.72),
+ * which made brightness a SECOND encoding of return strength on top of hue —
+ * the redundancy amendment 64 exists to forbid, arrived at from a new
+ * direction. A `HeatBand` therefore has no `alpha` FIELD at all rather than
+ * three equal ones: an equal-valued field is a knob someone re-tunes, whereas
+ * a missing field is unrepresentable.
+ *
+ * WHAT STILL RIDES OPACITY IS AGE, AND ONLY AGE. Phosphor decay is untouched
+ * (amendment 64's third channel, and the translucency Eric ratified) — an old
+ * paint fades, a fresh one does not, and two cells of the same age in
+ * different bands are equally opaque no matter how strong either return is.
+ */
 
 /**
  * Which band a per-pixel intensity falls in, or -1 for fully transparent.
@@ -338,8 +357,17 @@ export function sampleGrid(g: HeatGrid, x: number, y: number): { w: number; a: n
  * reject beats four byte stores and a band lookup per dead cell. Measured at
  * roughly half the per-frame cost of the buffer at min zoom.
  */
-export function quantizeInto(g: HeatGrid, bands: readonly HeatBand[], out: Uint8Array): void {
+export function quantizeInto(
+  g: HeatGrid,
+  bands: readonly HeatBand[],
+  bandAlpha: number,
+  out: Uint8Array,
+): void {
   out.fill(0);
+  // ONE opacity for every band (cycle 64). `bandAlpha` is a scalar, not a
+  // per-band lookup, so the ramp cycle 63 shipped cannot come back through this
+  // loop: whatever band a pixel lands in, its opacity is decided by AGE alone.
+  const peak = clamp01(bandAlpha);
   for (let i = 0, n = g.cols * g.rows; i < n; i++) {
     const w = g.w[i];
     if (!(w > 0)) continue; // the overwhelming majority: already blank
@@ -350,7 +378,7 @@ export function quantizeInto(g: HeatGrid, bands: readonly HeatBand[], out: Uint8
     out[o] = (band.color >> 16) & 0xff;
     out[o + 1] = (band.color >> 8) & 0xff;
     out[o + 2] = band.color & 0xff;
-    out[o + 3] = Math.round(255 * clamp01(band.alpha * g.a[i]));
+    out[o + 3] = Math.round(255 * clamp01(peak * g.a[i]));
   }
 }
 
@@ -481,6 +509,8 @@ export interface ReturnModelOpts {
 export interface HeatmapOpts {
   cellU: number;
   bands: readonly HeatBand[];
+  /** The ONE opacity every band draws at (cycle 64) — a scalar, never per-band. */
+  bandAlpha: number;
   noise: NoiseEnvelope;
   march: MarchOpts;
   model: ReturnModelOpts;

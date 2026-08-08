@@ -113,6 +113,24 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-08 (dev-auto cycle 64, 0.17.64) — THE BANDS ARE FLAT. Amendments 160-163;
+  # PV UNCHANGED at 31; client-only. Cycle 63 shipped a per-band OPACITY RAMP (green 0.4 / blue 0.56 /
+  # red 0.72), so a weaker register was drawn fainter — brightness became a SECOND encoding of return
+  # strength on top of hue, the exact redundancy amendment 64's three-channel split forbids. It got in
+  # as "translucency tuning" (amendment 144) rather than as a channel, and its own comment had already
+  # rationalised the ratios into "what carry the three registers apart". Eric: "I told you pretty
+  # clearly not to vary the intensity per color band. At all... There's no darker blue because its
+  # 'less intense in the moderate band.' That's not what the colors are for."
+  #   HeatBand now has NO `alpha` member and quantizeInto takes ONE scalar bandAlpha (0.55) — three
+  #   EQUAL fields would be a knob someone re-tunes back into a ramp; a missing field is
+  #   unrepresentable. OPACITY CARRIES AGE AND ONLY AGE (phosphor decay untouched), pinned as a
+  #   PROPERTY both ways because the type change alone cannot stop the arithmetic reintroducing a ramp.
+  #   AMENDMENT 142 STANDS: the clamping Eric wanted was always on the COLOUR OUTPUT, never the
+  #   elevation data — continuous 256-level height still feeds the model and 4.11's shadow length.
+  #   Height decides WHICH band a cell lands in, never how bright it is drawn.
+  #   TUNING: green is the most numerous register and was previously hidden by being drawn faintest,
+  #   so the scope carries more green now. If that reads busy, the lever is the AMOUNT of green
+  #   (clutter/land coefficients, or bands[0].at) — NEVER its brightness.
   # INTERSTITIAL 2026-08-07 (dev-auto cycle 63, 0.17.63) — THE SERVER RASTERIZES THE HULL, AND THE
   # RASTER IS FUZZY. Amendments 151-159; PV 30 -> 31 (wire shape change, then a VALUE change within
   # the same shape at the review gate — the lattice moved, so the same bump covers both). Eric, on

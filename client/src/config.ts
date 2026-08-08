@@ -1461,26 +1461,41 @@ export const CLIENT_CONFIG = {
        * his terms: red = "this is definitely a thing", blue = "probably a thing,
        * but fuzzy", green = "honestly not sure, could be something tiny".
        *
-       * `alpha` is each band's PEAK opacity for a fresh pixel; the phosphor age
-       * ramp scales it down from there. Age therefore rides opacity and NEVER
-       * intensity — an age term in intensity would make one object drift red →
-       * blue → green as it decayed, which is amendment 76's complaint re-created
-       * on the time axis (see the `HeatGrid` comment in render/radarHeatmap.ts).
-       *
-       * ALL THREE DROPPED ~20% IN CYCLE 62 (0.5/0.7/0.9 → 0.4/0.56/0.72), Eric on
-       * the 4.10 build: *"I definitely agree with the translucency, might make it
-       * a tad more translucent"* (amendment 144). The RATIOS are untouched, so the
-       * three registers still separate by opacity exactly as before; the whole
-       * scale simply sits further off the water. It matters more now than it did
-       * under the bakes, because the march paints the FULL extent of everything it
-       * crosses rather than a near face — there is more ink on the chart, so each
-       * mark can afford to be lighter.
+       * A BAND CARRIES NO OPACITY OF ITS OWN — see `bandAlpha` below. Cycle 63
+       * shipped a per-band ramp (0.4/0.56/0.72) and Eric struck it out (cycle 64,
+       * amendment 160): *"I told you pretty clearly not to vary the intensity per
+       * color band. At all... There's no darker blue because its 'less intense in
+       * the moderate band.' That's not what the colors are for."* Hue IS the
+       * strength readout; a brightness ramp made it a second, redundant one.
        */
       bands: [
-        { at: 0.12, color: COLORS.echoFaint, alpha: 0.4 },
-        { at: 0.36, color: COLORS.echoFuzzy, alpha: 0.56 },
-        { at: HEAT_RED_AT, color: COLORS.echoSolid, alpha: 0.72 },
+        { at: 0.12, color: COLORS.echoFaint },
+        { at: 0.36, color: COLORS.echoFuzzy },
+        { at: HEAT_RED_AT, color: COLORS.echoSolid },
       ],
+      /**
+       * THE ONE OPACITY EVERY BAND IS DRAWN AT (cycle 64, amendment 160).
+       *
+       * A pixel is red, blue, green, or nothing — and whichever it is, it is
+       * drawn at THIS opacity. Two cells of the same age in different bands are
+       * equally opaque no matter how strong either return is. It is a scalar
+       * rather than a per-band field on purpose: an equal-valued field is a knob
+       * someone re-tunes back into a ramp, and `HeatBand` has no `alpha` member
+       * at all so the ramp is unrepresentable rather than merely absent.
+       *
+       * WHAT OPACITY STILL CARRIES IS AGE, AND ONLY AGE — the phosphor decay
+       * (`blipAlpha`) scales this down as a paint ages, which is amendment 64's
+       * third channel and the translucency Eric ratified in amendment 144. An old
+       * paint fades; a weak one does not.
+       *
+       * 0.55 sits between the retired ramp's green (0.4) and red (0.72), so the
+       * scale as a whole holds roughly the weight it had. **If the scope now reads
+       * BUSY, the lever is the amount of green, not its brightness** — green is by
+       * far the most numerous register (fringes, clutter, weak returns) and it was
+       * previously hidden by being drawn faintest. Reach for the clutter and land
+       * coefficients, or `bands[0].at`, before reaching back for a ramp.
+       */
+      bandAlpha: 0.55,
       /**
        * THE SNR GRAIN (cycle 62, amendment 143) — per-cell intensity jitter whose
        * AMPLITUDE is a function of the intensity itself. This REPLACES the flat

@@ -194,7 +194,7 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
     for (let i = 0; i < g.w.length; i++) g.w[i] = (i % 40) / 40;
     g.a.fill(1);
     const out = new Uint8Array(g.cols * g.rows * 4);
-    quantizeInto(g, BANDS, out);
+    quantizeInto(g, BANDS, CFG.bandAlpha, out);
     const tokens = new Set(BANDS.map((b) => b.color));
     for (let i = 0; i < out.length; i += 4) {
       if (out[i + 3] === 0) continue;
@@ -203,14 +203,54 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
     }
   });
 
-  it('and the band ALPHAS are the cycle-62 translucency, in order', () => {
-    // Eric on the 4.10 build: "I definitely agree with the translucency, might
-    // make it a tad more translucent" (amendment 144). The ratios are what carry
-    // the three registers apart, so they are asserted, not just the values.
-    expect(BANDS.map((b) => b.alpha)).toEqual([0.4, 0.56, 0.72]);
-    expect(BANDS[0].alpha).toBeLessThan(BANDS[1].alpha);
-    expect(BANDS[1].alpha).toBeLessThan(BANDS[2].alpha);
-    expect(Math.max(...BANDS.map((b) => b.alpha)), 'nothing is opaque').toBeLessThan(0.8);
+  // CYCLE 64, amendment 160. Eric: "I told you pretty clearly not to vary the
+  // intensity per color band. At all... There's no darker blue because its 'less
+  // intense in the moderate band.' That's not what the colors are for."
+  //
+  // The ramp cycle 63 shipped is now unrepresentable (a `HeatBand` has no alpha
+  // member), but the ARITHMETIC could still reintroduce it, so pin the property
+  // rather than the type: at one age, opacity must not depend on which band a
+  // pixel landed in, nor on how far into that band its intensity sat.
+  it('OPACITY IS AGE ALONE: every band draws at the same opacity, and intensity '
+    + 'within a band does not change it', () => {
+    const g = grid();
+    // One intensity per band, plus a second well inside each band, so the sweep
+    // covers both "different band" and "same band, different strength".
+    const probes = [0.13, 0.30, 0.37, 0.60, 0.71, 0.99];
+    for (let i = 0; i < g.w.length; i++) g.w[i] = probes[i % probes.length];
+    g.a.fill(1); // same age everywhere — the only channel allowed to move opacity
+    const out = new Uint8Array(g.cols * g.rows * 4);
+    quantizeInto(g, BANDS, CFG.bandAlpha, out);
+    const alphas = new Set<number>();
+    for (let i = 0; i < out.length; i += 4) if (out[i + 3] > 0) alphas.add(out[i + 3]);
+    expect(alphas.size, `lit pixels used ${[...alphas].join('/')} — expected ONE`).toBe(1);
+    expect([...alphas][0]).toBe(Math.round(255 * CFG.bandAlpha));
+  });
+
+  it('...and AGE still moves it, so phosphor decay survives', () => {
+    const g = grid();
+    g.w.fill(0.99); // all red, so band can never be the cause
+    for (let i = 0; i < g.a.length; i++) g.a[i] = i % 2 === 0 ? 1 : 0.4;
+    const out = new Uint8Array(g.cols * g.rows * 4);
+    quantizeInto(g, BANDS, CFG.bandAlpha, out);
+    const alphas = new Set<number>();
+    for (let i = 0; i < out.length; i += 4) if (out[i + 3] > 0) alphas.add(out[i + 3]);
+    expect(alphas.size, 'two ages must give two opacities').toBe(2);
+  });
+
+  // REPLACES the cycle-62 test that asserted the per-band ramp (0.4/0.56/0.72)
+  // was present and ORDERED. That test pinned exactly what amendment 160 struck
+  // out, so it is retired rather than adapted — an adapted version would have
+  // gone on asserting the shape of a thing that no longer exists.
+  it('and a BAND HAS NO OPACITY OF ITS OWN — the ramp is unrepresentable', () => {
+    for (const b of BANDS) {
+      expect(Object.keys(b).sort(), 'a band is a threshold and a colour, nothing else')
+        .toEqual(['at', 'color']);
+    }
+    // The one shared opacity is still translucent (amendment 144's ratification
+    // survives the ramp's removal — Eric ratified the translucency, not the ramp).
+    expect(CFG.bandAlpha, 'nothing is opaque').toBeLessThan(0.8);
+    expect(CFG.bandAlpha).toBeGreaterThan(0);
   });
 });
 

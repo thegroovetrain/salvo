@@ -2396,3 +2396,57 @@ answer, all his:
      reimplements the whole fuzz GEOMETRY from the documented contract and shares only the entropy
      primitives (`paintSeed` + `mulberry32`) — the RNG stream is itself wire contract, since both
      sides must draw it identically.
+
+## 2026-08-08 — Eric ruling, THE BANDS ARE FLAT (cycle 64)
+
+160. **A BAND HAS NO BRIGHTNESS OF ITS OWN. A PIXEL IS RED, BLUE, GREEN, OR NOTHING — AND WHICHEVER IT
+     IS, IT IS DRAWN AT THE SAME OPACITY.** Eric, on the 0.17.63 build, verbatim:
+
+     > *"I told you pretty clearly not to vary the intensity per color band. At all. The garmin radar
+     > doesn't do that... any particular point is either red, blue, green, or none of the above... if
+     > the 'return' is above a particular 'wavelength' (strong) its RED, if its below another
+     > particular 'wavelength,' its GREEN, and between that is BLUE. There's no darker blue because
+     > its 'less intense in the moderate band.' That's not what the colors are for."*
+
+     Cycle 63 shipped a per-band opacity ramp — green 0.4, blue 0.56, red 0.72 — so a weaker register
+     was literally drawn fainter. **That made brightness a SECOND encoding of return strength on top of
+     hue**, which is the redundancy amendment 64's three-channel split exists to forbid, arrived at
+     from a direction nobody was watching: it was introduced as *translucency tuning* (amendment 144)
+     rather than as a channel, and its own config comment described the ratios as "what carry the three
+     registers apart" — i.e. it had already been rationalised into a readout.
+
+     Implementation, and the shape of it is the ruling: **`HeatBand` has no `alpha` MEMBER at all**, and
+     `quantizeInto` takes ONE scalar `bandAlpha`. Three equal fields would have been a knob someone
+     re-tunes back into a ramp; a missing field is unrepresentable. Shipped at 0.55, between the retired
+     ramp's green and red, so the scale keeps roughly the weight Eric ratified in amendment 144 — **that
+     ratification was of the TRANSLUCENCY, not of the ramp, and it survives.**
+
+161. **WHAT STILL RIDES OPACITY IS AGE, AND ONLY AGE.** Phosphor decay (`blipAlpha`) is untouched: an
+     old paint fades, a fresh one does not, and **two cells of the same age in different bands are
+     equally opaque no matter how strong either return is.** Both halves are pinned as PROPERTIES
+     rather than as values, because the type change alone cannot stop the arithmetic reintroducing a
+     ramp: one test sweeps six intensities spanning all three bands at a single age and asserts exactly
+     ONE opacity appears; a second holds intensity constant and varies age and asserts two appear. The
+     cycle-62 test that asserted the ramp existed and was ORDERED is RETIRED, not adapted — adapting it
+     would have left it asserting the shape of a thing that no longer exists.
+
+162. **THE TERRACE QUESTION IS NOW CLOSED, AND AMENDMENT 142 STANDS.** Eric: *"That's why I was talking
+     about terraces/clamping. But if not for terrain, that's effectively what is supposed to be
+     happening with the radar."* The clamping he wanted was always on the COLOUR OUTPUT — three flat
+     registers — not on the elevation data. He confirmed the height model explicitly: *"You can keep the
+     height map, the height map is fine. Its fine to calculate it... We're still going to calculate the
+     shadow realistically from the height, but it doesn't change what intensity the red shown is."*
+
+     So amendment 142's rejection of terracing the HEIGHT FIELD is correct and unchanged — continuous
+     256-level height still feeds the intensity model and will feed Story 4.11's shadow length — while
+     the OUTPUT is fully quantised: three thresholds, three flat colours, no interpolation and now no
+     brightness ramp either. **Height decides WHICH band a cell lands in; it never decides how bright
+     that band is drawn.** A future proposal to terrace elevation should read this entry and 142
+     together before re-opening either.
+
+163. **Scope.** Client-only presentation: no wire change, no server change, `PROTOCOL_VERSION` unchanged
+     at **31**, `silhouette` grammar untouched, no CONFIG combat tunable moved. Note for whoever tunes
+     next: **green is by far the most numerous register** (fringes, clutter, weak returns) and was
+     previously hidden by being drawn faintest, so the scope carries visibly more green now. **If that
+     reads busy, the lever is the AMOUNT of green — the clutter and land coefficients, or
+     `bands[0].at` — never its brightness.** Reaching for brightness is how the ramp comes back.
