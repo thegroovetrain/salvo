@@ -482,15 +482,16 @@ export function noiseMul(seed: number, gx: number, gy: number, amount: number): 
  * `coefficient × falloff(geometry) × grain` through it, and no material carries a
  * private attenuation formula.
  *
- * THE THREE SURVIVORS OF THE RETIRED SHIP KERNEL LIVE HERE NOW, and they are
- * model parameters rather than kernel knobs: `pointFloor` is the POINT curve's
- * asymptote, `strongExtent` is the normalizer the red→blue crossover is FITTED
- * against (amendment 118), and `minPeak` is the floor that makes radar range mean
- * one number for every hull (amendment 127 — dropping it so signature becomes
- * stealth is a ruled-out design). The rest of the kernel — `minExtent`,
- * `depthFrac`, `minDepth`, `strongExtent`'s old home, and the whole island block
- * (`depthFullU`, `minLand`, `gain`, `terminator`, `maxCells`, `surfMaxCells`,
- * `paintsPerIsland`) — went with the bakes.
+ * THE TWO SURVIVORS OF THE RETIRED SHIP KERNEL LIVE HERE NOW, and they are model
+ * parameters rather than kernel knobs: `pointFloor` is the POINT curve's
+ * asymptote, and `minPeak` is the floor that makes radar range mean one number
+ * for every hull (amendment 127 — dropping it so signature becomes stealth is a
+ * ruled-out design). The rest of the kernel — `minExtent`, `depthFrac`,
+ * `minDepth`, and the whole island block (`depthFullU`, `minLand`, `gain`,
+ * `terminator`, `maxCells`, `surfMaxCells`, `paintsPerIsland`) — went with the
+ * bakes, and cycle 67 took `strongExtent` with the aspect term it normalized
+ * (amendments 171-175: a hull's colour is MATERIAL and RANGE only, because the
+ * coverage mask already carries aspect).
  */
 export interface ReturnModelOpts {
   /** Steel broadside — the coefficient table's 1.0 anchor (POINT geometry). */
@@ -520,8 +521,6 @@ export interface ReturnModelOpts {
   floor: number;
   /** Asymptotic floor of the POINT curve (the fit is solved against it). */
   pointFloor: number;
-  /** Attenuated ACROSS extent (u) that reads as a full-strength hull core. */
-  strongExtent: number;
   /** Floor on a hull's intensity, so the weakest legitimate echo still paints. */
   minPeak: number;
   /** Quantized raster height (0-255) at which `landSteep` is reached. */

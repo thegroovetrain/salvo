@@ -33,7 +33,7 @@
 //     proved at nominal is not proved.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, buildHeightRaster, coverageHas, hullSilhouette, paintCoverage, perpendicularExtent, sampleHeight, transformPolygon, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
+import { CONFIG, buildHeightRaster, coverageHas, paintCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { noiseAmplitude } from '../render/radarFalloff.js';
@@ -52,7 +52,7 @@ import {
   type HeatGrid,
   type HeatmapOpts,
 } from '../render/radarHeatmap.js';
-import { buildField, buildShipStamp, coverageExtent, hullSample, shipOnlyField, stampCoverage, type RadarField, type ShipStamp } from '../render/radarField.js';
+import { buildField, buildShipStamp, shipOnlyField, stampCoverage, type RadarField, type ShipStamp } from '../render/radarField.js';
 import { marchSlice, returnStrength, type MarchSlice } from '../render/radarMarch.js';
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
@@ -116,7 +116,7 @@ function fieldOf(obs: Vec2, parts: FieldParts, o: HeatmapOpts): RadarField {
   return buildField({
     obs,
     raster: parts.raster ?? null,
-    ships: buildShipStamp(parts.hulls ?? [], obs, model, o.cellU),
+    ships: buildShipStamp(parts.hulls ?? [], model, o.cellU),
     ring: parts.ring ?? null,
     cellU: o.cellU,
     model,
@@ -645,7 +645,7 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
     return buildField({
       obs: OBS,
       raster: COAST,
-      ships: buildShipStamp([], OBS, MODEL, CFG.cellU),
+      ships: buildShipStamp([], MODEL, CFG.cellU),
       ring: null,
       cellU: CFG.cellU,
       model: MODEL,
@@ -904,7 +904,7 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
     const viaContact = scope(OBS, { hulls: [HULL] }, CFG);
     const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
     const stamp: ShipStamp = new Map();
-    stampCoverage(stamp, cov, OBS, CFG.model, CFG.cellU);
+    stampCoverage(stamp, cov, CFG.model);
     const g = grid(CFG, OBS.x, OBS.y);
     const s = marchSlice(OBS, 0, TAU - 1e-6, shipOnlyField(stamp, CFG.cellU), RADAR, 0, CFG);
     if (s !== null) raster(g, [s]);
@@ -918,67 +918,148 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
   });
 });
 
-describe('the mask-derived extent preserves the amendment-118 crossover as a BAND (cycle 63)', () => {
+// --- 8b. COLOUR IS MATERIAL AND RANGE; SIZE IS SIZE ----------------------------
+//
+// RETIRES the cycle-63 describe that lived here: "the mask-derived extent
+// preserves the amendment-118 crossover as a BAND", together with its
+// `coverageExtent` accuracy pin. Both were correct descriptions of a mechanism
+// that no longer exists. The crossover was a BAND only because the fit's `ext`
+// input was reconstructed from the FUZZED mask, so lattice phase and per-paint
+// glint scintillated it across ~[rung − 60u, rung + 35u]; with reflectivity
+// reduced to the material coefficient, no mask-derived quantity reaches
+// intensity at all and the crossover is an exact range again (pinned in
+// radarFalloff.test.ts). Retired rather than adapted — amendment 169's standing
+// lesson, and the fourth cycle running that it has applied.
+
+describe('a hull\'s REGISTER is class- and aspect-independent, and its SIZE is not (amendments 171-175)', () => {
   const OBS: Vec2 = { x: 0, y: 0 };
-  /** The calibration pose swept across lattice phases AND glint seeds — every
-   *  mask this path sees in production is fuzzed, so the pins run on
-   *  `paintCoverage`, never the sharp rasterization. */
-  function fuzzedExtents(n: number): number[] {
-    const at = CONFIG.vision.farRadar; // the 7/8 rung — a test INPUT, never on a paint path
-    const out: number[] = [];
-    for (let k = 0; k < n; k++) {
-      const x = (k * 37.3) % CFG.cellU;
-      const y = at + ((k * 53.7) % CFG.cellU);
-      const cov = paintCoverage('mineLayer', x, y, 0, CFG.cellU, 1000 + k * 50);
-      out.push(coverageExtent(cov, OBS, CFG.cellU));
-    }
-    return out;
+  const CLASSES: HullId[] = ['torpedoBoat', 'mineLayer', 'battleship'];
+  /** Observer at the origin, hull due +y: heading 0 presents BROADSIDE and
+   *  heading π/2 points the bow straight down the bearing. */
+  const ASPECTS: Array<[string, number]> = [['broadside', 0], ['bow-on', Math.PI / 2]];
+  /** 200u and 400u are well inside the crossover, 577.5u is the 7/8 rung
+   *  itself, 660u is the rim. A test INPUT — never a paint-path comparison. */
+  const RANGES = [200, 400, CONFIG.vision.farRadar, RADAR];
+
+  /** The register at the hull's centre, through the whole shipped pipeline. */
+  function register(cls: HullId, heading: number, dist: number): number {
+    const g = scope(OBS, { hulls: [{ id: 'a', x: 0, y: dist, heading, cls }] }, CFG);
+    return bandAt(g, 0, dist);
   }
 
-  it('coverageExtent of the calibration hull: every fuzzed paint within 2 cells of truth, and the MEAN within half a cell', () => {
-    const truth = perpendicularExtent(
-      transformPolygon(hullSilhouette('mineLayer'), 0, CONFIG.vision.farRadar, 0),
-      Math.PI / 2,
-    );
-    expect(truth).toBeCloseTo(CONFIG.shipClasses.mineLayer.hull.length, 9);
-    const exts = fuzzedExtents(60);
-    for (const ext of exts) expect(Math.abs(ext - truth)).toBeLessThanOrEqual(2 * CFG.cellU);
-    const mean = exts.reduce((s, v) => s + v, 0) / exts.length;
-    expect(Math.abs(mean - truth), 'the -3-cell fuzz compensation centres the read').toBeLessThanOrEqual(CFG.cellU / 2);
+  /**
+   * THE MARK'S WIDTH ACROSS THE BEARING (u), averaged over glint seeds — the
+   * SIZE channel, and the one aspect actually moves.
+   *
+   * NOT cell COUNT: rotating a hull barely changes how many lattice cells it
+   * covers (a torpedo boat draws 42 cells broadside and 48 bow-on — dilation of
+   * a long thin shape is close to rotation-invariant), so a count would say
+   * aspect does nothing. What aspect changes is the mark's EXTENT PERPENDICULAR
+   * to the line of sight, which is amendment 66's quantity exactly, now carried
+   * by geometry alone. The observer sits at the origin and the hull due +y, so
+   * that axis is x. Averaged because the fuzz is per paint (amendments 156-157):
+   * one draw is a sample of a distribution.
+   */
+  function meanAcross(cls: HullId, heading: number, dist: number): number {
+    let total = 0;
+    const N = 12;
+    for (let k = 0; k < N; k++) {
+      const cov = paintCoverage(cls, 0, dist, heading, CFG.cellU, 1000 + k * 50);
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let row = 0; row < cov.h; row++) {
+        for (let col = 0; col < cov.w; col++) {
+          if (!coverageHas(cov, col, row)) continue;
+          lo = Math.min(lo, (cov.gx + col + 0.5) * CFG.cellU);
+          hi = Math.max(hi, (cov.gx + col + 0.5) * CFG.cellU);
+        }
+      }
+      total += hi - lo;
+    }
+    return total / N;
+  }
+
+  /** Covered lattice cells, averaged over glint seeds — the other half of
+   *  "how big", and the one that separates a battleship from a torpedo boat. */
+  function meanCells(cls: HullId, heading: number, dist: number): number {
+    let total = 0;
+    const N = 12;
+    for (let k = 0; k < N; k++) {
+      const cov = paintCoverage(cls, 0, dist, heading, CFG.cellU, 1000 + k * 50);
+      for (let row = 0; row < cov.h; row++) {
+        for (let col = 0; col < cov.w; col++) if (coverageHas(cov, col, row)) total++;
+      }
+    }
+    return total / N;
+  }
+
+  it('every class at every aspect reads the SAME register at the same range', () => {
+    // THE HEART OF THE CYCLE. Under the retired `ext` term a battleship
+    // broadside stayed red past the rim while a bow-on hull was blue or green
+    // close in, so colour reported class and aspect — a per-object label wearing
+    // physics as a disguise (amendment 76's diagnosis, amendment 105's rule).
+    // Measured: all six combinations agree to the last bit at every range.
+    for (const dist of RANGES) {
+      const readings = CLASSES.flatMap((cls) =>
+        ASPECTS.map(([name, heading]) => [`${cls} ${name}`, register(cls, heading, dist)] as const));
+      for (const [who, band] of readings) {
+        expect(band, `${who} @ ${dist}u vs ${readings[0][0]}`).toBe(readings[0][1]);
+      }
+    }
   });
 
-  it('THE CROSSOVER IS A BAND, NOT A NUMBER — pinned at the WORST lattice phase and glint draw', () => {
-    // Amendment 118 requires the red→blue crossover to EMERGE from the 1/d⁴
-    // curve fitted to the 7/8 rung; it now emerges from the curve PLUS the
-    // lattice phase PLUS the per-paint glint (the extent is a cell-quantized,
-    // scintillating reconstruction — amendments 156-157), so the crossover is
-    // a BAND about the rung whose width is a lattice-and-fuzz consequence.
-    // Documented rather than hidden (cycle-63 review gate), and RE-DERIVED at
-    // the 9u lattice as the gate requires (a coarser lattice widens the
-    // band): measured over 60 phase×seed draws the calibration hull's
-    // crossover spans roughly [rung − 60u, rung + 35u] — the extent reads
-    // 72-99u against the true 88 and the fourth-root curve turns that ±15%
-    // into ∓10% of range. The worst draw is pinned at 7 cells and the MEAN
-    // within ~one cell — the fit still centres the band; a paint at the rung
-    // simply shimmers between "definitely" and "probably" sweep to sweep,
-    // which is what a marginal contact on a real scope does. (Sweeping only
-    // one phase, as the pre-gate pin did, tested a point of a distribution
-    // and called it the distribution.)
-    const fitAt = CONFIG.vision.farRadar;
-    const crossings = fuzzedExtents(60).map((ext) => {
-      for (let d = 400; d <= 700; d += 0.5) {
-        if (returnStrength(hullSample(ext, MODEL), d) < BANDS[2].at) return d;
+  it('...and that register is RED well inside the rung and BLUE out to the rim', () => {
+    // Away from the boundary, so the claim is about the physics rather than
+    // about which side of a 9u cell the sampled range fell on. The crossover's
+    // EXACT range is pinned at the model level in radarFalloff.test.ts, where
+    // there is no lattice to quantize it; at the rung itself the sampled cell
+    // centre lands a metre or two past 577.5u and every hull reads blue there,
+    // together, which is the agreement pinned above.
+    for (const cls of CLASSES) {
+      for (const [name, heading] of ASPECTS) {
+        expect(register(cls, heading, 200), `${cls} ${name} @ 200u`).toBe(2);
+        expect(register(cls, heading, 400), `${cls} ${name} @ 400u`).toBe(2);
+        expect(register(cls, heading, RADAR), `${cls} ${name} @ rim`).toBe(1);
       }
-      return Number.NaN;
-    });
-    let worst = 0;
-    let sum = 0;
-    for (const c of crossings) {
-      expect(Number.isFinite(c)).toBe(true);
-      worst = Math.max(worst, Math.abs(c - fitAt));
-      sum += c;
     }
-    expect(worst, 'the worst draw stays inside the band').toBeLessThanOrEqual(7 * CFG.cellU);
-    expect(Math.abs(sum / crossings.length - fitAt), 'and the band is centred on the rung').toBeLessThanOrEqual(CFG.cellU + 1);
+  });
+
+  it('...while SIZE still separates them — the mask is where class and aspect '
+    + 'live (amendment 66, delivered by geometry alone)', () => {
+    for (const dist of [200, RADAR]) {
+      // ASPECT: a broadside hull's mark is far wider across the bearing than the
+      // same hull bow-on. Measured ~125u vs ~36u for a torpedo boat — a 3-4×
+      // separation that no longer needs to touch colour to be legible.
+      for (const cls of CLASSES) {
+        expect(meanAcross(cls, 0, dist), `${cls} aspect @ ${dist}u`)
+          .toBeGreaterThan(meanAcross(cls, Math.PI / 2, dist) * 1.5);
+      }
+      // CLASS: the biggest hull genuinely covers more of the scope than the
+      // smallest, both across the bearing and in raw cells.
+      expect(meanAcross('battleship', 0, dist), `class across @ ${dist}u`)
+        .toBeGreaterThan(meanAcross('torpedoBoat', 0, dist));
+      expect(meanCells('battleship', 0, dist), `class cells @ ${dist}u`)
+        .toBeGreaterThan(meanCells('torpedoBoat', 0, dist));
+    }
+  });
+
+  it('and the register does not move with the lattice phase or the glint draw, '
+    + 'because no mask-derived quantity feeds intensity any more', () => {
+    // THE DIRECT RETIREMENT OF THE CROSSOVER BAND. The old pin measured the
+    // crossing RANGE shimmering across ~[rung − 60u, rung + 35u] as lattice
+    // phase and glint moved the reconstructed `ext`. So: sweep both, 40u inside
+    // the rung and 40u outside it — comfortably inside that old band — and the
+    // reading must not budge. Under the retired model this assertion would have
+    // failed on both sides.
+    for (let k = 0; k < 12; k++) {
+      const x = (k * 37.3) % CFG.cellU;
+      const phase = (k * 53.7) % CFG.cellU;
+      const inside = CONFIG.vision.farRadar - 40 + phase;
+      const outside = CONFIG.vision.farRadar + 40 + phase;
+      const gi = scope(OBS, { hulls: [{ id: 'a', x, y: inside, heading: 0, cls: 'mineLayer' }] }, CFG);
+      expect(bandAt(gi, x, inside), `inside, draw ${k}`).toBe(2);
+      const go = scope(OBS, { hulls: [{ id: 'a', x, y: outside, heading: 0, cls: 'mineLayer' }] }, CFG);
+      expect(bandAt(go, x, outside), `outside, draw ${k}`).toBe(1);
+    }
   });
 });

@@ -113,6 +113,40 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-08 (dev-auto cycle 67, 0.17.67) — ASPECT STOPS DRIVING COLOUR; THE MASK
+  # CARRIES IT. Amendments 171-175; PV UNCHANGED at 31; client-only; `silhouette` untouched.
+  # Eric asked why bow-on hulls reflect less. The honest answer is that they barely do: a warship's
+  # RCS is dominated by CORNER REFLECTORS — the hull-sea dihedral and the right angles all over the
+  # superstructure — which retroreflect across a wide span of incident angles. Broadside is a peak;
+  # bow-on is typically only ~10 dB down and still an enormous absolute RCS, and on a gain-controlled
+  # marine set a ship reads as a solid bright target from any aspect. The "steel bow-on ~0.25" figure
+  # is labelled IN AMENDMENT 106 ITSELF as an assistant handwave, and was treated as authority.
+  #   AND UNDERNEATH THE BAD NUMBER WAS A REAL DOUBLE-COUNT. `hullSample` computed
+  #   `refl = ship x ext / strongExtent`, but since cycle 63 the COVERAGE MASK already carries aspect
+  #   — a bow-on hull rasterizes to a genuinely small mark on its own. So a bow-on hull was made
+  #   SMALL by the mask AND DIM by the coefficient, twice for one physics. `ext` was ratified as the
+  #   aspect channel (amendment 66) back when a return was an ELLIPSE SIZED BY `ext`; the mask
+  #   replaced it as the size channel and its second job was never removed.
+  #   ERIC'S RULING: COLOUR IS MATERIAL AND RANGE ONLY. Every hull is steel, so every hull reads the
+  #   same register at the same range; the mask alone says battleship rather than torpedo boat.
+  #   SIZE carries size, COLOUR carries strength-vs-range. `hullSample` returns `m.ship` flat.
+  #   THE FIT BECOMES A PURE RANGE STATEMENT: `ship x attenuation(farRadar) = bands[2].at`, with no
+  #   hull in it, re-solved to pointRef 708.596u (was 558.505u). Every hull crosses red->blue at 7/8
+  #   intel range whatever its class and aspect — which is what amendment 118 actually asks for.
+  #   IT RETIRES THE CYCLE-63 CROSSOVER BAND (amendments 158, 159k) entirely: no mask-derived extent
+  #   feeds intensity, so lattice phase and glint cannot move the crossover. It is exact under the
+  #   grain too — `noise.solidAt` is pinned to the same `bands[2].at`, where the envelope is zero.
+  #   DELETED AS DEAD: `coverageExtent` (+ its Vec2 pool), `strongExtent`/`HEAT_STRONG_EXTENT`, and
+  #   `stampCoverage`/`buildShipStamp`'s `obs` parameter — a hull's material cannot depend on who is
+  #   looking at it, and a dead knob reads as tunable.
+  #   MEASURED (3 classes x broadside/bow-on, identical to 4dp at every range): 200u 0.9938 RED,
+  #   400u 0.9097 RED, 577.5u 0.7000 (RED at the model; BLUE once the 9u lattice quantizes the
+  #   sampled range), 660u 0.5792 BLUE. Aspect reads off mask WIDTH ACROSS THE BEARING (TB 125u
+  #   broadside vs 36u bow-on); class off cell count (BB 77 vs TB 42).
+  #   THREE PINS RETIRED, NOT ADAPTED (amendment 169's pattern, fourth cycle running): the cycle-63
+  #   crossover-BAND pin + its `coverageExtent` accuracy pin; READING 4 "a battleship broadside still
+  #   reads RED at the rim"; and "a bow-on hull reads far weaker than the same hull abeam".
+  #   NOT CHANGED: `landSteep` stays 1.0 — terrain was reported as looking right, so it is left alone.
   # INTERSTITIAL 2026-08-08 (dev-auto cycle 66, 0.17.66) — A HULL IS UNIFORM STEEL. Amendments
   # 167-170; PV UNCHANGED at 31; client-only; NO coefficient moved (the fix DELETES a multiplier).
   # Eric: "Ships are not being painted red enough, and they are getting far too much green around

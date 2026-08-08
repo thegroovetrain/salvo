@@ -696,8 +696,8 @@ export class Radar {
    * THE FOOTPRINT IS THE WIRE'S, VERBATIM (cycle 63): the server rasterized
    * the true hull polygon onto the shared radar grid and the mask's cells are
    * absolute world cells, so `stampCoverage` lays them down exactly where the
-   * wire put them — the client adds only the intensity model (range falloff
-   * per cell, the core→edge depth term, the SNR grain), through the same
+   * wire put them — the client adds only the intensity model (the material
+   * coefficient, range falloff per cell, the SNR grain), through the same
    * stamp the sighted-contact source uses (amendment 154: two sources, one
    * appearance).
    *
@@ -715,7 +715,7 @@ export class Radar {
   private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const stamp: ShipStamp = new Map();
-    stampCoverage(stamp, e.cov, own, cfg.model, cfg.cellU);
+    stampCoverage(stamp, e.cov, cfg.model);
     const c = coverageCentre(e.cov, cfg.cellU);
     // The footprint's own reach: half its rect diagonal covers every covered
     // cell at any orientation — echoArc turns it into the bearing window and
@@ -970,7 +970,7 @@ export class Radar {
     // re-glints on the next revolution — sweep-to-sweep scintillation, the
     // same cadence the wire source gets from its per-tick paint (amendment
     // 157; a per-frame seed would tear the footprint mid-crossing).
-    return buildShipStamp(hulls, own, cfg.model, cfg.cellU, Math.floor(at / this.sweepPeriodMs));
+    return buildShipStamp(hulls, cfg.model, cfg.cellU, Math.floor(at / this.sweepPeriodMs));
   }
 
   /** Position/rotate the sweep + rings; returns the beam angle this frame, or

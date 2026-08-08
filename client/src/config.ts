@@ -252,32 +252,39 @@ const TYPE = {
 
 // --- the `return` heatmap's CALIBRATION (Story 4.10, amendments 118 + 127-132) --
 //
-// These four live OUTSIDE the object literal for one reason: `pointRef` is
-// SOLVED from three of them, and a self-reference inside an object literal is
-// not expressible. They are the single source for the values below — nothing
+// These three live OUTSIDE the object literal for one reason: `pointRef` is
+// SOLVED from two of them, and a self-reference inside an object literal is not
+// expressible. They are the single source for the values below — nothing
 // re-states them.
+//
+// THERE USED TO BE A FOURTH, `HEAT_STRONG_EXTENT` (60u). It normalized an
+// aspect-projected extent term inside a hull's reflectivity, and cycle 67
+// deleted both (amendments 171-175): the coverage mask already carries aspect,
+// so scaling colour by extent as well was the same physics counted twice.
 
-/** Attenuated ACROSS extent (u) whose kernel peaks at full intensity — the
- *  normalizer in `shipPeak`, and one of the fit's three inputs. */
-const HEAT_STRONG_EXTENT = 60;
-
-/** The RED->BLUE boundary: `bands[2].at`, the intensity the calibration hull
- *  must land on exactly at 7/8 intel range. Stated once, used twice. */
+/** The RED->BLUE boundary: `bands[2].at`, the intensity a hull must land on
+ *  exactly at 7/8 intel range. Stated once, used twice. */
 const HEAT_RED_AT = 0.7;
 
 /**
  * Asymptotic floor of the POINT (1/d^4) curve — LOWERED 0.45 -> 0.02 by this
  * story, and the reason is arithmetic, not taste.
  *
- * The fit solves `A = bands[2].at * strongExtent / ext` for the attenuation
- * required at the crossover — for the Mine Layer broadside that is 0.477 — and
- * then inverts the curve for the reference range. The inversion divides by
- * `(A - floor)`. At the shipped 0.45 asymptote that denominator is 0.027: a
- * hundredth of a point of movement in ANY of `bands[2].at`, `strongExtent` or
- * the calibration hull's `ext` would swing the fitted reference by hundreds of
- * units, and a floor above 0.477 would make the crossover unreachable at ANY
- * range. Under `n = 1` the old floor was harmless because the curve did its
- * work slowly; under `n = 4` it sits on top of the answer.
+ * The fit solves `A = bands[2].at / ship` for the attenuation required at the
+ * crossover — at the shipped steel coefficient that is 0.7 — and then inverts
+ * the curve for the reference range. The inversion divides by `(A - floor)`. At
+ * the shipped 0.45 asymptote that denominator is 0.25, and it was 0.027 under
+ * the retired extent-scaled fit (whose `A` was 0.477): a hundredth of a point of
+ * movement in `bands[2].at` would have swung the fitted reference by hundreds of
+ * units, and a floor above 0.477 would have made the crossover unreachable at
+ * ANY range. Under `n = 1` the old floor was harmless because the curve did its
+ * work slowly; under `n = 4` it sat on top of the answer.
+ *
+ * CYCLE 67's SIMPLER FIT CONDITIONS BETTER, and the floor stays low anyway. With
+ * the extent term gone `A` is a full 0.68 clear of the floor rather than 0.027,
+ * so the solve is no longer delicate — but nothing is gained by raising the
+ * asymptote back, and raising it would flatten the far half of the curve where
+ * the blue register now does all of its work.
  *
  * THE FLOOR IS NOT DROPPED, ONLY LOWERED (amendment 127 — "signature becomes
  * stealth" is a RULED-OUT design, not a missing feature). It remains a true
@@ -291,7 +298,8 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
 
 /**
  * THE FITTED POINT REFERENCE (u) — amendment 118's calibration, SOLVED, not
- * typed in. ~558u at the shipped ladder.
+ * typed in. ~709u at the shipped ladder (was ~558u under the retired
+ * extent-scaled fit).
  *
  * `CONFIG.vision.farRadar` (7/8 intel range = 577.5u) is read HERE AND NOWHERE
  * ELSE IN THE CLIENT. Story 4.9 shipped that rung deliberately unconsumed and
@@ -303,22 +311,34 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
  * category) and is the wrong implementation of amendment 118. Fit the curve; do
  * not branch. `grep -rn farRadar client/src/render/` must stay empty.
  *
- * THE CALIBRATION HULL IS THE MINE LAYER AT BROADSIDE (amendment 131): 88u x
- * 20u, so `ext` = the hull length at full beam-on aspect. Broadside is the hull
- * as PRESENTED AT ITS STRONGEST, which makes the 7/8 crossover the TYPICAL case
- * rather than the best one; calibrating bow-on instead would leave a broadside
- * mid hull red past the rim. The four readings this fit is judged on (pinned in
- * __tests__/radarFalloff.test.ts, not re-derived here): a mid hull saturates red
- * by ~465u, still reads blue at the 660u rim, a `minExtent` needle at the rim
- * falls to `minPeak` and still paints green, and a battleship broadside still
- * reads red at the rim.
+ * THERE IS NO CALIBRATION HULL ANY MORE, AND THAT IS AMENDMENT 118 GETTING
+ * CLEANER (cycle 67, amendments 171-175). The fit used to nominate the Mine
+ * Layer at broadside and solve `A = bands[2].at * strongExtent / ext`, so the
+ * ratified "a mid-size hull crosses red->blue at 7/8" was a statement about ONE
+ * hull at ONE aspect and every other hull crossed somewhere else — a battleship
+ * broadside never crossed at all, staying red past the rim. Now a hull's
+ * reflectivity is its MATERIAL and nothing else, so the solve is just
+ * `ship * atten(577.5) = bands[2].at` and the crossover is a PURE STATEMENT
+ * ABOUT RANGE: every hull, every class, every aspect, crosses red->blue at 7/8
+ * intel range. Class and aspect still read — off the SIZE of the mark, which is
+ * what the coverage mask has carried since cycle 63.
+ *
+ * IT ALSO RETIRES THE CYCLE-63 CROSSOVER BAND (amendment 158). When the fit's
+ * `ext` was reconstructed from the fuzzed mask, lattice phase and per-paint
+ * glint scintillated the crossover across ~[rung - 60u, rung + 35u]; no
+ * mask-derived quantity feeds intensity now, so the range is exact. It is exact
+ * under the grain as well, because `noise.solidAt` is pinned to this same
+ * `HEAT_RED_AT` and the SNR envelope's amplitude is zero there.
+ *
+ * The readings this fit is judged on (pinned in __tests__/radarFalloff.test.ts,
+ * not re-derived here): red from the hull out to 577.5u, blue from there to the
+ * 660u rim, identical for all three classes at both aspects, and `minPeak`
+ * still floors the return past the scope.
  */
 const HEAT_POINT_REF = fitPointRef({
   crossover: CONFIG.vision.farRadar,
-  ext: CONFIG.shipClasses.mineLayer.hull.length,
-  strongExtent: HEAT_STRONG_EXTENT,
   band: HEAT_RED_AT,
-  coef: 1, // steel broadside is the coefficient table's 1.0 anchor
+  coef: 1, // steel is the coefficient table's 1.0 anchor
   floor: HEAT_SHIP_ATTEN_FLOOR,
 });
 
@@ -1639,8 +1659,22 @@ export const CLIENT_CONFIG = {
        * below are fitted against the shipped band thresholds.
        */
       model: {
-        /** Steel broadside — the table's 1.0 anchor, and the coefficient the
-         *  crossover fit is solved against. Moving it re-fits `pointRef`. */
+        /**
+         * STEEL — the table's 1.0 anchor, the coefficient the crossover fit is
+         * solved against, and since cycle 67 the WHOLE of a hull's pre-range
+         * reflectivity. Moving it re-fits `pointRef`.
+         *
+         * IT IS NOT "STEEL BROADSIDE" ANY MORE (amendments 171-175). There is no
+         * bow-on variant, because a warship's RCS is dominated by CORNER
+         * REFLECTORS — the hull-sea dihedral and the right angles all over the
+         * superstructure — which retroreflect across a wide span of incident
+         * angles. Broadside is a peak; bow-on is typically only ~10 dB down and
+         * still an enormous absolute RCS, and on a gain-controlled marine set a
+         * ship reads as a solid bright target from any aspect. Amendment 106's
+         * "steel bow-on ~0.25" was an assistant handwave that the amendment
+         * itself labels as one; it should never have been treated as authority.
+         * Aspect is carried by the SIZE of the coverage mask, where it belongs.
+         */
         ship: 1,
         /** Terrain at or above `refHeight`: a rock headland. Kept at 1 so genuine
          *  highland saturates RED — amendment 78's "big red mass", which the march
@@ -1848,17 +1882,6 @@ export const CLIENT_CONFIG = {
          *  for why the 1/d⁴ fit requires it to be this small, and why the floor
          *  SURVIVES the physics (amendment 127). */
         pointFloor: HEAT_SHIP_ATTEN_FLOOR,
-        /** Attenuated ACROSS extent (u) whose return reads at full intensity —
-         *  i.e. earns a red core. 60u is deliberately well under a broadside
-         *  battleship (124u) and well over a bow-on needle: the scale has to
-         *  SATURATE on genuinely big echoes rather than reserve its top end for a
-         *  hull nobody ever presents. It is also the fit's normalizer (see
-         *  HEAT_STRONG_EXTENT): moving it moves the red→blue crossover, which is
-         *  why there is exactly one of it. It SURVIVES the kernel's deletion
-         *  because it is what keeps ASPECT a strength channel and not merely a
-         *  size one — amendment 127 is explicit that a bow-on hull must paint a
-         *  weaker return, not just a smaller one. */
-        strongExtent: HEAT_STRONG_EXTENT,
         /** Floor on a hull's intensity. Above `bands[0].at` with enough headroom
          *  that the grain cannot push the weakest legitimate return under the
          *  transparent threshold: 0.2 × (1 − 0.45 × (1 − 0.2/0.7)) = 0.136 > 0.12.

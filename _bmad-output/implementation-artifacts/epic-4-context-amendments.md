@@ -2576,3 +2576,83 @@ answer, all his:
      where amendment 106's table puts a rock cliff at 0.5.** Islands were reported as looking right, so
      the table's ratio is left alone deliberately rather than "corrected" into a regression — but it is
      the first thing to look at if ships and terrain ever need re-separating.
+
+## 2026-08-08 — Eric ruling, ASPECT STOPS DRIVING COLOUR; THE MASK CARRIES IT (cycle 67)
+
+171. **A WARSHIP'S RCS IS DOMINATED BY CORNER REFLECTORS, SO BOW-ON BARELY REFLECTS LESS — the
+     physics, stated properly this time.** Eric asked why a bow-on hull reflects less than a
+     broadside one, and the honest answer is that it hardly does. A ship's radar cross-section is not
+     a flat plate obeying a projected-area law; it is dominated by **corner reflectors** — the
+     hull-sea dihedral running the whole length of the waterline, and the right angles all over the
+     superstructure — and a corner reflector RETROREFLECTS, returning energy toward the source across
+     a wide span of incident angles rather than only at normal incidence. Broadside is a peak, but
+     bow-on is typically only **~10 dB down** and is still an enormous ABSOLUTE cross-section. On a
+     gain-controlled marine set — which is what this scope is — a ship reads as a solid bright target
+     from any aspect. The physically wrong thing was not that aspect mattered a little; it was that
+     aspect was made to matter to COLOUR at all.
+
+172. **THE "STEEL BOW-ON ~0.25" FIGURE WAS AN ASSISTANT HANDWAVE, MISUSED AS AUTHORITY — and it says
+     so in its own amendment.** Amendment 106's coefficient table ends with the sentence *"THE
+     COEFFICIENT TABLE BELOW IS AN ASSISTANT HANDWAVE, NOT AN ERIC RULING, AND IS THE FIRST THING TO
+     TUNE... Do not treat any of these as ratified, and do not build a balance argument on them."* A
+     balance argument was then built on it anyway: amendment 127 cites bow-on-is-weaker as settled
+     fact, amendment 167 closes by calling a blue bow-on hull *"table-correct: steel bow-on is ~0.25
+     of broadside, weaker than a rock cliff"*, and the config comment defended `strongExtent` as
+     *"what keeps ASPECT a strength channel"*. **A number labelled provisional acquires authority by
+     being cited, not by being ratified.** Worth remembering beyond this cycle: when an amendment
+     disclaims its own numbers, later amendments quoting those numbers do not launder them.
+
+173. **AND UNDERNEATH THE BAD NUMBER WAS A REAL DOUBLE-COUNT — the same physics charged twice.**
+     `hullSample` computed `refl = ship x ext / strongExtent`, where `ext` is the hull's extent
+     projected perpendicular to the observer. But **since cycle 63 the COVERAGE MASK already carries
+     aspect**: a bow-on hull rasterizes to a genuinely small mark on its own (measured this cycle: a
+     torpedo boat spans ~125u across the bearing broadside against ~36u bow-on). So a bow-on hull was
+     made SMALL by the mask AND DIM by the reflectivity term, for the same underlying reason. `ext`
+     was ratified as the aspect channel by amendment 66 at a time when a return was an **ellipse
+     SIZED BY `ext`** — it was then the only aspect information the client had, and it honestly
+     carried both jobs. Amendment 152 replaced it as the SIZE channel and amendment 151 celebrated
+     exactly that; its second job was simply never removed. A class of defect worth naming: **when a
+     channel is replaced, check what else it was doing.**
+
+174. **ERIC'S RULING: COLOUR IS MATERIAL AND RANGE. NOTHING ELSE.** Every hull on the water is steel,
+     so every hull reads the same register at the same range; the mask alone tells you it is a
+     battleship rather than a torpedo boat. **SIZE carries size, COLOUR carries strength-vs-range**,
+     and neither carries the other. `hullSample` returns `m.ship` flat — no `ext` term, no
+     `strongExtent` normalisation — keeping POINT geometry and `min = minPeak` (amendment 127)
+     unchanged. This does NOT reverse amendment 66: aspect still reads, and reads better, off a 2D
+     footprint than it ever did off a scalar folded into brightness. Nor does it reopen amendment
+     168 — a hull is still UNIFORM across its own footprint; what moved is the one coefficient that
+     footprint is drawn at. Measured, all three classes × both aspects, identical to four decimals:
+     200u 0.9938 RED, 400u 0.9097 RED, 577.5u 0.7000, 660u 0.5792 BLUE. `minPeak` no longer binds
+     anywhere inside the scope (uniform steel clears it out to the rim; it engages past ~1,030u),
+     which is the guarantee LANDING rather than lapsing — it is still asserted directly.
+
+175. **WHAT THE FIT'S SIMPLIFICATION RETIRES, and why amendment 118 is CLEANER for it.** With `ext`
+     gone the calibration is purely `ship × attenuation(farRadar) = bands[2].at` — no calibration
+     hull, no normalizer — re-solved (never typed in) to `pointRef` **708.596u**, up from 558.505u.
+     Two things follow, both improvements:
+     - **The crossover becomes a PURE STATEMENT ABOUT RANGE.** Amendment 118 asks that *"a mid-size
+       hull crosses red → blue at 7/8 intel range"*. Under the old fit that was true of ONE hull at
+       ONE aspect and false of every other — a battleship broadside never crossed at all, staying red
+       past the rim (amendment 167's own measured result). Now **every hull crosses at 7/8, whatever
+       its class and aspect**, which is what the amendment was reaching for.
+     - **The cycle-63 "crossover is a lattice-phase BAND" problem is RETIRED ENTIRELY**, not adapted
+       (amendment 158's second bullet, and the `coverageExtent` correction at 159k). That band existed
+       only because the fit's `ext` input was reconstructed from the FUZZED mask, so lattice phase and
+       per-paint glint scintillated the crossover across ~[rung − 60u, rung + 35u]. No mask-derived
+       quantity reaches intensity any more, so the range is exact — and exact under the grain too,
+       since `noise.solidAt` is pinned to this same `bands[2].at`, where the SNR envelope's amplitude
+       is zero by construction.
+
+     **Scope and deletions.** Client-only: no wire change, no server change, `PROTOCOL_VERSION`
+     unchanged at **31**, `silhouette` untouched (it has its own blip shape and still uses `ext` on
+     the wire). Deleted as dead: `coverageExtent` and its Vec2 pool, `strongExtent` /
+     `HEAT_STRONG_EXTENT`, and `stampCoverage` / `buildShipStamp`'s now-meaningless `obs` parameter —
+     a hull's material cannot depend on who is looking at it, and an unused knob reads as tunable,
+     which is worse than dead code. **`landSteep` stays 1.0** (amendment 170's standing note):
+     terrain was reported as looking right, so it is left alone deliberately. **Three pins retired
+     rather than adapted** — the cycle-63 crossover-BAND pin and its `coverageExtent` accuracy pin,
+     READING 4 (*"a battleship broadside still reads RED at the rim"*), and *"a bow-on hull reads far
+     weaker than the same hull abeam"*. That is the **fourth cycle running** that amendment 169's
+     pattern has applied: a test pinning one example's IMPLEMENTATION of a general rule defends the
+     implementation against a correct fix.
