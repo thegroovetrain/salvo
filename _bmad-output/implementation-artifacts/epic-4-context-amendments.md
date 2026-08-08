@@ -2656,3 +2656,218 @@ answer, all his:
      weaker than the same hull abeam"*. That is the **fourth cycle running** that amendment 169's
      pattern has applied: a test pinning one example's IMPLEMENTATION of a general rule defends the
      implementation against a correct fix.
+
+## 2026-08-08 — Eric rulings, Story 4-11 pre-implementation question gate (bmad-dev-auto, cycle 68)
+
+Source: Eric, invocation intent plus a four-question pre-implementation gate (AskUserQuestion; the
+first round was sent back for clarification and re-asked, and the dimming answer was given in free
+text rather than as an option). Spec of record: `spec-4-11-height-aware-radar-shadows.md`. Invocation
+intent, verbatim: *"begin 4-11. Radar shadows! Remember: islands cast shadows, but the ship radars are
+assumed to be high enough that enemy ships do not."* plus the near-range dimming side task quoted in
+amendment 181.
+
+176. **CORRECTION OF RECORD: `shadowLength` IS A RESIDUAL REACH, NOT A FINITE BAND FOLLOWED BY CLEAR
+     WATER.** Amendment 102 states the formula and the story's AC quotes it, but neither says what
+     happens PAST `d₀ + shadowLength`, and the natural misreading — a dark band, then the scope
+     resumes — is wrong and would have been built. Re-derived from amendment 101's uniform antenna
+     height, with the clearance of the ray between two points at height `H` separated by `D` written
+     as `z(x) = H − x(D−x)/(2R)`:
+
+     ```
+     visible  ⟺  z(d₀) ≥ h₀  ⟺  D ≤ d₀ + 2R(H − h₀)/d₀
+     ```
+
+     `z(d₀)` is strictly DECREASING in `D`, so once a bearing is blocked it stays blocked: the shadow
+     runs from `d₀ + shadowLength` to the rim, always. `shadowLength` is *how much further past the
+     obstacle you can still see*, and the AC's word "length" means that residual, not the extent of a
+     dark patch. Amendment 102's verification is unchanged and still pins the derivation.
+
+     Two closed forms fall out, and both are worth keeping because they make the whole feature
+     predictable without simulating anything:
+
+     - **Worst-case reach on a bearing crossing terrain of height `h₀` is `radarRange · √(1 − h₀/H)`**,
+       attained when the obstacle sits at exactly HALF that distance. Terrain nearer or farther than
+       that hurts less.
+     - **Sea-level terrain can never shadow anything inside radar range.** At `h₀ = 0` the worst case
+       is `radarRange` exactly. That is amendment 114's pin (`2RH = radarRange²/4`) doing its job: the
+       sea horizon and the scope rim are the same circle by construction, so a mudflat costs nothing
+       and only ELEVATION buys cover. Anyone re-deriving `R` or `H` should check this property first —
+       if a beach starts casting shadow, the pin has been broken.
+
+177. **`H` — THE MAST HEIGHT — IS `q64`, A QUARTER OF THE MAP'S QUANTIZED HEIGHT RANGE.** Eric asked
+     the right question rather than answering the wrong one: *"If we were talking about realistic
+     radar shadow on planet earth, im pretty sure most if not all of the islands would cast radar
+     shadow further than the map edges. But i want a fun game. What percentage do *you* think? like I
+     don't think its about percentage, is it?"*
+
+     **He is right on both counts, and the first half is the more important.** On Earth a 20m mast has
+     an ~18km horizon and islands are hundreds of metres tall, so `h₀ ≫ H` essentially always, every
+     island is an infinite shadow, and SOFT COVER DOES NOT EXIST. The only reason it exists here is
+     amendment 114's pin, which forces the sea horizon onto radar range and therefore makes our mast
+     height comparable to our terrain height. **Soft cover is a semi-realism departure under amendment
+     115, not a physical result** — worth stating plainly, because the arc has otherwise been careful
+     to derive rather than invent, and this one is invented on purpose.
+
+     And "percentage of land that is hard cover" is the wrong frame, because `H` is ONE knob doing TWO
+     jobs: everything in the law is the ratio `h₀/H`, so the same number that decides what is an
+     absolute wall also sets how long every softer shadow is. Nor is the operative statistic the
+     median land CELL — a ray crossing an island meets the tallest point on its chord, so a graze
+     samples the fringe and a proper crossing samples the spine, and that difference IS the gameplay.
+
+     **MEASURED, on the shipped generator at the production board (4 seeds, 22,400 rays from random
+     afloat points; 25 islands, land 1.91% of the grid):**
+
+     - **Only 17.4% of bearings cross land at all** within radar range. The feature is situational by
+       construction; 83% of the scope is never touched either way.
+     - Chord-spine height `q` (the tallest point on a land-crossing ray): p10 = 8, p25 = 21,
+       **p50 = 53**, p75 = 103, p90 = 158, p99 = 244.
+     - Reach on a land-crossing bearing, and the share that go absolute:
+
+       | `H` | p10 | p25 | p50 | p75 | absolute |
+       |---|---|---|---|---|---|
+       | q32 | 102 | 229 | 426 | 589 | 61.9% |
+       | **q64** | **168** | **327** | **521** | **647** | **38.8%** |
+       | q96 | 240 | 408 | 579 | 660 | 22.7% |
+       | q128 | 309 | 472 | 611 | 660 | 12.6% |
+
+     Eric picked **q64** against the tactical framing rather than the numbers: a coastal graze costs
+     almost nothing, cutting across a real island's spine reliably breaks a radar lock, and the wide
+     middle band is range-dependent so standing off buys reach. **The baseline this is measured
+     against is q0** — today EVERY island is an absolute wall at any range through `islandBlocksSegment`
+     — so q64 is a large softening, not a tightening.
+
+     **`H` IS FIXED AND MUST NOT BECOME A PERCENTILE (amendment 114 binds).** The raster quantizes to
+     each map's own peak, so `q` is mildly map-relative already; the implementation must therefore
+     define `H` as an absolute elevation and convert it to a per-map `q` threshold ONCE per map, so the
+     constant is genuinely fixed and the per-seed variation in hard-cover fraction is the map character
+     amendment 114 explicitly accepted. **Nothing may make `H` purchasable** — amendment 116's "land is
+     sacred" holds: no stat, boon or card may touch it.
+
+178. **THE SOFT EDGE IS DERIVED, NOT TUNED, AND IT COLLAPSES TO ONE RUNNING SCALAR.** Amendment 104
+     asks for a fade rather than a cut. Solving the same clearance condition for the MINIMUM TARGET
+     HEIGHT visible at distance `D` past an obstacle gives the illuminated fraction of a hull directly,
+     with no new constant:
+
+     ```
+     vis_i(D) = D · ( u_i/d_i + d_i/K − D/K ),   u_i = 1 − h₀ᵢ/H,   K = radarRange²/4
+     ```
+
+     It equals `u_i` at the obstacle, falls monotonically, and hits exactly 0 at `d_i + shadowLength_i`
+     — so amendment 176's reach is this function's own root, not a second rule bolted beside it.
+     **And because `vis_i(D) = D·(a_i − D/K)` with `a_i = u_i/d_i + d_i/K`, the minimum over every
+     obstacle a ray has crossed is `D·(min a_i − D/K)`: a single running scalar, O(1) per sample, no
+     obstacle list.** That is what makes this affordable on the server at 20Hz, and it is why the
+     shared function's contract is an ACCUMULATOR (fold a land sample in; ask for visibility at a
+     distance) rather than a `shadowLength(h, d)` one-shot.
+
+     Ordering rule, and it is load-bearing: a sample is painted against the accumulator as it stood
+     BEFORE that sample was folded in, so an obstacle's own near face always paints at full strength
+     and only what is BEHIND it is masked. Hard cover (`h₀ ≥ H`, `u ≤ 0`) yields a root at or before
+     the obstacle, which clamps to "dark immediately past it" — the binary behaviour is the limit of
+     the continuous one, never a separate branch.
+
+     **The fade multiplies INTENSITY, which is amendment 105 obeyed rather than bent.** A shadowed
+     return walks red → blue → green → gone, which is what amendment 104 asked for in as many words.
+     This does not reopen amendment 174: colour is still material and range, plus now ILLUMINATION,
+     which is a physical property of the return and not a category label.
+
+179. **THE SERVER'S RADAR GATE BECOMES THE SHADOW; EVERY OTHER SENSOR KEEPS BINARY ISLAND LOS.** Eric
+     chose this over the safer "shadow may only ADD occlusion" option with the disclosure consequence
+     stated. `blipGate`'s `islandBlocksSegment` test is replaced by the shared accumulator marched
+     along the observer→target ray; `pointSighted`, `pointDetected`, the muzzle-flash halo, the smoke
+     halo and the foghorn muffle are all UNCHANGED and keep the 2026-08-02 "islands block every sensor"
+     rule verbatim.
+
+     **This is a genuine DISCLOSURE WIDENING and must be reviewed as one:** a low island stops hiding a
+     distant ship, where today any polygon crossing deletes the blip outright. It is also the promised
+     proper restoration of the occlusion amendment 140 removed on the explicit promise that 4.11 would
+     put it back as a height-derived length. The master perception invariant is unchanged in FORM —
+     nothing reaches a client that its sight or this-tick paints have not revealed — but the `blip`
+     row's oracle must be RE-DERIVED against the shadow model rather than adapted, and the accumulator
+     itself becomes part of the anti-cheat surface: a client must never be able to make its own scope
+     disagree with the server's gate, which is exactly why the function is shared.
+
+     **The two sides march for different reasons and that asymmetry is intended.** The client marches
+     the swept wedge because it is painting it; the server marches ONE ray per (observer, candidate)
+     pair because it is only answering yes/no. The server's cost is therefore proportional to contacts,
+     not to scope area, and the AC's "~9 rays per observer per tick" wedge budget describes the
+     CLIENT's shape — the server's is cheaper than the thing being replaced once the pyramid skips open
+     water.
+
+180. **THE SHADOW RENDERS AS A GREY NO-SIGNAL SPECKLE, AND THIS IS A FOURTH APPEARANCE ON THE SCOPE.**
+     Eric's pick, against a flat grey wedge, a darker-than-water wash, and leaving it blank. The
+     shadowed region fills to the rim with a neutral grey stable speckle, reusing the existing
+     `MARCH_SEED` stencil so the grain is a property of place exactly as every other grain is.
+
+     **This KNOWINGLY extends amendment 160.** *"A pixel is red, blue, green, or nothing"* was ruled
+     about RETURN STRENGTH, and grey is not a return at all — it is the absence of information, which
+     the ratified grammar had no way to say. The rule that must not bend is the one underneath it: grey
+     carries NO strength channel of any kind, has no brightness ramp, and is drawn at one fixed
+     opacity, so it can never become a fourth register. Amendment 161 still binds it — age decays a
+     no-data mark exactly as it decays a return.
+
+     Arbitration: `writeCell` stays freshest-wins (amendment 164), and at EQUAL age a RETURN beats a
+     NO-DATA mark, because learning something outranks learning nothing. The temptation to give grey
+     its own alpha must be refused; see amendment 163's standing note about reaching for brightness.
+
+181. **NEAR-RANGE DIMMING IS A LIVE DISPLAY MASK — THE PAINT IS UNTOUCHED.** Eric's side task,
+     verbatim: *"radar is most effective outside of truesight range (LOS), and its still useful within
+     LOS (and it is immersion-breaking, to me, just cutting radar within that range), but to a much
+     lesser extent. So, I would like a general rule that radar is painted at 20% its usual opacity
+     within 1/8 intel range, up to 100% of its usual opacity (alpha 0.8 on initial paint) at 5/8 intel
+     range. And perhaps 'painted' isn't the right word here, because I still want it *painted* at 0.8
+     alpha, just seen at a scaled percentage of that based on how far away from our own ship we are
+     looking."*
+
+     Asked whether the dimming freezes at paint time or recomputes live, he ruled LIVE and said why:
+     *"I want everything painted at max intensity (0.8 alpha) at all times. I want it *DISPLAYED* muted
+     based on how close to the ship it is... If I move further away from the radar paint, it should
+     raise in intensity proportionally to its new distance from my ship. All this while it is still
+     decaying. What I want is for my radar results to be visible but less prominent in the near sight
+     range where i am going to aim based on LOS rather than radar ghosts."*
+
+     **THIS DOES NOT VIOLATE AMENDMENT 83, and the distinction is the whole reason it is safe.** What
+     83 forbids is re-EVALUATING a frozen paint — re-deriving its cells or its intensity against a live
+     observer, live beam or live grid anchor, which is what cycles 54, 55 and 57 each shipped a bug on.
+     A radial transparency mask is a PRESENTATION transform applied to the composited layer; no record
+     is read back, recomputed or mutated. Implement it as a mask over the radar layer centred on own
+     hull — Eric: *"apply a scaling transparancy mask or something, fine"* — and NOT as a per-cell
+     recompute inside `quantizeInto`, which would be both a per-frame cost over tens of thousands of
+     cells and a standing invitation to fold live geometry back into paint creation.
+
+     **It DOES extend amendment 161, which said opacity carries age and only age.** Opacity now carries
+     age AND viewing distance, composing multiplicatively. That is deliberate and it is Eric's, and it
+     is worth being clear-eyed that RANGE IS NOW DOUBLY ENCODED: colour already reads strength-vs-range
+     (amendment 174), so a near contact is RED but faint while a far one is BLUE but full. The purpose
+     is not to encode range a second time — it is to keep the scope quiet inside the bubble where the
+     player aims by eye, which is a legibility ruling, not an information channel.
+
+     The ramp is linear from 20% at 1/8 intel range (82.5u) to 100% at 5/8 (412.5u), flat at 20% inside
+     1/8 and flat at 100% outside 5/8, and it lands on amendment 113's ladder rather than on new
+     literals. It applies to EVERYTHING the radar layer draws — coastline, surf, clutter, hulls and
+     no-data grey alike — because it is a property of the display, not of any return.
+
+182. **AMENDMENT 103 IS RESOLVED: RADAR RANGE STAYS THE LADDER DERIVATION AND `R` IS THE DERIVED
+     QUANTITY.** `CONFIG.vision.radar` remains `SIGHT * 2` (8/8, amendment 113), because amendment 114
+     already ruled that radar range is an INTEL RANGE property and never a function of terrain, and
+     amendment 119 pinned the whole ladder to `SIGHT` multiples. Deriving the scope from a horizon
+     would invert that and make the eighths ladder a consequence of a mast height. So `H` is the free
+     constant, `R` is defined as `radarRange²/(8H)`, and the pin `2RH = radarRange²/4` therefore holds
+     BY CONSTRUCTION.
+
+     It is nonetheless asserted as a BUILD-FAILING check, exactly as the AC requires, because
+     `radarRange` drives `gun.rangeU`, `cannon.rangeU` and `starShells.rangeU` — an unpinned `R` would
+     let a shadow-feel tweak silently rebalance every gun in the game. `K = radarRange²/4` is the only
+     form that appears in the shadow code; `R` itself never needs to be computed at runtime, which is
+     amendment 114's "no small planet commitment" landing in the implementation rather than only in the
+     prose.
+
+183. **Scope and the open cost question.** `PROTOCOL_VERSION` is assessed during the spec and not
+     assumed either way: the `blip` PAYLOAD does not change shape, but WHICH blips exist changes, and a
+     stale client would draw a scope that disagrees with the server's gate — the spec must rule on
+     whether that is a misrender within amendment 155's meaning. The shared function is new code in
+     `shared/` (a first for this arc, which has been client-only since cycle 62), so it is covered by
+     `npm run check` across all three workspaces. Client per-frame cost must be re-measured at both
+     zoom extremes (amendment 99) and the server cost measured rather than assumed (the AC says so
+     explicitly); note the march can now STOP at the reach, so shadows may well make the client march
+     CHEAPER than cycle 67's 0.77 / 0.90 / 1.20 ms — that is a prediction to verify, not a claim.
