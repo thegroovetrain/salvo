@@ -4,6 +4,7 @@ import {
   ZONE_BEATS_PER_GROUP,
   isOutside,
   mapRadius,
+  radarShadowK,
   rollZoneRings,
   zoneClosedAtMs,
   zoneGroups,
@@ -114,6 +115,30 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
 
   it('terminalSightFactor is finite (a NaN factor would otherwise silently pass both pins above via the fail-closed ×2 fallback in zoneTerminalRadius)', () => {
     expect(Number.isFinite(CONFIG.zone.terminalSightFactor)).toBe(true);
+  });
+});
+
+// Radar-shadow constants (Story 4.11), pinned BUILD-FAILING beside the ladder
+// they hang off. `CONFIG.vision.radar` drives gun.rangeU, cannon.rangeU and
+// starShells.rangeU, so if the shadow model's K were ever un-pinned from
+// radarRange²/4, a shadow-feel retune of R would silently rebalance every gun
+// in the game (amendment 182); and if H ever became a computed quantity — a
+// percentile of a map's height distribution, or an absolute elevation
+// converted per map — the shadow character would drift per seed instead of
+// being the ratified q64 decision (amendment 184 struck both out).
+describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height', () => {
+  it('the model K equals radarRange²/4 — i.e. 2RH = radarRange²/4 holds by construction, R being the derived quantity (amendments 114/182/185)', () => {
+    expect(radarShadowK()).toBe(CONFIG.vision.radar ** 2 / 4);
+  });
+
+  it('radarMastQ is the FIXED literal 64, in raster q units — never computed, never a percentile (amendments 177/184; moving it is an Eric decision, not a tweak)', () => {
+    expect(CONFIG.vision.radarMastQ).toBe(64);
+    expect(Number.isInteger(CONFIG.vision.radarMastQ)).toBe(true);
+  });
+
+  it('the mast sits strictly inside the quantized range (0, 255] — soft cover EXISTS, the deliberate semi-realism departure of amendment 177 (0 would delete it; > 255 would make every wall soft)', () => {
+    expect(CONFIG.vision.radarMastQ).toBeGreaterThan(0);
+    expect(CONFIG.vision.radarMastQ).toBeLessThanOrEqual(255);
   });
 });
 

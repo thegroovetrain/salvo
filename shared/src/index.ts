@@ -309,4 +309,5 @@ export * from './sim/shell.js';
 export * from './sim/map.js';
 export * from './sim/noise.js';
 export * from './sim/heightField.js';
+export * from './sim/radarShadow.js';
 export * from './sim/zone.js';
