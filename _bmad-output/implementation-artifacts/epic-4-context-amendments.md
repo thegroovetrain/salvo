@@ -2512,3 +2512,67 @@ answer, all his:
      from the report the whole time: *"repainting should re-paint it"* is a statement about WRITE
      ARBITRATION, not about colour. When a symptom survives a fix that genuinely addressed part of it,
      the remaining cause is usually at a different layer than the part already fixed.
+
+## 2026-08-08 — Eric report, A HULL IS UNIFORM STEEL (cycle 66)
+
+167. **THE CORE→EDGE RAMP ON SHIPS WAS AN INVENTION, AND IT IS WHY SHIPS READ GREEN.** Eric, on the
+     0.17.65 build: *"Ships are not being painted red enough, and they are getting far too much green
+     around their fringes... Islands look pretty good right now, ships still do not. Is it that the
+     bands need to be tweaked?"*
+
+     No — the bands are right, and the islands prove it. Cycle 63 scaled every hull cell by
+     `depth ÷ maxDepth`: its own city-block distance into the coverage mask, over the mask's deepest
+     point. On a landmass that is harmless. On a hull it is fatal, and the arithmetic is not close:
+
+     | hull | sharp (cells) | dilated | maxDepth | share below full strength |
+     |---|---|---|---|---|
+     | torpedo boat | 11.1 × 1.0 | 13 × 3 | 2 | **~72% at half** |
+     | mine layer | 9.8 × 2.2 | 12 × 4 | 2 | ~58% at half |
+     | battleship | 13.8 × 3.6 | 16 × 6 | 3 | most at ⅓ or ⅔ |
+
+     A hull is **three cells thick** at the shipped 9u lattice, so a ring-shaped fringe IS the ship.
+     The core was red exactly as the amendment-118 fit intended, and then two thirds of the mark
+     around it was drawn at half strength — into blue and green. The reported defect, in one line.
+
+     **UNIFORM IS THE PHYSICALLY RIGHT ANSWER, not just the better-looking one, and amendment 106's
+     own table is the argument.** Reflectivity is a MATERIAL property, and a hull is one material end
+     to end: steel at 1.0, the strongest thing on the water, against a rock cliff's 0.5. Terrain earns
+     its internal gradient honestly because terrain's reflectivity genuinely varies across its extent
+     (height — amendment 129). A hull's does not. The ramp was manufacturing a variation the object
+     does not have in order to satisfy a rule written about objects that do.
+
+     Measured result: a **broadside** hull now reads RED across its whole footprint out to ~605u (TB),
+     ~571u (ML) and ~660u (BB) — the entire scope for a battleship. A **bow-on** hull stays blue or
+     green, which is aspect (amendment 66) working and is table-correct: steel bow-on is ~0.25 of
+     broadside, weaker than a rock cliff.
+
+168. **AMENDMENT 77 IS SATISFIED BY TERRAIN, NOT BY EVERY OBJECT INDIVIDUALLY — a scope correction, not
+     a reversal.** Its concern (amendment 76's diagnosis) was colour becoming a per-object LABEL: a
+     mark whose colour told you *which thing it was* rather than *how strong the return was*. A uniform
+     hull whose register tracks aspect and range is colour-as-INTENSITY, which is the rule being
+     obeyed, not broken. And at three cells across there is no room for a gradient that could mean
+     anything anyway. The multi-band pin moved to where the property is real: an island whose height
+     varies across its extent. **A future cycle must not "restore" a per-object gradient to satisfy 77
+     — read this entry and 106's material table first.**
+
+169. **The retired pin, and the shape of this mistake.** The cycle-63 test asserted a hull spans ≥2
+     bands with a "weaker fringe", so it pinned the invention as correct and would have defended it
+     against exactly this fix. Retired, not adapted — the third time in three cycles that a test
+     encoding a defect had to be removed rather than adjusted (amendments 160, 164, and now this).
+     **The pattern worth naming: when a rule is stated generally ("a return shows more than one band")
+     and then enforced with a test on ONE example, the test silently promotes that example's
+     implementation into the rule.** The fringe here was never ratified; it was one way of satisfying
+     77 on a mine layer, frozen into a pin.
+
+     Correction of record: `stampCoverage`'s doc comment claimed the normalized ramp meant *"a
+     1-cell-deep bow-on needle is all core"*. True in isolation and irrelevant in practice — after
+     dilation nothing is 1 cell deep, so the case it reassured about could not occur.
+
+170. **Scope.** Client-only: no wire change, no server change, `PROTOCOL_VERSION` unchanged at **31**,
+     `silhouette` untouched, and **no coefficient moved** — the whole fix is deleting a multiplier, so
+     amendment 135 has nothing new to bound and every shipped calibration (the amendment-118 crossover
+     fit, `minPeak`'s amendment-127 floor) now lands on the WHOLE mark instead of on its centreline.
+     `coverageDepths` is deleted as dead. **Known and NOT changed: `landSteep` is 1.0, equal to steel,
+     where amendment 106's table puts a rock cliff at 0.5.** Islands were reported as looking right, so
+     the table's ratio is left alone deliberately rather than "corrected" into a regression — but it is
+     the first thing to look at if ships and terrain ever need re-separating.

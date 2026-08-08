@@ -339,51 +339,40 @@ export function coverageExtent(cov: HullCoverage, obs: Vec2, cellU: number): num
 }
 
 /**
- * CITY-BLOCK DEPTH INTO THE COVERAGE MASK — the amendment-77 core→edge term's
- * geometry (cycle 63, amendment 152: *"'distance into the coverage' is exactly
- * the core→edge term the flat `hullSample` lost"*). For every covered cell:
- * the 4-neighbour step count to the nearest UNCOVERED cell (cells outside the
- * rect count as uncovered), so a mask-edge cell reads 1 and the interior
- * climbs. Two-pass chamfer, O(w·h), on a mask that is at most ~22×22 cells.
- * Uncovered cells read 0.
- */
-export function coverageDepths(cov: HullCoverage): Int32Array {
-  const { w, h } = cov;
-  const d = new Int32Array(w * h);
-  const at = (col: number, row: number): number =>
-    col < 0 || row < 0 || col >= w || row >= h ? 0 : d[row * w + col];
-  for (let row = 0; row < h; row++) {
-    for (let col = 0; col < w; col++) {
-      if (!coverageHas(cov, col, row)) continue;
-      d[row * w + col] = Math.min(w * h, at(col - 1, row) + 1, at(col, row - 1) + 1);
-    }
-  }
-  for (let row = h - 1; row >= 0; row--) {
-    for (let col = w - 1; col >= 0; col--) {
-      const i = row * w + col;
-      if (d[i] === 0) continue;
-      d[i] = Math.min(d[i], at(col + 1, row) + 1, at(col, row + 1) + 1);
-    }
-  }
-  return d;
-}
-
-/**
- * Stamp one coverage footprint into the ship layer, with the CORE→EDGE term
- * baked into each cell's material.
+ * Stamp one coverage footprint into the ship layer. EVERY COVERED CELL CARRIES
+ * THE SAME MATERIAL — a hull is uniform steel, so its return is uniform.
  *
- * THE DEEPEST CELLS CARRY THE FULL `hullSample` PEAK, and that is what keeps
- * every shipped calibration valid verbatim: `refl = ship × ext / strongExtent`
- * lands unchanged on the mask's core, so the amendment-118 crossover fit, the
- * four pinned readings and `minPeak`'s amendment-127 floor all still hold
- * where they always held. Shallower cells scale by depth ÷ maxDepth —
- * NORMALIZED, deliberately, so the term is pure mask geometry with no new
- * tunable (amendment 135 has no new coefficient to bound): a 1-cell-deep
- * bow-on needle is all core (its weakness is already carried by its tiny
- * extent), while a broadside battleship grades fringe → surround → core
- * across its own beam. Every cell keeps `min = minPeak`, so no fringe cell of
- * anything the server disclosed can ever fall below the floor that makes
- * radar range one number for every hull.
+ * THE CORE→EDGE RAMP THIS REPLACES WAS AN INVENTION, AND IT IS WHY SHIPS READ
+ * GREEN (cycle 66, amendment 167). Cycle 63 scaled each cell by
+ * `depth ÷ maxDepth` — its own distance into the mask over the mask's deepest
+ * point — to satisfy amendment 77's "one return shows more than one band". On a
+ * landmass that is harmless; on a hull it is fatal, because a hull is THREE
+ * CELLS THICK at the shipped 9u lattice. Measured: a torpedo boat is 11.1 × 1.0
+ * cells sharp and 13 × 3 dilated, so `maxDepth` is 2 and **72% of the ship
+ * lands at HALF reflectivity**; a mine layer 58%. The core was red exactly as
+ * the amendment-118 fit intended — and then two thirds of the mark around it
+ * was drawn at half strength, into blue and green. That is the reported defect
+ * in one line of arithmetic.
+ *
+ * WHY UNIFORM IS THE PHYSICALLY RIGHT ANSWER, not merely the one that looks
+ * better. Amendment 106's own table is the argument: reflectivity is a MATERIAL
+ * property, and a hull is one material end to end — steel, the strongest thing
+ * on the water at 1.0, against a rock cliff's 0.5. Terrain earns its internal
+ * gradient honestly, because terrain's reflectivity genuinely varies across its
+ * extent (height, amendment 129); a hull's does not. The ramp was manufacturing
+ * a variation the object does not have, to satisfy a rule written about objects
+ * that do.
+ *
+ * SO AMENDMENT 77 IS SATISFIED BY TERRAIN, NOT BY EVERY OBJECT INDIVIDUALLY. Its
+ * concern was colour becoming a per-object LABEL — a mark whose colour said
+ * *which thing* rather than *how strong* (amendment 76's diagnosis). A uniform
+ * hull whose register tracks aspect and range is colour-as-INTENSITY, which is
+ * the rule; and at three cells across there is no room for a gradient that
+ * means anything anyway.
+ *
+ * Every calibration lands unchanged, and now lands on the WHOLE mark rather
+ * than on its centreline: `refl = ship × ext / strongExtent` is the amendment-118
+ * crossover fit, and `min = minPeak` is amendment 127's floor.
  */
 export function stampCoverage(
   stamp: ShipStamp,
@@ -393,20 +382,10 @@ export function stampCoverage(
   cellU: number,
 ): void {
   const core = hullSample(coverageExtent(cov, obs, cellU), m);
-  const depths = coverageDepths(cov);
-  let maxDepth = 1;
-  for (let i = 0; i < depths.length; i++) {
-    if (depths[i] > maxDepth) maxDepth = depths[i];
-  }
-  const byDepth: FieldSample[] = [core];
-  for (let d = maxDepth - 1; d >= 1; d--) {
-    byDepth[maxDepth - d] = { ...core, refl: (core.refl * d) / maxDepth };
-  }
   for (let row = 0; row < cov.h; row++) {
     for (let col = 0; col < cov.w; col++) {
-      const depth = depths[row * cov.w + col];
-      if (depth === 0) continue;
-      putShip(stamp, cellKey(cov.gx + col, cov.gy + row), byDepth[maxDepth - depth]);
+      if (!coverageHas(cov, col, row)) continue;
+      putShip(stamp, cellKey(cov.gx + col, cov.gy + row), core);
     }
   }
 }

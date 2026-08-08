@@ -851,17 +851,48 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
     return { bands, centre: sampleGrid(g, HULL.x, HULL.y).w, strongest };
   }
 
-  it('paints a RED core and a weaker fringe on one hull, at the SHIPPED grain', () => {
+  // REPLACES the cycle-63 pin that required a hull to span ≥2 bands with a
+  // "weaker fringe". That fringe was a MANUFACTURED gradient (`depth ÷
+  // maxDepth`) and it is the reported defect (amendment 167): at the shipped
+  // 9u lattice a torpedo boat is 13×3 cells dilated, so `maxDepth` is 2 and
+  // 72% of the ship was drawn at HALF reflectivity — the core was red exactly
+  // as the amendment-118 fit intended and two thirds of the mark around it fell
+  // into blue and green. The old test asserted that as correct, so it is
+  // retired, not adapted.
+  it('paints ONE solid register across the whole hull — a hull is uniform steel', () => {
     const g = scope(OBS, { hulls: [HULL] }, CFG); // CFG: the shipped envelope, not CLEAN
     const { bands, centre, strongest } = litFootprintBands(g);
-    expect(bandAt(g, HULL.x, HULL.y), 'the core reads red').toBe(2);
-    expect(bands.size, 'and the footprint spans more than one band').toBeGreaterThanOrEqual(2);
-    // Strongest at the core, within the depth term's quantization: the fuzzed
-    // mask's deepest cell can sit a cell off the hull centre (dilation and a
-    // stretch draw shift the depth centroid — amendments 156-157), so the pin
-    // is that the hull cell reads within a band-width of the peak, never that
-    // it IS the peak to float precision.
+    expect(bandAt(g, HULL.x, HULL.y), 'the hull reads red').toBe(2);
+    expect(bands.size, 'and it does NOT grade into weaker registers').toBe(1);
+    // "Uniform" is one REGISTER, not one float. A 124u hull spans ~13 cells, so
+    // its far end is genuinely further away than its near end and attenuates
+    // slightly more — a real range gradient, not a manufactured core→edge one.
+    // The pin is that the spread stays far inside a band width.
     expect(centre).toBeGreaterThan(strongest * 0.9);
+  });
+
+  // Amendment 77's "one return shows more than one band" is satisfied by objects
+  // whose reflectivity GENUINELY varies across their extent — which is terrain,
+  // via height (amendment 129). It was never a property every object had to have
+  // individually, and a three-cell-wide hull has no room for one that means
+  // anything.
+  it('...while an ISLAND still spans several registers, because its height '
+    + 'genuinely varies (amendment 77, where it actually applies)', () => {
+    // A dome: high in the middle, grading to the waterline. Its reflectivity
+    // varies across its extent for a PHYSICAL reason (amendment 129), which is
+    // what earns it a gradient a hull has no claim to.
+    const R = 260;
+    const DOME = rasterWithPyramid(500, (x, y) => {
+      const d = Math.hypot(x, y - 340);
+      return d <= R ? Math.round(240 * (1 - d / R)) + 1 : 0;
+    });
+    const g = scope(OBS, { raster: DOME }, CFG);
+    const bands = new Set<number>();
+    for (let i = 0; i < g.w.length; i++) {
+      const b = bandIndex(g.w[i], BANDS);
+      if (b >= 0) bands.add(b);
+    }
+    expect(bands.size, 'terrain carries the multi-band read').toBeGreaterThanOrEqual(2);
   });
 
   it('a fogged wire footprint and a client-rasterized contact of the same pose paint IDENTICAL intensities (two sources, one appearance — amendment 154)', () => {

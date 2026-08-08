@@ -113,6 +113,25 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-08 (dev-auto cycle 66, 0.17.66) — A HULL IS UNIFORM STEEL. Amendments
+  # 167-170; PV UNCHANGED at 31; client-only; NO coefficient moved (the fix DELETES a multiplier).
+  # Eric: "Ships are not being painted red enough, and they are getting far too much green around
+  # their fringes... Islands look pretty good right now, ships still do not." The bands were right —
+  # the islands proved it. Cycle 63 scaled every hull cell by `depth / maxDepth`; harmless on a
+  # landmass, fatal on a hull. At the 9u lattice a torpedo boat is 13x3 cells dilated, maxDepth 2, so
+  # 72% OF THE SHIP WAS DRAWN AT HALF REFLECTIVITY (ML 58%; BB mostly 1/3-2/3). The core was red as
+  # the amendment-118 fit intended; two thirds of the mark around it fell into blue and green.
+  #   UNIFORM IS PHYSICALLY RIGHT: reflectivity is a MATERIAL property and a hull is one material end
+  #   to end (amendment 106 — steel 1.0, rock cliff 0.5). Terrain earns its gradient because its
+  #   reflectivity genuinely varies with height; a hull's does not.
+  #   AMENDMENT 77 IS SATISFIED BY TERRAIN, NOT BY EVERY OBJECT. Its concern was colour as a per-object
+  #   LABEL; a uniform hull whose register tracks aspect and range is colour-as-intensity, i.e. the
+  #   rule obeyed. Do NOT restore a per-object gradient to satisfy 77.
+  #   RESULT: a broadside hull reads RED across its whole footprint to ~605u (TB) / ~571u (ML) /
+  #   ~660u (BB); bow-on stays blue/green, which is aspect and is table-correct.
+  #   NOT CHANGED, deliberately: landSteep is 1.0, equal to steel, where the table puts rock at 0.5.
+  #   Islands look right, so the ratio is left alone — but it is the lever if ships and terrain ever
+  #   need re-separating.
   # INTERSTITIAL 2026-08-08 (dev-auto cycle 65, 0.17.65) — THE SWEEP REPAINTS. Amendments 164-166;
   # PV UNCHANGED at 31; client-only. THE ROOT CAUSE OF FOUR CYCLES OF "the intensity still varies",
   # and it was never a colour problem. `writeCell` was MAX-WINS ON INTENSITY and wrote the winner's
