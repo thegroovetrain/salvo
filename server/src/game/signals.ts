@@ -38,7 +38,7 @@ import {
   CONFIG,
   bearing,
   islandBlocksSegment,
-  rasterizeHullCoverage,
+  paintCoverage,
   wrapAngle,
   wrapPositive,
   type BallisticEvent,
@@ -52,6 +52,7 @@ import {
   type GameEvent,
   type HealEvent,
   type HitCallEvent,
+  type HullCoverage,
   type HullId,
   type Island,
   type LitZoneView,
@@ -294,16 +295,17 @@ function blipGate(me: ShipRecord, p: Vec2, islands: readonly Island[], now: numb
  *  LOAD-BEARING: silhouette grammar emits k,id,x,y,t,cls,heading,speed
  *  (Story 4.2); return grammar emits k,t,gx,gy,w,h,bits — THE SERVER
  *  RASTERIZES THE HULL: the true silhouette polygon at the paint pose,
- *  projected onto the shared radar grid (CONFIG.vision.radarCellU) by the
- *  shared `rasterizeHullCoverage`, as a world-anchored coverage footprint
+ *  projected onto the shared radar grid (CONFIG.vision.radarCellU) and
+ *  FUZZED per paint (dilation + glint, amendments 156-157) by the shared
+ *  `paintCoverage`, as a world-anchored coverage footprint
  *  carrying NO id, NO class, NO heading, NO extent and no exact position.
  *  Identity stops leaving the server at all in return mode — there is no
  *  correlation handle across sweeps, so `radarIdentity` is structurally
  *  inert there (the pseudonym resolver only ever runs for silhouette
  *  paints). GEOMETRY ONLY, observer-independent: the mask is a pure function
- *  of (hull, pose, grid), never of boons, hp, damage state, or the observer
- *  — every observer painting this hull this tick receives the identical
- *  mask, and the client computes all intensity. In silhouette pseudonym mode
+ *  of (hull, pose, grid, paint tick), never of boons, hp, damage state, or
+ *  the observer — every observer painting this hull this tick receives the
+ *  identical mask, and the client computes all intensity. In silhouette pseudonym mode
  *  `id` is the ship's stable per-match track id (ctx.pseudonymOf) — a
  *  genuine paint resolves the SHIP's id, the decoy counterIntel resolves the
  *  OWNER's. A genuine paint passes the ship's position and LIVE pose; the
@@ -311,7 +313,41 @@ function blipGate(me: ShipRecord, p: Vec2, islands: readonly Island[], now: numb
  *  cls/heading at speed 0 (a radar reflector reports true stationary values)
  *  — byte-for-byte the same shape either way, in BOTH grammars, because both
  *  run through this one shaper (and, in return mode, the one shared
- *  rasterizer — amendment 11 by construction). */
+ *  rasterizer+fuzz pipeline — amendment 11 by construction).
+ *
+ *  THE MASK IS FUZZED PER PAINT (cycle-63 review gate, amendments 156-157):
+ *  `paintCoverage` dilates the sharp rasterization and jitters its fringe on a
+ *  seed derived from (tick time, exact pose) — never from any ship identity —
+ *  so class is inferable with skill, never readable (amendment 68), and the
+ *  jitter can never become the cross-sweep correlation handle amendment 152
+ *  removed. Still observer-independent: the seed has no observer term, so
+ *  every observer painting this hull this tick receives the identical mask —
+ *  which is why the one-slot memo below is sound: consecutive observers whose
+ *  beams gate the same hull in the same tick reuse the mask instead of
+ *  re-rasterizing it (cycle-63 review gate note; a full per-(ship, tick)
+ *  cache is not warranted — expected hulls-in-wedge per observer per tick is
+ *  well under one, amendment 153). */
+interface MaskMemo {
+  cls: HullId;
+  x: number;
+  y: number;
+  heading: number;
+  t: number;
+  mask: HullCoverage;
+}
+let lastMask: MaskMemo | null = null;
+
+/** The memoized paint pipeline: (pose, tick) → wire mask. Pure per key. */
+function paintMask(cls: HullId, p: Vec2, heading: number, t: number): HullCoverage {
+  const m = lastMask;
+  if (m !== null && m.cls === cls && m.x === p.x && m.y === p.y && m.heading === heading && m.t === t) {
+    return m.mask;
+  }
+  const mask = paintCoverage(cls, p.x, p.y, heading, CONFIG.vision.radarCellU, t);
+  lastMask = { cls, x: p.x, y: p.y, heading, t, mask };
+  return mask;
+}
+
 function blipShape(
   ctx: SignalContext,
   shipId: string,
@@ -321,7 +357,7 @@ function blipShape(
   speed: number,
 ): BlipEvent {
   if (ctx.radarGrammar === 'return') {
-    const c = rasterizeHullCoverage(cls, p.x, p.y, heading, CONFIG.vision.radarCellU);
+    const c = paintMask(cls, p, heading, ctx.now);
     return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
   }
   const id = ctx.radarIdentity === 'pseudonym' ? ctx.pseudonymOf(shipId) : shipId;

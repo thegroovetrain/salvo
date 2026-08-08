@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  rasterizeHullCoverage,
+  paintCoverage,
   wrapPositive,
   type FrameMsg,
   type ReturnBlipEvent,
@@ -307,15 +307,17 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
       expect(ev.t).toBe(w.now); // stamped by the same tick clock
     }
     // The lie's footprint: the OWNER's hull (mineLayer) at the FROZEN drop
-    // heading (0), rasterized at the BUOY's position — never a live owner
-    // read. By construction it runs through the same shared rasterizer a
-    // genuine paint does; this equality is what pins that construction.
-    const lieMask = rasterizeHullCoverage('mineLayer', 0, 400, 0, CONFIG.vision.radarCellU);
+    // heading (0), rasterized AND FUZZED at the BUOY's position — never a
+    // live owner read. By construction it runs through the same shared
+    // pipeline a genuine paint does (`paintCoverage`, seeded from the paint
+    // tick and the buoy pose — amendment 157: time and pose, never an id);
+    // this equality is what pins that construction.
+    const lieMask = paintCoverage('mineLayer', 0, 400, 0, CONFIG.vision.radarCellU, w.now);
     const lie = blips.find((ev) => ev.gy === lieMask.gy)!;
     expect(lie).toBeDefined();
     expect({ gx: lie.gx, gy: lie.gy, w: lie.w, h: lie.h, bits: lie.bits }).toEqual(lieMask);
     // ...and the genuine paint is the real ship's own footprint.
-    const realMask = rasterizeHullCoverage('torpedoBoat', 400, 0, 0, CONFIG.vision.radarCellU);
+    const realMask = paintCoverage('torpedoBoat', 400, 0, 0, CONFIG.vision.radarCellU, w.now);
     const real = blips.find((ev) => ev !== lie)!;
     expect({ gx: real.gx, gy: real.gy, w: real.w, h: real.h, bits: real.bits }).toEqual(realMask);
   });

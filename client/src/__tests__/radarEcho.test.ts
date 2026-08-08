@@ -35,7 +35,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture, type Graphics } from 'pixi.js';
 import {
   CONFIG,
-  rasterizeHullCoverage,
+  paintCoverage,
   type HeightRaster,
   type HullId,
   type ReturnBlipEvent,
@@ -92,12 +92,13 @@ function revolution(radar: Radar, own = OWN, contacts: ContactStore | null = nul
 }
 
 /** A wire coverage footprint for a hull pose — the cycle-63 payload, built by
- *  the SAME shared rasterizer the server runs. The record keeps the pose
- *  beside the wire event, because the event itself deliberately carries no
- *  position, class or id any more (amendment 152). */
+ *  the SAME shared paint pipeline the server runs (rasterize + fuzz, seeded
+ *  from the paint time and pose — amendments 156-157). The record keeps the
+ *  pose beside the wire event, because the event itself deliberately carries
+ *  no position, class or id any more (amendment 152). */
 interface TestEcho { e: ReturnBlipEvent; x: number; y: number }
 function wireEcho(cls: HullId, x: number, y: number, heading: number, t = 1000): TestEcho {
-  const c = rasterizeHullCoverage(cls, x, y, heading, CELL);
+  const c = paintCoverage(cls, x, y, heading, CELL, t);
   return { e: { k: 'blip', t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y };
 }
 
@@ -134,18 +135,22 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     expect(radar.livePaints).toBe(1);
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBeGreaterThanOrEqual(0);
     // The hull heads +x, so the mark runs ALONG +x (its 124u length) and is
-    // only its 48u beam deep in y — the wire mask decides the shape, and the
+    // only its beam deep in y — the wire mask decides the shape, and the
     // observer decides nothing about it (cycle 63: the retired `stampEcho`
     // laid `ext` across the observer's bearing, one cell deep, which is why a
     // fogged hull never pointed the way it was moving).
     const across = litSpan(radar, 'x', 0, 500);
     const along = litSpan(radar, 'y', 500, 0);
-    expect(across).toBeGreaterThan(along * 1.8);
-    // The footprint is the hull's REAL length, cell-quantized.
-    expect(Math.abs(across - CONFIG.shipClasses.battleship.hull.length),
-      'the mark is the hull the server rasterized').toBeLessThanOrEqual(2 * CELL);
-    expect(Math.abs(along - CONFIG.shipClasses.battleship.hull.beam),
-      'and its beam across').toBeLessThanOrEqual(2 * CELL);
+    expect(across, 'orientation reads through the fuzz').toBeGreaterThan(along * 1.5);
+    // The footprint is the hull's REAL length, cell-quantized and SMEARED —
+    // the fuzz (dilation + stretch, amendments 156-157) can only ever make it
+    // larger, up to 2 cells per side, never smaller than the hull.
+    const grown = (span: number, trueU: number): void => {
+      expect(span).toBeGreaterThanOrEqual(trueU - CELL);
+      expect(span).toBeLessThanOrEqual(trueU + 5 * CELL);
+    };
+    grown(across, CONFIG.shipClasses.battleship.hull.length);
+    grown(along, CONFIG.shipClasses.battleship.hull.beam);
   });
 
   it('marches immediately when a pose is already known — deferral is the '
@@ -179,6 +184,83 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     radar.render(OWN, 20); // the very next frame — the beam has moved 0.03 rad
     expect(radar.bandAt(behind.x, behind.y), 'painted on arrival')
       .toBeGreaterThanOrEqual(0);
+  });
+});
+
+// --- THE WIRE VALIDATORS, DRIVEN AT THE ADAPTER (cycle-63 review gate) ----------
+//
+// Amendment 145's standing lesson: a test that exercises a pure function's
+// branch has NOT tested the behaviour unless the adapter can reach that
+// branch — so every case below goes through `radar.onBlip`, the exact door a
+// malformed network payload comes through, and asserts on the adapter's own
+// observable state (paints, bands, blips).
+
+describe('malformed wire payloads are dropped whole at the adapter', () => {
+  /** A valid echo the malformed variants are derived from. */
+  function base(): ReturnBlipEvent {
+    return wireEcho('battleship', 300, 0, 0, 1000).e;
+  }
+
+  it('a non-finite or far-future `t` paints nothing — a full-brightness mark that never decays is unrepresentable', () => {
+    const { radar } = makeRadar(); // onSweepSample(0, 0): server time ~0 is the reference
+    radar.render(OWN, 900);
+    for (const t of [Number.NaN, Infinity, -Infinity, 1e15]) {
+      radar.onBlip({ ...base(), t });
+      radar.render(OWN, 1000);
+      expect(radar.livePaints, `t=${t}`).toBe(0);
+    }
+    radar.onBlip(base()); // and a conforming paint still lands
+    expect(radar.livePaints).toBe(1);
+  });
+
+  it('huge cell indices are dropped — they would break the cell-key injectivity premise and paint phantoms', () => {
+    const { radar } = makeRadar();
+    radar.render(OWN, 900);
+    for (const gx of [1e7, -1e7, 2 ** 31]) {
+      radar.onBlip({ ...base(), gx });
+      radar.render(OWN, 1000);
+      expect(radar.livePaints, `gx=${gx}`).toBe(0);
+    }
+  });
+
+  it('an oversized rect and a mis-sized bits array are dropped (the derived span bound)', () => {
+    const { radar } = makeRadar();
+    radar.render(OWN, 900);
+    const big = base();
+    radar.onBlip({ ...big, w: 4096, bits: new Array<number>(Math.ceil((4096 * big.h) / 32)).fill(-1) });
+    radar.onBlip({ ...big, bits: big.bits.slice(0, -1) });
+    radar.render(OWN, 1000);
+    expect(radar.livePaints).toBe(0);
+  });
+
+  it('a malformed SILHOUETTE payload is dropped on the same terms — the branch the first hardening pass left raw', () => {
+    const layer = new Container();
+    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
+    radar.onSweepSample(0, 0);
+    radar.render(OWN, 900);
+    const good: SilhouetteBlipEvent = { k: 'blip', id: 't1', x: 0, y: 500, t: 900, cls: 'battleship', heading: 0, speed: 10 };
+    const bad: SilhouetteBlipEvent[] = [
+      { ...good, x: Number.NaN },
+      { ...good, heading: Infinity },
+      { ...good, t: 1e15 },
+      { ...good, cls: 'notAHull' as never },
+      { ...good, id: 7 as never },
+    ];
+    for (const e of bad) radar.onBlip(e);
+    expect(radar.liveBlips, 'nothing malformed acquired a Graphics').toBe(0);
+    radar.onBlip(good);
+    expect(radar.liveBlips, 'and a conforming blip still lands').toBe(1);
+  });
+
+  it('the pending park is CAPPED while own pose is null — a join gap cannot grow it unboundedly', () => {
+    const { radar } = makeRadar();
+    // No render ever happens: own pose stays null and every echo parks.
+    for (let i = 0; i < 400; i++) radar.onBlip(wireEcho('torpedoBoat', 300 + i, 0, 0, 100 + i).e);
+    // The park is bounded at the same ceiling as the live-blip backstop, so
+    // resolving it cannot enroll more than that many slices either.
+    radar.render(OWN, 1000);
+    expect(radar.livePaints).toBeGreaterThan(0);
+    expect(radar.livePaints).toBeLessThanOrEqual(128);
   });
 });
 
@@ -463,7 +545,11 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
     const viaWire = makeRadar().radar;
     viaWire.setDazzled(true);
     viaWire.render(OWN, 900);
-    const c = rasterizeHullCoverage(pose.cls, pose.x, pose.y, pose.heading, CELL);
+    // The wire mask is the fuzzed paint (cycle-63 gate) at the SAME glint seed
+    // the contact source used: the adapter seeds a sighted hull's stamp with
+    // its revolution index, which is 0 for the whole first turn — so the two
+    // sources build byte-identical masks and the comparison stays cell-for-cell.
+    const c = paintCoverage(pose.cls, pose.x, pose.y, pose.heading, CELL, 0);
     viaWire.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
     viaWire.render(OWN, 1000);
     // Cell-for-cell comparable: the two paths fire DIFFERENT ray sets (the

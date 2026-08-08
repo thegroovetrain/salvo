@@ -17,7 +17,7 @@ import {
   coverageCellCount,
   coverageHas,
   mulberry32,
-  rasterizeHullCoverage,
+  paintCoverage,
   wrapPositive,
   type FrameMsg,
   type HullCoverage,
@@ -127,11 +127,13 @@ describe('return grammar — THE SERVER RASTERIZES THE HULL: a coverage footprin
     const blips = returnBlipsOf(buildFrame(w, 'a'));
     expect(blips).toHaveLength(3);
     // Each footprint must be the TRUE hull polygon rasterized at its TRUE pose
-    // — matched exactly once each, since the wire no longer says which is which.
+    // and fuzzed on the paint tick's seed (cycle-63 review gate: the wire mask
+    // is `paintCoverage`, never the sharp rasterization) — matched exactly
+    // once each, since the wire no longer says which is which.
     const expected = [
-      rasterizeHullCoverage('battleship', 400, 0, 0.9, CELL),
-      rasterizeHullCoverage('torpedoBoat', 0, 420, 2.1, CELL),
-      rasterizeHullCoverage('mineLayer', -450, 0, -0.4, CELL),
+      paintCoverage('battleship', 400, 0, 0.9, CELL, w.now),
+      paintCoverage('torpedoBoat', 0, 420, 2.1, CELL, w.now),
+      paintCoverage('mineLayer', -450, 0, -0.4, CELL, w.now),
     ];
     for (const ev of blips) {
       // Assert on the object's KEYS, order included (msgpack wire shape) — and
@@ -158,7 +160,7 @@ describe('return grammar — THE SERVER RASTERIZES THE HULL: a coverage footprin
     const seen2 = returnBlipsOf(buildFrame(w, 'a2'));
     // Compare the footprint that matches b's true raster, which must appear
     // for BOTH observers, byte-identical — moving the observer moves nothing.
-    const truth = JSON.stringify(rasterizeHullCoverage('battleship', 400, 0, 1.1, CELL));
+    const truth = JSON.stringify(paintCoverage('battleship', 400, 0, 1.1, CELL, w.now));
     const of1 = seen1.filter((e) => JSON.stringify(maskOf(e)) === truth);
     const of2 = seen2.filter((e) => JSON.stringify(maskOf(e)) === truth);
     expect(of1).toHaveLength(1);
@@ -174,9 +176,13 @@ describe('return grammar — THE SERVER RASTERIZES THE HULL: a coverage footprin
     b.state.heading = Math.PI / 2; // long axis in y
     windowAround(a, 0);
     const abeam = returnBlipsOf(buildFrame(w, 'a'))[0];
-    // Heading +x: the rect is much wider than tall; heading +y: the reverse.
-    expect(bowOn.w).toBeGreaterThan(bowOn.h * 2);
-    expect(abeam.h).toBeGreaterThan(abeam.w * 2);
+    // Heading +x: the rect is wider than tall; heading +y: the reverse. The
+    // factor is a strict `>` rather than the pre-fuzz 2×: a fuzzed mask's
+    // dims are per-paint random variables (amendments 156-157), and the
+    // robust every-paint orientation pin lives in shared
+    // radarRaster.test.ts — this test pins the WIRE end of the same property.
+    expect(bowOn.w).toBeGreaterThan(bowOn.h);
+    expect(abeam.h).toBeGreaterThan(abeam.w);
     // ...and the covered cells trace the hull, not a line across the bearing:
     // the mask is deeper than one cell on BOTH axes for a battleship.
     expect(bowOn.h).toBeGreaterThan(1);
@@ -228,7 +234,9 @@ describe('return grammar — THE SERVER RASTERIZES THE HULL: a coverage footprin
     // the mask lights the cell containing (400, 0) and equals that hull's raster.
     const cellOfU = (v: number): number => Math.floor(v / CELL);
     expect(coverageHas(maskOf(ret[0]), cellOfU(400) - ret[0].gx, cellOfU(0) - ret[0].gy)).toBe(true);
-    expect(maskOf(ret[0])).toEqual(rasterizeHullCoverage('torpedoBoat', 400, 0, 0.3, CELL));
+    // The seed time is the paint's own `t` (the two worlds share a seed, so
+    // the return world's tick clock is read off the event itself).
+    expect(maskOf(ret[0])).toEqual(paintCoverage('torpedoBoat', 400, 0, 0.3, CELL, ret[0].t));
   });
 });
 

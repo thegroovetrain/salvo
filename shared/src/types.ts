@@ -392,6 +392,15 @@ export interface SilhouetteBlipEvent {
  * term from depth inside the mask, the SNR grain) — the server does geometry
  * only.
  *
+ * THE MASK IS FUZZED, BY RULING (cycle-63 review gate, amendments 156-157):
+ * what rides the wire is `paintCoverage` — the sharp rasterization dilated
+ * one cell (beam smear), stretched 0-1 further cell per side and glinted on
+ * its fringe per paint (`fuzzCoverage`, seeded by `paintSeed(t, x, y,
+ * heading)` — time and exact pose, NEVER any ship identity, so the jitter is
+ * not a cross-sweep correlation handle). A sharp mask was a class lookup
+ * table, which reversed amendment 68; the fuzzed mask keeps size and
+ * orientation readable while class is inferable only with skill.
+ *
  * THIS SHAPE REDUCES DISCLOSURE, and that is load-bearing (amendment 152).
  * The retired shape carried an `id` — a correlation handle across sweeps —
  * plus the exact float position and a derived `ext` scalar a modified client
@@ -416,7 +425,10 @@ export interface SilhouetteBlipEvent {
  * WIRE LAYOUT: `gx`/`gy` are ABSOLUTE world cell indices of the rect's min
  * corner (`floor(worldU / radarCellU)`), `w`/`h` the rect in cells, `bits`
  * the packed row-major mask (bit `row * w + col`, 32 bits per word,
- * LSB-first). A battleship broadside is ~21×8 cells ≈ 6 mask words. KEY
+ * LSB-first). Mask words are SIGNED 32-bit integers — `setBit` builds them
+ * with `|=`, so a word whose bit 31 is set serializes NEGATIVE; consumers
+ * must compare words as int32, never coerce through `>>> 0`. A battleship
+ * broadside is ~16×6 cells at the 9u lattice ≈ 3 mask words. KEY
  * ORDER (msgpack key-insertion order): k,t,gx,gy,w,h,bits.
  */
 export interface ReturnBlipEvent {
@@ -426,7 +438,7 @@ export interface ReturnBlipEvent {
   gy: number; // absolute world cell index (y) of the rect's min corner
   w: number; // rect width in cells
   h: number; // rect height in cells
-  bits: number[]; // packed row-major coverage mask (32 bits/word, LSB-first)
+  bits: number[]; // packed row-major coverage mask (32 bits/word, LSB-first, signed int32 words)
 }
 
 /**
@@ -990,7 +1002,7 @@ export interface ResultsMsg {
 /**
  * Which blip wire shape this room speaks (amendment 63): 'silhouette' is the
  * shipped 4.2 grammar (SilhouetteBlipEvent — pose on the wire), 'return' the
- * realism grammar (ReturnBlipEvent — one aspect-projected extent scalar).
+ * realism grammar (ReturnBlipEvent — a fuzzed coverage footprint, cycle 63).
  * Server-picked per room (`HC_RADAR_GRAMMAR`, default 'silhouette'), announced
  * once in the welcome; the client narrows every BlipEvent on this, never by
  * probing fields.

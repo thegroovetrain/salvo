@@ -79,8 +79,8 @@
 
 import {
   coverageHas,
+  paintCoverage,
   perpendicularExtent,
-  rasterizeHullCoverage,
   sampleHeight,
   SEA_HEIGHT,
   tileCeilingAt,
@@ -283,13 +283,21 @@ export function coverageCentre(cov: HullCoverage, cellU: number): Vec2 {
   return { x: (cov.gx + cov.w / 2) * cellU, y: (cov.gy + cov.h / 2) * cellU };
 }
 
-/** Scratch point list for `coverageExtent` — consumed synchronously. */
-const COVER_SCRATCH: Vec2[] = [];
+/** Vec2 pool for `coverageExtent` — grow-only, NEVER truncated (the cycle-63
+ *  review gate found the old single-array version setting `.length = n` after
+ *  filling, which dropped every pooled Vec2 past `n` and re-allocated them on
+ *  the next call: a pool that defeated itself). */
+const COVER_POOL: Vec2[] = [];
+/** The view handed to `perpendicularExtent` — resized per call, but its
+ *  elements are references INTO `COVER_POOL`, so truncating the view drops
+ *  nothing. */
+const COVER_VIEW: Vec2[] = [];
 
 /**
  * The footprint's ASPECT EXTENT as seen from `obs` (u): the covered cell
  * centres projected on the axis perpendicular to the observer→footprint
- * bearing, max−min, plus ONE CELL PER END.
+ * bearing, max−min, minus THREE CELLS of fuzz compensation, floored at one
+ * cell.
  *
  * THIS IS THE CELL-QUANTIZED RECONSTRUCTION OF THE RETIRED WIRE `ext`, derived
  * from data the observer already holds — the wire no longer states it (cycle
@@ -298,16 +306,18 @@ const COVER_SCRATCH: Vec2[] = [];
  * so a hull's echo strength cannot change character crossing the truesight
  * seam. It feeds `hullSample` exactly as the wire scalar did.
  *
- * WHY A CELL PER END: the server covers a cell only when its CENTRE is inside
- * the silhouette, so a tapered bow/stern loses its tip cells and a bare
- * centre-span systematically UNDER-reads a pointed hull (the calibration mine
- * layer broadside reads 72u of centre span against its true 88u). The true
- * edge always lies beyond the outermost covered centre and inside the next
- * uncovered one, so half a cell is the unbiased correction per end and a full
- * cell per end lands the calibration hull within one cell of truth (84 vs 88
- * — pinned in radarHeatmap.test.ts, together with the bound this puts on the
- * amendment-118 crossover drift). A single-cell mask reads 2 cells of extent,
- * which the `minPeak` floor dominates anyway.
+ * WHY MINUS THREE CELLS (re-derived at the cycle-63 review gate for the FUZZED
+ * mask — every mask this function sees is now dilated + stretched + glinted,
+ * amendments 156-157): dilation adds exactly one cell per end, the stretch
+ * draws average half a cell per end, and centre-sampling undershoots the true
+ * edge by about half a cell per end, so the covered-centre span overshoots the
+ * true extent by ~1.5 cells per end. Measured on the calibration mine-layer
+ * broadside across 200 lattice phases × glint seeds: raw fuzzed span 99-126u
+ * (mean 114.9) against the true 88u — minus 27u centres it on 87.9. Every
+ * paint lands within 2 cells of truth and the MEAN within half a cell (pinned
+ * in radarHeatmap.test.ts, together with the amendment-118 crossover BAND this
+ * scintillation produces). A single-cell mask reads the floor, which the
+ * `minPeak` floor dominates anyway.
  */
 export function coverageExtent(cov: HullCoverage, obs: Vec2, cellU: number): number {
   const c = coverageCentre(cov, cellU);
@@ -316,15 +326,16 @@ export function coverageExtent(cov: HullCoverage, obs: Vec2, cellU: number): num
   for (let row = 0; row < cov.h; row++) {
     for (let col = 0; col < cov.w; col++) {
       if (!coverageHas(cov, col, row)) continue;
-      const p = COVER_SCRATCH[n] ?? (COVER_SCRATCH[n] = { x: 0, y: 0 });
+      const p = COVER_POOL[n] ?? (COVER_POOL[n] = { x: 0, y: 0 });
       p.x = (cov.gx + col + 0.5) * cellU;
       p.y = (cov.gy + row + 0.5) * cellU;
+      COVER_VIEW[n] = p;
       n++;
     }
   }
   if (n === 0) return cellU;
-  COVER_SCRATCH.length = n;
-  return perpendicularExtent(COVER_SCRATCH, brg) + 2 * cellU;
+  COVER_VIEW.length = n;
+  return Math.max(cellU, perpendicularExtent(COVER_VIEW, brg) - 3 * cellU);
 }
 
 /**
@@ -407,22 +418,31 @@ export function stampCoverage(
  * Inside truesight the client synthesizes a hull from its `Contact` (the
  * server deliberately sends no blip for a hull it is already sending as a
  * contact — `blipGate` excludes `dist <= sightRange`, a perception-invariant
- * surface that is untouched here) by running the SAME shared
- * `rasterizeHullCoverage` the server runs for a wire blip; beyond it, the
- * footprint arrives already rasterized on the wire. Two sources, one
- * appearance, by construction — the inside/outside split survives but stops
- * being visible. Neither can double-stamp one hull, because the two ranges are
- * exact complements about the same dazzle-scaled radius.
+ * surface that is untouched here) by running the SAME shared `paintCoverage`
+ * pipeline the server runs for a wire blip — sharp rasterization + the
+ * cycle-63 fuzz (dilation + per-paint glint, amendments 156-157); beyond it,
+ * the footprint arrives already rasterized AND fuzzed on the wire. Two
+ * sources, one appearance, by construction — the inside/outside split
+ * survives but stops being visible. Neither can double-stamp one hull,
+ * because the two ranges are exact complements about the same dazzle-scaled
+ * radius.
+ *
+ * `seedT` is the glint seed's time term. The caller passes the CURRENT SWEEP
+ * REVOLUTION INDEX rather than the frame time, so a stationary sighted hull
+ * keeps one stable mask for the whole beam crossing and re-glints on the next
+ * revolution — sweep-to-sweep scintillation, exactly like the wire source
+ * (whose seed time is the paint tick, one paint per revolution per hull).
  */
 export function buildShipStamp(
   hulls: readonly EchoHull[],
   obs: Vec2,
   m: ReturnModelOpts,
   cellU: number,
+  seedT = 0,
 ): ShipStamp {
   const stamp: ShipStamp = new Map();
   for (const h of hulls) {
-    stampCoverage(stamp, rasterizeHullCoverage(h.cls, h.x, h.y, h.heading, cellU), obs, m, cellU);
+    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), obs, m, cellU);
   }
   return stamp;
 }

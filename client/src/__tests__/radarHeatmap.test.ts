@@ -33,7 +33,7 @@
 //     proved at nominal is not proved.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, buildHeightRaster, coverageHas, hullSilhouette, perpendicularExtent, rasterizeHullCoverage, sampleHeight, transformPolygon, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
+import { CONFIG, buildHeightRaster, coverageHas, hullSilhouette, paintCoverage, perpendicularExtent, sampleHeight, transformPolygon, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { noiseAmplitude } from '../render/radarFalloff.js';
@@ -445,7 +445,10 @@ describe('SEA CLUTTER is texture and nothing else (amendments 130 + 133 + 136)',
     + 'and not one blue cell', () => {
     const g = scope(OBS, {}, CFG);
     const counts = bandCounts(g);
-    expect(counts[0], 'green cells').toBeGreaterThan(30);
+    // Re-derived at the cycle-63 9u lattice: the compute disc holds ~2.25×
+    // fewer cells than at 6u, so the speckle's absolute count drops with it
+    // (measured 14 at the shipped straddle; the FRACTION is unchanged).
+    expect(counts[0], 'green cells').toBeGreaterThan(8);
     expect(counts[1], 'THE FORBIDDEN BAND: not one blue cell').toBe(0);
     expect(counts[2], 'and no red').toBe(0);
     // Speckled, not solid: a good fraction of the disc stays dark.
@@ -751,13 +754,16 @@ describe('a hull is stamped into the same raster and painted by the same rules',
 
 describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at its core (amendment 77)', () => {
   const OBS: Vec2 = { x: 0, y: 0 };
-  /** A mine layer broadside at 550u: its core sits above the red threshold
-   *  (unsaturated, so "strongest" is a real comparison) and its one-cell-deep
-   *  fringe halves the coefficient into the blue/green registers. */
-  const HULL = { id: 'a', x: 0, y: 550, heading: 0, cls: 'mineLayer' as HullId };
+  /** A mine layer broadside at 520u: its core sits above the red threshold
+   *  with margin (unsaturated, so "strongest" is a real comparison) and its
+   *  fuzz fringe grades into the blue/green registers. The mask is the
+   *  production paint — `paintCoverage` at the same seed time the test's
+   *  `buildShipStamp` default uses (0), so the probe walks the exact cells
+   *  the stamp laid down. */
+  const HULL = { id: 'a', x: 0, y: 520, heading: 0, cls: 'mineLayer' as HullId };
 
   function litFootprintBands(g: HeatGrid): { bands: Set<number>; centre: number; strongest: number } {
-    const cov = rasterizeHullCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU);
+    const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
     const bands = new Set<number>();
     let strongest = 0;
     for (let row = 0; row < cov.h; row++) {
@@ -778,19 +784,22 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
     const { bands, centre, strongest } = litFootprintBands(g);
     expect(bandAt(g, HULL.x, HULL.y), 'the core reads red').toBe(2);
     expect(bands.size, 'and the footprint spans more than one band').toBeGreaterThanOrEqual(2);
-    // Strongest at the core: no fringe cell out-reads the hull cell. The core
-    // sits above `noise.solidAt`, so the grain is exactly zero there and this
-    // comparison is deterministic at the shipped envelope.
-    expect(centre).toBeCloseTo(strongest, 9);
+    // Strongest at the core, within the depth term's quantization: the fuzzed
+    // mask's deepest cell can sit a cell off the hull centre (dilation and a
+    // stretch draw shift the depth centroid — amendments 156-157), so the pin
+    // is that the hull cell reads within a band-width of the peak, never that
+    // it IS the peak to float precision.
+    expect(centre).toBeGreaterThan(strongest * 0.9);
   });
 
   it('a fogged wire footprint and a client-rasterized contact of the same pose paint IDENTICAL intensities (two sources, one appearance — amendment 154)', () => {
-    // Both sources run the same shared rasterizer and the same stamp, so the
-    // buffers must agree cell for cell — the inside/outside split survives but
-    // stops being visible. The "wire" side stamps the coverage the server
-    // would send; the "contact" side rasterizes from the pose.
+    // Both sources run the same shared paint pipeline (rasterize + fuzz at
+    // the same seed) and the same stamp, so the buffers must agree cell for
+    // cell — the inside/outside split survives but stops being visible. The
+    // "wire" side stamps the coverage the server would send; the "contact"
+    // side rasterizes from the pose.
     const viaContact = scope(OBS, { hulls: [HULL] }, CFG);
-    const cov = rasterizeHullCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU);
+    const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
     const stamp: ShipStamp = new Map();
     stampCoverage(stamp, cov, OBS, CFG.model, CFG.cellU);
     const g = grid(CFG, OBS.x, OBS.y);
@@ -806,35 +815,67 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
   });
 });
 
-describe('the mask-derived extent preserves the amendment-118 crossover (cycle 63)', () => {
+describe('the mask-derived extent preserves the amendment-118 crossover as a BAND (cycle 63)', () => {
   const OBS: Vec2 = { x: 0, y: 0 };
+  /** The calibration pose swept across lattice phases AND glint seeds — every
+   *  mask this path sees in production is fuzzed, so the pins run on
+   *  `paintCoverage`, never the sharp rasterization. */
+  function fuzzedExtents(n: number): number[] {
+    const at = CONFIG.vision.farRadar; // the 7/8 rung — a test INPUT, never on a paint path
+    const out: number[] = [];
+    for (let k = 0; k < n; k++) {
+      const x = (k * 37.3) % CFG.cellU;
+      const y = at + ((k * 53.7) % CFG.cellU);
+      const cov = paintCoverage('mineLayer', x, y, 0, CFG.cellU, 1000 + k * 50);
+      out.push(coverageExtent(cov, OBS, CFG.cellU));
+    }
+    return out;
+  }
 
-  it('coverageExtent of the calibration hull is within one cell of the true perpendicular extent', () => {
-    const at = CONFIG.vision.farRadar; // the 7/8 rung — read here as a test INPUT, never on a paint path
-    const cov = rasterizeHullCoverage('mineLayer', 0, at, 0, CFG.cellU);
-    const ext = coverageExtent(cov, OBS, CFG.cellU);
+  it('coverageExtent of the calibration hull: every fuzzed paint within 2 cells of truth, and the MEAN within half a cell', () => {
     const truth = perpendicularExtent(
-      transformPolygon(hullSilhouette('mineLayer'), 0, at, 0),
+      transformPolygon(hullSilhouette('mineLayer'), 0, CONFIG.vision.farRadar, 0),
       Math.PI / 2,
     );
     expect(truth).toBeCloseTo(CONFIG.shipClasses.mineLayer.hull.length, 9);
-    expect(Math.abs(ext - truth)).toBeLessThanOrEqual(CFG.cellU);
+    const exts = fuzzedExtents(60);
+    for (const ext of exts) expect(Math.abs(ext - truth)).toBeLessThanOrEqual(2 * CFG.cellU);
+    const mean = exts.reduce((s, v) => s + v, 0) / exts.length;
+    expect(Math.abs(mean - truth), 'the -3-cell fuzz compensation centres the read').toBeLessThanOrEqual(CFG.cellU / 2);
   });
 
-  it('the red→blue crossover of the mask-fed core lands within ~2.5 cells of where fitPointRef puts it', () => {
-    // Scan the pre-grain core peak outward: the range where it falls under
-    // `bands[2].at` must sit within ~2.5 grid cells of the fitted 7/8 rung —
-    // the cell-quantized extent is the only slack the mask path introduces
-    // (the fit itself is untouched: the radarFalloff readings pin it at the
-    // true extent, and coverageExtent is pinned within one cell of that).
+  it('THE CROSSOVER IS A BAND, NOT A NUMBER — pinned at the WORST lattice phase and glint draw', () => {
+    // Amendment 118 requires the red→blue crossover to EMERGE from the 1/d⁴
+    // curve fitted to the 7/8 rung; it now emerges from the curve PLUS the
+    // lattice phase PLUS the per-paint glint (the extent is a cell-quantized,
+    // scintillating reconstruction — amendments 156-157), so the crossover is
+    // a BAND about the rung whose width is a lattice-and-fuzz consequence.
+    // Documented rather than hidden (cycle-63 review gate), and RE-DERIVED at
+    // the 9u lattice as the gate requires (a coarser lattice widens the
+    // band): measured over 60 phase×seed draws the calibration hull's
+    // crossover spans roughly [rung − 60u, rung + 35u] — the extent reads
+    // 72-99u against the true 88 and the fourth-root curve turns that ±15%
+    // into ∓10% of range. The worst draw is pinned at 7 cells and the MEAN
+    // within ~one cell — the fit still centres the band; a paint at the rung
+    // simply shimmers between "definitely" and "probably" sweep to sweep,
+    // which is what a marginal contact on a real scope does. (Sweeping only
+    // one phase, as the pre-gate pin did, tested a point of a distribution
+    // and called it the distribution.)
     const fitAt = CONFIG.vision.farRadar;
-    const cov = rasterizeHullCoverage('mineLayer', 0, fitAt, 0, CFG.cellU);
-    const ext = coverageExtent(cov, OBS, CFG.cellU);
-    let crossed = Number.NaN;
-    for (let d = 400; d <= 700; d += 0.5) {
-      if (returnStrength(hullSample(ext, MODEL), d) < BANDS[2].at) { crossed = d; break; }
+    const crossings = fuzzedExtents(60).map((ext) => {
+      for (let d = 400; d <= 700; d += 0.5) {
+        if (returnStrength(hullSample(ext, MODEL), d) < BANDS[2].at) return d;
+      }
+      return Number.NaN;
+    });
+    let worst = 0;
+    let sum = 0;
+    for (const c of crossings) {
+      expect(Number.isFinite(c)).toBe(true);
+      worst = Math.max(worst, Math.abs(c - fitAt));
+      sum += c;
     }
-    expect(Number.isFinite(crossed)).toBe(true);
-    expect(Math.abs(crossed - fitAt)).toBeLessThanOrEqual(2.5 * CFG.cellU + 1);
+    expect(worst, 'the worst draw stays inside the band').toBeLessThanOrEqual(7 * CFG.cellU);
+    expect(Math.abs(sum / crossings.length - fitAt), 'and the band is centred on the rung').toBeLessThanOrEqual(CFG.cellU + 1);
   });
 });

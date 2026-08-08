@@ -2285,3 +2285,114 @@ answer, all his:
      grammar is UNTOUCHED — it keeps its own blip shape and the server picks one grammar per room
      (amendment 63). Nothing occludes anything (amendment 140 still stands; 4.11 owns occlusion).
      Amendments 83, 97, 98 and 135 all govern unchanged.
+
+## 2026-08-07 — Eric ruling, THE RASTER MUST BE FUZZY (cycle 63 review gate)
+
+156. **THE COVERAGE MASK MADE SHIP CLASS FREE TO READ, WHICH REVERSED AMENDMENT 68 — and the fix is
+     RESOLUTION LOSS, not a smaller channel.** The cycle-63 review gate measured the shipped
+     rasterizer: at 6u cells a broadside battleship is 22×7 cells, a torpedo boat 18×3, a mine layer
+     16×5, and **all six hull envelopes** (three captain classes plus the three drone sizes) have
+     pairwise-distinct dimensions — so a single mask identifies the exact hull template at essentially
+     any aspect. The retired `ext` scalar was genuinely ambiguous (a bow-on battleship read close to a
+     broadside torpedo boat); a 2D footprint is not.
+
+     That is a head-on conflict with amendment 68, which Eric ruled on ohzie's playtest feedback:
+     *"Indistinguishable. Its purely a 'rough size/shape' thing. If you learn what a particular ship
+     class looks like under radar, then that's player skill because it should not be easy."* Under the
+     sharp mask it was not skill, it was a lookup table — and drones read as drones, putting ohzie's
+     *"I can tell what you are and whether you're a player"* complaint back on the scope, which is the
+     specific thing the `return` grammar exists to answer.
+
+     **Eric's ruling: keep the architecture and add the resolution loss he had already described.** His
+     own words when he asked for the rasterization were *"its not exact (the resolution is lower and
+     radar is a bit fuzzy)"* — cycle 63 delivered the outline and omitted the fuzz. Explicitly
+     REJECTED: accepting the leak and superseding 68; fuzzing DRONES ONLY (which would have preserved
+     the solo-match illusion while leaving captain-vs-captain class readable); and retreating to a
+     scalar width-plus-depth footprint, which would have thrown away the server-rasterization
+     architecture he asked for.
+
+157. **THE THREE MECHANISMS, and why each is physical rather than a fudge.** Class must become
+     INFERABLE WITH SKILL, never readable. Size and orientation must both still read — those are the
+     things the cycle exists to deliver (amendment 66's aspect channel, and amendment 151's whole
+     complaint).
+     - **A coarser radar lattice.** `CONFIG.vision.radarCellU` rises. This is the honest expression of
+       a real set's range/azimuth resolution, and it is also the cheapest of the three.
+     - **Dilation — the beam-width and pulse-length smear.** A real return is the target convolved with
+       the beam, so it is always larger and blunter than the hull. Dilating the mask blurs small hulls
+       toward a common blob while a genuinely large one stays large.
+     - **Per-paint edge jitter — glint.** A real echo scintillates: the same hull returns a slightly
+       different shape sweep to sweep as its facets catch the beam. Jittering the mask's edge cells per
+       paint means no two paints of one hull are identical, so an envelope cannot be measured precisely
+       even by a modified client — and it is the mechanism that actually defeats template-fitting,
+       because the other two only shift the templates rather than blurring them together.
+
+     **Binding constraint: the jitter is SERVER-side and must not become a correlation handle.** It is
+     seeded per paint, never per ship, so it can never be used to track a hull across sweeps — which
+     would hand back the `id` amendment 152 deliberately removed. Accepted limit of record, stated
+     plainly rather than overclaimed: a client that correlates paints heuristically can average several
+     sweeps toward the true envelope. With the id gone, correlation is itself a guess in any realistic
+     ship density, and three sweeps of persistence is a thin sample — "hard and unreliable" is the bar
+     amendment 68 sets ("it should not be easy"), not cryptographic indistinguishability, and no
+     mechanism short of sending nothing would meet the latter.
+
+158. **THE CALIBRATION OF RECORD (implementation of 156-157), measured, not asserted.** The three
+     mechanisms shipped as: `CONFIG.vision.radarCellU` **6 → 9** (the lattice), structural one-cell
+     8-neighbour dilation plus `CONFIG.vision.radarFuzz = { stretchP: 0.5, glintP: 0.35 }` (per-side
+     pulse-length stretch and per-cell fringe glint), in `fuzzCoverage` (sim/radarRaster.ts) — one
+     pipeline (`paintCoverage`) both paint sources call, seeded by `paintSeed(t, x, y, heading)`:
+     time and exact pose, NEVER any ship identity, so the seed is per paint by construction and not
+     recoverable from the quantized wire. Measured across all six hulls × 4 aspects × 48
+     phase-and-seed draws (radarRaster.test.ts): BEFORE, at the sharp 6u mask, all six
+     (long, short, cells) triples were pairwise distinct at every aspect — a lookup table; AFTER,
+     every hull's dimension ranges overlap at least one other hull's in all three components at
+     every aspect. Size still discriminates at the extremes — over the 3-paint phosphor window,
+     every battleship window out-reads every torpedo-boat window on cell count — and orientation
+     still reads on every single paint (broadside/bow-on flips the long axis for the two most
+     elongated hulls). Two consequences worth knowing:
+     - **The SPINE RULE was forced by the coarser lattice.** A torpedo boat's 9u beam is exactly one
+       9u cell, so at the straddling lattice phase NO cell centre fell inside the hull and a 100u
+       hull collapsed to a 3-5 cell scatter — amendment 151's complaint reintroduced by
+       quantization. The rasterizer now also walks the bow→stern centre-line at quarter-cell steps,
+       so the long axis always rasterizes; physically, the hull's structure returns wherever the
+       range gate falls.
+     - **The amendment-118 crossover is now a BAND, pinned at its worst draw.** `coverageExtent`
+       compensates the fuzz at −3 cells (mean read 87.9u against the true 88 across 200 draws;
+       every paint within 2 cells), but the per-paint extent scintillation (72-99u) turns the fitted
+       crossover into roughly [rung − 60u, rung + 35u] under the fourth-root curve. The worst draw
+       is pinned at 7 cells and the mean within one cell — the fit centres the band; a hull at the
+       rung shimmers between "definitely" and "probably" sweep to sweep, which is what a marginal
+       contact does on a real set. Sweeping one lattice phase, as the pre-gate pin did, tested a
+       point of a distribution and called it the distribution.
+     Cost: client per-frame 0.77 / 0.90 / 1.20 ms at 1.5× / 1.0× / 0.5× zoom (min zoom CHEAPER than
+     the cycle-62 gate's 1.46 — the buffer shrank 2.25×; zoomed-in cases pay ~0.15 ms of per-contact
+     fuzz, flat in the buffer); server ~15-25 µs per paint at well under one paint per observer per
+     tick, with a one-slot (pose, tick) memo for same-tick multi-observer paints.
+
+159. **THE GATE'S MECHANICAL FINDINGS, all closed in the same pass.** (a) `validCoverage` now bounds
+     `t` (finite, and never far past the latest sweep sample — an unbounded future `t` was a
+     full-brightness paint that never decays) and `gx`/`gy` (derived from the roster-scaled map
+     radius and the lattice — huge indices broke the `KEY_ROW` injectivity premise). (b)
+     `MAX_COVERAGE_SPAN` is DERIVED from the longest silhouette + lattice + fuzz growth, never a
+     literal that breaks when the lattice is retuned. (c) The pre-pose `pending` park is capped at
+     the live-blip ceiling. (d) `rasterizeHullCoverage` degrades on a non-finite pose instead of
+     throwing inside the per-tick scan. (e) The `silhouette` `onBlip` branch got the validator the
+     first hardening pass gave only the `return` branch. (f) The cycle-62 diagonal-bridging
+     guarantee is re-established BY CONSTRUCTION — dilation alone is NOT moot, because glint erosion
+     can re-open any corner dilation closed, so `fuzzCoverage` ends with a bridge-repair pass and a
+     property test pins zero diagonal-only blocks across hulls × headings × seeds. (g) The
+     centre-cell fail-safe write is bounds-checked (a future offset silhouette would have wrapped
+     through `>>> 5` into a ~134M-word wire array). (h) The client `cellU` comment no longer calls
+     the lattice "the ONE knob" — it is wire-authoritative and pinned beside `PROTOCOL_VERSION` 31
+     in radarRaster.test.ts, so retuning it forces a deliberate decision. (i) `coverageExtent`'s
+     scratch pool no longer truncates itself. (j) radarViewport's placement pin is exact again for a
+     quantized mask: every lit texel round-trips through the live scene graph onto the lattice, on a
+     covered wire cell — a half-cell offset fails. (k) The crossover band (amendment 158). (l) The
+     perception fuzz gained the return-mode COMPLETENESS oracle: with no id, `blipMatchesShip` was
+     an upper bound only; the frame now must carry exactly one blip per gated subject, each gated
+     ship's and decoy's expected mask present. (m) The test-local blip-ordering oracle now compares
+     the mask words the production comparator orders by; the wire doc states mask words are SIGNED
+     int32; the server memoizes the per-(pose, tick) mask. Every validator fix is tested AT THE
+     ADAPTER (`radar.onBlip`), per amendment 145's standing lesson. The perception oracle
+     reimplements the whole fuzz GEOMETRY from the documented contract and shares only the entropy
+     primitives (`paintSeed` + `mulberry32`) — the RNG stream is itself wire contract, since both
+     sides must draw it identically.

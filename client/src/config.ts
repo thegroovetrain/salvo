@@ -1397,64 +1397,57 @@ export const CLIENT_CONFIG = {
      */
     heatmap: {
       /**
-       * World units per bitmap cell — the buffer's resolution, and the ONE knob
-       * that trades look against cost. At the base camera framing one cell is
-       * ~5 screen px, which is deliberately chunky: a quantized bitmap should
-       * read as a bitmap, not as a smooth glow.
-       *
-       * A REFERENCE SINCE CYCLE 63, NOT A LITERAL. The radar grid resolution is
-       * gameplay-authoritative now — the server rasterizes a fogged hull's true
+       * World units per bitmap cell — a REFERENCE since cycle 63, NOT a knob,
+       * and NOT tunable from this file. The radar grid resolution is
+       * gameplay-authoritative: the server rasterizes a fogged hull's true
        * silhouette onto THIS lattice and sends coverage cells
-       * (`ReturnBlipEvent`), so the cell size decides what the wire says. It
-       * therefore lives in shared `CONFIG.vision.radarCellU` and is referenced
+       * (`ReturnBlipEvent`), so the cell size decides what the wire says —
+       * retuning it changes what every `gx`/`gy`/`bits` on the wire means,
+       * which is why it lives in shared `CONFIG.vision.radarCellU`, is pinned
+       * beside `PROTOCOL_VERSION` in radarRaster.test.ts, and is referenced
        * here; forking a second constant would let the client's buffer lattice
        * drift off the wire's cell indices and every footprint would land
-       * misaligned.
+       * misaligned. (An earlier version of this comment opened by calling it
+       * "the ONE knob that trades look against cost" — a loaded gun the
+       * cycle-63 review gate removed: it invited a silent wire break with no
+       * PV bump.) At the base camera framing one cell is ~7.5 screen px,
+       * deliberately chunky: a quantized bitmap should read as a bitmap, and
+       * since the cycle-63 gate the chunk IS the sensor's resolution loss
+       * (amendments 156-157).
        *
        * COST SCALES WITH VISIBLE AREA (cycle 58, amendment 99): the buffer
        * covers the VIEWPORT, not the radar ring, so zooming out costs more. The
-       * cell counts below are exact for a 16:9 screen at 6u/cell — the world
-       * extent depends only on aspect ratio and zoom, not on pixel resolution,
-       * because the base zoom fits 2 × radar range to the short axis:
-       *   1.5× (zoomed in)  272 × 160 = 44k cells, 170KB
-       *   1.0× (base)       400 × 224 = 90k cells, 350KB
-       *   0.5× (zoomed out) 800 × 448 = 358k cells, 1.4MB
-       * Halving this knob QUADRUPLES every one of those numbers, so it is not a
-       * free knob — and it is the lever to reach for if the zoomed-out case ever
-       * needs to get cheaper.
+       * cell counts below are for a 16:9 screen at the shared 9u lattice — the
+       * world extent depends only on aspect ratio and zoom, not on pixel
+       * resolution, because the base zoom fits 2 × radar range to the short
+       * axis:
+       *   1.5× (zoomed in)  176 × 112 = 20k cells,  77KB
+       *   1.0× (base)       272 × 160 = 44k cells, 170KB
+       *   0.5× (zoomed out) 528 × 304 = 160k cells, 630KB
+       * A 6u lattice held 2.25× as many; the cycle-63 gate's coarsening bought
+       * back that factor everywhere the buffer is the cost.
        *
-       * CYCLE 62 RE-MEASURED FROM SCRATCH, because the primitive changed and the
-       * old table is void (amendments 99 + 144). A full `Radar.render` — a
-       * generated 19-island map with its real height raster, six ship echoes, the
-       * sea-clutter haze and a live storm wall, at the shipped 3-deep
-       * persistence, warmed through three whole revolutions and then averaged
-       * over 240 frames, in the headless test environment on one machine:
-       *              cycle 61 (bakes)   cycle 62 (march)   + review gate
-       *   1.5×          0.90 ms             0.55 ms           0.62 ms
-       *   1.0×          1.10 ms             0.64 ms           0.70 ms
-       *   0.5×          1.70 ms             1.28 ms           1.46 ms
-       * (The middle column is the pre-gate build re-run on the SAME machine and
-       * the same fixture as the third, so the last two are directly comparable;
-       * the cycle-61 column is the figure of record from that cycle.)
+       * CYCLE-63 GATE RE-MEASURED at the 9u lattice + per-paint fuzz. A full
+       * `Radar.render` — a generated 12-island map with its real height
+       * raster, six sighted battleship contacts (stamped and fuzzed every
+       * frame), the sea-clutter haze and a live storm wall, at the shipped
+       * 3-deep persistence, warmed through three whole revolutions and then
+       * averaged over 240 frames, in the headless test environment:
+       *              cycle 62 gate (6u)   cycle 63 gate (9u + fuzz)
+       *   1.5×          0.62 ms                0.77 ms
+       *   1.0×          0.70 ms                0.90 ms
+       *   0.5×          1.46 ms                1.20 ms
+       * The budgeted case (min zoom, the 2.5 ms Block-If bar) got CHEAPER —
+       * the buffer fill+quantize shrank 2.25× — while the zoomed-in cases pay
+       * a new flat ~0.15 ms: the per-frame contact stamp now runs the full
+       * fuzz pipeline (~15-25 µs per sighted hull, six hulls in this
+       * fixture), a per-CONTACT cost that does not scale with the buffer.
+       * (Fixture differs from cycle 62's — different generated map — so the
+       * columns are indicative, not a same-fixture A/B.)
        *
-       * The march is CHEAPER than the primitive it replaces despite painting far
-       * more of the world: per frame it walks only the arc the beam actually swept
-       * (~3 rays at 60fps), and a slice stores only cells that can light a pixel,
-       * where the retired bakes rescanned an island's whole bounding box on every
-       * revolution and re-stamped a procedural clutter disc every frame for every
-       * live haze. The steady state here is 374 live slices carrying ~17,200 cells
-       * between them — about three revolutions' worth, exactly as `sliceRad` and
-       * `persistSweeps` predict, and INDEPENDENT of frame rate.
-       *
-       * THE REVIEW GATE COST ~0.1 ms AT MIN ZOOM, and it is worth knowing where:
-       * the ray step is now clamped to half a cell (3u rather than 4u at the
-       * shipped `cellU`), which is 33% more samples per ray, and a land sample now
-       * also probes the ship stamp so a hull against a coastline is not
-       * suppressed. Both are per-SAMPLE costs, so they scale with the marched arc
-       * and not with the buffer. What is left at min zoom is still dominated by
-       * the buffer itself — `fill` plus quantize over 358k cells — which `cellU`
-       * is the only lever on, and the whole frame stays well inside the 2.5 ms
-       * min-zoom bar.
+       * The steady state is 373 live slices carrying ~16,900 cells — about
+       * three revolutions' worth, exactly as `sliceRad` and `persistSweeps`
+       * predict, and INDEPENDENT of frame rate.
        */
       cellU: CONFIG.vision.radarCellU,
       /**
@@ -1542,8 +1535,10 @@ export const CLIENT_CONFIG = {
        * finds it.
        */
       march: {
-        /** Arc length (u) between adjacent rays AT THE TERMINUS. One cell, so the
-         *  fan can never open a gap at the rim, which is the coarsest place on
+        /** Arc length (u) between adjacent rays AT THE TERMINUS. At most one
+         *  cell (finer since the cycle-63 gate coarsened the lattice to 9u —
+         *  a smaller-than-cell spacing is strictly safe), so the fan can
+         *  never open a gap at the rim, which is the coarsest place on
          *  every ray and therefore the only place a gap can appear. The ANGLE is
          *  derived from this and the observer's radar range (render/radarMarch.ts
          *  `rayStep`), so a boon-scaled scope reaching ~2.01× base range simply
@@ -1557,11 +1552,13 @@ export const CLIENT_CONFIG = {
          *  spokes. Neither is reached at any shipped stat. */
         minRayRad: 0.003,
         maxRayRad: 0.02,
-        /** How far a ray advances between samples (u) — two thirds of a cell, so
-         *  consecutive samples land in the same cell or the next one and a ray
-         *  cannot step over a cell it passes through. Samples that repeat a cell
-         *  are priced once (the march dedups against the previous key), so the
-         *  oversampling costs an integer compare rather than a field query. */
+        /** How far a ray advances between samples (u) — under half a cell at
+         *  the 9u lattice (was two thirds at 6u; the cycle-63 gate coarsened
+         *  the cell, not this step), so consecutive samples land in the same
+         *  cell or the next one and a ray cannot step over a cell it passes
+         *  through. Samples that repeat a cell are priced once (the march
+         *  dedups against the previous key), so the oversampling costs an
+         *  integer compare rather than a field query. */
         stepU: 4,
         /**
          * The angular quantum ONE SLICE covers (rad, ~2.9°).
@@ -1869,8 +1866,8 @@ export const CLIENT_CONFIG = {
          */
         refHeight: 90,
         /**
-         * How far seaward of a coastline surf paints (u) — a THIN fringe, ~5
-         * cells at the shipped `cellU`. Consumed by
+         * How far seaward of a coastline surf paints (u) — a THIN fringe, ~3
+         * cells at the shared 9u lattice. Consumed by
          * `render/radarField.ts`'s `surfPyramidLevel` as a TILE SIZE target,
          * not a radius: the O(1) proximity test picks the max-height pyramid
          * level whose tile size is closest to this number — level 1 (28u,

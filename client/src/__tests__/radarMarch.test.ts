@@ -62,6 +62,7 @@ import {
 import {
   buildField,
   buildShipStamp,
+  cellKey,
   coverageCentre,
   shipOnlyField,
   stampCoverage,
@@ -432,8 +433,11 @@ describe('the grain reports MARGINALITY: solid cores, crawling fringes', () => {
     expect(flat, 'with no grain the haze sits UNDER the threshold and paints nothing')
       .toBeNull();
     const litG = cellsOf(grainy, CFG).filter((c) => c.b >= 0).length;
+    // Re-derived at the cycle-63 9u lattice: the haze disc holds ~2.25× fewer
+    // cells than at 6u, so the absolute speckle count drops with it (measured
+    // 14 at the shipped straddle; the lit FRACTION is unchanged).
     expect(litG, 'with the shipped grain a fraction of the cells light')
-      .toBeGreaterThan(20);
+      .toBeGreaterThan(8);
   });
 });
 
@@ -455,8 +459,11 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
     const broadside = beamWidth(0); // heading +x, observer looking +y
     const bowOn = beamWidth(Math.PI / 2); // heading +y, pointing at the observer
     expect(broadside, 'broadside spans most of the hull length').toBeGreaterThan(90);
-    expect(bowOn, 'bow-on is a needle').toBeLessThan(45);
-    expect(broadside).toBeGreaterThan(bowOn * 2);
+    // Bow-on shows the 32u beam plus the fuzz smear (dilation + a stretch
+    // draw, up to 2 cells per side — amendments 156-157): blunter than the
+    // pre-fuzz needle, still under 32 + 4×9 = 68u.
+    expect(bowOn, 'bow-on is a smeared needle').toBeLessThan(70);
+    expect(broadside, 'aspect still reads through the fuzz').toBeGreaterThan(bowOn * 1.8);
   });
 
   it('and it is the SHARED silhouette that decides the footprint, not a kernel', () => {
@@ -466,7 +473,10 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
     const maxX = Math.max(...poly.map((p) => p.x));
     const s = marchAll(OBS, shipOnlyField(stamp, CLEAN.cellU));
     const xs = cellsOf(s).map((c) => c.x);
-    expect(Math.max(...xs), 'nothing painted past the real hull').toBeLessThanOrEqual(maxX + CLEAN.cellU);
+    // The fuzz halo may extend up to 2 cells beyond the hull edge (plus the
+    // half-cell centre offset) — never further: the mask stays the hull's,
+    // smeared, not a kernel's.
+    expect(Math.max(...xs), 'nothing painted past the fuzz halo').toBeLessThanOrEqual(maxX + 3 * CLEAN.cellU);
   });
 
   it('the same hull reads STRONGER close than far — the point curve still '
@@ -500,10 +510,15 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
   it('an UNKNOWN hull id degrades to its centre cell and never throws', () => {
     // The shared rasterizer's fail-soft: no silhouette to project means the
     // 1-cell fail-safe footprint (a return always lights the cell it is in),
-    // never an exception on the ingest path.
+    // never an exception on the ingest path. The fuzz then smears even that
+    // speck (a real return is always beam-convolved), so the stamp holds the
+    // centre cell plus at most its fuzz halo — bounded by the 5×5 the
+    // dilation + stretch growth can reach, never a hull-sized ghost.
     const bad = [{ id: 'x', x: 0, y: 200, heading: 0, cls: 'notAHull' as never }];
     const stamp = buildShipStamp(bad, OBS, CLEAN.model, CLEAN.cellU);
-    expect(stamp.size).toBe(1);
+    expect(stamp.size).toBeGreaterThanOrEqual(1);
+    expect(stamp.size).toBeLessThanOrEqual(25);
+    expect(stamp.has(cellKey(cellOf(0, CLEAN.cellU), cellOf(200, CLEAN.cellU))), 'the centre cell is lit').toBe(true);
   });
 });
 

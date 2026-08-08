@@ -290,6 +290,51 @@ describe('an echo renders at the world position it was created at', () => {
     });
   }
 
+  it('THE QUANTIZED-MASK PIN (cycle-63 review gate): every lit texel of the echo '
+    + 'lands on EXACTLY a covered wire cell, corner on the lattice, at both zooms', () => {
+    // The TOL-band centroid above tolerates ±1.5 cells, which is precisely the
+    // window a systematic half-cell or whole-cell offset in the
+    // `stampCoverage`→buffer path hides in — the cycle-57 defect class. A
+    // quantized mask allows an EXACT pin instead: round-trip every lit texel
+    // through the live scene graph and the camera's own inverse, and its world
+    // corner must sit ON the shared lattice, on a cell the wire mask actually
+    // covers. Any sub-cell displacement anywhere in the placement chain moves
+    // every corner off the lattice and fails.
+    for (const [label, z] of [['USER_ZOOM_MIN', USER_ZOOM_MIN], ['USER_ZOOM_MAX', USER_ZOOM_MAX]] as const) {
+      const { radar, layer, chart } = harness();
+      const cam = camera(z);
+      const own = { x: 1200, y: -800 };
+      const e = echo(own.x + 240, own.y - 180);
+      frame(radar, cam, own, 900);
+      radar.onBlip(e.e);
+      frame(radar, cam, own, 1000);
+      applyCamera(cam, chart);
+      const sprite = heatSprite(layer);
+      const at = (tx: number, ty: number): { x: number; y: number } =>
+        cam.screenToWorld(sprite.toGlobal({ x: tx, y: ty }));
+      const covered = new Set<string>();
+      for (let row = 0; row < e.e.h; row++) {
+        for (let col = 0; col < e.e.w; col++) {
+          const i = row * e.e.w + col;
+          if (((e.e.bits[i >>> 5] >>> (i & 31)) & 1) === 1) covered.add(`${e.e.gx + col},${e.e.gy + row}`);
+        }
+      }
+      const skip = haze(own);
+      let matched = 0;
+      for (const t of litTexels(sprite)) {
+        const w = at(t.tx, t.ty);
+        if (Math.hypot(w.x + CELL / 2 - skip.x, w.y + CELL / 2 - skip.y) <= skip.r) continue; // clutter, not the echo
+        const gx = w.x / CELL;
+        const gy = w.y / CELL;
+        expect(Math.abs(gx - Math.round(gx)), `${label}: texel corner ON the lattice (x)`).toBeLessThan(1e-3);
+        expect(Math.abs(gy - Math.round(gy)), `${label}: texel corner ON the lattice (y)`).toBeLessThan(1e-3);
+        expect(covered.has(`${Math.round(gx)},${Math.round(gy)}`), `${label}: lit texel is a covered wire cell`).toBe(true);
+        matched++;
+      }
+      expect(matched, `${label}: most of the mask rendered`).toBeGreaterThan(covered.size * 0.6);
+    }
+  });
+
   it('one texel is one world cell at BOTH zooms — the sprite scale is not a '
     + 'zoom-dependent fudge', () => {
     for (const z of [USER_ZOOM_MIN, USER_ZOOM_MAX]) {

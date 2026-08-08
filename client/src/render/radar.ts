@@ -124,7 +124,10 @@ import { BufferImageSource, Graphics, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import {
   CONFIG,
+  HULL_IDS,
   hullSilhouette,
+  mapRadius,
+  polygonMaxRadius,
   sampleHeight,
   transformPolygon,
   wrapPositive,
@@ -603,8 +606,21 @@ export class Radar {
     else this.addSilhouetteBlip(e as SilhouetteBlipEvent);
   }
 
-  /** The `silhouette` (Story 4.2) acquire path — outline + hue + ARPA vector. */
+  /** The latest authoritative server time this radar can judge a paint's `t`
+   *  against, plus slack — Infinity before the first sweep sample, when there
+   *  is no clock reference at all. Both grammar validators use it: a
+   *  far-future `t` makes `blipAlpha`'s age negative, a full-brightness paint
+   *  that never decays or prunes (cycle-63 review gate). */
+  private get maxPaintT(): number {
+    return this.lastSweep === null ? Infinity : this.lastSweep.t + MAX_FUTURE_T_MS;
+  }
+
+  /** The `silhouette` (Story 4.2) acquire path — outline + hue + ARPA vector.
+   *  Structurally validated FIRST, exactly like the `return` branch (cycle-63
+   *  review gate): a malformed payload is dropped whole, never fed into
+   *  `acquireBlip`/`resolveHue` as NaN/undefined. */
   private addSilhouetteBlip(e: SilhouetteBlipEvent): void {
+    if (!validSilhouette(e, this.maxPaintT)) return;
     const { color, colored, rev } = resolveHue(e.id, this.hueFor);
     const pose: BlipPose = {
       cls: e.cls,
@@ -629,8 +645,15 @@ export class Radar {
    *  finiteness-checked on this path like everywhere else (the cycle-62
    *  `radarRange = Infinity` lesson). A malformed footprint is dropped whole. */
   private addReturnPaint(e: ReturnBlipEvent): void {
-    if (!validCoverage(e)) return;
+    if (!validCoverage(e, this.maxPaintT)) return;
     this.pending.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, t: e.t });
+    // CAP THE PARK (cycle-63 review gate): paints arrive on network cadence
+    // while own pose can stay null indefinitely (the join gap, or a server
+    // withholding own frames), and each parked entry holds a whole mask — so
+    // without a cap the array grows unboundedly. Oldest-parked is dropped
+    // first: by the time a pose finally exists, the oldest echoes are the
+    // stalest history anyway. Same ceiling as the live-blip backstop.
+    if (this.pending.length > MAX_LIVE_BLIPS) this.pending.shift();
     this.resolvePending();
   }
 
@@ -942,7 +965,12 @@ export class Radar {
       if (Math.hypot(s.x - own.x, s.y - own.y) > sight) continue;
       hulls.push({ id, x: s.x, y: s.y, heading: s.heading, cls });
     }
-    return buildShipStamp(hulls, own, cfg.model, cfg.cellU);
+    // The glint seed's time term is the REVOLUTION INDEX, not the frame time:
+    // a stationary sighted hull keeps one mask for the whole beam crossing and
+    // re-glints on the next revolution — sweep-to-sweep scintillation, the
+    // same cadence the wire source gets from its per-tick paint (amendment
+    // 157; a per-frame seed would tear the footprint mid-crossing).
+    return buildShipStamp(hulls, own, cfg.model, cfg.cellU, Math.floor(at / this.sweepPeriodMs));
   }
 
   /** Position/rotate the sweep + rings; returns the beam angle this frame, or
@@ -1098,19 +1126,71 @@ function keyOf(b: LiveBlip): string {
   return b.id;
 }
 
-/** The widest coverage rect a legitimate footprint can need, in cells, with
- *  generous slack: the longest hull (124u) spans ~22 cells at the shared 6u
- *  grid. NOT a tuning knob — a structural bound on wire input that sizes an
- *  array and bounds two loops. */
-const MAX_COVERAGE_SPAN = 64;
+/**
+ * The widest coverage rect a legitimate footprint can need, in cells — DERIVED
+ * from the longest hull and the shared lattice, never a literal (cycle-63
+ * review gate: the old literal 64 silently broke the moment `radarCellU` was
+ * retuned small — the validator would have dropped every long-hull mask and
+ * hulls would simply have vanished beyond truesight). The derivation: the
+ * worst-heading span of the biggest silhouette (its bounding-circle diameter),
+ * in cells, plus one cell of lattice phase, plus two cells per side of fuzz
+ * growth (one of dilation + one of stretch, `fuzzCoverage`), doubled as
+ * structural slack. NOT a tuning knob — a bound on wire input that sizes an
+ * array and bounds two loops.
+ */
+const MAX_COVERAGE_SPAN = ((): number => {
+  let diameter = 0;
+  for (const id of HULL_IDS) diameter = Math.max(diameter, 2 * polygonMaxRadius(hullSilhouette(id)));
+  return 2 * (Math.ceil(diameter / CONFIG.vision.radarCellU) + 1 + 4);
+})();
 
-/** Structural gate on a wire coverage footprint (cycle 63): integer cell
- *  indices, a sane rect, and a bits array sized exactly to it. Anything else
- *  is dropped whole — never clamped into something half-drawable. */
-function validCoverage(e: ReturnBlipEvent): boolean {
+/**
+ * The largest absolute cell index a legitimate footprint can carry — DERIVED
+ * from the biggest map the game can build (the roster-scaled radius at the
+ * player cap) and the shared lattice, doubled as slack. Huge indices would
+ * break `cellKey`'s `KEY_ROW = 1e6` injectivity premise (radarField.ts) and
+ * the heatmap's integer cell math, producing phantom on-scope paints — so the
+ * validator makes them unrepresentable rather than trusting every consumer to
+ * re-check (cycle-63 review gate).
+ */
+const MAX_CELL_INDEX = Math.ceil((2 * mapRadius(CONFIG.map.playerCap)) / CONFIG.vision.radarCellU);
+
+/** How far in the future (ms) a paint's `t` may sit past the latest
+ *  authoritative sweep sample before it is dropped as malformed. A conforming
+ *  server stamps `t = now`, so anything past clock-estimate jitter is garbage
+ *  — and an unbounded future `t` makes `blipAlpha`'s age negative, a
+ *  full-brightness paint that never decays or prunes (cycle-63 review gate). */
+const MAX_FUTURE_T_MS = 10_000;
+
+/** Structural gate on a wire coverage footprint (cycle 63): a finite,
+ *  non-far-future paint time, integer cell indices INSIDE the map's possible
+ *  lattice, a sane rect, and a bits array sized exactly to it. Anything else
+ *  is dropped whole — never clamped into something half-drawable. `tMax` is
+ *  the caller's latest authoritative server-time reference (Infinity before
+ *  the first sweep sample, when the client has no clock to judge by). */
+function validCoverage(e: ReturnBlipEvent, tMax: number): boolean {
+  if (!Number.isFinite(e.t) || e.t > tMax) return false;
   if (![e.gx, e.gy, e.w, e.h].every(Number.isInteger)) return false;
+  if (Math.abs(e.gx) > MAX_CELL_INDEX || Math.abs(e.gy) > MAX_CELL_INDEX) return false;
+  return validRect(e);
+}
+
+/** The rect half of `validCoverage`: sane spans, bits sized exactly to them. */
+function validRect(e: ReturnBlipEvent): boolean {
   if (e.w < 1 || e.h < 1 || e.w > MAX_COVERAGE_SPAN || e.h > MAX_COVERAGE_SPAN) return false;
   return Array.isArray(e.bits) && e.bits.length === Math.ceil((e.w * e.h) / 32);
+}
+
+/** Structural gate on a `silhouette` wire blip (cycle-63 review gate: the
+ *  return branch was hardened and this one was left raw, so a malformed
+ *  payload put `undefined`/NaN into `acquireBlip`/`resolveHue`). Same
+ *  posture: every numeric field finite, the paint time not far-future, the id
+ *  a string, the class one the silhouette registry can actually draw. */
+function validSilhouette(e: SilhouetteBlipEvent, tMax: number): boolean {
+  if (typeof e.id !== 'string') return false;
+  if (![e.x, e.y, e.t, e.heading, e.speed].every(Number.isFinite)) return false;
+  if (e.t > tMax) return false;
+  return hullSilhouette(e.cls) !== undefined;
 }
 
 /** Trace a closed world-frame polygon (offsets from the blip position). */

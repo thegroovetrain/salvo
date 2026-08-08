@@ -41,6 +41,7 @@ import {
   effectiveStats,
   hullSilhouette,
   mulberry32,
+  paintSeed,
   resolveBoons,
   segPolygonHit,
   wrapPositive,
@@ -1027,6 +1028,39 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
   for (const d of f.denied ?? []) verifyDenied(me, d);
   verifyBlipOrdering(w, f);
+  verifyBlipCompleteness(w, me, f);
+}
+
+/**
+ * THE RETURN-MODE COMPLETENESS ORACLE (cycle-63 review gate). With no id on
+ * the wire, `blipMatchesShip` justifies a blip if SOME gated ship matches —
+ * an upper bound only, under which duplicate blips of one hull, or N copies
+ * of one mask replacing other hulls' paints, would pass the fuzz. This pins
+ * the lower bound and the multiplicity in one stroke: every gated subject's
+ * expected mask is present in the frame, and the frame carries EXACTLY one
+ * blip per gated subject (ships that pass the reimplemented ship-blip
+ * predicate, plus decoys that pass the counter-intel rules) — so each gated
+ * ship is accounted for exactly once per revolution, one paint per beam
+ * crossing.
+ */
+function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
+  if (w.radarGrammar !== 'return' || !me.alive) return;
+  const blips = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
+  let gated = 0;
+  for (const target of w.ships.values()) {
+    if (!target.alive || target.id === me.id || !blipPredicate(w, me, target.state)) continue;
+    gated++;
+    const expected = maskOracle(target.hullId, target.state.x, target.state.y, target.state.heading, w.now);
+    expect(blips.some((b) => maskEquals(expected, b)), `gated ship ${target.id} accounted for`).toBe(true);
+  }
+  for (const decoy of w.decoys.values()) {
+    if (w.now >= decoy.until || decoy.ownerId === me.id) continue;
+    if (ownerContactVisible(w, me, decoy.ownerId) || !blipPredicate(w, me, decoy)) continue;
+    gated++;
+    const expected = maskOracle(decoy.hullId, decoy.x, decoy.y, decoy.heading, w.now);
+    expect(blips.some((b) => maskEquals(expected, b)), `gated decoy ${decoy.id} accounted for`).toBe(true);
+  }
+  expect(blips.length, 'exactly one blip per gated subject').toBe(gated);
 }
 
 /** The Story 1.10 denial oracle: a denial in a frame must be the OBSERVER'S
@@ -1048,16 +1082,19 @@ function verifyDenied(me: ShipRecord, d: { slot: number; reason: string; seq: nu
  *  counter-intel), or array position would de-anonymize the deception whenever
  *  a hull and its buoy paint the same tick. Reimplemented test-locally,
  *  applied to EVERY verified frame, per grammar: silhouette by (x, y, t, id);
- *  the cycle-63 `return` footprint by (gx, gy, t, w, h) — its entire public
- *  payload short of the mask words, which is total up to byte-identical
- *  payloads (and identical payloads carry no order information to leak). */
+ *  the cycle-63 `return` footprint by (gx, gy, t, w, h, then the mask words —
+ *  length first, then each signed-int32 word). The mask words ARE part of the
+ *  production comparator's key (cycle-63 review gate: the oracle used to stop
+ *  at the rect, a strictly weaker order than the one it claimed to pin), and
+ *  the full key is total up to byte-identical payloads — which carry no order
+ *  information to leak. */
 function verifyBlipOrdering(w: World, f: FrameMsg): void {
   const blips = f.events.filter((e): e is BlipEvent => e.k === 'blip');
   for (let i = 1; i < blips.length; i++) {
     if (w.radarGrammar === 'return') {
       const a = blips[i - 1] as ReturnBlipEvent;
       const b = blips[i] as ReturnBlipEvent;
-      const key = (e: ReturnBlipEvent): number[] => [e.gx, e.gy, e.t, e.w, e.h];
+      const key = (e: ReturnBlipEvent): number[] => [e.gx, e.gy, e.t, e.w, e.h, e.bits.length, ...e.bits];
       const ka = key(a);
       const kb = key(b);
       const cmp = ka.map((v, j) => v - kb[j]).find((d) => d !== 0) ?? 0;
@@ -1165,19 +1202,25 @@ function rosterIdOf(w: World, blipId: string): string | undefined {
   return undefined;
 }
 
-// --- the cycle-63 `return`-grammar COVERAGE oracle (amendment 155) -----------
+// --- the cycle-63 `return`-grammar COVERAGE oracle (amendments 155-157) ------
 //
 // Re-DERIVED against the new payload, not adapted from the retired `ext`
 // oracle: the wire now carries a world-anchored coverage footprint
-// ({k,t,gx,gy,w,h,bits}) rasterized server-side from the true hull polygon,
-// and the oracle below reimplements that rasterization from the amendment
-// text — the raw silhouette verts rotated/translated by hand, a test-local
-// even-odd crossing test (never the production pointInPolygon), the bbox cell
-// rect, the centre-in-polygon rule, the centre-cell fail-safe and the
-// LSB-first packing — so a refactor of sim/radarRaster.ts cannot silently
-// agree with its own bug. Justification is EXACT mask equality (two-sided:
-// every wire bit must be earned AND every earned bit must be on the wire), so
-// this oracle cannot go vacuous by the channel quietly shrinking.
+// ({k,t,gx,gy,w,h,bits}) rasterized server-side from the true hull polygon
+// AND FUZZED per paint (dilation + stretch + glint + bridge repair, cycle-63
+// review gate). The oracle below reimplements the whole pipeline from the
+// documented contract — the raw silhouette verts rotated/translated by hand,
+// a test-local even-odd crossing test (never the production pointInPolygon),
+// the bbox cell rect, the centre-in-polygon rule, the quarter-cell spine
+// walk, the centre-cell fail-safe, the fuzz stages in their contractual
+// order, and the LSB-first packing — so a refactor of sim/radarRaster.ts
+// cannot silently agree with its own bug. THE ONE SHARED PIECE is the entropy
+// stream (`paintSeed` + `mulberry32`): the RNG sequence IS the wire contract
+// (both sides must draw the identical stream), so the oracle consumes the
+// shared primitives while reimplementing every piece of GEOMETRY they drive.
+// Justification is EXACT mask equality (two-sided: every wire bit must be
+// earned AND every earned bit must be on the wire), so this oracle cannot go
+// vacuous by the channel quietly shrinking.
 
 /** The shared radar grid resolution — the wire-contract lattice parameter. */
 const RCELL_U = CONFIG.vision.radarCellU;
@@ -1195,27 +1238,132 @@ function inPolyOracle(px: number, py: number, poly: readonly { x: number; y: num
 
 interface MaskOracle { gx: number; gy: number; w: number; h: number; bits: number[] }
 
-/** Test-local coverage rasterization of a hull pose onto the shared grid. */
-function maskOracle(cls: HullId, x: number, y: number, heading: number): MaskOracle {
+/** Test-local SHARP rasterization onto a padded boolean grid: centre rule +
+ *  quarter-cell spine + bounds-checked centre-cell fail-safe. Returns the
+ *  padded grid (2 cells each side) and its cell-space origin. */
+function sharpOracle(cls: HullId, x: number, y: number, heading: number): { grid: Uint8Array; w: number; h: number; gx0: number; gy0: number } {
   const c = Math.cos(heading);
   const s = Math.sin(heading);
-  const poly = hullSilhouette(cls).map((p) => ({ x: x + c * p.x - s * p.y, y: y + s * p.x + c * p.y }));
+  const local = hullSilhouette(cls);
+  const poly = local.map((p) => ({ x: x + c * p.x - s * p.y, y: y + s * p.x + c * p.y }));
   const xs = poly.map((p) => p.x);
   const ys = poly.map((p) => p.y);
   const gx = Math.floor(Math.min(...xs) / RCELL_U);
   const gy = Math.floor(Math.min(...ys) / RCELL_U);
-  const w = Math.floor(Math.max(...xs) / RCELL_U) - gx + 1;
-  const h = Math.floor(Math.max(...ys) / RCELL_U) - gy + 1;
-  const bits = new Array<number>(Math.ceil((w * h) / 32)).fill(0);
-  const set = (i: number): void => { bits[i >>> 5] |= 1 << (i & 31); };
-  for (let row = 0; row < h; row++) {
-    for (let col = 0; col < w; col++) {
-      if (inPolyOracle((gx + col + 0.5) * RCELL_U, (gy + row + 0.5) * RCELL_U, poly)) set(row * w + col);
+  const bw = Math.floor(Math.max(...xs) / RCELL_U) - gx + 1;
+  const bh = Math.floor(Math.max(...ys) / RCELL_U) - gy + 1;
+  const w = bw + 4;
+  const h = bh + 4;
+  const grid = new Uint8Array(w * h);
+  const mark = (cellX: number, cellY: number): void => {
+    const col = cellX - gx;
+    const row = cellY - gy;
+    if (col >= 0 && row >= 0 && col < bw && row < bh) grid[(row + 2) * w + col + 2] = 1;
+  };
+  for (let row = 0; row < bh; row++) {
+    for (let col = 0; col < bw; col++) {
+      if (inPolyOracle((gx + col + 0.5) * RCELL_U, (gy + row + 0.5) * RCELL_U, poly)) mark(gx + col, gy + row);
     }
   }
-  // The centre-cell fail-safe: a return always lights the cell the hull is in.
-  set((Math.floor(y / RCELL_U) - gy) * w + (Math.floor(x / RCELL_U) - gx));
-  return { gx, gy, w, h, bits };
+  // The spine: the bow→stern centre-line at quarter-cell steps (the step
+  // count is part of the contract).
+  const lxs = local.map((p) => p.x);
+  const min = Math.min(...lxs);
+  const max = Math.max(...lxs);
+  const steps = Math.max(1, Math.ceil(((max - min) / RCELL_U) * 4));
+  for (let i = 0; i <= steps; i++) {
+    const lx = min + ((max - min) * i) / steps;
+    mark(Math.floor((x + c * lx) / RCELL_U), Math.floor((y + s * lx) / RCELL_U));
+  }
+  mark(Math.floor(x / RCELL_U), Math.floor(y / RCELL_U)); // the fail-safe
+  return { grid, w, h, gx0: gx - 2, gy0: gy - 2 };
+}
+
+/** Test-local fuzz: dilate(8-neighbour) → four side-stretch draws (−x, +x,
+ *  −y, +y) of the dilated snapshot → glint erosion of the fringe (row-major
+ *  over the snapshot) → diagonal bridge repair to a fixed point. Mutates and
+ *  returns the padded grid. */
+function fuzzOracle(core: Uint8Array, w: number, h: number, seed: number): Uint8Array {
+  const { stretchP, glintP } = CONFIG.vision.radarFuzz;
+  const out = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    if (core[i] === 0) continue;
+    const row = Math.floor(i / w);
+    const col = i % w;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) out[(row + dy) * w + col + dx] = 1;
+    }
+  }
+  const rng = mulberry32(seed);
+  const flags = [rng.next() < stretchP, rng.next() < stretchP, rng.next() < stretchP, rng.next() < stretchP];
+  const dirs = [-1, 1, -w, w];
+  const dilated = out.slice();
+  for (let i = w; i < w * h - w; i++) {
+    if (dilated[i] === 0) continue;
+    for (let d = 0; d < 4; d++) {
+      if (flags[d]) out[i + dirs[d]] = 1;
+    }
+  }
+  const snap = out.slice();
+  for (let i = 0; i < w * h; i++) {
+    if (snap[i] === 0 || core[i] === 1) continue;
+    if (rng.next() < glintP) out[i] = 0;
+  }
+  bridgeOracle(out, w, h);
+  return out;
+}
+
+/** Diagonal bridge repair, reimplemented: repeat row-major scans until no 2×2
+ *  block holds exactly one covered diagonal pair (`\` bridges top-right, `/`
+ *  bridges top-left — the contract's fixed choice). */
+function bridgeOracle(out: Uint8Array, w: number, h: number): void {
+  for (let pass = 0, again = true; again && pass < w * h; pass++) {
+    again = false;
+    for (let row = 0; row < h - 1; row++) {
+      for (let col = 0; col < w - 1; col++) {
+        const i = row * w + col;
+        const back = out[i] + out[i + w + 1];
+        const fore = out[i + 1] + out[i + w];
+        if (back === 2 && fore === 0) {
+          out[i + 1] = 1;
+          again = true;
+        } else if (fore === 2 && back === 0) {
+          out[i] = 1;
+          again = true;
+        }
+      }
+    }
+  }
+}
+
+/** Test-local paint-pipeline oracle: sharp → fuzz(paintSeed(t, pose)) →
+ *  tight-crop → LSB-first packing. `t` is the paint tick (the server stamps
+ *  `t = now` and seeds the glint from it). */
+function maskOracle(cls: HullId, x: number, y: number, heading: number, t: number): MaskOracle {
+  const s = sharpOracle(cls, x, y, heading);
+  const grid = fuzzOracle(s.grid, s.w, s.h, paintSeed(t, x, y, heading));
+  let minC = s.w;
+  let minR = s.h;
+  let maxC = -1;
+  let maxR = -1;
+  for (let i = 0; i < s.w * s.h; i++) {
+    if (grid[i] === 0) continue;
+    const row = Math.floor(i / s.w);
+    const col = i % s.w;
+    if (col < minC) minC = col;
+    if (col > maxC) maxC = col;
+    if (row < minR) minR = row;
+    if (row > maxR) maxR = row;
+  }
+  const w = maxC - minC + 1;
+  const h = maxR - minR + 1;
+  const bits = new Array<number>(Math.ceil((w * h) / 32)).fill(0);
+  for (let row = 0; row < h; row++) {
+    for (let col = 0; col < w; col++) {
+      if (grid[(row + minR) * s.w + col + minC] === 1) bits[(row * w + col) >>> 5] |= 1 << ((row * w + col) & 31);
+    }
+  }
+  return { gx: s.gx0 + minC, gy: s.gy0 + minR, w, h, bits };
 }
 
 /** EXACT footprint equality — rect and every mask word. */
@@ -1238,7 +1386,7 @@ function blipPoseMatches(
   speed: number,
 ): boolean {
   if (w.radarGrammar === 'return') {
-    return maskEquals(maskOracle(cls, p.x, p.y, heading), ev as ReturnBlipEvent);
+    return maskEquals(maskOracle(cls, p.x, p.y, heading, w.now), ev as ReturnBlipEvent);
   }
   const sil = ev as SilhouetteBlipEvent;
   return sil.x === p.x && sil.y === p.y && sil.cls === cls && sil.heading === heading && sil.speed === speed;
