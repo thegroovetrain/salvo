@@ -22,6 +22,64 @@
 // h ≥ H gives u ≤ 0 and the root lands at or before the obstacle, so the
 // binary behaviour is the limit of the continuous one.
 //
+// ONE RULE, TWO INSTANCES — AND `vis` IS THE SHIP INSTANCE, NOT THE RULE
+// (cycle 69). `vis(D)` answers exactly one question: "is a target standing at
+// MAST height H visible past this terrain?" That is the right question for a
+// SHIP and the WRONG question for TERRAIN. Eric, on 0.17.68: *"i assumed that
+// more of the islands would get painted? like, if im looking at a side of an
+// island and there's a mountain, my radar should pick up all the way to the
+// peak on that side, right, and then the shadow lives on the other side?"* He
+// is right. A mountainside is not a target at mast height: a peak that rises
+// ABOVE the grazing ray is visible precisely because you look UP at it, and no
+// lower ground in front of it can hide what sticks out over the ray. Masking
+// terrain samples with the SHIP answer is therefore a category error — it stops
+// the near slope at roughly mast height and the summit never appears at all.
+// Measured on real terrain (seed 3, observer 300u off, ray through the core)
+// the ship answer painted 32u of near slope topping out at q91 where the true
+// peak on that ray is q196; the rule below paints 348u and reaches q196.
+//
+// The general law is one line, and BOTH consumers are instances of it:
+//
+//     required(D) = H · (1 − visRaw(D))     the minimum height visible at D
+//     illuminated(object) = clamp01( (ownHeight − required(D)) / ownHeight )
+//
+//   • A SHIP has ownHeight = H, which reduces to `vis(D)` — the same number,
+//     the same clamp, the same disclosure. `visibilityAt` IS that instance and
+//     is what the server gate calls; it did not move by one bit.
+//   • TERRAIN has ownHeight = h, its own quantized raster height, so a summit
+//     above the grazing ray paints and the far slope below it does not.
+//
+// `required` is the affine image of the UNCLAMPED `visRaw`, and the unclamping
+// is load-bearing, not tidiness: `vis` clamps at 0, which throws away how far
+// BELOW the ray a point is, and once that is gone every deep-shadow sample
+// reads the same "required = H" and terrain taller than the mast paints inside
+// a shadow it is nowhere near the top of. Unclamped, `required` keeps rising
+// past the root (it is H·(1 + D(D − reach)/K) there), so behind a q200 wall a
+// q100 far slope stays dark while a genuinely taller peak beyond it still
+// paints — which is the "shadow lives on the other side" half of the ruling.
+//
+// Reading the same law geometrically: required(D) = H − (D/d)(H − q) +
+// H·D(D − d)/K is the straight ray from the antenna over the obstacle top plus
+// the earth-bulge term D(D − d)/2R. It is NOT monotone in D — it dips between
+// the antenna and the obstacle (you look DOWN past a low obstacle) and equals
+// exactly q at the obstacle's own distance and exactly H at the reach. Past the
+// reach it is monotone increasing and unbounded. A terrain consumer therefore
+// must NOT use `reach()` as a stopping rule: the reach is where a MAST-height
+// target goes dark, and a mountain past it can still be over the ray.
+//
+// THE TERRAIN INSTANCE NEEDS THE FAR-END EXEMPTION, and this is the one place
+// its cadence differs from the ship's. A terrain sample stands ON land, i.e. it
+// is a query point inside a raster cell — the exact case the module already
+// rules on ("a cell never occludes a query point inside it, at either end of
+// the ray"). `visibilityTo` gets this for free by folding only up to
+// `cellEntryOf`; an incremental march must ask for it, via `cellEntryAt(d)`,
+// and advance to THAT rather than to `d`. Skip it and a cell folds before the
+// second sample inside it is queried, `required` there is exactly that cell's
+// own height, and a flat crest paints in stripes at raster-cell pitch.
+//
+// `CONFIG.vision.radarMastQ` and K are untouched by all of this. It is a
+// missing consumer, not a retune.
+//
 // K DERIVES FROM BASE CONFIG.vision.radar, NEVER an observer's boon-widened
 // stats.radarRange (amendment 185): K = 2RH is a WORLD constant — R an earth
 // radius, H a mast height — and an observer-dependent K would let an intel
@@ -123,11 +181,37 @@ export interface ShadowWalk {
   advanceTo(d: number): void;
   /** Illuminated fraction of a target at distance `d` against the accumulator
    *  as it stands (1 = fully painted, 0 = fully shadowed). Degenerate `d`
-   *  (non-finite or ≤ 0) fails OPEN per the spec's edge-case matrix. */
+   *  (non-finite or ≤ 0) fails OPEN per the spec's edge-case matrix.
+   *
+   *  THE SHIP INSTANCE of the unified rule (module header): identical to
+   *  `illuminatedFraction(CONFIG.vision.radarMastQ, requiredHeightAt(d))` and
+   *  the only form the server gate calls. Do not use it to mask TERRAIN. */
   visibilityAt(d: number): number;
+  /** The minimum height, in the raster's quantized units, that is visible at
+   *  distance `d` against the accumulator as it stands — `H·(1 − visRaw(d))`,
+   *  the grazing ray's own height there. Feed it to `illuminatedFraction` with
+   *  the object's OWN height (mast height for anything afloat, `sampleHeight`
+   *  for terrain). 0 on a clear bearing and for degenerate `d` (fail open); it
+   *  may exceed H (deep shadow, unclamped on purpose — see the header) and may
+   *  go negative where the sightline dips below the reference surface, both of
+   *  which `illuminatedFraction` resolves in one place. */
+  requiredHeightAt(d: number): number;
+  /** Distance at which the ray ENTERED the raster cell containing the point at
+   *  distance `d` (≤ `d`, non-decreasing in `d`, `d` itself when there is no
+   *  raster). ADVANCE TO THIS, NOT TO `d`, BEFORE QUERYING A POINT THAT SITS ON
+   *  LAND: it is the incremental mirror of `visibilityTo`'s target-cell
+   *  exemption, and the module's standing rule that a cell never occludes a
+   *  query point inside it, at either end of the ray. Without it a terrain
+   *  sample past the first one in its own cell is masked by its OWN cell —
+   *  `required` there is exactly that cell's height, so a flat crest reads
+   *  half-dark in stripes at raster-cell pitch. A march that only ever asks
+   *  about water (the hull/echo instance) does not need it. */
+  cellEntryAt(d: number): number;
   /** Current residual reach: the distance at which `vis` hits 0 (the root
    *  aMin·K — amendment 176). Infinity while no land has been folded. A
-   *  client march may stop and emit NO-DATA past this distance. */
+   *  client march may stop and emit NO-DATA past this distance — but ONLY for
+   *  the ship instance: the reach is where a MAST-HEIGHT target goes dark, and
+   *  terrain past it can still stand over the ray (module header). */
   reach(): number;
 }
 
@@ -138,10 +222,14 @@ export function radarShadowK(): number {
   return CONFIG.vision.radar ** 2 / 4;
 }
 
-/** The fail-open walk: no terrain data, therefore no shadow. */
+/** The fail-open walk: no terrain data, therefore no shadow. Required height 0
+ *  is the fail-open value of the general rule — every object clears a ray at
+ *  the surface, so `illuminatedFraction(anything, 0) === 1`. */
 const OPEN_WALK: ShadowWalk = {
   advanceTo: () => undefined,
   visibilityAt: () => 1,
+  requiredHeightAt: () => 0,
+  cellEntryAt: (d: number) => d,
   reach: () => Infinity,
 };
 
@@ -314,11 +402,54 @@ function advance(s: WalkState, d: number): void {
   if (d > s.t) s.t = d; // past the raster square there is only transparent sea
 }
 
-/** vis(D) = clamp01(D · (aMin − D/K)) — amendment 178's running-scalar form. */
-function visAt(aMin: number, k: number, d: number): number {
+/**
+ * visRaw(D) = D · (aMin − D/K), UNCLAMPED — amendment 178's running-scalar form
+ * before any clamp, and the ONE place the accumulator becomes a number. Both
+ * instances of the unified rule are built from this and nothing re-derives it:
+ * `visAt` clamps it (the ship), `requiredHeightOf` maps it to a height (every
+ * object, terrain included). A clear bearing and every degenerate D return
+ * exactly 1 — full illumination, required height 0, fail OPEN either way.
+ */
+function visRawAt(aMin: number, k: number, d: number): number {
   if (aMin === Infinity) return 1;
   if (!Number.isFinite(d) || d <= 0) return 1; // degenerate D fails OPEN
-  const v = d * (aMin - d / k);
+  return d * (aMin - d / k);
+}
+
+/** vis(D) = clamp01(visRaw(D)) — THE SHIP INSTANCE (ownHeight = H), and the
+ *  server gate's only entry point. Bit-identical to the shipped form. */
+function visAt(aMin: number, k: number, d: number): number {
+  const v = visRawAt(aMin, k, d);
+  if (v >= 1) return 1;
+  return v > 0 ? v : 0;
+}
+
+/** required(D) = H · (1 − visRaw(D)): the minimum height visible at D. Equals
+ *  the folded obstacle's own height at its own distance, and H at the reach. */
+function requiredHeightOf(h: number, aMin: number, k: number, d: number): number {
+  return h * (1 - visRawAt(aMin, k, d));
+}
+
+/**
+ * THE UNIFIED RULE (module header), and the only place it is written down: the
+ * fraction of an object of height `ownHeight` that stands above the grazing ray
+ * whose height is `requiredHeight` (from `ShadowWalk.requiredHeightAt`).
+ *
+ * 1 = fully painted, 0 = fully shadowed, in between the soft edge — the same
+ * three-valued answer `visibilityAt` gives, because `visibilityAt` is this
+ * function at `ownHeight = H`. A caller MUST pass the object's own height:
+ * `CONFIG.vision.radarMastQ` for anything afloat (or just call `visibilityAt`),
+ * and the raster's `sampleHeight` for terrain.
+ *
+ * A non-positive or non-finite `ownHeight` FAILS OPEN (1), the module's
+ * convention everywhere. That is NOT "the sea's answer": open water is not an
+ * object of height 0, it is a return at the antenna's own height, so water,
+ * clutter, surf and hulls are all the H instance. Feeding a water sample's
+ * height here would erase every shadow it stands in.
+ */
+export function illuminatedFraction(ownHeight: number, requiredHeight: number): number {
+  if (!positiveFinite(ownHeight) || !Number.isFinite(requiredHeight)) return 1;
+  const v = (ownHeight - requiredHeight) / ownHeight;
   if (v >= 1) return 1;
   return v > 0 ? v : 0;
 }
@@ -378,6 +509,8 @@ export function beginShadowWalk(
   return {
     advanceTo: (d: number): void => advance(s, d),
     visibilityAt: (d: number): number => visAt(s.aMin, s.k, d),
+    requiredHeightAt: (d: number): number => requiredHeightOf(s.h, s.aMin, s.k, d),
+    cellEntryAt: (d: number): number => cellEntryAtDistance(s, d),
     reach: (): number => reachOf(s.aMin, s.k),
   };
 }
@@ -410,6 +543,17 @@ function cellEntryOf(s: WalkState, px: number, py: number, len: number): number 
   const ey = s.dy === 0 ? -Infinity : boundaryCross(s.oy, s.dy, r.y0 + (j - (s.dy > 0 ? 0.5 : -0.5)) * r.cell);
   const e = Math.max(ex, ey);
   return e < len ? e : len; // NaN (unreachable: state is finite) ⇒ len
+}
+
+/**
+ * `cellEntryOf` for a point given by its DISTANCE along the ray — the same
+ * exemption `visibilityTo` applies at the far end, made available to an
+ * incremental march that has to ask about a point standing ON land. Non-finite
+ * `d` passes through (`advanceTo` treats it as a no-op).
+ */
+function cellEntryAtDistance(s: WalkState, d: number): number {
+  if (!Number.isFinite(d)) return d;
+  return cellEntryOf(s, s.ox + s.dx * d, s.oy + s.dy * d, d);
 }
 
 /**

@@ -51,10 +51,11 @@
 // on a paint path, no clutter occluder mask and no ship shadowing (ships never
 // shadow ships, amendment 107/141). What there is instead is ONE running scalar
 // per ray, folded by the SHARED model the server's own `blipGate` calls
-// (shared/sim/radarShadow.ts): it scales each sample's intensity by the fraction
-// of a target there that is illuminated, so a shadowed return fades through the
-// weakest band rather than cutting at a line, and past its reach the ray paints
-// grey NO-DATA out to the rim. Only `blipGate` adopts it server-side;
+// (shared/sim/radarShadow.ts): it masks each sample against the grazing ray, so
+// a shadowed hull fades through the weakest band rather than cutting at a line
+// and a shadowed stretch of water simply goes unpainted (cycle 69 deleted the
+// grey NO-DATA cells that used to fill it, and gave TERRAIN its own instance of
+// the rule so a mountainside paints to its peak). Only `blipGate` adopts it;
 // `pointSighted`, `pointDetected`, the muzzle and smoke halos and the foghorn
 // muffle all keep binary island LOS (amendment 179).
 //
@@ -609,13 +610,6 @@ export class Radar {
   /** The raw (unquantized) intensity at a world point (debug/tests). */
   intensityAt(x: number, y: number): number {
     return this.heat === null ? 0 : sampleGrid(this.heat.grid, x, y).w;
-  }
-
-  /** Is the buffer holding a NO-DATA mark at a world point (Story 4.11)? The
-   *  third channel's observation seam — it is deliberately NOT reachable through
-   *  `bandAt`, which answers about the three REGISTERS and nothing else. */
-  noDataAt(x: number, y: number): boolean {
-    return this.heat !== null && sampleGrid(this.heat.grid, x, y).nd !== 0;
   }
 
   /** Current buffer dimensions in cells, or null before the first `return`
@@ -1193,7 +1187,7 @@ export class Radar {
     // (ship, island, surf, clutter, storm) are five MATERIALS in the field now,
     // so there is one record type left and one stamp for it.
     rasterize(heat.grid, this.paints, ctx);
-    quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, cfg.noData, heat.rgba);
+    quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
     heat.source.update();
   }

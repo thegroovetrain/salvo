@@ -96,6 +96,7 @@ export function stormSample(
     ref: m.volumeRef,
     floor: m.floor,
     min: 0,
+    terrainQ: 0, // weather, not ground — masked at mast height like every column
   };
 }
 
@@ -127,5 +128,6 @@ export function clutterSample(
   const dx = x - obs.x;
   const dy = y - obs.y;
   if (dx * dx + dy * dy > reach * reach) return null;
-  return { refl: m.clutter, geom: SURFACE, ref: m.clutterRef, floor: m.floor, min: 0 };
+  // `terrainQ: 0` — sea state stands ON the water, at the antenna's own height.
+  return { refl: m.clutter, geom: SURFACE, ref: m.clutterRef, floor: m.floor, min: 0, terrainQ: 0 };
 }

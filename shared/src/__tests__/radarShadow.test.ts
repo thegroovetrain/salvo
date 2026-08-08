@@ -26,6 +26,7 @@ import {
   beginShadowWalk,
   buildHeightRaster,
   generateMap,
+  illuminatedFraction,
   radarShadowK,
   sampleHeight,
   visibilityTo,
@@ -605,5 +606,468 @@ describe('the shadow character at radarMastQ (amendment 184 guardrail)', () => {
     const crossing = land / rays;
     expect(crossing).toBeGreaterThan(0.09);
     expect(crossing).toBeLessThan(0.22);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE UNIFIED RULE (cycle 69) — ONE law, TWO instances.
+//
+//     required(D) = H · (1 − visRaw(D))
+//     illuminated(object) = clamp01( (ownHeight − required(D)) / ownHeight )
+//
+// A SHIP is the ownHeight = H instance and reduces to `visibilityAt`; TERRAIN
+// is the ownHeight = h instance, and it is the one that was MISSING. Eric, on
+// 0.17.68: *"i assumed that more of the islands would get painted? ... my radar
+// should pick up all the way to the peak on that side, right, and then the
+// shadow lives on the other side?"* The client masked terrain samples with the
+// SHIP answer, which asks whether a MAST-HEIGHT target would be visible there —
+// so a near slope stopped painting at roughly mast height and no summit ever
+// appeared. These suites pin the corrected rule, the reduction that guarantees
+// ship disclosure did not move with it, and the unclamped `visRaw` that keeps
+// deep-shadow terrain dark.
+// ---------------------------------------------------------------------------
+
+/** Both instances of the rule at one march sample, read in the CLIENT's order:
+ *  query BEFORE the sample's own cell folds (amendment 187), and — because a
+ *  terrain sample stands ON land — with the sample's own cell exempted via
+ *  `cellEntryAt` (the incremental mirror of `visibilityTo`'s far-end rule). */
+interface MarchSample {
+  readonly d: number;
+  /** The raster's own height at the sample point — terrain's `ownHeight`. */
+  readonly h: number;
+  readonly req: number;
+  /** `visibilityAt` — the ship instance, and the shipped terrain mask (the bug). */
+  readonly ship: number;
+}
+
+function marchRay(
+  raster: HeightRaster,
+  ox: number,
+  oy: number,
+  dx: number,
+  dy: number,
+  to: number,
+  step = 4, // the shipped client march step
+): MarchSample[] {
+  const walk = beginShadowWalk(raster, ox, oy, dx, dy);
+  const out: MarchSample[] = [];
+  for (let d = step; d <= to; d += step) {
+    walk.advanceTo(walk.cellEntryAt(d));
+    out.push({
+      d,
+      h: sampleHeight(raster, ox + dx * d, oy + dy * d),
+      req: walk.requiredHeightAt(d),
+      ship: walk.visibilityAt(d),
+    });
+  }
+  return out;
+}
+
+/** THE CORRECTED RULE: terrain lights by its OWN height. */
+const terrainLit = (s: MarchSample): number => illuminatedFraction(s.h, s.req);
+/** THE SHIPPED RULE (the defect): terrain masked by the mast-height answer. */
+const shipLit = (s: MarchSample): number => s.ship;
+
+/** How much land a ray actually painted: the span from the first lit land
+ *  sample to the last, and the tallest terrain it reached. */
+function painted(
+  samples: readonly MarchSample[],
+  lit: (s: MarchSample) => number,
+): { span: number; top: number; last: number } {
+  let first = Infinity;
+  let last = 0;
+  let top = 0;
+  for (const s of samples) {
+    if (s.h <= SEA_HEIGHT || !(lit(s) > 0)) continue;
+    if (s.d < first) first = s.d;
+    last = s.d;
+    if (s.h > top) top = s.h;
+  }
+  return { span: last === 0 ? 0 : last - first, top, last };
+}
+
+// A ridge ON the +x ray from an observer at the origin: rises linearly to a
+// q200 summit and falls symmetrically. Cell 122 enters at 301u, the summit
+// (cell 132) at 441u, the last land cell (142) at 581u.
+const RAMP_START = 122;
+const RAMP_PEAK = 132;
+const RAMP_END = 142;
+const PEAK_Q = 200;
+
+function rampRaster(): HeightRaster {
+  const cells: Array<readonly [number, number, number]> = [];
+  for (let i = RAMP_START; i <= RAMP_END; i++) {
+    const f =
+      i <= RAMP_PEAK
+        ? (i - RAMP_START + 1) / (RAMP_PEAK - RAMP_START + 1)
+        : (RAMP_END - i + 1) / (RAMP_END - RAMP_PEAK + 1);
+    cells.push([i, MID, Math.max(1, Math.round(PEAK_Q * f))]);
+  }
+  return rasterOf(cells);
+}
+
+describe('terrain paints to the peak, and the shadow lives on the other side (the reported defect)', () => {
+  const samples = marchRay(rampRaster(), 0, 0, 1, 0, R);
+  const peakD = entryOf(RAMP_PEAK); // 441
+  const near = samples.filter((s) => s.h > SEA_HEIGHT && s.d <= peakD + CELL);
+  const far = samples.filter((s) => s.h > SEA_HEIGHT && s.d > peakD + CELL);
+
+  it('every near-slope sample paints, all the way up to and including the summit', () => {
+    expect(near.length).toBeGreaterThan(20);
+    for (const s of near) expect(terrainLit(s)).toBeGreaterThan(0);
+    // The summit itself, at its own quantized height, is the whole point.
+    const summit = near[near.length - 1];
+    expect(summit.h).toBe(PEAK_Q);
+    expect(terrainLit(summit)).toBeGreaterThan(0);
+  });
+
+  it('the far slope past the summit is DARK — every land sample, to the rim', () => {
+    expect(far.length).toBeGreaterThan(20);
+    // Every one of them, out to 660u: the shadow really does live on the other
+    // side, and it is amendment 176's residual reach — never a dark band
+    // followed by clear ground.
+    for (const s of far) expect(terrainLit(s)).toBe(0);
+  });
+
+  it('MEASURES the defect: the shipped mast-height mask paints a sliver of near slope; the corrected rule paints it whole', () => {
+    const before = painted(samples, shipLit);
+    const after = painted(samples, terrainLit);
+    // Measured on this ramp (4u steps): BEFORE {span 52u, top q73, last 356u};
+    // AFTER {span 148u, top q200, last 452u}. The summit is at 441u. Same shape
+    // as the real-terrain figures that opened the cycle — seed 3, observer 300u
+    // off, ray through the core: 32u of near slope topping out at q91 where the
+    // true peak on that ray is q196.
+    expect(before.top).toBeLessThan(H * 1.6); // stops near mast height, as the bug predicts
+    expect(before.last).toBeLessThan(peakD); // …never reaching the summit at all
+    expect(after.span).toBeGreaterThan(before.span * 2);
+    expect(after.top).toBe(PEAK_Q); // reaches the summit
+    expect(after.last).toBeGreaterThan(peakD); // …and gets there
+    // The corrected rule paints a SUPERSET of the shipped one on this ramp.
+    expect(after.last).toBeGreaterThanOrEqual(before.last);
+  });
+
+  it('a partly-visible slope reads PARTLY lit, not binary: the fraction is the part standing over the grazing ray', () => {
+    const fractional = near.filter((s) => terrainLit(s) > 0 && terrainLit(s) < 1);
+    expect(fractional.length).toBeGreaterThan(5);
+    for (const s of fractional) expect(terrainLit(s)).toBeCloseTo((s.h - s.req) / s.h, 12);
+  });
+});
+
+describe('the ship instance IS `visibilityAt` (the guarantee that disclosure did not move)', () => {
+  // The server gate calls `visibilityAt`/`visibilityTo`, which this cycle did
+  // not touch, so disclosure is bit-identical by construction. What is tested
+  // here is the RULE: feeding the mast height into the general form returns the
+  // same number, so nobody can claim the two have drifted apart.
+  //
+  // ONE ULP, NOT ZERO, AND THAT IS ARITHMETIC RATHER THAN MODELLING. The height
+  // round trip v -> H(1 - v) -> (H - H(1 - v))/H is exact in every step but
+  // `1 - v` (H = 64 is a power of two, so both the scaling and the subtraction
+  // are exact — the latter by Sterbenz). `1 - v` costs at most half an ulp of
+  // 1.0, i.e. 5.6e-17 absolute, and the round trip carries exactly that.
+  // Measured over the sweeps below: max |difference| 5.551115123125783e-17
+  // (= 2^-54), ZERO samples changed their lit/dark verdict, and both clamp
+  // endpoints matched exactly (127 saturated-lit and 352 fully-dark samples on
+  // the first sweep). The server gate reads the verdict and calls
+  // `visibilityAt` itself, so disclosure is untouched in the strongest sense:
+  // it runs the same code it ran before this cycle.
+  const ULP = 2 ** -52; // 2.22e-16 — one ulp at 1.0, twice the worst observed
+
+  const board = rasterOf([
+    [111, MID, 16],
+    [122, MID, 48],
+    [130, MID + 1, 90],
+    [140, MID, 200],
+    [151, MID, 7],
+  ]);
+
+  it('agrees with `visibilityAt` at every distance on an incremental walk, and matches its clamps exactly', () => {
+    const walk = beginShadowWalk(board, 0, 0, 1, 0);
+    let checked = 0;
+    let ones = 0;
+    let zeros = 0;
+    for (let d = 1; d <= R * 1.5; d += 1.7) {
+      walk.advanceTo(d);
+      const ship = walk.visibilityAt(d);
+      const viaRule = illuminatedFraction(H, walk.requiredHeightAt(d));
+      expect(Math.abs(viaRule - ship)).toBeLessThanOrEqual(ULP);
+      expect(viaRule > 0).toBe(ship > 0); // the verdict the server gate reads
+      if (ship === 1) {
+        expect(viaRule).toBe(1);
+        ones++;
+      }
+      if (ship === 0) {
+        expect(viaRule).toBe(0);
+        zeros++;
+      }
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(500);
+    expect(ones).toBeGreaterThan(50); // both clamps really were exercised
+    expect(zeros).toBeGreaterThan(50);
+  });
+
+  it('agrees over scattered terrain at arbitrary bearings and observer positions', () => {
+    let s = 0x5bf03635;
+    const rnd = (): number => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0), s / 2 ** 32);
+    const cells: Array<readonly [number, number, number]> = [];
+    for (let b = 0; b < 30; b++) {
+      const ci = 30 + Math.floor(rnd() * 140);
+      const cj = 30 + Math.floor(rnd() * 140);
+      const q = 3 + Math.floor(rnd() * 250);
+      const rad = 1 + Math.floor(rnd() * 3);
+      for (let dj = -rad; dj <= rad; dj++) {
+        for (let di = -rad; di <= rad; di++) cells.push([ci + di, cj + dj, q]);
+      }
+    }
+    const raster = rasterOf(cells);
+    let worst = 0;
+    for (let ray = 0; ray < 60; ray++) {
+      const ox = -700 + rnd() * 1400;
+      const oy = -700 + rnd() * 1400;
+      const ang = rnd() * Math.PI * 2;
+      const walk = beginShadowWalk(raster, ox, oy, Math.cos(ang), Math.sin(ang));
+      for (let d = 6; d <= R; d += 6) {
+        walk.advanceTo(d);
+        const ship = walk.visibilityAt(d);
+        const viaRule = illuminatedFraction(H, walk.requiredHeightAt(d));
+        expect(viaRule > 0).toBe(ship > 0);
+        const diff = Math.abs(viaRule - ship);
+        if (diff > worst) worst = diff;
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(ULP);
+  });
+});
+
+describe('required height — the grazing ray, and why the UNCLAMPED form is load-bearing', () => {
+  it('a clear bearing requires nothing: required height is 0 and every object is fully lit', () => {
+    const walk = beginShadowWalk(rasterOf([]), 0, 0, 1, 0);
+    for (const d of [1, 100, 330, R, 5000]) {
+      walk.advanceTo(d);
+      expect(walk.requiredHeightAt(d)).toBe(0);
+      expect(illuminatedFraction(1, walk.requiredHeightAt(d))).toBe(1);
+      expect(illuminatedFraction(255, walk.requiredHeightAt(d))).toBe(1);
+    }
+  });
+
+  it("at an obstacle's own distance the required height IS that obstacle's height, and at the reach it is exactly H", () => {
+    // The two fixed points of the geometry: the ray grazes the obstacle top,
+    // and a mast-height target is exactly on the ray at the residual reach.
+    for (const q of [8, 32, 48, 100, 200]) {
+      const raster = rasterOf([[122, MID, q]]);
+      const d0 = entryOf(122); // 301
+      const walk = beginShadowWalk(raster, 0, 0, 1, 0);
+      walk.advanceTo(d0 + 0.5); // fold it
+      expect(walk.requiredHeightAt(d0)).toBeCloseTo(q, 9);
+      const reach = walk.reach();
+      if (reach > 0 && reach < Infinity) expect(walk.requiredHeightAt(reach)).toBeCloseTo(H, 9);
+    }
+  });
+
+  it('past the reach it exceeds H and rises without bound — the mast-height answer has NO information left there', () => {
+    const raster = rasterOf([[122, MID, 32]]);
+    const walk = beginShadowWalk(raster, 0, 0, 1, 0);
+    walk.advanceTo(R);
+    const reach = walk.reach();
+    let prev = walk.requiredHeightAt(reach);
+    expect(prev).toBeCloseTo(H, 9);
+    for (let d = reach + 5; d <= R * 3; d += 5) {
+      const req = walk.requiredHeightAt(d);
+      expect(req).toBeGreaterThan(H);
+      expect(req).toBeGreaterThan(prev); // strictly increasing past the reach
+      prev = req;
+      expect(walk.visibilityAt(d)).toBe(0); // …while the ship answer is flat 0
+    }
+    expect(prev).toBeGreaterThan(255); // eventually nothing on the raster's scale clears it
+  });
+
+  it('DEEP SHADOW STAYS DARK, which the clamped form cannot do: behind a q200 wall, q100 terrain is dark and the clamp would paint it', () => {
+    const raster = rasterOf([[122, MID, 200]]); // hard cover at 301u
+    const walk = beginShadowWalk(raster, 0, 0, 1, 0);
+    walk.advanceTo(400);
+    const req = walk.requiredHeightAt(600);
+    expect(req).toBeGreaterThan(255);
+    expect(illuminatedFraction(100, req)).toBe(0);
+    expect(illuminatedFraction(255, req)).toBe(0);
+    // THE COUNTERFACTUAL, spelled out so nobody "restores" the clamp: with the
+    // CLAMPED vis the required height saturates at H, and every one of those
+    // samples would wrongly paint.
+    const clampedReq = H * (1 - walk.visibilityAt(600));
+    expect(clampedReq).toBe(H);
+    expect(illuminatedFraction(100, clampedReq)).toBeGreaterThan(0);
+  });
+
+  it('folding land only ever RAISES the required height (the mirror of vis being monotone non-increasing in folds)', () => {
+    const walk = beginShadowWalk(rampRaster(), 0, 0, 1, 0);
+    const probe = R; // one fixed distance, watched as the frontier advances
+    let prev = walk.requiredHeightAt(probe);
+    for (let d = 10; d <= 600; d += 10) {
+      walk.advanceTo(d);
+      const req = walk.requiredHeightAt(probe);
+      expect(req).toBeGreaterThanOrEqual(prev - 1e-12);
+      prev = req;
+    }
+    expect(prev).toBeGreaterThan(H);
+  });
+});
+
+describe('`cellEntryAt` — the far-end exemption, made available to an incremental march', () => {
+  const board = rasterOf([
+    [111, MID, 16],
+    [122, MID, 48],
+    [140, MID, 200],
+  ]);
+
+  it('is the DDA\'s own entry distance for the cell containing the point, never past it, and non-decreasing', () => {
+    const walk = beginShadowWalk(board, 0, 0, 1, 0);
+    let prev = -Infinity;
+    for (let d = 1; d <= R; d += 1.3) {
+      const e = walk.cellEntryAt(d);
+      expect(e).toBeLessThanOrEqual(d);
+      expect(e).toBeGreaterThanOrEqual(prev);
+      prev = e;
+      const col = Math.round((d - X0) / CELL); // the sample's own column
+      expect(e).toBeCloseTo(entryOf(col), 9);
+      walk.advanceTo(e);
+    }
+  });
+
+  it('reproduces `visibilityTo` exactly: advance to the target cell\'s entry, then query — one cadence, one answer', () => {
+    for (let d = 5; d <= R; d += 3.1) {
+      const walk = beginShadowWalk(board, 0, 0, 1, 0);
+      walk.advanceTo(walk.cellEntryAt(d));
+      expect(walk.visibilityAt(d)).toBe(visibilityTo(board, 0, 0, d, 0));
+    }
+  });
+
+  it('WITHOUT it a rising slope paints in stripes at raster-cell pitch — the reason it exists', () => {
+    // The naive cadence (advance straight to `d`) folds the sample's OWN cell
+    // before the second sample inside it is queried, so `required` there is
+    // exactly that cell's height and the sample reads 0 — lit, dark, dark, lit,
+    // dark, dark… at 14u pitch on ground that is continuously visible.
+    const raster = rampRaster();
+    const naive = beginShadowWalk(raster, 0, 0, 1, 0);
+    let litRuns = 0;
+    let dark = 0;
+    let wasLit = false;
+    for (let d = 4; d <= 460; d += 4) {
+      const h = sampleHeight(raster, d, 0);
+      const lit = illuminatedFraction(h, naive.requiredHeightAt(d));
+      naive.advanceTo(d);
+      if (h <= SEA_HEIGHT) continue;
+      if (lit > 0) {
+        if (!wasLit) litRuns++;
+        wasLit = true;
+      } else {
+        dark++;
+        wasLit = false;
+      }
+    }
+    expect(litRuns).toBeGreaterThan(8); // the ramp broken into that many pieces
+    expect(dark).toBeGreaterThan(20);
+
+    // With the exemption the same slope is ONE unbroken run.
+    const fixed = marchRay(raster, 0, 0, 1, 0, R).filter((s) => s.h > SEA_HEIGHT && s.d <= entryOf(RAMP_PEAK) + CELL);
+    let runs = 0;
+    wasLit = false;
+    for (const s of fixed) {
+      const lit = terrainLit(s) > 0;
+      if (lit && !wasLit) runs++;
+      wasLit = lit;
+    }
+    expect(runs).toBe(1);
+  });
+
+  it('the fail-open walk returns the distance unchanged, and non-finite passes through', () => {
+    const open = beginShadowWalk(null, 0, 0, 1, 0);
+    expect(open.cellEntryAt(123)).toBe(123);
+    const walk = beginShadowWalk(board, 0, 0, 1, 0);
+    expect(walk.cellEntryAt(NaN)).toBeNaN();
+    expect(walk.cellEntryAt(Infinity)).toBe(Infinity);
+    walk.advanceTo(walk.cellEntryAt(NaN)); // a no-op, and the walk stays usable
+    expect(walk.visibilityAt(500)).toBe(1);
+  });
+});
+
+describe('the unified rule — degenerate inputs fail OPEN, like the rest of the module', () => {
+  const wall = rasterOf([[122, MID, 255]]);
+
+  it('required height is 0 for a degenerate distance, and on a missing raster', () => {
+    const walk = beginShadowWalk(wall, 0, 0, 1, 0);
+    walk.advanceTo(R);
+    for (const d of [0, -5, NaN, Infinity, -Infinity]) expect(walk.requiredHeightAt(d)).toBe(0);
+    expect(walk.requiredHeightAt(500)).toBeGreaterThan(0); // …a real query still works
+    for (const bad of [
+      beginShadowWalk(null, 0, 0, 1, 0),
+      beginShadowWalk(undefined, 0, 0, 1, 0),
+      beginShadowWalk(wall, NaN, 0, 1, 0),
+      beginShadowWalk(wall, 0, 0, 0, 0),
+    ]) {
+      bad.advanceTo(R);
+      expect(bad.requiredHeightAt(R)).toBe(0);
+      expect(illuminatedFraction(1, bad.requiredHeightAt(R))).toBe(1);
+    }
+  });
+
+  it("a non-positive or non-finite ownHeight fails open — it is NOT the sea's answer (water is the mast-height instance)", () => {
+    for (const own of [0, -1, NaN, Infinity, -Infinity]) expect(illuminatedFraction(own, 1000)).toBe(1);
+    expect(illuminatedFraction(100, NaN)).toBe(1);
+  });
+
+  it('clamps at both ends and is linear between them', () => {
+    expect(illuminatedFraction(100, -50)).toBe(1); // ray below the surface
+    expect(illuminatedFraction(100, 0)).toBe(1);
+    expect(illuminatedFraction(100, 40)).toBeCloseTo(0.6, 12);
+    expect(illuminatedFraction(100, 100)).toBe(0);
+    expect(illuminatedFraction(100, 1000)).toBe(0);
+  });
+});
+
+describe("the corrected rule on REAL generated terrain (Eric's case: a mountain across the water)", () => {
+  it('paints deeper and reaches higher ground than the mast-height mask, on every island it looks at', () => {
+    // The reported case, reproduced structurally rather than pinned to one ray:
+    // stand off an island and look at its core. Under the shipped mask the near
+    // slope dies around mast height; under the rule it climbs the slope.
+    let rays = 0;
+    let deeper = 0;
+    let higher = 0;
+    let topBefore = 0;
+    let topAfter = 0;
+    for (const seed of [3, 7]) {
+      const map = generateMap(seed);
+      const islands = [...map.islands].sort((a, b) => b.core - a.core).slice(0, 4);
+      for (const isl of islands) {
+        for (let b = 0; b < 8; b++) {
+          const ang = (b / 8) * Math.PI * 2;
+          const dx = Math.cos(ang);
+          const dy = Math.sin(ang);
+          const off = isl.r + 300; // 300u off the island, looking straight at it
+          const ox = isl.pole.x + dx * off;
+          const oy = isl.pole.y + dy * off;
+          if (sampleHeight(map.heightRaster, ox, oy) > SEA_HEIGHT) continue; // afloat only
+          const samples = marchRay(map.heightRaster, ox, oy, -dx, -dy, off + isl.r);
+          const before = painted(samples, shipLit);
+          const after = painted(samples, terrainLit);
+          if (after.top === 0) continue; // this ray met no land at all
+          rays++;
+          expect(after.span).toBeGreaterThanOrEqual(before.span);
+          expect(after.top).toBeGreaterThanOrEqual(before.top);
+          if (after.span > before.span) deeper++;
+          if (after.top > before.top) higher++;
+          topBefore += before.top;
+          topAfter += after.top;
+        }
+      }
+    }
+    // Measured over seeds 3 and 7: 63 rays, ALL 63 painted deeper and ALL 63
+    // reached higher ground; mean tallest terrain reached q74.6 → q151.0, mean
+    // painted span 51u → 108u. The mast threshold is q64, and that the BEFORE
+    // mean sits within a few q of it is the defect in one number — the shipped
+    // mask could not paint ground meaningfully above the antenna.
+    expect(rays).toBeGreaterThan(20);
+    expect(deeper / rays).toBeGreaterThan(0.6);
+    expect(higher / rays).toBeGreaterThan(0.6);
+    expect(topBefore / rays).toBeLessThan(H * 1.4);
+    expect(topAfter / rays).toBeGreaterThan((topBefore / rays) * 1.5);
   });
 });

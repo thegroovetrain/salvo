@@ -1256,16 +1256,14 @@ describe('the near-range dim mask', () => {
     frame(radar, cam, { x: 0, y: 0 }, 0);
     frame(radar, cam, { x: 0, y: 0 }, 900);
     const frozen = radar.paintList.map((s) => [...s.w.subarray(0, s.n)]);
-    const shadows = radar.paintList.map((s) => [...s.nd.subarray(0, s.n)]);
     expect(frozen.length, 'the scope really painted').toBeGreaterThan(0);
 
     // Walk own ship a long way. The mask follows it — and the records it walked
-    // past do not move one bit, in EITHER channel. (Later frames enrol NEW
+    // past do not move one bit. (Later frames enrol NEW
     // slices at the end of the list; the ones already there are the history.)
     radar.render({ x: 900, y: 900 }, 950, null, cam.worldView);
     expect(radar.dimMask.position.x).toBeCloseTo(900, 9);
     const after = radar.paintList.slice(0, frozen.length);
     expect(after.map((s) => [...s.w.subarray(0, s.n)])).toEqual(frozen);
-    expect(after.map((s) => [...s.nd.subarray(0, s.n)])).toEqual(shadows);
   });
 });

@@ -3026,6 +3026,110 @@ the ruling and my implementation reading stay separable. Neither touches anythin
      generation-side fix, and pre-existing as a paint artifact since cycle 61. Final: 3,584 tests
      (624 shared / 1,000 server / 1,960 client).
 
+## 2026-08-08 — Eric reports, THE SLOPE PAINTS TO THE PEAK (cycle 69, on seeing 4.11 live)
+
+Source: Eric, live, on the shipped 0.17.68 build. Two reports, both his, both correct:
+
+> *"i don't like the grey showing radar shadow, i think its better to just leave it uncolored and infer
+> there's a shadow there because you can't see behind it and half the island is cut off."*
+
+> *"i assumed that more of the islands would get painted? like, if im looking at a side of an island and
+> there's a mountain, my radar should pick up all the way to the peak on that side, right, and then the
+> shadow lives on the other side?"*
+
+194. **THE GREY NO-DATA REGISTER IS DELETED. AMENDMENT 180 IS REVERSED BY ITS OWN AUTHOR.** Eric chose
+     grey speckle at cycle 68's pre-implementation gate, from four options and before he had seen any of
+     them on the water; having seen it, he chose the option that gate listed as *"the thing your
+     acceptance criterion calls a lie"* — leave it uncoloured. He is right and the AC's reasoning was
+     wrong: it argued a shadow drawn as clear sea *"can hide a battleship in a region the player was
+     shown as safe"*, but the shadow is not ambiguous in practice, because **the island's far half is
+     visibly missing.** The absence is its own legend. Removed end to end rather than flagged off — the
+     `nd` channel through march scratch, `freeze`, `MarchSlice`, `stampSlice`, `writeCell`, `HeatGrid`
+     and `quantizeInto`, the `echoNoData` token, and the `heatmap.noData` config block are all gone, so
+     no unused knob is left reading as tunable (amendment 175's rule). Eleven tests pinning the grey
+     were RETIRED, not adapted — the fifth cycle running that rule has applied.
+
+     **ACCEPTED CONSEQUENCE, and it is the one thing grey was silently doing for us:** a fresher no-data
+     mark used to supersede an older return under `writeCell`'s freshest-wins rule. With nothing written,
+     a cell painted last revolution and shadowed this one keeps its stale paint until phosphor decays it
+     (~12s), so a shadow now OPENS UP gradually as you move rather than snapping. Documented at
+     `writeCell`. If that reads wrong on the water the fix is a decay rule, not a return of the grey.
+
+195. **TERRAIN WAS BEING MASKED WITH THE SHIP ANSWER — a real model bug, and Eric found it by eye.** The
+     shadow model answers exactly one question: *is a target at MAST height `H` visible past this
+     terrain?* That is right for a SHIP and wrong for TERRAIN. **A mountainside is not a target at mast
+     height.** A peak rising ABOVE your antenna is visible precisely because you look UP at it; lower
+     ground in front cannot hide something standing over the grazing ray. Applying the ship mask to
+     terrain made an island's near slope stop painting at roughly mast height, so the summit never
+     appeared — which is exactly what Eric reported.
+
+     **THE UNIFICATION, and both consumers are instances of it:**
+
+     ```
+     requiredHeight(D) = H · (1 − visRaw(D))          // the lowest height visible at D
+     ```
+
+     A SHIP has own-height `H`, which reduces to the shipped `visibilityAt` — so **ship disclosure did
+     not move by one bit and the server gate is byte-identical.** TERRAIN has its own quantized height,
+     so a summit above the ray paints and the far slope does not. `visRaw` must be UNCLAMPED: once
+     clamped at zero you cannot tell how far BELOW the ray you are, and terrain deep inside a shadow
+     would wrongly paint (a q60 far slope behind a q120 peak must stay dark).
+
+     Measured, seed 3, ray through the tallest island: span **30u → 69u**, tallest terrain painted
+     **q182 → q251** against a true peak of q255, in one unbroken run. Across 63 rays on two seeds every
+     single ray painted deeper and reached higher ground; mean tallest **q74.6 → q151.0**. The
+     before-mean sitting a few q above the q64 mast threshold **is the defect expressed as one number.**
+
+196. **TERRAIN ILLUMINATION IS A SOFT STEP AT THE RAY, NOT A PROPORTIONAL FRACTION — and the reason is
+     physical, not cosmetic.** The obvious move is to reuse the ship's illuminated fraction
+     `(own − required)/own` as an intensity multiplier for terrain. It is wrong and it would have made
+     the fix invisible: measured, the honest fraction on a real upper slope is **0.02-0.15**, so the
+     newly-painted slope would render at ~3% and Eric would have reported the same defect again.
+
+     The distinction that resolves it: **a ship is a COLUMN from waterline to masthead and is genuinely
+     masked from the bottom up — which is what amendment 104's soft edge was written about — while a
+     raster terrain sample is a POINT on a surface.** A surface point above the ray is fully illuminated
+     and returns per its material; below it, nothing. So terrain gets a soft STEP: fully lit once its
+     own height clears the required height by a modest band, fully dark below, with a narrow ramp
+     between so the boundary is soft rather than a hard line.
+
+     `CLIENT_CONFIG.blip.heatmap.model.terrainSoftQ = 4` (quantized units), chosen by MEASUREMENT rather
+     than taste: the bound is not the height scale but how much clearance a *continuously visible* slope
+     actually accumulates across one 14u raster cell (~11q at 400u on the smoothest ground the generator
+     builds). Swept on a cone fixture, **16 mottles a fully-lit slope** (rows at 0.21/0.33/0.38 between
+     0.95s), **8 still dips to 0.42**, **4 is flat within the grain**. The ramp is clamped to the
+     sample's own height so clear ground is never dimmed — a q1 closure flat still paints full strength.
+
+197. **Two mechanical traps that each silently re-break the fix, recorded because both were live.**
+     - **`reach()` is a SHIP-only stopping rule.** The march stopped the ray and forced visibility to
+       zero past it. Past the reach the required height exceeds the mast but is still FINITE, and a
+       mountain out there legitimately paints — the early-out also froze the accumulator, so far terrain
+       would have been measured against a stale ray. Removed.
+     - **Advance the walk to the containing cell's ENTRY, not to the sample distance.** Advancing to `d`
+       means only the first sample inside each raster cell is queried before its own cell folds, so a
+       continuously visible slope paints in **8 lit runs with 7 dark rows** — stripes at the 14u raster
+       pitch on ground that is entirely in view. This is the same "a cell never occludes a query point
+       inside it" rule amendment 189 established at both ends of the ray; an incremental march has to
+       ask for it explicitly where the one-shot gets it free. The regression test asserts zero dark rows
+       AND exactly one run, at the shipped noise level.
+
+198. **Scope and cost.** CLIENT-ONLY apart from an additive `shared/` query that the server never calls:
+     no server change, `PROTOCOL_VERSION` unchanged at **31**, `silhouette` untouched, and **no combat
+     tunable moved — `radarMastQ` and `K` are NOT retuned.** This is a correction, not a rebalance.
+
+     **The cycle made the scope markedly CHEAPER**, because deleting grey removed far more cells than
+     painting the slopes added: total stored cells **−90%** on a coastal scope (31,710 → 3,311) and
+     per-frame cost roughly HALVED at every zoom (coastal 0.5×: 1.11 ms → 0.47 ms in the same harness
+     run). Return cells alone go +48% on a coastal scope (the new terrain) but **−38% on a median one**,
+     because low ground that used to paint dimly under the mast rule is now correctly fully dark. That
+     retires cycle 68's thin-headroom risk at min zoom.
+
+     **KNOWN AND NOT A BUG: a flat-topped plateau shadows its own tableland past the seaward rim.** You
+     look UP at the rim, so the face and the rim paint and the flat top behind them does not. *"Paints
+     all the way to the peak"* is literally true only where the ground keeps RISING. Physically correct
+     and seen on both the real generator and the unit fixture — if Eric expects a lit mesa top, that is
+     a further ruling, not a defect. Final: 3,598 tests (643 shared / 1,000 server / 1,955 client).
+
 187. **THE ORDERING RULE IS "QUERY, THEN FOLD" AT THE CALLER'S OWN SAMPLE CADENCE — my wave-2b ruling had
      it backwards and would have made every tall island invisible.** Amendment 178 says a sample is
      evaluated against the accumulator as it stood BEFORE that sample was folded in. I translated that

@@ -66,14 +66,21 @@
 // occluder mask, and a sample on the far side of a landmass is still described
 // exactly as one on the near face. What changed is that the MARCH
 // (render/radarMarch.ts) now folds terrain height into the shared shadow
-// accumulator (shared/sim/radarShadow.ts) as it walks, and scales what it does
-// with this file's answer by the illuminated fraction — so occlusion is a
-// property of the RAY, which is the only place it can be O(1) and the only place
-// the server can share the same code. Past the shadow's reach the march emits
-// NO-DATA cells and stops asking this file anything at all — on the WORLD field.
-// On the wire-echo field (`shipOnlyField`, `disclosed: true`) the shadow may
-// attenuate but never suppress, because the server already disclosed what is
-// there; the floor that discharges amendment 127 is `FieldSample.min`.
+// accumulator (shared/sim/radarShadow.ts) as it walks, and masks what it does
+// with this file's answer by the ray's own verdict — so occlusion is a property
+// of the RAY, which is the only place it can be O(1) and the only place the
+// server can share the same code. A fully shadowed sample paints nothing at all
+// (cycle 69 deleted the grey NO-DATA cells that used to fill it). On the
+// wire-echo field (`shipOnlyField`, `disclosed: true`) the shadow may attenuate
+// but never suppress, because the server already disclosed what is there; the
+// floor that discharges amendment 127 is `FieldSample.min`.
+//
+// WHAT THIS FILE OWES THE MARCH BEYOND THE MATERIAL IS ONE FIELD: `terrainQ`,
+// the sample's own quantized height, non-zero on exactly the terrain layer
+// (cycle 69). The march masks a POINT ON A SURFACE by its own height against the
+// grazing ray and a COLUMN AFLOAT at mast height, and only the field knows which
+// of the two a shared land/steel cell resolved to. It is a label the field
+// already has, not a second land test.
 //
 // THE RASTER IS EXPOSED ON THE SEAM (`RadarField.raster`) FOR EXACTLY THAT, and
 // for one reason beyond convenience: `solidAt` below uses `sampleHeight(...) > 0`
@@ -133,6 +140,23 @@ export interface FieldSample {
    *  the shadow term (`shade`), which is what lets an occluded hull fade without
    *  ever being erased. */
   min: number;
+  /**
+   * THE SAMPLE'S OWN HEIGHT, in the raster's quantized units — non-zero on
+   * EXACTLY the terrain layer and 0 on every other material (cycle 69).
+   *
+   * It is here because the march has to know WHICH INSTANCE of the illumination
+   * rule to mask this sample with (render/radarMarch.ts's header): terrain is a
+   * point on a surface, masked by its own height against the grazing ray, while
+   * everything afloat is a column masked at mast height. THE ANSWER MUST COME
+   * FROM THE FIELD, not from the ray's own raster read, because the two solid
+   * layers share cells — a hull hugging a coastline can WIN a land cell
+   * (`solidAt`), and it is still a hull when it does.
+   *
+   * 0 IS "NOT TERRAIN", NOT "SEA LEVEL". Feeding a water sample's 0 into the
+   * terrain rule fails it open and would erase the shadow it stands in, which is
+   * why the rule takes this field rather than a bare height.
+   */
+  terrainQ: number;
 }
 
 /**
@@ -163,10 +187,10 @@ export interface RadarField {
    *
    * It governs ONE thing in the march: whether the shadow may SUPPRESS. On a
    * disclosed field it may not — the ray attenuates what it finds and floors it
-   * at the material's own guarantee (`FieldSample.min`), and it emits no NO-DATA
-   * marks at all, because a bearing the server already answered is not a bearing
-   * the client learned nothing on. On the world field the shadow is free to go
-   * fully dark, which is what paints the grey.
+   * at the material's own guarantee (`FieldSample.min`), because a bearing the
+   * server already answered is not a bearing the client learned nothing on. On
+   * the world field the shadow is free to take a sample to nothing, and a sample
+   * taken to nothing is simply not stored.
    */
   readonly disclosed: boolean;
   sampleAt(x: number, y: number, dist?: number): FieldSample | null;
@@ -269,6 +293,7 @@ export function hullSample(m: ReturnModelOpts): FieldSample {
     ref: m.pointRef,
     floor: m.pointFloor,
     min: m.minPeak,
+    terrainQ: 0, // steel, wherever it happens to sit
   };
 }
 
@@ -281,6 +306,7 @@ export function terrainSample(h: number, m: ReturnModelOpts): FieldSample {
     ref: m.surfaceRef,
     floor: m.floor,
     min: 0,
+    terrainQ: h, // the ONE non-zero: this is the terrain layer
   };
 }
 
@@ -344,7 +370,9 @@ export function surfSample(
   m: ReturnModelOpts,
 ): FieldSample | null {
   if (tileCeilingAt(raster, level, x, y) <= SEA_HEIGHT) return null;
-  return { refl: m.surf, geom: SURFACE, ref: m.surfaceRef, floor: m.floor, min: 0 };
+  // `terrainQ: 0` — surf is BREAKING WATER, not ground. It stands at the
+  // waterline, so it is masked at mast height like everything else afloat.
+  return { refl: m.surf, geom: SURFACE, ref: m.surfaceRef, floor: m.floor, min: 0, terrainQ: 0 };
 }
 
 /** World centre of a coverage footprint's cell rect. */
@@ -562,8 +590,8 @@ export function buildField(f: FieldSpec): RadarField {
  * painted at FULL strength right up to the tick the server's gate flipped, and
  * then vanished. That is exactly the cut Story 4.11's acceptance criterion
  * forbids (*"a ship crossing into a shadow ... fades through the weakest band
- * rather than cutting at a line"*), and it also let a full-strength echo sit
- * inside water this same scope paints as grey NO-DATA.
+ * rather than cutting at a line"*), and it also let a full-strength echo sit in
+ * water this same scope had painted nothing in.
  *
  * SUPPRESSION IS FORBIDDEN; ATTENUATION-WITH-A-FLOOR IS NOT, AND THE FLOOR IS
  * WHAT DISCHARGES AMENDMENT 127. The march scales every sample by the ray's
@@ -572,9 +600,7 @@ export function buildField(f: FieldSpec): RadarField {
  * server disclosed ever vanishes" constant, not a new knob), so a partially
  * shadowed hull reads WEAKER and a fully shadowed one still paints its speck.
  * `disclosed` is what carries that rule into the march: on this field the shadow
- * may never take a sample to nothing and the ray emits no NO-DATA marks (the
- * grey is the beam's own business — it walks the same bearing on its own
- * revolution).
+ * may never take a sample to nothing.
  *
  * A caller with no terrain still passes `null`, which makes the shadow walk fail
  * open exactly as before.
