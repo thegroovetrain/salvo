@@ -312,25 +312,56 @@ export function cellCentre(gx: number, cellU: number): number {
 }
 
 /**
- * Write one cell, MAX-WINS. Overlapping paints never sum: additive accumulation
- * would let two weak ghosts of one contact fabricate a red core that neither
- * return earned, which is the same "color is lying about strength" failure from
- * the other direction. Out-of-grid writes are dropped silently — a slice at the
- * rim legitimately overhangs the buffer.
+ * Write one cell — FRESHEST WINS, ties broken by strength.
  *
- * NO GATE LIVES HERE (amendment 85, and nothing may put one back). A write
- * chokepoint is the wrong home for any judgement about a paint, because it runs
- * every frame while the paint was born once: whatever it consults is by
- * construction LIVE state.
+ * THE SWEEP REPAINTS. THAT IS THE WHOLE RULE (cycle 65, amendment 164). Eric:
+ * *"When the raymarch passes over, if its supposed to be painted, it PAINTS IT
+ * AT 0.8 alpha REGARDLESS of its previous decay status, and then it decays from
+ * there to 0 over time."* A cell the beam crosses is re-illuminated, full stop —
+ * exactly like the phosphor it models.
+ *
+ * WHAT THIS REPLACES, AND WHY IT WAS A BUG AND NOT A TUNING (cycles 61-64 all
+ * failed to see it). This used to be MAX-WINS ON INTENSITY, writing the winner's
+ * age alongside it: `if (!(intensity > g.w[i])) return`. So a cell painted three
+ * sweeps ago at 0.8 and repainted NOW at 0.7 kept the stale paint AND its faded
+ * alpha — the fresh return was discarded outright. With the SNR grain jittering
+ * intensity on every paint, that hit roughly half of all cells at random, which
+ * is precisely the two symptoms reported for four cycles running: "repainting
+ * doesn't repaint it" (literally true — the write was dropped) and a mottled
+ * object whose cells each froze at whichever sweep happened to win them. A
+ * strong old paint also BLOCKED every weaker return behind it, so it sat there
+ * fading while current returns were thrown away.
+ *
+ * Age is the ordering key because `blipAlpha` is monotonically decreasing in it,
+ * so a fresher slice always presents a higher alpha — no per-cell timestamp
+ * channel is needed and the comparison stays one float compare. Equal alpha
+ * means the same slice (or two of identical age), and there max-wins is still
+ * right: within one paint, a hull over terrain should read as the hull.
+ *
+ * PAINTS STILL NEVER SUM. The old comment's fear — that additive accumulation
+ * would let two weak ghosts fabricate a red core neither earned — is unchanged
+ * here: this takes the newest sample, it does not add anything to anything.
+ *
+ * Out-of-grid writes are dropped silently; a slice at the rim legitimately
+ * overhangs the buffer. NO GATE LIVES HERE (amendment 85, and nothing may put
+ * one back) — a write chokepoint is the wrong home for any judgement about a
+ * paint, because it runs every frame while the paint was born once.
  */
 export function writeCell(g: HeatGrid, gx: number, gy: number, intensity: number, alpha: number): void {
   const cx = gx - g.baseGx;
   const cy = gy - g.baseGy;
   if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) return;
   const i = cy * g.cols + cx;
-  if (!(intensity > g.w[i])) return;
+  // ROUND TO f32 BEFORE COMPARING. `g.a` is a Float32Array, so the value read
+  // back is never bit-equal to the f64 that was written: 0.7 stores as
+  // 0.699999988…, and a naive `alpha === g.a[i]` is therefore ALWAYS false —
+  // which would make every same-age sample look fresher than the one before it
+  // and quietly restore last-write-wins, losing the hull-over-terrain tiebreak.
+  const a = Math.fround(alpha);
+  if (a < g.a[i]) return; // an older paint never overwrites a fresher one
+  if (a === g.a[i] && !(intensity > g.w[i])) return; // same paint: strongest
   g.w[i] = intensity;
-  g.a[i] = alpha;
+  g.a[i] = a;
 }
 
 /** Read one cell by world position (test/observation seam). */

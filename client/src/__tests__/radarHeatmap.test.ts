@@ -249,8 +249,9 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
     }
     // The one shared opacity is still translucent (amendment 144's ratification
     // survives the ramp's removal — Eric ratified the translucency, not the ramp).
-    expect(CFG.bandAlpha, 'nothing is opaque').toBeLessThan(0.8);
-    expect(CFG.bandAlpha).toBeGreaterThan(0);
+    // Eric ruled the value itself (cycle 65): "each of them CONSISTENTLY at 0.8
+    // alpha". Pinned exactly, because it is a ruling and not a feel knob.
+    expect(CFG.bandAlpha).toBe(0.8);
   });
 });
 
@@ -337,17 +338,41 @@ describe('the buffer is WORLD-anchored, so paints do not shimmer with the camera
     }
   });
 
-  it('`writeCell` is MAX-WINS and hands the winner BOTH channels', () => {
+  // REPLACES the cycle-62 test that pinned MAX-WINS ON INTENSITY. That rule was
+  // the bug (amendment 164): a fresh repaint whose intensity happened to be
+  // lower than a stale paint's was DISCARDED, keeping the stale faded alpha —
+  // so "repainting doesn't repaint it", and one object mottled because each cell
+  // froze at whichever sweep won it. The old test asserted that behaviour was
+  // correct, so it is retired rather than adapted.
+  it('`writeCell` is FRESHEST-WINS: a repaint always takes the cell', () => {
     const g = grid();
-    writeCell(g, 4, 4, 0.5, 0.9);
-    writeCell(g, 4, 4, 0.2, 0.1); // loses: intensity and alpha both stay
     const read = (): { w: number; a: number } =>
       sampleGrid(g, cellCentre(4, g.cellU), cellCentre(4, g.cellU));
-    expect(read().w).toBeCloseTo(0.5, 6);
-    expect(read().a, 'the loser takes neither channel').toBeCloseTo(0.9, 6);
-    writeCell(g, 4, 4, 0.8, 0.2); // wins: takes the cell's alpha with it
+
+    // A strong, OLD paint (low alpha = aged).
+    writeCell(g, 4, 4, 0.9, 0.2);
+    // A WEAKER but FRESH one must still take the cell, both channels. Under the
+    // retired rule this write was dropped outright — the reported defect.
+    writeCell(g, 4, 4, 0.3, 1);
+    expect(read().w, 'the fresh paint owns the cell').toBeCloseTo(0.3, 6);
+    expect(read().a, 'and it is at FULL freshness, not the stale alpha').toBeCloseTo(1, 6);
+
+    // An older paint can never claw it back.
+    writeCell(g, 4, 4, 0.95, 0.2);
+    expect(read().w).toBeCloseTo(0.3, 6);
+    expect(read().a).toBeCloseTo(1, 6);
+  });
+
+  it('...and within ONE paint (equal age) the STRONGER sample still wins, so a '
+    + 'hull over terrain reads as the hull', () => {
+    const g = grid();
+    const read = (): { w: number; a: number } =>
+      sampleGrid(g, cellCentre(4, g.cellU), cellCentre(4, g.cellU));
+    writeCell(g, 4, 4, 0.4, 0.7); // terrain, say
+    writeCell(g, 4, 4, 0.8, 0.7); // hull in the same slice — same age
     expect(read().w).toBeCloseTo(0.8, 6);
-    expect(read().a).toBeCloseTo(0.2, 6);
+    writeCell(g, 4, 4, 0.5, 0.7); // weaker, same age: loses
+    expect(read().w).toBeCloseTo(0.8, 6);
   });
 
   it('an out-of-buffer cell is dropped silently, and `clearGrid` blanks both '
@@ -524,12 +549,19 @@ describe('SEA CLUTTER is texture and nothing else (amendments 130 + 133 + 136)',
     }
   });
 
-  it('and a `minPeak` echo sharing a cell with it wins outright (max-wins)', () => {
+  // Re-derived for FRESHEST-WINS (amendment 164). The clutter bound is about
+  // what a cell READS, and the comparison that decides that is between samples
+  // of the SAME paint — the beam crosses a hull and the sea state around it in
+  // one pass. Comparing them at different ages tests the age rule, not the
+  // clutter rule.
+  it('and a `minPeak` echo sharing a cell with it outranks it at the same age', () => {
     const g = grid(CFG);
-    writeCell(g, 0, 0, worst(PEAK), 1);
-    writeCell(g, 0, 0, best(MODEL.minPeak), 0.2);
-    expect(sampleGrid(g, 3, 3).w).toBeCloseTo(best(MODEL.minPeak), 6);
-    expect(sampleGrid(g, 3, 3).a, 'and takes the alpha with it').toBeCloseTo(0.2, 6);
+    writeCell(g, 0, 0, worst(MODEL.clutter), 1); // luckiest clutter draw
+    writeCell(g, 0, 0, best(MODEL.minPeak), 1); // unluckiest real echo, same paint
+    expect(
+      sampleGrid(g, 3, 3).w,
+      'the faintest legitimate return still beats the strongest sea state',
+    ).toBeCloseTo(best(MODEL.minPeak), 6);
   });
 });
 

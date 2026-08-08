@@ -80,9 +80,15 @@ const COLORS = {
   // with the Regatta wheel. Thresholds and ORDER live in `blip.heatmap.bands`;
   // Eric hedged the ordering himself ("or whatever the ACTUAL RADAR would look
   // like"), so reordering is a one-line edit there, deliberately.
-  echoFaint: 0x1ee06e, // "honestly not sure, could be something tiny" — green (~145°)
-  echoFuzzy: 0x1e5cff, // "probably a thing, but fuzzy" — deep radar blue (~223°)
-  echoSolid: 0xff2a00, // "this is definitely a thing" — red (~10°)
+  // THE THREE RADAR REGISTERS ARE PURE PRIMARIES, BY RULING (cycle 65). Eric:
+  // *"Red is #FF0000, green is #00FF00, blue is #0000FF, each of them
+  // CONSISTENTLY at 0.8 alpha."* Not tinted, not hue-shifted toward the phosphor
+  // palette, not softened — the scope is an instrument readout, and these three
+  // are the readout. Drawn at `blip.heatmap.bandAlpha` (0.8) regardless of which
+  // register a pixel lands in; the ONLY thing that moves their opacity is age.
+  echoFaint: 0x00ff00, // "honestly not sure, could be something tiny" — green
+  echoFuzzy: 0x0000ff, // "probably a thing, but fuzzy" — blue
+  echoSolid: 0xff0000, // "this is definitely a thing" — red
   // combat effects
   splash: 0xb8ccc6, // miss splash — replaces retired #66FFAA double-duty
   muzzle: 0xe8f2ec,
@@ -1495,7 +1501,7 @@ export const CLIENT_CONFIG = {
        * previously hidden by being drawn faintest. Reach for the clutter and land
        * coefficients, or `bands[0].at`, before reaching back for a ramp.
        */
-      bandAlpha: 0.55,
+      bandAlpha: 0.8,
       /**
        * THE SNR GRAIN (cycle 62, amendment 143) — per-cell intensity jitter whose
        * AMPLITUDE is a function of the intensity itself. This REPLACES the flat
