@@ -480,13 +480,16 @@ describe('(e) the splash stays separable from a phosphor return (amendment 70)',
 
   // --- the same constraint against the THREE HEATMAP BANDS (amendment 77) ----
 
-  it('one band sits INSIDE the phosphor band, so hue distance cannot be the '
-    + 'separator any more', () => {
-    // The faint band is a green — stated here as the premise of everything
-    // below, not as an accident to be fixed. A splash cannot be defended by
-    // sitting off the green when green is one of the three colors on the scope.
-    expect(RAMP_SAMPLES.some(inGreenBand)).toBe(true);
-    expect(RAMP_SAMPLES.some((c) => !inGreenBand(c))).toBe(true);
+  it('NO band sits in the phosphor band any more — the pure primaries bought '
+    + 'hue distance back', () => {
+    // REVERSED BY RULING (cycle 65). Eric: "Red is #FF0000, green is #00FF00,
+    // blue is #0000FF". The retired faint band (#1ee06e, hue ~145°) sat inside
+    // the phosphor band (#00ff88, hue 152°, ±20°) and this test used to assert
+    // that as an unavoidable premise. Pure green is hue 120° — 32° off phosphor,
+    // outside the band — so a ruling taken for readability reasons ALSO widened
+    // the separation DESIGN.md:145 cares about ("a phosphor-ish splash is a fake
+    // blip"). The stronger property is now true, so it is what gets pinned.
+    for (const c of RAMP_SAMPLES) expect(inGreenBand(c), `band ${c.toString(16)}`).toBe(false);
   });
 
   it('EVERY band reads as an echo — all three colors are vivid', () => {

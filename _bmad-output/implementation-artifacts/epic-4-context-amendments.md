@@ -2450,3 +2450,65 @@ answer, all his:
      previously hidden by being drawn faintest, so the scope carries visibly more green now. **If that
      reads busy, the lever is the AMOUNT of green — the clutter and land coefficients, or
      `bands[0].at` — never its brightness.** Reaching for brightness is how the ramp comes back.
+
+## 2026-08-08 — Eric ruling, THE SWEEP REPAINTS (cycle 65)
+
+164. **`writeCell` WAS DROPPING FRESH PAINTS ON THE FLOOR. This was a BUG, not a tuning, and it is the
+     single root cause of four cycles of complaints about "varying intensity".** Eric, on the 0.17.64
+     build: *"ITS STILL FUCKING DOING IT... Repainting an island should make it brighter. Repainting
+     anything should RE FUCKING PAINT IT."* He was right every time he raised it, and the mechanism was
+     never where I was looking.
+
+     The rule was MAX-WINS ON INTENSITY, writing the winner's age alongside it:
+     `if (!(intensity > g.w[i])) return`. So a cell painted three sweeps ago at intensity 0.8 and
+     repainted NOW at 0.7 kept the stale paint **and its faded alpha** — the fresh return was discarded
+     outright. Because the SNR grain (amendment 143) jitters intensity on every paint, this hit roughly
+     **half of all cells, at random**, producing exactly the two reported symptoms: *"repainting doesn't
+     repaint it"* (literally true — the write never landed) and a mottled object whose every cell had
+     independently frozen at whichever sweep happened to win it. A strong old paint also BLOCKED every
+     weaker return behind it, so it sat there fading while current returns were thrown away.
+
+     **THE RULE IS NOW FRESHEST-WINS, ties broken by strength.** Eric's spec, verbatim: *"When the
+     raymarch passes over, if its supposed to be painted, it PAINTS IT AT 0.8 alpha REGARDLESS of its
+     previous decay status, and then it decays from there to 0 over time."* Age is the ordering key
+     because `blipAlpha` is monotonically decreasing in it, so a fresher slice always presents a higher
+     alpha — no per-cell timestamp channel is needed. Equal alpha means the same paint, and there
+     max-wins still applies so a hull over terrain reads as the hull. **Paints still never SUM** — the
+     concern the retired comment defended (two weak ghosts fabricating a red core neither earned) is
+     untouched, because taking the newest sample adds nothing to anything.
+
+     **The f32 trap, recorded because it silently un-does the fix:** `g.a` is a `Float32Array`, so a
+     stored alpha is never bit-equal to the f64 that wrote it (0.7 reads back as 0.699999988…). A naive
+     `alpha === g.a[i]` is therefore ALWAYS false, every same-age sample looks fresher than the one
+     before it, and the rule degrades to last-write-wins — losing the hull-over-terrain tiebreak with a
+     green suite. The incoming alpha is `Math.fround`ed before comparison. This was caught by the
+     hull-over-terrain test, which is why that tiebreak has one.
+
+165. **THE THREE REGISTERS ARE PURE PRIMARIES AT ONE FIXED OPACITY.** Eric: *"Red is #FF0000, green is
+     #00FF00, blue is #0000FF, each of them CONSISTENTLY at 0.8 alpha."* Retired: `#1ee06e` / `#1e5cff`
+     / `#ff2a00`, which were tinted toward the phosphor palette. `bandAlpha` 0.55 → **0.8**, pinned
+     EXACTLY rather than as a range, because it is a ruling and not a feel knob.
+
+     **A ratified constraint got BETTER by accident and the pin was inverted to say so.** The retired
+     faint band (`#1ee06e`, hue ~145°) sat INSIDE the phosphor band (`#00ff88`, hue 152°, ±20°), and
+     `tokens.test.ts` asserted that as an unavoidable premise — *"hue distance cannot be the separator
+     any more"* — with splash separability defended on saturation alone. Pure green is hue **120°**, 32°
+     off phosphor and outside the band, so DESIGN.md:145's *"a phosphor-ish splash is a fake blip"*
+     concern is now defended by hue again. The test now pins the stronger property: **no band sits in
+     the phosphor band at all.**
+
+166. **Scope, and the retired pins.** Client-only: no wire change, no server change,
+     `PROTOCOL_VERSION` unchanged at **31**, `silhouette` grammar untouched, no CONFIG combat tunable
+     moved. Two tests were RETIRED rather than adapted because each asserted the behaviour being
+     struck out — the cycle-62 `writeCell` max-wins test, and the tokens premise above. Adapting either
+     would have left it asserting the shape of a thing that no longer exists, which is how the ramp in
+     amendment 160 survived two review gates.
+
+     **The lesson for the next agent, and it is the expensive one: the visible symptom was "colour
+     intensity varies", and for four cycles that was read as a COLOUR problem.** Cycle 64 removed a
+     real per-band opacity ramp and shipped, because the ramp was a true instance of the reported
+     symptom — but it was the smaller contributor, and finding one plausible cause stopped the search.
+     The dominant cause was in the write chokepoint, one layer below the palette, and it was reachable
+     from the report the whole time: *"repainting should re-paint it"* is a statement about WRITE
+     ARBITRATION, not about colour. When a symptom survives a fix that genuinely addressed part of it,
+     the remaining cause is usually at a different layer than the part already fixed.

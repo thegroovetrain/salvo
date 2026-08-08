@@ -113,6 +113,25 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-08 (dev-auto cycle 65, 0.17.65) — THE SWEEP REPAINTS. Amendments 164-166;
+  # PV UNCHANGED at 31; client-only. THE ROOT CAUSE OF FOUR CYCLES OF "the intensity still varies",
+  # and it was never a colour problem. `writeCell` was MAX-WINS ON INTENSITY and wrote the winner's
+  # AGE with it, so a cell painted three sweeps ago at 0.8 and repainted now at 0.7 kept the stale
+  # paint AND its faded alpha — the fresh return was DISCARDED. With the SNR grain jittering intensity
+  # every paint, that hit ~half of all cells at random: "repainting doesn't repaint it" was literally
+  # true, and one object mottled because every cell froze at whichever sweep won it.
+  #   NOW FRESHEST-WINS, ties broken by strength. Age orders it because blipAlpha is monotonically
+  #   decreasing in age, so no per-cell timestamp is needed; equal alpha = same paint, where max-wins
+  #   still gives hull-over-terrain. Paints still never SUM.
+  #   THE f32 TRAP: g.a is a Float32Array, so `alpha === g.a[i]` on an f64 is ALWAYS false and the
+  #   rule silently degrades to last-write-wins. The incoming alpha is Math.fround'ed.
+  #   Registers are pure primaries (#FF0000/#00FF00/#0000FF) at a fixed bandAlpha 0.8, pinned exactly.
+  #   Pure green (120 deg) left the phosphor band (152 +/-20), so splash separability is defended by
+  #   HUE again and the tokens premise was inverted rather than adapted.
+  #   LESSON: the symptom was read as a COLOUR problem for four cycles. Cycle 64 fixed a real per-band
+  #   opacity ramp and stopped searching. The dominant cause was one layer below, in the write
+  #   chokepoint. When a symptom survives a fix that genuinely addressed part of it, the remaining
+  #   cause is usually at a different LAYER than the part already fixed.
   # INTERSTITIAL 2026-08-08 (dev-auto cycle 64, 0.17.64) — THE BANDS ARE FLAT. Amendments 160-163;
   # PV UNCHANGED at 31; client-only. Cycle 63 shipped a per-band OPACITY RAMP (green 0.4 / blue 0.56 /
   # red 0.72), so a weaker register was drawn fainter — brightness became a SECOND encoding of return
