@@ -37,7 +37,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import type { BallisticEvent, BlipEvent, Contact, DecoyView, GameEvent, LitZoneView, MineView, TorpedoUpdateEvent } from '@salvo/shared';
+import type { BallisticEvent, BlipEvent, Contact, DecoyView, GameEvent, LitZoneView, MineView, ReturnBlipEvent, SilhouetteBlipEvent, TorpedoUpdateEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, signalFor, type SignalContext } from './signals.js';
 
@@ -227,21 +227,49 @@ function decoyBlips(world: World, ctx: SignalContext): BlipEvent[] {
 
 /**
  * The blip-subsequence order (FR10 anti-tell): a total order over PUBLIC
- * payload fields only — (x, then y, then t, then id) — so a frame's blip
- * ordering is a pure function of what the observer receives and carries ZERO
- * information about which paints are genuine hulls and which are decoy
- * counter-intel. Appending genuine-then-decoy (source order) would make "first
- * same-id blip = the real ship" a wire-readable de-anonymizer. Story 4.2's
- * cls/heading/speed fields are deliberately NOT in the key: `id` already
- * breaks every tie, and a field that DIFFERS between a genuine paint and a
- * decoy paint (speed is 0 on every decoy) would become a sort-position
- * de-anonymizer the moment it participated in ordering.
+ * payload fields only, so a frame's blip ordering is a pure function of what
+ * the observer receives and carries ZERO information about which paints are
+ * genuine hulls and which are decoy counter-intel. Appending
+ * genuine-then-decoy (source order) would make array position a wire-readable
+ * de-anonymizer whenever a hull and a buoy paint the same tick.
+ *
+ * Two comparators, one per grammar (a room emits exactly one shape —
+ * amendment 63): silhouette orders by (x, y, t, id) exactly as it always has
+ * — cls/heading/speed are deliberately NOT in the key (a field that DIFFERS
+ * between a genuine paint and a decoy paint, like speed = 0, would become a
+ * sort-position de-anonymizer). The cycle-63 `return` shape carries NO id
+ * (amendment 152), so its key is the full public payload: (gx, gy, t, w, h,
+ * then the mask words lexicographically) — total up to byte-identical
+ * payloads, and two byte-identical payloads carry no order information to
+ * leak.
  */
-function blipOrder(a: BlipEvent, b: BlipEvent): number {
+function returnBlipOrder(a: ReturnBlipEvent, b: ReturnBlipEvent): number {
+  if (a.gx !== b.gx) return a.gx - b.gx;
+  if (a.gy !== b.gy) return a.gy - b.gy;
+  if (a.t !== b.t) return a.t - b.t;
+  if (a.w !== b.w) return a.w - b.w;
+  if (a.h !== b.h) return a.h - b.h;
+  if (a.bits.length !== b.bits.length) return a.bits.length - b.bits.length;
+  for (let i = 0; i < a.bits.length; i++) {
+    if (a.bits[i] !== b.bits[i]) return a.bits[i] - b.bits[i];
+  }
+  return 0;
+}
+
+function silhouetteBlipOrder(a: SilhouetteBlipEvent, b: SilhouetteBlipEvent): number {
   if (a.x !== b.x) return a.x - b.x;
   if (a.y !== b.y) return a.y - b.y;
   if (a.t !== b.t) return a.t - b.t;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Grammar-dispatched comparator over the tagless union: every blip in a
+ *  frame has the one shape the room's grammar picked, so presence of `gx`
+ *  (a required `return` key that the silhouette shape can never carry) is a
+ *  structural discriminator, not a probe of optional fields. */
+function blipOrder(a: BlipEvent, b: BlipEvent): number {
+  if ('gx' in a && 'gx' in b) return returnBlipOrder(a, b);
+  return silhouetteBlipOrder(a as SilhouetteBlipEvent, b as SilhouetteBlipEvent);
 }
 
 /** One registry-driven view build — both observer modes share it; the ctx mode

@@ -246,6 +246,56 @@ export const CONFIG = {
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
     // effectiveStats firewall (base + boon fold) — nothing else may re-clamp it.
     sweepRpmMax: 30,
+    // u — THE RADAR GRID RESOLUTION (cycle 63, amendment 152). World units per
+    // radar cell, shared because it is now gameplay-authoritative: the server
+    // rasterizes a fogged hull's true silhouette onto THIS lattice and sends
+    // the coverage cells (`ReturnBlipEvent` — sim/radarRaster.ts), so the cell
+    // size decides what the wire says. Promoted from the client-only
+    // `CLIENT_CONFIG.blip.heatmap.cellU`, which now REFERENCES this value —
+    // never a second constant (the one-ruler rule). Cell indices on the wire
+    // are absolute (`Math.floor(worldU / radarCellU)`), the same lattice the
+    // client heatmap anchors to, so a footprint survives every grid re-anchor.
+    //
+    // 6 → 9 AT THE CYCLE-63 REVIEW GATE (amendments 156-157): the coarser
+    // lattice is the first of the three fuzz mechanisms (a real set's
+    // range/azimuth resolution), chosen so that — together with `radarFuzz`
+    // below — the six hull envelopes stop being pairwise-distinct cell
+    // templates. Measured across all six hulls × 4 aspects × 48 paints
+    // (radarRaster.test.ts): under the SHARP 6u rasterization every envelope
+    // pair was separable at a glance; at 9u with fuzz, every hull's
+    // (long, short) cell-dimension RANGE overlaps at least one other hull's
+    // at every aspect, while battleship-vs-torpedo-boat still separates
+    // cleanly on covered-cell count and broadside-vs-bow-on still flips the
+    // long axis. Changing this value CHANGES THE WIRE (every gx/gy/bits
+    // reinterprets) — it is pinned beside PROTOCOL_VERSION in
+    // radarRaster.test.ts, and moving it is a deliberate wire decision, never
+    // a render retune.
+    radarCellU: 9,
+    /**
+     * THE MASK FUZZ (cycle-63 review gate, amendments 156-157) — the second
+     * and third resolution-loss mechanisms, applied per paint in
+     * `fuzzCoverage` (sim/radarRaster.ts) on BOTH paint sources: dilation is
+     * structural (always one cell, the beam-width smear — a return is the
+     * target convolved with the beam), and these two knobs shape what varies
+     * per paint. Gameplay-authoritative: they decide what the wire says, so
+     * they live here, not in the client config.
+     *
+     * ACCEPTED LIMIT, stated rather than overclaimed (amendment 157): a
+     * client that heuristically correlates paints can average several sweeps
+     * toward the true envelope. With `id` gone correlation is itself a guess,
+     * and 3-sweep persistence is a thin sample — the bar is amendment 68's
+     * "it should not be easy", not cryptographic indistinguishability.
+     */
+    radarFuzz: {
+      /** Per-side probability of one extra cell of smear (pulse-length
+       *  scintillation): each paint's envelope is raw+2..raw+4 cells per
+       *  axis, so a cell dimension is a random variable, not a template. */
+      stretchP: 0.5,
+      /** Per-cell drop probability on the smear fringe (glint). The hull's
+       *  own core cells are never dropped, so a mask is never empty and
+       *  amendment 127's `minPeak` floor always has a footprint to land on. */
+      glintP: 0.35,
+    },
   },
 
   /**

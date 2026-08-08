@@ -113,6 +113,39 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-07 (dev-auto cycle 63, 0.17.63) — THE SERVER RASTERIZES THE HULL, AND THE
+  # RASTER IS FUZZY. Amendments 151-159; PV 30 -> 31 (wire shape change, then a VALUE change within
+  # the same shape at the review gate — the lattice moved, so the same bump covers both). Eric, on
+  # the 0.17.62 build: "the ship painted on radar isn't even 'pointed' the same direction it is
+  # moving... The server can simply provide the radar raster can't it?" `ReturnBlipEvent` went from
+  # {k,id,x,y,t,ext} to {k,t,gx,gy,w,h,bits}: a world-anchored coverage footprint and NOTHING else —
+  # no id (no cross-sweep correlation handle exists at all), no class, no heading, no ext, no exact
+  # position. The server does GEOMETRY only (shared sim/radarRaster.ts, both sides run it); the
+  # client keeps the whole intensity model, with "depth into the coverage" as the amendment-77
+  # core->edge term. blipGate untouched; terrain stays client-side; decoys run the same pipeline
+  # from their frozen pose (amendment 11 by construction).
+  # THE REVIEW GATE THEN RULED THE RASTER MUST BE FUZZY (amendments 156-159): the sharp mask made
+  # ship class FREE TO READ (all six hull envelopes pairwise-distinct cell templates — reversing
+  # amendment 68's "learnable, not easy" and putting ohzie's "I can tell what you are" back on the
+  # scope). Three physical mechanisms, one shared pipeline (`paintCoverage`): a coarser lattice
+  # (radarCellU 6 -> 9), one-cell beam-smear dilation, and per-paint edge glint seeded from (tick,
+  # exact pose) — NEVER a ship identity, so the jitter cannot become a correlation handle. Measured
+  # (radarRaster.test.ts): sharp masks were a lookup table at every aspect; fuzzed, every hull's
+  # (long, short, cells) ranges overlap a neighbour's at every aspect, while BB-vs-TB still separates
+  # cleanly over the 3-paint phosphor window and orientation reads on every single paint. A SPINE
+  # RULE was forced by the coarser lattice (a TB's 9u beam can straddle a row and lose every cell
+  # centre — the bow->stern centre-line now always rasterizes). The amendment-118 crossover is now a
+  # measured BAND (~[rung-60u, rung+35u]), pinned at its worst draw. Gate mechanicals: both client
+  # blip validators hardened AT THE ADAPTER (t/index bounds, derived span cap, pending-park cap,
+  # silhouette branch), non-finite-pose and centre-cell guards in the rasterizer, 4-connectivity
+  # re-established by construction (bridge repair — dilation alone is NOT moot under glint), the
+  # return-mode perception COMPLETENESS oracle (exactly one blip per gated subject — the no-id fuzz
+  # was upper-bound-only), the exact quantized-mask placement pin at the Pixi adapter, and the
+  # lattice pinned beside PROTOCOL_VERSION so retuning it is a deliberate wire decision. Cost:
+  # client 0.77/0.90/1.20 ms at 1.5x/1.0x/0.5x zoom (min zoom CHEAPER than cycle 62's 1.46 — the
+  # buffer shrank 2.25x); server ~15-25 us/paint at well under one paint per observer per tick.
+  # ACCEPTED LIMIT, stated not overclaimed: a correlating client can average sweeps toward the true
+  # envelope — the bar is amendment 68's "not easy", not cryptographic indistinguishability.
   # INTERSTITIAL 2026-08-07 (dev-auto cycle 62, 0.17.62) — THE BEAM MARCH.
   # Amendments 138-144. CLIENT-ONLY; PV UNCHANGED at 30; `silhouette` grammar byte-identical; no
   # server file touched and no CONFIG.vision or combat tunable moved. CORRECTIVE: Eric, on the

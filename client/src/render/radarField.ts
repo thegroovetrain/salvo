@@ -78,20 +78,20 @@
 // one function here takes a camera, a zoom or a viewport.
 
 import {
-  hullSilhouette,
+  coverageHas,
+  paintCoverage,
   perpendicularExtent,
-  pointInPolygon,
   sampleHeight,
   SEA_HEIGHT,
   tileCeilingAt,
   tileSize,
-  transformPolygon,
   type HeightRaster,
+  type HullCoverage,
   type HullId,
   type Vec2,
 } from '@salvo/shared';
 import { POINT, SURFACE, attenuation, heightReflectivity } from './radarFalloff.js';
-import { cellCentre, cellOf, type ReturnModelOpts } from './radarHeatmap.js';
+import { cellOf, type ReturnModelOpts } from './radarHeatmap.js';
 import { clutterSample, stormSample, type StormRing } from './radarSources.js';
 
 /**
@@ -159,10 +159,6 @@ export interface EchoHull {
   cls: HullId;
 }
 
-/** Scratch polygon for hull footprints — consumed synchronously inside the
- *  stamp, never retained, so one array serves every hull on the scope. */
-const HULL_SCRATCH: Vec2[] = [];
-
 /**
  * Write one ship cell, MAX-WINS — the same rule `writeCell` applies one level
  * down, and the reason it has to be stated here too is that `Map.set` is
@@ -185,9 +181,11 @@ function putShip(stamp: ShipStamp, key: number, s: FieldSample): void {
  * A HULL'S MATERIAL (amendments 118 + 127, unchanged in substance from the
  * cycle-61 peak).
  *
- * `ext` is the aspect-projected extent, so a bow-on hull genuinely returns less
- * than a broadside one at the same range — aspect is still a strength channel and
- * not merely a size one (amendment 127 is explicit about that). `strongExtent`
+ * `ext` is the aspect-projected extent — since cycle 63 the mask-derived
+ * `coverageExtent`, as the wire no longer states a scalar — so a bow-on hull
+ * genuinely returns less than a broadside one at the same range: aspect is
+ * still a strength channel and not merely a size one (amendment 127 is
+ * explicit about that). `strongExtent`
  * normalizes it and is the same constant the red->blue crossover is FITTED
  * against, which is why the fit still holds after the kernel that used to apply
  * it was deleted. `minPeak` is the floor that makes radar range mean ONE number
@@ -280,134 +278,173 @@ export function surfSample(
   return { refl: m.surf, geom: SURFACE, ref: m.surfaceRef, floor: m.floor, min: 0 };
 }
 
-/** Cell-space bounding box of a world-space box, as [gx0, gy0, gx1, gy1]. */
-function cellBox(minX: number, minY: number, maxX: number, maxY: number, cellU: number): number[] {
-  return [cellOf(minX, cellU), cellOf(minY, cellU), cellOf(maxX, cellU), cellOf(maxY, cellU)];
+/** World centre of a coverage footprint's cell rect. */
+export function coverageCentre(cov: HullCoverage, cellU: number): Vec2 {
+  return { x: (cov.gx + cov.w / 2) * cellU, y: (cov.gy + cov.h / 2) * cellU };
 }
 
+/** Vec2 pool for `coverageExtent` — grow-only, NEVER truncated (the cycle-63
+ *  review gate found the old single-array version setting `.length = n` after
+ *  filling, which dropped every pooled Vec2 past `n` and re-allocated them on
+ *  the next call: a pool that defeated itself). */
+const COVER_POOL: Vec2[] = [];
+/** The view handed to `perpendicularExtent` — resized per call, but its
+ *  elements are references INTO `COVER_POOL`, so truncating the view drops
+ *  nothing. */
+const COVER_VIEW: Vec2[] = [];
+
 /**
- * Stamp a hull's real footprint: every cell whose centre lies inside the posed
- * silhouette, plus the cell the hull's own centre is in.
+ * The footprint's ASPECT EXTENT as seen from `obs` (u): the covered cell
+ * centres projected on the axis perpendicular to the observer→footprint
+ * bearing, max−min, minus THREE CELLS of fuzz compensation, floored at one
+ * cell.
  *
- * THE SILHOUETTE IS THE FOOTPRINT (amendment 141). It is the SHARED polygon —
- * the same one the hull renderer draws and the server hit-tests — posed through
- * the shared `transformPolygon` and tested with the shared `pointInPolygon`. No
- * polygon math is re-implemented here and no bounding circle stands in for a
- * hull. The centre write is the same fail-safe the retired kernel carried: a
- * torpedo boat seen end-on is narrower than a cell, and a return always lights
- * the cell it is in.
+ * THIS IS THE CELL-QUANTIZED RECONSTRUCTION OF THE RETIRED WIRE `ext`, derived
+ * from data the observer already holds — the wire no longer states it (cycle
+ * 63, amendment 152: the payload is a coverage footprint and nothing else),
+ * and BOTH hull sources compute it from their mask through this one function,
+ * so a hull's echo strength cannot change character crossing the truesight
+ * seam. It feeds `hullSample` exactly as the wire scalar did.
+ *
+ * WHY MINUS THREE CELLS (re-derived at the cycle-63 review gate for the FUZZED
+ * mask — every mask this function sees is now dilated + stretched + glinted,
+ * amendments 156-157): dilation adds exactly one cell per end, the stretch
+ * draws average half a cell per end, and centre-sampling undershoots the true
+ * edge by about half a cell per end, so the covered-centre span overshoots the
+ * true extent by ~1.5 cells per end. Measured on the calibration mine-layer
+ * broadside across 200 lattice phases × glint seeds: raw fuzzed span 99-126u
+ * (mean 114.9) against the true 88u — minus 27u centres it on 87.9. Every
+ * paint lands within 2 cells of truth and the MEAN within half a cell (pinned
+ * in radarHeatmap.test.ts, together with the amendment-118 crossover BAND this
+ * scintillation produces). A single-cell mask reads the floor, which the
+ * `minPeak` floor dominates anyway.
  */
-export function stampHull(stamp: ShipStamp, h: EchoHull, s: FieldSample, cellU: number): void {
-  const local = hullSilhouette(h.cls);
-  if (local === undefined) return; // unknown hull id paints nothing, never throws
-  const poly = transformPolygon(local, h.x, h.y, h.heading, HULL_SCRATCH);
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const p of poly) {
-    minX = Math.min(minX, p.x);
-    minY = Math.min(minY, p.y);
-    maxX = Math.max(maxX, p.x);
-    maxY = Math.max(maxY, p.y);
-  }
-  const [gx0, gy0, gx1, gy1] = cellBox(minX, minY, maxX, maxY, cellU);
-  for (let gy = gy0; gy <= gy1; gy++) {
-    const y = cellCentre(gy, cellU);
-    for (let gx = gx0; gx <= gx1; gx++) {
-      const x = cellCentre(gx, cellU);
-      if (pointInPolygon({ x, y }, poly)) putShip(stamp, cellKey(gx, gy), s);
+export function coverageExtent(cov: HullCoverage, obs: Vec2, cellU: number): number {
+  const c = coverageCentre(cov, cellU);
+  const brg = Math.atan2(c.y - obs.y, c.x - obs.x);
+  let n = 0;
+  for (let row = 0; row < cov.h; row++) {
+    for (let col = 0; col < cov.w; col++) {
+      if (!coverageHas(cov, col, row)) continue;
+      const p = COVER_POOL[n] ?? (COVER_POOL[n] = { x: 0, y: 0 });
+      p.x = (cov.gx + col + 0.5) * cellU;
+      p.y = (cov.gy + row + 0.5) * cellU;
+      COVER_VIEW[n] = p;
+      n++;
     }
   }
-  putShip(stamp, cellKey(cellOf(h.x, cellU), cellOf(h.y, cellU)), s);
+  if (n === 0) return cellU;
+  COVER_VIEW.length = n;
+  return Math.max(cellU, perpendicularExtent(COVER_VIEW, brg) - 3 * cellU);
 }
 
 /**
- * Stamp a WIRE echo's footprint: the aspect extent laid across the bearing, one
- * resolution cell deep.
- *
- * A wire blip carries `ext` and nothing else — no class, no heading — and that is
- * a perception-invariant surface, not an oversight. So its footprint is exactly
- * what the wire describes: `ext` units ACROSS the observer's bearing, and one
- * cell ALONG it, which is the scope's own range resolution. There is no kernel
- * knob here on purpose; the retired `minExtent`/`depthFrac`/`minDepth` trio
- * invented a shape the wire never claimed. A sub-cell extent still lights its own
- * cell, for the same reason `stampHull` writes its centre.
- *
- * THE FOOTPRINT IS 4-CONNECTED, NOT MERELY SAMPLED (cycle-62 review gate). Points
- * half a cell apart along a DIAGONAL bearing can land in cells that touch only at
- * a corner, and a ray crossing between them then finds nothing — a hole in the
- * one paint amendment 127 guarantees. The step is under a cell on each axis, so
- * consecutive cells differ by at most one index per axis; writing the corner cell
- * whenever BOTH indices moved bridges the diagonal exactly, at the cost of one
- * extra map write per turn of the staircase.
+ * CITY-BLOCK DEPTH INTO THE COVERAGE MASK — the amendment-77 core→edge term's
+ * geometry (cycle 63, amendment 152: *"'distance into the coverage' is exactly
+ * the core→edge term the flat `hullSample` lost"*). For every covered cell:
+ * the 4-neighbour step count to the nearest UNCOVERED cell (cells outside the
+ * rect count as uncovered), so a mask-edge cell reads 1 and the interior
+ * climbs. Two-pass chamfer, O(w·h), on a mask that is at most ~22×22 cells.
+ * Uncovered cells read 0.
  */
-export function stampEcho(
+export function coverageDepths(cov: HullCoverage): Int32Array {
+  const { w, h } = cov;
+  const d = new Int32Array(w * h);
+  const at = (col: number, row: number): number =>
+    col < 0 || row < 0 || col >= w || row >= h ? 0 : d[row * w + col];
+  for (let row = 0; row < h; row++) {
+    for (let col = 0; col < w; col++) {
+      if (!coverageHas(cov, col, row)) continue;
+      d[row * w + col] = Math.min(w * h, at(col - 1, row) + 1, at(col, row - 1) + 1);
+    }
+  }
+  for (let row = h - 1; row >= 0; row--) {
+    for (let col = w - 1; col >= 0; col--) {
+      const i = row * w + col;
+      if (d[i] === 0) continue;
+      d[i] = Math.min(d[i], at(col + 1, row) + 1, at(col, row + 1) + 1);
+    }
+  }
+  return d;
+}
+
+/**
+ * Stamp one coverage footprint into the ship layer, with the CORE→EDGE term
+ * baked into each cell's material.
+ *
+ * THE DEEPEST CELLS CARRY THE FULL `hullSample` PEAK, and that is what keeps
+ * every shipped calibration valid verbatim: `refl = ship × ext / strongExtent`
+ * lands unchanged on the mask's core, so the amendment-118 crossover fit, the
+ * four pinned readings and `minPeak`'s amendment-127 floor all still hold
+ * where they always held. Shallower cells scale by depth ÷ maxDepth —
+ * NORMALIZED, deliberately, so the term is pure mask geometry with no new
+ * tunable (amendment 135 has no new coefficient to bound): a 1-cell-deep
+ * bow-on needle is all core (its weakness is already carried by its tiny
+ * extent), while a broadside battleship grades fringe → surround → core
+ * across its own beam. Every cell keeps `min = minPeak`, so no fringe cell of
+ * anything the server disclosed can ever fall below the floor that makes
+ * radar range one number for every hull.
+ */
+export function stampCoverage(
   stamp: ShipStamp,
-  x: number,
-  y: number,
-  bearing: number,
-  ext: number,
-  s: FieldSample,
+  cov: HullCoverage,
+  obs: Vec2,
+  m: ReturnModelOpts,
   cellU: number,
 ): void {
-  const half = Math.max(0, ext) / 2;
-  const ax = -Math.sin(bearing); // across the bearing
-  const ay = Math.cos(bearing);
-  const step = cellU / 2;
-  let lastX = Number.NaN;
-  let lastY = Number.NaN;
-  for (let t = -half; t <= half; t += step) {
-    const gx = cellOf(x + ax * t, cellU);
-    const gy = cellOf(y + ay * t, cellU);
-    if (gx !== lastX && gy !== lastY && !Number.isNaN(lastX)) putShip(stamp, cellKey(gx, lastY), s);
-    putShip(stamp, cellKey(gx, gy), s);
-    lastX = gx;
-    lastY = gy;
+  const core = hullSample(coverageExtent(cov, obs, cellU), m);
+  const depths = coverageDepths(cov);
+  let maxDepth = 1;
+  for (let i = 0; i < depths.length; i++) {
+    if (depths[i] > maxDepth) maxDepth = depths[i];
   }
-  putShip(stamp, cellKey(cellOf(x, cellU), cellOf(y, cellU)), s);
+  const byDepth: FieldSample[] = [core];
+  for (let d = maxDepth - 1; d >= 1; d--) {
+    byDepth[maxDepth - d] = { ...core, refl: (core.refl * d) / maxDepth };
+  }
+  for (let row = 0; row < cov.h; row++) {
+    for (let col = 0; col < cov.w; col++) {
+      const depth = depths[row * cov.w + col];
+      if (depth === 0) continue;
+      putShip(stamp, cellKey(cov.gx + col, cov.gy + row), byDepth[maxDepth - depth]);
+    }
+  }
 }
 
 /**
  * THE PER-FRAME SHIP LAYER, from the hulls the client already holds.
  *
- * BOTH PAINT SOURCES FEED ONE STAMP (amendment 141). Inside truesight the client
- * synthesizes a hull from its `Contact` (the server deliberately sends no blip
- * for a hull it is already sending as a contact — `blipGate` excludes
- * `dist <= sightRange`, a perception-invariant surface that is untouched here);
- * beyond it, a wire echo is stamped from `ext`. Neither can double-stamp one
- * hull, because the two ranges are exact complements about the same
- * dazzle-scaled radius.
+ * BOTH PAINT SOURCES FEED ONE STAMP AND ONE RASTERIZER (amendments 141 + 154).
+ * Inside truesight the client synthesizes a hull from its `Contact` (the
+ * server deliberately sends no blip for a hull it is already sending as a
+ * contact — `blipGate` excludes `dist <= sightRange`, a perception-invariant
+ * surface that is untouched here) by running the SAME shared `paintCoverage`
+ * pipeline the server runs for a wire blip — sharp rasterization + the
+ * cycle-63 fuzz (dilation + per-paint glint, amendments 156-157); beyond it,
+ * the footprint arrives already rasterized AND fuzzed on the wire. Two
+ * sources, one appearance, by construction — the inside/outside split
+ * survives but stops being visible. Neither can double-stamp one hull,
+ * because the two ranges are exact complements about the same dazzle-scaled
+ * radius.
+ *
+ * `seedT` is the glint seed's time term. The caller passes the CURRENT SWEEP
+ * REVOLUTION INDEX rather than the frame time, so a stationary sighted hull
+ * keeps one stable mask for the whole beam crossing and re-glints on the next
+ * revolution — sweep-to-sweep scintillation, exactly like the wire source
+ * (whose seed time is the paint tick, one paint per revolution per hull).
  */
 export function buildShipStamp(
   hulls: readonly EchoHull[],
   obs: Vec2,
   m: ReturnModelOpts,
   cellU: number,
+  seedT = 0,
 ): ShipStamp {
   const stamp: ShipStamp = new Map();
   for (const h of hulls) {
-    const local = hullSilhouette(h.cls);
-    if (local === undefined) continue;
-    const bearing = Math.atan2(h.y - obs.y, h.x - obs.x);
-    stampHull(stamp, h, hullSample(echoExtent(local, h.heading, bearing), m), cellU);
+    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), obs, m, cellU);
   }
   return stamp;
-}
-
-/** Scratch for the extent computation — the mirror of the server's own
- *  `EXT_SCRATCH` (game/signals.ts), consumed synchronously. */
-const EXT_SCRATCH: Vec2[] = [];
-
-/**
- * The aspect-projected extent of a hull, computed EXACTLY as the server computes
- * it for a wire blip: the SHARED `perpendicularExtent` over the silhouette posed
- * at the origin with the hull's heading. Same input, same function, same answer —
- * an echo does not change character when a hull crosses the boundary between the
- * two sources.
- */
-function echoExtent(local: readonly Vec2[], heading: number, bearing: number): number {
-  return perpendicularExtent(transformPolygon(local, 0, 0, heading, EXT_SCRATCH), bearing);
 }
 
 /** Everything a field is FROZEN from at build time (amendment 83). */

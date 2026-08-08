@@ -299,7 +299,9 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
 function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
   switch (e.k) {
     case 'blip': {
-      const target = w.ships.get(e.id)!;
+      // Silhouette-grammar worlds only in this suite (the default), so the
+      // paint carries the 4.2 id/position shape.
+      const target = w.ships.get((e as import('@salvo/shared').SilhouetteBlipEvent).id)!;
       const d = dist(me.state, target.state);
       expect(target.alive).toBe(true);
       expect(d).toBeGreaterThan(SIGHT);

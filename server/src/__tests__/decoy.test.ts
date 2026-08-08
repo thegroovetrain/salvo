@@ -13,11 +13,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  hullSilhouette,
-  perpendicularExtent,
-  transformPolygon,
+  paintCoverage,
   wrapPositive,
-  type BlipEvent,
   type FrameMsg,
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
@@ -67,7 +64,10 @@ function injectDecoy(w: World, id: string, ownerId: string, x: number, y: number
   w.decoys.set(id, { id, ownerId, x, y, hullId: owner?.hullId ?? 'mineLayer', heading: owner?.state.heading ?? 0, until });
 }
 
-const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
+/** Silhouette-grammar worlds (the default) — narrow straight to the 4.2
+ *  shape; the one `return`-grammar test uses returnBlipsOf below. */
+const blipsOf = (f: FrameMsg): SilhouetteBlipEvent[] => f.events.filter((e): e is SilhouetteBlipEvent => e.k === 'blip');
+const returnBlipsOf = (f: FrameMsg): ReturnBlipEvent[] => f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
 
 // ---------- lifecycle: spawn / replace / expiry / death / reload --------------
 
@@ -282,10 +282,11 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     );
   });
 
-  it('WIRE-INDISTINGUISHABILITY under the RETURN grammar: same keys, and the lie\'s ext is the OWNER hull\'s aspect extent at the buoy bearing', () => {
-    // The matching ReturnBlipEvent pin (radar realism cycle): the same
-    // scenario as above, in a `return`-grammar world — the lie must be
-    // field-for-field a genuine return paint, carrying ONLY {k,id,x,y,t,ext}.
+  it('WIRE-INDISTINGUISHABILITY under the RETURN grammar (cycle 63): same keys, NO id — and the lie IS the owner hull\'s coverage footprint at the buoy pose', () => {
+    // The matching ReturnBlipEvent pin, re-derived for the cycle-63 payload:
+    // the lie must be field-for-field a genuine coverage footprint, carrying
+    // ONLY {k,t,gx,gy,w,h,bits} — no id (there is no correlation handle left
+    // to unmask the buoy with), no position, no ext, no pose channel.
     const w = bareWorld(33, { radarGrammar: 'return' });
     place(w, 'a', -2000, 0, 0, 'mineLayer'); // the impersonated owner, far away
     const b = place(w, 'b', 0, 0);
@@ -293,23 +294,32 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     injectDecoy(w, 'd1', 'a', 0, 400); // the buoy in the annulus at bearing π/2
     b.prevSweepAngle = wrapPositive(-0.05); // one window spanning both bearings
     b.sweepAngle = Math.PI / 2 + 0.05;
-    const blips = blipsOf(buildFrame(w, 'b'));
+    const blips = returnBlipsOf(buildFrame(w, 'b'));
     expect(blips).toHaveLength(2);
-    const real = blips.find((e) => e.id === 'x')! as ReturnBlipEvent;
-    const lie = blips.find((e) => e.id === 'a')! as ReturnBlipEvent; // id === the OWNER's ship id
-    const RETURN_KEYS = ['k', 'id', 'x', 'y', 't', 'ext'] as const satisfies readonly (keyof ReturnBlipEvent)[];
-    expect(Object.keys(real)).toEqual([...RETURN_KEYS]);
-    expect(Object.keys(lie)).toEqual(Object.keys(real));
-    // The lie's ext: the OWNER's hull (mineLayer) at the FROZEN drop heading
-    // (0), projected at the observer→BUOY bearing (π/2) — never a live owner
-    // read, and never a range term (R2: pure aspect geometry).
-    const brg = Math.atan2(400 - b.state.y, 0 - b.state.x); // observer at origin → buoy at (0,400) = π/2 exactly
-    expect(lie.ext).toBe(perpendicularExtent(transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0), brg));
-    // No pose channel survives on either paint — the deletion, byte-level.
-    for (const forbidden of ['cls', 'heading', 'speed']) {
-      expect(forbidden in (real as object)).toBe(false);
-      expect(forbidden in (lie as object)).toBe(false);
+    const RETURN_KEYS = ['k', 't', 'gx', 'gy', 'w', 'h', 'bits'] as const satisfies readonly (keyof ReturnBlipEvent)[];
+    for (const ev of blips) {
+      // Field-for-field: same keys, same ORDER (msgpack wire shape) — and the
+      // retired channels are gone by NAME, not just by count.
+      expect(Object.keys(ev)).toEqual([...RETURN_KEYS]);
+      for (const forbidden of ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed']) {
+        expect(forbidden in (ev as object)).toBe(false);
+      }
+      expect(ev.t).toBe(w.now); // stamped by the same tick clock
     }
+    // The lie's footprint: the OWNER's hull (mineLayer) at the FROZEN drop
+    // heading (0), rasterized AND FUZZED at the BUOY's position — never a
+    // live owner read. By construction it runs through the same shared
+    // pipeline a genuine paint does (`paintCoverage`, seeded from the paint
+    // tick and the buoy pose — amendment 157: time and pose, never an id);
+    // this equality is what pins that construction.
+    const lieMask = paintCoverage('mineLayer', 0, 400, 0, CONFIG.vision.radarCellU, w.now);
+    const lie = blips.find((ev) => ev.gy === lieMask.gy)!;
+    expect(lie).toBeDefined();
+    expect({ gx: lie.gx, gy: lie.gy, w: lie.w, h: lie.h, bits: lie.bits }).toEqual(lieMask);
+    // ...and the genuine paint is the real ship's own footprint.
+    const realMask = paintCoverage('torpedoBoat', 400, 0, 0, CONFIG.vision.radarCellU, w.now);
+    const real = blips.find((ev) => ev !== lie)!;
+    expect({ gx: real.gx, gy: real.gy, w: real.w, h: real.h, bits: real.bits }).toEqual(realMask);
   });
 
   it('PSEUDONYM identity (R3): the lie rides the OWNER\'s pseudonym — the same track id a genuine paint of the owner carries, and never a roster id', () => {

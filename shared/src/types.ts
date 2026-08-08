@@ -383,40 +383,62 @@ export interface SilhouetteBlipEvent {
 }
 
 /**
- * Radar paint, `return` grammar (the radar realism cycle, Eric rulings
- * 2026-08-05, amendments 62-68): a real marine set paints an indiscriminate
- * echo, not a readout. The 4.2 pose channels (`cls`/`heading`/`speed`) are
- * DELETED from this shape — course and speed DEMOTE from readout to inference
- * off ghost-paint spacing (amendment 67), and class DEMOTES to a learnable
- * skill (amendment 68: drones and captains are indistinguishable). What
- * replaces them is ONE continuous scalar, `ext`: the hull silhouette's total
- * extent projected PERPENDICULAR to the observer→target bearing, in world
- * units (sim/silhouette.ts perpendicularExtent). A battleship bow-on paints
- * narrow; a torpedo boat abeam paints broad — so size stops mapping cleanly
- * to class, by physics rather than a fudge (amendment 66 rejected a size
- * enum as a class bucket with extra steps).
+ * Radar paint, `return` grammar — THE SERVER RASTERIZES THE HULL (cycle 63,
+ * Eric ruling 2026-08-07, amendment 152; supersedes the cycle-51
+ * {k,id,x,y,t,ext} shape). The server projects the true hull polygon onto the
+ * shared radar grid (`CONFIG.vision.radarCellU`, sim/radarRaster.ts) and
+ * sends COVERAGE CELLS: a world-anchored cell rect plus a packed coverage
+ * bitmask. The client computes ALL intensity (range falloff, the core→edge
+ * term from depth inside the mask, the SNR grain) — the server does geometry
+ * only.
  *
- * ANTI-CHEAT (amendment 66's bound): `ext` derives from hull geometry +
- * relative bearing ONLY — never boons, hp, damage state, or any
- * range-derivable flight quantity. There is deliberately NO range term on
- * the wire: range attenuation (farther = weaker return) is a client render
- * concern, computed from the paint position the observer already holds — a
- * server-side range fold would put a redundant, solvable quantity on a 20Hz
- * channel for zero information the client can't derive itself. A decoy
- * buoy's paint carries its owner-hull extent at the frozen drop heading
- * through the same shaper (the Story 1.8 indistinguishability law).
+ * THE MASK IS FUZZED, BY RULING (cycle-63 review gate, amendments 156-157):
+ * what rides the wire is `paintCoverage` — the sharp rasterization dilated
+ * one cell (beam smear), stretched 0-1 further cell per side and glinted on
+ * its fringe per paint (`fuzzCoverage`, seeded by `paintSeed(t, x, y,
+ * heading)` — time and exact pose, NEVER any ship identity, so the jitter is
+ * not a cross-sweep correlation handle). A sharp mask was a class lookup
+ * table, which reversed amendment 68; the fuzzed mask keeps size and
+ * orientation readable while class is inferable only with skill.
  *
- * KEY ORDER: `ext` is APPENDED after `t` (msgpack key-insertion order) so
- * the historical {k,id,x,y,t} prefix stays byte-stable, exactly as the 4.2
- * pose fields were.
+ * THIS SHAPE REDUCES DISCLOSURE, and that is load-bearing (amendment 152).
+ * The retired shape carried an `id` — a correlation handle across sweeps —
+ * plus the exact float position and a derived `ext` scalar a modified client
+ * could reason about. This shape carries a coverage footprint and NOTHING
+ * ELSE: no `id`, no `cls`, no `heading`, no `ext`, no exact position (the
+ * mask is cell-quantized). There is no correlation handle to drop because
+ * none is sent — the phosphor-blip philosophy (the server keeps no history;
+ * the client synthesises persistence) applied to the last row that still
+ * violated it. What a lit cell says is "there is metal here", which is
+ * precisely and only what a radar says. Orientation/aspect are disclosed
+ * exactly as far as the footprint's SHAPE discloses them — that is the
+ * ruling's point (a fogged hull finally points the way it is moving).
+ *
+ * ANTI-CHEAT BOUND (amendment 66's rule carried forward): the mask derives
+ * from hull geometry + pose ONLY — never boons, hp, damage state, or any
+ * range-derivable quantity. It is observer-INDEPENDENT: every observer
+ * painting this hull this tick receives the identical mask. A decoy buoy's
+ * paint is rasterized by the same shared function from its frozen drop-time
+ * pose (owner hull, drop heading) — byte-for-byte a genuine footprint by
+ * construction (amendment 11).
+ *
+ * WIRE LAYOUT: `gx`/`gy` are ABSOLUTE world cell indices of the rect's min
+ * corner (`floor(worldU / radarCellU)`), `w`/`h` the rect in cells, `bits`
+ * the packed row-major mask (bit `row * w + col`, 32 bits per word,
+ * LSB-first). Mask words are SIGNED 32-bit integers — `setBit` builds them
+ * with `|=`, so a word whose bit 31 is set serializes NEGATIVE; consumers
+ * must compare words as int32, never coerce through `>>> 0`. A battleship
+ * broadside is ~16×6 cells at the 9u lattice ≈ 3 mask words. KEY
+ * ORDER (msgpack key-insertion order): k,t,gx,gy,w,h,bits.
  */
 export interface ReturnBlipEvent {
   k: 'blip';
-  id: string;
-  x: number; // u — position at paint time
-  y: number; // u
   t: number; // ms — server time the blip was painted (drives phosphor decay)
-  ext: number; // u — aspect-projected echo extent (pure geometry, no range term)
+  gx: number; // absolute world cell index (x) of the rect's min corner
+  gy: number; // absolute world cell index (y) of the rect's min corner
+  w: number; // rect width in cells
+  h: number; // rect height in cells
+  bits: number[]; // packed row-major coverage mask (32 bits/word, LSB-first, signed int32 words)
 }
 
 /**
@@ -980,7 +1002,7 @@ export interface ResultsMsg {
 /**
  * Which blip wire shape this room speaks (amendment 63): 'silhouette' is the
  * shipped 4.2 grammar (SilhouetteBlipEvent — pose on the wire), 'return' the
- * realism grammar (ReturnBlipEvent — one aspect-projected extent scalar).
+ * realism grammar (ReturnBlipEvent — a fuzzed coverage footprint, cycle 63).
  * Server-picked per room (`HC_RADAR_GRAMMAR`, default 'silhouette'), announced
  * once in the welcome; the client narrows every BlipEvent on this, never by
  * probing fields.
