@@ -2871,3 +2871,45 @@ amendment 181.
      zoom extremes (amendment 99) and the server cost measured rather than assumed (the AC says so
      explicitly); note the march can now STOP at the reach, so shadows may well make the client march
      CHEAPER than cycle 67's 0.77 / 0.90 / 1.20 ms — that is a prediction to verify, not a claim.
+
+## 2026-08-08 — Corrections of record, pre-implementation (cycle 68, same session)
+
+Two clauses I wrote in amendments 177 and 178 above are corrected here rather than edited in place, so
+the ruling and my implementation reading stay separable. Neither touches anything Eric decided.
+
+184. **`H` IS A FIXED QUANTIZED THRESHOLD (`q64` of 255), NOT AN ABSOLUTE ELEVATION CONVERTED PER MAP.**
+     Amendment 177's last paragraph instructed the opposite, on the reasoning that quantized `q` is
+     mildly map-relative and amendment 114 wants a fixed constant. On inspection that instruction is
+     wrong on three counts and would have been built:
+
+     - **It does not match what Eric approved.** The table in 177 was measured with a FIXED `q`
+       threshold. Converting to an absolute elevation changes the behaviour per seed and the approved
+       numbers stop describing the shipped game.
+     - **There is no absolute elevation unit to convert INTO.** The field is fBm output in arbitrary
+       units and `seaLevel` is rank-selected per map for the 2-3% cover target; inventing a
+       field-value→world-unit scale would create a constant with no other referent in the game, which
+       is exactly the kind of unanchored number the eighths ladder exists to prevent.
+     - **Amendment 114's actual concern is already satisfied.** Eric's words were *"i definitely do not
+       want max radar range determined from how much of the map happens to be high terrain"* — a
+       rejection of RADAR RANGE floating with terrain, and of deriving `H` from a PERCENTILE OF THE
+       LAND-HEIGHT DISTRIBUTION. Under amendment 182 radar range is `SIGHT * 2` and never touches
+       terrain, and `q64` is a fixed point on each map's elevation SCALE, not a percentile of its
+       distribution — the share of land above it still varies by seed, which is the map character 114
+       explicitly accepted.
+
+     Ships as `CONFIG.vision.radarMastQ = 64`, in the raster's own 0-255 units, with a test that
+     measures the hard-cover share across seeds and pins the accepted spread — so if the generator's
+     height range ever moves, the shadow character moves visibly rather than silently.
+
+185. **`K` IS DERIVED FROM BASE `CONFIG.vision.radar`, NEVER FROM AN OBSERVER'S BOON-WIDENED RANGE.**
+     Not covered above, and the wrong choice is the tempting one: `K = radarRange²/4` sits inside a
+     per-observer gate, so reading `me.stats.radarRange` there looks natural. It is wrong twice over.
+     `K = 2RH` is a WORLD constant — `R` is an earth radius and `H` a mast height, and making either
+     observer-dependent is incoherent. And it would breach amendment 116's *"land is sacred"*: an
+     intel boon would shorten every soft shadow, buying its way past terrain. Hard cover would still
+     hold (`h₀ ≥ H` is unaffected), which is precisely why the leak would be easy to miss.
+
+     Accepted consequence, stated so it is not later mistaken for a defect: a boon-widened scope
+     reaches PAST its own sea horizon, since the annulus grows and `K` does not. That incoherence is
+     already shipped — boons have always stretched radar past the 8/8 rung — and the alternative
+     breaks a ratified design line to fix a fiction nobody can observe.
