@@ -1074,7 +1074,7 @@ export class Radar {
     // (ship, island, surf, clutter, storm) are five MATERIALS in the field now,
     // so there is one record type left and one stamp for it.
     rasterize(heat.grid, this.paints, ctx);
-    quantizeInto(heat.grid, cfg.bands, heat.rgba);
+    quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
     heat.source.update();
   }
