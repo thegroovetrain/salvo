@@ -32,9 +32,10 @@
 //     allocates no heatmap at all.
 
 import { describe, it, expect, vi } from 'vitest';
-import { Container, Texture, type Graphics } from 'pixi.js';
+import { Container, Graphics, Texture } from 'pixi.js';
 import {
   CONFIG,
+  buildHeightRaster,
   paintCoverage,
   type HeightRaster,
   type HullId,
@@ -47,11 +48,18 @@ import { Radar } from '../render/radar.js';
 import { fogHoleRadiusU } from '../render/fog.js';
 import { blipCool, blipLifeMs } from '../render/phosphor.js';
 
-// jsdom has no 2d canvas, so the baked sweep wedge can't rasterize here; the
-// heatmap buffer (what this file is about) needs no canvas at all.
+// jsdom has no 2d canvas, so neither baked texture the adapter builds at
+// construction — the sweep wedge and the Story 4.11 near-range dim mask — can
+// rasterize here. Both are stubbed; the heatmap buffer needs no canvas at all,
+// and the mask's PLACEMENT (which is all these suites assert about it) is a
+// sprite transform that does not depend on the texture's contents.
 vi.mock('../render/textures.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../render/textures.js')>();
-  return { ...actual, bakeSweepTexture: (): Texture => Texture.EMPTY };
+  return {
+    ...actual,
+    bakeSweepTexture: (): Texture => Texture.EMPTY,
+    bakeDimMaskTexture: (): Texture => Texture.EMPTY,
+  };
 });
 
 const OWN = { x: 0, y: 0 };
@@ -77,6 +85,20 @@ function rasterFrom(reachU: number, h: (x: number, y: number) => number): Height
     for (let i = 0; i < n; i++) height[j * n + i] = h(x0 + i * RCELL, x0 + j * RCELL);
   }
   return { n, cell: RCELL, x0, y0: x0, seaLevel: 0, peak: 255, height, pyramid: [] };
+}
+
+/** Like `rasterFrom`, but with a REAL max-height pyramid — the production shape,
+ *  and the only one the Story 4.11 shadow walk will march (it fails OPEN without
+ *  one, which is what keeps every other fixture in this file unshadowed). */
+function rasterWithPyramid(reachU: number, h: (x: number, y: number) => number): HeightRaster {
+  const k = Math.ceil(reachU / RCELL);
+  const n = 2 * k + 1;
+  const x0 = -k * RCELL;
+  const v = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) v[j * n + i] = h(x0 + i * RCELL, x0 + j * RCELL);
+  }
+  return buildHeightRaster({ n, cell: RCELL, x0, y0: x0, v }, 0, 255);
 }
 
 /** A rectangular ridge of land at a uniform height. */
@@ -355,6 +377,64 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
   });
 });
 
+// --- THE WIRE ECHO IS SHADOWED TOO (Story 4.11 review gate) ---------------------
+//
+// THE ADAPTER IS WHERE THIS CAN BREAK, which is why it is pinned here as well as
+// in radarMarch.test.ts: the one-hull field only shadows what it is HANDED, so
+// `marchEcho` failing to pass `heightRaster` would leave every wire echo painting
+// at full strength while the scope around it went grey — and no march-level test
+// could see it. Beyond truesight the wire is the ONLY source of a hull, so this
+// is the tier the whole feature is about.
+
+describe('a wire echo fades in terrain shadow, and is floored so it cannot vanish', () => {
+  /** The echo used here sits on bearing 0 at 500u, with the cover between. */
+  const ECHO = wireEcho('battleship', 500, 0, 0);
+
+  /** What the buffer reads at the echo's centre, over a given terrain. NO BEAM
+   *  ADVANCE: the sweep sample and the two frames share one timestamp, so the
+   *  only slice in the list is the echo's own and nothing the beam painted can
+   *  be mistaken for it. */
+  function echoIntensity(raster: HeightRaster | null): number {
+    const { radar } = makeRadar();
+    if (raster !== null) radar.setHeightRaster(raster);
+    radar.render(OWN, 1000);
+    radar.onBlip({ ...ECHO.e, t: 1000 });
+    expect(radar.livePaints, 'the echo marched').toBe(1);
+    radar.render(OWN, 1000);
+    return radar.intensityAt(ECHO.x, ECHO.y);
+  }
+
+  const SEA = rasterWithPyramid(900, () => 0);
+  const SOFT = rasterWithPyramid(900, ridge(250, 0, 60, 200, CONFIG.vision.radarMastQ / 2));
+  const HARD = rasterWithPyramid(900, ridge(250, 0, 60, 200, 255));
+
+  it('SOFT COVER on the bearing dims it — the same echo, weaker', () => {
+    const lit = echoIntensity(SEA);
+    const dim = echoIntensity(SOFT);
+    expect(lit, 'the echo paints over open water').toBeGreaterThan(0);
+    expect(dim, 'and reads weaker behind half-mast terrain').toBeLessThan(lit);
+    expect(dim, 'while still painting').toBeGreaterThan(0);
+  });
+
+  it('HARD COVER floors it at `minPeak` rather than erasing it (amendment 127)', () => {
+    const dark = echoIntensity(HARD);
+    expect(dark, 'a fully shadowed disclosed echo still paints its speck')
+      .toBeCloseTo(Math.min(echoIntensity(SEA), CLIENT_CONFIG.blip.heatmap.model.minPeak), 6);
+    expect(radarDraws(dark), 'and it is above the transparent threshold').toBe(true);
+  });
+
+  it('and a raster with no pyramid changes nothing — the walk fails OPEN, which '
+    + 'is what every other fixture in this file relies on', () => {
+    expect(echoIntensity(rasterFrom(900, ridge(250, 0, 60, 200, 255))))
+      .toBeCloseTo(echoIntensity(null), 12);
+  });
+});
+
+/** Would the heatmap draw this intensity at all (i.e. is it in a band)? */
+function radarDraws(w: number): boolean {
+  return w >= CLIENT_CONFIG.blip.heatmap.bands[0].at;
+}
+
 // --- THE SCOPE PAINTS EVERYTHING IN RANGE, through the adapter (cycle 56) -------
 
 describe('the scope paints INSIDE truesight (amendment 88)', () => {
@@ -588,6 +668,15 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     k: 'blip', id: 'trk-s', x: 0, y: 500, t: 1000, cls: 'battleship', heading: 0, speed: 20,
   };
 
+  /** The blip's Graphics. Selected BY TYPE, not by index: since Story 4.11 the
+   *  layer's first child is the near-range dim mask sprite (added in the
+   *  constructor), which `children[0]` would otherwise hand back. */
+  function blipGraphics(layer: Container): Graphics {
+    const g = layer.children.find((c): c is Graphics => c instanceof Graphics);
+    if (g === undefined) throw new Error('no blip Graphics in the layer');
+    return g;
+  }
+
   /** The color a Graphics was actually stroked with (Pixi keeps the draw
    *  instructions on the context; `tint` is a separate multiplier). */
   function strokeColor(g: Graphics): number {
@@ -619,7 +708,7 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     const { radar, layer } = makeSilhouette();
     radar.render(OWN, 900);
     radar.onBlip(POSE);
-    const g = layer.children[0] as Graphics;
+    const g = blipGraphics(layer);
     expect(radar.liveBlips).toBe(1);
     expect(hue(strokeColor(g))).toBeCloseTo(hue(HUE), 0);
     // True-scale silhouette + ARPA vector, drawn once at acquire.
@@ -630,7 +719,7 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     const { radar, layer } = makeSilhouette();
     radar.render(OWN, 900);
     radar.onBlip(POSE);
-    const g = layer.children[0] as Graphics;
+    const g = blipGraphics(layer);
     const stroked = strokeColor(g);
     for (const now of [1000, 2000, 4000, 8000, 12_000]) {
       radar.render(OWN, now);
@@ -663,7 +752,7 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     const { radar, layer } = makeSilhouette();
     radar.render(OWN, 900);
     radar.onBlip(close);
-    const g = layer.children[0] as Graphics;
+    const g = blipGraphics(layer);
     const stroked = strokeColor(g);
     const bounds = g.getLocalBounds().width;
     expect(radar.liveBlips).toBe(1);

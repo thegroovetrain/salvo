@@ -22,6 +22,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { flatRaster } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
 const SIGHT = CONFIG.vision.sight;
@@ -45,9 +46,12 @@ function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean
   return dist(me.state, p) <= SIGHT && clearLos(me.state, p, w.map.islands);
 }
 
+/** Islands cleared AND the raster flattened (Story 4.11): real terrain must
+ *  not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 1): World {
   const w = new World(seed);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 

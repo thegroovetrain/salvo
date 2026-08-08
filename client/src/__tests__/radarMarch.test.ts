@@ -15,11 +15,22 @@
 //     Without the A/B the regression test would merely assert that something
 //     paints, which was never the complaint.
 //
-//   • NOTHING OCCLUDES ANYTHING (amendment 140). The far side of a landmass
-//     paints, an island behind an island paints, and a hull behind a hull paints.
-//     This is a knowing, temporary regression scoped to the paint layer; Story
-//     4.11 restores occlusion as a height-derived shadow length along this same
-//     ray. No server-side sensor gate is touched by any of it.
+//   • TERRAIN CASTS A HEIGHT-DERIVED SHADOW (Story 4.11, amendments 176-180),
+//     and SHIPS STILL NEVER SHADOW SHIPS (amendment 107/141). A ray folds every
+//     land raster cell it crosses into the SHARED accumulator the server's blip
+//     gate calls, so an obstacle's near face paints at full strength, what is
+//     behind it fades through the weakest band, and past the reach the ray emits
+//     grey NO-DATA to the rim. The amendment-140 block this replaces asserted
+//     that NOTHING occluded anything — it is RETIRED, not adapted, because it
+//     pinned exactly the behaviour cycle 62 promised 4.11 would remove.
+//
+//   • WHICH MEANS A FIXTURE'S PYRAMID IS NOW LOAD-BEARING. `rasterFrom` ships an
+//     EMPTY pyramid on purpose (it makes `tileCeilingAt` answer sea level, so
+//     surf never fires and cannot muddy an unrelated fixture) and the shadow walk
+//     fails OPEN on a raster with no pyramid — so every suite below that is not
+//     about occlusion keeps its old, unshadowed answers unchanged. The shadow
+//     suite builds `rasterWithPyramid` fixtures instead, which is the production
+//     shape.
 //
 //   • CONTINUOUS HEIGHT, NEVER TERRACED (amendment 142). Intensity is a strictly
 //     monotone function of the raster height, sampled at 256 levels — so a steep
@@ -42,11 +53,14 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CONFIG,
+  buildHeightRaster,
   hullSilhouette,
   rasterizeHullCoverage,
   sampleHeight,
   transformPolygon,
   wrapPositive,
+  type HeightField,
   type HeightRaster,
   type HullCoverage,
   type Vec2,
@@ -123,6 +137,25 @@ function box(cx: number, cy: number, hw: number, hh: number, h: number) {
 /** Combine height functions, tallest wins (two islands on one raster). */
 function both(...fns: ((x: number, y: number) => number)[]) {
   return (x: number, y: number): number => Math.max(...fns.map((f) => f(x, y)));
+}
+
+/**
+ * Like `rasterFrom`, but with a REAL max-height pyramid over it — the production
+ * shape, and the only one the Story 4.11 shadow walk will march (it fails OPEN
+ * on a raster with no pyramid, which is exactly what keeps every OTHER fixture
+ * in this file unshadowed). `h` is passed straight through as the quantized
+ * height, so `buildHeightRaster`'s `seaLevel: 0, peak: 255` is the identity.
+ */
+function rasterWithPyramid(reachU: number, h: (x: number, y: number) => number): HeightRaster {
+  const k = Math.ceil(reachU / RCELL);
+  const n = 2 * k + 1;
+  const x0 = -k * RCELL;
+  const v = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) v[j * n + i] = h(x0 + i * RCELL, x0 + j * RCELL);
+  }
+  const field: HeightField = { n, cell: RCELL, x0, y0: x0, v };
+  return buildHeightRaster(field, 0, 255);
 }
 
 /** A terrain-only field about an observer. */
@@ -267,27 +300,18 @@ describe('THE REPORTED DEFECT: an elongated island paints end to end', () => {
   });
 });
 
-// --- 2. NOTHING OCCLUDES ANYTHING (amendment 140) ---------------------------------
+// --- 2. SHIPS NEVER SHADOW SHIPS (amendment 107/141) ------------------------------
+//
+// RETIRED WITH STORY 4.11: the two TERRAIN cases that used to live here — "the
+// FAR side of a landmass paints" and "an island BEHIND an island paints too" —
+// asserted amendment 140's temporary no-occlusion regression by name. They are
+// struck out rather than adapted, because an adapted version would go on pinning
+// the shape of a rule that no longer exists. Their replacements are in section
+// 2b, and they assert the opposite. The HULL case below is NOT struck out: only
+// terrain ever occludes, at any range or aspect, and that is deliberate.
 
-describe('nothing occludes anything this cycle', () => {
-  it('the FAR side of a landmass paints — the island is no longer its own '
-    + 'shadow', () => {
-    const s = marchAll(FLANK, terrainField(RIDGE_RASTER, FLANK));
-    expect(near(s, 0, -RIDGE.hh + 4, 8), 'near face').toBe(true);
-    expect(near(s, 0, RIDGE.hh - 4, 8), 'FAR face').toBe(true);
-  });
-
-  it('an island BEHIND an island paints too', () => {
-    const near1 = box(0, 200, 60, 60, 255);
-    const far1 = box(0, 420, 60, 60, 255);
-    const raster = rasterFrom(700, both(near1, far1));
-    const obs: Vec2 = { x: 0, y: -200 };
-    const s = marchAll(obs, terrainField(raster, obs));
-    expect(near(s, 0, 200, 10), 'the near island').toBe(true);
-    expect(near(s, 0, 420, 10), 'the one directly behind it').toBe(true);
-  });
-
-  it('a hull behind a hull paints (amendment 141: ships never shadow ships)', () => {
+describe('ships never shadow ships', () => {
+  it('a hull behind a hull paints (amendment 141)', () => {
     const obs: Vec2 = { x: 0, y: 0 };
     const hulls: EchoHull[] = [
       { id: 'near', x: 0, y: 150, heading: 0, cls: 'battleship' },
@@ -297,6 +321,286 @@ describe('nothing occludes anything this cycle', () => {
     const s = marchAll(obs, shipOnlyField(stamp, CLEAN.cellU));
     expect(near(s, 0, 150, 12), 'the near hull').toBe(true);
     expect(near(s, 0, 300, 12), 'the one directly behind it').toBe(true);
+  });
+
+  it('...and it stays true on a raster that DOES shadow terrain: two hulls in '
+    + 'line over open water, with a real pyramid under them', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const sea = rasterWithPyramid(700, () => 0); // all water, real pyramid
+    const hulls: EchoHull[] = [
+      { id: 'near', x: 0, y: 150, heading: 0, cls: 'battleship' },
+      { id: 'far', x: 0, y: 300, heading: 0, cls: 'battleship' },
+    ];
+    const field = buildField({
+      obs,
+      raster: sea,
+      ships: buildShipStamp(hulls, CLEAN.model, CLEAN.cellU),
+      ring: null,
+      cellU: CLEAN.cellU,
+      model: CLEAN.model,
+    });
+    const s = marchAll(obs, field);
+    expect(near(s, 0, 150, 12), 'the near hull').toBe(true);
+    expect(near(s, 0, 300, 12), 'the one directly behind it').toBe(true);
+    expect([...s.nd].some((v) => v === 1), 'and nothing was marked no-data').toBe(false);
+  });
+});
+
+// --- 2b. TERRAIN CASTS A SHADOW (Story 4.11, amendments 176-180) -----------------
+//
+// The block above is what this replaces, and the two are exact opposites — which
+// is the point. Everything here runs against a raster with a REAL PYRAMID,
+// because that is what the shared walk requires and what production always has.
+//
+// EVERY BOUND IS STATED AT THE SHIPPED GRAIN (amendment 135). A shadowed return
+// of pre-grain intensity `p` draws worst at `p × (1 + 0.45 × (1 − p/0.7))` and
+// best at `p × (1 − 0.45 × (1 − p/0.7))`, and the band claims below are the ones
+// that survive BOTH — a band proved at nominal is not proved.
+
+describe('terrain casts a height-derived shadow', () => {
+  const MAST = CONFIG.vision.radarMastQ;
+
+  /** Every cell of a slice that carries a NO-DATA mark, as world centres. */
+  function noDataCells(s: MarchSlice, o = CLEAN): { x: number; y: number }[] {
+    const out: { x: number; y: number }[] = [];
+    for (let k = 0; k < s.n; k++) {
+      if (s.nd[k] === 0) continue;
+      out.push({ x: cellCentre(s.cells[k * 2], o.cellU), y: cellCentre(s.cells[k * 2 + 1], o.cellU) });
+    }
+    return out;
+  }
+
+  /** Is the cell containing a world point marked NO-DATA by this slice? */
+  function noDataAt(s: MarchSlice, x: number, y: number, o = CLEAN): boolean {
+    const gx = cellOf(x, o.cellU);
+    const gy = cellOf(y, o.cellU);
+    for (let k = 0; k < s.n; k++) {
+      if (s.cells[k * 2] === gx && s.cells[k * 2 + 1] === gy) return s.nd[k] === 1;
+    }
+    return false;
+  }
+
+  /** A field carrying one hull over a chosen raster. */
+  function hullOver(obs: Vec2, raster: HeightRaster, y: number): RadarField {
+    return buildField({
+      obs,
+      raster,
+      ships: buildShipStamp(
+        [{ id: 'a', x: 0, y, heading: 0, cls: 'battleship' }],
+        CFG.model,
+        CFG.cellU,
+      ),
+      ring: null,
+      cellU: CFG.cellU,
+      model: CFG.model,
+    });
+  }
+
+  it('OPEN WATER IS UNTOUCHED: a bearing with no land on it paints exactly what '
+    + 'it painted before there was a shadow model at all', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const sea = rasterWithPyramid(700, () => 0);
+    const shadowed = marchAll(obs, terrainField(sea, obs, CFG), CFG);
+    // The same all-water world through a raster the walk refuses to march (no
+    // pyramid ⇒ fail open), i.e. the pre-4.11 answer.
+    const openWalk = marchAll(obs, terrainField(rasterFrom(700, () => 0), obs, CFG), CFG);
+    expect(shadowed.n).toBe(openWalk.n);
+    expect([...shadowed.w]).toEqual([...openWalk.w]);
+    expect([...shadowed.nd].some((v) => v === 1), 'and nothing is no-data').toBe(false);
+  });
+
+  it('A BEACH COSTS ALMOST NOTHING (amendment 176): the worst reach terrain of '
+    + 'height `h` can leave is `radarRange × √(1 − h/H)`, so the lowest land the '
+    + 'generator can build blacks out only the last few units of the scope', () => {
+    // `h = 1` is the floor the closure pass stamps, so this is the faintest land
+    // that exists — 654.7u of a 660u scope survives it. That closed form is
+    // amendment 114's pin doing its job (only ELEVATION buys cover), and it is
+    // re-derived here from literals rather than read out of production: if a
+    // mudflat ever starts eating real scope, the pin has been broken.
+    const obs: Vec2 = { x: 0, y: 0 };
+    const floorReach = RADAR * Math.sqrt(1 - 1 / MAST);
+    expect(floorReach, 'a beach keeps essentially the whole scope').toBeGreaterThan(RADAR - 8);
+    const raster = rasterWithPyramid(760, box(0, 200, 400, 7, 1));
+    const s = marchAll(obs, terrainField(raster, obs, CFG), CFG);
+    for (const c of noDataCells(s, CFG)) {
+      expect(Math.hypot(c.x, c.y), 'nothing inside the worst-case reach goes dark')
+        .toBeGreaterThan(floorReach - CFG.cellU);
+    }
+  });
+
+  it('HARD COVER: terrain at or above the mast height goes dark IMMEDIATELY '
+    + 'past its own near face, and stays dark to the rim', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const raster = rasterWithPyramid(760, box(0, 270, 60, 30, 255));
+    expect(255, 'the fixture really is hard cover').toBeGreaterThanOrEqual(MAST);
+    const s = marchAll(obs, terrainField(raster, obs, CFG), CFG);
+    expect(near(s, 0, 256, 6, CFG), 'the near face still paints').toBe(true);
+    // Everything on that bearing behind it: the island's own far half, and open
+    // water past it all the way out to the terminus.
+    for (const y of [300, 340, 420, 500, 600, 650]) {
+      expect(noDataAt(s, 0, y, CFG), `no-data at y=${y}`).toBe(true);
+      expect(at(s, 0, y, CFG), `and no return at y=${y}`).toBe(0);
+    }
+  });
+
+  it('...and the NEAR FACE is at FULL strength — the accumulator is read BEFORE '
+    + "the sample's own cell is folded, so an obstacle never shadows itself", () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const h = box(0, 270, 60, 30, 255);
+    const lit = marchAll(obs, terrainField(rasterWithPyramid(760, h), obs, CFG), CFG);
+    // The SAME heights with the walk failing open (no pyramid) — i.e. what the
+    // near face reads with no shadow model at all. Reversing the query/fold pair
+    // in `marchRay` makes this read 0 and the island vanish outright.
+    const open = marchAll(obs, terrainField(rasterFrom(760, h), obs, CFG), CFG);
+    const w = at(lit, 0, 256, CFG);
+    expect(w, 'the near face paints').toBeGreaterThan(BANDS[2].at);
+    expect(w, 'at exactly its unshadowed strength').toBeCloseTo(at(open, 0, 256, CFG), 12);
+  });
+
+  it('SOFT COVER: a half-mast obstacle FADES what is behind it through the '
+    + 'bands — red → blue → green → gone — instead of cutting at a line', () => {
+    // One raster row of half-mast terrain at ~200u, and a battleship broadside
+    // at three ranges behind it. A HULL is the target rather than more terrain
+    // because only LAND folds into the accumulator, so the mark cannot shadow
+    // its own far cells and every cell of it reads one shadow depth.
+    const obs: Vec2 = { x: 0, y: 0 };
+    const cover = box(0, 200, 400, 7, MAST / 2);
+    const sea = rasterWithPyramid(760, () => 0);
+    const covered = rasterWithPyramid(760, cover);
+    const read = (y: number, raster: HeightRaster): number[] => {
+      const s = marchAll(obs, hullOver(obs, raster, y), CFG);
+      // The hull's own cells and nothing else — a radial window would sweep in
+      // the obstacle strip itself, which is terrain and reads its own band.
+      return cellsOf(s, CFG)
+        .filter((c) => Math.abs(c.x) < 70 && Math.abs(c.y - y) < 30)
+        .map((c) => c.w);
+    };
+
+    const bandsOf = (ws: number[]): Set<number> => new Set(ws.map((w) => bandIndex(w, BANDS)));
+    expect(bandsOf(read(250, sea)), 'unshadowed at 250u: RED').toEqual(new Set([2]));
+    expect(bandsOf(read(400, sea)), 'unshadowed at 400u: RED').toEqual(new Set([2]));
+
+    // ...and behind the obstacle the SAME hull walks down the scale. Both claims
+    // hold at the worst AND the best draw of the shipped envelope, so these are
+    // statements about every cell of the mark rather than about a lucky one.
+    const dim250 = read(250, covered);
+    const dim400 = read(400, covered);
+    expect(dim250.length, 'the shadowed hull still paints at 250u').toBeGreaterThan(10);
+    expect(bandsOf(dim250), 'every cell BLUE — never red, never green').toEqual(new Set([1]));
+    expect(dim400.length, 'and it still paints at 400u').toBeGreaterThan(10);
+    expect(bandsOf(dim400), 'every cell GREEN').toEqual(new Set([0]));
+
+    // Past the reach there is no return at all — and the cells are NO-DATA,
+    // which is a different statement from "open water" and has to be.
+    const s = marchAll(obs, hullOver(obs, covered, 520), CFG);
+    expect(at(s, 0, 520, CFG), 'gone').toBe(0);
+    expect(noDataAt(s, 0, 520, CFG), 'and reported as no-data, not as empty sea').toBe(true);
+  });
+
+  it('A FULLY SHADOWED SLICE IS STILL A SLICE: `freeze` must not answer null for '
+    + 'one that holds only no-data cells, or the shadow silently vanishes', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    // A wall of hard cover starting almost on top of the observer, so the wedge
+    // under test contains no return of any kind past its first cell.
+    const raster = rasterWithPyramid(760, box(0, 400, 400, 280, 255));
+    const field = buildField({
+      obs,
+      raster,
+      ships: new Map(),
+      ring: null,
+      cellU: CFG.cellU,
+      // Clutter and surf zeroed, so the near field cannot smuggle a return in.
+      model: { ...CFG.model, clutter: 0, surf: 0 },
+    });
+    const s = marchSlice(obs, Math.PI / 2 - 0.02, Math.PI / 2 + 0.02, field, RADAR, 0, CFG);
+    expect(s, 'the slice is enrolled').not.toBeNull();
+    const nd = noDataCells(s!, CFG);
+    expect(nd.length, 'and it is nearly all no-data').toBeGreaterThan(30);
+    expect(Math.max(...nd.map((c) => c.y)), 'marked out to the terminus').toBeGreaterThan(600);
+  });
+
+  // THE WIRE-ECHO PATH: ATTENUATED, NEVER SUPPRESSED (review gate).
+  //
+  // WHAT THESE REPLACE. This block shipped with one test asserting the opposite
+  // — that a one-hull field carries NO raster, so a resolved blip always paints
+  // at full strength. The ruling behind it (amendment 127: anything the server
+  // blips paints at least a speck, so a client-side occlusion test must never
+  // suppress one) still binds and is asserted below; the CONCLUSION did not
+  // follow. Beyond truesight the wire is the ONLY way a hull reaches the scope,
+  // so refusing to attenuate meant a 5%-illuminated hull painted at FULL
+  // strength until the server's gate flipped and then cut out — the exact line
+  // the story's AC forbids, on the one tier this feature governs.
+
+  /** One wire echo's painted cells, marched through the one-hull field exactly
+   *  as `Radar.marchEcho` does — optionally over a raster that shadows it. */
+  function echoCells(obs: Vec2, y: number, raster: HeightRaster | null): number[] {
+    const stamp = buildShipStamp(
+      [{ id: 'a', x: 0, y, heading: 0, cls: 'battleship' }],
+      CFG.model,
+      CFG.cellU,
+    );
+    const s = marchAll(obs, shipOnlyField(stamp, CFG.cellU, raster), CFG);
+    return cellsOf(s, CFG).map((c) => c.w);
+  }
+
+  it('A PARTIALLY SHADOWED WIRE ECHO PAINTS WEAKER THAN AN UNSHADOWED ONE — the '
+    + 'fade the AC asks for, on the tier where the wire is the only source', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const sea = rasterWithPyramid(760, () => 0);
+    const covered = rasterWithPyramid(760, box(0, 200, 400, 7, MAST / 2));
+    const lit = echoCells(obs, 250, sea);
+    const dim = echoCells(obs, 250, covered);
+
+    expect(lit.length, 'the echo paints unshadowed').toBeGreaterThan(10);
+    expect(dim.length, 'and every one of those cells still paints shadowed').toBe(lit.length);
+    for (let k = 0; k < lit.length; k++) {
+      expect(dim[k], `cell ${k} is weaker`).toBeLessThan(lit[k]);
+    }
+    // ...and the weakening is a real walk down the register, not a token dip:
+    // the same half-mast cover moves the whole mark RED → BLUE, exactly as it
+    // does on the truesight contact path one test above.
+    expect(new Set(lit.map((w) => bandIndex(w, BANDS))), 'unshadowed: RED').toEqual(new Set([2]));
+    expect(new Set(dim.map((w) => bandIndex(w, BANDS))), 'shadowed: BLUE').toEqual(new Set([1]));
+  });
+
+  it('...AND A FULLY SHADOWED ONE STILL PAINTS, AT THE FLOOR (amendment 127): a '
+    + 'disclosed echo can be dimmed to its speck and no further, ever', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const sea = rasterWithPyramid(760, () => 0);
+    // HARD COVER across the whole bearing: `vis` is 0 at the hull, not merely
+    // small, so this is the case the old `raster: null` path existed to protect
+    // and the case a bare `raw × vis` would erase.
+    const wall = rasterWithPyramid(760, box(0, 270, 400, 30, 255));
+    const lit = echoCells(obs, 450, sea);
+    const dark = echoCells(obs, 450, wall);
+
+    expect(lit.length, 'the echo paints unshadowed').toBeGreaterThan(10);
+    expect(dark.length, 'and NOT ONE CELL OF IT IS LOST TO THE SHADOW').toBe(lit.length);
+    for (let k = 0; k < dark.length; k++) {
+      // `shade(raw, 0, minPeak)` — the material's guarantee, or the cell's own
+      // unshadowed reading when the grain already drew it under that (a shadow
+      // may never BRIGHTEN an echo either).
+      // (to f32 precision — a slice stores its intensities in a Float32Array.)
+      expect(dark[k], `cell ${k} sits exactly on the floor`)
+        .toBeCloseTo(Math.min(lit[k], CFG.model.minPeak), 7);
+      expect(dark[k], 'which is above the transparent threshold, so it draws')
+        .toBeGreaterThan(BANDS[0].at);
+    }
+  });
+
+  it('and a disclosed bearing is never reported as NO-DATA: the server answered '
+    + 'it, so the client did not learn nothing there', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const wall = rasterWithPyramid(760, box(0, 270, 400, 30, 255));
+    const stamp = buildShipStamp(
+      [{ id: 'a', x: 0, y: 450, heading: 0, cls: 'battleship' }],
+      CFG.model,
+      CFG.cellU,
+    );
+    const field = shipOnlyField(stamp, CFG.cellU, wall);
+    expect(field.disclosed, 'the one-hull field is a disclosed field').toBe(true);
+    const s = marchAll(obs, field, CFG);
+    expect([...s.nd].some((v) => v === 1), 'nothing was blacked out').toBe(false);
   });
 });
 

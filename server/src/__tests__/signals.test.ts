@@ -16,17 +16,20 @@ import {
   type FoggedSignalContext,
   type SpectatorSignalContext,
 } from '../game/signals.js';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, flatRaster } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
 
 // ---------- construction helpers ---------------------------------------------
 
-/** World whose islands are cleared, for exact-geometry cases. */
+/** World whose islands are cleared, for exact-geometry cases. The height
+ *  raster is flattened too (Story 4.11): the real generated terrain must not
+ *  radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 1): World {
   const w = new World(seed);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 
@@ -44,7 +47,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
  *  and the radar modes + pseudonym resolver (radar realism cycle) — off the world. */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
-    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships,
+    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, decoys: w.decoys, me,
     radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
   };
@@ -53,7 +56,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 /** The spectator sibling of foggedCtx (the record-less 'ghost' observer). */
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
-    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, ships: w.ships,
+    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, decoys: w.decoys, me: undefined,
     radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
   };

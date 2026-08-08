@@ -32,7 +32,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
 const DT = CONFIG.tick.simDtMs;
@@ -97,6 +97,7 @@ const EXPECTED_SUBCASES = [
   'nonowner-reveal-once',
   'shell-reveal-beyond-detect',
   'slowed-victim-private',
+  'soft-cover-allows-radar-blip',
   'spectator-ballistic-reveal',
   'spectator-dmg-passthrough',
   'spectator-raw-boom',
@@ -175,10 +176,14 @@ function cap(g: Golden, w: World, id: string, phase?: MatchPhase): FrameMsg {
  */
 let WORLD_OPTS: WorldOptions = {};
 
-/** World with a fixed seed and no islands (fog stays out of the geometry). */
+/** World with a fixed seed and no islands (fog stays out of the geometry).
+ *  The height raster is flattened too (Story 4.11): the real generated
+ *  terrain must not radar-shadow a scenario built on empty water — scenarios
+ *  that WANT terrain occlusion set an explicit raster (scnIslandLos). */
 function bareWorld(seed: number): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, WORLD_OPTS);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 
@@ -330,33 +335,46 @@ function scnStraddleBoom(g: Golden): void {
 }
 
 /**
- * Island LOS — the fog GEOMETRY bareWorld() deliberately zeroes. One island
- * circle sits on the +x axis between observer `a` and two HIDDEN ships: `b`
- * (inside sight, LOS-blocked -> never a contact) and `r` (in the radar annulus,
- * LOS-blocked -> never a blip). Positive controls in the SAME frame prove the
- * island BLOCKS rather than the ocean being empty: `c` (inside sight, LOS-clear)
- * is a live contact and `p` (in the annulus, LOS-clear, bearing swept) paints a
- * blip. A wide manual paint window (windowAround-style — set, don't step) exposes
- * bearings 0 and pi/2 at once, so both radar targets reach the blip row in one
- * frame; sight wins inside its radius, so b/c never touch the blip row.
+ * Island LOS + the Story 4.11 radar shadow — the fog GEOMETRY bareWorld()
+ * deliberately zeroes. SIGHT occlusion still comes from the island POLYGON:
+ * one circle sits on the +x axis between observer `a` and `b` (inside sight,
+ * LOS-blocked -> never a contact), with `c` (inside sight, LOS-clear) the
+ * positive control. RADAR occlusion now comes from the HEIGHT RASTER
+ * (amendment 179): a hard (q255 ≥ mast) ridge is stamped under the island, so
+ * `r` (in the radar annulus behind it) still never paints — while a LOW (q16)
+ * ridge on the −x axis leaves `s` (annulus, behind it) PARTIALLY illuminated,
+ * which DISCLOSES: the genuine widening the ruling accepts, pinned here on
+ * the wire. `p` (annulus, open water, bearing swept) is the clear-water
+ * control. A wide manual paint window (windowAround-style — set, don't step)
+ * exposes bearings 0, pi/2 and pi at once, so all three radar targets reach
+ * the blip row in one frame; sight wins inside its radius, so b/c never touch
+ * the blip row.
  */
 function scnIslandLos(g: Golden): void {
   const w = bareWorld(1007);
-  w.map.islands.push(circleIsland(75, 0, 30)); // blocks the +x axis out past sight
+  w.map.islands.push(circleIsland(75, 0, 30)); // blocks SIGHT on the +x axis
+  // The raster: hard cover under the island (+x), soft cover far out on -x.
+  w.map.heightRaster = rasterFrom(700, (x, y) => {
+    if (Math.abs(x - 75) <= 30 && Math.abs(y) <= 30) return 255; // hard: dark to the rim
+    if (Math.abs(x + 200) <= 40 && Math.abs(y) <= 40) return 16; // low: partial illumination
+    return 0;
+  });
   place(w, 'a', 0, 0);
   place(w, 'b', 150, 0, 1.5); // inside sight, behind the island -> no contact
   place(w, 'c', 100, 100); // inside sight, LOS-clear -> contact (sight control)
-  place(w, 'r', 400, 0); // radar annulus, behind the island -> no blip
-  place(w, 'p', 0, 400); // radar annulus, LOS-clear, swept -> blip (radar control)
+  place(w, 'r', 400, 0); // radar annulus, behind hard cover -> no blip
+  place(w, 'p', 0, 400); // radar annulus, open water, swept -> blip (clear control)
+  place(w, 's', -400, 0); // radar annulus, behind LOW cover -> blip (the 4.11 disclosure)
   const a = w.ships.get('a')!;
-  a.prevSweepAngle = wrapPositive(-0.05); // window spans bearings 0..pi/2 inclusive
-  a.sweepAngle = Math.PI / 2 + 0.05;
+  a.prevSweepAngle = wrapPositive(-0.05); // window spans bearings 0..pi inclusive
+  a.sweepAngle = Math.PI + 0.05;
   const f = cap(g, w, 'a');
   const contactIds = f.contacts.map((c) => c.id);
   prove(g, 'island-blocks-sight-contact', !contactIds.includes('b'));
   prove(g, 'island-allows-sight-contact', contactIds.includes('c'));
   prove(g, 'island-blocks-radar-blip', !blipAt(f, 400, 0));
   prove(g, 'island-allows-radar-blip', blipAt(f, 0, 400));
+  prove(g, 'soft-cover-allows-radar-blip', blipAt(f, -400, 0));
 }
 
 /**
@@ -660,6 +678,10 @@ function scnDenied(g: Golden): void {
   place(w, 'b', 120, 0); // sighted second captain — proves owner-only
   const m = place(w, 'm', 400, 0, 0, 'mineLayer'); // stern rack drops at (324, 0)
   w.map.islands.push(circleIsland(324, 0, 20)); // the rock behind m's stern
+  // Story 4.11: give the rock its raster presence (hard cover), so the
+  // scenario's fog geometry is unchanged — without it the polygon would still
+  // block the drop but m would now PAINT on a's radar through it.
+  w.map.heightRaster = rasterFrom(700, ridgeField(324, 0, 20, 20, 255));
   // Tick 1: a clicks the torpedo dead astern; m presses its DECOY into the rock.
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });

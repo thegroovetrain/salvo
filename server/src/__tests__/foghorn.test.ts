@@ -65,11 +65,11 @@ const radarCtx = (w: World) => ({
 
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
-  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me, ...radarCtx(w) };
+  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me, ...radarCtx(w) };
 }
 
 function spectatorCtx(w: World, observerId: string): SpectatorSignalContext {
-  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: w.ships.get(observerId), ...radarCtx(w) };
+  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: w.ships.get(observerId), ...radarCtx(w) };
 }
 
 const row = signalFor('fh')!;
@@ -570,7 +570,7 @@ describe('SIGNAL_REGISTRY — fh row: spectators', () => {
   it('a record-less spectator (me undefined) receives {k,h,x,y} — the short-circuit before any me math', () => {
     const w = bareWorld();
     const e = subject(9_000, 9_000, 'honker'); // absurdly far from everything
-    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined, ...radarCtx(w) };
+    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined, ...radarCtx(w) };
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as FoghornEvent;
     expect(wire).not.toBe(e);

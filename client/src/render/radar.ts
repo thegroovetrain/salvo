@@ -45,17 +45,30 @@
 // ramp and clamped to zero — every long tail and side extremity was suppressed
 // regardless of facing, which is the diagonal cut Eric saw across his coastline.
 //
-// NOTHING OCCLUDES ANYTHING (amendment 140). No near-face terminator, no
-// cross-island LOS filter on a paint path, no clutter occluder mask, no ship
-// shadowing — not one occlusion test survives in any radar render module.
-// A ray paints every sample along its length and an island behind an
-// island paints too. This is a KNOWING, TEMPORARY regression against the
-// 2026-08-02 "islands block every sensor" ruling, scoped to the radar PAINT LAYER
-// and accepted on the explicit promise that Story 4.11 restores it as a
-// height-derived shadow length along the same ray. NOT ONE SERVER-SIDE SENSOR
-// GATE MOVES: `blipGate`, `pointSighted`, `pointDetected`, the muzzle and smoke
-// halos and the foghorn muffle all still enforce LOS, and this cycle changes only
-// what the client DRAWS from what it already holds.
+// TERRAIN CASTS A HEIGHT-DERIVED SHADOW (Story 4.11, amendments 176-181) — the
+// promise cycle 62 made when amendment 140 removed the binary occlusion tests,
+// now kept. There is still no near-face terminator, no cross-island segment test
+// on a paint path, no clutter occluder mask and no ship shadowing (ships never
+// shadow ships, amendment 107/141). What there is instead is ONE running scalar
+// per ray, folded by the SHARED model the server's own `blipGate` calls
+// (shared/sim/radarShadow.ts): it scales each sample's intensity by the fraction
+// of a target there that is illuminated, so a shadowed return fades through the
+// weakest band rather than cutting at a line, and past its reach the ray paints
+// grey NO-DATA out to the rim. Only `blipGate` adopts it server-side;
+// `pointSighted`, `pointDetected`, the muzzle and smoke halos and the foghorn
+// muffle all keep binary island LOS (amendment 179).
+//
+// AND THE SCOPE IS QUIETED INSIDE TRUESIGHT BY A LIVE DISPLAY MASK (amendment
+// 181). Eric: *"I want everything painted at max intensity (0.8 alpha) at all
+// times. I want it DISPLAYED muted based on how close to the ship it is."* A
+// baked radial-gradient sprite masks `blipLayer` — 20% of the painted opacity
+// inside 1/8 intel range, ramping to 100% at 5/8 — anchored on own hull in WORLD
+// space and updated every frame. It is a presentation transform over the
+// composited layer: no paint record is read back, recomputed or mutated, which
+// is the distinction amendment 83 actually draws. It masks everything the radar
+// DRAWS — the heat buffer and the `silhouette` grammar's Graphics alike — and
+// deliberately not the sweep wedge or the range rings, which live in
+// `sweepLayer` and are chrome rather than returns.
 //
 // TWO SOURCES OF HULL RETURNS, COMPLEMENTARY BY RANGE (amendment 89, unchanged;
 // amendment 141 for how they paint). The server has never sent a blip for a
@@ -172,7 +185,7 @@ import {
 } from './radarField.js';
 import { echoArc, marchSlice, planMarch, type MarchSlice } from './radarMarch.js';
 import type { StormRing } from './radarSources.js';
-import { SWEEP_TEXTURE_RADIUS, bakeSweepTexture } from './textures.js';
+import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
 export type { HueFor };
 
@@ -208,6 +221,12 @@ function maxSlices(): number {
   const perRev = sliceRad > 0 ? Math.ceil(FULL_TURN / sliceRad) : 1;
   return perRev * CLIENT_CONFIG.blip.persistSweeps * 2;
 }
+/** Scene-graph label of the near-range dim mask (Story 4.11). Exported because
+ *  the mask is a Sprite living in the same layer as the heat sprite, and a test
+ *  (or a future consumer) walking that layer's children must be able to tell the
+ *  two apart by something better than list order. */
+export const DIM_MASK_LABEL = 'radarDimMask';
+
 const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
 const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral linework
 
@@ -334,6 +353,23 @@ export class Radar {
   private heat: { grid: HeatGrid; rgba: Uint8Array; source: BufferImageSource; sprite: Sprite } | null =
     null;
   private readonly blipLayer: Container;
+  /**
+   * THE NEAR-RANGE DIM MASK (Story 4.11, amendment 181) — a baked radial ramp,
+   * anchored on own hull in WORLD units, masking everything `blipLayer` draws.
+   *
+   * IT HANGS ON `blipLayer`, NEVER ON `heat.sprite`, and that is not a
+   * preference: `fitHeat` DESTROYS the heat sprite and adds a new one whenever
+   * the buffer resizes, so a mask assigned there would silently disappear on the
+   * next zoom change. `blipLayer` also covers the `silhouette` grammar's
+   * Graphics pool, which is correct — the rule is a property of the display, so
+   * it applies to everything the radar draws — while the sweep wedge and the
+   * range rings sit in `sweepLayer` and stay unmasked as chrome.
+   *
+   * IT IS A CHILD OF THE LAYER IT MASKS, which is what keeps its world transform
+   * updated (Pixi's `AlphaMask` sets `renderable = false` on a sprite mask, so it
+   * is in the scene graph without ever being drawn).
+   */
+  private readonly dim: Sprite;
   /** Scratch for the pose transform — consumed synchronously by the trace, so
    *  one array serves every blip (the 20Hz loop stays allocation-light). */
   private readonly scratch: Vec2[] = [];
@@ -374,6 +410,22 @@ export class Radar {
     this.hueFor = hueFor;
     this.grammar = grammar;
     this.blipLayer = blipLayer;
+    // BEFORE the Graphics pool and before any heat sprite, so the mask is the
+    // layer's first child and nothing depends on where it lands in the list.
+    this.dim = new Sprite(bakeDimMaskTexture());
+    this.dim.label = DIM_MASK_LABEL;
+    this.dim.anchor.set(0.5);
+    // One texel is `2 × spanU / size` world units, so the ramp's two radii sit
+    // exactly where CONFIG's eighths ladder puts them whatever the bake size is.
+    this.dim.scale.set((2 * CLIENT_CONFIG.blip.heatmap.dim.spanU) / DIM_MASK_TEXTURE_SIZE);
+    // NEVER DRAWN, ALWAYS TRANSFORMED. `renderable = false` is exactly what
+    // Pixi's own `AlphaMask.init` sets on a sprite mask (alongside
+    // `includeInBuild = true`), so the sprite stays in the scene graph — and
+    // therefore keeps a live world transform — without ever painting a grey
+    // square over the ocean in the frames before the mask is attached. `visible`
+    // is deliberately NOT used: it drops the node out of the build entirely.
+    this.dim.renderable = false;
+    blipLayer.addChild(this.dim);
     this.pool = new Pool<Graphics>(() => this.makeBlipGraphics(blipLayer));
 
     this.rings = new Graphics();
@@ -559,6 +611,13 @@ export class Radar {
     return this.heat === null ? 0 : sampleGrid(this.heat.grid, x, y).w;
   }
 
+  /** Is the buffer holding a NO-DATA mark at a world point (Story 4.11)? The
+   *  third channel's observation seam — it is deliberately NOT reachable through
+   *  `bandAt`, which answers about the three REGISTERS and nothing else. */
+  noDataAt(x: number, y: number): boolean {
+    return this.heat !== null && sampleGrid(this.heat.grid, x, y).nd !== 0;
+  }
+
   /** Current buffer dimensions in cells, or null before the first `return`
    *  frame. The perf seam: cost per frame scales with cols × rows, which is why
    *  amendment 99 requires it measured at both zoom extremes. */
@@ -711,6 +770,16 @@ export class Radar {
    * unconditionally, and nothing was ever ruled to narrow that: anything the
    * server blips paints at least a speck. Widening the bound cannot paint
    * anything else, because the field contains this hull and nothing else.
+   *
+   * AND IT IS SHADOWED — ATTENUATED, NEVER SUPPRESSED (review gate). The
+   * one-hull field carries the SAME height raster the beam march reads, so the
+   * echo's cells are scaled by the ray's illuminated fraction at their own range
+   * and then floored at `minPeak` (`shade`, radarMarch.ts). Beyond truesight the
+   * wire is the ONLY way a hull reaches the scope, so without this a hull sliding
+   * into cover painted at full strength until the server's gate flipped and then
+   * cut out — the very line Story 4.11 exists to soften. The floor is what keeps
+   * amendment 127 intact through the change: a disclosed echo can be dimmed to
+   * its speck and no further, ever.
    */
   private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
@@ -727,7 +796,7 @@ export class Radar {
       own,
       arc.centre - arc.half,
       arc.centre + arc.half,
-      shipOnlyField(stamp, cfg.cellU),
+      shipOnlyField(stamp, cfg.cellU, this.heightRaster),
       reach,
       e.t,
       cfg,
@@ -846,6 +915,12 @@ export class Radar {
   ): void {
     this.own = own;
     this.view = view;
+    // EVERY FRAME, INCLUDING THE ONES THAT PAINT NOTHING. `paintHeat` returns
+    // early when there are no paints (and before that when there is no window at
+    // all), so hanging the mask's placement off that path would leave it parked
+    // at the previous hull position for as long as the scope stayed empty — and
+    // then the next paint would appear through a stale ramp.
+    this.updateDimMask(own);
     const rot = this.updateSweep(own, serverNow);
     if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts, zone);
     this.lastRotation = rot;
@@ -922,6 +997,46 @@ export class Radar {
     }
   }
 
+  /**
+   * Place the near-range dim mask on own hull, or take it off entirely.
+   *
+   * DISPLAY-TIME ONLY (amendment 181). It reads the live own pose and writes a
+   * sprite position — it never touches `paints`, the grid, or one byte of a
+   * frozen record, which is the line amendment 83 actually draws. A paint's
+   * displayed opacity therefore RISES as own ship pulls away from it while its
+   * stored intensity and paint time stay byte-identical.
+   *
+   * WITH NO OWN POSE THE MASK COMES OFF, rather than being left centred on the
+   * origin: a sprite mask CLIPS to its own frame, so a stale mask would hide
+   * every spectate-mode contact outside a square around (0, 0).
+   *
+   * A NON-FINITE POSE IS THE SAME CASE, AND IT HAS TO BE HANDLED HERE (review
+   * gate). This is a mask, so it does not DEGRADE under a NaN: a sprite whose
+   * position is NaN has no frame, and Pixi clips the whole layer away — the heat
+   * buffer and the `silhouette` grammar's Graphics alike. So one non-finite own
+   * coordinate would blank the entire radar layer rather than mis-dim it. The
+   * rest of this file already treats a non-finite observer as reachable rather
+   * than impossible (`marchSlice`'s `marchable` guard checks `obs.x + obs.y` for
+   * exactly this reason), and the degradation is chosen deliberately: an UNDIMMED
+   * scope is strictly better than a HIDDEN one, since the dim is a legibility
+   * ruling (amendment 181) while the returns are the instrument.
+   */
+  private updateDimMask(own: OwnPoint | null): void {
+    if (own === null || !Number.isFinite(own.x + own.y)) {
+      this.blipLayer.mask = null;
+      return;
+    }
+    this.dim.position.set(own.x, own.y);
+    if (this.blipLayer.mask !== this.dim) this.blipLayer.mask = this.dim;
+  }
+
+  /** The dim mask sprite — the observation seam for amendment 181's placement,
+   *  which is invisible to every grid-level assertion (`bandAt`, `intensityAt`)
+   *  because it is a DISPLAY transform and touches no cell. */
+  get dimMask(): Sprite {
+    return this.dim;
+  }
+
   /** Is the observer standing on land? Read from the SAME height raster the
    *  march itself reads (`height > 0 ⟺ LAND`), so there is no second answer to
    *  the question. With no raster the client knows of no land, and nothing is
@@ -947,10 +1062,11 @@ export class Radar {
    * of it. (The observer is the live predicted own pose — the identical pairing
    * every other world-space overlay already draws with.)
    *
-   * NO LOS TEST (amendment 140). A hull behind a headland is stamped and painted
-   * like anything else this cycle; Story 4.11 owns occlusion wholesale, and the
-   * SERVER-side gates that decide what the client is told about at all are
-   * untouched.
+   * NO LOS TEST LIVES HERE, AND THAT IS STILL TRUE UNDER STORY 4.11. A hull is
+   * stamped into the field wherever it is; whether the BEAM reaches it is the
+   * ray's business, decided by the shadow accumulator in `marchRay` against the
+   * same raster. Putting a second, per-hull occlusion test here would be the
+   * per-object occluder shortlist amendment 140 deleted, arriving again.
    */
   private shipStamp(own: OwnPoint, serverNow: number, contacts: ContactStore | null): ShipStamp {
     const cfg = CLIENT_CONFIG.blip.heatmap;
@@ -1020,6 +1136,9 @@ export class Radar {
   /** No own pose: hide the surface and blank it, so a stale cell can neither
    *  answer `bandAt` nor flash back when the sprite is shown again. */
   private hideHeat(): void {
+    // The mask comes off with the surface: there is no own hull to anchor it to
+    // on the frames this runs (amendment 181's teardown half).
+    this.blipLayer.mask = null;
     if (this.heat === null) return;
     this.heat.sprite.visible = false;
     clearGrid(this.heat.grid);
@@ -1074,7 +1193,7 @@ export class Radar {
     // (ship, island, surf, clutter, storm) are five MATERIALS in the field now,
     // so there is one record type left and one stamp for it.
     rasterize(heat.grid, this.paints, ctx);
-    quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
+    quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, cfg.noData, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
     heat.source.update();
   }

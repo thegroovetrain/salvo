@@ -241,6 +241,33 @@ export const CONFIG = {
     // terminalSightFactor × sight) is an INDEPENDENT derivation that happens to
     // share the factor 2 — the constraint test in zone.test.ts is what binds the
     // two together; don't conflate them as the same derivation.
+    // q — THE RADAR MAST HEIGHT `H` (Story 4.11, Eric ruling 2026-08-08,
+    // amendments 177/184), in the height raster's OWN 0-255 quantized units
+    // (0 = sea level, 255 = that map's peak). Every antenna — ship, drone and
+    // decoy alike — stands at this one height, so the shadow model is
+    // symmetric (A paints B exactly when B paints A) and the whole law is the
+    // ratio h/H: the same number that decides which terrain is an absolute
+    // radar wall (h ≥ H ⇒ dark to the rim) also sets how long every softer
+    // shadow runs. Consumed ONLY by sim/radarShadow.ts, alongside the derived
+    // K = radar²/4 (amendment 185: K stays on the BASE range above, never an
+    // observer's boon-widened stats.radarRange).
+    //
+    // THIS IS A FIXED CONSTANT, NEVER A PERCENTILE. Amendment 184: q64 is a
+    // fixed point on each map's elevation SCALE, deliberately NOT an absolute
+    // elevation converted per map and NEVER a percentile of any map's height
+    // distribution — the share of land above it varies by seed, and that
+    // per-seed spread is the map character amendment 114 explicitly accepted.
+    // NOTHING MAY MAKE IT PURCHASABLE — no stat, boon or card may touch it
+    // (amendment 116, "land is sacred": a lever over H would buy its way past
+    // terrain). Measured consequence at q64 (amendment 177 — 4 seeds, 22,400
+    // rays; Eric picked it against the tactical framing): ~39% of
+    // land-crossing bearings become absolute cover, median land-crossing
+    // reach ~521u, and a coastal graze over fringe heights costs almost
+    // nothing — cutting across an island's SPINE is what breaks a radar lock,
+    // and standing off a soft-cover island buys reach on that bearing.
+    // Pinned as a plain literal in zone.test.ts; retuning it is an Eric
+    // decision, not a feel tweak.
+    radarMastQ: 64,
     sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
     // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the

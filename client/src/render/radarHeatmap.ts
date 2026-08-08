@@ -97,12 +97,23 @@
 //     light nearly all of it. The grain varies intensity across PLACE and never
 //     across time, which is `cellNoise`'s own design rationale.
 //
-// WHAT IS NOT HERE, AND MUST NOT COME BACK: any occlusion test (amendment 140 —
-// no terminator, no cross-island segment test, no clutter occluder mask, no ship
-// shadowing), any contour polygon (amendment 142 — elevation comes from the
+//   • R9 — AND THE BUFFER CARRIES A THIRD CHANNEL SINCE STORY 4.11: `nd`, the
+//     NO-DATA mark (amendment 180). Where terrain has shadowed the beam the
+//     march records that it learned NOTHING rather than recording a weak return,
+//     and this file draws that as one fixed grey. It is a separate channel
+//     because it cannot ride either of the other two — see `HeatGrid` for the
+//     two shipped bugs that says.
+//
+// WHAT IS NOT HERE, AND MUST NOT COME BACK: any OBJECT-level occlusion test (no
+// near-face terminator, no cross-island segment test, no clutter occluder mask,
+// no ship shadowing — amendment 140 deleted those and Story 4.11 did not bring
+// them back), any contour polygon (amendment 142 — elevation comes from the
 // raster via `sampleHeight`, continuously), and any comparison against a vision
 // range constant (the eighths ladder's 7/8 rung is a curve-FIT input, read once
-// where the client tunables are defined and never on a paint path).
+// where the client tunables are defined and never on a paint path). Occlusion
+// now exists, but it lives ONE LEVEL UP and in shared code: the beam march folds
+// terrain height into the shared shadow accumulator per RAY
+// (shared/sim/radarShadow.ts), and this file only stores what that produced.
 
 import { clamp01 } from '../util/math.js';
 import { blipAlpha } from './phosphor.js';
@@ -216,6 +227,23 @@ export interface HeatGrid {
   w: Float32Array;
   /** Per-cell age opacity of the paint that won that cell. */
   a: Float32Array;
+  /**
+   * THE NO-DATA CHANNEL (Story 4.11, amendment 180) — 1 where the winning paint
+   * knew the beam was SHADOWED there, 0 otherwise.
+   *
+   * IT IS A THIRD PARALLEL CHANNEL BECAUSE IT CANNOT RIDE EITHER OF THE OTHER
+   * TWO, and both failures are shipped history rather than theory:
+   *
+   *   • NOT `w`. Intensity is the quantization input, and the march drops
+   *     anything under `bands[0].at` before it ever reaches a cell while
+   *     `quantizeInto` skips `!(w > 0)` — a no-data marker encoded as a low
+   *     intensity would be thrown away twice before it could draw.
+   *   • NOT `a`. `writeCell` compares `Math.fround(alpha)` as its PRIMARY key,
+   *     and that only works as an ordering because `blipAlpha` is monotone in
+   *     age. Anything else in that channel re-creates the cycles 61-64 bug where
+   *     repainting a cell did not repaint it (amendment 164).
+   */
+  nd: Uint8Array;
 }
 
 /**
@@ -262,6 +290,7 @@ export function makeGrid(halfWU: number, halfHU: number, cellU: number): HeatGri
     originY: 0,
     w: new Float32Array(n),
     a: new Float32Array(n),
+    nd: new Uint8Array(n),
   };
 }
 
@@ -299,6 +328,7 @@ export function anchorGrid(g: HeatGrid, cx: number, cy: number): void {
 export function clearGrid(g: HeatGrid): void {
   g.w.fill(0);
   g.a.fill(0);
+  g.nd.fill(0);
 }
 
 /** World cell index containing world coordinate `v`. */
@@ -342,12 +372,29 @@ export function cellCentre(gx: number, cellU: number): number {
  * would let two weak ghosts fabricate a red core neither earned — is unchanged
  * here: this takes the newest sample, it does not add anything to anything.
  *
+ * AND AT EQUAL AGE A RETURN BEATS A NO-DATA MARK (Story 4.11, amendment 180):
+ * learning something outranks learning nothing. That falls out of the existing
+ * comparison rather than needing a clause of its own — a no-data cell carries
+ * intensity 0, so `intensity > g.w[i]` is already true for a return arriving
+ * over one and already false for a no-data mark arriving over a return. What
+ * this function does NOT do is let the no-data flag ride the ordering: the
+ * compare is still PURE AGE first (amendment 164), and a FRESHER no-data mark
+ * correctly supersedes an older return — the sweep came round and learned
+ * nothing there, which is news.
+ *
  * Out-of-grid writes are dropped silently; a slice at the rim legitimately
  * overhangs the buffer. NO GATE LIVES HERE (amendment 85, and nothing may put
  * one back) — a write chokepoint is the wrong home for any judgement about a
  * paint, because it runs every frame while the paint was born once.
  */
-export function writeCell(g: HeatGrid, gx: number, gy: number, intensity: number, alpha: number): void {
+export function writeCell(
+  g: HeatGrid,
+  gx: number,
+  gy: number,
+  intensity: number,
+  noData: number,
+  alpha: number,
+): void {
   const cx = gx - g.baseGx;
   const cy = gy - g.baseGy;
   if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) return;
@@ -361,16 +408,17 @@ export function writeCell(g: HeatGrid, gx: number, gy: number, intensity: number
   if (a < g.a[i]) return; // an older paint never overwrites a fresher one
   if (a === g.a[i] && !(intensity > g.w[i])) return; // same paint: strongest
   g.w[i] = intensity;
+  g.nd[i] = noData;
   g.a[i] = a;
 }
 
 /** Read one cell by world position (test/observation seam). */
-export function sampleGrid(g: HeatGrid, x: number, y: number): { w: number; a: number } {
+export function sampleGrid(g: HeatGrid, x: number, y: number): { w: number; a: number; nd: number } {
   const cx = cellOf(x, g.cellU) - g.baseGx;
   const cy = cellOf(y, g.cellU) - g.baseGy;
-  if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) return { w: 0, a: 0 };
+  if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) return { w: 0, a: 0, nd: 0 };
   const i = cy * g.cols + cx;
-  return { w: g.w[i], a: g.a[i] };
+  return { w: g.w[i], a: g.a[i], nd: g.nd[i] };
 }
 
 /**
@@ -392,25 +440,40 @@ export function quantizeInto(
   g: HeatGrid,
   bands: readonly HeatBand[],
   bandAlpha: number,
+  noData: number,
   out: Uint8Array,
 ): void {
   out.fill(0);
   // ONE opacity for every band (cycle 64). `bandAlpha` is a scalar, not a
   // per-band lookup, so the ramp cycle 63 shipped cannot come back through this
   // loop: whatever band a pixel lands in, its opacity is decided by AGE alone.
+  // THE NO-DATA GREY DRAWS AT THAT SAME SCALAR (amendment 180) — one colour, one
+  // opacity, decayed by age exactly as a return is, and no strength channel of
+  // any kind. It is not a fourth entry in `bands` and must never become one.
   const peak = clamp01(bandAlpha);
   for (let i = 0, n = g.cols * g.rows; i < n; i++) {
     const w = g.w[i];
-    if (!(w > 0)) continue; // the overwhelming majority: already blank
-    const b = bandIndex(w, bands);
-    if (b < 0) continue;
-    const o = i * 4;
-    const band = bands[b];
-    out[o] = (band.color >> 16) & 0xff;
-    out[o + 1] = (band.color >> 8) & 0xff;
-    out[o + 2] = band.color & 0xff;
-    out[o + 3] = Math.round(255 * clamp01(peak * g.a[i]));
+    // A RETURN OUTRANKS A NO-DATA MARK AT DISPLAY TIME, which is the second half
+    // of amendment 180's arbitration: grey means "this bearing learned nothing
+    // here", and painting it over a cell some bearing DID return from would be a
+    // rendering rule hiding a real echo (amendment 127's floor, undone by paint
+    // order). Grey therefore fills only what no return claimed.
+    if (w > 0) {
+      const b = bandIndex(w, bands);
+      if (b >= 0) writePixel(out, i * 4, bands[b].color, peak * g.a[i]);
+      continue;
+    }
+    if (g.nd[i] === 0) continue; // the overwhelming majority: already blank
+    writePixel(out, i * 4, noData, peak * g.a[i]);
   }
+}
+
+/** One RGBA store (straight alpha). */
+function writePixel(out: Uint8Array, o: number, color: number, alpha: number): void {
+  out[o] = (color >> 16) & 0xff;
+  out[o + 1] = (color >> 8) & 0xff;
+  out[o + 2] = color & 0xff;
+  out[o + 3] = Math.round(255 * clamp01(alpha));
 }
 
 // --- 3. seeds and grain -------------------------------------------------------
@@ -535,15 +598,38 @@ export interface ReturnModelOpts {
   stormBandU: number;
 }
 
+/**
+ * THE NEAR-RANGE DIM MASK's geometry (Story 4.11, amendment 181) — a DISPLAY
+ * transform, and the only thing in this grammar that is allowed to be one.
+ * Nothing here reaches paint creation or retirement; the adapter bakes these
+ * into one radial-gradient mask sprite and positions it on own hull.
+ */
+export interface DimOpts {
+  /** Flat `minScale` at and inside this radius (u) — 1/8 intel range. */
+  innerU: number;
+  /** Full painted opacity from this radius out (u) — 5/8 intel range. */
+  outerU: number;
+  /** Displayed fraction of the painted opacity inside `innerU`. */
+  minScale: number;
+  /** Half-extent (u) of the baked mask sprite — a COVERAGE bound (a sprite mask
+   *  clips to its own frame), never a look knob. */
+  spanU: number;
+}
+
 /** Everything the march and the rasterizer need from CLIENT_CONFIG. */
 export interface HeatmapOpts {
   cellU: number;
   bands: readonly HeatBand[];
-  /** The ONE opacity every band draws at (cycle 64) — a scalar, never per-band. */
+  /** The ONE opacity every band draws at (cycle 64) — a scalar, never per-band.
+   *  The no-data grey draws at it too (amendment 180). */
   bandAlpha: number;
+  /** The NO-DATA grey (amendment 180) — one colour, no strength channel, and
+   *  deliberately NOT a fourth entry in `bands`. */
+  noData: number;
   noise: NoiseEnvelope;
   march: MarchOpts;
   model: ReturnModelOpts;
+  dim: DimOpts;
 }
 
 // --- 5. stamping a marched slice ------------------------------------------------
@@ -580,7 +666,7 @@ function onBuffer(g: HeatGrid, s: MarchSlice): boolean {
 export function stampSlice(g: HeatGrid, s: MarchSlice, alpha: number): void {
   if (!onBuffer(g, s)) return;
   for (let k = 0; k < s.n; k++) {
-    writeCell(g, s.cells[k * 2], s.cells[k * 2 + 1], s.w[k], alpha);
+    writeCell(g, s.cells[k * 2], s.cells[k * 2 + 1], s.w[k], s.nd[k], alpha);
   }
 }
 

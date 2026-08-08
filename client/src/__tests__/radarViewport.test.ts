@@ -52,9 +52,10 @@ import { CONFIG, rasterizeHullCoverage, type HeightRaster, type ReturnBlipEvent 
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Camera, USER_ZOOM_MAX, USER_ZOOM_MIN } from '../render/camera.js';
-import { Radar, type ViewRect } from '../render/radar.js';
+import { DIM_MASK_LABEL, Radar, type ViewRect } from '../render/radar.js';
 import { GRID_QUANTUM, anchorGrid, gridSpan, makeGrid } from '../render/radarHeatmap.js';
 import { blipLifeMs } from '../render/phosphor.js';
+import { DIM_MASK_TEXTURE_SIZE } from '../render/textures.js';
 
 /** The shipped generator's height-field sample spacing. */
 const RCELL = 14;
@@ -78,11 +79,18 @@ function slab(cx: number, cy: number, hw: number, hh: number, h: number) {
     Math.abs(x - cx) <= hw && Math.abs(y - cy) <= hh ? h : 0;
 }
 
-// jsdom has no 2d canvas, so the baked sweep wedge can't rasterize here; the
-// heatmap buffer (what this file is about) needs no canvas at all.
+// jsdom has no 2d canvas, so neither baked texture the adapter builds at
+// construction — the sweep wedge and the Story 4.11 near-range dim mask — can
+// rasterize here. Both are stubbed; the heatmap buffer needs no canvas at all,
+// and the mask's PLACEMENT (which is all these suites assert about it) is a
+// sprite transform that does not depend on the texture's contents.
 vi.mock('../render/textures.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../render/textures.js')>();
-  return { ...actual, bakeSweepTexture: (): Texture => Texture.EMPTY };
+  return {
+    ...actual,
+    bakeSweepTexture: (): Texture => Texture.EMPTY,
+    bakeDimMaskTexture: (): Texture => Texture.EMPTY,
+  };
 });
 
 const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
@@ -120,9 +128,13 @@ function applyCamera(cam: Camera, chart: Container): void {
   );
 }
 
-/** The heatmap sprite (the only Sprite the `return` grammar adds to the layer). */
+/** The heatmap sprite. Selected BY LABEL, not by list order: since Story 4.11
+ *  the layer also holds the near-range dim mask, which is a Sprite too (and is
+ *  added first, in the constructor, so a bare `find` would return it). */
 function heatSprite(layer: Container): Sprite {
-  const s = layer.children.find((c): c is Sprite => c instanceof Sprite);
+  const s = layer.children.find(
+    (c): c is Sprite => c instanceof Sprite && c.label !== DIM_MASK_LABEL,
+  );
   if (s === undefined) throw new Error('no heatmap sprite in the layer');
   return s;
 }
@@ -1077,6 +1089,183 @@ describe('`silhouette` mode never grows a buffer, camera or not', () => {
     expect(radar.livePaints).toBe(0);
     expect(radar.bandAt(0, 500)).toBe(-1);
     expect(radar.liveBlips, 'and the 4.2 outline still paints').toBe(1);
-    expect(layer.children.some((c) => c instanceof Sprite), 'no heatmap sprite').toBe(false);
+    expect(
+      layer.children.some((c) => c instanceof Sprite && c.label !== DIM_MASK_LABEL),
+      'no heatmap sprite',
+    ).toBe(false);
+  });
+});
+
+// --- 8. THE NEAR-RANGE DIM MASK (Story 4.11, amendment 181) ----------------------
+//
+// PINNED AT THE ADAPTER, BECAUSE NOTHING ELSE CAN SEE IT. The mask is a DISPLAY
+// transform over the composited layer — it touches no cell, no slice and no
+// intensity — so `bandAt`, `intensityAt` and every grid-level assertion in
+// radarHeatmap.test.ts are structurally blind to it. What can go wrong with it is
+// therefore exactly what amendment 98 says to test here: where the object is,
+// what it is scaled to, and what it is attached to.
+//
+// THE TWO SHIPPED-BUG SHAPES THIS GUARDS:
+//   • ATTACHED TO THE WRONG THING. `fitHeat` DESTROYS the heat sprite and adds a
+//     new one whenever the buffer resizes, so a mask assigned to `heat.sprite`
+//     disappears on the next zoom change and is never seen again.
+//   • PLACED ON A PAINTING FRAME ONLY. `paintHeat` returns early when there are
+//     no paints, so hanging placement off that path leaves the ramp parked at a
+//     stale hull position for as long as the scope stays empty.
+
+describe('the near-range dim mask', () => {
+  const DIM = CLIENT_CONFIG.blip.heatmap.dim;
+
+  it('BOTH RADII COME OFF THE EIGHTHS LADDER, never off a literal', () => {
+    expect(DIM.innerU).toBeCloseTo(RADAR / 8, 12);
+    expect(DIM.outerU).toBeCloseTo((RADAR * 5) / 8, 12);
+    expect(DIM.minScale, "Eric's 20% floor").toBe(0.2);
+  });
+
+  it('hangs on the LAYER, not on the heat sprite — and survives the resize that '
+    + 'destroys one', () => {
+    const { radar, layer } = harness();
+    const own = { x: 0, y: 0 };
+    radar.setHeightRaster(rasterFrom(600, slab(300, 0, 60, 80, 255)));
+    frame(radar, camera(USER_ZOOM_MAX), own, 0);
+    frame(radar, camera(USER_ZOOM_MAX), own, 900);
+    const before = heatSprite(layer);
+    expect(layer.mask, 'the layer carries the mask').toBe(radar.dimMask);
+    expect(radar.dimMask.parent, 'and the mask lives in the layer').toBe(layer);
+
+    // A zoom change big enough to resize the buffer: `fitHeat` destroys the old
+    // sprite and adds a new one. A mask on THAT object would be gone now.
+    frame(radar, camera(USER_ZOOM_MIN), own, 1000);
+    expect(heatSprite(layer), 'the heat sprite really was replaced').not.toBe(before);
+    expect(layer.mask, 'the mask is still attached').toBe(radar.dimMask);
+  });
+
+  it('tracks own hull in WORLD units every frame — including a frame that paints '
+    + 'NOTHING AT ALL', () => {
+    // NO SWEEP SAMPLE, so the beam never advances and no slice is ever marched:
+    // `paintHeat` takes its `paints.length === 0` early return on every frame,
+    // which is precisely the path a placement hung off it would miss.
+    const layer = new Container();
+    const radar = new Radar(layer, new Container(), () => null, 'return');
+    const cam = camera(1);
+    frame(radar, cam, { x: 0, y: 0 }, 0);
+    expect(radar.livePaints, 'the fixture really paints nothing').toBe(0);
+    expect(radar.dimMask.position.x).toBeCloseTo(0, 9);
+    expect(radar.dimMask.position.y).toBeCloseTo(0, 9);
+
+    frame(radar, cam, { x: 1234, y: -567 }, 500);
+    expect(radar.livePaints).toBe(0);
+    expect(radar.dimMask.position.x, 'still followed the hull').toBeCloseTo(1234, 9);
+    expect(radar.dimMask.position.y).toBeCloseTo(-567, 9);
+    expect(layer.mask, 'and stayed attached').toBe(radar.dimMask);
+  });
+
+  it('is ZOOM-INVARIANT: it is sized in world units, so the camera never moves '
+    + 'the ramp relative to the water', () => {
+    const { radar } = harness();
+    const own = { x: 80, y: -40 };
+    const at = (zoom: number): { sx: number; sy: number } => {
+      frame(radar, camera(zoom), own, 900);
+      return { sx: radar.dimMask.scale.x, sy: radar.dimMask.scale.y };
+    };
+    const zoomedIn = at(USER_ZOOM_MAX);
+    const zoomedOut = at(USER_ZOOM_MIN);
+    expect(zoomedOut, 'the camera never touches it').toEqual(zoomedIn);
+    // One texel is `2 · span / size` WORLD units, so the sprite's world
+    // half-extent IS the configured span and the ramp's two radii land on the
+    // eighths ladder whatever resolution the texture was baked at.
+    expect(zoomedIn.sx * (DIM_MASK_TEXTURE_SIZE / 2), 'world half-extent = spanU')
+      .toBeCloseTo(DIM.spanU, 6);
+    expect(zoomedIn.sx, 'square').toBeCloseTo(zoomedIn.sy, 12);
+  });
+
+  it('COVERS EVERY CELL THE RADAR CAN DRAW: a sprite mask clips to its own '
+    + 'frame, so the span has to outreach a boon-widened scope plus a whole '
+    + "phosphor life of own-ship travel", () => {
+    // ~2.01× base radar (the boon ceiling) plus a fast hull's 12s of travel.
+    const boonScope = RADAR * 2.01;
+    const travel = 60 * (blipLifeMs(60_000 / CONFIG.vision.sweepRpm) / 1000);
+    expect(DIM.spanU, 'the mask reaches past the furthest possible paint')
+      .toBeGreaterThan(boonScope + travel);
+  });
+
+  it('comes OFF when there is no own hull — a stale mask would hide every '
+    + 'spectate-mode contact outside a square around the origin', () => {
+    const { radar, layer } = harness();
+    frame(radar, camera(1), { x: 300, y: 300 }, 0);
+    expect(layer.mask).toBe(radar.dimMask);
+    radar.render(null, 500, null, null);
+    expect(layer.mask ?? null, 'no own pose, no mask').toBeNull();
+    // ...and `clearBlips` (entering spectate) tears it down too.
+    frame(radar, camera(1), { x: 300, y: 300 }, 900);
+    expect(layer.mask).toBe(radar.dimMask);
+    radar.clearBlips();
+    expect(layer.mask ?? null, 'cleared').toBeNull();
+  });
+
+  it('COMES OFF FOR A NON-FINITE OWN POSE TOO — a mask does not DEGRADE under a '
+    + 'NaN, it BLANKS THE WHOLE LAYER (review gate)', () => {
+    // A sprite mask clips to its own frame, and a sprite positioned at NaN has
+    // no frame — so one non-finite own coordinate would hide every heat cell and
+    // every `silhouette` blip on the scope, not merely dim them wrongly. The
+    // march already treats a non-finite observer as reachable (`marchable`
+    // checks `obs.x + obs.y`), so this is the same input arriving one method
+    // over. Detaching is the deliberate degradation: an UNDIMMED scope beats a
+    // HIDDEN one, because the dim is legibility and the returns are the
+    // instrument.
+    const { radar, layer } = harness();
+    const cam = camera(1);
+    frame(radar, cam, { x: 300, y: 300 }, 0);
+    expect(layer.mask).toBe(radar.dimMask);
+
+    for (const own of [{ x: Number.NaN, y: 300 }, { x: 300, y: Infinity }]) {
+      radar.render(own, 500, null, cam.worldView);
+      expect(layer.mask ?? null, `own = (${own.x}, ${own.y}): the mask comes off`).toBeNull();
+      expect(Number.isFinite(radar.dimMask.position.x), 'and never takes a NaN position')
+        .toBe(true);
+      expect(Number.isFinite(radar.dimMask.position.y)).toBe(true);
+    }
+
+    // ...and a finite pose puts it straight back.
+    frame(radar, cam, { x: 300, y: 300 }, 900);
+    expect(layer.mask, 'recovered').toBe(radar.dimMask);
+  });
+
+  it('MASKS THE `silhouette` GRAMMAR TOO — it is a property of the display, not '
+    + 'of the return grammar', () => {
+    const layer = new Container();
+    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
+    radar.onSweepSample(0, 0);
+    radar.render({ x: 10, y: 20 }, 100, null, null);
+    expect(layer.mask).toBe(radar.dimMask);
+    expect(radar.dimMask.position.x).toBeCloseTo(10, 9);
+  });
+
+  it('NEVER DRAWS ITSELF: the mask is non-renderable, so it can never appear as '
+    + 'a grey square over the ocean', () => {
+    const { radar } = harness();
+    expect(radar.dimMask.renderable).toBe(false);
+    expect(radar.dimMask.label).toBe(DIM_MASK_LABEL);
+  });
+
+  it('AND IT TOUCHES NOTHING (amendment 83): moving own ship moves the MASK and '
+    + 'leaves every frozen paint record byte-identical', () => {
+    const { radar } = harness();
+    radar.setHeightRaster(rasterFrom(600, slab(300, 0, 60, 80, 255)));
+    const cam = camera(1);
+    frame(radar, cam, { x: 0, y: 0 }, 0);
+    frame(radar, cam, { x: 0, y: 0 }, 900);
+    const frozen = radar.paintList.map((s) => [...s.w.subarray(0, s.n)]);
+    const shadows = radar.paintList.map((s) => [...s.nd.subarray(0, s.n)]);
+    expect(frozen.length, 'the scope really painted').toBeGreaterThan(0);
+
+    // Walk own ship a long way. The mask follows it — and the records it walked
+    // past do not move one bit, in EITHER channel. (Later frames enrol NEW
+    // slices at the end of the list; the ones already there are the history.)
+    radar.render({ x: 900, y: 900 }, 950, null, cam.worldView);
+    expect(radar.dimMask.position.x).toBeCloseTo(900, 9);
+    const after = radar.paintList.slice(0, frozen.length);
+    expect(after.map((s) => [...s.w.subarray(0, s.n)])).toEqual(frozen);
+    expect(after.map((s) => [...s.nd.subarray(0, s.n)])).toEqual(shadows);
   });
 });

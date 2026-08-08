@@ -13,16 +13,20 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { flatRaster } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const LIT_R = CONFIG.starShells.litRadius;
 /** Battleship slot indices under the 1.7 fit [gun, cannon, starShells, empty]. */
 const SLOT_STAR = 2;
 
-/** World whose islands are cleared, for exact-geometry cases. */
+/** World whose islands are cleared, for exact-geometry cases. The raster is
+ *  flattened too (Story 4.11): real terrain must not radar-shadow a world the
+ *  test built as empty water. */
 function bareWorld(seed = 7): World {
   const w = new World(seed);
   w.map.islands.length = 0;
+  w.map.heightRaster = flatRaster();
   return w;
 }
 
