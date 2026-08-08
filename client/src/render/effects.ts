@@ -1,5 +1,7 @@
 // Feel effects, funneled through one spawnEffect() entry + a shared sprite pool.
-//   - wake:   continuous speed feedback behind the own hull (world-space dots)
+//   - wake:   the ON-WATER rendering of the one wake (Story 4.12) — foam dots
+//             laid on the shared ribbon's cadence behind EVERY visible hull,
+//             plus the Kelvin envelope of displaced water around each track
 //   - muzzle: brief flash where a gun-family weapon fired (bright dot) — since
 //             Story 4.3 driven by the server's neutral `mz` row, not a guess
 //   - spark:  bright hit bloom at an impact (additive) — the public `boom` for
@@ -9,13 +11,13 @@
 // One-shots share a redraw-per-frame Graphics pool; wake keeps its own aged
 // pool. All spawn through spawnEffect(kind, x, y).
 
-import { Graphics } from 'pixi.js';
-import type { Container } from 'pixi.js';
-import type { ShipState, HullId } from '@salvo/shared';
-import { CONFIG, hullEnvelope } from '@salvo/shared';
-import { Pool } from '../util/pool.js';
+import { Container, Graphics } from 'pixi.js';
+import { CONFIG, WAKE_AGE_BUCKETS, eachWakeSegment, hullEnvelope } from '@salvo/shared';
+import { Pool, capOldest } from '../util/pool.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
+import { CHOP_HEAD_MULTIPLE } from './radarSources.js';
+import { WakeSources, type WakeHull, type WakeSource } from './wake.js';
 
 /** Effect kinds routed through spawnEffect(). */
 export type EffectKind =
@@ -158,6 +160,95 @@ interface WakeParticle {
   baseAlpha: number;
 }
 
+// --- HULL-SIDE DISPLACED WATER (Story 4.12, amendments 197/199/205/206) ---------
+//
+// Eric asked for it in his own words — *"ships displace the water as they move,
+// so there is choppy water around it on all sides"* — and amendment 205 handed
+// the implementation its constant rather than letting it invent one: the KELVIN
+// half-angle, 19.47°, `sin θ = 1/3`, a genuine constant of deep-water ship waves
+// and INDEPENDENT OF SPEED. `CHOP_HEAD_MULTIPLE` (= 1/sin θ = 3) is imported
+// from `render/radarSources.ts` rather than restated, because the scope draws
+// the same envelope and two spellings of one constant is how they drift apart.
+//
+// THE ENVELOPE IS WIDEST AT THE HEAD AND NARROWS ASTERN, which is amendment
+// 206's ratified reading: the head is where the hull is and where water is
+// ACTIVELY being displaced, and the wedge converges behind it as the water
+// settles. The scope expresses the taper in AGE BUCKETS because the wire
+// carries no distance-astern channel (amendment 194 strips every identity and
+// linkage from the payload); the water expresses it in the SAME buckets, off the
+// same shared ribbon, so both sources agree by construction rather than by two
+// tunings that happen to match (amendment 154: two sources, one appearance).
+//
+// IT IS INFORMATION, NOT JUICE, so it is never motion-gated: `motion: 'off'`
+// removes MOTION and never INFORMATION (the standing rule at `isJuiceEffect`).
+// The envelope is a static shape recomputed from pose — there is no animation in
+// it to remove. It stays FOGGED (`isFogImmuneEffect` excludes `wake`) because
+// displaced water is a thing you SEE, and the fog is what you cannot.
+
+/**
+ * Pure: the displaced-water envelope's HALF-WIDTH (u) at water of a given age
+ * bucket, for a source whose turbulent core is `widthU` across (its own beam —
+ * `WakeRibbon.widthU`, derived once in the shared model).
+ *
+ * `core × (1 + (CHOP_HEAD_MULTIPLE − 1) × taper)`, taper running 1 → 0 across
+ * the buckets: three half-beams at the head, one at the tail. That is
+ * ALGEBRAICALLY the scope's `chopHaloCells` (`core + (M − 1) × core × taper`)
+ * in world units instead of cells — deliberately the same expression, so the
+ * water and the scope cannot disagree about how far a hull pushes the sea.
+ *
+ * Degenerate inputs degrade rather than throw, the shared model's discipline: a
+ * non-finite or non-positive width answers 0 (no envelope), a non-finite bucket
+ * answers the OLDEST (narrowest — fail toward "about to be gone", the direction
+ * `wakeAgeBucket` already fails in), and a single-bucket wire degrades to
+ * "always freshest".
+ */
+export function chopHalfWidthU(widthU: number, bucket: number): number {
+  const core = Number.isFinite(widthU) && widthU > 0 ? widthU / 2 : 0;
+  if (core === 0) return 0;
+  const last = WAKE_AGE_BUCKETS - 1;
+  const b = Number.isFinite(bucket) ? Math.min(last, Math.max(0, Math.floor(bucket))) : last;
+  const taper = last > 0 ? 1 - b / last : 1;
+  return core * (1 + (CHOP_HEAD_MULTIPLE - 1) * taper);
+}
+
+/** One vertex of the envelope's centre-line: a point on the track and the
+ *  half-width the wedge has there. */
+export interface ChopPoint {
+  x: number;
+  y: number;
+  hw: number;
+}
+
+/**
+ * Pure: turn a centre-line into the envelope's closed outline, as the flat
+ * `[x0,y0,x1,y1,…]` list Pixi's `poly()` takes — the left side head-to-tail
+ * followed by the right side back again.
+ *
+ * The normal at each vertex is taken off its NEIGHBOURS rather than off one
+ * adjacent segment, so the wedge miters through a turn instead of kinking at
+ * every sample. A zero-length step (two coincident samples) falls back to the
+ * +x axis rather than dividing by zero.
+ */
+export function chopOutline(pts: readonly ChopPoint[]): number[] {
+  const n = pts.length;
+  const poly: number[] = [];
+  const back: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[i === 0 ? 0 : i - 1];
+    const b = pts[i === n - 1 ? n - 1 : i + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    const ux = len > 0 ? dx / len : 1;
+    const uy = len > 0 ? dy / len : 0;
+    const p = pts[i];
+    poly.push(p.x - uy * p.hw, p.y + ux * p.hw);
+    back.push(p.x + uy * p.hw, p.y - ux * p.hw);
+  }
+  for (let i = back.length - 2; i >= 0; i -= 2) poly.push(back[i], back[i + 1]);
+  return poly;
+}
+
 interface OneShot {
   gfx: Graphics;
   spec: OneShotSpec;
@@ -178,47 +269,70 @@ export class Effects {
   private readonly burstPool: Pool<Graphics>;
   private readonly wake: WakeParticle[] = [];
   private readonly shots: OneShot[] = [];
-  private accumDist = 0;
-  /** Own hull half-length (stern offset) + top speed, per own hull envelope. */
-  private ownHalfLen: number = hullEnvelope('torpedoBoat').hull.length / 2;
-  private ownMaxSpeed: number = hullEnvelope('torpedoBoat').kinematics.maxSpeed;
-  /** Wake tint (Story 1.12): the OWN personal hue, set by setWakeColor once the
-   *  own roster color is known; amber is the pre-roster fallback. Wake dots are
-   *  drawn white and tinted, so a recolor is a pool-tint swap, not a redraw. */
-  private wakeColor: number = CLIENT_CONFIG.colors.amber;
+  /**
+   * THE ONE WAKE, as the client holds it (amendment 204): the shared ribbon per
+   * visible hull. Both renderings hang off it — this class draws the water,
+   * `render/radar.ts` stamps the same segments onto the radar lattice through
+   * `WakeStampCache`. Exposed rather than duplicated, because a second ribbon
+   * model is a desync surface.
+   */
+  readonly wakeSources = new WakeSources();
+  /** Displaced-water envelopes, one Graphics per tracked source. */
+  private readonly chop = new Map<string, Graphics>();
+  /** This frame's live poses, by source id — reused, never reallocated. */
+  private readonly livePose = new Map<string, WakeHull>();
+  /** Sub-layers of the passed wake layer so the envelope always sits UNDER the
+   *  foam: a pooled dot and a per-hull envelope would otherwise interleave in
+   *  child order by whichever happened to be created first. */
+  private readonly chopLayer: Container;
+  private readonly foamLayer: Container;
 
   constructor(
-    private readonly wakeLayer: Container,
+    wakeLayer: Container,
     private readonly fxLayer: Container = wakeLayer,
     /** Fog-immune layer for burst rings; defaults to fxLayer for headless tests. */
     private readonly burstLayer: Container = fxLayer,
   ) {
+    this.chopLayer = new Container();
+    this.foamLayer = new Container();
+    wakeLayer.addChild(this.chopLayer, this.foamLayer);
     this.wakePool = new Pool<Graphics>(() => this.makeWakeDot());
     this.shotPool = new Pool<Graphics>(() => this.makeShotGfx(this.fxLayer));
     this.burstPool = new Pool<Graphics>(() => this.makeShotGfx(this.burstLayer));
   }
 
-  /** Set the own ship's hull id (drives wake stern offset + intensity scaling).
-   *  Accepts any HullId via hullEnvelope so it is drone-safe, though the own
-   *  ship is always one of the three pickable classes. */
-  setOwnClass(cls: HullId): void {
-    this.ownHalfLen = hullEnvelope(cls).hull.length / 2;
-    this.ownMaxSpeed = hullEnvelope(cls).kinematics.maxSpeed;
+  /**
+   * Drop every ribbon, every foam dot and every envelope — the wake's half of
+   * the return-to-port teardown, alongside `Smoke.clear()` and
+   * `Foghorn.clear()` and defensive for the same reason: wake is drawn at TRUE
+   * world positions, so if a future match-restart path ever skips the reload,
+   * the last ocean's water must not render on the next one's coordinates.
+   */
+  clearWake(): void {
+    for (const p of this.wake) this.retire(p.gfx, this.wakePool);
+    this.wake.length = 0;
+    this.wakeSources.clear();
+    this.retireChop();
   }
 
-  /** Set the own wake tint to the pilot's personal hue (Story 1.12), applied to
-   *  every wake dot spawned from here on (short-lived, so it takes over in ~1s). */
-  setWakeColor(color: number): void {
-    this.wakeColor = color;
+  /** Live foam dots, across every source — the particle-budget seam. */
+  get liveWakeDots(): number {
+    return this.wake.length;
+  }
+
+  /** Live displaced-water envelopes (one per tracked source). */
+  get liveChopEnvelopes(): number {
+    return this.chop.size;
   }
 
   private makeWakeDot(): Graphics {
     const g = new Graphics();
-    // Drawn WHITE + tinted per spawn (setWakeColor), so a personal-hue recolor is
-    // a cheap tint swap on the pool rather than a redraw.
+    // Drawn WHITE + tinted per spawn, so a personal-hue recolor is a cheap tint
+    // swap on the pool rather than a redraw — and since Story 4.12 the tint is
+    // PER SOURCE (every visible hull lays its own wake, amendment 199).
     g.circle(0, 0, CLIENT_CONFIG.wake.radius).fill({ color: CLIENT_CONFIG.colors.white, alpha: 1 });
     g.visible = false;
-    this.wakeLayer.addChild(g);
+    this.foamLayer.addChild(g);
     return g;
   }
 
@@ -239,19 +353,35 @@ export class Effects {
    * off a detonation.
    */
   spawnEffect(kind: EffectKind, x: number, y: number, intensity = 1, radius?: number): void {
-    if (kind === 'wake') this.spawnWake(x, y, intensity);
+    if (kind === 'wake') this.spawnWake(x, y, intensity, CLIENT_CONFIG.colors.amber);
     else this.spawnOneShot(kind, x, y, radius);
   }
 
-  private spawnWake(x: number, y: number, intensity: number): void {
+  /**
+   * One foam dot, at `CONFIG.vision.wakeLifeMs` — the SHARED clock, so the water
+   * you see and the track that paints run out together (amendment 204: one wake,
+   * one length). A dot lives ~11× longer than it did before Story 4.12, which is
+   * why this path now has the `document.hidden` early-out `spawnOneShot` has
+   * always had and a `capOldest` ceiling it never had.
+   */
+  private spawnWake(x: number, y: number, intensity: number, color: number): void {
+    // Backgrounded tab: the render loop that ages and retires these is
+    // throttled, so a spawn here would sit in the pool for as long as the tab
+    // stays hidden. Same rule, same reason, as the one-shot path.
+    if (typeof document !== 'undefined' && document.hidden) return;
     const g = this.wakePool.acquire();
     g.position.set(x, y);
     g.scale.set(1);
-    g.tint = this.wakeColor; // personal-hue wake (Story 1.12); amber pre-roster
+    g.tint = color; // the SOURCE's personal hue (Story 1.12, per hull since 4.12)
     g.visible = true;
     const baseAlpha = CLIENT_CONFIG.wake.alpha * intensity;
     g.alpha = baseAlpha;
-    this.wake.push({ gfx: g, age: 0, life: CLIENT_CONFIG.wake.life, baseAlpha });
+    this.wake.push({ gfx: g, age: 0, life: CONFIG.vision.wakeLifeMs / 1000, baseAlpha });
+    // A RUNAWAY BACKSTOP, not a budget (see CLIENT_CONFIG.wake.maxDots): the
+    // oldest dots go first, which is the faintest, most nearly expired water.
+    for (const p of capOldest(this.wake, CLIENT_CONFIG.wake.maxDots)) {
+      this.retire(p.gfx, this.wakePool);
+    }
   }
 
   private spawnOneShot(kind: Exclude<EffectKind, 'wake'>, x: number, y: number, radius?: number): void {
@@ -274,27 +404,124 @@ export class Effects {
     this.shots.push({ gfx: g, spec, peakAlpha, x, y, age: 0, pool });
   }
 
-  /** Advance all effects by `dt`; spawn wake behind the own ship first
-   *  (null while spectating — no own hull, no wake, effects still age). */
-  update(dt: number, ship: ShipState | null): void {
-    if (ship) this.spawnTrail(dt, ship);
+  /**
+   * Advance all effects by `dt` (seconds) and lay this frame's wake.
+   *
+   * `hulls` IS EVERY HULL THE PLAYER CAN SEE (amendment 199) — own predicted
+   * pose, every truesight contact, drones included — not just the own ship.
+   * Before Story 4.12 this took a single `ShipState` and enemy hulls glided
+   * across the water leaving nothing at all; the wake was a UI element attached
+   * to the camera rather than a property of the world, and the thing on the
+   * water disagreed with the thing on the scope.
+   *
+   * `nowMs` is SERVER time, the same clock the ribbon's samples and the radar's
+   * age buckets are stamped in — not `performance.now()`. Two clocks here would
+   * age the water differently in the two renderings.
+   *
+   * A decoy needs no mention and gets none (amendment 201): it is frozen at its
+   * drop pose, never travels one sample cadence, and therefore lays nothing.
+   */
+  update(dt: number, nowMs: number, hulls: readonly WakeHull[] = []): void {
+    this.layWake(nowMs, hulls);
     this.ageWake(dt);
     this.ageShots(dt);
   }
 
-  private spawnTrail(dt: number, ship: ShipState): void {
-    const speed = Math.abs(ship.speed);
-    if (speed < CLIENT_CONFIG.wake.minSpeed) {
-      this.accumDist = 0;
-      return;
+  /** Sample every visible hull onto its ribbon, spawn foam on the cadence, then
+   *  redraw the displaced-water envelopes and release spent sources. */
+  private layWake(nowMs: number, hulls: readonly WakeHull[]): void {
+    this.livePose.clear();
+    for (const h of hulls) {
+      this.livePose.set(h.id, h);
+      // FOAM FOLLOWS THE SEGMENT, NOT THE SAMPLE. The first sample onto an empty
+      // ribbon always stores (there is nothing to measure a cadence against), so
+      // spawning on `stored` alone would put one dot under a hull that has never
+      // moved — a decoy, or a ship at anchor. Water is only disturbed once a
+      // hull has actually travelled a cadence, which is exactly `count > 1`, and
+      // it is the same predicate the scope uses (one segment, one stamp).
+      const stored = this.wakeSources.observe(h, nowMs);
+      if (stored && (this.wakeSources.get(h.id)?.ribbon.count ?? 0) > 1) this.spawnFoam(h);
     }
-    this.accumDist += speed * dt;
-    const sternX = ship.x - Math.cos(ship.heading) * this.ownHalfLen;
-    const sternY = ship.y - Math.sin(ship.heading) * this.ownHalfLen;
-    const intensity = Math.min(speed / this.ownMaxSpeed, 1);
-    while (this.accumDist >= CLIENT_CONFIG.wake.spacing) {
-      this.accumDist -= CLIENT_CONFIG.wake.spacing;
-      this.spawnEffect('wake', sternX, sternY, intensity);
+    this.wakeSources.prune(nowMs);
+    this.wakeSources.each((src) => this.drawChop(src, nowMs));
+    this.retireChop();
+  }
+
+  /**
+   * One foam dot at the source's STERN — where foam physically is. The RIBBON
+   * stores the hull's CENTRE (that is what `World.stepWakes` appends, and the
+   * two must land on the same lattice cells at the truesight seam); the offset
+   * lives here, in the rendering, exactly as amendment 204 frames it: one
+   * geometry, two renderings of it.
+   */
+  private spawnFoam(h: WakeHull): void {
+    const env = hullEnvelope(h.cls);
+    const half = env.hull.length / 2;
+    const speed = Math.abs(h.speed);
+    const intensity = Math.min(speed / env.kinematics.maxSpeed, 1);
+    this.spawnWake(h.x - Math.cos(h.heading) * half, h.y - Math.sin(h.heading) * half, intensity, h.color);
+  }
+
+  /** Scratch centre-line for the envelope: ONE array, truncated and refilled
+   *  per source per frame and consumed synchronously (its point objects are
+   *  per-frame; the array itself never reallocates). */
+  private readonly chopPts: ChopPoint[] = [];
+
+  /**
+   * Collect one source's envelope centre-line, oldest water first.
+   *
+   * The live hull pose is appended LAST, at the freshest bucket, so the wedge
+   * stays attached to the hull between sample cadences instead of ending 12u
+   * astern and visibly stepping forward every third of a second. A source with
+   * no live pose (a hull that sank, or sailed out of truesight — amendment
+   * 200's fading track) simply ends at its newest stored water.
+   */
+  private chopCentreLine(src: WakeSource, nowMs: number): ChopPoint[] {
+    const pts = this.chopPts;
+    pts.length = 0;
+    const w = src.ribbon.widthU;
+    let tipX = 0;
+    let tipY = 0;
+    eachWakeSegment(src.ribbon, nowMs, (s) => {
+      pts.push({ x: s.ax, y: s.ay, hw: chopHalfWidthU(w, s.bucket) });
+      tipX = s.bx;
+      tipY = s.by;
+    });
+    if (pts.length === 0) return pts;
+    pts.push({ x: tipX, y: tipY, hw: chopHalfWidthU(w, 0) });
+    const live = this.livePose.get(src.id);
+    if (live !== undefined) pts.push({ x: live.x, y: live.y, hw: chopHalfWidthU(w, 0) });
+    return pts;
+  }
+
+  /** Redraw one source's displaced-water envelope. Never motion-gated: this is
+   *  information, and `motion: 'off'` removes motion, never information. */
+  private drawChop(src: WakeSource, nowMs: number): void {
+    const g = this.chopFor(src.id);
+    const pts = this.chopCentreLine(src, nowMs);
+    g.clear();
+    g.visible = pts.length >= 2;
+    if (!g.visible) return;
+    g.poly(chopOutline(pts)).fill({ color: src.color, alpha: CLIENT_CONFIG.wake.chopAlpha });
+  }
+
+  private chopFor(id: string): Graphics {
+    let g = this.chop.get(id);
+    if (g === undefined) {
+      g = new Graphics();
+      this.chopLayer.addChild(g);
+      this.chop.set(id, g);
+    }
+    return g;
+  }
+
+  /** Destroy the envelope of any source the tracker has released — bounded by
+   *  the tracker's own lifecycle, so there is no second retirement clock. */
+  private retireChop(): void {
+    for (const [id, g] of this.chop) {
+      if (this.wakeSources.get(id) !== undefined) continue;
+      g.destroy();
+      this.chop.delete(id);
     }
   }
 

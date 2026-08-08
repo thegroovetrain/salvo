@@ -3,7 +3,7 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, HULL_IDS, hullEnvelope } from '@salvo/shared';
 import {
   SURFACE,
   fitGrainScale,
@@ -492,6 +492,18 @@ const HEAT_WAKE_REF = fitMaterialRef({
   grainScale: HEAT_WAKE_GRAIN,
 });
 
+/**
+ * The fastest hull in the game (u/s), over EVERY hull id — the three pickable
+ * classes and the three drone envelopes alike, because amendment 199 puts a
+ * wake behind every visible hull and a drone is an ordinary ship. Read off
+ * `hullEnvelope` rather than written down, so a kinematics retune or a fourth
+ * class moves the wake pool's ceiling with it.
+ */
+export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
+  (top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed),
+  0,
+);
+
 export const CLIENT_CONFIG = {
   /** Design tokens (Story 1.11) — the single styling source (see above). */
   colors: COLORS,
@@ -512,22 +524,80 @@ export const CLIENT_CONFIG = {
     leadMax: CONFIG.vision.sight * 0.5,
   },
 
-  /** Wake trail — continuous speed feedback behind the hull. */
+  /**
+   * WAKE — the ON-WATER rendering of the one wake (Story 4.12, amendment 204).
+   *
+   * WHAT LEFT THIS BLOCK, AND WHY IT CANNOT COME BACK. `life` (1.1s) and
+   * `spacing` (4u) were client-only feel knobs while the wake was a UI element
+   * trailing the camera. They are GAMEPLAY-LOAD-BEARING now — the server
+   * rasterizes the same ribbon onto the radar lattice — so they live in shared
+   * `CONFIG.vision` as `wakeLifeMs` (12000) and `wakeSampleU` (12), and BOTH
+   * renderings read them from there. Eric, correcting a draft that invented a
+   * length asymmetry: *"I didn't tell you that the on-water render and the radar
+   * wake are deliberately different lengths... I didn't say shit about the
+   * lengths being different here."* A knob here would be exactly that fork.
+   *
+   * `minSpeed` left with them. It was a spawn gate against a crawling hull
+   * dribbling dots; the shared model needs none, because a hull too slow to
+   * cover one `wakeSampleU` inside `wakeLifeMs` (under 1 u/s) lays water that
+   * has expired before the next sample exists. A client-only floor on top of
+   * that would put foam on the water at speeds the scope shows nothing at.
+   *
+   * WHAT IS LEFT IS PURE PRESENTATION: how big a foam dot is, how dark it
+   * starts, how much displaced water a hull pushes aside, and the pool cap.
+   */
   wake: {
-    /** Don't spawn wake below this speed magnitude (u/s). */
-    minSpeed: 1.5,
-    /** Spawn one dot per this many world-units travelled (spatial density).
-     *  Step 11 feel-pass tuning: 6 -> 4 for a richer trail; flagged for playtest. */
-    spacing: 4,
-    /** Particle lifetime (s). */
-    life: 1.1,
-    /** Base radius of a wake dot (u). */
-    radius: 2.6,
-    /** Peak alpha at spawn (scaled by speed fraction). */
-    alpha: 0.28,
-    // Wake color is DYNAMIC as of Story 1.12 — it trails the own hull, so it
-    // carries the OWN personal hue (Effects.setWakeColor, driven by the own roster
-    // color); no static token here. Amber is the pre-roster fallback (in effects.ts).
+    /**
+     * Base radius of a foam dot (u) — HALF THE SAMPLE CADENCE, so consecutive
+     * dots exactly touch and the trail reads as a continuous band rather than
+     * as beads. Derived rather than picked: the cadence rose from the retired
+     * client-only `spacing: 4` to shared `wakeSampleU: 12` (one dot per lattice
+     * cell plus margin, which is what keeps the particle count sane across
+     * every visible hull), and a dot sized against the old cadence would have
+     * left a dotted line.
+     */
+    radius: CONFIG.vision.wakeSampleU / 2,
+    /** Peak alpha at spawn (scaled by speed fraction). Lower than the shipped
+     *  0.28 because the dots are now ~2.3× wider and overlap by construction —
+     *  same ink on the water, spread over a band instead of a bead chain. */
+    alpha: 0.2,
+    /**
+     * HULL-SIDE DISPLACED WATER (amendments 197/199/206) — the alpha of the
+     * Kelvin envelope drawn under the foam. Eric: *"ships displace the water as
+     * they move, so there is choppy water around it on all sides."*
+     *
+     * WELL UNDER the foam's own alpha on purpose: the envelope is a WIDE area
+     * (three beams across at the hull) and it must read as disturbance around
+     * the track rather than as a second, fatter wake. Same relationship the
+     * scope has — chop lights a scattered minority of its cells while the wake
+     * lights all of its own (amendment 198) — expressed in the medium the water
+     * actually has.
+     */
+    chopAlpha: 0.07,
+    /**
+     * The pool ceiling for live foam dots, ACROSS EVERY HULL.
+     *
+     * DERIVED, not picked. One source at top speed holds `wakeLifeMs ×
+     * maxSpeed ÷ wakeSampleU` dots — the same quantity `wakeCapacity` derives
+     * the shared ring buffer from — and `CONFIG.match.maxPlayers` bounds how
+     * many sources can be on the water at once. So this is the honest
+     * worst case rather than a guess, and it moves when the clock, the cadence,
+     * the hull speeds or the room size move.
+     *
+     * It is a RUNAWAY BACKSTOP, not a budget: at the shipped numbers no
+     * legitimate frame reaches it, because a client only lays wake for hulls it
+     * can SEE and cannot see the whole room at once. `capOldest` evicts the
+     * OLDEST dots first if it ever binds — the faintest water, already nearly
+     * expired.
+     */
+    maxDots:
+      Math.ceil(
+        ((CONFIG.vision.wakeLifeMs / 1000) * FASTEST_HULL_SPEED) / CONFIG.vision.wakeSampleU,
+      ) * CONFIG.map.playerCap,
+    // Wake color is DYNAMIC as of Story 1.12 — it trails a hull, so it carries
+    // that hull's personal hue; no static token here. Amendment 199 made that
+    // per-source rather than own-only: main.ts resolves each visible hull's hue
+    // off the same roster the hull's own silhouette reads.
   },
 
   /**

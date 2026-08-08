@@ -195,6 +195,7 @@ import {
 } from './radarField.js';
 import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './radarMarch.js';
 import { wakeLitFloor, type StormRing } from './radarSources.js';
+import { WakeStampCache, type WakeSources } from './wake.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
 export type { HueFor };
@@ -426,6 +427,21 @@ export class Radar {
    *  only, so a dazzle changes which source paints the NEXT sweep and never
    *  retroactively edits a paint already on the scope (amendment 83). */
   private dazzled = false;
+  /**
+   * THE IN-TRUESIGHT WAKE SOURCE (Story 4.12) — the client's own ribbons, for
+   * the half of the scope's wake the server deliberately does not disclose.
+   *
+   * The `wk` row inherits `blipGate`'s ANNULUS, so a segment inside the sight
+   * bubble never comes off the wire: running in-bubble water through the
+   * disclosure march would leak a hull that binary LOS is hiding behind an
+   * island. The client synthesizes that half from pose it already holds, which
+   * is exactly what it already does for a sighted HULL's echo (amendments 88 +
+   * 154 — two sources, one appearance). Null until main.ts wires the emitter,
+   * and null for any caller that has no wake at all: `FieldSpec.wake` is
+   * optional and the field answers as it did before 4.12 without it.
+   */
+  private wakeSources: WakeSources | null = null;
+  private readonly wakeCache = new WakeStampCache();
 
   constructor(
     blipLayer: Container,
@@ -1118,6 +1134,7 @@ export class Radar {
       obs: own,
       raster: this.heightRaster,
       ships: this.shipStamp(own, serverNow, contacts),
+      wake: this.wakeStamp(own, serverNow),
       ring: zone === null || zone.state === 'idle' ? null : zone.cur,
       cellU: cfg.cellU,
       model: cfg.model,
@@ -1202,6 +1219,41 @@ export class Radar {
    * same raster. Putting a second, per-hull occlusion test here would be the
    * per-object occluder shortlist amendment 140 deleted, arriving again.
    */
+  /**
+   * Hand the scope the client's wake ribbons (main.ts owns the emitter, which
+   * owns them — one tracker, two renderings). Null takes the layer off.
+   */
+  setWakeSources(sources: WakeSources | null): void {
+    this.wakeSources = sources;
+  }
+
+  /**
+   * THE PER-FRAME IN-TRUESIGHT WAKE LAYER — `shipStamp`'s sibling, and it takes
+   * that function's whole argument.
+   *
+   * The range term is the EXACT COMPLEMENT of the server's, per SEGMENT: a
+   * segment whose midpoint is at or inside `sightHoleU` is stamped here, one
+   * beyond it is the wire's (`blipGate`'s annulus), off the one dazzle-scaled
+   * radius both sides already agree on. A 540u track therefore hands its near
+   * end to this stamp and its far end to `marchWake`, with no cell claimed twice
+   * and none dropped between them.
+   *
+   * NO LOS TEST LIVES HERE either, for the same reason it does not live in
+   * `shipStamp`: whether the BEAM reaches a segment is the ray's business,
+   * decided by the shadow accumulator in `marchRay` against the same raster.
+   *
+   * The stamp is CACHED (`WakeStampCache`) on the segment set, the observer's
+   * position and the age-bucket clock, because rebuilding a roomful of ribbons
+   * on all sixty frames of a second would spend the radar layer's whole
+   * remaining headroom on an answer that changes a few times a second.
+   */
+  private wakeStamp(own: OwnPoint, serverNow: number): CellStamp | undefined {
+    const sources = this.wakeSources;
+    if (sources === null || sources.size === 0) return undefined;
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    return this.wakeCache.stampFor(sources, own, this.sightHoleU, serverNow, cfg.cellU, cfg.model);
+  }
+
   private shipStamp(own: OwnPoint, serverNow: number, contacts: ContactStore | null): ShipStamp {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     if (contacts === null) return new Map();
