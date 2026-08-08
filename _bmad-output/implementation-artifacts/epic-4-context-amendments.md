@@ -3166,7 +3166,7 @@ Source: Eric, live, on the shipped 0.17.68 build. Two reports, both his, both co
      he wants more coloured depth is `radarMastQ` upward — at the cost of the hard-cover reliability he
      chose q64 for, so it is a trade and not a free tune.
 
-## 2026-08-08 — Eric rulings, Story 4-12 pre-implementation question gate (bmad-dev-auto, cycle 69)
+## 2026-08-08 — Eric rulings, Story 4-12 pre-implementation question gate (bmad-dev-auto, cycle 70)
 
 Source: Eric, invocation intent plus a seven-question pre-implementation gate (AskUserQuestion, two
 rounds). Spec of record: `spec-4-12-radar-wakes.md`. Invocation intent, verbatim: *"4-12 radar wake. I
@@ -3176,7 +3176,7 @@ for radar. Additionally, I have decided that I do, in fact, want it to track tor
 there should be sea choppiness that might generate weak returns as noise, noticing a torpedo wake trail
 in that is 100% a skill. like the ships being placed on the raster, wakes should be, as well."*
 
-194. **AMENDMENT 109's FORK IS RESOLVED: WAKE IS SERVER-OWNED WORLD STATE, RASTERIZED AND SENT AS CELLS.**
+199. **AMENDMENT 109's FORK IS RESOLVED: WAKE IS SERVER-OWNED WORLD STATE, RASTERIZED AND SENT AS CELLS.**
      Eric picked the "real" side over the cheap client trail, and his own invocation named the
      architecture — *"like the ships being placed on the raster, wakes should be, as well"* — which is
      amendment 152's server-rasterizes-the-hull pipeline extended to a second material. The server keeps
@@ -3203,7 +3203,7 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      beyond the 3/8 detect rung, so there is nothing to trail); and the hybrid (two mechanisms for one
      phenomenon).
 
-195. **~12 SECONDS IS THE PAINT'S DECAY, NOT THE WAKE'S PHYSICAL LENGTH.** Eric's pick, against ~4s (one
+200. **~12 SECONDS IS THE PAINT'S DECAY, NOT THE WAKE'S PHYSICAL LENGTH.** Eric's pick, against ~4s (one
      revolution) and ~30s (a long track) — and he corrected the question's framing afterwards in as many
      words: *"The '12s' is how long radar wake stays painted before decaying, not its physical length."*
 
@@ -3213,14 +3213,14 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      an ordinary paint made of an unusual material.
 
      **The beat the story is named for falls out of exactly this.** The water dissipates on its own
-     physical clock (200) while the paint keeps fading on the phosphor clock, so the scope goes on showing
+     physical clock (205) while the paint keeps fading on the phosphor clock, so the scope goes on showing
      a stretch of track for seconds after that water has flattened and after the hull that made it has
      sailed out of range or sunk. Finding a track with nothing attached to it is the ordinary phosphor
      grammar applied to a new material — not a mechanism anyone has to build.
 
-     The wake's PHYSICAL length is a separate property, ruled in 205.
+     The wake's PHYSICAL length is a separate property, ruled in 210.
 
-196. **TORPEDO WAKES ARE IN. AMENDMENT 110 IS REVERSED, BY THE OWNER OF THE RULING IT RESERVED.** Eric:
+201. **TORPEDO WAKES ARE IN. AMENDMENT 110 IS REVERSED, BY THE OWNER OF THE RULING IT RESERVED.** Eric:
      *"I have decided that I do, in fact, want it to track torpedo wake."* Amendment 110 tabled this
      explicitly as a balance change Eric owns in its own cycle; this is that decision.
 
@@ -3233,9 +3233,9 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
 
      Consequence taken knowingly: a torpedo running in open water can now be inferred at radar range by
      an attentive defender, where today it is invisible until 247.5u. That is the balance change, and it
-     is bounded by 198's structural-camouflage rule — the ribbon is the same green as the sea around it.
+     is bounded by 203's structural-camouflage rule — the ribbon is the same green as the sea around it.
 
-197. **SEA CHOPPINESS IS SHIP-DISPLACEMENT ONLY. AMBIENT CLUTTER IS UNTOUCHED.** Eric's pick, against
+202. **SEA CHOPPINESS IS SHIP-DISPLACEMENT ONLY. AMBIENT CLUTTER IS UNTOUCHED.** Eric's pick, against
      a scope-wide ambient speckle and against simply growing today's disc. Every hull UNDER WAY pushes a
      region of disturbed water around it on all sides — *"ships displace the water as they move, so there
      is choppy water around it on all sides"* — while the existing 100u sea-clutter haze around the
@@ -3250,7 +3250,7 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      conspicuous, and the skill Eric is buying is reading a track through the mess AROUND SHIPS, which is
      where torpedoes are actually aimed.
 
-198. **CAMOUFLAGE IS BY STRUCTURE, NOT BY STRENGTH — THE DECLINED "CLUTTER MAY SWALLOW RETURNS" RULING
+203. **CAMOUFLAGE IS BY STRUCTURE, NOT BY STRENGTH — THE DECLINED "CLUTTER MAY SWALLOW RETURNS" RULING
      STANDS UNTOUCHED.** Eric was asked directly, because *"noticing a torpedo wake trail in that is 100%
      a skill"* pulls against a bound the shipped config records him DECLINING (*"Eric was shown 'clutter
      strong enough to swallow weak returns close in' as a real mechanic and DECLINED it"*, three tests
@@ -3264,7 +3264,7 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      ever suppressed — which is what makes this consistent with the declined ruling rather than a quiet
      re-opening of it.
 
-199. **EVERY VISIBLE HULL LAYS A WAKE ON THE WATER, AND PUSHES HULL-SIDE DISPLACED WATER.** Eric's pick.
+204. **EVERY VISIBLE HULL LAYS A WAKE ON THE WATER, AND PUSHES HULL-SIDE DISPLACED WATER.** Eric's pick.
      Today ONLY the local player's ship draws a wake (`render/effects.ts` `spawnTrail`, driven from the
      predictor pose) and enemy hulls inside truesight glide across the water leaving nothing at all; no
      hull-side displaced-water effect exists anywhere in the client. Both change: own ship, contacts
@@ -3272,15 +3272,15 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      attached to the camera and becomes a property of the world — and, crucially, the thing you see on
      the water now matches the thing that paints on the scope.
 
-200. **A WAKE OUTLIVES ITS SHIP AND DECAYS ON ITS OWN CLOCK.** Eric's pick. A wake is water, not a ship:
-     once laid, each stretch of it runs out its own physical dissipation clock (205) regardless of what
+205. **A WAKE OUTLIVES ITS SHIP AND DECAYS ON ITS OWN CLOCK.** Eric's pick. A wake is water, not a ship:
+     once laid, each stretch of it runs out its own physical dissipation clock (210) regardless of what
      happens to the hull that made it. A sunk ship leaves a fading track pointing back the way it came;
      a ship that sails out of your radar range leaves its last stretch of track behind on your scope,
-     where the phosphor keeps showing it after the water itself has flattened (195). This is the "find a
+     where the phosphor keeps showing it after the water itself has flattened (200). This is the "find a
      track with nothing attached to it and work out which way it ran and how long ago" beat the story is
-     named for, and it is only reachable because 194 chose server-owned state.
+     named for, and it is only reachable because 199 chose server-owned state.
 
-201. **THE DECOY IS EXPLICITLY OUT OF SCOPE FOR THIS CYCLE.** Asked whether a decoy — frozen at drop pose
+206. **THE DECOY IS EXPLICITLY OUT OF SCOPE FOR THIS CYCLE.** Asked whether a decoy — frozen at drop pose
      at speed 0, therefore laying no wake while every moving hull does — should inherit a wake so it stays
      wire-indistinguishable (amendment 11), Eric answered: *"Decoy will get major changes soon so lets not
      worry about it for now."*
@@ -3290,14 +3290,14 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      consequence, ledgered for the decoy rework rather than papered over here. Recorded plainly so the
      next agent does not read the gap as an oversight and "fix" it into a mechanism the rework will delete.
 
-205. **THE WAKE'S PHYSICAL LENGTH IS `life = 12s`, CHOSEN AGAINST REAL SHIP WAKES.** Eric asked the
+210. **THE WAKE'S PHYSICAL LENGTH IS `life = 12s`, CHOSEN AGAINST REAL SHIP WAKES.** Eric asked the
      question the right way — *"How far might it actually be on a real boat? I want that."* — so the
      option set was built from the physics rather than from feel.
 
      **The physics, recorded because it is the reason for the number.** A real wake is TWO things at very
      different scales. The bright aerated foam directly astern lasts 1-3 minutes and runs roughly **5-20
      ship lengths**; that is what the eye sees. The de-aerated turbulent "scar" behind it damps capillary
-     waves, is what radar and SAR actually image, persists for tens of minutes and runs **50-200 ship
+     waves, is what radar and SAR actually image, persists for tens of minutes and runs **50-205 ship
      lengths** (10-20 km behind a real warship). **The radar-realistic figure is UNBUILDABLE here and that
      is a scale fact, not a preference:** the map radius is 2400u = 24 hull lengths, so a physically
      honest radar wake would be one to four times the diameter of the entire ocean and every ship would
@@ -3308,7 +3308,7 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      *"fucking tiny and hard to see"* — it was ~50u at full ahead against a 100-124u hull, under half a
      hull length. At 12s: torpedo boat 540u (5.4 hull lengths), mine layer 480u (5.5), battleship 420u
      (3.4). **`spacing` must rise with it** or the emitter's particle count goes up ~11× per hull, and
-     amendment 199 just multiplied that by every visible hull on the water — a tapering ribbon mesh is the
+     amendment 204 just multiplied that by every visible hull on the water — a tapering ribbon mesh is the
      alternative to pooled dots and is the implementer's call on measured cost.
 
      **Length stays speed-derived and nothing about that changes** — Eric: *"it works how I want: longer
@@ -3316,22 +3316,22 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      leaves the existing behaviour intact.
 
      **Three things land on the same number, which is why this choice is cheap:** the water's own
-     dissipation (12s), the phosphor paint window (~12s, amendment 195), and the ~412u range at which wake
-     material returns at all (amendment 203) versus a 420-540u full-ahead track. A whole track is therefore
+     dissipation (12s), the phosphor paint window (~12s, amendment 200), and the ~412u range at which wake
+     material returns at all (amendment 208) versus a 420-540u full-ahead track. A whole track is therefore
      readable in one glance rather than trailing off past the material's own reach — the three clocks agree
      by coincidence, and a future retune of any one of them should check the other two.
 
      **Free realism the implementation should take:** the Kelvin wake's half-angle is **19.47°**
-     independent of speed, a genuine constant. Use it for the hull-side displaced water (197) rather than
+     independent of speed, a genuine constant. Use it for the hull-side displaced water (202) rather than
      inventing a spread; the turbulent core runs at roughly the hull's beam widening to a small multiple
      of it.
 
 ### Implementation rulings (assistant, derived from the above — not Eric decisions)
 
-202. **CHOP IS CLIENT-SIDE; WAKE IS SERVER-SIDE. THE SPLIT IS BY INFORMATION CONTENT, AND IT IS THE WHOLE
+207. **CHOP IS CLIENT-SIDE; WAKE IS SERVER-SIDE. THE SPLIT IS BY INFORMATION CONTENT, AND IT IS THE WHOLE
      REASON THIS CYCLE IS AFFORDABLE.** A wake carries information — course and recency of a hull you may
-     not otherwise hold — so it must be server-owned, gated and oracle-covered (194). Chop carries NONE:
-     under 198 it can never outrank, overwrite, or hide any return, so a modified client that deleted
+     not otherwise hold — so it must be server-owned, gated and oracle-covered (199). Chop carries NONE:
+     under 203 it can never outrank, overwrite, or hide any return, so a modified client that deleted
      every chop cell would learn precisely nothing it did not already have. **A channel that carries no
      information must not cost wire and must not create a disclosure surface.** Chop is therefore
      synthesized client-side around each hull the client already holds — a wire echo's coverage mask or a
@@ -3346,37 +3346,37 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      under 20-ish percent of full ahead pushes chop too weak to light a single cell — which is the correct
      behaviour, not a bug: a ship barely making way displaces almost nothing.
 
-206. **CHOP HANGS OFF THE WAKE'S HEAD, NOT OFF THE HULL — because at range the client does not know a
-     hull's speed, and amendment 202's "scaled by speed fraction" is therefore unbuildable as written.**
+211. **CHOP HANGS OFF THE WAKE'S HEAD, NOT OFF THE HULL — because at range the client does not know a
+     hull's speed, and amendment 207's "scaled by speed fraction" is therefore unbuildable as written.**
      Found while dispatching cycle 69 wave 2, before any client code was written. Amendment 152 stripped
      `id`, `cls`, `heading` AND `speed` from the `return` grammar: beyond truesight a hull reaches the
      client as a coverage footprint and nothing else. So "every moving hull pushes a disc of chop around
      it, scaled by how fast it is going" can only be evaluated for hulls inside the truesight bubble —
      which is exactly the 330u region the existing clutter disc already covers, so it would have
-     delivered no camouflage at range at all, which is the entire point of 197.
+     delivered no camouflage at range at all, which is the entire point of 202.
 
      **The fix keeps every ruling and needs no new wire: chop is the LATERAL SPREAD OF THE WAKE.** The
      ribbon is widest at its head — where the hull is and where water is actively being displaced — and
-     narrows behind, spreading at amendment 205's Kelvin 19.47° half-angle, with the speckle drawn in that
+     narrows behind, spreading at amendment 210's Kelvin 19.47° half-angle, with the speckle drawn in that
      widened region. This is better than the disc on four counts:
      - **It is speed-driven for free.** A wake only exists when a hull is making way, and its head only
        advances while it moves, so a stopped ship and a decoy push no chop BY CONSTRUCTION rather than by
        a speed term the client cannot evaluate.
-     - **It needs no new disclosure.** The geometry is the wake row the observer was already sent (194);
-       the speckle is synthesized client-side at paint-creation time. Amendment 202's information
+     - **It needs no new disclosure.** The geometry is the wake row the observer was already sent (199);
+       the speckle is synthesized client-side at paint-creation time. Amendment 207's information
        argument is untouched — chop still carries nothing and still must not cost wire.
      - **It is physically what displaced water IS** — the turbulent core at the hull's beam widening into
        the Kelvin V, not a disc centred on a point.
      - **It puts the noise where torpedoes actually go** — around ships, at whatever range those ships
-       are, which is what 197 asked for and what the hull-disc reading could not deliver.
+       are, which is what 202 asked for and what the hull-disc reading could not deliver.
 
      Inside truesight the client holds full pose and renders chop from it directly; beyond it, chop rides
      the disclosed wake geometry. Two sources, one appearance — the same shape amendment 154 already
-     established for hull paints. The coefficient and its three inherited bounds are unchanged from 202.
+     established for hull paints. The coefficient and its three inherited bounds are unchanged from 207.
 
-203. **THE COHERENT-LINE CALIBRATION — the arithmetic that makes 198 BUILDABLE, and it does not work
+208. **THE COHERENT-LINE CALIBRATION — the arithmetic that makes 203 BUILDABLE, and it does not work
      without a grain change.** Under the shipped SNR envelope a material of pre-grain intensity `p` draws
-     in `p × (1 ± a)`, `a = 0.45 × (1 − p/0.7)`. Amendment 198 asks the wake to light essentially all of
+     in `p × (1 ± a)`, `a = 0.45 × (1 − p/0.7)`. Amendment 203 asks the wake to light essentially all of
      its cells (worst draw > `bands[0].at` = 0.12) while clutter's bound 3 still binds it (best draw <
      `minPeak`'s worst draw = 0.136 — the wake is a same-sweep neighbour of a hull's own faintest echo
      cell, which is exactly the collision that bound exists for). Those two are INFEASIBLE together at
@@ -3407,7 +3407,7 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      and amendment 161 is untouched — phosphor alpha still carries paint age and only paint age, and the
      water's own age moves intensity instead.
 
-204. **SCOPE AND THE STANDING RULES THIS CYCLE DOES NOT MOVE.** Wake cells are occluded by terrain
+209. **SCOPE AND THE STANDING RULES THIS CYCLE DOES NOT MOVE.** Wake cells are occluded by terrain
      exactly as everything else is (amendment 179's accumulator, on the server gate and in the client
      march) and CAST no shadow of their own — a wake is at sea level, and amendment 176's `h₀ = 0` result
      says sea-level terrain can never shadow anything. Ships still never shadow ships (107). Colour stays
@@ -3435,3 +3435,39 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      a client-only feel knob. It becomes GAMEPLAY-LOAD-BEARING the moment the server rasterizes the same
      ribbon onto the lattice, so it **PROMOTES to shared `CONFIG`** under the project's standing rule, and
      both the Pixi trail and the server's ribbon read that one value.
+
+### Integration with cycle 69 (recorded at the rebase, not a new ruling)
+
+212. **TWO CYCLES LANDED ON THE SAME PIPELINE THE SAME DAY, AND THE SEAM BETWEEN THEM IS A REAL DECISION.**
+     Cycle 69 ("the slope paints to the peak", amendments 194-198) shipped while this cycle was in review.
+     It changed the two things wake rides on, so the merge is recorded here rather than left implicit.
+     **This cycle renumbered from 194-206 to 199-211 to make room; anything citing the old numbers
+     predates the merge.** Version 0.17.69 → **0.17.70**.
+
+     - **Grey NO-DATA is gone (amendment 194) and this cycle never depended on it.** Wake was written
+       against the intensity channel and the phosphor alpha, never the `nd` channel. The only casualty was
+       mechanical: `mergeSlices` — new in this cycle for batching per-segment wake slices — carried an
+       `nd` array through, which the rebase re-introduced into a `MarchSlice` that no longer has one. Cut.
+
+     - **A WAKE IS AFLOAT AND TAKES THE MAST-HEIGHT INSTANCE OF `requiredHeight`, NEVER THE TERRAIN
+       SOFT-STEP — and this one is load-bearing rather than a merge detail.** Amendment 195 split the
+       illumination rule in two: a ship is a COLUMN masked from the waterline up, a terrain sample is a
+       POINT on a surface masked by its own height against the grazing ray. Water is neither obviously,
+       and the tempting reading is the surface one — a wake IS a point on the sea surface. **That reading
+       is wrong, and the reason is the anti-cheat boundary, not the physics.** The server gates a wake
+       segment with `visibilityTo`, the SHIP query; if the client masked the paint with the terrain rule
+       the two sides would disagree about what was disclosed, which is the exact class of divergence this
+       arc has spent four cycles closing. The paint must be masked with the instance the GATE used.
+       Cycle 69's own field already encodes this correctly — `FieldSample.terrainQ` is documented as
+       *"0 IS 'NOT TERRAIN', NOT 'SEA LEVEL'"* — so wake sets `terrainQ: 0` and inherits the ship rule by
+       construction. Anyone who later decides sea-level water should be shadowed as a surface must move
+       the SERVER GATE in the same change, and should know it would delete wake in any partial shadow and
+       fight amendment 190's disclosure floor.
+
+     - **The headroom risk this cycle carried is retired by theirs.** Cycle 68 left ~0.5 ms of client
+       margin and this cycle's measurements were taken against it. Cycle 69 cut stored cells ~90% on a
+       coastal scope and roughly halved per-frame cost at every zoom, so the combined figure is
+       comfortably better than either cycle measured alone. **Stated honestly: the combined number was
+       NOT re-measured at the merge** — both cycles measured their own deltas in their own harnesses, and
+       the arithmetic only points one way. The next cycle that touches this pipeline should take a fresh
+       baseline rather than adding these two together.
