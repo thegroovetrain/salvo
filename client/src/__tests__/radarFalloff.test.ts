@@ -49,9 +49,12 @@ import {
   SURFACE,
   VOLUME,
   attenuation,
+  fitGrainScale,
+  fitMaterialRef,
   fitPointRef,
   heightReflectivity,
   noiseAmplitude,
+  worstDrawIntensity,
 } from '../render/radarFalloff.js';
 import { hullSample } from '../render/radarField.js';
 import { returnStrength } from '../render/radarMarch.js';
@@ -64,6 +67,7 @@ const GREEN = BANDS[0].at;
 const BLUE = BANDS[1].at;
 const RIM = CONFIG.vision.radar; // 8/8 — 660u
 const CROSS = CONFIG.vision.farRadar; // 7/8 — 577.5u
+const REACH = CONFIG.vision.muzzleFlash; // 5/8 — 412.5u, the wake's reach
 
 /**
  * A HULL'S READING at a range — the model's own two seams composed, which is
@@ -353,6 +357,174 @@ describe('grain amplitude is a function of the return\'s own strength', () => {
       expect(noiseAmplitude(0.3, env)).toBe(0);
     }
     expect(Number.isFinite(noiseAmplitude(Number.NaN, ENV))).toBe(true);
+  });
+});
+
+// --- 3b. THE WAKE CORRIDOR (Story 4.12, amendments 198 + 203) -------------------
+//
+// The wake material is the first thing on this scope calibrated between TWO
+// rails at once, and the second thing whose reference range is SOLVED rather than
+// typed. Everything below is stated against a locally re-implemented envelope
+// (the `radarHeatmap.test.ts` pattern) so a shape change in the production one
+// fails HERE rather than silently re-deriving every bound to whatever the new
+// shape happens to permit.
+
+describe('the wake material is SOLVED between two rails (amendment 203)', () => {
+  const ENV = CFG.noise;
+  /** The envelope, re-implemented from the RULING (amendment 143 + 203's scale). */
+  const amp = (p: number, scale = 1): number =>
+    p >= ENV.solidAt || !(scale > 0) ? 0 : scale * ENV.amount * (1 - Math.max(0, p) / ENV.solidAt);
+  /** The UNLUCKIEST draw of a pre-grain intensity, and the LUCKIEST. Named for
+   *  the draw rather than for the outcome: which one is the "worst case" depends
+   *  on which rail is being defended, and this suite defends both. */
+  const unlucky = (p: number, scale = 1): number => p * (1 - amp(p, scale));
+  const lucky = (p: number, scale = 1): number => p * (1 + amp(p, scale));
+  /** The pre-grain intensity of fresh wake water at a range. */
+  const wakeAt = (d: number): number =>
+    MODEL.wake * attenuation(d, MODEL.wakeRef, SURFACE, MODEL.floor);
+
+  it('the scaled envelope agrees with production, and scale 1 is the AMBIENT one '
+    + 'bit for bit — every pre-4.12 caller is untouched', () => {
+    for (let p = -0.2; p <= 1.2; p += 0.017) {
+      expect(noiseAmplitude(p, ENV), `ambient at ${p.toFixed(3)}`).toBe(noiseAmplitude(p, ENV, 1));
+      for (const s of [0.25, MODEL.wakeGrain, 1, 2]) {
+        expect(noiseAmplitude(p, ENV, s), `scale ${s} at ${p.toFixed(3)}`).toBeCloseTo(amp(p, s), 12);
+      }
+    }
+    expect(noiseAmplitude(0.3, ENV, 0), 'a zero scale is NO grain').toBe(0);
+    expect(noiseAmplitude(0.3, ENV, Number.NaN), 'and so is a non-finite one').toBe(0);
+  });
+
+  it('`worstDrawIntensity` INVERTS the worst draw — the quantity both the reach '
+    + 'fit and the age ladder are stated in', () => {
+    for (const s of [MODEL.wakeGrain, 0.5, 1]) {
+      for (const band of [0.05, GREEN, 0.3]) {
+        expect(unlucky(worstDrawIntensity(band, ENV, s), s), `band ${band} scale ${s}`)
+          .toBeCloseTo(band, 12);
+      }
+    }
+    expect(worstDrawIntensity(GREEN, ENV, 0), 'no grain: the band itself').toBe(GREEN);
+  });
+
+  it('RAIL 1 — EVERY DRAW OF FRESH WATER LIGHTS, from the antenna out to the '
+    + 'reach: that CONTINUITY is what makes a track read as a line', () => {
+    for (let d = 0; d <= REACH; d += 2.5) {
+      expect(unlucky(wakeAt(d), MODEL.wakeGrain), `${d}u unluckiest draw`)
+        .toBeGreaterThanOrEqual(GREEN - 1e-12);
+    }
+  });
+
+  it('RAIL 2 — NO DRAW OUTRANKS THE FAINTEST LEGITIMATE ECHO, at the luckiest '
+    + 'wake draw against the unluckiest hull draw (clutter\'s third bound, '
+    + 'applied to the material that shares a sweep with a hull\'s own faintest '
+    + 'cell)', () => {
+    // Attenuation is <= 1 everywhere, so the coefficient IS the peak.
+    expect(lucky(MODEL.wake, MODEL.wakeGrain)).toBeLessThan(unlucky(MODEL.minPeak));
+    for (let d = 0; d <= RIM; d += 5) {
+      expect(lucky(wakeAt(d), MODEL.wakeGrain), `${d}u`).toBeLessThan(unlucky(MODEL.minPeak));
+    }
+  });
+
+  it('and it is GREEN at every range and every draw — a wake is never blue', () => {
+    expect(lucky(MODEL.wake, MODEL.wakeGrain)).toBeLessThan(BLUE);
+  });
+
+  it('THE REACH IS DERIVED ONTO THE LADDER: the worst draw crosses `bands[0].at` '
+    + `EXACTLY at the 5/8 rung (${REACH}u), and frays out beyond it`, () => {
+    expect(unlucky(wakeAt(REACH), MODEL.wakeGrain)).toBeCloseTo(GREEN, 12);
+    // Inside: every cell lights. Outside: the draw window slides under, so the
+    // lit FRACTION falls — which is the fade, emergent rather than drawn.
+    expect(unlucky(wakeAt(REACH - 50), MODEL.wakeGrain)).toBeGreaterThan(GREEN);
+    expect(unlucky(wakeAt(REACH + 50), MODEL.wakeGrain)).toBeLessThan(GREEN);
+    expect(lucky(wakeAt(RIM), MODEL.wakeGrain), 'and nothing at all lights at the rim')
+      .toBeLessThan(GREEN);
+  });
+
+  it('the reference is SOLVED, not typed in — and it moves with the rung', () => {
+    const fit = (reach: number): number => fitMaterialRef({
+      reach,
+      band: GREEN,
+      coef: MODEL.wake,
+      floor: MODEL.floor,
+      geom: SURFACE,
+      env: ENV,
+      grainScale: MODEL.wakeGrain,
+    });
+    expect(MODEL.wakeRef).toBeCloseTo(fit(REACH), 9);
+    // Retuning the rung retunes the reference proportionally, with no other edit
+    // anywhere — the same property `fitPointRef` is pinned on.
+    expect(fit(REACH * 1.2)).toBeCloseTo(MODEL.wakeRef * 1.2, 6);
+  });
+
+  it('the GRAIN SCALE is solved as half the feasibility ceiling — the corridor '
+    + 'is INFEASIBLE at ambient grain, which is why the scale exists', () => {
+    const hi = unlucky(MODEL.minPeak);
+    expect(MODEL.wakeGrain).toBeCloseTo(
+      fitGrainScale({ coef: MODEL.wake, lo: GREEN, hi, env: ENV, safety: 0.5 }),
+      12,
+    );
+    // The ceiling: the largest amplitude both rails admit at this coefficient.
+    const ceiling = Math.min(hi / MODEL.wake - 1, 1 - GREEN / MODEL.wake);
+    expect(amp(MODEL.wake, MODEL.wakeGrain), 'half the ceiling — a 2x margin')
+      .toBeCloseTo(0.5 * ceiling, 12);
+    expect(amp(MODEL.wake), 'and AMBIENT grain is far outside it')
+      .toBeGreaterThan(ceiling * 4);
+  });
+
+  it('the coefficient is the corridor MIDPOINT, so one scale buys the same '
+    + 'relative margin against both rails', () => {
+    const hi = unlucky(MODEL.minPeak);
+    expect(MODEL.wake).toBeCloseTo((GREEN + hi) / 2, 12);
+    expect(hi / MODEL.wake - 1).toBeCloseTo(1 - GREEN / MODEL.wake, 12);
+  });
+
+  it('AGE IS THE SAME COIN AS RANGE: end-of-life water reads exactly as fresh '
+    + 'water does at the reach, so the visible track SHORTENS to nothing', () => {
+    expect(MODEL.wakeAgeFloor).toBeGreaterThan(0);
+    expect(MODEL.wakeAgeFloor).toBeLessThan(1);
+    const oldest = MODEL.wake * MODEL.wakeAgeFloor;
+    expect(unlucky(oldest, MODEL.wakeGrain), 'the oldest bucket sits ON the threshold at zero range')
+      .toBeCloseTo(GREEN, 12);
+    expect(oldest).toBeCloseTo(wakeAt(REACH), 12);
+    // Structural, not a ramp: it moves the reach, and it can never brighten.
+    expect(oldest).toBeLessThan(MODEL.wake);
+  });
+
+  it('a degenerate material fit answers the reach rather than a garbage range', () => {
+    const base = {
+      reach: REACH,
+      band: GREEN,
+      coef: MODEL.wake,
+      floor: MODEL.floor,
+      geom: SURFACE,
+      env: ENV,
+      grainScale: MODEL.wakeGrain,
+    };
+    for (const bad of [
+      { ...base, coef: 0 },
+      { ...base, reach: 0 },
+      { ...base, reach: Number.NaN },
+      { ...base, coef: GREEN / 2 }, // cannot reach the band at any range
+      { ...base, floor: 0.5 }, // the floor is already above the target
+      { ...base, band: 1 }, // needs attenuation > 1
+    ]) {
+      const r = fitMaterialRef(bad);
+      expect(Number.isFinite(r), JSON.stringify({ coef: bad.coef, reach: bad.reach })).toBe(true);
+      expect(r).toBeGreaterThan(0);
+    }
+  });
+
+  it('a degenerate grain fit answers 0 (no grain) rather than a negative scale', () => {
+    const base = { coef: MODEL.wake, lo: GREEN, hi: unlucky(MODEL.minPeak), env: ENV, safety: 0.5 };
+    for (const bad of [
+      { ...base, coef: 0 },
+      { ...base, safety: 0 },
+      { ...base, hi: base.lo }, // an empty corridor
+      { ...base, coef: 1 }, // the coefficient sits outside the corridor
+      { ...base, env: { amount: 0, solidAt: RED } },
+    ]) {
+      expect(fitGrainScale(bad)).toBe(0);
+    }
   });
 });
 

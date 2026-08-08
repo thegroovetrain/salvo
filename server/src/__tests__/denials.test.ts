@@ -196,11 +196,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 30→31 bump (PV 31: THE SERVER RASTERIZES THE HULL — the return-grammar blip payload became a coverage footprint {k,t,gx,gy,w,h,bits} with no id, so a stale client would read undefined fields and paint nothing) is enforced at matchmake', () => {
-  it('rejects pv-30 and pv-29 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(31);
+describe('pv join gate — the 31→32 bump (PV 32: RADAR WAKES — Story 4.12 adds the `wk` GameEvent, a wire row a stale client has no handler for) is enforced at matchmake', () => {
+  it('rejects pv-31 and pv-30 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(32);
+    expect(protocolVersionError(31)).toMatch(/refresh/);
     expect(protocolVersionError(30)).toMatch(/refresh/);
-    expect(protocolVersionError(29)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

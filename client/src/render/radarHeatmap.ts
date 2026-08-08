@@ -541,8 +541,13 @@ export interface ReturnModelOpts {
    *  material by the cycle-62 review gate; two-sided bound, see the config
    *  comment. */
   surf: number;
-  /** Sea clutter (SURFACE) — three bounds, see the config comment. */
+  /** Sea clutter (SURFACE) — three bounds, see the config comment. Story 4.12's
+   *  ship-displacement CHOP reuses it verbatim (amendment 202), so those same
+   *  three bounds carry it with no new calibration to defend. */
   clutter: number;
+  /** Disturbed water — a wake (SURFACE). SOLVED as the midpoint of the corridor
+   *  between `bands[0].at` and `minPeak`'s worst draw; see the config comment. */
+  wake: number;
   /** The storm wall (VOLUME). */
   storm: number;
   /** Reference range (u) of the POINT curve — FITTED, never typed in. */
@@ -552,6 +557,16 @@ export interface ReturnModelOpts {
   /** Reference range (u) of the SURFACE curve for SEA CLUTTER — shorter, so the
    *  haze's near-field concentration and its fade both fall out of the curve. */
   clutterRef: number;
+  /** Reference range (u) of the SURFACE curve for DISTURBED WATER (wake + the
+   *  chop that hangs off it) — FITTED so the wake's worst draw crosses
+   *  `bands[0].at` at the eighths ladder's 5/8 rung, never typed in. */
+  wakeRef: number;
+  /** The wake material's own grain scale on the ambient SNR envelope
+   *  (amendment 203) — a material property, solved, never a look knob. */
+  wakeGrain: number;
+  /** Intensity scale of the OLDEST water-age bucket, the freshest being 1: the
+   *  recency channel, carried as LENGTH rather than as brightness. */
+  wakeAgeFloor: number;
   /** Reference range (u) of the VOLUME curve. */
   volumeRef: number;
   /** Asymptotic floor shared by the SURFACE and VOLUME curves. */

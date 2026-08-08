@@ -54,6 +54,11 @@ import {
   stepShip,
   transformPolygon,
   wrapPositive,
+  appendWakeSample,
+  createShipWake,
+  createTorpWake,
+  pruneWake,
+  wakeCapacity,
   rollZoneRings,
   zoneGroups,
   zoneStateAt,
@@ -85,6 +90,7 @@ import {
   type ShipState,
   type StarShellsMode,
   type Vec2,
+  type WakeRibbon,
   type ZonePhase,
   type ZoneRing,
   type ZoneState,
@@ -305,6 +311,30 @@ export interface ShipRecord {
    * read by resolveCollisions in the same tick; never on the wire.
    */
   prevPose: ShipState;
+  /**
+   * THE WAKE RIBBON this hull is CURRENTLY laying (Story 4.12, amendments
+   * 194/200/205): the shared ring buffer of pose samples the per-observer
+   * wake scan discloses segment by segment. NOTE `prevPose` above is per-tick
+   * scratch and is NOT a history — this is the server's only pose history.
+   * THE RIBBON IS WATER, NOT A SHIP PROPERTY (amendment 200): it outlives its
+   * hull. This field only ever points at the ACTIVE ribbon; every life
+   * boundary that TELEPORTS the hull (respawn / redeployShip) — and
+   * removeShip — detaches the old ribbon into World.orphanWakes, where it
+   * keeps ageing out and keeps disclosing until pruneWake reports it spent
+   * (a detach at the teleport is mandatory for correctness, not just
+   * lifecycle hygiene: appendWakeSample chains consecutive samples, so a
+   * kept ribbon would draw a bogus death-point→spawn-point segment across
+   * the map). sinkShip deliberately does NOT detach: a wreck stops moving,
+   * so the attached ribbon simply stops growing and ages out in place while
+   * the record survives for the spectate/respawn window. Capacity is
+   * provisioned from the TRUE attainable top speed — effective kinematics
+   * maxSpeed + the boost speedBonus, via effectiveStats(), the sole
+   * derivation path — and re-provisioned by applyBoon when a speed card
+   * raises it (an under-provisioned ring silently drops the oldest tail).
+   * SERVER-PRIVATE: never on the wire — only gated per-segment coverage
+   * masks leave through the `wk` signal row.
+   */
+  wake: WakeRibbon;
   /**
    * THE DECK (Story 2.8, amendment 38): this player's card multiset — the
    * universal lines + carried-equipment subdecks + absent-equipment
@@ -555,6 +585,25 @@ export class World {
   /** All live decoy buoys (static points), in drop order — max one per owner
    *  (spawnDecoy evicts the owner's previous buoy) (Story 1.8). */
   readonly decoys = new Map<string, Decoy>();
+  /**
+   * LIVE TORPEDO wake ribbons, keyed by shell id (Story 4.12, amendment 196):
+   * a running torpedo (`ShellState.kind === 'torp'`) lays a one-cell-wide
+   * half-life ribbon sampled in stepShells. ShellState is a shared plain
+   * object with no pose history, so the ribbon lives in this parallel store
+   * rather than on the shell. When the fish is spent its ribbon moves to
+   * `orphanWakes` — the water outlives the weapon exactly as it outlives a
+   * hull (amendment 200). The torpedo ENTITY still never paints; only this
+   * water does (its `torp`/`torpU` gating is byte-identical).
+   */
+  readonly torpWakes = new Map<string, WakeRibbon>();
+  /**
+   * DETACHED wake ribbons still ageing out (Story 4.12, amendment 200): water
+   * whose source is gone — a respawned/redeployed/removed hull's old track, a
+   * spent torpedo's run. Pruned every tick (sampleWakes) and released the
+   * tick pruneWake reports zero live samples. Never grows unboundedly: each
+   * entry dies within its own lifeMs of its newest sample.
+   */
+  private readonly orphanWakes: WakeRibbon[] = [];
   readonly inputs = new InputStore();
   /** Drives drone hulls through the normal input path (see game/drones.ts). */
   readonly drones: DroneController;
@@ -836,6 +885,21 @@ export class World {
     return this.events;
   }
 
+  /**
+   * EVERY live wake ribbon — the wake scan's one subject list (Story 4.12):
+   * each ship's active ribbon (alive AND dead-in-place wrecks — amendment
+   * 200), every running torpedo's, and every detached ribbon still ageing
+   * out. Read per-observer by perception's SignalContext; fresh array per
+   * call (a handful of refs at 20Hz — the aliveHulls() allocation posture).
+   */
+  get wakeRibbons(): readonly WakeRibbon[] {
+    const out: WakeRibbon[] = [];
+    for (const ship of this.ships.values()) out.push(ship.wake);
+    for (const r of this.torpWakes.values()) out.push(r);
+    for (const r of this.orphanWakes) out.push(r);
+    return out;
+  }
+
   /** The last completed step's denied presses for ONE client — the only read
    *  path (frames.ts, for the frame's own client). Undefined = none. */
   denialsFor(id: string): readonly DeniedView[] | undefined {
@@ -876,6 +940,8 @@ export class World {
       cls,
       hullPoly: [],
       prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 },
+      // Wake ring provisioned from the TRUE attainable top speed (Story 4.12).
+      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: 0, prevSweepAngle: 0,
       // THE DECK (2.8): over the fresh fit; drones never get one (pinned).
       deck: isDrone ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
@@ -904,8 +970,6 @@ export class World {
       lastFireT: 0,
       respawnAt: 0,
       nextSmokeAt: 0,
-      sweepAngle: 0,
-      prevSweepAngle: 0,
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
@@ -939,8 +1003,12 @@ export class World {
     return out;
   }
 
-  /** Remove a ship entirely (client left). */
+  /** Remove a ship entirely (client left). Its wake is water, not a ship
+   *  property (Story 4.12, amendment 200): the ribbon detaches into the
+   *  orphan store and keeps disclosing until its water ages out. */
   removeShip(id: string): void {
+    const ship = this.ships.get(id);
+    if (ship !== undefined && pruneWake(ship.wake, this.now) > 0) this.orphanWakes.push(ship.wake);
     this.ships.delete(id);
     this.inputs.remove(id);
     this.drones.remove(id);
@@ -962,6 +1030,13 @@ export class World {
     this.pending = [];
     const placed: Vec2[] = [];
     for (const ship of this.ships.values()) this.redeployShip(ship, placed);
+    // Practice-field WATER never leaks into the real match either (Story 4.12
+    // — the mines/zones/buoys rule): redeployShip just detached every hull's
+    // practice ribbon into the orphan store, and the shells.clear() above
+    // stranded every torpedo ribbon. Wipe both — a fresh match starts on
+    // clean water. (Amendment 200 governs in-match death, not this boundary.)
+    this.torpWakes.clear();
+    this.orphanWakes.length = 0;
   }
 
   /** Fresh-match state for one hull: ring placement, full hp, full ammo pools.
@@ -1021,6 +1096,11 @@ export class World {
     ship.kills = 0;
     ship.deaths = 0;
     ship.damageDealt = 0;
+    // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
+    // a kept one would chain a bogus segment across the map — and start
+    // fresh, provisioned from the just-reset base stats. (resetForMatchStart
+    // wipes the detached practice water right after this loop.)
+    this.detachWake(ship);
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 
@@ -1184,6 +1264,9 @@ export class World {
     }
     this.reconcilePools(ship, prevStats);
     this.rescaleReloadTimers(ship, prevStats);
+    // A speed card raises the true attainable top speed the wake ring was
+    // provisioned for (Story 4.12) — upsize in place, live samples preserved.
+    this.reprovisionWake(ship);
     return swappedOut;
   }
 
@@ -1381,6 +1464,12 @@ export class World {
     this.applyInputs();
     this.stepShips(dt);
     this.resolveCollisions();
+    // Wake sampling (Story 4.12) hangs off the kinematics pass — DELIBERATELY
+    // after resolveCollisions, not inside stepShips: resolveShipPose can roll
+    // a candidate pose back off an island, and a wake sample must record the
+    // RESOLVED pose (water where the hull actually is), never a rolled-back
+    // candidate inside land. Torpedo ribbons sample in stepShells below.
+    this.sampleWakes();
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
@@ -1577,6 +1666,91 @@ export class World {
     }
   }
 
+  /** A hull's TRUE attainable top speed for wake-ring provisioning (Story
+   *  4.12): the effective kinematics cap plus the boost window's speedBonus —
+   *  both off effectiveStats(), the sole derivation path. Never raw CONFIG. */
+  private static wakeTopSpeed(stats: EffectiveStats): number {
+    return stats.kinematics.maxSpeed + stats.boost.speedBonus;
+  }
+
+  /**
+   * Per-tick wake upkeep (Story 4.12): every ALIVE hull records its resolved
+   * pose on the shared distance cadence (appendWakeSample drops non-finite
+   * samples and enforces the cadence itself — a stopped or dead hull simply
+   * lays nothing); every ribbon's expired tail is pruned; and DETACHED
+   * ribbons whose water is entirely gone are released (amendment 200: a wake
+   * outlives its source UNTIL its water ages out, not forever). Attached
+   * ribbons are never released — a ship's active ribbon empties and refills
+   * as it stops and gets under way.
+   */
+  private sampleWakes(): void {
+    for (const ship of this.ships.values()) {
+      pruneWake(ship.wake, this.now);
+      if (ship.alive) appendWakeSample(ship.wake, ship.state.x, ship.state.y, this.now);
+    }
+    for (const r of this.torpWakes.values()) pruneWake(r, this.now);
+    for (let i = this.orphanWakes.length - 1; i >= 0; i--) {
+      if (pruneWake(this.orphanWakes[i], this.now) === 0) this.orphanWakes.splice(i, 1);
+    }
+  }
+
+  /**
+   * Detach a hull's active ribbon into the orphan store and start a fresh one
+   * (Story 4.12) — called at every life boundary that TELEPORTS the hull
+   * (respawn / redeployShip) and at removeShip. Mandatory at a teleport:
+   * appendWakeSample chains consecutive samples, so a kept ribbon would draw
+   * a bogus death-point→spawn-point segment across the map. The old water
+   * keeps disclosing from orphanWakes until it ages out. An empty detached
+   * ribbon is dropped immediately (nothing to age out).
+   */
+  private detachWake(ship: ShipRecord): void {
+    if (pruneWake(ship.wake, this.now) > 0) this.orphanWakes.push(ship.wake);
+    ship.wake = createShipWake(ship.hullId, World.wakeTopSpeed(ship.stats));
+  }
+
+  /**
+   * Wake ring re-provisioning after a stats change (Story 4.12): a speed card
+   * (shipSpeed ×1.05/copy) raises the true attainable top speed, and wave 1's
+   * ring capacity derives from the speed provisioned at creation — an
+   * under-provisioned ring silently overwrites its oldest tail. When the new
+   * top speed needs more capacity, the live samples replay into a bigger
+   * fresh ring (stored samples already satisfy the cadence, so every append
+   * is accepted verbatim, timestamps preserved). Never shrinks.
+   */
+  private reprovisionWake(ship: ShipRecord): void {
+    const top = World.wakeTopSpeed(ship.stats);
+    if (wakeCapacity(top, ship.wake.lifeMs) <= ship.wake.cap) return;
+    const old = ship.wake;
+    const fresh = createShipWake(ship.hullId, top);
+    for (let n = 0; n < old.count; n++) {
+      const i = (old.head + n) % old.cap;
+      appendWakeSample(fresh, old.xs[i], old.ys[i], old.ts[i]);
+    }
+    ship.wake = fresh;
+  }
+
+  /** Record a running torpedo's wake sample (Story 4.12, amendment 196) —
+   *  called from stepShells for every live `kind === 'torp'` shell. The
+   *  ribbon is created lazily on the fish's first sampled tick. */
+  private sampleTorpWake(shell: ShellState): void {
+    let r = this.torpWakes.get(shell.id);
+    if (r === undefined) {
+      r = createTorpWake();
+      this.torpWakes.set(shell.id, r);
+    }
+    appendWakeSample(r, shell.x, shell.y, this.now);
+  }
+
+  /** A spent torpedo's ribbon moves to the orphan store (amendment 200: the
+   *  water outlives the weapon); an empty ribbon is dropped. No-op for gun
+   *  shells (they never enter torpWakes). */
+  private orphanTorpWake(id: string): void {
+    const r = this.torpWakes.get(id);
+    if (r === undefined) return;
+    this.torpWakes.delete(id);
+    if (pruneWake(r, this.now) > 0) this.orphanWakes.push(r);
+  }
+
   /**
    * Storm damage: every alive hull strictly outside the LIVE ring (Story 3.1:
    * offset-center, phase-interpolated — boundary-inclusive-SAFE) bleeds
@@ -1656,6 +1830,11 @@ export class World {
         dt,
         mapRadius: this.map.radius,
       });
+      // Torpedo wake sampling (Story 4.12): a RUNNING fish records its
+      // post-step pose on the shared cadence — including the tick it spends,
+      // so the ribbon reaches the detonation point. The torpedo ENTITY still
+      // never paints; only its water does (amendment 196).
+      if (shell.kind === 'torp') this.sampleTorpWake(shell);
       if (outcome.kind === 'travel') continue;
       // An AP shell that pierced but is NOT spent keeps flying (Story 2.8):
       // its hits resolve now, the projectile stays in flight for next tick.
@@ -1665,6 +1844,8 @@ export class World {
       }
       this.shells.delete(id);
       this.forgetBallistic(id);
+      // The spent fish's water outlives it (amendment 200) — detach, never drop.
+      this.orphanTorpWake(id);
       this.resolveShell(shell, outcome, hulls);
     }
   }
@@ -2754,6 +2935,12 @@ export class World {
     // derivation the client runs (slotsWithBoons ≡ loadoutFor at zero boons,
     // byte-identical).
     ship.loadout = slotsWithBoons(ship.hullId, ship.stats, ship.boonDefs);
+    // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
+    // life's water detaches into the orphan store — where it keeps disclosing
+    // and ageing out, a fading track with nothing attached — and the new life
+    // starts a fresh ribbon (a kept one would chain a bogus wreck→spawn
+    // segment across the map).
+    this.detachWake(ship);
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }

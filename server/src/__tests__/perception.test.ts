@@ -38,6 +38,7 @@ import {
   HEAL_CHOICE,
   HORN_IDS,
   bearing,
+  coverageHas,
   effectiveStats,
   hullSilhouette,
   mulberry32,
@@ -64,6 +65,8 @@ import {
   type SplashEvent,
   type SunkEvent,
   type TorpedoUpdateEvent,
+  type WakeBlipEvent,
+  type WakeRibbon,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -1170,6 +1173,107 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
   });
 });
 
+// ---------- Story 4.12: radar wakes (directed) --------------------------------
+
+describe('perception — radar wakes (Story 4.12, directed)', () => {
+  it('discloses exactly the swept annulus segments — and never in-sight water (the in-bubble ruling)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 900, 900); // its WATER, not its hull, is under test
+    // Pin the production-derived ribbon constants against LITERALS (the
+    // oracle-independence rule): a torpedo boat's water lives 12s and its
+    // turbulent core is its own 9u beam.
+    expect(b.wake.lifeMs).toBe(12_000);
+    expect(b.wake.widthU).toBe(9);
+    // A straight laid track along y=0 from x=200 (deep inside sight) out to
+    // 500 (annulus): 26 samples on the 12u cadence, ages spread over 11s.
+    injectWakeTrack(b.wake, 500, 0, 0, 26, w.now, 11_000);
+    windowAround(a, 0);
+    const f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f); // the completeness oracle: exactly the gated segments
+    const wks = f.events.filter((e): e is WakeBlipEvent => e.k === 'wk');
+    expect(wks.length).toBeGreaterThan(0);
+    // The track's age spread reaches the wire as more than one bucket.
+    expect(new Set(wks.map((e) => e.a)).size).toBeGreaterThan(1);
+    // In-bubble water never rides the row: no disclosed mask covers the cell
+    // containing (206, 0) — that stretch's segments all have midpoints
+    // inside the 330u sight bubble.
+    const cellX = Math.floor(206 / RCELL_U);
+    const cellY = Math.floor(0 / RCELL_U);
+    expect(wks.some((e) => coverageHas(e, cellX - e.gx, cellY - e.gy))).toBe(false);
+    // An unswept bearing discloses nothing at all.
+    windowAround(a, Math.PI);
+    expect(buildFrame(w, 'a').events.some((e) => e.k === 'wk')).toBe(false);
+  });
+
+  it('a track behind hard cover does not disclose; the same track over low terrain does (amendment 179 on water)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 900, 900);
+    injectWakeTrack(b.wake, 500, 0, 0, 6, w.now, 3_000); // 440..500 along y=0
+    windowAround(a, 0);
+    // Hard cover (q255 ≥ the q64 mast) across bearing 0 at 300u: the bearing
+    // is dark to the rim — the water is gated exactly as a hull is.
+    w.map.heightRaster = rasterFrom(700, ridgeField(300, 0, 40, 40));
+    expect(buildFrame(w, 'a').events.some((e) => e.k === 'wk')).toBe(false);
+    // The SAME geometry over a low q8 rise: soft cover with a residual reach
+    // past 500u, so the track paints — the deliberate disclosure widening a
+    // low island stopped hiding things behind it (Story 4.11).
+    w.map.heightRaster = rasterFrom(700, ridgeField(300, 0, 40, 40, 8));
+    const f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f);
+    expect(f.events.some((e) => e.k === 'wk')).toBe(true);
+  });
+
+  it("a wake outlives its ship, then the ship's record, and is reaped when the water is gone (amendment 200)", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 900, 900);
+    injectWakeTrack(b.wake, 500, 0, 0, 10, w.now, 2_000);
+    w.respawnEnabled = false; // active-phase policy: the dead stay dead
+    w.sinkShip('b');
+    w.step();
+    windowAround(a, 0);
+    let f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f);
+    expect(f.events.filter((e) => e.k === 'wk').length).toBeGreaterThan(0); // sunk: the water still paints
+    // The record itself leaves (client gone): the ribbon detaches into the
+    // orphan store and KEEPS disclosing — a fading track with nothing
+    // attached to it.
+    w.removeShip('b');
+    f = buildFrame(w, 'a');
+    expect(f.events.filter((e) => e.k === 'wk').length).toBeGreaterThan(0);
+    expect(w.wakeRibbons).toHaveLength(2); // a's active ribbon + b's orphaned water
+    // ...until the water ages out, at which point the orphan is REAPED.
+    for (let i = 0; i < Math.ceil(12_000 / DT) + 2; i++) w.step();
+    windowAround(a, 0);
+    expect(buildFrame(w, 'a').events.some((e) => e.k === 'wk')).toBe(false);
+    expect(w.wakeRibbons).toHaveLength(1); // only a's (empty) active ribbon remains
+  });
+
+  it("a torpedo's water paints while the fish itself stays silent beyond detect (amendment 196)", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    // A live fish at 500u — far beyond the 3/8 detect rung (247.5u): its
+    // torp row must stay byte-silent while the water behind it paints.
+    injectShell(w, 'fish', 'zz', 500, 6, 0, 400, false, 'torp');
+    // The torpedo ribbon's ruled constants as LITERALS: half a ship's life
+    // (6000ms), one 9u cell wide.
+    const tw: WakeRibbon = { xs: new Float64Array(20), ys: new Float64Array(20), ts: new Float64Array(20), cap: 20, head: 0, count: 0, lifeMs: 6_000, widthU: 9 };
+    injectWakeTrack(tw, 500, 6, 0, 8, w.now, 5_000); // 416..500 at y=6
+    w.torpWakes.set('fish', tw);
+    windowAround(a, 0.013, 0.03); // the wedge covering the ribbon's bearings
+    const f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f);
+    expect(f.events.some((e) => e.k === 'torp')).toBe(false); // the quiet weapon stays quiet
+    const wks = f.events.filter((e): e is WakeBlipEvent => e.k === 'wk');
+    expect(wks.length).toBeGreaterThan(0);
+    // The 6s clock quantizes the same track older than a ship's 12s clock
+    // would: the 5s-old tail reads bucket 3, the fresh head bucket 0.
+    expect(new Set(wks.map((e) => e.a)).size).toBeGreaterThan(1);
+  });
+});
+
 // ---------- THE INVARIANT (property-style over random worlds) ----------------
 
 /** Assert one frame leaks nothing beyond the observer's vision. */
@@ -1214,6 +1318,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const d of f.denied ?? []) verifyDenied(me, d);
   verifyBlipOrdering(w, f);
   verifyBlipCompleteness(w, me, f);
+  verifyWakeCompleteness(w, me, f);
 }
 
 /**
@@ -1801,8 +1906,229 @@ function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): 
   return emitted > 8 ? null : emitted;
 }
 
+// ---------- Story 4.12: the radar-wake oracle (independently re-derived) -----
+//
+// The `wk` row discloses a wake ribbon SEGMENT — water, not a ship — gated at
+// its MIDPOINT by the exact three blip clauses (annulus, this-tick paint
+// window, the height-aware shadow), with NO owned-zone term (water has no
+// contact tier to double into) and NO self-exclusion (your own wake paints —
+// amendment 204). Everything below re-derives the ribbon model from the
+// documented contract, never the production sim/wake.ts or the segment
+// rasterizer: segmentation of the RAW ring storage (consecutive finite
+// samples chain, the ribbon closes across a non-finite one), the
+// older-endpoint age rule with strict `age > life` expiry, the four-bucket
+// quarter-life quantization written as a LITERAL, and the whole segment-mask
+// geometry (capsule quad with square caps, centre-in-quad fill on the
+// test-local even-odd test, the quarter-cell centre-line walk with in-walk
+// diagonal bridging, the fixed-point bridge pass, LSB-first packing over the
+// UNCROPPED quad bbox — no fuzz: the wake deliberately skips the hull's
+// dilation+glint smear). The ribbon's STORAGE (xs/ys/ts ring, lifeMs,
+// widthU) is read as world state exactly as verifyBallistic reads a shell's
+// live x/y; the directed wake tests pin the production-derived lifeMs/widthU
+// values against literals (12000 / 6000; a hull's beam; one 9u cell) so a
+// wrong derivation cannot hide inside the state this oracle consumes.
+
+/** WAKE_AGE_BUCKETS as a literal (the oracle rule). */
+const WAKE_BUCKETS_LIT = 4;
+
+interface WakeSegOracle {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  mx: number;
+  my: number;
+  bucket: number;
+}
+
+/** The LIVE segments of one ribbon, re-derived from raw ring storage: walk
+ *  the ring oldest→newest, chain consecutive finite samples (closing across
+ *  any non-finite one), drop a segment whose OLDER endpoint's water is
+ *  strictly older than the ribbon's life, and quantize its age into the
+ *  four quarter-life buckets (boundary age lands in the OLDER bucket; the
+ *  last bucket clamps). */
+function wakeSegmentsOracle(r: WakeRibbon, now: number): WakeSegOracle[] {
+  const out: WakeSegOracle[] = [];
+  let prev = -1;
+  for (let n = 0; n < r.count; n++) {
+    const i = (r.head + n) % r.cap;
+    if (!Number.isFinite(r.xs[i]) || !Number.isFinite(r.ys[i]) || !Number.isFinite(r.ts[i])) continue;
+    if (prev >= 0) {
+      const age = now - r.ts[prev];
+      if (age <= r.lifeMs) {
+        const raw = Math.floor((Math.max(0, age) / r.lifeMs) * WAKE_BUCKETS_LIT);
+        out.push({
+          ax: r.xs[prev],
+          ay: r.ys[prev],
+          bx: r.xs[i],
+          by: r.ys[i],
+          mx: (r.xs[prev] + r.xs[i]) / 2,
+          my: (r.ys[prev] + r.ys[i]) / 2,
+          bucket: Math.min(raw, WAKE_BUCKETS_LIT - 1),
+        });
+      }
+    }
+    prev = i;
+  }
+  return out;
+}
+
+/** The per-segment wake gate, reimplemented test-locally: the three blip
+ *  clauses at the segment midpoint — annulus (sight exclusion INCLUDED: the
+ *  in-bubble ruling), this-tick paint window, the shadow march — with NO
+ *  zone term and NO self term (deliberate; see the oracle header). */
+function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle): boolean {
+  const mid = { x: seg.mx, y: seg.my };
+  const d = dist(me.state, mid);
+  return (
+    d > effSight(me, w.now) &&
+    d <= effRadar(me) &&
+    inPaintWindow(me, bearing(me.state, mid)) &&
+    shadowVisible(w, me, mid)
+  );
+}
+
+/** Test-local SEGMENT mask oracle (the maskOracle sibling, re-derived from
+ *  the documented rasterizeSegmentCoverage contract): capsule quad with
+ *  square caps (endpoints extended halfW along the axis, ±halfW along the
+ *  normal; a zero-length segment's axis degenerates to +x), the quad's
+ *  UNCROPPED cell bbox as the rect, centre-in-quad fill (even-odd), the
+ *  quarter-cell centre-line walk with in-walk diagonal bridging, the
+ *  fixed-point diagonal bridge pass, LSB-first packing. NO fuzz stage. */
+function wakeMaskOracle(ax: number, ay: number, bx: number, by: number, widthU: number): MaskOracle {
+  const dx = bx - ax;
+  const dy = by - ay;
+  // sqrt(dx²+dy²), NOT Math.hypot: the documented axis derivation — a
+  // last-ulp divergence here could flip a quad corner across a cell boundary
+  // (the shadowVisible oracle's bit-identity discipline).
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const ux = len > 0 ? dx / len : 1;
+  const uy = len > 0 ? dy / len : 0;
+  const hw = Number.isFinite(widthU) && widthU > 0 ? widthU / 2 : 0;
+  const quad = [
+    { x: ax - ux * hw - uy * hw, y: ay - uy * hw + ux * hw },
+    { x: bx + ux * hw - uy * hw, y: by + uy * hw + ux * hw },
+    { x: bx + ux * hw + uy * hw, y: by + uy * hw - ux * hw },
+    { x: ax - ux * hw + uy * hw, y: ay - uy * hw - ux * hw },
+  ];
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  const gx = Math.floor(Math.min(...xs) / RCELL_U);
+  const gy = Math.floor(Math.min(...ys) / RCELL_U);
+  const cw = Math.floor(Math.max(...xs) / RCELL_U) - gx + 1;
+  const ch = Math.floor(Math.max(...ys) / RCELL_U) - gy + 1;
+  const grid = new Uint8Array(cw * ch);
+  const mark = (col: number, row: number): void => {
+    if (col >= 0 && row >= 0 && col < cw && row < ch) grid[row * cw + col] = 1;
+  };
+  if (hw > 0) {
+    for (let row = 0; row < ch; row++) {
+      for (let col = 0; col < cw; col++) {
+        if (inPolyOracle((gx + col + 0.5) * RCELL_U, (gy + row + 0.5) * RCELL_U, quad)) grid[row * cw + col] = 1;
+      }
+    }
+  }
+  const steps = Math.max(1, Math.ceil((Math.max(Math.abs(dx), Math.abs(dy)) / RCELL_U) * 4));
+  let pcol = Math.floor(ax / RCELL_U) - gx;
+  let prow = Math.floor(ay / RCELL_U) - gy;
+  mark(pcol, prow);
+  for (let i = 1; i <= steps; i++) {
+    const col = Math.floor((ax + (dx * i) / steps) / RCELL_U) - gx;
+    const row = Math.floor((ay + (dy * i) / steps) / RCELL_U) - gy;
+    if (col !== pcol && row !== prow) mark(pcol, row); // in-walk corner bridge
+    mark(col, row);
+    pcol = col;
+    prow = row;
+  }
+  bridgeOracle(grid, cw, ch); // the same fixed-point rule, reused test-locally
+  const bits = new Array<number>(Math.ceil((cw * ch) / 32)).fill(0);
+  for (let i = 0; i < cw * ch; i++) {
+    if (grid[i] === 1) bits[i >>> 5] |= 1 << (i & 31);
+  }
+  return { gx, gy, w: cw, h: ch, bits };
+}
+
+/** True iff `ev` is justified by SOME live ribbon segment: gated for this
+ *  observer, same age bucket, and EXACTLY the oracle's mask (two-sided —
+ *  every wire bit earned, every earned bit on the wire). */
+function wakeMatchesSegment(w: World, me: ShipRecord, ev: WakeBlipEvent): boolean {
+  for (const ribbon of w.wakeRibbons) {
+    for (const seg of wakeSegmentsOracle(ribbon, w.now)) {
+      if (seg.bucket !== ev.a || !wakeDisclosed(w, me, seg)) continue;
+      if (maskEquals(wakeMaskOracle(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU), ev as unknown as ReturnBlipEvent)) return true;
+    }
+  }
+  return false;
+}
+
+/** The exact `wk` key set (amendment 194: geometry + age bucket and NOTHING
+ *  else), plus the by-name forbidden identity/pose channels. */
+const WAKE_KEYS = ['a', 'bits', 'gx', 'gy', 'h', 'k', 't', 'w'];
+const WAKE_FORBIDDEN_KEYS = ['id', 'x', 'y', 'cls', 'heading', 'speed', 'own', 'by', 'ext'];
+
+function verifyWake(w: World, me: ShipRecord, e: GameEvent): void {
+  const ev = e as WakeBlipEvent;
+  expect(Object.keys(ev).sort()).toEqual(WAKE_KEYS);
+  for (const forbidden of WAKE_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
+  expect(ev.t).toBe(w.now);
+  expect(Number.isInteger(ev.a)).toBe(true);
+  expect(ev.a).toBeGreaterThanOrEqual(0);
+  expect(ev.a).toBeLessThan(WAKE_BUCKETS_LIT);
+  expect(wakeMatchesSegment(w, me, ev), 'wk event justified by a gated live segment').toBe(true);
+}
+
+/**
+ * THE WAKE COMPLETENESS ORACLE (the verifyBlipCompleteness spirit, demanded
+ * by amendment 40 / amendment 159's clause l): an upper-bound-only oracle
+ * cannot detect the channel getting SMALLER, so every frame must carry
+ * EXACTLY one `wk` event per gated live segment — each gated segment's
+ * expected mask + bucket present, and the total count equal, so nothing is
+ * missing, duplicated, or fabricated. This also binds the production
+ * broadphase (sweepMayCrossWake): an over-eager cull drops a gated segment
+ * and fails HERE.
+ */
+function verifyWakeCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
+  if (!me.alive) return;
+  const wks = f.events.filter((e): e is WakeBlipEvent => e.k === 'wk');
+  let gated = 0;
+  for (const ribbon of w.wakeRibbons) {
+    for (const seg of wakeSegmentsOracle(ribbon, w.now)) {
+      if (!wakeDisclosed(w, me, seg)) continue;
+      gated++;
+      const expected = wakeMaskOracle(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU);
+      expect(
+        wks.some((b) => b.a === seg.bucket && maskEquals(expected, b as unknown as ReturnBlipEvent)),
+        `gated wake segment (${seg.ax},${seg.ay})→(${seg.bx},${seg.by}) accounted for`,
+      ).toBe(true);
+    }
+  }
+  expect(wks.length, 'exactly one wk event per gated wake segment').toBe(gated);
+}
+
+/** Write a synthetic laid track STRAIGHT into a ribbon's raw ring storage
+ *  (the injectShell posture — world state, never production sampling): `n`
+ *  samples on the 12u cadence marching TO (x, y) along `heading`, ages
+ *  spread evenly across the newest `spanMs` (oldest first — ring order is
+ *  time order), so every age bucket gets exercised. */
+function injectWakeTrack(r: WakeRibbon, x: number, y: number, heading: number, n: number, now: number, spanMs: number): void {
+  const c = Math.cos(heading);
+  const s = Math.sin(heading);
+  for (let k = 0; k < n; k++) {
+    const back = (n - 1 - k) * 12;
+    r.xs[k] = x - c * back;
+    r.ys[k] = y - s * back;
+    r.ts[k] = now - (spanMs * (n - 1 - k)) / Math.max(1, n - 1);
+  }
+  r.head = 0;
+  r.count = n;
+}
+
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   blip: verifyBlip,
+  // Story 4.12: radar wakes — NOT a declared fog exception (the exact three
+  // blip clauses, per segment); the oracle above re-derives ribbon geometry,
+  // gate, and mask from the documented contract.
+  wk: verifyWake,
   shell: verifyBallistic,
   torp: verifyBallistic,
   boom: verifyBoom,
@@ -1970,6 +2296,7 @@ const MODE_COMBOS: [string, WorldOptions][] = [
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it.each(MODE_COMBOS)('no frame ever references anything outside sight ∪ this-tick paints [%s]', (_label, modeOpts) => {
     const rng = mulberry32(0x5eed_f0f0);
+    let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     for (let world = 0; world < 20; world++) {
       const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone, modeOpts);
       const ids: string[] = [];
@@ -1994,6 +2321,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         rec.boons = intel;
         rec.boonDefs = resolveBoons(intel);
         rec.stats = effectiveStats(rec.cls, rec.boonDefs);
+        // RADAR WAKES (Story 4.12): guarantee the wk oracle is EXERCISED, not
+        // vacuous — most hulls start with a laid track ending at their stern
+        // (raw ring injection, ages spread across the 12s life so all four
+        // buckets fuzz), on a random bearing so segments land inside and
+        // outside sight, the annulus, paint windows, and terrain shadow.
+        if (rng.float(0, 1) < 0.7) {
+          injectWakeTrack(rec.wake, rec.state.x, rec.state.y, rng.float(0, TAU), rng.int(3, 24), w.now, 11_000);
+        }
       }
       // WOUNDED SMOKE (Story 4.4): guarantee the sm oracle is EXERCISED, not
       // vacuous — two hulls start wounded, one in each band, so every world
@@ -2038,6 +2373,19 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const ang = rng.float(0, TAU);
         const r = rng.float(0, w.map.radius * 0.9);
         injectDecoy(w, `decoy${d}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
+      }
+      // Synthetic TORPEDO ribbons (Story 4.12, amendment 196): half-life
+      // (6000ms) one-cell (9u) water keyed into the live torpWakes store — the
+      // wake scan treats torpedo water exactly as ship water, and the fuzz
+      // must prove the oracle holds for it (the fish entity itself is covered
+      // by the untouched torp/torpU rows).
+      for (let t = 0; t < rng.int(0, 2); t++) {
+        const cap = 40;
+        const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 6_000, widthU: 9 };
+        const ang = rng.float(0, TAU);
+        const rr = rng.float(0, w.map.radius * 0.9);
+        injectWakeTrack(tw, Math.cos(ang) * rr, Math.sin(ang) * rr, rng.float(0, TAU), rng.int(2, 12), w.now, 5_000);
+        w.torpWakes.set(`tw${t}`, tw);
       }
       for (let tick = 1; tick <= 6; tick++) {
         for (const id of ids) {
@@ -2085,9 +2433,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         }
         w.step();
         // Build each observer's frame exactly once per tick (wire semantics).
-        for (const id of ids) verifyFrame(w, id, buildFrame(w, id));
+        for (const id of ids) {
+          const f = buildFrame(w, id);
+          wkSeen += f.events.filter((e) => e.k === 'wk').length;
+          verifyFrame(w, id, f);
+        }
       }
     }
+    // The wake oracle must have been EXERCISED (amendment 40's vacuity rule):
+    // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero
+    // disclosed segments would mean the channel silently died.
+    expect(wkSeen).toBeGreaterThan(0);
   });
 });
 
@@ -2104,18 +2460,19 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 17 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // The 18 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
   // CONTROL strip brought 'heal' BACK, on stricter no-severity terms; Story
   // 4.4 added the anonymous wounded-smoke row 'sm'; Story 4.5 added the
-  // bearing-only foghorn row 'fh').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh'];
+  // bearing-only foghorn row 'fh'; Story 4.12 added the identity-free radar
+  // wake row 'wk').
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 21 expected channel keys (17 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 22 expected channel keys (18 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

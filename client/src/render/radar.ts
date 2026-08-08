@@ -139,6 +139,7 @@ import type { Container } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
+  hullEnvelope,
   hullSilhouette,
   mapRadius,
   polygonMaxRadius,
@@ -153,6 +154,8 @@ import {
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
   type Vec2,
+  type WakeBlipEvent,
+  WAKE_AGE_BUCKETS,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { ContactStore } from '../net/snapshots.js';
@@ -178,14 +181,20 @@ import {
 import {
   buildField,
   buildShipStamp,
+  buildWakeStamp,
+  chopHaloCells,
   coverageCentre,
+  hullSample,
   shipOnlyField,
   stampCoverage,
+  wakeOnlyField,
+  type CellStamp,
   type EchoHull,
   type ShipStamp,
+  type WakeSegmentCover,
 } from './radarField.js';
-import { echoArc, marchSlice, planMarch, type MarchSlice } from './radarMarch.js';
-import type { StormRing } from './radarSources.js';
+import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './radarMarch.js';
+import { wakeLitFloor, type StormRing } from './radarSources.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
 export type { HueFor };
@@ -267,6 +276,17 @@ interface PendingEcho {
   t: number;
 }
 
+/** A `wk` wake segment waiting on an own pose, exactly as `PendingEcho` is —
+ *  same park, same reason (intensity is frozen at resolve, so a guessed
+ *  observer would be wrong for the paint's whole life). It carries the mask,
+ *  the water-age bucket and the paint time, which is the whole wire row. */
+interface PendingWake {
+  cov: HullCoverage;
+  /** Quantized water-age bucket (`WakeBlipEvent.a`). */
+  a: number;
+  t: number;
+}
+
 interface OwnPoint {
   x: number;
   y: number;
@@ -343,6 +363,11 @@ export class Radar {
   private readonly paints: MarchSlice[] = [];
   /** Echoes waiting for a real own pose before their geometry can be resolved. */
   private readonly pending: PendingEcho[] = [];
+  /** Wake segments waiting on the same thing (Story 4.12). A SEPARATE park
+   *  rather than a tagged union in `pending`: the two resolve differently (one
+   *  slice per hull echo, one MERGED slice per server tick of wake) and a
+   *  flood of one must not evict the other's history. */
+  private readonly pendingWake: PendingWake[] = [];
   /** Where the NEXT slice's arc begins — the bearing the beam has been marched up
    *  to. Slices are emitted per fixed angular quantum, so this lags the live beam
    *  by up to one quantum and never by a frame's worth of anything: the list is a
@@ -778,7 +803,7 @@ export class Radar {
   private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const stamp: ShipStamp = new Map();
-    stampCoverage(stamp, e.cov, cfg.model);
+    stampCoverage(stamp, e.cov, hullSample(cfg.model));
     const c = coverageCentre(e.cov, cfg.cellU);
     // The footprint's own reach: half its rect diagonal covers every covered
     // cell at any orientation — echoArc turns it into the bearing window and
@@ -796,6 +821,119 @@ export class Radar {
       cfg,
       // The radial slab the footprint lives in — a compute bound, so the ray
       // does not walk the whole scope to find one hull.
+      { fromU: arc.dist - pad, toU: arc.dist + pad },
+    );
+  }
+
+  /**
+   * A WAKE SEGMENT ARRIVED (Story 4.12, amendments 194-206) — one stretch of
+   * disturbed water the observer's own sweep crossed this tick.
+   *
+   * IT MIRRORS `addReturnPaint` DELIBERATELY, down to the validator and the
+   * capped park, because it is the same kind of thing: a world-anchored coverage
+   * mask on the shared lattice, already sweep-gated by the SERVER's beam (the
+   * same three clauses `blipGate` enforces — annulus, swept-this-tick, and
+   * amendment 179's shadow accumulator, applied PER SEGMENT), which the client
+   * prices through its own intensity model. It is NOT a declared exception to
+   * the master perception invariant; what is new is only that the subject is
+   * water rather than a ship.
+   *
+   * IT DOES NOT RESOLVE ON ARRIVAL, and that is the ONE place it deliberately
+   * differs from `addReturnPaint`. A ribbon discloses PER SEGMENT, so a tick
+   * delivers a batch of rows in one message; resolving each on arrival would
+   * enroll a slice apiece (see `resolvePendingWake` for why that breaks the slice
+   * cap). The park is drained on the next frame instead — at most ~16ms later,
+   * against a ~12s phosphor life — and the row is still never held for the LOCAL
+   * beam, which is the property that actually matters.
+   *
+   * THE PAYLOAD IS VALIDATED BEFORE ANYTHING TOUCHES IT, exactly as the cycle-63
+   * gate hardened the echo path: `w`/`h` bound two loops, `bits` sizes an array,
+   * `a` indexes an intensity ladder, and an unbounded future `t` is a
+   * full-brightness paint that never decays or prunes. A malformed row is
+   * dropped WHOLE — never clamped into something half-drawable.
+   */
+  onWakeBlip(e: WakeBlipEvent): void {
+    if (!validWake(e, this.maxPaintT)) return;
+    this.pendingWake.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, a: e.a, t: e.t });
+    // Same ceiling and the same eviction order as the echo park, for the same
+    // reason: paints arrive on network cadence while own pose can stay null
+    // indefinitely, and the oldest parked segment is the stalest water anyway.
+    if (this.pendingWake.length > MAX_LIVE_BLIPS) this.pendingWake.shift();
+  }
+
+  /**
+   * Turn every parked wake segment into paint, ONCE an own pose exists.
+   *
+   * SEGMENTS FROM ONE SERVER TICK BECOME ONE SLICE, and that is a real
+   * requirement rather than an optimization. A ribbon discloses per SEGMENT (a
+   * 540u track spans far too many bearings for one centre predicate), so a busy
+   * room produces roughly an order of magnitude more wake rows than hull echoes;
+   * one slice apiece would push the live list past `maxSlices()` and turn a
+   * RUNAWAY BACKSTOP into a trim that silently eats legitimate history — the
+   * exact coupling the cap's own comment warns about. Merging by paint time is
+   * lossless: every segment in a tick shares one `t`, so one record carries them
+   * at one age with no arbitration changed.
+   *
+   * Each segment still marches its OWN narrow bearing window (the union of a
+   * roomful of tracks would be most of the circle), so nothing about what a cell
+   * reads depends on the batching.
+   */
+  private resolvePendingWake(): void {
+    const own = this.own;
+    if (own === null || this.pendingWake.length === 0) return;
+    if (this.aground(own)) {
+      this.pendingWake.length = 0; // an aground set makes no paints, from any source
+      return;
+    }
+    const byTick = new Map<number, MarchSlice[]>();
+    for (const e of this.pendingWake) {
+      const slice = this.marchWake(own, e);
+      if (slice === null) continue;
+      const at = byTick.get(e.t);
+      if (at === undefined) byTick.set(e.t, [slice]);
+      else at.push(slice);
+    }
+    this.pendingWake.length = 0;
+    for (const group of byTick.values()) {
+      const merged = mergeSlices(group);
+      if (merged !== null) this.enrollSlice(merged);
+    }
+  }
+
+  /**
+   * March ONE disclosed wake segment through the wake-only field.
+   *
+   * IT IS `marchEcho`'s SIBLING AND SHARES ITS RULES: the mask is the wire's
+   * verbatim (the server rasterized it onto the same lattice with the same
+   * `rasterizeSegmentCoverage`, so its cells are absolute world cells), the
+   * client adds only the intensity model, the bound covers the segment's own
+   * range rather than merely the live scope, and the ray's illuminated fraction
+   * ATTENUATES what it finds without ever suppressing it (`disclosed: true`,
+   * amendment 190).
+   *
+   * THE CHOP HALO IS SYNTHESIZED HERE, at paint creation, and frozen with the
+   * paint (amendments 83 + 202). It carries no information — it is the wake's own
+   * lateral spread at the Kelvin envelope, drawn in sea clutter's coefficient —
+   * so it must not cost wire and must not create a disclosure surface. The march
+   * window is widened by the halo so the outer speckle is actually walked.
+   */
+  private marchWake(own: OwnPoint, e: PendingWake): MarchSlice | null {
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    const segs: WakeSegmentCover[] = [{ cov: e.cov, a: e.a }];
+    const stamp: CellStamp = buildWakeStamp(segs, cfg.model, wakeLitFloor(cfg.model));
+    const c = coverageCentre(e.cov, cfg.cellU);
+    const halo = chopHaloCells(e.cov, e.a) * cfg.cellU;
+    const arc = echoArc(own, c.x, c.y, Math.hypot(e.cov.w, e.cov.h) * cfg.cellU + 2 * halo);
+    const pad = arc.reach + 2 * cfg.cellU;
+    const reach = Math.max(this.radarRange, arc.dist + pad);
+    return marchSlice(
+      own,
+      arc.centre - arc.half,
+      arc.centre + arc.half,
+      wakeOnlyField(stamp, cfg.cellU, this.heightRaster),
+      reach,
+      e.t,
+      cfg,
       { fromU: arc.dist - pad, toU: arc.dist + pad },
     );
   }
@@ -877,6 +1015,7 @@ export class Radar {
     this.blips.length = 0;
     this.paints.length = 0;
     this.pending.length = 0;
+    this.pendingWake.length = 0;
     this.sliceFrom = null;
     this.hideHeat();
   }
@@ -931,6 +1070,7 @@ export class Radar {
     zone: ZoneLike | null,
   ): void {
     this.resolvePending();
+    this.resolvePendingWake();
     if (own !== null && rot !== null) this.marchBeam(own, rot, serverNow, contacts, zone);
     this.pruneSlices(serverNow);
     this.paintHeat(own, serverNow);
@@ -1293,6 +1433,56 @@ function validRect(e: ReturnBlipEvent): boolean {
   if (e.w < 1 || e.h < 1 || e.w > MAX_COVERAGE_SPAN || e.h > MAX_COVERAGE_SPAN) return false;
   return Array.isArray(e.bits) && e.bits.length === Math.ceil((e.w * e.h) / 32);
 }
+
+/**
+ * Structural gate on a `wk` WAKE SEGMENT (Story 4.12) — the same posture as
+ * `validCoverage`, which is the point: a wake row is the same world-anchored
+ * cell-rect + packed-mask shape, arriving through the same door, and a scalar
+ * off the network that bounds a loop is finiteness-checked here exactly as it is
+ * there (the cycle-62 `radarRange = Infinity` lesson, and the cycle-63 gate's
+ * hardening of the echo path).
+ *
+ * TWO THINGS DIFFER FROM A HULL MASK, both because a ribbon is not a hull:
+ *
+ *   • THE SPAN BOUND IS DERIVED FROM THE RIBBON, NOT FROM THE LONGEST HULL. A
+ *     segment is one sample cadence long and at most a hull's beam wide, plus
+ *     the chop halo the client itself will lay around it — so the bound is
+ *     computed from `CONFIG.vision.wakeSampleU` and the widest beam in the
+ *     registry rather than reusing `MAX_COVERAGE_SPAN` (which is sized for a
+ *     124u hull plus fuzz and would wave through a mask an order of magnitude
+ *     too big). Never a literal: retune the cadence or the lattice and it moves.
+ *   • THE AGE BUCKET IS AN INDEX AND IS BOUNDED AS ONE. `a` selects an intensity
+ *     scale; out of range it would either read past the ladder or, non-finite,
+ *     put a NaN into `writeCell` — which under max-wins compares false against
+ *     every later paint and silently wins nothing.
+ */
+function validWake(e: WakeBlipEvent, tMax: number): boolean {
+  if (!Number.isFinite(e.t) || e.t > tMax) return false;
+  if (![e.gx, e.gy, e.w, e.h, e.a].every(Number.isInteger)) return false;
+  if (e.a < 0 || e.a >= WAKE_AGE_BUCKETS) return false;
+  if (Math.abs(e.gx) > MAX_CELL_INDEX || Math.abs(e.gy) > MAX_CELL_INDEX) return false;
+  return validWakeRect(e);
+}
+
+/** The rect half of `validWake`: a ribbon-sized span, bits sized exactly to it. */
+function validWakeRect(e: WakeBlipEvent): boolean {
+  if (e.w < 1 || e.h < 1 || e.w > MAX_WAKE_SPAN || e.h > MAX_WAKE_SPAN) return false;
+  return Array.isArray(e.bits) && e.bits.length === Math.ceil((e.w * e.h) / 32);
+}
+
+/**
+ * The widest coverage rect a legitimate WAKE SEGMENT can need, in cells —
+ * DERIVED, for the same reason `MAX_COVERAGE_SPAN` is (a literal silently breaks
+ * the moment the lattice or the cadence is retuned, and the validator would then
+ * drop every real ribbon and wakes would simply vanish). The derivation: one
+ * sample cadence of track, plus the widest turbulent core in the registry (a
+ * hull's beam), plus a cell of lattice phase, doubled as structural slack.
+ */
+const MAX_WAKE_SPAN = ((): number => {
+  let beam: number = CONFIG.vision.radarCellU; // a torpedo's core is exactly one cell
+  for (const id of HULL_IDS) beam = Math.max(beam, hullEnvelope(id).hull.beam);
+  return 2 * (Math.ceil((CONFIG.vision.wakeSampleU + beam) / CONFIG.vision.radarCellU) + 1);
+})();
 
 /** Structural gate on a `silhouette` wire blip (cycle-63 review gate: the
  *  return branch was hardened and this one was left raw, so a malformed

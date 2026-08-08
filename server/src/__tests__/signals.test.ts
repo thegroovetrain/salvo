@@ -48,7 +48,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, me,
+    litZones: w.litZones, decoys: w.decoys, me, wakes: w.wakeRibbons,
     radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
   };
 }
@@ -57,7 +57,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, me: undefined,
+    litZones: w.litZones, decoys: w.decoys, me: undefined, wakes: w.wakeRibbons,
     radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
   };
 }
@@ -123,14 +123,18 @@ const REGISTRY_KEYS = [
   // Story 4.5 — the foghorn, the sixth declared fog exception (bearing + a
   // 1..8 volume band as of Story 4.9; islands muffle to max(5, band + 2)).
   'fh',
+  // Story 4.12 — radar wakes: disturbed water disclosed segment by segment
+  // through the exact three blipGate clauses (NOT a declared fog exception;
+  // identity-free {k,t,a,gx,gy,w,h,bits} coverage masks).
+  'wk',
 ];
 
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 21 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added)', () => {
+  it('has exactly the 22 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
@@ -196,6 +200,41 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(ctx, torp)).toBe(true);
     const wire = row.materialize(ctx, torp);
     expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't']);
+  });
+
+  it('wk row (Story 4.12): [k,t,a,gx,gy,w,h,bits] — the ReturnBlipEvent order with the age bucket after t, and NO identity key of any kind', () => {
+    const w = bareWorld();
+    const me = place(w, 'a', 0, 0);
+    me.prevSweepAngle = wrapPositive(-0.02);
+    me.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
+    // A 12u segment at 500u dead ahead — inside the annulus, on the swept
+    // bearing, open flat water (bareWorld flattens the raster).
+    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 2, widthU: 9 };
+    const row = signalFor('wk')!;
+    const ctx = foggedCtx(w, me);
+    expect(row.visible(ctx, seg)).toBe(true);
+    const wire = row.materialize(ctx, seg) as Record<string, unknown>;
+    expect(Object.keys(wire)).toEqual(['k', 't', 'a', 'gx', 'gy', 'w', 'h', 'bits']);
+    expect(wire.t).toBe(w.now);
+    expect(wire.a).toBe(2); // the quantized water-age bucket rides verbatim
+  });
+
+  it('wk row fails closed: spectators (no radar), the sight bubble, an unswept bearing, and a world-emitted wire shape (no `ax`)', () => {
+    const w = bareWorld();
+    const me = place(w, 'a', 0, 0);
+    me.prevSweepAngle = wrapPositive(-0.02);
+    me.sweepAngle = wrapPositive(0.02);
+    const row = signalFor('wk')!;
+    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 0, widthU: 9 };
+    expect(row.visible(specCtx(w), seg)).toBe(false); // spectators have no radar
+    // Inside the sight bubble: the annulus' sight exclusion is inherited from
+    // blipGate verbatim (the row's documented in-bubble ruling).
+    expect(row.visible(foggedCtx(w, me), { ...seg, x: 200, ax: 194, bx: 206 })).toBe(false);
+    // Off the swept bearing (bearing π, window around 0).
+    expect(row.visible(foggedCtx(w, me), { ...seg, x: -500, ax: -506, bx: -494 })).toBe(false);
+    // A fabricated world-emitted `wk` WIRE event has no `ax` — dropped.
+    const wireShaped = { k: 'wk', t: w.now, a: 0, gx: 55, gy: 0, w: 2, h: 1, bits: [3] };
+    expect(row.visible(foggedCtx(w, me), wireShaped as never)).toBe(false);
   });
 
   it('mine row: [id,x,y,own,by] — `by` (dropper id) appended LAST (Story 1.12)', () => {

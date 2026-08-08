@@ -4,7 +4,15 @@
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
 import { CONFIG } from '@salvo/shared';
-import { fitPointRef } from './render/radarFalloff.js';
+import {
+  SURFACE,
+  fitGrainScale,
+  fitMaterialRef,
+  fitPointRef,
+  noiseAmplitude,
+  worstDrawIntensity,
+  type NoiseEnvelope,
+} from './render/radarFalloff.js';
 
 /**
  * Design tokens (Story 1.11) — the single styling source. Colors are authored as
@@ -275,6 +283,26 @@ const TYPE = {
  *  exactly at 7/8 intel range. Stated once, used twice. */
 const HEAT_RED_AT = 0.7;
 
+/** The TRANSPARENCY threshold: `bands[0].at`. Below it a cell draws nothing at
+ *  all, which makes it the rail every weak material is calibrated against —
+ *  hoisted out of the band table by Story 4.12 so the wake corridor can be
+ *  DERIVED from it rather than restating it. */
+const HEAT_GREEN_AT = 0.12;
+
+/** The floor on a hull's intensity (`model.minPeak`, amendment 127) — hoisted
+ *  for the same reason: the wake's ceiling is this material's WORST DRAW, and
+ *  the two must move together. */
+const HEAT_MIN_PEAK = 0.2;
+
+/** Asymptotic floor shared by the SURFACE and VOLUME curves — hoisted so the
+ *  wake's reach fit and `model.floor` cannot state it twice and drift. */
+const HEAT_SURFACE_FLOOR = 0.05;
+
+/** The SNR envelope (amendment 143), stated once. `model` reads it to derive
+ *  the wake corridor, `noise` publishes it, and every bound test proves against
+ *  a re-implementation of it rather than against this object. */
+const HEAT_NOISE: NoiseEnvelope = { amount: 0.45, solidAt: HEAT_RED_AT };
+
 /**
  * Asymptotic floor of the POINT (1/d^4) curve — LOWERED 0.45 -> 0.02 by this
  * story, and the reason is arithmetic, not taste.
@@ -349,6 +377,119 @@ const HEAT_POINT_REF = fitPointRef({
   band: HEAT_RED_AT,
   coef: 1, // steel is the coefficient table's 1.0 anchor
   floor: HEAT_SHIP_ATTEN_FLOOR,
+});
+
+// --- THE WAKE CORRIDOR (Story 4.12, amendments 198 + 203) -----------------------
+//
+// A WAKE IS A NEW MATERIAL, NEVER A NEW CATEGORY AND NEVER A NEW COLOUR. It is
+// green, at the same `bandAlpha` every other register draws at; `HeatBand` still
+// has no alpha member and `quantizeInto` still takes one scalar. What separates a
+// track from the speckle around it is CONTINUITY, not strength (amendment 198,
+// Eric's ruling against a bound he has now declined twice): chop lights a
+// scattered MINORITY of its cells while a wake lights essentially ALL of its own,
+// so the player picks a coherent LINE out of random dots.
+//
+// THAT IS AN ARITHMETIC REQUIREMENT AND IT DOES NOT HOLD AT AMBIENT GRAIN. It
+// squeezes the material between two rails that are only 13% apart:
+//
+//   • the LOWER rail — every draw must clear `bands[0].at`, or the line breaks up
+//     into dots and stops being a line at all;
+//   • the UPPER rail — no draw may outrank the FAINTEST LEGITIMATE ECHO's own
+//     worst draw (`minPeak × (1 − a)`), which is clutter's ratified third bound
+//     applied to the material that shares a sweep with a hull's own weakest cell.
+//
+// Under the shipped envelope those two need an amplitude below ~6.1%, and the
+// ambient amplitude down here is ~33%. So THE WAKE CARRIES REDUCED GRAIN — and
+// the justification is physical rather than a fudge: grain models the
+// scintillation of INCOHERENT SCATTER, and a ship's track is an organized,
+// persistent surface feature with a definite boundary, not random capillary
+// roughness. See `noiseAmplitude`'s own comment.
+//
+// EVERY NUMBER BELOW IS SOLVED FROM THE SHIPPED CONSTANTS, NOT TYPED IN
+// (amendment 172: a provisional figure acquires authority by being cited, so the
+// indicative ones in amendment 203 are deliberately not written down anywhere).
+// Retune `bands[0].at`, `minPeak` or the envelope and the whole corridor —
+// coefficient, grain and reach — moves with them.
+
+/** Upper rail: the unluckiest draw of the faintest legitimate echo. */
+const HEAT_WAKE_HI = HEAT_MIN_PEAK * (1 - noiseAmplitude(HEAT_MIN_PEAK, HEAT_NOISE));
+
+/**
+ * THE WAKE COEFFICIENT — the MIDPOINT of the corridor, which is not a taste
+ * choice: at the midpoint the two rails are equidistant in RELATIVE terms
+ * ((hi − c)/c = (c − lo)/c), so one grain scale buys the same margin against
+ * both and neither rail is quietly favoured. Any other placement spends the
+ * corridor on one side.
+ */
+const HEAT_WAKE_COEF = (HEAT_GREEN_AT + HEAT_WAKE_HI) / 2;
+
+/**
+ * THE WAKE'S GRAIN SCALE — solved as half the feasibility ceiling
+ * (`fitGrainScale`), i.e. a 2× safety factor on both rails at once. The SAFETY
+ * FACTOR is the one free choice in this whole calibration, and it is a margin on
+ * an arithmetic bound rather than a look knob: spending the full ceiling would
+ * put both rails exactly on the worst draw, where one decimal of movement
+ * anywhere in the envelope breaks amendment 198.
+ */
+const HEAT_WAKE_GRAIN = fitGrainScale({
+  coef: HEAT_WAKE_COEF,
+  lo: HEAT_GREEN_AT,
+  hi: HEAT_WAKE_HI,
+  env: HEAT_NOISE,
+  safety: 0.5,
+});
+
+/**
+ * THE OLDEST WATER'S INTENSITY SCALE — the ratio that makes RECENCY STRUCTURAL.
+ *
+ * Amendment 203: length is the recency channel and there is no brightness ramp
+ * anywhere, so a segment's own water age scales its INTENSITY and the tail
+ * simply drops under `bands[0].at` first — the visible track SHORTENS as it ages
+ * instead of dimming. (Two clocks, and they must not be confused: amendment 161
+ * is untouched, phosphor alpha still carries PAINT age and only paint age, while
+ * the WATER's age moves intensity. A paint of old water is drawn at full opacity
+ * and simply covers fewer cells.)
+ *
+ * The end of the ladder is DERIVED, not chosen: water at the end of its life
+ * reads exactly as fresh water does at the material's own reach, so age and
+ * range spend the SAME coin and the visible reach walks from the 5/8 rung down
+ * to nothing across `WAKE_AGE_BUCKETS`. `worstDrawIntensity` is the intensity
+ * whose unluckiest draw lands on the threshold — the same quantity the reach fit
+ * inverts — so the two derivations cannot drift.
+ */
+const HEAT_WAKE_AGE_FLOOR =
+  worstDrawIntensity(HEAT_GREEN_AT, HEAT_NOISE, HEAT_WAKE_GRAIN) / HEAT_WAKE_COEF;
+
+/**
+ * THE WAKE'S REFERENCE RANGE (u) — SOLVED so its worst draw crosses
+ * `bands[0].at` EXACTLY at `CONFIG.vision.muzzleFlash`, the eighths ladder's 5/8
+ * rung (412.5u). A wake READS inside that and FRAYS OUT beyond it, which is both
+ * a weak-surface-return result and a "get close to read tracks" dynamic, and it
+ * lands on amendment 113's ladder rather than on a new literal.
+ *
+ * This is the SECOND (and last) place in the client that reads a ladder rung,
+ * and it reads it for the same reason `HEAT_POINT_REF` reads `farRadar`: to FIT
+ * a curve, once, at module load. `grep -rn muzzleFlash client/src/render/` must
+ * stay empty — a comparison against the rung on a paint path violates amendment
+ * 105 exactly as it would for the crossover.
+ *
+ * WATER IS A SURFACE (amendment 106's table): 1/d³, the same geometry as
+ * coastline, surf and sea clutter. The reference comes out LONGER than the
+ * coastline's, and that is the corridor talking rather than a mistake — the
+ * whole material lives in a 13%-wide band, and the draw window already spends
+ * half of it, so the RANGE term has only ~3% of intensity left to spend between
+ * the antenna and the rung. A flat curve is the only curve that fits, and the
+ * fade past the rung is then carried by the draw window sliding under the
+ * threshold rather than by the curve collapsing.
+ */
+const HEAT_WAKE_REF = fitMaterialRef({
+  reach: CONFIG.vision.muzzleFlash,
+  band: HEAT_GREEN_AT,
+  coef: HEAT_WAKE_COEF,
+  floor: HEAT_SURFACE_FLOOR,
+  geom: SURFACE,
+  env: HEAT_NOISE,
+  grainScale: HEAT_WAKE_GRAIN,
 });
 
 export const CLIENT_CONFIG = {
@@ -1504,7 +1645,7 @@ export const CLIENT_CONFIG = {
        * strength readout; a brightness ramp made it a second, redundant one.
        */
       bands: [
-        { at: 0.12, color: COLORS.echoFaint },
+        { at: HEAT_GREEN_AT, color: COLORS.echoFaint },
         { at: 0.36, color: COLORS.echoFuzzy },
         { at: HEAT_RED_AT, color: COLORS.echoSolid },
       ],
@@ -1571,12 +1712,12 @@ export const CLIENT_CONFIG = {
          *  `bands[0].at`, at which point a share of every weak contact's cells go
          *  permanently dark — not flickering, since the stencil is stable, but
          *  eaten, which is the same trap the retired knob carried. */
-        amount: 0.45,
+        amount: HEAT_NOISE.amount,
         /** Intensity at which the grain reaches exactly zero. Pinned to the RED
          *  threshold, so the rule reads as a sentence: anything strong enough to
          *  be called "definitely a thing" is drawn rock steady, and everything
          *  below it is graded by how marginal it is. */
-        solidAt: HEAT_RED_AT,
+        solidAt: HEAT_NOISE.solidAt,
       },
       /**
        * THE BEAM MARCH (cycle 62, amendments 138-140) — how the rays are spaced
@@ -1812,21 +1953,63 @@ export const CLIENT_CONFIG = {
          *    on empty water. Note `surf` above is bounded by exactly this rule,
          *    plus a second one keeping it from ever reading weaker than clutter.
          * 3. NEVER OUTRANKS THE FAINTEST LEGITIMATE ECHO — `peak × (1 + a) <
-         *    minPeak × (1 − a')` → 0.132 < 0.2 × 0.679 = 0.136. `writeCell` is
-         *    max-wins and hands the WINNER both the intensity AND the alpha, so a
-         *    clutter cell that beat a decaying echo's core would also re-age it —
-         *    a ghost would stop reading as a ghost. The envelope makes this bound
-         *    TIGHTER than the flat jitter did, from both sides at once (the weak
-         *    clutter cell earns MORE amplitude, the stronger echo less), which is
-         *    exactly why the coefficient had to come down from 0.105.
+         *    minPeak × (1 − a')` → 0.132 < 0.2 × 0.679 = 0.136. The envelope
+         *    makes this bound TIGHTER than the flat jitter did, from both sides
+         *    at once (the weak clutter cell earns MORE amplitude, the stronger
+         *    echo less), which is exactly why the coefficient had to come down
+         *    from 0.105.
+         *
+         *    ITS REACH WAS OVERSTATED AND IS CORRECTED HERE (Story 4.12,
+         *    amendment 204). This bound was written against CYCLE 62's `writeCell`
+         *    — *"max-wins, and hands the WINNER both the intensity AND the
+         *    alpha"* — but amendment 164 replaced that rule with FRESHEST-WINS in
+         *    cycle 65. Under the shipped rule a fresher weak cell already beats an
+         *    older strong one REGARDLESS of intensity, so the "a clutter cell
+         *    re-ages a decaying echo" scenario is not what this defends: a clutter
+         *    cell painted this sweep legitimately supersedes last sweep's echo
+         *    whatever its coefficient. THE BOUND STILL BINDS, on SAME-AGE
+         *    collisions — the beam crosses a hull and the sea state around it in
+         *    ONE pass, and there max-wins is still the tiebreak, so a lucky
+         *    clutter cell could take a cell of the hull's own faintest edge. That
+         *    is the collision it exists for, and Story 4.12 adds a second instance
+         *    of exactly the same shape: a hull and its OWN WAKE are painted in the
+         *    same sweep, which is why the wake material is bounded by this same
+         *    ceiling (see `wake` below).
          *
          * Raising this past the blue threshold is a DESIGN change requiring a
          * fresh ruling: Eric was shown "clutter strong enough to swallow weak
          * returns close in" as a real mechanic and DECLINED it. ALL THREE bounds
          * are asserted in __tests__/radarHeatmap.test.ts, at the worst-case draw
          * AND through a rasterized band histogram at the shipped envelope.
+         *
+         * SHIP-DISPLACEMENT CHOP REUSES THIS COEFFICIENT VERBATIM (Story 4.12,
+         * amendments 197 + 202 + 206) rather than minting a fourth weak-water
+         * number: all three bounds above then transfer with no new calibration to
+         * defend, and the "a hull under way pushes water too weak to light a
+         * single cell when it is barely making way" behaviour comes free from the
+         * straddle. What differs is only WHERE it is drawn (the wake's lateral
+         * spread, `chopSample` in render/radarSources.ts) and which reference
+         * range it fades on (`wakeRef` — the haze's own `clutterRef` would put
+         * every chop cell under the threshold past ~72u from the OBSERVER, which
+         * is the one place chop is not needed).
          */
         clutter: 0.095,
+        /**
+         * DISTURBED WATER — a ship's or a torpedo's track (Story 4.12,
+         * amendments 194-206). SOLVED, never typed in: see the WAKE CORRIDOR
+         * block above the object for the whole derivation and the physics.
+         *
+         * The two bounds, both asserted at the draw in
+         * __tests__/radarHeatmap.test.ts and both re-derived here from the
+         * shipped constants rather than restated:
+         *   1. EVERY DRAW LIGHTS, out to the reach — this is amendment 198's
+         *      CONTINUITY, the thing that makes a track read as a LINE against
+         *      chop's scattered dots of the identical colour and opacity.
+         *   2. NO DRAW OUTRANKS `minPeak`'s WORST DRAW — clutter's third bound,
+         *      applied to the material that shares a sweep with a hull's own
+         *      faintest cell. (And never blue, a mile clear, by the same token.)
+         */
+        wake: HEAT_WAKE_COEF,
         /**
          * The storm wall. Bounded the same way its siblings are, against the same
          * envelope: `storm × (1 + a) < bands[2].at` → 0.5 × 1.129 = 0.564 < 0.7,
@@ -1876,6 +2059,31 @@ export const CLIENT_CONFIG = {
          * where the physics ends.
          */
         clutterRef: 150,
+        /**
+         * Reference range (u) of the SURFACE curve FOR DISTURBED WATER — wake
+         * and the chop that hangs off it. SOLVED so the wake's unluckiest draw
+         * crosses `bands[0].at` exactly at the eighths ladder's 5/8 rung; see
+         * `HEAT_WAKE_REF` above the object for why it comes out longer than the
+         * coastline's, and for the discipline that keeps the rung out of every
+         * paint path.
+         */
+        wakeRef: HEAT_WAKE_REF,
+        /**
+         * The wake's own GRAIN SCALE — a multiplier on the ambient SNR envelope
+         * (amendment 203), solved as half the feasibility ceiling. A material
+         * property, not a legibility knob: an organized surface feature does not
+         * scintillate like incoherent scatter. Chop does NOT take it — chop IS
+         * sea state and carries the ambient grain, which is exactly what makes it
+         * speckle where the wake is continuous.
+         */
+        wakeGrain: HEAT_WAKE_GRAIN,
+        /**
+         * Intensity scale of the OLDEST water bucket (the freshest is 1). The
+         * recency channel, and it is STRUCTURAL rather than a brightness ramp:
+         * older water reads weaker, so its cells fall under the threshold first
+         * and the visible track SHORTENS. Derived — see `HEAT_WAKE_AGE_FLOOR`.
+         */
+        wakeAgeFloor: HEAT_WAKE_AGE_FLOOR,
         /** Reference range (u) of the VOLUME curve (the storm wall). Longest of
          *  the three on the shallowest exponent: a squall genuinely does stay
          *  legible clear across the map, which is precisely why amendment 128
@@ -1886,7 +2094,7 @@ export const CLIENT_CONFIG = {
          *  conditioning, and still an asymptote rather than a clamp, so two
          *  different ranges never attenuate identically (amendment 64's
          *  one-quantity-per-channel rule). */
-        floor: 0.05,
+        floor: HEAT_SURFACE_FLOOR,
         /** Asymptotic floor of the POINT curve — see HEAT_SHIP_ATTEN_FLOOR above
          *  for why the 1/d⁴ fit requires it to be this small, and why the floor
          *  SURVIVES the physics (amendment 127). */
@@ -1901,7 +2109,7 @@ export const CLIENT_CONFIG = {
          *  green speck anywhere inside the scope, at any aspect, at any size.
          *  Dropping it so signature becomes stealth is a RULED-OUT design, not a
          *  realism correction; do not re-propose it. */
-        minPeak: 0.2,
+        minPeak: HEAT_MIN_PEAK,
         /**
          * Quantized `HeightRaster` height (0-255) at which terrain reaches
          * `landSteep`. Measured against the shipped generator rather than

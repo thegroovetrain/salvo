@@ -53,7 +53,7 @@
 // nothing was lost with it: what it bought beyond the land test was cross-island
 // LOS, which Story 4.11 owns wholesale and will do against the height raster.
 
-import { type Vec2 } from '@salvo/shared';
+import { WAKE_AGE_BUCKETS, type Vec2 } from '@salvo/shared';
 import { SURFACE, VOLUME } from './radarFalloff.js';
 import type { FieldSample } from './radarField.js';
 import type { ReturnModelOpts } from './radarHeatmap.js';
@@ -130,4 +130,143 @@ export function clutterSample(
   if (dx * dx + dy * dy > reach * reach) return null;
   // `terrainQ: 0` — sea state stands ON the water, at the antenna's own height.
   return { refl: m.clutter, geom: SURFACE, ref: m.clutterRef, floor: m.floor, min: 0, terrainQ: 0 };
+}
+
+// --- DISTURBED WATER: the wake, and the chop that hangs off it -------------------
+//
+// TWO MATERIALS, ONE PHENOMENON (Story 4.12, amendments 194-206). A hull under
+// way leaves a TRACK — a turbulent core at roughly its own beam, server-owned and
+// rasterized onto the shared radar lattice exactly as the hull itself is — and it
+// PUSHES water aside around that track. The track carries information (course and
+// recency of a hull you may not otherwise hold) and therefore comes off the wire,
+// gated; the chop carries NONE and is synthesized here, client-side, at paint
+// creation (amendment 202).
+//
+// CAMOUFLAGE IS BY STRUCTURE, NOT BY STRENGTH (amendment 198 — Eric's ruling
+// against a bound he has now declined twice). Both are GREEN, at the SAME
+// `bandAlpha`, and neither has a brightness channel of any kind. What separates
+// them is CONTINUITY: the wake's corridor is calibrated so every draw lights,
+// while chop rides sea clutter's ratified STRADDLE and lights a scattered
+// minority. The player picks a coherent LINE out of random dots, and no
+// information is ever suppressed — chop may never outrank, overwrite or hide any
+// return, and may never reach blue.
+//
+// TWO CLOCKS, AND CONFUSING THEM WOULD BE A BRIGHTNESS RAMP. Amendment 161 is
+// untouched: PHOSPHOR alpha carries paint age and only paint age. What lives here
+// is the WATER's own age, and it moves INTENSITY — so an old paint of fresh water
+// is faint-but-long while a fresh paint of old water is full-opacity-but-short.
+// Length is the recency channel (amendment 203); there is no ramp anywhere.
+
+/**
+ * The Kelvin wedge's half-angle, as its SINE — exactly 1/3, a genuine constant
+ * of deep-water ship waves and INDEPENDENT OF SPEED (amendment 205: *"use it for
+ * the hull-side displaced water rather than inventing a spread"*). 19.47°.
+ *
+ * Stated as the sine because that is the exact form, because the two quantities
+ * the chop geometry needs both fall out of it without a transcendental
+ * (`tan θ = 1/(2√2)`), and because a degrees literal would invite someone to
+ * round it into a tuning knob. It is neither.
+ */
+export const KELVIN_SIN = 1 / 3;
+
+/**
+ * THE CHOP ENVELOPE'S HALF-WIDTH AT THE RIBBON'S HEAD, as a multiple of the
+ * turbulent core's own half-width — `1/sin θ` = 3, taken from the wedge constant
+ * rather than invented (amendment 205: the core *"runs at roughly the hull's beam
+ * widening to a small multiple of it"*).
+ *
+ * SO CHOP SCALES WITH THE HULL, WHICH IS WHAT MAKES A TORPEDO STAY NAKED. A
+ * battleship's 32u beam pushes a real patch of disturbed water; a torpedo's
+ * one-cell ribbon pushes barely a cell of it — amendment 197's accepted
+ * consequence (*"a torpedo wake running through empty ocean far from any hull is
+ * UNCAMOUFLAGED and reads plainly"*) holding BY CONSTRUCTION, with no identity on
+ * the wire to branch on and no special case to write. If Eric ever wants more
+ * camouflage, THIS multiple is the lever — not the coefficient, which carries
+ * three ratified bounds.
+ */
+export const CHOP_HEAD_MULTIPLE = 1 / KELVIN_SIN;
+
+/**
+ * A wake segment's MATERIAL, scaled by its water-age bucket.
+ *
+ * The scale runs LINEARLY from 1 at the freshest bucket to `m.wakeAgeFloor` at
+ * the oldest, and the floor is derived so that end-of-life water reads exactly as
+ * fresh water does at the material's own reach — age and range spend the same
+ * coin, so the visible track walks from the 5/8 rung down to nothing across the
+ * buckets and SHORTENS as it ages (amendment 203). A single-bucket wire
+ * (`WAKE_AGE_BUCKETS = 1`) degrades to "always freshest" rather than dividing by
+ * zero, and an out-of-range or non-finite bucket clamps to the oldest — fail
+ * toward "about to be gone", the same direction `wakeAgeBucket` fails in.
+ *
+ * NO `min` FLOOR, AND A `shadowFloor` ONLY WHEN THE SERVER DISCLOSED IT. `min`
+ * is applied in `returnStrength`, BEFORE the range term, so a `min` here would
+ * freeze the track at full length and full life forever — the reach and the age
+ * ladder are the two things this material exists to express, and amendment 127's
+ * *"anything the server blips paints at least a speck"* is a promise about a
+ * CONTACT, not about water. What a disclosed segment does need is that the
+ * client's own (deliberately more generous) shadow walk cannot delete a segment
+ * the server's gate passed, and that rides `shadowFloor` — applied after the
+ * shadow and nowhere else. See `FieldSample.shadowFloor` and `wakeLitFloor`.
+ */
+export function wakeSample(m: ReturnModelOpts, bucket: number, shadowFloor = 0): FieldSample {
+  return {
+    refl: m.wake * wakeAgeScale(m, bucket),
+    geom: SURFACE,
+    ref: m.wakeRef,
+    floor: m.floor,
+    min: 0,
+    // 0 is "NOT TERRAIN", never "sea level" (cycle 69's `FieldSample.terrainQ`).
+    // Water is AFLOAT, so a wake takes the mast-height instance of the
+    // illumination rule — the same one `visibilityTo` gates the segment with on
+    // the server. Handing it the terrain step would mask the paint with a rule
+    // the disclosure never used.
+    terrainQ: 0,
+    shadowFloor,
+    grain: m.wakeGrain,
+  };
+}
+
+/**
+ * THE INTENSITY AT WHICH DISTURBED WATER STILL LIGHTS EVERY CELL — the floor a
+ * DISCLOSED segment may be attenuated to and no further (amendment 190).
+ *
+ * It is `m.wake × m.wakeAgeFloor` and that is not a coincidence: the oldest
+ * bucket's scale is DERIVED as the intensity whose unluckiest draw lands exactly
+ * on the transparency threshold, so the end of the age ladder and the still-lit
+ * floor are the same number by construction and cannot drift apart.
+ */
+export function wakeLitFloor(m: ReturnModelOpts): number {
+  return m.wake * m.wakeAgeFloor;
+}
+
+/** The water-age intensity scale for a bucket — 1 at the freshest,
+ *  `m.wakeAgeFloor` at the oldest, linear between. */
+export function wakeAgeScale(m: ReturnModelOpts, bucket: number): number {
+  const last = WAKE_AGE_BUCKETS - 1;
+  if (!(last > 0)) return 1;
+  const b = Number.isFinite(bucket) ? Math.min(last, Math.max(0, Math.floor(bucket))) : last;
+  return 1 - (b / last) * (1 - m.wakeAgeFloor);
+}
+
+/**
+ * SHIP-DISPLACEMENT CHOP'S MATERIAL — sea clutter's coefficient VERBATIM
+ * (amendment 202), at the AMBIENT grain, on the wake's own reference range.
+ *
+ * Reusing the coefficient rather than minting a new one is the whole reason this
+ * needs no calibration of its own: clutter's three ratified bounds (straddle,
+ * never blue, never outranks `minPeak`'s worst draw) are statements about the
+ * COEFFICIENT at its peak, and attenuation is ≤ 1 everywhere, so they hold at
+ * every range and on any reference. What the reference decides is only where the
+ * speckle FADES OUT, and it must be the wake's: on `clutterRef` every chop cell
+ * would fall under the threshold ~72u from the OBSERVER, which is the one region
+ * (inside truesight, under the near-range dim mask) where camouflage is not
+ * wanted at all.
+ *
+ * AMBIENT GRAIN IS THE POINT, not an oversight. Chop is genuinely incoherent
+ * scatter and the straddle is what speckles it; handing it the wake's reduced
+ * grain would turn the dots into a second continuous line and delete amendment
+ * 198's whole mechanism.
+ */
+export function chopSample(m: ReturnModelOpts): FieldSample {
+  return { refl: m.clutter, geom: SURFACE, ref: m.wakeRef, floor: m.floor, min: 0, terrainQ: 0 };
 }

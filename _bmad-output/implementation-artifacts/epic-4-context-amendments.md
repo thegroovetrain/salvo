@@ -3346,6 +3346,34 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
      under 20-ish percent of full ahead pushes chop too weak to light a single cell — which is the correct
      behaviour, not a bug: a ship barely making way displaces almost nothing.
 
+206. **CHOP HANGS OFF THE WAKE'S HEAD, NOT OFF THE HULL — because at range the client does not know a
+     hull's speed, and amendment 202's "scaled by speed fraction" is therefore unbuildable as written.**
+     Found while dispatching cycle 69 wave 2, before any client code was written. Amendment 152 stripped
+     `id`, `cls`, `heading` AND `speed` from the `return` grammar: beyond truesight a hull reaches the
+     client as a coverage footprint and nothing else. So "every moving hull pushes a disc of chop around
+     it, scaled by how fast it is going" can only be evaluated for hulls inside the truesight bubble —
+     which is exactly the 330u region the existing clutter disc already covers, so it would have
+     delivered no camouflage at range at all, which is the entire point of 197.
+
+     **The fix keeps every ruling and needs no new wire: chop is the LATERAL SPREAD OF THE WAKE.** The
+     ribbon is widest at its head — where the hull is and where water is actively being displaced — and
+     narrows behind, spreading at amendment 205's Kelvin 19.47° half-angle, with the speckle drawn in that
+     widened region. This is better than the disc on four counts:
+     - **It is speed-driven for free.** A wake only exists when a hull is making way, and its head only
+       advances while it moves, so a stopped ship and a decoy push no chop BY CONSTRUCTION rather than by
+       a speed term the client cannot evaluate.
+     - **It needs no new disclosure.** The geometry is the wake row the observer was already sent (194);
+       the speckle is synthesized client-side at paint-creation time. Amendment 202's information
+       argument is untouched — chop still carries nothing and still must not cost wire.
+     - **It is physically what displaced water IS** — the turbulent core at the hull's beam widening into
+       the Kelvin V, not a disc centred on a point.
+     - **It puts the noise where torpedoes actually go** — around ships, at whatever range those ships
+       are, which is what 197 asked for and what the hull-disc reading could not deliver.
+
+     Inside truesight the client holds full pose and renders chop from it directly; beyond it, chop rides
+     the disclosed wake geometry. Two sources, one appearance — the same shape amendment 154 already
+     established for hull paints. The coefficient and its three inherited bounds are unchanged from 202.
+
 203. **THE COHERENT-LINE CALIBRATION — the arithmetic that makes 198 BUILDABLE, and it does not work
      without a grain change.** Under the shipped SNR envelope a material of pre-grain intensity `p` draws
      in `p × (1 ± a)`, `a = 0.45 × (1 − p/0.7)`. Amendment 198 asks the wake to light essentially all of

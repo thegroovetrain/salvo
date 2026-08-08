@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 16 GameEvent kinds plus the four contact-like frame channels
+// row here: the 18 GameEvent kinds plus the four contact-like frame channels
 // (`contact`, `mine`, `litzone`, and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
@@ -74,6 +74,9 @@ import {
   type SunkEvent,
   type TorpedoUpdateEvent,
   type Vec2,
+  rasterizeSegmentCoverage,
+  type WakeBlipEvent,
+  type WakeRibbon,
 } from '@salvo/shared';
 import type { Decoy, LitZone, ShipRecord } from './world.js';
 import type { MineState } from './equipment/index.js';
@@ -115,6 +118,11 @@ interface SignalContextBase {
    *  private stream; see World.trackIds for the honest correlation bound).
    *  Consulted by blipShape ONLY in pseudonym mode. */
   pseudonymOf(shipId: string): string;
+  /** EVERY live wake ribbon (Story 4.12 — World.wakeRibbons: ships' active
+   *  ribbons, running torpedoes', and detached water still ageing out). The
+   *  wake scan's subject list, riding the context the way the height raster
+   *  does. Inert on the spectator path (spectators get no radar). */
+  readonly wakes: readonly WakeRibbon[];
 }
 
 /** The fogged observe() path: rows apply full fog-of-war. observe() fail-closes
@@ -609,6 +617,332 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // by the same shared rasterizer a genuine paint runs through (cycle 63) —
     // indistinguishable under every flag combination.
     return blipShape(ctx, decoy.ownerId, decoy, decoy.hullId, decoy.heading, 0);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// `wk` — RADAR WAKES (Story 4.12, amendments 194-196/200/205).
+// ---------------------------------------------------------------------------
+
+/**
+ * One wake ribbon SEGMENT offered to the `wk` row by perception's wake scan
+ * (the scan walks each ribbon via the shared eachWakeSegment and copies the
+ * scratch into this shape). `x`/`y` is the segment MIDPOINT — the gate's one
+ * test point, named so the shared point predicates (inRadarAnnulus, bearing)
+ * read it directly. `ax..by` are the endpoints the rasterizer projects;
+ * `widthU` is the SOURCE-derived turbulent-core width (a hull's own beam, one
+ * radar cell for a torpedo — carried on the ribbon, derived exactly once in
+ * shared sim/wake.ts). The `ax` key doubles as the row's fail-closed shape
+ * guard: a world-emitted `wk` WIRE event ({k,t,a,gx,...}) reaching this row
+ * via tickEvents dispatch has no `ax` and is dropped — wake events are
+ * perception-generated ONLY, never forwarded.
+ */
+export interface WakeSubject {
+  /** Segment midpoint (u) — the per-segment gate's test point. */
+  x: number;
+  y: number;
+  /** Older endpoint (u). */
+  ax: number;
+  ay: number;
+  /** Newer endpoint (u). */
+  bx: number;
+  by: number;
+  /** Quantized water-age bucket, 0..WAKE_AGE_BUCKETS-1 (the recency channel). */
+  bucket: number;
+  /** Turbulent-core width (u), derived from the source. */
+  widthU: number;
+}
+
+/** Cached per-ribbon bounding circle (see wakeBounds): the bound depends only
+ *  on the RIBBON, never the observer, so N observers amortize ONE recompute
+ *  per ribbon mutation instead of paying the O(samples) scan each (measured:
+ *  the uncached recompute was the single largest wake-scan cost in a full
+ *  room). The validity key is (head, count, newest sample, oldest sample):
+ *  every ribbon mutation moves at least one of these — append moves count or
+ *  head, prune moves head and count, the applyBoon upsize replays into a NEW
+ *  object (fresh WeakMap key) — and the endpoint samples guard test-style
+ *  direct ring writes. `rad < 0` encodes "no live bound" (sub-2-sample or
+ *  all-non-finite). */
+interface RibbonBoundsMemo {
+  head: number;
+  count: number;
+  tNew: number;
+  xNew: number;
+  yNew: number;
+  xOld: number;
+  yOld: number;
+  cx: number;
+  cy: number;
+  rad: number;
+}
+const RIBBON_BOUNDS = new WeakMap<WakeRibbon, RibbonBoundsMemo>();
+
+/** NaN-tolerant slot equality for the memo key (a corrupt stored sample may
+ *  legitimately be NaN; NaN !== NaN would otherwise thrash the cache). */
+function slotEq(a: number, b: number): boolean {
+  return a === b || (Number.isNaN(a) && Number.isNaN(b));
+}
+
+function boundsMemoValid(m: RibbonBoundsMemo, r: WakeRibbon, newest: number, oldest: number): boolean {
+  return (
+    m.head === r.head &&
+    m.count === r.count &&
+    slotEq(m.tNew, r.ts[newest]) &&
+    slotEq(m.xNew, r.xs[newest]) &&
+    slotEq(m.yNew, r.ys[newest]) &&
+    slotEq(m.xOld, r.xs[oldest]) &&
+    slotEq(m.yOld, r.ys[oldest])
+  );
+}
+
+/** Conservative per-ribbon bounding circle over the LIVE samples (centre +
+ *  radius covering every segment midpoint AND the width-grown ribbon), or
+ *  null for a sub-2-sample ribbon (which can hold no segment). Non-finite
+ *  stored samples are skipped exactly as the segment walk skips them.
+ *  Memoized per ribbon mutation (RIBBON_BOUNDS above) — a pure cost device,
+ *  never a rule. */
+function wakeBounds(r: WakeRibbon): RibbonBoundsMemo | null {
+  if (r.count < 2) return null;
+  const newest = (r.head + r.count - 1) % r.cap;
+  const oldest = r.head;
+  const memo = RIBBON_BOUNDS.get(r);
+  if (memo !== undefined && boundsMemoValid(memo, r, newest, oldest)) return memo.rad < 0 ? null : memo;
+  const fresh = buildBoundsMemo(r, newest, oldest);
+  RIBBON_BOUNDS.set(r, fresh);
+  return fresh.rad < 0 ? null : fresh;
+}
+
+/** The uncached bound scan (wakeBounds' slow path): AABB over the finite live
+ *  samples → centre + covering radius (+ half the core width), or the `rad:
+ *  -1` dead marker when every stored sample was non-finite. */
+function buildBoundsMemo(r: WakeRibbon, newest: number, oldest: number): RibbonBoundsMemo {
+  const [minX, minY, maxX, maxY] = wakeAabb(r);
+  const hw = (maxX - minX) / 2;
+  const hh = (maxY - minY) / 2;
+  const dead = minX > maxX; // every stored sample was non-finite
+  return {
+    head: r.head,
+    count: r.count,
+    tNew: r.ts[newest],
+    xNew: r.xs[newest],
+    yNew: r.ys[newest],
+    xOld: r.xs[oldest],
+    yOld: r.ys[oldest],
+    cx: dead ? 0 : minX + hw,
+    cy: dead ? 0 : minY + hh,
+    rad: dead ? -1 : Math.sqrt(hw * hw + hh * hh) + r.widthU / 2,
+  };
+}
+
+/** AABB over a ribbon's finite live samples — [minX, minY, maxX, maxY];
+ *  inverted (min > max) when every stored sample was non-finite. */
+function wakeAabb(r: WakeRibbon): [number, number, number, number] {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let n = 0; n < r.count; n++) {
+    const i = (r.head + n) % r.cap;
+    const x = r.xs[i];
+    const y = r.ys[i];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return [minX, minY, maxX, maxY];
+}
+
+/**
+ * One-slot per-(observer, sweep window) wedge memo for the CONSERVATIVE
+ * swept prefilter below: the window's edge directions rotated OUTWARD by a
+ * margin (1e-3 rad) that dwarfs any atan2/wrap rounding, as unit vectors, so
+ * the prefilter's two cross products can only ever OVER-accept. Observers
+ * are scanned sequentially, so one slot amortizes the trig to once per
+ * observer per tick. `wide` disables the prefilter for a window too wide for
+ * a two-half-plane wedge test (impossible from the real ~4.5°/tick sweep;
+ * reachable only from directed-test windows) — fail open, decide nothing.
+ */
+interface WedgeMemo {
+  me: ShipRecord;
+  prev: number;
+  cur: number;
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  wide: boolean;
+}
+let lastWedge: WedgeMemo | null = null;
+const WEDGE_MARGIN = 1e-3; // rad
+
+function wedgeFor(me: ShipRecord): WedgeMemo {
+  const m = lastWedge;
+  if (m !== null && m.me === me && m.prev === me.prevSweepAngle && m.cur === me.sweepAngle) return m;
+  const window = wrapPositive(me.sweepAngle - me.prevSweepAngle);
+  const a = me.prevSweepAngle - WEDGE_MARGIN;
+  const b = me.prevSweepAngle + window + WEDGE_MARGIN;
+  const next: WedgeMemo = {
+    me,
+    prev: me.prevSweepAngle,
+    cur: me.sweepAngle,
+    ax: Math.cos(a),
+    ay: Math.sin(a),
+    bx: Math.cos(b),
+    by: Math.sin(b),
+    wide: window + 2 * WEDGE_MARGIN >= Math.PI,
+  };
+  lastWedge = next;
+  return next;
+}
+
+/** CONSERVATIVE pre-reject for the swept clause (a pure cost device, never a
+ *  rule): `false` PROVES sweptThisTick would answer false (the margin-grown
+ *  wedge strictly contains the true half-open window); `true` decides
+ *  nothing — the exact production predicate still runs. Two cross products
+ *  against the memoized wedge edges replace an atan2 per candidate segment
+ *  (measured: the bearing atan2 over every in-annulus segment was the
+ *  second-largest wake-scan cost in a full room). */
+function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
+  const w = wedgeFor(me);
+  if (w.wide) return true;
+  return w.ax * dy - w.ay * dx >= 0 && w.bx * dy - w.by * dx <= 0;
+}
+
+/**
+ * THE RIBBON BROADPHASE (Story 4.12 spec: "cost scales with what the beam
+ * crossed rather than with track length"): may ANY segment of this ribbon
+ * pass the per-segment gate for this observer this tick? CONSERVATIVE ONLY —
+ * a `true` here decides nothing (every disclosed segment still passes the
+ * full per-segment gate); a `false` must be PROVABLY safe. Three culls, each
+ * a superset bound of a gate clause:
+ *   • entirely beyond radar (centre dist − rad > radarRange ⇒ every midpoint
+ *     fails the annulus' outer bound);
+ *   • entirely inside the sight bubble (centre dist + rad ≤ sightOf ⇒ every
+ *     midpoint fails the annulus' sight exclusion — see the wk row's doc for
+ *     why in-bubble wake is deliberately not disclosed);
+ *   • bearing span disjoint from this tick's swept wedge (observer outside
+ *     the bounding circle ⇒ ribbon bearings ⊂ [centre bearing ± asin(rad/d)];
+ *     an observer INSIDE the circle gets no bearing cull).
+ * Exported for perception's wake scan — a cost gate beside the row, never a
+ * rule: deleting every call site changes no frame, only its price.
+ */
+export function sweepMayCrossWake(me: ShipRecord, r: WakeRibbon, now: number): boolean {
+  const b = wakeBounds(r);
+  if (b === null) return false;
+  const dx = b.cx - me.state.x;
+  const dy = b.cy - me.state.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d - b.rad > me.stats.radarRange) return false;
+  if (d + b.rad <= sightOf(me, now)) return false;
+  if (d <= b.rad) return true; // observer inside the bound — no bearing cull
+  const half = Math.asin(Math.min(1, b.rad / d));
+  const window = wrapPositive(me.sweepAngle - me.prevSweepAngle);
+  // Centre bearing from the already-computed delta (bearing() is atan2 of the
+  // same delta — inlined to keep the helper's Vec2 shape out of this bound).
+  const offset = wrapPositive(Math.atan2(dy, dx) - half - me.prevSweepAngle);
+  // Arc-interval intersection on the circle: the ribbon arc [start, start+2h]
+  // meets the sweep window [prev, prev+window) iff its start lies inside the
+  // window, or the window's start lies inside the arc (the wrap case).
+  return offset < window || offset > 2 * Math.PI - 2 * half;
+}
+
+/** The memoized segment-mask pipeline (the paintMask precedent): a wake mask
+ *  is a pure function of segment GEOMETRY alone — no fuzz, no seed, no time —
+ *  so the one-slot key is the pose, and consecutive observers whose beams
+ *  cross the same segment (this tick or later ones: segments never move)
+ *  reuse the mask instead of re-rasterizing. */
+interface WakeMaskMemo {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+  widthU: number;
+  mask: HullCoverage;
+}
+let lastWakeMask: WakeMaskMemo | null = null;
+
+function wakeMask(s: WakeSubject): HullCoverage {
+  const m = lastWakeMask;
+  if (m !== null && m.ax === s.ax && m.ay === s.ay && m.bx === s.bx && m.by === s.by && m.widthU === s.widthU) {
+    return m.mask;
+  }
+  const mask = rasterizeSegmentCoverage(s.ax, s.ay, s.bx, s.by, s.widthU, CONFIG.vision.radarCellU);
+  lastWakeMask = { ax: s.ax, ay: s.ay, bx: s.bx, by: s.by, widthU: s.widthU, mask };
+  return mask;
+}
+
+/**
+ * `wk` — a wake ribbon segment the observer's beam crossed this tick (Story
+ * 4.12): disturbed water as a weak surface return. NOT a declared exception
+ * to the master perception invariant — the gate is EXACTLY the three clauses
+ * `blipGate` enforces, mirrored per SEGMENT in the same cost order (annulus →
+ * swept-this-tick → the amendment-179 shadow accumulator), evaluated at the
+ * segment MIDPOINT; segments are ~one sample cadence (12u) long, so the
+ * midpoint predicate is about as tight as the hull's centre predicate already
+ * is (a ledgered cycle-68 imprecision, inherited knowingly). What is new is
+ * only that the subject is water rather than a ship.
+ *
+ * THE SIGHT-BUBBLE EXCLUSION IS DELIBERATE (a ruled implementation choice,
+ * recorded here): wake INSIDE the observer's sight bubble is NOT disclosed on
+ * this row — the annulus clause is inherited from blipGate verbatim, sight
+ * exclusion included. Consistency argument: a HULL inside sight behind an
+ * island is invisible by design (not a contact — island LOS; not a blip —
+ * the annulus is what keeps the two tiers' different occlusion predicates
+ * from answering for the same point, see inRadarAnnulus). Disclosing in-
+ * bubble water through the radar's shadow march would re-open exactly that
+ * seam — and a fresh bucket-0 segment ends within one cadence of its hull's
+ * stern, so in-bubble wake behind an island would leak a hidden hull's
+ * position. Amendment 154's "the split must not be visible" is satisfied the
+ * way amendment 88 already satisfies it for hull paints: inside truesight the
+ * client synthesizes the same appearance from the full pose it already holds
+ * (contacts/own ship — the amendment 202/206 chop path), so scope and water
+ * agree from both sources. Orphaned in-bubble water a client never learned of
+ * is unknowable to BOTH its renderings — scope and water agree on silence —
+ * and previously-disclosed paints persist on phosphor across the boundary.
+ *
+ * NO ownZoneCovers term, deliberately (the blip row's zone clause exists
+ * because a zone-covered ship is already a FULL contact — water has no
+ * contact tier to double). NO self-exclusion: your own wake DOES paint on
+ * your own scope (amendment 204 — physically right; the client's near-range
+ * display mask keeps it quiet). Spectators get none (they have no radar —
+ * the blip rule).
+ *
+ * materialize() emits GEOMETRY plus the age bucket and NOTHING else
+ * (amendment 194): no ship id, class, hue, owner, or hull↔wake linkage — the
+ * segment coverage on the shared lattice (rasterizeSegmentCoverage at
+ * CONFIG.vision.radarCellU with the source-derived width; deliberately NOT
+ * fuzzCoverage — dilation+glint is the hull's beam-smear model and would blur
+ * a one-cell ribbon into a blob) and the quantized water-age bucket, which IS
+ * the recency channel (the client cannot infer which end of a track is new —
+ * that inference would BE the identity linkage the payload refuses to carry).
+ */
+const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
+  eventType: 'wk',
+  visible(ctx, seg) {
+    // Wake events are perception-generated, never world-emitted: a world-
+    // dispatched 'wk' WIRE event (no `ax` on the wire shape) fails closed.
+    if (!('ax' in seg)) return false;
+    if (ctx.mode !== 'fogged') return false;
+    const me = ctx.me;
+    // Conservative swept PREFILTER first (mayBeSwept — a cost device that
+    // can only over-accept, so it decides nothing): in wake geometry the
+    // ~4.5° wedge is by far the most selective clause, and this keeps the
+    // atan2 off the vast majority of a crossed ribbon's segments. The REAL
+    // gate below then mirrors blipGate's clause order exactly.
+    if (!mayBeSwept(me, seg.x - me.state.x, seg.y - me.state.y)) return false;
+    return (
+      inRadarAnnulus(me, seg, ctx.now) &&
+      sweptThisTick(me, bearing(me.state, seg)) &&
+      visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) > 0
+    );
+  },
+  materialize(ctx, seg) {
+    // KEY ORDER IS LOAD-BEARING (msgpack): k,t,a,gx,gy,w,h,bits — the
+    // ReturnBlipEvent order with the age bucket after `t`.
+    const c = wakeMask(seg);
+    return { k: 'wk', t: ctx.now, a: seg.bucket, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
   },
 };
 
@@ -1191,7 +1525,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 16 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 18 GameEvent kinds plus
  * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
  * dispatches world events by `e.k` (an emitted kind with no row is a hard
  * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone/decoy
@@ -1232,6 +1566,10 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // exception and the first partial LOS carve-out (islands muffle one step —
   // max(5, band + 2) on the Story 4.9 eight-band ladder).
   fh: foghornSignal,
+  // Story 4.12 (amendments 194-196/200): radar wakes — disturbed water gated
+  // per SEGMENT by the exact three blipGate clauses; NOT a declared fog
+  // exception (see the row above). Identity-free by construction.
+  wk: wakeSignal,
 });
 
 /**
@@ -1249,7 +1587,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 16 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
+ * ONLY the 18 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`/`k:'decoy'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup
