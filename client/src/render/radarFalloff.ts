@@ -60,7 +60,14 @@
 export const POINT = 4;
 /** Illuminated area grows with range: coastline, surf, sea clutter. 1/d^3. */
 export const SURFACE = 3;
-/** Illuminated volume grows faster still: rain, the storm wall. 1/d^2. */
+/** Illuminated volume grows faster still: rain, a squall. 1/d^2.
+ *
+ * CURRENTLY UNCONSUMED, and deliberately kept (cycle 72). Its only material was
+ * the storm wall, which Eric deleted from the scope; this stays because it is a
+ * primitive of amendment 106's ratified return model — the point/surface/volume
+ * exponent table is the MODEL, not a knob — and the next volume material should
+ * not have to re-derive it. What went with the wall was every value that only
+ * ever tuned it: `model.storm`, `model.volumeRef` and `model.stormBandU`. */
 export const VOLUME = 2;
 
 /**

@@ -548,8 +548,6 @@ export interface ReturnModelOpts {
   /** Disturbed water — a wake (SURFACE). SOLVED as the midpoint of the corridor
    *  between `bands[0].at` and `minPeak`'s worst draw; see the config comment. */
   wake: number;
-  /** The storm wall (VOLUME). */
-  storm: number;
   /** Reference range (u) of the POINT curve — FITTED, never typed in. */
   pointRef: number;
   /** Reference range (u) of the SURFACE curve (coastline). */
@@ -571,8 +569,6 @@ export interface ReturnModelOpts {
    *  the freshest laying all of them (amendment 214). The recency channel that
    *  reads CLOSE IN, where `wakeAgeFloor` cannot: see `wakeKeepFraction`. */
   wakeTailKeep: number;
-  /** Reference range (u) of the VOLUME curve. */
-  volumeRef: number;
   /** Asymptotic floor shared by the SURFACE and VOLUME curves. */
   floor: number;
   /** Asymptotic floor of the POINT curve (the fit is solved against it). */
@@ -587,8 +583,6 @@ export interface ReturnModelOpts {
   surfBandU: number;
   /** Compute bound (u) on the clutter disc — not its visual extent. */
   clutterRangeU: number;
-  /** Full thickness (u) of the storm wall band. */
-  stormBandU: number;
 }
 
 /**

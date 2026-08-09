@@ -1,6 +1,9 @@
-// THE TWO WEATHER-ISH MATERIALS (Story 4.10, amendments 128 + 130; folded into
-// the field by cycle 62, amendment 138): SEA CLUTTER and the STORM WALL. Pure
-// math, no Pixi, no state.
+// THE WEATHER-ISH MATERIAL (Story 4.10, amendment 130; folded into the field by
+// cycle 62, amendment 138): SEA CLUTTER. Pure math, no Pixi, no state.
+//
+// THERE USED TO BE TWO. The STORM WALL was removed wholesale by cycle 72 on
+// Eric's ruling — *"I don't want the storm ring highlighted by radar anymore. I
+// don't like it."* See the removal note below.
 //
 // WHAT CYCLE 62 CHANGED HERE, AND WHAT IT DID NOT. These were independent PAINT
 // KINDS: each opened its own arc-gated record, baked or stamped its own cells and
@@ -19,17 +22,36 @@
 // only thing that paints; and colour is intensity, never category (amendment 105
 // — neither material has a colour, only a coefficient).
 //
-// WHY THE STORM PAINTS ITS WALL AND NOT ITS AREA (amendment 128). The volume
-// return falls off as 1/d^2, which is shallow enough to stay legible clear across
-// the map: an AREA return would own roughly half the scope at full strength
-// late-match and bury every contact inside it, against the epic's own guardrail
-// that "information noise must never bury the hunt". So the return is the closing
-// WALL — a fixed-thickness band on the live ring. Both the whole outside-the-ring
-// region and deferring the storm entirely were put to Eric and REJECTED. It
-// discloses nothing: ring geometry is on the wire from its reveal beat (Story
-// 3.1). AND ONLY THE LIVE RING — the dashed next-ring telegraph is a chart
-// annotation, not a physical object, and there is nothing out there yet to
-// reflect off; the field's `ring` is the live one alone.
+// THE STORM WALL IS GONE, AND AMENDMENT 128 IS RETIRED WITH IT (cycle 72, Eric
+// ruling 2026-08-09). It painted a fixed-thickness band on the LIVE ring at the
+// storm coefficient on the VOLUME curve. Eric removed it by preference, not by
+// defect: *"I don't want the storm ring highlighted by radar anymore. I don't
+// like it."*
+//
+// WHAT THIS DOES AND DOES NOT TOUCH. The storm still renders ON THE WATER exactly
+// as before — render/zone.ts's solid live edge, dashed next-ring telegraph and
+// storm-side fill are Story 3.2's ratified grammar and are untouched, as is the
+// chrome bar's ring readout. The zone is still fully legible; it simply stops
+// being a radar RETURN. Nothing about the storm's damage, timeline or geometry
+// moved, and no wire field changed: ring geometry has always reached the client
+// through ArenaState for the on-water render, which is why removing this cost
+// nothing on the server.
+//
+// WHAT AMENDMENT 128 SETTLED, so a future agent knows what re-adding it reopens:
+// the volume return falls off as 1/d^2, shallow enough to stay legible clear
+// across the map, so an AREA return would have owned roughly half the scope
+// late-match and buried every contact in it. The WALL was the answer to that, and
+// both the whole outside-the-ring region and deferring the storm entirely were
+// put to Eric at the time and REJECTED. **He has now chosen the third option he
+// was never offered.** Anyone restoring a storm return must re-derive the area
+// question from scratch rather than assuming the wall is the safe default.
+//
+// The `VOLUME` geometry in radarFalloff.ts SURVIVES this removal and is now
+// unconsumed. It is a primitive of amendment 106's ratified return model (the
+// point/surface/volume exponent table), not a storm knob — the next volume
+// material should not have to re-derive it. Its curve tests stay green. What was
+// deleted is every value that only ever tuned the wall: `model.storm`,
+// `model.volumeRef` and `model.stormBandU`.
 //
 // WHY CLUTTER CAN NEVER MASK ANYTHING (amendments 130 + 133 + 136). Sea clutter
 // is TEXTURE AND NOTHING ELSE, and its coefficient carries THREE bounds, every
@@ -54,51 +76,9 @@
 // LOS, which Story 4.11 owns wholesale and will do against the height raster.
 
 import { WAKE_AGE_BUCKETS, type Vec2 } from '@salvo/shared';
-import { SURFACE, VOLUME } from './radarFalloff.js';
+import { SURFACE } from './radarFalloff.js';
 import type { FieldSample } from './radarField.js';
 import type { ReturnModelOpts } from './radarHeatmap.js';
-
-/** The live storm ring, structurally — the `ZoneView.cur` fields this needs and
- *  nothing else, so this module never imports the zone layer. */
-export interface StormRing {
-  cx: number;
-  cy: number;
-  r: number;
-}
-
-/** Fraction of full strength the storm wall keeps at the seaward/landward EDGE
- *  of its band, so the wall reads as a wall with soft shoulders rather than as a
- *  drawn line. The spine (the live ring radius exactly) is full strength. */
-const STORM_EDGE = 0.35;
-
-/**
- * THE STORM WALL AT A POINT: the storm coefficient on the VOLUME curve, shaped
- * across the band so the spine is strongest, or null off the band.
- *
- * A fixed thickness is the whole of amendment 128 — the wall is a physical object
- * of its own size, not a region whose extent grows as the ring closes. A ring the
- * client cannot describe (non-finite centre or radius) answers null everywhere
- * rather than propagating a NaN into a cell write.
- */
-export function stormSample(
-  ring: StormRing,
-  x: number,
-  y: number,
-  m: ReturnModelOpts,
-): FieldSample | null {
-  const half = m.stormBandU / 2;
-  if (!(half > 0) || !(ring.r > 0) || !Number.isFinite(ring.r + ring.cx + ring.cy)) return null;
-  const off = Math.abs(Math.hypot(x - ring.cx, y - ring.cy) - ring.r) / half;
-  if (!(off <= 1)) return null;
-  return {
-    refl: m.storm * (1 - (1 - STORM_EDGE) * off * off),
-    geom: VOLUME,
-    ref: m.volumeRef,
-    floor: m.floor,
-    min: 0,
-    terrainQ: 0, // weather, not ground — masked at mast height like every column
-  };
-}
 
 /**
  * SEA CLUTTER AT A POINT: the tiny surface coefficient on the SURFACE curve

@@ -16,7 +16,10 @@
 // x falloff-by-geometry) made structural, and it is what stops a fifth return
 // source arriving with a private attenuation formula.
 //
-// FIVE LAYERS, ONE PRIORITY ORDER (strongest scatterer first):
+// FOUR LAYERS, ONE PRIORITY ORDER (strongest scatterer first). It was FIVE until
+// cycle 72 deleted the STORM WALL on Eric's ruling (*"I don't want the storm ring
+// highlighted by radar anymore"*) — the storm still renders on the water, it just
+// stops being a return. See render/radarSources.ts for the removal note.
 //
 // PRIORITY IS NOT A STRICT ORDER BETWEEN LAND AND STEEL (cycle-62 review gate).
 // The first two layers below occupy the same cells whenever a hull hugs a
@@ -41,8 +44,9 @@
 //      falls out of its actual footprint in the raster the same way terrain's
 //      does; there is no bespoke ellipse kernel any more. The stamp is built once
 //      per frame precisely so the march never tests a polygon per sample.
-//   3. THE STORM WALL and 5. SEA CLUTTER — folded in from render/radarSources.ts
-//      as materials rather than as independent paint kinds.
+//   3. SEA CLUTTER — folded in from render/radarSources.ts as a material rather
+//      than as an independent paint kind (its sibling the storm wall was the
+//      other, and is gone).
 //   4. SURF (cycle 62 review gate — restored as a field material after falling
 //      out with the per-object island bake it used to ride on; Story 4.10's
 //      amendment 131 ratified its shape). A water sample within `surfBandU` of
@@ -94,8 +98,8 @@
 // (amendment 179).
 //
 // A FIELD IS A FROZEN RECORD (amendment 83). Everything it can answer — the
-// observer the clutter disc hangs on, the ring the wall tracks, where every hull
-// is — is captured when the field is BUILT, and a march freezes its samples into
+// observer the clutter disc hangs on, where every hull is — is captured when the
+// field is BUILT, and a march freezes its samples into
 // a slice at creation. Nothing downstream re-evaluates any of it against live
 // state. Nothing viewport-derived reaches this file at all (amendment 97): not
 // one function here takes a camera, a zoom or a viewport.
@@ -120,10 +124,8 @@ import {
   CHOP_HEAD_MULTIPLE,
   chopSample,
   clutterSample,
-  stormSample,
   wakeKeepFraction,
   wakeSample,
-  type StormRing,
 } from './radarSources.js';
 
 /**
@@ -707,10 +709,6 @@ export interface FieldSpec {
    * it, and waiting for the local beam would paint it a revolution stale.
    */
   wake?: CellStamp;
-  /** The LIVE storm ring, or null when the timeline is not anchored. Only the
-   *  live ring is a physical object; the dashed next-ring telegraph is a chart
-   *  annotation and must never return an echo (amendment 128). */
-  ring: StormRing | null;
   cellU: number;
   model: ReturnModelOpts;
 }
@@ -758,7 +756,7 @@ function solidAt(f: FieldSpec, x: number, y: number, dist: number): FieldSample 
  * and a strict order there suppressed hulls against coastlines. The rest of the
  * ordering is also the cost ordering:
  * terrain is one `Uint8Array` read, the ship stamp is one `Map` probe skipped
- * entirely when no hull is on the scope, the storm wall is scalar arithmetic,
+ * entirely when no hull is on the scope,
  * surf is one MORE `Uint8Array`-backed pyramid read (paid only on a water
  * sample the first three layers already rejected), and clutter is scalar
  * arithmetic. A cell can only be one material, so sea clutter can never paint
@@ -791,8 +789,6 @@ export function buildField(f: FieldSpec): RadarField {
     sampleAt(x: number, y: number, dist = 0): FieldSample | null {
       const solid = solidAt(f, x, y, dist);
       if (solid !== null) return solid;
-      const storm = f.ring === null ? null : stormSample(f.ring, x, y, m);
-      if (storm !== null) return storm;
       const surf = f.raster === null ? null : surfSample(f.raster, surfLevel, x, y, m);
       if (surf !== null) return surf;
       const water = wake === undefined || wake.size === 0 ? undefined : stampAt(wake, x, y, f.cellU);

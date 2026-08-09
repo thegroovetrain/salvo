@@ -173,7 +173,6 @@ function terrainField(raster: HeightRaster | null, obs: Vec2, o = CLEAN): RadarF
     obs,
     raster,
     ships: new Map(),
-    ring: null,
     cellU: o.cellU,
     model: o.model,
   });
@@ -344,7 +343,6 @@ describe('ships never shadow ships', () => {
       obs,
       raster: sea,
       ships: buildShipStamp(hulls, CLEAN.model, CLEAN.cellU),
-      ring: null,
       cellU: CLEAN.cellU,
       model: CLEAN.model,
     });
@@ -378,7 +376,6 @@ describe('terrain casts a height-derived shadow', () => {
         CFG.model,
         CFG.cellU,
       ),
-      ring: null,
       cellU: CFG.cellU,
       model: CFG.model,
     });
@@ -886,7 +883,7 @@ describe('the grain reports MARGINALITY: solid cores, crawling fringes', () => {
     // Sea clutter, which is tuned to straddle the transparency threshold.
     const obs: Vec2 = { x: 0, y: 0 };
     const field = (o: HeatmapOpts): RadarField =>
-      buildField({ obs, raster: null, ships: new Map(), ring: null, cellU: o.cellU, model: o.model });
+      buildField({ obs, raster: null, ships: new Map(), cellU: o.cellU, model: o.model });
     const grainy = marchAll(obs, field(CFG), CFG);
     const flat = marchSlice(obs, 0, TAU - 1e-6, field(CLEAN), RADAR, 0, CLEAN);
     expect(flat, 'with no grain the haze sits UNDER the threshold and paints nothing')
@@ -1204,31 +1201,11 @@ describe('no NaN may ever reach a cell write', () => {
       obs,
       raster: null,
       ships: new Map(),
-      ring: null,
       cellU: CLEAN.cellU,
       // A model with the clutter coefficient zeroed, so the ocean is truly empty.
       model: { ...CLEAN.model, clutter: 0 },
     });
     expect(marchSlice(obs, 0, TAU - 1e-6, empty, RADAR, 0, CLEAN)).toBeNull();
-  });
-
-  it('a NON-FINITE storm ring bakes nothing rather than hanging or NaN-ing', () => {
-    const obs: Vec2 = { x: 0, y: 0 };
-    for (const ring of [
-      { cx: Number.NaN, cy: 0, r: 300 },
-      { cx: 0, cy: 0, r: Number.POSITIVE_INFINITY },
-      { cx: 0, cy: 0, r: 0 },
-    ]) {
-      const field = buildField({
-        obs,
-        raster: null,
-        ships: new Map(),
-        ring,
-        cellU: CLEAN.cellU,
-        model: { ...CLEAN.model, clutter: 0 },
-      });
-      expect(marchSlice(obs, 0, TAU - 1e-6, field, RADAR, 0, CLEAN)).toBeNull();
-    }
   });
 
   it('a NON-FINITE loop bound answers null instead of hanging the tab — the '
@@ -1260,7 +1237,6 @@ describe('no NaN may ever reach a cell write', () => {
         CFG.model,
         CFG.cellU,
       ),
-      ring: { cx: 0, cy: -300, r: 420 },
       cellU: CFG.cellU,
       model: CFG.model,
     });
@@ -1347,7 +1323,6 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
       obs: OBS,
       raster,
       ships: buildShipStamp([HULL], CLEAN.model, CLEAN.cellU),
-      ring: null,
       cellU: CLEAN.cellU,
       model: CLEAN.model,
     });
@@ -1369,7 +1344,7 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
       gx: Math.floor(HULL.x / CLEAN.cellU), gy: Math.floor(HULL.y / CLEAN.cellU), w: 1, h: 1, bits: [1],
     }, hullSample(CLEAN.model));
     const field = buildField({
-      obs: OBS, raster, ships: needle, ring: null, cellU: CLEAN.cellU, model: CLEAN.model,
+      obs: OBS, raster, ships: needle, cellU: CLEAN.cellU, model: CLEAN.model,
     });
     const both = at(marchAll(OBS, field), HULL.x, HULL.y);
     const rock = at(marchAll(OBS, terrainField(raster, OBS)), HULL.x, HULL.y);

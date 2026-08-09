@@ -195,7 +195,7 @@ import {
   type WakeSegmentCover,
 } from './radarField.js';
 import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './radarMarch.js';
-import { wakeLitFloor, type StormRing } from './radarSources.js';
+import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
@@ -317,23 +317,12 @@ export interface ViewRect {
   halfH: number;
 }
 
-/**
- * THE ZONE FIELDS THE STORM WALL READS (Story 4.10, amendment 128) — a
- * structural subset of `ZoneView` (client/src/sim/zoneView.ts), so this module
- * never imports the zone layer and main.ts can hand it the already-computed view
- * verbatim.
- *
- * NOTE WHAT IS ABSENT: `next`. Only the LIVE ring is a physical object with
- * water and wind in it; the dashed next-ring telegraph is a chart annotation and
- * must never return an echo. Leaving the field off the type is the cheapest
- * possible enforcement of that.
- */
-export interface ZoneLike {
-  /** `'idle'` means the timeline is not anchored yet — nothing paints. */
-  state: string;
-  /** The LIVE ring (offset centre, interpolated while closing). */
-  cur: StormRing;
-}
+// THE ZONE NO LONGER REACHES THIS MODULE AT ALL (cycle 72). `ZoneLike` existed
+// solely to hand the storm wall its live ring, and Eric removed that return —
+// *"I don't want the storm ring highlighted by radar anymore. I don't like it."*
+// The whole `zone` parameter went with it rather than being left plumbed to a
+// material that no longer exists. The storm's on-water rendering (render/zone.ts)
+// is untouched and is where the ring is legible.
 
 /** The decay inputs shared by every live mark for one frame. */
 interface DecayFrame {
@@ -1066,18 +1055,12 @@ export class Radar {
    *  path. Omitting it falls back to a radar-ring-sized window on the own ship,
    *  which is the pre-cycle-58 behaviour and covers any caller that has no
    *  camera (tests, and the `silhouette` grammar, which has no buffer at all).
-   *
-   *  `zone` is the client's live zone view (Story 4.10, amendment 128). ONLY
-   *  `zone.cur` is ever read: the live ring is a physical object and returns an
-   *  echo, while the dashed next-ring telegraph is a chart annotation and must
-   *  not. It discloses nothing — ring geometry has been on the wire since its
-   *  reveal beat (Story 3.1). */
+   */
   render(
     own: OwnPoint | null,
     serverNow: number,
     contacts: ContactStore | null = null,
     view: ViewRect | null = null,
-    zone: ZoneLike | null = null,
   ): void {
     this.own = own;
     this.view = view;
@@ -1088,7 +1071,7 @@ export class Radar {
     // then the next paint would appear through a stale ramp.
     this.updateDimMask(own);
     const rot = this.updateSweep(own, serverNow);
-    if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts, zone);
+    if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts);
     this.lastRotation = rot;
     this.updateBlips(serverNow);
   }
@@ -1100,11 +1083,10 @@ export class Radar {
     rot: number | null,
     serverNow: number,
     contacts: ContactStore | null,
-    zone: ZoneLike | null,
   ): void {
     this.resolvePending();
     this.resolvePendingWake();
-    if (own !== null && rot !== null) this.marchBeam(own, rot, serverNow, contacts, zone);
+    if (own !== null && rot !== null) this.marchBeam(own, rot, serverNow, contacts);
     this.pruneSlices(serverNow);
     this.paintHeat(own, serverNow);
   }
@@ -1113,8 +1095,8 @@ export class Radar {
    * ADVANCE THE BEAM AND MARCH WHAT IT CROSSED — the whole of the `return`
    * grammar's paint creation, in one place.
    *
-   * THE FIELD IS BUILT ONCE PER FRAME AND FROZEN (amendment 83). The observer,
-   * the live ring and every hull's footprint are captured here; each slice then
+   * THE FIELD IS BUILT ONCE PER FRAME AND FROZEN (amendment 83). The observer
+   * and every hull's footprint are captured here; each slice then
    * freezes its own samples out of that field, so nothing a slice contains can
    * ever be re-evaluated against live state.
    *
@@ -1130,7 +1112,6 @@ export class Radar {
     rot: number,
     serverNow: number,
     contacts: ContactStore | null,
-    zone: ZoneLike | null,
   ): void {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     // AN AGROUND OBSERVER CREATES NO PAINTS. A ray starts at d = 0, so a set
@@ -1152,7 +1133,6 @@ export class Radar {
       raster: this.heightRaster,
       ships: this.shipStamp(own, serverNow, contacts),
       wake: this.wakeStamp(own, serverNow),
-      ring: zone === null || zone.state === 'idle' ? null : zone.cur,
       cellU: cfg.cellU,
       model: cfg.model,
     });
@@ -1420,9 +1400,10 @@ export class Radar {
       lifeMs: blipLifeMs(this.sweepPeriodMs),
       alphaFloor: this.assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha,
     };
-    // ONE pass over ONE list. The five paint KINDS the retired grammar carried
-    // (ship, island, surf, clutter, storm) are five MATERIALS in the field now,
-    // so there is one record type left and one stamp for it.
+    // ONE pass over ONE list. The paint KINDS the retired grammar carried
+    // (ship, island, surf, clutter — and the storm wall, deleted by cycle 72)
+    // are MATERIALS in the field now, so there is one record type left and one
+    // stamp for it.
     rasterize(heat.grid, this.paints, ctx);
     quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);

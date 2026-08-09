@@ -658,15 +658,21 @@ describe('buffer sizing and the load-bearing snap', () => {
   });
 });
 
-// --- 6b. THE TWO WEATHER MATERIALS, PINNED AT THE ADAPTER (amendment 98) --------
+// --- 6b. THE WEATHER MATERIAL, PINNED AT THE ADAPTER (amendment 98) -------------
 //
 // Same standing order: a pure-rasterizer test does NOT discharge placement, so
-// the storm wall and the sea-clutter haze are measured HERE, through the real
-// sprite transform, at both zoom extremes and with the camera moving. Cycle 57
-// shipped a placement regression under green pure tests; these blocks exist so
-// they cannot repeat it. Cycle 62 turned both from paint KINDS into FIELD
-// MATERIALS, which is exactly the kind of change amendment 98 says not to assume
-// carries over — so they are re-derived against the march rather than adapted.
+// the sea-clutter haze is measured HERE, through the real sprite transform, at
+// both zoom extremes and with the camera moving. Cycle 57 shipped a placement
+// regression under green pure tests; this block exists so it cannot repeat.
+// Cycle 62 turned it from a paint KIND into a FIELD MATERIAL, which is exactly
+// the kind of change amendment 98 says not to assume carries over — so it is
+// re-derived against the march rather than adapted.
+//
+// THERE WERE TWO. The STORM WALL's placement was pinned here alongside the haze
+// until cycle 72 deleted that material on Eric's ruling (*"I don't want the storm
+// ring highlighted by radar anymore"*); its four blocks were RETIRED rather than
+// adapted, since there is nothing left to place. The storm's on-water rendering
+// is Story 3.2's and is tested with the zone layer, not here.
 //
 // AND THAT INCLUDES CLUTTER. An earlier draft of this file excused the haze on
 // the grounds that it "lights no texel" — the retired amendment-130 bound, which
@@ -677,16 +683,15 @@ describe('buffer sizing and the load-bearing snap', () => {
 // transform entirely, which is amendment 98's exact trap (cycle 57's regression
 // lived in the placement, and its pure tests were green).
 
-/** Render one frame with a zone view (the storm wall's input). */
+/** Render one frame through the real camera transform. */
 function frameZone(
   radar: Radar,
   cam: Camera,
   own: { x: number; y: number },
   t: number,
-  zone: { state: string; cur: { cx: number; cy: number; r: number } } | null,
 ): void {
   cam.snapTo(own);
-  radar.render(own, t, null, cam.worldView, zone);
+  radar.render(own, t, null, cam.worldView);
 }
 
 /**
@@ -700,82 +705,10 @@ function revolution(
   radar: Radar,
   cam: Camera,
   own: { x: number; y: number },
-  zone: { state: string; cur: { cx: number; cy: number; r: number } } | null,
 ): void {
   radar.onSweepSample(-0.6, 0);
-  for (let t = 0; t <= 4600; t += 100) frameZone(radar, cam, own, t, zone);
+  for (let t = 0; t <= 4600; t += 100) frameZone(radar, cam, own, t);
 }
-
-describe('the STORM WALL renders on the live ring, in world coordinates', () => {
-  const OWN = { x: 400, y: -250 }; // nowhere near the origin: an origin bug hides there
-  const RING = { cx: OWN.x, cy: OWN.y, r: 300 };
-  const ZONE = { state: 'closing', cur: RING };
-  const HALF = CLIENT_CONFIG.blip.heatmap.model.stormBandU / 2;
-
-  for (const [label, z] of [['USER_ZOOM_MIN', USER_ZOOM_MIN], ['USER_ZOOM_MAX', USER_ZOOM_MAX]] as const) {
-    it(`puts the band on the ring at ${label} (${z}×)`, () => {
-      const { radar, layer, chart } = harness();
-      const cam = camera(z);
-      revolution(radar, cam, OWN, ZONE);
-      const m = measure(layer, chart, cam);
-      expect(m.cells, 'the wall lit texels').toBeGreaterThan(50);
-      // A full annulus about the ring centre: its centroid is the centre and its
-      // bounds open exactly one ring radius (plus half a band) either side. A
-      // sprite placed at the wrong world point moves all four.
-      expect(Math.abs(m.x - RING.cx), `centroid x at ${label}`).toBeLessThan(TOL);
-      expect(Math.abs(m.y - RING.cy), `centroid y at ${label}`).toBeLessThan(TOL);
-      expect(Math.abs(m.minX - (RING.cx - RING.r - HALF)), 'west edge').toBeLessThan(TOL);
-      expect(Math.abs(m.maxX - (RING.cx + RING.r + HALF)), 'east edge').toBeLessThan(TOL);
-      expect(Math.abs(m.minY - (RING.cy - RING.r - HALF)), 'south edge').toBeLessThan(TOL);
-      expect(Math.abs(m.maxY - (RING.cy + RING.r + HALF)), 'north edge').toBeLessThan(TOL);
-    });
-  }
-
-  it('and holds that world position while the camera moves over it — the wall is '
-    + 'a record of where the ring WAS, not a chart overlay that follows you', () => {
-    const { radar, layer, chart } = harness();
-    const cam = camera(USER_ZOOM_MIN);
-    revolution(radar, cam, OWN, ZONE);
-    const first = measure(layer, chart, cam);
-    for (const step of [7.5, 44, 130.25, 260]) {
-      // Inside ONE further revolution, so no new wall is opened from the new
-      // observer: this is the ORIGINAL paint, measured from a moved camera.
-      frameZone(radar, cam, { x: OWN.x - step, y: OWN.y + step * 0.5 }, 4500 + step, ZONE);
-      const m = measure(layer, chart, cam);
-      expect(Math.abs(m.x - first.x), `wall x after ${step}u`).toBeLessThan(TOL);
-      expect(Math.abs(m.y - first.y), `wall y after ${step}u`).toBeLessThan(TOL);
-      expect(Math.abs(m.minX - first.minX), `west edge after ${step}u`).toBeLessThan(TOL);
-    }
-  });
-
-  it('THE TELEGRAPH DOES NOT PAINT: only the LIVE ring is a physical object', () => {
-    const { radar } = harness();
-    const cam = camera(USER_ZOOM_MIN);
-    // A revealed next ring, well inside the live one and comfortably in range.
-    const withNext = { state: 'closing', cur: RING, next: { cx: OWN.x, cy: OWN.y, r: 150 } };
-    revolution(radar, cam, OWN, withNext);
-    expect(radar.bandAt(OWN.x, OWN.y + RING.r), 'the live ring paints').toBeGreaterThanOrEqual(0);
-    for (const a of [0, 1, 2, 3, 4, 5]) {
-      const x = OWN.x + Math.cos(a) * withNext.next.r;
-      const y = OWN.y + Math.sin(a) * withNext.next.r;
-      expect(radar.bandAt(x, y), `dashed telegraph at ${a} rad`).toBe(-1);
-    }
-  });
-
-  it('and an idle timeline (or no zone at all) paints no wall', () => {
-    for (const zone of [null, { state: 'idle', cur: RING }]) {
-      const { radar } = harness();
-      const cam = camera(USER_ZOOM_MIN);
-      revolution(radar, cam, OWN, zone);
-      expect(radar.bandAt(OWN.x, OWN.y + RING.r)).toBe(-1);
-      // ...and nothing anywhere on the ring, at any bearing: an idle timeline is
-      // not a physical object.
-      for (const a of [0.4, 1.9, 3.3, 5.1]) {
-        expect(radar.bandAt(OWN.x + Math.cos(a) * RING.r, OWN.y + Math.sin(a) * RING.r)).toBe(-1);
-      }
-    }
-  });
-});
 
 describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
   const OWN = { x: -600, y: 900 };
@@ -786,7 +719,7 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
     it(`lands on the ship, in world coordinates, at ${label} (${z}×)`, () => {
       const { radar, layer, chart } = harness();
       const cam = camera(z);
-      revolution(radar, cam, OWN, null);
+      revolution(radar, cam, OWN);
       // THROUGH THE SPRITE, at both zooms — the haze is the only thing on the
       // scope in this run, so the lit region IS the haze. An origin bug, a
       // scale bug or an unsnapped anchor moves the centroid off the ship.
@@ -807,7 +740,7 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
     it(`stays GREEN texture at ${label} — never "probably a thing" on water`, () => {
       const { radar } = harness();
       const cam = camera(z);
-      revolution(radar, cam, OWN, null);
+      revolution(radar, cam, OWN);
       // THE HAZE IS SPECKLE, so a fixed probe is the wrong instrument: roughly a
       // sixth of its cells light and the rest are dark BY DESIGN (amendment 133's
       // straddle). Scan the disc instead and assert the distribution.
@@ -831,12 +764,12 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
     + 'the boat within a revolution', () => {
     const { radar, layer, chart } = harness();
     const cam = camera(USER_ZOOM_MIN);
-    revolution(radar, cam, OWN, null);
+    revolution(radar, cam, OWN);
     const first = measure(layer, chart, cam);
     // Steam east. The hazes ALREADY on the scope stay where the beam swept them,
     // so the lit region's WEST edge cannot move: only new cells appear ahead.
     for (const step of [12, 90, 240]) {
-      frameZone(radar, cam, { x: OWN.x + step, y: OWN.y }, 4500 + step, null);
+      frameZone(radar, cam, { x: OWN.x + step, y: OWN.y }, 4500 + step);
       const m = measure(layer, chart, cam);
       expect(Math.abs(m.minX - first.minX), `west edge after ${step}u of travel`)
         .toBeLessThan(TOL);
@@ -860,11 +793,16 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
 
 describe('the scope never blinks out for a frame', () => {
   const OWN = { x: 250, y: -150 };
-  const ZONE = { state: 'closing', cur: { cx: OWN.x, cy: OWN.y, r: 300 } };
 
   it('the lit-texel count never collapses across three whole revolutions', () => {
     const { radar, layer } = harness();
     const cam = camera(USER_ZOOM_MAX);
+    // TERRAIN is the paint source here. It was the STORM WALL until cycle 72
+    // deleted that material; an encircling ring was a convenient way to light
+    // every bearing, and a slab of coast lights enough of them to make the same
+    // reading. What is under test is the ARC — that a slice is a finished record
+    // and can never wrap down to a sliver — not which material fills it.
+    radar.setHeightRaster(rasterFrom(900, slab(OWN.x + 250, OWN.y, 120, 400, 255)));
     radar.onSweepSample(-0.6, 0);
     // 4s per revolution at 15rpm, walked in 30ms steps. The step deliberately
     // does NOT divide the revolution: the frame that lands nearest the wrap
@@ -872,7 +810,7 @@ describe('the scope never blinks out for a frame', () => {
     // collapsed on roughly every other revolution, never on all of them.
     const counts: number[] = [];
     for (let t = 0; t <= 12_000; t += 30) {
-      frameZone(radar, cam, OWN, t, ZONE);
+      frameZone(radar, cam, OWN, t);
       counts.push(litTexels(heatSprite(layer)).length);
     }
     const peak = Math.max(...counts);

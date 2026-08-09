@@ -2086,14 +2086,6 @@ export const CLIENT_CONFIG = {
          */
         wake: HEAT_WAKE_COEF,
         /**
-         * The storm wall. Bounded the same way its siblings are, against the same
-         * envelope: `storm × (1 + a) < bands[2].at` → 0.5 × 1.129 = 0.564 < 0.7,
-         * so the wall is a solid BLUE band with a green shoulder at every range
-         * inside the scope and can never reach red at any draw. A hull is the only
-         * thing on this scope allowed to be red.
-         */
-        storm: 0.5,
-        /**
          * Reference range (u) of the POINT curve — SOLVED, never typed in. See
          * the HEAT_POINT_REF comment above the object: this is the only place in
          * the client that reads `CONFIG.vision.farRadar`, and it reads it to FIT
@@ -2200,12 +2192,6 @@ export const CLIENT_CONFIG = {
          * the last ~124u of a 247.5u track.
          */
         wakeTailKeep: 0.35,
-        /** Reference range (u) of the VOLUME curve (the storm wall). Longest of
-         *  the three on the shallowest exponent: a squall genuinely does stay
-         *  legible clear across the map, which is precisely why amendment 128
-         *  paints the WALL and not the AREA — an area return under this curve
-         *  would own half the scope late-match and bury every contact in it. */
-        volumeRef: 900,
         /** Asymptotic floor shared by the SURFACE and VOLUME curves. Small for
          *  conditioning, and still an asymptote rather than a clamp, so two
          *  different ranges never attenuate identically (amendment 64's
@@ -2274,11 +2260,6 @@ export const CLIENT_CONFIG = {
          * edge could become visible.
          */
         clutterRangeU: 100,
-        /** Full thickness (u) of the storm wall band, centred on the live ring
-         *  radius. A fixed thickness is the whole of amendment 128: the wall is a
-         *  physical object of its own size, not a region whose extent grows as
-         *  the ring closes. */
-        stormBandU: 60,
       },
       /**
        * THE TERRAIN SHADOW'S SOFT EDGE (cycle 69), in the height raster's own
