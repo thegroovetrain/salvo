@@ -42,7 +42,7 @@ import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom } from './render/camera.js';
-import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle, hueRevision, setColorblindAssist } from './render/ships.js';
+import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist } from './render/ships.js';
 import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
@@ -50,6 +50,7 @@ import { FiringUX } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
 import { weaponArcHit, weaponRangeHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
+import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
@@ -810,10 +811,16 @@ function ordnanceHue(g: Game, by: string): number | null {
 }
 
 /**
- * Recolor the own hull + wake the moment the own roster hue is first known
- * (Story 1.12): the roster schema can sync AFTER the first rendered frame, so the
- * hull/wake boot on the amber fallback and swap to the personal hue here. Cheap
+ * Recolor the own hull the moment the own roster hue is first known (Story
+ * 1.12): the roster schema can sync AFTER the first rendered frame, so the hull
+ * boots on the amber fallback and swaps to the personal hue here. Cheap
  * idempotent poll — redraws only when the resolved index actually changes.
+ *
+ * THE WAKE NO LONGER LATCHES HERE. Story 4.12 made wake a property of every
+ * visible hull rather than a UI element behind the own one (amendment 199), so
+ * its tint is resolved PER SOURCE, per frame, off the same roster this reads —
+ * see `wakeHulls`. A latch for one of twenty sources would have been the odd
+ * one out.
  */
 function updateOwnColor(g: Game): void {
   const idx = rosterColor(g, g.state.net.sessionId);
@@ -830,9 +837,6 @@ function updateOwnColor(g: Game): void {
   g.hueRev = rev;
   const style = hullStyle(idx);
   g.ownView.setColors(style.stroke, style.fill);
-  // `?? amber` guards the array lookup so setWakeColor can never receive undefined
-  // (rosterColor already keeps idx in range; this is belt-and-braces).
-  g.effects.setWakeColor(idx === null ? CLIENT_CONFIG.colors.amber : PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.amber);
 }
 
 /**
@@ -1062,6 +1066,11 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // Same defence for the foghorn chevrons (Story 4.5): a bearing is a fact
       // about one moment on one ocean, and it must not survive into the next.
       g.foghorn.clear();
+      // ...and for the wake (Story 4.12), which is the strongest case of the
+      // three: it is a whole ribbon of TRUE world positions per hull, and it
+      // also feeds the radar's in-truesight stamp, so a survivor would paint
+      // the next ocean as well as draw on it.
+      g.effects.clearWake();
     },
   });
 }
@@ -1143,7 +1152,6 @@ function setupViewport(
   // Effects is built before Projectiles so the torpedo-wake trail can feed the
   // shared effects pool via a closure.
   const effects = new Effects(stage.layers.wake, stage.layers.projectile, stage.layers.burstFx);
-  effects.setOwnClass(cls);
 
   return { camera, keyboard, mouse, ownView, effects };
 }
@@ -1470,7 +1478,11 @@ function buildGame(
     ownView,
     contactViews: new ContactViews(stage.layers.ship, nameplates),
     nameplates,
-    projectiles: new Projectiles(map.radius, stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
+    // NO TRAIL CALLBACK ANY MORE (cycle-69 review gate, P10): a fish's water is
+    // the one shared wake ribbon, pulled by `wakeHulls` from
+    // `projectiles.torpWakeHulls()` and laid by `effects.update()` on the same
+    // model, cadence and life the scope draws.
+    projectiles: new Projectiles(map.radius, stage.layers.projectile),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     // Same fog-immune chart layer as the reticle: a burst point can sit far
     // beyond the sight bubble, and the preview must not be eaten by fog.
@@ -1534,6 +1546,18 @@ function buildGame(
   // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setHeightRaster(map.heightRaster);
+  // THE IN-TRUESIGHT WAKE SEAM (Story 4.12). One tracker, two renderings: the
+  // emitter owns the ribbons and draws the water, the scope stamps the SAME
+  // segments onto the radar lattice for the inner half the server does not
+  // disclose (per source: `blipGate`'s annulus for a hull, the 3/8 detect rung
+  // for a fish). Read-only here — the radar samples ribbons and never appends.
+  //
+  // THE ISLANDS RIDE ALONG (cycle-69 review gate, P5) because the synthesis is
+  // a STAND-IN for a disclosure the server withholds on BINARY-LOS grounds, so
+  // it owes the same binary test the server would have applied. They are the
+  // deterministic set rebuilt from the map seed — the same array the predictor
+  // and the fog already collide against, never a second geometry.
+  g.radar.setWakeSources(g.effects.wakeSources, g.islands);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   bindGameRoom(g, conn);
@@ -1613,7 +1637,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   }
   if (classChanged) {
     g.ownView.setHullId(cls);
-    g.effects.setOwnClass(cls);
+    // The wake tracker needs no class hook: a class change respawns the hull,
+    // and `WakeSources` re-provisions a source whose class moved (its ring
+    // capacity is derived from that class's top speed).
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
@@ -1775,6 +1801,60 @@ function bindGameRoom(g: Game, conn: Connection): void {
 // --- alive rendering -----------------------------------------------------------
 
 /**
+ * EVERY HULL THE PLAYER CAN SEE, as the wake layer needs it (amendment 199,
+ * Story 4.12).
+ *
+ * Own predicted pose first (or nothing, spectating), then every contact —
+ * captains and drones alike, at the SAME interp-delayed time the hull renderer
+ * and the radar's `shipStamp` sample them at, so the foam lands on the hull the
+ * player can see rather than ~100ms ahead of it.
+ *
+ * THERE IS NO DECOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, Eric:
+ * *"Decoy will get major changes soon so lets not worry about it for now"*). A
+ * decoy is frozen at its drop pose, so it never travels one sample cadence and
+ * lays nothing BY CONSTRUCTION. The resulting tell is ledgered, not papered
+ * over.
+ *
+ * Each source carries its own tint, resolved off the SAME roster the hull's
+ * silhouette reads (`contactStyle` → drone grey for the 255 sentinel, the
+ * personal hue otherwise), so a wake is never a different colour from the ship
+ * that made it.
+ *
+ * AND EVERY LIVE TORPEDO IS A SOURCE TOO (cycle-69 review gate, P10). A fish's
+ * trail used to be a private one-shot dot chain inside `Projectiles` at 0.7s
+ * while the same fish's radar ribbon ran 6s — the length fork amendment 204
+ * forbids. It joins the ONE tracker here, so the water and the scope draw the
+ * same geometry at the same life, and the client synthesizes its in-detect half
+ * exactly as it synthesizes a hull's in-sight half.
+ */
+function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
+  const out: WakeHull[] = g.projectiles.torpWakeHulls(now);
+  if (pose !== null) {
+    const own = g.ownStats;
+    out.push({
+      id: g.state.net.sessionId,
+      x: pose.x, y: pose.y, heading: pose.heading, speed: pose.speed,
+      cls: g.ownClass,
+      color: hullStyle(g.ownHueIndex).stroke,
+      // Mirrors the server's `World.wakeTopSpeed` so the two ring buffers are
+      // provisioned alike; a boost card lengthens both or neither.
+      maxSpeedU: own.kinematics.maxSpeed + own.boost.speedBonus,
+    });
+  }
+  const at = now - CLIENT_CONFIG.net.interpDelayMs;
+  for (const id of g.contacts.ids()) {
+    const s = g.contacts.get(id)?.sampleAt(at);
+    const cls = g.contacts.classOf(id);
+    if (s === null || s === undefined || cls === undefined) continue;
+    out.push({
+      id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls,
+      color: contactStyle(cls, rosterColor(g, id)).stroke,
+    });
+  }
+  return out;
+}
+
+/**
  * Draws the own-ship frame and RETURNS this frame's Tier-1 (threat) read.
  *
  * The read has to happen HERE, not in the caller: `renderFiring` is what drives
@@ -1803,7 +1883,10 @@ function renderOwn(
   g.ownView.update(pose.x, pose.y, pose.heading);
   g.camera.update(frameDt, pose);
   updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)
-  g.effects.update(frameDt, pose);
+  // EVERY VISIBLE HULL LAYS A WAKE (amendment 199) — own predicted pose plus
+  // every truesight contact, drones included. Before Story 4.12 this passed the
+  // own pose alone and enemy hulls glided across the water leaving nothing.
+  g.effects.update(frameDt, now, wakeHulls(g, pose, now));
   g.lastOwn = { x: pose.x, y: pose.y };
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
@@ -2394,7 +2477,10 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // fire control) — the plane renders, the vignette does not.
   updateZone(g, zv, false, false, now, nowMs);
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
-  g.effects.update(frameDt, null);
+  // A SPECTATOR HAS NO HULL BUT SEES EVERY OTHER ONE, and spec frames are
+  // unfogged — so the water keeps working exactly as it does alive (amendment
+  // 199 is about visible hulls, and from here they all are).
+  g.effects.update(frameDt, now, wakeHulls(g, null, now));
   // Hides the sweep + rings. The zone view rides along for consistency with the
   // alive path, and paints nothing either way: with no own pose there is no
   // observer to freeze a paint against, so no source opens (Story 4.10).
@@ -2539,6 +2625,12 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);
       updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
+      // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
+      // cycle-69 review gate P11): a spectator's frames are UNFOGGED, so every
+      // ribbon laid while dead was observed with no sight bubble and no island
+      // LOS. Ahead of the dispatch, so the first frame of either regime already
+      // has a clean store. See Effects.setSpectating.
+      g.effects.setSpectating(g.state.spectating);
       if (g.state.spectating) renderSpectate(g, frameDt, now, nowMs, zv, mu);
       else renderAlive(g, alpha, frameDt, now, nowMs, zv, mu);
       syncRefitBand(g);

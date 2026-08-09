@@ -61,6 +61,9 @@ const radarCtx = (w: World) => ({
   radarGrammar: w.radarGrammar,
   radarIdentity: w.radarIdentity,
   pseudonymOf: (id: string) => w.pseudonymFor(id),
+  // Story 4.12: the wake subject list rides every context; the fh row reads
+  // none of it, so the World's own live list passes through.
+  wakes: w.wakeRibbons,
 });
 
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */

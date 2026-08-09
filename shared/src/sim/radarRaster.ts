@@ -257,6 +257,344 @@ function fillSpine(cover: HullCoverage, local: readonly Vec2[], x: number, y: nu
 }
 
 // ---------------------------------------------------------------------------
+// SEGMENT COVERAGE (Story 4.12, amendment 194): the wake ribbon's sibling of
+// `rasterizeHullCoverage` — one segment of disturbed water projected onto the
+// same lattice, in the same `HullCoverage` shape.
+// ---------------------------------------------------------------------------
+
+/** Scratch quad for the segment's core rectangle — consumed synchronously
+ *  inside `rasterizeSegmentCoverage` (the POSE_SCRATCH pattern). */
+const CAPSULE_SCRATCH: Vec2[] = [
+  { x: 0, y: 0 },
+  { x: 0, y: 0 },
+  { x: 0, y: 0 },
+  { x: 0, y: 0 },
+];
+
+/**
+ * Project one wake segment onto the radar grid: every cell whose CENTRE lies
+ * inside the segment's width-`widthU` core rectangle (square caps — extended
+ * `widthU/2` past each endpoint along the axis, so consecutive ribbon
+ * segments overlap at a turn instead of leaving a notch), plus every cell the
+ * segment's CENTRE-LINE passes through. Same lattice, same `HullCoverage`
+ * shape as the hull's mask.
+ *
+ * DELIBERATELY NOT ROUTED THROUGH `fuzzCoverage` (spec ruling): dilation +
+ * glint is the HULL's beam-smear model (amendments 156-158) — it exists to
+ * blur six distinct hull templates together, and applied here it would smear
+ * a one-cell torpedo ribbon into a blob. But a wake segment DOES carry a
+ * class fingerprint — `widthU` is the source's exact beam, so a sharp mask's
+ * lit-row count is a lookup table (1 row = torpedo/torpedo boat, 3 = a
+ * battleship), the precise leak amendments 156-158 spent a review gate
+ * closing on hulls. THIS function is therefore the sharp GEOMETRIC substrate
+ * only; anything wire-bound or paint-bound goes through
+ * `paintSegmentCoverage` below, which applies the GLINT HALF of the fuzz
+ * (per-paint edge scintillation, no structural dilation — cycle-69 review
+ * gate, P3) so the measured width is a per-paint random variable rather
+ * than a template.
+ *
+ * THE CENTRE-LINE WALK IS `fillSpine`'s LESSON APPLIED: a ribbon thinner than
+ * a cell (a torpedo's, or a torpedo boat's 9u beam) at the straddling lattice
+ * phase would otherwise collapse to a scatter exactly as the cycle-63 hull
+ * spine bug did — so the walk visits the segment at quarter-cell steps, and
+ * bridges any diagonal step so the spine is 4-connected as it is laid. A
+ * final bridge pass (`bridgeCoverageDiagonals`) closes any diagonal-only
+ * adjacency the width fill introduces at the rounded flanks, so the whole
+ * mask is 4-connected by construction — a march ray at ~45° never falls
+ * through a corner gap (the cycle-62 guarantee, kept).
+ *
+ * DEGRADE, NEVER THROW (the per-tick-scan contract `rasterizeHullCoverage`
+ * carries, amendment 193's lesson): a non-finite endpoint drops that endpoint
+ * (the segment collapses to its finite end); both endpoints non-finite, or a
+ * degenerate lattice, degrade to a single-cell mask. A non-finite or
+ * non-positive `widthU` rasterizes the centre-line only. All bit writes are
+ * bounds-checked (`setBitInRect`) — the `>>> 5` word-index safety the
+ * cycle-63 gate added holds here too.
+ */
+export function rasterizeSegmentCoverage(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  widthU: number,
+  cellU: number,
+): HullCoverage {
+  const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
+  const degenerate = degenerateSegment(ax, ay, bx, by, grid);
+  if (degenerate !== null) return degenerate;
+  // At least one endpoint is finite here; a non-finite one collapses onto it.
+  const [sx, sy] = finitePoint(ax, ay) ? [ax, ay] : [bx, by];
+  const [ex, ey] = finitePoint(bx, by) ? [bx, by] : [ax, ay];
+  const halfW = coreHalfWidth(widthU);
+  const poly = capsuleQuad(sx, sy, ex, ey, halfW);
+  const cover = emptyRectFor(poly, grid);
+  if (halfW > 0) fillCoverage(cover, poly, grid);
+  walkSegmentCells(cover, sx, sy, ex, ey, grid);
+  bridgeCoverageDiagonals(cover);
+  return cover;
+}
+
+/** True iff both coordinates are finite. */
+function finitePoint(x: number, y: number): boolean {
+  return Number.isFinite(x) && Number.isFinite(y);
+}
+
+/** Clamp a core width to a usable half-width: non-finite or non-positive
+ *  widths degrade to 0 (centre-line only), never throw. */
+function coreHalfWidth(widthU: number): number {
+  return Number.isFinite(widthU) && widthU > 0 ? widthU / 2 : 0;
+}
+
+/** The segment degrade ladder: a fail-soft single-cell mask when both
+ *  endpoints are non-finite (origin cell) or the lattice is degenerate (the
+ *  finite endpoint's cell) — or null when the real rasterization should run. */
+function degenerateSegment(ax: number, ay: number, bx: number, by: number, grid: number): HullCoverage | null {
+  const cell = grid === 0 ? 1 : grid;
+  const aOk = finitePoint(ax, ay);
+  if (!aOk && !finitePoint(bx, by)) return centreCellCoverage(0, 0, cell);
+  if (grid === 0) return centreCellCoverage(aOk ? ax : bx, aOk ? ay : by, cell);
+  return null;
+}
+
+/** The segment's core rectangle with square caps: the segment Minkowski-grown
+ *  by `halfW` along both its axis and its normal. A zero-length segment
+ *  (axis degenerates to +x) becomes an axis-aligned square; a zero `halfW`
+ *  collapses to the bare segment (zero-area quad — `emptyRectFor` still
+ *  reads its bbox, `fillCoverage` marks nothing, the spine walk covers it). */
+function capsuleQuad(ax: number, ay: number, bx: number, by: number, halfW: number): readonly Vec2[] {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const ux = len > 0 ? dx / len : 1;
+  const uy = len > 0 ? dy / len : 0;
+  const exx = ux * halfW; // axial cap extension
+  const exy = uy * halfW;
+  const nx = -uy * halfW; // normal half-width
+  const ny = ux * halfW;
+  const p = CAPSULE_SCRATCH;
+  p[0].x = ax - exx + nx;
+  p[0].y = ay - exy + ny;
+  p[1].x = bx + exx + nx;
+  p[1].y = by + exy + ny;
+  p[2].x = bx + exx - nx;
+  p[2].y = by + exy - ny;
+  p[3].x = ax - exx - nx;
+  p[3].y = ay - exy - ny;
+  return p;
+}
+
+/** Walk the segment at quarter-cell steps setting every visited cell — the
+ *  `fillSpine` cadence (a step strictly under half a cell cannot skip a cell
+ *  on either axis), plus in-walk diagonal bridging: when one step crosses
+ *  both a column and a row boundary, the corner cell `(pcol, row)` is set so
+ *  the laid spine is 4-connected, deterministically. */
+function walkSegmentCells(cover: HullCoverage, ax: number, ay: number, bx: number, by: number, cellU: number): void {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const span = Math.max(Math.abs(dx), Math.abs(dy));
+  const steps = Math.max(1, Math.ceil((span / cellU) * 4));
+  let pcol = Math.floor(ax / cellU) - cover.gx;
+  let prow = Math.floor(ay / cellU) - cover.gy;
+  setBitInRect(cover, pcol, prow);
+  for (let i = 1; i <= steps; i++) {
+    const col = Math.floor((ax + (dx * i) / steps) / cellU) - cover.gx;
+    const row = Math.floor((ay + (dy * i) / steps) / cellU) - cover.gy;
+    if (col !== pcol && row !== prow) setBitInRect(cover, pcol, row);
+    setBitInRect(cover, col, row);
+    pcol = col;
+    prow = row;
+  }
+}
+
+/** Close every diagonal-only adjacency in a packed mask, to a fixed point —
+ *  `bridgeDiagonals`' rule (the `\` diagonal bridges through the top-right
+ *  cell, the `/` through the top-left) applied to a `HullCoverage` directly:
+ *  segment masks are a handful of cells, so the packed-bit reads cost less
+ *  than staging through the fuzz scratch grids. Each pass only ADDS cells,
+ *  so it terminates. */
+function bridgeCoverageDiagonals(cover: HullCoverage): void {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let row = 0; row < cover.h - 1; row++) {
+      for (let col = 0; col < cover.w - 1; col++) {
+        if (bridgeCoverageBlock(cover, col, row)) changed = true;
+      }
+    }
+  }
+}
+
+/** One 2×2 block of a packed mask: bridge an exactly-diagonal covered pair.
+ *  Returns true when a bridge cell was added. */
+function bridgeCoverageBlock(cover: HullCoverage, col: number, row: number): boolean {
+  const a = coverageHas(cover, col, row);
+  const b = coverageHas(cover, col + 1, row);
+  const c = coverageHas(cover, col, row + 1);
+  const d = coverageHas(cover, col + 1, row + 1);
+  if (a && d && !b && !c) {
+    setBitInRect(cover, col + 1, row);
+    return true;
+  }
+  if (b && c && !a && !d) {
+    setBitInRect(cover, col, row);
+    return true;
+  }
+  return false;
+}
+
+/** Clear one mask bit iff (col, row) lies inside the rect. */
+function clearBitInRect(cover: HullCoverage, col: number, row: number): void {
+  if (col >= 0 && row >= 0 && col < cover.w && row < cover.h) {
+    const i = row * cover.w + col;
+    cover.bits[i >>> 5] &= ~(1 << (i & 31));
+  }
+}
+
+/** Reused float-bits view for `segmentPaintSeed` — the 5-word sibling of the
+ *  `paintSeed` buffers below (a segment's pose is two endpoints, five scalars
+ *  with time). */
+const SEG_SEED_F64 = new Float64Array(5);
+const SEG_SEED_U32 = new Uint32Array(SEG_SEED_F64.buffer);
+
+/**
+ * THE PER-PAINT WAKE GLINT SEED (cycle-69 review gate, P3 — amendment 157's
+ * binding constraint applied to the segment pipeline): a hash of (paint time,
+ * exact segment pose). PER PAINT, NEVER PER SOURCE — no ship id, shell id,
+ * track id, source kind, or width enters the hash, so the scintillation can
+ * never become a cross-sweep correlation handle. Time is in the hash, so the
+ * same stretch of water draws a fresh glint every revolution; the inputs are
+ * the EXACT float endpoints while the wire carries only cell-quantized
+ * coverage, so a modified client cannot reconstruct the seed to invert the
+ * glint and template-fit the sharp ribbon back out. Deterministic and
+ * observer-free: every observer painting this segment this tick derives the
+ * identical seed (which is what keeps the server's one-slot mask memo sound).
+ */
+export function segmentPaintSeed(t: number, ax: number, ay: number, bx: number, by: number): number {
+  SEG_SEED_F64[0] = t;
+  SEG_SEED_F64[1] = ax;
+  SEG_SEED_F64[2] = ay;
+  SEG_SEED_F64[3] = bx;
+  SEG_SEED_F64[4] = by;
+  let h = 0x9e3779b9;
+  for (let i = 0; i < 10; i++) {
+    h = Math.imul(h ^ SEG_SEED_U32[i], 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  }
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** GLINT-ERODE a segment mask's flank cells (the covered cells NOT on the
+ *  centre-line spine): row-major over the rect, each covered non-spine cell
+ *  draws once and is dropped under `glintP` — the draw order is part of the
+ *  wire contract (the perception oracle replays it), exactly as
+ *  `glintErode`'s is for hulls. The spine is the CORE and is never dropped,
+ *  so the ribbon can never lose continuity or empty out. */
+function glintSegmentFlanks(cover: HullCoverage, spine: HullCoverage, glintP: number, rng: { next(): number }): void {
+  for (let row = 0; row < cover.h; row++) {
+    for (let col = 0; col < cover.w; col++) {
+      if (!coverageHas(cover, col, row) || coverageHas(spine, col, row)) continue;
+      if (rng.next() < glintP) clearBitInRect(cover, col, row);
+    }
+  }
+}
+
+/** [minCol, minRow, maxCol, maxRow] of a packed mask's covered cells. */
+function packedCoveredBounds(cover: HullCoverage): [number, number, number, number] {
+  let minC = cover.w;
+  let minR = cover.h;
+  let maxC = -1;
+  let maxR = -1;
+  for (let row = 0; row < cover.h; row++) {
+    for (let col = 0; col < cover.w; col++) {
+      if (!coverageHas(cover, col, row)) continue;
+      if (col < minC) minC = col;
+      if (col > maxC) maxC = col;
+      if (row < minR) minR = row;
+      if (row > maxR) maxR = row;
+    }
+  }
+  return [minC, minR, maxC, maxR];
+}
+
+/** Crop a packed mask to the tight bounding rect of its covered cells (fresh
+ *  arrays — the result goes on the wire / into a frozen paint). Callers
+ *  guarantee at least one covered cell (the spine survives every glint). */
+function cropPackedCoverage(cover: HullCoverage): HullCoverage {
+  const [minC, minR, maxC, maxR] = packedCoveredBounds(cover);
+  const cw = maxC - minC + 1;
+  const ch = maxR - minR + 1;
+  const bits = new Array<number>(Math.ceil((cw * ch) / COVERAGE_WORD)).fill(0);
+  for (let row = 0; row < ch; row++) {
+    for (let col = 0; col < cw; col++) {
+      if (coverageHas(cover, col + minC, row + minR)) setBit(bits, row * cw + col);
+    }
+  }
+  return { gx: cover.gx + minC, gy: cover.gy + minR, w: cw, h: ch, bits };
+}
+
+/**
+ * THE WAKE PAINT PIPELINE (cycle-69 review gate, P3) — `paintCoverage`'s
+ * segment sibling, and the ONE function every wire-bound or paint-bound wake
+ * mask goes through (the server's `wk` shaper; the client's truesight
+ * synthesis must call it too, or amendment 154's two-sources-one-appearance
+ * breaks). The pipeline, in order — this exact sequence (including the RNG
+ * draw order) is the wire contract the perception oracle reimplements:
+ *
+ *   1. Sharp geometry over the capsule quad's cell bbox: width fill
+ *      (`fillCoverage`) into the mask, the quarter-cell centre-line walk
+ *      (`walkSegmentCells`, in-walk diagonal bridges included) into a
+ *      SEPARATE spine mask, then spine ∪ mask.
+ *   2. GLINT the flanks: row-major, every covered NON-SPINE cell draws once
+ *      on `mulberry32(segmentPaintSeed(t, ax, ay, bx, by))` and is dropped
+ *      under `CONFIG.vision.radarFuzz.glintP` — the SAME shipped coefficient
+ *      the hull fuzz runs, reused verbatim so there is no new calibration to
+ *      defend. The spine is core and never drops (continuity — amendment
+ *      198's coherent LINE — is preserved by construction).
+ *   3. BRIDGE REPAIR to a fixed point (glint can re-open a diagonal corner).
+ *   4. CROP to the tight covered bbox — REQUIRED, not cosmetic: the wire's
+ *      `w`/`h` rect dims are themselves a width readout, so an edge row that
+ *      fully glints away must actually leave the rect.
+ *
+ *   NO dilation, NO stretch — wave 1's ruling stands: the hull's structural
+ *   smear would blob a one-cell ribbon. Only the glint half applies, which is
+ *   what turns the mask's lit-row count from a class lookup table (9/20/32u →
+ *   exactly 1/2/3 rows) into a per-paint random variable whose ranges overlap
+ *   between neighbouring sources — amendment 68's bar ("inferable with skill,
+ *   never readable"), measured in shared/src/__tests__/wake.test.ts.
+ *
+ * Degrade, never throw (the `rasterizeSegmentCoverage` ladder verbatim):
+ * degenerate inputs yield the same single-cell / spine-only masks, un-glinted
+ * (a mask the geometry already collapsed carries nothing to scintillate).
+ */
+export function paintSegmentCoverage(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  widthU: number,
+  cellU: number,
+  t: number,
+): HullCoverage {
+  const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
+  const degenerate = degenerateSegment(ax, ay, bx, by, grid);
+  if (degenerate !== null) return degenerate;
+  const [sx, sy] = finitePoint(ax, ay) ? [ax, ay] : [bx, by];
+  const [ex, ey] = finitePoint(bx, by) ? [bx, by] : [ax, ay];
+  const halfW = coreHalfWidth(widthU);
+  const poly = capsuleQuad(sx, sy, ex, ey, halfW);
+  const cover = emptyRectFor(poly, grid);
+  if (halfW > 0) fillCoverage(cover, poly, grid);
+  const spine: HullCoverage = { gx: cover.gx, gy: cover.gy, w: cover.w, h: cover.h, bits: new Array<number>(cover.bits.length).fill(0) };
+  walkSegmentCells(spine, sx, sy, ex, ey, grid);
+  for (let i = 0; i < cover.bits.length; i++) cover.bits[i] |= spine.bits[i];
+  // A non-finite paint time still hashes deterministically (Float64Array
+  // canonicalizes NaN), so no sanitization — mirror paintSeed exactly.
+  glintSegmentFlanks(cover, spine, CONFIG.vision.radarFuzz.glintP, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey)));
+  bridgeCoverageDiagonals(cover);
+  return cropPackedCoverage(cover);
+}
+
+// ---------------------------------------------------------------------------
 // THE FUZZ (cycle-63 review gate, amendments 156-157): dilation + per-paint
 // edge glint, applied to the sharp geometric mask before anything consumes it.
 // ---------------------------------------------------------------------------

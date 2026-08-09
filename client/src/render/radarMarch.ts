@@ -424,6 +424,14 @@ export function returnStrength(s: FieldSample, dist: number): number {
  * one seed for the whole match means the stencil never re-rolls, so what the
  * grain varies is intensity ACROSS PLACE and never across time (see
  * `MARCH_SEED`).
+ *
+ * THE AMPLITUDE IS SCALED BY THE MATERIAL (Story 4.12, amendment 203). Grain
+ * models the scintillation of incoherent scatter, and a wake is an organized
+ * surface feature rather than random roughness, so it carries a reduced scale
+ * (`FieldSample.grain`, absent = 1 = ambient). Note the STENCIL is unchanged: the
+ * same `cellNoise` draw at the same world cell, only its amplitude differs — so
+ * two materials meeting in one cell still agree about which way that cell's
+ * grain leans, and the speckle stays a property of the PLACE.
  */
 function sampleIntensity(
   s: FieldSample,
@@ -433,22 +441,28 @@ function sampleIntensity(
   env: NoiseEnvelope,
 ): number {
   const raw = returnStrength(s, dist);
-  return raw * noiseMul(MARCH_SEED, gx, gy, noiseAmplitude(raw, env));
+  return raw * noiseMul(MARCH_SEED, gx, gy, noiseAmplitude(raw, env, s.grain ?? 1));
 }
 
 /**
  * APPLY THE RAY'S ILLUMINATED FRACTION TO ONE SAMPLE, FLOORED AT THE MATERIAL'S
  * OWN GUARANTEE (Story 4.11, corrected at the review gate).
  *
- * `min` is `FieldSample.min`: `model.minPeak` for a hull, 0 for everything else.
- * So for terrain, surf, clutter and the storm wall this is exactly `raw × vis`,
- * bit for bit — a landmass still goes fully dark, and a fully dark cell is simply
- * not stored.
+ * `min` is `FieldSample.shadowFloor ?? FieldSample.min`: `model.minPeak` for a
+ * hull, the still-lit intensity for a DISCLOSED wake segment (Story 4.12), 0 for
+ * everything else. So for terrain, surf, clutter and the storm wall this is
+ * exactly `raw × vis`, bit for bit — a landmass still goes fully dark, and a
+ * fully dark cell is simply not stored.
  *
  * `vis` here is whichever INSTANCE of the illumination rule the sample earned
  * (module header): the mast fraction for anything afloat, the soft step against
  * its own height for terrain. This function does not care which — it only holds
- * the floor.
+ * the floor. A WAKE IS AFLOAT AND TAKES THE MAST FRACTION, not the terrain step,
+ * and that is load-bearing rather than incidental: the server gates a wake
+ * segment with `visibilityTo`, the ship query, so the paint must be masked with
+ * the same instance the gate used or the two sides disagree about what was
+ * disclosed. Its `terrainQ` is 0, which cycle 69 defines as "not terrain" rather
+ * than "sea level" for exactly this reason.
  *
  * FOR A HULL IT IS THE WHOLE OF AMENDMENT 127 UNDER OCCLUSION. Shadow may only
  * ever WEAKEN a hull's mark, never brighten it and never erase it:
@@ -635,7 +649,12 @@ function paintSample(
   if (s === null) return;
   const lit = s.terrainQ > 0 ? terrainIllumination(s.terrainQ, req, c.o.terrainSoftQ) : vis;
   if (!(lit > 0) && !c.disclosed) return; // a surface below the grazing ray
-  const i = shade(sampleIntensity(s, d, gx, gy, c.o.noise), lit, s.min);
+  // `shadowFloor ?? min` — the two floors are different promises and only one
+  // material distinguishes them (see `FieldSample.shadowFloor`); everything that
+  // predates Story 4.12 leaves it absent and reads exactly as it did. A disclosed
+  // wake segment reaches here with `lit === 0` and survives on that floor alone,
+  // which is amendment 190: suppression is forbidden, attenuation is not.
+  const i = shade(sampleIntensity(s, d, gx, gy, c.o.noise), lit, s.shadowFloor ?? s.min);
   if (!(i >= c.minStore)) return; // NaN-safe: a non-finite sample stores nothing
   pushCell(key, gx, gy, i);
 }
@@ -679,6 +698,57 @@ function freeze(t: number, cellU: number): MarchSlice | null {
     maxY = Math.max(maxY, (gy + 1) * cellU);
   }
   return { kind: 'slice', cells, w, n: sN, t, minX, minY, maxX, maxY };
+}
+
+/**
+ * CONCATENATE SLICES OF THE SAME AGE INTO ONE RECORD (Story 4.12).
+ *
+ * A slice is a bag of frozen cells with one timestamp — nothing about it requires
+ * its cells to be contiguous in bearing, and `stampSlice` is a flat copy under
+ * `writeCell`'s arbitration. So N records sharing a `t` are exactly equivalent to
+ * one record holding all their cells, and the merged form costs one bounding-box
+ * reject and one loop instead of N.
+ *
+ * IT EXISTS BECAUSE THE WAKE ROW IS PER SEGMENT. A ribbon discloses one row per
+ * ~12u of track, so a busy room emits roughly an order of magnitude more wake
+ * rows than hull echoes; enrolling one slice apiece would push the live list past
+ * `maxSlices()` and turn a runaway BACKSTOP into a silent trim on legitimate
+ * history. The merge is where that is prevented, and it changes no cell's
+ * reading: duplicate cells across the inputs are arbitrated by exactly the same
+ * `writeCell` rule they would have met one frame later.
+ *
+ * `t` is taken from the FIRST input and the caller is expected to group by it;
+ * mixing ages here would silently re-date paints, so callers group rather than
+ * this function averaging. Returns the single input unchanged when there is one,
+ * and null for an empty list.
+ */
+export function mergeSlices(slices: readonly MarchSlice[]): MarchSlice | null {
+  if (slices.length === 0) return null;
+  if (slices.length === 1) return slices[0];
+  let n = 0;
+  for (const s of slices) n += s.n;
+  const out: MarchSlice = {
+    kind: 'slice',
+    cells: new Int32Array(n * 2),
+    w: new Float32Array(n),
+    n,
+    t: slices[0].t,
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
+  };
+  let k = 0;
+  for (const s of slices) {
+    out.cells.set(s.cells.subarray(0, s.n * 2), k * 2);
+    out.w.set(s.w.subarray(0, s.n), k);
+    k += s.n;
+    out.minX = Math.min(out.minX, s.minX);
+    out.minY = Math.min(out.minY, s.minY);
+    out.maxX = Math.max(out.maxX, s.maxX);
+    out.maxY = Math.max(out.maxY, s.maxY);
+  }
+  return out;
 }
 
 /**

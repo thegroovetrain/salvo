@@ -44,6 +44,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { Pool } from '../util/pool.js';
+import type { WakeHull } from './wake.js';
 
 const C = CLIENT_CONFIG.colors;
 const O = CLIENT_CONFIG.ordnance;
@@ -80,8 +81,6 @@ interface ProjectileLook {
   stretch?: number;
   /** Peak extra scale at the top of a plunging arc (0 = flat trajectory). */
   swell?: number;
-  /** Wake-dot spacing override (u) — a tighter wake reads as a fish under power. */
-  trailSpacing?: number;
 }
 
 const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
@@ -90,15 +89,19 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
   // Torpedo: fatter, cool steel-green core (torpedo on-water render) so a fish
   // reads distinct from a shell; glow = legacy torpedo secondary tone.
   torp: { core: C.torpedo, glow: C.legacy.torpGlow, coreR: 3.4, glowR: 8, glowAlpha: 0.22 },
-  // ACOUSTIC HOMING: a brighter head running a tighter wake — a fish under
-  // power and steering, against the straight-runner's loose trail.
+  // ACOUSTIC HOMING: a brighter, bigger head — a fish under power and steering,
+  // against the straight-runner. IT NO LONGER RUNS A TIGHTER WAKE, and that is
+  // a DEVIATION OF RECORD from the shipped look rather than an oversight
+  // (cycle-69 review gate, P10): the fish's trail is now the ONE shared wake
+  // ribbon at the ONE shared sample cadence (amendment 204), so a per-look
+  // spacing override would be exactly the second wake model that amendment
+  // forbids. The doctrine tell survives in the head, which is where it reads.
   torpHoming: {
     core: C.muzzle,
     glow: C.legacy.torpGlow,
     coreR: O.homingCoreR,
     glowR: 9,
     glowAlpha: 0.3,
-    trailSpacing: O.homingTrailSpacing,
   },
   // The OWN cannon, at every doctrine: bigger and heavier than the gun's dot.
   cannon: { core: C.legacy.shellCore, glow: C.amber, coreR: O.cannonCoreR, glowR: O.cannonGlowR, glowAlpha: O.cannonGlowAlpha },
@@ -170,14 +173,6 @@ export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): Projec
 export function pierceOrder(id: string): number | null {
   const m = /#p(\d+)$/.exec(id);
   return m ? Number(m[1]) : null;
-}
-
-/** Default spawn spacing for a torpedo wake dot, in world-units of travel. */
-const TORP_TRAIL_SPACING = 16; // u
-
-/** Pure: a look's wake-dot spacing (u) — the default unless it overrides it. */
-export function trailSpacing(look: ProjectileLookId): number {
-  return LOOKS[look].trailSpacing ?? TORP_TRAIL_SPACING;
 }
 
 /** Extra map crossings' worth of slack on the lifetime backstop (u). */
@@ -317,7 +312,6 @@ interface LiveShell {
    *  must survive a mid-flight re-anchor (`t0` moves with every steer). */
   launchedAt: number;
   expiresAt: number; // server time (ms) the shell self-terminates
-  trailAt: number; // next travel-distance (u) to drop a wake dot (torpedoes only)
   /** Which OWN weapon this track was DRESSED as (roomBindings' near-own-hull
    *  heuristic, including its ratified 'gun' fallback for an unclaimed reveal)
    *  — the LOOK/audio channel only. NOT the burst-ring authority: see the
@@ -355,10 +349,6 @@ export class Projectiles {
    *  Bounded, and consumed by the burst/boom that ends the track. */
   private readonly claims = new Map<string, OwnFire>();
 
-  /**
-   * `trail` drops a torpedo-wake particle at a world point (wired to the effects
-   * pool in main.ts); omitted in tests. Called throttled by travelled distance.
-   */
   /** The plumbed BOON-widened sight range (u) and the DAZZLE flag — the two
    *  observer inputs every cull ring is resolved from, per track and per frame
    *  (`trackCullRadiusSq`). Kept as state so either can change alone without the
@@ -370,9 +360,49 @@ export class Projectiles {
   constructor(
     private readonly mapRadius: number,
     private readonly layer: Container,
-    private readonly trail?: (x: number, y: number) => void,
   ) {
     this.pool = new Pool<Graphics>(() => this.makeBlank());
+  }
+
+  /**
+   * EVERY LIVE TORPEDO, as the wake layer needs it (cycle-69 review gate, P10).
+   *
+   * The fish's on-water trail used to be a private one-shot dot chain emitted
+   * from `render()` at a per-look spacing, with a 0.7s life — a SECOND wake
+   * object, ~8× shorter than the 6s ribbon the same fish paints on the scope,
+   * which is exactly the fork amendment 204 forbids (*"I didn't say shit about
+   * the lengths being different here"*). It is gone: this module now only
+   * REPORTS the fish's dead-reckoned pose, and `Effects` lays it onto the one
+   * shared `WakeRibbon` — the same model, the same cadence and the same
+   * `torpWakeLifeMs` the server samples and the scope draws.
+   *
+   * PULLED, NOT PUSHED, and the ordering is the reason: `main.ts` assembles
+   * every wake source in one place and hands them to `effects.update()` BEFORE
+   * `projectiles.render()` runs, so a push from inside `render()` would land
+   * after that frame's prune and chop pass. Pose is computed at the caller's
+   * `serverNow`, so pulling one frame "early" is not stale — it is the same
+   * dead reckoning `render()` does, from the same anchor.
+   *
+   * The colour is the fish's own legacy wake tone, so the foam it lays keeps the
+   * identity it has always had on the water.
+   */
+  torpWakeHulls(serverNow: number): WakeHull[] {
+    const out: WakeHull[] = [];
+    for (const [id, s] of this.live) {
+      if (s.kind !== 'torp') continue;
+      const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
+      const speed = Math.hypot(s.vx, s.vy);
+      out.push({
+        id,
+        x: p.x,
+        y: p.y,
+        heading: Math.atan2(s.vy, s.vx),
+        speed,
+        cls: 'torp',
+        color: C.legacy.torpWake,
+      });
+    }
+    return out;
   }
 
   /** The OWN doctrine modes, fanned in from applyOwnStats (Story 2.9) — the
@@ -504,7 +534,6 @@ export class Projectiles {
       t0: ev.t,
       launchedAt: ev.t,
       expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
-      trailAt: trailSpacing(look),
       own,
     };
     this.live.set(ev.id, s);
@@ -561,8 +590,10 @@ export class Projectiles {
    * leaks nothing the reveal would not have.
    *
    * The lifetime backstop is re-derived from the NEW speed (a doctrine may have
-   * changed it) and the wake trail restarts its spacing count, because travelled
-   * distance is measured from the anchor this call just moved.
+   * changed it). The wake needs no re-anchoring of its own any more: since the
+   * fish's trail became the one shared ribbon (P10), its cadence is measured in
+   * travelled DISTANCE by the shared model off the stored samples, not against
+   * a per-track counter that a steer would invalidate.
    */
   onBallisticUpdate(ev: TorpedoUpdateEvent): void {
     const s = this.live.get(ev.id) ?? this.spawnFromUpdate(ev);
@@ -578,7 +609,6 @@ export class Projectiles {
     // the player can see. Own fish were already styled at launch off own stats.
     this.restyle(s, 'torpHoming');
     this.orient(s);
-    s.trailAt = trailSpacing(s.look);
   }
 
   /** Register a track from a `torpU` for an id we hold no track for (see
@@ -608,7 +638,6 @@ export class Projectiles {
       t0: ev.t,
       launchedAt: ev.t,
       expiresAt: ev.t,
-      trailAt: trailSpacing('torpHoming'),
       own: this.claims.get(ev.id) ?? null, // ours only on a genuine launch claim
     };
     this.live.set(ev.id, s);
@@ -641,7 +670,11 @@ export class Projectiles {
    * an own active lit zone (`keepZones`, Story 1.7: truesight parity keeps
    * revealing it; culling would blind the firer permanently, the reveal is
    * exactly-once). The lit-zone exemption is IDENTICAL for both kinds.
-   * Torpedoes drop a throttled wake trail along their dead-reckoned path.
+   *
+   * IT NO LONGER LAYS A WAKE TRAIL (cycle-69 review gate, P10). A fish's water
+   * is the ONE shared ribbon now: `torpWakeHulls` reports the dead-reckoned
+   * pose and `Effects` lays it, on the same model, cadence and life the scope
+   * draws.
    */
   render(serverNow: number, ownPos?: { x: number; y: number }, keepZones: readonly OwnZone[] = []): void {
     // Resolved ONCE per frame, not per shell: the plunging-fire swell is juice,
@@ -662,24 +695,6 @@ export class Projectiles {
       s.gfx.position.set(p.x, p.y);
       const swell = LOOKS[s.look].swell;
       if (swell) s.gfx.scale.set(arcSwellScale(serverNow - s.launchedAt, swell * swellAmp));
-      if (s.kind === 'torp') this.emitTrail(s, p, serverNow);
-    }
-  }
-
-  /** Drop wake dots behind a torpedo at its look's travel-distance spacing (a
-   *  homing fish lays a tighter trail than a straight-runner). */
-  private emitTrail(s: LiveShell, p: { x: number; y: number }, serverNow: number): void {
-    if (!this.trail) return;
-    const spacing = trailSpacing(s.look);
-    const speed = Math.hypot(s.vx, s.vy);
-    const travelled = (speed * Math.max(0, serverNow - s.t0)) / 1000;
-    while (travelled >= s.trailAt) {
-      // Back the dot up to the spacing mark so the trail is evenly laid.
-      const back = travelled - s.trailAt;
-      const ux = speed > 0 ? s.vx / speed : 0;
-      const uy = speed > 0 ? s.vy / speed : 0;
-      this.trail(p.x - ux * back, p.y - uy * back);
-      s.trailAt += spacing;
     }
   }
 

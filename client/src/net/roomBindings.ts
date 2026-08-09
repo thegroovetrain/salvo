@@ -545,6 +545,13 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
  * amendment 45, and therefore cannot be grouped at all).
  *   • `blip` RADAR PAINT — the beam crossed a contact's bearing this tick.
  *     Accumulated into decaying phosphor (render/radar.ts + phosphor.ts).
+ *   • `wk` WAKE (Story 4.12) — the beam crossed a stretch of DISTURBED WATER
+ *     this tick. Same lattice and same park as a `return` echo, and the same
+ *     three gate clauses behind it, but the subject is water rather than a ship:
+ *     the row carries a coverage mask plus a quantized water-age bucket and NO
+ *     identity of any kind (amendment 194), so it can be grouped no more than
+ *     `sm` can. Course and recency are the player's inference off the ribbon's
+ *     shape and the age gradient along it.
  *   • `sm` WOUNDED SMOKE (Story 4.4) — a hull is hurt HERE, this hurt, inside
  *     the 412.5u halo with LOS clear. Position and severity band, and nothing
  *     else: no id, no hue, no class, no hp, no fraction, for ANY observer
@@ -561,6 +568,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
 function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   switch (e.k) {
     case 'blip': deps.radar.onBlip(e); return;
+    case 'wk': deps.radar.onWakeBlip(e); return;
     case 'sm': deps.smoke.onSmoke(e, f.t); return;
     case 'fh': handleFoghorn(e, f, deps); return;
   }

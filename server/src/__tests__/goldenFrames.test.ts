@@ -29,6 +29,8 @@ import {
   type GameEvent,
   type HitCallEvent,
   type MatchPhase,
+  type WakeBlipEvent,
+  type WakeRibbon,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -50,10 +52,12 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // homing-track update 'torpU'; Story 4.3 added the gunnery conversation's
 // 'sp'/'hc'/'mz'; the 2026-08-04 DAMAGE CONTROL strip brought 'heal' BACK)
 // plus the four contact-like channels (contact/mine/litzone/decoy) and the
-// spectator frame.
+// spectator frame. 'wk' is grammar-gated (cycle-69 review gate, P1): it rides
+// the RETURN battery only — runBattery drops it from the default (silhouette)
+// run's expectation, where the row is inert by rule.
 const EXPECTED_CHANNELS = [
   'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'hc', 'heal', 'litzone',
-  'mine', 'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU',
+  'mine', 'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
 ];
 
 // Targeted sub-cases the APPENDED scenarios (island LOS, non-owner + spectator
@@ -107,6 +111,20 @@ const EXPECTED_SUBCASES = [
   'torpu-sighted-update',
   'torpu-unsighted-silent',
 ];
+
+// Wake sub-cases are GRAMMAR-SPLIT (cycle-69 review gate, P1): the `wk` row
+// exists only in the `return` grammar (the client's wake path has no other
+// consumer), so the return battery proves the five wake behaviours and the
+// default (silhouette) battery proves exactly their ABSENCE. runBattery
+// composes the expected set per grammar.
+const WAKE_SUBCASES_RETURN = [
+  'wake-identity-free',
+  'wake-outlives-removal',
+  'wake-outlives-ship',
+  'wake-sight-bubble-quiet',
+  'wake-torpedo-ribbon',
+];
+const WAKE_SUBCASES_DEFAULT = ['wake-silhouette-inert'];
 
 // ---------- collector ---------------------------------------------------------
 
@@ -925,6 +943,83 @@ function scnHeal(g: Golden): void {
   );
 }
 
+/**
+ * RADAR WAKES on the wire (Story 4.12, amendments 194-196/200): a
+ * deterministic laid track through a's radar annulus discloses as `wk`
+ * events — geometry plus a water-age bucket and NOTHING else — after the
+ * hull that laid it SINKS, and still after its record leaves the room
+ * entirely (amendment 200: water outlives its ship). A torpedo-laid ribbon
+ * on the same wedge paints on the half-life clock while no torp event
+ * exists. Water inside a's sight bubble stays off the row (the in-bubble
+ * ruling), and no wk payload key carries identity.
+ */
+function scnWake(g: Golden): void {
+  const w = bareWorld(1022);
+  const a = place(w, 'a', 0, 0);
+  const b = place(w, 'b', 900, 900); // its WATER is under test, not its hull
+  // b's laid track along y=0 (raw ring injection — fixed poses, fixed ages):
+  // two in-sight samples (200, 212), then an annulus run 400..448, ages
+  // spread so multiple quarter-life buckets ride the wire.
+  const xs = [200, 212, 400, 412, 424, 436, 448];
+  const ages = [11_600, 11_300, 11_000, 8_000, 5_000, 2_000, 0];
+  for (let i = 0; i < xs.length; i++) {
+    b.wake.xs[i] = xs[i];
+    b.wake.ys[i] = 0;
+    b.wake.ts[i] = w.now - ages[i];
+  }
+  b.wake.head = 0;
+  b.wake.count = xs.length;
+  // A torpedo's water: half-life (6000ms), one-cell (9u) ribbon at y=6.
+  const torp: WakeRibbon = { xs: new Float64Array(8), ys: new Float64Array(8), ts: new Float64Array(8), cap: 8, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+  for (let i = 0; i < 5; i++) {
+    torp.xs[i] = 500 + 12 * i;
+    torp.ys[i] = 6;
+    torp.ts[i] = w.now - (4 - i) * 1_200;
+  }
+  torp.count = 5;
+  w.torpWakes.set('fish', torp);
+  w.respawnEnabled = false; // active-phase policy: the dead stay dead
+  w.sinkShip('b');
+  w.step();
+  // Open a's paint window across both tracks' bearings (0 .. ~0.012 rad).
+  a.prevSweepAngle = wrapPositive(-0.005);
+  a.sweepAngle = wrapPositive(0.03);
+  const covers = (e: WakeBlipEvent, x: number, y: number): boolean =>
+    coverageHas(e, Math.floor(x / CONFIG.vision.radarCellU) - e.gx, Math.floor(y / CONFIG.vision.radarCellU) - e.gy);
+  const fa = cap(g, w, 'a');
+  const wks = fa.events.filter((e): e is WakeBlipEvent => e.k === 'wk');
+  prove(g, 'wake-outlives-ship', wks.length > 0 && !w.ships.get('b')!.alive);
+  prove(
+    g,
+    'wake-identity-free',
+    wks.length > 0 && wks.every((e) => Object.keys(e).join(',') === 'k,t,a,gx,gy,w,h,bits'),
+  );
+  prove(g, 'wake-sight-bubble-quiet', wks.length > 0 && !wks.some((e) => covers(e, 206, 0)));
+  prove(
+    g,
+    'wake-torpedo-ribbon',
+    wks.some((e) => covers(e, 530, 6)) && !fa.events.some((e) => e.k === 'torp'),
+  );
+  // The record leaves the room entirely: the orphaned water still paints.
+  w.removeShip('b');
+  a.prevSweepAngle = wrapPositive(-0.005);
+  a.sweepAngle = wrapPositive(0.03);
+  const fa2 = cap(g, w, 'a');
+  prove(
+    g,
+    'wake-outlives-removal',
+    fa2.events.filter((e) => e.k === 'wk').length > 0 && !w.ships.has('b'),
+  );
+  // Review-gate P1: outside the `return` grammar the row is INERT — both
+  // captures must carry ZERO wk rows (the five behaviour proofs above then
+  // simply never record, and runBattery expects this tag instead).
+  prove(
+    g,
+    'wake-silhouette-inert',
+    w.radarGrammar !== 'return' && wks.length === 0 && fa2.events.every((e) => e.k !== 'wk'),
+  );
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 /** The full scenario battery + the self-validating coverage assertions —
@@ -933,12 +1028,18 @@ function scnHeal(g: Golden): void {
 function runBattery(): string[] {
   const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
   runScenarios(g);
+  // Grammar-split wake expectations (cycle-69 review gate, P1): the `wk`
+  // channel and its five behaviour tags exist only in the return battery;
+  // the default battery must instead prove the row's INERTNESS.
+  const inReturn = WORLD_OPTS.radarGrammar === 'return';
+  const channels = inReturn ? EXPECTED_CHANNELS : EXPECTED_CHANNELS.filter((c) => c !== 'wk');
+  const subcases = [...EXPECTED_SUBCASES, ...(inReturn ? WAKE_SUBCASES_RETURN : WAKE_SUBCASES_DEFAULT)].sort();
   // Self-validating coverage: the fixture can never silently lose a channel.
-  expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
+  expect([...g.channels].sort()).toEqual(channels);
   // Strengthened coverage: every appended scenario's mandatory sub-cases were
   // actually OBSERVED (each tag is recorded only when its fact held), so a
   // regression or a removed scenario fails here.
-  expect([...g.subcases].sort()).toEqual(EXPECTED_SUBCASES);
+  expect([...g.subcases].sort()).toEqual(subcases);
   return g.frames;
 }
 
@@ -1004,4 +1105,9 @@ function runScenarios(g: Golden): void {
   // with PV 24: every `you` row gains the required `repairHp` key, and this
   // scenario adds the self-private `heal` channel).
   scnHeal(g);
+  // Story 4.12 addition (appended KNOWINGLY — the snapshot regenerated with
+  // PV 32: this scenario adds the identity-free `wk` wake channel; every
+  // earlier scenario's rows must stay byte-identical, since no prior world
+  // ever lays wake — every ship in them is placed at speed 0).
+  scnWake(g);
 }

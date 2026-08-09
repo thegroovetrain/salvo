@@ -35,18 +35,23 @@ import { describe, it, expect, vi } from 'vitest';
 import { Container, Graphics, Texture } from 'pixi.js';
 import {
   CONFIG,
+  WAKE_AGE_BUCKETS,
   buildHeightRaster,
+  coverageHas,
   paintCoverage,
+  rasterizeSegmentCoverage,
   type HeightRaster,
   type HullId,
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
+  type WakeBlipEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Radar } from '../render/radar.js';
 import { fogHoleRadiusU } from '../render/fog.js';
 import { blipCool, blipLifeMs } from '../render/phosphor.js';
+import { wakeLitFloor } from '../render/radarSources.js';
 
 // jsdom has no 2d canvas, so neither baked texture the adapter builds at
 // construction — the sweep wedge and the Story 4.11 near-range dim mask — can
@@ -434,6 +439,229 @@ describe('a wire echo fades in terrain shadow, and is floored so it cannot vanis
 function radarDraws(w: number): boolean {
   return w >= CLIENT_CONFIG.blip.heatmap.bands[0].at;
 }
+
+// --- THE WAKE ROW, DRIVEN AT THE ADAPTER (Story 4.12, amendments 194-206) -------
+//
+// A `wk` row is the ECHO PATH's sibling and is tested the same way, at the same
+// door: same lattice, same world-anchored cell rect, same park-until-a-pose, same
+// "already sweep-gated by the SERVER's beam" reasoning. What differs is what it
+// is a row ABOUT (water, not a ship), that it carries a water-age bucket and NO
+// identity, and that a ribbon discloses PER SEGMENT — which is why the adapter
+// merges a tick's worth of them into one slice.
+
+/** One disclosed wake segment on the wire, from the SAME shared rasterizer the
+ *  server runs (`rasterizeSegmentCoverage`). Kept beside its world position, as
+ *  the echo fixture is, because the row itself carries no position. */
+interface TestWake { e: WakeBlipEvent; x: number; y: number }
+function wireWake(x: number, y: number, a = 0, t = 1000, widthU = 32): TestWake {
+  const step = CONFIG.vision.wakeSampleU;
+  const c = rasterizeSegmentCoverage(x, y - step / 2, x, y + step / 2, widthU, CELL);
+  return { e: { k: 'wk', t, a, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y };
+}
+
+const WAKE: TestWake = wireWake(300, 0);
+
+describe('a wake segment is posed from a real observer or not at all', () => {
+  it('holds a segment that arrives before the first render, painting nothing', () => {
+    const { radar } = makeRadar();
+    radar.onWakeBlip(WAKE.e);
+    expect(radar.livePaints).toBe(0);
+    expect(radar.bandAt(WAKE.x, WAKE.y)).toBe(-1);
+  });
+
+  it('marches it on the first frame with an own pose, and it paints GREEN — the '
+    + 'one register a wake may ever read', () => {
+    const { radar } = makeRadar();
+    radar.onWakeBlip(WAKE.e);
+    radar.render(OWN, 1000);
+    expect(radar.livePaints).toBe(1);
+    expect(radar.bandAt(WAKE.x, WAKE.y), 'the weakest register, never blue or red').toBe(0);
+  });
+
+  it('is NOT held for the local beam — the server\'s own beam already crossed it, '
+    + 'so the very next frame paints it wherever it is', () => {
+    const { radar } = makeRadar();
+    radar.onSweepSample(-0.6, 0);
+    radar.render(OWN, 0);
+    // A bearing the beam is nowhere near (it sits at −0.6 rad and advances).
+    const behind = wireWake(0, -300, 0, 10);
+    radar.onWakeBlip(behind.e);
+    radar.render(OWN, 20); // the very next frame — the beam has moved 0.03 rad
+    expect(radar.bandAt(behind.x, behind.y)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('freezes once marched — a paint is a historical snapshot (amendment 83)', () => {
+    const { radar } = makeRadar();
+    radar.render(OWN, 900);
+    radar.onWakeBlip(WAKE.e);
+    radar.render(OWN, 950);
+    const before = radar.intensityAt(WAKE.x, WAKE.y);
+    expect(before).toBeGreaterThan(0);
+    radar.render({ x: 400, y: 400 }, 1100); // the observer moves; the paint must not
+    expect(radar.intensityAt(WAKE.x, WAKE.y)).toBe(before);
+  });
+
+  it('A TICK\'S WORTH OF SEGMENTS BECOMES ONE SLICE, so a per-segment row cannot '
+    + 'turn the runaway backstop into a trim on real history', () => {
+    const { radar } = makeRadar();
+    radar.render(OWN, 900);
+    for (let i = 0; i < 40; i++) radar.onWakeBlip(wireWake(300, -240 + i * 12, 0, 1000).e);
+    radar.render(OWN, 1000);
+    expect(radar.livePaints, 'one tick, one record').toBe(1);
+    expect(radar.livePaintCells, 'carrying every segment\'s cells').toBeGreaterThan(100);
+    // A DIFFERENT tick is a different record: ages are never merged.
+    radar.onWakeBlip(wireWake(300, 200, 0, 1050).e);
+    radar.render(OWN, 1050);
+    expect(radar.livePaints).toBe(2);
+  });
+
+  it('and the whole track paints, not just the segment the beam happened to be '
+    + 'on — each segment marches its own bearing window', () => {
+    const { radar } = makeRadar();
+    radar.render(OWN, 900);
+    for (let i = 0; i < 20; i++) radar.onWakeBlip(wireWake(300, -120 + i * 12, 0, 1000).e);
+    radar.render(OWN, 1000);
+    let lit = 0;
+    for (let i = 0; i < 20; i++) if (radar.bandAt(300, -120 + i * 12) >= 0) lit++;
+    expect(lit, 'a coherent LINE, not a dotted one (amendment 198)').toBeGreaterThanOrEqual(19);
+  });
+
+  it('clearBlips drops parked segments too (entering spectate)', () => {
+    const { radar } = makeRadar();
+    radar.onWakeBlip(WAKE.e); // parks: no pose yet
+    radar.clearBlips();
+    radar.render(OWN, 1000);
+    expect(radar.livePaints).toBe(0);
+  });
+});
+
+describe('malformed wake payloads are dropped whole at the adapter', () => {
+  function base(): WakeBlipEvent {
+    return wireWake(300, 0, 0, 1000).e;
+  }
+  /** Feed one row and report whether it produced any paint at all. */
+  function accepts(patch: Partial<WakeBlipEvent>): boolean {
+    const { radar } = makeRadar();
+    radar.render(OWN, 900);
+    radar.onWakeBlip({ ...base(), ...patch });
+    radar.render(OWN, 1000);
+    return radar.livePaints > 0;
+  }
+
+  it('a conforming row lands — the negative controls below mean something', () => {
+    expect(accepts({})).toBe(true);
+  });
+
+  it('a non-finite or far-future `t` paints nothing', () => {
+    for (const t of [Number.NaN, Infinity, -Infinity, 1e15]) {
+      expect(accepts({ t }), `t=${t}`).toBe(false);
+    }
+  });
+
+  it('an out-of-range or non-integer AGE BUCKET paints nothing — `a` indexes an '
+    + 'intensity ladder and a NaN there would poison `writeCell`', () => {
+    for (const a of [-1, WAKE_AGE_BUCKETS, 99, 0.5, Number.NaN]) {
+      expect(accepts({ a }), `a=${a}`).toBe(false);
+    }
+    for (let a = 0; a < WAKE_AGE_BUCKETS; a++) {
+      expect(accepts({ a }), `a=${a} is legal`).toBe(true);
+    }
+  });
+
+  it('huge cell indices are dropped — the cell-key injectivity premise', () => {
+    for (const gx of [1e7, -1e7, 2 ** 31, 0.5]) {
+      expect(accepts({ gx }), `gx=${gx}`).toBe(false);
+    }
+  });
+
+  it('an oversized rect and a mis-sized bits array are dropped, against a bound '
+    + 'DERIVED from the ribbon rather than from the longest hull', () => {
+    const big = base();
+    expect(accepts({ w: 4096, bits: new Array<number>(Math.ceil((4096 * big.h) / 32)).fill(-1) }))
+      .toBe(false);
+    expect(accepts({ bits: big.bits.slice(0, -1) })).toBe(false);
+    expect(accepts({ w: 0 })).toBe(false);
+    expect(accepts({ bits: 'nope' as never })).toBe(false);
+  });
+});
+
+describe('a disclosed wake segment ATTENUATES in shadow and is never deleted '
+  + '(amendment 190)', () => {
+  /** A segment on bearing 0 at 300u, with the cover between it and the ship. */
+  const SEG = wireWake(300, 0);
+
+  /** What the segment's own CORE cells read over a given terrain — the cells the
+   *  wire mask actually claims, not a box around them.
+   *
+   *  MEASURED OVER THE WHOLE FOOTPRINT rather than at one cell, because the grain
+   *  is a per-cell draw and a single sample would be asserting one noise value
+   *  instead of the rule. And over the CORE only, because the chop halo around it
+   *  was disclosed by nobody: it is client-synthesized texture and is free to go
+   *  dark in shadow exactly as terrain is (amendment 202). */
+  function wakeCells(raster: HeightRaster | null): { lit: number; max: number } {
+    const { radar } = makeRadar();
+    if (raster !== null) radar.setHeightRaster(raster);
+    radar.render(OWN, 1000);
+    radar.onWakeBlip({ ...SEG.e, t: 1000 });
+    radar.render(OWN, 1000);
+    expect(radar.livePaints, 'the segment marched').toBe(1);
+    const cov = SEG.e;
+    let lit = 0;
+    let max = 0;
+    for (let row = 0; row < cov.h; row++) {
+      for (let col = 0; col < cov.w; col++) {
+        if (!coverageHas(cov, col, row)) continue;
+        const w = radar.intensityAt((cov.gx + col + 0.5) * CELL, (cov.gy + row + 0.5) * CELL);
+        if (w > 0) lit++;
+        if (w > max) max = w;
+      }
+    }
+    return { lit, max };
+  }
+
+  const FLOOR = wakeLitFloor(CLIENT_CONFIG.blip.heatmap.model);
+  const SEA = rasterWithPyramid(700, () => 0);
+  const SOFT = rasterWithPyramid(700, ridge(150, 0, 40, 200, CONFIG.vision.radarMastQ / 2));
+  const HARD = rasterWithPyramid(700, ridge(150, 0, 40, 200, 255));
+
+  it('over open water it paints at its own strength', () => {
+    const sea = wakeCells(SEA);
+    expect(sea.lit, 'the whole segment is lit').toBeGreaterThan(5);
+    expect(sea.max, 'and its brightest cell is above the still-lit floor')
+      .toBeGreaterThan(FLOOR);
+  });
+
+  it('SOFT COVER dims it — the same water, weaker', () => {
+    const sea = wakeCells(SEA);
+    const soft = wakeCells(SOFT);
+    expect(soft.max, 'behind half-mast terrain it reads weaker').toBeLessThan(sea.max);
+    expect(soft.lit, 'and not one cell of it is deleted').toBe(sea.lit);
+  });
+
+  it('HARD COVER floors it at the still-lit intensity rather than erasing it — '
+    + 'the client\'s own walk may not delete what the server\'s gate passed', () => {
+    const sea = wakeCells(SEA);
+    const hard = wakeCells(HARD);
+    expect(hard.lit, 'a fully shadowed disclosed segment still paints every cell')
+      .toBe(sea.lit);
+    expect(hard.max).toBeCloseTo(FLOOR, 6);
+    expect(radarDraws(hard.max), 'and the floor is above the transparent threshold')
+      .toBe(true);
+  });
+
+  it('and the floor is the WAKE\'s own, not a hull\'s — shadow may never brighten '
+    + 'water into the register a contact owns', () => {
+    expect(FLOOR).toBeLessThan(CLIENT_CONFIG.blip.heatmap.model.minPeak);
+    for (const raster of [SEA, SOFT, HARD]) {
+      expect(wakeCells(raster).max).toBeLessThan(CLIENT_CONFIG.blip.heatmap.model.minPeak);
+    }
+  });
+
+  it('and a raster with no pyramid changes nothing — the walk fails OPEN', () => {
+    expect(wakeCells(rasterFrom(700, ridge(150, 0, 40, 200, 255))).max)
+      .toBeCloseTo(wakeCells(null).max, 12);
+  });
+});
 
 // --- THE SCOPE PAINTS EVERYTHING IN RANGE, through the adapter (cycle 56) -------
 

@@ -10,7 +10,7 @@
 // independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 16 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
+// the 18 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
 // is one declarative SignalSpec row (visible + materialize + counterIntel),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
 // Adding a signal means adding a row (plus its invariant test case), never
@@ -37,9 +37,9 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import type { BallisticEvent, BlipEvent, Contact, DecoyView, GameEvent, LitZoneView, MineView, ReturnBlipEvent, SilhouetteBlipEvent, TorpedoUpdateEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ReturnBlipEvent, type SilhouetteBlipEvent, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
-import { SIGNAL_REGISTRY, signalFor, type SignalContext } from './signals.js';
+import { SIGNAL_REGISTRY, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -65,6 +65,9 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
+    // Story 4.12: the wake scan's subject list (every live ribbon — active,
+    // torpedo, and detached water), riding the context like the raster does.
+    wakes: world.wakeRibbons,
     // Radar realism cycle (amendment 63): the room's modes + the pseudonym
     // resolver, threaded from the World (which the ADAPTER configured — no
     // process.env anywhere on this path).
@@ -89,6 +92,9 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
+    // Inert on this path too (spectators have no radar, so no wake events) —
+    // rides uniformly so the context stays one shape.
+    wakes: world.wakeRibbons,
     // Modes ride every context uniformly (spectators get live contacts, never
     // blips — these are inert here, but the context stays one shape).
     radarGrammar: world.radarGrammar,
@@ -231,6 +237,73 @@ function decoyBlips(world: World, ctx: SignalContext): BlipEvent[] {
   return out;
 }
 
+/** Reused wake-subject scratch for the wake scan (the SEG_SCRATCH pattern):
+ *  filled per segment, consumed synchronously by the row's visible()/
+ *  materialize() — the materialized wire object is always fresh. */
+const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, bucket: 0, widthU: 0, torp: false };
+
+/**
+ * Per-observer wake disclosure (Story 4.12): every live ribbon — a ship's
+ * active track, a running torpedo's, or detached water still ageing out — is
+ * walked segment by segment through the `wk` row, which gates each segment at
+ * its midpoint on the blipGate clause order with a PER-SOURCE inner bound and
+ * band-consistent occlusion (cycle-69 review gate, P2 — see the row and
+ * signals.wakeGate), in the `return` grammar only (P1). THE THIRD SCAN beside
+ * shipScan (which iterates ships ONLY, by construction) and ballisticScan —
+ * wake is water, not a ship, so it gets its own subject list (ctx.wakes).
+ * The ribbon-level broadphase (sweepMayCrossWake — bounding circle + bearing
+ * span, conservative only) runs before the per-segment loop so cost scales
+ * with what the beam crossed rather than with track length. Spectators get
+ * none (no radar — the blip rule; the row also fails closed on mode).
+ */
+function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
+  const out: WakeBlipEvent[] = [];
+  if (ctx.mode !== 'fogged') return out;
+  // Grammar early-out (cycle-69 review gate, P1) — a COST device beside the
+  // row's own first clause, the sweepMayCrossWake pattern: the rule lives in
+  // the row (its visible() is grammar-gated), this line only spares a default
+  // silhouette room the whole per-ribbon walk. Deleting it changes no frame.
+  if (ctx.radarGrammar !== 'return') return out;
+  const row = SIGNAL_REGISTRY.wk;
+  for (const ribbon of ctx.wakes) {
+    if (!sweepMayCrossWake(ctx.me, ribbon, ctx.now)) continue;
+    eachWakeSegment(ribbon, ctx.now, (seg) => {
+      const s = WAKE_SUBJECT;
+      s.x = seg.mx;
+      s.y = seg.my;
+      s.ax = seg.ax;
+      s.ay = seg.ay;
+      s.bx = seg.bx;
+      s.by = seg.by;
+      s.bucket = seg.bucket;
+      s.widthU = ribbon.widthU;
+      s.torp = ribbon.torp; // the per-source inner bound (review-gate P2)
+      if (row.visible(ctx, s)) out.push(row.materialize(ctx, s));
+    });
+  }
+  return out;
+}
+
+/** The wake-subsequence order (Story 4.12 — the blipOrder discipline): a
+ *  total order over PUBLIC payload only (gx, gy, t, a, w, h, mask words), so
+ *  a frame's wake ordering carries ZERO source information. Scan order is
+ *  ribbon-store order — emitting it raw would GROUP segments by source, and
+ *  array-position clustering is exactly the hull↔wake linkage amendment 194
+ *  forbids the wire to carry. */
+function wakeOrder(a: WakeBlipEvent, b: WakeBlipEvent): number {
+  if (a.gx !== b.gx) return a.gx - b.gx;
+  if (a.gy !== b.gy) return a.gy - b.gy;
+  if (a.t !== b.t) return a.t - b.t;
+  if (a.a !== b.a) return a.a - b.a;
+  if (a.w !== b.w) return a.w - b.w;
+  if (a.h !== b.h) return a.h - b.h;
+  if (a.bits.length !== b.bits.length) return a.bits.length - b.bits.length;
+  for (let i = 0; i < a.bits.length; i++) {
+    if (a.bits[i] !== b.bits[i]) return a.bits[i] - b.bits[i];
+  }
+  return 0;
+}
+
 /**
  * The blip-subsequence order (FR10 anti-tell): a total order over PUBLIC
  * payload fields only, so a frame's blip ordering is a pure function of what
@@ -296,6 +369,10 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   events.push(...torpedoUpdateScan(world, ctx));
   blips.push(...decoyBlips(world, ctx));
   events.push(...blips.sort(blipOrder));
+  // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
+  // — every historical kind keeps its exact position — sorted by wakeOrder
+  // (public payload only, never ribbon-store order; see the comparator).
+  events.push(...wakeScan(ctx).sort(wakeOrder));
   return {
     contacts,
     events,

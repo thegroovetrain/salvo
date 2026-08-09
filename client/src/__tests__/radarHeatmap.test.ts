@@ -33,7 +33,7 @@
 //     proved at nominal is not proved.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, buildHeightRaster, coverageHas, paintCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
+import { CONFIG, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { noiseAmplitude } from '../render/radarFalloff.js';
@@ -52,7 +52,20 @@ import {
   type HeatGrid,
   type HeatmapOpts,
 } from '../render/radarHeatmap.js';
-import { buildField, buildShipStamp, shipOnlyField, stampCoverage, type RadarField, type ShipStamp } from '../render/radarField.js';
+import {
+  buildField,
+  buildShipStamp,
+  buildWakeStamp,
+  cellKey,
+  chopHaloCells,
+  hullSample,
+  shipOnlyField,
+  stampCoverage,
+  type RadarField,
+  type ShipStamp,
+  type WakeSegmentCover,
+} from '../render/radarField.js';
+import { chopSample, wakeAgeScale, wakeSample } from '../render/radarSources.js';
 import { marchSlice, returnStrength, type MarchSlice } from '../render/radarMarch.js';
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
@@ -108,6 +121,8 @@ interface FieldParts {
   raster?: HeightRaster | null;
   ring?: { cx: number; cy: number; r: number } | null;
   hulls?: { id: string; x: number; y: number; heading: number; cls: HullId }[];
+  /** Disturbed water (Story 4.12): disclosed ribbon segments + their age buckets. */
+  wake?: WakeSegmentCover[];
   model?: typeof MODEL;
 }
 
@@ -117,6 +132,7 @@ function fieldOf(obs: Vec2, parts: FieldParts, o: HeatmapOpts): RadarField {
     obs,
     raster: parts.raster ?? null,
     ships: buildShipStamp(parts.hulls ?? [], model, o.cellU),
+    wake: buildWakeStamp(parts.wake ?? [], model),
     ring: parts.ring ?? null,
     cellU: o.cellU,
     model,
@@ -457,21 +473,23 @@ describe('a slice is a historical record: only alpha moves', () => {
  * The agreement itself is asserted directly, once, below; that is the same
  * pattern radarMarch.test.ts uses for the retired `faceShadow` A/B.
  */
-function envelope(p: number): number {
+function envelope(p: number, scale = 1): number {
   const { amount, solidAt } = CFG.noise;
-  if (!(p > 0)) return amount;
+  if (!(scale > 0)) return 0;
+  if (!(p > 0)) return scale * amount;
   if (p >= solidAt) return 0;
-  return (amount * (solidAt - p)) / solidAt;
+  return (scale * amount * (solidAt - p)) / solidAt;
 }
 
 /** The worst (luckiest) draw of a pre-grain intensity — amendment 135's
- *  `× (1 + a)`, with `a` a function of the intensity. */
-function worst(peak: number): number {
-  return peak * (1 + envelope(peak));
+ *  `× (1 + a)`, with `a` a function of the intensity. `scale` is Story 4.12's
+ *  per-material grain scale (amendment 203), 1 for every ambient material. */
+function worst(peak: number, scale = 1): number {
+  return peak * (1 + envelope(peak, scale));
 }
 /** The unluckiest draw of the same. */
-function best(peak: number): number {
-  return peak * (1 - envelope(peak));
+function best(peak: number, scale = 1): number {
+  return peak * (1 - envelope(peak, scale));
 }
 
 describe('the bound oracle is independent of the code it judges', () => {
@@ -480,6 +498,10 @@ describe('the bound oracle is independent of the code it judges', () => {
     for (let p = -0.2; p <= 1.2; p += 0.017) {
       expect(envelope(p), `intensity ${p.toFixed(3)}`)
         .toBeCloseTo(noiseAmplitude(p, CFG.noise), 12);
+      for (const scale of [MODEL.wakeGrain, 0.5]) {
+        expect(envelope(p, scale), `intensity ${p.toFixed(3)} scale ${scale}`)
+          .toBeCloseTo(noiseAmplitude(p, CFG.noise, scale), 12);
+      }
     }
     expect(envelope(0)).toBeCloseTo(CFG.noise.amount, 12);
     expect(envelope(CFG.noise.solidAt)).toBe(0);
@@ -562,6 +584,273 @@ describe('SEA CLUTTER is texture and nothing else (amendments 130 + 133 + 136)',
       sampleGrid(g, 3, 3).w,
       'the faintest legitimate return still beats the strongest sea state',
     ).toBeCloseTo(best(MODEL.minPeak), 6);
+  });
+});
+
+// --- 5aa. DISTURBED WATER: the wake, and the chop that hides it ---------------
+//
+// AMENDMENT 198's RULING IS A MEASURABLE PROPERTY, AND THIS IS WHERE IT IS
+// MEASURED. Chop and wake are the SAME green pixel at the SAME opacity — there is
+// no strength channel between them and there must never be one. What separates
+// them is CONTINUITY: the wake's corridor is calibrated so every draw lights,
+// while chop rides sea clutter's ratified straddle and lights a scattered
+// minority. So the contract is a LIT-FRACTION CONTRAST, asserted through a
+// rasterized histogram at the shipped envelope, and NOT a coefficient — pinning
+// the coefficient would be amendment 169's four-cycle pattern again (a test that
+// promotes one example's implementation into the rule and then defends it).
+
+/** A straight ribbon of `n` segments running perpendicular to the observer's
+ *  bearing at range `d`, all at one water-age bucket — the tangential case, so
+ *  every cell of it sits at essentially the same range and the reading is about
+ *  the material rather than about the geometry. */
+function ribbon(d: number, n: number, widthU: number, a = 0): WakeSegmentCover[] {
+  const step = CONFIG.vision.wakeSampleU;
+  const segs: WakeSegmentCover[] = [];
+  const y0 = -((n * step) / 2);
+  for (let i = 0; i < n; i++) {
+    const cov = rasterizeSegmentCoverage(d, y0 + i * step, d, y0 + (i + 1) * step, widthU, CFG.cellU);
+    segs.push({ cov, a });
+  }
+  return segs;
+}
+
+/** Split a marched scope into the two populations the contrast is about: which
+ *  of the ribbon's CORE cells lit, and which of its CHOP cells lit. Classified
+ *  off the stamp's own materials, so the test never has to re-derive geometry. */
+function litFractions(obs: Vec2, segs: WakeSegmentCover[], o: HeatmapOpts) {
+  const g = scope(obs, { wake: segs }, o);
+  const stamp = buildWakeStamp(segs, o.model);
+  let core = 0;
+  let coreLit = 0;
+  let chop = 0;
+  let chopLit = 0;
+  // Walked over a BOUNDING BOX rather than by decoding the stamp's keys: the
+  // key is an implementation detail of the field, and a test that inverts it
+  // would be asserting the encoding instead of the reading.
+  const box = ribbonBox(segs);
+  for (let gy = box.y0; gy <= box.y1; gy++) {
+    for (let gx = box.x0; gx <= box.x1; gx++) {
+      const s = stamp.get(cellKey(gx, gy));
+      if (s === undefined) continue;
+      const lit = bandIndex(sampleGrid(g, cellCentre(gx, o.cellU), cellCentre(gy, o.cellU)).w, BANDS) >= 0;
+      if (s.refl > o.model.clutter) {
+        core++;
+        if (lit) coreLit++;
+      } else {
+        chop++;
+        if (lit) chopLit++;
+      }
+    }
+  }
+  return {
+    core,
+    chop,
+    coreLit,
+    chopLit,
+    wake: core === 0 ? 0 : coreLit / core,
+    dots: chop === 0 ? 0 : chopLit / chop,
+    grid: g,
+  };
+}
+
+/** Cell bounds of a ribbon plus the widest halo it could push. */
+function ribbonBox(segs: readonly WakeSegmentCover[]) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const s of segs) {
+    const pad = chopHaloCells(s.cov, s.a);
+    x0 = Math.min(x0, s.cov.gx - pad);
+    y0 = Math.min(y0, s.cov.gy - pad);
+    x1 = Math.max(x1, s.cov.gx + s.cov.w + pad);
+    y1 = Math.max(y1, s.cov.gy + s.cov.h + pad);
+  }
+  return { x0, y0, x1, y1 };
+}
+
+describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 203)', () => {
+  const BEAM = CONFIG.shipClasses.battleship.hull.beam;
+
+  it('BOUND 1 — EVERY DRAW OF FRESH WATER LIGHTS, so the track is a LINE: no '
+    + 'draw of the wake material is ever under the transparency threshold inside '
+    + 'its reach', () => {
+    // Stated at the coefficient, which IS the peak (attenuation is ≤ 1), and at
+    // the reach, which is where the fit puts the worst draw exactly on the rail.
+    expect(best(MODEL.wake, MODEL.wakeGrain)).toBeGreaterThan(BANDS[0].at);
+  });
+
+  it('BOUND 2 — it can never outrank even the FAINTEST legitimate echo, at the '
+    + 'luckiest wake draw against the unluckiest hull draw', () => {
+    expect(worst(MODEL.wake, MODEL.wakeGrain)).toBeLessThan(best(MODEL.minPeak));
+  });
+
+  it('BOUND 3 — and it is GREEN at every range and every draw', () => {
+    expect(worst(MODEL.wake, MODEL.wakeGrain)).toBeLessThan(BANDS[1].at);
+  });
+
+  it('and a hull echo sharing a cell with its OWN wake outranks it at the same '
+    + 'age — the collision clutter\'s third bound exists for, second instance', () => {
+    const g = grid(CFG);
+    writeCell(g, 0, 0, worst(MODEL.wake, MODEL.wakeGrain), 1); // luckiest wake draw
+    writeCell(g, 0, 0, best(MODEL.minPeak), 1); // unluckiest real echo, same paint
+    expect(sampleGrid(g, 3, 3).w).toBeCloseTo(best(MODEL.minPeak), 6);
+  });
+
+  it('RASTERIZED, AT THE SHIPPED GRAIN: a ribbon paints a solid GREEN track and '
+    + 'not one blue cell', () => {
+    const { grid: g, wake, core } = litFractions({ x: 0, y: 0 }, ribbon(300, 24, BEAM), CFG);
+    expect(core, 'the fixture actually laid a ribbon').toBeGreaterThan(80);
+    expect(wake, 'essentially every core cell lights').toBeGreaterThan(0.98);
+    const counts = bandCounts(g);
+    expect(counts[1], 'THE FORBIDDEN BAND: not one blue cell').toBe(0);
+    expect(counts[2], 'and no red').toBe(0);
+  });
+
+  it('THE LIT-FRACTION CONTRAST (amendment 198): across the ranges a wake is '
+    + 'meant to read, its core lights ≥ 0.85 of its cells and the chop around it '
+    + 'lights ≤ 0.25 of its own — same colour, same opacity, different STRUCTURE', () => {
+    for (const d of [150, 250, 330, CONFIG.vision.muzzleFlash]) {
+      const f = litFractions({ x: 0, y: 0 }, ribbon(d, 24, BEAM), CFG);
+      expect(f.core, `${d}u: the ribbon has a core`).toBeGreaterThan(40);
+      expect(f.chop, `${d}u: and it pushes chop`).toBeGreaterThan(40);
+      expect(f.wake, `${d}u wake lit fraction`).toBeGreaterThanOrEqual(0.85);
+      expect(f.dots, `${d}u chop lit fraction`).toBeLessThanOrEqual(0.25);
+      // And the separation is the READING, not an artifact of the two counts.
+      expect(f.wake).toBeGreaterThan(f.dots * 3);
+    }
+  });
+
+  it('THE PRIORITY CHAIN: disturbed water ranks BELOW surf and terrain and steel, '
+    + 'and ABOVE sea clutter — the scatterer ordering, not a new rule', () => {
+    const segs = ribbon(60, 8, BEAM); // inside the clutter disc, so both answer
+    const obs = { x: 0, y: 0 };
+    const stamp = buildWakeStamp(segs, MODEL);
+    const withWake = fieldOf(obs, { wake: segs }, CFG);
+    const box = ribbonBox(segs);
+    let sawCore = 0;
+    for (let gy = box.y0; gy <= box.y1; gy++) {
+      for (let gx = box.x0; gx <= box.x1; gx++) {
+        const s = stamp.get(cellKey(gx, gy));
+        if (s === undefined || s.refl <= MODEL.clutter) continue;
+        const x = cellCentre(gx, CFG.cellU);
+        const y = cellCentre(gy, CFG.cellU);
+        expect(withWake.sampleAt(x, y, 60)?.refl, 'a core cell out-ranks sea clutter')
+          .toBeCloseTo(s.refl, 12);
+        sawCore++;
+      }
+    }
+    expect(sawCore).toBeGreaterThan(10);
+    // ...and a hull standing on the same water still owns the cell.
+    const hulls = [{ id: 'h', x: 60, y: 0, heading: 0, cls: 'battleship' as HullId }];
+    const both = fieldOf(obs, { wake: segs, hulls }, CFG);
+    expect(both.sampleAt(60, 0, 60)?.refl, 'steel beats water').toBe(MODEL.ship);
+  });
+
+  it('and the wake FRAYS OUT past its reach rather than cutting at a line', () => {
+    const near = litFractions({ x: 0, y: 0 }, ribbon(350, 16, BEAM), CFG).wake;
+    const mid = litFractions({ x: 0, y: 0 }, ribbon(500, 16, BEAM), CFG).wake;
+    const far = litFractions({ x: 0, y: 0 }, ribbon(640, 16, BEAM), CFG).wake;
+    expect(near).toBeGreaterThan(0.9);
+    expect(mid, 'partway out, some cells drop').toBeLessThan(near);
+    expect(mid, 'but it is a fade, not a cut').toBeGreaterThan(0.05);
+    expect(far, 'and past the material entirely, nothing').toBe(0);
+  });
+
+  it('RECENCY IS CARRIED BY THE SAME THRESHOLD, NOT BY BRIGHTNESS: older water '
+    + 'paints FEWER cells at every range, and runs out of range before the head '
+    + 'does — so the visible track shortens as it ages', () => {
+    const at = (d: number, a: number): number =>
+      litFractions({ x: 0, y: 0 }, ribbon(d, 16, BEAM, a), CFG).wake;
+    // Down the ribbon at one range: the head is solid, the tail breaks up.
+    let prev = at(300, 0);
+    expect(prev, 'the freshest water is a solid line').toBeGreaterThan(0.98);
+    for (let a = 1; a < WAKE_AGE_BUCKETS; a++) {
+      const f = at(300, a);
+      expect(f, `bucket ${a} paints no more than bucket ${a - 1}`).toBeLessThanOrEqual(prev + 1e-9);
+      prev = f;
+    }
+    expect(prev, 'and the oldest water is visibly thinner at the same range')
+      .toBeLessThan(0.9);
+    // And the channel is REACH: at a range where fresh water still reads, the
+    // oldest is gone entirely, so a track paints only its newest stretch.
+    const far = CONFIG.vision.farRadar;
+    expect(at(far, 0), 'fresh water still shows out there').toBeGreaterThan(0.05);
+    expect(at(far, WAKE_AGE_BUCKETS - 1), 'the tail does not').toBe(0);
+    // The age scale can only ever WEAKEN, and it is a scale on intensity rather
+    // than a second opacity channel (amendment 161 untouched).
+    for (let a = 0; a < WAKE_AGE_BUCKETS; a++) {
+      expect(wakeAgeScale(MODEL, a)).toBeLessThanOrEqual(1);
+      expect(wakeAgeScale(MODEL, a)).toBeGreaterThanOrEqual(MODEL.wakeAgeFloor);
+      expect(wakeSample(MODEL, a).refl).toBeCloseTo(MODEL.wake * wakeAgeScale(MODEL, a), 12);
+    }
+    expect(wakeAgeScale(MODEL, 0)).toBe(1);
+    expect(wakeAgeScale(MODEL, WAKE_AGE_BUCKETS - 1)).toBeCloseTo(MODEL.wakeAgeFloor, 12);
+    expect(wakeAgeScale(MODEL, Number.NaN), 'a garbage bucket fails to the OLDEST')
+      .toBeCloseTo(MODEL.wakeAgeFloor, 12);
+    expect(wakeAgeScale(MODEL, 99)).toBeCloseTo(MODEL.wakeAgeFloor, 12);
+  });
+});
+
+describe('SHIP-DISPLACEMENT CHOP inherits sea clutter\'s three bounds (amendment 202)', () => {
+  const BEAM = CONFIG.shipClasses.battleship.hull.beam;
+
+  it('it IS the clutter coefficient, verbatim — so there is no fourth weak-water '
+    + 'number to defend', () => {
+    expect(chopSample(MODEL).refl).toBe(MODEL.clutter);
+    // And it carries the AMBIENT grain: the straddle is what speckles it, and a
+    // reduced scale would turn the dots into a second continuous line.
+    expect(chopSample(MODEL).grain).toBeUndefined();
+  });
+
+  it('BOUND 1 (straddle), BOUND 2 (never blue) and BOUND 3 (never outranks the '
+    + 'faintest echo) therefore hold unchanged', () => {
+    const PEAK = chopSample(MODEL).refl;
+    expect(best(PEAK)).toBeLessThan(BANDS[0].at);
+    expect(worst(PEAK)).toBeGreaterThan(BANDS[0].at);
+    expect(worst(PEAK)).toBeLessThan(BANDS[1].at);
+    expect(worst(PEAK)).toBeLessThan(best(MODEL.minPeak));
+  });
+
+  it('and it never overwrites the track it hides: where core and chop meet, the '
+    + 'CORE owns the cell', () => {
+    const segs = ribbon(300, 8, BEAM);
+    const stamp = buildWakeStamp(segs, MODEL);
+    for (const seg of segs) {
+      for (let row = 0; row < seg.cov.h; row++) {
+        for (let col = 0; col < seg.cov.w; col++) {
+          if (!coverageHas(seg.cov, col, row)) continue;
+          const s = stamp.get(cellKey(seg.cov.gx + col, seg.cov.gy + row));
+          expect(s?.refl, 'a covered cell is CORE, never chop').toBe(wakeSample(MODEL, seg.a).refl);
+        }
+      }
+    }
+  });
+
+  it('THE HALO IS DERIVED FROM THE MASK, so a torpedo\'s one-cell ribbon pushes '
+    + 'almost nothing while a battleship pushes a real patch (amendment 197)', () => {
+    const bb = ribbon(300, 1, BEAM)[0].cov;
+    const torp = ribbon(300, 1, CONFIG.vision.radarCellU)[0].cov;
+    expect(coverageCellCount(bb)).toBeGreaterThan(coverageCellCount(torp));
+    expect(chopHaloCells(bb, 0)).toBeGreaterThan(chopHaloCells(torp, 0));
+    expect(chopHaloCells(torp, 0), 'a torpedo track stays essentially naked')
+      .toBeLessThanOrEqual(1);
+  });
+
+  it('and it TAPERS on the age channel — widest at the freshest water, gone at '
+    + 'the oldest (amendment 206, expressed in the only channel the wire has)', () => {
+    const cov = ribbon(300, 1, BEAM)[0].cov;
+    let prev = Infinity;
+    for (let a = 0; a < WAKE_AGE_BUCKETS; a++) {
+      const h = chopHaloCells(cov, a);
+      expect(h, `bucket ${a}`).toBeLessThanOrEqual(prev);
+      expect(h).toBeGreaterThanOrEqual(0);
+      prev = h;
+    }
+    expect(chopHaloCells(cov, 0)).toBeGreaterThan(0);
+    expect(chopHaloCells(cov, WAKE_AGE_BUCKETS - 1)).toBe(0);
+    expect(chopHaloCells({ gx: 0, gy: 0, w: 0, h: 0, bits: [] }, 0), 'a degenerate mask pushes none')
+      .toBe(0);
   });
 });
 
@@ -979,7 +1268,7 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
     const viaContact = scope(OBS, { hulls: [HULL] }, CFG);
     const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
     const stamp: ShipStamp = new Map();
-    stampCoverage(stamp, cov, CFG.model);
+    stampCoverage(stamp, cov, hullSample(CFG.model));
     const g = grid(CFG, OBS.x, OBS.y);
     const s = marchSlice(OBS, 0, TAU - 1e-6, shipOnlyField(stamp, CFG.cellU), RADAR, 0, CFG);
     if (s !== null) raster(g, [s]);

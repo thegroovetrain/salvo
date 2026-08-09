@@ -105,6 +105,20 @@ export function attenuation(dist: number, ref: number, exponent: number, floor: 
   return f + (1 - f) / (1 + intPow(d / ref, exponent));
 }
 
+/**
+ * Solve the curve for the reference range that puts `A` (the required
+ * attenuation) exactly at `d`, on the given exponent — the shared inversion
+ * both fits below use. Returns null when the material cannot land on that
+ * attenuation at that range under that floor at all, which is the caller's cue
+ * to answer the range itself rather than a garbage reference.
+ */
+function refForAttenuation(d: number, a: number, floor: number, exponent: number): number | null {
+  if (!(a > floor) || !(a < 1)) return null;
+  const ratioN = (1 - floor) / (a - floor) - 1;
+  if (!(ratioN > 0)) return null;
+  return d / Math.pow(ratioN, 1 / exponent);
+}
+
 /** Everything `fitPointRef` needs to solve for the point-target reference. */
 export interface PointFit {
   /** Range (u) at which the fitted curve must put a hull's return exactly on
@@ -168,10 +182,8 @@ export interface PointFit {
  */
 export function fitPointRef(o: PointFit): number {
   if (!(o.crossover > 0) || !(o.coef > 0)) return Math.max(1, o.crossover);
-  const a = o.band / o.coef;
-  if (!(a > o.floor) || !(a < 1)) return Math.max(1, o.crossover);
-  const ratioN = (1 - a) / (a - o.floor);
-  return o.crossover / Math.pow(ratioN, 1 / POINT);
+  const ref = refForAttenuation(o.crossover, o.band / o.coef, o.floor, POINT);
+  return ref === null ? Math.max(1, o.crossover) : ref;
 }
 
 // --- the SNR noise envelope (cycle 62, amendment 143) --------------------------
@@ -214,11 +226,159 @@ export interface NoiseEnvelope {
  * Degenerate inputs answer 0 (perfectly solid) rather than NaN: a non-positive
  * `solidAt` or `amount` means "no grain", and a negative intensity is treated as
  * zero signal.
+ *
+ * `scale` IS A PER-MATERIAL GRAIN SCALE (Story 4.12, amendment 203), defaulting
+ * to 1 — the AMBIENT envelope, byte-identical to every pre-4.12 caller. It
+ * exists because the grain models the SCINTILLATION OF INCOHERENT SCATTER, and
+ * not every return on this scope is incoherent scatter: a ship's track is an
+ * ORGANIZED, persistent surface feature with a definite boundary, not random
+ * capillary roughness, so it twinkles far less than the sea state around it.
+ * That is a physical statement about a material, which is exactly what this
+ * parameter is — it is NOT a legibility knob, and it must never be reached for
+ * to make some material easier to see (that lever is the coefficient, and
+ * amendment 163's standing note applies).
+ *
+ * It also happens to be what makes amendment 198 BUILDABLE at all. A wake has
+ * to light essentially ALL of its cells (worst draw above `bands[0].at`) while
+ * still never outranking the faintest legitimate echo (best draw below
+ * `minPeak`'s worst draw), and at ambient grain those two are INFEASIBLE
+ * together — see `fitGrainScale`, which solves the largest amplitude the
+ * corridor admits.
  */
-export function noiseAmplitude(intensity: number, env: NoiseEnvelope): number {
-  if (!(env.amount > 0) || !(env.solidAt > 0)) return 0;
+export function noiseAmplitude(intensity: number, env: NoiseEnvelope, scale = 1): number {
+  if (!(env.amount > 0) || !(env.solidAt > 0) || !(scale > 0)) return 0;
   const t = intensity > 0 ? Math.min(1, intensity / env.solidAt) : 0; // NaN -> 0
-  return env.amount * (1 - t);
+  return scale * env.amount * (1 - t);
+}
+
+/**
+ * THE PRE-GRAIN INTENSITY WHOSE UNLUCKIEST DRAW LANDS EXACTLY ON `band` —
+ * the inverse of `p × (1 − amplitude(p))`, solved rather than searched.
+ *
+ * This is the quantity every "the material is still lit at its worst draw"
+ * statement is really about, and it is a QUADRATIC because the amplitude is
+ * itself a function of the intensity (amendment 143). With `k = scale × amount`
+ * the worst draw is
+ *
+ *     w(p) = p × (1 − k × (1 − p/solidAt)) = (k/solidAt)·p² + (1 − k)·p
+ *
+ * so `w(p) = band` has one positive root, taken here in the numerically stable
+ * form. A zero envelope answers `band` itself (no grain, no gap). Degenerate
+ * inputs answer `band` rather than NaN.
+ *
+ * Valid where the amplitude ramp is live (`p < solidAt`), which is the whole of
+ * the weak end this is ever asked about; a `band` at or above `solidAt` is
+ * grain-free and the identity answer is exact there too.
+ */
+export function worstDrawIntensity(band: number, env: NoiseEnvelope, scale = 1): number {
+  if (!(band > 0)) return 0;
+  const k = env.amount > 0 && env.solidAt > 0 && scale > 0 ? scale * env.amount : 0;
+  if (!(k > 0) || k >= 1) return band;
+  const a = k / env.solidAt;
+  const b = 1 - k;
+  return (2 * band) / (b + Math.sqrt(b * b + 4 * a * band));
+}
+
+/** Everything `fitGrainScale` needs to solve for a material's grain scale. */
+export interface GrainFit {
+  /** The material's peak pre-grain intensity (its coefficient — attenuation is
+   *  ≤ 1 everywhere, so the coefficient IS the peak). */
+  coef: number;
+  /** Lower rail of the corridor the material must stay inside: its UNLUCKIEST
+   *  draw must clear this. */
+  lo: number;
+  /** Upper rail: its LUCKIEST draw must stay under this. */
+  hi: number;
+  /** The ambient envelope the scale multiplies. */
+  env: NoiseEnvelope;
+  /** Fraction of the feasibility ceiling to actually spend. THE ONE FREE CHOICE
+   *  in this calibration — a safety factor on an arithmetic bound, not a look
+   *  knob: 0.5 is a 2× margin on both rails at once. */
+  safety: number;
+}
+
+/**
+ * SOLVE THE PER-MATERIAL GRAIN SCALE (Story 4.12, amendment 203) — the largest
+ * grain a material can carry and still satisfy BOTH rails of its corridor,
+ * scaled back by a stated safety factor.
+ *
+ * A material of peak intensity `c` draws in `c × (1 ± a)`. Staying under `hi`
+ * needs `a < hi/c − 1`; clearing `lo` needs `a < 1 − lo/c`. The FEASIBILITY
+ * CEILING is the smaller of the two, and when `c` is the corridor's midpoint the
+ * two are equal and the ceiling is exactly `(hi − lo)/(hi + lo)`.
+ *
+ * The scale is then that ceiling (times the safety factor) divided by the
+ * AMBIENT amplitude at the same intensity, so the answer moves automatically
+ * with `noise.amount`, `noise.solidAt`, `bands[0].at` and `minPeak` — nothing
+ * about it is typed in, which is amendment 172's lesson applied (a provisional
+ * number acquires authority by being cited, so this one is never written down).
+ *
+ * A corridor with no room (`hi <= lo`, or a coefficient outside it) answers 0 —
+ * NO GRAIN — rather than a negative or non-finite scale: the material then draws
+ * at its nominal value and the BOUND TEST fails loudly, exactly as a degenerate
+ * `fitPointRef` answers the crossover so the calibration test can catch it.
+ */
+export function fitGrainScale(o: GrainFit): number {
+  if (!(o.coef > 0) || !(o.safety > 0)) return 0;
+  const ceiling = Math.min(o.hi / o.coef - 1, 1 - o.lo / o.coef);
+  if (!(ceiling > 0)) return 0;
+  const ambient = noiseAmplitude(o.coef, o.env);
+  if (!(ambient > 0)) return 0;
+  return (o.safety * ceiling) / ambient;
+}
+
+/** Everything `fitMaterialRef` needs to solve for a material's reference range. */
+export interface MaterialFit {
+  /** Range (u) at which the material's UNLUCKIEST draw must land exactly on
+   *  `band` — its REACH. The caller passes a rung of the eighths ladder, and
+   *  client/src/config.ts is the only place that constant may be read. */
+  reach: number;
+  /** The intensity the worst draw must land on there — `bands[0].at`, the
+   *  transparency threshold. */
+  band: number;
+  /** The material's coefficient. */
+  coef: number;
+  /** Asymptotic floor of its curve. */
+  floor: number;
+  /** Its geometry class (SURFACE for water). */
+  geom: number;
+  /** The ambient grain envelope. */
+  env: NoiseEnvelope;
+  /** The material's own grain scale (`fitGrainScale`). */
+  grainScale: number;
+}
+
+/**
+ * THE REACH CALIBRATION (Story 4.12, amendment 203) — solve for the reference
+ * range that puts a material's WORST DRAW exactly on the transparency threshold
+ * at `reach`, so its extent lands on the eighths ladder instead of on a literal.
+ *
+ * It is `fitPointRef`'s sibling and follows the same discipline: the answer is
+ * an input to the CURVE, never a range anything compares against. Writing
+ * `if (d > someRung)` on a paint path violates amendment 105 no matter which
+ * rung it is; fit the curve, do not branch.
+ *
+ * IT FITS THE WORST DRAW, NOT THE NOMINAL, and that is the whole point of
+ * bothering (amendment 135: a bound proved at nominal is not proved). "The wake
+ * reads out to 5/8 intel range" means EVERY cell of it lights out to there, so
+ * the quantity that must land on the threshold is the unluckiest draw
+ * (`worstDrawIntensity`), not the average one. Inside the reach every draw
+ * clears the threshold and the material lights all of its cells; past it the lit
+ * fraction falls smoothly to zero as the draw window slides under — which is the
+ * "reads inside, frays out beyond" behaviour, emergent rather than drawn.
+ *
+ * Degenerate fits answer `reach` rather than NaN or Infinity, exactly as
+ * `fitPointRef` answers its crossover, so the calibration TEST fails loudly
+ * instead of the renderer failing silently.
+ */
+export function fitMaterialRef(o: MaterialFit): number {
+  // NaN-safe by NEGATED comparison, so a non-finite reach answers 1 rather than
+  // propagating into a reference range that would poison every cell it prices.
+  const fallback = o.reach > 1 ? o.reach : 1;
+  if (!(o.reach > 0) || !(o.coef > 0)) return fallback;
+  const lit = worstDrawIntensity(o.band, o.env, o.grainScale);
+  const ref = refForAttenuation(o.reach, lit / o.coef, o.floor, o.geom);
+  return ref === null ? fallback : ref;
 }
 
 /** Terrain reflectivity tunables (CLIENT_CONFIG.blip.heatmap.model). */

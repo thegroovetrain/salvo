@@ -101,6 +101,8 @@
 // one function here takes a camera, a zoom or a viewport.
 
 import {
+  WAKE_AGE_BUCKETS,
+  coverageCellCount,
   coverageHas,
   paintCoverage,
   sampleHeight,
@@ -114,7 +116,14 @@ import {
 } from '@salvo/shared';
 import { POINT, SURFACE, attenuation, heightReflectivity } from './radarFalloff.js';
 import { cellOf, type ReturnModelOpts } from './radarHeatmap.js';
-import { clutterSample, stormSample, type StormRing } from './radarSources.js';
+import {
+  CHOP_HEAD_MULTIPLE,
+  chopSample,
+  clutterSample,
+  stormSample,
+  wakeSample,
+  type StormRing,
+} from './radarSources.js';
 
 /**
  * What the world is made of at one point.
@@ -157,6 +166,41 @@ export interface FieldSample {
    * why the rule takes this field rather than a bare height.
    */
   terrainQ: number;
+  /**
+   * FLOOR UNDER THE SHADOW TERM ONLY (Story 4.12) — absent means "use `min`",
+   * which is every pre-4.12 material and keeps them byte-identical.
+   *
+   * IT EXISTS BECAUSE THE TWO FLOORS ARE DIFFERENT PROMISES and one material
+   * finally needs to make only the second. `min` says *the material always
+   * returns at least this, at any range* (amendment 127's hull guarantee, and it
+   * is applied in `returnStrength`, before the shadow). This says *a DISCLOSURE
+   * never goes dark* (amendment 190: suppression is forbidden, attenuation with a
+   * floor is not), and it is applied in `shade`, after it.
+   *
+   * A hull sets `min` and lets this default to it, exactly as before. A DISCLOSED
+   * wake segment must do the opposite: its whole recency channel is cells
+   * legitimately falling under the transparency threshold as their water ages and
+   * as range grows, so a `min` floor would freeze the track at full length and
+   * full life forever — the reach and the age ladder are the two things this
+   * material exists to express. What it does need is that a segment the server
+   * GATED THROUGH cannot be deleted again by the client's own (deliberately more
+   * generous — amendment 192) shadow walk, and that is exactly what a floor here
+   * buys and nothing else.
+   */
+  shadowFloor?: number;
+  /**
+   * THE MATERIAL'S OWN GRAIN SCALE on the ambient SNR envelope (Story 4.12,
+   * amendment 203) — absent (or 1) for everything that scatters incoherently,
+   * which is every material but one.
+   *
+   * The grain models SCINTILLATION, and a ship's track is an organized,
+   * persistent surface feature rather than random capillary roughness, so it
+   * twinkles less. That is a physical property of a material and belongs on the
+   * material, beside its coefficient and its geometry — not as a branch in the
+   * march, which is exactly the "a fifth return source arrives with a private
+   * formula" shape this seam exists to prevent.
+   */
+  grain?: number;
 }
 
 /**
@@ -209,8 +253,17 @@ export function cellKey(gx: number, gy: number): number {
   return gy * KEY_ROW + gx;
 }
 
+/**
+ * A CELL-INDEXED MATERIAL LAYER: absolute world cell -> the material there.
+ *
+ * Two layers use it — the per-frame SHIP stamp (amendment 141) and, since Story
+ * 4.12, the WAKE stamp (core + the chop that hangs off it). `ShipStamp` remains
+ * as the ship layer's name because that is what every existing caller says.
+ */
+export type CellStamp = Map<number, FieldSample>;
+
 /** The per-frame ship layer: absolute world cell -> that hull's sample. */
-export type ShipStamp = Map<number, FieldSample>;
+export type ShipStamp = CellStamp;
 
 /** The part of a `Contact` a hull footprint is built from: where it is and the
  *  two fields `hullSilhouette` + `perpendicularExtent` need. Deliberately a
@@ -236,15 +289,19 @@ export interface EchoHull {
  * orders them identically at every range — there is no exponent swap to worry
  * about the way there is between steel and rock.
  *
- * SINCE CYCLE 67 EVERY HULL SAMPLE IS THE SAME COEFFICIENT, so this comparison
- * is a tie in every case a shipped caller can produce and the guard is a no-op.
- * It stays because the INVARIANT is what matters, not the current arithmetic:
+ * SINCE CYCLE 67 EVERY HULL SAMPLE IS THE SAME COEFFICIENT, so on the SHIP layer
+ * this comparison is a tie in every case a shipped caller can produce and the
+ * guard is a no-op there. On the WAKE layer (Story 4.12) it does real work: a
+ * ribbon's turbulent core and the chop pushed out around it genuinely differ, and
+ * they overlap wherever two segments of one track cross — so the core wins its
+ * own cells by STRENGTH rather than by which segment was stamped last.
+ * It stays for hulls because the INVARIANT is what matters, not the arithmetic:
  * `Map.set` is last-wins, and the moment any hull-like material differs from
  * steel (a decoy, a wreck, a surfaced hulk) iteration order would silently
  * decide the reading. A no-op guard on a stated invariant is cheap; discovering
  * you deleted it is not.
  */
-function putShip(stamp: ShipStamp, key: number, s: FieldSample): void {
+function putStronger(stamp: CellStamp, key: number, s: FieldSample): void {
   const cur = stamp.get(key);
   if (cur !== undefined && cur.refl >= s.refl) return;
   stamp.set(key, s);
@@ -421,17 +478,23 @@ export function coverageCentre(cov: HullCoverage, cellU: number): Vec2 {
  * that implies a hull's material varies with who is looking at it. `refl = ship`
  * is now the whole of amendment 118's crossover fit, and `min = minPeak` is
  * amendment 127's floor; both land on every cell of the mark.
+ *
+ * AND THE MATERIAL IS AN ARGUMENT AS OF STORY 4.12. It used to call
+ * `hullSample(m)` itself, which was fine while a coverage mask could only ever be
+ * a hull; the server now rasterizes WAKE RIBBONS onto the same lattice in the
+ * same `HullCoverage` shape, so the one place that lays a mask into a cell layer
+ * takes the material it is laying. The alternative — a second, parallel stamp
+ * loop for water — is how two rasterizers drift.
  */
 export function stampCoverage(
-  stamp: ShipStamp,
+  stamp: CellStamp,
   cov: HullCoverage,
-  m: ReturnModelOpts,
+  s: FieldSample,
 ): void {
-  const steel = hullSample(m);
   for (let row = 0; row < cov.h; row++) {
     for (let col = 0; col < cov.w; col++) {
       if (!coverageHas(cov, col, row)) continue;
-      putShip(stamp, cellKey(cov.gx + col, cov.gy + row), steel);
+      putStronger(stamp, cellKey(cov.gx + col, cov.gy + row), s);
     }
   }
 }
@@ -465,9 +528,107 @@ export function buildShipStamp(
   seedT = 0,
 ): ShipStamp {
   const stamp: ShipStamp = new Map();
+  const steel = hullSample(m);
   for (const h of hulls) {
-    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), m);
+    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), steel);
   }
+  return stamp;
+}
+
+// --- the WAKE layer (Story 4.12) -------------------------------------------------
+
+/**
+ * ONE DISCLOSED WAKE SEGMENT: the coverage mask the server rasterized onto the
+ * shared lattice, plus its quantized water-age bucket, and NOTHING ELSE.
+ *
+ * That is the whole wire row (amendment 194) and deliberately so — no ship id, no
+ * class, no hue, no owner, no hull↔wake linkage. Whether two segments belong to
+ * one track is the PLAYER's inference off the ribbon's shape and the age gradient
+ * along it; it is never the wire's statement, and nothing in this module may
+ * reconstruct it.
+ */
+export interface WakeSegmentCover {
+  cov: HullCoverage;
+  /** Water-age bucket, 0 (freshest) .. WAKE_AGE_BUCKETS-1. */
+  a: number;
+}
+
+/**
+ * THE CHOP HALO, IN CELLS, for one segment — how far the displaced water reaches
+ * beyond the turbulent core.
+ *
+ * IT IS DERIVED FROM THE MASK'S OWN THICKNESS, WHICH IS WHY IT NEEDS NO IDENTITY.
+ * `cells / max(w, h)` is the mask's mean thickness along its long axis, i.e. the
+ * source's beam in cells; the Kelvin wedge then puts the envelope's half-width at
+ * `CHOP_HEAD_MULTIPLE` times the core's, so the halo beyond the core is
+ * `(multiple − 1) × half-thickness` ≈ the beam itself. A battleship pushes a real
+ * patch, a torpedo's one-cell ribbon pushes barely a cell — amendment 197's
+ * "a lone torpedo track reads plainly" holding by construction rather than by a
+ * special case the payload could not support anyway.
+ *
+ * AND IT TAPERS ON THE AGE CHANNEL, which is a DEVIATION OF RECORD worth stating
+ * plainly. Amendment 206 wants the envelope widest at the ribbon's HEAD, where
+ * water is actively displaced, narrowing behind it at the Kelvin half-angle. The
+ * payload carries no head↔tail linkage and no distance-astern (194), so the only
+ * "how far behind the hull is this water" channel that exists is the AGE BUCKET —
+ * and the taper runs down it, reaching the bare core at the oldest bucket. The
+ * Kelvin constant therefore sets the envelope's WIDTH rather than the taper's
+ * rate; the rate is set by the source's own speed, since a fast hull spreads its
+ * buckets over more water. Both sources agree on this because both express it in
+ * buckets (amendment 154: two sources, one appearance).
+ */
+export function chopHaloCells(cov: HullCoverage, bucket: number): number {
+  const span = Math.max(cov.w, cov.h);
+  if (!(span > 0)) return 0;
+  const thickness = coverageCellCount(cov) / span;
+  const halo = (CHOP_HEAD_MULTIPLE - 1) * (thickness / 2);
+  const last = WAKE_AGE_BUCKETS - 1;
+  const b = Number.isFinite(bucket) ? Math.min(last, Math.max(0, Math.floor(bucket))) : last;
+  const taper = last > 0 ? 1 - b / last : 1;
+  return Math.max(0, Math.round(halo * taper));
+}
+
+/** Lay one segment's chop halo: every cell within `halo` of a covered cell that
+ *  the core does not already own. `putStronger` keeps the core wherever the two
+ *  meet, so chop can never overwrite the track it is hiding (amendment 198). */
+function stampChop(stamp: CellStamp, cov: HullCoverage, halo: number, s: FieldSample): void {
+  if (halo <= 0) return;
+  for (let row = 0; row < cov.h; row++) {
+    for (let col = 0; col < cov.w; col++) {
+      if (!coverageHas(cov, col, row)) continue;
+      for (let dy = -halo; dy <= halo; dy++) {
+        for (let dx = -halo; dx <= halo; dx++) {
+          putStronger(stamp, cellKey(cov.gx + col + dx, cov.gy + row + dy), s);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * BUILD THE WAKE LAYER from disclosed segments: each segment's core at the wake
+ * material scaled by its own water age, plus the chop halo around it.
+ *
+ * CHOP IS LAID FIRST AND THE CORE SECOND, so `putStronger`'s comparison never has
+ * to arbitrate a tie in the wrong direction; and the two are one layer rather
+ * than two because a cell can only be one material, which is the same reason the
+ * field answers one sample per point.
+ *
+ * `shadowFloor` is `wakeLitFloor(m)` on the DISCLOSED (wire) path and 0 on the
+ * world field the local beam marches. Only the CORE takes it: a disclosed segment
+ * may not be deleted by the client's own shadow walk (amendment 190), while chop
+ * is synthesized here, was disclosed by nobody, and may go dark exactly as
+ * terrain does.
+ */
+export function buildWakeStamp(
+  segs: readonly WakeSegmentCover[],
+  m: ReturnModelOpts,
+  shadowFloor = 0,
+): CellStamp {
+  const stamp: CellStamp = new Map();
+  const chop = chopSample(m);
+  for (const seg of segs) stampChop(stamp, seg.cov, chopHaloCells(seg.cov, seg.a), chop);
+  for (const seg of segs) stampCoverage(stamp, seg.cov, wakeSample(m, seg.a, shadowFloor));
   return stamp;
 }
 
@@ -480,6 +641,18 @@ export interface FieldSpec {
   raster: HeightRaster | null;
   /** The per-frame ship layer. */
   ships: ShipStamp;
+  /**
+   * The per-frame WAKE layer (Story 4.12) — disturbed water the client holds
+   * POSE for, i.e. the inside-truesight source, exactly as `ships` is the
+   * inside-truesight hull source. Optional: a caller with no wake at all passes
+   * nothing and the field answers as it did before 4.12, cell for cell.
+   *
+   * BEYOND TRUESIGHT WAKE DOES NOT COME THROUGH HERE. It arrives already gated
+   * and rasterized on the wire and is marched at once through `wakeOnlyField`,
+   * for the same reason a wire hull echo is: the SERVER's beam already crossed
+   * it, and waiting for the local beam would paint it a revolution stale.
+   */
+  wake?: CellStamp;
   /** The LIVE storm ring, or null when the timeline is not anchored. Only the
    *  live ring is a physical object; the dashed next-ring telegraph is a chart
    *  annotation and must never return an echo (amendment 128). */
@@ -545,10 +718,19 @@ function solidAt(f: FieldSpec, x: number, y: number, dist: number): FieldSample 
  *
  * `surfPyramidLevel` is resolved ONCE here, not per sample — the whole point
  * of the pyramid seam is that the proximity test costs one read, not a scan.
+ *
+ * DISTURBED WATER RANKS BELOW SURF AND ABOVE CLUTTER (Story 4.12), which is the
+ * scatterer ordering again rather than a new rule: a breaking coastline returns
+ * more than a ship's track, a ship's track returns more than open sea state, and
+ * the coefficients say so. It is ONE Map probe covering BOTH new materials — a
+ * wake's core and the chop pushed out around it share a layer because a cell can
+ * only be one material, and separating them would buy a second probe on every
+ * open-water sample for an answer the stamp already arbitrated.
  */
 export function buildField(f: FieldSpec): RadarField {
   const m = f.model;
   const surfLevel = f.raster === null ? -1 : surfPyramidLevel(f.raster, m.surfBandU);
+  const wake = f.wake;
   return {
     raster: f.raster,
     disclosed: false,
@@ -559,7 +741,55 @@ export function buildField(f: FieldSpec): RadarField {
       if (storm !== null) return storm;
       const surf = f.raster === null ? null : surfSample(f.raster, surfLevel, x, y, m);
       if (surf !== null) return surf;
+      const water = wake === undefined || wake.size === 0 ? undefined : stampAt(wake, x, y, f.cellU);
+      if (water !== undefined) return water;
       return clutterSample(f.obs, x, y, m);
+    },
+  };
+}
+
+/** One cell-indexed layer's answer at a point. */
+function stampAt(stamp: CellStamp, x: number, y: number, cellU: number): FieldSample | undefined {
+  return stamp.get(cellKey(cellOf(x, cellU), cellOf(y, cellU)));
+}
+
+/**
+ * A field carrying ONE WAKE LAYER and nothing else — the wire source's sibling of
+ * `shipOnlyField`, and it inherits that function's whole argument.
+ *
+ * `disclosed: true` for the same reason: the server has already gated these
+ * segments (annulus + swept-this-tick + amendment 179's shadow accumulator, per
+ * segment), so a client-side occlusion test may ATTENUATE what it finds but may
+ * never SUPPRESS it, and this ray emits no NO-DATA marks — a bearing the server
+ * answered is not a bearing the client learned nothing on. That is amendment 190
+ * exactly: *"suppression is forbidden, attenuation with a floor is not."*
+ *
+ * WHERE THE FLOOR IS, AND WHY IT IS NOT `min`. For a hull the floor is `minPeak`
+ * on `FieldSample.min`, which `returnStrength` applies BEFORE the range term —
+ * that is amendment 127's *"anything the server blips paints at least a speck"*,
+ * a promise about a CONTACT. Water cannot take that floor: the wake's entire
+ * recency channel is cells legitimately falling under the transparency threshold
+ * as their water ages and as range grows, and a `min` would freeze the track at
+ * full length and full life forever. So a disclosed segment carries
+ * `FieldSample.shadowFloor` = `wakeLitFloor(m)` instead — applied AFTER the
+ * shadow and nowhere else, so a partially-shadowed segment reads weaker and a
+ * fully-shadowed one still paints, while the reach and the age ladder are
+ * untouched. That is amendment 190 in this material's own currency.
+ */
+export function wakeOnlyField(
+  wake: CellStamp,
+  cellU: number,
+  raster: HeightRaster | null = null,
+): RadarField {
+  // The floor itself rides the STAMP (`buildWakeStamp`'s `shadowFloor`), where
+  // it costs one allocation per segment rather than one per sample.
+
+  return {
+    raster,
+    disclosed: true,
+    sampleAt(x: number, y: number): FieldSample | null {
+      if (wake.size === 0) return null;
+      return stampAt(wake, x, y, cellU) ?? null;
     },
   };
 }

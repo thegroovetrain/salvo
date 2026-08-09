@@ -85,6 +85,7 @@ import {
   buildShipStamp,
   cellKey,
   coverageCentre,
+  hullSample,
   shipOnlyField,
   stampCoverage,
   type EchoHull,
@@ -956,7 +957,7 @@ describe('a hull falls out of its own footprint, under POINT falloff', () => {
     const needle: HullCoverage = {
       gx: Math.floor(0 / CFG.cellU), gy: Math.floor((RADAR - 20) / CFG.cellU), w: 1, h: 1, bits: [1],
     };
-    stampCoverage(stamp, needle, CFG.model);
+    stampCoverage(stamp, needle, hullSample(CFG.model));
     const s = marchSlice(
       { x: 0, y: 0 }, -0.2, 0.2 + Math.PI, shipOnlyField(stamp, CFG.cellU), RADAR, 0, CFG,
     );
@@ -1294,7 +1295,7 @@ describe('an echo inside its own reach subtends a FULL TURN, and paints', () => 
     // exceeds its distance, so its bearing window is the whole circle.
     const cov = rasterizeHullCoverage('battleship', 4, 0, 0.3, CLEAN.cellU);
     const stamp: ShipStamp = new Map();
-    stampCoverage(stamp, cov, CLEAN.model);
+    stampCoverage(stamp, cov, hullSample(CLEAN.model));
     const c = coverageCentre(cov, CLEAN.cellU);
     const arc = echoArc(obs, c.x, c.y, Math.hypot(cov.w, cov.h) * CLEAN.cellU);
     expect(arc.half, 'the whole circle').toBeCloseTo(Math.PI, 9);
@@ -1319,7 +1320,7 @@ describe('a wire coverage footprint paints at EVERY heading (amendment 127 throu
       const heading = (k * TAU) / 32;
       const cov = rasterizeHullCoverage('torpedoBoat', 400, 300, heading, CLEAN.cellU);
       const stamp: ShipStamp = new Map();
-      stampCoverage(stamp, cov, CLEAN.model);
+      stampCoverage(stamp, cov, hullSample(CLEAN.model));
       const c = coverageCentre(cov, CLEAN.cellU);
       const arc = echoArc(obs, c.x, c.y, Math.hypot(cov.w, cov.h) * CLEAN.cellU);
       const pad = arc.reach + 2 * CLEAN.cellU;
@@ -1366,7 +1367,7 @@ describe('the SOLID layers resolve by strength, not by rank', () => {
     // weaker than rock at 400u.
     stampCoverage(needle, {
       gx: Math.floor(HULL.x / CLEAN.cellU), gy: Math.floor(HULL.y / CLEAN.cellU), w: 1, h: 1, bits: [1],
-    }, CLEAN.model);
+    }, hullSample(CLEAN.model));
     const field = buildField({
       obs: OBS, raster, ships: needle, ring: null, cellU: CLEAN.cellU, model: CLEAN.model,
     });

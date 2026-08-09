@@ -142,6 +142,61 @@ describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height',
   });
 });
 
+// Radar-wake constants (Story 4.12), pinned beside the ladder they sit under.
+// The wake clock is sacred the way land is: a COMPUTED lifetime would drift
+// with tuning elsewhere, and the three clocks that agree by coincidence
+// (water dissipation 12s, phosphor ~12s, material reach ~412u vs a 420-540u
+// full-ahead track — amendment 205) would silently desynchronise.
+describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
+  it('wakeLifeMs is the FIXED literal 12000 — Eric-ruled against real ship wakes (amendment 205), never a computed quantity', () => {
+    expect(CONFIG.vision.wakeLifeMs).toBe(12000);
+    expect(Number.isInteger(CONFIG.vision.wakeLifeMs)).toBe(true);
+  });
+
+  it('wakeSampleU is the FIXED literal 12 — one sample per lattice cell plus margin, never a computed quantity', () => {
+    expect(CONFIG.vision.wakeSampleU).toBe(12);
+    expect(Number.isInteger(CONFIG.vision.wakeSampleU)).toBe(true);
+  });
+
+  it('wakeSampleU > radarCellU — consecutive segments rasterize contiguously without oversampling the lattice', () => {
+    expect(CONFIG.vision.wakeSampleU).toBeGreaterThan(CONFIG.vision.radarCellU);
+  });
+
+  // THE THREE-CLOCKS PIN, MADE HONEST (cycle-69 review gate, P4). The "water
+  // always has a live paint behind it" handover guarantee is arithmetic on
+  // persistSweeps × sweepPeriod ≥ wakeLifeMs, and it holds ONLY at the base
+  // 15rpm rate: 3 paints × 4s = 12s = the water clock, an agreement amendment
+  // 205 itself calls a COINCIDENCE. At `sweepRpmMax` (a maxed intelSweep
+  // build) the revolution halves and the three-paint phosphor window is 6s
+  // against 12s water. RULED at this gate: the shortfall is ACCEPTED, not
+  // repaired —
+  //   • amendment 195 rules a wake paint decays on the STANDARD three-paint
+  //     window with NO wake-specific lifetime, so scaling wake phosphor alone
+  //     is forbidden by ratified text;
+  //   • fixing it globally (a fixed-ms phosphor window) would change the
+  //     ratified "three revolutions of arc" grammar and re-price the
+  //     intelSweep boon for EVERY paint — an Eric decision, not a patch;
+  //   • the degradation is partial by construction: a maxed sweep repaints
+  //     every DISCLOSED stretch twice as often, so live annulus water never
+  //     goes dark — only water that has STOPPED disclosing (the truesight
+  //     handover stretch, a shadow entry) fades at 6s instead of 12s, and the
+  //     near-range display mask (amendment 181) already mutes that region.
+  // The pins below make both halves mechanical: the base-rate coincidence,
+  // and the exact accepted worst case (half the water clock). Either moving
+  // means a clock was retuned without checking the other two (205's warning)
+  // or the acceptance is being revisited — both deliberate acts. The `3` is
+  // CLIENT_CONFIG.blip.persistSweeps written as a LITERAL (the oracle
+  // discipline: shared may not import client config); its own pin lives in
+  // client/src/__tests__/wake.test.ts beside the handover suite.
+  it('the three clocks agree AT THE BASE SWEEP RATE: three paints exactly cover the water clock (amendments 195/205)', () => {
+    expect(3 * (60_000 / CONFIG.vision.sweepRpm)).toBe(CONFIG.vision.wakeLifeMs);
+  });
+
+  it('at sweepRpmMax the three-paint window is exactly HALF the water clock — the ACCEPTED shortfall (review-gate P4 ruling), never silently worse', () => {
+    expect(3 * (60_000 / CONFIG.vision.sweepRpmMax)).toBe(CONFIG.vision.wakeLifeMs / 2);
+  });
+});
+
 describe('closing-rate criterion (amendment 7) — pinned over committed CONFIG', () => {
   it('worst-case escape per close = (1 + offsetCap) × max Δr ≤ a battleship-minute, ≈80%', () => {
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);
