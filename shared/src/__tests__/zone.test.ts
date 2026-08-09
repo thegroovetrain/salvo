@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  HULL_IDS,
+  SHIP_CLASS_IDS,
   ZONE_BEATS_PER_GROUP,
+  hullEnvelope,
   isOutside,
   mapRadius,
   radarShadowK,
@@ -144,13 +147,44 @@ describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height',
 
 // Radar-wake constants (Story 4.12), pinned beside the ladder they sit under.
 // The wake clock is sacred the way land is: a COMPUTED lifetime would drift
-// with tuning elsewhere, and the three clocks that agree by coincidence
-// (water dissipation 12s, phosphor ~12s, material reach ~412u vs a 420-540u
-// full-ahead track — amendment 205) would silently desynchronise.
+// with tuning elsewhere, and the three clocks (water dissipation 5.5s,
+// phosphor 12s at base rate, material reach ~412u against a 192-247.5u
+// full-ahead track — amendments 205 + 213) would silently desynchronise.
 describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
-  it('wakeLifeMs is the FIXED literal 12000 — Eric-ruled against real ship wakes (amendment 205), never a computed quantity', () => {
-    expect(CONFIG.vision.wakeLifeMs).toBe(12000);
+  it('wakeLifeMs is the FIXED literal 5500 — Eric-ruled (amendments 205 + 213), never a computed quantity', () => {
+    expect(CONFIG.vision.wakeLifeMs).toBe(5500);
     expect(Number.isInteger(CONFIG.vision.wakeLifeMs)).toBe(true);
+  });
+
+  // THE RUNG THE CLOCK WAS CUT TO (cycle 71, amendment 213). Eric cut 12s ->
+  // 5.5s on seeing a full-ahead torpedo boat: *"that wake trail is far as
+  // fuck"*. The replacement is not a feel number but an eighths-ladder rung —
+  // the FASTEST hull's full-ahead track is exactly `detect`, so your wake
+  // reaches as far behind you as detect reaches around you.
+  //
+  // ASSERTED, NOT COMPUTED IN constants.ts, and that is the whole point of
+  // this test: deriving the clock from `maxSpeed` in the object literal would
+  // let a kinematics retune silently move a value Eric SET. Here it fails the
+  // build instead, and a human re-decides which of the two should move.
+  it('and it puts the fastest PLAYABLE hull\'s full-ahead track exactly on the 3/8 detect rung (amendment 213)', () => {
+    const fastest = SHIP_CLASS_IDS.reduce((top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed), 0);
+    expect(fastest).toBeGreaterThan(0);
+    expect((CONFIG.vision.wakeLifeMs / 1000) * fastest).toBeCloseTo(CONFIG.vision.detect, 9);
+  });
+
+  // PLAYABLE, not "every hull", and the distinction is Eric's rather than a
+  // convenience: he ruled the cut from the cockpit of a torpedo boat at full
+  // ahead, so the anchor is the fastest thing a CAPTAIN can drive (45 u/s).
+  // One drone envelope runs a single unit hotter — the retired destroyer's 46
+  // u/s, preserved byte-for-byte by the shipClasses identity test — so a drone
+  // lays 253u against the rung's 247.5u. That 2% overshoot is recorded here so
+  // it reads as a known consequence rather than a broken invariant, and it is
+  // bounded above by this assertion.
+  it('and a drone envelope overshoots the rung by no more than a hair (it is 1 u/s faster than any captain)', () => {
+    const fastestAny = HULL_IDS.reduce((top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed), 0);
+    const track = (CONFIG.vision.wakeLifeMs / 1000) * fastestAny;
+    expect(track).toBeGreaterThanOrEqual(CONFIG.vision.detect);
+    expect(track).toBeLessThan(CONFIG.vision.detect * 1.05);
   });
 
   it('wakeSampleU is the FIXED literal 12 — one sample per lattice cell plus margin, never a computed quantity', () => {
@@ -162,38 +196,38 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
     expect(CONFIG.vision.wakeSampleU).toBeGreaterThan(CONFIG.vision.radarCellU);
   });
 
-  // THE THREE-CLOCKS PIN, MADE HONEST (cycle-69 review gate, P4). The "water
-  // always has a live paint behind it" handover guarantee is arithmetic on
-  // persistSweeps × sweepPeriod ≥ wakeLifeMs, and it holds ONLY at the base
-  // 15rpm rate: 3 paints × 4s = 12s = the water clock, an agreement amendment
-  // 205 itself calls a COINCIDENCE. At `sweepRpmMax` (a maxed intelSweep
-  // build) the revolution halves and the three-paint phosphor window is 6s
-  // against 12s water. RULED at this gate: the shortfall is ACCEPTED, not
-  // repaired —
-  //   • amendment 195 rules a wake paint decays on the STANDARD three-paint
-  //     window with NO wake-specific lifetime, so scaling wake phosphor alone
-  //     is forbidden by ratified text;
-  //   • fixing it globally (a fixed-ms phosphor window) would change the
-  //     ratified "three revolutions of arc" grammar and re-price the
-  //     intelSweep boon for EVERY paint — an Eric decision, not a patch;
-  //   • the degradation is partial by construction: a maxed sweep repaints
-  //     every DISCLOSED stretch twice as often, so live annulus water never
-  //     goes dark — only water that has STOPPED disclosing (the truesight
-  //     handover stretch, a shadow entry) fades at 6s instead of 12s, and the
-  //     near-range display mask (amendment 181) already mutes that region.
-  // The pins below make both halves mechanical: the base-rate coincidence,
-  // and the exact accepted worst case (half the water clock). Either moving
-  // means a clock was retuned without checking the other two (205's warning)
-  // or the acceptance is being revisited — both deliberate acts. The `3` is
-  // CLIENT_CONFIG.blip.persistSweeps written as a LITERAL (the oracle
-  // discipline: shared may not import client config); its own pin lives in
-  // client/src/__tests__/wake.test.ts beside the handover suite.
-  it('the three clocks agree AT THE BASE SWEEP RATE: three paints exactly cover the water clock (amendments 195/205)', () => {
-    expect(3 * (60_000 / CONFIG.vision.sweepRpm)).toBe(CONFIG.vision.wakeLifeMs);
+  // THE THREE-CLOCKS PIN, NOW A GUARANTEE AT EVERY SWEEP RATE (cycle 71,
+  // amendment 213). The "water always has a live paint behind it" handover
+  // property is arithmetic on persistSweeps × sweepPeriod ≥ wakeLifeMs — and
+  // under the 12s clock it held ONLY at the base 15rpm rate (3 × 4s = 12s
+  // exactly, an agreement amendment 205 itself called a COINCIDENCE). At
+  // `sweepRpmMax` the revolution halves, giving a 6s phosphor window against
+  // 12s of water: cycle 69's review gate found that hole and RULED IT
+  // ACCEPTED rather than repaired, because amendment 195 forbids a
+  // wake-specific paint lifetime and a global fixed-ms window would re-price
+  // the intelSweep boon for every paint.
+  //
+  // CUTTING THE WATER CLOCK TO 5.5s CLOSED IT FOR FREE — 6s of phosphor now
+  // covers 5.5s of water with margin, so the guarantee holds at the base rate
+  // AND at a maxed intelSweep build. That is why these two assertions are `>=`
+  // rather than the old exact equalities: the relationship being defended is a
+  // COVERING, and pinning it to equality would fail the build on a change that
+  // made it safer. The worst case is asserted explicitly below so the margin
+  // can never quietly evaporate either.
+  //
+  // The `3` is CLIENT_CONFIG.blip.persistSweeps written as a LITERAL (the
+  // oracle discipline: shared may not import client config); its own pin lives
+  // in client/src/__tests__/wake.test.ts beside the handover suite.
+  it('the three clocks agree AT THE BASE SWEEP RATE: three paints cover the water clock (amendments 195/205)', () => {
+    expect(3 * (60_000 / CONFIG.vision.sweepRpm)).toBeGreaterThanOrEqual(CONFIG.vision.wakeLifeMs);
   });
 
-  it('at sweepRpmMax the three-paint window is exactly HALF the water clock — the ACCEPTED shortfall (review-gate P4 ruling), never silently worse', () => {
-    expect(3 * (60_000 / CONFIG.vision.sweepRpmMax)).toBe(CONFIG.vision.wakeLifeMs / 2);
+  it('and AT sweepRpmMax TOO — the cycle-69 P4 shortfall is resolved by the 5.5s clock, not merely accepted (amendment 213)', () => {
+    const worst = 3 * (60_000 / CONFIG.vision.sweepRpmMax);
+    expect(worst).toBeGreaterThanOrEqual(CONFIG.vision.wakeLifeMs);
+    // ...and the margin is real rather than a hairline: half a second of
+    // phosphor outlives the water even on the fastest sweep money can buy.
+    expect(worst - CONFIG.vision.wakeLifeMs).toBeGreaterThanOrEqual(500);
   });
 });
 

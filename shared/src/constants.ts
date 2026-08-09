@@ -334,34 +334,64 @@ export const CONFIG = {
     // the standing rule that a value becomes shared CONFIG when it becomes
     // gameplay-load-bearing.
     //
-    // AN ERIC-RULED FIXED LITERAL, chosen against real ship wakes rather than
-    // feel (205): a real wake's visible aerated foam runs ~5-20 ship lengths
-    // and lasts 1-3 minutes; the de-aerated turbulent "scar" radar actually
-    // images runs 50-200 lengths (10-20km behind a real warship) — UNBUILDABLE
-    // here as a scale fact, one to four times the diameter of the whole 2400u
-    // ocean. Eric picked the bottom edge of the playable-and-real foam band:
-    // at 12s a full-ahead track is torpedo boat 540u (5.4 hull lengths), mine
-    // layer 480u (5.5), battleship 420u (3.4). Length stays `speed × life` —
-    // longer wake = faster ship — untouched. NOTHING MAY PURCHASE IT (no
-    // stat, boon or card; the wake carries no observer scaling of any kind).
+    // CUT 12000 -> 5500 BY ERIC ON SEEING IT LIVE (cycle 71, ruling
+    // 2026-08-09, amendment 213). The 12s figure was fitted to real-ship
+    // physics and the physics is unchanged and still recorded below — what
+    // moved is that a physically honest wake is too much wake for THIS ocean.
+    // Eric, at full ahead in a torpedo boat: *"that wake trail is far as
+    // fuck"*. It was: 540u of track against a 660u radar radius is 82% of
+    // your own scope radius and 41% of its full width, drawn behind you at
+    // all times.
     //
-    // THREE CLOCKS AGREE BY COINCIDENCE and a retune of any one must check
-    // the other two (205): water dissipation (this, 12s), the phosphor paint
-    // window (~12s, amendment 195 — a wake paint decays on the STANDARD
-    // three-paint persistence window, no wake-specific lifetime exists), and
-    // the wake material's ~412u reach (amendment 203) against a 420-540u
-    // full-ahead track. Pinned as a fixed literal in zone.test.ts.
+    // THE LENGTH IS NOW AN EIGHTHS-LADDER RUNG (amendment 113's one ruler):
+    // the FASTEST hull's full-ahead track is exactly `CONFIG.vision.detect`,
+    // the 3/8 rung — your wake reaches as far behind you as detect reaches
+    // around you. So the clock is `detect / fastest maxSpeed` = 247.5 / 45 =
+    // 5500ms EXACTLY, and full-ahead tracks become torpedo boat 247.5u (2.5
+    // hull lengths), mine layer 220u (2.5), battleship 192u (1.5).
     //
-    // THE AGREEMENT HOLDS AT THE BASE SWEEP RATE ONLY (cycle-69 review gate,
-    // P4 — an ACCEPTED shortfall, not a guarantee): the phosphor window is
-    // three REVOLUTIONS, so a maxed intelSweep build (sweepRpmMax, 2s
-    // revolutions) holds paints for 6s against this 12s water clock. Ruled
-    // accepted because amendment 195 forbids a wake-specific paint lifetime
-    // and a global fixed-ms window would re-price intelSweep for every paint;
-    // the cost is bounded — disclosed water is repainted every revolution
-    // regardless, so only water that has STOPPED disclosing (the truesight
-    // handover stretch) fades early. Both halves pinned in zone.test.ts.
-    wakeLifeMs: 12000,
+    // WRITTEN AS A LITERAL AND PINNED, NOT COMPUTED, and the distinction is
+    // deliberate: deriving it from `maxSpeed` in the object literal would let
+    // a kinematics retune silently move the wake clock, which is a FEEL value
+    // Eric set. The identity is asserted in shared/src/__tests__/zone.test.ts
+    // instead, so a retune fails the build and a human re-decides.
+    //
+    // Eric DECLINED the harder rule that motivated the cut ("you may never be
+    // tracked by someone who cannot paint your hull" would have been this
+    // same 3/8 number by a different route, since reach 5/8 + track 3/8 =
+    // 8/8): *"eh, well not *never* never, im sure that situation will happen,
+    // but its not like i want to restrict getting wake returns until a hull
+    // is seen."* The rung stands on its own; the no-track property is a
+    // near-consequence, not a guarantee, and nothing tests for it.
+    //
+    // THE PHYSICS THIS REPLACED, kept because it is the reason the number can
+    // never be argued back up to realism (205): a real wake's visible aerated
+    // foam runs ~5-20 ship lengths and lasts 1-3 minutes; the de-aerated
+    // turbulent "scar" radar actually images runs 50-200 lengths (10-20km
+    // behind a real warship) — UNBUILDABLE here as a scale fact, one to four
+    // times the diameter of the whole 2400u ocean. 12s was the bottom edge of
+    // the playable-and-real foam band; 5.5s is BELOW it, a knowing departure
+    // from realism for legibility. Length stays `speed × life` — longer wake
+    // = faster ship — untouched. NOTHING MAY PURCHASE IT (no stat, boon or
+    // card; the wake carries no observer scaling of any kind).
+    //
+    // THREE CLOCKS AGREE and a retune of any one must check the other two
+    // (205): water dissipation (this, 5.5s), the phosphor paint window (12s
+    // at the base sweep rate, amendment 195 — a wake paint decays on the
+    // STANDARD three-paint persistence window, no wake-specific lifetime
+    // exists), and the wake material's ~412u reach (amendment 203) against a
+    // 192-247.5u full-ahead track. The margins all got WIDER, never tighter:
+    // the track is now well inside the material's own reach.
+    //
+    // AND THE MAXED-SWEEP SHORTFALL IS RESOLVED BY THIS CUT (it was cycle
+    // 69's review-gate P4, an accepted-not-repaired hole): the phosphor
+    // window is three REVOLUTIONS, so a maxed intelSweep build (sweepRpmMax
+    // 30, 2s revolutions) holds paints for 6s — which was short of the old
+    // 12s water clock and now COVERS the 5.5s one with margin. The agreement
+    // holds at EVERY sweep rate, not just the base one. Pinned in
+    // zone.test.ts, where the assertion changed from documenting a shortfall
+    // to enforcing a guarantee.
+    wakeLifeMs: 5500,
     // u — the wake pose-history SAMPLE CADENCE (Story 4.12): a source records
     // a new wake sample only after travelling this far since its last one, so
     // the ribbon is a chain of ~12u segments (sim/wake.ts). One sample per
@@ -374,9 +404,16 @@ export const CONFIG = {
     // zone.test.ts); a fixed literal, never a computed quantity.
     wakeSampleU: 12,
     // × wakeLifeMs — the TORPEDO wake's life fraction (Story 4.12, Eric
-    // ruling 2026-08-08, amendment 196: "roughly half"). 6s at the fixed
-    // 60 u/s torpedo speed ≈ 360u of one-cell-wide ribbon: findable if you
-    // happen to be watching that stretch of water, easy to miss. The FISH
+    // ruling 2026-08-08, amendment 196: "roughly half"). HELD AT 0.5 through
+    // the cycle-71 length cut (amendment 213) — Eric was offered the
+    // alternative of raising it to hold the torpedo track near its old
+    // absolute 360u and declined, because that would put a fish's tell above
+    // any ship's and break the one-model-one-ratio shape. So the torpedo
+    // shrinks with everything else: 2.75s at the fixed 60 u/s torpedo speed =
+    // 165u of one-cell-wide ribbon (was 6s / 360u), still the LONGEST track
+    // in the game per second of travel because the fish is the fastest thing
+    // afloat. Findable if you happen to be watching that stretch of water,
+    // easy to miss — which is the ruled reading. The FISH
     // itself still never paints and keeps its 3/8 `detect` gate — see the
     // CONFIG.torpedo header; what paints is the water behind it. Nothing may
     // purchase this either.

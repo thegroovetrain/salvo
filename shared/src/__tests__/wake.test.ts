@@ -88,11 +88,13 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
       const speed = CONFIG.shipClasses[cls].kinematics.maxSpeed;
       expect(wakeCapacity(speed, LIFE)).toBe(Math.ceil(((LIFE / 1000) * speed) / STEP) + 2);
     }
-    // The concrete values at the shipped envelope, as a character note:
-    expect(wakeCapacity(45, LIFE)).toBe(47); // torpedo boat
-    expect(wakeCapacity(35, LIFE)).toBe(37); // battleship
-    expect(wakeCapacity(40, LIFE)).toBe(42); // mine layer
-    expect(wakeCapacity(CONFIG.torpedo.speed, torpWakeLifeMs())).toBe(32); // torpedo
+    // The concrete values at the shipped envelope, as a character note. They
+    // roughly HALVED at the cycle-71 clock cut (amendment 213, 12s -> 5.5s):
+    // the ring is sized from the clock, so a shorter wake is a cheaper one.
+    expect(wakeCapacity(45, LIFE)).toBe(23); // torpedo boat
+    expect(wakeCapacity(35, LIFE)).toBe(19); // battleship
+    expect(wakeCapacity(40, LIFE)).toBe(21); // mine layer
+    expect(wakeCapacity(CONFIG.torpedo.speed, torpWakeLifeMs())).toBe(16); // torpedo
   });
 
   it('degenerate speed/life inputs yield the 2-sample floor, never NaN or zero allocation', () => {
@@ -249,8 +251,11 @@ describe('segment geometry and the older-endpoint age rule', () => {
     appendWakeSample(r, 2 * STEP, 0, 2000);
     const segs = segmentsOf(r, 2500);
     expect(segs).toHaveLength(2);
-    expect(segs[0]).toMatchObject({ ax: 0, ay: 0, bx: STEP, by: 0, mx: STEP / 2, my: 0, ageMs: 2500, bucket: 0 });
-    expect(segs[1]).toMatchObject({ ax: STEP, bx: 2 * STEP, mx: (3 * STEP) / 2, ageMs: 1500, bucket: 0 });
+    // Both land in bucket 1 at the 5.5s clock (a bucket is 1375ms): the ages
+    // here are fixed wall-clock ms, so the cycle-71 cut moved them up a rung
+    // without the geometry this test is about changing at all.
+    expect(segs[0]).toMatchObject({ ax: 0, ay: 0, bx: STEP, by: 0, mx: STEP / 2, my: 0, ageMs: 2500, bucket: 1 });
+    expect(segs[1]).toMatchObject({ ax: STEP, bx: 2 * STEP, mx: (3 * STEP) / 2, ageMs: 1500, bucket: 1 });
   });
 
   it('a segment expires when its OLDER endpoint is strictly older than life — the tail shortens sample by sample', () => {
@@ -265,9 +270,13 @@ describe('segment geometry and the older-endpoint age rule', () => {
 });
 
 describe('torpedo wake — half life, one-cell core, fixed fish speed (amendment 196)', () => {
-  it('torpWakeLifeMs is the ONE wakeLifeMs × wakeTorpLifeFactor derivation (6s at the shipped constants)', () => {
+  it('torpWakeLifeMs is the ONE wakeLifeMs × wakeTorpLifeFactor derivation (2.75s at the shipped constants)', () => {
     expect(torpWakeLifeMs()).toBe(CONFIG.vision.wakeLifeMs * CONFIG.vision.wakeTorpLifeFactor);
-    expect(torpWakeLifeMs()).toBe(6000);
+    // 6s before the cycle-71 clock cut. Eric HELD the 0.5 factor through it
+    // (amendment 213) rather than raising it to keep the fish's old absolute
+    // 360u track, so the torpedo shrank with everything else: 165u.
+    expect(torpWakeLifeMs()).toBe(2750);
+    expect(torpWakeLifeMs() * CONFIG.torpedo.speed / 1000).toBe(165);
   });
 
   it('a torpedo ribbon expires at half a ship life', () => {

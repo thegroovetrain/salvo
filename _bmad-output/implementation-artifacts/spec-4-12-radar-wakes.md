@@ -142,6 +142,29 @@ warnings: ['oversized']
 
 ## Spec Change Log
 
+### 2026-08-09 — Post-landing: two of this spec's numbers superseded by cycle 71 (amendments 213-214)
+
+**Not a defect in this spec, and it is not being reopened.** Eric sailed the shipped feature and ruled two
+changes; the spec stays `done` and the record lives in `epic-4-context-amendments.md`. Noted here only so a
+reader working from this document does not implement against two values that have moved.
+
+1. **`wakeLifeMs` 12000 → 5500.** Everything this spec says about how the length was chosen is still true —
+   the real-foam band, the unbuildable turbulent scar, `speed × life` — and cycle 71 kept that reasoning in
+   the constant verbatim. What Eric added is that a physically honest wake is too much wake for this ocean:
+   *"if I drive TB at top speed, that wake trail is far as fuck."* The new clock puts the fastest playable
+   hull's full-ahead track exactly on the 3/8 `detect` rung. **Every derived quantity in this spec that
+   reads off the clock moved with it** — ring capacities roughly halved, the torpedo ribbon went 6s/360u to
+   2.75s/165u (the 0.5 factor was HELD, not retuned), and the cycle-69 review gate's accepted `sweepRpmMax`
+   shortfall is now resolved rather than accepted.
+
+2. **A second recency channel was added beside `wakeAgeFloor`.** This spec's calibration is sound and
+   nothing in it changed; what it did not anticipate is that solving the age floor out of the 13%-wide
+   corridor leaves it at ~0.968, which is not a channel at all close in. Cycle 71 added `wakeTailKeep` — the
+   fraction of its cells a bucket lays — so recency reads as a thinning count rather than as a brightness.
+   **The corridor is untouched**: every bound this spec defends is a statement about one cell's draw, and the
+   cells that lay are byte-identical.
+
+
 ### 2026-08-08 — Two spec-rooted findings patched in place rather than looped back
 
 **Triggering findings.** Two of the review gate's high-severity findings have their root cause in spec text outside `<intent-contract>`, which by the letter of the workflow makes them `bad_spec` — revert the code, amend the spec, re-derive:

@@ -3471,3 +3471,79 @@ in that is 100% a skill. like the ships being placed on the raster, wakes should
        NOT re-measured at the merge** — both cycles measured their own deltas in their own harnesses, and
        the arithmetic only points one way. The next cycle that touches this pipeline should take a fresh
        baseline rather than adding these two together.
+
+## 2026-08-09 — Eric rulings, THE WAKE IS TOO LONG AND THE TAIL DOES NOT FADE (cycle 71, on seeing 4.12 live)
+
+Two corrections on sailing the shipped wake, one a length ruling and one a defect Eric found by eye that
+the previous cycle had already predicted in writing and shipped anyway. Both are follow-ups to Story 4.12
+rather than a new story; the feature's architecture, wire contract and perception gates are untouched.
+`PROTOCOL_VERSION` stays **32** — no payload shape moves, only how much water exists and how much of it
+the client draws. Version 0.17.70 → **0.17.71**.
+
+213. **THE WAKE CLOCK IS CUT 12s → 5.5s, AND THE NEW LENGTH IS AN EIGHTHS-LADDER RUNG.** Eric, at full
+     ahead in a torpedo boat: *"Wakes look great but I think they are too long now... if I drive TB at top
+     speed, that wake trail is far as fuck."* It was: 540u of track against a 660u radar radius is 82% of
+     your own scope radius, drawn behind you at all times. **The physics that produced 12s was not wrong
+     and is retained in the constant's comment** — real aerated foam runs 5-20 ship lengths, the
+     radar-imaged turbulent scar 50-200, and amendment 210 took the bottom edge of the buildable band.
+     What this ruling establishes is that *a physically honest wake is too much wake for this ocean*, so
+     5.5s is a KNOWING departure below the real band for legibility, not a correction of a mistake.
+
+     The replacement is not a feel number. **The fastest PLAYABLE hull's full-ahead track is now exactly
+     `CONFIG.vision.detect`, the 3/8 rung** — your wake reaches as far behind you as detect reaches around
+     you — so the clock is `detect / 45 u/s` = 5500ms exactly and full-ahead tracks become torpedo boat
+     247.5u (2.5 hull lengths), mine layer 220u, battleship 192.5u. Written as a LITERAL and pinned by an
+     assertion rather than computed in the CONFIG literal, deliberately: deriving it from `maxSpeed` would
+     let a kinematics retune silently move a value Eric set, where the pin fails the build and a human
+     re-decides. One drone envelope (the retired destroyer's 46 u/s) overshoots the rung by 2%; recorded
+     and bounded by its own test rather than treated as a violation, since Eric ruled from the cockpit.
+
+     **The harder rule that motivated the cut was OFFERED AND DECLINED.** The assistant proposed "you may
+     never be trackable by someone who cannot paint your hull," which lands on this same 3/8 number by a
+     different route (material reach 5/8 + track 3/8 = 8/8 radar range). Eric: *"eh, well not \*never\*
+     never, im sure that situation will happen, but its not like i want to restrict getting wake returns
+     until a hull is seen."* **The rung stands on its own and the no-track property is a near-consequence,
+     not a guarantee — nothing tests for it,** and a future change may break it without breaking this.
+
+     **The torpedo factor was HELD at 0.5 rather than raised to preserve its absolute length.** Eric was
+     shown both and took the proportional shrink: 6s/360u → 2.75s/165u. Raising the factor would have put
+     a fish's tell above any ship's and broken the one-model-one-ratio shape amendment 196 established.
+
+     **Cycle 69's accepted P4 shortfall is resolved for free.** The three-paint phosphor window is 6s at a
+     maxed `sweepRpmMax` build, which was short of the old 12s water clock — a hole that gate ruled
+     ACCEPTED because amendment 195 forbids a wake-specific paint lifetime. 6s now covers 5.5s with
+     margin, so the "water always has a live paint behind it" handover holds at EVERY sweep rate. The two
+     shared/client pins changed from documenting a shortfall to enforcing a covering.
+
+214. **RECENCY BECOMES A CELL COUNT, BECAUSE AS AN INTENSITY IT MEASURED THREE PERCENT.** Eric: *"if I
+     start at 0 speed and go to ahead full, it wont even start fading at the tail for a few cycles because
+     it keeps being repainted as fresh wake."* He is right, and the cause is structural rather than a bug:
+     `wakeAgeFloor` is DERIVED out of the 13%-wide wake corridor (amendment 208) and solves to **~0.968**,
+     so the oldest water is 96.8% as bright as the freshest. Cycle 70 shipped that knowingly and ledgered
+     the consequence as *"recency reads as the tail's lit fraction falling"*; it does — but only out near
+     the material's reach, where the draw window already straddles the threshold. **Close in, where every
+     draw clears by a mile, age changes nothing at all and the track is a uniform bar with a square end.**
+
+     So the fade is STRUCTURAL and not photometric: **older water lays FEWER CELLS, at unchanged
+     intensity** (`wakeTailKeep`, 1.00 / 0.78 / 0.57 / 0.35 across the four buckets). This is the only
+     lever the corridor leaves open, and it is open **by construction rather than by luck** — all three of
+     clutter's bounds are statements about what ONE cell's draw may do, so removing cells cannot touch any
+     of them, and the cells that remain are byte-identical. It is also the honest physics: a dissipating
+     wake breaks into patches, it does not dim uniformly.
+
+     **The floor is fixed by chop from below, which is what makes it a derivation rather than taste.**
+     Amendment 198's whole reading is that a wake is a LINE and chop is SCATTERED DOTS of the identical
+     colour at the identical opacity; fray the tail into chop's measured density (0.11-0.16) and the tail
+     stops being a track at all, trading one legibility bug for a worse one. 0.35 is ~2.2× chop's worst
+     case. Asserted against a rasterized chop histogram, not against the comment.
+
+     Three implementation properties that each silently break it if lost: the stencil takes its **own
+     seed**, never `MARCH_SEED`, or the fray correlates with the grain and the two channels compound
+     instead of composing; it is **constant for the match**, so which cells a bucket drops is a property
+     of the PLACE and the tail erodes rather than boils as water crosses a bucket boundary; and the test
+     is **one draw against a falling threshold**, which makes the kept sets NESTED — a cell surviving the
+     oldest bucket survived every younger one.
+
+     **It is presentation, and a modified client could paint the frayed cells.** It would learn nothing:
+     those segments were disclosed to it anyway, so the fray removes no information the wire withheld.
+     Same class as the near-range opacity mask (amendment 181), and precedented by it.

@@ -567,6 +567,10 @@ export interface ReturnModelOpts {
   /** Intensity scale of the OLDEST water-age bucket, the freshest being 1: the
    *  recency channel, carried as LENGTH rather than as brightness. */
   wakeAgeFloor: number;
+  /** Fraction of its own core cells the OLDEST water-age bucket actually lays,
+   *  the freshest laying all of them (amendment 214). The recency channel that
+   *  reads CLOSE IN, where `wakeAgeFloor` cannot: see `wakeKeepFraction`. */
+  wakeTailKeep: number;
   /** Reference range (u) of the VOLUME curve. */
   volumeRef: number;
   /** Asymptotic floor shared by the SURFACE and VOLUME curves. */

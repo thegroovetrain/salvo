@@ -790,6 +790,128 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
       .toBeCloseTo(MODEL.wakeAgeFloor, 12);
     expect(wakeAgeScale(MODEL, 99)).toBeCloseTo(MODEL.wakeAgeFloor, 12);
   });
+
+  // --- THE TAIL FRAY (cycle 71, amendment 214) ----------------------------------
+  //
+  // The suite above proves the INTENSITY recency channel is well-formed. This one
+  // proves it is not ENOUGH, and that the second channel covers exactly the gap
+  // the first leaves: `wakeAgeFloor` is solved out of the 13%-wide wake corridor
+  // and lands at ~0.968, so close in — where every draw clears the threshold by a
+  // mile — age changes nothing at all and the track is a uniform bar with a square
+  // end. Eric, on the water: *"it wont even start fading at the tail"*.
+  //
+  // Measured on the STAMP rather than on the marched grid, and that is the whole
+  // methodology: a frayed cell does not go dark, it stops being TRACK. Chop is
+  // laid first, so the cell keeps the chop sample underneath and the reading is a
+  // core cell demoted to sea state. `litFractions` would therefore report it as
+  // chop and the core fraction would barely move — the population count is the
+  // measurement, not the lit ratio.
+
+  /** How many of a ribbon's geometric cells still hold the WAKE material at this
+   *  water age, over how many the geometry laid. */
+  function coreShare(a: number): number {
+    const segs = ribbon(300, 24, BEAM, a);
+    const stamp = buildWakeStamp(segs, MODEL);
+    let laid = 0;
+    let kept = 0;
+    for (const seg of segs) {
+      for (let row = 0; row < seg.cov.h; row++) {
+        for (let col = 0; col < seg.cov.w; col++) {
+          if (!coverageHas(seg.cov, col, row)) continue;
+          laid++;
+          const s = stamp.get(cellKey(seg.cov.gx + col, seg.cov.gy + row));
+          if (s !== undefined && s.refl > MODEL.clutter) kept++;
+        }
+      }
+    }
+    expect(laid, 'the fixture actually laid a ribbon').toBeGreaterThan(80);
+    return kept / laid;
+  }
+
+  it('THE FRAY: the freshest water lays every cell it has and the oldest lays '
+    + '`wakeTailKeep` of them, falling monotonically between', () => {
+    expect(coreShare(0), 'the head is solid — byte-identical to cycle 70').toBe(1);
+    let prev = 1;
+    for (let a = 1; a < WAKE_AGE_BUCKETS; a++) {
+      const share = coreShare(a);
+      expect(share, `bucket ${a} lays no more than bucket ${a - 1}`).toBeLessThanOrEqual(prev);
+      prev = share;
+    }
+    // The stencil is a hash, so the realized share is near the target rather than
+    // exactly it — the tolerance is sampling noise on ~100 cells, not slack.
+    expect(prev, 'and the tail has lost roughly two thirds of its cells')
+      .toBeCloseTo(MODEL.wakeTailKeep, 1);
+  });
+
+  it('and it reads CLOSE IN, which is the entire point — the intensity channel '
+    + 'alone is a ~3% effect there', () => {
+    // The gap being filled, stated as arithmetic: at the near range where Eric
+    // saw the uniform bar, the oldest bucket's INTENSITY is within a few percent
+    // of the freshest, and both clear the threshold on their worst draw. Nothing
+    // about brightness could have made the tail read.
+    expect(MODEL.wakeAgeFloor).toBeGreaterThan(0.9);
+    // Even the OLDEST bucket's unluckiest draw still clears the threshold at the
+    // material's own grain, so age alone cannot extinguish a near cell.
+    expect(best(MODEL.wake * MODEL.wakeAgeFloor, MODEL.wakeGrain))
+      .toBeGreaterThanOrEqual(BANDS[0].at * 0.995);
+    // So the whole of the near-range recency signal is the cell count.
+    const near = litFractions({ x: 0, y: 0 }, ribbon(150, 24, BEAM, WAKE_AGE_BUCKETS - 1), CFG);
+    expect(near.wake, 'the cells that remain are essentially all lit').toBeGreaterThan(0.9);
+    expect(coreShare(WAKE_AGE_BUCKETS - 1), 'but there are far fewer of them')
+      .toBeLessThan(0.5);
+  });
+
+  it('THE TAIL IS STILL A LINE, NOT CHOP (amendment 198 survives the fray): the '
+    + 'oldest water keeps a lit fraction well clear of the sea state it sits in', () => {
+    // The bound that FIXES `wakeTailKeep` rather than leaving it to taste. Fray
+    // the tail into chop's own measured density and the track stops being a
+    // track — trading one legibility bug for a worse one.
+    const f = litFractions({ x: 0, y: 0 }, ribbon(300, 24, BEAM, WAKE_AGE_BUCKETS - 1), CFG);
+    expect(f.dots, 'chop is scattered, as ever').toBeLessThanOrEqual(0.25);
+    expect(MODEL.wakeTailKeep, 'and the oldest track is at least twice as dense')
+      .toBeGreaterThan(f.dots * 2);
+  });
+
+  it('the kept set is NESTED across buckets — water erodes, it does not re-scatter', () => {
+    // One draw per cell against a falling threshold, so a cell surviving the
+    // oldest bucket survived every younger one. This is what keeps the tail from
+    // boiling as water crosses a bucket boundary.
+    const cellsAt = (a: number): Set<string> => {
+      const segs = ribbon(300, 24, BEAM, a);
+      const stamp = buildWakeStamp(segs, MODEL);
+      const out = new Set<string>();
+      for (const [k, s] of stamp) if (s.refl > MODEL.clutter) out.add(String(k));
+      return out;
+    };
+    const oldest = cellsAt(WAKE_AGE_BUCKETS - 1);
+    expect(oldest.size).toBeGreaterThan(10);
+    for (let a = 0; a < WAKE_AGE_BUCKETS - 1; a++) {
+      const younger = cellsAt(a);
+      for (const k of oldest) {
+        expect(younger.has(k), `a cell lit at the oldest bucket is lit at bucket ${a}`).toBe(true);
+      }
+    }
+  });
+
+  it('and the cells that DO lay are byte-identical — the fray cannot reach the '
+    + 'calibration, because every bound is about ONE cell\'s draw', () => {
+    const a = WAKE_AGE_BUCKETS - 1;
+    const stamp = buildWakeStamp(ribbon(300, 24, BEAM, a), MODEL);
+    const expected = wakeSample(MODEL, a);
+    let seen = 0;
+    for (const s of stamp.values()) {
+      if (s.refl <= MODEL.clutter) continue;
+      expect(s.refl).toBe(expected.refl);
+      expect(s.grain).toBe(expected.grain);
+      seen++;
+    }
+    expect(seen).toBeGreaterThan(10);
+    // ...so clutter's third bound still holds for the frayed tail, unchanged.
+    // At the WAKE'S OWN grain scale (amendment 203) — the ambient envelope is
+    // the wrong oracle for this material and would read ~0.17 against a 0.136
+    // ceiling, which is the bound the reduced grain exists to satisfy.
+    expect(worst(expected.refl, MODEL.wakeGrain)).toBeLessThan(best(MODEL.minPeak));
+  });
 });
 
 describe('SHIP-DISPLACEMENT CHOP inherits sea clutter\'s three bounds (amendment 202)', () => {

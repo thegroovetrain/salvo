@@ -147,12 +147,20 @@ describe('a source that does not move lays no wake, and there is no branch sayin
   });
 
   it('and a hull too slow to outrun its own dissipation clock lays nothing either', () => {
-    // Under 1 u/s a source takes longer than `wakeLifeMs` to cover one
+    // Under this speed a source takes longer than `wakeLifeMs` to cover one
     // `wakeSampleU`, so its water expires before the next sample exists. That
     // is why the retired client-only `minSpeed` gate is not needed and must not
     // come back: a floor here would put foam on water the scope shows nothing on.
+    //
+    // The threshold ROSE 1.0 -> 2.18 u/s at the cycle-71 clock cut (amendment
+    // 213): a shorter dissipation clock means a source has to be making more
+    // way to keep a track alive at all. Still far below `steerageSpeed` (8-12
+    // u/s) for every class, so no hull under helm can fall through it.
     const slowest = STEP_U / (LIFE_MS / 1000);
-    expect(slowest).toBeCloseTo(1, 6);
+    expect(slowest).toBeCloseTo(STEP_U / 5.5, 6);
+    for (const cls of ['torpedoBoat', 'mineLayer', 'battleship'] as const) {
+      expect(slowest).toBeLessThan(hullEnvelope(cls).kinematics.steerageSpeed);
+    }
   });
 });
 
@@ -168,14 +176,18 @@ describe('wake length is speed × the SHARED life, per class', () => {
     expect(knobs).not.toContain('life');
     expect(knobs).not.toContain('spacing');
     expect(knobs).not.toContain('minSpeed');
-    expect(LIFE_MS).toBe(12000);
+    expect(LIFE_MS).toBe(5500);
   });
 
-  it('runs 540u / 480u / 420u at full ahead for the three captain classes', () => {
+  it('runs 247.5u / 220u / 192.5u at full ahead for the three captain classes', () => {
     const at = (cls: HullId): number => hullEnvelope(cls).kinematics.maxSpeed * (LIFE_MS / 1000);
-    expect(at('torpedoBoat')).toBeCloseTo(540, 6);
-    expect(at('mineLayer')).toBeCloseTo(480, 6);
-    expect(at('battleship')).toBeCloseTo(420, 6);
+    // Cut from 540 / 480 / 420 by amendment 213. The torpedo boat's figure is
+    // the ruled one and is EXACTLY the 3/8 detect rung — the other two fall out
+    // of it, since length is `speed x life` and only speed differs.
+    expect(at('torpedoBoat')).toBeCloseTo(247.5, 6);
+    expect(at('torpedoBoat')).toBeCloseTo(CONFIG.vision.detect, 6);
+    expect(at('mineLayer')).toBeCloseTo(220, 6);
+    expect(at('battleship')).toBeCloseTo(192.5, 6);
   });
 
   it('measures out on the ribbon itself, at full ahead and at half', () => {
@@ -700,9 +712,13 @@ describe('the source handover at the truesight boundary reads continuously', () 
     expect(phosphorMs).toBeGreaterThanOrEqual(LIFE_MS);
   });
 
-  it('and at sweepRpmMax it is exactly HALF the water clock — the accepted shortfall, never silently worse', () => {
+  it('and AT sweepRpmMax TOO — cycle 69\'s accepted shortfall is resolved by the 5.5s clock (amendment 213)', () => {
+    // Was `=== LIFE_MS / 2`, documenting a hole: 6s of phosphor against 12s of
+    // water on a maxed intelSweep build. The shorter clock closes it, so the
+    // handover guarantee now holds at EVERY sweep rate rather than only the
+    // base one, and this asserts the covering instead of the shortfall.
     const sweepMs = 60_000 / CONFIG.vision.sweepRpmMax;
-    expect(CLIENT_CONFIG.blip.persistSweeps * sweepMs).toBe(LIFE_MS / 2);
+    expect(CLIENT_CONFIG.blip.persistSweeps * sweepMs).toBeGreaterThanOrEqual(LIFE_MS);
   });
 
   it('the client picks the track up within one sample cadence of the boundary', () => {

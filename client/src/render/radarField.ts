@@ -115,12 +115,13 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { POINT, SURFACE, attenuation, heightReflectivity } from './radarFalloff.js';
-import { cellOf, type ReturnModelOpts } from './radarHeatmap.js';
+import { cellNoise, cellOf, paintSeed, type ReturnModelOpts } from './radarHeatmap.js';
 import {
   CHOP_HEAD_MULTIPLE,
   chopSample,
   clutterSample,
   stormSample,
+  wakeKeepFraction,
   wakeSample,
   type StormRing,
 } from './radarSources.js';
@@ -628,8 +629,61 @@ export function buildWakeStamp(
   const stamp: CellStamp = new Map();
   const chop = chopSample(m);
   for (const seg of segs) stampChop(stamp, seg.cov, chopHaloCells(seg.cov, seg.a), chop);
-  for (const seg of segs) stampCoverage(stamp, seg.cov, wakeSample(m, seg.a, shadowFloor));
+  for (const seg of segs) {
+    stampWakeCore(stamp, seg.cov, wakeSample(m, seg.a, shadowFloor), wakeKeepFraction(m, seg.a));
+  }
   return stamp;
+}
+
+/**
+ * THE FRAY STENCIL'S SEED (cycle 71, amendment 214).
+ *
+ * DELIBERATELY NOT `MARCH_SEED`. The grain stencil and the fray stencil are
+ * both per-absolute-cell draws, and sharing a seed would CORRELATE them: the
+ * same cells the grain leans dark would be the cells the fray removes, so the
+ * two channels would compound in some places and cancel in others instead of
+ * being independent. A separate key makes the tail's thinning statistically
+ * clean against the speckle it sits in.
+ *
+ * Constant for the whole match, exactly as `MARCH_SEED` is, so which cells a
+ * bucket drops is a property of the PLACE and not of the frame. That is what
+ * keeps the tail from boiling: as water ages through a bucket boundary the
+ * stencil TIGHTENS on the cells it already had rather than re-rolling a fresh
+ * scatter, so the track visibly erodes instead of flickering.
+ */
+const FRAY_SEED = paintSeed('wakefray', 0);
+
+/**
+ * Lay a wake segment's CORE, dropping the fraction of its cells its water age
+ * has already lost (amendment 214). `keep >= 1` is the freshest bucket and lays
+ * every cell — the exact `stampCoverage` behaviour, which is why the fresh head
+ * of a track is byte-identical to what cycle 70 drew.
+ *
+ * The kept set is NESTED across buckets by construction: the test is one draw
+ * per cell against a falling threshold, so a cell that survives the oldest
+ * bucket survived every younger one. A stretch of water therefore only ever
+ * LOSES cells as it ages, which is the reading — erosion, not a new scatter
+ * every 1.375s.
+ */
+function stampWakeCore(
+  stamp: CellStamp,
+  cov: HullCoverage,
+  s: FieldSample,
+  keep: number,
+): void {
+  if (keep >= 1) {
+    stampCoverage(stamp, cov, s);
+    return;
+  }
+  for (let row = 0; row < cov.h; row++) {
+    for (let col = 0; col < cov.w; col++) {
+      if (!coverageHas(cov, col, row)) continue;
+      const gx = cov.gx + col;
+      const gy = cov.gy + row;
+      if (cellNoise(FRAY_SEED, gx, gy) >= keep) continue;
+      putStronger(stamp, cellKey(gx, gy), s);
+    }
+  }
 }
 
 /** Everything a field is FROZEN from at build time (amendment 83). */

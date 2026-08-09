@@ -40,15 +40,15 @@ function drive(w: World, id: string, ticks: number): void {
 }
 
 describe('world — wake ribbon store (Story 4.12)', () => {
-  it('ribbon constants derive from the source: 12s hull water at the hull beam, 6s torpedo water one cell wide (LITERAL pins)', () => {
+  it('ribbon constants derive from the source: 5.5s hull water at the hull beam, 2.75s torpedo water one cell wide (LITERAL pins)', () => {
     // The one place these production derivations are pinned against literals
     // (the perception oracle reads them as state — see its header).
-    expect(createShipWake('torpedoBoat', 55).lifeMs).toBe(12_000);
+    expect(createShipWake('torpedoBoat', 55).lifeMs).toBe(5_500);
     expect(createShipWake('torpedoBoat', 55).widthU).toBe(9);
     expect(createShipWake('battleship', 45).widthU).toBe(32);
     expect(createShipWake('mineLayer', 50).widthU).toBe(20);
     const torp = createTorpWake();
-    expect(torp.lifeMs).toBe(6_000); // 12s × the 0.5 torp life factor
+    expect(torp.lifeMs).toBe(2_750); // 5.5s × the 0.5 torp life factor (amendment 213)
     expect(torp.widthU).toBe(9); // exactly one radar cell
   });
 
@@ -57,8 +57,8 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     const a = place(w, 'a', 0, 0);
     // torpedoBoat 45 u/s + speedBoost 10 u/s = 55: capacity must cover the
     // boosted hull, or a boost run would silently drop the oldest tail.
-    expect(a.wake.cap).toBe(wakeCapacity(55, 12_000));
-    expect(a.wake.cap).toBeGreaterThan(wakeCapacity(45, 12_000));
+    expect(a.wake.cap).toBe(wakeCapacity(55, 5_500));
+    expect(a.wake.cap).toBeGreaterThan(wakeCapacity(45, 5_500));
   });
 
   it('samples the RESOLVED pose on the distance cadence in step(); a stopped hull lays no SEGMENT', () => {
