@@ -249,6 +249,34 @@ export function wakeAgeScale(m: ReturnModelOpts, bucket: number): number {
 }
 
 /**
+ * THE FRACTION OF ITS CORE CELLS A BUCKET ACTUALLY LAYS (cycle 71, amendment
+ * 214) — 1 at the freshest, `m.wakeTailKeep` at the oldest, linear between.
+ *
+ * THE SECOND RECENCY CHANNEL, and the one that reads CLOSE IN. `wakeAgeScale`
+ * is the first, but it is derived out of the wake corridor and the corridor left
+ * it ~3% of range to work in (see `wakeTailKeep` in config.ts) — so inside the
+ * material's reach, where every draw clears the threshold comfortably, it does
+ * nothing at all and the track is a uniform bar with a square end. This one is
+ * a COUNT rather than a brightness, so it reads at every range.
+ *
+ * It cannot disturb the calibration. Every bound the wake material is held to —
+ * lights on its unluckiest draw, never outranks `minPeak`'s worst draw, never
+ * blue — is a statement about what ONE cell may do, and this changes only WHICH
+ * cells exist. The cells that do lay are byte-identical to before.
+ *
+ * DEGRADES TOWARD "ABOUT TO BE GONE", the direction every wake-age path fails
+ * in (`wakeAgeBucket`, `wakeAgeScale`): a garbage bucket keeps the OLDEST
+ * fraction, so a malformed wire frame thins a track rather than solidifying one.
+ */
+export function wakeKeepFraction(m: ReturnModelOpts, bucket: number): number {
+  const last = WAKE_AGE_BUCKETS - 1;
+  if (!(last > 0)) return 1;
+  const keep = Number.isFinite(m.wakeTailKeep) ? Math.min(1, Math.max(0, m.wakeTailKeep)) : 1;
+  const b = Number.isFinite(bucket) ? Math.min(last, Math.max(0, Math.floor(bucket))) : last;
+  return 1 - (b / last) * (1 - keep);
+}
+
+/**
  * SHIP-DISPLACEMENT CHOP'S MATERIAL — sea clutter's coefficient VERBATIM
  * (amendment 202), at the AMBIENT grain, on the wake's own reference range.
  *

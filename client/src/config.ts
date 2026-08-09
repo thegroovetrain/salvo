@@ -2159,6 +2159,47 @@ export const CLIENT_CONFIG = {
          * and the visible track SHORTENS. Derived — see `HEAT_WAKE_AGE_FLOOR`.
          */
         wakeAgeFloor: HEAT_WAKE_AGE_FLOOR,
+        /**
+         * THE TAIL FRAY (cycle 71, Eric ruling 2026-08-09, amendment 214) — the
+         * fraction of its own core cells the OLDEST water bucket lays, the
+         * freshest laying all of them.
+         *
+         * IT EXISTS BECAUSE THE INTENSITY RECENCY CHANNEL MEASURED ~3% AND THAT
+         * IS NOT A CHANNEL. `wakeAgeFloor` is DERIVED from the 13%-wide wake
+         * corridor, and the corridor left age almost nothing to spend: it solves
+         * to ~0.968, so the oldest water is 96.8% as bright as the freshest.
+         * Cycle 70 shipped that knowingly and ledgered the consequence as "recency
+         * reads as the tail's lit fraction falling"; it does, but only out near
+         * the material's reach, where the draw window is already straddling the
+         * threshold. Close in, every draw clears by a mile and the track is a
+         * uniform bar that ends square. Eric, on the water: *"it wont even start
+         * fading at the tail for a few cycles because it keeps being repainted as
+         * fresh wake."*
+         *
+         * SO THE FADE IS STRUCTURAL AND NOT PHOTOMETRIC — older water paints
+         * FEWER CELLS, at unchanged intensity. That is the only lever the
+         * corridor leaves open, and it is open by construction rather than by
+         * luck: all three of clutter's bounds are statements about what ONE cell's
+         * draw may do, so dropping cells cannot touch any of them. It is also the
+         * honest physics — a dissipating wake breaks into patches, it does not
+         * dim uniformly — and it composes with the reach fade rather than
+         * fighting it, because both channels spend the same coin.
+         *
+         * THE FLOOR IS BOUNDED BELOW BY CHOP, and that bound is what fixes the
+         * value rather than taste. Amendment 198's whole reading is that a wake is
+         * a LINE and chop is SCATTERED DOTS of the identical colour at the
+         * identical opacity — fray the tail into chop's own measured lit fraction
+         * (0.11-0.16) and the tail stops being a wake at all, which would trade
+         * one legibility bug for a worse one. 0.35 is ~2.2x chop's worst case, so
+         * the oldest water still reads as a sparse LINE. Asserted against a
+         * rasterized chop histogram in __tests__/radarHeatmap.test.ts rather than
+         * against this comment.
+         *
+         * Buckets land at 1.00 / 0.78 / 0.57 / 0.35 — at the shipped 5.5s clock
+         * each bucket is 1.375s, so a torpedo boat at full ahead dissolves over
+         * the last ~124u of a 247.5u track.
+         */
+        wakeTailKeep: 0.35,
         /** Reference range (u) of the VOLUME curve (the storm wall). Longest of
          *  the three on the shallowest exponent: a squall genuinely does stay
          *  legible clear across the map, which is precisely why amendment 128

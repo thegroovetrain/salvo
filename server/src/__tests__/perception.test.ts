@@ -1189,13 +1189,14 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 900); // its WATER, not its hull, is under test
     // Pin the production-derived ribbon constants against LITERALS (the
-    // oracle-independence rule): a torpedo boat's water lives 12s and its
-    // turbulent core is its own 9u beam.
-    expect(b.wake.lifeMs).toBe(12_000);
+    // oracle-independence rule): a torpedo boat's water lives 5.5s (cut from
+    // 12s by amendment 213) and its turbulent core is its own 9u beam.
+    expect(b.wake.lifeMs).toBe(5_500);
     expect(b.wake.widthU).toBe(9);
     // A straight laid track along y=0 from x=200 (deep inside sight) out to
-    // 500 (annulus): 26 samples on the 12u cadence, ages spread over 11s.
-    injectWakeTrack(b.wake, 500, 0, 0, 26, w.now, 11_000);
+    // 500 (annulus): 26 samples on the 12u cadence, ages spread over 5s — the
+    // spread is kept INSIDE the life so the whole fixture track is live water.
+    injectWakeTrack(b.wake, 500, 0, 0, 26, w.now, 5_000);
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     verifyFrame(w, 'a', f); // the completeness oracle: exactly the gated segments
@@ -1253,7 +1254,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     expect(f.events.filter((e) => e.k === 'wk').length).toBeGreaterThan(0);
     expect(w.wakeRibbons).toHaveLength(2); // a's active ribbon + b's orphaned water
     // ...until the water ages out, at which point the orphan is REAPED.
-    for (let i = 0; i < Math.ceil(12_000 / DT) + 2; i++) w.step();
+    for (let i = 0; i < Math.ceil(5_500 / DT) + 2; i++) w.step();
     windowAround(a, 0);
     expect(buildFrame(w, 'a').events.some((e) => e.k === 'wk')).toBe(false);
     expect(w.wakeRibbons).toHaveLength(1); // only a's (empty) active ribbon remains
@@ -1266,8 +1267,9 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // torp row must stay byte-silent while the water behind it paints.
     injectShell(w, 'fish', 'zz', 500, 6, 0, 400, false, 'torp');
     // The torpedo ribbon's ruled constants as LITERALS: half a ship's life
-    // (6000ms), one 9u cell wide.
-    const tw: WakeRibbon = { xs: new Float64Array(20), ys: new Float64Array(20), ts: new Float64Array(20), cap: 20, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+    // (2750ms since amendment 213 cut the ship clock; the 0.5 factor is
+    // unchanged), one 9u cell wide.
+    const tw: WakeRibbon = { xs: new Float64Array(20), ys: new Float64Array(20), ts: new Float64Array(20), cap: 20, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
     injectWakeTrack(tw, 500, 6, 0, 8, w.now, 5_000); // 416..500 at y=6
     w.torpWakes.set('fish', tw);
     windowAround(a, 0.013, 0.03); // the wedge covering the ribbon's bearings
@@ -1305,7 +1307,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // sight). Amendment 196's tell must survive exactly here — the terminal
     // approach is the only part that matters.
     const cap = 20;
-    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
     injectWakeTrack(tw, 300, 0, 0, 4, w.now, 2_000); // 264..300 along y=0
     w.torpWakes.set('fish', tw);
     windowAround(a, 0);
@@ -1315,7 +1317,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // The detect radius is the torpedo wake's INNER bound: water at or inside
     // 247.5u stays undisclosed (the fish there is a revealed entity — that
     // band belongs to the torp row and truesight rendering, not this one).
-    const inner: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+    const inner: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
     injectWakeTrack(inner, 240, 0, 0, 4, w.now, 2_000); // 204..240: inside detect
     w.torpWakes.set('fish2', inner);
     const f2 = buildFrame(w, 'a');
@@ -1348,7 +1350,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // occlusion is binary island LOS — so it must NOT disclose.
     w.map.islands.push(circleIsland(200, 0, 40));
     const cap = 20;
-    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
     injectWakeTrack(tw, 300, 0, 0, 4, w.now, 2_000); // (detect, sight] band, behind the island
     w.torpWakes.set('fish', tw);
     windowAround(a, 0);
@@ -1357,7 +1359,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     expect(f.events.some((e) => e.k === 'wk')).toBe(false);
     // BEYOND sight the same polygon is irrelevant and the raster rules
     // (Story 4.11's deliberate widening, unchanged): flat raster → discloses.
-    const far: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+    const far: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
     injectWakeTrack(far, 500, 0, 0, 4, w.now, 2_000); // 464..500: annulus, behind the polygon
     w.torpWakes.set('fish2', far);
     const f2 = buildFrame(w, 'a');
@@ -2550,7 +2552,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // by the untouched torp/torpU rows).
       for (let t = 0; t < rng.int(0, 2); t++) {
         const cap = 40;
-        const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+        const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
         const ang = rng.float(0, TAU);
         const rr = rng.float(0, w.map.radius * 0.9);
         injectWakeTrack(tw, Math.cos(ang) * rr, Math.sin(ang) * rr, rng.float(0, TAU), rng.int(2, 12), w.now, 5_000);
