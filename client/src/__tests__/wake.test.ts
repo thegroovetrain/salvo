@@ -23,6 +23,8 @@
 //     discloses are asserted CELL-FOR-CELL identical for the same geometry.
 
 import { describe, it, expect } from 'vitest';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import {
   CONFIG,
@@ -31,13 +33,19 @@ import {
   appendWakeSample,
   eachWakeSegment,
   hullEnvelope,
-  rasterizeSegmentCoverage,
+  islandFromPolygon,
+  paintSegmentCoverage,
+  torpWakeLifeMs,
   type HullId,
+  type Island,
 } from '@salvo/shared';
 import { CLIENT_CONFIG, FASTEST_HULL_SPEED } from '../config.js';
 import { Effects, chopHalfWidthU, chopOutline, type ChopPoint } from '../render/effects.js';
 import {
+  FASTEST_AFLOAT_SPEED,
+  WAKE_OBSERVE_GRACE_MS,
   WAKE_STAMP_MIN_MS,
+  WAKE_STAMP_REBUILD_MS,
   WakeSources,
   WakeStampCache,
   buildTruesightWakeStamp,
@@ -50,6 +58,7 @@ const LIFE_MS = CONFIG.vision.wakeLifeMs;
 const STEP_U = CONFIG.vision.wakeSampleU;
 const MODEL = CLIENT_CONFIG.blip.heatmap.model;
 const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
+const NO_ISLES: readonly Island[] = [];
 
 /** A hull under way along +x at `speed`, at time `t`. */
 function hull(id: string, cls: HullId, x: number, speed: number, t = 0): WakeHull {
@@ -359,12 +368,22 @@ describe('the in-truesight wake stamp is the wire-fed stamp, cell for cell', () 
     return { sources, ax: 40, ay: 20, bx: 40 + STEP_U + 1, by: 20, width: src.ribbon.widthU };
   }
 
-  it('produces exactly what buildWakeStamp produces for the same geometry', () => {
+  // THE MASK MUST BE THE *PAINT* PIPELINE'S, NOT THE SHARP RASTERIZER'S
+  // (cycle-69 review gate, follow-up to P3). The wire's `wk` shaper runs
+  // `paintSegmentCoverage`, which glints the ribbon's FLANKS per paint precisely
+  // so the lit-row count stops being a class lookup table (a segment's `widthU`
+  // is its source's exact beam). If this synthesis kept the sharp
+  // `rasterizeSegmentCoverage`, in-bubble water would sit crisp beside
+  // scintillating wire water — amendment 154's "two sources, one appearance"
+  // broken — and the class fingerprint P3 closed would be re-opened on the very
+  // path where the observer is closest to the hull.
+  it('produces exactly what buildWakeStamp produces for the same geometry — through the GLINTED pipeline', () => {
     const { sources, ax, ay, bx, by, width } = oneSegmentSources();
-    const mine = buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, 100, CELL, MODEL);
+    const seedT = 7;
+    const mine = buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, 100, CELL, MODEL, NO_ISLES, seedT);
 
     const wire: WakeSegmentCover[] = [
-      { cov: rasterizeSegmentCoverage(ax, ay, bx, by, width, CELL), a: 0 },
+      { cov: paintSegmentCoverage(ax, ay, bx, by, width, CELL, seedT), a: 0 },
     ];
     const theirs = buildWakeStamp(wire, MODEL, 0);
 
@@ -377,6 +396,22 @@ describe('the in-truesight wake stamp is the wire-fed stamp, cell for cell', () 
       expect(got?.ref).toBe(s.ref);
       expect(got?.geom).toBe(s.geom);
     }
+  });
+
+  it('re-glints on a new revolution seed, exactly as buildShipStamp does', () => {
+    // Not "different every frame" — different every REVOLUTION. The seed the
+    // radar passes is the sweep revolution index, so a stationary track holds
+    // one mask through a whole beam crossing and scintillates between them.
+    const { sources } = oneSegmentSources();
+    const keys = (seedT: number): string =>
+      [...buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, 100, CELL, MODEL, NO_ISLES, seedT).keys()]
+        .sort((a, b) => a - b)
+        .join(',');
+    expect(keys(1)).toBe(keys(1));
+    // At least one of a handful of revolutions must differ; the spine never
+    // drops, so the ribbon can never empty out whatever the draw.
+    const seeds = [1, 2, 3, 4, 5, 6].map(keys);
+    expect(new Set(seeds).size).toBeGreaterThan(1);
   });
 
   it('takes the EXACT COMPLEMENT of the server annulus: in-bubble only', () => {
@@ -397,7 +432,12 @@ describe('the in-truesight wake stamp is the wire-fed stamp, cell for cell', () 
   it('carries the water-age bucket, so an old track reads weaker than a fresh one', () => {
     const { sources } = oneSegmentSources();
     const fresh = buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, 100, CELL, MODEL);
-    const aged = buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, LIFE_MS * 0.8, CELL, MODEL);
+    // Keep OBSERVING the source as its water ages (P5): the age channel is what
+    // is under test here, not the observation gate.
+    const src = sources.get('a')!;
+    const agedAt = LIFE_MS * 0.8;
+    src.seenMs = agedAt;
+    const aged = buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, agedAt, CELL, MODEL);
     const peak = (m: Map<number, { refl: number }>): number =>
       Math.max(...[...m.values()].map((s) => s.refl));
     expect(peak(aged)).toBeLessThan(peak(fresh));
@@ -408,6 +448,102 @@ describe('the in-truesight wake stamp is the wire-fed stamp, cell for cell', () 
     expect(buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, LIFE_MS + 1000, CELL, MODEL).size).toBe(0);
   });
 });
+
+// --- P5: REMEMBER vs REVEAL -----------------------------------------------------
+//
+// The client synthesizes in-bubble wake as a STAND-IN for a disclosure the
+// server withholds, and the server withholds it for one stated reason: the
+// height-aware shadow march must never reveal water that BINARY island LOS is
+// hiding. The synthesis therefore owes both halves of that reason — the source
+// must be observed right now, and the segment must be binary-LOS clear.
+//
+// WHAT IT DOES *NOT* GATE is what the client REMEMBERS. The ribbon survives, the
+// foam on the water survives and ages out on its own clock (amendment 200), and
+// phosphor already lit keeps fading (amendment 83). Only new REVEAL stops.
+
+describe('the in-bubble stamp reveals only water the client is currently earning', () => {
+  const own = { x: 0, y: 0 };
+
+  /** A battleship under way near the observer, observed up to `t`. */
+  function tracked(): { sources: WakeSources; h: WakeHull; t: number } {
+    const sources = new WakeSources();
+    const h = hull('a', 'battleship', 60, 30);
+    h.y = 40;
+    let t = 0;
+    for (let i = 0; i < 8; i++) {
+      sources.observe(h, t);
+      h.x += STEP_U + 1;
+      t += 50;
+    }
+    return { sources, h, t };
+  }
+
+  it('stops stamping once the hull stops being observed — but keeps the water', () => {
+    const { sources, t } = tracked();
+    expect(buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, t, CELL, MODEL).size).toBeGreaterThan(0);
+    // The hull slips behind an island: still inside `sightU`, but no longer a
+    // contact (truesight is binary-LOS gated), so the emitter stops passing it.
+    // Its contact drops after `interpDelay + 300ms`; before this patch the wake
+    // went on painting for up to a FULL WATER LIFE past that.
+    const after = t + WAKE_OBSERVE_GRACE_MS + 1;
+    expect(buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, after, CELL, MODEL).size).toBe(0);
+    // REMEMBERED, not deleted: the ribbon is intact and its water is still live,
+    // so the moment the hull is observed again the same track reappears.
+    const src = sources.get('a')!;
+    expect(src.ribbon.count).toBeGreaterThan(1);
+    src.seenMs = after;
+    expect(buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, after, CELL, MODEL).size).toBeGreaterThan(0);
+  });
+
+  it('and the observation edge moves `version`, so the cache cannot serve the stale answer', () => {
+    const { sources, t } = tracked();
+    const before = sources.version;
+    sources.prune(t + WAKE_OBSERVE_GRACE_MS + 1);
+    expect(sources.version).toBeGreaterThan(before);
+  });
+
+  it('does not reveal a segment binary island LOS is hiding, however low the terrain', () => {
+    const { sources, t } = tracked();
+    const clear = buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, t, CELL, MODEL, NO_ISLES);
+    expect(clear.size).toBeGreaterThan(0);
+    // A headland squarely between the observer and the track. The march's
+    // height-aware accumulator alone would let a LOW island pass this water;
+    // binary LOS — the rule `pointSighted`/`pointDetected` run, and the rule the
+    // server's whole in-bubble exclusion is justified by — does not.
+    const isle = blockingIsland(own, sources);
+    const hidden = buildTruesightWakeStamp(sources, own, CONFIG.vision.sight, t, CELL, MODEL, [isle]);
+    expect(hidden.size).toBe(0);
+  });
+});
+
+/** A near-circular island centred halfway between the observer and the mean of
+ *  a source's live water — big enough to block every segment's bearing. */
+function blockingIsland(own: { x: number; y: number }, sources: WakeSources): Island {
+  let cx = 0;
+  let cy = 0;
+  let n = 0;
+  sources.each((src) => {
+    eachWakeSegment(src.ribbon, src.seenMs, (s) => {
+      cx += s.mx;
+      cy += s.my;
+      n += 1;
+    });
+  });
+  const tx = cx / n;
+  const ty = cy / n;
+  const mx = (tx + own.x) / 2;
+  const my = (ty + own.y) / 2;
+  const r = Math.hypot(tx - own.x, ty - own.y) / 2 + 30;
+  const sides = 64;
+  const phase = Math.PI / sides;
+  const circum = r / Math.cos(phase);
+  return islandFromPolygon(
+    Array.from({ length: sides }, (_, i) => {
+      const a = phase + (i * 2 * Math.PI) / sides;
+      return { x: mx + Math.cos(a) * circum, y: my + Math.sin(a) * circum };
+    }),
+  );
+}
 
 // --- THE CACHE (amendment 83: a stamp is replaced, never mutated) ---------------
 
@@ -459,10 +595,7 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
     // THE MEASURED HALF OF THE CACHE. Twenty hulls under way inside one bubble
     // bump `version` several times a second EACH, so without this floor the
     // "segment set changed" test fires on essentially every frame — measured at
-    // 2.19 ms against the 2.5 ms bar at 0.5× zoom, versus 1.89 ms with it. The
-    // floor is `radarCellU / fastest hull`: below it nothing can have moved by
-    // an amount the lattice is able to represent.
-    expect(WAKE_STAMP_MIN_MS).toBeCloseTo((CONFIG.vision.radarCellU / FASTEST_HULL_SPEED) * 1000, 9);
+    // 2.19 ms against the 2.5 ms bar at 0.5× zoom, versus 1.89 ms with it.
     const sources = new WakeSources();
     const h = hull('a', 'battleship', 30, 30);
     sources.observe(h, 0);
@@ -475,6 +608,51 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
       sources.observe(h, t);
       expect(cache.stampFor(sources, { x: t, y: 0 }, CONFIG.vision.sight, t, CELL, MODEL)).toBe(first);
     }
+  });
+
+  // P7 — THE FLOOR'S OWN JUSTIFICATION, MADE MECHANICAL. The comment says
+  // nothing can have moved by more than the lattice can express while the floor
+  // holds. That was FALSE at the shipped derivation: it used
+  // `FASTEST_HULL_SPEED`, the BASE kinematics maximum, so a boosted Torpedo Boat
+  // (55 u/s) and a torpedo (60 u/s — a wake source in its own right since P10)
+  // both crossed a 9u cell INSIDE the 200ms floor. The property, not the number:
+  // no source may cross a lattice cell faster than the floor.
+  it('the rebuild floor is shorter than a lattice-cell crossing for EVERY source, boost and fish included', () => {
+    const cellCrossMs = (speed: number): number => (CONFIG.vision.radarCellU / speed) * 1000;
+    expect(WAKE_STAMP_MIN_MS).toBeCloseTo(cellCrossMs(FASTEST_AFLOAT_SPEED), 9);
+    const boostedHull = FASTEST_HULL_SPEED + CONFIG.speedBoost.speedBonus;
+    for (const speed of [FASTEST_HULL_SPEED, boostedHull, CONFIG.torpedo.speed]) {
+      expect(WAKE_STAMP_MIN_MS, `a source at ${speed} u/s`).toBeLessThanOrEqual(cellCrossMs(speed) + 1e-9);
+    }
+    // And it is a TRUE attainable bound, not the base envelope's.
+    expect(FASTEST_AFLOAT_SPEED).toBeGreaterThan(FASTEST_HULL_SPEED);
+  });
+
+  // P6 — THE SIGHT RADIUS IS PART OF THE KEY. Dazzle onset/end and an
+  // `intelTruesight` grant all move `sightHoleU` with nothing else changing:
+  // same observer, same segment set, same clock. Without it in the key, a
+  // stationary observer double-painted (or blanked) the sight-delta band for up
+  // to a full rebuild interval. It is checked AHEAD of the rate floor because a
+  // step function of dazzle+boons cannot churn.
+  it('rebuilds the instant the sight radius moves, even inside the rate floor', () => {
+    const sources = new WakeSources();
+    const h = hull('a', 'battleship', 200, 30);
+    sources.observe(h, 0);
+    h.x += STEP_U + 1;
+    sources.observe(h, 50);
+    const cache = new WakeStampCache();
+    const own = { x: 0, y: 0 };
+    // Dazzled: the segment at ~200u is OUTSIDE a halved bubble, so the wire owns
+    // it and this stamp is empty.
+    const dazzled = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 50, CELL, MODEL);
+    expect(dazzled.size).toBe(0);
+    // The dazzle ends one frame later — well inside the rate floor.
+    const clear = cache.stampFor(sources, own, CONFIG.vision.sight, 60, CELL, MODEL);
+    expect(clear).not.toBe(dazzled);
+    expect(clear.size).toBeGreaterThan(0);
+    // ...and back again, so the key is bidirectional rather than a ratchet.
+    const again = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 70, CELL, MODEL);
+    expect(again.size).toBe(0);
   });
 });
 
@@ -498,12 +676,33 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
 // check the other two"*). The inequality below is that check, made mechanical.
 
 describe('the source handover at the truesight boundary reads continuously', () => {
-  it('phosphor outlives the water, so a stretch with no live source still paints', () => {
+  // THE GUARANTEE HOLDS AT THE BASE SWEEP RATE ONLY, and that is a RULING rather
+  // than an oversight (cycle-69 review gate, P4). The phosphor window is three
+  // REVOLUTIONS, not a fixed span, so a maxed `intelSweep` build halves it: 3 ×
+  // 2s = 6s against 12s water. Ruled ACCEPTED because amendment 195 forbids a
+  // wake-specific paint lifetime and a global fixed-ms window would re-price
+  // intelSweep for EVERY paint (an Eric decision, not a patch) — and because the
+  // degradation is partial: a maxed sweep repaints every DISCLOSED stretch twice
+  // as often, so only water that has STOPPED disclosing (the handover stretch)
+  // fades early. These mirror the ruled pin pair in shared zone.test.ts; this
+  // side additionally pins `persistSweeps` itself, because the shared oracle has
+  // to write that 3 as a LITERAL (shared may not import client config) and a
+  // silent drift there would leave both sides agreeing about nothing.
+  it('pins the phosphor window at three paints, the literal the shared oracle assumes', () => {
+    expect(CLIENT_CONFIG.blip.persistSweeps).toBe(3);
+  });
+
+  it('phosphor exactly covers the water clock AT THE BASE SWEEP RATE', () => {
     const sweepMs = 60_000 / CONFIG.vision.sweepRpm;
     const phosphorMs = CLIENT_CONFIG.blip.persistSweeps * sweepMs;
     // Worst case: a stretch is painted a full revolution after it was laid, and
     // must still be lit when the water finally dissipates.
     expect(phosphorMs).toBeGreaterThanOrEqual(LIFE_MS);
+  });
+
+  it('and at sweepRpmMax it is exactly HALF the water clock — the accepted shortfall, never silently worse', () => {
+    const sweepMs = 60_000 / CONFIG.vision.sweepRpmMax;
+    expect(CLIENT_CONFIG.blip.persistSweeps * sweepMs).toBe(LIFE_MS / 2);
   });
 
   it('the client picks the track up within one sample cadence of the boundary', () => {
@@ -540,7 +739,7 @@ describe('the source handover at the truesight boundary reads continuously', () 
     expect(firstInside - stampedAt).toBeLessThanOrEqual(2 * STEP_U + h.speed * 0.05);
   });
 
-  it('and the hull sailing back OUT hands its track straight back to the wire', () => {
+  it('and the hull sailing back OUT hands its track back to the wire — and to phosphor', () => {
     const effects = new Effects(new Container());
     const own = { x: 0, y: 0 };
     const sight = CONFIG.vision.sight;
@@ -553,14 +752,60 @@ describe('the source handover at the truesight boundary reads continuously', () 
     }
     const before = buildTruesightWakeStamp(effects.wakeSources, own, sight, t, CELL, MODEL).size;
     expect(before).toBeGreaterThan(0);
-    // Out of the bubble: it stops being a contact, the ribbon stops growing —
-    // and the in-bubble water it already laid keeps stamping until it ages out
-    // (amendment 200: a wake outlives the hull's visibility, not just the hull).
+    // Out of the bubble it stops being a contact, so the client stops EARNING
+    // that water and stops synthesizing it (cycle-69 review gate, P5 — this used
+    // to keep stamping for up to a full water life, which is the same mechanism
+    // that revealed a hull hiding behind an island inside the bubble).
     for (let i = 0; i < 20; i++) {
       t += 50;
       effects.update(0.05, t, []);
     }
-    expect(buildTruesightWakeStamp(effects.wakeSources, own, sight, t, CELL, MODEL).size).toBeGreaterThan(0);
+    expect(buildTruesightWakeStamp(effects.wakeSources, own, sight, t, CELL, MODEL).size).toBe(0);
+    // NOTHING GOES DARK, and the three clocks are why: every stretch of that
+    // water was painted within one revolution of being laid, and a paint lasts
+    // three — so a stretch still alive necessarily still has a live paint behind
+    // it (the inequality pinned above). The client REMEMBERS the water too: the
+    // ribbon and its foam are intact and age out on their own clock (amendment
+    // 200), so the track reappears the instant the hull is observed again.
+    expect(effects.wakeSources.get('outbound')?.ribbon.count ?? 0).toBeGreaterThan(1);
+    expect(effects.liveWakeDots).toBeGreaterThan(0);
+  });
+});
+
+// --- P9: A BURST OF BAD FRAMES MAY NOT DESTROY THE RIBBON -----------------------
+
+describe('the impossible-travel guard measures time from the sample it measures distance from', () => {
+  it('survives a burst of non-finite frames instead of resetting on the next good one', () => {
+    const sources = new WakeSources();
+    const h = hull('a', 'torpedoBoat', 0, 45);
+    sources.observe(h, 0);
+    h.x = STEP_U + 1;
+    sources.observe(h, 50); // last STORED sample: x = 13 at t = 50
+    expect(sources.get('a')?.ribbon.count).toBe(2);
+
+    // 400ms of corrupt frames. Each is an OBSERVATION (so `seenMs` advances and
+    // the liveness clause is happy) but `appendWakeSample` drops every one, so
+    // the ribbon's newest sample stays at t = 50 while the hull keeps sailing.
+    for (let t = 100; t <= 450; t += 50) sources.observe({ ...h, x: Number.NaN }, t);
+
+    // A good frame 20u on. That is well inside 45 u/s × 400ms + one cadence
+    // (30u) from the last STORED sample — a perfectly ordinary run — but it is
+    // NOT inside 45 u/s × 50ms + a cadence (14.25u) from the last FRAME, which
+    // is the window the shipped guard measured against. It used to throw the
+    // whole ribbon away here, which is the exact outcome its own comment says
+    // it prevents.
+    sources.observe({ ...h, x: 33 }, 500);
+    expect(sources.get('a')?.ribbon.count).toBe(3);
+  });
+
+  it('still resets across a genuine teleport that no elapsed time can excuse', () => {
+    const sources = new WakeSources();
+    const h = hull('a', 'torpedoBoat', 0, 45);
+    sources.observe(h, 0);
+    h.x = STEP_U + 1;
+    sources.observe(h, 50);
+    sources.observe({ ...h, x: 4000 }, 100);
+    expect(sources.get('a')?.ribbon.count).toBe(1);
   });
 });
 
@@ -616,5 +861,215 @@ describe('a source only chains onto water the client actually watched being made
     h.x = 2 * (STEP_U + 1);
     sources.observe(h, 150);
     expect(sources.get('a')?.ribbon.count).toBe(3);
+  });
+});
+
+// --- P10: AMENDMENT 204 FOR THE TORPEDO -----------------------------------------
+//
+// The ship side of this ruling landed in wave 3; the FISH side did not. A
+// torpedo's on-water trail stayed the pre-4.12 client one-shot (`torpwake`,
+// `life: 0.7`s, dead-reckoned inside `Projectiles`) while the same fish's radar
+// ribbon was server-owned 6s water — two objects, two lifetimes, ~8× apart.
+// That is the fork Eric struck by name: *"I didn't tell you that the on-water
+// render and the radar wake are deliberately different lengths... I didn't say
+// shit about the lengths being different here."*
+//
+// It is now ONE source on ONE shared ribbon, and these pin that there is no
+// second length left anywhere to drift.
+
+describe('a torpedo lays the same one wake the scope paints', () => {
+  /** A fish under way along +x at the fixed torpedo speed. */
+  function fish(id: string, x: number): WakeHull {
+    return { id, x, y: 0, heading: 0, speed: CONFIG.torpedo.speed, cls: 'torp', color: 0xffffff };
+  }
+
+  it('provisions the SHARED torpedo ribbon: half life, one cell wide, torp-gated', () => {
+    const sources = new WakeSources();
+    sources.observe(fish('t1', 0), 0);
+    const r = sources.get('t1')!.ribbon;
+    expect(r.lifeMs).toBe(torpWakeLifeMs());
+    expect(r.lifeMs).toBe(LIFE_MS * CONFIG.vision.wakeTorpLifeFactor);
+    expect(r.widthU).toBe(CONFIG.vision.radarCellU);
+    // The per-source disclosure bound travels with the ribbon (review-gate P2).
+    expect(r.torp).toBe(true);
+  });
+
+  it('its FOAM runs the ribbon own life — not the 0.7s one-shot it replaced', () => {
+    const effects = new Effects(new Container());
+    const f = fish('t1', 0);
+    let t = 0;
+    // Several cadences of travel: enough for segments, so foam is laid.
+    for (let i = 0; i < 12; i++) {
+      t += 50;
+      f.x += (CONFIG.torpedo.speed * 50) / 1000;
+      effects.update(0.05, t, [f]);
+    }
+    expect(effects.liveWakeDots).toBeGreaterThan(0);
+    // Alive well past the retired 0.7s spec...
+    effects.update(2, t + 2000, []);
+    expect(effects.liveWakeDots).toBeGreaterThan(0);
+    // ...and gone at the ribbon's own half life, not the hull's full one.
+    const rest = torpWakeLifeMs() / 1000 - 2 + 0.2;
+    effects.update(rest, t + torpWakeLifeMs() + 200, []);
+    expect(effects.liveWakeDots).toBe(0);
+  });
+
+  it('a hull foam still runs the FULL life, so the two lengths are the ribbons and nothing else', () => {
+    const effects = new Effects(new Container());
+    const h = hull('a', 'battleship', 0, 30);
+    const t = sail(effects, [h], 30, 1 / 20);
+    expect(effects.liveWakeDots).toBeGreaterThan(0);
+    // Past a fish's life but inside a hull's: still there.
+    const fishLife = torpWakeLifeMs() / 1000 + 0.2;
+    effects.update(fishLife, t + torpWakeLifeMs() + 200, []);
+    expect(effects.liveWakeDots).toBeGreaterThan(0);
+    effects.update(LIFE_MS / 1000, t + LIFE_MS * 2, []);
+    expect(effects.liveWakeDots).toBe(0);
+  });
+
+  // FOLLOW-UP 2, RULED: the truesight emitter DOES synthesize a fish's water
+  // inside the detect rung. The server's inner bound for torpedo water is
+  // `sight × detectFactor` (review-gate P2), so the client's complement must be
+  // the same radius or the (detect, sight] band double-paints against the wire
+  // — and inside detect the fish is revealed, so the client holds exactly the
+  // pose the synthesis needs. "The visible fish is the track's legitimate end"
+  // was the alternative and it loses: the track would visibly stop growing at
+  // 247.5u while its foam ran on, which is the same class of split amendment
+  // 154 exists to forbid.
+  it('is synthesized inside the DETECT rung and left to the wire beyond it', () => {
+    const detect = CONFIG.vision.sight * CONFIG.vision.detectFactor;
+    const own = { x: 0, y: 0 };
+
+    const near = new WakeSources();
+    const a = fish('near', detect * 0.5);
+    near.observe(a, 0);
+    a.x += STEP_U + 1;
+    near.observe(a, 50);
+    expect(buildTruesightWakeStamp(near, own, CONFIG.vision.sight, 50, CELL, MODEL).size).toBeGreaterThan(0);
+
+    // Between detect and sight: the SERVER discloses this water, so the client
+    // must not — one cell claimed twice would be a double paint.
+    const mid = new WakeSources();
+    const b = fish('mid', (detect + CONFIG.vision.sight) / 2);
+    mid.observe(b, 0);
+    b.x += STEP_U + 1;
+    mid.observe(b, 50);
+    expect(buildTruesightWakeStamp(mid, own, CONFIG.vision.sight, 50, CELL, MODEL).size).toBe(0);
+
+    // ...while a HULL at that same range IS the client's, because its inner
+    // bound is the sight bubble. The two bounds are per source, not one radius.
+    const hulls = new WakeSources();
+    const c = hull('hull', 'battleship', (detect + CONFIG.vision.sight) / 2, 30);
+    hulls.observe(c, 0);
+    c.x += STEP_U + 1;
+    hulls.observe(c, 50);
+    expect(buildTruesightWakeStamp(hulls, own, CONFIG.vision.sight, 50, CELL, MODEL).size).toBeGreaterThan(0);
+  });
+});
+
+// --- P11: THE WAKE STORE MAY NOT CROSS A VISIBILITY REGIME ----------------------
+
+describe('spectate water never carries into a fogged life', () => {
+  it('drops every ribbon on either edge of the spectate boundary', () => {
+    const effects = new Effects(new Container());
+    const h = hull('enemy', 'battleship', 0, 30);
+    sail(effects, [h], 30, 1 / 20);
+    expect(effects.wakeSources.size).toBe(1);
+
+    // Alive -> spectate. Spectator frames are UNFOGGED (frames.ts hands a dead
+    // observer every hull with no sight bubble and no island LOS), so the
+    // regime the store was filled under no longer applies.
+    effects.setSpectating(true);
+    expect(effects.wakeSources.size).toBe(0);
+    expect(effects.liveWakeDots).toBe(0);
+
+    // Fill it again from omniscient frames...
+    const far = hull('far', 'battleship', 4000, 30);
+    sail(effects, [far], 30, 1 / 20, 10_000);
+    expect(effects.wakeSources.size).toBe(1);
+
+    // ...and back to a fogged life: none of that omniscient water may be
+    // stampable on the next life's scope.
+    effects.setSpectating(false);
+    expect(effects.wakeSources.size).toBe(0);
+    expect(effects.liveWakeDots).toBe(0);
+  });
+
+  it('is idempotent — a repeated regime does not drop live water', () => {
+    const effects = new Effects(new Container());
+    const h = hull('me', 'battleship', 0, 30);
+    sail(effects, [h], 30, 1 / 20);
+    effects.setSpectating(false); // already fogged: no-op
+    expect(effects.wakeSources.size).toBe(1);
+    expect(effects.liveWakeDots).toBeGreaterThan(0);
+  });
+});
+
+// --- P8: THE DOC-DRIFT GUARD ----------------------------------------------------
+//
+// The wake comments cited `World.stepWakes`, a method that has never existed
+// (the server's is `sampleWakes`). A wrong cross-reference is worse than none:
+// it is what sends the next agent looking in the wrong file for the contract
+// the comment claims to mirror. This is the mechanical half — the other two P8
+// drifts are pinned by behaviour instead (`maxDots`' derivation against
+// `CONFIG.map.playerCap` above, and the rebuild cadence's honest one-bucket
+// bound below).
+
+describe('the wake comments name methods that exist', () => {
+  // Resolved rather than assumed, so the scan is correct whichever root vitest
+  // was invoked from (`npm test -w client` puts cwd at client/; a repo-root
+  // invocation does not).
+  const SRC = existsSync(join(process.cwd(), 'src', 'render'))
+    ? join(process.cwd(), 'src')
+    : join(process.cwd(), 'client', 'src');
+
+  function bodies(dir: string, out: { path: string; body: string }[]): { path: string; body: string }[] {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== '__tests__') bodies(full, out);
+      } else if (/\.ts$/.test(e.name)) {
+        out.push({ path: full, body: readFileSync(full, 'utf8') });
+      }
+    }
+    return out;
+  }
+
+  it('no client source cites the non-existent World.stepWakes', () => {
+    const offenders = bodies(SRC, []).filter((f) => f.body.includes('stepWakes'));
+    expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+});
+
+describe('the cached stamp is at most ONE bucket stale, which is what its comment now claims', () => {
+  it('holds a bucket-boundary crossing for less than one bucket width', () => {
+    // The retired claim was that the rebuild cadence "cannot show a stale
+    // intensity". It can: a segment that crosses a bucket boundary just after a
+    // rebuild keeps its previous bucket until the next one. What is TRUE — and
+    // what the corrected comment says — is that the staleness is bounded by one
+    // bucket width, a quarter of the water's whole life.
+    expect(WAKE_STAMP_REBUILD_MS).toBe(LIFE_MS / WAKE_AGE_BUCKETS);
+    const sources = new WakeSources();
+    const h = hull('a', 'battleship', 30, 30);
+    sources.observe(h, 0);
+    h.x += STEP_U + 1;
+    sources.observe(h, 50);
+    const cache = new WakeStampCache();
+    const own = { x: 0, y: 0 };
+    const peak = (m: Map<number, { refl: number }>): number =>
+      m.size === 0 ? 0 : Math.max(...[...m.values()].map((s) => s.refl));
+    const src = sources.get('a')!;
+
+    const first = cache.stampFor(sources, own, CONFIG.vision.sight, 50, CELL, MODEL);
+    const p0 = peak(first);
+    // Just under one bucket later the water has aged a whole bucket, and the
+    // cache is still allowed to be showing the old intensity...
+    const nearly = 50 + WAKE_STAMP_REBUILD_MS - 1;
+    src.seenMs = nearly;
+    expect(peak(cache.stampFor(sources, own, CONFIG.vision.sight, nearly, CELL, MODEL))).toBe(p0);
+    // ...but no longer than that.
+    const past = 50 + WAKE_STAMP_REBUILD_MS + 1;
+    src.seenMs = past;
+    expect(peak(cache.stampFor(sources, own, CONFIG.vision.sight, past, CELL, MODEL))).toBeLessThan(p0);
   });
 });

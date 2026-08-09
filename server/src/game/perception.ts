@@ -240,13 +240,15 @@ function decoyBlips(world: World, ctx: SignalContext): BlipEvent[] {
 /** Reused wake-subject scratch for the wake scan (the SEG_SCRATCH pattern):
  *  filled per segment, consumed synchronously by the row's visible()/
  *  materialize() — the materialized wire object is always fresh. */
-const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, bucket: 0, widthU: 0 };
+const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, bucket: 0, widthU: 0, torp: false };
 
 /**
  * Per-observer wake disclosure (Story 4.12): every live ribbon — a ship's
  * active track, a running torpedo's, or detached water still ageing out — is
- * walked segment by segment through the `wk` row, which gates each segment on
- * the exact three blipGate clauses at its midpoint. THE THIRD SCAN beside
+ * walked segment by segment through the `wk` row, which gates each segment at
+ * its midpoint on the blipGate clause order with a PER-SOURCE inner bound and
+ * band-consistent occlusion (cycle-69 review gate, P2 — see the row and
+ * signals.wakeGate), in the `return` grammar only (P1). THE THIRD SCAN beside
  * shipScan (which iterates ships ONLY, by construction) and ballisticScan —
  * wake is water, not a ship, so it gets its own subject list (ctx.wakes).
  * The ribbon-level broadphase (sweepMayCrossWake — bounding circle + bearing
@@ -257,6 +259,11 @@ const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, buck
 function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
   const out: WakeBlipEvent[] = [];
   if (ctx.mode !== 'fogged') return out;
+  // Grammar early-out (cycle-69 review gate, P1) — a COST device beside the
+  // row's own first clause, the sweepMayCrossWake pattern: the rule lives in
+  // the row (its visible() is grammar-gated), this line only spares a default
+  // silhouette room the whole per-ribbon walk. Deleting it changes no frame.
+  if (ctx.radarGrammar !== 'return') return out;
   const row = SIGNAL_REGISTRY.wk;
   for (const ribbon of ctx.wakes) {
     if (!sweepMayCrossWake(ctx.me, ribbon, ctx.now)) continue;
@@ -270,6 +277,7 @@ function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
       s.by = seg.by;
       s.bucket = seg.bucket;
       s.widthU = ribbon.widthU;
+      s.torp = ribbon.torp; // the per-source inner bound (review-gate P2)
       if (row.visible(ctx, s)) out.push(row.materialize(ctx, s));
     });
   }

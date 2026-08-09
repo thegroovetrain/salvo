@@ -148,8 +148,17 @@ const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   // the SLOWEST one-shot in the table — a horn is ~1.8s and a 0.35s flash would
   // read as a hit. Non-additive: this must not look like a detonation.
   horn: { type: 'ring', life: 1, color: C.phosphor, r0: 12, r1: 110, width: 2, alpha: 0.5, additive: false },
-  // Torpedo wake: a small dim bubble dropped along the fish's run; fades fast so
-  // the trail reads as a fresh streak, not a persistent line (legacy torp tone).
+  // A CREEPING MINE's wake bubble (legacy torp tone) — a small dim dot dropped
+  // along its crawl at the mine's own spacing (render/mines.ts).
+  //
+  // THE TORPEDO NO LONGER USES THIS (cycle-69 review gate, P10). A fish's trail
+  // was this one-shot at `life: 0.7`s while the same fish's radar ribbon ran
+  // 6s — two objects, two lifetimes, ~8× apart, which is precisely the fork
+  // amendment 204 struck (*"I didn't say shit about the lengths being different
+  // here"*). The fish is now an ordinary `WakeSource` on the shared ribbon. A
+  // creeping mine keeps this dot because it has no radar-wake counterpart at
+  // all — the server samples ships and torpedoes only (`World.sampleWakes` /
+  // `sampleTorpWake`), so there is no second length here to disagree with.
   torpwake: { type: 'dot', life: 0.7, color: C.legacy.torpWake, r0: 2, r1: 3.5, width: 0, alpha: 0.4, additive: false },
 };
 
@@ -315,6 +324,38 @@ export class Effects {
     this.retireChop();
   }
 
+  /** The visibility regime the tracked water was observed under — see
+   *  `setSpectating`. Starts fogged, which is how every life starts. */
+  private spectating = false;
+
+  /**
+   * ADOPT THE OBSERVER'S VISIBILITY REGIME, dropping every ribbon on a CHANGE
+   * (cycle-69 review gate, P11).
+   *
+   * A SPECTATOR'S FRAMES ARE UNFOGGED: `frames.ts` hands a dead observer every
+   * hull on the ocean with no sight bubble and no island LOS, and `wakeHulls`
+   * feeds all of them straight into the tracker. Water observed under THAT
+   * regime is not water a fogged life earned, so it must not survive the
+   * boundary in either direction — carried forward it would let the scope stamp
+   * up to a full water life of omniscient track, and carried backward it would
+   * leave a fogged life's ribbons attached to sources the spectator sees from a
+   * different vantage entirely.
+   *
+   * BOTH EDGES, not just the leaking one, because the store's own `clear()`
+   * already documents spectate ENTRY as a drop point and never got one — and
+   * because a one-directional guard is the kind that rots when the other
+   * direction becomes reachable. Today `state.spectating` is effectively
+   * one-way in a session (`frames.ts spectates()` returns a captain to fogged
+   * frames only across a reload), so the spectate→alive edge is the same class
+   * of defence the return-to-port teardown already carries in as many words:
+   * cheap, and it stops being theoretical the moment a match-restart path lands.
+   */
+  setSpectating(spectating: boolean): void {
+    if (spectating === this.spectating) return;
+    this.spectating = spectating;
+    this.clearWake();
+  }
+
   /** Live foam dots, across every source — the particle-budget seam. */
   get liveWakeDots(): number {
     return this.wake.length;
@@ -353,18 +394,23 @@ export class Effects {
    * off a detonation.
    */
   spawnEffect(kind: EffectKind, x: number, y: number, intensity = 1, radius?: number): void {
-    if (kind === 'wake') this.spawnWake(x, y, intensity, CLIENT_CONFIG.colors.amber);
+    if (kind === 'wake') this.spawnWake(x, y, intensity, CLIENT_CONFIG.colors.amber, CONFIG.vision.wakeLifeMs);
     else this.spawnOneShot(kind, x, y, radius);
   }
 
   /**
-   * One foam dot, at `CONFIG.vision.wakeLifeMs` — the SHARED clock, so the water
-   * you see and the track that paints run out together (amendment 204: one wake,
-   * one length). A dot lives ~11× longer than it did before Story 4.12, which is
-   * why this path now has the `document.hidden` early-out `spawnOneShot` has
-   * always had and a `capOldest` ceiling it never had.
+   * One foam dot, at the SOURCE'S OWN ribbon life — the SHARED clock, so the
+   * water you see and the track that paints run out together (amendment 204:
+   * one wake, one length). That is `CONFIG.vision.wakeLifeMs` for a hull and
+   * `torpWakeLifeMs()` (half of it) for a fish, both read off the ribbon rather
+   * than restated here, because a second spelling of a lifetime is how the two
+   * renderings fork.
+   *
+   * A dot lives ~11× longer than it did before Story 4.12, which is why this
+   * path has the `document.hidden` early-out `spawnOneShot` has always had and
+   * a `capOldest` ceiling it never had.
    */
-  private spawnWake(x: number, y: number, intensity: number, color: number): void {
+  private spawnWake(x: number, y: number, intensity: number, color: number, lifeMs: number): void {
     // Backgrounded tab: the render loop that ages and retires these is
     // throttled, so a spawn here would sit in the pool for as long as the tab
     // stays hidden. Same rule, same reason, as the one-shot path.
@@ -376,7 +422,14 @@ export class Effects {
     g.visible = true;
     const baseAlpha = CLIENT_CONFIG.wake.alpha * intensity;
     g.alpha = baseAlpha;
-    this.wake.push({ gfx: g, age: 0, life: CONFIG.vision.wakeLifeMs / 1000, baseAlpha });
+    // A non-positive / non-finite life would divide by zero in `ageWake`; the
+    // shared model already degrades a bad `lifeMs` to 0, so fail to "gone".
+    const life = Number.isFinite(lifeMs) && lifeMs > 0 ? lifeMs / 1000 : 0;
+    if (life <= 0) {
+      this.retire(g, this.wakePool);
+      return;
+    }
+    this.wake.push({ gfx: g, age: 0, life, baseAlpha });
     // A RUNAWAY BACKSTOP, not a budget (see CLIENT_CONFIG.wake.maxDots): the
     // oldest dots go first, which is the faintest, most nearly expired water.
     for (const p of capOldest(this.wake, CLIENT_CONFIG.wake.maxDots)) {
@@ -440,7 +493,8 @@ export class Effects {
       // hull has actually travelled a cadence, which is exactly `count > 1`, and
       // it is the same predicate the scope uses (one segment, one stamp).
       const stored = this.wakeSources.observe(h, nowMs);
-      if (stored && (this.wakeSources.get(h.id)?.ribbon.count ?? 0) > 1) this.spawnFoam(h);
+      const src = this.wakeSources.get(h.id);
+      if (stored && src !== undefined && src.ribbon.count > 1) this.spawnFoam(h, src);
     }
     this.wakeSources.prune(nowMs);
     this.wakeSources.each((src) => this.drawChop(src, nowMs));
@@ -449,17 +503,31 @@ export class Effects {
 
   /**
    * One foam dot at the source's STERN — where foam physically is. The RIBBON
-   * stores the hull's CENTRE (that is what `World.stepWakes` appends, and the
+   * stores the hull's CENTRE (that is what `World.sampleWakes` appends, and the
    * two must land on the same lattice cells at the truesight seam); the offset
    * lives here, in the rendering, exactly as amendment 204 frames it: one
    * geometry, two renderings of it.
+   *
+   * A TORPEDO HAS NO STERN AND NO ENVELOPE (cycle-69 review gate, P10): the fish
+   * is a point on the water, so its foam lands on the ribbon's own sample and it
+   * is either running at its fixed speed or it is gone — there is no speed
+   * fraction to scale by. The DOT ITSELF is the same size for every source,
+   * because its radius is derived from the shared along-track cadence (half of
+   * `wakeSampleU`, so consecutive dots touch); a source's WIDTH is carried by
+   * the Kelvin envelope instead, which is width-derived and where the scope
+   * carries it too.
    */
-  private spawnFoam(h: WakeHull): void {
+  private spawnFoam(h: WakeHull, src: WakeSource): void {
+    const life = src.ribbon.lifeMs;
+    if (h.cls === 'torp') {
+      this.spawnWake(h.x, h.y, 1, h.color, life);
+      return;
+    }
     const env = hullEnvelope(h.cls);
     const half = env.hull.length / 2;
     const speed = Math.abs(h.speed);
     const intensity = Math.min(speed / env.kinematics.maxSpeed, 1);
-    this.spawnWake(h.x - Math.cos(h.heading) * half, h.y - Math.sin(h.heading) * half, intensity, h.color);
+    this.spawnWake(h.x - Math.cos(h.heading) * half, h.y - Math.sin(h.heading) * half, intensity, h.color, life);
   }
 
   /** Scratch centre-line for the envelope: ONE array, truncated and refilled

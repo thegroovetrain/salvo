@@ -455,11 +455,14 @@ export type BlipEvent = SilhouetteBlipEvent | ReturnBlipEvent;
  * One wake ribbon SEGMENT the observer's sweep crossed this tick (Story 4.12,
  * amendments 194-196) — disturbed water rasterized onto the SAME radar
  * lattice as `ReturnBlipEvent` (`CONFIG.vision.radarCellU`,
- * `rasterizeSegmentCoverage` in sim/radarRaster.ts), in the same
- * world-anchored cell-rect + packed-mask shape, gated per segment by the same
- * three clauses `blipGate` enforces (annulus + swept-this-tick + the shadow
- * accumulator) — NOT a declared exception to the master perception invariant;
- * what is new is that the subject is water rather than a ship.
+ * `paintSegmentCoverage` in sim/radarRaster.ts — sharp geometry plus the
+ * per-paint flank glint, cycle-69 review gate P3), in the same world-anchored
+ * cell-rect + packed-mask shape, gated per segment on `blipGate`'s clause
+ * order with a PER-SOURCE inner bound (sight for a ship's water, the 3/8
+ * detect radius for a torpedo's — cycle-69 review gate P2) and
+ * band-consistent occlusion, in the `return` radar grammar only (P1) — NOT a
+ * declared exception to the master perception invariant; what is new is that
+ * the subject is water rather than a ship.
  *
  * THE PAYLOAD CARRIES NO IDENTITY OF ANY KIND (amendment 194): no ship id,
  * no class, no hue, no owner, and no hull↔wake linkage. A wake cell says

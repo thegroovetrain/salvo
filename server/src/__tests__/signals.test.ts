@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
@@ -26,8 +26,8 @@ const RADAR = CONFIG.vision.radar;
 /** World whose islands are cleared, for exact-geometry cases. The height
  *  raster is flattened too (Story 4.11): the real generated terrain must not
  *  radar-shadow a world the test built as empty water. */
-function bareWorld(seed = 1): World {
-  const w = new World(seed);
+function bareWorld(seed = 1, opts: WorldOptions = {}): World {
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
@@ -124,8 +124,9 @@ const REGISTRY_KEYS = [
   // 1..8 volume band as of Story 4.9; islands muffle to max(5, band + 2)).
   'fh',
   // Story 4.12 — radar wakes: disturbed water disclosed segment by segment
-  // through the exact three blipGate clauses (NOT a declared fog exception;
-  // identity-free {k,t,a,gx,gy,w,h,bits} coverage masks).
+  // on the blipGate clause order, per-source inner bound, `return` grammar
+  // only (NOT a declared fog exception; identity-free
+  // {k,t,a,gx,gy,w,h,bits} coverage masks).
   'wk',
 ];
 
@@ -203,13 +204,13 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   });
 
   it('wk row (Story 4.12): [k,t,a,gx,gy,w,h,bits] — the ReturnBlipEvent order with the age bucket after t, and NO identity key of any kind', () => {
-    const w = bareWorld();
+    const w = bareWorld(1, { radarGrammar: 'return' }); // the row exists only in `return` (review-gate P1)
     const me = place(w, 'a', 0, 0);
     me.prevSweepAngle = wrapPositive(-0.02);
     me.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
     // A 12u segment at 500u dead ahead — inside the annulus, on the swept
     // bearing, open flat water (bareWorld flattens the raster).
-    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 2, widthU: 9 };
+    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 2, widthU: 9, torp: false };
     const row = signalFor('wk')!;
     const ctx = foggedCtx(w, me);
     expect(row.visible(ctx, seg)).toBe(true);
@@ -219,16 +220,26 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire.a).toBe(2); // the quantized water-age bucket rides verbatim
   });
 
-  it('wk row fails closed: spectators (no radar), the sight bubble, an unswept bearing, and a world-emitted wire shape (no `ax`)', () => {
-    const w = bareWorld();
+  it('wk row fails closed: the default grammar (P1), spectators (no radar), the sight bubble, an unswept bearing, and a world-emitted wire shape (no `ax`)', () => {
+    const w = bareWorld(1, { radarGrammar: 'return' });
     const me = place(w, 'a', 0, 0);
     me.prevSweepAngle = wrapPositive(-0.02);
     me.sweepAngle = wrapPositive(0.02);
     const row = signalFor('wk')!;
-    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 0, widthU: 9 };
+    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 0, widthU: 9, torp: false };
+    // THE GRAMMAR CLAUSE (cycle-69 review gate, P1): the identical gated
+    // segment is INERT in a default (silhouette) room — the client's wake
+    // path only exists under `return`, so a default room must pay no wire.
+    const silhouette = bareWorld(1);
+    const silhouetteMe = place(silhouette, 'a', 0, 0);
+    silhouetteMe.prevSweepAngle = wrapPositive(-0.02);
+    silhouetteMe.sweepAngle = wrapPositive(0.02);
+    expect(row.visible(foggedCtx(silhouette, silhouetteMe), seg)).toBe(false);
     expect(row.visible(specCtx(w), seg)).toBe(false); // spectators have no radar
     // Inside the sight bubble: the annulus' sight exclusion is inherited from
-    // blipGate verbatim (the row's documented in-bubble ruling).
+    // blipGate verbatim for SHIP water (the row's documented in-bubble
+    // ruling; torpedo water discloses down to detect instead — P2, pinned in
+    // perception.test.ts's directed wake cases).
     expect(row.visible(foggedCtx(w, me), { ...seg, x: 200, ax: 194, bx: 206 })).toBe(false);
     // Off the swept bearing (bearing π, window around 0).
     expect(row.visible(foggedCtx(w, me), { ...seg, x: -500, ax: -506, bx: -494 })).toBe(false);

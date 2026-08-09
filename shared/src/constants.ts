@@ -351,6 +351,16 @@ export const CONFIG = {
     // three-paint persistence window, no wake-specific lifetime exists), and
     // the wake material's ~412u reach (amendment 203) against a 420-540u
     // full-ahead track. Pinned as a fixed literal in zone.test.ts.
+    //
+    // THE AGREEMENT HOLDS AT THE BASE SWEEP RATE ONLY (cycle-69 review gate,
+    // P4 — an ACCEPTED shortfall, not a guarantee): the phosphor window is
+    // three REVOLUTIONS, so a maxed intelSweep build (sweepRpmMax, 2s
+    // revolutions) holds paints for 6s against this 12s water clock. Ruled
+    // accepted because amendment 195 forbids a wake-specific paint lifetime
+    // and a global fixed-ms window would re-price intelSweep for every paint;
+    // the cost is bounded — disclosed water is repainted every revolution
+    // regardless, so only water that has STOPPED disclosing (the truesight
+    // handover stretch) fades early. Both halves pinned in zone.test.ts.
     wakeLifeMs: 12000,
     // u — the wake pose-history SAMPLE CADENCE (Story 4.12): a source records
     // a new wake sample only after travelling this far since its last one, so

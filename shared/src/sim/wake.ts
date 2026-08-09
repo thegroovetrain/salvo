@@ -81,9 +81,24 @@ export interface WakeRibbon {
    *  for a hull, × `wakeTorpLifeFactor` for a torpedo. */
   lifeMs: number;
   /** Turbulent-core width (u) — the hull's own beam, or one radar cell for a
-   *  torpedo. Consumed by `rasterizeSegmentCoverage`; carried here so the
+   *  torpedo. Consumed by the segment rasterizer; carried here so the
    *  width travels with the ribbon and is derived exactly once. */
   widthU: number;
+  /**
+   * SOURCE KIND — true iff this is a TORPEDO's water (cycle-69 review gate,
+   * P2). The per-segment disclosure gate is PER SOURCE: a ship's wake stands
+   * in for the radar tier (inner bound = the sight bubble, blipGate's annulus
+   * verbatim), while a torpedo's wake stands in for the fish's own DETECT
+   * tier (inner bound = the 3/8 detect radius) — otherwise the (detect,
+   * sight] band is a dead band where the fish has no entity and its water no
+   * disclosure, killing amendment 196's tell exactly in the terminal
+   * approach. Travels with the ribbon so DETACHED water (a spent torpedo's
+   * run in the orphan store) keeps its own gate. NEVER on the wire: the `wk`
+   * payload stays identity-free (amendment 194) — the observer may infer the
+   * source from WHERE water discloses, which is the ruled tell, not a wire
+   * field.
+   */
+  torp: boolean;
 }
 
 /**
@@ -111,9 +126,11 @@ export function wakeCapacity(maxSpeedU: number, lifeMs: number): number {
  * (include boost headroom if the caller has it); under-provisioning degrades
  * gracefully — see the module doc. A non-finite `lifeMs` degrades to 0
  * (everything instantly expired), a non-finite `widthU` to 0 (spine-only,
- * one-cell ribbon) — degrade, never throw.
+ * one-cell ribbon) — degrade, never throw. `torp` marks a TORPEDO source
+ * (the per-source disclosure bound — see WakeRibbon.torp); it defaults to
+ * false so every hull/drone caller stays a ship source by construction.
  */
-export function createWakeRibbon(maxSpeedU: number, lifeMs: number, widthU: number): WakeRibbon {
+export function createWakeRibbon(maxSpeedU: number, lifeMs: number, widthU: number, torp = false): WakeRibbon {
   const cap = wakeCapacity(maxSpeedU, lifeMs);
   return {
     xs: new Float64Array(cap),
@@ -124,6 +141,7 @@ export function createWakeRibbon(maxSpeedU: number, lifeMs: number, widthU: numb
     count: 0,
     lifeMs: Number.isFinite(lifeMs) && lifeMs > 0 ? lifeMs : 0,
     widthU: Number.isFinite(widthU) && widthU > 0 ? widthU : 0,
+    torp,
   };
 }
 
@@ -156,9 +174,10 @@ export function createShipWake(cls: HullId, maxSpeedU: number): WakeRibbon {
 }
 
 /** Convenience: a torpedo source's ribbon (fixed `CONFIG.torpedo.speed`,
- *  half-life water, one-cell core). */
+ *  half-life water, one-cell core, `torp` flagged for the per-source
+ *  disclosure bound — see WakeRibbon.torp). */
 export function createTorpWake(): WakeRibbon {
-  return createWakeRibbon(CONFIG.torpedo.speed, torpWakeLifeMs(), torpWakeWidthU());
+  return createWakeRibbon(CONFIG.torpedo.speed, torpWakeLifeMs(), torpWakeWidthU(), true);
 }
 
 /**

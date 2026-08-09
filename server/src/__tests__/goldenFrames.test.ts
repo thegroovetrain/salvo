@@ -52,7 +52,9 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // homing-track update 'torpU'; Story 4.3 added the gunnery conversation's
 // 'sp'/'hc'/'mz'; the 2026-08-04 DAMAGE CONTROL strip brought 'heal' BACK)
 // plus the four contact-like channels (contact/mine/litzone/decoy) and the
-// spectator frame.
+// spectator frame. 'wk' is grammar-gated (cycle-69 review gate, P1): it rides
+// the RETURN battery only — runBattery drops it from the default (silhouette)
+// run's expectation, where the row is inert by rule.
 const EXPECTED_CHANNELS = [
   'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'hc', 'heal', 'litzone',
   'mine', 'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
@@ -108,12 +110,21 @@ const EXPECTED_SUBCASES = [
   'torpedo-launch-no-muzzle',
   'torpu-sighted-update',
   'torpu-unsighted-silent',
+];
+
+// Wake sub-cases are GRAMMAR-SPLIT (cycle-69 review gate, P1): the `wk` row
+// exists only in the `return` grammar (the client's wake path has no other
+// consumer), so the return battery proves the five wake behaviours and the
+// default (silhouette) battery proves exactly their ABSENCE. runBattery
+// composes the expected set per grammar.
+const WAKE_SUBCASES_RETURN = [
   'wake-identity-free',
   'wake-outlives-removal',
   'wake-outlives-ship',
   'wake-sight-bubble-quiet',
   'wake-torpedo-ribbon',
 ];
+const WAKE_SUBCASES_DEFAULT = ['wake-silhouette-inert'];
 
 // ---------- collector ---------------------------------------------------------
 
@@ -959,7 +970,7 @@ function scnWake(g: Golden): void {
   b.wake.head = 0;
   b.wake.count = xs.length;
   // A torpedo's water: half-life (6000ms), one-cell (9u) ribbon at y=6.
-  const torp: WakeRibbon = { xs: new Float64Array(8), ys: new Float64Array(8), ts: new Float64Array(8), cap: 8, head: 0, count: 0, lifeMs: 6_000, widthU: 9 };
+  const torp: WakeRibbon = { xs: new Float64Array(8), ys: new Float64Array(8), ts: new Float64Array(8), cap: 8, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
   for (let i = 0; i < 5; i++) {
     torp.xs[i] = 500 + 12 * i;
     torp.ys[i] = 6;
@@ -999,6 +1010,14 @@ function scnWake(g: Golden): void {
     'wake-outlives-removal',
     fa2.events.filter((e) => e.k === 'wk').length > 0 && !w.ships.has('b'),
   );
+  // Review-gate P1: outside the `return` grammar the row is INERT — both
+  // captures must carry ZERO wk rows (the five behaviour proofs above then
+  // simply never record, and runBattery expects this tag instead).
+  prove(
+    g,
+    'wake-silhouette-inert',
+    w.radarGrammar !== 'return' && wks.length === 0 && fa2.events.every((e) => e.k !== 'wk'),
+  );
 }
 
 // ---------- the fixture -------------------------------------------------------
@@ -1009,12 +1028,18 @@ function scnWake(g: Golden): void {
 function runBattery(): string[] {
   const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
   runScenarios(g);
+  // Grammar-split wake expectations (cycle-69 review gate, P1): the `wk`
+  // channel and its five behaviour tags exist only in the return battery;
+  // the default battery must instead prove the row's INERTNESS.
+  const inReturn = WORLD_OPTS.radarGrammar === 'return';
+  const channels = inReturn ? EXPECTED_CHANNELS : EXPECTED_CHANNELS.filter((c) => c !== 'wk');
+  const subcases = [...EXPECTED_SUBCASES, ...(inReturn ? WAKE_SUBCASES_RETURN : WAKE_SUBCASES_DEFAULT)].sort();
   // Self-validating coverage: the fixture can never silently lose a channel.
-  expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
+  expect([...g.channels].sort()).toEqual(channels);
   // Strengthened coverage: every appended scenario's mandatory sub-cases were
   // actually OBSERVED (each tag is recorded only when its fact held), so a
   // regression or a removed scenario fails here.
-  expect([...g.subcases].sort()).toEqual(EXPECTED_SUBCASES);
+  expect([...g.subcases].sort()).toEqual(subcases);
   return g.frames;
 }
 

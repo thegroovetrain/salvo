@@ -13,7 +13,6 @@ import {
   shellCulledBeyondSight,
   shellPosition,
   maxLifetimeMs,
-  trailSpacing,
 } from '../render/projectiles.js';
 import type { OwnZone } from '../render/litZones.js';
 import { settings } from '../settings/store.js';
@@ -603,9 +602,28 @@ describe('Projectiles — the identity a live track paints with', () => {
     expect(p.lookOf('s1')).toBe('cannon'); // the shell that left the barrel stock
   });
 
-  it('a homing fish lays a TIGHTER wake than a straight-runner', () => {
-    expect(trailSpacing('torpHoming')).toBeLessThan(trailSpacing('torp'));
-    expect(trailSpacing('shell')).toBe(trailSpacing('torp')); // the default
+  // AMENDMENT 204 — ONE WAKE, ONE LENGTH (cycle-69 review gate, P10). This
+  // module used to lay the fish's on-water trail itself, as `torpwake` one-shots
+  // at a per-look spacing with a 0.7s life, while the SAME fish's radar ribbon
+  // ran 6s: two objects, two lifetimes, ~8× apart. Eric struck that fork by name
+  // on the ship side (*"I didn't say shit about the lengths being different
+  // here"*). The trail machinery is GONE — the deleted `trailSpacing` /
+  // `trailAt` / `homingTrailSpacing` are what the compiler now defends — and
+  // this module only REPORTS pose, for the one shared tracker to lay.
+  it('reports every live fish as a wake source and lays no trail of its own', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell({ k: 'torp', id: 't1', x: 10, y: 0, vx: 60, vy: 0, t: 0 });
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 });
+    // Only the fish is a source — a shell is in the air, not on the water.
+    const at = 500;
+    const srcs = p.torpWakeHulls(at);
+    expect(srcs.map((h) => h.id)).toEqual(['t1']);
+    expect(srcs[0].cls).toBe('torp');
+    // The reported pose is the SAME dead reckoning render() draws, from the same
+    // anchor — pulled, not pushed, so the emitter's frame ordering owns it.
+    expect(srcs[0].x).toBeCloseTo(10 + 60 * 0.5, 6);
+    expect(srcs[0].speed).toBeCloseTo(60, 6);
+    expect(srcs[0].heading).toBeCloseTo(0, 6);
   });
 
   it('reports no look for an id it holds no track for', () => {

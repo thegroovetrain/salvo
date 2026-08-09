@@ -579,10 +579,12 @@ export const CLIENT_CONFIG = {
      *
      * DERIVED, not picked. One source at top speed holds `wakeLifeMs ×
      * maxSpeed ÷ wakeSampleU` dots — the same quantity `wakeCapacity` derives
-     * the shared ring buffer from — and `CONFIG.match.maxPlayers` bounds how
-     * many sources can be on the water at once. So this is the honest
-     * worst case rather than a guess, and it moves when the clock, the cadence,
-     * the hull speeds or the room size move.
+     * the shared ring buffer from — and `CONFIG.map.playerCap` bounds how many
+     * hulls can be on the water at once (the comment used to cite
+     * `CONFIG.match.maxPlayers`, which is not what the code below reads —
+     * corrected at the cycle-69 review gate, P8). So this is the honest worst
+     * case rather than a guess, and it moves when the clock, the cadence, the
+     * hull speeds or the room size move.
      *
      * It is a RUNAWAY BACKSTOP, not a budget: at the shipped numbers no
      * legitimate frame reaches it, because a client only lays wake for hulls it
@@ -621,10 +623,13 @@ export const CLIENT_CONFIG = {
      *  the shell's POSITION (the information) never moves with it. */
     arcSwell: 0.45,
     arcSwellMs: 900,
-    /** ACOUSTIC HOMING: a steering fish reads brighter-headed with a tighter
-     *  wake than a straight-runner (spacing in u; the base is 16u). */
+    /** ACOUSTIC HOMING: a steering fish reads BRIGHTER-HEADED than a
+     *  straight-runner. It no longer reads as a tighter WAKE — the paired
+     *  `homingTrailSpacing` was deleted at the cycle-69 review gate (P10) when
+     *  the fish's trail became the ONE shared wake ribbon at the ONE shared
+     *  sample cadence; a per-look spacing override would be exactly the second
+     *  wake model amendment 204 forbids. */
     homingCoreR: 4.2, // u
-    homingTrailSpacing: 10, // u
     /** SELF-PROPELLED mines: drop a faint wake dot every this many units of
      *  creep, and draw the heading tick this long (u) — the tick is the STATIC
      *  half of the creep tell, so the doctrine reads at motion=off too. */

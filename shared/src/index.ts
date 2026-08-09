@@ -7,7 +7,8 @@
  *  — new `wk` GameEvent (WakeBlipEvent {k,t,a,gx,gy,w,h,bits}): a wake ribbon
  *  SEGMENT the observer's sweep crossed this tick, rasterized onto the same
  *  radar lattice as the `return`-grammar hull mask (new shared sim/wake.ts +
- *  rasterizeSegmentCoverage in sim/radarRaster.ts ride the barrel), carrying
+ *  the paintSegmentCoverage pipeline in sim/radarRaster.ts — sharp geometry
+ *  plus per-paint flank glint, cycle-69 review gate — ride the barrel), carrying
  *  geometry plus a quantized water-age bucket `a` and NO identity of any kind
  *  (no ship id, class, hue, owner, or hull↔wake linkage — amendment 194).
  *  CONFIG.vision gains wakeLifeMs/wakeSampleU/wakeTorpLifeFactor (ride the

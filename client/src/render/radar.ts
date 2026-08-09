@@ -150,6 +150,7 @@ import {
   type HeightRaster,
   type HullCoverage,
   type HullId,
+  type Island,
   type RadarGrammar,
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
@@ -428,19 +429,35 @@ export class Radar {
    *  retroactively edits a paint already on the scope (amendment 83). */
   private dazzled = false;
   /**
-   * THE IN-TRUESIGHT WAKE SOURCE (Story 4.12) — the client's own ribbons, for
-   * the half of the scope's wake the server deliberately does not disclose.
+   * THE IN-BOUND WAKE SOURCE (Story 4.12) — the client's own ribbons, for the
+   * half of the scope's wake the server deliberately does not disclose.
    *
-   * The `wk` row inherits `blipGate`'s ANNULUS, so a segment inside the sight
-   * bubble never comes off the wire: running in-bubble water through the
-   * disclosure march would leak a hull that binary LOS is hiding behind an
-   * island. The client synthesizes that half from pose it already holds, which
-   * is exactly what it already does for a sighted HULL's echo (amendments 88 +
-   * 154 — two sources, one appearance). Null until main.ts wires the emitter,
-   * and null for any caller that has no wake at all: `FieldSpec.wake` is
-   * optional and the field answers as it did before 4.12 without it.
+   * THE `wk` ROW'S INNER BOUND IS PER SOURCE (corrected at the cycle-69 review
+   * gate, P2 — this comment previously said the row simply inherited
+   * `blipGate`'s annulus, which is no longer true for the fish). A SHIP's water
+   * is withheld inside the sight bubble; a TORPEDO's is withheld only inside the
+   * 3/8 DETECT rung, so torpedo segments in the (detect, sight] band DO come off
+   * the wire and paint here through the ordinary adapter — `validWake` has no
+   * position gate, so nothing had to change to let them through.
+   *
+   * Either way the reason for the withheld half is the same: running water
+   * inside those radii through the height-aware disclosure march would leak a
+   * source that BINARY island LOS is hiding. The client synthesizes that half
+   * from pose it already holds — exactly what it already does for a sighted
+   * HULL's echo (amendments 88 + 154, two sources, one appearance) — and
+   * `buildTruesightWakeStamp` carries the server's reason with it: binary LOS
+   * per segment (hence `islands`) and only for a source being observed RIGHT
+   * NOW (cycle-69 review gate, P5).
+   *
+   * Null until main.ts wires the emitter, and null for any caller that has no
+   * wake at all: `FieldSpec.wake` is optional and the field answers as it did
+   * before 4.12 without it.
    */
   private wakeSources: WakeSources | null = null;
+  /** The deterministic island set (rebuilt from the map seed), for the wake
+   *  stamp's binary-LOS clause. Empty for a caller that has none — in which
+   *  case nothing blocks, which is the pre-P5 behaviour. */
+  private wakeIslands: readonly Island[] = [];
   private readonly wakeCache = new WakeStampCache();
 
   constructor(
@@ -1222,36 +1239,64 @@ export class Radar {
   /**
    * Hand the scope the client's wake ribbons (main.ts owns the emitter, which
    * owns them — one tracker, two renderings). Null takes the layer off.
+   *
+   * `islands` is the binary-LOS geometry the synthesis owes (P5); omitted, the
+   * stamp blocks on nothing, which is the correct degradation for a caller that
+   * genuinely has no map (headless tests) and never a silent loosening in play,
+   * because main.ts always passes the set.
    */
-  setWakeSources(sources: WakeSources | null): void {
+  setWakeSources(sources: WakeSources | null, islands: readonly Island[] = []): void {
     this.wakeSources = sources;
+    this.wakeIslands = islands;
   }
 
   /**
    * THE PER-FRAME IN-TRUESIGHT WAKE LAYER — `shipStamp`'s sibling, and it takes
    * that function's whole argument.
    *
-   * The range term is the EXACT COMPLEMENT of the server's, per SEGMENT: a
-   * segment whose midpoint is at or inside `sightHoleU` is stamped here, one
-   * beyond it is the wire's (`blipGate`'s annulus), off the one dazzle-scaled
-   * radius both sides already agree on. A 540u track therefore hands its near
-   * end to this stamp and its far end to `marchWake`, with no cell claimed twice
-   * and none dropped between them.
+   * The range term is the EXACT COMPLEMENT of the server's, per SEGMENT and PER
+   * SOURCE: a segment whose midpoint is at or inside its source's inner bound
+   * (`sightHoleU` for a hull, the 3/8 detect rung of it for a fish) is stamped
+   * here, one beyond it is the wire's (`wakeInnerBound`), off radii both sides
+   * already agree on. A 540u track therefore hands its near end to this stamp
+   * and its far end to `marchWake`, with no cell claimed twice and none dropped
+   * between them.
    *
-   * NO LOS TEST LIVES HERE either, for the same reason it does not live in
-   * `shipStamp`: whether the BEAM reaches a segment is the ray's business,
-   * decided by the shadow accumulator in `marchRay` against the same raster.
+   * A BINARY LOS TEST *DOES* LIVE HERE, unlike `shipStamp`, and the asymmetry is
+   * the point (cycle-69 review gate, P5). A hull inside truesight is a `Contact`
+   * the server already decided you may see, so its echo owes only the ray's
+   * shadow accumulator. A wake segment was decided by NOBODY — this stamp stands
+   * in for a disclosure the server withheld precisely because the height-aware
+   * march must never reveal water that binary LOS hides — so the synthesis owes
+   * the binary test itself, alongside the requirement that its source be
+   * observed right now. The accumulator still runs on top, in `marchRay`.
    *
    * The stamp is CACHED (`WakeStampCache`) on the segment set, the observer's
-   * position and the age-bucket clock, because rebuilding a roomful of ribbons
-   * on all sixty frames of a second would spend the radar layer's whole
-   * remaining headroom on an answer that changes a few times a second.
+   * position, the sight radius, the glint seed and the age-bucket clock, because
+   * rebuilding a roomful of ribbons on all sixty frames of a second would spend
+   * the radar layer's whole remaining headroom on an answer that changes a few
+   * times a second.
+   *
+   * THE GLINT SEED IS THE SWEEP REVOLUTION INDEX — `shipStamp`'s idiom exactly,
+   * and for its reason: a stationary source keeps one mask for the whole beam
+   * crossing and re-glints on the next revolution, matching the wire source's
+   * one-paint-per-revolution scintillation instead of tearing per frame.
    */
   private wakeStamp(own: OwnPoint, serverNow: number): CellStamp | undefined {
     const sources = this.wakeSources;
     if (sources === null || sources.size === 0) return undefined;
     const cfg = CLIENT_CONFIG.blip.heatmap;
-    return this.wakeCache.stampFor(sources, own, this.sightHoleU, serverNow, cfg.cellU, cfg.model);
+    const at = serverNow - CLIENT_CONFIG.net.interpDelayMs;
+    return this.wakeCache.stampFor(
+      sources,
+      own,
+      this.sightHoleU,
+      serverNow,
+      cfg.cellU,
+      cfg.model,
+      this.wakeIslands,
+      Math.floor(at / this.sweepPeriodMs),
+    );
   }
 
   private shipStamp(own: OwnPoint, serverNow: number, contacts: ContactStore | null): ShipStamp {

@@ -1478,7 +1478,11 @@ function buildGame(
     ownView,
     contactViews: new ContactViews(stage.layers.ship, nameplates),
     nameplates,
-    projectiles: new Projectiles(map.radius, stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
+    // NO TRAIL CALLBACK ANY MORE (cycle-69 review gate, P10): a fish's water is
+    // the one shared wake ribbon, pulled by `wakeHulls` from
+    // `projectiles.torpWakeHulls()` and laid by `effects.update()` on the same
+    // model, cadence and life the scope draws.
+    projectiles: new Projectiles(map.radius, stage.layers.projectile),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     // Same fog-immune chart layer as the reticle: a burst point can sit far
     // beyond the sight bubble, and the preview must not be eaten by fog.
@@ -1544,10 +1548,16 @@ function buildGame(
   g.radar.setHeightRaster(map.heightRaster);
   // THE IN-TRUESIGHT WAKE SEAM (Story 4.12). One tracker, two renderings: the
   // emitter owns the ribbons and draws the water, the scope stamps the SAME
-  // segments onto the radar lattice for the in-bubble half the server does not
-  // disclose (its `wk` row inherits `blipGate`'s annulus). Read-only here — the
-  // radar samples ribbons and never appends to one.
-  g.radar.setWakeSources(g.effects.wakeSources);
+  // segments onto the radar lattice for the inner half the server does not
+  // disclose (per source: `blipGate`'s annulus for a hull, the 3/8 detect rung
+  // for a fish). Read-only here — the radar samples ribbons and never appends.
+  //
+  // THE ISLANDS RIDE ALONG (cycle-69 review gate, P5) because the synthesis is
+  // a STAND-IN for a disclosure the server withholds on BINARY-LOS grounds, so
+  // it owes the same binary test the server would have applied. They are the
+  // deterministic set rebuilt from the map seed — the same array the predictor
+  // and the fog already collide against, never a second geometry.
+  g.radar.setWakeSources(g.effects.wakeSources, g.islands);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   bindGameRoom(g, conn);
@@ -1809,9 +1819,16 @@ function bindGameRoom(g: Game, conn: Connection): void {
  * silhouette reads (`contactStyle` → drone grey for the 255 sentinel, the
  * personal hue otherwise), so a wake is never a different colour from the ship
  * that made it.
+ *
+ * AND EVERY LIVE TORPEDO IS A SOURCE TOO (cycle-69 review gate, P10). A fish's
+ * trail used to be a private one-shot dot chain inside `Projectiles` at 0.7s
+ * while the same fish's radar ribbon ran 6s — the length fork amendment 204
+ * forbids. It joins the ONE tracker here, so the water and the scope draw the
+ * same geometry at the same life, and the client synthesizes its in-detect half
+ * exactly as it synthesizes a hull's in-sight half.
  */
 function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
-  const out: WakeHull[] = [];
+  const out: WakeHull[] = g.projectiles.torpWakeHulls(now);
   if (pose !== null) {
     const own = g.ownStats;
     out.push({
@@ -2608,6 +2625,12 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);
       updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
+      // THE WAKE STORE MUST NOT CROSS A VISIBILITY REGIME (Story 4.12,
+      // cycle-69 review gate P11): a spectator's frames are UNFOGGED, so every
+      // ribbon laid while dead was observed with no sight bubble and no island
+      // LOS. Ahead of the dispatch, so the first frame of either regime already
+      // has a clean store. See Effects.setSpectating.
+      g.effects.setSpectating(g.state.spectating);
       if (g.state.spectating) renderSpectate(g, frameDt, now, nowMs, zv, mu);
       else renderAlive(g, alpha, frameDt, now, nowMs, zv, mu);
       syncRefitBand(g);

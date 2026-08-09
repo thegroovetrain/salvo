@@ -282,8 +282,16 @@ const CAPSULE_SCRATCH: Vec2[] = [
  * DELIBERATELY NOT ROUTED THROUGH `fuzzCoverage` (spec ruling): dilation +
  * glint is the HULL's beam-smear model (amendments 156-158) — it exists to
  * blur six distinct hull templates together, and applied here it would smear
- * a one-cell torpedo ribbon into a blob. A wake segment carries no class to
- * hide; its geometry goes on the lattice sharp.
+ * a one-cell torpedo ribbon into a blob. But a wake segment DOES carry a
+ * class fingerprint — `widthU` is the source's exact beam, so a sharp mask's
+ * lit-row count is a lookup table (1 row = torpedo/torpedo boat, 3 = a
+ * battleship), the precise leak amendments 156-158 spent a review gate
+ * closing on hulls. THIS function is therefore the sharp GEOMETRIC substrate
+ * only; anything wire-bound or paint-bound goes through
+ * `paintSegmentCoverage` below, which applies the GLINT HALF of the fuzz
+ * (per-paint edge scintillation, no structural dilation — cycle-69 review
+ * gate, P3) so the measured width is a per-paint random variable rather
+ * than a template.
  *
  * THE CENTRE-LINE WALK IS `fillSpine`'s LESSON APPLIED: a ribbon thinner than
  * a cell (a torpedo's, or a torpedo boat's 9u beam) at the straddling lattice
@@ -432,6 +440,158 @@ function bridgeCoverageBlock(cover: HullCoverage, col: number, row: number): boo
     return true;
   }
   return false;
+}
+
+/** Clear one mask bit iff (col, row) lies inside the rect. */
+function clearBitInRect(cover: HullCoverage, col: number, row: number): void {
+  if (col >= 0 && row >= 0 && col < cover.w && row < cover.h) {
+    const i = row * cover.w + col;
+    cover.bits[i >>> 5] &= ~(1 << (i & 31));
+  }
+}
+
+/** Reused float-bits view for `segmentPaintSeed` — the 5-word sibling of the
+ *  `paintSeed` buffers below (a segment's pose is two endpoints, five scalars
+ *  with time). */
+const SEG_SEED_F64 = new Float64Array(5);
+const SEG_SEED_U32 = new Uint32Array(SEG_SEED_F64.buffer);
+
+/**
+ * THE PER-PAINT WAKE GLINT SEED (cycle-69 review gate, P3 — amendment 157's
+ * binding constraint applied to the segment pipeline): a hash of (paint time,
+ * exact segment pose). PER PAINT, NEVER PER SOURCE — no ship id, shell id,
+ * track id, source kind, or width enters the hash, so the scintillation can
+ * never become a cross-sweep correlation handle. Time is in the hash, so the
+ * same stretch of water draws a fresh glint every revolution; the inputs are
+ * the EXACT float endpoints while the wire carries only cell-quantized
+ * coverage, so a modified client cannot reconstruct the seed to invert the
+ * glint and template-fit the sharp ribbon back out. Deterministic and
+ * observer-free: every observer painting this segment this tick derives the
+ * identical seed (which is what keeps the server's one-slot mask memo sound).
+ */
+export function segmentPaintSeed(t: number, ax: number, ay: number, bx: number, by: number): number {
+  SEG_SEED_F64[0] = t;
+  SEG_SEED_F64[1] = ax;
+  SEG_SEED_F64[2] = ay;
+  SEG_SEED_F64[3] = bx;
+  SEG_SEED_F64[4] = by;
+  let h = 0x9e3779b9;
+  for (let i = 0; i < 10; i++) {
+    h = Math.imul(h ^ SEG_SEED_U32[i], 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  }
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** GLINT-ERODE a segment mask's flank cells (the covered cells NOT on the
+ *  centre-line spine): row-major over the rect, each covered non-spine cell
+ *  draws once and is dropped under `glintP` — the draw order is part of the
+ *  wire contract (the perception oracle replays it), exactly as
+ *  `glintErode`'s is for hulls. The spine is the CORE and is never dropped,
+ *  so the ribbon can never lose continuity or empty out. */
+function glintSegmentFlanks(cover: HullCoverage, spine: HullCoverage, glintP: number, rng: { next(): number }): void {
+  for (let row = 0; row < cover.h; row++) {
+    for (let col = 0; col < cover.w; col++) {
+      if (!coverageHas(cover, col, row) || coverageHas(spine, col, row)) continue;
+      if (rng.next() < glintP) clearBitInRect(cover, col, row);
+    }
+  }
+}
+
+/** [minCol, minRow, maxCol, maxRow] of a packed mask's covered cells. */
+function packedCoveredBounds(cover: HullCoverage): [number, number, number, number] {
+  let minC = cover.w;
+  let minR = cover.h;
+  let maxC = -1;
+  let maxR = -1;
+  for (let row = 0; row < cover.h; row++) {
+    for (let col = 0; col < cover.w; col++) {
+      if (!coverageHas(cover, col, row)) continue;
+      if (col < minC) minC = col;
+      if (col > maxC) maxC = col;
+      if (row < minR) minR = row;
+      if (row > maxR) maxR = row;
+    }
+  }
+  return [minC, minR, maxC, maxR];
+}
+
+/** Crop a packed mask to the tight bounding rect of its covered cells (fresh
+ *  arrays — the result goes on the wire / into a frozen paint). Callers
+ *  guarantee at least one covered cell (the spine survives every glint). */
+function cropPackedCoverage(cover: HullCoverage): HullCoverage {
+  const [minC, minR, maxC, maxR] = packedCoveredBounds(cover);
+  const cw = maxC - minC + 1;
+  const ch = maxR - minR + 1;
+  const bits = new Array<number>(Math.ceil((cw * ch) / COVERAGE_WORD)).fill(0);
+  for (let row = 0; row < ch; row++) {
+    for (let col = 0; col < cw; col++) {
+      if (coverageHas(cover, col + minC, row + minR)) setBit(bits, row * cw + col);
+    }
+  }
+  return { gx: cover.gx + minC, gy: cover.gy + minR, w: cw, h: ch, bits };
+}
+
+/**
+ * THE WAKE PAINT PIPELINE (cycle-69 review gate, P3) — `paintCoverage`'s
+ * segment sibling, and the ONE function every wire-bound or paint-bound wake
+ * mask goes through (the server's `wk` shaper; the client's truesight
+ * synthesis must call it too, or amendment 154's two-sources-one-appearance
+ * breaks). The pipeline, in order — this exact sequence (including the RNG
+ * draw order) is the wire contract the perception oracle reimplements:
+ *
+ *   1. Sharp geometry over the capsule quad's cell bbox: width fill
+ *      (`fillCoverage`) into the mask, the quarter-cell centre-line walk
+ *      (`walkSegmentCells`, in-walk diagonal bridges included) into a
+ *      SEPARATE spine mask, then spine ∪ mask.
+ *   2. GLINT the flanks: row-major, every covered NON-SPINE cell draws once
+ *      on `mulberry32(segmentPaintSeed(t, ax, ay, bx, by))` and is dropped
+ *      under `CONFIG.vision.radarFuzz.glintP` — the SAME shipped coefficient
+ *      the hull fuzz runs, reused verbatim so there is no new calibration to
+ *      defend. The spine is core and never drops (continuity — amendment
+ *      198's coherent LINE — is preserved by construction).
+ *   3. BRIDGE REPAIR to a fixed point (glint can re-open a diagonal corner).
+ *   4. CROP to the tight covered bbox — REQUIRED, not cosmetic: the wire's
+ *      `w`/`h` rect dims are themselves a width readout, so an edge row that
+ *      fully glints away must actually leave the rect.
+ *
+ *   NO dilation, NO stretch — wave 1's ruling stands: the hull's structural
+ *   smear would blob a one-cell ribbon. Only the glint half applies, which is
+ *   what turns the mask's lit-row count from a class lookup table (9/20/32u →
+ *   exactly 1/2/3 rows) into a per-paint random variable whose ranges overlap
+ *   between neighbouring sources — amendment 68's bar ("inferable with skill,
+ *   never readable"), measured in shared/src/__tests__/wake.test.ts.
+ *
+ * Degrade, never throw (the `rasterizeSegmentCoverage` ladder verbatim):
+ * degenerate inputs yield the same single-cell / spine-only masks, un-glinted
+ * (a mask the geometry already collapsed carries nothing to scintillate).
+ */
+export function paintSegmentCoverage(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  widthU: number,
+  cellU: number,
+  t: number,
+): HullCoverage {
+  const grid = cellU > 0 && cellU < Infinity ? cellU : 0;
+  const degenerate = degenerateSegment(ax, ay, bx, by, grid);
+  if (degenerate !== null) return degenerate;
+  const [sx, sy] = finitePoint(ax, ay) ? [ax, ay] : [bx, by];
+  const [ex, ey] = finitePoint(bx, by) ? [bx, by] : [ax, ay];
+  const halfW = coreHalfWidth(widthU);
+  const poly = capsuleQuad(sx, sy, ex, ey, halfW);
+  const cover = emptyRectFor(poly, grid);
+  if (halfW > 0) fillCoverage(cover, poly, grid);
+  const spine: HullCoverage = { gx: cover.gx, gy: cover.gy, w: cover.w, h: cover.h, bits: new Array<number>(cover.bits.length).fill(0) };
+  walkSegmentCells(spine, sx, sy, ex, ey, grid);
+  for (let i = 0; i < cover.bits.length; i++) cover.bits[i] |= spine.bits[i];
+  // A non-finite paint time still hashes deterministically (Float64Array
+  // canonicalizes NaN), so no sanitization — mirror paintSeed exactly.
+  glintSegmentFlanks(cover, spine, CONFIG.vision.radarFuzz.glintP, mulberry32(segmentPaintSeed(t, sx, sy, ex, ey)));
+  bridgeCoverageDiagonals(cover);
+  return cropPackedCoverage(cover);
 }
 
 // ---------------------------------------------------------------------------

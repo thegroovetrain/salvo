@@ -17,8 +17,11 @@ import {
   createTorpWake,
   createWakeRibbon,
   eachWakeSegment,
+  mulberry32,
+  paintSegmentCoverage,
   pruneWake,
   rasterizeSegmentCoverage,
+  segmentPaintSeed,
   shipWakeWidthU,
   torpWakeLifeMs,
   torpWakeWidthU,
@@ -284,6 +287,13 @@ describe('torpedo wake — half life, one-cell core, fixed fish speed (amendment
     expect(shipWakeWidthU('droneSmall')).toBe(CONFIG.drones.small.hull.beam);
     expect(torpWakeWidthU()).toBe(CONFIG.vision.radarCellU);
   });
+
+  it('the SOURCE-KIND flag travels with the ribbon (review-gate P2): torpedo factories mark it, ship factories never do', () => {
+    expect(createTorpWake().torp).toBe(true);
+    expect(createShipWake('torpedoBoat', 45).torp).toBe(false);
+    expect(createShipWake('battleship', 35).torp).toBe(false);
+    expect(createWakeRibbon(45, LIFE, 9).torp).toBe(false); // the default: a ship source by construction
+  });
 });
 
 describe('rasterizeSegmentCoverage — the ribbon on the lattice', () => {
@@ -367,5 +377,135 @@ describe('rasterizeSegmentCoverage — the ribbon on the lattice', () => {
     const cells = litCells(cover);
     expect(coverageHas(cover, Math.floor(50 / CELL) - cover.gx, Math.floor(50 / CELL) - cover.gy)).toBe(true);
     expect(components4(cells)).toBe(1);
+  });
+});
+
+// --- paintSegmentCoverage — the PER-PAINT EDGE GLINT (cycle-69 review gate, P3)
+//
+// The sharp rasterization above is the geometric substrate; the WIRE (and any
+// client-synthesized paint) rides paintSegmentCoverage, which glints the
+// ribbon's flank cells per paint so the mask's cross-track width stops being
+// the exact class fingerprint `widthU` would otherwise hand back (a 3-row
+// track IS a battleship under the sharp mask — amendment 68 rules class must
+// be inferable with skill, never readable, and amendments 156-158 closed the
+// identical leak on hulls). Only the GLINT half of the hull fuzz applies —
+// no dilation, no stretch (wave 1's ruling: the structural smear would blob a
+// one-cell ribbon) — and the spine is core, so continuity (amendment 198's
+// coherent LINE) survives every draw.
+
+describe('paintSegmentCoverage — the per-paint edge glint (review-gate P3)', () => {
+  /** Distinct lit rows of a mask — the cross-track width readout on an
+   *  axis-aligned (along-x) segment, i.e. the thing a class-reading player
+   *  would count. */
+  const litRowCount = (c: HullCoverage): number => new Set(litCells(c).map(([, r]) => r)).size;
+
+  it('is deterministic per (geometry, paint time), and observer-free by construction', () => {
+    const a = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, 4_200);
+    const b = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, 4_200);
+    expect(b).toEqual(a);
+  });
+
+  it('the mask SCINTILLATES across paint times at fixed geometry — the wire width is a random variable, not a template', () => {
+    // Pre-fix witness (observed failing): the wire path built this mask with
+    // rasterizeSegmentCoverage, whose row count and rect dims are exact
+    // functions of widthU — one value each across every paint time.
+    const rows = new Set<number>();
+    const rectHs = new Set<number>();
+    for (let k = 0; k < 48; k++) {
+      const c = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, k * 200);
+      rows.add(litRowCount(c));
+      rectHs.add(c.h);
+    }
+    expect(rows.size).toBeGreaterThan(1); // lit width varies per paint
+    expect(rectHs.size).toBeGreaterThan(1); // and so do the WIRE's rect dims (the crop is load-bearing)
+  });
+
+  it('never dilates: a painted mask is a SUBSET of the sharp mask (glint only erodes flanks)', () => {
+    for (let k = 0; k < 24; k++) {
+      const sharp = rasterizeSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL);
+      const painted = paintSegmentCoverage(10, 13.5, 40, 13.5, 32, CELL, k * 333);
+      for (const [col, row] of litCells(painted)) {
+        expect(coverageHas(sharp, col - sharp.gx, row - sharp.gy)).toBe(true);
+      }
+    }
+  });
+
+  it('the spine is CORE: every painted mask still carries the whole centre-line, 4-connected, at every width and heading', () => {
+    const dirs: Array<[number, number]> = [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+      [2, 1],
+      [-2, -3],
+    ];
+    for (const width of [torpWakeWidthU(), shipWakeWidthU('mineLayer'), shipWakeWidthU('battleship')]) {
+      for (const [dx, dy] of dirs) {
+        for (let k = 0; k < 8; k++) {
+          const len = Math.hypot(dx, dy);
+          const ax = 100 + k * 1.3;
+          const ay = 77 + k * 0.7;
+          const bx = ax + (dx / len) * STEP;
+          const by = ay + (dy / len) * STEP;
+          const c = paintSegmentCoverage(ax, ay, bx, by, width, CELL, k * 517);
+          const cells = litCells(c);
+          expect(cells.length).toBeGreaterThan(0);
+          // The SPINE (the width-0 sharp mask: the bare centre-line walk) is
+          // core — every one of its cells survives every draw, and it is one
+          // 4-connected chain, so the LINE can never break. A detached flank
+          // SPECK is legal (that is scintillation — real glint detaches);
+          // whole-mask single-componentness is deliberately NOT pinned.
+          const spine = rasterizeSegmentCoverage(ax, ay, bx, by, 0, CELL);
+          const spineCells = litCells(spine);
+          expect(components4(spineCells)).toBe(1);
+          for (const [col, row] of spineCells) {
+            expect(coverageHas(c, col - c.gx, row - c.gy)).toBe(true);
+          }
+          expect(coverageHas(c, Math.floor(ax / CELL) - c.gx, Math.floor(ay / CELL) - c.gy)).toBe(true);
+          expect(coverageHas(c, Math.floor(bx / CELL) - c.gx, Math.floor(by / CELL) - c.gy)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('the glint stream is the documented contract: seed from (t, exact pose), draws replayable via mulberry32(segmentPaintSeed)', () => {
+    // Same pose, two times → different seeds; the seed carries NO width and
+    // NO source identity (amendment 157's binding constraint).
+    expect(segmentPaintSeed(100, 1, 2, 3, 4)).not.toBe(segmentPaintSeed(150, 1, 2, 3, 4));
+    expect(segmentPaintSeed(100, 1, 2, 3, 4)).toBe(segmentPaintSeed(100, 1, 2, 3, 4));
+    // And the rng primitive is shared: a deterministic stream per seed.
+    const s = segmentPaintSeed(100, 1, 2, 3, 4);
+    expect(mulberry32(s).next()).toBe(mulberry32(s).next());
+  });
+
+  // THE WIDTH-OVERLAP CALIBRATION (the amendment-158 methodology, applied to
+  // the ribbon): measured cross-track width RANGES per source across lattice
+  // phases × 48 paint times, on an axis-aligned track (the aspect a
+  // class-reader would use). The bar is amendment 68's — "hard and
+  // unreliable", not cryptographic: every neighbouring source pair's range
+  // must OVERLAP, so no single glance at a track width names a class. A
+  // torpedo boat's wake reading like a torpedo's is the INTENDED outcome.
+  it('measured width ranges overlap between neighbouring sources: torp ↔ torpedo boat ↔ mine layer ↔ battleship', () => {
+    const widthsFor = (coreU: number): Set<number> => {
+      const seen = new Set<number>();
+      for (const phase of [0, 2.7, 4.5, 6.3]) {
+        for (let k = 0; k < 48; k++) {
+          const c = paintSegmentCoverage(10, 13.5 + phase, 46, 13.5 + phase, coreU, CELL, k * 200 + phase * 17);
+          seen.add(litRowCount(c));
+        }
+      }
+      return seen;
+    };
+    const overlap = (a: Set<number>, b: Set<number>): boolean => [...a].some((v) => b.has(v));
+    const torp = widthsFor(torpWakeWidthU()); // 9u — one cell
+    const tb = widthsFor(shipWakeWidthU('torpedoBoat')); // 9u beam
+    const ml = widthsFor(shipWakeWidthU('mineLayer')); // 20u beam
+    const bs = widthsFor(shipWakeWidthU('battleship')); // 32u beam
+    expect(overlap(torp, tb)).toBe(true); // identical cores — indistinguishable by construction
+    expect(overlap(tb, ml)).toBe(true);
+    expect(overlap(ml, bs)).toBe(true);
+    // Size still reads in aggregate (the cycle's deliverable, amendment 66):
+    // the extremes stay separable at their MAXIMA even though single paints
+    // are ambiguous.
+    expect(Math.max(...bs)).toBeGreaterThan(Math.max(...torp));
   });
 });
