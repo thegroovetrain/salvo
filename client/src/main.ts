@@ -2391,12 +2391,13 @@ function renderAlive(
   // clipped by a ring-sized box around the ship. It reaches the buffer extent
   // and nothing else — no paint is created, retired or culled by it — which is
   // what makes a paint recorded while zoomed in appear when you zoom out.
-  // The fifth argument is the live zone view (Story 4.10, amendment 128): the
-  // storm's closing WALL is a volume return like any other physical object, and
-  // only the LIVE ring paints — the dashed next-ring telegraph is a chart
-  // annotation, not something a beam can bounce off. It discloses nothing: ring
-  // geometry has been on the wire since its reveal beat (Story 3.1).
-  g.radar.render(pose, now, g.contacts, g.camera.worldView, zv);
+  // There is no fifth argument any more. It used to be the live zone view, which
+  // the radar read to paint the storm's closing wall as a volume return; cycle 72
+  // deleted that material on Eric's ruling (*"I don't want the storm ring
+  // highlighted by radar anymore"*). The storm is still fully legible on the water
+  // — updateZone below draws the solid live edge, the dashed telegraph and the
+  // storm-side fill — it simply stops returning an echo.
+  g.radar.render(pose, now, g.contacts, g.camera.worldView);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -2484,7 +2485,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // Hides the sweep + rings. The zone view rides along for consistency with the
   // alive path, and paints nothing either way: with no own pose there is no
   // observer to freeze a paint against, so no source opens (Story 4.10).
-  g.radar.render(null, now, null, null, zv);
+  g.radar.render(null, now, null, null);
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
   // Spectator origin is the camera centre — honkBearing (roomBindings.ts)
   // derives the spectator bearing from the camera centre too, so origin and

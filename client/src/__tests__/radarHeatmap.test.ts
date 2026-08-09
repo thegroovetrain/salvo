@@ -119,7 +119,6 @@ function rasterWithPyramid(reachU: number, h: (x: number, y: number) => number):
 
 interface FieldParts {
   raster?: HeightRaster | null;
-  ring?: { cx: number; cy: number; r: number } | null;
   hulls?: { id: string; x: number; y: number; heading: number; cls: HullId }[];
   /** Disturbed water (Story 4.12): disclosed ribbon segments + their age buckets. */
   wake?: WakeSegmentCover[];
@@ -133,7 +132,6 @@ function fieldOf(obs: Vec2, parts: FieldParts, o: HeatmapOpts): RadarField {
     raster: parts.raster ?? null,
     ships: buildShipStamp(parts.hulls ?? [], model, o.cellU),
     wake: buildWakeStamp(parts.wake ?? [], model),
-    ring: parts.ring ?? null,
     cellU: o.cellU,
     model,
   });
@@ -1064,7 +1062,6 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
       obs: OBS,
       raster: COAST,
       ships: buildShipStamp([], MODEL, CFG.cellU),
-      ring: null,
       cellU: CFG.cellU,
       model: MODEL,
     });
@@ -1215,50 +1212,6 @@ describe('the scope has exactly three appearances plus transparent', () => {
     expect(out[i + 3], 'fully transparent').toBe(0);
     expect(Object.keys(g), 'and the grid carries no third channel')
       .toEqual(['cellU', 'cols', 'rows', 'baseGx', 'baseGy', 'originX', 'originY', 'w', 'a']);
-  });
-});
-
-// --- 6. THE STORM WALL: a band on the LIVE ring ------------------------------
-
-describe('THE STORM WALL (amendment 128): a band on the live ring', () => {
-  const OBS: Vec2 = { x: 0, y: 0 };
-  const RING = { cx: 0, cy: 0, r: 300 };
-  const HALF = MODEL.stormBandU / 2;
-  /** The wall alone: clutter zeroed so the near field cannot muddy the counts. */
-  const DRY = { ...MODEL, clutter: 0 };
-
-  it('paints a fixed-thickness band on the ring radius, and nothing off it', () => {
-    const g = scope(OBS, { ring: RING, model: DRY }, CLEAN);
-    expect(bandAt(g, RING.r, 0), 'on the spine').toBeGreaterThanOrEqual(0);
-    expect(bandAt(g, 0, RING.r), 'and all the way round').toBeGreaterThanOrEqual(0);
-    expect(bandAt(g, RING.r - HALF - 20, 0), 'inside the band').toBe(-1);
-    expect(bandAt(g, RING.r + HALF + 20, 0), 'outside it').toBe(-1);
-  });
-
-  it('THE BOUND WITH THE GRAIN IN IT: the wall can never read RED, at the '
-    + 'luckiest draw', () => {
-    expect(worst(MODEL.storm)).toBeLessThan(BANDS[2].at);
-  });
-
-  it('RASTERIZED, AT THE SHIPPED GRAIN: blue and green cells, not one red', () => {
-    const g = scope(OBS, { ring: RING, model: DRY }, CFG);
-    const counts = bandCounts(g);
-    expect(counts[1], 'the spine is blue').toBeGreaterThan(50);
-    expect(counts[0], 'with a green shoulder').toBeGreaterThan(10);
-    expect(counts[2], 'THE FORBIDDEN BAND: a hull is the only red thing').toBe(0);
-  });
-
-  it('a ring wholly out of radar range paints nothing', () => {
-    const g = scope(OBS, { ring: { cx: 0, cy: 0, r: 4000 }, model: DRY }, CLEAN);
-    expect(bandCounts(g)).toEqual([0, 0, 0]);
-  });
-
-  it('and the wall is a record of where the ring WAS: re-marching a CLOSED ring '
-    + 'does not move the slice already taken', () => {
-    const early = turn(OBS, { ring: RING, model: DRY }, CLEAN)!;
-    const before = [...early.w];
-    turn(OBS, { ring: { ...RING, r: 120 }, model: DRY }, CLEAN);
-    expect([...early.w]).toEqual(before);
   });
 });
 

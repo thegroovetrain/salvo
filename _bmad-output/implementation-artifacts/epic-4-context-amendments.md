@@ -3547,3 +3547,53 @@ the client draws. Version 0.17.70 → **0.17.71**.
      **It is presentation, and a modified client could paint the frayed cells.** It would learn nothing:
      those segments were disclosed to it anyway, so the fray removes no information the wire withheld.
      Same class as the near-range opacity mask (amendment 181), and precedented by it.
+
+## 2026-08-09 — Eric ruling, THE STORM COMES OFF THE SCOPE (cycle 72)
+
+A single preference ruling with a wide mechanical blast radius, taken on the shipped build. Client-only:
+no server file, no shared file, no wire field. `PROTOCOL_VERSION` stays **32**. Version 0.17.71 →
+**0.17.72**.
+
+215. **THE STORM WALL IS DELETED FROM RADAR, AND AMENDMENT 128 IS RETIRED WITH IT.** Eric: *"I don't want
+     the storm ring highlighted by radar anymore. I don't like it."* Removed by PREFERENCE, not by defect —
+     nothing about it was broken, mis-calibrated or leaking, and no bound it carried was ever violated.
+
+     **WHAT DID NOT MOVE, because this is the part that will be misread later.** The storm still renders on
+     the water exactly as it did: `render/zone.ts`'s solid live edge, dashed next-ring telegraph and
+     storm-side fill are Story 3.2's ratified grammar and were not touched, nor was the chrome bar's ring
+     readout, nor the in-storm vignette, nor the storm-enter audio cue. **The zone is still completely
+     legible; it simply stops being a radar RETURN.** No damage, timeline, geometry or roll changed. And
+     nothing on the server moved at all — ring geometry has always reached the client through ArenaState
+     for the on-water render, which is exactly why removing this cost zero wire and zero perception work.
+
+     **REMOVED END TO END, in the cycle-69 grey-NO-DATA style, so no dead knob survives.** Gone:
+     `stormSample`, `STORM_EDGE`, the `StormRing` type, `FieldSpec.ring`, the field's storm branch, the
+     `ZoneLike` type, and the entire `zone` parameter threaded through `Radar.render` →
+     `renderReturn` → `marchBeam` (left plumbed to a material that no longer exists, it would have been
+     pure debt). Gone from the model: `storm` (0.5), `volumeRef` (900), `stormBandU` (60). **Eleven tests
+     were RETIRED rather than adapted** — the pure wall block in `radarHeatmap.test.ts`, the four
+     adapter-placement blocks in `radarViewport.test.ts`, and the non-finite-ring guard in
+     `radarMarch.test.ts`. Net −194 lines.
+
+     **`VOLUME` SURVIVES AND IS NOW UNCONSUMED, and that is a deliberate line rather than an oversight.**
+     The storm was its only material, so the 1/d² branch of `attenuation` now has no caller. It stays
+     because it is a PRIMITIVE OF AMENDMENT 106'S RATIFIED RETURN MODEL — the point/surface/volume exponent
+     table IS the model, and the next volume material (a squall, a rain cell, a smoke bank) should not have
+     to re-derive it. Its curve tests stay green. The line drawn: a geometry class of the physics table is
+     kept; a tuning value that only ever fed a deleted material is not.
+
+     **WHAT RE-ADDING A STORM RETURN WOULD REOPEN, recorded because the reasoning is not obvious.**
+     Amendment 128 settled a real question: the volume return falls off as 1/d², shallow enough to stay
+     legible clear across the map, so an AREA return would have owned roughly half the scope late-match and
+     buried every contact inside it — against the epic's own "information noise must never bury the hunt"
+     guardrail. The fixed-thickness WALL was the answer to that, and both the whole outside-the-ring region
+     and deferring the storm entirely were put to Eric at the time and REJECTED. **He has now chosen the
+     third option he was never offered.** Anyone restoring a storm return must re-derive the area question
+     from scratch rather than assuming the wall is the safe default — the wall was a compromise, and the
+     compromise is what he rejected.
+
+     One test fixture changed rather than being retired: `radarViewport.test.ts`'s "the scope never blinks
+     out for a frame" regression used an encircling storm ring purely as a convenient way to light every
+     bearing. It now uses a terrain slab. What that test defends — that a slice is a finished record and can
+     never wrap down to a sliver on the last frame of a revolution (the cycle-57 defect) — is about the ARC,
+     not about which material fills it.
