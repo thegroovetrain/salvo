@@ -126,7 +126,14 @@ import {
   type ScoreState,
 } from './score.js';
 import { Audio } from './audio/context.js';
-import { audioCues, stormEnterEdge, telegraphTone, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
+import {
+  audioCues,
+  hpBandEdge,
+  stormEnterEdge,
+  telegraphTone,
+  INITIAL_CUE_STATE,
+  type AudioCueState,
+} from './audio/tones.js';
 import { createNullAdapter } from './portal/nullAdapter.js';
 import { safeAdapter } from './portal/safeAdapter.js';
 import type { PortalAdapter } from './portal/portalAdapter.js';
@@ -356,6 +363,19 @@ interface Game {
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
   wasInStorm: boolean;
+  /**
+   * Own hull fraction last frame, for THE BAND STINGS' downward-crossing edge
+   * (Story 4.7, audio/tones.ts `hpBandEdge`) — the `wasInStorm` idiom, one field
+   * up.
+   *
+   * NULL IS NOT ZERO, and the distinction is the whole reason this is nullable:
+   * there is no own hull while spectating or across the respawn gap, and a
+   * missing hull reading as 0 would fire the critical sting at the moment you
+   * die and again on every frame you spent watching. `null` also re-arms the
+   * edge for free — the first frame back is silent by construction, because a
+   * crossing needs two live frames to exist.
+   */
+  wasHpFrac: number | null;
   /** mouse.clickCount last frame — the denied-click edge (render/deniedFire.ts). */
   prevClickCount: number;
   /** mouse.clickCount at the last SIM TICK — the new-click edge that consumes a
@@ -1597,7 +1617,7 @@ function buildGame(
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false, wasHpFrac: null,
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownDecoyUntil: 0,
@@ -2381,6 +2401,46 @@ function updateZone(
   });
 }
 
+/**
+ * THE BAND STINGS (Story 4.7): the own hull crossing `CONFIG.damageBands`
+ * downward — 50% and 25% — gets a one-shot alarm, and the crossing itself is
+ * decided by the pure `hpBandEdge` (audio/tones.ts, which owns the
+ * downward-only / re-arming / worse-one-only rules and reads the thresholds
+ * straight out of shared CONFIG).
+ *
+ * IT LIVES IN main.ts AND NOWHERE ELSE because this is the only place that holds
+ * BOTH numbers: net/roomBindings.ts sees `you.hp` but has no `maxHp` seam —
+ * `maxHp` is an effectiveStats() output, swapped wholesale whenever a boon
+ * lands. The shape is the `stormEnterEdge` idiom two lines up: previous value on
+ * `g`, edge function, cue.
+ *
+ * NO PAN AND NO GAIN, deliberately (amendment 55, the foghorn's own honk): these
+ * are SELF cues, and a bearing to yourself is meaningless. Only the world cues
+ * in net/roomBindings.ts are ever placed.
+ *
+ * The sting is also wounded smoke's voice — the smoke tiers and the rail bands
+ * are the SAME two thresholds, so the moment a band is crossed IS the moment
+ * your plume starts (spec design note; amendment 49's parked question, answered
+ * without inventing a continuous-audio class).
+ */
+function playHpSting(g: Game, status: OwnStatus): void {
+  const frac = ownHpFrac(status);
+  const band = hpBandEdge(g.wasHpFrac, frac);
+  if (band) g.audio.play(band === 'critical' ? 'hpCritical' : 'hpHurt');
+  g.wasHpFrac = frac;
+}
+
+/**
+ * The own hull fraction the sting reads, or NULL when there is no live hull to
+ * take one from. Never 0: a dead or unfitted hull that reported 0 would read as
+ * "just crossed critical" (see the `wasHpFrac` field note), so both a dead
+ * captain and a nonsensical `maxHp` resolve to null instead.
+ */
+function ownHpFrac(status: OwnStatus): number | null {
+  const maxHp = status.stats.maxHp;
+  return status.alive && maxHp > 0 ? status.hp / maxHp : null;
+}
+
 /** Tier-1 (THREAT) channels as this story knows them (amendment 16): the HP
  *  rail's low-HP pulse and a live denied-fire pulse. render/attention.ts owns
  *  the composition; this only resolves the own-ship inputs. `nowMs` is the
@@ -2412,6 +2472,7 @@ function renderAlive(
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
+  playHpSting(g, status); // the 50%/25% band alarms (Story 4.7) — same edge idiom
   // THE frame's Tier-1 read comes back OUT of renderOwn: it is taken there,
   // after renderFiring has driven the denied pulse, and both Tier-2 consumers
   // (the chrome bar's amber ring segment and the storm vignette below) share
@@ -2537,6 +2598,10 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
 
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
+  // No hull, so no band edge exists to be crossed (Story 4.7): dropping the
+  // remembered fraction to null keeps a death from reading as a crossing into
+  // critical, and re-arms both stings for the next life for free.
+  g.wasHpFrac = null;
   updateSpectateCamera(g, frameDt, now);
   // A spectator is never IN the storm and owns no Tier-1 channel (no hull, no
   // fire control) — the plane renders, the vignette does not.

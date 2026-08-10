@@ -54,7 +54,7 @@ import { bountyKillLine } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
-import { fireTone, fitDetune, fitTone, type ToneId } from '../audio/tones.js';
+import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
 import { pierceOrder, type OwnFire } from '../render/projectiles.js';
 import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
 
@@ -113,9 +113,11 @@ export interface RoomBindingDeps {
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
-   *  optional `detune` (cents) carries the fit cue's per-category transposition. */
+   *  optional `detune` (cents) carries the fit cue's per-category transposition;
+   *  `pan`/`gain` are THE SOUND MAP's two knobs (Story 4.7), always computed by
+   *  the pure `worldCue()` helper and never assembled by hand at a call site. */
   audio: {
-    play: (id: ToneId, opts?: { detune?: number }) => void;
+    play: (id: ToneId, opts?: { detune?: number; pan?: number; gain?: number }) => void;
     /** Story 4.5: the foghorn's own play path (audio/context.ts). `hornId` is
      *  typed `string`, NOT `HornId`, on purpose — an id from a newer server
      *  must fall back to the default voice at runtime rather than fail a
@@ -310,6 +312,37 @@ interface BindState {
    *  300ms same-source floor (nothing in the audio layer rate-limits). */
   impacts: ImpactDedup;
   hitCallTone: ToneFloor;
+  /** THE SOUND MAP (Story 4.7): one 300ms same-source floor PER CUE FAMILY. Four
+   *  instances, not one shared floor — the floor is a statement about how often
+   *  ONE source may speak, so a burst must never silence a report (they are
+   *  different facts about different points, exactly as the Hit Call's three
+   *  blooms are three facts about three points). */
+  worldTones: Record<WorldToneId, ToneFloor>;
+}
+
+/**
+ * The four cues that are placed OUT IN THE WORLD (Story 4.7) — the only tones
+ * this module ever plays with a pan/gain. Deliberately a closed union rather
+ * than `ToneId`: it is what keys the per-family floor table, so adding a fifth
+ * world cue is a `tsc` error until it has a floor of its own.
+ */
+type WorldToneId = 'gunReport' | 'impact' | 'splash' | 'sunkWitness';
+
+/**
+ * The per-family tone floors, all on the RATIFIED 300ms same-source value
+ * (`CLIENT_CONFIG.gunnery.hitCallToneFloorMs`, read — never restated as a
+ * literal). Amendment 37 forbids inventing a second floor constant when one
+ * already exists, and this is the same question that one answers: how often may
+ * a single source make a noise.
+ */
+function worldToneFloors(): Record<WorldToneId, ToneFloor> {
+  const floorMs = CLIENT_CONFIG.gunnery.hitCallToneFloorMs;
+  return {
+    gunReport: new ToneFloor(floorMs),
+    impact: new ToneFloor(floorMs),
+    splash: new ToneFloor(floorMs),
+    sunkWitness: new ToneFloor(floorMs),
+  };
 }
 
 /** Attach frame/results/error/leave handling to a completed connection. */
@@ -321,6 +354,7 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
     burningAt: -Infinity,
     impacts: new ImpactDedup(),
     hitCallTone: hitCallToneFloor(),
+    worldTones: worldToneFloors(),
   };
   conn.sink.handler = (f) => handleFrame(f, deps, s);
   conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
@@ -526,12 +560,12 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
 function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   switch (e.k) {
     case 'spawn': handleSpawn(e, deps); return;
-    case 'sunk': handleSunk(e, f.t, deps); return;
+    case 'sunk': handleSunk(e, f.t, deps, s); return;
     case 'shell': handleShell(e, deps); return;
     case 'torp': handleTorp(e, deps); return;
     case 'torpU': deps.projectiles.onBallisticUpdate(e); return;
-    case 'boom': handleBoom(e, deps, s); return;
-    case 'burst': handleBurst(e, deps); return;
+    case 'boom': handleBoom(e, f.t, deps, s); return;
+    case 'burst': handleBurst(e, f.t, deps, s); return;
     case 'dmg': return; // own damage is felt once, in handleEvents' pre-pass (flushDamage)
   }
   handlePulseEvent(e, f, deps, s);
@@ -625,6 +659,79 @@ function honkBearing(e: FoghornEvent, deps: RoomBindingDeps): number | null {
   return e.b ?? null;
 }
 
+// --- THE SOUND MAP (Story 4.7, Eric ruling 2026-08-10) ----------------------
+//
+// Five call sites, one path. Every world cue rides an event this client has
+// ALREADY received through the perception boundary, at a position it has
+// ALREADY drawn on screen, so a modified client that deleted the whole family
+// would learn nothing it did not have: no new wire field, no new event kind, no
+// new perception exception, no server change. The cue points your ear at a mark
+// your eye can already find — which is why panning it is free (design note:
+// "Why panning is free here, and why it is not a new channel").
+//
+// THE SEQUENCE IS EXTRACTED RATHER THAN INLINED FIVE TIMES for a mechanical
+// reason as well as a tidiness one: `handleBoom` was already at complexity 6 and
+// `handleSunk` at 9, and the ceiling is 10 (ESLint error).
+
+/** Placement for a cue whose position could not be resolved: dead centre, at the
+ *  reach's own floor gain. Never silence — see `worldTone`. */
+const UNPLACED_CUE: WorldCue = { pan: 0, gain: CLIENT_CONFIG.audio.worldFloorGain };
+
+/**
+ * WHERE THE PLAYER IS LISTENING FROM: the own hull while we have one, the camera
+ * centre once we do not. That is the shipped foghorn precedent verbatim
+ * (`honkBearing` above — a spectator's honk arrives as a position because the
+ * free camera has no server-known position for the server to take a bearing
+ * from), and world cues DO keep sounding while spectating: you are watching the
+ * water, and every mark they point at is still being drawn.
+ *
+ * A dead-in-waiting captain (`you.alive === false`) listens from the camera too:
+ * the hull on `you` is a wreck the camera has already left behind.
+ */
+function listenerPos(deps: RoomBindingDeps): { x: number; y: number } {
+  const you = deps.state.net.you;
+  return you && you.alive ? { x: you.x, y: you.y } : deps.cameraCenter();
+}
+
+/**
+ * Play a cue for something that happened at `pos`, attenuated and panned from
+ * where the player is listening — subject to that cue family's 300ms floor.
+ *
+ * `t` is the FRAME's server time, never a local clock reading: the floor
+ * measures server-side spacing, exactly as the Hit Call's does, so it cannot
+ * chatter on clock jitter (render/gunneryFeed.ts).
+ *
+ * A NULL POSITION STILL SOUNDS, unpanned at the floor gain. The only caller that
+ * can hand one over is the witnessed sinking, whose position comes from a
+ * last-known contact that may have aged out of the store — and the sinking was
+ * legitimately witnessed, so the FACT is ours even when the BEARING is not
+ * available. `worldCue` returning null is the same case (defensive input), and
+ * is deliberately not treated as "too far to hear": the server already decided
+ * what reaches this client, and re-deciding it here would be a second
+ * client-side implementation of a perception rule (audio/tones.ts `worldCue`).
+ */
+function worldTone(
+  id: WorldToneId,
+  pos: { x: number; y: number } | null,
+  t: number,
+  deps: RoomBindingDeps,
+  s: BindState,
+): void {
+  if (!s.worldTones[id].request(t)) return;
+  deps.audio.play(id, placeCue(pos, deps));
+}
+
+/** The pan/gain for a world position, or the unplaced fallback. */
+function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps): WorldCue {
+  if (!pos) return UNPLACED_CUE;
+  const ear = listenerPos(deps);
+  // CONFIG.vision.radar — the eighths ladder's 8/8 rung (full intel range) — is
+  // the falloff scale for EVERY world cue, read from shared CONFIG rather than
+  // mirrored into a client tunable. Per-cue rungs were considered and rejected:
+  // they would re-derive the server's own disclosure decision (audio/tones.ts).
+  return worldCue(pos.x - ear.x, pos.y - ear.y, CONFIG.vision.radar) ?? UNPLACED_CUE;
+}
+
 /**
  * THE GUNNERY CONVERSATION (Story 4.3) — the three rows that make firing an
  * exchange of information instead of a private guess:
@@ -644,21 +751,47 @@ function honkBearing(e: FoghornEvent, deps: RoomBindingDeps): number | null {
  */
 function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   switch (e.k) {
-    case 'mz': handleMuzzle(e, deps); return;
-    case 'sp': handleFallOfShot(e, deps, s); return;
+    case 'mz': handleMuzzle(e, f.t, deps, s); return;
+    case 'sp': handleFallOfShot(e, f.t, deps, s); return;
     case 'hc': handleHitCall(e, f, deps, s); return;
   }
   handleRewardEvent(e, f, deps);
 }
 
-/** A gun-family weapon fired at (x,y) — the universal, identity-free flash. */
-function handleMuzzle(e: MuzzleEvent, deps: RoomBindingDeps): void {
+/**
+ * A gun-family weapon fired at (x,y) — the universal, identity-free flash, and
+ * (Story 4.7) the REPORT that finally goes with it: another ship's gun, heard
+ * from where you are. The tone carries exactly what the flash carries — a place
+ * — and no identity of any kind, because the row itself has none.
+ *
+ * OWN FIRE IS SUPPRESSED, on the same `nearOwnShip` idiom the own-fire
+ * correlation already uses. Our own gun sounded `fireGun`/`fireCannon` at the
+ * instant we fired it (handleShell); layering the distant-report cue on top
+ * would double-sound one shot. Hull proximity is the only discriminator
+ * available AND the correct one — `mz` deliberately carries no shooter id
+ * (amendment 19: the flash must create a question, never answer one) — and it
+ * fails safe: an enemy firing from inside our own hull length is a knife fight
+ * we are hearing our own guns through anyway.
+ */
+function handleMuzzle(e: MuzzleEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.effects.spawnEffect('muzzle', e.x, e.y);
+  if (nearOwnShip(e.x, e.y, deps)) return;
+  worldTone('gunReport', e, t, deps, s);
 }
 
-/** Our own shell fell HERE and hit nothing (self-private, gun family only). */
-function handleFallOfShot(e: SplashEvent, deps: RoomBindingDeps, s: BindState): void {
+/**
+ * Our own shell fell HERE and hit nothing (self-private, gun family only) — the
+ * splash mark, and the splash it makes.
+ *
+ * The CUE is deliberately not gated on the mark's claim, exactly as the Hit
+ * Call's is not: when the claim fails the mark is already on screen (the public
+ * `boom` drew it) and the sound of the miss is still the answer to our shot. The
+ * two rows arriving for one impact collapse to one cue on the family floor
+ * anyway, since they carry byte-identical coordinates in the same frame.
+ */
+function handleFallOfShot(e: SplashEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
+  worldTone('splash', e, t, deps, s);
 }
 
 /**
@@ -918,14 +1051,22 @@ function near2(x: number, y: number, cx: number, cy: number): boolean {
  * THROUGH and is still flying), so both are wanted — and keeping it out of the
  * claim is also what keeps the pairing order-independent.
  */
-function handleBoom(e: BoomEvent, deps: RoomBindingDeps, s: BindState): void {
+function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.projectiles.onBoom(e);
   if (!e.hit) {
     if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
+    // STORY 4.7 — a hit and a miss are the two facts bracket-and-walk is built
+    // on, so they are the two cues placed at opposite ends of the catalog: the
+    // splash's soft hiss here, the impact's sawtooth punch below.
+    worldTone('splash', e, t, deps, s);
     return;
   }
   if (pierceOrder(e.id ?? '') !== null) deps.effects.spawnEffect('pierce', e.x, e.y);
   else if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
+  // Sounded off the MARK, not off the claim — a pierce ring and a spark are both
+  // ordnance connecting out there, and a boom whose spark was deduped away
+  // against a same-frame Hit Call still happened.
+  worldTone('impact', e, t, deps, s);
   if (e.hit !== deps.state.net.sessionId) deps.contactViews.flash(e.hit);
 }
 
@@ -942,12 +1083,18 @@ function handleBoom(e: BoomEvent, deps: RoomBindingDeps, s: BindState): void {
  * enemy's FRAGMENTATION ladder off a detonation ring — the wire deliberately
  * carries no radius (see BurstEvent).
  */
-function handleBurst(e: BurstEvent, deps: RoomBindingDeps): void {
+function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   // Ask the track who fired it BEFORE onBurst retires it (Story 2.9's click
   // latch is long expired by burst time; the track carries the answer).
   const radius = deps.ownBurstRadius(deps.projectiles.ownFireOf(e.id));
   deps.projectiles.onBurst(e);
   deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
+  // STORY 4.7 — the second half of report-then-boom: the `mz` crack goes off at
+  // the muzzle, and seconds later at range the burst thuds at the clicked point.
+  // Both are already on the wire; this is the pair finally being audible. It
+  // shares the `impact` family (and its floor) with a connecting boom on
+  // purpose — ordnance detonating out there is ONE kind of fact.
+  worldTone('impact', e, t, deps, s);
 }
 
 /** The feed's name reference for a vessel id: the roster callsign, or the
@@ -959,7 +1106,7 @@ function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: str
   return { name: deps.names(id) ?? UNKNOWN_VESSEL, id };
 }
 
-function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
+function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   // THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
   // observer never saw. Everything SPATIAL is gated on the server's
   // per-observer `seen` stamp — a stale last-known contact position must
@@ -997,11 +1144,52 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
     deps.state.killerId = e.by ?? null; // follow-your-killer default
     deps.resetThrottle(); // a sunk ship's engine order clears — respawn starts at STOP
     deps.resetPrime(); // and the primed skillshot reverts to the gun for the next life
-    deps.audio.play('sink');
-  } else {
-    if (e.seen) deps.contactViews.markSunk(e.id); // teardown is spatial — witnessed only
-    if (e.by === sessionId) deps.audio.play('kill'); // your victim went down — fog or not
+  } else if (e.seen) {
+    deps.contactViews.markSunk(e.id); // teardown is spatial — witnessed only
   }
+  // The cue is resolved LAST and exactly once (see sunkCue) — after the feed
+  // line, the score credit and the state resets, so the order the events were
+  // generated in survives (handleEvents' pre-pass already felt the damage).
+  sunkCue(e, t, deps, s);
+}
+
+/**
+ * EXACTLY ONE CUE PER SINKING, and the priority order is strict and mutually
+ * exclusive (Story 4.7):
+ *
+ *   1. YOUR OWN DEATH → `sink`. The one long tone, unchanged since 1.4.
+ *   2. YOUR CREDITED KILL → `kill`. The ascending chime, fog or not: identity is
+ *      public, and the Public Register's whole point is that you learn a hull
+ *      you sank went down at any range (amendments 29-34).
+ *   3. OTHERWISE, A WITNESSED SINKING → `sunkWitness`, placed at the wreck.
+ *
+ * A witnessed kill of your own plays the chime ALONE, never both: the chime is
+ * the credit and the groan is the hull, and stacking them would smear one second
+ * into two overlapping low tones with nothing gained.
+ *
+ * THE DISCLOSURE RULE, and the reason clause 3 is gated exactly where the sink
+ * plume is: an UNSEEN sinking — the Public Register's fog kill — stays COMPLETELY
+ * SILENT. `sunk` carries no position at all, so the only position available is a
+ * stale last-known contact, and sounding it (panned OR unpanned, since arriving
+ * at all is the tell) would confirm "that death happened near where I last saw
+ * them". The feed line already carries the ratified public fact; this cue would
+ * carry the PLACE, which is precisely what `seen` protects.
+ */
+function sunkCue(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
+  const sessionId = deps.state.net.sessionId;
+  if (e.id === sessionId) {
+    deps.audio.play('sink');
+    return;
+  }
+  if (e.by === sessionId) {
+    deps.audio.play('kill'); // your victim went down — fog or not
+    return;
+  }
+  if (!e.seen) return; // the fog kill's silence — see above
+  // A witnessed wreck whose last-known contact has already aged out of the store
+  // still sounds, unpanned at the floor (worldTone): we SAW it go down, so the
+  // fact is legitimately ours even when the bearing is unavailable.
+  worldTone('sunkWitness', sunkPosition(e.id, deps), t, deps, s);
 }
 
 /**
