@@ -175,6 +175,7 @@ In QA mode, flag any code that doesn't match that DESIGN.md.
 
 ### Directives
 - If at any time the linter discovers complexity errors, fix them immediately. Do not worry about when they were from, just fix them.
+- **`sprint-status.yaml` is a status tracker, not a changelog.** Each entry gets its status plus at most a ONE-LINE stamp (date, cycle, version, PV, amendment range, pointer). It must stay regenerable by `gds-sprint-planning`. Never paste narrative, rationale, measurements, or "what will bite the next agent" into it — those go to `epic-N-context-amendments.md` (rulings and amendments), `deferred-work.md` (open threads and review-gate defers), or the cycle's `spec-*.md`. If you are about to add more than one line, you are writing in the wrong file. Same rule for `gds-workflow-status.yaml`.
 
 ## Skill routing
 

@@ -1,21 +1,29 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-08  # cycle 69 (0.17.69), THE SLOPE PAINTS TO THE PEAK (interstitial — Eric's live feedback on 0.17.68, two reports. GREY NO-DATA DELETED, reversing amendment 180 by its own author: he picked it at cycle 68's gate before seeing it on the water, and the AC's "a wedge drawn as clear sea is a lie" reasoning was wrong — the island's far half is visibly missing, so the absence is its own legend. TERRAIN WAS MASKED WITH THE SHIP ANSWER, a real model bug: "is a target at MAST height visible past this" is right for a ship and wrong for a mountainside, because a peak above your antenna is visible precisely because you look UP at it. Unified as requiredHeight = H*(1-visRaw) with a ship as the own-height-equals-mast instance, so ship disclosure and the server gate are byte-identical. Terrain is a SOFT STEP at the ray, never the ship's proportional fraction (0.02-0.15 on a real slope — the fix would have rendered at ~3%). Measured span 30u->69u, tallest painted q182->q251 against a true peak q255. Scope got CHEAPER: stored cells -90% coastal, per-frame roughly halved, retiring cycle 68's min-zoom headroom risk. Client-only + an additive shared query; PV unchanged at 31; 3,598 tests)
-#                          # cycle 59 (0.17.59), FRACTAL TERRAIN — fBm HEIGHT FIELD (interstitial — the cycle-51/52 capsule generator replaced by a genuine fBm height field; coastline is the sea-level isoline, contours are higher isolines of the SAME field; Island.skeleton deleted, replaced by pole/core; star-shape invariant retired, lagoon-freedom now generation-time closure, push-out is nearest-boundary-point; height raster + max-height pyramid retained as future radar-shadow substrate; zero transcendentals on the generation path; PV 28->29)
-#                          # cycle 58 (0.17.57), THE BUFFER FOLLOWS THE VIEWPORT (interstitial — the no-clip fix, redone after cycle 57 was REVERTED for a live rendering regression; client-only, PV unchanged at 28)
-#                          # cycle 57 (0.17.57) REVERTED (PR #108) — derived-extent no-clip attempt; broke world-locking on live. Version number reused by cycle 58.
-#                          # cycle 56 (0.17.56), THE SCOPE PAINTS EVERYTHING IN RANGE (interstitial — sight exclusion retired; sighted ships painted client-side from their Contact; client-only, PV unchanged at 28)
-#                          # cycle 55 (0.17.55), A PAINT IS A HISTORICAL RECORD (interstitial — the sight verdict freezes at paint creation; the sweep is the only thing that paints; client-only, PV unchanged at 28)
-#                          # cycle 54 (0.17.54), the sight-bubble radar gate (interstitial — radar paints nothing inside truesight, per-CELL so straddlers keep their outside portion; client-only, PV unchanged at 28)
-#                          # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
-#                          # cycle 52 (0.17.52), Fractal Island Generation (interstitial — polygon coastlines; PV 27->28)
-#                          # cycle 51 (0.17.51), the radar realism cycle (interstitial — playtest-driven; landed in parallel with Story 4-5, which took cycle 50)
-#                          # cycle 46 (0.17.46), DAMAGE CONTROL heal strip (interstitial)
-#                          # cycle 45 (0.17.45) was the Public Register (interstitial — global kill feed), landed in parallel.
-#                          # cycle 44 (0.17.44) was the per-weapon balance pass, landed in parallel.
+# last_updated: 2026-08-08  # cycle 72 (0.17.72)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
 # story_location: _bmad-output/implementation-artifacts
+
+# SCOPE OF THIS FILE — READ THIS BEFORE ADDING A NOTE
+# ===================================================
+# This is a STATUS TRACKER, and it must stay regenerable by gds-sprint-planning.
+# Every entry carries its status plus AT MOST a ONE-LINE stamp: date, cycle, version,
+# PV, amendment range, pointer. Nothing else. No narrative, no rationale, no measurements.
+#
+# Everything else has a home that is already canonical:
+#   rulings, amendments, design narrative, "what will bite the next agent"
+#       -> epic-N-context-amendments.md   (append-only; amendments 1-215 live there today)
+#   open threads, deferred work, review-gate defers
+#       -> deferred-work.md
+#   per-cycle implementation record
+#       -> spec-*.md, bmad-dev-auto-result-*.md
+#   epic-level lessons
+#       -> epic-N-retro-*.md
+#
+# If you are about to paste more than one line into this file, you are writing in the
+# wrong file. (2026-08-08: ~400 lines of duplicated narrative were removed from here;
+# every word of it was already recorded in the files listed above.)
 
 # STATUS DEFINITIONS:
 # ==================
@@ -56,8 +64,35 @@
 # in epics.md — see _bmad-output/planning-artifacts/sprint-change-proposal-2026-07-19.md.
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
+# INTERSTITIAL CYCLE INDEX — cycles that landed outside a numbered story.
+# One line each. Rulings are in epic-N-context-amendments.md at the cited range.
+#   cycle 42 (0.17.42)  global cooldown reduction
+#   cycle 44 (0.17.44)  per-weapon balance pass — amendments 21-28
+#   cycle 45 (0.17.45)  The Public Register / global kill feed — amendments 29-34; PV 22->23
+#   cycle 46 (0.17.46)  DAMAGE CONTROL heal strip — amendments 58-64; PV 22->23
+#   cycle 47 (0.17.47)  DAMAGE CONTROL rail legibility — amendments 65-68
+#   cycle 48 (0.17.48)  per-shell damage law — amendments 35-39
+#   cycle 51 (0.17.51)  the radar realism cycle — amendments 62-75; PV 26->27
+#   cycle 52 (0.17.52)  fractal island generation (capsule-offset polygons) — PV 27->28
+#   cycle 53 (0.17.53)  the radar heatmap correction — amendments 76-79
+#   cycle 54 (0.17.54)  the sight-bubble radar gate — amendments 80-82
+#   cycle 55 (0.17.55)  a paint is a historical record — amendments 83-87
+#   cycle 56 (0.17.56)  the scope paints everything in range — amendments 88-91
+#   cycle 57 (0.17.57)  REVERTED (PR #108) — broke world-locking on live; version reused by cycle 58
+#   cycle 58 (0.17.57)  the buffer follows the viewport — amendments 95-99
+#   cycle 59 (0.17.59)  fractal terrain / fBm height field — PV 28->29
+#   cycle 62 (0.17.62)  the beam march — amendments 138-144
+#   cycle 63 (0.17.63)  the server rasterizes the hull — amendments 151-159; PV 30->31
+#   cycle 64 (0.17.64)  the bands are flat — amendments 160-163
+#   cycle 65 (0.17.65)  the sweep repaints — amendments 164-166
+#   cycle 66 (0.17.66)  a hull is uniform steel — amendments 167-170
+#   cycle 67 (0.17.67)  aspect stops driving colour — amendments 171-175
+#   cycle 69 (0.17.69)  the slope paints to the peak — amendments 194-198
+#   cycle 71 (0.17.71)  wake length + tail fade — amendments 213-214
+#   cycle 72 (0.17.72)  the storm comes off the scope — amendment 128 retired
+
 generated: 2026-07-17
-last_updated: 2026-08-07
+last_updated: 2026-08-08
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -105,351 +140,29 @@ development_status:
   epic-2-retrospective: done  # epic-2-retro-2026-08-01.md
 
   # epic-3: The Ring
-  epic-3: done  # all 4 stories landed 2026-08-02 (cycle 37); retrospective optional/pending
+  epic-3: done  # all 4 stories landed 2026-08-02 (cycle 37)
   3-1-phased-zone-timeline: done
-  3-2-ring-reveal-storm-rendering: done  # 2026-08-02 dev-auto cycle 33 (0.17.33); design gate closed in-run (amendment 18)
-  3-3-br-chrome-bar: done  # 2026-08-02 dev-auto cycle 36 (0.17.36); amendments 19-21 ratified pre-implementation (all-hulls AFLOAT, urgency-override ring grammar, storm-violet segment)
-  3-4-the-endgame-guarantee: done  # 2026-08-02 dev-auto cycle 37 (0.17.37); amendments 22-24 ratified pre-implementation (radar DERIVED 2×truesight, endgame-gated pilot evidence, geometric no-stalemate bar)
-  epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
+  3-2-ring-reveal-storm-rendering: done  # 2026-08-02 cycle 33 (0.17.33); amendment 18
+  3-3-br-chrome-bar: done  # 2026-08-02 cycle 36 (0.17.36); amendments 19-21
+  3-4-the-endgame-guarantee: done  # 2026-08-02 cycle 37 (0.17.37); amendments 22-24
+  epic-3-retrospective: done  # epic-3-retro-2026-08-03.md
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
-  # INTERSTITIAL 2026-08-08 (dev-auto cycle 67, 0.17.67) — ASPECT STOPS DRIVING COLOUR; THE MASK
-  # CARRIES IT. Amendments 171-175; PV UNCHANGED at 31; client-only; `silhouette` untouched.
-  # Eric asked why bow-on hulls reflect less. The honest answer is that they barely do: a warship's
-  # RCS is dominated by CORNER REFLECTORS — the hull-sea dihedral and the right angles all over the
-  # superstructure — which retroreflect across a wide span of incident angles. Broadside is a peak;
-  # bow-on is typically only ~10 dB down and still an enormous absolute RCS, and on a gain-controlled
-  # marine set a ship reads as a solid bright target from any aspect. The "steel bow-on ~0.25" figure
-  # is labelled IN AMENDMENT 106 ITSELF as an assistant handwave, and was treated as authority.
-  #   AND UNDERNEATH THE BAD NUMBER WAS A REAL DOUBLE-COUNT. `hullSample` computed
-  #   `refl = ship x ext / strongExtent`, but since cycle 63 the COVERAGE MASK already carries aspect
-  #   — a bow-on hull rasterizes to a genuinely small mark on its own. So a bow-on hull was made
-  #   SMALL by the mask AND DIM by the coefficient, twice for one physics. `ext` was ratified as the
-  #   aspect channel (amendment 66) back when a return was an ELLIPSE SIZED BY `ext`; the mask
-  #   replaced it as the size channel and its second job was never removed.
-  #   ERIC'S RULING: COLOUR IS MATERIAL AND RANGE ONLY. Every hull is steel, so every hull reads the
-  #   same register at the same range; the mask alone says battleship rather than torpedo boat.
-  #   SIZE carries size, COLOUR carries strength-vs-range. `hullSample` returns `m.ship` flat.
-  #   THE FIT BECOMES A PURE RANGE STATEMENT: `ship x attenuation(farRadar) = bands[2].at`, with no
-  #   hull in it, re-solved to pointRef 708.596u (was 558.505u). Every hull crosses red->blue at 7/8
-  #   intel range whatever its class and aspect — which is what amendment 118 actually asks for.
-  #   IT RETIRES THE CYCLE-63 CROSSOVER BAND (amendments 158, 159k) entirely: no mask-derived extent
-  #   feeds intensity, so lattice phase and glint cannot move the crossover. It is exact under the
-  #   grain too — `noise.solidAt` is pinned to the same `bands[2].at`, where the envelope is zero.
-  #   DELETED AS DEAD: `coverageExtent` (+ its Vec2 pool), `strongExtent`/`HEAT_STRONG_EXTENT`, and
-  #   `stampCoverage`/`buildShipStamp`'s `obs` parameter — a hull's material cannot depend on who is
-  #   looking at it, and a dead knob reads as tunable.
-  #   MEASURED (3 classes x broadside/bow-on, identical to 4dp at every range): 200u 0.9938 RED,
-  #   400u 0.9097 RED, 577.5u 0.7000 (RED at the model; BLUE once the 9u lattice quantizes the
-  #   sampled range), 660u 0.5792 BLUE. Aspect reads off mask WIDTH ACROSS THE BEARING (TB 125u
-  #   broadside vs 36u bow-on); class off cell count (BB 77 vs TB 42).
-  #   THREE PINS RETIRED, NOT ADAPTED (amendment 169's pattern, fourth cycle running): the cycle-63
-  #   crossover-BAND pin + its `coverageExtent` accuracy pin; READING 4 "a battleship broadside still
-  #   reads RED at the rim"; and "a bow-on hull reads far weaker than the same hull abeam".
-  #   NOT CHANGED: `landSteep` stays 1.0 — terrain was reported as looking right, so it is left alone.
-  # INTERSTITIAL 2026-08-08 (dev-auto cycle 66, 0.17.66) — A HULL IS UNIFORM STEEL. Amendments
-  # 167-170; PV UNCHANGED at 31; client-only; NO coefficient moved (the fix DELETES a multiplier).
-  # Eric: "Ships are not being painted red enough, and they are getting far too much green around
-  # their fringes... Islands look pretty good right now, ships still do not." The bands were right —
-  # the islands proved it. Cycle 63 scaled every hull cell by `depth / maxDepth`; harmless on a
-  # landmass, fatal on a hull. At the 9u lattice a torpedo boat is 13x3 cells dilated, maxDepth 2, so
-  # 72% OF THE SHIP WAS DRAWN AT HALF REFLECTIVITY (ML 58%; BB mostly 1/3-2/3). The core was red as
-  # the amendment-118 fit intended; two thirds of the mark around it fell into blue and green.
-  #   UNIFORM IS PHYSICALLY RIGHT: reflectivity is a MATERIAL property and a hull is one material end
-  #   to end (amendment 106 — steel 1.0, rock cliff 0.5). Terrain earns its gradient because its
-  #   reflectivity genuinely varies with height; a hull's does not.
-  #   AMENDMENT 77 IS SATISFIED BY TERRAIN, NOT BY EVERY OBJECT. Its concern was colour as a per-object
-  #   LABEL; a uniform hull whose register tracks aspect and range is colour-as-intensity, i.e. the
-  #   rule obeyed. Do NOT restore a per-object gradient to satisfy 77.
-  #   RESULT: a broadside hull reads RED across its whole footprint to ~605u (TB) / ~571u (ML) /
-  #   ~660u (BB); bow-on stays blue/green, which is aspect and is table-correct.
-  #   NOT CHANGED, deliberately: landSteep is 1.0, equal to steel, where the table puts rock at 0.5.
-  #   Islands look right, so the ratio is left alone — but it is the lever if ships and terrain ever
-  #   need re-separating.
-  # INTERSTITIAL 2026-08-08 (dev-auto cycle 65, 0.17.65) — THE SWEEP REPAINTS. Amendments 164-166;
-  # PV UNCHANGED at 31; client-only. THE ROOT CAUSE OF FOUR CYCLES OF "the intensity still varies",
-  # and it was never a colour problem. `writeCell` was MAX-WINS ON INTENSITY and wrote the winner's
-  # AGE with it, so a cell painted three sweeps ago at 0.8 and repainted now at 0.7 kept the stale
-  # paint AND its faded alpha — the fresh return was DISCARDED. With the SNR grain jittering intensity
-  # every paint, that hit ~half of all cells at random: "repainting doesn't repaint it" was literally
-  # true, and one object mottled because every cell froze at whichever sweep won it.
-  #   NOW FRESHEST-WINS, ties broken by strength. Age orders it because blipAlpha is monotonically
-  #   decreasing in age, so no per-cell timestamp is needed; equal alpha = same paint, where max-wins
-  #   still gives hull-over-terrain. Paints still never SUM.
-  #   THE f32 TRAP: g.a is a Float32Array, so `alpha === g.a[i]` on an f64 is ALWAYS false and the
-  #   rule silently degrades to last-write-wins. The incoming alpha is Math.fround'ed.
-  #   Registers are pure primaries (#FF0000/#00FF00/#0000FF) at a fixed bandAlpha 0.8, pinned exactly.
-  #   Pure green (120 deg) left the phosphor band (152 +/-20), so splash separability is defended by
-  #   HUE again and the tokens premise was inverted rather than adapted.
-  #   LESSON: the symptom was read as a COLOUR problem for four cycles. Cycle 64 fixed a real per-band
-  #   opacity ramp and stopped searching. The dominant cause was one layer below, in the write
-  #   chokepoint. When a symptom survives a fix that genuinely addressed part of it, the remaining
-  #   cause is usually at a different LAYER than the part already fixed.
-  # INTERSTITIAL 2026-08-08 (dev-auto cycle 64, 0.17.64) — THE BANDS ARE FLAT. Amendments 160-163;
-  # PV UNCHANGED at 31; client-only. Cycle 63 shipped a per-band OPACITY RAMP (green 0.4 / blue 0.56 /
-  # red 0.72), so a weaker register was drawn fainter — brightness became a SECOND encoding of return
-  # strength on top of hue, the exact redundancy amendment 64's three-channel split forbids. It got in
-  # as "translucency tuning" (amendment 144) rather than as a channel, and its own comment had already
-  # rationalised the ratios into "what carry the three registers apart". Eric: "I told you pretty
-  # clearly not to vary the intensity per color band. At all... There's no darker blue because its
-  # 'less intense in the moderate band.' That's not what the colors are for."
-  #   HeatBand now has NO `alpha` member and quantizeInto takes ONE scalar bandAlpha (0.55) — three
-  #   EQUAL fields would be a knob someone re-tunes back into a ramp; a missing field is
-  #   unrepresentable. OPACITY CARRIES AGE AND ONLY AGE (phosphor decay untouched), pinned as a
-  #   PROPERTY both ways because the type change alone cannot stop the arithmetic reintroducing a ramp.
-  #   AMENDMENT 142 STANDS: the clamping Eric wanted was always on the COLOUR OUTPUT, never the
-  #   elevation data — continuous 256-level height still feeds the model and 4.11's shadow length.
-  #   Height decides WHICH band a cell lands in, never how bright it is drawn.
-  #   TUNING: green is the most numerous register and was previously hidden by being drawn faintest,
-  #   so the scope carries more green now. If that reads busy, the lever is the AMOUNT of green
-  #   (clutter/land coefficients, or bands[0].at) — NEVER its brightness.
-  # INTERSTITIAL 2026-08-07 (dev-auto cycle 63, 0.17.63) — THE SERVER RASTERIZES THE HULL, AND THE
-  # RASTER IS FUZZY. Amendments 151-159; PV 30 -> 31 (wire shape change, then a VALUE change within
-  # the same shape at the review gate — the lattice moved, so the same bump covers both). Eric, on
-  # the 0.17.62 build: "the ship painted on radar isn't even 'pointed' the same direction it is
-  # moving... The server can simply provide the radar raster can't it?" `ReturnBlipEvent` went from
-  # {k,id,x,y,t,ext} to {k,t,gx,gy,w,h,bits}: a world-anchored coverage footprint and NOTHING else —
-  # no id (no cross-sweep correlation handle exists at all), no class, no heading, no ext, no exact
-  # position. The server does GEOMETRY only (shared sim/radarRaster.ts, both sides run it); the
-  # client keeps the whole intensity model, with "depth into the coverage" as the amendment-77
-  # core->edge term. blipGate untouched; terrain stays client-side; decoys run the same pipeline
-  # from their frozen pose (amendment 11 by construction).
-  # THE REVIEW GATE THEN RULED THE RASTER MUST BE FUZZY (amendments 156-159): the sharp mask made
-  # ship class FREE TO READ (all six hull envelopes pairwise-distinct cell templates — reversing
-  # amendment 68's "learnable, not easy" and putting ohzie's "I can tell what you are" back on the
-  # scope). Three physical mechanisms, one shared pipeline (`paintCoverage`): a coarser lattice
-  # (radarCellU 6 -> 9), one-cell beam-smear dilation, and per-paint edge glint seeded from (tick,
-  # exact pose) — NEVER a ship identity, so the jitter cannot become a correlation handle. Measured
-  # (radarRaster.test.ts): sharp masks were a lookup table at every aspect; fuzzed, every hull's
-  # (long, short, cells) ranges overlap a neighbour's at every aspect, while BB-vs-TB still separates
-  # cleanly over the 3-paint phosphor window and orientation reads on every single paint. A SPINE
-  # RULE was forced by the coarser lattice (a TB's 9u beam can straddle a row and lose every cell
-  # centre — the bow->stern centre-line now always rasterizes). The amendment-118 crossover is now a
-  # measured BAND (~[rung-60u, rung+35u]), pinned at its worst draw. Gate mechanicals: both client
-  # blip validators hardened AT THE ADAPTER (t/index bounds, derived span cap, pending-park cap,
-  # silhouette branch), non-finite-pose and centre-cell guards in the rasterizer, 4-connectivity
-  # re-established by construction (bridge repair — dilation alone is NOT moot under glint), the
-  # return-mode perception COMPLETENESS oracle (exactly one blip per gated subject — the no-id fuzz
-  # was upper-bound-only), the exact quantized-mask placement pin at the Pixi adapter, and the
-  # lattice pinned beside PROTOCOL_VERSION so retuning it is a deliberate wire decision. Cost:
-  # client 0.77/0.90/1.20 ms at 1.5x/1.0x/0.5x zoom (min zoom CHEAPER than cycle 62's 1.46 — the
-  # buffer shrank 2.25x); server ~15-25 us/paint at well under one paint per observer per tick.
-  # ACCEPTED LIMIT, stated not overclaimed: a correlating client can average sweeps toward the true
-  # envelope — the bar is amendment 68's "not easy", not cryptographic indistinguishability.
-  # INTERSTITIAL 2026-08-07 (dev-auto cycle 62, 0.17.62) — THE BEAM MARCH.
-  # Amendments 138-144. CLIENT-ONLY; PV UNCHANGED at 30; `silhouette` grammar byte-identical; no
-  # server file touched and no CONFIG.vision or combat tunable moved. CORRECTIVE: Eric, on the
-  # shipped 4.10 build, "What I wanted you to accomplish was to have the radar correctly paint
-  # EVERYTHING it sweeps over... as the sweep line sweeps, you're supposed to be radar painting that
-  # entire line from the ship to the terminus." THE PRIMITIVE IS INVERTED — radar stops asking each
-  # OBJECT what it looks like and asks each BEARING what is out there. Two new pure modules:
-  # render/radarField.ts (ONE queryable world field: terrain from `sampleHeight`, a per-frame
-  # cell-indexed ship stamp, the storm wall, sea clutter — each answer carries its material
-  # coefficient AND its geometry class, so the march never decides what kind of thing it hit) and
-  # render/radarMarch.ts (rays at a derived angular quantum, marched to the terminus, emitting SLICE
-  # records of frozen cells). The per-object bakes are DELETED, not ported.
-  # THE DEFECT OF RECORD (amendment 139): `faceShadow` was the near-face criterion FOR A DISC, so on
-  # an elongated fractal island a LATERAL tip scored ~-0.6 against a 0.3 ramp and clamped to zero —
-  # every long tail and side extremity was suppressed regardless of facing, which is the diagonal cut
-  # Eric saw. Reproduced as an A/B in radarMarch.test.ts (the retired criterion is re-implemented
-  # there and shown to kill >25% of a 520x30 ridge) and then fixed.
-  # FIVE THINGS THAT WILL BITE THE NEXT AGENT.
-  # (1) NOTHING OCCLUDES ANYTHING (amendment 140) — near-face terminator, cross-island segment test
-  # and clutter occluder mask all deleted from the paint path. This is a KNOWING, TEMPORARY
-  # regression against "islands block every sensor", scoped to the client PAINT LAYER and accepted on
-  # the explicit promise that 4-11 restores it as a height-derived shadow LENGTH along the same ray.
-  # NOT ONE SERVER GATE MOVED: blipGate, pointSighted, pointDetected, the muzzle/smoke halos and the
-  # foghorn muffle are byte-identical. A hull behind a headland now paints, and there is a test that
-  # says so on purpose.
-  # (2) THE GRAIN IS SNR NOW (amendment 143): amplitude is largest at the detection floor and ZERO at
-  # `bands[2].at`. That REPLACED the flat +/-30% every coefficient bound was proved against, so all of
-  # them were re-derived (amendment 135 binds twice over) — clutter 0.105 -> 0.095, storm held at 0.5,
-  # landFlat 0.35 -> 0.3, surfaceRef 700 -> 900. The old `noise: 0.3` number no longer exists.
-  # (3) SLICES ARE EMITTED PER ANGULAR QUANTUM, NOT PER FRAME (`march.sliceRad`), so the list depth is
-  # a function of sweep rate and persistence and NOT of fps: ~124 slices/revolution, ~367 live at the
-  # shipped 3-sweep depth. There is no per-track cap any more — a slice is a wedge of the world, not a
-  # mark on an object — so retirement is by TIME alone.
-  # (4) THE TWO HULL SOURCES ARE NO LONGER SYMMETRIC IN TIMING, deliberately: a wire echo is ALREADY
-  # sweep-gated by the SERVER's beam, so it marches on arrival (waiting for the local beam would paint
-  # it up to a revolution stale — 180u on a torpedo boat). A sighted hull is stamped into the field and
-  # painted by the local beam. Same model, same slice list, same footprint machinery.
-  # (5) `setIslands` IS GONE. The march's only terrain input is the cycle-59 HEIGHT RASTER, whose
-  # land/water truth IS the shipped coastline's mask (`height > 0` iff LAND) — so a second polygon
-  # field would be a second source of truth for the same question. Height is read CONTINUOUSLY, never
-  # terraced (amendment 142). SURF was dropped with the bake that carried it (its ratified basis was
-  # "near face only, inheriting the island's terminator", and the terminator is gone).
-  # Measured 1.44 ms at 0.5x zoom, 0.78 at 1.0x, 0.67 at 1.5x — CHEAPER than cycle 61's 1.70/1.10/0.90
-  # despite painting far more of the world, and inside the 2.5 ms gate.
-  # INTERSTITIAL 2026-08-06 (dev-auto cycle 58, 0.17.57) — THE BUFFER FOLLOWS THE VIEWPORT.
-  # Amendments 95-99. Client-only; PV unchanged at 28. The no-clip fix, REDONE after cycle 57 was
-  # reverted (PR #108) for a live rendering regression — islands drifting with the boat, paints
-  # diffused and misplaced. Cycle 57's root cause, recorded because it is the lesson: it recomputed
-  # and RE-CENTRED a paint-driven rect every frame and placed the sprite at that moving origin, so
-  # the cell<->world mapping stopped being world-locked; it reached production because a green PURE
-  # -module suite was accepted as proof that ADAPTER PLACEMENT was right. It is not (amendment 98).
-  # THE REPLACEMENT IS ERIC'S OWN FRAMING and is simpler: the buffer is a SCRATCH SURFACE, not
-  # storage. History lives in the world-positioned paint list, re-rasterized every frame, so the
-  # buffer only needs to cover the VIEWPORT — origin following the camera, SNAPPED to whole world
-  # cells (that snap is what keeps a paint's cells still while the camera moves over them). No
-  # worst-case allocation, no derived speed bound, no paint-driven rect that can drift. Note the
-  # placement EXPRESSION is byte-for-byte what shipped pre-57; only the centre and extent changed.
-  # ERIC'S CONSTRAINT, stated and confirmed: paint recorded while zoomed IN must appear on zoom-OUT.
-  # It holds because the viewport is never consulted at record time, which is now the invariant:
-  # NOTHING VIEWPORT-DERIVED MAY TOUCH PAINT CREATION OR RETIREMENT. Creation stays gated on sweep +
-  # radar range + LOS; retirement on time alone. Pinned behaviourally — three radars at three zooms
-  # and camera positions produce byte-identical paint lists.
-  # KNOWN PERF CEILING, flagged not hidden: cost scales with VISIBLE AREA (amendment 99). Typical
-  # play is FASTER than the old ring-sized square (0.18-0.50ms vs 0.24-0.26), and base zoom-out is
-  # ~0.95ms — but a MAXED INTEL RADAR (radarRange 1327.5, which zooms the camera out proportionally)
-  # at 0.5x measures ~7ms/frame CPU on a 16.7ms budget, plus a 5.4MB/frame texture upload that jsdom
-  # could NOT measure. Late-game, opt-in, and not a correctness risk, but it needs a real-browser
-  # check. Cheapest lever if it bites: CLIENT_CONFIG.blip.heatmap.cellU (coarsen the paint as the
-  # visible area grows). Anything smarter is either paint-driven (cycle 57) or puts the viewport into
-  # creation (amendment 97) — so it would need an Eric ruling, not an implementer's judgment.
-  # INTERSTITIAL 2026-08-06 (dev-auto cycle 56, 0.17.56) — THE SCOPE PAINTS EVERYTHING IN RANGE.
-  # Amendments 88-91. Client-only; PV unchanged at 28. RETIRES amendment 81 (cycles 54-55's sight
-  # exclusion): radar now paints everything within radar range, INCLUDING inside truesight, so a
-  # sighted hull shows both channels — the live ship AND its echo. Amendment 83 (a paint is a
-  # historical record) is UNAFFECTED: one frozen FIELD was removed, not the freezing discipline.
-  # THE PART THAT IS NOT OBVIOUS: the server has never sent a blip for a sighted ship (`blipGate`
-  # excludes dist <= sightRange — it is delivered as a full Contact instead), and that is a
-  # perception-invariant surface that MUST NOT CHANGE. So sighted ships are painted CLIENT-side,
-  # synthesized from the Contact (which carries cls + heading, all `perpendicularExtent` needs).
-  # Discloses nothing — a sighted hull is already fully visible. The sweep still gates creation.
-  # The two sources are exact complements off ONE radius (`fogHoleRadiusU`), which therefore keeps a
-  # job but changes it: source SELECTOR, not suppressor — and the dazzle plumbing from cycle 54 is
-  # now load-bearing for CORRECTNESS, since a dazzled client would otherwise synthesize an annulus
-  # the server had already begun blipping. Pinned by a 1-660u total-partition test.
-  # KNOWN ARTIFACT, inherent and not fixable client-side: under HC_RADAR_IDENTITY=pseudonym (the
-  # PRODUCTION setting) wire blips carry trk-xxxx while contacts carry the real ship id, so a hull
-  # crossing the sight boundary can briefly hold TWO ghost trains (<=6). Joining them would require
-  # disclosing the pseudonym mapping, which is the thing anonymization exists to prevent. In roster
-  # identity the keys are identical and the cap is shared.
-  # Amendment 91 DEFERS the matching projectile work to its own cycle: painting shells on radar is
-  # NOT a render change (ballistics are revealed only inside sight today), so it needs server-side
-  # disclosure, a PV bump, and the no-range-derivable-field rule held at the wider radius.
-  # INTERSTITIAL 2026-08-06 (dev-auto cycle 55, 0.17.55) — A PAINT IS A HISTORICAL RECORD.
-  # Amendments 83-87. Client-only; PV unchanged at 28. Corrects cycle 54's EVALUATION TIME (its
-  # intent stands): the per-cell sight test ran in `writeCell` against the LIVE grid anchor every
-  # frame, so an island cell already inside the swept arc lit up the moment the observer moved away
-  # — painting with no sweep, which Eric ruled out flatly: "THE RADAR SWEEP IS THE ONLY THING THAT
-  # PAINTS. EVER." The fix freezes the observer position + sight radius onto each PAINT at creation
-  # and tests against those, never live state. This follows precedent rather than inventing one:
-  # ShipPaint already froze bearing/dist (which is why range attenuation never changed as you sailed
-  # away) and IslandPaint.cover already baked intensity and faceShadow from the observer at paint
-  # open — the sight verdict simply joins them. HeatGrid's live obsX/obsY/sightR2 are DELETED.
-  # THE GOVERNING INVARIANT, and the thing to check first for any new radar behavior (amendment 83):
-  # a paint is a historical record — position, intensity, band, and whether a cell paints at all are
-  # decided ONCE at creation; only alpha changes afterward, via time-based phosphor decay
-  # (blipAlpha over sweepPeriodMs x persistSweeps, ~12s; range and beam play no part, so anything
-  # leaving radar range still fades out on its own).
-  # ACCEPTED CONSEQUENCE, not a regression (amendment 86): a decaying ghost MAY sit inside the sight
-  # bubble if it was legitimately swept from outside and the observer then closed on it. Erasing it
-  # would reintroduce the very live re-evaluation this cycle removes. Pinned by test.
-  # INTERSTITIAL 2026-08-06 (dev-auto cycle 54, 0.17.54) — THE SIGHT-BUBBLE RADAR GATE.
-  # Amendments 80-82. Client-only; PV unchanged at 28. Closes an inconsistency cycle 53 left: ship
-  # echoes never appeared inside truesight (the SERVER's `blipGate` has always excluded dist <=
-  # sightRange, since a sighted hull is a full Contact) but island coverage is client presentation
-  # off the map seed and had no sight term, so coastline painted straight through the bubble.
-  # Eric closed it toward NONE — inside truesight you are LOOKING, and the scope adds nothing.
-  # THE GATE IS PER-CELL, NOT PER-OBJECT, which is the load-bearing detail: a straddling island or a
-  # hull at the boundary still paints the portion OUTSIDE sight. That is only expressible because
-  # amendment 76 moved to per-pixel intensity — a polygon carries one fill and would have had to be
-  # wholly in or wholly out. Cutoff calls `fogHoleRadiusU()` itself rather than re-deriving it, so
-  # the suppression edge IS the drawn fog hole; dazzle had to be plumbed into the radar (it reached
-  # only the fog before), or a dazzled observer would get a shrunken hole against an unshrunken
-  # suppression disc — a dead annulus, fogged AND unpainted. Gate lives at STAMP time, not bake:
-  # island coverage is cached per beam revolution while the observer moves continuously.
-  # INTERSTITIAL 2026-08-05 (dev-auto cycle 53, 0.17.53) — THE RADAR HEATMAP CORRECTION.
-  # Amendments 76-79. Client-only; PV UNCHANGED at 28. Eric's live feedback on cycle 51's return
-  # grammar, and it is a GRAMMAR replacement, not a tuning pass: the per-blip POLYGON model is gone.
-  # Two complaints, one root cause — a polygon carries ONE fill, so color became a per-OBJECT label
-  # (and `ext` legitimately swings with aspect, so the same hull really did change color as it
-  # turned), and an island could only be APPROXIMATED by scattering small polygons along its arc.
-  # Returns are now rasterized into a WORLD-ANCHORED intensity grid (6u cells over 2x radar range,
-  # origin snapped to a whole cell so a coastline does not shimmer as you steam past) and quantized
-  # into EXACTLY THREE colors with NO blending: green "could be something tiny" / blue "probably a
-  # thing, but fuzzy" / red "definitely a thing". A single object now spans all three — that is the
-  # headline requirement and it is pinned by test. History lives in a PAINT LIST re-rasterized every
-  # frame, never a decayed-in-place buffer (the observer moves, so in-place would smear or drag).
-  # ISLANDS PAINT AS SOLID MASSES OFF THEIR REAL `poly` — this also FIXES a defect cycle 52 created
-  # silently: `Island` is structurally assignable to `Circle`, so the radar kept compiling and its
-  # tests kept passing while painting the BOUNDING CIRCLE, which can sit well offshore of a fractal
-  # coastline. Guard test fails by construction against the old behavior.
-  # INTERSTITIAL 2026-08-05 (dev-auto cycle 51, 0.17.51) — THE RADAR REALISM CYCLE. PV 26->27.
-  # Landed in PARALLEL with Story 4-5 (the foghorn): both branched from PV 25 and both claimed 26,
-  # 4-5 merged first, so this cycle renumbered to 51/PV 27 and its amendments 51-64 -> 62-75.
-  # Amendments 62-75. NOT an epic story: driven by playtest feedback from ohzie (day-one player)
-  # — "It's almost too much information ... I can tell what you are and whether you're a player ...
-  # when everyone's just a blip, chasing a blip is a risk, and risks get your blood up."
-  # A SECOND radar grammar ships ALONGSIDE story 4-2's silhouette grammar, selected by two
-  # INDEPENDENT SERVER-SIDE env flags (HC_RADAR_GRAMMAR=silhouette|return,
-  # HC_RADAR_IDENTITY=roster|pseudonym), BOTH DEFAULTING TO TODAY'S BEHAVIOR — production is
-  # byte-identical until a flag is flipped (golden-frames snapshot: 131 additions, 0 deletions).
-  # This is the option amendment 8 explicitly DECLINED at 4-2's own question gate, returning on
-  # evidence; amendments 7/8/10/12/13 are CONDITIONALLY superseded (in `return` mode only).
-  # In `return` mode BlipEvent drops cls/heading/speed for ONE continuous `ext` scalar — the hull
-  # silhouette's extent projected PERPENDICULAR to the observer->target bearing, so a battleship
-  # bow-on (32u) paints smaller than a torpedo boat abeam (100u) and size STOPS MAPPING TO CLASS.
-  # Class becomes learnable-by-skill rather than stated (amendment 68, Eric: "if you learn what a
-  # particular ship class looks like under radar, then that's player skill because it should not be
-  # easy"), drones are INDISTINGUISHABLE from captains, and the ARPA speed vector dies — course and
-  # speed demote from readout to INFERENCE off the 3-paint ghost track, which is exactly the ground
-  # amendment 9 stood on. Islands now paint coast returns (client-only, from the map seed, near-arc
-  # with cross-island LOS). Hue is respent from IDENTITY to RETURN STRENGTH: amendment 65 first made
-  # radar monochrome, then Eric saw it on water and ruled the Garmin echo scale (amendments 74-75) —
-  # return-mode echoes run blue->green->yellow->red by strength while the SWEEP stays phosphor green.
-  # The ramp passes THROUGH the reserved amber and red bands, so amber is not visually free even
-  # though the amber TOKEN is still unspent and reserved for a future sound sensor (amendment 71).
-  # THREE QUESTIONS DELIBERATELY LEFT OPEN by Eric, all ledgered in deferred-work.md: Bounty Bloom
-  # (blocks/reshapes STORY 4-6 — see the note on that line), the colorblind assist under `return`
-  # mode, and the sonar hue vs the listening ring.
-  # DEFERRED 2026-08-04 by Eric ruling (bmad-dev-auto-result-4-1-listening-ring-deferred.md;
-  # epic-4-context-amendments.md amendment 1): hydrophone sensor tier not built — enough
-  # information channels already, active sonar is coming, and the ring's value is contingent on a
-  # torpedo/mine rebalance that hasn't happened. Not cut; revivable by a later explicit ruling.
-  4-1-the-listening-ring: deferred
-  4-2-class-legible-blips: done  # 2026-08-04 dev-auto cycle 41 (0.17.41); PV 19->20; amendments 7-14 ratified pre-implementation (TRUE-SCALE silhouette blips supersede the DESIGN.md px table/floor-clamp/3x ML notch; 3-paint persistence; decoy = radar reflector at frozen pose, speed 0; algorithmic luminance floor)
-  4-3-the-gunnery-conversation: done  # 2026-08-04 dev-auto cycle 43 (0.17.43); PV 21->22; amendments 15-20 ratified pre-implementation (muzzle flash carries to a DERIVED SIGHT*1.5 495u halo, LOS-blocked — not radar range, not map-wide; fall-of-shot splash SELF-PRIVATE and gun-family only, resolving FR16 "own" vs EXPERIENCE.md:181's unqualified line in FR16's favor; the Hit Call is SHOOTER-ONLY and knowingly SUPERSEDES the boom row's "hit confirmation beyond sight would leak contact presence" rule for the owner-hit case, because the ratified decoy oracle depends on it; Hit Call covers ALL ordnance incl. mines; the flash is NEUTRAL — position only, never who or which weapon, DESIGN.md:239 beating UX-DR7 for this signal; flash is gun-family only, upholding the torpedo's shipped "quiet weapon" status). Three declared perception-invariant exceptions, each with its own independent oracle. Also promoted `muzzle`/`spark` OUT of isJuiceEffect (they are information now, so they survive motion=off) — Story 4-8 inherits that changed split
-  # INTERSTITIAL 2026-08-04 (dev-auto cycle 45, 0.17.45) — THE PUBLIC REGISTER (global kill feed).
-  # Developed in PARALLEL with the cycle-44 balance pass and landed second: renumbered 44->45 and
-  # its amendments 21-26 -> 29-34 on merge, since the balance pass had taken 21-28.
-  # Not a numbered story; spec-global-kill-feed.md, amendments 29-34. PV 22->23. `sunk` becomes the
-  # 4th declared perception-invariant exception (witnessed || credited-to-you || victim-is-combatant),
-  # with a per-observer `seen` flag keeping everything SPATIAL as gated as before. Drones are not
-  # combatants (their sinkings reach only the witness and the killer); AFLOAT now counts captains only
-  # (supersedes epic-3 amendment 19). Feed 6 lines / 8s TTL.
-  # HANDS OFF TO 6-3: the matching win-condition change (drones must NOT gate the win) was deferred by
-  # Eric to Story 6-3 below. Match.checkWin() is untouched — see amendment 23 for why the naive
-  # removal breaks the solo path (drones.test.ts / dronesSmoke.mjs at minHumans:1).
-  4-4-wounded-smoke: done  # 2026-08-05 dev-auto cycle 49 (0.17.49); PV 24->25; amendments 40-50 ratified pre-implementation. `sm` is the FIFTH declared perception-invariant exception (joining 4.3's sp/hc/mz and cycle 45's sunk) and is a first TWICE OVER: the first enemy-HP-derived information ever put on the wire, and the first PERSISTENT fog-piercing signal (the other four are one-tick pulses). Eric's own question — "don't we have the HP bar turning yellow or red already?" — reframed the story mid-gate and moved him OFF his first answer (truesight-only texture) onto a real fog-piercing channel: smoke tiers ARE the own-vitals rail bands (light <50%, heavy <25%), so `CONFIG.damageBands` was PROMOTED to shared and `CLIENT_CONFIG.vitals` now REFERENCES it — exactly one set of 0.5/0.25 exists in the codebase and a future rail retune moves the smoke with it. Reach reuses `CONFIG.vision.muzzleFlash` (495u) rather than adding a fourth vision constant, so all new disclosure happens in the 330-495u annulus and radar stays the only long-range sensor. The plume is ATTACHED and drifting (not a track), NEUTRAL (no id/hue/class for anyone, so no correlation handle exists on the wire and the client synthesizes persistence the phosphor way), islands BLOCK it, you see your OWN plume, and every hull with hp smokes incl. drones. No audio twin — 4.7 owns that.
-  4-5-the-foghorn: done  # 2026-08-05 dev-auto cycle 50 (0.17.50); PV 25->26; amendments 51-61 ratified (51-59 at a pre-implementation gate, 60-61 post-review). The foghorn SHIPS — 4-5 does NOT defer, and amendment 4's open question is CLOSED: it grew its own bearing surface. `fh` is the SIXTH declared perception-invariant exception and the FIRST signal whose payload varies BY OBSERVER in substance rather than by a flag — a fogged listener gets bearing + volume tier ONLY (no position, no id, no correlation handle), the honker gets {self}, a spectator gets position. Volume tiers scale with the LISTENER's effective ranges (sightOf / max(1.5*sight, muzzleFlash) / radarRange, max()-clamped monotone so an intel build hears farther and DAZZLE CANNOT ALSO DEAFEN). ISLANDS MUFFLE BY EXACTLY ONE TIER (1->2, 2->3, 3->inaudible) — the FIRST dent in the 2026-08-02 "islands block every sensor" law, and Eric reversed his own full-carve-out answer mid-run to get it, because terrain must keep working as a hiding mechanism if a bearing-grade sound sensor is ever revived. Visual twin is a SCREEN-EDGE CHEVRON (deliberately foghorn-shaped, not sensor-shaped — a revived 4-1 inherits nothing). Key is F as reserved, closing UX open question #20; 1.5s cooldown; a denied press is COMPLETELY SILENT (amendment 60 — the horn was the only `denied` site in the client with no visual twin, so Eric dropped the orphan cue rather than invent a surface). THE WIRE CARRIES A HORN VARIANT ID — a knowing, narrow break with amendments 19/45's neutral-signal rule, justified because an emote is information a captain SPENDS, not leaks — behind a sample-capable audio seam with EXACTLY ONE synthesized horn shipped. ADDING HORN VARIANTS IS ERIC-GATED CONTENT. Own honks are never client-predicted.
-  4-6-the-bounty: backlog  # SCOPE CHANGED 2026-08-05 (cycle 51, amendment 71): DESIGN.md:237's Bounty Bloom is specced as "an expanding ring in the leader's personal color around their class blip at true position" — and `HC_RADAR_GRAMMAR=return` deletes BOTH of those channels (personal hue on radar, and the class blip). 4-6 must resolve it, and Eric declined to rule at cycle 51's gate: "I don't know honestly because I haven't addressed the 'bounty' story at all yet. I'm not sure I want the kill leader's position to be known globally, for example." Note the deeper question that raises is NOT a rendering question — whether a global position broadcast should exist at all is a fog-of-war call that would touch the master perception invariant's declared-exception list (now 6 after 4-5's `fh`: sp/hc/mz/sunk/sm/fh). Options surfaced and NOT chosen: a hueless expanding ring on an anonymous return (keeps "someone is leading, over there", loses "who"), a sanctioned identity exception on radar, or dropping the feature. See deferred-work.md, cycle-51 block.
+  epic-4: in-progress  # see the interstitial cycle index above for non-story cycles in this epic
+  4-1-the-listening-ring: deferred  # 2026-08-04 Eric ruling; amendment 1; bmad-dev-auto-result-4-1-listening-ring-deferred.md
+  4-2-class-legible-blips: done  # 2026-08-04 cycle 41 (0.17.41); PV 19->20; amendments 7-14
+  4-3-the-gunnery-conversation: done  # 2026-08-04 cycle 43 (0.17.43); PV 21->22; amendments 15-20
+  4-4-wounded-smoke: done  # 2026-08-05 cycle 49 (0.17.49); PV 24->25; amendments 40-50
+  4-5-the-foghorn: done  # 2026-08-05 cycle 50 (0.17.50); PV 25->26; amendments 51-61
+  4-6-the-bounty: backlog  # SCOPE CHANGED 2026-08-05 (amendment 71) — `return` grammar deletes both channels the Bounty Bloom is specced on; Eric declined to rule. See deferred-work.md, cycle-51 block
   4-7-the-real-time-sound-map: backlog
   4-8-attention-priority-the-readability-gate: backlog
-  # THE RADAR PHYSICS ARC (stories 4-9 .. 4-12), added 2026-08-06 from a live Eric design
-  # conversation opened right after cycle 59 landed island elevation. DESIGN CONTRACT: amendments
-  # 100-118 in epic-4-context-amendments.md — those are the rulings, the specs derive from them, and
-  # on any apparent conflict the amendments win and the conflict gets REPORTED, not resolved.
-  # ERIC: these are NEXT, before anything else in the epic ("I am 100% doing them next"), and they
-  # are nonblocking on 4-6/4-7/4-8. Sequence within the arc is 4-9 -> 4-10 -> 4-11 -> 4-12.
-  # THREE THINGS THAT WILL BITE WHOEVER PICKS THESE UP:
-  #  (a) AMENDMENT 100 IS SUPERSEDED IN PART BY 115. Realism is the IDEA SOURCE and the tiebreaker
-  #      on presentation; FUN WINS ON MECHANICS. Eric: "im not really married to realism, i want
-  #      semi-realism but fun gameplay." Do not cite 100's "realism is the default" clause.
-  #  (b) COLOUR IS INTENSITY, NEVER CATEGORY (105, re-ratifying 77). The supplied consumer-radar
-  #      colour taxonomy is a BASIS for extrapolation, not a spec — most of its entries have no
-  #      referent in this game. Object type may reach colour ONLY through physical properties.
-  #  (c) LAND IS SACRED (116). Sensor upgrades buy REACH; nothing buys past terrain. The mast-height
-  #      card was proposed and REJECTED — at a stack matching the shipped intelRadar multiplier it
-  #      would have deleted hard cover from the map. Four sensor cards are PARKED in amendment 117
-  #      (Intel Range consolidation, Doppler-as-a-mode, the low-band set, Active Sonar on R); none
-  #      may be built inside this arc without a fresh Eric ruling (amendment 112).
-  4-9-the-eighths-ladder: done  # 2026-08-07 dev-auto cycle 60 (0.17.60); PV 29->30; amendments 121-125 (121-123 at a pre-implementation gate, 124-125 post-review). INTEL RANGE is the one ruler and every sensor boundary is a named eighth of it, all SIGHT-anchored in the existing derivation style: 3/8 `detect` 247.5u (NEW), 4/8 `sight` 330u, 5/8 `muzzleFlash` 412.5u (MOVED from 6/8), 7/8 `farRadar` 577.5u (NEW, DELIBERATELY UNCONSUMED — 4-10's calibration target; comparing against it in a paint path violates amendment 105), 8/8 `radar` 660u. THE MUZZLE/SMOKE ANNULUS HALVED (165u -> 82.5u) because amendment 42 reuses that one constant for wounded smoke — intended, Eric ruled the band as "muzzle/smoke"; the flash still masks the D1 back-dated spawn since 412.5 > 330. MINES AND TORPEDOES DETECT AT 247.5u VIA A NEW SIBLING GATE: `pointDetected` never narrows `pointSighted`, which has NINE call sites — exactly THREE moved (mine, ballisticSignal's `torp` branch, torpU) and shells/decoys/booms/bursts/sunk-witness/spawns are byte-identical. SHELLS DO NOT MOVE. Detect is OBSERVER-SCALED (amendment 121, Eric's pick over a flat rung): dazzle halves it, intelTruesight widens it. THE FOGHORN REBASED ONTO THE LADDER as 8 volume regions of the LISTENER'S INTEL RANGE (amendment 122, Eric's pick over quarters), which RETIRES amendment 53's max() clamps — "dazzle cannot deafen" is now true BY CONSTRUCTION, since dazzle scales sight and never radarRange; the knowing trade is that hearing widens with intelRadar rather than intelTruesight. Amendment 54's one-step island muffle survives as max(5, band + 2). THE WIRE IS FLOORED AT BAND 4 (amendment 124, review gate): bands 1-4 render identically, so shipping the distinction was pure cheat-readable surplus — standing principle, THE WIRE MAY CARRY NO FINER RESOLUTION THAN THE PRESENTATION CONSUMES. Review gate also fixed three defects worth knowing (amendment 125): dazzle was never plumbed into the projectile renderer while the server gates on the dazzle-scaled sightOf (the amendment-81 class again, now closed for shells too); the mz/sm perception oracle was passing VACUOUSLY because an upper-bound-only oracle cannot detect a channel getting smaller; and the detect cull was applied to the OWNER's own torpedo on a rationale false for owners (now enemy-only). Evidence: 3376 tests, weaponsSmoke leaksBeyondDetect=0. SUPERSEDED BACKLOG NOTE follows: Amendment 113 — INTEL RANGE is one ruler and every sensor boundary is an eighth of it. TWO RULED CHANGES TO SHIPPED CONSTANTS: muzzle-flash carry moves 6/8 -> 5/8 (SIGHT*1.5 -> SIGHT*1.25, 495u -> 412.5u) and, because amendment 42 reuses that one constant rather than forking a fourth, WOUNDED SMOKE REACH MOVES WITH IT — intended, Eric ruled the band as "muzzle/smoke". Mines and torpedoes get their own DETECT range at 3/8 (247.5u), replacing the truesight gate they share today in pointSighted; Eric: "lets split the difference and say its 3/8... Torpedoes and mines especially need buffs." SHELLS DO NOT MOVE (a torpedo is a wake under the surface, a shell is in the air). Also re-examine the foghorn volume tiers, which derive from max(1.5*sight, muzzleFlash) per amendment 53 and therefore move too. zone.test.ts must pin the NEW derivations and the ordering detect < sight < muzzleFlash < radar. PV bump only if a stale client would misrender — assess, don't assume.
-  4-10-the-physical-return-model: done  # 2026-08-07 dev-auto cycle 61 (0.17.61); PV UNCHANGED at 30; amendments 127-137. CLIENT-ONLY — no wire change, no server change, `silhouette` grammar byte-identical. ONE model replaces the lookup: per-material reflectivity x falloff by target GEOMETRY (point/ship 1/d^4, surface/coast+surf+clutter 1/d^3, volume/storm 1/d^2), in `client/src/render/radarFalloff.ts`, which every source calls. The curve generalizes the shipped one — `floor + (1-floor)/(1 + (d/ref)^n)` — so n=1 reproduces cycle 52's hyperbola exactly and that identity is the pinned safety net. THIS CYCLE IS `CONFIG.vision.farRadar`'s FIRST AND ONLY CONSUMER and it consumes it by FITTING (fitPointRef -> pointRef 558.505u, so a Mine Layer broadside crosses red->blue exactly at 577.5u as a consequence of the curve, never a branch — grep of client/src/render is empty). Coast strength now MULTIPLIES terrain height (sampleHeight over the cycle-59 raster) into the existing depth solidity rather than replacing it (amendment 129), so amendment 78's big red mass survives and height only decides how red. Surf is a seaward near-face fringe from the same island bake; sea clutter is a speckled green haze; the storm paints its WALL, not its area. `ship.attenHalfRange` DELETED (amendment 134) — an intelRadar boon now buys REACH only, and no live observer stat reaches the rasterizer at all. FOUR THINGS FOR THE NEXT AGENT: (a) **a bound proved at NOMINAL is not proved** (amendment 135) — noiseMul multiplies by up to 1.3 AFTER the bound, and surf + storm both shipped over their band ceiling because their bounds omitted it while every guarding test ran the noise-OFF fixture; (b) clutter is tuned to sit ON a threshold on purpose (straddles bands[0].at so noise speckles it; safely above = solid disc, safely below = invisible, and the first implementation shipped invisible); (c) the STORM WALL has NO island LOS deliberately — ledgered to 4-11, which owns occlusion; (d) amendment 98 caught a one-frame weather collapse (3,574 lit texels -> 17, ~every other revolution) that no pure-rasterizer test could see. Measured 1.70 ms at 0.5x zoom, inside the 2.0 ms gate. SUPERSEDED PRIOR NOTE: Cycle 60 of the arc; amendments 105/106/118. ONE model: reflectivity coefficient x falloff by target GEOMETRY (point 1/d^4, surface 1/d^3, volume 1/d^2). Covers terrain-height-driven coast colour (reads the cycle-59 raster), surf fringe, sea clutter, and storm returns. CALIBRATION TARGET (118): tune the curve so a mid-size hull crosses red->blue at 7/8 intel range (577.5u) — and the crossover must EMERGE from the curve; an `if (d > 577.5)` in the paint path is the wrong implementation and violates 105. The amendment-106 coefficient table is an explicit assistant handwave, expected to be tuned rather than adopted. CLIENT-ONLY: no wire change, no server change, PV unchanged, silhouette grammar untouched. Amendment 99's standing rule applies — measure per-frame cost at BOTH zoom extremes and report it.
-  4-11-height-aware-radar-shadows: done  # 2026-08-08 dev-auto cycle 68 (0.17.68); PV UNCHANGED at 31; amendments 176-188 (176-185 at a pre-implementation gate, 186-188 during implementation). Occlusion stops being binary AND stops being absent: the server deleted any blip crossing an island polygon at any range, the client painted through everything since cycle 62. ONE shared pure module (`shared/src/sim/radarShadow.ts` — the arc's first shared/ code) now answers both, as an ACCUMULATOR rather than a one-shot: a ray folds each land cell it enters into `aMin = min(u_i/d_i + d_i/K)`, and `vis(D) = clamp01(D*(aMin - D/K))` is the illuminated fraction whose ROOT IS THE REACH — so amendment 104's soft edge and the gate are the same function, O(1) per sample. SERVER: `blipGate`'s LOS term becomes `visibilityTo(...) > 0`; `losClear` and its five other callers are BYTE-IDENTICAL so truesight, the 3/8 detect gate, muzzle flash, smoke and the foghorn muffle are untouched — this is a deliberate DISCLOSURE WIDENING (a low island stops hiding a distant ship) and the promised proper restoration of what amendment 140 removed. CLIENT: returns fade through the weakest band, and past the reach the scope fills with grey NO-DATA to the rim on its OWN THIRD CHANNEL — it can ride neither the intensity channel (minStore drops it, quantizeInto skips w<=0) nor the alpha channel (which is `writeCell`'s freshest-wins ordering key; anything else there rebuilds the cycles 61-64 "repainting doesn't repaint it" bug). Plus Eric's side task: a LIVE radial dim mask on `blipLayer` (20% opacity inside 1/8 intel range rising to 100% at 5/8, radii derived from the ladder), display-time only so amendment 83 is untouched — it extends amendment 161, opacity now carries age AND viewing distance. SIX THINGS FOR THE NEXT AGENT. (a) **`shadowLength` IS A RESIDUAL REACH, NOT A DARK BAND** (176) — once blocked, blocked to the rim. (b) **AMENDMENT 102's "closer = longer shadow" IS BACKWARDS** (186): under uniform mast height you look OVER low terrain you are hugging; soft cover bites at MID range only, hard cover at every range. The ratified coast-hugging cost does not hold for low terrain — flagged to Eric, changing it needs a target height below mast height and that breaks amendment 101. (c) **ORDERING IS QUERY-THEN-FOLD** (187) — advancing first folds the sample's own cell and a tall island paints NOTHING; the agent caught this and deviated from the orchestrator ruling correctly. (d) **A TALL ISLAND NOW PAINTS A ~12-32u SEAWARD RIM WITH A GREY BODY** (188, measured on real terrain) — physically right, still legible, but the biggest visual change here and unpredicted; `radarMastQ` upward is the knob, at the cost of hard-cover reliability. (e) **AMENDMENT 103 RESOLVED** (182): radar range STAYS `SIGHT*2`, `R` is the derived quantity, `2RH = radarRange^2/4` is a BUILD-FAILING pin because radarRange drives gun/cannon/starShells rangeU. (f) **THE FIXTURE SEAM** — ~30 server test files clear `map.islands` or push `circleIsland`, none of which exist in the raster; without `rasterFrom`/`flatRaster` a raster-driven gate ignores fixture islands and shadows off real terrain in "empty" worlds. Measured: server gate CHEAPER than the segment test it replaces (0.55-0.74x; adversarial 278us/tick); client DEARER (1.97ms worst at 0.5x vs a 2.5ms bar; cells +92% coastal) because no-data is stored — amendment 183's cheaper-march prediction is FALSE. Evidence: 3,570 tests (617 shared / 999 server / 1,954 client). SUPERSEDED BACKLOG NOTE follows: Cycle 61 of the arc; amendments 102/104/107/114 + resolves open 103 and 109. Occlusion stops being binary: shadowLength = (radarRange^2 / 4) * (1 - h0/H) / d0, infinite when h0 >= H. NOTE THE INVERSION — closer to a low island = LONGER shadow, so coast-hugging costs you a blind wedge; an implementation reproducing the opposite direction is a bug (amendment 102 records the corrected derivation and why the first one was wrong). R and H are FIXED constants, never derived from a map's terrain distribution (114 — Eric rejected the per-seed percentile explicitly). ONE shared pure function called by BOTH signals.ts and radarHeatmap.ts; a second implementation is a desync or a leak. THE LANDMINE (why 103's pin must be a build-failing assertion): radarRange drives gun/cannon/starShells rangeU, so an unpinned R lets a shadow-feel tweak silently rebalance every gun. Shadow must RENDER, and render as NO DATA rather than empty water. PERF: at sweepRpm 15 the beam advances ~4.5 deg/tick, so only the swept wedge needs marching (~9 rays/observer/tick at 0.5 deg) and the cycle-59 max-height pyramid exists to make open water cheap — MEASURED, not assumed. This is the only story in the arc with real server cost.
-  4-12-radar-wakes: done  # 2026-08-08 dev-auto cycle 70 (0.17.70); PV 31->32; amendments 204-211 (204-210 at a pre-implementation gate, 211 during dispatch). AMENDMENT 109's FORK IS RESOLVED: wake is SERVER-OWNED world state rasterized onto the radar lattice, which is amendment 152's server-rasterizes-the-hull pipeline extended to a second material — Eric named the architecture himself ("like the ships being placed on the raster, wakes should be, as well"). New `wk` registry row (21->22) carrying geometry plus a quantized water-age bucket and NO identity of any kind; gated PER SEGMENT in blipGate's exact cost order (annulus -> sweptThisTick -> shadow accumulator), so it is NOT a declared exception to the master invariant — the SUBJECT is water rather than a ship. AMENDMENT 110 IS REVERSED BY ITS OWNER: torpedo wakes are IN ("I have decided that I do, in fact, want it to track torpedo wake"), while CONFIG.torpedo's "never painted by radar" stays TRUE OF THE FISH — the entity keeps its 3/8 detect gate and the torp/torpU rows are byte-identical; only its water paints, one cell wide at half life. FIVE THINGS FOR THE NEXT AGENT. (1) **ONE WAKE, ONE LENGTH** (209/210) — an earlier draft invented a length asymmetry between the water render and the radar ribbon and Eric struck it ("I didn't say shit about the lengths being different here"); `life` is PROMOTED to shared CONFIG and the client-only knob is deleted so the fork cannot creep back. 1.1s -> 12s, chosen against real ship wakes: the bright foam runs 5-20 ship lengths, the radar-visible turbulent scar runs 50-205, and the scar is UNBUILDABLE here because the map radius is only 24 hull lengths — so the playable band is the foam figure and Eric took its bottom edge. (2) **CAMOUFLAGE IS BY STRUCTURE, NOT STRENGTH** (203) — the config's record of Eric DECLINING "clutter strong enough to swallow weak returns" stands untouched; a wake hides because it is the SAME green pixel at the SAME opacity as the chop around it, and the eye must pick a coherent LINE out of random dots. Measured lit-fraction contrast: wake 1.000, chop 0.11-0.16. (3) **THE CORRIDOR IS ONLY 13% WIDE AND THAT SHAPES THE FEATURE** (208) — the wake must clear bands[0].at 0.12 on every draw AND stay under minPeak's worst draw 0.13571 on every draw, which is infeasible at ambient grain (it needs a < 0.0625 where ambient is ~0.33). Hence REDUCED grain, physically justified: an organized surface feature does not scintillate like incoherent scatter. Solved, never typed in: coefficient 0.12786, grain scale 0.0835, ref 1269.86u fitted to cross at the 5/8 rung. Consequence worth knowing: recency reads as the tail's LIT FRACTION falling (1.00 -> 0.78 across four buckets) rather than as a crisp shortening — that is the corridor talking, not a tuning choice. (4) **CHOP HANGS OFF THE WAKE, NOT THE HULL** (211) — amendment 152 stripped `speed` from the wire, so "a disc around each moving hull scaled by speed" is unbuildable beyond truesight; chop is the wake's lateral spread at the Kelvin 19.47 half-angle, which makes it speed-driven BY CONSTRUCTION and puts the noise where ships actually are. It is CLIENT-SIDE because it carries no information — a modified client deleting every chop cell learns nothing. (5) **THE THREE CLOCKS AGREE AND THE COUPLING IS NOW PINNED** — water dissipation 12s, phosphor persistence 12s, and a 420-540u full-ahead track against a ~412u material reach. Water always dies before its own phosphor does, which is WHY a client ribbon starting empty leaves no gap at the radar-range -> truesight crossing; `persistSweeps * sweepPeriod >= wakeLifeMs` now fails CI if any one clock is retuned alone. DECOY EXPLICITLY OUT OF SCOPE (206, Eric: "Decoy will get major changes soon so lets not worry about it for now") — a decoy lays no wake because it never moves, and that tell is ledgered, not papered over. Measured: server +425-470us/tick adversarial (0.9% of the 50ms tick); client radar worst 1.89ms and on-water 0.20ms with 20 moving hulls, against a 2.5ms bar. 3,704 tests (653 shared / 1,013 server / 2,038 client).
+  # THE RADAR PHYSICS ARC (4-9 .. 4-12) — design contract is amendments 100-118; on any
+  # apparent conflict the amendments win and the conflict is REPORTED, not resolved.
+  4-9-the-eighths-ladder: done  # 2026-08-07 cycle 60 (0.17.60); PV 29->30; amendments 121-125
+  4-10-the-physical-return-model: done  # 2026-08-07 cycle 61 (0.17.61); PV 30; amendments 127-137
+  4-11-height-aware-radar-shadows: done  # 2026-08-08 cycle 68 (0.17.68); PV 31; amendments 176-188
+  4-12-radar-wakes: done  # 2026-08-08 cycle 70 (0.17.70); PV 31->32; amendments 204-211
   epic-4-retrospective: optional
 
   # epic-5: The Living Ocean (GDD E4)
@@ -466,10 +179,9 @@ development_status:
   epic-6: backlog
   6-1-queue-based-lobbies: backlog
   6-2-roster-scaled-oceans: backlog
-  # SCOPE ADDED 2026-08-04 (cycle 45, amendment 31): Eric ruled drones are NOT combatants and must not
-  # gate the win. Deferred here deliberately — dropping the aliveDroneCount() guard in Match.checkWin()
-  # outright makes a solo match (minHumans:1, dev/smoke/test path) finish the instant it activates, so
-  # 6-3 must solve solo-mode termination as part of this work.
+  # SCOPE ADDED 2026-08-04 (amendment 31): drones must not gate the win, but dropping the
+  # aliveDroneCount() guard outright makes a solo match finish the instant it activates —
+  # so 6-3 must solve solo-mode termination as part of this work. See amendment 23.
   6-3-the-participants-only-win-check: backlog
   6-4-combat-bot-ai: backlog
   6-5-solo-vs-ai-mode: backlog
@@ -487,6 +199,8 @@ development_status:
   7-6-the-release-gate: backlog
   epic-7-retrospective: optional
 
+# action_items — OPEN entries carry their full text (they are live instructions).
+# CLOSED entries are summarized to one line; the full record is in the file each one names.
 action_items:
   - epic: 2
     action: "Waive all 18 followup_review_recommended flags; retire the flag — future follow-up wishes are ledger entries with evidence + named home, or nothing (Eric ruling, epic-2 retro)"
@@ -517,7 +231,7 @@ action_items:
     owner: "ledger (playtest checkpoint)"
     status: open
   - epic: 4
-    action: "RESOLVED 2026-08-05 (dev-auto cycle 50, epic-4 amendment 55): Story 4-5 grew its OWN bearing surface — a screen-edge chevron — and shipped rather than deferring alongside 4-1. Rejected at the gate: an arc tick on the truesight ring (competes with the sight boundary's own meaning) and reviving the ratified 48-pip compass rose for honks alone (would pre-commit the shape of a revived listening ring). The chevron is deliberately foghorn-shaped, not sensor-shaped, so a revived 4-1 inherits nothing from it"
+    action: "Bearing surface for the foghorn — RESOLVED 2026-08-05 (cycle 50, amendment 55): 4-5 grew its own screen-edge chevron and shipped rather than deferring alongside 4-1. Rejected alternatives and rationale: amendment 55"
     owner: "spec author (create-story 4-5)"
     status: resolved
   - epic: 4
@@ -525,38 +239,38 @@ action_items:
     owner: "spec author (create-story 4-8)"
     status: open
   - epic: 4
-    action: "Weapon cooldown / TTK rebalance — LANDED as interstitial dev-auto cycle 42 (0.17.42, global cooldown reduction): gun 3s->5s, cannon 15s->50s, the seven per-equipment reload cards traded for ONE universal additive 5-copy `shipCooldown` line capping at 50%, and boon grants now rescale in-flight reload timers proportionally. Torpedo speed stayed FIXED at 60 u/s. Two threads it left OPEN: the 4-1 hydrophone deferral was NOT revisited and still needs its own explicit Eric revival ruling, and the rebalance shipped WITHOUT a batch-sim evidence pass, so the early/late TTK spread is wider than any measured configuration"
+    action: "Weapon cooldown / TTK rebalance — LANDED as cycles 42 (global cooldown ruling) and 44 (per-weapon numbers, amendments 21-25, with the batch-sim pass cycle 42 skipped). Full record: epic-4-context-amendments.md, batch-sim-evidence-2026-08-04.md"
     owner: "ledger (Eric-gated)"
-    status: done  # landed as cycle 42 (0.17.42). SECOND HALF LANDED as interstitial cycle 44 (0.17.44): cycle 42 gave the GLOBAL cooldown ruling, cycle 44 the explicit PER-WEAPON numbers (epic-4 amendments 21-25) — gun 25->15 dmg (contact 10->6), torpedo 55->70 @ 12s->30s, cannon 50->65 @ 50s->45s, mine 45->55 @ 8s->15s with a 2-deep BASE rack; torpedoDamage/cannonDamage ladder steps cut to +1/+2 so max-stack tops at 75, under the 80hp one-hit-kill floor; torpedo.speed 60 UNTOUCHED per amendment 2. Of the two threads named in the action text, cycle 44 CLOSES the second — it ran the before/after batch-sim pass (batch-sim-evidence-2026-08-04.md; 200/200 resolved both sides, no structural regression) that cycle 42 skipped, so the TTK spread is now a measured configuration. Eric then ruled the resulting pacing acceptable ("match time is fine", amendment 26) despite the endgame p50 crossing ~15:00, and reaffirmed SUDDEN DEATH at 15:00->16:00 as sharpened-but-PARKED (amendment 28). The FIRST thread is STILL OPEN: the 4-1 hydrophone deferral was again NOT revisited, and although torps/mines are now materially more threatening (a 70hp fish, a 55hp mine, two-deep racks) — moving the very premise that deferral rested on — reviving 4-1 still needs its own explicit Eric ruling and is not implied by this cycle
+    status: done  # STILL OPEN, carried forward: the 4-1 hydrophone deferral was NOT revisited by either cycle. Torps/mines are now materially more threatening (70hp fish, 55hp mine, two-deep racks), which moves the very premise the deferral rested on — but reviving 4-1 still needs its own explicit Eric ruling and is NOT implied by this cycle. Eric ruled the resulting pacing acceptable (amendment 26) and reaffirmed sudden death as sharpened-but-PARKED (amendment 28)
   - epic: 4
-    action: "Aggregate flash budget still has NO global mechanism. The ratified accessibility floor says no element or screen region flashes more than 3x/s regardless of how many compliant events stack — and the accessibility review wrote that rule FOR muzzle flashes and Hit Call blooms specifically. Story 4-3 shipped only the per-source 300ms tone floor; muzzle-carries is the FIRST feature that can actually bind the budget (up to 19 other hulls flashing inside your 495u halo). Story 4-8 owns attention priority and is its natural home. Related: 4-3 promoted `muzzle` and `spark` out of isJuiceEffect, so 4-8 inherits a changed juice/information split"
+    action: "Aggregate flash budget still has NO global mechanism. The ratified accessibility floor says no element or screen region flashes more than 3x/s regardless of how many compliant events stack — and the accessibility review wrote that rule FOR muzzle flashes and Hit Call blooms specifically. Story 4-3 shipped only the per-source 300ms tone floor; muzzle-carries is the FIRST feature that can actually bind the budget (up to 19 other hulls flashing inside your halo). Story 4-8 owns attention priority and is its natural home. Related: 4-3 promoted `muzzle` and `spark` out of isJuiceEffect, so 4-8 inherits a changed juice/information split"
     owner: "spec author (create-story 4-8)"
     status: open
   - epic: 2
-    action: "DAMAGE CONTROL heal strip — LANDED as interstitial dev-auto cycle 46 (0.17.46, DAMAGE CONTROL heal strip): DISCHARGES epic-2 amendment 38's 'Eric's 10%-over-5s level-heal FILED TO THE FUTURE TTK PASS' — this cycle IS that pass, ratified as a flat 25-instant + 25-pooled-at-5hp/s heal on every hull, spent as an always-available strip below the four-card refit row (never a fifth card, never a card at all; CONFIG.offer.size stays 4). PV 22 -> 23 (OwnShip.repairHp, self-private `heal` event, HEAL_CHOICE=-1 negative sentinel). Amendments 58-64 record the seven rulings. One thread left OPEN: heal observability (self-private for now, amendment 63) is an explicit Eric-gated revisit after live play"
+    action: "DAMAGE CONTROL heal strip — LANDED as cycle 46 (0.17.46); PV 22->23. Discharges epic-2 amendment 38's level-heal item. Full record: amendments 58-64"
     owner: "ledger (Eric-gated)"
-    status: done  # landed as cycle 46 (0.17.46); the observability revisit is named in the action text
+    status: done  # ONE thread open: heal observability is self-private for now (amendment 63) and is an explicit Eric-gated revisit after live play
   - epic: 2
-    action: "DAMAGE CONTROL rail legibility — LANDED as interstitial dev-auto cycle 47 (0.17.47). Eric rejected the cycle-46 rail on sight ('just plain fucking tiny and hard to read/see. It doesn't even have any padding!') and set the acceptance bar himself: 'big enough to actually register as \"this is something I can choose\" on all viewports'. DISCHARGES the strip-geometry half of the cycle-46 ledger entry that filed the geometry as unratified implementer draft. Amendments 65-68: the band anchor lifts 0.58 -> 0.534 on every screen (Eric's pick over lifting only at the cramped viewport and over moving the rail above the row), which NARROWLY reopens amendment 40's 'no band lift' — everything 40 actually ratified survives (overlap still accepted, no card shrank, row still 924px, offer.size still 4; only the band's POSITION moved). Rail 16 -> 40px, key chip 14 -> 22px (the 'proportional below' carve-out RETIRED), type 10 -> 16px (repairing a standing amendment-15 violation — 10px sat below the 14px legibility floor), vertical padding 0 -> 8px, seam 2 -> 6px; readout copy moved to a sentence. Client presentation only: NO PROTOCOL_VERSION bump, no server/shared change, no heal-mechanics change. Heal-in-a-card-slot was raised by Eric a second time and again NOT taken (amendment 67). Two threads left OPEN: the heal TONE stays unratified draft, and the band anchor now runs on seven pixels of slack at the 1280x614 floor AND is separately bounded by the 125% UI-scale tier at 1600x768 — pinned with literal values, but the next refit-band change collides with it first"
+    action: "DAMAGE CONTROL rail legibility — LANDED as cycle 47 (0.17.47); client presentation only, no PV bump. Discharges the strip-geometry half of the cycle-46 ledger entry. Full record: amendments 65-68"
     owner: "ledger (Eric-gated)"
-    status: done  # landed as cycle 47 (0.17.47); the tone + five-pixel-slack threads are named in the action text
+    status: done  # TWO threads open: the heal TONE stays unratified draft; and the band anchor now runs on seven pixels of slack at the 1280x614 floor AND is separately bounded by the 125% UI-scale tier at 1600x768 — pinned with literal values, but the next refit-band change collides with it first
   - epic: 4
-    action: "PER-SHELL DAMAGE LAW — LANDED as interstitial dev-auto cycle 48 (0.17.48): the Story 2.8 review's same-click salvo single-hit rule is DELETED (tag, ledger, both damage gates), so every shell of a multi-barrel gun click that connects deals FULL damage. Eric's bug report; the deleted rule was an ORCHESTRATOR invention, not an Eric ruling, and its premise (gun 25 vs a 70hp floor) dissolved in the cycle-44 rebalance. Amendments 35-39 record the rulings: the one-hit-kill law governs a single SHELL, not a click; a max-stacked triple mount deals 90 and one-clicks an 80hp drone (ACCEPTED, no player hull falls to shells alone); falloff / aggregate cap / shrunk HEAVY SHELLS step were all explicitly REJECTED. Client victim feedback became a per-frame aggregate so a 3x hit FEELS like one (shake.ts resolves with Math.max). No PV bump (24 stands), no CONFIG tunable touched"
+    action: "PER-SHELL DAMAGE LAW — LANDED as cycle 48 (0.17.48): the Story 2.8 same-click salvo single-hit rule is DELETED, so every shell of a multi-barrel click that connects deals FULL damage. No PV bump, no CONFIG tunable touched. Full record: amendments 35-39"
     owner: "ledger (Eric-gated)"
-    status: done  # landed as cycle 48 (0.17.48); TWO threads left open — (1) a burst over a hull an earlier shell of the same click just sank emits `sp` (fall-of-shot, a MISS mark) instead of `hc`, because `resolved` is counted after the !alive guard; pre-existing but now COMMON since clicks kill mid-fan ~3x more often, and resolving it means touching Story 4.3's ratified hc/sp grammar, so it is Eric-gated (see deferred-work.md). (2) HULLCRACKER_NOTES.md:83 still states the law without the per-SHELL qualifier — routed to the 7-5 doc-sync batch
+    status: done  # TWO threads open — (1) a burst over a hull an earlier shell of the same click just sank emits `sp` (a MISS mark) instead of `hc`, because `resolved` is counted after the !alive guard; pre-existing but now COMMON, and resolving it means touching Story 4.3's ratified hc/sp grammar, so it is Eric-gated (see deferred-work.md). (2) HULLCRACKER_NOTES.md:83 still states the law without the per-SHELL qualifier — routed to the 7-5 doc-sync batch
   - epic: 5
-    action: "FRACTAL ISLAND GENERATION — LANDED as interstitial dev-auto cycle 51 (0.17.51, spec-fractal-island-generation.md): the circle-packing map generator is REPLACED with a fractal capsule-offset generator (Eric ruling 2026-08-05, 'islands become true polygon coastlines' — the circle era is over). Each landmass is a 1-3 point SKELETON (1pt=blob, 2-3pt=ridge) wrapped in a boundary polygon whose outward offset comes from PERIODIC MIDPOINT DISPLACEMENT clamped to `m ∈ [0.45, 1.6]` (`shared/src/sim/islandShape.ts`); that clamp keeps every polygon STAR-SHAPED about its skeleton, which makes push-out escape structural (no concave stuck-traps) and makes an intra-island lagoon geometrically impossible — both invariants fall out of the clamp rather than needing separate enforcement. `Island` still carries `{x,y,r}` as its BOUNDING CIRCLE (structurally assignable to `Circle`, so the ~20 consumer call sites keep compiling and get broadphase for free), plus `poly`/`skeleton`/`core`; every consumer was ported through the new `shared/src/sim/island.ts` seam — bounding-circle broadphase first, exact polygon test second, all polygon math delegated to `silhouette.ts` (still the one polygon library; no second was authored). Archipelago channels come from GAPS BETWEEN separate polygons (`CHANNEL_MIN` 48u), never from a concavity inside one — a single polygon can't have a channel without breaking star-shapedness. One navigability grid (32u cells, eroded by widest-hull half-beam + margin, flood-filled from the spawn ring) enforces three invariants in one deterministic pass — no enclosed lagoons, no unreachable water, no channel narrower than the widest hull — with spawn-ring clearance (64u) as the fourth, checked separately. Land coverage lands in the ratified 3-5% band (measured 4.0-4.8% across the seed sample), landmass count runs 9 at playerCap 2 rising to ~44 at playerCap 20. PV 25 -> 26: the same seed now builds a different ocean, so an un-bumped old client would desync catastrophically. `npm run check` and the polygon-fixture regression suite (map invariants across >=100 seeds x roster sizes 2/5/10/20, collision cove-escape, LOS through channels, shell-into-cove-mouth) all green; a wave-2 review-gate catch (float-dust EPS miss on the radius-0 polygon path — 38.5% of shell hits and 31.8% of LOS checks silently passing through solid land) was fixed and pinned before this cycle closed. Client presentation: `render/map.ts` draws the SAME verts the sim collides/LOS-tests against — no decorative smoothing"
+    action: "FRACTAL ISLAND GENERATION — LANDED as an interstitial: the circle-packing map generator replaced by a fractal capsule-offset generator with true polygon coastlines (Eric ruling 2026-08-05). Superseded by cycle 59's fBm height field. Full record: spec-fractal-island-generation.md"
     owner: "ledger"
-    status: done  # landed as cycle 51 (0.17.51); no open threads named by this wave — spec-fractal-island-generation.md closeout (baseline/final revisions, review triage log) is a later wave's responsibility, not yet done as of this tracker entry
+    status: done  # NOTE 2026-08-08: this entry's own text recorded the landing as cycle 51 / PV 25->26, while the interstitial cycle index above records fractal island generation as cycle 52 / PV 27->28 and cycle 51 as the radar realism cycle. Left UNRESOLVED deliberately — flagged for Eric rather than adjudicated during a tracker cleanup. Spec closeout (baseline/final revisions, review triage log) also still open
   - epic: 5
-    action: "FRACTAL TERRAIN — HEIGHT-FIELD ISLANDS — LANDED as interstitial dev-auto cycle 59 (0.17.59, spec-island-elevation-and-grounding.md): the cycle-51 capsule-offset generator (a 1-3 point skeleton wrapped in a noise-displaced outline) is REPLACED by a genuine fBm height field (Eric ruling 2026-08-06, on seeing the capsule shape: 'Really, its that I wanted fractal island generation. You didn't really create fractal...' — the capsule was structurally incapable of a lobe, an arm, a hook or a bay, and carried no elevation). `generateMap` now builds layered integer-hashed gradient noise (fBm + ridged multifractal + a two-scale domain warp, ZERO transcendentals on the generation path — no sin/cos/pow/exp/hypot anywhere, which retires the cross-engine V8/JavaScriptCore float-determinism risk carried since cycle 51) over the map disc; thresholding it at a rank-selected sea level yields the coastline (bays, hooks and headlands fall out for free), and higher isolines of the SAME field yield RENDER-ONLY topographic contour bands (max 4 — 'I don't want too many different heights' — each stroked in its solid hypsometric colour and filled with a darker, less intense version; the shipped `#8B7520` yellow was never a ratified decision, per DESIGN.md:41's own 'provisional carry-over' flag). Pipeline: field -> rank-selected sea level -> lagoon closure (flood open water from the spawn ring, fill what it cannot reach — phase two must spread only through TIGHT water or a one-cell strait leaks the fill, which left 28% of maps failing during dev) -> connected-component trace -> marching squares (crossings clamped off grid corners, t in [0.25,0.75]) -> `simplifyLoop` (new count-driven Visvalingam-Whyatt primitive in `silhouette.ts`) -> pole/core -> navigability repair -> contours -> Uint8 height raster (14u cells) + 10-level max-height pyramid. **THE STAR-SHAPE INVARIANT IS RETIRED**: a thresholded field has arbitrary topology, so lagoon-freedom now comes from the generation-time closure pass instead of a shape clamp, and push-out moves from skeleton-normal to NEAREST-BOUNDARY-POINT (two latent defects surfaced and were fixed: a non-monotone `escapeDepth` bisection that could push straight across a bay's far side, and the 'apply cap and re-aim' fallback, now retired in favor of leaving a wedged hull at its last induction-valid pose; adversarial harness — 8 deepest pockets x 4 oceans, rammed dead-on and full astern — measured zero penetrations, worst single-tick displacement 33.4u). `Island.skeleton` is DELETED; `pole` (pole of inaccessibility) replaces it, and `core` is now measured about the POLE rather than the centroid, because on a hook the centroid falls in its own bay and would zero the LOS early-out on exactly the islands where it matters most. The height raster + pyramid is RETAINED per Eric ruling as the FUTURE radar-shadow substrate (a hierarchical raymarch will skip an empty tile in one test) — nothing reads it yet. The independently-landed grounding fix (commit 6161436, earlier this cycle: the map-edge clamp no longer reports as grounding contact, and the damp is a head-on-scaled speed CAP rather than a compounding per-tick multiplier) is preserved byte-for-byte through the rewrite. Land coverage tightens from cycle 51's 3-5% band to the ratified [2%,3%] (measured 2.48% on the validated prototype seed sample); ~18 islands/map at 746 verts/map (vs ~1,500 shipped under cycle 51) — per-tick geometry gets CHEAPER despite far more coastline structure. `PROTOCOL_VERSION` 28 -> 29: the same seed now builds a different ocean. Server/client consumer migration landed in the same cycle: `signals.ts` losClear and the `core` early-out re-keyed on `pole`; `spawn.ts` widened to accept `MapShape` so hand-built adversarial spawn fixtures survive without fabricating a height raster; `render/map.ts` draws the contour bands (pure `terrainDrawPlan()`, screen-locked strokes, zoom-throttled redraw — measured ~1,100 verts / ~36 draw ops per map, sub-millisecond re-tessellation); `radarHeatmap.ts`'s `inLand`/solidity re-keyed on `pole` — this was a REAL DEFECT FIX, not just a rename, since a centre-keyed early-IN returned true before the polygon was ever consulted, painting open bay water as land on a hook island with no downstream exact test able to undo it. 3,302 tests pass (560 shared / 963 server / 1,779 client); `npm run check` green. Scratch prototype dirs (`tmp-fbm/` etc.) deleted before the PR, per the spec's own instruction that they break lint. Known open item, deliberately not fixed: islands CLUSTER (natural noise behaviour, a parameter not an architecture defect — leave as-is unless Eric rules otherwise)."
+    action: "FRACTAL TERRAIN — HEIGHT-FIELD ISLANDS — LANDED as cycle 59 (0.17.59); PV 28->29. The cycle-51/52 capsule generator replaced by a genuine fBm height field; star-shape invariant retired; Island.skeleton deleted for pole/core; height raster + max-height pyramid retained as the future radar-shadow substrate. Full record: spec-island-elevation-and-grounding.md"
     owner: "ledger"
-    status: done  # landed as cycle 59 (0.17.59); no open threads beyond the pre-existing epic-5 deferrals (slate-for-rocks palette + independent-height sea stacks, both explicitly DEFERRED to the living-ocean epic per the spec's Spec Change Log item 3)
+    status: done  # no open threads beyond the pre-existing epic-5 deferrals (slate-for-rocks palette + independent-height sea stacks, both explicitly DEFERRED to the living-ocean epic per the spec's Spec Change Log item 3). Known and deliberately unfixed: islands CLUSTER (a parameter, not an architecture defect — leave unless Eric rules otherwise)
   - epic: 4
-    action: "WAKE LENGTH + TAIL FADE — LANDED as interstitial dev-auto cycle 71 (0.17.71): two Eric corrections on sailing Story 4-12 live, amendments 213-214. PV UNCHANGED at 32 — no payload shape moves, only how much water exists and how much of it the client draws. (1) THE WAKE CLOCK IS CUT 12s -> 5.5s ('if I drive TB at top speed, that wake trail is far as fuck' — 540u of track against a 660u radar radius is 82% of your own scope radius, drawn behind you at all times). The physics that produced 12s is NOT wrong and is retained in the constant's comment; what this ruling establishes is that a physically honest wake is too much wake for THIS ocean, so 5.5s is a KNOWING departure below the real foam band for legibility rather than a correction of a mistake. The replacement is an eighths-ladder rung, not a feel number: the fastest PLAYABLE hull's full-ahead track is now exactly CONFIG.vision.detect (3/8), so the clock is detect/45 = 5500ms exactly and tracks become TB 247.5u / ML 220u / BB 192.5u. Written as a LITERAL and PINNED rather than computed in the CONFIG literal — deriving it from maxSpeed would let a kinematics retune silently move a value Eric set. The harder rule that motivated the cut ('you may never be trackable by someone who cannot paint your hull') was OFFERED AND DECLINED — 'eh, well not *never* never... its not like i want to restrict getting wake returns until a hull is seen' — so that property is a near-consequence of the rung, NOT a guarantee, and nothing tests for it. Torpedo factor HELD at 0.5 (360u -> 165u) rather than raised, since raising it would put a fish's tell above any ship's. Cycle 69's accepted P4 shortfall is RESOLVED for free: 6s of phosphor at maxed sweepRpmMax now covers the 5.5s water clock, so the handover holds at every sweep rate and both pins changed from documenting a shortfall to enforcing a covering. (2) RECENCY BECOMES A CELL COUNT ('it wont even start fading at the tail for a few cycles because it keeps being repainted as fresh wake'): wakeAgeFloor is DERIVED out of the 13%-wide wake corridor and solves to ~0.968, so the oldest water is 96.8% as bright as the freshest — cycle 70's ledgered lit-fraction fade is real but bites only near the material's reach, and close in the track is a uniform bar with a square end. Older water now lays FEWER CELLS at unchanged intensity (wakeTailKeep, 1.00/0.78/0.57/0.35), the only lever the corridor leaves and open BY CONSTRUCTION since all three of clutter's bounds are statements about what ONE cell's draw may do. The floor is fixed from BELOW by chop (~2.2x its measured density) so amendment 198's line-versus-dots reading survives the fray. Client-only apart from the shared clock constant; 3,756 tests pass (683 shared / 1,017 server / 2,056 client); the golden-frames snapshot moved and was verified WAKE-ONLY before acceptance."
+    action: "WAKE LENGTH + TAIL FADE — LANDED as cycle 71 (0.17.71); PV 32. Two Eric corrections on sailing 4-12 live: the wake clock cut 12s -> 5.5s (an eighths-ladder rung, not a feel number), and recency becomes a cell count rather than a brightness ramp. Full record: amendments 213-214"
     owner: "ledger"
-    status: done  # landed as cycle 71 (0.17.71); THREE things left for the next agent's eye, all named in deferred-work.md — the 2% drone overshoot of the 3/8 rung (recorded and bounded by test, not a violation), the decoy tell still open by Eric's cycle-70 instruction, and whether 247.5u reads right on the water now that the on-water foam shortened with the radar ribbon (one wake, one length)
+    status: done  # THREE things left for the next agent's eye, all named in deferred-work.md — the 2% drone overshoot of the 3/8 rung (recorded and bounded by test, not a violation), the decoy tell still open by Eric's cycle-70 instruction, and whether 247.5u reads right on the water now that the on-water foam shortened with the radar ribbon (one wake, one length)
   - epic: 4
-    action: "THE STORM COMES OFF THE SCOPE — LANDED as interstitial dev-auto cycle 72 (0.17.72): Eric on the shipped build, 'I don't want the storm ring highlighted by radar anymore. I don't like it.' The Story 4.10 storm wall (a fixed-thickness band on the LIVE ring, the storm coefficient on the VOLUME curve) is DELETED and amendment 128 is RETIRED with it. Removed by PREFERENCE, not by defect — nothing was broken, mis-calibrated or leaking, and no bound it carried was ever violated. THE THING MOST LIKELY TO BE MISREAD: the storm still renders ON THE WATER exactly as before — render/zone.ts's solid live edge, dashed next-ring telegraph and storm-side fill (Story 3.2's ratified grammar) are untouched, as are the chrome bar ring readout, the in-storm vignette and the storm-enter audio cue. The zone stays completely legible; it simply stops being a radar RETURN. No damage, timeline, geometry or roll changed, and NOTHING ON THE SERVER MOVED AT ALL — ring geometry has always reached the client through ArenaState for the on-water render, which is exactly why this cost zero wire and zero perception work. PV UNCHANGED at 32; client-only. REMOVED END TO END in the cycle-69 grey-NO-DATA style so no dead knob survives: stormSample, STORM_EDGE, the StormRing type, FieldSpec.ring, the field's storm branch, the ZoneLike type, and the entire `zone` parameter threaded through Radar.render -> renderReturn -> marchBeam; plus model.storm (0.5), model.volumeRef (900), model.stormBandU (60). Eleven tests RETIRED rather than adapted (the pure wall block in radarHeatmap.test.ts, four adapter-placement blocks in radarViewport.test.ts, the non-finite-ring guard in radarMarch.test.ts); net -194 lines. `VOLUME` survives and is now deliberately UNCONSUMED — the storm was its only material, but the point/surface/volume exponent table IS amendment 106's ratified return model rather than a knob, so the next volume material should not have to re-derive it. 3,745 tests pass (683 shared / 1,017 server / 2,045 client)."
+    action: "THE STORM COMES OFF THE SCOPE — LANDED as cycle 72 (0.17.72); PV 32, client-only. The Story 4.10 storm wall is DELETED and amendment 128 retired with it, by PREFERENCE not defect. The storm still renders ON THE WATER exactly as before (Story 3.2's grammar untouched); it simply stops being a radar RETURN. Full record: the cycle-72 spec"
     owner: "ledger"
-    status: done  # landed as cycle 72 (0.17.72); ONE thread left open and named in deferred-work.md — re-adding any storm return must re-derive amendment 128's AREA question from scratch rather than assuming the fixed-thickness wall is the safe default, because the wall WAS the compromise and the compromise is what Eric rejected
+    status: done  # ONE thread left open and named in deferred-work.md — re-adding any storm return must re-derive amendment 128's AREA question from scratch rather than assuming the fixed-thickness wall is the safe default, because the wall WAS the compromise and the compromise is what Eric rejected
