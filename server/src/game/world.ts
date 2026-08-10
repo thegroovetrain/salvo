@@ -1153,9 +1153,11 @@ export class World {
     if (!ship || !ship.alive) return;
     // THE PRE-SINK BOUNTY READ (Story 4.6): captured before ANYTHING mutates —
     // the kill credit below may move the throne, and the bonus + the `bty`
-    // flag are both about who held it at the instant of sinking. A storm/self
-    // sink has no killer and therefore no bonus, but still flies the flag.
-    const victimHeldBounty = this.bountyId !== '' && this.bountyId === id;
+    // channel are both about who held it at the instant of sinking. A
+    // storm/self sink has no killer and therefore no bonus, but still marks
+    // the victim.
+    const bountyMark = this.bountyMark(id, by);
+    const victimHeldBounty = bountyMark === 'v';
     ship.alive = false;
     ship.hp = 0;
     ship.state.speed = 0;
@@ -1174,14 +1176,33 @@ export class World {
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
     const ev: SunkEvent = { k: 'sunk', id, by };
-    // `bty` is appended LAST and only when true (msgpack: never an undefined
-    // value) — the wire shape the sunk row's materialize preserves.
-    if (victimHeldBounty) ev.bty = true;
+    // `bty` is appended LAST and only when a participant held the throne
+    // (msgpack: never an undefined value) — the wire shape the sunk row's
+    // materialize preserves. The XP bonus above is the VICTIM case only: a
+    // leader who kills someone collects nothing extra for it.
+    if (bountyMark !== undefined) ev.bty = bountyMark;
     this.pending.push(ev);
     // Re-evaluate the throne AFTER the credit (Story 4.6): the killer's fresh
     // captainKills competes in this very evaluation — one recompute per sink,
     // in sink order, so simultaneous challengers resolve sequentially.
     this.recomputeBounty();
+  }
+
+  /**
+   * WHICH participant in a sinking holds the throne right now — the wire value
+   * for `SunkEvent.bty` ('v' the victim, 'k' the killer), or undefined when
+   * neither does. Both can never be true at once (one throne), and a self-sink
+   * (`by === id`) resolves as the VICTIM case: `'k'` requires a killer distinct
+   * from the victim, mirroring creditKill's own attribution rule. Called on
+   * the PRE-sink state — before creditKill and recomputeBounty can move the
+   * throne (the 2026-08-10 kill-leader grammar: the skull rides the leader's
+   * name as killer OR victim).
+   */
+  private bountyMark(id: string, by: string | undefined): 'v' | 'k' | undefined {
+    if (this.bountyId === '') return undefined;
+    if (this.bountyId === id) return 'v';
+    if (by !== undefined && by !== id && this.bountyId === by) return 'k';
+    return undefined;
   }
 
   /**

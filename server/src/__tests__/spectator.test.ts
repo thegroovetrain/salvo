@@ -176,10 +176,13 @@ describe('spectator frames — dead observer in the active phase', () => {
     ]);
     // A later sinking far from the wreck's old bubble: still seen for the
     // spectator — the unfogged path stamps the spatial license unconditionally.
+    // b became the KILL LEADER by sinking a (1 captain kill, strict unique
+    // max), so this kill also carries the killer-case mark (Story 4.6 rework:
+    // bty 'k' — observer-independent, spectators included).
     w.sinkShip('c', 'b');
     w.step();
     expect(buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'sunk')).toEqual([
-      { k: 'sunk', id: 'c', by: 'b', seen: true },
+      { k: 'sunk', id: 'c', by: 'b', seen: true, bty: 'k' },
     ]);
   });
 

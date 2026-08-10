@@ -741,7 +741,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     expect('seen' in sunk[0]).toBe(false);
   });
 
-  it('the BOUNTY flag (Story 4.6): `bty` rides the sunk row to EVERY recipient identically, appended last', () => {
+  it('the BOUNTY channel (Story 4.6): `bty: "v"` rides the sunk row to EVERY recipient identically, appended last', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the killer of the holder — far from the wreck
     place(w, 'b', 400, 0); // the throne holder, soon a wreck
@@ -751,18 +751,49 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.step(); // drain the claim sink from the queue
     w.sinkShip('b', 'a'); // the holder goes down in fog
     w.step();
-    // Killer (credited, unwitnessed): the flag arrives WITHOUT `seen`, LAST.
+    // Killer (credited, unwitnessed): the channel arrives WITHOUT `seen`, LAST.
     const ka = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
-    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: true }]);
+    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'v' }]);
     expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty']);
     // Victim (own hull => witnessed): seen AND bty, bty still last.
     const kb = buildFrame(w, 'b').events.filter((e) => e.k === 'sunk');
-    expect(kb).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true, bty: true }]);
+    expect(kb).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true, bty: 'v' }]);
     expect(Object.keys(kb[0])).toEqual(['k', 'id', 'by', 'seen', 'bty']);
-    // Bystander (public register, unwitnessed): identical flag — the value is
+    // Bystander (public register, unwitnessed): identical value — it is
     // observer-INDEPENDENT, unlike the per-observer `seen`.
     const kc = buildFrame(w, 'c').events.filter((e) => e.k === 'sunk');
-    expect(kc).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: true }]);
+    expect(kc).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'v' }]);
+  });
+
+  it('the BOUNTY channel: `bty: "k"` (the LEADER did the sinking) rides identically too — including on a DRONE wreck', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0); // the throne holder — the killer this time
+    place(w, 'b', 400, 0); // a captain victim
+    place(w, 'c', 0, 800); // an uninvolved, out-of-sight bystander
+    place(w, 'v', 900, 900); // a's earlier victim (the throne claim)
+    w.sinkShip('v', 'a'); // a takes the throne
+    w.step();
+    w.sinkShip('b', 'a'); // the LEADER sinks a captain in fog
+    w.step();
+    const ka = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
+    expect(ka).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k' }]);
+    expect(Object.keys(ka[0])).toEqual(['k', 'id', 'by', 'bty']);
+    const kc = buildFrame(w, 'c').events.filter((e) => e.k === 'sunk');
+    expect(kc).toEqual([{ k: 'sunk', id: 'b', by: 'a', bty: 'k' }]); // observer-independent
+    // The leader sinks a DRONE: `bty: 'k'` legitimately rides the (private)
+    // drone wreck — the event reaches only the witness and the killer, both
+    // of whom already know the leader's identity from the public
+    // ArenaState.bountyId, and `by` is already on the line. The out-of-sight
+    // bystander gets NOTHING: drone sinkings are not public.
+    const d = w.addShip('d', 'D', true); // a drone, in the leader's sight
+    d.state.x = 200;
+    d.state.y = 0;
+    d.state.speed = 0;
+    w.sinkShip('d', 'a');
+    w.step();
+    const kd = buildFrame(w, 'a').events.filter((e) => e.k === 'sunk');
+    expect(kd).toEqual([{ k: 'sunk', id: 'd', by: 'a', seen: true, bty: 'k' }]);
+    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([]);
   });
 
   it('a boom whose victim center is out of sight arrives WITHOUT hit (straddle)', () => {
@@ -1994,21 +2025,30 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   // world emission, or a materialize() regression back to pass-through, fails
   // HERE even though every visibility clause still holds.
   for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen', 'bty']).toContain(key);
-  // `bty` (Story 4.6): the victim held the bounty at the instant of sinking.
-  // Three independent checks, none reading the production row: the flag is
-  // only ever literally `true` (a false/undefined-valued key is a wire
-  // regression — msgpack encodes it); it can never mark a DRONE wreck (a
-  // drone can never hold the throne, so a flagged drone sinking would be a
-  // crowning bug surfacing on the wire); and it must be observer-INDEPENDENT,
-  // equal to the world's own pre-sink emission verbatim — a per-observer
-  // stamping would turn it into a second `seen` and leak witness geometry.
+  // `bty` (Story 4.6, 2026-08-10 rework): WHICH PARTICIPANT held the bounty
+  // throne at the pre-sink instant — 'v' the victim, 'k' the killer. Three
+  // independent checks, none reading the production row: the value is only
+  // ever literally 'v' or 'k' (a false/undefined-valued key is a wire
+  // regression — msgpack encodes it); `bty === 'v'` can never mark a DRONE
+  // wreck (a drone can never hold the throne, so a 'v'-flagged drone sinking
+  // would be a crowning bug surfacing on the wire) — while `bty === 'k'` MAY
+  // ride a drone wreck (the leader sinks a drone): that is not a leak,
+  // because that sunk event only reaches the witness and the killer, both of
+  // whom already know the leader's identity from the public
+  // ArenaState.bountyId, and `by` is already on the line; and it must be
+  // observer-INDEPENDENT, equal to the world's own pre-sink emission verbatim
+  // — a per-observer stamping would turn it into a second `seen` and leak
+  // witness geometry.
   const src = w.tickEvents.find((t) => t.k === 'sunk' && t.id === ev.id) as SunkEvent | undefined;
   if ('bty' in ev) {
-    expect(ev.bty).toBe(true);
+    expect(['v', 'k']).toContain(ev.bty);
     const flaggedWreck = w.ships.get(ev.id);
-    if (flaggedWreck !== undefined) expect(flaggedWreck.isDrone).toBe(false);
+    if (ev.bty === 'v' && flaggedWreck !== undefined) expect(flaggedWreck.isDrone).toBe(false);
   }
-  if (src !== undefined) expect('bty' in ev).toBe(src.bty === true);
+  if (src !== undefined) {
+    expect('bty' in ev).toBe(src.bty !== undefined); // present iff the world emitted it
+    expect(ev.bty).toBe(src.bty); // and identical for every observer, verbatim
+  }
   if (ev.id === me.id) return;
   const wreck = w.ships.get(ev.id);
   if (wreck === undefined) {

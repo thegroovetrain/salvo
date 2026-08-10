@@ -119,6 +119,51 @@ warnings: ['oversized']
 
 ## Spec Change Log
 
+### 2026-08-10 — Same-day copy-grammar rework (post-implementation, same cycle)
+
+**Triggering signal.** Eric read the shipped ` — BOUNTY CLAIMED` / ` — BOUNTY LIFTED` grammar
+(Design Notes' "Copy grammar" paragraph below, as implemented) and rejected it outright before a
+second player ever saw it: *"I don't think we need any of that. The kill leader should get like a
+skull icon or something that shows up in the feed when they kill or are killed, next to their name
+(eg BOAT BOATERSON sunk <skull> CAPTAINAHAB, or however that gets worded). Then you just need
+'<skull> BOAT BOATERSON is the new kill leader' or whatever."* On wording: *"I don't mind 'Bounty'
+wording, but 'is the new bounty' and 'you are the bounty' is really, um, stupid wording? KILL
+LEADER is boring but better. And fine for now."* On emphasis: *"i also want to highlight the kill
+leader's name somehow. like it glows faintly or something."*
+
+**What was amended.** The trailing-connective suffix grammar (`bountyKillSuffix`, `bountyPaid`) is
+deleted; a skull mark (`☠︎`, U+2620+U+FE0E) rides the kill leader's name — sharing one segment,
+inheriting its hue/weight — wherever that name appears in a feed line, as killer or victim. The
+claim register becomes `☠︎ <NAME> IS THE NEW KILL LEADER`. All player-facing strings say KILL
+LEADER, never BOUNTY (`YOU ARE THE KILL LEADER` toast, `☠︎ <NAME>` chrome register); internal
+naming (`CONFIG.bounty`, `bountyId`, `bounty.ts`, `captainKills`, the `bty` wire key) is unchanged —
+a copy ruling, not a rename. The leader's name gets a STATIC `text-shadow` (10px/.4 alpha, sourced
+from DESIGN.md's Ready-Weapon glow row) — static because an animated glow is a new attention-tier
+channel this ruling deliberately avoids opening. `SunkEvent.bty` widened from `true` to `'v' | 'k'`
+(which participant held the throne) because a boolean meaning "the victim held it" cannot express
+the killer case the skull grammar requires; `PROTOCOL_VERSION` stays 33 since that version has
+never shipped. The perception oracle's "`bty` never rides a drone wreck" ban is narrowed to
+`bty === 'v'` only — `'k'` may legitimately ride a drone wreck (the leader sinks a drone), which is
+not a leak because that event reaches only the witness and the killer, both already knowing the
+leader's identity via the public `bountyId`. `CHROME_BAR_SEGMENTS` moved 13 → 12 (one fewer segment
+now that the `BOUNTY: ` label is gone). Full detail: `epic-4-context-amendments.md` 222-227.
+
+**Known-bad state avoided.** The shipped grammar Eric read and rejected: a trailing
+` — BOUNTY CLAIMED`/` — BOUNTY LIFTED` connective with no visual tie to the leader's identity, a
+`YOU ARE THE BOUNTY` toast and `BOUNTY: <NAME>` chrome label using wording Eric called "stupid," and
+no highlighting of the leader's name anywhere it appears. That state is fully superseded by the
+above and must not be resurrected.
+
+**KEEP — unaffected by this rework, must survive any future re-derivation of this spec:** the
+held-throne rule and its strict-overtake semantics (a tie never transfers it, either direction);
+captain-only kills (drone sinkings never advance or crown anyone); the `+1` level bonus
+(`CONFIG.bounty.killLevels`) for sinking the holder, keyed off the victim case only; the
+no-location-disclosure boundary (no radar paint, bloom, ring, bearing, or range band of the holder,
+ever — the master perception invariant stays at exactly six declared exceptions); and the kill
+feed's word order, which is `killLine()`'s shipped victim-first grammar (`<VICTIM> SUNK BY
+<KILLER>`) and was **never wrong** — this rework builds on that output rather than forking it, and a
+future agent must not "fix" it back to a killer-first reading.
+
 ## Review Triage Log
 
 ### 2026-08-10 — Review pass
@@ -161,7 +206,7 @@ export function nextBountyHolder(current: string, cands: BountyCandidate[]): str
 }
 ```
 
-**Copy grammar (presentation, chosen here — flag to Eric).** Claim register: `BOUNTY: <NAME>`. Bounty kill with a killer: the existing `<VICTIM> SUNK BY <KILLER>` line plus a trailing connective ` — BOUNTY CLAIMED`. Bounty kill with no killer (storm/self): the existing `<VICTIM> LOST WITH ALL HANDS` plus ` — BOUNTY LIFTED`. Toast: `YOU ARE THE BOUNTY`.
+**Copy grammar — SUPERSEDED same-day, see Spec Change Log above.** The paragraph below is the grammar as originally implemented and flagged to Eric; he rejected it on sight the same cycle. It is preserved here as the historical record of what shipped first, not as current spec. ~~Claim register: `BOUNTY: <NAME>`. Bounty kill with a killer: the existing `<VICTIM> SUNK BY <KILLER>` line plus a trailing connective ` — BOUNTY CLAIMED`. Bounty kill with no killer (storm/self): the existing `<VICTIM> LOST WITH ALL HANDS` plus ` — BOUNTY LIFTED`. Toast: `YOU ARE THE BOUNTY`.~~ **What ships instead:** a skull mark (`☠︎`) rides the kill leader's name wherever it appears in a feed line (killer or victim); claim register `☠︎ <NAME> IS THE NEW KILL LEADER`; toast `YOU ARE THE KILL LEADER`; chrome register `☠︎ <NAME>`; the leader's name carries a static 10px/.4-alpha glow. Full detail: Spec Change Log, `epic-4-context-amendments.md` 222-227.
 
 **Chrome bar.** `BOUNTY: <NAME>` is the first per-player hue the bar has ever carried; run it through `textSafe()` exactly as the kill feed does, and omit the whole segment (separator included) when the throne is vacant or the roster lookup misses. `CHROME_BAR_SEGMENTS` is a pinned pool size — raising it to 13 is mandatory, not optional.
 

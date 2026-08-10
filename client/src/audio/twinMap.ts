@@ -51,15 +51,16 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   slowed: 'the SLOWED tell + its countdown above the vitals cluster (render/hud)',
   dazzled: 'the DAZZLED tell + its countdown above the vitals cluster, plus the shrunken sight hole (render/hud, fog)',
   sink: 'the sinking-hull effect + the elimination modal (render/effects, ui/results)',
-  // --- THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) -------------------------
+  // --- THE BOUNTY (Story 4.6, Eric rulings 2026-08-10) ------------------------
   // The cue fires only when the throne lands on YOU, and its twin has to carry
   // the same one fact: you are the marked ship. Two surfaces, both text — the
-  // YOU ARE THE BOUNTY toast (the moment) and the persistent BOUNTY register in
-  // the chrome bar naming the holder (the state, which outlives the toast).
-  // NOTHING on the water twins this cue, deliberately: the ruling that shipped
-  // the bounty deleted every positional cue it was originally drawn with.
+  // YOU ARE THE KILL LEADER toast (the moment) and the persistent `☠︎ <NAME>`
+  // register in the chrome bar naming the holder (the state, which outlives
+  // the toast). NOTHING on the water twins this cue, deliberately: the ruling
+  // that shipped the bounty deleted every positional cue it was originally
+  // drawn with.
   bounty:
-    'the YOU ARE THE BOUNTY toast (ui/upgradeToast) + the persistent BOUNTY register naming the holder in the chrome bar (ui/chromeBar, render/hud)',
+    'the YOU ARE THE KILL LEADER toast (ui/upgradeToast) + the persistent kill-leader register naming the holder in the chrome bar (ui/chromeBar, render/hud)',
   tick: 'the countdown seconds ticking down in the phase banner (ui/phase)',
   matchStart: 'the phase banner flipping from countdown to the live match (ui/phase)',
   stormWarn: 'the storm vignette closing in + the OUTSIDE tag in the HUD (render/zone, hud)',

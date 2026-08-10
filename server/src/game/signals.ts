@@ -1282,14 +1282,17 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
     const out: SunkEvent = { k: 'sunk', id: e.id };
     if (e.by !== undefined) out.by = e.by;
     if (sunkWitnessed(ctx, e)) out.seen = true; // per-observer; spectators always carry it
-    // `bty` (Story 4.6, Eric ruling 2026-08-10): the victim held the bounty
-    // at the instant of sinking — appended LAST, only when true. This adds NO
-    // disclosure: a drone can never hold the bounty, so the flag only ever
-    // rides a combatant sinking (already public via this row's third clause),
-    // and ArenaState.bountyId already named the holder to every client.
-    // Unlike `seen` it is observer-INDEPENDENT — passed through verbatim from
-    // the world's pre-sink read, never re-derived per observer.
-    if (e.bty === true) out.bty = true;
+    // `bty` (Story 4.6, Eric rulings 2026-08-10): which PARTICIPANT held the
+    // bounty throne at the pre-sink instant — 'v' the victim, 'k' the killer.
+    // Appended LAST, only when present. This adds NO disclosure: 'v' only
+    // ever rides a combatant sinking (a drone can never hold the throne, so
+    // it is already public via this row's third clause); 'k' may ride a DRONE
+    // wreck (the leader sinks a drone), but that event reaches only the
+    // witness and the credited killer, both of whom already know the leader's
+    // identity from the public ArenaState.bountyId — and `by` is already on
+    // the line. Unlike `seen` it is observer-INDEPENDENT — passed through
+    // verbatim from the world's pre-sink read, never re-derived per observer.
+    if (e.bty === 'v' || e.bty === 'k') out.bty = e.bty;
     return out;
   },
 };

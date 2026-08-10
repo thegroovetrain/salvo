@@ -288,15 +288,15 @@ describe('World — respawn() re-evaluates the throne (the ready-room-only third
   });
 });
 
-// ---------- the `bty` flag on the world's sunk emission -------------------------
+// ---------- the `bty` channel on the world's sunk emission ----------------------
 
-describe('World — the sunk emission carries `bty` exactly when the victim held the throne', () => {
+describe('World — the sunk emission names WHICH participant held the throne (bty: v | k)', () => {
   function sunkEventsAfterStep(w: World): Array<Record<string, unknown>> {
     w.step();
     return w.tickEvents.filter((e) => e.k === 'sunk') as unknown as Array<Record<string, unknown>>;
   }
 
-  it('sinking the holder flags the emission (attributed kill)', () => {
+  it("sinking the holder marks the VICTIM case: bty 'v' (attributed kill)", () => {
     const w = bareWorld();
     place(w, 'a');
     place(w, 'c', 50, 50);
@@ -306,10 +306,10 @@ describe('World — the sunk emission carries `bty` exactly when the victim held
     const sunk = sunkEventsAfterStep(w);
     expect(sunk).toHaveLength(1);
     expect(sunk[0].id).toBe('a');
-    expect(sunk[0].bty).toBe(true);
+    expect(sunk[0].bty).toBe('v');
   });
 
-  it('a STORM sink of the holder still flies the flag (no killer, no bonus)', () => {
+  it("a STORM sink of the holder still marks the victim: bty 'v' (no killer, no bonus)", () => {
     const w = bareWorld();
     place(w, 'a');
     captainKill(w, 'a');
@@ -317,10 +317,40 @@ describe('World — the sunk emission carries `bty` exactly when the victim held
     w.sinkShip('a'); // storm
     const sunk = sunkEventsAfterStep(w);
     expect(sunk).toHaveLength(1);
-    expect(sunk[0].bty).toBe(true);
+    expect(sunk[0].bty).toBe('v');
   });
 
-  it('a NON-holder sinking never carries the key at all', () => {
+  it("the LEADER doing the sinking marks the KILLER case: bty 'k' (2026-08-10 rework)", () => {
+    const w = bareWorld();
+    place(w, 'a');
+    place(w, 'b', 100, 0);
+    captainKill(w, 'a'); // a holds the throne
+    w.step();
+    w.sinkShip('b', 'a'); // the leader sinks a captain
+    const sunk = sunkEventsAfterStep(w);
+    expect(sunk).toHaveLength(1);
+    expect(sunk[0].id).toBe('b');
+    expect(sunk[0].bty).toBe('k');
+  });
+
+  it("the leader sinking a DRONE still marks bty 'k' — the mark rides a drone wreck legitimately", () => {
+    // Not a leak: a drone sunk event reaches only the witness and the killer
+    // (perception's sunk row), both of whom already know the leader's identity
+    // from the public ArenaState.bountyId. The 'v' case, by contrast, can
+    // never appear on a drone wreck — a drone can never hold the throne.
+    const w = bareWorld();
+    place(w, 'a');
+    place(w, 'd', 100, 0, 'torpedoBoat', true); // a drone
+    captainKill(w, 'a'); // a holds the throne
+    w.step();
+    w.sinkShip('d', 'a');
+    const sunk = sunkEventsAfterStep(w);
+    expect(sunk).toHaveLength(1);
+    expect(sunk[0].id).toBe('d');
+    expect(sunk[0].bty).toBe('k');
+  });
+
+  it('a sinking involving NEITHER the holder as victim nor as killer never carries the key at all', () => {
     const w = bareWorld();
     place(w, 'a');
     place(w, 'b', 100, 0);
@@ -330,7 +360,18 @@ describe('World — the sunk emission carries `bty` exactly when the victim held
     expect('bty' in sunk[0]).toBe(false);
   });
 
-  it('the read is PRE-sink: the flag reflects who held the throne at the instant of sinking', () => {
+  it("a SELF-sink of the holder resolves as the VICTIM case ('v'), never 'k' — one throne, one mark", () => {
+    const w = bareWorld();
+    place(w, 'a');
+    captainKill(w, 'a'); // a holds
+    w.step();
+    w.sinkShip('a', 'a'); // the holder's own hand: by === id
+    const sunk = sunkEventsAfterStep(w);
+    expect(sunk).toHaveLength(1);
+    expect(sunk[0].bty).toBe('v');
+  });
+
+  it('the read is PRE-sink: the mark reflects who held the throne at the instant of sinking', () => {
     const w = bareWorld();
     place(w, 'a');
     place(w, 'c', 50, 50);
@@ -339,7 +380,7 @@ describe('World — the sunk emission carries `bty` exactly when the victim held
     w.sinkShip('a', 'c'); // c overtakes IN this evaluation (fresh count 1, a dead)
     expect(w.bountyId).toBe('c'); // the throne already moved...
     const sunk = sunkEventsAfterStep(w);
-    expect(sunk[0].bty).toBe(true); // ...but the emission names the pre-sink truth
+    expect(sunk[0].bty).toBe('v'); // ...but the emission names the pre-sink truth
   });
 });
 
@@ -365,6 +406,16 @@ describe('World — sinking the holder pays CONFIG.bounty.killLevels on top of t
     place(w, 'v', 200, 0);
     w.sinkShip('v', 'c');
     expect(c.level).toBe(CONFIG.xp.killLevels);
+  });
+
+  it("the LEADER killing someone (bty 'k') collects NO bonus — the bonus is the VICTIM case only", () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    place(w, 'b', 100, 0);
+    captainKill(w, 'a'); // a takes the throne (and banks the standard level)
+    const before = a.level;
+    w.sinkShip('b', 'a'); // the leader sinks a captain — bty 'k' on the wire
+    expect(a.level).toBe(before + CONFIG.xp.killLevels); // standard level, nothing on top
   });
 
   it('a storm/self sink of the holder pays nobody', () => {

@@ -50,7 +50,7 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
-import { bountyKillSuffix } from '../ui/bounty.js';
+import { bountyKillLine } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
@@ -959,16 +959,6 @@ function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: str
   return { name: deps.names(id) ?? UNKNOWN_VESSEL, id };
 }
 
-/** THE BOUNTY suffix's attribution test: was anyone actually PAID for this
- *  sinking? The server emits `by` verbatim even on a self-sink (`by === id`),
- *  so `killer !== null` (killLine's own attribution test) is the wrong check
- *  here — creditKill's early return on `by === victim.id` (world.ts) pays
- *  nobody, so the suffix must key off a `by` present and distinct from the
- *  victim. Extracted to keep handleSunk under the complexity-10 bar. */
-function bountyPaid(e: SunkEvent): boolean {
-  return !!e.by && e.by !== e.id;
-}
-
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
   // observer never saw. Everything SPATIAL is gated on the server's
@@ -984,16 +974,17 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // never the raw session id — a global feed puts this line in front of
   // EVERY client.
   const killer = e.by ? feedNameRef(e.by, deps) : null;
-  const line = killLine(feedNameRef(e.id, deps), killer);
-  // THE BOUNTY (Story 4.6): `bty` is the server's PRE-SINK truth — the victim
-  // held the throne at the instant they went down. It is taken verbatim and
+  const victim = feedNameRef(e.id, deps);
+  // THE KILL LEADER'S MARK (Story 4.6, 2026-08-10 rework): `bty` is the
+  // server's PRE-SINK truth — which participant held the throne at the
+  // instant of sinking ('v' victim, 'k' killer). It is taken verbatim and
   // never re-derived by comparing against the local `bountyId`: the schema
   // patch and this event ride the SAME frame with no guaranteed ordering, so
   // the throne may already have been recomputed by the time we read it. The
-  // suffix is a connective (no id): CLAIMED when someone collected the price,
-  // LIFTED when the storm — or the holder's own hand — took it off the board.
-  // `killer !== null` is the WRONG test here — see bountyPaid() above.
-  if (e.bty) line.push(bountyKillSuffix(bountyPaid(e)));
+  // skull rides the leader's NAME segment (ui/bounty.ts) — the retired
+  // CLAIMED/LIFTED trailing connectives carried a paid/unpaid distinction the
+  // grammar no longer has.
+  const line = e.bty ? bountyKillLine(victim, killer, e.bty) : killLine(victim, killer);
   pushKillLine(line, deps.colors);
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the

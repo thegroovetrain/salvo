@@ -29,6 +29,7 @@ import {
 } from '../render/hud.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { CHROME_BAR_SEGMENTS, RING_LIT_ALPHA, chromeBarSegments, ringReadout, type ChromeBarView } from '../ui/chromeBar.js';
+import { KILL_LEADER_MARK } from '../ui/bounty.js';
 import {
   HELM_PAIRS,
   HelmGlyphStore,
@@ -1049,11 +1050,11 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     expect(hud.chromeBarText().join('')).toBe(LIVE_ROW); // the match readout outlives the hull
   });
 
-  it('renders the BOUNTY tail through the pooled Texts, and drops it cleanly when the throne vacates (Story 4.6)', () => {
+  it('renders the KILL LEADER tail through the pooled Texts, and drops it cleanly when the throne vacates (Story 4.6)', () => {
     const hud = new Hud(new Container());
     const held = bar({ bounty: { name: 'ALPHA', hue: 0x35d07f } });
     drive(hud, held, 1);
-    expect(hud.chromeBarText().join('')).toBe(`${LIVE_ROW} · BOUNTY: ALPHA`);
+    expect(hud.chromeBarText().join('')).toBe(`${LIVE_ROW} · ${KILL_LEADER_MARK} ALPHA`);
     // THE POOL MUST HOLD THE WHOLE ROW: layoutChromeBar bounds both its loops
     // by CHROME_BAR_SEGMENTS, so an under-sized pool truncates the tail
     // SILENTLY rather than failing — which is why the literal is pinned here

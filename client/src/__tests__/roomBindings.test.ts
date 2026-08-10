@@ -21,6 +21,7 @@ import type { OwnFire } from '../render/projectiles';
 import { CLIENT_CONFIG } from '../config';
 import { fitDetune } from '../audio/tones';
 import { UNKNOWN_VESSEL } from '../ui/killFeed';
+import { KILL_LEADER_MARK } from '../ui/bounty';
 
 interface FakeRoom {
   onMessage: (type: string, cb: (msg: unknown) => void) => void;
@@ -497,44 +498,50 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(markSunk).not.toHaveBeenCalled();
   });
 
-  // --- THE BOUNTY KILL (Story 4.6) -------------------------------------------
-  // `bty` is the server's PRE-SINK truth (the victim held the throne when they
-  // went down). handleSunk takes it verbatim: comparing the sunk id against the
-  // client's own `bountyId` would race the schema patch riding the same frame.
+  // --- THE KILL LEADER'S MARK (Story 4.6, 2026-08-10 rework) -----------------
+  // `bty` is the server's PRE-SINK truth — WHICH participant held the throne
+  // when the hull went down ('v' victim, 'k' killer). handleSunk takes it
+  // verbatim: comparing against the client's own `bountyId` would race the
+  // schema patch riding the same frame. The skull rides the leader's NAME
+  // (the retired CLAIMED/LIFTED trailing connectives are gone).
 
-  it('a bounty kill WITH a killer appends the CLAIMED connective to the shipped line', () => {
+  it("a victim-leads sinking ('v') marks the victim's name in the shipped line", () => {
     const { sink } = setupSunk();
-    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: true }));
-    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER — BOUNTY CLAIMED']);
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: 'v' }));
+    expect(feedLines()).toEqual([`${KILL_LEADER_MARK} VICTIM SUNK BY KILLER`]);
   });
 
-  it('a bounty kill with NO killer (storm/self) prints the LIFTED connective instead', () => {
+  it("a killer-leads sinking ('k') marks the killer's name instead", () => {
     const { sink } = setupSunk();
-    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: null, bty: true }));
-    expect(feedLines()).toEqual(['VICTIM LOST WITH ALL HANDS — BOUNTY LIFTED']);
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: 'k' }));
+    expect(feedLines()).toEqual([`VICTIM SUNK BY ${KILL_LEADER_MARK} KILLER`]);
   });
 
-  it('a SELF-sink of the holder (by === id) prints LIFTED, never CLAIMED — nobody was paid', () => {
-    // creditKill early-returns on `by === victim.id` (world.ts) so no XP is
-    // granted, yet the server still emits `by` verbatim (world.ts sinkShip
-    // pushes `{k:'sunk', id, by}` unconditionally). `killer !== null` would
-    // wrongly read this as attributed; the suffix must key off `by !== id`.
+  it("a storm sink of the leader ('v', no killer) marks the LOST line", () => {
     const { sink } = setupSunk();
-    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'victim', bty: true }));
-    expect(feedLines()).toEqual(['VICTIM SUNK BY VICTIM — BOUNTY LIFTED']);
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: null, bty: 'v' }));
+    expect(feedLines()).toEqual([`${KILL_LEADER_MARK} VICTIM LOST WITH ALL HANDS`]);
   });
 
-  it('an ORDINARY sinking is byte-identical to before — no suffix without the flag', () => {
+  it("a SELF-sink of the holder (by === id) is the VICTIM case — one mark, on the victim", () => {
+    // The server resolves by === id as 'v' (one throne, one mark); the line
+    // simply wears the skull on the victim's name in both positions' text.
+    const { sink } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'victim', bty: 'v' }));
+    expect(feedLines()).toEqual([`${KILL_LEADER_MARK} VICTIM SUNK BY VICTIM`]);
+  });
+
+  it('an ORDINARY sinking is byte-identical to before — no mark without the channel', () => {
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
     expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']);
-    expect(feedLines().join('')).not.toMatch(/BOUNTY/);
+    expect(feedLines().join('')).not.toContain(KILL_LEADER_MARK);
   });
 
-  it('the flag changes ONLY the copy — it drives no effect, no teardown, no extra tone', () => {
+  it('the mark changes ONLY the copy — it drives no effect, no teardown, no extra tone', () => {
     const { sink, spawnEffect, markSunk, play } = setupSunk();
-    // Unwitnessed, as a fog bounty kill by a third party would be.
-    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: true }));
+    // Unwitnessed, as a fog kill of the leader by a third party would be.
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: 'v' }));
     expect(spawnEffect).not.toHaveBeenCalled(); // the throne discloses no position
     expect(markSunk).not.toHaveBeenCalled();
     expect(play).not.toHaveBeenCalled(); // not our kill, not our hull

@@ -33,6 +33,7 @@ import type { ZonePhase } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { textSafe } from '../util/color.js';
 import { ellipsizeName } from '../util/text.js';
+import { KILL_LEADER_MARK } from './bounty.js';
 import { monoTextWidth } from './refitCardFit.js';
 
 const CB = CLIENT_CONFIG.chromeBar;
@@ -154,8 +155,8 @@ export interface ChromeSegment {
  * caller, so the bar and the feed cannot drift apart on how a name is made
  * legible against the void. `null` means the throne is vacant OR the roster
  * lookup missed — either way the WHOLE segment (its separator included) is
- * omitted, because a bar that printed `BOUNTY: ` with nothing after it would
- * be a register with no register.
+ * omitted, because a bar that printed a bare `☠︎ ` with nothing after it
+ * would be a register with no register.
  *
  * There is deliberately no drone case: a drone can never hold the throne (the
  * server counts CAPTAIN kills only), so the feed's "drone grey is pinned
@@ -237,20 +238,21 @@ function readout(value: string, label: string): ChromeSegment[] {
 }
 
 /**
- * The BOUNTY register (Story 4.6) — `· BOUNTY: <NAME>`, or NOTHING.
+ * The KILL LEADER register (Story 4.6, 2026-08-10 rework) — `· ☠︎ <NAME>`,
+ * or NOTHING. (The `BOUNTY: <NAME>` label grammar is retired: the skull mark
+ * IS the register's whole caption now, and it rides the name segment so it
+ * wears the holder's hue exactly as it does in the feed.)
  *
- * Three segments or zero, never anything between: the separator belongs to the
+ * Two segments or zero, never anything between: the separator belongs to the
  * register, so a vacant throne leaves no dangling ` · ` at the end of the row.
- * The label is dim phosphor like every other caption in the bar; the NAME is
- * the first per-player hue the bar has ever carried, lifted through textSafe()
- * exactly as the kill feed lifts it.
+ * The NAME is the first per-player hue the bar has ever carried, lifted
+ * through textSafe() exactly as the kill feed lifts it.
  */
 function bountyRegister(holder: BountyHolder | null): ChromeSegment[] {
   if (!holder) return [];
   return [
     sep(),
-    { text: 'BOUNTY: ', color: C.phosphor, alpha: CB.labelAlpha },
-    { text: ellipsizeName(holder.name), color: textSafe(holder.hue), alpha: 1 },
+    { text: `${KILL_LEADER_MARK} ${ellipsizeName(holder.name)}`, color: textSafe(holder.hue), alpha: 1 },
   ];
 }
 
@@ -258,7 +260,7 @@ function bountyRegister(holder: BountyHolder | null): ChromeSegment[] {
  * Pure: the whole bar, as an ordered segment list.
  *
  * Order and register (the ratified mock, as amended): `n AFLOAT · n KILLS ·
- * T+mm:ss · <ring> · BOUNTY: <NAME>`. The `T+` prefix is a LABEL (dim phosphor)
+ * T+mm:ss · <ring> · ☠︎ <NAME>`. The `T+` prefix is a LABEL (dim phosphor)
  * and the clock after it is the number, so the three left-hand segments read
  * identically: bright value, dim caption.
  *
@@ -286,10 +288,13 @@ export function chromeBarSegments(view: ChromeBarView): ChromeSegment[] {
  *  against the composer by chromeBar.test.ts.
  *
  *  This is the MAXIMUM, not the invariant count: 10 fixed segments plus the
- *  bounty register's 3 (separator + label + name). It moved from 10 the moment
- *  the bounty shipped — layoutChromeBar bounds both its loops by the pool, so a
- *  stale literal here would SILENTLY DROP the tail rather than fail. */
-export const CHROME_BAR_SEGMENTS = 13;
+ *  kill-leader register's 2 (separator + marked name). It moved from 10 the
+ *  moment the bounty shipped (as 13, when the register carried a separate
+ *  label segment) and to 12 with the 2026-08-10 `☠︎ <NAME>` rework —
+ *  layoutChromeBar bounds both its loops by the pool, so a stale literal here
+ *  would SILENTLY DROP the tail rather than fail (and an oversized one wastes
+ *  pooled Texts). */
+export const CHROME_BAR_SEGMENTS = 12;
 
 /** A laid-out row: the x of each segment (left edge) and the row's total width. */
 export interface ChromeBarLayout {

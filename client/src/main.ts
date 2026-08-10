@@ -820,7 +820,7 @@ function feedColor(g: Game, id: string): number | null {
  * personal hue, or null.
  *
  * NULL ON A ROSTER MISS, deliberately: the whole segment (separator included)
- * is then omitted rather than printing `BOUNTY: UNKNOWN VESSEL` as a permanent
+ * is then omitted rather than printing `☠︎ UNKNOWN VESSEL` as a permanent
  * fixture of the bar. The kill feed's neutral label exists for a ONE-SHOT line
  * about a vessel that already left; a persistent register naming nobody is
  * just noise. The name resolves the frame the roster syncs.
