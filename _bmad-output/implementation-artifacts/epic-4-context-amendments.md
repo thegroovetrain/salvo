@@ -3597,3 +3597,91 @@ no server file, no shared file, no wire field. `PROTOCOL_VERSION` stays **32**. 
      bearing. It now uses a terrain slab. What that test defends — that a slice is a finished record and can
      never wrap down to a sliver on the last frame of a revolution (the cycle-57 defect) — is about the ARC,
      not about which material fills it.
+
+## 2026-08-10 — Eric ruling, THE BOUNTY IS A HELD THRONE, WITH NO LOCATION DISCLOSURE (Story 4-6, cycle 73)
+
+Source: Eric ruling on `spec-4-6-the-bounty.md`'s pre-implementation question gate, same day. Story 4.6
+was `backlog` since cycle 51 pending exactly this ruling (deferred-work.md's cycle-51 block, "BOUNTY BLOOM
+DEPENDS ON TWO CHANNELS THAT NO LONGER EXIST"). `PROTOCOL_VERSION` **32 → 33**. Version 0.17.72 →
+**0.17.73**.
+
+216. **THE BOUNTY BLOOM IS DELETED, AND IDENTITY WAS ALREADY FREE — POSITION WAS THE ONLY NEW THING.**
+     Eric: *"I don't know honestly because I haven't addressed the 'bounty' story at all yet. I'm not sure
+     I want the kill leader's position to be known globally"* (cycle-51) is now answered in full: **no
+     location disclosure of the kill leader of any kind ships, ever** — no radar paint, bloom, ring,
+     bearing, range, or area, ANY range, ANY fog state. This strikes FR17's "blooms on every player's radar
+     at true position (the one sanctioned non-sweep radar paint)" and UX-DR19 outright, and retires the
+     DESIGN.md "Bounty Bloom" component row and its EXPERIENCE.md mirrors.
+
+     The reasoning that survives the deletion: `syncRoster()` has always mirrored every player's `kills`
+     to every client every tick (`ArenaRoom.ts`), so any client could already compute the kill leader
+     without help — publishing `ArenaState.bountyId` therefore RECONCILES the server's answer with
+     information the client could derive anyway, exactly the argument the Public Register (amendment 29)
+     used to justify the `sunk` row. **Position was the only genuinely new disclosure Story 4.6 ever
+     proposed, and it is the one thing this ruling removes.** Consequently the master perception invariant
+     needs no new declared exception at all — see amendment 221.
+
+217. **THE THRONE MOVES ONLY ON A STRICT OVERTAKE — A TIE NEVER TRANSFERS IT, IN EITHER DIRECTION.** A
+     vacant throne stays vacant while the top captain-kill count is shared among two or more captains; a
+     held throne stays with the incumbent until another ALIVE captain STRICTLY exceeds their count, and if
+     two challengers land on a tied new maximum above the incumbent, neither claims it — a shared maximum
+     is not a unique one. The rule is evaluated once per sink, in sink order (and again on ship removal, so
+     the throne never names an absent player), so simultaneous challengers resolve sequentially rather than
+     racing. Minimum `CONFIG.bounty.minCaptainKills` (1) — a zero-kill field has no bounty — and the holder
+     must be ALIVE: a sunk or disconnected holder vacates the throne immediately, and re-claiming it then
+     requires a fresh strict unique maximum among the remaining alive captains. Implemented as
+     `nextBountyHolder()` in the new `server/src/game/bounty.ts`, pure and zero-Colyseus (the `spawn.ts` /
+     `drones.ts` posture) so the rule is unit-testable in isolation from `World`.
+
+218. **CAPTAIN KILLS ONLY — DRONE SINKINGS ADVANCE NOBODY TOWARD THE THRONE, AND NO DRONE MAY EVER HOLD
+     IT.** This follows the Public Register's ratified position (amendment 29) that drones are not
+     combatants — the economy already paid them a fractional level where a captain pays a full one, so the
+     bounty inherits the same line. `ShipRecord.kills` is UNTOUCHED and keeps counting drones for the
+     roster tally, the KILLS chrome segment, and results; a new `ShipRecord.captainKills` (incremented only
+     when `!victim.isDrone`) drives the throne alone, and `bounty.ts`'s candidate filter excludes drones a
+     second time as defense in depth — a future combat-bot path that mis-credits a drone still cannot crown
+     one. Both fields zero on `redeployShip` and `resetForMatchStart`, so a match restart clears the throne
+     with the rest of the economy.
+
+219. **SINKING THE HOLDER PAYS `CONFIG.bounty.killLevels` (+1) ON TOP OF THE STANDARD CAPTAIN-KILL LEVEL,
+     AND A MUTUAL-DESTRUCTION EXCHANGE IS A RULED CONSEQUENCE, NOT A REGRESSION.** The bonus is banked
+     through the existing `grantXp` pipeline with no change to fractional carry — the throne is not a stat
+     and never enters `effectiveStats()`'s fold. Because the pre-sink read happens inside `sinkShip` before
+     the throne recomputes, a simultaneous exchange (A holds the throne, A and C sink each other in the same
+     tick or adjacent ticks) crowns C on the first resolved sink and the RETURN kill — C sinking A — is
+     therefore itself a bounty kill, paying `killLevels` twice across the exchange where a naive reading
+     might expect once. Surfaced in review, ruled as an accepted consequence of "the server knows the
+     pre-sink truth" (amendment 216's mechanism) rather than a bug: two pre-existing server tests
+     (`upgrades.test.ts`, `xp.test.ts`) were updated to expect it. The holder sunk with no killer (the
+     storm, self-inflicted) pays no bonus to anyone — `sunk` still carries `bty: true` and the feed still
+     prints the no-killer bounty register, but XP requires a credited killer exactly as it always has.
+
+220. **THREE PRESENTATION SURFACES ONLY, AND UX-DR19 IS RETIRED WITH THE BLOOM IT SPECIFIED.** (1) A
+     persistent chrome-bar `BOUNTY: <NAME>` register in the holder's text-safe personal hue — **the first
+     PER-PLAYER HUE the bar has ever carried** — appended to the existing `n AFLOAT · n KILLS · T+mm:ss ·
+     <ring readout>` grammar (Story 3.3) and omitted whole, separator included, when the throne is vacant or
+     the roster lookup misses; `CHROME_BAR_SEGMENTS` rose 10 → 13 to hold it. (2) Two kill-feed registers: a
+     claim line when the throne changes hands (`BOUNTY: <NAME>`), and a bounty-kill line riding the existing
+     sunk registers — ` — BOUNTY CLAIMED` appended to `<VICTIM> SUNK BY <KILLER>` when there is a killer, or
+     ` — BOUNTY LIFTED` appended to `<VICTIM> LOST WITH ALL HANDS` when there is not. (3) A `YOU ARE THE
+     BOUNTY` toast plus a new `bounty` audio cue (a V-contoured two-tone klaxon, the only non-flat square in
+     the high register, chosen specifically so it cannot be mistaken for tick or the telegraph detents),
+     firing only for the new holder, never for the incumbent who lost it. No other surface exists: no radar
+     change, no on-water marker, no HUD element beyond these three. UX-DR19 (the bloom's visual spec) is
+     retired in the same motion as amendment 216's deletion, since it specified a component that no longer
+     ships.
+
+221. **NO SEVENTH DECLARED EXCEPTION TO THE MASTER PERCEPTION INVARIANT WAS NEEDED — THE COUNT HOLDS AT
+     SIX.** The wire carries exactly two additions: `ArenaState.bountyId` (a roster-synced schema scalar,
+     identity only — never a position, class, hp, hue, or kill count) and an optional `bty?: true` on the
+     EXISTING `sunk` row, appended last. Neither is a new `GameEvent` kind. `bty` rides `sunk` rather than
+     being compared client-side because the schema patch and the event can arrive in the same frame with no
+     guaranteed ordering, so a client-side comparison against its own copy of `bountyId` could race the
+     server's recompute; the server knows the pre-sink truth and states it directly. `bty` discloses nothing
+     beyond what `sunk` already discloses — a drone can never hold the throne (amendment 218), so the flag
+     can only ever appear on a combatant sinking, which the Public Register already made public. The master
+     perception invariant's declared-exception list therefore stands at exactly SIX — `sp`, `hc`, `mz`
+     (Story 4.3), `sunk` (cycle 45), `sm` (Story 4.4), `fh` (Story 4.5) — unchanged by this story. Also
+     corrects the record: `epic-4-context.md`/CLAUDE.md carried a stale PV (31) and a stale test count (3598
+     and, after cycle 72, 3745) from before Stories 4.11/4.12 and this one landed; the true figures as of
+     this cycle are **PV 33** and **3817 tests** (684 shared / 1050 server / 2083 client).

@@ -603,6 +603,19 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
   summary: AMBER IS RESERVED BUT UNASSIGNED, PENDING ERIC'S SOUND-REPRESENTATION DECISION. Amendment 64's three-channel split gives hue the job of sensor provenance, which only pays off when a second sensor exists. Eric on what that sensor is: *"I don't know yet, I'm thinking about how to represent sound information but I'm not sold on the 'listening ring' concept entirely."* So this cycle spends no hue on a sensor that does not exist. Two facts worth carrying forward: DESIGN.md already gives the Listening Ring phosphor GREEN (lines 107, 236), which would collide with radar's green if the ring ships as specced alongside `return` mode; and DESIGN.md:161 already reserves amber (~25-52°) as a never-a-combatant hue, so assigning it to a sensor is consistent with the doc rather than a deviation. Also note this cycle FREES amber's only on-water use — the hue-latch boot color for unresolved contacts retires with the hue system in `return` mode. Natural home: whichever story lands acoustic sensing (hydrophones were deferred 2026-08-04 in favor of active sonar).
   evidence: `DESIGN.md:107` (listening-ring token, `{colors.phosphor}`), `DESIGN.md:236` (Listening Ring component row, "pure intensity grammar"), `DESIGN.md:161` (reserved hue bands); `client/src/render/hueLatch.ts` (the amber boot for unresolved hues); amendments 65 and 71.
 
+### 2026-08-10 — RESOLVED by Eric ruling (Story 4-6, amendments 216-221)
+
+The first cycle-51 entry above — the Bounty Bloom depending on two channels `return` mode had already
+deleted — is now CLOSED. Eric ruled on Story 4-6's pre-implementation gate: no location disclosure of the
+kill leader ships at all, in any form, at any range. This is a fourth option beyond the three surfaced in
+2026-08-05 (a hueless anonymous ring, a sanctioned identity exception, dropping the feature) — the Bounty
+Bloom is deleted outright and the bounty survives only as a held throne (`ArenaState.bountyId`) presented
+through the BR Chrome Bar, the kill feed, and a self-only toast/tone. No sanctioned identity exception on
+radar was needed. Full record: `epic-4-context-amendments.md` amendments 216-221; `spec-4-6-the-bounty.md`.
+The other two cycle-51 entries above — the colorblind assist's partly-inert blip clause, and amber
+reserved-but-unassigned pending the sound-representation decision — remain OPEN; this ruling does not
+touch either.
+
 ## 2026-08-05 — radar realism cycle (cycle 51): review-gate findings ledgered rather than fixed
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-radar-realism.md`
