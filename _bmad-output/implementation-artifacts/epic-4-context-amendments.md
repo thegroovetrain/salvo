@@ -3793,3 +3793,69 @@ in (still cycle 73, 0.17.73 — the PR carrying amendments 216-221 had not yet m
      exported constant, `KILL_LEADER_MARK` (`client/src/ui/bounty.ts`), with `'†'` (U+2020 DAGGER,
      guaranteed Geist Mono coverage) documented in the same comment as the drop-in fallback if Eric
      dislikes the substituted rendering on screen.
+
+## 2026-08-10 — Eric ruling, Story 4-7 pre-implementation question gate (bmad-dev-auto run, this session)
+
+Source: Eric, verbatim in the `/bmad-dev-auto 4-7` invocation. Full record with the investigation
+findings, the scope fork, and the open questions: `bmad-dev-auto-result-4-7-sound-map-questions.md`.
+
+228. **THE ENTIRE SONAR FAMILY — ACTIVE AND PASSIVE — IS TABLED UNTIL AFTER PUBLIC BETA, WHICH
+     WIDENS AMENDMENT 1 AND CLOSES THE PARKING-LOT ENTRY IT LEFT OPEN.** Eric verbatim: *"i have
+     decided to table/defer all active/passive sonar features (such as hydrophones) until after i
+     release this as a public beta, because radar is already quite deep, and sonar makes a lot of
+     sense coming bundled later with a future 'submarine' class."* Amendment 1 deferred PASSIVE
+     hydrophones explicitly *in favour of* active sonar (*"active sonar is going to be added
+     anyway"*), and amendment 117 carried the active-sonar sensor slot on the `R` key as a parking-
+     lot item awaiting its own cycle. **Both are now behind the same gate**, so the reasoning of
+     record changes shape: the 4-1 deferral was a choice between two instruments, and this is a
+     ruling that the game does not need a third sensor tier at all before beta — *"radar is already
+     quite deep"* — plus a positive placement decision, that sonar is submarine-bundle content
+     rather than universal core kit. Note this sits in tension with the GDD's standing "hydrophones
+     are core kit on every hull — part of the base information layer, never equipment (design law,
+     2026-07-19)": if sonar returns bundled with a class, that design law is superseded, but **that
+     is not ruled here** and the GDD text is untouched (in-cycle doc edits stay Eric-gated, 7-5
+     batch). Island shadows and the deferred submarine's counterplay therefore stay open blind
+     spots for longer than amendment 4 anticipated — recorded, not solved.
+
+229. **STORY 4.7'S SCOPE DID NOT MOVE — AMENDMENT 228 CONFIRMS A NARROWING THAT AMENDMENT 4 ALREADY
+     PERFORMED, AND THE STORY IS NOT A SONAR STORY.** 4.7 is the AUDIO DESIGN pass (what leaves the
+     speakers, plus the accessibility law that every cue carries a visual twin), not a sensor tier.
+     Its one sonar-shaped limb — the AC's "listening-ring grammar" — left scope on 2026-08-04 by
+     amendment 4. The epics.md AC that still lists it is stale text belonging to the Eric-gated
+     doc-sync batch, alongside its two other known-false clauses (amendment 6: "the 13 existing
+     tones" — the shipped catalog is 25 tones plus the foghorn on its own path, 26 audible cues;
+     and "the deferred denied tone" — `denied` shipped in Story 1.10). **Of the six event families
+     UX open question #8 names, four already shipped** (hit call 4.3, foghorn 4.5, bounty 4.6,
+     denied 1.10), one is out of scope (listening ring), and **the low-HP sting is the only
+     genuinely unbuilt cue.**
+
+230. **THE REAL CONSEQUENCE OF 228 IS A SCOPE FORK NOBODY HAD NAMED: TODAY YOU ONLY EVER HEAR
+     YOURSELF, AND FIXING THAT MAY ITSELF BE PASSIVE SONAR.** Verified against the code, not the
+     docs: all 24 `audio.play`/`playHorn` call sites in the client are self-cues — your own weapons,
+     damage to your hull, your own economy and match state — with the foghorn the single exception
+     (and it is an emote a captain chooses to spend). **No third party's action makes any sound:**
+     `boom`, `burst`, `sp`, `mz`, `sm`, `blip`, `wk`, `spawn`, every non-own `shell`/`torp`, and
+     every sinking you did not cause are all silent. Voicing that silence is the largest item in
+     anything called a "real-time sound map" — **and the moment enemy gunfire is audible at range it
+     IS a passive acoustic sensor**, disclosing presence through fog from a hull you cannot see (and
+     bearing too, if panned), which would need its own registry row, its own invariant case, and
+     would likely become the SEVENTH declared exception to the master perception invariant — a count
+     that has held at six since 4.6 deliberately declined to become the seventh. **Three readings
+     were put to Eric and none is chosen yet:** (A) the ocean stays silent, 4.7 shrinks to a hygiene
+     and ratification pass; (B) the world may make noise, each audible class costed as a real
+     disclosure; (C) the middle line — voice only events the observer may ALREADY legitimately
+     perceive (a report on a muzzle flash already visible inside the 5/8 halo with island LOS
+     discloses nothing new), which adds no sensor and needs no exception. **Q1 is blocking; no spec
+     exists until it is ruled.** The agent's recommendation of record was C, but the house rule that
+     game mechanics are never invented without Eric governs.
+
+231. **THE TWIN TABLE PROVES A CUE HAS A TWIN, NOT THAT THE TWIN FIRES — THE CALL-SITE WALK IS REAL
+     WORK AND SURVIVES EVERY READING OF Q1.** `client/src/audio/twinMap.ts` is exhaustive over
+     `AudioCueId` at the TYPE level, so adding a cue without naming its visual twin fails `tsc` —
+     but amendment 60's defect passed that check the whole time: the foghorn played the shipped
+     `denied` tone at a site where none of that row's documented visuals could fire, because the
+     horn has no surface of its own to flash. The class of defect is SITE-level, not TABLE-level,
+     and only a walk of all 24 call sites can find the rest. This, the low-HP sting, the
+     own-wounded-smoke voicing decision that amendment 49 explicitly parked here, and ratification
+     of the unratified implementer-draft timbres (the `heal` tone, the fit-tier envelopes and their
+     per-category detunes) are 4.7's floor regardless of how Q1 lands.
