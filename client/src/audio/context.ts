@@ -14,9 +14,11 @@
 //   masterGain    master volume AND mute (mute is master gain 0 — the play()
 //                 early-out below is just an optimization on top of it)
 //   monoNode      the mono-audio downmix: an explicit 1-channel gain node, so a
-//                 stereo-panned future source folds to centre. Audibly a no-op
-//                 today (nothing is panned) — shipped per the committed AC as
-//                 plumbing for when stereo bearing audio lands.
+//                 stereo-panned source folds to centre. Shipped as plumbing and
+//                 an audible no-op for eight cycles; STORY 4.7 FINALLY MADE IT
+//                 MEAN SOMETHING — the sound map's world cues pan (see `play`'s
+//                 `opts.pan` and `cueSink`), so this is now the node that makes
+//                 the monoAudio accessibility toggle do real work.
 //
 // Mute/volume state lives in settings/store.ts (ONE persisted value shared with
 // the M key); this class subscribes and re-applies the gains on every change.
@@ -48,6 +50,24 @@ const NOISE_VOLUME_FRACTION = 0.5;
 
 /** Floor for the exponential gain ramps (Web Audio cannot ramp to exactly 0). */
 const SILENCE = 0.0001;
+
+/**
+ * Fail-safe sanitizers for the two optional world-cue knobs (Story 4.7).
+ *
+ * Junk must never THROW and must never SILENCE a cue: a cue heard at the wrong
+ * level is a bug, while a missing cue is a LIE about what happened on the water
+ * (the horn's asset-fallback principle, applied to arithmetic). So a non-finite
+ * gain degrades to 1 — the cue plays at its spec's own level — and a non-finite
+ * pan degrades to 0, dead centre. An absent gain is likewise 1, which is exactly
+ * byte-identical to every pre-4.7 call site: `spec.volume * 1 === spec.volume`.
+ */
+function cueGain(gain: number | undefined): number {
+  return gain !== undefined && Number.isFinite(gain) ? Math.max(0, Math.min(1, gain)) : 1;
+}
+
+function cuePan(pan: number): number {
+  return Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan)) : 0;
+}
 
 /** The bus chain, built once the AudioContext exists. */
 interface Buses {
@@ -132,10 +152,18 @@ export class Audio {
    * 0, which is byte-identical to the pre-Story-2.9 behavior for every existing
    * callsite. Today's one user is the fit cue's per-category transposition
    * (audio/tones.ts fitDetune) — one tone family heard nine ways.
+   *
+   * `opts.pan` (-1..1) and `opts.gain` (0..1) are THE SOUND MAP's two knobs
+   * (Story 4.7), and both are computed by the pure `worldCue()` helper from a
+   * position the client already holds and has already DRAWN. `gain` multiplies
+   * the spec's own volume; `pan` splices one StereoPannerNode in front of the
+   * bus (see `cueSink`). Both are optional and both are inert when absent: with
+   * no `pan` no node is created at all and the graph is byte-identical to
+   * today's, so not one existing call site moves.
    */
-  play(id: ToneId, opts?: { detune?: number }): void {
+  play(id: ToneId, opts?: { detune?: number; pan?: number; gain?: number }): void {
     if (this.muted || !this.ctx || !this.buses) return;
-    this.playSpec(TONES[id], opts?.detune ?? 0);
+    this.playSpec(TONES[id], opts?.detune ?? 0, opts?.pan, opts?.gain);
   }
 
   /**
@@ -252,13 +280,19 @@ export class Audio {
     this.unsubscribe();
   }
 
-  private playSpec(spec: ToneSpec, detune: number): void {
+  private playSpec(spec: ToneSpec, detune: number, pan?: number, gain?: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const t0 = ctx.currentTime;
-    this.playOscillator(ctx, spec, t0, detune);
+    const sink = this.cueSink(ctx, pan, t0);
+    if (!sink) return;
+    // ONE level for the whole cue: the tone and its noise layer are the same
+    // event, so a distance-attenuated crack must not keep a full-level transient
+    // (that would make every far shot sound like a near one that lost its body).
+    const volume = spec.volume * cueGain(gain);
+    this.playOscillator(ctx, spec, t0, detune, sink, volume);
     if (spec.noise) {
-      this.playNoiseBurst(ctx, t0, spec.duration * NOISE_DURATION_FRACTION, spec.volume * NOISE_VOLUME_FRACTION);
+      this.playNoiseBurst(ctx, t0, spec.duration * NOISE_DURATION_FRACTION, volume * NOISE_VOLUME_FRACTION, sink);
     }
   }
 
@@ -267,9 +301,42 @@ export class Audio {
     return this.buses?.effects ?? null;
   }
 
-  private playOscillator(ctx: AudioContext, spec: ToneSpec, t0: number, detune: number): void {
-    const sink = this.sink;
-    if (!sink) return;
+  /**
+   * The node THIS cue connects into (Story 4.7).
+   *
+   * With no `pan` the answer is the effects bus itself, so the graph stays
+   * byte-identical to every pre-4.7 call site — `osc → gain → effects`, no extra
+   * node built, nothing extra to collect. With a `pan` we splice in ONE
+   * StereoPannerNode — `osc → gain → panner → effects` — shared by the tone and
+   * its noise layer, so a panned crack's transient travels with it instead of
+   * staying stubbornly centred.
+   *
+   * This is exactly what the mono bus (see the graph at the top of this file)
+   * was pre-plumbed for in Story 2.3: `monoNode` folds a panned source back to
+   * centre, which until now was an audible no-op because nothing panned.
+   *
+   * A browser without `createStereoPanner` falls back to the bare bus — the cue
+   * plays CENTRED rather than not at all. A presentation shortfall must never
+   * become silence (the horn's asset-fallback rule).
+   */
+  private cueSink(ctx: AudioContext, pan: number | undefined, t0: number): AudioNode | null {
+    const bus = this.sink;
+    if (!bus || pan === undefined) return bus;
+    if (typeof ctx.createStereoPanner !== 'function') return bus;
+    const panner = ctx.createStereoPanner();
+    panner.pan.setValueAtTime(cuePan(pan), t0);
+    panner.connect(bus);
+    return panner;
+  }
+
+  private playOscillator(
+    ctx: AudioContext,
+    spec: ToneSpec,
+    t0: number,
+    detune: number,
+    sink: AudioNode,
+    volume: number,
+  ): void {
     const osc = ctx.createOscillator();
     osc.type = spec.type;
     if (detune !== 0) osc.detune.setValueAtTime(detune, t0);
@@ -278,17 +345,17 @@ export class Audio {
     osc.frequency.linearRampToValueAtTime(spec.freqEnd, t0 + spec.duration);
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.linearRampToValueAtTime(spec.volume, t0 + 0.01);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + spec.duration);
     osc.connect(gain).connect(sink);
     osc.start(t0);
     osc.stop(t0 + spec.duration + 0.02);
   }
 
-  /** Short filtered noise burst (procedural — no assets) for the crack/whoosh weapons. */
-  private playNoiseBurst(ctx: AudioContext, t0: number, duration: number, volume: number): void {
-    const sink = this.sink;
-    if (!sink) return;
+  /** Short filtered noise burst (procedural — no assets) for the crack/whoosh
+   *  weapons. Takes its `sink` from the caller so a panned cue's transient rides
+   *  the SAME panner as its tone (Story 4.7). */
+  private playNoiseBurst(ctx: AudioContext, t0: number, duration: number, volume: number, sink: AudioNode): void {
     const size = Math.max(1, Math.floor(ctx.sampleRate * duration));
     const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
     const data = buffer.getChannelData(0);

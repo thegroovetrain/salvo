@@ -55,6 +55,37 @@ describe('every audio cue has a visual twin', () => {
     expect(twin).not.toMatch(/radar|blip|bloom|ring|marker|halo/i);
   });
 
+  it('gives every SOUND MAP cue a twin that was already on screen (Story 4.7)', () => {
+    // The six world cues ride events the client had already received AND ALREADY
+    // DRAWN — the cue points your ear at a mark, it never reveals one. So each
+    // row must name the mark, and none of them may claim a surface this story
+    // invented (it invented none).
+    const surfaces: Record<string, RegExp> = {
+      gunReport: /muzzle flash/i,
+      impact: /spark|bloom|burst/i,
+      splash: /splash ring/i,
+      sunkWitness: /sink ring/i,
+    };
+    for (const [id, pattern] of Object.entries(surfaces)) {
+      expect(toneTwin(id as AudioCueId), id).toMatch(pattern);
+      expect(toneTwin(id as AudioCueId), id).toMatch(/render\//);
+    }
+  });
+
+  it('gives the HP band stings BOTH the rail and the smoke plume (amendment 49, answered)', () => {
+    // The smoke tiers and the HP rail bands are the SAME two thresholds
+    // (CONFIG.damageBands), so the sting at a downward crossing IS the moment
+    // your own plume starts or thickens. Naming only the rail would drop half
+    // the twin — and own smoke really does reach its own captain (amendment 46).
+    for (const id of ['hpHurt', 'hpCritical'] as const) {
+      const twin = toneTwin(id);
+      expect(twin, id).toMatch(/HP rail/i);
+      expect(twin, id).toMatch(/smoke|plume/i);
+      expect(twin, id).toMatch(/render\/hud/);
+      expect(twin, id).toMatch(/render\/smoke/);
+    }
+  });
+
   it('gives the FOGHORN a twin that carries a BEARING — the only thing the honk says', () => {
     const twin = toneTwin('foghorn');
     expect(twin).toMatch(/bearing/i);

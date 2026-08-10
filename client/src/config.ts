@@ -663,6 +663,54 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE SOUND MAP (Story 4.7, Eric ruling 2026-08-10) — how a cue that happened
+   * OUT IN THE WORLD is placed in the mix. Two knobs, and deliberately nothing
+   * else; the three things a reader will come looking for are all absent on
+   * purpose:
+   *
+   *   • THE REACH is not here. Every world cue is attenuated over the SAME
+   *     distance — `CONFIG.vision.radar`, the eighths ladder's 8/8 rung (full
+   *     intel range) — read straight from shared CONFIG at the call site, never
+   *     mirrored or re-typed into this block. It is a FALLOFF SCALE, not a gate:
+   *     the server has already decided which events reach this client, and a
+   *     per-cue reach here (muzzleFlash for `mz`, sight for `boom`) would be a
+   *     second client-side implementation of a perception rule — the exact
+   *     desync/leak class `effectiveStats()` exists to prevent. That option was
+   *     considered and REJECTED; do not add it back as a "tunable".
+   *   • A RATE LIMIT is not here. One already exists: `gunnery.hitCallToneFloorMs`
+   *     immediately above is the ratified 300ms same-source floor, and the world
+   *     cues reuse it verbatim through render/gunneryFeed.ts's `ToneFloor`.
+   *     Inventing a second floor constant is precisely what amendment 37 forbids.
+   *   • NO TIMBRE is here. Frequencies, envelopes and levels live in
+   *     audio/tones.ts beside the specs they belong to; this block only answers
+   *     WHERE a cue sits and HOW LOUD it is at the distance it happened.
+   */
+  audio: {
+    /**
+     * Gain multiplier at the far edge of the reach — the quietest a world cue is
+     * ever played (multiplied into the spec's own volume). The curve is LINEAR
+     * from 1.0 at the listener down to this at `CONFIG.vision.radar`
+     * (audio/tones.ts `worldCue`), not inverse-square: legibility over physical
+     * honesty, which amendment 115 permits outright. The floor is the
+     * load-bearing half — a cue points your ear at a mark already drawn on your
+     * screen, so the far edge must be QUIET but never inaudible, or the cue
+     * stops existing exactly where it is most useful.
+     */
+    worldFloorGain: 0.25,
+    /**
+     * Hard cap on |pan| (StereoPannerNode units, where 1 is fully one ear).
+     * Never 1: a hard-panned cue vanishes for anyone on a single channel or
+     * sitting off-axis, and the pan is a HINT toward a visible mark rather than
+     * the mark itself. 0.7 is wide enough to read as "that side" instantly and
+     * narrow enough that both ears always hear the cue. Under `monoAudio` it
+     * folds to centre — which is what finally makes that accessibility toggle
+     * audible rather than vacuous (audio/context.ts's mono bus was plumbed for
+     * exactly this in Story 2.3 and has been an audible no-op ever since).
+     */
+    panMax: 0.7,
+  },
+
+  /**
    * ORDNANCE AIM PREVIEW (the aim-time answer to "where does this actually go
    * and what does it actually cover") — render/aimPreview.ts + the own-mine
    * rings in render/mines.ts. Geometry is NOT here: every point and radius is
