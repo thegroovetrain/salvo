@@ -5,6 +5,7 @@
 // capped at MAX_LINES.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { bountyClaimLine, bountyKillSuffix } from '../ui/bounty.js';
 import { killLine, ellipsizeName, pushKillLine } from '../ui/killFeed.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssHex } from '../util/color.js';
@@ -53,6 +54,54 @@ describe('killLine — colored segments', () => {
   it('mid-ellipsizes an over-length name in the segment text (id preserved)', () => {
     const [victim] = killLine({ name: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', id: 'v' }, null);
     expect(victim).toEqual({ text: 'ABCDEFG…UVWXYZ', id: 'v' });
+  });
+});
+
+// --- THE BOUNTY REGISTERS (Story 4.6) ----------------------------------------
+// The feed carries two of the bounty's three surfaces. Both are built from the
+// pure ui/bounty.ts builders and pushed through the UNCHANGED pushKillLine
+// adapter — these are the DOM proofs that the composition renders the way the
+// grammar says, name spans colored and connectives not.
+
+describe('the bounty feed registers render through the shipped adapter', () => {
+  beforeEach(() => {
+    document.getElementById('kill-feed')?.remove();
+  });
+
+  const feed = (): HTMLElement => document.getElementById('kill-feed') as HTMLElement;
+  const line = (): string => feed().firstChild!.textContent ?? '';
+
+  it('the CLAIM register prints `BOUNTY: <NAME>` with the name in the pilot\'s hue', () => {
+    pushKillLine(bountyClaimLine({ name: 'ALPHA', id: 'a' }), () => 0x00d0ff);
+    expect(line()).toBe('BOUNTY: ALPHA');
+    const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
+    expect(spans).toHaveLength(2);
+    expect(spans[0].style.color).toBe(''); // the label is connective text
+    expect(spans[1].style.fontWeight).toBe('600'); // ...the name is a name
+    expect(spans[1].style.color).not.toBe('');
+  });
+
+  it('a bounty kill WITH a killer appends ` — BOUNTY CLAIMED` as connective text', () => {
+    const segs = [...killLine({ name: 'ALPHA', id: 'a' }, { name: 'BRAVO', id: 'b' }), bountyKillSuffix(true)];
+    pushKillLine(segs, () => 0x00d0ff);
+    expect(line()).toBe('ALPHA SUNK BY BRAVO — BOUNTY CLAIMED');
+    const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
+    expect(spans).toHaveLength(4);
+    expect(spans[3].style.color).toBe(''); // the suffix never renders as a name
+    expect(spans[3].style.fontWeight).toBe('');
+  });
+
+  it('a bounty kill with NO killer appends ` — BOUNTY LIFTED` instead', () => {
+    const segs = [...killLine({ name: 'ALPHA', id: 'a' }, null), bountyKillSuffix(false)];
+    pushKillLine(segs, () => 0x00d0ff);
+    expect(line()).toBe('ALPHA LOST WITH ALL HANDS — BOUNTY LIFTED');
+  });
+
+  it('says nothing about WHERE any of it happened', () => {
+    // The 2026-08-10 ruling: the bounty is identity only. The feed's copy is
+    // the whole of what a bystander learns, and it carries no number at all.
+    pushKillLine(bountyClaimLine({ name: 'ALPHA', id: 'a' }), () => null);
+    expect(line()).not.toMatch(/\d/);
   });
 });
 

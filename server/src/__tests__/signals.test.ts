@@ -788,6 +788,43 @@ describe('SIGNAL_REGISTRY — sunk: the public register (PV 23, 4th declared exc
     expect('seen' in noKiller).toBe(false);
   });
 
+  it('materialize appends `bty` LAST in both WITNESSED shapes (Story 4.6): [k,id,by,seen,bty] / [k,id,seen,bty]', () => {
+    const w = bareWorld();
+    const c = place(w, 'c', 0, 0);
+    place(w, 'b', 100, 0); // wreck inside c's sight — witnessed
+    w.sinkShip('b', 'a');
+    const ctx = foggedCtx(w, c);
+    const withKiller = row.materialize(ctx, { k: 'sunk', id: 'b', by: 'a', bty: true }) as SunkEvent;
+    expect(Object.keys(withKiller)).toEqual(['k', 'id', 'by', 'seen', 'bty']);
+    expect(withKiller.bty).toBe(true); // only ever true, never false
+    const noKiller = row.materialize(ctx, { k: 'sunk', id: 'b', bty: true } as SunkEvent) as SunkEvent;
+    expect(Object.keys(noKiller)).toEqual(['k', 'id', 'seen', 'bty']); // storm death of the holder
+  });
+
+  it('materialize appends `bty` LAST in both UNWITNESSED shapes: [k,id,by,bty] / [k,id,bty]', () => {
+    const w = bareWorld();
+    const c = place(w, 'c', 0, 0);
+    place(w, 'b', 2000, 0); // far beyond c's sight — public delivery, unseen
+    w.sinkShip('b', 'a');
+    const ctx = foggedCtx(w, c);
+    const withKiller = row.materialize(ctx, { k: 'sunk', id: 'b', by: 'a', bty: true }) as SunkEvent;
+    expect(Object.keys(withKiller)).toEqual(['k', 'id', 'by', 'bty']);
+    const noKiller = row.materialize(ctx, { k: 'sunk', id: 'b', bty: true } as SunkEvent) as SunkEvent;
+    expect(Object.keys(noKiller)).toEqual(['k', 'id', 'bty']);
+  });
+
+  it('an absent or undefined `bty` never reaches the wire — not even as an undefined-valued key', () => {
+    const w = bareWorld();
+    const c = place(w, 'c', 0, 0);
+    place(w, 'b', 100, 0);
+    w.sinkShip('b', 'a');
+    const ctx = foggedCtx(w, c);
+    const absent = row.materialize(ctx, { k: 'sunk', id: 'b', by: 'a' }) as SunkEvent;
+    expect('bty' in absent).toBe(false);
+    const explicit = row.materialize(ctx, { k: 'sunk', id: 'b', by: 'a', bty: undefined } as unknown as SunkEvent) as SunkEvent;
+    expect('bty' in explicit).toBe(false); // msgpack encodes an undefined value — the key must be ABSENT
+  });
+
   it('materialize builds a FRESH object and a SPECTATOR always gets seen: true', () => {
     const w = bareWorld();
     place(w, 'b', 2000, 0);

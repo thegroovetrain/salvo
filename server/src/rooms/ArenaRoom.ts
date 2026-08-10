@@ -811,6 +811,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.syncRoster();
     this.syncZone();
     this.syncMatch();
+    this.syncBounty();
     const phase = this.match?.phase ?? 'waiting';
     for (const client of this.clients) {
       // Skip clients not fully JOINED (initial-join handshake and the
@@ -865,6 +866,14 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.state.countdownEndT = this.match.countdownEndT;
     }
     if (this.state.winnerId !== this.match.winnerId) this.state.winnerId = this.match.winnerId;
+  }
+
+  /** Mirror the bounty throne onto the public schema (Story 4.6): one
+   *  identity-only scalar, guarded-assign so a patch rides only on a real
+   *  transfer/vacate — World owns the strict-overtake rule (game/bounty.ts);
+   *  this is a verbatim mirror, never a re-derivation. */
+  private syncBounty(): void {
+    if (this.state.bountyId !== this.world.bountyId) this.state.bountyId = this.world.bountyId;
   }
 
   /**

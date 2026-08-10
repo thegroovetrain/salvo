@@ -497,6 +497,39 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(markSunk).not.toHaveBeenCalled();
   });
 
+  // --- THE BOUNTY KILL (Story 4.6) -------------------------------------------
+  // `bty` is the server's PRE-SINK truth (the victim held the throne when they
+  // went down). handleSunk takes it verbatim: comparing the sunk id against the
+  // client's own `bountyId` would race the schema patch riding the same frame.
+
+  it('a bounty kill WITH a killer appends the CLAIMED connective to the shipped line', () => {
+    const { sink } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: true }));
+    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER — BOUNTY CLAIMED']);
+  });
+
+  it('a bounty kill with NO killer (storm/self) prints the LIFTED connective instead', () => {
+    const { sink } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: null, bty: true }));
+    expect(feedLines()).toEqual(['VICTIM LOST WITH ALL HANDS — BOUNTY LIFTED']);
+  });
+
+  it('an ORDINARY sinking is byte-identical to before — no suffix without the flag', () => {
+    const { sink } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
+    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']);
+    expect(feedLines().join('')).not.toMatch(/BOUNTY/);
+  });
+
+  it('the flag changes ONLY the copy — it drives no effect, no teardown, no extra tone', () => {
+    const { sink, spawnEffect, markSunk, play } = setupSunk();
+    // Unwitnessed, as a fog bounty kill by a third party would be.
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: true }));
+    expect(spawnEffect).not.toHaveBeenCalled(); // the throne discloses no position
+    expect(markSunk).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled(); // not our kill, not our hull
+  });
+
   it('a roster miss renders the neutral UNKNOWN VESSEL label — NEVER the raw session id', () => {
     // Both vessels have already LEFT the room: the roster resolves no callsign
     // for either. Under the GLOBAL feed (PV 23) this line reaches EVERY client,

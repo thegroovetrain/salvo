@@ -1276,12 +1276,20 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
   },
   materialize(ctx, e) {
     // ALWAYS a fresh object (the burstSignal discipline): KEY ORDER IS
-    // LOAD-BEARING (msgpack): k,id,by?,seen? — and NEVER a key whose value is
-    // undefined (msgpack encodes it; world-emitted storm deaths carry
-    // `by: undefined`, which must leave the wire as an ABSENT key).
+    // LOAD-BEARING (msgpack): k,id,by?,seen?,bty? — and NEVER a key whose
+    // value is undefined (msgpack encodes it; world-emitted storm deaths
+    // carry `by: undefined`, which must leave the wire as an ABSENT key).
     const out: SunkEvent = { k: 'sunk', id: e.id };
     if (e.by !== undefined) out.by = e.by;
     if (sunkWitnessed(ctx, e)) out.seen = true; // per-observer; spectators always carry it
+    // `bty` (Story 4.6, Eric ruling 2026-08-10): the victim held the bounty
+    // at the instant of sinking — appended LAST, only when true. This adds NO
+    // disclosure: a drone can never hold the bounty, so the flag only ever
+    // rides a combatant sinking (already public via this row's third clause),
+    // and ArenaState.bountyId already named the holder to every client.
+    // Unlike `seen` it is observer-INDEPENDENT — passed through verbatim from
+    // the world's pre-sink read, never re-derived per observer.
+    if (e.bty === true) out.bty = true;
     return out;
   },
 };

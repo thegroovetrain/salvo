@@ -95,7 +95,10 @@ import { showHome, type HomeHandle } from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
-import { barVisible, ringReadout, type ChromeBarView } from './ui/chromeBar.js';
+import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
+import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
+import { pushKillLine, UNKNOWN_VESSEL } from './ui/killFeed.js';
+import { pushUpgradeToast } from './ui/upgradeToast.js';
 import {
   closeResultsAsSpectate,
   hideResults,
@@ -203,6 +206,13 @@ interface Game {
   /** The match phase the accumulator's epoch was last synced to (see
    *  updateScoreEpoch — the ready room's sinkings are not match score). */
   scorePhase: string;
+  /** The bounty holder id this client has already ANNOUNCED (Story 4.6) — the
+   *  fire-once-on-change latch behind the claim register and the self toast,
+   *  held here for the same reason `scorePhase` is: the schema is POLLED, so
+   *  the edge has to be detected against a previous value we keep ourselves.
+   *  '' = vacant (also the pre-join value, so a mid-match join announces the
+   *  sitting holder once — which is the register doing its job). */
+  bountyPrev: string;
   /** render/ships.ts hue-table revision last applied to the own hull, so a live
    *  colorblind-assist toggle forces the latched own color to re-resolve. */
   hueRev: number;
@@ -729,6 +739,12 @@ interface PublicState {
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
+  /** THE BOUNTY (Story 4.6) — the holder's roster id, '' when the throne is
+   *  vacant. IDENTITY ONLY: the server publishes this one scalar and the client
+   *  never re-derives the throne rule from it (the two-derivations desync class
+   *  effectiveStats() exists to prevent). It discloses nothing new — the roster
+   *  has always mirrored every captain's kill count to every client. */
+  bountyId?: string;
   players?: {
     size: number;
     get(id: string): { name?: string; color?: number; kills?: number; alive?: boolean } | undefined;
@@ -797,6 +813,49 @@ function feedColor(g: Game, id: string): number | null {
   if (typeof c !== 'number') return null; // roster miss
   if (c === REGATTA_NO_HUE) return CLIENT_CONFIG.colors.droneOutline; // drone grey
   return PLAYER_HUES[c] ?? null; // human personal hue
+}
+
+/**
+ * THE BOUNTY REGISTER's payload (Story 4.6) — the holder's callsign + raw
+ * personal hue, or null.
+ *
+ * NULL ON A ROSTER MISS, deliberately: the whole segment (separator included)
+ * is then omitted rather than printing `BOUNTY: UNKNOWN VESSEL` as a permanent
+ * fixture of the bar. The kill feed's neutral label exists for a ONE-SHOT line
+ * about a vessel that already left; a persistent register naming nobody is
+ * just noise. The name resolves the frame the roster syncs.
+ */
+function bountyHolder(g: Game): BountyHolder | null {
+  const id = publicState(g).bountyId ?? '';
+  if (!id) return null; // vacant throne
+  const name = rosterNameOrNull(g, id);
+  const hue = feedColor(g, id);
+  return name !== null && hue !== null ? { name, hue } : null;
+}
+
+/**
+ * THE BOUNTY's two edge-driven surfaces (Story 4.6), fired ONCE per change of
+ * holder: the public claim register in the kill feed, and — only when the
+ * throne lands on the local player — the toast and its cue.
+ *
+ * The rule itself is the SERVER's (ui/bounty.ts only detects the edge): this
+ * reads one authoritative scalar off the polled schema and never recomputes who
+ * should hold it. A throne that VACATES changes but does not claim — the
+ * sinking that emptied it already printed its own bounty-kill line, and a
+ * second register saying nothing would be a duplicate.
+ */
+function updateBounty(g: Game): void {
+  const t = bountyTransition(g.bountyPrev, publicState(g).bountyId ?? '', g.state.net.sessionId);
+  if (!t.changed) return;
+  g.bountyPrev = t.holder;
+  if (t.claimed) {
+    const name = rosterNameOrNull(g, t.holder) ?? UNKNOWN_VESSEL; // never a raw session id
+    pushKillLine(bountyClaimLine({ name, id: t.holder }), (id) => feedColor(g, id));
+  }
+  if (t.self) {
+    pushUpgradeToast(bountyToastLine());
+    g.audio.play('bounty');
+  }
 }
 
 /** Ordnance-marker tint for a firer id (mine/decoy/lit-zone `by`): the pilot's
@@ -906,6 +965,10 @@ function chromeBarView(g: Game, zv: ZoneView, now: number, tier1: boolean): Chro
     // `closesInMs` is handed over verbatim — its dual meaning (to close START
     // pre-close, to close END while closing) is the composer's contract.
     ring: ringReadout(zv.state, zv.closesInMs),
+    // IDENTITY ONLY (Story 4.6): a callsign and a hue. This text register is
+    // the bounty's only appearance on screen outside the feed and the toast —
+    // nothing on the water, the scope included, is told the throne exists.
+    bounty: bountyHolder(g),
     tier1,
   };
 }
@@ -1518,6 +1581,7 @@ function buildGame(
     settingsOverlay,
     score: freshScore(),
     scorePhase: 'waiting',
+    bountyPrev: '',
     hueRev: hueRevision(),
     uiScale: 1,
     spendInFlight: null,
@@ -2622,6 +2686,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const zv = zoneView(g, now);
       const mu = matchUxFromRoom(g, now);
       updateScoreEpoch(g); // the ready room's sinkings are not match score
+      updateBounty(g); // the throne's claim register + the self toast/tone (4.6)
       updateOpenResults(g); // converge an open elimination modal on roster truth
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);

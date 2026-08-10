@@ -27,6 +27,7 @@ export type ToneId =
   | 'slowed'
   | 'dazzled'
   | 'sink'
+  | 'bounty'
   | 'tick'
   | 'matchStart'
   | 'stormWarn'
@@ -142,6 +143,22 @@ export const TONES: Record<ToneId, ToneSpec> = {
   dazzled: { freqStart: 900, freqMid: 1400, freqEnd: 1250, duration: 0.12, volume: 0.34, type: 'sine' },
   // Own sink: the one long tone — alarm warble sliding down into a low boom.
   sink: { freqStart: 320, freqMid: 180, freqEnd: 60, duration: 0.4, volume: 0.55, type: 'sawtooth' },
+  // --- THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) -------------------------
+  // The throne landed on YOU. A two-tone KLAXON: a square that drops a fifth at
+  // the 40% mark and comes straight back up, which is the shape of an alert
+  // horn rather than of any event in the catalog. It fires on exactly one
+  // occasion — the local player taking the bounty — so it has to read as a
+  // status change, never as an action landing.
+  //
+  // WHY IT CANNOT BE MISTAKEN FOR ITS NEIGHBOURS: it is the only V-CONTOURED
+  // cue in the HIGH register (hitCall dips and returns two octaves below it,
+  // at 130Hz, on a soft triangle), and the only NON-FLAT square up there — the
+  // tick (700 flat) and both telegraph detents (1200/800 flat) are the
+  // register's other squares and none of them moves in pitch. Everything else
+  // near this pitch glides one way and stops: kill rises 500→1200, point
+  // 700→1500, dazzled washes up and thins. Draft spec (the standing draft-copy
+  // rule); the visual twin is the toast + the bar's own BOUNTY register.
+  bounty: { freqStart: 990, freqMid: 660, freqEnd: 990, duration: 0.15, volume: 0.46, type: 'square' },
   // Countdown tick (last 5s): short, neutral, clock-like.
   tick: { freqStart: 700, freqMid: 700, freqEnd: 700, duration: 0.06, volume: 0.3, type: 'square' },
   // Match start: bright rising-then-settling tone.

@@ -28,7 +28,7 @@ import {
   tellSeconds,
 } from '../render/hud.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
-import { CHROME_BAR_SEGMENTS, RING_LIT_ALPHA, ringReadout, type ChromeBarView } from '../ui/chromeBar.js';
+import { CHROME_BAR_SEGMENTS, RING_LIT_ALPHA, chromeBarSegments, ringReadout, type ChromeBarView } from '../ui/chromeBar.js';
 import {
   HELM_PAIRS,
   HelmGlyphStore,
@@ -899,6 +899,7 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
     kills: 0,
     matchMs: 0,
     ring: { text: '', urgent: false },
+    bounty: null,
     tier1: false,
   };
 
@@ -1015,7 +1016,6 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
   const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
   const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
   const LIVE_ROW = '12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34';
-  const RING = CHROME_BAR_SEGMENTS - 1; // the ring readout is the last segment
 
   function bar(over: Partial<ChromeBarView> = {}): ChromeBarView {
     return {
@@ -1024,10 +1024,17 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
       kills: 2,
       matchMs: 252_000,
       ring: ringReadout('clear', 154_000),
+      bounty: null,
       tier1: false,
       ...over,
     };
   }
+
+  // The pooled Text index of the ring readout, taken FROM THE COMPOSER rather
+  // than assumed to be the last slot: the bounty register (Story 4.6) appends
+  // an OPTIONAL tail after the ring, so `CHROME_BAR_SEGMENTS - 1` stopped
+  // meaning "the ring" the moment the pool grew to hold it.
+  const RING = chromeBarSegments(bar()).findIndex((s) => s.pulsed);
 
   const drive = (hud: Hud, v: ChromeBarView, nowSec: number): void =>
     hud.update(ship, { throttle: 0, rudder: 0 }, status, false, v, match, 1366, 768, nowSec);
@@ -1040,6 +1047,20 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     expect(hud.chromeBarText().join('')).toBe(LIVE_ROW);
     hud.updateSpectate(bar(), match, 1366, 768, 'SUNK — SPECTATING', 2);
     expect(hud.chromeBarText().join('')).toBe(LIVE_ROW); // the match readout outlives the hull
+  });
+
+  it('renders the BOUNTY tail through the pooled Texts, and drops it cleanly when the throne vacates (Story 4.6)', () => {
+    const hud = new Hud(new Container());
+    const held = bar({ bounty: { name: 'ALPHA', hue: 0x35d07f } });
+    drive(hud, held, 1);
+    expect(hud.chromeBarText().join('')).toBe(`${LIVE_ROW} · BOUNTY: ALPHA`);
+    // THE POOL MUST HOLD THE WHOLE ROW: layoutChromeBar bounds both its loops
+    // by CHROME_BAR_SEGMENTS, so an under-sized pool truncates the tail
+    // SILENTLY rather than failing — which is why the literal is pinned here
+    // against the widest row the composer can emit, not just in chromeBar.test.
+    expect(chromeBarSegments(held)).toHaveLength(CHROME_BAR_SEGMENTS);
+    drive(hud, bar(), 2); // throne vacates: the register goes, separator and all
+    expect(hud.chromeBarText().join('')).toBe(LIVE_ROW);
   });
 
   it('hangs off hudLayer, NOT the instruments root (the kill switch must not take it)', () => {
@@ -1228,6 +1249,7 @@ describe('Hud — the tells on a live frame', () => {
     kills: 0,
     matchMs: 0,
     ring: { text: '', urgent: false },
+    bounty: null,
     tier1: false,
   };
   const draw = (hud: Hud, status: OwnStatus): void =>

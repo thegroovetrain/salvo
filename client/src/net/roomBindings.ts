@@ -50,6 +50,7 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
+import { bountyKillSuffix } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
@@ -973,7 +974,16 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // never the raw session id — a global feed puts this line in front of
   // EVERY client.
   const killer = e.by ? feedNameRef(e.by, deps) : null;
-  pushKillLine(killLine(feedNameRef(e.id, deps), killer), deps.colors);
+  const line = killLine(feedNameRef(e.id, deps), killer);
+  // THE BOUNTY (Story 4.6): `bty` is the server's PRE-SINK truth — the victim
+  // held the throne at the instant they went down. It is taken verbatim and
+  // never re-derived by comparing against the local `bountyId`: the schema
+  // patch and this event ride the SAME frame with no guaranteed ordering, so
+  // the throne may already have been recomputed by the time we read it. The
+  // suffix is a connective (no id): CLAIMED when someone collected the price,
+  // LIFTED when the storm — or the holder's own hand — took it off the board.
+  if (e.bty) line.push(bountyKillSuffix(killer !== null));
+  pushKillLine(line, deps.colors);
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the
   // SAME observed sinking the kill feed does — no new wire data.

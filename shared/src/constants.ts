@@ -853,6 +853,23 @@ export const CONFIG = {
   },
 
   /**
+   * THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) — the held throne over
+   * CAPTAIN-only kills. The kill leader is named publicly (ArenaState.bountyId,
+   * identity ONLY — never a position, class, hp, hue, or kill count; the ruling
+   * deleted the Bounty Bloom and every location channel with it), and sinking
+   * the holder pays `killLevels` ON TOP of the standard captain-kill level
+   * through the unchanged grantXp pipeline. The throne moves only on a STRICT
+   * OVERTAKE — a tie never transfers it in either direction — and only an
+   * ALIVE captain with at least `minCaptainKills` can hold it. Drones never
+   * count toward it and never hold it (the Public Register's "drones are not
+   * combatants" position). Rule lives in server/src/game/bounty.ts.
+   */
+  bounty: {
+    killLevels: 1, // bonus levels for sinking the holder, on top of the standard captain kill (Eric ruling 2026-08-10)
+    minCaptainKills: 1, // captain kills required to hold the throne — a zero-kill field has no bounty (Eric ruling 2026-08-10)
+  },
+
+  /**
    * DAMAGE CONTROL (Eric rulings 2026-08-04) — the always-available heal
    * spend: a permanent strip beneath the refit band's four-card row. NOT a
    * card: never drawn, never in the deck (BOON_CATALOG / CONFIG.deck /

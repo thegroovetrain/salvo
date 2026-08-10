@@ -41,6 +41,20 @@ describe('every audio cue has a visual twin', () => {
     }
   });
 
+  it('gives the BOUNTY a twin on BOTH its text surfaces — and none on the water', () => {
+    // Story 4.6: the cue fires once, when the throne lands on you. Its twin has
+    // to carry the same fact twice over — the moment (the toast) and the state
+    // that outlives it (the chrome bar's register naming the holder). The
+    // 2026-08-10 ruling deleted every positional cue, so no on-water surface
+    // may appear here.
+    const twin = toneTwin('bounty');
+    expect(twin).toMatch(/toast/i);
+    expect(twin).toMatch(/chrome bar/i);
+    expect(twin).toMatch(/ui\/upgradeToast/);
+    expect(twin).toMatch(/ui\/chromeBar/);
+    expect(twin).not.toMatch(/radar|blip|bloom|ring|marker|halo/i);
+  });
+
   it('gives the FOGHORN a twin that carries a BEARING — the only thing the honk says', () => {
     const twin = toneTwin('foghorn');
     expect(twin).toMatch(/bearing/i);

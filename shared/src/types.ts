@@ -816,13 +816,22 @@ export interface DamageEvent {
  * at a stale last-known position. Never emitted as `seen: false` or with an
  * `undefined` value (msgpack encodes it): the key is omitted entirely when
  * the observer did not witness the wreck. KEY ORDER IS LOAD-BEARING
- * (msgpack): k,id,by?,seen? — absent keys are omitted, never undefined.
+ * (msgpack): k,id,by?,seen?,bty? — absent keys are omitted, never undefined.
+ *
+ * `bty` (Story 4.6, Eric ruling 2026-08-10): the victim held the bounty at
+ * the instant of sinking — identity-only, adds NO disclosure: a drone can
+ * never hold the bounty, so the flag can only appear on a combatant sinking,
+ * which is already public, and ArenaState.bountyId already named the holder
+ * to every client. Appended LAST; present only as `true`, never `false` or
+ * `undefined`. Observer-INDEPENDENT (unlike the per-observer `seen`): every
+ * recipient of the row gets the same flag.
  */
 export interface SunkEvent {
   k: 'sunk';
   id: string;
   by?: string;
   seen?: true;
+  bty?: true;
 }
 
 /** A ship (re)spawned at a position. */

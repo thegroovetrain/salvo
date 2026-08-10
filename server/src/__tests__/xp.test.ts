@@ -150,6 +150,19 @@ describe('kill XP — value by victim, fraction always carried', () => {
     expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.4)); // the 0.4 carried, unscathed
   });
 
+  it('the BOUNTY HOLDER as victim pays killLevels + CONFIG.bounty.killLevels (Story 4.6), fraction still carried', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    place(w, 'b', 100, 0);
+    place(w, 'v', 200, 0);
+    w.sinkShip('v', 'b'); // b takes the throne (1 captain kill, strict unique max)
+    a.xpMs = Math.round(XP.levelMs * 0.4); // the carry must survive the stacked grant
+    w.sinkShip('b', 'a'); // a sinks the holder — one grant, both levels
+    expect(a.level).toBe(XP.killLevels + CONFIG.bounty.killLevels);
+    expect(a.offers).toHaveLength(XP.killLevels + CONFIG.bounty.killLevels);
+    expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.4)); // the 0.4 carried, unscathed
+  });
+
   it('a DRONE victim pays its size tier — ¼ / ⅓ / ½ — and only banks on a crossing', () => {
     const cases: [HullId, number][] = [
       ['droneSmall', XP.droneTierLevels.droneSmall],
@@ -215,11 +228,13 @@ describe('kill XP — value by victim, fraction always carried', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     place(w, 'b', 100, 0);
-    w.sinkShip('a', 'b'); // a dies first...
-    w.sinkShip('b', 'a'); // ...its shell still lands
+    w.sinkShip('a', 'b'); // a dies first — and this crowns b (Story 4.6: 1 captain kill, unique max)
+    w.sinkShip('b', 'a'); // ...a's shell still lands, now on the BOUNTY HOLDER
     expect(a.alive).toBe(false);
-    expect(a.level).toBe(1);
-    expect(a.offers).toHaveLength(1);
+    // The mutual destruction's second sink stacks the bounty bonus on the
+    // standard captain level (Story 4.6): the dead killer banks BOTH.
+    expect(a.level).toBe(XP.killLevels + CONFIG.bounty.killLevels);
+    expect(a.offers).toHaveLength(XP.killLevels + CONFIG.bounty.killLevels);
   });
 
   it('a DRONE killer banks nothing, however many hulls it sinks', () => {

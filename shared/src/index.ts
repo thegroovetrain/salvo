@@ -3,6 +3,17 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  33: THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) — the held throne over
+ *  captain-only kills. ArenaState gains `bountyId` (a string appended after
+ *  winnerId: the holder's session id, '' while vacant — IDENTITY ONLY, never
+ *  a position, class, hp, hue, or kill count; the ruling deleted the Bounty
+ *  Bloom, so no radar/perception surface moves) and SunkEvent gains an
+ *  optional trailing `bty?: true` (the victim held the bounty at the instant
+ *  of sinking — adds no disclosure: a drone can never hold it, so it only
+ *  ever rides an already-public combatant sinking). New `CONFIG.bounty`
+ *  (killLevels / minCaptainKills) rides the welcome config snapshot. A stale
+ *  client would miss the schema field and drop `bty` on the floor, silently
+ *  mis-rendering the bounty registers, so the bump is a compatibility gate.
  *  32: RADAR WAKES (Story 4.12, Eric rulings 2026-08-08, amendments 194-196)
  *  — new `wk` GameEvent (WakeBlipEvent {k,t,a,gx,gy,w,h,bits}): a wake ribbon
  *  SEGMENT the observer's sweep crossed this tick, rasterized onto the same
@@ -288,7 +299,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 32;
+export const PROTOCOL_VERSION = 33;
 
 // Tunables
 export * from './constants.js';

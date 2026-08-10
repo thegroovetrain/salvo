@@ -208,11 +208,13 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
     w.step();
-    w.sinkShip('a', 'b'); // a dies first...
-    w.sinkShip('b', 'a'); // ...but its torpedo still lands
+    w.sinkShip('a', 'b'); // a dies first — and this crowns b (Story 4.6: 1 captain kill, unique max)
+    w.sinkShip('b', 'a'); // ...but its torpedo still lands, now on the BOUNTY HOLDER
     w.step();
-    expect(a.offers).toHaveLength(1);
-    expect(a.level).toBe(1); // kill XP is NOT alive-gated (Story 2.6)
+    // TWO banked points since Story 4.6: the standard captain level plus
+    // CONFIG.bounty.killLevels for sinking the holder — both to a corpse.
+    expect(a.offers).toHaveLength(2);
+    expect(a.level).toBe(2); // kill XP is NOT alive-gated (Story 2.6)
     expect(a.alive).toBe(false);
     expect(a.hp).toBe(0); // earning is inert — a corpse banks, nothing heals
   });

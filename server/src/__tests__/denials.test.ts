@@ -196,11 +196,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 31→32 bump (PV 32: RADAR WAKES — Story 4.12 adds the `wk` GameEvent, a wire row a stale client has no handler for) is enforced at matchmake', () => {
-  it('rejects pv-31 and pv-30 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(32);
+describe('pv join gate — the 32→33 bump (PV 33: THE BOUNTY — Story 4.6 adds ArenaState.bountyId and the trailing SunkEvent.bty flag, both of which a stale client would silently mis-render) is enforced at matchmake', () => {
+  it('rejects pv-32 and pv-31 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(33);
+    expect(protocolVersionError(32)).toMatch(/refresh/);
     expect(protocolVersionError(31)).toMatch(/refresh/);
-    expect(protocolVersionError(30)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });
