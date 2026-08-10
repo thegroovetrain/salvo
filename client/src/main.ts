@@ -128,12 +128,12 @@ import {
 import { Audio } from './audio/context.js';
 import {
   audioCues,
-  hpBandEdge,
   stormEnterEdge,
   telegraphTone,
   INITIAL_CUE_STATE,
   type AudioCueState,
 } from './audio/tones.js';
+import { ownHpFrac, hpStingCue } from './audio/hpSting.js';
 import { createNullAdapter } from './portal/nullAdapter.js';
 import { safeAdapter } from './portal/safeAdapter.js';
 import type { PortalAdapter } from './portal/portalAdapter.js';
@@ -2403,10 +2403,12 @@ function updateZone(
 
 /**
  * THE BAND STINGS (Story 4.7): the own hull crossing `CONFIG.damageBands`
- * downward — 50% and 25% — gets a one-shot alarm, and the crossing itself is
- * decided by the pure `hpBandEdge` (audio/tones.ts, which owns the
- * downward-only / re-arming / worse-one-only rules and reads the thresholds
- * straight out of shared CONFIG).
+ * downward — 50% and 25% — gets a one-shot alarm. The fraction and the cue id
+ * are both decided by the pure helpers in audio/hpSting.ts (`ownHpFrac`,
+ * `hpStingCue`, themselves built on `hpBandEdge` in audio/tones.ts, which owns
+ * the downward-only / re-arming / worse-one-only rules and reads the
+ * thresholds straight out of shared CONFIG) — extracted there so the wiring
+ * itself is covered by a test, not just the edge math (amendment 60).
  *
  * IT LIVES IN main.ts AND NOWHERE ELSE because this is the only place that holds
  * BOTH numbers: net/roomBindings.ts sees `you.hp` but has no `maxHp` seam —
@@ -2425,20 +2427,9 @@ function updateZone(
  */
 function playHpSting(g: Game, status: OwnStatus): void {
   const frac = ownHpFrac(status);
-  const band = hpBandEdge(g.wasHpFrac, frac);
-  if (band) g.audio.play(band === 'critical' ? 'hpCritical' : 'hpHurt');
+  const cue = hpStingCue(g.wasHpFrac, frac);
+  if (cue) g.audio.play(cue);
   g.wasHpFrac = frac;
-}
-
-/**
- * The own hull fraction the sting reads, or NULL when there is no live hull to
- * take one from. Never 0: a dead or unfitted hull that reported 0 would read as
- * "just crossed critical" (see the `wasHpFrac` field note), so both a dead
- * captain and a nonsensical `maxHp` resolve to null instead.
- */
-function ownHpFrac(status: OwnStatus): number | null {
-  const maxHp = status.stats.maxHp;
-  return status.alive && maxHp > 0 ? status.hp / maxHp : null;
 }
 
 /** Tier-1 (THREAT) channels as this story knows them (amendment 16): the HP
