@@ -495,10 +495,25 @@ export interface WorldCue {
  * is exactly the desync/leak class this project forbids (the `effectiveStats()`
  * argument, applied to sensing rather than to stats). Every world cue therefore
  * passes the SAME reach, `CONFIG.vision.radar` (the eighths ladder's 8/8 rung,
- * full intel range), and the null return below is DEFENSIVE DEAD CODE for input
- * that cannot occur — never a decision about what you may hear. Per-cue rungs
- * (muzzleFlash for `mz`, sight for `boom`) were considered and rejected on that
- * ground: they would have re-derived the server's answer client-side.
+ * full intel range). Per-cue rungs (muzzleFlash for `mz`, sight for `boom`) were
+ * considered and rejected on that ground: they would have re-derived the
+ * server's answer client-side.
+ *
+ * PAST THE REACH THE CUE IS CLAMPED, NEVER DROPPED (review gate). An earlier
+ * draft returned null there and called it dead code; it is not. A captain with
+ * intel-range boons legitimately fires out to `stats.radarRange` far past the
+ * BASE radar this scale is fixed at, so their own fall-of-shot — already drawn
+ * on screen at its true point — arrives from beyond it; and while spectating,
+ * frames are unfogged, so events routinely land farther than the base reach from
+ * the camera. Both used to collapse to a dead-centre floor cue, throwing away the
+ * bearing that IS the cue. Clamping is the only correct answer because the client
+ * must never re-gate what it may sound: distance past the falloff scale means
+ * "as far away as this model can express", never silence and never a lost
+ * bearing. The gain is already continuous at the boundary (it reaches the floor
+ * exactly AT the reach), so only the pan was ever lying.
+ *
+ * The null return that remains is for genuinely UNUSABLE input only — non-finite
+ * coordinates, or a reach that cannot be divided by.
  *
  * The curve is LINEAR TO A FLOOR, not inverse-square. That is a legibility
  * choice over a physically honest one, which amendment 115 permits outright
@@ -513,9 +528,10 @@ export function worldCue(dxScreen: number, dyScreen: number, reachU: number): Wo
   if (!Number.isFinite(dxScreen) || !Number.isFinite(dyScreen) || !Number.isFinite(reachU)) return null;
   if (reachU <= 0) return null;
   const d = Math.sqrt(dxScreen * dxScreen + dyScreen * dyScreen);
-  if (d > reachU) return null; // defensive only (see above) — NOT a perception gate
   const floor = CLIENT_CONFIG.audio.worldFloorGain;
-  const gain = floor + (1 - floor) * (1 - d / reachU);
+  // Held at the floor past the reach rather than gated away (see above). The pan
+  // below was ALREADY clamped to the same boundary, which is why the two agree.
+  const gain = floor + (1 - floor) * Math.max(0, 1 - d / reachU);
   const pan = Math.max(-1, Math.min(1, dxScreen / reachU)) * CLIENT_CONFIG.audio.panMax;
   return { pan, gain };
 }

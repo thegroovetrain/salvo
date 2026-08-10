@@ -607,12 +607,26 @@ describe('worldCue (Story 4.7) — attenuate + place a cue that happened out the
     expect(cue(0, -REACH * 0.5).pan).toBe(0);
   });
 
-  it('returns null past the reach — DEFENSIVE ONLY, never a perception gate', () => {
-    // The server does not send an event this client may not have; if one ever
-    // arrives from beyond full intel range, it is silent rather than wrong.
-    expect(worldCue(REACH * 1.01, 0, REACH)).toBeNull();
-    expect(worldCue(REACH, REACH, REACH)).toBeNull();
+  it('CLAMPS past the reach — it keeps the bearing and holds the floor, never null', () => {
+    // The reach is a FALLOFF SCALE, and events legitimately arrive from beyond
+    // it: a captain with intel-range boons fires out past base radar, and a
+    // spectator's frames are unfogged. Returning null there dropped the PAN —
+    // the one thing the cue exists to carry — for a mark already on screen.
+    const far = worldCue(REACH * 1.2, 0, REACH);
+    expect(far).not.toBeNull();
+    expect(far!.gain).toBeCloseTo(worldFloorGain, 12); // already the floor at the reach
+    expect(far!.pan).toBeCloseTo(panMax, 12); // ...and still to starboard
+    expect(worldCue(-REACH * 2, 0, REACH)!.pan).toBeCloseTo(-panMax, 12);
+    expect(worldCue(REACH, REACH, REACH)).not.toBeNull(); // a diagonal past the reach
     expect(worldCue(REACH, 0, REACH)).not.toBeNull(); // exactly AT the reach still sounds
+  });
+
+  it('is CONTINUOUS across the old cutoff — no pan snapping to centre at the boundary', () => {
+    const inside = cue(REACH - 1, 0);
+    const outside = worldCue(REACH + 1, 0, REACH)!;
+    expect(outside.pan).toBeCloseTo(inside.pan, 2); // not 0.7 → 0
+    expect(outside.pan).toBeGreaterThan(0);
+    expect(outside.gain).toBeCloseTo(inside.gain, 2); // gain was already continuous
   });
 
   it('degrades safely on junk rather than throwing', () => {

@@ -1738,4 +1738,65 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
     sink.handler(victimFrame([{ k: 'boom', id: 's1', x: 400, y: 0 }], null));
     expect(optsOf(play, 'splash').pan).toBe(0); // on top of the camera, not of the origin
   });
+
+  // --- THE VICTIM'S OWN HULL (review gate, amendment 37) --------------------
+  //
+  // Ordnance that resolved on OUR hull is already felt exactly once, in
+  // flushDamage's per-frame aggregate: one shake at the summed magnitude and
+  // one cue. Stacking a full-gain, dead-centre world cue on top of it is the
+  // smear amendment 37 exists to prevent — on the most common combat event in
+  // the game.
+
+  it('a boom that hit US is NOT double-sounded — the damage aggregate is the cue', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', hit: 'me', x: 0, y: 0 }], {}));
+    expect(ids(play)).toEqual([]);
+  });
+
+  it('...while a boom on an ENEMY hull still thuds', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', hit: 'foe', x: 120, y: 0 }], {}));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  it('the own-hull BURST is the same occurrence, and is silent too', () => {
+    // A gun shell bursting on our own hull emits `burst` at the clicked point,
+    // which is our hull. The damage we are about to feel IS that event.
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 0, y: 0 }], {}));
+    expect(ids(play)).toEqual([]);
+  });
+
+  it('...but a burst out on the water still thuds', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 300, y: -120 }], {}));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  // --- THE STALE OWN POSE (review gate) -------------------------------------
+  //
+  // `net.you` is never cleared on death, so the wreck's last pose survives the
+  // whole spectate period. Both audio consumers of "where am I" must ask
+  // whether we have a LIVE hull, not merely whether a pose is on hand.
+
+  it('SPECTATING: a cue is placed from the CAMERA, never from the stale wreck pose', () => {
+    const { sink, play } = setupWater(null, { x: 0, y: 0 });
+    // Alive, far to starboard of the camera...
+    sink.handler(victimFrame([], { x: 500, y: 0 }, { t: 1000 }));
+    // ...then dead: a spec frame carries no `you`, so the 500u pose persists.
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', x: 400, y: 0 }], null, { t: 2000 }));
+    // From the camera the mark is to STARBOARD; from the wreck it would be to port.
+    expect(optsOf(play, 'splash').pan).toBeGreaterThan(0);
+  });
+
+  it('SPECTATING: a flash near where we sank is NOT mistaken for our own gun', () => {
+    // Own-fire suppression exists because `fireGun` already sounded the shot.
+    // A spectator fires nothing, so suppressing here silences an enemy gun for
+    // the whole spectate period — flash drawn, no report.
+    const { sink, play, spawnEffect } = setupWater(null, { x: 0, y: 0 });
+    sink.handler(victimFrame([], { x: 500, y: 0 }, { t: 1000 }));
+    sink.handler(victimFrame([{ k: 'mz', x: 500, y: 0 }], null, { t: 2000 }));
+    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 500, 0);
+    expect(ids(play)).toEqual(['gunReport']);
+  });
 });

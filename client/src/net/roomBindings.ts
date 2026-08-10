@@ -690,7 +690,27 @@ const UNPLACED_CUE: WorldCue = { pan: 0, gain: CLIENT_CONFIG.audio.worldFloorGai
  */
 function listenerPos(deps: RoomBindingDeps): { x: number; y: number } {
   const you = deps.state.net.you;
-  return you && you.alive ? { x: you.x, y: you.y } : deps.cameraCenter();
+  return hasLiveOwnHull(deps) && you ? { x: you.x, y: you.y } : deps.cameraCenter();
+}
+
+/**
+ * DO WE HAVE A LIVE OWN HULL RIGHT NOW? — the one question both audio consumers
+ * of "where am I" must ask, and it is NOT the same as "is there a pose on hand".
+ *
+ * `net.you` is assigned whenever a frame carries one and is NEVER cleared
+ * (handleFrame), so the wreck's last pose survives the entire spectate period.
+ * Asking `you.alive` alone therefore depends on whether the death frame happened
+ * to carry a `you` at all, and a stale `alive: true` pose would have every world
+ * cue panned from our corpse and every enemy muzzle flash near it silently taken
+ * for our own gun. The spectating flag is the authoritative half — it is set the
+ * instant the server says `spec` — so both clauses are checked here, once.
+ *
+ * Deliberately NOT folded into `nearOwnShip`: that predicate's other caller is
+ * the torpedo own-fire whoosh, whose behavior predates this and is not ours to
+ * retune (see handleTorp). The gate goes at the audio call sites.
+ */
+function hasLiveOwnHull(deps: RoomBindingDeps): boolean {
+  return !deps.state.spectating && !!deps.state.net.you?.alive;
 }
 
 /**
@@ -772,11 +792,22 @@ function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s:
  * (amendment 19: the flash must create a question, never answer one) — and it
  * fails safe: an enemy firing from inside our own hull length is a knife fight
  * we are hearing our own guns through anyway.
+ *
+ * The suppression is gated on having a LIVE hull (review gate): a spectator
+ * fires nothing, so `fireGun` never sounded and there is nothing to double. Left
+ * ungated it read the never-cleared wreck pose and silenced every enemy gun
+ * within a hull length of where we sank, for the whole spectate period.
  */
 function handleMuzzle(e: MuzzleEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.effects.spawnEffect('muzzle', e.x, e.y);
-  if (nearOwnShip(e.x, e.y, deps)) return;
+  if (onOwnLiveHull(e.x, e.y, deps)) return;
   worldTone('gunReport', e, t, deps, s);
+}
+
+/** Did this happen ON our own hull — one we actually still have? The audio-side
+ *  composition of `nearOwnShip` with `hasLiveOwnHull` (never a change to either). */
+function onOwnLiveHull(x: number, y: number, deps: RoomBindingDeps): boolean {
+  return hasLiveOwnHull(deps) && nearOwnShip(x, y, deps);
 }
 
 /**
@@ -1066,8 +1097,18 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
   // Sounded off the MARK, not off the claim — a pierce ring and a spark are both
   // ordnance connecting out there, and a boom whose spark was deduped away
   // against a same-frame Hit Call still happened.
-  worldTone('impact', e, t, deps, s);
-  if (e.hit !== deps.state.net.sessionId) deps.contactViews.flash(e.hit);
+  //
+  // BUT NEVER WHEN THE HULL IS OURS (review gate, amendment 37). Our own damage
+  // is a PER-FRAME AGGREGATE — "one shake at the summed magnitude, one cue"
+  // (flushDamage) — precisely because repeated cues for one occurrence smear.
+  // `damage`/`burn` IS that cue, and it is already playing this frame at full
+  // gain and dead centre; layering the world `impact` on top would double-sound
+  // the most common combat event in the game. The VISUALS above are untouched:
+  // only the cue is suppressed. Do not "restore" this.
+  if (e.hit !== deps.state.net.sessionId) {
+    worldTone('impact', e, t, deps, s);
+    deps.contactViews.flash(e.hit);
+  }
 }
 
 /**
@@ -1094,7 +1135,15 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
   // Both are already on the wire; this is the pair finally being audible. It
   // shares the `impact` family (and its floor) with a connecting boom on
   // purpose — ordnance detonating out there is ONE kind of fact.
-  worldTone('impact', e, t, deps, s);
+  //
+  // A burst centred on OUR OWN hull is the boom's case exactly (review gate,
+  // amendment 37): it is the same occurrence as the damage we are feeling this
+  // frame, whose aggregate `damage`/`burn` cue is the one cue it gets. `burst`
+  // carries no victim id — the ring is public and the damage is victim-private —
+  // so hull proximity is the discriminator, the same one the muzzle uses, and
+  // for the same reason it must ask for a LIVE hull rather than a stale pose.
+  // The RING above still draws. Do not "restore" this.
+  if (!onOwnLiveHull(e.x, e.y, deps)) worldTone('impact', e, t, deps, s);
 }
 
 /** The feed's name reference for a vessel id: the roster callsign, or the
