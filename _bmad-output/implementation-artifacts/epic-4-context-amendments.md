@@ -3859,3 +3859,82 @@ findings, the scope fork, and the open questions: `bmad-dev-auto-result-4-7-soun
      own-wounded-smoke voicing decision that amendment 49 explicitly parked here, and ratification
      of the unratified implementer-draft timbres (the `heal` tone, the fit-tier envelopes and their
      per-category detunes) are 4.7's floor regardless of how Q1 lands.
+
+## 2026-08-10 — Story 4-7 (The Real-Time Sound Map), cycle 74 (0.17.74)
+
+Source: Eric ruling ("C.") at the question gate, plus the cycle's own review-gate rulings. Full record:
+`spec-4-7-the-real-time-sound-map.md`; the question gate that produced the ruling is
+`bmad-dev-auto-result-4-7-sound-map-questions.md` (amendments 228-231).
+
+232. **READING C: A CUE MAY FIRE ONLY FOR AN EVENT THE CLIENT HAS ALREADY LEGITIMATELY RECEIVED, AND
+     MAY ENCODE ONLY INFORMATION THAT EVENT ALREADY CARRIES.** Eric was given three readings of his
+     sonar deferral (amendment 230) and chose the middle one. The consequence is the whole design:
+     a report laid on a muzzle flash **already drawn on screen at its true point** discloses nothing,
+     so the ocean becomes audible with **no wire change, no server change, no new perception
+     exception, and `PROTOCOL_VERSION` unchanged at 33** — the sixth-exception count still holds.
+     The operational test, applied per cue: *a modified client that deleted this cue learns nothing
+     it did not already have.* Eight cues now ride events already arriving — `mz` → `gunReport`
+     (suppressed at your own hull), `boom` hit → `impact`, `boom` miss → `splash`, `burst` →
+     `impact`, `sp` → `splash`, witnessed `sunk` → `sunkWitness`, and own damage-band crossings →
+     `hpHurt`/`hpCritical`. **This closes the 24-call-site asymmetry amendment 230 recorded**: before
+     this cycle every sound in the game was your own action or something happening to you.
+
+233. **THE CLIENT NEVER RE-GATES WHAT IT MAY SOUND — the cycle's central architectural pin.** The
+     server has already decided which events reach this client; that IS the perception boundary. A
+     client-side reach test would be a SECOND implementation of a perception rule, the exact
+     desync/leak class `effectiveStats()` and the one-shared-shadow-function rule (amendment 177)
+     exist to prevent. So `worldCue`'s `reachU` is a FALLOFF SCALE, never a gate: distance past it
+     reduces to "as far away as this cue's model can express", never to silence and never to a lost
+     bearing. **The review gate proved this was not theoretical** — the first implementation returned
+     null past base radar range as "defensive dead code", and both reviewers found it live on two
+     paths (an intel-boon build legitimately fires past base radar; spectator frames are unfogged),
+     silently dropping the pan on a long-range own fall-of-shot at exactly the bracket-and-walk
+     moment FR16 exists for. It now clamps.
+
+234. **THE VICTIM DOES NOT HEAR THE DETONATION ON TOP OF THE THUD — amendment 37 governs, and this
+     is its extension rather than a new feel ruling.** The first implementation played `impact` on
+     any connecting boom INCLUDING one on your own hull, stacking a full-gain centred cue on the
+     `damage` thud and shake for the most common combat event in the game. Amendment 37 already
+     ratified that the victim's own damage is a PER-FRAME AGGREGATE — *"one shake at the summed
+     magnitude, one cue"* — precisely because repeated cues for one occurrence smear. `damage`/`burn`
+     IS that cue. Both an in-family reviewer and a cross-model (Codex) reviewer flagged this
+     independently. The VISUALS are untouched; only the cue is suppressed.
+
+235. **AN OWN-HULL SUPPRESSION MUST BE KEYED TO THE THING BEING SUPPRESSED, NOT TO A CONVENIENT
+     EXISTING BALL.** The burst case first reused `nearOwnShip`'s `MAX_HULL_LEN` (124u — the largest
+     hull in the game) against a gun blast radius of 15u, so an enemy burst 100u off the beam, which
+     never touched you and emits no `boom`, made no sound at all: a detonation filling the screen in
+     silence, which is strictly worse than the double-sound it was meant to prevent. The
+     discriminator is now the blast radius the ring is ACTUALLY DRAWN AT, so **the silence and the
+     picture always agree** — itself a Reading C statement. The related open question is ledgered
+     rather than fixed: the `mz` own-fire suppression still uses the 124u ball, which is 37% of
+     truesight, so an enemy gun at normal engagement range goes unheard.
+
+236. **A TERMINAL EVENT IS NOT A SALVO, AND SELF-PRIVATE GUNNERY OUTRANKS PUBLIC WORLD NOISE.** Two
+     rate-limit corrections, both from the review gate. Amendment 37's 300ms floor answers *"how
+     often may ONE SOURCE make a noise"* — two hulls sinking are two sources, so `sunkWitness` is
+     **unfloored** (during a ring-closure scrum two hulls going down 200ms apart both groan, where
+     before only one did). And the self-private `sp` fall-of-shot was sharing a floor with public
+     splashes, so ambient world noise could starve the one cue carrying information the shooter
+     cannot otherwise obtain; it now has its own floor, while the same-frame visible-own-miss pair
+     collapses on a POINT CLAIM — the mechanism that actually performs the collapse, replacing a
+     comment that credited the timestamp floor with coordinate logic it has never had.
+
+237. **MONO AUDIO STOPPED BEING VACUOUS.** `monoNode` shipped in Story 2.3 as declared plumbing *"for
+     when stereo bearing audio lands"* and has been an audible no-op ever since — the accessibility
+     setting for unilateral hearing loss protected nothing, because nothing was panned. World cues
+     now pan (self cues never do: a bearing to yourself is meaningless, amendment 55's own-honk bloom
+     settled that), so the fold is real and is pinned by test. **Panning is not a new information
+     channel**: every panned cue's position is already on the client AND already drawn on screen, so
+     the pan points your ear at a pixel your eye can already find — the same argument that made wake
+     chop client-side (amendment 211). Note UX-DR36 names the LISTENING RING as the mono visual
+     backstop and that ring does not exist (amendment 1); the backstop is now the cue's own on-screen
+     mark, and the doc drift is recorded for the Eric-gated 7-5 batch, not fixed here.
+
+238. **THE SIX NEW TIMBRES ARE UNRATIFIED IMPLEMENTER DRAFT AND ARE STAMPED AS SUCH IN THE CODE.**
+     Sound design is game design (UX open question #8 says so explicitly) and the house rule forbids
+     inventing feel without Eric. The contrast arguments are written out cue by cue in `tones.ts`, but
+     the numbers themselves — and the shipped `heal` tone, the fit-tier envelopes and their
+     per-category detunes that have been waiting since Story 2.9 — want a LISTENING PASS with Eric.
+     That pass is the remaining half of Story 4.7's original charter and is ledgered in
+     `deferred-work.md`, not silently closed by this cycle.
