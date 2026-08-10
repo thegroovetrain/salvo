@@ -2,7 +2,7 @@
 title: 'Story 4-6: The Bounty'
 type: 'feature'
 created: '2026-08-10'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '36e5a4f'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -91,22 +91,22 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- add `CONFIG.bounty { killLevels: 1, minCaptainKills: 1 }` with provenance comments citing the 2026-08-10 ruling -- one source of truth for the two numbers.
-- [ ] `shared/src/types.ts` -- add `bty?: true` as the LAST key of `SunkEvent`, documented as "the victim held the bounty; identity-only, adds no disclosure".
-- [ ] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 33 -- the schema field and the widened `sunk` payload both break old clients.
-- [ ] `server/src/game/bounty.ts` -- NEW pure module implementing the strict-overtake throne rule over alive captain candidates -- keeps the rule unit-testable and out of `world.ts`.
-- [ ] `server/src/game/world.ts` -- add `captainKills` to `ShipRecord` and `World.bountyId`; wire `sinkShip` (pre-sink read → `captainKills` increment gated on `!victim.isDrone` → bonus XP when the victim held the throne → push `sunk` with `bty` → recompute); recompute on ship removal; reset both in `redeployShip` and `resetForMatchStart`.
-- [ ] `server/src/game/signals.ts` -- emit `bty` last in the `sunk` row's `materialize`, only when true, never `undefined`.
-- [ ] `server/src/rooms/schema/ArenaState.ts` + `server/src/rooms/ArenaRoom.ts` -- publish `bountyId` via a `syncBounty()` in `afterStep()`.
-- [ ] `client/src/ui/bounty.ts` -- NEW pure module: `bountyTransition(prev, next, selfId)` edge detector plus `bountyClaimLine`, `bountyKillSuffix`, `bountyToastLine`.
-- [ ] `client/src/ui/chromeBar.ts` -- add the `BOUNTY: <NAME>` segment in the holder's text-safe personal hue; raise `CHROME_BAR_SEGMENTS` to 13 -- the pool literal must move or the renderer silently drops the tail.
-- [ ] `client/src/main.ts` -- mirror `bountyId`, hold the previous value, drive the toast + tone on self-claim and the claim line on any change, and pass the bounty into `chromeBarView`.
-- [ ] `client/src/net/roomBindings.ts` + `client/src/ui/killFeed.ts` -- branch `handleSunk` on `e.bty` to print the bounty-kill register.
-- [ ] `client/src/audio/tones.ts` + `client/src/audio/twinMap.ts` -- add the `bounty` cue (≤150 ms) and its twin row naming the toast.
-- [ ] `server/src/__tests__/bounty.test.ts` -- NEW. Cover every I/O Matrix row for the throne rule and the XP bonus, including the tie-does-not-transfer case in both directions.
-- [ ] `server/src/__tests__/signals.test.ts`, `perception.test.ts`, `goldenFrames.test.ts` -- extend the `sunk` key-set pins and the independently-reimplemented `sunk` oracle to cover `bty`; refresh snapshots.
-- [ ] `client/src/__tests__/bounty.test.ts` (NEW) + `chromeBar.test.ts` + `killFeed.test.ts` + `tones.test.ts` + `twinMap.test.ts` -- cover the edge detector, the copy builders, the new segment, and the new cue.
-- [ ] Docs & trackers -- retire the Bounty Bloom rows in `DESIGN.md` and `EXPERIENCE.md`; record amendments 216+ in `epic-4-context-amendments.md`; update `sprint-status.yaml` AND `gds-workflow-status.yaml`; bump `VERSION` to 0.17.73; add the CHANGELOG entry and the CLAUDE.md key-decision entry.
+- [x] `shared/src/constants.ts` -- add `CONFIG.bounty { killLevels: 1, minCaptainKills: 1 }` with provenance comments citing the 2026-08-10 ruling -- one source of truth for the two numbers.
+- [x] `shared/src/types.ts` -- add `bty?: true` as the LAST key of `SunkEvent`, documented as "the victim held the bounty; identity-only, adds no disclosure".
+- [x] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 33 -- the schema field and the widened `sunk` payload both break old clients.
+- [x] `server/src/game/bounty.ts` -- NEW pure module implementing the strict-overtake throne rule over alive captain candidates -- keeps the rule unit-testable and out of `world.ts`.
+- [x] `server/src/game/world.ts` -- add `captainKills` to `ShipRecord` and `World.bountyId`; wire `sinkShip` (pre-sink read → `captainKills` increment gated on `!victim.isDrone` → bonus XP when the victim held the throne → push `sunk` with `bty` → recompute); recompute on ship removal; reset both in `redeployShip` and `resetForMatchStart`.
+- [x] `server/src/game/signals.ts` -- emit `bty` last in the `sunk` row's `materialize`, only when true, never `undefined`.
+- [x] `server/src/rooms/schema/ArenaState.ts` + `server/src/rooms/ArenaRoom.ts` -- publish `bountyId` via a `syncBounty()` in `afterStep()`.
+- [x] `client/src/ui/bounty.ts` -- NEW pure module: `bountyTransition(prev, next, selfId)` edge detector plus `bountyClaimLine`, `bountyKillSuffix`, `bountyToastLine`.
+- [x] `client/src/ui/chromeBar.ts` -- add the `BOUNTY: <NAME>` segment in the holder's text-safe personal hue; raise `CHROME_BAR_SEGMENTS` to 13 -- the pool literal must move or the renderer silently drops the tail.
+- [x] `client/src/main.ts` -- mirror `bountyId`, hold the previous value, drive the toast + tone on self-claim and the claim line on any change, and pass the bounty into `chromeBarView`.
+- [x] `client/src/net/roomBindings.ts` + `client/src/ui/killFeed.ts` -- branch `handleSunk` on `e.bty` to print the bounty-kill register.
+- [x] `client/src/audio/tones.ts` + `client/src/audio/twinMap.ts` -- add the `bounty` cue (≤150 ms) and its twin row naming the toast.
+- [x] `server/src/__tests__/bounty.test.ts` -- NEW. Cover every I/O Matrix row for the throne rule and the XP bonus, including the tie-does-not-transfer case in both directions.
+- [x] `server/src/__tests__/signals.test.ts`, `perception.test.ts`, `goldenFrames.test.ts` -- extend the `sunk` key-set pins and the independently-reimplemented `sunk` oracle to cover `bty`; refresh snapshots.
+- [x] `client/src/__tests__/bounty.test.ts` (NEW) + `chromeBar.test.ts` + `killFeed.test.ts` + `tones.test.ts` + `twinMap.test.ts` -- cover the edge detector, the copy builders, the new segment, and the new cue.
+- [x] Docs & trackers -- retire the Bounty Bloom rows in `DESIGN.md` and `EXPERIENCE.md`; record amendments 216+ in `epic-4-context-amendments.md`; update `sprint-status.yaml` AND `gds-workflow-status.yaml`; bump `VERSION` to 0.17.73; add the CHANGELOG entry and the CLAUDE.md key-decision entry.
 
 **Acceptance Criteria:**
 - Given a live match, when any player inspects any frame, then nothing anywhere discloses the bounty holder's position, bearing, range, or area — the master perception invariant still has exactly six declared exceptions and `perception.test.ts` passes unchanged apart from the `bty` key-set pin.
@@ -120,6 +120,19 @@ warnings: ['oversized']
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-10 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 2, low 1)
+- defer: 3: (high 0, medium 1, low 2)
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` `respawn()` changed the candidate set without re-evaluating the throne — `recomputeBounty()` ran at only two seams (`sinkShip`, `removeShip`) while `captainKills` persists across a respawn, so in the ready room a respawning ex-holder could strictly exceed the incumbent with no transfer. Added the third seam in `respawn()`, corrected both "exactly two seams" doc comments, and added both reproductions as tests (observed pre-fix failures: `expected '' to be 'a'`, `expected 'a' to be 'b'`).
+  - `[medium]` `[patch]` A self-sinking bounty holder printed ` — BOUNTY CLAIMED` although `creditKill` early-returns on `by === victim.id` and pays nobody. The suffix now derives from a `bountyPaid(e)` helper (`!!e.by && e.by !== e.id`); the extraction was required to keep `handleSunk` under the complexity-10 bar. Observed pre-fix failure: received `VICTIM SUNK BY VICTIM — BOUNTY CLAIMED`.
+  - `[low]` `[patch]` `nextBountyHolder` was not fail-closed on non-finite counts — `NaN <= floor` is false, so a NaN candidate cleared the floor and was crowned, and a NaN incumbent produced a NaN floor admitting every zero-kill captain. Eligibility now requires `Number.isFinite`, and a corrupt incumbent's floor becomes `+Infinity`. Unreachable today; matches the `addXpMs` fail-closed precedent.
+
+Cross-model check: a Codex review of the same diff independently found no defects and confirmed the throne rule, the `bty` wire shape, the reset paths, and the absence of any location disclosure. It did not surface the three findings above, so each was verified by direct inspection before being dispatched.
 
 ## Design Notes
 
@@ -164,3 +177,57 @@ export function nextBountyHolder(current: string, cands: BountyCandidate[]): str
 
 **Manual checks:**
 - `grep -rn "bounty" client/src/render/` -- expected: no matches. The bounty must not reach any renderer that draws the water or the scope.
+
+## Auto Run Result
+
+Status: done
+Cycle 73 (0.17.73). Baseline `36e5a4f` -> final revision recorded below.
+
+**Implemented change.** Story 4-6 ships as an economy-and-register feature with ZERO location
+disclosure. Eric's 2026-08-10 rulings deleted the Bounty Bloom outright, which struck FR17's
+"one sanctioned non-sweep radar paint", UX-DR19, and the DESIGN.md/EXPERIENCE.md rows built on
+them. The bounty is now a HELD THRONE over captain-only kills that moves only on a strict
+overtake (a tie never transfers it, in either direction); sinking the holder pays one extra
+level; and the holder is named -- never located -- in a chrome-bar register, two kill-feed
+lines, and a toast plus a new audio cue when the throne lands on you.
+
+**Why no seventh perception exception was needed.** `syncRoster()` has always mirrored every
+player's kills to every client every tick, so the kill leader was already derivable client-side.
+Position was the only genuinely new disclosure the story proposed, and the ruling removed it.
+The master perception invariant still has exactly six declared exceptions.
+
+**Files changed.**
+- `shared/src/constants.ts` -- new `CONFIG.bounty { killLevels, minCaptainKills }`.
+- `shared/src/types.ts` -- optional `bty?: true` appended last on `SunkEvent`.
+- `shared/src/index.ts` -- `PROTOCOL_VERSION` 32 -> 33.
+- `server/src/game/bounty.ts` (new) -- the pure strict-overtake throne rule, zero Colyseus.
+- `server/src/game/world.ts` -- `captainKills`, `World.bountyId`, `creditKill` extraction, and
+  `recomputeBounty()` at three seams (sink, removal, respawn).
+- `server/src/game/signals.ts` -- `bty` emitted last on the `sunk` row, only when true.
+- `server/src/rooms/schema/ArenaState.ts`, `server/src/rooms/ArenaRoom.ts` -- `bountyId` published.
+- `client/src/ui/bounty.ts` (new) -- the pure edge detector and the three copy builders.
+- `client/src/ui/chromeBar.ts` -- the optional `BOUNTY: <NAME>` register; pool 10 -> 13.
+- `client/src/main.ts`, `client/src/net/roomBindings.ts` -- mirror, announce, and the `bty` branch.
+- `client/src/audio/tones.ts`, `twinMap.ts` -- the new `bounty` cue and its mandatory twin row.
+- Docs/trackers: `VERSION`, `CLAUDE.md`, amendments 216-221, DESIGN.md, EXPERIENCE.md, both
+  tracker YAMLs, and the cycle-51 deferred entry this ruling resolves.
+
+**Review findings.** 3 patches applied (2 medium, 1 low), 3 deferred, 0 rejected, 0 intent gaps,
+0 spec loopbacks. Patches: the missing respawn recompute seam, a self-sink printing
+"BOUNTY CLAIMED" when nobody was paid, and non-finite fail-closing in the throne rule -- each
+with a regression test observed FAILING before its fix. Deferred: an intra-tick double-kill
+ordering dependency, the chrome bar's single-sided edge clamp, and a departed killer still
+printing CLAIMED.
+
+**Verification.** `npm run check` green: 684 shared / 1054 server / 2084 client = 3822 tests,
+0 lint errors (2 pre-existing warnings untouched). `grep -rn "bounty" client/src/render/`
+returns nothing -- no renderer that draws the water or the scope learns the bounty exists.
+Three independent reviewers (two adversarial, one cross-model Codex) each confirmed no path
+discloses the holder's position, bearing, range, or area.
+
+**Residual risks.** Mid-match join and reconnect announce the sitting holder once, and the
+self-toast fires if that holder is you -- deliberate (it is the register telling a fresh client
+the current state) but ungated by match phase. In a mutual-destruction exchange the first sink
+crowns the killer, so the return kill is a bounty kill paying 2 levels; ruled a consequence,
+and two pre-existing tests were updated to expect it. The chrome bar now carries its first
+per-player hue, which Story 4-8's readability gate will need to arbitrate.

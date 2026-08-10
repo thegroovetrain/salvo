@@ -54,15 +54,25 @@ export interface BountyCandidate {
  */
 export function nextBountyHolder(current: string, cands: readonly BountyCandidate[]): string {
   const held = cands.find((c) => c.id === current && c.alive && !c.isDrone);
-  const floor = held ? held.captainKills : CONFIG.bounty.minCaptainKills - 1;
+  // FAIL-CLOSED on a non-finite incumbent count (defense in depth — unreachable
+  // today, `captainKills` is only ever 0-initialized and `+= 1`, same posture
+  // as `addXpMs` in world.ts): an unguarded NaN floor fails every `<=` skip
+  // below, so a zero-kill challenger would wrongly clear it. Infinity instead
+  // means nothing can ever displace a corrupt incumbent.
+  const floor = held
+    ? Number.isFinite(held.captainKills) ? held.captainKills : Number.POSITIVE_INFINITY
+    : CONFIG.bounty.minCaptainKills - 1;
   const winner = uniqueChallengerAbove(floor, current, cands);
   if (winner !== null) return winner.id;
   return held ? current : '';
 }
 
-/** An alive non-drone challenger (the incumbent never challenges itself). */
+/** An alive non-drone challenger (the incumbent never challenges itself) with
+ *  a FINITE count — fail-closed defense in depth: an unguarded NaN passes
+ *  every `<= floor` skip below (NaN comparisons are always false), which
+ *  would let a corrupt candidate become the running `best` and be crowned. */
 function eligible(c: BountyCandidate, current: string): boolean {
-  return c.alive && !c.isDrone && c.id !== current;
+  return c.alive && !c.isDrone && c.id !== current && Number.isFinite(c.captainKills);
 }
 
 /**

@@ -18,6 +18,14 @@ import { World, type ShipRecord } from '../game/world.js';
 import { nextBountyHolder, type BountyCandidate } from '../game/bounty.js';
 
 const MIN = CONFIG.bounty.minCaptainKills;
+const SIM_DT = CONFIG.tick.simDtMs;
+
+/** Advance the world through a full respawn delay (ready-room posture only —
+ *  respawnEnabled defaults true on a bare World). */
+function stepThroughRespawn(w: World): void {
+  const ticks = CONFIG.ship.respawnDelay / SIM_DT;
+  for (let i = 0; i < ticks; i++) w.step();
+}
 
 function bareWorld(seed = 7): World {
   const w = new World(seed);
@@ -107,6 +115,19 @@ describe('nextBountyHolder — the strict-overtake throne rule (pure)', () => {
   it('an empty field is vacant', () => {
     expect(nextBountyHolder('', [])).toBe('');
     expect(nextBountyHolder('a', [])).toBe('');
+  });
+
+  it('a NaN candidate can never clear the floor or be crowned (fail-closed on non-finite input)', () => {
+    // `c.captainKills <= floor` is false for NaN, so an unguarded eligibility
+    // test lets a NaN candidate slip past the "strict overtake only" skip and
+    // become the running `best` as the first eligible entry.
+    expect(nextBountyHolder('', [cand('a', NaN), cand('b', 0)])).toBe('');
+  });
+
+  it('a NaN incumbent is fail-closed to an unbeatable floor: nobody can displace a corrupt holder', () => {
+    // An unguarded floor goes NaN, and NaN fails every `<=` comparison, so a
+    // zero-kill challenger would wrongly clear it and take the throne.
+    expect(nextBountyHolder('a', [cand('a', NaN), cand('b', 0)])).toBe('a');
   });
 });
 
@@ -220,6 +241,50 @@ describe('World — captainKills tally and throne recompute (per sink, in sink o
     w.resetForMatchStart();
     expect(w.bountyId).toBe('');
     for (const s of w.ships.values()) expect(s.captainKills).toBe(0);
+  });
+});
+
+// ---------- respawn is a third recompute seam (Finding 1) -----------------------
+
+describe('World — respawn() re-evaluates the throne (the ready-room-only third seam)', () => {
+  it('a vacated throne re-crowns the sole alive strict max once the incumbent respawns', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    place(w, 'b', 50, 50);
+    place(w, 'c', -50, 50);
+    captainKill(w, 'a');
+    captainKill(w, 'a'); // a holds at 2
+    captainKill(w, 'c'); // c at 1
+    expect(w.bountyId).toBe('a');
+    w.sinkShip('a', 'b'); // b's fresh count (1) ties c (1) -> vacates
+    expect(w.bountyId).toBe('');
+    expect(a.captainKills).toBe(2); // persists across the death (only redeployShip zeroes it)
+    stepThroughRespawn(w);
+    expect(a.alive).toBe(true);
+    // a (2) is the unique strict maximum among the alive captains (b=1, c=1) —
+    // ≥ minCaptainKills — so the throne must re-crown a on this transition.
+    expect(w.bountyId).toBe('a');
+  });
+
+  it('a held throne transfers to a returning captain who still strictly outguns the incumbent', () => {
+    const w = bareWorld();
+    const b = place(w, 'b');
+    place(w, 'a', 50, 50);
+    place(w, 'c', -50, 50);
+    captainKill(w, 'b');
+    captainKill(w, 'b');
+    captainKill(w, 'b'); // b holds at 3
+    captainKill(w, 'a');
+    captainKill(w, 'a'); // a at 2
+    expect(w.bountyId).toBe('b');
+    w.sinkShip('b', 'c'); // c reaches 1; a (2) is the unique alive max -> a crowned
+    expect(w.bountyId).toBe('a');
+    expect(b.captainKills).toBe(3); // persists across the death
+    stepThroughRespawn(w);
+    expect(b.alive).toBe(true);
+    // b (3) strictly exceeds the incumbent a (2) — the ratified transfer
+    // condition — so the throne must move back to b on this transition.
+    expect(w.bountyId).toBe('b');
   });
 });
 

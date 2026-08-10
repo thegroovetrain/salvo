@@ -660,10 +660,12 @@ export class World {
    * THE BOUNTY THRONE (Story 4.6, Eric ruling 2026-08-10): the current
    * holder's ship id, '' while vacant. IDENTITY ONLY — mirrored verbatim onto
    * ArenaState.bountyId by the room, never a position or any other channel.
-   * Re-evaluated by recomputeBounty() at exactly two seams — once per sink
+   * Re-evaluated by recomputeBounty() at exactly three seams — once per sink
    * (in sink order, AFTER the kill credit so the killer's fresh count
-   * competes) and on ship removal (so it never names an absent player) — via
-   * the pure strict-overtake rule in game/bounty.ts. Cleared at the match
+   * competes), on ship removal (so it never names an absent player), and on
+   * respawn (ready-room only: captainKills persists across the death, so a
+   * returning captain may still clear the floor) — via the pure
+   * strict-overtake rule in game/bounty.ts. Cleared at the match
    * boundary (resetForMatchStart), where redeployShip zeroes every hull's
    * captainKills right beside it.
    */
@@ -1204,8 +1206,8 @@ export class World {
 
   /**
    * Mirror the strict-overtake throne rule (game/bounty.ts) over a snapshot
-   * of the current field. Called once per sink and on ship removal — never
-   * per tick, never from the frame path.
+   * of the current field. Called once per sink, on ship removal, and on
+   * respawn — never per tick, never from the frame path.
    */
   private recomputeBounty(): void {
     const cands: BountyCandidate[] = [];
@@ -2986,6 +2988,12 @@ export class World {
     ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;
+    // The throne is a THIRD recompute seam (Story 4.6 gap fix, beside sinkShip
+    // and removeShip): captainKills persists across the death (only
+    // redeployShip zeroes it), so a returning captain may still clear the
+    // floor and reclaim or newly claim the throne. Ready-room only exposure —
+    // in the active match phase the dead spectate instead of respawning.
+    this.recomputeBounty();
     // A fresh life never inherits an open boost window — nor a slow, a dazzle,
     // or a DAMAGE CONTROL pool (sinkShip already zeroed them; kept symmetric
     // for directed callers).

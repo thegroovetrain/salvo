@@ -959,6 +959,16 @@ function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: str
   return { name: deps.names(id) ?? UNKNOWN_VESSEL, id };
 }
 
+/** THE BOUNTY suffix's attribution test: was anyone actually PAID for this
+ *  sinking? The server emits `by` verbatim even on a self-sink (`by === id`),
+ *  so `killer !== null` (killLine's own attribution test) is the wrong check
+ *  here — creditKill's early return on `by === victim.id` (world.ts) pays
+ *  nobody, so the suffix must key off a `by` present and distinct from the
+ *  victim. Extracted to keep handleSunk under the complexity-10 bar. */
+function bountyPaid(e: SunkEvent): boolean {
+  return !!e.by && e.by !== e.id;
+}
+
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
   // observer never saw. Everything SPATIAL is gated on the server's
@@ -982,7 +992,8 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // the throne may already have been recomputed by the time we read it. The
   // suffix is a connective (no id): CLAIMED when someone collected the price,
   // LIFTED when the storm — or the holder's own hand — took it off the board.
-  if (e.bty) line.push(bountyKillSuffix(killer !== null));
+  // `killer !== null` is the WRONG test here — see bountyPaid() above.
+  if (e.bty) line.push(bountyKillSuffix(bountyPaid(e)));
   pushKillLine(line, deps.colors);
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the

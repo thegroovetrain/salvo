@@ -514,6 +514,16 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(feedLines()).toEqual(['VICTIM LOST WITH ALL HANDS — BOUNTY LIFTED']);
   });
 
+  it('a SELF-sink of the holder (by === id) prints LIFTED, never CLAIMED — nobody was paid', () => {
+    // creditKill early-returns on `by === victim.id` (world.ts) so no XP is
+    // granted, yet the server still emits `by` verbatim (world.ts sinkShip
+    // pushes `{k:'sunk', id, by}` unconditionally). `killer !== null` would
+    // wrongly read this as attributed; the suffix must key off `by !== id`.
+    const { sink } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'victim', bty: true }));
+    expect(feedLines()).toEqual(['VICTIM SUNK BY VICTIM — BOUNTY LIFTED']);
+  });
+
   it('an ORDINARY sinking is byte-identical to before — no suffix without the flag', () => {
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
