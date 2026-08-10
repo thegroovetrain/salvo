@@ -1,8 +1,21 @@
-// Thin AudioContext adapter (not unit tested — audio/tones.ts holds the pure
-// mapping). Oscillator + noise-burst envelopes only, no audio assets, in the
-// spirit of the old game's playTone(freqStart, freqMid, freqEnd, duration,
-// volume, type). The AudioContext itself is constructed lazily and resumed on
-// the first user gesture (PLAY click) to satisfy browser autoplay policy.
+// Thin AudioContext adapter. Oscillator + noise-burst envelopes only, no audio
+// assets, in the spirit of the old game's playTone(freqStart, freqMid, freqEnd,
+// duration, volume, type). The AudioContext itself is constructed lazily and
+// resumed on the first user gesture (PLAY click) to satisfy browser autoplay
+// policy.
+//
+// THE GRAPH IS NOW UNIT TESTED (audio/__tests__/context.test.ts, review gate).
+// This header used to say the file was deliberately untested because
+// audio/tones.ts holds the pure mapping — a fair convention for an adapter that
+// only forwarded a table, and one Story 4.7 outgrew: the sound map gave this
+// file arithmetic (`cueGain`/`cuePan`, the `spec.volume * gain` multiply), a
+// conditional node splice (`cueSink`), and an ACCEPTANCE CRITERION of its own
+// ("given monoAudio is on, a panned world cue folds to centre"), none of which
+// any pure table can cover. The tests drive a minimal fake AudioContext and
+// assert on the GRAPH and the ARITHMETIC — which nodes exist, what connects to
+// what, what value lands on which param. They deliberately assert nothing about
+// how anything SOUNDS: timbre belongs to the tone table, and the browser's own
+// mixing is not ours to test.
 //
 // Story 2.3 — the bus graph. Every tone routes through a two-stage bus so the
 // accessibility volumes are ONE gain write each, live, with no per-tone math:

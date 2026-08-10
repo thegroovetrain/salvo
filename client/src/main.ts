@@ -68,6 +68,7 @@ import { XpRail, type XpView } from './render/xpRail.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
+import type { ToneFloor } from './render/gunneryFeed.js';
 import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
 import {
   UpgradeMenu,
@@ -133,7 +134,7 @@ import {
   INITIAL_CUE_STATE,
   type AudioCueState,
 } from './audio/tones.js';
-import { ownHpFrac, hpStingCue } from './audio/hpSting.js';
+import { ownHpFrac, hpStingCueAt, hpStingFloor } from './audio/hpSting.js';
 import { createNullAdapter } from './portal/nullAdapter.js';
 import { safeAdapter } from './portal/safeAdapter.js';
 import type { PortalAdapter } from './portal/portalAdapter.js';
@@ -376,6 +377,15 @@ interface Game {
    * crossing needs two live frames to exist.
    */
   wasHpFrac: number | null;
+  /**
+   * ...and THE STINGS' 300ms same-source floor (review gate, audio/hpSting.ts).
+   * The edge alone is not a bound: DAMAGE CONTROL regen pays into `hp` every
+   * server tick while incoming fire subtracts, so a hull held around 50% crosses
+   * the band downward over and over. Deliberately NOT reset on spectate — the
+   * floor is a property of the MIX, not of a life, and the world cues' floors
+   * are not reset either.
+   */
+  hpStingFloor: ToneFloor;
   /** mouse.clickCount last frame — the denied-click edge (render/deniedFire.ts). */
   prevClickCount: number;
   /** mouse.clickCount at the last SIM TICK — the new-click edge that consumes a
@@ -1617,7 +1627,8 @@ function buildGame(
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false, wasHpFrac: null,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownDecoyUntil: 0,
@@ -2424,10 +2435,17 @@ function updateZone(
  * are the SAME two thresholds, so the moment a band is crossed IS the moment
  * your plume starts (spec design note; amendment 49's parked question, answered
  * without inventing a continuous-audio class).
+ *
+ * IT IS FLOORED like every world cue (review gate): an edge is not a bound while
+ * DAMAGE CONTROL regen and incoming fire trade a hull back and forth across a
+ * threshold. `nowMs` is the frame's ONE timestamp, the same instant every other
+ * cue in this frame is measured against. The remembered fraction is stored
+ * whether or not the cue was voiced — a refused sting is silent, never deferred
+ * (audio/hpSting.ts spells out why, and what the owner still has to rule on).
  */
-function playHpSting(g: Game, status: OwnStatus): void {
+function playHpSting(g: Game, status: OwnStatus, nowMs: number): void {
   const frac = ownHpFrac(status);
-  const cue = hpStingCue(g.wasHpFrac, frac);
+  const cue = hpStingCueAt(g.wasHpFrac, frac, nowMs, g.hpStingFloor);
   if (cue) g.audio.play(cue);
   g.wasHpFrac = frac;
 }
@@ -2463,7 +2481,7 @@ function renderAlive(
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  playHpSting(g, status); // the 50%/25% band alarms (Story 4.7) — same edge idiom
+  playHpSting(g, status, nowMs); // the 50%/25% band alarms (Story 4.7) — same edge idiom
   // THE frame's Tier-1 read comes back OUT of renderOwn: it is taken there,
   // after renderFiring has driven the denied pulse, and both Tier-2 consumers
   // (the chrome bar's amber ring segment and the storm vignette below) share

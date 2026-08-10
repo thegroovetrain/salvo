@@ -1,8 +1,17 @@
-// Pure tone map + event->cue edge-detection (no AudioContext import — unit
-// tested). audio/context.ts is the thin AudioContext adapter that consumes
-// this table; kept separate so the mapping/exhaustiveness is testable without
-// a browser audio stack. Envelope shape follows DESIGN.md's carried-forward
+// The tone CATALOG + the pure cue math that decides which tone an event earns
+// and how it sits in the mix — no AudioContext import, fully unit tested.
+// audio/context.ts is the thin AudioContext adapter that consumes this table;
+// kept separate so the mapping/exhaustiveness is testable without a browser
+// audio stack. Envelope shape follows DESIGN.md's carried-forward
 // playTone(freqStart, freqMid, freqEnd, duration, volume, type) approach.
+//
+// NOT "PURE" IN THE `shared/` SENSE, and the header used to claim otherwise:
+// Story 4.7 gave this file a VALUE import of shared `CONFIG` (the `damageBands`
+// thresholds behind `hpBandEdge` — read, never restated) and one of client
+// `CLIENT_CONFIG` (the world cue's gain floor and pan cap). Both are constant
+// tables with no I/O and no cycle, and render/gunneryFeed.ts set the precedent
+// for a pure rules module reading CLIENT_CONFIG. Pure of SIDE EFFECTS and of the
+// audio stack; not free of configuration.
 
 import { CONFIG, type BoonRarity, type EquipmentId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -482,12 +491,21 @@ export interface WorldCue {
 /**
  * Pure: attenuate and place a cue that happened at a point out in the world.
  *
- * `dxScreen`/`dyScreen` are the cue's position MINUS the listener's — the caller
- * does that subtraction, because the listener is the own hull when you have one
- * and `cameraCenter()` while spectating (the foghorn's precedent). The camera is
- * axis-aligned and north-up, so a world dx IS a screen dx and there is no
- * rotation to apply; if the camera ever learns to rotate, this is the one place
- * that has to change.
+ * `dx`/`dy` are the cue's position MINUS the listener's, in WORLD UNITS — the
+ * caller does that subtraction, because the listener is the own hull when you
+ * have one and `cameraCenter()` while spectating (the foghorn's precedent).
+ *
+ * THE PAN IS A LATERAL WORLD OFFSET, NOT A SCREEN POSITION, and the difference
+ * is deliberate. The camera is axis-aligned and north-up, so a world dx and a
+ * screen dx point the same WAY and no rotation is needed — but they are not the
+ * same NUMBER: render/camera.ts fits radar range to the short axis and then
+ * applies the player's 0.5-1.5 zoom (and the spectator's own factor) on top, and
+ * none of that scale is applied here. `dx` is normalised by the fixed world
+ * distance `reachU` instead, which is the upside: a cue's pan is a property of
+ * the water, so it does not swing across the stereo field when the player zooms
+ * or when the camera changes scale — the same cue at the same place sounds from
+ * the same side every time. If the camera ever learns to ROTATE, this is the one
+ * place that has to change, because the direction would stop agreeing.
  *
  * `reachU` IS A FALLOFF SCALE, NOT A GATE. The server has already decided which
  * events reach this client — that decision IS the perception boundary — so a
@@ -524,15 +542,15 @@ export interface WorldCue {
  * is to point your ear at a mark already drawn on your screen, and a mark you
  * cannot hear has no cue at all.
  */
-export function worldCue(dxScreen: number, dyScreen: number, reachU: number): WorldCue | null {
-  if (!Number.isFinite(dxScreen) || !Number.isFinite(dyScreen) || !Number.isFinite(reachU)) return null;
+export function worldCue(dxWorld: number, dyWorld: number, reachU: number): WorldCue | null {
+  if (!Number.isFinite(dxWorld) || !Number.isFinite(dyWorld) || !Number.isFinite(reachU)) return null;
   if (reachU <= 0) return null;
-  const d = Math.sqrt(dxScreen * dxScreen + dyScreen * dyScreen);
+  const d = Math.sqrt(dxWorld * dxWorld + dyWorld * dyWorld);
   const floor = CLIENT_CONFIG.audio.worldFloorGain;
   // Held at the floor past the reach rather than gated away (see above). The pan
   // below was ALREADY clamped to the same boundary, which is why the two agree.
   const gain = floor + (1 - floor) * Math.max(0, 1 - d / reachU);
-  const pan = Math.max(-1, Math.min(1, dxScreen / reachU)) * CLIENT_CONFIG.audio.panMax;
+  const pan = Math.max(-1, Math.min(1, dxWorld / reachU)) * CLIENT_CONFIG.audio.panMax;
   return { pan, gain };
 }
 

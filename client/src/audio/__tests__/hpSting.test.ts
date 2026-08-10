@@ -7,7 +7,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, effectiveStats } from '@salvo/shared';
-import { ownHpFrac, hpStingCue } from '../hpSting.js';
+import { CLIENT_CONFIG } from '../../config.js';
+import { ownHpFrac, hpStingCue, hpStingCueAt, hpStingFloor } from '../hpSting.js';
 
 // A real EffectiveStats (via the shared derivation, never a hand-rolled stub)
 // with `maxHp` overridden per case — `ownHpFrac` only reads that one field.
@@ -74,5 +75,60 @@ describe('hpStingCue — fraction pair to cue id, delegating to hpBandEdge', () 
     expect(hpStingCue(null, 0.9)).toBeNull();
     expect(hpStingCue(null, 0.4)).toBeNull(); // spawns already hurt — still no fire without a prior frame
     expect(hpStingCue(null, 0.1)).toBeNull(); // spawns already critical — same
+  });
+});
+
+// --- THE STINGS' BOUND (review gate) ----------------------------------------
+//
+// The stings shipped unbounded on the reasoning that an edge cannot repeat. It
+// can: DAMAGE CONTROL regen pays into `hp` every server tick while incoming fire
+// subtracts, so a hull held around a band crosses it downward again and again.
+// The bound is the RATIFIED 300ms same-source floor every world cue already
+// uses — no new constant (amendment 37), and no hysteresis margin, which is a
+// feel number belonging to the owner's listening pass.
+
+describe('hpStingCueAt — the same-source floor on the band alarms', () => {
+  const FLOOR = CLIENT_CONFIG.gunnery.hitCallToneFloorMs;
+
+  it('the first crossing always sounds', () => {
+    expect(hpStingCueAt(0.6, 0.4, 1000, hpStingFloor())).toBe('hpHurt');
+  });
+
+  it('REGEN CHATTER: repeated crossings inside the floor collapse to one sting', () => {
+    const floor = hpStingFloor();
+    // Held around 50% under sustained fire: regen lifts the hull back over the
+    // band and the next round drops it through again, several times a second.
+    expect(hpStingCueAt(0.6, 0.49, 1000, floor)).toBe('hpHurt');
+    expect(hpStingCueAt(0.51, 0.49, 1050, floor)).toBeNull();
+    expect(hpStingCueAt(0.51, 0.49, 1100, floor)).toBeNull();
+    expect(hpStingCueAt(0.51, 0.49, 1200, floor)).toBeNull();
+  });
+
+  it('...and past the floor the alarm is heard again — refused, never silenced for good', () => {
+    const floor = hpStingFloor();
+    expect(hpStingCueAt(0.6, 0.49, 1000, floor)).toBe('hpHurt');
+    expect(hpStingCueAt(0.51, 0.49, 1000 + FLOOR - 1, floor)).toBeNull();
+    expect(hpStingCueAt(0.51, 0.49, 1000 + FLOOR, floor)).toBe('hpHurt');
+  });
+
+  it('the floor is SHARED by both stings — the critical alarm is one source with the hurt one', () => {
+    // Falling all the way through both bands inside one floor is ONE event to
+    // the ear, not two; the worse band is the one that survives (hpBandEdge).
+    const floor = hpStingFloor();
+    expect(hpStingCueAt(0.6, 0.4, 1000, floor)).toBe('hpHurt');
+    expect(hpStingCueAt(0.4, 0.2, 1100, floor)).toBeNull();
+  });
+
+  it('a frame with NO crossing never spends the floor', () => {
+    const floor = hpStingFloor();
+    expect(hpStingCueAt(0.9, 0.85, 1000, floor)).toBeNull(); // nothing crossed
+    expect(hpStingCueAt(0.85, 0.4, 1010, floor)).toBe('hpHurt'); // ...so this still sounds
+  });
+
+  it('the edge semantics are otherwise untouched — it is hpStingCue plus a gate', () => {
+    const floor = hpStingFloor();
+    expect(hpStingCueAt(0.4, 0.7, 1000, floor)).toBeNull(); // upward is silent
+    expect(hpStingCueAt(null, 0.1, 5000, floor)).toBeNull(); // no prior frame
+    expect(hpStingCueAt(0.6, 0.1, 9000, floor)).toBe('hpCritical'); // worse band only
   });
 });
