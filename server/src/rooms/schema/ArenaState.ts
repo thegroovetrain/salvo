@@ -79,4 +79,14 @@ export class ArenaState extends Schema {
   @type('float64') countdownEndT = 0;
   /** Winner's session id once finished; '' until then. */
   @type('string') winnerId = '';
+
+  /**
+   * THE BOUNTY (Story 4.6, Eric ruling 2026-08-10): the throne holder's
+   * session id, '' while vacant. IDENTITY ONLY — never a position, class, hp,
+   * hue, or kill count; the roster above already mirrors every player's kills
+   * to every client, so this discloses nothing new (the Public Register's
+   * reconciliation argument). Mirrored from World.bountyId each step
+   * (ArenaRoom.syncBounty), which owns the strict-overtake rule.
+   */
+  @type('string') bountyId = '';
 }

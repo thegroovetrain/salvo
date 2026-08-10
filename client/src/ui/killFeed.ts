@@ -8,7 +8,7 @@
 // so a bloodbath cannot fill the screen.
 
 import { CLIENT_CONFIG } from '../config.js';
-import { cssHex, textSafe } from '../util/color.js';
+import { cssHex, cssRgba, textSafe } from '../util/color.js';
 // Display cap + surrogate-safe mid-ellipsis hoisted to the shared util (Story
 // 1.13) so the feed and the on-water nameplates share one cap source. Re-exported
 // here so existing feed consumers/tests keep importing ellipsizeName unchanged.
@@ -42,6 +42,11 @@ export interface NameRef {
 export interface KillSegment {
   text: string;
   id?: string;
+  /** This NAME segment is the KILL LEADER's (Story 4.6, 2026-08-10 rework):
+   *  the segment text already carries the skull mark (ui/bounty.ts
+   *  leaderNameSegment), and this flag licenses the STATIC glow below. Only
+   *  ever set alongside `id`. */
+  leader?: true;
 }
 
 /**
@@ -99,8 +104,20 @@ function renderSegments(line: HTMLDivElement, segments: KillSegment[], colorFor:
         // forbids running the drone grey through textSafe. Only human personal
         // hues get the WCAG lighten-toward-void pass.
         const isDrone = color === CLIENT_CONFIG.colors.droneOutline;
-        span.style.color = cssHex(isDrone ? color : textSafe(color));
+        const textColor = isDrone ? color : textSafe(color);
+        span.style.color = cssHex(textColor);
         span.style.fontWeight = '600';
+        // THE KILL LEADER'S FAINT GLOW (Eric ruling 2026-08-10): a STATIC
+        // text-shadow in the name's own text-safe hue — never breathing,
+        // never pulsing, so it is not an animated channel at all and stays
+        // out of the attention-tier arbitration and the photosensitivity
+        // budget. Radius/alpha are DESIGN.md's glow register, not invented:
+        // 10px is the hotbar ready-weapon glow (the faint end of the
+        // 10/14/16px ladder in the component inventory) and .4 is the
+        // canonical glow alpha from the DESIGN.md "Glow" motif's selected-slot
+        // example (the 16px amber bloom at .4). A DRONE name can never be a
+        // leader (captain kills only) and must never glow.
+        if (seg.leader && !isDrone) span.style.textShadow = `0 0 10px ${cssRgba(textColor, 0.4)}`;
       }
     }
     line.appendChild(span);

@@ -119,7 +119,14 @@ describe('shared barrel', () => {
     // welcome snapshot). A stale client would drop `wk` events and draw a
     // scope disagreeing with the server's disclosure, so the bump is a hard
     // gate.
-    expect(PROTOCOL_VERSION).toBe(32);
+    // THE BOUNTY (PV 33, Story 4.6, Eric ruling 2026-08-10): ArenaState gains
+    // `bountyId` (the throne holder's session id, appended after winnerId —
+    // IDENTITY ONLY, '' while vacant) and SunkEvent gains an optional trailing
+    // `bty?: true` (the victim held the bounty at the instant of sinking).
+    // CONFIG gains the `bounty` block (killLevels / minCaptainKills), riding
+    // the welcome config snapshot. A stale client would miss the schema field
+    // and drop `bty`, silently mis-rendering the bounty registers.
+    expect(PROTOCOL_VERSION).toBe(33);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
@@ -172,6 +179,15 @@ describe('shared barrel', () => {
       expect(CONFIG.xp.droneTierLevels[id]).toBeLessThan(CONFIG.xp.killLevels);
     }
     expect(Object.keys(CONFIG.xp).sort()).toEqual(['droneTierLevels', 'killLevels', 'levelMs']);
+  });
+
+  it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {
+    expect(CONFIG.bounty.killLevels).toBe(1); // on top of the standard captain kill
+    expect(CONFIG.bounty.minCaptainKills).toBe(1); // a zero-kill field has no bounty
+    // The shape pin doubles as the no-location guard: any radius/range/bloom
+    // tunable appearing here would violate the 2026-08-10 ruling by its key
+    // alone.
+    expect(Object.keys(CONFIG.bounty).sort()).toEqual(['killLevels', 'minCaptainKills']);
   });
 
   it('re-exports the universal standard gun model (single-shot pin retired in 2.8)', () => {

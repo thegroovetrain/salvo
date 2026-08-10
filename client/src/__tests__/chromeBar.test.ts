@@ -27,7 +27,10 @@ import {
 } from '../ui/chromeBar.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled } from '../settings/store.js';
+import { KILL_LEADER_MARK } from '../ui/bounty.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
+import { textSafe } from '../util/color.js';
+import { ellipsizeName } from '../util/text.js';
 
 const CB = CLIENT_CONFIG.chromeBar;
 const C = CLIENT_CONFIG.colors;
@@ -40,6 +43,7 @@ function view(over: Partial<ChromeBarView> = {}): ChromeBarView {
     kills: 2,
     matchMs: 252_000, // 4:12
     ring: ringReadout('clear', 154_000), // 2:34 to the close start
+    bounty: null, // vacant throne: the register is absent entirely (Story 4.6)
     tier1: false,
     ...over,
   };
@@ -171,12 +175,69 @@ describe('chromeBarSegments — the whole register', () => {
     expect(row(view({ kills: 2.4 }))).toMatch(/· 2 KILLS/);
   });
 
-  it('has exactly the segment count the renderer pools Texts for', () => {
-    expect(chromeBarSegments(view())).toHaveLength(CHROME_BAR_SEGMENTS);
-    // ...and the count is stable across every ring state (the pool is fixed).
+  it('never exceeds the segment count the renderer pools Texts for — and HITS it with the throne held', () => {
+    // The pool is the MAXIMUM row (Story 4.6, 2026-08-10 rework): 10 fixed
+    // segments plus the kill-leader register's optional 2 (separator + marked
+    // name — the retired `BOUNTY: ` label segment made it 3). A stale literal
+    // in EITHER direction is wrong: undersized lets layoutChromeBar drop the
+    // tail silently, oversized wastes pooled Texts. Both bounds are pinned.
+    expect(chromeBarSegments(view({ bounty: { name: 'ALPHA', hue: 0x35d07f } }))).toHaveLength(CHROME_BAR_SEGMENTS);
+    expect(chromeBarSegments(view())).toHaveLength(CHROME_BAR_SEGMENTS - 2);
+    // ...and the count is stable across every ring state (the ring is one slot).
     for (const state of ['clear', 'supply', 'reveal', 'closing', 'closed', 'idle'] as const) {
-      expect(chromeBarSegments(view({ ring: ringReadout(state, 5_000) }))).toHaveLength(CHROME_BAR_SEGMENTS);
+      expect(chromeBarSegments(view({ ring: ringReadout(state, 5_000) }))).toHaveLength(CHROME_BAR_SEGMENTS - 2);
+      expect(
+        chromeBarSegments(view({ ring: ringReadout(state, 5_000), bounty: { name: 'A', hue: 0x35d07f } })),
+      ).toHaveLength(CHROME_BAR_SEGMENTS);
     }
+  });
+});
+
+// --- THE KILL LEADER REGISTER (Story 4.6, 2026-08-10 rework) ------------------
+// The bar is one of exactly THREE surfaces the throne reaches, and the only one
+// that persists. It is IDENTITY ONLY: a skull-marked callsign in a hue, at the
+// tail of the row, and nothing anywhere that says where that hull is. (The
+// `BOUNTY: <NAME>` label grammar is retired — the mark IS the caption.)
+
+describe('chromeBarSegments — the KILL LEADER register', () => {
+  const HUE = 0x35d07f;
+
+  it('prints `☠︎ <NAME>` at the TAIL of the row when the throne is held', () => {
+    expect(row(view({ bounty: { name: 'ALPHA', hue: HUE } }))).toBe(
+      `12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34 · ${KILL_LEADER_MARK} ALPHA`,
+    );
+  });
+
+  it('omits the WHOLE register — separator included — when the throne is vacant', () => {
+    const segs = chromeBarSegments(view({ bounty: null }));
+    expect(row(view({ bounty: null }))).toBe('12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34');
+    expect(row(view({ bounty: null }))).not.toContain(KILL_LEADER_MARK);
+    // No dangling separator artifact: the row ends on the ring readout, and the
+    // count of ` · ` separators is unchanged from the pre-bounty bar.
+    expect(segs.filter((s) => s.text === ' · ')).toHaveLength(3);
+    expect(segs[segs.length - 1].pulsed).toBe(true); // the ring is the last segment
+  });
+
+  it('the MARK rides the name segment — one segment, wearing the holder\'s lifted hue', () => {
+    const segs = chromeBarSegments(view({ bounty: { name: 'ALPHA', hue: HUE } }));
+    const name = segs[segs.length - 1];
+    expect(name.text).toBe(`${KILL_LEADER_MARK} ALPHA`);
+    expect(name.color).toBe(textSafe(HUE)); // WCAG-lifted, exactly as the feed lifts it
+    expect(name.alpha).toBe(1); // the NAME is information: full alpha
+    expect(name.pulsed).toBeUndefined(); // ...and it never breathes; only the ring does
+  });
+
+  it('mid-ellipsizes a long callsign at the one shared name cap (mark excluded)', () => {
+    const segs = chromeBarSegments(view({ bounty: { name: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', hue: HUE } }));
+    expect(segs[segs.length - 1].text).toBe(`${KILL_LEADER_MARK} ${ellipsizeName('ABCDEFGHIJKLMNOPQRSTUVWXYZ')}`);
+  });
+
+  it('carries NOTHING but identity — no number anywhere in the register', () => {
+    // The ruling that shipped the bounty deleted every positional cue; the
+    // register must not smuggle a kill count, a range or a bearing back in.
+    const segs = chromeBarSegments(view({ bounty: { name: 'ALPHA', hue: HUE } })).slice(-2);
+    expect(segs.map((s) => s.text).join('')).toBe(` · ${KILL_LEADER_MARK} ALPHA`);
+    expect(segs.map((s) => s.text).join('')).not.toMatch(/\d/);
   });
 });
 

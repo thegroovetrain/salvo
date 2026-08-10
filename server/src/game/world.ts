@@ -89,6 +89,7 @@ import {
   type ShellState,
   type ShipState,
   type StarShellsMode,
+  type SunkEvent,
   type Vec2,
   type WakeRibbon,
   type ZonePhase,
@@ -110,6 +111,7 @@ import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
+import { nextBountyHolder, type BountyCandidate } from './bounty.js';
 
 const TAU = Math.PI * 2;
 
@@ -568,6 +570,13 @@ export interface ShipRecord {
    */
   loadout: LoadoutSlot[];
   kills: number; // hulls this ship has sunk
+  /**
+   * HUMAN-CAPTAIN victims only (Story 4.6, Eric ruling 2026-08-10) — the
+   * bounty throne's one ruler. `kills` above is UNTOUCHED and keeps counting
+   * drones: it still drives the roster tally, the KILLS chrome segment, and
+   * results. Zeroed beside `kills` at the match boundary (redeployShip).
+   */
+  captainKills: number;
   deaths: number; // times this ship has been sunk
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
 }
@@ -646,6 +655,21 @@ export class World {
    * flips off at the very same applyPolicy seam this flag does.
    */
   xpEnabled = true;
+
+  /**
+   * THE BOUNTY THRONE (Story 4.6, Eric ruling 2026-08-10): the current
+   * holder's ship id, '' while vacant. IDENTITY ONLY — mirrored verbatim onto
+   * ArenaState.bountyId by the room, never a position or any other channel.
+   * Re-evaluated by recomputeBounty() at exactly three seams — once per sink
+   * (in sink order, AFTER the kill credit so the killer's fresh count
+   * competes), on ship removal (so it never names an absent player), and on
+   * respawn (ready-room only: captainKills persists across the death, so a
+   * returning captain may still clear the floor) — via the pure
+   * strict-overtake rule in game/bounty.ts. Cleared at the match
+   * boundary (resetForMatchStart), where redeployShip zeroes every hull's
+   * captainKills right beside it.
+   */
+  bountyId = '';
 
   private rng: Rng;
   /** The map seed — kept so per-ship deck streams (deckRngFor) derive from it. */
@@ -973,7 +997,9 @@ export class World {
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
-      kills: 0,
+      // captainKills (Story 4.6): the bounty ruler — captains only, beside
+      // the roster tally `kills`, which keeps counting drones.
+      kills: 0, captainKills: 0,
       deaths: 0,
       damageDealt: 0,
     };
@@ -1012,6 +1038,10 @@ export class World {
     this.ships.delete(id);
     this.inputs.remove(id);
     this.drones.remove(id);
+    // The throne never names an absent player (Story 4.6): re-evaluate now —
+    // a departed holder vacates, and re-claiming needs a fresh strict unique
+    // maximum among the alive captains still in the room.
+    this.recomputeBounty();
   }
 
   /**
@@ -1028,6 +1058,10 @@ export class World {
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.decoys.clear(); // practice-field buoys never lie into the real match (Story 1.8)
     this.pending = [];
+    // The throne dies at the match boundary (Story 4.6): redeployShip below
+    // zeroes every hull's captainKills, so the vacated throne cannot be
+    // re-claimed until someone earns a fresh captain kill in the real match.
+    this.bountyId = '';
     const placed: Vec2[] = [];
     for (const ship of this.ships.values()) this.redeployShip(ship, placed);
     // Practice-field WATER never leaks into the real match either (Story 4.12
@@ -1094,6 +1128,7 @@ export class World {
       ? EMPTY_DECK
       : buildDeck(this.boonCatalog, World.carriedEquipment(ship.loadout));
     ship.kills = 0;
+    ship.captainKills = 0; // the bounty ruler resets with the tally (Story 4.6)
     ship.deaths = 0;
     ship.damageDealt = 0;
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
@@ -1116,6 +1151,13 @@ export class World {
   sinkShip(id: string, by?: string): void {
     const ship = this.ships.get(id);
     if (!ship || !ship.alive) return;
+    // THE PRE-SINK BOUNTY READ (Story 4.6): captured before ANYTHING mutates —
+    // the kill credit below may move the throne, and the bonus + the `bty`
+    // channel are both about who held it at the instant of sinking. A
+    // storm/self sink has no killer and therefore no bonus, but still marks
+    // the victim.
+    const bountyMark = this.bountyMark(id, by);
+    const victimHeldBounty = bountyMark === 'v';
     ship.alive = false;
     ship.hp = 0;
     ship.state.speed = 0;
@@ -1132,14 +1174,68 @@ export class World {
     ship.dazzledUntil = 0;
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
-    if (by && by !== id) {
-      const killer = this.ships.get(by);
-      if (killer) {
-        killer.kills += 1;
-        this.grantXp(killer, World.killXpLevels(ship));
-      }
+    this.creditKill(ship, by, victimHeldBounty);
+    const ev: SunkEvent = { k: 'sunk', id, by };
+    // `bty` is appended LAST and only when a participant held the throne
+    // (msgpack: never an undefined value) — the wire shape the sunk row's
+    // materialize preserves. The XP bonus above is the VICTIM case only: a
+    // leader who kills someone collects nothing extra for it.
+    if (bountyMark !== undefined) ev.bty = bountyMark;
+    this.pending.push(ev);
+    // Re-evaluate the throne AFTER the credit (Story 4.6): the killer's fresh
+    // captainKills competes in this very evaluation — one recompute per sink,
+    // in sink order, so simultaneous challengers resolve sequentially.
+    this.recomputeBounty();
+  }
+
+  /**
+   * WHICH participant in a sinking holds the throne right now — the wire value
+   * for `SunkEvent.bty` ('v' the victim, 'k' the killer), or undefined when
+   * neither does. Both can never be true at once (one throne), and a self-sink
+   * (`by === id`) resolves as the VICTIM case: `'k'` requires a killer distinct
+   * from the victim, mirroring creditKill's own attribution rule. Called on
+   * the PRE-sink state — before creditKill and recomputeBounty can move the
+   * throne (the 2026-08-10 kill-leader grammar: the skull rides the leader's
+   * name as killer OR victim).
+   */
+  private bountyMark(id: string, by: string | undefined): 'v' | 'k' | undefined {
+    if (this.bountyId === '') return undefined;
+    if (this.bountyId === id) return 'v';
+    if (by !== undefined && by !== id && this.bountyId === by) return 'k';
+    return undefined;
+  }
+
+  /**
+   * The kill-credit half of sinkShip (Story 4.6 extraction): tally + XP for
+   * an attributed sink. A DEAD killer (mutual destruction) still gets both;
+   * storm (`by` undefined) and self-kills credit nothing by construction.
+   * `captainKills` — the bounty ruler — advances ONLY on a human-captain
+   * victim (the Public Register's "drones are not combatants"), while `kills`
+   * keeps counting drones for the roster tally. Sinking the throne's holder
+   * pays `CONFIG.bounty.killLevels` ON TOP of the standard kill value,
+   * through the unchanged grantXp pipeline (fractional carry untouched).
+   */
+  private creditKill(victim: ShipRecord, by: string | undefined, victimHeldBounty: boolean): void {
+    if (!by || by === victim.id) return;
+    const killer = this.ships.get(by);
+    if (!killer) return;
+    killer.kills += 1;
+    if (!victim.isDrone) killer.captainKills += 1;
+    const bonus = victimHeldBounty ? CONFIG.bounty.killLevels : 0;
+    this.grantXp(killer, World.killXpLevels(victim) + bonus);
+  }
+
+  /**
+   * Mirror the strict-overtake throne rule (game/bounty.ts) over a snapshot
+   * of the current field. Called once per sink, on ship removal, and on
+   * respawn — never per tick, never from the frame path.
+   */
+  private recomputeBounty(): void {
+    const cands: BountyCandidate[] = [];
+    for (const s of this.ships.values()) {
+      cands.push({ id: s.id, alive: s.alive, isDrone: s.isDrone, captainKills: s.captainKills });
     }
-    this.pending.push({ k: 'sunk', id, by });
+    this.bountyId = nextBountyHolder(this.bountyId, cands);
   }
 
   /**
@@ -2913,6 +3009,12 @@ export class World {
     ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;
+    // The throne is a THIRD recompute seam (Story 4.6 gap fix, beside sinkShip
+    // and removeShip): captainKills persists across the death (only
+    // redeployShip zeroes it), so a returning captain may still clear the
+    // floor and reclaim or newly claim the throne. Ready-room only exposure —
+    // in the active match phase the dead spectate instead of respawning.
+    this.recomputeBounty();
     // A fresh life never inherits an open boost window — nor a slow, a dazzle,
     // or a DAMAGE CONTROL pool (sinkShip already zeroed them; kept symmetric
     // for directed callers).

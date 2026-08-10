@@ -50,6 +50,7 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
+import { bountyKillLine } from '../ui/bounty.js';
 import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
@@ -973,7 +974,18 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // never the raw session id — a global feed puts this line in front of
   // EVERY client.
   const killer = e.by ? feedNameRef(e.by, deps) : null;
-  pushKillLine(killLine(feedNameRef(e.id, deps), killer), deps.colors);
+  const victim = feedNameRef(e.id, deps);
+  // THE KILL LEADER'S MARK (Story 4.6, 2026-08-10 rework): `bty` is the
+  // server's PRE-SINK truth — which participant held the throne at the
+  // instant of sinking ('v' victim, 'k' killer). It is taken verbatim and
+  // never re-derived by comparing against the local `bountyId`: the schema
+  // patch and this event ride the SAME frame with no guaranteed ordering, so
+  // the throne may already have been recomputed by the time we read it. The
+  // skull rides the leader's NAME segment (ui/bounty.ts) — the retired
+  // CLAIMED/LIFTED trailing connectives carried a paid/unpaid distinction the
+  // grammar no longer has.
+  const line = e.bty ? bountyKillLine(victim, killer, e.bty) : killLine(victim, killer);
+  pushKillLine(line, deps.colors);
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the
   // SAME observed sinking the kill feed does — no new wire data.

@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-08  # cycle 72 (0.17.72)
+# last_updated: 2026-08-10  # cycle 73 (0.17.73)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -154,7 +154,8 @@ development_status:
   4-3-the-gunnery-conversation: done  # 2026-08-04 cycle 43 (0.17.43); PV 21->22; amendments 15-20
   4-4-wounded-smoke: done  # 2026-08-05 cycle 49 (0.17.49); PV 24->25; amendments 40-50
   4-5-the-foghorn: done  # 2026-08-05 cycle 50 (0.17.50); PV 25->26; amendments 51-61
-  4-6-the-bounty: backlog  # SCOPE CHANGED 2026-08-05 (amendment 71) — `return` grammar deletes both channels the Bounty Bloom is specced on; Eric declined to rule. See deferred-work.md, cycle-51 block
+  4-6-the-bounty: done  # 2026-08-10 cycle 73 (0.17.73); PV 32->33; amendments 216-221
+  # SCOPE REDUCTION for both below, recorded not dropped (amendment 216): 4-7 loses the bloom's audio row, 4-8 loses it as a channel.
   4-7-the-real-time-sound-map: backlog
   4-8-attention-priority-the-readability-gate: backlog
   # THE RADAR PHYSICS ARC (4-9 .. 4-12) — design contract is amendments 100-118; on any

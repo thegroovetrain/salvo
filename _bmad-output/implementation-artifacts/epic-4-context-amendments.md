@@ -3597,3 +3597,199 @@ no server file, no shared file, no wire field. `PROTOCOL_VERSION` stays **32**. 
      bearing. It now uses a terrain slab. What that test defends — that a slice is a finished record and can
      never wrap down to a sliver on the last frame of a revolution (the cycle-57 defect) — is about the ARC,
      not about which material fills it.
+
+## 2026-08-10 — Eric ruling, THE BOUNTY IS A HELD THRONE, WITH NO LOCATION DISCLOSURE (Story 4-6, cycle 73)
+
+Source: Eric ruling on `spec-4-6-the-bounty.md`'s pre-implementation question gate, same day. Story 4.6
+was `backlog` since cycle 51 pending exactly this ruling (deferred-work.md's cycle-51 block, "BOUNTY BLOOM
+DEPENDS ON TWO CHANNELS THAT NO LONGER EXIST"). `PROTOCOL_VERSION` **32 → 33**. Version 0.17.72 →
+**0.17.73**.
+
+216. **THE BOUNTY BLOOM IS DELETED, AND IDENTITY WAS ALREADY FREE — POSITION WAS THE ONLY NEW THING.**
+     Eric: *"I don't know honestly because I haven't addressed the 'bounty' story at all yet. I'm not sure
+     I want the kill leader's position to be known globally"* (cycle-51) is now answered in full: **no
+     location disclosure of the kill leader of any kind ships, ever** — no radar paint, bloom, ring,
+     bearing, range, or area, ANY range, ANY fog state. This strikes FR17's "blooms on every player's radar
+     at true position (the one sanctioned non-sweep radar paint)" and UX-DR19 outright, and retires the
+     DESIGN.md "Bounty Bloom" component row and its EXPERIENCE.md mirrors.
+
+     The reasoning that survives the deletion: `syncRoster()` has always mirrored every player's `kills`
+     to every client every tick (`ArenaRoom.ts`), so any client could already compute the kill leader
+     without help — publishing `ArenaState.bountyId` therefore RECONCILES the server's answer with
+     information the client could derive anyway, exactly the argument the Public Register (amendment 29)
+     used to justify the `sunk` row. **Position was the only genuinely new disclosure Story 4.6 ever
+     proposed, and it is the one thing this ruling removes.** Consequently the master perception invariant
+     needs no new declared exception at all — see amendment 221.
+
+217. **THE THRONE MOVES ONLY ON A STRICT OVERTAKE — A TIE NEVER TRANSFERS IT, IN EITHER DIRECTION.** A
+     vacant throne stays vacant while the top captain-kill count is shared among two or more captains; a
+     held throne stays with the incumbent until another ALIVE captain STRICTLY exceeds their count, and if
+     two challengers land on a tied new maximum above the incumbent, neither claims it — a shared maximum
+     is not a unique one. The rule is evaluated once per sink, in sink order (and again on ship removal, so
+     the throne never names an absent player), so simultaneous challengers resolve sequentially rather than
+     racing. Minimum `CONFIG.bounty.minCaptainKills` (1) — a zero-kill field has no bounty — and the holder
+     must be ALIVE: a sunk or disconnected holder vacates the throne immediately, and re-claiming it then
+     requires a fresh strict unique maximum among the remaining alive captains. Implemented as
+     `nextBountyHolder()` in the new `server/src/game/bounty.ts`, pure and zero-Colyseus (the `spawn.ts` /
+     `drones.ts` posture) so the rule is unit-testable in isolation from `World`.
+
+218. **CAPTAIN KILLS ONLY — DRONE SINKINGS ADVANCE NOBODY TOWARD THE THRONE, AND NO DRONE MAY EVER HOLD
+     IT.** This follows the Public Register's ratified position (amendment 29) that drones are not
+     combatants — the economy already paid them a fractional level where a captain pays a full one, so the
+     bounty inherits the same line. `ShipRecord.kills` is UNTOUCHED and keeps counting drones for the
+     roster tally, the KILLS chrome segment, and results; a new `ShipRecord.captainKills` (incremented only
+     when `!victim.isDrone`) drives the throne alone, and `bounty.ts`'s candidate filter excludes drones a
+     second time as defense in depth — a future combat-bot path that mis-credits a drone still cannot crown
+     one. Both fields zero on `redeployShip` and `resetForMatchStart`, so a match restart clears the throne
+     with the rest of the economy.
+
+219. **SINKING THE HOLDER PAYS `CONFIG.bounty.killLevels` (+1) ON TOP OF THE STANDARD CAPTAIN-KILL LEVEL,
+     AND A MUTUAL-DESTRUCTION EXCHANGE IS A RULED CONSEQUENCE, NOT A REGRESSION.** The bonus is banked
+     through the existing `grantXp` pipeline with no change to fractional carry — the throne is not a stat
+     and never enters `effectiveStats()`'s fold. Because the pre-sink read happens inside `sinkShip` before
+     the throne recomputes, a simultaneous exchange (A holds the throne, A and C sink each other in the same
+     tick or adjacent ticks) crowns C on the first resolved sink and the RETURN kill — C sinking A — is
+     therefore itself a bounty kill, paying `killLevels` twice across the exchange where a naive reading
+     might expect once. Surfaced in review, ruled as an accepted consequence of "the server knows the
+     pre-sink truth" (amendment 216's mechanism) rather than a bug: two pre-existing server tests
+     (`upgrades.test.ts`, `xp.test.ts`) were updated to expect it. The holder sunk with no killer (the
+     storm, self-inflicted) pays no bonus to anyone — `sunk` still carries `bty: true` and the feed still
+     prints the no-killer bounty register, but XP requires a credited killer exactly as it always has.
+
+220. **THREE PRESENTATION SURFACES ONLY, AND UX-DR19 IS RETIRED WITH THE BLOOM IT SPECIFIED.** (1) A
+     persistent chrome-bar `BOUNTY: <NAME>` register in the holder's text-safe personal hue — **the first
+     PER-PLAYER HUE the bar has ever carried** — appended to the existing `n AFLOAT · n KILLS · T+mm:ss ·
+     <ring readout>` grammar (Story 3.3) and omitted whole, separator included, when the throne is vacant or
+     the roster lookup misses; `CHROME_BAR_SEGMENTS` rose 10 → 13 to hold it. (2) Two kill-feed registers: a
+     claim line when the throne changes hands (`BOUNTY: <NAME>`), and a bounty-kill line riding the existing
+     sunk registers — ` — BOUNTY CLAIMED` appended to `<VICTIM> SUNK BY <KILLER>` when there is a killer, or
+     ` — BOUNTY LIFTED` appended to `<VICTIM> LOST WITH ALL HANDS` when there is not. (3) A `YOU ARE THE
+     BOUNTY` toast plus a new `bounty` audio cue (a V-contoured two-tone klaxon, the only non-flat square in
+     the high register, chosen specifically so it cannot be mistaken for tick or the telegraph detents),
+     firing only for the new holder, never for the incumbent who lost it. No other surface exists: no radar
+     change, no on-water marker, no HUD element beyond these three. UX-DR19 (the bloom's visual spec) is
+     retired in the same motion as amendment 216's deletion, since it specified a component that no longer
+     ships.
+
+221. **NO SEVENTH DECLARED EXCEPTION TO THE MASTER PERCEPTION INVARIANT WAS NEEDED — THE COUNT HOLDS AT
+     SIX.** The wire carries exactly two additions: `ArenaState.bountyId` (a roster-synced schema scalar,
+     identity only — never a position, class, hp, hue, or kill count) and an optional `bty?: true` on the
+     EXISTING `sunk` row, appended last. Neither is a new `GameEvent` kind. `bty` rides `sunk` rather than
+     being compared client-side because the schema patch and the event can arrive in the same frame with no
+     guaranteed ordering, so a client-side comparison against its own copy of `bountyId` could race the
+     server's recompute; the server knows the pre-sink truth and states it directly. `bty` discloses nothing
+     beyond what `sunk` already discloses — a drone can never hold the throne (amendment 218), so the flag
+     can only ever appear on a combatant sinking, which the Public Register already made public. The master
+     perception invariant's declared-exception list therefore stands at exactly SIX — `sp`, `hc`, `mz`
+     (Story 4.3), `sunk` (cycle 45), `sm` (Story 4.4), `fh` (Story 4.5) — unchanged by this story. Also
+     corrects the record: `epic-4-context.md`/CLAUDE.md carried a stale PV (31) and a stale test count (3598
+     and, after cycle 72, 3745) from before Stories 4.11/4.12 and this one landed; the true figures as of
+     this cycle are **PV 33** and **3817 tests** (684 shared / 1050 server / 2083 client).
+
+## 2026-08-10 — Eric rulings, THE SKULL REPLACES THE SUFFIX — a same-day grammar rework of
+Story 4-6 (cycle 73, post-implementation)
+
+Source: Eric read the shipped ` — BOUNTY CLAIMED` / ` — BOUNTY LIFTED` copy grammar the same day
+amendments 216-221 landed and rejected it outright, before it ever reached a second player. No
+mechanics moved — the held-throne rule (217), captain-only kills (218), the XP bonus (219), and
+the six-exception perception count (221) are UNCHANGED by everything below. This is a
+presentation rework layered on an unchanged economy, done in the same cycle the economy shipped
+in (still cycle 73, 0.17.73 — the PR carrying amendments 216-221 had not yet merged).
+
+222. **THE CLAIMED/LIFTED SUFFIX GRAMMAR IS DELETED THE SAME DAY IT LANDED, AND A SKULL RIDES THE
+     LEADER'S NAME INSTEAD.** Eric, verbatim, on the shipped copy: *"I don't think we need any of
+     that. The kill leader should get like a skull icon or something that shows up in the feed
+     when they kill or are killed, next to their name (eg BOAT BOATERSON sunk <skull>
+     CAPTAINAHAB, or however that gets worded). Then you just need '<skull> BOAT BOATERSON is the
+     new kill leader' or whatever."* The trailing connectives ` — BOUNTY CLAIMED` and
+     ` — BOUNTY LIFTED` are gone end to end, along with `bountyKillSuffix` and the `bountyPaid()`
+     helper amendment 216's review pass had extracted to fix the self-sink misprint — their tests
+     were RETIRED rather than adapted, the cycle-69 precedent (grey NO-DATA) for a same-day
+     reversal: no unused knob survives a ruling that deletes the thing it gated. In its place, ONE
+     glyph — `☠︎` (U+2620 SKULL AND CROSSBONES + U+FE0E VARIATION SELECTOR-15, forcing text
+     presentation) — rides the kill leader's name wherever that name appears in a feed line, as
+     KILLER or as VICTIM: `BOAT BOATERSON SUNK ☠︎ CAPTAINAHAB` when the leader is sunk,
+     `☠︎ BOAT BOATERSON SUNK CAPTAINAHAB` when the leader does the sinking. The mark and the name
+     share ONE segment (`leaderNameSegment()` in `client/src/ui/bounty.ts`) rather than riding as a
+     separate connective, specifically so it inherits the pilot's text-safe personal hue and 600
+     weight — a colorless connective glyph would visually detach the skull from the name it
+     crowns. The claim register is now `☠︎ <NAME> IS THE NEW KILL LEADER`, built on the same
+     shared segment so the claim line and the kill lines can never drift onto two different marks.
+
+223. **PLAYER-FACING COPY SAYS KILL LEADER, NEVER BOUNTY — BUT NO INTERNAL NAME MOVED.** Eric on
+     the word "Bounty" itself: *"I don't mind 'Bounty' wording, but 'is the new bounty' and 'you
+     are the bounty' is really, um, stupid wording? KILL LEADER is boring but better. And fine for
+     now."* This is a copy ruling, not a rename: `CONFIG.bounty`, `bountyId`, `bounty.ts`,
+     `nextBountyHolder`, `captainKills`, the `bty` wire key, and the `ui/bounty.ts` module name all
+     keep their shipped names — only the STRINGS a player reads changed. The self-claim toast
+     (`client/src/ui/bounty.ts`, `BOUNTY_TOAST`) is now `YOU ARE THE KILL LEADER` (was
+     `YOU ARE THE BOUNTY`). The chrome-bar register (amendment 220's `BOUNTY: <NAME>`) drops its
+     label entirely and becomes `☠︎ <NAME>` — the skull mark is now the register's whole caption,
+     riding the name segment so it wears the holder's hue exactly as it does in the feed; the
+     `BOUNTY: ` label grammar is retired. "KILL LEADER is boring but better" stands as the
+     ratified reason the word survives at all rather than something more thematic — Eric explicitly
+     called it adequate, not inspired, and explicitly deferred a better word to later ("fine for
+     now").
+
+224. **THE LEADER'S NAME CARRIES A STATIC FAINT GLOW, AND STATIC IS LOAD-BEARING, NOT INCIDENTAL.**
+     Eric: *"i also want to highlight the kill leader's name somehow. like it glows faintly or
+     something."* Implemented as a `text-shadow` on the marked name segment wherever the feed
+     renders it (`client/src/ui/killFeed.ts`, `renderSegments`), at **10px radius / .4 alpha** in
+     the name's own `textSafe()` hue — both numbers sourced from DESIGN.md's existing glow ladder
+     rather than invented: 10px is the hotbar Ready-Weapon outline's glow (the faint end of the
+     10/14/16px component-inventory ladder) and .4 is the canonical glow alpha the same row uses
+     for that state. **Why static, specifically, and why that choice is load-bearing rather than a
+     shortcut:** a glow that breathed or pulsed would be a new ANIMATED channel, and every animated
+     HUD channel in this project answers to Story 4-8's attention-tier arbitration and draws from
+     the photosensitivity budget (EXPERIENCE.md's "no element or screen region flashes >3×/s in
+     aggregate" floor, the ≥2s breathing-cycle rule). A static glow is not an animated channel at
+     all — it costs neither budget, needs no tier assignment, and cannot compound with the HP-rail
+     pulse, the denied-fire pulse, or the ring-close amber the way a second breathing glow would. A
+     drone name is pinned to `droneOutline` verbatim and is never run through `textSafe()` — a
+     drone can never hold the throne (captain kills only, amendment 218) and the glow code
+     explicitly excludes it (`if (seg.leader && !isDrone)`), so a drone name can never glow.
+
+225. **THE WIRE WIDENED — `SunkEvent.bty` GOES FROM `true` TO `'v' | 'k'` — BECAUSE THE SKULL
+     GRAMMAR NEEDS TO KNOW WHICH PARTICIPANT HELD THE THRONE.** A boolean meaning "the victim held
+     it" cannot express the killer case the new grammar requires (marking the KILLER's name when
+     the leader does the sinking). `bty` is now `'v'` (the victim held the throne) or `'k'` (the
+     killer held it), appended LAST as before — key order `k,id,by?,seen?,bty?` is unchanged and
+     still load-bearing (msgpack). **`PROTOCOL_VERSION` stays 33**: 33 was cut for amendments
+     216-221 and has never shipped (the PR is open, unmerged), so re-shaping a field inside an
+     unshipped version is free — there is no wire contract to break. The XP bonus still keys off
+     the VICTIM case only (`bty === 'v'`, i.e. amendment 219's rule unchanged): a leader who kills
+     someone gets no bonus for doing so, only for being sunk. This closes the loop the shipped
+     grammar left open — `bountyKillSuffix`'s CLAIMED/LIFTED distinction only ever read "was there
+     a killer", never "which side is the leader on", because the shipped grammar never needed to
+     mark a killer's name.
+
+226. **THE PERCEPTION ORACLE'S "`bty` NEVER RIDES A DRONE WRECK" BAN IS RELAXED TO `'v'` ONLY —
+     NOT A LOOSENING OF THE INVARIANT, A CORRECTION TO MATCH THE WIDENED FIELD'S MEANING.** The
+     ban was correct under the old boolean (a drone can never hold the throne, so a `true`-flagged
+     drone sinking was definitionally a bug) and is now WRONG for `'k'`: when the leader sinks a
+     drone, `bty: 'k'` legitimately rides that drone's wreck — the leader did the sinking, the
+     drone did not hold anything. This is not a new leak. That sunk event reaches only the witness
+     and the credited killer (the Public Register's drone clause, amendment 29: a drone sinking is
+     never public), and both of those recipients already know the leader's identity from the
+     public `ArenaState.bountyId`, with `by` already sitting on the same row. `server/src/__tests__
+     /perception.test.ts`'s `verifySunk` oracle now asserts the drone ban only for `ev.bty === 'v'`
+     and adds an independent case proving `'k'` rides a drone wreck to the witness/killer while the
+     out-of-sight bystander gets nothing. No other clause of the oracle moved, and no production
+     predicate was imported into the test's independent re-derivation.
+
+227. **THE KILL-FEED WORD ORDER DID NOT CHANGE, AND WAS NEVER WRONG — RECORDED SO A FUTURE AGENT
+     DOES NOT "FIX" A CORRECT GRAMMAR.** `killLine()` (`client/src/ui/killFeed.ts`) has always read
+     victim-first — `CAPTAINAHAB SUNK BY BOAT BOATERSON` — since the Public Register cycle
+     (amendment 29-34) ratified that order, and this rework's `bountyKillLine()` builds ON that
+     output rather than forking it. Eric asked, mid-flight, to "change the wording from 'A SUNK B'
+     to 'B SUNK BY A'" — but that order was already what shipped; the "A SUNK B" reading came from
+     his own illustrative example above (`"BOAT BOATERSON sunk <skull> CAPTAINAHAB"`, a killer-
+     first construction chosen to explain the SKULL placement, not the word order), which the
+     question previews then echoed verbatim, manufacturing an apparent discrepancy where none
+     existed. **Also recorded, a font-rendering risk with a documented one-edit escape hatch:** the
+     UI font is Geist Mono (DESIGN.md typography), which very likely does not cover U+2620 — the
+     browser will substitute a system symbol font for that one glyph, and the U+FE0E selector keeps
+     that substitution monochrome linework rather than a color emoji. The glyph lives in exactly one
+     exported constant, `KILL_LEADER_MARK` (`client/src/ui/bounty.ts`), with `'†'` (U+2020 DAGGER,
+     guaranteed Geist Mono coverage) documented in the same comment as the drop-in fallback if Eric
+     dislikes the substituted rendering on screen.

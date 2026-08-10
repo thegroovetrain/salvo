@@ -1276,12 +1276,23 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
   },
   materialize(ctx, e) {
     // ALWAYS a fresh object (the burstSignal discipline): KEY ORDER IS
-    // LOAD-BEARING (msgpack): k,id,by?,seen? — and NEVER a key whose value is
-    // undefined (msgpack encodes it; world-emitted storm deaths carry
-    // `by: undefined`, which must leave the wire as an ABSENT key).
+    // LOAD-BEARING (msgpack): k,id,by?,seen?,bty? — and NEVER a key whose
+    // value is undefined (msgpack encodes it; world-emitted storm deaths
+    // carry `by: undefined`, which must leave the wire as an ABSENT key).
     const out: SunkEvent = { k: 'sunk', id: e.id };
     if (e.by !== undefined) out.by = e.by;
     if (sunkWitnessed(ctx, e)) out.seen = true; // per-observer; spectators always carry it
+    // `bty` (Story 4.6, Eric rulings 2026-08-10): which PARTICIPANT held the
+    // bounty throne at the pre-sink instant — 'v' the victim, 'k' the killer.
+    // Appended LAST, only when present. This adds NO disclosure: 'v' only
+    // ever rides a combatant sinking (a drone can never hold the throne, so
+    // it is already public via this row's third clause); 'k' may ride a DRONE
+    // wreck (the leader sinks a drone), but that event reaches only the
+    // witness and the credited killer, both of whom already know the leader's
+    // identity from the public ArenaState.bountyId — and `by` is already on
+    // the line. Unlike `seen` it is observer-INDEPENDENT — passed through
+    // verbatim from the world's pre-sink read, never re-derived per observer.
+    if (e.bty === 'v' || e.bty === 'k') out.bty = e.bty;
     return out;
   },
 };

@@ -31,6 +31,9 @@
 
 import type { ZonePhase } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { textSafe } from '../util/color.js';
+import { ellipsizeName } from '../util/text.js';
+import { KILL_LEADER_MARK } from './bounty.js';
 import { monoTextWidth } from './refitCardFit.js';
 
 const CB = CLIENT_CONFIG.chromeBar;
@@ -144,6 +147,28 @@ export interface ChromeSegment {
   pulsed?: boolean;
 }
 
+/**
+ * THE BOUNTY HOLDER, for the bar's register (Story 4.6) — IDENTITY ONLY.
+ *
+ * A callsign and the pilot's RAW personal hue (exactly what the kill feed's
+ * `feedColor` resolves); the WCAG lift is applied here rather than by the
+ * caller, so the bar and the feed cannot drift apart on how a name is made
+ * legible against the void. `null` means the throne is vacant OR the roster
+ * lookup missed — either way the WHOLE segment (its separator included) is
+ * omitted, because a bar that printed a bare `☠︎ ` with nothing after it
+ * would be a register with no register.
+ *
+ * There is deliberately no drone case: a drone can never hold the throne (the
+ * server counts CAPTAIN kills only), so the feed's "drone grey is pinned
+ * verbatim, never run through textSafe" exception has no analogue here.
+ */
+export interface BountyHolder {
+  /** Roster callsign (mid-ellipsized here, at the one shared name cap). */
+  name: string;
+  /** The pilot's raw personal hue — lifted through textSafe() below. */
+  hue: number;
+}
+
 /** Everything the bar renders this frame (main.ts assembles it per frame). */
 export interface ChromeBarView {
   /** The bar is shown at all — false while the zone timeline is idle, i.e. the
@@ -165,6 +190,11 @@ export interface ChromeBarView {
   /** Elapsed match time (ms) = serverNow − zoneStartT, clamped at 0. */
   matchMs: number;
   ring: RingReadout;
+  /** The bounty holder (Story 4.6) — identity only, `null` when the throne is
+   *  vacant or the roster lookup missed. NEVER a position, bearing or range:
+   *  Eric's 2026-08-10 ruling deleted every on-water cue for the bounty, and
+   *  this text register is the only place on screen it appears at all. */
+  bounty: BountyHolder | null;
   /** A Tier-1 (threat) channel is animating this frame — the amber segment
    *  holds at its lit keyframe while it is (attention.ts's tier table). */
   tier1: boolean;
@@ -208,12 +238,36 @@ function readout(value: string, label: string): ChromeSegment[] {
 }
 
 /**
+ * The KILL LEADER register (Story 4.6, 2026-08-10 rework) — `· ☠︎ <NAME>`,
+ * or NOTHING. (The `BOUNTY: <NAME>` label grammar is retired: the skull mark
+ * IS the register's whole caption now, and it rides the name segment so it
+ * wears the holder's hue exactly as it does in the feed.)
+ *
+ * Two segments or zero, never anything between: the separator belongs to the
+ * register, so a vacant throne leaves no dangling ` · ` at the end of the row.
+ * The NAME is the first per-player hue the bar has ever carried, lifted
+ * through textSafe() exactly as the kill feed lifts it.
+ */
+function bountyRegister(holder: BountyHolder | null): ChromeSegment[] {
+  if (!holder) return [];
+  return [
+    sep(),
+    { text: `${KILL_LEADER_MARK} ${ellipsizeName(holder.name)}`, color: textSafe(holder.hue), alpha: 1 },
+  ];
+}
+
+/**
  * Pure: the whole bar, as an ordered segment list.
  *
  * Order and register (the ratified mock, as amended): `n AFLOAT · n KILLS ·
- * T+mm:ss · <ring>`. The `T+` prefix is a LABEL (dim phosphor) and the clock
- * after it is the number, so the three left-hand segments read identically:
- * bright value, dim caption.
+ * T+mm:ss · <ring> · ☠︎ <NAME>`. The `T+` prefix is a LABEL (dim phosphor)
+ * and the clock after it is the number, so the three left-hand segments read
+ * identically: bright value, dim caption.
+ *
+ * The bounty rides at the TAIL deliberately: it is the only OPTIONAL register
+ * in the row, and appending it leaves the ten shipped segments at byte-
+ * identical indices whether the throne is held or vacant — which matters
+ * because render/hud.ts caches each pooled Text's last fill BY INDEX.
  */
 export function chromeBarSegments(view: ChromeBarView): ChromeSegment[] {
   return [
@@ -225,13 +279,22 @@ export function chromeBarSegments(view: ChromeBarView): ChromeSegment[] {
     { text: fmtBarClock(view.matchMs), color: C.phosphor, alpha: 1 },
     sep(),
     { text: view.ring.text, color: view.ring.urgent ? C.amber : C.stormReadout, alpha: 1, pulsed: true },
+    ...bountyRegister(view.bounty),
   ];
 }
 
 /** How many Texts the row ever needs — the renderer's fixed pool size (Texts are
  *  created once and reused; nothing in the bar allocates per frame). Pinned
- *  against the composer by chromeBar.test.ts. */
-export const CHROME_BAR_SEGMENTS = 10;
+ *  against the composer by chromeBar.test.ts.
+ *
+ *  This is the MAXIMUM, not the invariant count: 10 fixed segments plus the
+ *  kill-leader register's 2 (separator + marked name). It moved from 10 the
+ *  moment the bounty shipped (as 13, when the register carried a separate
+ *  label segment) and to 12 with the 2026-08-10 `☠︎ <NAME>` rework —
+ *  layoutChromeBar bounds both its loops by the pool, so a stale literal here
+ *  would SILENTLY DROP the tail rather than fail (and an oversized one wastes
+ *  pooled Texts). */
+export const CHROME_BAR_SEGMENTS = 12;
 
 /** A laid-out row: the x of each segment (left edge) and the row's total width. */
 export interface ChromeBarLayout {

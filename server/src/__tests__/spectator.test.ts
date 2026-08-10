@@ -176,10 +176,13 @@ describe('spectator frames — dead observer in the active phase', () => {
     ]);
     // A later sinking far from the wreck's old bubble: still seen for the
     // spectator — the unfogged path stamps the spatial license unconditionally.
+    // b became the KILL LEADER by sinking a (1 captain kill, strict unique
+    // max), so this kill also carries the killer-case mark (Story 4.6 rework:
+    // bty 'k' — observer-independent, spectators included).
     w.sinkShip('c', 'b');
     w.step();
     expect(buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'sunk')).toEqual([
-      { k: 'sunk', id: 'c', by: 'b', seen: true },
+      { k: 'sunk', id: 'c', by: 'b', seen: true, bty: 'k' },
     ]);
   });
 
@@ -205,9 +208,13 @@ describe('spectator frames — dead observer in the active phase', () => {
     expect(fa.events.filter((e) => e.k === 'pt' || e.k === 'bn')).toEqual([]);
     // The DEAD killer still banks its own point (mutual-destruction rule), and
     // the spec-frame pass-through delivers its pt to the owning spectator.
+    // TWO pts since Story 4.6: b's three captain kills above crowned it the
+    // bounty holder, so sinking b stacks CONFIG.bounty.killLevels on the
+    // standard captain level — both banked points ride a's own frame.
     w.sinkShip('b', 'a');
     w.step();
     expect(buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'pt')).toEqual([
+      { k: 'pt', id: 'a' },
       { k: 'pt', id: 'a' },
     ]);
   });

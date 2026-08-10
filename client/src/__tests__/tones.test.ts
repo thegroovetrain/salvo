@@ -41,6 +41,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'slowed',
   'dazzled',
   'sink',
+  'bounty',
   'tick',
   'matchStart',
   'stormWarn',
@@ -207,6 +208,39 @@ describe('point tone — bright single rise (banked-point ping)', () => {
     // Every fit tone holds its second note (mid === end); point keeps climbing.
     expect(TONES.point.freqEnd).not.toBe(TONES.point.freqMid);
     expect(TONES.fitCommon.freqEnd).toBe(TONES.fitCommon.freqMid);
+  });
+});
+
+describe('bounty tone (Story 4.6) — the two-tone klaxon for taking the throne', () => {
+  it('stays inside the 150ms short-cue budget (only sink is exempt)', () => {
+    expect(TONES.bounty.duration).toBeLessThanOrEqual(MAX_TONE_S);
+  });
+
+  it('is V-CONTOURED — it dips and comes back, which nothing else up here does', () => {
+    expect(TONES.bounty.freqMid).toBeLessThan(TONES.bounty.freqStart);
+    expect(TONES.bounty.freqEnd).toBeGreaterThan(TONES.bounty.freqMid);
+    // Its high-register neighbours all glide ONE way and stop.
+    for (const id of ['kill', 'point', 'dazzled'] as const) {
+      expect(TONES[id].freqMid).toBeGreaterThan(TONES[id].freqStart);
+    }
+  });
+
+  it('is the only NON-FLAT square in the high register (the ticks never move in pitch)', () => {
+    expect(TONES.bounty.type).toBe('square');
+    for (const id of ['tick', 'telegraphUp', 'telegraphDown'] as const) {
+      expect(TONES[id].freqStart).toBe(TONES[id].freqEnd);
+    }
+  });
+
+  it('shares its contour ONLY with the Hit Call, two octaves down on a soft triangle', () => {
+    // hitCall is the catalog's other dip-and-return; the separation is register
+    // and voice, so the two can never be confused.
+    expect(TONES.hitCall.freqStart).toBeLessThan(TONES.bounty.freqStart / 4);
+    expect(TONES.hitCall.type).not.toBe(TONES.bounty.type);
+  });
+
+  it('carries no noise layer — it is a status change, not an impact', () => {
+    expect(TONES.bounty.noise).toBeUndefined();
   });
 });
 

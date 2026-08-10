@@ -816,13 +816,26 @@ export interface DamageEvent {
  * at a stale last-known position. Never emitted as `seen: false` or with an
  * `undefined` value (msgpack encodes it): the key is omitted entirely when
  * the observer did not witness the wreck. KEY ORDER IS LOAD-BEARING
- * (msgpack): k,id,by?,seen? — absent keys are omitted, never undefined.
+ * (msgpack): k,id,by?,seen?,bty? — absent keys are omitted, never undefined.
+ *
+ * `bty` (Story 4.6, Eric rulings 2026-08-10): WHICH PARTICIPANT in this
+ * sinking held the bounty throne at the pre-sink instant — `'v'` the victim,
+ * `'k'` the killer. Both can never be true at once (one throne, and a
+ * self-sink credits nobody, so `'k'` requires a `by` distinct from `id`).
+ * Identity-only, adds NO disclosure: `'v'` can only ride a combatant sinking
+ * (a drone can never hold the throne), `'k'` may ride a drone wreck — but
+ * that event reaches only the witness and the credited killer, both of whom
+ * already know the leader's identity from the public ArenaState.bountyId.
+ * Appended LAST; the key is omitted entirely when neither held it, never
+ * `undefined`. Observer-INDEPENDENT (unlike the per-observer `seen`): every
+ * recipient of the row gets the same value.
  */
 export interface SunkEvent {
   k: 'sunk';
   id: string;
   by?: string;
   seen?: true;
+  bty?: 'v' | 'k';
 }
 
 /** A ship (re)spawned at a position. */

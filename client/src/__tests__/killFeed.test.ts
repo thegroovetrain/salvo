@@ -5,9 +5,10 @@
 // capped at MAX_LINES.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { KILL_LEADER_MARK, bountyClaimLine, bountyKillLine } from '../ui/bounty.js';
 import { killLine, ellipsizeName, pushKillLine } from '../ui/killFeed.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { cssHex } from '../util/color.js';
+import { cssHex, cssRgba, textSafe } from '../util/color.js';
 
 describe('ellipsizeName — mid-ellipsize > 14 code points to exactly 14', () => {
   it('leaves names of 14 chars or fewer untouched', () => {
@@ -53,6 +54,95 @@ describe('killLine — colored segments', () => {
   it('mid-ellipsizes an over-length name in the segment text (id preserved)', () => {
     const [victim] = killLine({ name: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', id: 'v' }, null);
     expect(victim).toEqual({ text: 'ABCDEFG…UVWXYZ', id: 'v' });
+  });
+});
+
+// --- THE KILL LEADER REGISTERS (Story 4.6, 2026-08-10 rework) ----------------
+// The feed carries two of the throne's three surfaces. Both are built from the
+// pure ui/bounty.ts builders and pushed through the UNCHANGED pushKillLine
+// adapter — these are the DOM proofs that the composition renders the way the
+// grammar says: the skull rides the leader's NAME span (hue, 600 weight, and
+// the static faint glow), connectives stay connectives, and a drone name can
+// never glow.
+
+describe('the kill-leader feed registers render through the shipped adapter', () => {
+  beforeEach(() => {
+    document.getElementById('kill-feed')?.remove();
+  });
+
+  const feed = (): HTMLElement => document.getElementById('kill-feed') as HTMLElement;
+  const line = (): string => feed().firstChild!.textContent ?? '';
+
+  it('the CLAIM register prints `☠︎ <NAME> IS THE NEW KILL LEADER`, the marked name in the pilot\'s hue', () => {
+    pushKillLine(bountyClaimLine({ name: 'ALPHA', id: 'a' }), () => 0x00d0ff);
+    expect(line()).toBe(`${KILL_LEADER_MARK} ALPHA IS THE NEW KILL LEADER`);
+    const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
+    expect(spans).toHaveLength(2);
+    expect(spans[0].style.fontWeight).toBe('600'); // mark + name, one NAME span
+    expect(spans[0].style.color).not.toBe(''); // ...so the skull wears the hue too
+    expect(spans[1].style.color).toBe(''); // the label is connective text
+    expect(spans[1].style.fontWeight).toBe('');
+  });
+
+  it("a victim-leads sinking ('v') marks the VICTIM span: `☠ ALPHA SUNK BY BRAVO`", () => {
+    pushKillLine(bountyKillLine({ name: 'ALPHA', id: 'a' }, { name: 'BRAVO', id: 'b' }, 'v'), () => 0x00d0ff);
+    expect(line()).toBe(`${KILL_LEADER_MARK} ALPHA SUNK BY BRAVO`);
+    const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
+    expect(spans).toHaveLength(3);
+    expect(spans[0].style.textShadow).not.toBe(''); // the leader glows
+    expect(spans[2].style.textShadow).toBe(''); // the other captain does not
+  });
+
+  it("a killer-leads sinking ('k') marks the KILLER span: `ALPHA SUNK BY ☠ BRAVO`", () => {
+    pushKillLine(bountyKillLine({ name: 'ALPHA', id: 'a' }, { name: 'BRAVO', id: 'b' }, 'k'), () => 0x00d0ff);
+    expect(line()).toBe(`ALPHA SUNK BY ${KILL_LEADER_MARK} BRAVO`);
+    const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
+    expect(spans[0].style.textShadow).toBe('');
+    expect(spans[2].style.textShadow).not.toBe('');
+  });
+
+  it("a storm sink of the leader ('v', no killer) marks the LOST line", () => {
+    pushKillLine(bountyKillLine({ name: 'ALPHA', id: 'a' }, null, 'v'), () => 0x00d0ff);
+    expect(line()).toBe(`${KILL_LEADER_MARK} ALPHA LOST WITH ALL HANDS`);
+  });
+
+  it('the leader glow is STATIC, in the name\'s own text-safe hue, at DESIGN.md\'s glow register', () => {
+    // Ruling 2026-08-10: a faint STATIC text-shadow — never breathing, never
+    // pulsing — so it is not an animated channel and stays out of the
+    // photosensitivity budget. Radius 10px = the hotbar ready-weapon glow;
+    // alpha .4 = the canonical DESIGN.md glow example (0 0 16px rgba(...,.4)).
+    const hue = 0x00d0ff;
+    pushKillLine(bountyClaimLine({ name: 'ALPHA', id: 'a' }), () => hue);
+    const span = feed().firstChild!.firstChild as HTMLSpanElement;
+    const ref = document.createElement('span');
+    ref.style.textShadow = `0 0 10px ${cssRgba(textSafe(hue), 0.4)}`;
+    expect(span.style.textShadow).toBe(ref.style.textShadow);
+  });
+
+  it('a DRONE name NEVER glows — even if a leader flag somehow reached it', () => {
+    // A drone can never hold the throne (captain kills only); the adapter
+    // enforces it independently, so a bad flag cannot glow the pinned grey.
+    const droneOutline = CLIENT_CONFIG.colors.droneOutline;
+    pushKillLine([{ text: `${KILL_LEADER_MARK} DRONE-01`, id: 'd', leader: true }], () => droneOutline);
+    const span = feed().firstChild!.firstChild as HTMLSpanElement;
+    expect(span.style.textShadow).toBe('');
+    // ...and the drone grey stays pinned verbatim, un-lightened.
+    const ref = document.createElement('span');
+    ref.style.color = cssHex(droneOutline);
+    expect(span.style.color).toBe(ref.style.color);
+  });
+
+  it('an UNMARKED name never glows — the flag is the only license', () => {
+    pushKillLine(killLine({ name: 'ALPHA', id: 'a' }, null), () => 0x00d0ff);
+    const span = feed().firstChild!.firstChild as HTMLSpanElement;
+    expect(span.style.textShadow).toBe('');
+  });
+
+  it('says nothing about WHERE any of it happened', () => {
+    // The 2026-08-10 ruling: the throne is identity only. The feed's copy is
+    // the whole of what a bystander learns, and it carries no number at all.
+    pushKillLine(bountyClaimLine({ name: 'ALPHA', id: 'a' }), () => null);
+    expect(line()).not.toMatch(/\d/);
   });
 });
 
