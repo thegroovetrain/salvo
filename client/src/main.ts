@@ -69,6 +69,7 @@ import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from 
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import type { ToneFloor } from './render/gunneryFeed.js';
+import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
 import {
   UpgradeMenu,
@@ -274,6 +275,13 @@ interface Game {
   deniedPulse: DeniedPulse;
   /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
   deniedFlash: boolean;
+  /** THE `denied` CUE'S TONE FLOOR (the twin walk, amendment 60) — ONE shared
+   *  floor across every `denied` call site (weapon click, predicted ability
+   *  press, FIFO-full press, server-denial echo), keyed on the SAME
+   *  PULSE_RATE_MS the visual pulses above already rate-limit on
+   *  (audio/deniedCue.ts). Without it the tone plays unbounded while its chip
+   *  twin caps at one flash per 300ms. */
+  deniedToneFloor: ToneFloor;
   /** Exactly-one-feedback dedup for denied presses, keyed (slot, seq) —
    *  Story 1.10: predicted denials mark their key; a matching server denial
    *  is suppressed; an unmatched one fires the feedback late-but-explicit. */
@@ -1270,6 +1278,19 @@ function conningLive(g: Game | null): boolean {
 }
 
 /**
+ * Play the `denied` cue, floored to the SAME PULSE_RATE_MS the visual pulse
+ * (render/deniedFire.ts's DeniedPulse) already rate-limits on — ONE shared
+ * floor across every `denied` call site (audio/deniedCue.ts), because it is
+ * one cue from the player's perspective. Without this the tone plays
+ * unbounded while its chip twin caps at one flash per 300ms (the twin walk,
+ * amendment 60, epic-4-context-amendments.md): a click-spam burst landing
+ * 80-300ms after the last one played the tone with no visual at all.
+ */
+function playDenied(g: Game): void {
+  if (g.deniedToneFloor.request(performance.now())) g.audio.play('denied');
+}
+
+/**
  * THE chokepoint's hook table (Story 2.1) — every in-match key action routed
  * over the late-bound Game (`getG` is the gRef late-binding — null only during
  * the brief construction gap). P and M fold in here (the old ad-hoc window
@@ -1313,8 +1334,17 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     onAbilityCapped: (slot) => {
       const g = getG();
       if (!g) return;
+      // No live hotbar to flash into (sunk / spectating) — the tone's only
+      // twin can't render there, so suppress the whole predicted-denial
+      // feedback here, mirroring handleServerDenial's guard below (Story
+      // 1.10's server-denial path already has it). The twin walk (amendment
+      // 60, epic-4-context-amendments.md) found this FIFO-full path missing
+      // it — the keyboard chokepoint deliberately doesn't gate on life
+      // itself (onFoghorn's doc: "alive, spectating, cooldown — is main.ts's
+      // call").
+      if (deniedFeedbackHasNoTwin(g.state.spectating, g.state.net.you?.alive)) return;
       g.abilityDeniedPress[slot] = true;
-      g.audio.play('denied');
+      playDenied(g);
     },
     // F — the foghorn (Story 4.5). The chokepoint has already edge-gated the
     // press and applied the refit-modal suspension; everything else is here.
@@ -1379,12 +1409,22 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
   if (abilityPressDenied(you?.alive ?? true, loaded)) {
+    // No live hotbar to flash into (sunk / spectating) — the tone's only
+    // twin can't render there, so suppress the whole predicted-denial
+    // feedback here, mirroring handleServerDenial's guard below (Story
+    // 1.10's server-denial path already has it — a matching server denial
+    // for this same press is guarded there too, so nothing is lost by not
+    // marking denialDedup on this branch). The twin walk (amendment 60,
+    // epic-4-context-amendments.md) found this predicted path missing it —
+    // the keyboard chokepoint deliberately doesn't gate on life itself
+    // (onFoghorn's doc: "alive, spectating, cooldown — is main.ts's call").
+    if (deniedFeedbackHasNoTwin(g.state.spectating, you?.alive)) return;
     g.abilityDeniedPress[slot] = true;
     // Story 1.10 exactly-one-feedback: this predicted denial IS the feedback
     // (chip flash above + the denial tone) — mark its (slot, actSeq) key so
     // the server's matching denial echo is suppressed, never doubled.
     g.denialDedup.markPredicted(slot, actSeq);
-    g.audio.play('denied');
+    playDenied(g);
     return;
   }
   // Predicted READY: fire the hotbar's ACTIVATED pop on this optimistic press
@@ -1625,6 +1665,7 @@ function buildGame(
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     shake: new ShakeDriver(),
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
+    deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
@@ -2284,7 +2325,7 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
   // race), that unmatched denial triggers the feedback late-but-explicit.
   if (p.alive && !(p.loaded && p.inArc)) {
     g.denialDedup.markPredicted(primedSlot, fireSeq);
-    g.audio.play('denied');
+    playDenied(g);
   }
 }
 
@@ -2304,7 +2345,7 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   // (otherwise the tone + chip latch fire with no matching arc pulse).
   if (g.state.net.you?.alive === false) return;
   if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
-  g.audio.play('denied');
+  playDenied(g);
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
   const id = g.ownSlots[d.slot] ?? null;
   // Only pulse the arc/reticle when the DENIED slot is the one currently primed
