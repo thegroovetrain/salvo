@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge Report — Ocean Currents</title>
+<style>
+  :root{
+    --bg:#f4f1e8; --panel:#fffdf7; --ink:#1d2733; --muted:#5d6b7a;
+    --rule:#d8d0bd; --accent:#0d5c63; --amber:#b06b00; --phos:#1f7a4d;
+    --seal:#8c2f2a; --sealdark:#6b201c; --quote:#eef3f1;
+    --shadow:0 1px 2px rgba(29,39,51,.06),0 8px 28px rgba(29,39,51,.09);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e141b; --panel:#151d26; --ink:#e6ecf2; --muted:#93a3b4;
+      --rule:#27333f; --accent:#4fd1c5; --amber:#e0a248; --phos:#5fd39a;
+      --seal:#c0453e; --sealdark:#8c2f2a; --quote:#16232a;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 34px rgba(0,0,0,.45);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e141b; --panel:#151d26; --ink:#e6ecf2; --muted:#93a3b4;
+    --rule:#27333f; --accent:#4fd1c5; --amber:#e0a248; --phos:#5fd39a;
+    --seal:#c0453e; --sealdark:#8c2f2a; --quote:#16232a;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 34px rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.62 ui-serif,Georgia,"Iowan Old Style",Palatino,serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .sheet{max-width:52rem;margin:0 auto;padding:3rem 1.5rem 5rem}
+  header{border-bottom:2px solid var(--ink);padding-bottom:1.1rem;margin-bottom:2rem}
+  .kicker{
+    font:600 11px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:.7rem
+  }
+  h1{font-size:2.35rem;line-height:1.1;margin:0 0 .5rem;letter-spacing:-.015em}
+  .sub{color:var(--muted);font-size:1.02rem;margin:0}
+  h2{
+    font:600 12px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--accent);
+    margin:2.6rem 0 .9rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)
+  }
+  p{margin:0 0 1rem}
+  ul{margin:0 0 1rem;padding-left:1.15rem}
+  li{margin:0 0 .62rem}
+  code{
+    font:.86em ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:var(--quote);padding:.1em .38em;border-radius:3px;
+    border:1px solid var(--rule);white-space:nowrap
+  }
+  strong{font-weight:700}
+  em{color:var(--muted)}
+
+  /* ---- verdict block ---- */
+  .verdict{
+    display:flex;gap:1.6rem;align-items:center;flex-wrap:wrap;
+    background:var(--panel);border:1px solid var(--rule);border-radius:10px;
+    padding:1.5rem 1.7rem;box-shadow:var(--shadow);margin:0 0 .4rem
+  }
+  .verdict .seal{flex:0 0 auto}
+  .verdict .say{flex:1 1 17rem;min-width:15rem}
+  .verdict .say p{margin:0 0 .55rem}
+  .verdict .say p:last-child{margin:0}
+  .big{font-size:1.22rem;font-weight:700;letter-spacing:-.01em}
+  .trigger{
+    display:inline-block;font:600 11px/1 ui-sans-serif,system-ui,sans-serif;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--amber);
+    border:1px solid var(--amber);border-radius:999px;padding:.4em .8em;margin-top:.5rem
+  }
+
+  /* ---- callout ---- */
+  .turn{
+    background:var(--quote);border-left:3px solid var(--phos);
+    border-radius:0 8px 8px 0;padding:1.15rem 1.4rem;margin:1.2rem 0 1.4rem
+  }
+  .turn .who{
+    font:600 11px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--phos);margin-bottom:.55rem
+  }
+  .turn blockquote{margin:0;font-size:1.06rem;font-style:italic}
+
+  /* ---- ledger ---- */
+  .ledger{list-style:none;padding:0;margin:0}
+  .ledger li{
+    display:grid;grid-template-columns:auto 1fr;gap:.7rem;
+    padding:.72rem 0;border-bottom:1px dotted var(--rule);margin:0
+  }
+  .ledger li:last-child{border-bottom:0}
+  .mark{
+    font:700 12px/1.5 ui-sans-serif,system-ui,sans-serif;
+    width:1.35rem;text-align:center;color:var(--muted)
+  }
+  .yes .mark{color:var(--phos)} .no .mark{color:var(--seal)} .open .mark{color:var(--amber)}
+
+  /* ---- crew ---- */
+  .crew{display:grid;gap:.9rem}
+  .card{
+    background:var(--panel);border:1px solid var(--rule);border-radius:9px;
+    padding:.95rem 1.15rem;box-shadow:var(--shadow)
+  }
+  .card .top{display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;margin-bottom:.4rem}
+  .card .ico{font-size:1.18rem;line-height:1}
+  .card .nm{font-weight:700}
+  .card .rl{
+    font:600 10px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--muted)
+  }
+  .card .ln{margin:0;font-style:italic;color:var(--ink);font-size:.97rem}
+  .walkons{
+    background:var(--quote);border:1px dashed var(--rule);border-radius:9px;
+    padding:.95rem 1.15rem;font-size:.94rem;color:var(--muted)
+  }
+  footer{
+    margin-top:3rem;padding-top:1.1rem;border-top:1px solid var(--rule);
+    font:12px/1.7 ui-sans-serif,system-ui,sans-serif;color:var(--muted)
+  }
+  footer code{white-space:normal;word-break:break-all}
+  @media (max-width:34rem){ h1{font-size:1.85rem} .sheet{padding:2rem 1.1rem 3.5rem} }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <div class="kicker">BMad Forge · Session Record · 2026-08-11</div>
+  <h1>Ocean Currents</h1>
+  <p class="sub">Pressure-tested against <em>Realistic Ocean Currents in Hullcracker</em> (technical research, 2026-08-11) and against the shipped codebase.</p>
+</header>
+
+<div class="verdict">
+  <div class="seal">
+    <svg width="164" height="164" viewBox="0 0 164 164" role="img" aria-label="Wax seal stamped HARDENED, sub-stamped SHELVED">
+      <defs>
+        <radialGradient id="wax" cx="38%" cy="32%" r="78%">
+          <stop offset="0%" stop-color="var(--seal)"/>
+          <stop offset="100%" stop-color="var(--sealdark)"/>
+        </radialGradient>
+      </defs>
+      <!-- ragged wax disc -->
+      <path fill="url(#wax)" d="M82 6c14 0 20 8 32 12s22-1 30 9-1 21 3 32 13 16 13 23-9 13-13 23-1 22-9 31-19 4-30 9-18 13-26 13-20-8-32-12-22 1-30-9 1-21-3-32-13-16-13-23 9-13 13-23 1-22 9-31 19-4 30-9S74 6 82 6z"/>
+      <circle cx="82" cy="82" r="60" fill="none" stroke="rgba(255,255,255,.32)" stroke-width="1.4"/>
+      <circle cx="82" cy="82" r="54" fill="none" stroke="rgba(255,255,255,.20)" stroke-width="1"/>
+      <!-- current swirl glyph -->
+      <g fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2.4" stroke-linecap="round">
+        <path d="M52 96c10-9 20 5 30-4s20 5 30-4"/>
+        <path d="M52 82c10-9 20 5 30-4s20 5 30-4"/>
+      </g>
+      <text x="82" y="66" text-anchor="middle" fill="#fff" font-family="ui-sans-serif,system-ui,sans-serif"
+            font-size="17" font-weight="700" letter-spacing="2.4">HARDENED</text>
+      <text x="82" y="121" text-anchor="middle" fill="rgba(255,255,255,.86)" font-family="ui-sans-serif,system-ui,sans-serif"
+            font-size="11" font-weight="700" letter-spacing="3.6">SHELVED</text>
+    </svg>
+  </div>
+  <div class="say">
+    <p class="big">The idea held up. The build is deferred.</p>
+    <p>Not killed — every load-bearing question got an answer, and the answers are written down so a future pickup doesn't re-derive them. What stopped it was neither cost nor feasibility.</p>
+    <p><em>"Trivial to add, but depending on how it works it could change the game in ways that range from virtually imperceptible all the way to major effects on game balance."</em></p>
+    <span class="trigger">Revisit when players ask for it</span>
+  </div>
+</div>
+
+<h2>The turn of the session</h2>
+<p>The facilitator's verdict was that currents are <strong>symmetric</strong> — a force acting equally on both combatants in the same water is a reference-frame change, not a mechanic — and that the ocean-wide field was therefore near-worthless. The bench took that apart.</p>
+<div class="turn">
+  <div class="who">🔬 Dr. Quinn · Master Problem Solver</div>
+  <blockquote>"Symmetry isn't a property of the force. It's a property of the force <strong>plus the players' freedom to leave.</strong> Two ships drifting in the same water are on a treadmill — but only while both of them can choose to step off it."</blockquote>
+</div>
+<p>The storm removes that choice. Current becomes asymmetric precisely inside the shrinking ring — and because the ring is offset-center and server-rolled, <em>which</em> water the finals are fought in differs every match. Cloud drew the corollary immediately: this kills the fBm field harder rather than rescuing it. You need current in a few places the ring can find, not everywhere.</p>
+
+<h2>Ruled</h2>
+<ul class="ledger">
+  <li class="yes"><span class="mark">✓</span><span>Currents are worth having — judged on <strong>fun</strong>, with a high skill ceiling explicitly accepted. The novelty is real: no shipping naval game has them.</span></li>
+  <li class="yes"><span class="mark">✓</span><span><strong>One system.</strong> A current field <strong>supersedes FR47 whirlpools</strong> rather than coexisting; whirlpools survive only as features inside the current dynamics. Takes the planned <code>shared/src/sim/whirlpool.ts</code> and the server-secret hemisphere with it unless rehomed.</span></li>
+  <li class="yes"><span class="mark">✓</span><span><strong>Cursor = launch bearing; draw the resulting curve; never auto-solve it.</strong> Keeps the skillshot, rejects the torpedo-data-computer.</span></li>
+  <li class="yes"><span class="mark">✓</span><span>Representation must be <strong>on the water and deducible</strong> — a battleship or mine layer needs a channel that isn't a weapon.</span></li>
+</ul>
+
+<h2>Proposed, not ruled</h2>
+<ul class="ledger">
+  <li class="open"><span class="mark">?</span><span><strong>Movement mechanic, not shooting.</strong> The question was asked and answered; the answer was never ratified — and Samus attacked the <em>procedure</em>, not the conclusion.</span></li>
+  <li class="open"><span class="mark">?</span><span><strong>Place-based, ambient ocean still.</strong> Forced by movement-only: a uniform 4–6% set is a feature nobody feels.</span></li>
+  <li class="open"><span class="mark">?</span><span><strong>Skip the fBm stream function entirely.</strong> Placed primitives get the gameplay at a fraction of the machinery. You can tune a strait; you cannot tune fBm.</span></li>
+  <li class="open"><span class="mark">?</span><span><strong>Current × storm is the actual feature.</strong> Quinn's reframe, above.</span></li>
+</ul>
+
+<h2>Rejected, with reasons</h2>
+<ul class="ledger">
+  <li class="no"><span class="mark">✕</span><span><strong>Public field with a deliberately hidden aim curve.</strong> That rule binds only honest players — a modified client integrates the public field and draws it. It would be the first mechanic in the game to hand a cheat client real mechanical advantage, against a standard held absolutely every cycle.</span></li>
+  <li class="no"><span class="mark">✕</span><span><strong>Drifting mines as the default.</strong> Moored mines are anchored and <em>dip</em>; they don't travel. Drifting mines are Hague VIII prohibited as indiscriminate. Survives only as an opt-in <code>MineMode</code> doctrine.</span></li>
+  <li class="no"><span class="mark">✕</span><span><strong>The research report's deflection table as the centerpiece.</strong> Its self-declared "single most important number" is the claim the physics supports least — a guided torpedo corrects, and 2 kt against 54 kt is a 3.6% set.</span></li>
+  <li class="no"><span class="mark">✕</span><span><strong>"Ship the seam dormant."</strong> The height-raster precedent doesn't transfer: inert storage nobody reads is not live code in the prediction path.</span></li>
+</ul>
+
+<h2>Weak points that survived scrutiny</h2>
+<ul class="ledger">
+  <li class="open"><span class="mark">△</span><span><strong>Samus's procedural strike, unanswered.</strong> Eric ruled <em>semi-realism over realism</em> in the radar round — killed the mast-height card, rejected per-seed H. Movement-only was then decided on "true" rather than "fun," by the criterion he'd already overruled once. The pivot may still be right; it was reached the wrong way.</span></li>
+  <li class="open"><span class="mark">△</span><span><strong>Legibility is marginal at honest strength.</strong> Every wake-bow instrument lands at 3–5%: 11u of bow across a 247.5u track, 5.5u across a torpedo's 165u. Readable in a strait, nearly invisible in open water.</span></li>
+  <li class="open"><span class="mark">△</span><span><strong>Movement-only concentrates all engineering risk</strong> on hull drift through prediction — the one integration the report flagged. Mitigated, not removed, by shipping a steady field.</span></li>
+  <li class="open"><span class="mark">△</span><span><strong>Divergence-free means no convergence lines.</strong> Foam and debris — the most legible real-world current tell — is unavailable by construction. Lost the moment the method was chosen.</span></li>
+  <li class="open"><span class="mark">△</span><span><strong>Any representation needs a static form</strong>, because <code>motion=off</code> is honored across the attention-tier table. A current shown only through animation fails the exact player it most needs to reach.</span></li>
+</ul>
+
+<h2>Verified against the code, not taken on trust</h2>
+<ul class="ledger">
+  <li class="yes"><span class="mark">✓</span><span><code>stepShell</code>: 19 references in <code>server/src</code>, <strong>zero</strong> in <code>client/src</code> — ordnance drift genuinely carries no prediction risk.</span></li>
+  <li class="yes"><span class="mark">✓</span><span><code>stepShip</code> calls <code>Math.cos</code>/<code>Math.sin</code> every tick — the zero-transcendental rule is a <strong>generation-path</strong> rule, not a runtime one. Written down nowhere else in the project.</span></li>
+  <li class="yes"><span class="mark">✓</span><span>The torpedo <strong>never reads <code>input.aimDist</code></strong> — it is already a pure bearing weapon clamped to the bow ±30°. The gun is the point weapon, and a shell flies through air.</span></li>
+  <li class="yes"><span class="mark">✓</span><span>Mines already move, and the legality clamp is shipped: <code>creepMines</code> plus <code>clampMinePoint</code> — never outside the disk, never ashore, "mines float."</span></li>
+  <li class="yes"><span class="mark">✓</span><span>Cost was never the constraint: <strong>2.2 µs/tick, 64 KB/room</strong>, against radar shadows at 278 µs and radar wakes at 425–470 µs.</span></li>
+</ul>
+
+<h2>If it comes out of the pocket</h2>
+<p>One placed vortex, one placed strait jet, hull drift only — no field, no bake, no noise — plus a <code>zoneOverride</code> to force the endgame ring onto them. Half a day. The kill criterion is honest and easy to check: <strong>after twenty minutes of sailing, do you ever think about the water when you're not inside one of the two features?</strong></p>
+
+<h2>The room</h2>
+<div class="crew">
+  <div class="card"><div class="top"><span class="ico">🎲</span><span class="nm">Samus Shepard</span><span class="rl">Game Designer · player-feel, interesting decisions</span></div>
+    <p class="ln">"Physics doesn't get a vote on whether the deflection is fun. You went movement-only because it was <strong>true</strong>, not because it was <strong>better</strong> — and you already picked the other one once."</p></div>
+  <div class="card"><div class="top"><span class="ico">🔬</span><span class="nm">Dr. Quinn</span><span class="rl">Master Problem Solver · reformulates the question</span></div>
+    <p class="ln">"Constrain one party's options and a symmetric force becomes an asymmetric one immediately."</p></div>
+  <div class="card"><div class="top"><span class="ico">🏛️</span><span class="nm">Cloud Dragonborn</span><span class="rl">Game Architect · foundations before walls</span></div>
+    <p class="ln">"...That's a fair distinction. Then the seam, not the field." <em>— conceded the height-raster analogy on the spot.</em></p></div>
+  <div class="card"><div class="top"><span class="ico">🎮</span><span class="nm">Indie</span><span class="rl">Game Solo Dev · scope hawk, ships on Monday</span></div>
+    <p class="ln">"A zero-valued parameter is a comment with a type signature."</p></div>
+  <div class="card"><div class="top"><span class="ico">😤</span><span class="nm">Grumbal</span><span class="rl">The Adversary · heckling from the bar</span></div>
+    <p class="ln">"...That's annoyingly good." <em>— his second concession on this project. The streak is over.</em></p></div>
+  <div class="card"><div class="top"><span class="ico">🏗️</span><span class="nm">Winston</span><span class="rl">System Architect · trade-offs, never verdicts</span></div>
+    <p class="ln">"Don't build a current system next to a whirlpool system. Build one stream function and place vortex terms into it."</p></div>
+  <div class="card"><div class="top"><span class="ico">🎨</span><span class="nm">Sally</span><span class="rl">UX Designer · the scene before the code</span></div>
+    <p class="ln">"The player watches the curve peel off the line, and <em>that</em> is how they learn the ocean — without a single number on the HUD."</p></div>
+  <div class="card"><div class="top"><span class="ico">🔒</span><span class="nm">Vex</span><span class="rl">Security Engineer · names the exploit path</span></div>
+    <p class="ln">"There is no third state where the honest player is the only one squinting."</p></div>
+  <div class="card"><div class="top"><span class="ico">🔧</span><span class="nm">Dana</span><span class="rl">The Pragmatist · keeps the scope honest</span></div>
+    <p class="ln">"Stop trying to make the whole ocean readable. You need currents <em>somewhere</em>, strong enough to matter, in places you can learn."</p></div>
+  <div class="card"><div class="top"><span class="ico">🎭</span><span class="nm">Caravaggio</span><span class="rl">Visual Communication</span></div>
+    <p class="ln">"You lost the foam lines the moment you took Bridson. And whatever you choose needs a static form."</p></div>
+</div>
+
+<h2>Outside voices, conjured for the session</h2>
+<div class="walkons">
+  <strong>🪝 Ines Okonkwo</strong>, the Ladder Rat — <em>"Show me the thing I have to</em> do <em>differently."</em> ·
+  <strong>🌊 Dr. Hana Vogel</strong>, physical oceanographer — hostile to elegant unifications; caught that fBm can't do "rare." ·
+  <strong>⛵ Marit Solheim</strong>, delivery skipper — <em>"Nobody sees current in open water; you read it off things that float."</em> ·
+  <strong>⚓ CPO Ada Whitlock</strong>, submarine fire control — put the torpedo data computer on the table. ·
+  <strong>⚙️ Dr. Yosef Barak</strong>, mine warfare historian — <em>"A minefield that drifts away is not a minefield."</em> ·
+  <strong>🎯 Tomasz Reyes</strong>, live-ops designer — <em>"Ship the overlay yourself, then move the skill."</em> ·
+  <strong>🗺️ Priya Raghunathan</strong>, competitive map designer — turned the field into terrain. ·
+  <strong>🌦️ Nils Ahlgren</strong>, who once shipped a weather system nobody used — <em>"You will not be adding a mechanic. You'll be adding a rounding error and a maintenance obligation."</em>
+</div>
+
+<footer>
+  Session log: <code>_bmad-output/forge/ocean-currents/.memlog.md</code><br>
+  Distilled decisions: <code>_bmad-output/forge/ocean-currents/forged-idea.md</code><br>
+  Source research: <code>_bmad-output/planning-artifacts/research/technical-realistic-ocean-currents-in-hullcracker-research-2026-08-11.md</code><br>
+  Superseded by ruling: FR47 · Story 5.5 · the planned <code>shared/src/sim/whirlpool.ts</code>
+</footer>
+
+</div>
+</body>
+</html>
