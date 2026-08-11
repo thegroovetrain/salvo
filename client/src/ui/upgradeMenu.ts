@@ -49,6 +49,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
+import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { REFIT_TYPE } from './refitCardFit.js';
 import {
   boonCategoryLabel,
@@ -808,6 +809,20 @@ function paintStrip(strip: RefitStripEls, armed: boolean): void {
  * picks too. A pick does NOT close (amendment 36) — the window rides the queue.
  * Cards re-render only when the view signature changes (pts + option ids +
  * locked) so live per-frame update()s stay cheap.
+ *
+ * `budget` (Story 4.8 wave 2c) is the OPTIONAL aggregate flash-budget instance
+ * — main.ts's single per-client `FlashBudget` (`render/flashBudget.ts`), layered
+ * on TOP of the 300ms same-source floor and the motion=off suppression in
+ * `pulseDenied`, never replacing either. It claims `FLASH_ELEMENTS.refitDenied`
+ * once per accepted denial (cards and the DAMAGE CONTROL rail share ONE
+ * element, since a denial is a denial regardless of which control it lands
+ * on); a `'degrade'` verdict still marks the target — the border still snaps
+ * to the denied color for the pulse's full life — it only drops the box-shadow
+ * glow to its flat rest value, the same "no shadow at rest" vocabulary
+ * `paintCard`/`paintStrip` already use elsewhere. Undefined (no budget wired
+ * yet, or any caller that never passes one — every existing test constructs a
+ * bare `UpgradeMenu`) behaves byte-identical to before this wave: every claim
+ * reads as `'animate'`.
  */
 export class UpgradeMenu {
   private panel: HTMLDivElement | null = null;
@@ -827,7 +842,10 @@ export class UpgradeMenu {
   private deniedUntil = -Infinity;
   private deniedLastAt = -Infinity;
 
-  constructor(private readonly onSpend: (choice: number) => void) {}
+  constructor(
+    private readonly onSpend: (choice: number) => void,
+    private readonly budget?: FlashBudget,
+  ) {}
 
   get visible(): boolean {
     return this.shown;
@@ -1080,6 +1098,15 @@ export class UpgradeMenu {
    * painting a hidden panel would both do nothing visible AND burn the 300ms
    * same-source floor — so the next genuinely visible denial would be swallowed.
    * main.ts guards the call site too; this is the structural half.
+   *
+   * STORY 4.8 WAVE 2C: an accepted denial (past every gate above) claims the
+   * aggregate flash budget's `FLASH_ELEMENTS.refitDenied` element. A
+   * `'degrade'` verdict NEVER skips the mark — the border still snaps to the
+   * denied color for the pulse's full life, so the card/rail still reads as
+   * refused — it only drops the box-shadow glow to its flat rest value
+   * (`'none'`, same as `paintCard`/`paintStrip`'s resting state), since the
+   * glow is the one purely-decorative flourish here and the border alone
+   * already carries the information.
    */
   pulseDenied(choice: number, nowMs = performance.now()): void {
     if (!this.shown) return;
@@ -1087,11 +1114,12 @@ export class UpgradeMenu {
     if (nowMs - this.deniedLastAt < R.deniedFloorMs) return;
     const el = this.deniedTarget(choice);
     if (!el) return;
+    const verdict = this.budget?.claim(FLASH_ELEMENTS.refitDenied, nowMs) ?? 'animate';
     this.deniedLastAt = nowMs;
     this.deniedChoice = choice;
     this.deniedUntil = nowMs + R.deniedPulseMs;
     el.style.borderColor = DENIED;
-    el.style.boxShadow = `0 0 8px ${DENIED}`;
+    el.style.boxShadow = verdict === 'degrade' ? 'none' : `0 0 8px ${DENIED}`;
     setTimeout(() => this.clearDenied(choice), R.deniedPulseMs);
   }
 

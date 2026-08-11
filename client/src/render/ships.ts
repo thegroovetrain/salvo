@@ -20,8 +20,10 @@ import { Graphics } from 'pixi.js';
 import { REGATTA_HUES, hullSilhouette, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
+import type { WorldFlashGate } from './effects.js';
 
 const C = CLIENT_CONFIG.colors;
+const FB = CLIENT_CONFIG.flashBudget;
 
 /** The full 20-hue Regatta wheel (bright outline / darker fill), wheel order. */
 const REGATTA_OUTLINES: readonly number[] = REGATTA_HUES.map((n) => C.players[n]);
@@ -144,6 +146,50 @@ export function hullLook(flash: number, downed: boolean, fade: number): HullLook
   };
 }
 
+// --- THE HULL HIT FLASH'S BUDGET CLAIM (Story 4.8, amendment 240) --------------
+//
+// The 130 ms hit flash is the worst stacking surface in the game after the
+// muzzle flashes: up to 20 hulls can take a hit in the same second, and a burst
+// lands on every hull inside its radius at once — a screen region can pick up a
+// dozen onsets from ONE detonation. It therefore claims against the client's ONE
+// aggregate budget, keyed by the REGION of that hull's screen position, and an
+// over-budget flash DEGRADES rather than disappearing: same 130 ms, same hull,
+// `degradeAlphaFactor` of the intensity it would have held.
+//
+// A MODULE-LEVEL GATE, deliberately, in the same shape as this module's live
+// hue tables (`setColorblindAssist`): `ShipView`s are constructed in several
+// places (own hull in main.ts, every contact in render/contacts.ts), and a
+// constructor parameter would leave the CONTACT hulls — the twenty that actually
+// stack — unbudgeted while budgeting the one hull that cannot stack with itself.
+//
+// The flash is ALREADY a flat hold (`applyLook` applies one constant intensity
+// for the whole window, never a ramp), so the degrade spends its AMPLITUDE: the
+// hull still brightens, faintly, for the full duration. Presence, position and
+// duration all survive, which is the same trade every other budgeted channel
+// makes. The `reduced`-motion halving (Story 2.3: strength, never duration) is
+// untouched and composes multiplicatively with it.
+
+/** The client's one world flash gate, or null (unwired / headless tests → every
+ *  hit flash animates exactly as it did before Story 4.8). */
+let hullFlashGate: WorldFlashGate | null = null;
+
+/** Wire (or clear) the hull hit flash's budget gate. main.ts owns the instance —
+ *  the SAME gate `Effects` and every chrome one-shot claim against, because the
+ *  ratified floor is aggregate per screen region. */
+export function setHullFlashGate(gate: WorldFlashGate | null): void {
+  hullFlashGate = gate;
+}
+
+/**
+ * Pure: the hit-flash intensity actually applied, from the motion level's
+ * multiplier and the budget's LATCHED verdict. Latched at flash time and never
+ * re-evaluated — a flash that dimmed mid-window as the budget's window slid
+ * would be a strobe manufactured by the anti-strobe mechanism (amendment 83).
+ */
+export function hullFlashIntensity(amount: number, degraded: boolean): number {
+  return degraded ? amount * FB.degradeAlphaFactor : amount;
+}
+
 /** Trace the shared silhouette polygon (local frame, bow at +x, closed). */
 function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
   g.moveTo(poly[0].x, poly[0].y);
@@ -203,12 +249,27 @@ export class ShipView {
    * the flash's INTENSITY — never its duration, which stays the full flashMs so
    * the cue is just as easy to CATCH — and `off` suppresses it entirely. The hp
    * bar, damage markers and kill feed still carry the information statically.
+   *
+   * BUDGETED (Story 4.8): the onset claims the region of THIS hull's screen
+   * position against the client's one flash budget, and an over-budget flash
+   * holds a dimmer mark for the same 130 ms rather than vanishing. The claim runs
+   * AFTER the motion gate, so a flash the setting already suppressed spends no
+   * budget. The hull's world position is its last rendered pose (`update()`);
+   * a hull moves well under a region in the frame between the two.
    */
   flash(): void {
     const amount = motionIntensity(settings.current.motion);
     if (amount <= 0) return;
-    this.flashAmount = amount;
+    const p = this.gfx.position;
+    const degraded = hullFlashGate !== null && hullFlashGate.claim(p.x, p.y) === 'degrade';
+    this.flashAmount = hullFlashIntensity(amount, degraded);
     this.flashUntil = performance.now() + CLIENT_CONFIG.ship.flashMs;
+  }
+
+  /** The hit flash's applied intensity at `nowMs` (0 once the window closes) —
+   *  the budget's observable seam for this channel. */
+  flashIntensityAt(nowMs: number = performance.now()): number {
+    return nowMs < this.flashUntil ? this.flashAmount : 0;
   }
 
   /** Sight-fade multiplier [0,1] applied on top of tint/alpha state. */
@@ -225,8 +286,7 @@ export class ShipView {
   }
 
   private applyLook(): void {
-    const flash = performance.now() < this.flashUntil ? this.flashAmount : 0;
-    const look = hullLook(flash, this.downed, this.fade);
+    const look = hullLook(this.flashIntensityAt(), this.downed, this.fade);
     this.gfx.tint = look.tint;
     this.gfx.alpha = look.alpha;
   }

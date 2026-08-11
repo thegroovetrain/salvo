@@ -16,6 +16,7 @@ import {
   FILL_COLOR,
   RevealOneShot,
   dashSpans,
+  degradedFlashAlpha,
   easeHold,
   fillOuterRadius,
   type FillView,
@@ -27,6 +28,7 @@ import {
   vignetteAlpha,
   vignetteHeld,
 } from '../render/zone.js';
+import { FLASH_ELEMENTS, createFlashBudget } from '../render/flashBudget.js';
 import { zoneViewFrom, type ZonePlane } from '../sim/zoneView.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -369,6 +371,56 @@ describe('the reveal ONE-SHOT (amendment 17)', () => {
   it('halves the flash at motion=reduced (amplitude is the motion channel)', () => {
     const os = new RevealOneShot();
     expect(os.update(RING1, 0, AMP * 0.5)).toBeCloseTo(AMP / 2, 9);
+  });
+
+  // --- STORY 4.8: the aggregate flash budget's element claim -------------------
+  //
+  // The reveal is `FLASH_ELEMENTS.zoneReveal`. It already fires at most once per
+  // ring identity behind a 300ms floor, so the claim can never realistically
+  // bind — it is the AGGREGATE guarantee stated in code. What matters is that
+  // when a verdict DOES come back `'degrade'`, the mark still lands.
+
+  it('claims the budget ONCE per fire, never per frame', () => {
+    const budget = createFlashBudget();
+    const claims: number[] = [];
+    const spy = { claim: (k: string, t: number) => (claims.push(t), budget.claim(k, t)), coalesce: budget.coalesce.bind(budget), reset: budget.reset.bind(budget) };
+    const os = new RevealOneShot();
+    os.update(RING1, 0, AMP);
+    for (let t = 0; t < Z.revealMs; t += 8) os.update(RING1, t, AMP, spy);
+    expect(claims).toHaveLength(0); // the fire already happened, unclaimed above
+    const os2 = new RevealOneShot();
+    for (let t = 0; t < Z.revealMs * 4; t += 8) os2.update(RING1, t, AMP, spy);
+    expect(claims).toEqual([0]); // one onset, one claim, however many frames run
+  });
+
+  it('a DEGRADED reveal still lands its mark — flat, full life, never zero', () => {
+    // Force the verdict by filling the element's window first: the budget's
+    // floor is `maxPerSecond` onsets, so the next claim degrades.
+    const budget = createFlashBudget();
+    for (let i = 0; i < CLIENT_CONFIG.flashBudget.maxPerSecond; i++) {
+      expect(budget.claim(FLASH_ELEMENTS.zoneReveal, i)).toBe('animate');
+    }
+    expect(budget.claim(FLASH_ELEMENTS.zoneReveal, 10)).toBe('degrade');
+    const os = new RevealOneShot();
+    const flat = AMP * CLIENT_CONFIG.flashBudget.degradeAlphaFactor;
+    expect(os.update(RING1, 20, AMP, budget)).toBeCloseTo(flat, 9); // still a mark
+    for (let t = 20; t < 20 + Z.revealMs; t += 8) {
+      expect(os.update(RING1, t, AMP, budget)).toBeCloseTo(flat, 9); // FLAT: no ramp
+    }
+    expect(os.update(RING1, 20 + Z.revealMs, AMP, budget)).toBe(0); // same envelope length
+  });
+
+  it('degradedFlashAlpha is the ratified degrade shape: same life, no ramp', () => {
+    const flat = AMP * CLIENT_CONFIG.flashBudget.degradeAlphaFactor;
+    expect(degradedFlashAlpha(-Infinity, AMP)).toBe(0);
+    expect(degradedFlashAlpha(-5, AMP)).toBe(0);
+    for (let t = 0; t < Z.revealMs; t += 1) expect(degradedFlashAlpha(t, AMP)).toBeCloseTo(flat, 9);
+    expect(degradedFlashAlpha(Z.revealMs, AMP)).toBe(0);
+    // It is DIMMER than the animated peak but never invisible, and it never
+    // makes anything MORE visible than the animation it replaced.
+    expect(flat).toBeGreaterThan(0);
+    expect(flat).toBeLessThan(revealFlashAlpha(0, AMP));
+    expect(degradedFlashAlpha(0, 0)).toBe(0); // motion=off stays off
   });
 
   it('revealFlashAlpha is a single decay, never negative, never re-blooming', () => {

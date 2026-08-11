@@ -33,6 +33,7 @@ import { vitalsLayout } from '../render/hud.js';
 import { hotbarLayout } from '../render/hotbar.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
+import { FLASH_ELEMENTS, type FlashBudget, type FlashVerdict } from '../render/flashBudget.js';
 
 const R = CLIENT_CONFIG.refit;
 
@@ -889,6 +890,100 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.toggle(view()); // same view signature: the SAME buttons are reused
     expect(menu.deniedActive(1000)).toBe(false);
     expect(cards()[1].style.borderColor).not.toBe('var(--hc-denied)');
+  });
+
+  // --- the flash-budget claim (Story 4.8 wave 2c) ---------------------------
+  //
+  // `pulseDenied` claims `FLASH_ELEMENTS.refitDenied` only for a denial that
+  // survives every existing gate (shown, motion, the 300ms same-source floor).
+  // A 'degrade' verdict must never delete the mark: the border still snaps to
+  // the denied color for the pulse's full life; only the box-shadow glow drops
+  // to its flat rest value ('none', same vocabulary as paintCard/paintStrip).
+
+  describe('the flash-budget claim on pulseDenied', () => {
+    const fakeBudget = (verdict: FlashVerdict): FlashBudget => ({
+      claim: () => verdict,
+      coalesce: () => true,
+      reset: () => {},
+    });
+
+    it("claims FLASH_ELEMENTS.refitDenied, at the call's own nowMs, only for an accepted denial", () => {
+      const claims: Array<[string, number]> = [];
+      const budget: FlashBudget = {
+        claim: (key, nowMs) => {
+          claims.push([key, nowMs]);
+          return 'animate';
+        },
+        coalesce: () => true,
+        reset: () => {},
+      };
+      const menu = new UpgradeMenu(() => {}, budget);
+      menu.toggle(view());
+      menu.pulseDenied(0, 1000);
+      expect(claims).toEqual([[FLASH_ELEMENTS.refitDenied, 1000]]);
+    });
+
+    it('a DEGRADED denial still marks the CARD as denied — border set, glow flattened', () => {
+      const menu = new UpgradeMenu(() => {}, fakeBudget('degrade'));
+      menu.toggle(view());
+      menu.pulseDenied(2, 1000);
+      expect(menu.deniedActive(1000)).toBe(true); // still counts as lit
+      expect(cards()[2].style.borderColor).toBe('var(--hc-denied)'); // still marked denied
+      expect(cards()[2].style.boxShadow).toBe('none'); // the flat state: no glow
+    });
+
+    it('a DEGRADED denial still marks the DAMAGE CONTROL RAIL the same way', () => {
+      const menu = new UpgradeMenu(() => {}, fakeBudget('degrade'));
+      menu.toggle(view());
+      menu.pulseDenied(HEAL_CHOICE, 1000);
+      expect(strip().style.borderColor).toBe('var(--hc-denied)');
+      expect(strip().style.boxShadow).toBe('none');
+    });
+
+    it('under-budget (animate) renders the full glow — byte-identical to today', () => {
+      const menu = new UpgradeMenu(() => {}, fakeBudget('animate'));
+      menu.toggle(view());
+      menu.pulseDenied(1, 1000);
+      expect(cards()[1].style.borderColor).toBe('var(--hc-denied)');
+      expect(cards()[1].style.boxShadow).toContain('var(--hc-denied)');
+    });
+
+    it('behaves exactly as today when no budget instance is supplied', () => {
+      const menu = new UpgradeMenu(() => {}); // no budget arg at all
+      menu.toggle(view());
+      menu.pulseDenied(1, 1000);
+      expect(menu.deniedActive(1000)).toBe(true);
+      expect(cards()[1].style.borderColor).toBe('var(--hc-denied)');
+      expect(cards()[1].style.boxShadow).toContain('var(--hc-denied)');
+    });
+
+    it('the 300ms same-source floor and motion:off still gate BEFORE the budget is ever consulted', () => {
+      const claims: number[] = [];
+      const budget: FlashBudget = {
+        claim: (_key, nowMs) => {
+          claims.push(nowMs);
+          return 'animate';
+        },
+        coalesce: () => true,
+        reset: () => {},
+      };
+      const menu = new UpgradeMenu(() => {}, budget);
+      menu.toggle(view());
+      menu.pulseDenied(0, 1000);
+      // Inside the 300ms floor: gated before the budget is ever asked.
+      menu.pulseDenied(1, 1000 + R.deniedFloorMs - 1);
+      expect(claims).toEqual([1000]);
+      expect(cards()[1].style.borderColor).not.toBe('var(--hc-denied)');
+      settings.set({ motion: 'off' });
+      try {
+        // motion:off: gated before the budget is ever asked, same as always.
+        menu.pulseDenied(2, 1000 + R.deniedFloorMs);
+        expect(claims).toEqual([1000]);
+        expect(cards()[2].style.borderColor).not.toBe('var(--hc-denied)');
+      } finally {
+        settings.reset();
+      }
+    });
   });
 });
 

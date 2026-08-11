@@ -139,3 +139,43 @@ describe('DenialDedup — exactly one feedback per denied press (Story 1.10)', (
     expect(d.serverDenied(2, 3)).toBe(true);
   });
 });
+
+// --- STORY 4.8: the ONSET seam the aggregate flash budget counts on -------------
+//
+// The budget counts flash ONSETS, not lit frames: claiming once per lit frame
+// would charge one 80ms flash five times over and hold the window permanently
+// full. `onsetAt` is how a caller asks "is this frame the flash's start", and —
+// like its sibling `liveAt` — asking must never be able to change the answer.
+
+describe('DeniedPulse.onsetAt — the budget claim point', () => {
+  it('is true only on the frame a trigger was ACCEPTED', () => {
+    const p = new DeniedPulse();
+    expect(p.onsetAt(0)).toBe(false); // nothing driven yet
+    p.update(true, 1_000);
+    expect(p.onsetAt(1_000)).toBe(true);
+    for (const t of [1_001, 1_016, 1_040]) {
+      p.update(false, t);
+      expect(p.liveAt(t)).toBe(true); // still flashing...
+      expect(p.onsetAt(t)).toBe(false); // ...but the onset was one frame
+    }
+  });
+
+  it('a REFUSED trigger inside the 300ms floor is not an onset', () => {
+    // The per-source floor stays exactly as it is; the budget sits on top of it
+    // and must not be charged for a flash that never restarted.
+    const p = new DeniedPulse();
+    p.update(true, 0);
+    p.update(true, PULSE_RATE_MS - 1); // spammed inside the floor: refused
+    expect(p.onsetAt(PULSE_RATE_MS - 1)).toBe(false);
+    p.update(true, PULSE_RATE_MS); // ...accepted at the floor
+    expect(p.onsetAt(PULSE_RATE_MS)).toBe(true);
+  });
+
+  it('is a READ — asking never triggers, extends or re-reports a pulse', () => {
+    const p = new DeniedPulse();
+    for (let t = 0; t < 5_000; t += 50) expect(p.onsetAt(t)).toBe(false);
+    p.update(true, 5_000);
+    for (let i = 0; i < 10; i++) expect(p.onsetAt(5_000)).toBe(true); // idempotent
+    expect(p.liveAt(5_000 + PULSE_DURATION_MS)).toBe(false); // ...and nothing was extended
+  });
+});

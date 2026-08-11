@@ -22,7 +22,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Container } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import { CONFIG, type FoghornEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
@@ -35,6 +35,7 @@ import {
   bandGain,
   type HornBand,
 } from '../render/foghorn.js';
+import { FLASH_ELEMENTS, type FlashBudget, type FlashVerdict } from '../render/flashBudget.js';
 import { isFogImmuneEffect, isJuiceEffect, effectPeakAlpha } from '../render/effects.js';
 import { bindRoom, type RoomBindingDeps } from '../net/roomBindings.js';
 import type { Connection } from '../net/connection.js';
@@ -636,6 +637,80 @@ describe('Foghorn — the pooled chevron list', () => {
     expect(f.liveMarks).toBe(1);
     f.render(1000, W / 2, H / 2, W, H);
     expect(f.liveMarks).toBe(1);
+  });
+});
+
+// --- the flash budget claim (Story 4.8 wave 2c) ------------------------------
+//
+// The chevron pop claims `FLASH_ELEMENTS.foghornChevron` at the honk's own
+// server time — the same clock its TTL fade ages against. A 'degrade' verdict
+// must never touch presence, direction, band weight or the TTL fade: it is
+// scoped to the ONE motion-scaled channel the file header names, the pop-in
+// scale. Everything below reads the actual Pixi Graphics the adapter drives
+// (via the injected layer's children), not just the `liveMarks` count, so a
+// regression that degraded the wrong channel would fail here.
+
+describe('Foghorn — the flash-budget claim (Story 4.8 wave 2c)', () => {
+  const fakeBudget = (verdict: FlashVerdict): FlashBudget => ({
+    claim: () => verdict,
+    coalesce: () => true,
+    reset: () => {},
+  });
+
+  it('claims FLASH_ELEMENTS.foghornChevron at the honk\'s own server time', () => {
+    const claims: Array<[string, number]> = [];
+    const budget: FlashBudget = {
+      claim: (key, nowMs) => {
+        claims.push([key, nowMs]);
+        return 'animate';
+      },
+      coalesce: () => true,
+      reset: () => {},
+    };
+    const f = new Foghorn(new Container(), budget);
+    f.onHonk(0, 1, 1234);
+    expect(claims).toEqual([[FLASH_ELEMENTS.foghornChevron, 1234]]);
+  });
+
+  it('a DEGRADED chevron still renders: present, on the correct bearing, correct band weight, TTL fade intact — only the pop is gone', () => {
+    const layer = new Container();
+    const f = new Foghorn(layer, fakeBudget('degrade'));
+    const bearing = Math.PI / 2;
+    f.onHonk(bearing, 3, 1000); // band 3 -> chevronWeight(3)'s loud-side weight
+    expect(f.liveMarks).toBe(1); // PRESENCE
+    const gfx = layer.children[0] as Graphics;
+    expect(gfx.rotation).toBeCloseTo(bearing, 9); // DIRECTION
+    f.render(1000 + 100, W / 2, H / 2, W, H); // mid-flight of the pop, at full motion
+    // The scale pop is gone: true size (1), never the animated flourish.
+    expect(gfx.scale.x).toBeCloseTo(1, 9);
+    expect(gfx.scale.y).toBeCloseTo(1, 9);
+    // BAND WEIGHT + the TTL fade are untouched: the exact same alpha the pure
+    // function predicts for this band's peak, at this age.
+    expect(gfx.alpha).toBeCloseTo(chevronAlpha(100, chevronWeight(3).alpha), 9);
+    // ...and it still dies at exactly one TTL — the budget never touches TTL.
+    f.render(1000 + TTL, W / 2, H / 2, W, H);
+    expect(f.liveMarks).toBe(0);
+  });
+
+  it('under-budget (animate) behaviour is byte-identical to today: the real pop still fires', () => {
+    const layer = new Container();
+    const f = new Foghorn(layer, fakeBudget('animate'));
+    f.onHonk(0, 1, 1000);
+    const gfx = layer.children[0] as Graphics;
+    f.render(1000, W / 2, H / 2, W, H); // age 0: the pop is at its peak scale
+    const intensity = motionIntensity(settings.current.motion);
+    expect(gfx.scale.x).toBeCloseTo(chevronPop(0, intensity), 9);
+  });
+
+  it('behaves exactly as today when no budget instance is supplied', () => {
+    const layer = new Container();
+    const f = new Foghorn(layer); // no budget arg at all
+    f.onHonk(0, 1, 1000);
+    expect(f.liveMarks).toBe(1);
+    const gfx = layer.children[0] as Graphics;
+    f.render(1000, W / 2, H / 2, W, H);
+    const intensity = motionIntensity(settings.current.motion);
+    expect(gfx.scale.x).toBeCloseTo(chevronPop(0, intensity), 9); // the full pop, unblocked
   });
 });
 

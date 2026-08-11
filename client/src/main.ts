@@ -42,14 +42,14 @@ import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom } from './render/camera.js';
-import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist } from './render/ships.js';
+import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist, setHullFlashGate } from './render/ships.js';
 import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
 import { weaponArcHit, weaponRangeHit, weaponRangeU } from './render/weaponArc.js';
-import { Effects } from './render/effects.js';
+import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
@@ -59,8 +59,9 @@ import { Foghorn } from './render/foghorn.js';
 import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
-import { tier1Active } from './render/attention.js';
-import { Hud, reloadFraction, type OwnStatus } from './render/hud.js';
+import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
+import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
+import { Hud, railFraction, reloadFraction, type OwnStatus } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
 import { slotForBoonCategory } from './render/equipmentInfo.js';
@@ -271,10 +272,29 @@ interface Game {
   reconnecting: boolean;
   /** Decaying screen-shake driver (render/shake.ts), triggered on own damage. */
   shake: ShakeDriver;
+  /**
+   * THE AGGREGATE FLASH BUDGET (Story 4.8, amendment 240) — one instance per
+   * client, the counter behind the ratified *"no element or screen region
+   * flashes more than 3x/s regardless of how many compliant events stack"*
+   * floor. Every one-shot flash site claims against it; a `'degrade'` verdict
+   * means draw the flat `motion: 'off'` mark, NEVER skip.
+   *
+   * It sits ON TOP of the existing per-source floors (the 300ms PULSE_RATE_MS
+   * every DeniedPulse already enforces), never in place of them: the per-source
+   * floor stops one channel strobing, the budget stops several compliant
+   * channels stacking into a strobe between them.
+   */
+  flashBudget: FlashBudget;
   /** Rate-limited denied-fire pulse (render/deniedFire.ts). */
   deniedPulse: DeniedPulse;
   /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
   deniedFlash: boolean;
+  /** This frame's denied-fire pulse is DEGRADED (its onset was over budget). The
+   *  on-water arc/marker draws its flat denied red either way — that mark is the
+   *  denial's only visual channel and is never motion-gated, so it IS its own
+   *  degraded form — and the hotbar chip this pulse also drives drops its bloom
+   *  (render/hotbar.ts `degradedSkin`). */
+  deniedDegraded: boolean;
   /** THE `denied` CUE'S TONE FLOOR (the twin walk, amendment 60) — ONE shared
    *  floor across every `denied` call site (weapon click, predicted ability
    *  press, FIFO-full press, server-denial echo), keyed on the SAME
@@ -308,6 +328,10 @@ interface Game {
    *  predicted ability-press denials AND unmatched server denials on weapon or
    *  ability slots alike (the name predates the weapon-slot extension). */
   abilityFlash: boolean[];
+  /** Per-slot: this frame's denied flash is DEGRADED (its onset was over the
+   *  aggregate budget for THAT slot's element key — three slots denying at once
+   *  is three separate elements, not one over-budget one). */
+  abilityDegraded: boolean[];
   /** One-shot latch PER LOADOUT SLOT: an ability press was predicted READY on
    *  the optimistic press edge (the boost-prediction precedent) — consumed into
    *  the matching activatedPulse for the hotbar's ≤80ms ACTIVATED pop. */
@@ -331,6 +355,9 @@ interface Game {
   fitFramePress: boolean;
   fitFramePulse: DeniedPulse;
   fitFrameFlash: boolean;
+  /** That rank-wide flash is DEGRADED this frame (over budget on its own
+   *  element key) — it still draws, at the flat degraded weight. */
+  fitFrameDegraded: boolean;
   /**
    * ms (server clock) — the latest OWN decoy buoy's expiry, the decoy slot's
    * ACTIVE window (amendment 48). Latched from the Decoys reconcile's own-spawn
@@ -1515,13 +1542,17 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<
   Game,
-  | 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityActivatedPress' | 'activatedPulse'
-  | 'activatedFlash' | 'fitPress' | 'fitPulse' | 'fitFlash' | 'fitFramePress' | 'fitFramePulse' | 'fitFrameFlash'
+  | 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityDegraded' | 'abilityActivatedPress'
+  | 'activatedPulse' | 'activatedFlash' | 'fitPress' | 'fitPulse' | 'fitFlash' | 'fitFramePress'
+  | 'fitFramePulse' | 'fitFrameFlash' | 'fitFrameDegraded'
 > {
   return {
     abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
     abilityPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
     abilityFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    // Story 4.8: the budget verdict that rides each slot's flash (per-slot, so
+    // one over-budget slot never flattens another's mark).
+    abilityDegraded: Array.from({ length: SLOT_COUNT }, () => false),
     // Story 2.2: the mirror-image ACTIVATED channel (per-slot latch + pulse +
     // this-frame flag), driven off the optimistic ability-press edge.
     abilityActivatedPress: Array.from({ length: SLOT_COUNT }, () => false),
@@ -1535,6 +1566,7 @@ function abilityFeedbackState(): Pick<
     fitFramePress: false,
     fitFramePulse: new DeniedPulse(),
     fitFrameFlash: false,
+    fitFrameDegraded: false,
   };
 }
 
@@ -1573,6 +1605,27 @@ function activeWindows(g: Game, status: OwnStatus): number[] {
   return status.loadout.map((id) => (id === 'speedBoost' || id === 'decoyBuoy' ? Math.max(0, until[id] - now) : 0));
 }
 
+/**
+ * Arm the WORLD side of the flash budget (Story 4.8, amendment 241).
+ *
+ * Tier arbitration stops at HUD chrome, but the BUDGET covers everything
+ * including the water — its ratified floor says "element OR SCREEN REGION", and
+ * the worst stacking in this game is on the water: 20 hulls flashing, 19
+ * shooters' muzzle flashes, and a salvo's Hit Calls and splashes can all land
+ * inside one region at once.
+ *
+ * The gate carries the CAMERA as well as the budget because a region is a
+ * SCREEN cell — a world position must be projected before it can be bucketed,
+ * or a camera pan would never re-bucket a flash the way the floor intends.
+ * Both consumers default to "no gate wired" = pre-4.8 behaviour, so this ARMS
+ * them rather than configuring them.
+ */
+function armWorldFlashBudget(g: Game, camera: Camera, budget: FlashBudget): void {
+  const gate = new WorldFlashGate(budget, camera);
+  g.effects.setFlashGate(gate);
+  setHullFlashGate(gate);
+}
+
 function buildGame(
   stage: Stage,
   conn: Connection,
@@ -1596,6 +1649,12 @@ function buildGame(
   const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => modalOpen(gRef), (p) => handleHotbarPress(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
   const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
+
+  // THE ONE FLASH BUDGET (Story 4.8, amendment 240) — hoisted out of the literal
+  // because surfaces built IN it take the budget as a constructor dependency.
+  // Exactly one per client: two would each count to three and the ratified
+  // per-element/per-region aggregate would silently become six.
+  const flashBudget = createFlashBudget();
 
   const g: Game = {
     stage,
@@ -1633,7 +1692,7 @@ function buildGame(
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
-    foghorn: new Foghorn(stage.layers.foghorn),
+    foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
     // Story 4.2: under the `silhouette` grammar a blip flies its owner's
@@ -1647,7 +1706,7 @@ function buildGame(
     hud: new Hud(stage.layers.hud),
     hotbar: new Hotbar(stage.layers.hud),
     xpRail: new XpRail(stage.layers.hud),
-    upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
+    upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef), flashBudget),
     settingsOverlay,
     score: freshScore(),
     scorePhase: 'waiting',
@@ -1664,7 +1723,9 @@ function buildGame(
     spectate: { freePan: false, visualsSet: false },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     shake: new ShakeDriver(),
-    deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
+    flashBudget,
+    deniedPulse: new DeniedPulse(), deniedFlash: false, deniedDegraded: false,
+    denialDedup: new DenialDedup(), serverDeniedClick: false,
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
@@ -1676,6 +1737,7 @@ function buildGame(
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
+  armWorldFlashBudget(g, camera, flashBudget);
   // Coast returns (amendment 69) read the HEIGHT RASTER the client already
   // rebuilt from the map seed — pure presentation, never on the wire. It is the
   // beam march's only terrain input (cycle 62): its land/water truth is the
@@ -2027,18 +2089,22 @@ function renderOwn(
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
   renderFiring(g, pose, status, aim, cursor, nowMs);
-  // ONE Tier-1 read per frame, taken AFTER renderFiring drove the denied pulse
-  // and shared by both Tier-2 consumers (the chrome bar's amber ring segment
-  // here, the storm vignette back in renderAlive): two reads — or one taken
-  // before the pulse was driven — could disagree inside a single frame.
-  const tier1 = ownTier1(g, status, nowMs);
-  bar.tier1 = tier1;
+  // ONE attention read per frame, taken AFTER renderFiring drove the denied
+  // pulses and shared by every consumer (the chrome bar's amber ring segment and
+  // the HP rail here, the storm vignette back in renderAlive, the XP bank chip
+  // below): two reads — or one taken before the pulses were driven — could
+  // disagree inside a single frame.
+  const attn = frameAttention(g, status, inStorm, bar.ring.urgent, nowMs);
+  bar.tier1 = attn.tier1;
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP rail breathes on it).
   g.hud.update(pose, g.keyboard.axes(), status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status, nowMs);
-  updateXpRail(g, status.alive, now / 1000);
-  return tier1;
+  // TIER 3: the bank chip freezes at its dim keyframe under ANY higher tier —
+  // Tier 2 alone included, so a healthy hull sailing in the storm settles it
+  // (amendment 243). `nowMs` is the frame's monotonic clock, for the ease.
+  updateXpRail(g, status.alive, now / 1000, attn.freeze, nowMs);
+  return attn.tier1;
 }
 
 /**
@@ -2048,14 +2114,14 @@ function renderOwn(
  * terms: alive, in-match, with a live `you` (death / spectate / the forceSnap
  * pose gap hide it, so the satellites never describe a hull that is gone).
  */
-function updateXpRail(g: Game, alive: boolean, nowSec: number): void {
+function updateXpRail(g: Game, alive: boolean, nowSec: number, freeze: boolean, nowMs: number): void {
   const you = g.state.net.you;
   if (!alive || !you || g.state.spectating) {
     g.xpRail.hide();
     return;
   }
   const view: XpView = { lvl: you.lvl, xp: you.xp, pts: you.pts };
-  g.xpRail.update(view, hudHeight(g), nowSec);
+  g.xpRail.update(view, hudHeight(g), nowSec, freeze, nowMs);
 }
 
 /**
@@ -2069,6 +2135,22 @@ function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
     const id = status.loadout[slot] ?? null;
     const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
     return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
+  });
+}
+
+/**
+ * The BUDGET VERDICT for each of those denied chips, in the same shape and off
+ * the same two sources — so the flag can never describe a different pulse than
+ * the flash beside it. A weapon-click denial lights BOTH the on-water arc and
+ * the primed slot's chip; the arc's mark is already its own flat, never-motion-
+ * gated form, so the chip is where that element's `'degrade'` verdict is
+ * actually visible (bloom dropped, border and icon untouched).
+ */
+function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
+  return g.abilityDegraded.map((degraded, slot) => {
+    const id = status.loadout[slot] ?? null;
+    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+    return degraded || (isWeapon && slot === status.primedSlot && g.deniedDegraded);
   });
 }
 
@@ -2088,6 +2170,7 @@ function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
     stats: status.stats,
     primedSlot: status.primedSlot,
     denied: hotbarDenied(g, status),
+    deniedDegraded: hotbarDeniedDegraded(g, status),
     activated: g.activatedFlash,
     dim: modalOpen(g), // any suspending surface: dim to 38%, keys AND clicks off
     motion: settings.current.motion, // gates the ACTIVATED/FIT pops + amplitudes
@@ -2099,6 +2182,7 @@ function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
     activeMsLeft: activeWindows(g, status),
     fit: g.fitFlash,
     fitFrame: g.fitFrameFlash,
+    fitFrameDegraded: g.fitFrameDegraded,
     nowSec: g.clock.serverNow() / 1000,
   };
   // Hover reads the pointer ONLY while it is inside the window (the aim path
@@ -2138,32 +2222,67 @@ function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
  * is suppressed), so denying fire on that phase alone would red-pulse
  * "denied" while shells visibly leave the tube.
  */
-function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }, nowMs: number): void {
-  const clicked = g.mouse.clickCount !== g.prevClickCount;
-  g.prevClickCount = g.mouse.clickCount;
-  // Ability denied pulse (Story 1.6): consume each slot's one-shot press latch
-  // into its rate-limited pulse (per-slot since Story 1.8 — the ML fits two
-  // ability slots). Chips-only feedback — deliberately OUTSIDE the alive gate
-  // below (a dead press is denied too and must still pulse) and never fed into
-  // the weapon-arc/reticle denied visuals (nothing is aimed).
+/**
+ * ONE chrome one-shot's claim against the aggregate flash budget (Story 4.8,
+ * amendment 240), latched for the flash's whole life.
+ *
+ * The claim happens at the ONSET and nowhere else — `DeniedPulse.onsetAt` is the
+ * read-only report of the frame `update()` accepted a trigger on — because the
+ * budget counts onsets: claiming per lit frame would charge one 80ms flash five
+ * times over and hold the window permanently full, starving the very animations
+ * it exists to protect. The verdict then rides the rest of the flash unchanged,
+ * so a mark can never switch form halfway through its own life.
+ */
+function claimPulseFlash(g: Game, key: string, pulse: DeniedPulse, live: boolean, nowMs: number, was: boolean): boolean {
+  if (!live) return false; // no flash on screen, nothing to degrade
+  if (!pulse.onsetAt(nowMs)) return was; // mid-life: carry the onset's verdict
+  return g.flashBudget.claim(key, nowMs) === 'degrade';
+}
+
+/**
+ * Drive every per-slot one-shot pulse for this frame, and claim the ones the
+ * ratified floor scopes as ELEMENTS (render/flashBudget.ts FLASH_ELEMENTS).
+ *
+ * Deliberately OUTSIDE renderFiring's alive gate: a dead press is denied too and
+ * must still pulse, and a spend is legal while dead (the hotbar is simply hidden
+ * there). The ACTIVATED pop and the per-slot FIT pulse are NOT claimed — the
+ * story's element list names the denied pulses, the hotbar frame and the zone
+ * reveal, and inventing budget membership for a channel is exactly the kind of
+ * unratified widening the tier/budget split forbids.
+ */
+function drivePulses(g: Game, nowMs: number): void {
   for (let s = 0; s < g.abilityPulse.length; s++) {
+    // Ability denied pulse (Story 1.6): consume each slot's one-shot press latch
+    // into its rate-limited pulse (per-slot since Story 1.8 — the ML fits two
+    // ability slots). Chips-only feedback, never fed into the weapon-arc/reticle
+    // denied visuals (nothing is aimed).
     g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
     g.abilityDeniedPress[s] = false;
+    g.abilityDegraded[s] = claimPulseFlash(g, hotbarSlotKey(s), g.abilityPulse[s], g.abilityFlash[s], nowMs, g.abilityDegraded[s]);
     // The ACTIVATED pop rides the identical register (Story 2.2).
     g.activatedFlash[s] = g.activatedPulse[s].update(g.abilityActivatedPress[s], nowMs);
     g.abilityActivatedPress[s] = false;
     // ...and so does the FIT flash (Story 2.9): the boon landing on this slot's
-    // family. Driven OUTSIDE the alive gate below like the denial channel — a
-    // spend is legal while dead, and the hotbar is simply hidden there.
+    // family.
     g.fitFlash[s] = g.fitPulse[s].update(g.fitPress[s], nowMs);
     g.fitPress[s] = false;
   }
   g.fitFrameFlash = g.fitFramePulse.update(g.fitFramePress, nowMs);
   g.fitFramePress = false;
+  g.fitFrameDegraded = claimPulseFlash(
+    g, FLASH_ELEMENTS.hotbarFrame, g.fitFramePulse, g.fitFrameFlash, nowMs, g.fitFrameDegraded,
+  );
+}
+
+function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }, nowMs: number): void {
+  const clicked = g.mouse.clickCount !== g.prevClickCount;
+  g.prevClickCount = g.mouse.clickCount;
+  drivePulses(g, nowMs);
   if (!status.alive) {
     g.firing.hide();
     g.aimPreview.hide();
     g.deniedFlash = false;
+    g.deniedDegraded = false; // no flash on screen, so no verdict to carry
     g.serverDeniedClick = false; // a denial landing on the death frame has no arc to pulse
     return;
   }
@@ -2199,6 +2318,11 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   // performance.now() calls can straddle the envelope's tail — a hold that
   // disagrees with the flash the player actually saw.
   g.deniedFlash = g.deniedPulse.update(denied, nowMs);
+  // The on-water arc/marker is its OWN element (FLASH_ELEMENTS.deniedArc), never
+  // pooled with the hotbar slots: one surface flashing is one element's budget.
+  g.deniedDegraded = claimPulseFlash(
+    g, FLASH_ELEMENTS.deniedArc, g.deniedPulse, g.deniedFlash, nowMs, g.deniedDegraded,
+  );
   g.firing.update(
     pose,
     aim,
@@ -2450,6 +2574,11 @@ function updateZone(
     mapRadius: g.mapRadius,
     screenW: g.stage.app.screen.width,
     screenH: g.stage.app.screen.height,
+    // The reveal beat's 80ms one-shot claims FLASH_ELEMENTS.zoneReveal against
+    // the aggregate budget (Story 4.8). It fires once per ring identity behind a
+    // 300ms floor, so this can never realistically bind — it is the guarantee
+    // stated in code, not a filter the channel needs.
+    flash: g.flashBudget,
   });
 }
 
@@ -2491,18 +2620,71 @@ function playHpSting(g: Game, status: OwnStatus, nowMs: number): void {
   g.wasHpFrac = frac;
 }
 
-/** Tier-1 (THREAT) channels as this story knows them (amendment 16): the HP
- *  rail's low-HP pulse and a live denied-fire pulse. render/attention.ts owns
- *  the composition; this only resolves the own-ship inputs. `nowMs` is the
- *  frame's ONE timestamp — the same instant renderFiring drove the denied pulse
- *  with, so the hold can never read a pulse the visible flash has already ended
- *  (or miss one it just started). */
+/**
+ * ANY denied-fire pulse is live this frame — the on-water arc pulse OR any of
+ * the per-slot hotbar pulses.
+ *
+ * The tier table says *"denied pulses"*, PLURAL, and until Story 4.8 only the
+ * on-water one reached the seam: an ability denied on a hotbar slot flashed a
+ * threat-register mark while the storm vignette and the ring segment carried on
+ * breathing underneath it. The OR happens HERE because `Tier1Input.deniedLive`
+ * is one boolean by design — the tier question is "is a threat channel
+ * animating", never "which one".
+ *
+ * Every read is `liveAt`, the READ-ONLY liveness: asking must not be able to
+ * trigger or extend a pulse, which is exactly why that method exists.
+ */
+function anyDeniedLive(g: Game, nowMs: number): boolean {
+  if (g.deniedPulse.liveAt(nowMs)) return true;
+  return g.abilityPulse.some((p) => p.liveAt(nowMs));
+}
+
+/** Tier-1 (THREAT) channels as this story knows them (amendments 16 + 239): the
+ *  HP rail's CRIMSON-band pulse and any live denied-fire pulse.
+ *  render/attention.ts owns the composition; this only resolves the own-ship
+ *  inputs. `nowMs` is the frame's ONE timestamp — the same instant renderFiring
+ *  drove the denied pulses with, so the hold can never read a pulse the visible
+ *  flash has already ended (or miss one it just started).
+ *
+ *  NULL IS NOT ZERO: with no hull (no maxHp — spectate, the respawn gap) the HP
+ *  input is `null`, never 0, or a missing hull would pin every Tier-2 channel
+ *  lit and freeze the Tier-3 chip for the rest of the match. The fraction itself
+ *  comes from the rail's own `railFraction`, so the seam and the band the player
+ *  sees are the same number. */
 function ownTier1(g: Game, status: OwnStatus, nowMs: number): boolean {
   const maxHp = status.stats.maxHp;
   return tier1Active({
-    hpFrac: maxHp > 0 ? status.hp / maxHp : null,
-    deniedLive: g.deniedPulse.liveAt(nowMs),
+    hpFrac: maxHp > 0 ? railFraction(status.hp, maxHp) : null,
+    deniedLive: anyDeniedLive(g, nowMs),
   });
+}
+
+/** This frame's whole attention state (render/attention.ts's tier table). */
+interface AttentionFrame {
+  /** A THREAT channel is animating — both Tier-2 channels hold at their lit
+   *  keyframe while it is. */
+  tier1: boolean;
+  /** A MATCH channel is animating (in-storm vignette / final-10s ring). */
+  tier2: boolean;
+  /** Tier 3 (the XP bank chip) freezes at its DIM keyframe — under Tier 2 ALONE
+   *  as well as under Tier 1 (amendment 243's literal reading of the table). */
+  freeze: boolean;
+}
+
+/**
+ * THE frame's tier read, taken ONCE and shared by every consumer.
+ *
+ * It must be taken AFTER renderFiring has driven the denied pulses (see
+ * renderOwn): a read taken before them would miss a pulse born this frame and
+ * lie to both Tier-2 channels for a frame. `ringUrgent` comes off the chrome
+ * bar's own readout rather than a second countdown derivation, so the segment
+ * that pulses and the tier that says a match channel is animating can never
+ * disagree.
+ */
+function frameAttention(g: Game, status: OwnStatus, inStorm: boolean, ringUrgent: boolean, nowMs: number): AttentionFrame {
+  const tier1 = ownTier1(g, status, nowMs);
+  const tier2 = tier2Active({ inStorm, ringUrgent });
+  return { tier1, tier2, freeze: freezeAtDimKeyframe(tier1, tier2) };
 }
 
 function renderAlive(
