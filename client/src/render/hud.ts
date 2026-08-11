@@ -286,6 +286,24 @@ export function railPulsing(frac: number): boolean {
 }
 
 /**
+ * Pure: is the rail in its CRITICAL (crimson `damageMarker`) band? THE TIER-1
+ * GATE — render/attention.ts composes this, never a threshold of its own
+ * (amendment 16's rule: the owning module exports the predicate).
+ *
+ * Amendment 239: the attention table's Tier-1 HP channel is `<25%`, which is
+ * exactly this band; 25-50% is the AMBER WARNING band, and a warning is not a
+ * threat. The rail's own display grammar does NOT move — it still breathes below
+ * 50% (`railPulsing`, untouched) at the same ramp and in the same colors. Only
+ * WHEN the rail claims the threat tier changed.
+ *
+ * The bound is EXCLUSIVE, matching `hpColor`'s convention exactly: a fraction of
+ * exactly `criticalBelow` still reads amber and is NOT critical.
+ */
+export function railCritical(frac: number): boolean {
+  return frac < V.criticalBelow;
+}
+
+/**
  * Pure: the rail geometry's redraw signature. The fraction is quantized (0.001
  * of the bar — finer than a pixel at this height), but the BAND and the PULSE
  * GATE are carried exactly: quantizing alone would let 0.4996 share a signature

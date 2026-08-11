@@ -10,6 +10,7 @@ import {
   hullFillAlpha,
   hullHeaderValue,
   advancePulsePhase,
+  railCritical,
   railPulsing,
   railSig,
   repairFraction,
@@ -147,14 +148,34 @@ describe('hullPulseHz — the accelerating, hard-capped rail pulse', () => {
     expect(vignetteAlpha(true, 0.25 / CAP_HZ)).toBeCloseTo(Z.vignetteBase + Z.vignetteAmp, 6);
   });
 
-  it('IS the Tier-1 low-HP gate (Story 3.2, amendment 16) — one threshold, not two', () => {
-    // render/attention.ts composes THIS predicate rather than declaring its own
-    // low-HP threshold, so the rail and the storm vignette's hold can never
-    // disagree about when the hull is a threat channel.
+  it('is the BREATHING gate, and no longer the Tier-1 gate (amendment 239)', () => {
+    // The rail's display grammar is UNTOUCHED: it still breathes below 50%, at
+    // the same ramp and in the same colors. What moved is only which band claims
+    // the THREAT tier — `railCritical` (<25%, the crimson band) is the Tier-1
+    // gate now, because a warning is not a threat and an always-Tier-1 amber
+    // rail would outrank the final-10s ring in every wounded endgame.
     expect(railPulsing(V.amberBelow)).toBe(false);
     expect(railPulsing(V.amberBelow - 1e-9)).toBe(true);
-    expect(tier1Active({ hpFrac: 0.3, deniedLive: false })).toBe(railPulsing(0.3));
-    expect(tier1Active({ hpFrac: 0.9, deniedLive: false })).toBe(railPulsing(0.9));
+    expect(railPulsing(0.3)).toBe(true);
+    expect(tier1Active({ hpFrac: 0.3, deniedLive: false })).toBe(false);
+    expect(tier1Active({ hpFrac: 0.9, deniedLive: false })).toBe(false);
+  });
+
+  it('railCritical IS the Tier-1 gate (amendment 239) — one threshold, not two', () => {
+    // render/attention.ts composes THIS predicate rather than declaring its own
+    // threshold, so the rail and the storm vignette's hold can never disagree
+    // about when the hull is a threat channel. The bound is EXCLUSIVE, exactly
+    // as hpColor's is: at exactly 25% the rail is still amber.
+    expect(railCritical(V.criticalBelow)).toBe(false);
+    expect(hpColor(V.criticalBelow)).toBe(CLIENT_CONFIG.colors.amber);
+    expect(railCritical(V.criticalBelow - 1e-9)).toBe(true);
+    for (const frac of [0.24, 0.1, 0]) {
+      expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(railCritical(frac));
+      expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(true);
+    }
+    // Every critical hull is also a breathing one — the tier is a SUBSET of the
+    // pulse band, never a competing band.
+    for (const frac of [0.24, 0.1, 0]) expect(railPulsing(frac)).toBe(true);
   });
 });
 

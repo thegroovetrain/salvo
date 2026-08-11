@@ -1402,6 +1402,72 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE ATTENTION SEAM (Story 3.2 / amendment 16, generalized by Story 4.8) —
+   * the tunable half of EXPERIENCE.md's attention-priority table. The tiers
+   * themselves are RULES, not knobs, and live in render/attention.ts; the one
+   * thing here is the ranking the amber corollary needs.
+   */
+  attention: {
+    /**
+     * THE AMBER RANK — which amber channel pulses when both are live, highest
+     * priority first. Two amber channels can be simultaneously active: the
+     * chrome bar's final-10s ring pulse (Tier 2) and the HP rail's amber band
+     * (25-50%, untiered by amendment 239). The corollary says only the
+     * highest-tier active amber pulses, so `ring` outranks `hpRail`: at 40% hull
+     * with the storm closing in 8 seconds, the storm is what kills you. Below
+     * 25% the rail turns crimson, leaves the amber set entirely and becomes
+     * Tier 1 — under which BOTH ambers hold lit, which is how amber keeps
+     * meaning "look here" at the climax.
+     */
+    amberRank: ['ring', 'hpRail'] as const,
+  },
+
+  /**
+   * THE AGGREGATE FLASH BUDGET (Story 4.8, amendment 240) — the mechanism behind
+   * the ratified photosensitivity floor *"no element or screen region flashes
+   * more than 3x/s regardless of how many compliant events stack"* (NFR13 /
+   * EXPERIENCE.md:138 / DESIGN.md:256), which had never existed in code.
+   *
+   * It governs ONE-SHOT flashes only. Every BREATHING channel is exempt BY
+   * CONSTRUCTION: each is capped at `settings.pulseCapHz` (1.1 Hz) or below,
+   * well under 3 flashes/s, so counting them would be counting something that
+   * cannot bind.
+   *
+   * Two stages, neither of which invents a principle: COALESCE co-located
+   * same-kind flashes within one frame (amendment 37's one-frame-one-cue grammar
+   * extended from audio to visuals), then DEGRADE anything still over budget to
+   * its already-ratified `motion: 'off'` keyframe. It never DELETES: its biggest
+   * stackers (muzzle, spark, splash, hull hit) are declared information, and the
+   * motion setting removes MOTION, never INFORMATION.
+   */
+  flashBudget: {
+    /** The screen is divided into this grid for region-scoped claims, so a
+     *  region is a stable ~1/12 of the viewport at any resolution rather than a
+     *  pixel box that means something different on every monitor. */
+    regionCols: 4,
+    regionRows: 3,
+    /** THE RATIFIED AGGREGATE FLOOR: at most this many flash ONSETS per key per
+     *  window. Straight from NFR13 / EXPERIENCE.md:138 — not a feel number. */
+    maxPerSecond: 3,
+    /** The sliding window (ms) the onsets are counted over. Pruned BY TIMESTAMP,
+     *  never by count, so a backgrounded tab cannot burst-degrade on restore. */
+    windowMs: 1000,
+    /** Flat alpha a DEGRADED one-shot holds for its full life, as a fraction of
+     *  the peak it would have ramped from. The mark keeps its presence, position
+     *  and weight; only the luminance RAMP is spent.
+     *
+     *  IMPLEMENTER DRAFT AWAITING ERIC'S EYE (the Story 4.7 stamping convention,
+     *  amendment 238): the MECHANISM is ratified (amendment 240), this
+     *  particular number is not. */
+    degradeAlphaFactor: 0.35,
+    /** Position quantum (world units) for the per-frame coalescer's key — the
+     *  gunneryFeed `IMPACT_KEY_U` convention, reused rather than forked. Two
+     *  genuinely distinct flashes 0.1u apart are a ten-thousandth of a hull
+     *  length apart and could not be told apart on screen anyway. */
+    coalesceQuantumU: 0.1,
+  },
+
+  /**
    * The bottom-right OWN-VITALS cluster (Story 2.4) — the restyled v2-composite
    * anatomy: a `HULL n/n` header over a body of (HDG/KTS readouts + rudder
    * gauge | telegraph ladder) with the vertical HP rail climbing the body's
