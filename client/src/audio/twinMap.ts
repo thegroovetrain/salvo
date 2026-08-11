@@ -61,6 +61,31 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // drawn with.
   bounty:
     'the YOU ARE THE KILL LEADER toast (ui/upgradeToast) + the persistent kill-leader register naming the holder in the chrome bar (ui/chromeBar, render/hud)',
+  // --- THE SOUND MAP (Story 4.7, Eric ruling 2026-08-10) ----------------------
+  // These six are the first cues in the table that are not about YOU, which
+  // makes their twins unusually easy to name honestly: every one of them rides
+  // an event the client had already received and ALREADY DRAWN. The cue does not
+  // reveal the mark — the mark was always there — it points your ear at it. So a
+  // muted player is in exactly the position every player was in before this
+  // story landed, which is the strongest form of the twin law this table has.
+  gunReport:
+    'the muzzle flash at the shooter\'s position, drawn above the fog inside the 5/8 halo (render/effects `muzzle`)',
+  impact:
+    'the spark hit bloom at the connection, the contracting pierce ring on a punch-through, and the amber burst ring at a gun shell\'s blast point (render/effects)',
+  splash: 'the expanding splash ring at the fall of shot, drawn above the fog (render/effects `splash`)',
+  sunkWitness:
+    'the crimson sink ring expanding where the hull went down, plus the kill-feed line naming the loss (render/effects, ui/killFeed)',
+  // The band stings are the one place where amendment 49's parked question —
+  // "should wounded smoke be voiced?" — answers itself. The smoke tiers and the
+  // HP rail bands are the SAME two thresholds (CONFIG.damageBands), so the sting
+  // at each downward crossing IS the moment your own plume starts or thickens,
+  // and the row can name the plume beside the rail without stretching. Own smoke
+  // rides the ordinary `sm` row with no special case (amendment 46), so the
+  // smoking captain really does see their own column.
+  hpHurt:
+    'the HP rail turning amber and starting to breathe in the vitals cluster (render/hud), and your own light wounded-smoke plume beginning (render/smoke)',
+  hpCritical:
+    'the HP rail turning crimson and its pulse accelerating toward the photosensitivity cap (render/hud), and your own plume thickening to the heavy tier (render/smoke)',
   tick: 'the countdown seconds ticking down in the phase banner (ui/phase)',
   matchStart: 'the phase banner flipping from countdown to the live match (ui/phase)',
   stormWarn: 'the storm vignette closing in + the OUTSIDE tag in the HUD (render/zone, hud)',

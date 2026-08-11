@@ -4,7 +4,8 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
-import { BOON_CATALOG, type BoonRarity } from '@salvo/shared';
+import { BOON_CATALOG, CONFIG, type BoonRarity } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import {
   TONES,
   FIT_CATEGORIES,
@@ -12,6 +13,8 @@ import {
   fitDetune,
   fitTone,
   telegraphTone,
+  hpBandEdge,
+  worldCue,
   MAX_TONE_S,
   MAX_SINK_TONE_S,
   audioCues,
@@ -42,6 +45,13 @@ const ALL_TONE_IDS: ToneId[] = [
   'dazzled',
   'sink',
   'bounty',
+  // the SOUND MAP (Story 4.7) — the six world cues
+  'gunReport',
+  'impact',
+  'splash',
+  'sunkWitness',
+  'hpHurt',
+  'hpCritical',
   'tick',
   'matchStart',
   'stormWarn',
@@ -392,5 +402,295 @@ describe('hitCall tone (Story 4.3) — a connection you may not be able to see',
   it('is not the storm\'s sawtooth growl, and carries no burn hiss', () => {
     expect(TONES.hitCall.type).not.toBe(TONES.stormWarn.type);
     expect(TONES.burn.noise).toBe(true);
+  });
+});
+
+// --- STORY 4.7: THE SOUND MAP ---------------------------------------------------
+//
+// Six cues for things that happen OUT IN THE WORLD, each riding an event the
+// client already receives and already draws. The specs are an UNRATIFIED
+// implementer draft awaiting Eric's ear; what this suite pins is the part that
+// IS reviewable — the separation arguments written into audio/tones.ts. Every
+// assertion below is one of those arguments, so a retune that quietly collapses
+// two cues into each other fails here rather than on the water.
+
+describe('the SOUND MAP catalog (Story 4.7) — six cues for the world, not for you', () => {
+  const SOUND_MAP = ['gunReport', 'impact', 'splash', 'sunkWitness', 'hpHurt', 'hpCritical'] as const;
+
+  it('every new cue stays inside the 150ms short-cue budget (only sink is exempt)', () => {
+    for (const id of SOUND_MAP) {
+      expect(TONES[id].duration, id).toBeLessThanOrEqual(MAX_TONE_S);
+    }
+  });
+
+  it('gunReport is your own gun crack after distance has eaten it — darker, duller, quieter', () => {
+    expect(TONES.gunReport.freqStart).toBeLessThan(TONES.fireGun.freqStart / 2); // the highs go first
+    expect(TONES.gunReport.type).not.toBe(TONES.fireGun.type); // no square edge left
+    expect(TONES.gunReport.volume).toBeLessThan(TONES.fireGun.volume);
+    expect(TONES.gunReport.noise).toBe(true); // a report is still a transient
+  });
+
+  it('gunReport separates from the damage thud on register, sweep, length AND transient', () => {
+    // The closest neighbour: same family, same octave. Four channels move.
+    expect(TONES.gunReport.freqStart).toBeGreaterThan(TONES.damage.freqStart);
+    expect(TONES.gunReport.freqEnd).toBeLessThan(TONES.damage.freqEnd);
+    expect(TONES.gunReport.duration).toBeLessThan(TONES.damage.duration);
+    expect(TONES.gunReport.volume).toBeLessThan(TONES.damage.volume);
+    expect(TONES.damage.noise).toBeUndefined();
+  });
+
+  it('HIT and MISS sit at opposite ends of the catalog — the one pair that must never blur', () => {
+    // Bracket-and-walk is the Gunnery Conversation's whole point, so impact and
+    // splash share NO channel: not register, not waveform, not level.
+    expect(TONES.splash.freqStart).toBeGreaterThan(TONES.impact.freqStart * 2);
+    expect(TONES.impact.type).toBe('sawtooth');
+    expect(TONES.splash.type).toBe('sine');
+    expect(TONES.impact.volume).toBeGreaterThan(TONES.splash.volume);
+  });
+
+  it('impact cannot be confused with the Hit Call, which may fire in the SAME frame', () => {
+    expect(TONES.impact.freqStart).toBeGreaterThan(TONES.hitCall.freqStart * 1.5);
+    expect(TONES.impact.type).not.toBe(TONES.hitCall.type);
+    expect(TONES.impact.noise).toBe(true);
+    expect(TONES.hitCall.noise).toBeUndefined(); // "a transient would make it a near crack"
+    // hitCall dips and RETURNS; impact falls and stops.
+    expect(TONES.impact.freqEnd).toBeLessThan(TONES.impact.freqMid);
+    expect(TONES.hitCall.freqEnd).toBeGreaterThan(TONES.hitCall.freqMid);
+  });
+
+  it('impact separates from the denied blat — the most frequent cue in the game', () => {
+    expect(TONES.impact.type).not.toBe(TONES.denied.type); // sawtooth grit vs square blat
+    expect(TONES.denied.noise).toBeUndefined(); // the refusal is curt BY DEFINITION
+    expect(TONES.impact.duration).toBeGreaterThan(TONES.denied.duration);
+    expect(TONES.impact.freqEnd).toBeLessThan(TONES.denied.freqEnd);
+  });
+
+  it('impact shares the sawtooth voice with the alarm family but not its shape or length', () => {
+    expect(TONES.impact.duration).toBeLessThan(TONES.sink.duration / 2);
+    expect(TONES.impact.freqStart).toBeLessThan(TONES.sink.freqStart);
+    expect(TONES.impact.freqMid).toBeLessThan(TONES.sink.freqMid); // already collapsed at 40%
+    expect(TONES.stormWarn.noise).toBeUndefined();
+  });
+
+  it('splash is the quietest, softest, wettest cue — a miss is information, not an event', () => {
+    const quietest = Math.min(...Object.values(TONES).map((t) => t.volume));
+    expect(TONES.splash.volume).toBe(quietest);
+    expect(TONES.splash.noise).toBe(true); // the hiss is what says "water"
+    expect(TONES.splash.freqEnd).toBeLessThan(TONES.splash.freqStart); // it thins out
+  });
+
+  it('splash never settles like heal and never rises like the reward cues', () => {
+    expect(TONES.heal.freqEnd).toBe(TONES.heal.freqMid); // heal holds its root...
+    expect(TONES.splash.freqEnd).not.toBe(TONES.splash.freqMid); // ...this keeps falling
+    expect(TONES.heal.noise).toBeUndefined();
+    for (const id of ['point', 'kill'] as const) {
+      expect(TONES[id].freqEnd, id).toBeGreaterThan(TONES[id].freqStart);
+    }
+    // ...and it is not one of the soft sine DROPS, which live an octave below.
+    for (const id of ['fireMine', 'placeDecoy'] as const) {
+      expect(TONES.splash.freqStart, id).toBeGreaterThan(TONES[id].freqStart * 1.5);
+      expect(TONES[id].noise, id).toBeUndefined();
+    }
+  });
+
+  it('sunkWitness falls to the lowest floor in the catalog — a hull sinking out of hearing', () => {
+    const floors = Object.values(TONES).map((t) => t.freqEnd);
+    expect(TONES.sunkWitness.freqEnd).toBe(Math.min(...floors));
+  });
+
+  it('sunkWitness is not YOUR sink, and not your credited kill', () => {
+    expect(TONES.sunkWitness.type).not.toBe(TONES.sink.type); // soft triangle vs alarm sawtooth
+    expect(TONES.sunkWitness.duration).toBeLessThan(TONES.sink.duration / 2);
+    // kill RISES (the credit), this FALLS (the hull) — they will fire together.
+    expect(TONES.kill.freqEnd).toBeGreaterThan(TONES.kill.freqStart);
+    expect(TONES.sunkWitness.freqEnd).toBeLessThan(TONES.sunkWitness.freqStart);
+  });
+
+  it('sunkWitness is a groan, not a crack — the attack is what separates it from impact', () => {
+    expect(TONES.sunkWitness.noise).toBeUndefined();
+    expect(TONES.impact.noise).toBe(true);
+    expect(TONES.sunkWitness.type).not.toBe(TONES.impact.type);
+    // ...and from the catalog's other transient-free low triangle, by CONTOUR.
+    expect(TONES.hitCall.freqEnd).toBeGreaterThan(TONES.hitCall.freqMid); // dips and returns
+    expect(TONES.sunkWitness.freqEnd).toBeLessThan(TONES.sunkWitness.freqMid); // never comes back
+  });
+
+  it('the HP stings WHOOP where the alarm family falls, and end BELOW where they began', () => {
+    for (const id of ['hpHurt', 'hpCritical'] as const) {
+      expect(TONES[id].type, id).toBe('sawtooth'); // the alarm family's voice, deliberately
+      expect(TONES[id].freqMid, id).toBeGreaterThan(TONES[id].freqStart); // up...
+      expect(TONES[id].freqEnd, id).toBeLessThan(TONES[id].freqStart); // ...and down THROUGH
+      expect(TONES[id].noise, id).toBeUndefined(); // nothing struck you at a crossing
+    }
+    for (const id of ['stormWarn', 'sink'] as const) {
+      expect(TONES[id].freqMid, id).toBeLessThan(TONES[id].freqStart); // siblings fall monotonically
+    }
+    // The catalog's only other rise-then-fall cues both settle ABOVE their start.
+    for (const id of ['matchStart', 'dazzled'] as const) {
+      expect(TONES[id].freqEnd, id).toBeGreaterThan(TONES[id].freqStart);
+    }
+  });
+
+  it('hpCritical is heavier than hpHurt on five independent channels', () => {
+    expect(TONES.hpCritical.freqStart).toBeLessThan(TONES.hpHurt.freqStart);
+    expect(TONES.hpCritical.freqMid).toBeLessThan(TONES.hpHurt.freqMid);
+    expect(TONES.hpCritical.freqEnd).toBeLessThan(TONES.hpHurt.freqEnd);
+    expect(TONES.hpCritical.duration).toBeGreaterThan(TONES.hpHurt.duration);
+    expect(TONES.hpCritical.volume).toBeGreaterThan(TONES.hpHurt.volume);
+  });
+
+  it('neither sting can be confused with the damage thud or the denied refusal', () => {
+    for (const id of ['hpHurt', 'hpCritical'] as const) {
+      expect(TONES[id].type, id).not.toBe(TONES.damage.type);
+      expect(TONES[id].type, id).not.toBe(TONES.denied.type);
+      // Both of those fall monotonically; a sting rises first.
+      expect(TONES[id].freqMid, id).toBeGreaterThan(TONES[id].freqStart);
+    }
+    expect(TONES.damage.freqMid).toBeLessThan(TONES.damage.freqStart);
+    expect(TONES.denied.freqMid).toBeLessThan(TONES.denied.freqStart);
+  });
+});
+
+describe('worldCue (Story 4.7) — attenuate + place a cue that happened out there', () => {
+  // ONE reach for every world cue: the eighths ladder's 8/8 rung. It is a
+  // FALLOFF SCALE, never a gate — the server already decided what reaches this
+  // client, and re-deriving that here would be a second implementation of a
+  // perception rule.
+  const REACH = CONFIG.vision.radar;
+  const { worldFloorGain, panMax } = CLIENT_CONFIG.audio;
+
+  /** Non-null helper — a cue inside the reach must always resolve. */
+  const cue = (dx: number, dy: number, reach = REACH) => {
+    const c = worldCue(dx, dy, reach);
+    if (!c) throw new Error(`expected a cue at (${dx},${dy})`);
+    return c;
+  };
+
+  it('is at full gain and dead centre at the listener', () => {
+    const c = cue(0, 0);
+    expect(c.gain).toBeCloseTo(1, 12);
+    expect(c.pan).toBe(0);
+  });
+
+  it('falls LINEARLY to exactly the floor at the reach — not inverse-square', () => {
+    expect(cue(0, REACH).gain).toBeCloseTo(worldFloorGain, 12);
+    // Halfway out is halfway between 1 and the floor. Under a 1/d² curve it
+    // would already be at a quarter, which is the whole reason that shape was
+    // rejected: everything past truesight would be indistinguishably silent.
+    expect(cue(0, REACH / 2).gain).toBeCloseTo((1 + worldFloorGain) / 2, 12);
+    expect(cue(REACH / 4, 0).gain).toBeCloseTo(worldFloorGain + (1 - worldFloorGain) * 0.75, 12);
+  });
+
+  it('never exceeds 1 and never drops below the floor, anywhere in the reach', () => {
+    for (let i = 0; i <= 20; i++) {
+      const d = (REACH * i) / 20;
+      for (const g of [cue(d, 0).gain, cue(-d, 0).gain, cue(0, d).gain]) {
+        expect(g).toBeLessThanOrEqual(1);
+        expect(g).toBeGreaterThanOrEqual(worldFloorGain - 1e-12);
+      }
+    }
+    // ...and a diagonal is attenuated by TRUE distance, not by either axis.
+    expect(cue(REACH * 0.3, REACH * 0.4).gain).toBeCloseTo(cue(0, REACH * 0.5).gain, 12);
+  });
+
+  it('pans toward the side the cue is on, and NEVER hard', () => {
+    expect(cue(REACH, 0).pan).toBeCloseTo(panMax, 12);
+    expect(cue(-REACH, 0).pan).toBeCloseTo(-panMax, 12);
+    expect(cue(REACH * 0.4, 0).pan).toBeGreaterThan(0);
+    expect(cue(-REACH * 0.4, 0).pan).toBeLessThan(0);
+    expect(Math.abs(cue(REACH * 0.4, 0).pan)).toBeLessThan(panMax);
+    expect(panMax).toBeLessThan(1); // a hard pan would vanish on one channel
+  });
+
+  it('the cross-axis carries no pan at all — dead ahead and dead astern are both centred', () => {
+    expect(cue(0, REACH * 0.5).pan).toBe(0);
+    expect(cue(0, -REACH * 0.5).pan).toBe(0);
+  });
+
+  it('CLAMPS past the reach — it keeps the bearing and holds the floor, never null', () => {
+    // The reach is a FALLOFF SCALE, and events legitimately arrive from beyond
+    // it: a captain with intel-range boons fires out past base radar, and a
+    // spectator's frames are unfogged. Returning null there dropped the PAN —
+    // the one thing the cue exists to carry — for a mark already on screen.
+    const far = worldCue(REACH * 1.2, 0, REACH);
+    expect(far).not.toBeNull();
+    expect(far!.gain).toBeCloseTo(worldFloorGain, 12); // already the floor at the reach
+    expect(far!.pan).toBeCloseTo(panMax, 12); // ...and still to starboard
+    expect(worldCue(-REACH * 2, 0, REACH)!.pan).toBeCloseTo(-panMax, 12);
+    expect(worldCue(REACH, REACH, REACH)).not.toBeNull(); // a diagonal past the reach
+    expect(worldCue(REACH, 0, REACH)).not.toBeNull(); // exactly AT the reach still sounds
+  });
+
+  it('is CONTINUOUS across the old cutoff — no pan snapping to centre at the boundary', () => {
+    const inside = cue(REACH - 1, 0);
+    const outside = worldCue(REACH + 1, 0, REACH)!;
+    expect(outside.pan).toBeCloseTo(inside.pan, 2); // not 0.7 → 0
+    expect(outside.pan).toBeGreaterThan(0);
+    expect(outside.gain).toBeCloseTo(inside.gain, 2); // gain was already continuous
+  });
+
+  it('degrades safely on junk rather than throwing', () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(worldCue(bad, 0, REACH)).toBeNull();
+      expect(worldCue(0, bad, REACH)).toBeNull();
+      expect(worldCue(0, 0, bad)).toBeNull();
+    }
+    expect(worldCue(0, 0, 0)).toBeNull(); // a zero reach would divide by zero
+    expect(worldCue(0, 0, -1)).toBeNull();
+  });
+});
+
+describe('hpBandEdge (Story 4.7) — one sting per DOWNWARD band crossing', () => {
+  const { amberBelow, criticalBelow } = CONFIG.damageBands;
+
+  it('reads its thresholds from shared CONFIG, never from local literals', () => {
+    // amendment 41's binding: 0.5 / 0.25 exist exactly once in the codebase, and
+    // moving them must move the rail, the smoke tiers and this sting together.
+    expect(hpBandEdge(amberBelow + 0.01, amberBelow - 0.01)).toBe('hurt');
+    expect(hpBandEdge(criticalBelow + 0.01, criticalBelow - 0.01)).toBe('critical');
+  });
+
+  it('fires once on each crossing and is silent while you stay inside a band', () => {
+    expect(hpBandEdge(0.6, 0.4)).toBe('hurt');
+    expect(hpBandEdge(0.4, 0.35)).toBeNull(); // still hurt — no repeat
+    expect(hpBandEdge(0.4, 0.2)).toBe('critical');
+    expect(hpBandEdge(0.2, 0.05)).toBeNull(); // still critical — no repeat
+    expect(hpBandEdge(0.9, 0.8)).toBeNull(); // healthy the whole way
+  });
+
+  it('is silent going UP — recovery makes no alarm', () => {
+    expect(hpBandEdge(0.1, 0.4)).toBeNull();
+    expect(hpBandEdge(0.4, 0.9)).toBeNull();
+    expect(hpBandEdge(0.1, 1)).toBeNull();
+  });
+
+  it('RE-ARMS by construction: heal above a band, take it again, and it fires again', () => {
+    // There is no latch to reset — the edge is a function of two adjacent
+    // frames, so nothing can get stuck armed or stuck fired.
+    expect(hpBandEdge(0.6, 0.4)).toBe('hurt');
+    expect(hpBandEdge(0.4, 0.7)).toBeNull(); // healed back over
+    expect(hpBandEdge(0.7, 0.45)).toBe('hurt'); // and down again
+    expect(hpBandEdge(0.2, 0.6)).toBeNull();
+    expect(hpBandEdge(0.6, 0.1)).toBe('critical');
+  });
+
+  it('crossing BOTH bands in one step reports the WORSE one only, never two', () => {
+    expect(hpBandEdge(0.6, 0.1)).toBe('critical');
+    expect(hpBandEdge(1, 0)).toBe('critical');
+  });
+
+  it('treats a band bound as the BETTER state — the shared exclusive-lower-bound rule', () => {
+    expect(hpBandEdge(0.6, amberBelow)).toBeNull(); // exactly 0.5 is healthy
+    expect(hpBandEdge(0.4, criticalBelow)).toBeNull(); // exactly 0.25 is hurt
+  });
+
+  it('never reads a MISSING hull as 0 HP (spectating, the respawn gap, maxHp <= 0)', () => {
+    expect(hpBandEdge(null, 0.1)).toBeNull();
+    expect(hpBandEdge(0.6, null)).toBeNull();
+    expect(hpBandEdge(null, null)).toBeNull();
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(hpBandEdge(bad, 0.1)).toBeNull();
+      expect(hpBandEdge(0.6, bad)).toBeNull();
+    }
   });
 });

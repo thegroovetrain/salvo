@@ -68,6 +68,8 @@ import { XpRail, type XpView } from './render/xpRail.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
+import type { ToneFloor } from './render/gunneryFeed.js';
+import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
 import {
   UpgradeMenu,
@@ -126,7 +128,14 @@ import {
   type ScoreState,
 } from './score.js';
 import { Audio } from './audio/context.js';
-import { audioCues, stormEnterEdge, telegraphTone, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
+import {
+  audioCues,
+  stormEnterEdge,
+  telegraphTone,
+  INITIAL_CUE_STATE,
+  type AudioCueState,
+} from './audio/tones.js';
+import { ownHpFrac, hpStingCueAt, hpStingFloor } from './audio/hpSting.js';
 import { createNullAdapter } from './portal/nullAdapter.js';
 import { safeAdapter } from './portal/safeAdapter.js';
 import type { PortalAdapter } from './portal/portalAdapter.js';
@@ -266,6 +275,13 @@ interface Game {
   deniedPulse: DeniedPulse;
   /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
   deniedFlash: boolean;
+  /** THE `denied` CUE'S TONE FLOOR (the twin walk, amendment 60) — ONE shared
+   *  floor across every `denied` call site (weapon click, predicted ability
+   *  press, FIFO-full press, server-denial echo), keyed on the SAME
+   *  PULSE_RATE_MS the visual pulses above already rate-limit on
+   *  (audio/deniedCue.ts). Without it the tone plays unbounded while its chip
+   *  twin caps at one flash per 300ms. */
+  deniedToneFloor: ToneFloor;
   /** Exactly-one-feedback dedup for denied presses, keyed (slot, seq) —
    *  Story 1.10: predicted denials mark their key; a matching server denial
    *  is suppressed; an unmatched one fires the feedback late-but-explicit. */
@@ -356,6 +372,28 @@ interface Game {
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
   wasInStorm: boolean;
+  /**
+   * Own hull fraction last frame, for THE BAND STINGS' downward-crossing edge
+   * (Story 4.7, audio/tones.ts `hpBandEdge`) — the `wasInStorm` idiom, one field
+   * up.
+   *
+   * NULL IS NOT ZERO, and the distinction is the whole reason this is nullable:
+   * there is no own hull while spectating or across the respawn gap, and a
+   * missing hull reading as 0 would fire the critical sting at the moment you
+   * die and again on every frame you spent watching. `null` also re-arms the
+   * edge for free — the first frame back is silent by construction, because a
+   * crossing needs two live frames to exist.
+   */
+  wasHpFrac: number | null;
+  /**
+   * ...and THE STINGS' 300ms same-source floor (review gate, audio/hpSting.ts).
+   * The edge alone is not a bound: DAMAGE CONTROL regen pays into `hp` every
+   * server tick while incoming fire subtracts, so a hull held around 50% crosses
+   * the band downward over and over. Deliberately NOT reset on spectate — the
+   * floor is a property of the MIX, not of a life, and the world cues' floors
+   * are not reset either.
+   */
+  hpStingFloor: ToneFloor;
   /** mouse.clickCount last frame — the denied-click edge (render/deniedFire.ts). */
   prevClickCount: number;
   /** mouse.clickCount at the last SIM TICK — the new-click edge that consumes a
@@ -1240,6 +1278,19 @@ function conningLive(g: Game | null): boolean {
 }
 
 /**
+ * Play the `denied` cue, floored to the SAME PULSE_RATE_MS the visual pulse
+ * (render/deniedFire.ts's DeniedPulse) already rate-limits on — ONE shared
+ * floor across every `denied` call site (audio/deniedCue.ts), because it is
+ * one cue from the player's perspective. Without this the tone plays
+ * unbounded while its chip twin caps at one flash per 300ms (the twin walk,
+ * amendment 60, epic-4-context-amendments.md): a click-spam burst landing
+ * 80-300ms after the last one played the tone with no visual at all.
+ */
+function playDenied(g: Game): void {
+  if (g.deniedToneFloor.request(performance.now())) g.audio.play('denied');
+}
+
+/**
  * THE chokepoint's hook table (Story 2.1) — every in-match key action routed
  * over the late-bound Game (`getG` is the gRef late-binding — null only during
  * the brief construction gap). P and M fold in here (the old ad-hoc window
@@ -1283,8 +1334,17 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     onAbilityCapped: (slot) => {
       const g = getG();
       if (!g) return;
+      // No live hotbar to flash into (sunk / spectating) — the tone's only
+      // twin can't render there, so suppress the whole predicted-denial
+      // feedback here, mirroring handleServerDenial's guard below (Story
+      // 1.10's server-denial path already has it). The twin walk (amendment
+      // 60, epic-4-context-amendments.md) found this FIFO-full path missing
+      // it — the keyboard chokepoint deliberately doesn't gate on life
+      // itself (onFoghorn's doc: "alive, spectating, cooldown — is main.ts's
+      // call").
+      if (deniedFeedbackHasNoTwin(g.state.spectating, g.state.net.you?.alive)) return;
       g.abilityDeniedPress[slot] = true;
-      g.audio.play('denied');
+      playDenied(g);
     },
     // F — the foghorn (Story 4.5). The chokepoint has already edge-gated the
     // press and applied the refit-modal suspension; everything else is here.
@@ -1349,12 +1409,22 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
   if (abilityPressDenied(you?.alive ?? true, loaded)) {
+    // No live hotbar to flash into (sunk / spectating) — the tone's only
+    // twin can't render there, so suppress the whole predicted-denial
+    // feedback here, mirroring handleServerDenial's guard below (Story
+    // 1.10's server-denial path already has it — a matching server denial
+    // for this same press is guarded there too, so nothing is lost by not
+    // marking denialDedup on this branch). The twin walk (amendment 60,
+    // epic-4-context-amendments.md) found this predicted path missing it —
+    // the keyboard chokepoint deliberately doesn't gate on life itself
+    // (onFoghorn's doc: "alive, spectating, cooldown — is main.ts's call").
+    if (deniedFeedbackHasNoTwin(g.state.spectating, you?.alive)) return;
     g.abilityDeniedPress[slot] = true;
     // Story 1.10 exactly-one-feedback: this predicted denial IS the feedback
     // (chip flash above + the denial tone) — mark its (slot, actSeq) key so
     // the server's matching denial echo is suppressed, never doubled.
     g.denialDedup.markPredicted(slot, actSeq);
-    g.audio.play('denied');
+    playDenied(g);
     return;
   }
   // Predicted READY: fire the hotbar's ACTIVATED pop on this optimistic press
@@ -1595,9 +1665,11 @@ function buildGame(
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     shake: new ShakeDriver(),
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
+    deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownDecoyUntil: 0,
@@ -2253,7 +2325,7 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
   // race), that unmatched denial triggers the feedback late-but-explicit.
   if (p.alive && !(p.loaded && p.inArc)) {
     g.denialDedup.markPredicted(primedSlot, fireSeq);
-    g.audio.play('denied');
+    playDenied(g);
   }
 }
 
@@ -2273,7 +2345,7 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   // (otherwise the tone + chip latch fire with no matching arc pulse).
   if (g.state.net.you?.alive === false) return;
   if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
-  g.audio.play('denied');
+  playDenied(g);
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
   const id = g.ownSlots[d.slot] ?? null;
   // Only pulse the arc/reticle when the DENIED slot is the one currently primed
@@ -2381,6 +2453,44 @@ function updateZone(
   });
 }
 
+/**
+ * THE BAND STINGS (Story 4.7): the own hull crossing `CONFIG.damageBands`
+ * downward — 50% and 25% — gets a one-shot alarm. The fraction and the cue id
+ * are both decided by the pure helpers in audio/hpSting.ts (`ownHpFrac`,
+ * `hpStingCue`, themselves built on `hpBandEdge` in audio/tones.ts, which owns
+ * the downward-only / re-arming / worse-one-only rules and reads the
+ * thresholds straight out of shared CONFIG) — extracted there so the wiring
+ * itself is covered by a test, not just the edge math (amendment 60).
+ *
+ * IT LIVES IN main.ts AND NOWHERE ELSE because this is the only place that holds
+ * BOTH numbers: net/roomBindings.ts sees `you.hp` but has no `maxHp` seam —
+ * `maxHp` is an effectiveStats() output, swapped wholesale whenever a boon
+ * lands. The shape is the `stormEnterEdge` idiom two lines up: previous value on
+ * `g`, edge function, cue.
+ *
+ * NO PAN AND NO GAIN, deliberately (amendment 55, the foghorn's own honk): these
+ * are SELF cues, and a bearing to yourself is meaningless. Only the world cues
+ * in net/roomBindings.ts are ever placed.
+ *
+ * The sting is also wounded smoke's voice — the smoke tiers and the rail bands
+ * are the SAME two thresholds, so the moment a band is crossed IS the moment
+ * your plume starts (spec design note; amendment 49's parked question, answered
+ * without inventing a continuous-audio class).
+ *
+ * IT IS FLOORED like every world cue (review gate): an edge is not a bound while
+ * DAMAGE CONTROL regen and incoming fire trade a hull back and forth across a
+ * threshold. `nowMs` is the frame's ONE timestamp, the same instant every other
+ * cue in this frame is measured against. The remembered fraction is stored
+ * whether or not the cue was voiced — a refused sting is silent, never deferred
+ * (audio/hpSting.ts spells out why, and what the owner still has to rule on).
+ */
+function playHpSting(g: Game, status: OwnStatus, nowMs: number): void {
+  const frac = ownHpFrac(status);
+  const cue = hpStingCueAt(g.wasHpFrac, frac, nowMs, g.hpStingFloor);
+  if (cue) g.audio.play(cue);
+  g.wasHpFrac = frac;
+}
+
 /** Tier-1 (THREAT) channels as this story knows them (amendment 16): the HP
  *  rail's low-HP pulse and a live denied-fire pulse. render/attention.ts owns
  *  the composition; this only resolves the own-ship inputs. `nowMs` is the
@@ -2412,6 +2522,7 @@ function renderAlive(
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
+  playHpSting(g, status, nowMs); // the 50%/25% band alarms (Story 4.7) — same edge idiom
   // THE frame's Tier-1 read comes back OUT of renderOwn: it is taken there,
   // after renderFiring has driven the denied pulse, and both Tier-2 consumers
   // (the chrome bar's amber ring segment and the storm vignette below) share
@@ -2537,6 +2648,10 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
 
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
+  // No hull, so no band edge exists to be crossed (Story 4.7): dropping the
+  // remembered fraction to null keeps a death from reading as a crossing into
+  // critical, and re-arms both stings for the next life for free.
+  g.wasHpFrac = null;
   updateSpectateCamera(g, frameDt, now);
   // A spectator is never IN the storm and owns no Tier-1 channel (no hull, no
   // fire control) — the plane renders, the vignette does not.

@@ -208,6 +208,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
   const spawnEffect = vi.fn();
   const onBoom = vi.fn();
   const onBallisticUpdate = vi.fn();
+  const play = vi.fn();
   const deps = {
     state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: true, phase: '', respawnEta: null, mode: 'interp' },
     clock: { addSample: vi.fn() },
@@ -227,6 +228,11 @@ function setupEvents(over: Record<string, unknown> = {}) {
       ownFireOf: over.ownFireOf ?? (() => null),
     },
     effects: { spawnEffect },
+    // THE SOUND MAP (Story 4.7): a burst is a placed world cue now, so this
+    // harness needs both the tone player and a listener position. These frames
+    // are SPECTATOR frames (no `you`), which is exactly the camera-centre leg.
+    audio: { play },
+    cameraCenter: () => ({ x: 0, y: 0 }),
     onSunkObserved: vi.fn(),
     onSpectate: vi.fn(),
     colors: vi.fn(() => null),
@@ -234,7 +240,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     ...(over.ownBurstRadius ? { ownBurstRadius: over.ownBurstRadius } : {}),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, onBurst, spawnEffect, onBallisticUpdate };
+  return { sink, onBurst, spawnEffect, onBallisticUpdate, play };
 }
 
 describe('bindRoom burst events', () => {
@@ -424,7 +430,13 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
 // --- the public register (PV 23): `seen` gates the spatial half --------------
 
 describe('bindRoom sunk — seen gates the sink plume and the contact teardown', () => {
-  function setupSunk(names: (id: string) => string | null = (id) => id.toUpperCase()) {
+  function setupSunk(
+    names: (id: string) => string | null = (id) => id.toUpperCase(),
+    // The last-known contact snapshot. Null models a wreck whose contact has
+    // already aged out of the store — the Story 4.7 "witnessed but unplaceable"
+    // case, which still SOUNDS (unpanned, at the floor).
+    contactPos: { x: number; y: number } | null = { x: 40, y: 50 },
+  ) {
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
     const conn = { room, welcome: {}, sink } as unknown as Connection;
@@ -440,9 +452,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       clock: { addSample: vi.fn() },
       contacts: {
         pushFrame: vi.fn(),
-        // The stale last-known snapshot ALWAYS resolves a position here — the
+        // The stale last-known snapshot resolves a position by default — the
         // point of the suite is that `seen` (not availability) gates its use.
-        get: () => ({ newest: { x: 40, y: 50 } }),
+        get: () => (contactPos ? { newest: contactPos } : null),
       },
       contactViews: { markSunk, flash: vi.fn(), markSpawn: vi.fn() },
       mines: { sync: vi.fn() },
@@ -452,6 +464,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       decoys: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
+      // Story 4.7: this harness spectates (`you` is null), so the witnessed
+      // sinking's cue is placed relative to the camera centre.
+      cameraCenter: () => ({ x: 0, y: 0 }),
       names,
       colors: () => null,
       ordnanceHue: () => 0,
@@ -561,6 +576,77 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     const spans = [...(document.getElementById('kill-feed')?.querySelectorAll('span') ?? [])];
     expect(spans.length).toBeGreaterThan(0);
     for (const span of spans) expect((span as HTMLElement).style.color).toBe('');
+  });
+
+  // --- THE SOUND MAP's sinking cue (Story 4.7) -------------------------------
+  //
+  // ONE CUE PER SINKING, chosen by a strict, mutually exclusive priority: your
+  // own death (`sink`), your credited kill (`kill`), else a WITNESSED sinking
+  // (`sunkWitness`). The last clause is gated on exactly the stamp the sink
+  // plume is gated on, and for the same reason: `sunk` carries no position, so
+  // the only position available is a stale contact — a fog kill that made a
+  // noise would confirm "that death happened near where I last saw them", which
+  // is the one thing `seen` exists to protect (amendments 29-34).
+
+  const toneIds = (play: ReturnType<typeof vi.fn>): string[] => play.mock.calls.map(([id]) => id as string);
+
+  it('a WITNESSED third-party sinking groans once, placed at the wreck', () => {
+    const { sink, play } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    expect(toneIds(play)).toEqual(['sunkWitness']);
+    // Placed: this harness spectates from the camera centre (0,0) and the
+    // wreck's last-known contact is at (40,50), so the cue leans right and is
+    // loud (a sinking almost on top of us).
+    const opts = play.mock.calls[0][1] as { pan: number; gain: number };
+    expect(opts.pan).toBeGreaterThan(0);
+    expect(opts.gain).toBeGreaterThan(0.9);
+  });
+
+  it('THE DISCLOSURE RULE: an UNSEEN third-party sinking is COMPLETELY SILENT', () => {
+    const { sink, play } = setupSunk();
+    // The Public Register's fog kill: the feed line is the ratified public fact,
+    // and it prints (asserted in the plume suite above). Nothing sounds — the
+    // cue would carry the PLACE, which is not ours to have.
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
+    expect(toneIds(play)).toEqual([]);
+  });
+
+  it('YOUR OWN DEATH plays the sink alarm ALONE, witnessed or not', () => {
+    const { sink, play } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'me', by: 'killer', seen: true }));
+    expect(toneIds(play)).toEqual(['sink']); // never the witness groan on top
+  });
+
+  it('YOUR CREDITED KILL plays the chime ALONE, even when you watched it go down', () => {
+    // The chime is the CREDIT and the groan is the hull; stacking both would
+    // smear one second into two overlapping low tones for nothing gained.
+    const { sink, play } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'me', seen: true }));
+    expect(toneIds(play)).toEqual(['kill']);
+  });
+
+  // --- A SINKING IS TERMINAL, NOT A SALVO (review gate) ---------------------
+  //
+  // The 300ms floor answers "how often may ONE SOURCE make a noise". Two hulls
+  // going down are two sources — and a hull sinks exactly once. In a ring-closure
+  // scrum the feed prints both lines; both must be heard.
+  const sunkAt = (t: number, event: unknown): unknown =>
+    ({ t, tick: 5, ackSeq: 0, spec: true, contacts: [], mines: [], events: [event] });
+
+  it('TWO hulls sinking 200ms apart both groan — a sinking is not rate-limited', () => {
+    const { sink, play } = setupSunk();
+    sink.handler(sunkAt(1000, { k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    sink.handler(sunkAt(1200, { k: 'sunk', id: 'other', by: 'killer', seen: true }));
+    expect(toneIds(play)).toEqual(['sunkWitness', 'sunkWitness']);
+  });
+
+  it('a witnessed wreck we can no longer PLACE still sounds — unpanned, at the floor', () => {
+    // We saw it go down, so the FACT is legitimately ours; only the bearing is
+    // unavailable (the contact aged out of the store). Dropping the cue would
+    // withhold something already disclosed.
+    const { sink, play } = setupSunk(undefined, null);
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    expect(play).toHaveBeenCalledWith('sunkWitness', { pan: 0, gain: CLIENT_CONFIG.audio.worldFloorGain });
   });
 });
 
@@ -844,7 +930,15 @@ function victimFrame(
   };
 }
 
-function setupWater(ownFire: OwnFire = null) {
+function setupWater(
+  ownFire: OwnFire = null,
+  camera: { x: number; y: number } = { x: 0, y: 0 },
+  // The own-correlated blast radius (render/aimPreview.ownBurstRadius): a number
+  // for a burst the click latch claims as OURS, undefined for every burst we
+  // cannot honestly claim. It sizes the ring AND — since the review gate — the
+  // own-hull cue suppression, so the suite can drive both from one seam.
+  burstRadius: number | undefined = undefined,
+) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink } as unknown as Connection;
@@ -874,9 +968,9 @@ function setupWater(ownFire: OwnFire = null) {
     contactViews: { flash },
     mines: { sync: vi.fn() },
     // The own-private preview seams (aim-preview cycle): the burst ring's
-    // effective radius and the own-mine rings. Both fail to `undefined` here,
-    // which is exactly the pre-stats behavior (CONFIG default / no rings).
-    ownBurstRadius: () => undefined,
+    // effective radius and the own-mine rings. Both fail to `undefined` by
+    // default, which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => burstRadius,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
@@ -884,6 +978,9 @@ function setupWater(ownFire: OwnFire = null) {
     effects: { spawnEffect },
     shake: { trigger },
     audio: { play },
+    // Story 4.7: the listener falls back to the camera on the spec-frame cases
+    // this harness also drives (victimFrame with a null `you`).
+    cameraCenter: () => camera,
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     onSpectate: vi.fn(),
@@ -1060,14 +1157,20 @@ describe('the gunnery rows (Story 4.3) — mz / sp / hc', () => {
     // shooter and are not told who they are. It still draws.
     sink.handler(victimFrame([{ k: 'mz', x: 420, y: -80 }], {}));
     expect(spawnEffect).toHaveBeenCalledWith('muzzle', 420, -80);
-    expect(play).not.toHaveBeenCalled(); // the flash is silent — no tone exists for it
+    // STORY 4.7 SUPERSEDES the original "the flash is silent" assertion: the
+    // flash now has its report. The tone carries exactly what the flash carries
+    // — a place — and no identity, because the row has none.
+    expect(play).toHaveBeenCalledWith('gunReport', expect.anything());
   });
 
   it('spawns our own fall of shot at the true impact point', () => {
     const { sink, spawnEffect, play } = setupWater();
     sink.handler(victimFrame([{ k: 'sp', id: 'me', x: 500, y: 260 }], {}));
     expect(spawnEffect).toHaveBeenCalledWith('splash', 500, 260);
-    expect(play).not.toHaveBeenCalled(); // a miss has no cue
+    // STORY 4.7 SUPERSEDES "a miss has no cue": a miss is INFORMATION (FR16's
+    // bracket-and-walk), and it now sounds — softly, at the far end of the
+    // catalog from the hit.
+    expect(play).toHaveBeenCalledWith('splash', expect.anything());
   });
 
   it('blooms AND calls the hit when something we fired connects', () => {
@@ -1525,5 +1628,291 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     sink.handler({ t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [{ k: 'fh', h: 'standard', b: 0, v: 1 }] });
     expect(playHorn).toHaveBeenCalledTimes(1);
     expect(play).not.toHaveBeenCalled();
+  });
+});
+
+// --- THE SOUND MAP (Story 4.7) — the ocean's world cues ---------------------
+//
+// Five call sites, one contract: a cue rides an event this client ALREADY
+// received through the perception boundary, at a position it has ALREADY drawn,
+// and it is placed relative to where the player is listening from. Nothing here
+// is new information — a modified client that deleted the whole family would
+// learn nothing it did not have — which is exactly why panning it is free.
+//
+// The disclosure half of the story (a fog kill stays silent) is pinned in the
+// `sunk` suite above, beside the plume rule it shares.
+
+describe('the sound map (Story 4.7) — placement, suppression, and the tone floor', () => {
+  /** Every tone id played, in order (the family/exclusivity assertions). */
+  const ids = (play: ReturnType<typeof vi.fn>): string[] => play.mock.calls.map(([id]) => id as string);
+  /** The opts of the FIRST call carrying tone id `want`. */
+  const optsOf = (play: ReturnType<typeof vi.fn>, want: string): { pan: number; gain: number } =>
+    play.mock.calls.find(([id]) => id === want)?.[1] as { pan: number; gain: number };
+  /** ...and of the LAST one (the two-cues-in-a-row placement assertions). */
+  const lastOptsOf = (play: ReturnType<typeof vi.fn>, want: string): { pan: number; gain: number } =>
+    [...play.mock.calls].reverse().find(([id]) => id === want)?.[1] as { pan: number; gain: number };
+
+  it('an ENEMY muzzle flash reports — attenuated, and panned toward the flash', () => {
+    const { sink, play } = setupWater();
+    // Own hull at the origin; the flash is well off to starboard.
+    sink.handler(victimFrame([{ k: 'mz', x: 330, y: 0 }], {}));
+    expect(ids(play)).toEqual(['gunReport']);
+    const opts = optsOf(play, 'gunReport');
+    expect(opts.pan).toBeCloseTo(0.5 * CLIENT_CONFIG.audio.panMax, 5); // half a reach to starboard
+    expect(opts.gain).toBeGreaterThan(CLIENT_CONFIG.audio.worldFloorGain);
+    expect(opts.gain).toBeLessThan(1);
+  });
+
+  it('...and to PORT the pan flips sign, so the ear is pointed at the mark the eye can find', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'mz', x: -330, y: 0 }], {}));
+    expect(optsOf(play, 'gunReport').pan).toBeLessThan(0);
+  });
+
+  it('OUR OWN gun is not double-sounded: a flash on our own hull is silent', () => {
+    // `fireGun`/`fireCannon` already sounded this shot at the instant we fired
+    // it. `mz` carries no shooter id (amendment 19), so hull proximity is the
+    // only discriminator available — and the correct one.
+    const { sink, play, spawnEffect } = setupWater();
+    sink.handler(victimFrame([{ k: 'mz', x: 0, y: 0 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0); // the flash still draws
+    expect(ids(play)).toEqual([]); // ...but says nothing
+  });
+
+  it('a cue FARTHER AWAY is quieter than a near one, and never falls below the floor', () => {
+    const { sink, play } = setupWater();
+    // Two frames a full floor apart, so the rate limit is not what is being
+    // measured — and both well clear of the own hull, so neither is suppressed.
+    sink.handler(victimFrame([{ k: 'mz', x: 200, y: 0 }], {}, { t: 1000 }));
+    sink.handler(victimFrame([{ k: 'mz', x: 640, y: 0 }], {}, { t: 2000 }));
+    const [near, far] = play.mock.calls.map(([, o]) => (o as { gain: number }).gain);
+    expect(far).toBeLessThan(near);
+    expect(far).toBeGreaterThanOrEqual(CLIENT_CONFIG.audio.worldFloorGain);
+  });
+
+  it('HIT AND MISS ARE OPPOSITE CUES: a connecting boom impacts, a falling one splashes', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', hit: 'foe', x: 200, y: 0 }], {}, { t: 1000 }));
+    expect(ids(play)).toEqual(['impact']);
+    sink.handler(victimFrame([{ k: 'boom', id: 's2', x: 210, y: 0 }], {}, { t: 2000 }));
+    expect(ids(play)).toEqual(['impact', 'splash']);
+  });
+
+  it('our own FALL OF SHOT splashes too — bracket-and-walk is audible through fog', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'sp', id: 'me', x: 400, y: 100 }], {}));
+    expect(ids(play)).toEqual(['splash']);
+  });
+
+  it('a BURST thuds on the impact family — the second half of report-then-boom', () => {
+    const { sink, play } = setupEvents();
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-7', x: 300, y: -120 }));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  it('the boom and the burst SHARE the impact floor — one detonation, one thud', () => {
+    // A gun shell bursting on a hull emits both in the same frame; they are one
+    // fact about one point, and two overlapping sawtooth punches are a smear.
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'boom', id: 's1', hit: 'foe', x: 120, y: 0 },
+      { k: 'burst', id: 's1', x: 120, y: 0 },
+    ], {}));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  it('...but the families are INDEPENDENT: a burst never silences a report', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'mz', x: 300, y: 0 },
+      { k: 'burst', id: 's1', x: 320, y: 0 },
+      { k: 'boom', id: 's2', x: 340, y: 0 },
+    ], {}));
+    expect([...ids(play)].sort()).toEqual(['gunReport', 'impact', 'splash']);
+  });
+
+  it('a rapid salvo collapses to ONE cue per family per floor — read from CONFIG, not a literal', () => {
+    const floor = CLIENT_CONFIG.gunnery.hitCallToneFloorMs; // the ratified 300ms same-source grammar
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'mz', x: 300, y: 0 },
+      { k: 'mz', x: 320, y: 40 },
+      { k: 'mz', x: 340, y: -40 },
+    ], {}, { t: 10_000 }));
+    expect(ids(play)).toEqual(['gunReport']);
+    // Still inside the floor: silent.
+    sink.handler(victimFrame([{ k: 'mz', x: 360, y: 0 }], {}, { t: 10_000 + floor - 1 }));
+    expect(ids(play)).toEqual(['gunReport']);
+    // The floor has elapsed against the FRAME's server clock: heard again.
+    sink.handler(victimFrame([{ k: 'mz', x: 380, y: 0 }], {}, { t: 10_000 + floor }));
+    expect(ids(play)).toEqual(['gunReport', 'gunReport']);
+  });
+
+  it('the listener is the OWN HULL while we have one', () => {
+    const { sink, play } = setupWater();
+    // Hull and mark at the SAME point, 300u from the world origin: a cue placed
+    // against anything but the hull (the origin, the camera) would pan off
+    // centre. A boom, not a flash — a flash there would be our own fire.
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', x: 300, y: 0 }], { x: 300, y: 0 }));
+    expect(optsOf(play, 'splash').pan).toBe(0);
+  });
+
+  it('...and the CAMERA CENTRE once we do not — the shipped foghorn precedent', () => {
+    // World cues keep sounding while spectating: you are watching the water, and
+    // every mark they point at is still being drawn (honkBearing's own rule).
+    const { sink, play } = setupWater(null, { x: 400, y: 0 });
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', x: 400, y: 0 }], null));
+    expect(optsOf(play, 'splash').pan).toBe(0); // on top of the camera, not of the origin
+  });
+
+  // --- THE VICTIM'S OWN HULL (review gate, amendment 37) --------------------
+  //
+  // Ordnance that resolved on OUR hull is already felt exactly once, in
+  // flushDamage's per-frame aggregate: one shake at the summed magnitude and
+  // one cue. Stacking a full-gain, dead-centre world cue on top of it is the
+  // smear amendment 37 exists to prevent — on the most common combat event in
+  // the game.
+
+  it('a boom that hit US is NOT double-sounded — the damage aggregate is the cue', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', hit: 'me', x: 0, y: 0 }], {}));
+    expect(ids(play)).toEqual([]);
+  });
+
+  it('...while a boom on an ENEMY hull still thuds', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', hit: 'foe', x: 120, y: 0 }], {}));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  it('the own-hull BURST is the same occurrence, and is silent too', () => {
+    // A gun shell bursting on our own hull emits `burst` at the clicked point,
+    // which is our hull. The damage we are about to feel IS that event.
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 0, y: 0 }], {}));
+    expect(ids(play)).toEqual([]);
+  });
+
+  it('...but a burst out on the water still thuds', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 300, y: -120 }], {}));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  // --- THE STALE OWN POSE (review gate) -------------------------------------
+  //
+  // `net.you` is never cleared on death, so the wreck's last pose survives the
+  // whole spectate period. Both audio consumers of "where am I" must ask
+  // whether we have a LIVE hull, not merely whether a pose is on hand.
+
+  it('SPECTATING: a cue is placed from the CAMERA, never from the stale wreck pose', () => {
+    const { sink, play } = setupWater(null, { x: 0, y: 0 });
+    // Alive, far to starboard of the camera...
+    sink.handler(victimFrame([], { x: 500, y: 0 }, { t: 1000 }));
+    // ...then dead: a spec frame carries no `you`, so the 500u pose persists.
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', x: 400, y: 0 }], null, { t: 2000 }));
+    // From the camera the mark is to STARBOARD; from the wreck it would be to port.
+    expect(optsOf(play, 'splash').pan).toBeGreaterThan(0);
+  });
+
+  it('SPECTATING: a flash near where we sank is NOT mistaken for our own gun', () => {
+    // Own-fire suppression exists because `fireGun` already sounded the shot.
+    // A spectator fires nothing, so suppressing here silences an enemy gun for
+    // the whole spectate period — flash drawn, no report.
+    const { sink, play, spawnEffect } = setupWater(null, { x: 0, y: 0 });
+    sink.handler(victimFrame([], { x: 500, y: 0 }, { t: 1000 }));
+    sink.handler(victimFrame([{ k: 'mz', x: 500, y: 0 }], null, { t: 2000 }));
+    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 500, 0);
+    expect(ids(play)).toEqual(['gunReport']);
+  });
+
+  // --- THE SUPPRESSION BALL IS THE BLAST, NOT THE HULL (review gate) ---------
+  //
+  // The own-hull burst suppression exists for ONE reason: a burst centred on us
+  // is the same occurrence as the damage we are already feeling this frame, and
+  // `damage`/`burn` is that occurrence's one cue. So the question it must ask is
+  // "could this burst be the one I am feeling", which is a BLAST-RADIUS test.
+  // Keyed on a hull-length ball instead (124u, four times the widest base blast
+  // in the game) it silenced detonations that never touched us at all.
+
+  it('a burst 100u off our beam THUDS — it never touched us, so there is nothing to double', () => {
+    const { sink, play } = setupWater();
+    // 100u from the hull: no `dmg`, no `boom` on us, a ring filling the screen.
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 100, y: 0 }], {}));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  it('...and just OUTSIDE the base blast radius it still thuds', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: CONFIG.gun.burstRadius + 1, y: 0 }], {}));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  it('...while INSIDE it stays silent — that one really is the damage we are feeling', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: CONFIG.gun.burstRadius - 1, y: 0 }], {}));
+    expect(ids(play)).toEqual([]);
+  });
+
+  it('an OWN-correlated burst suppresses at ITS OWN effective radius, not the CONFIG base', () => {
+    // The same seam that sizes the ring (deps.ownBurstRadius) sizes the silence,
+    // so a FRAGMENTATION-widened blast we are standing in never double-sounds.
+    const { sink, play } = setupWater(null, { x: 0, y: 0 }, 60);
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 40, y: 0 }], {}));
+    expect(ids(play)).toEqual([]);
+  });
+
+  // --- THE SHOOTER'S OWN FALL OF SHOT OUTRANKS PUBLIC WORLD NOISE -----------
+  //
+  // `sp` exists precisely so a shooter's own misses render through fog and
+  // bracket-and-walk works (FR16, amendment 16). It is the one splash carrying
+  // information the client cannot otherwise obtain, so it must never be eaten by
+  // an enemy's splash that the player can already see.
+
+  it('an enemy splash does NOT starve our own fall of shot inside the floor', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's1', x: 200, y: 0 }], {}, { t: 1000 }));
+    expect(ids(play)).toEqual(['splash']);
+    // 150ms later — well inside the 300ms floor — our own miss lands elsewhere.
+    sink.handler(victimFrame([{ k: 'sp', id: 'me', x: -400, y: 0 }], {}, { t: 1150 }));
+    expect(ids(play)).toEqual(['splash', 'splash']);
+    expect(lastOptsOf(play, 'splash').pan).toBeLessThan(0); // ...and it is placed at OUR miss
+  });
+
+  it('...but our own misses still floor against EACH OTHER — one shooter, one source', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'sp', id: 'me', x: 300, y: 0 }], {}, { t: 1000 }));
+    sink.handler(victimFrame([{ k: 'sp', id: 'me', x: 320, y: 0 }], {}, { t: 1150 }));
+    expect(ids(play)).toEqual(['splash']);
+  });
+
+  it('the SAME miss arriving on both rows still sounds ONCE — same point, same frame', () => {
+    // A shooter who can SEE their own miss receives the public `boom` and the
+    // self-private `sp` in one frame at byte-identical coordinates. Two floors
+    // no longer collapse that pair, so the point-identity claim does — the same
+    // rule that keeps the two rows from stacking two splash MARKS.
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'boom', id: 's1', x: 400, y: 100 },
+      { k: 'sp', id: 'me', x: 400, y: 100 },
+    ], {}));
+    expect(ids(play)).toEqual(['splash']);
+  });
+
+  it('...and a SILENCED public row never eats the point on its way out', () => {
+    // The order inside splashTone is load-bearing: floor, then claim, then cue.
+    // Here an enemy splash spends the public floor, so the `boom` half of our own
+    // visible miss is refused a moment later — if that refusal still claimed the
+    // point, the self-private `sp` behind it would find nothing to claim and the
+    // shooter's own miss would go silent. That is the starvation the separate
+    // floors exist to close, re-entering through the back door.
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's0', x: 100, y: 0 }], {}, { t: 1000 }));
+    expect(ids(play)).toEqual(['splash']);
+    sink.handler(victimFrame([
+      { k: 'boom', id: 's1', x: 400, y: 100 },
+      { k: 'sp', id: 'me', x: 400, y: 100 },
+    ], {}, { t: 1100 }));
+    expect(ids(play)).toEqual(['splash', 'splash']); // ours is heard
   });
 });

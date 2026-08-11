@@ -156,7 +156,7 @@ development_status:
   4-5-the-foghorn: done  # 2026-08-05 cycle 50 (0.17.50); PV 25->26; amendments 51-61
   4-6-the-bounty: done  # 2026-08-10 cycle 73 (0.17.73); PV 32->33; amendments 216-221
   # SCOPE REDUCTION for both below, recorded not dropped (amendment 216): 4-7 loses the bloom's audio row, 4-8 loses it as a channel.
-  4-7-the-real-time-sound-map: backlog
+  4-7-the-real-time-sound-map: done  # 2026-08-10 cycle 74 (0.17.74); PV 33; amendments 228-238 (Reading C)
   4-8-attention-priority-the-readability-gate: backlog
   # THE RADAR PHYSICS ARC (4-9 .. 4-12) — design contract is amendments 100-118; on any
   # apparent conflict the amendments win and the conflict is REPORTED, not resolved.
