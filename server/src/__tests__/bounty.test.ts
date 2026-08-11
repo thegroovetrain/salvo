@@ -13,7 +13,7 @@
 // and perception.test.ts (the independent sunk oracle).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type HullId } from '@salvo/shared';
+import { isAfloat, LIFECYCLE_ALIVE, sunkAt, CONFIG, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { nextBountyHolder, type BountyCandidate } from '../game/bounty.js';
 
@@ -50,8 +50,11 @@ function captainKill(w: World, killer: string): void {
   w.sinkShip(vid, killer);
 }
 
-function cand(id: string, captainKills: number, alive = true, isDrone = false): BountyCandidate {
-  return { id, alive, isDrone, captainKills };
+/** A candidate snapshot. `afloat` is a test-authoring convenience only — the
+ *  rule itself reads the LIFECYCLE (Story 5.1, amendment 2), so the flag is
+ *  converted here, at the fixture, and nowhere in the module under test. */
+function cand(id: string, captainKills: number, afloat = true, isDrone = false): BountyCandidate {
+  return { id, lifecycle: afloat ? LIFECYCLE_ALIVE : sunkAt(0), isDrone, captainKills };
 }
 
 // ---------- the pure rule: nextBountyHolder ------------------------------------
@@ -260,7 +263,7 @@ describe('World — respawn() re-evaluates the throne (the ready-room-only third
     expect(w.bountyId).toBe('');
     expect(a.captainKills).toBe(2); // persists across the death (only redeployShip zeroes it)
     stepThroughRespawn(w);
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     // a (2) is the unique strict maximum among the alive captains (b=1, c=1) —
     // ≥ minCaptainKills — so the throne must re-crown a on this transition.
     expect(w.bountyId).toBe('a');
@@ -281,7 +284,7 @@ describe('World — respawn() re-evaluates the throne (the ready-room-only third
     expect(w.bountyId).toBe('a');
     expect(b.captainKills).toBe(3); // persists across the death
     stepThroughRespawn(w);
-    expect(b.alive).toBe(true);
+    expect(isAfloat(b.lifecycle)).toBe(true);
     // b (3) strictly exceeds the incumbent a (2) — the ratified transfer
     // condition — so the throne must move back to b on this transition.
     expect(w.bountyId).toBe('b');

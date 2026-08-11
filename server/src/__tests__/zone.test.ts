@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   CONFIG,
   isOutside,
   rollZoneRings,
@@ -307,7 +308,7 @@ describe('storm damage', () => {
     w.startZone();
     rec.hp = 0.1; // one storm tick will finish it
     w.step();
-    expect(rec.alive).toBe(false);
+    expect(isAfloat(rec.lifecycle)).toBe(false);
     expect(rec.deaths).toBe(1);
     expect(other.kills).toBe(0);
     const sunk = w.tickEvents.find((e) => e.k === 'sunk');

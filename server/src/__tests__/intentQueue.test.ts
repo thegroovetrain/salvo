@@ -9,7 +9,7 @@
 // never reset on death.
 
 import { describe, it, expect } from 'vitest';
-import { type InputMsg } from '@salvo/shared';
+import { isAfloat, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { InputStore, INTENT_QUEUE_CAP, INPUT_RATE_CAP } from '../game/inputs.js';
@@ -224,8 +224,8 @@ describe('intent-queue lifecycle discipline', () => {
     w.sinkShip('a');
     for (const s of [...w.shells.keys()]) w.shells.delete(s); // clear the board
     // Respawn happens through processRespawns in the waiting phase.
-    for (let i = 0; i < 200 && !a.alive; i++) w.step();
-    expect(a.alive).toBe(true);
+    for (let i = 0; i < 200 && !isAfloat(a.lifecycle); i++) w.step();
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.lastFireSeq).toBe(3); // NOT reset — the live input's counter stays consumed
     w.step();
     expect(w.shells.size).toBe(0); // no phantom shot on the respawn tick

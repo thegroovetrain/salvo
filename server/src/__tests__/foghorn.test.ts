@@ -9,7 +9,7 @@
 // reimplemented oracle (the header rule).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_HORN_ID, type FoghornEvent, type GameEvent } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_HORN_ID, type FoghornEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { neutralInput } from '../game/inputs.js';
 import { buildFrame } from '../game/frames.js';
@@ -182,7 +182,7 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     w.sinkShip('a');
     a.respawnAt = w.now + DT;
     w.step(); // respawns this tick
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.nextHonkAt).toBe(0); // stale cooldown wiped
     expect(a.lastHornSeq).toBe(1); // counter NOT reset (phantom-honk guard)
     expect(honks(w.tickEvents)).toHaveLength(0); // and no phantom honk fired

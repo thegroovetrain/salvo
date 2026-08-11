@@ -13,6 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   CONFIG,
   SLOT_EXTRA,
   SLOT_GUN,
@@ -259,7 +260,7 @@ describe('World.applyBoon — two homes, nothing else', () => {
     w.step(); // flush the join spawn event
     a.hp = 55;
     const before = {
-      hp: a.hp, alive: a.alive, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
+      hp: a.hp, lifecycle: a.lifecycle, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
       damageDealt: a.damageDealt, lastFireSeq: a.lastFireSeq, lastActSeq: a.lastActSeq,
       respawnAt: a.respawnAt, sweepAngle: a.sweepAngle,
       offers: [...a.offers], state: { ...a.state },
@@ -270,7 +271,7 @@ describe('World.applyBoon — two homes, nothing else', () => {
     expect(w.tickEvents.filter((e) => e.k === 'pt' || e.k === 'bn')).toEqual([]);
     expect(a.hp).toBe(55); // NOT healed (no grant side effects — unlike hullPoints upgrades)
     expect({
-      hp: a.hp, alive: a.alive, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
+      hp: a.hp, lifecycle: a.lifecycle, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
       damageDealt: a.damageDealt, lastFireSeq: a.lastFireSeq, lastActSeq: a.lastActSeq,
       respawnAt: before.respawnAt, sweepAngle: before.sweepAngle,
       offers: [...a.offers], state: before.state,
@@ -394,10 +395,10 @@ describe('lifecycle — redeployShip wipes boons, respawn preserves the build', 
     w.applyBoon(a, 'ironPlating');
     w.applyBoon(a, 'bolterRack');
     w.sinkShip(a.id);
-    expect(a.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
     const ticks = Math.ceil(CONFIG.ship.respawnDelay / DT) + 1;
     for (let i = 0; i < ticks; i++) w.step();
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.boons).toEqual(['ironPlating', 'bolterRack']);
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp, boon fold included

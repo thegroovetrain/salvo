@@ -12,6 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   BOON_CATALOG,
   CONFIG,
   HEAL_CHOICE,
@@ -215,7 +216,7 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
     // CONFIG.bounty.killLevels for sinking the holder — both to a corpse.
     expect(a.offers).toHaveLength(2);
     expect(a.level).toBe(2); // kill XP is NOT alive-gated (Story 2.6)
-    expect(a.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
     expect(a.hp).toBe(0); // earning is inert — a corpse banks, nothing heals
   });
 });
@@ -371,7 +372,7 @@ describe('spendPoint — validation table', () => {
     bank(w, a, 1);
     w.respawnEnabled = false;
     w.sinkShip('a');
-    expect(a.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
     const pick = a.offers[0][0];
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.boons).toEqual([pick]);
@@ -479,7 +480,7 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     a.hp -= 50;
     w.respawnEnabled = false;
     w.sinkShip('a');
-    expect(a.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
     expect(a.offers).toHaveLength(1); // banked, unlike a CARD pick which is legal dead
     expect(a.repairHp).toBe(0);
@@ -560,7 +561,7 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     w.sinkShip('a'); // respawnEnabled (waiting phase) — zeroed here...
     const ticks = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
     for (let i = 0; i < ticks; i++) w.step();
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.repairHp).toBe(0); // ...and again on the way back
     a.hp = a.stats.maxHp - 100;
     w.spendPoint('a', HEAL_CHOICE);
@@ -870,7 +871,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     const xpBefore = a.xpMs;
     w.sinkShip('a');
     for (let i = 0; i < Math.ceil(CONFIG.ship.respawnDelay / DT) + 1; i++) w.step();
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.boons).toEqual(['shipHull', 'shipHull']);
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp

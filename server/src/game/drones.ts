@@ -30,6 +30,7 @@ import {
   angleDiff,
   bearing,
   dist,
+  isAfloat,
   isOutside,
   islandDistance,
   mulberry32,
@@ -119,7 +120,7 @@ export class DroneController {
         this.minds.delete(id);
         continue;
       }
-      if (!ship.alive) continue;
+      if (!isAfloat(ship.lifecycle)) continue;
       this.world.submitInput(id, this.buildInput(ship, mind));
     }
   }

@@ -6,7 +6,7 @@
 // payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 
@@ -149,7 +149,7 @@ describe('match — waiting phase (ready room)', () => {
     injectShell(ctx, 's1', 'ghost', a.state.x - 20, a.state.y); // point blank on a
     stepUntilBoom(ctx); // impact still visible (boom emitted)...
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // ...but no hp is lost
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(ctx.w.tickEvents.some((e) => e.k === 'dmg')).toBe(false);
   });
 
@@ -171,7 +171,7 @@ describe('match — waiting phase (ready room)', () => {
     expect(ctx.w.mines.size).toBe(0); // triggered + despawned
     expect(ctx.w.tickEvents.some((e) => e.k === 'boom')).toBe(true);
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // no hp lost — damage is suppressed
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
   });
 
   it('keeps the respawn loop alive', () => {
@@ -180,7 +180,7 @@ describe('match — waiting phase (ready room)', () => {
     const a = ctx.w.ships.get('a')!;
     expect(a.respawnAt).toBeGreaterThan(0);
     step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 1);
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
   });
 });
 
@@ -238,7 +238,7 @@ describe('match — countdown', () => {
     expect(ctx.w.xpEnabled).toBe(true); // the passive tick starts with the match
     for (const ship of ctx.w.ships.values()) {
       expect(ship.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-      expect(ship.alive).toBe(true);
+      expect(isAfloat(ship.lifecycle)).toBe(true);
       expect(Math.hypot(ship.state.x, ship.state.y)).toBeCloseTo(ctx.w.map.spawnRing, 6);
       // Full pools on every weapon slot (0-2; slot 3 is the empty extra slot).
       expect(ship.loadout.slice(0, 3).every((s) => s.state!.n > 0 && s.state!.reloadMsLeft === 0)).toBe(true);
@@ -287,7 +287,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
     ctx.w.sinkShip('a');
     step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 1);
     expect(ctx.m.phase).toBe('gathering'); // still inside the window
-    expect(ctx.w.ships.get('a')!.alive).toBe(true);
+    expect(isAfloat(ctx.w.ships.get('a')!.lifecycle)).toBe(true);
   });
 
   it('a join during the window never resets the timer', () => {
@@ -358,7 +358,7 @@ describe('match — active phase', () => {
     const c = ctx.w.ships.get('c')!;
     expect(c.respawnAt).toBe(0);
     step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 2);
-    expect(c.alive).toBe(false);
+    expect(isAfloat(c.lifecycle)).toBe(false);
     expect(ctx.m.phase).toBe('active'); // two humans still afloat
   });
 

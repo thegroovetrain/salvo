@@ -9,7 +9,7 @@
 // NEVER import ./main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, angleDiff, zoneClosedAtMs, type HullId } from '@salvo/shared';
+import { CONFIG, LIFECYCLE_ALIVE, SHIP_CLASS_IDS, angleDiff, sunkAt, zoneClosedAtMs, type HullId } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
@@ -686,10 +686,12 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     expect(throttles[killTick - 1]).toBeLessThan(0); // confirms the kill lands mid-burst
 
     // Die for a few ticks — resetSeamanship runs (idempotently) on every dead
-    // tick, and no input is submitted while dead (world.ts alive-gates the
-    // real spend/submit paths the same way).
+    // tick, and no input is submitted while dead (world.ts afloat-gates the
+    // real spend/submit paths the same way). The lifecycle is puppeteered by
+    // CONSTRUCTION here, not by an edge: the write repeats every tick, and
+    // `sinkInstant` from an already-sunk hull is (correctly) illegal.
     for (let t = killTick; t < reviveTick; t += 1) {
-      cap.alive = false;
+      cap.lifecycle = sunkAt(w.now);
       pilot.tick(w);
       w.step();
     }
@@ -699,7 +701,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // tick's displacement read would see moved=0 at the old rock and could
     // misread as an instant stuck tick. stepDistance instead returns Infinity
     // on an unknown first step (see pilots.ts), so it cannot.
-    cap.alive = true;
+    cap.lifecycle = LIFECYCLE_ALIVE;
     cap.state.x = pose.x;
     cap.state.y = pose.y;
     cap.state.speed = 0;

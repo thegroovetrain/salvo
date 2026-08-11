@@ -11,7 +11,7 @@
 // approximation.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type GameEvent, type HullId } from '@salvo/shared';
+import { isAfloat, CONFIG, type GameEvent, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -230,7 +230,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     place(w, 'b', 100, 0);
     w.sinkShip('a', 'b'); // a dies first — and this crowns b (Story 4.6: 1 captain kill, unique max)
     w.sinkShip('b', 'a'); // ...a's shell still lands, now on the BOUNTY HOLDER
-    expect(a.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
     // The mutual destruction's second sink stacks the bounty bonus on the
     // standard captain level (Story 4.6): the dead killer banks BOTH.
     expect(a.level).toBe(XP.killLevels + CONFIG.bounty.killLevels);

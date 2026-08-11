@@ -18,7 +18,7 @@
 //     plain ticking (lifecycle events only).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CONFIG, MSG, mulberry32, type ResultsMsg, type Rng } from '@salvo/shared';
+import { CONFIG, LIFECYCLE_ALIVE, MSG, mulberry32, type ResultsMsg, type Rng, type ShipLifecycle } from '@salvo/shared';
 import { ClientState, CloseCode } from 'colyseus';
 import { World } from '../game/world.js';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
@@ -471,7 +471,7 @@ describe('JOINING-deadline kick', () => {
 // JOIN_ROOM ack squats forever (roster slot, win-check ship, growing buffer).
 
 interface ResumeRoom {
-  world: { ships: Map<string, { alive: boolean }> };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }> };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   clients: JoinClient[];
@@ -482,7 +482,7 @@ interface ResumeRoom {
 
 async function resumedDeadline(newClient: JoinClient): Promise<() => void> {
   const room = new ArenaRoom() as unknown as ResumeRoom;
-  room.world = { ships: new Map([['a', { alive: true }]]) };
+  room.world = { ships: new Map([['a', { lifecycle: LIFECYCLE_ALIVE }]]) };
   room.match = { phase: 'active' };
   room.lastResults = null;
   room.clients = [newClient];

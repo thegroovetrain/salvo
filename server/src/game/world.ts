@@ -19,6 +19,7 @@ import {
   EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   HOOK_REGISTRY,
+  LIFECYCLE_ALIVE,
   NO_BOONS,
   applyGroundingDamp,
   applySlotEffect,
@@ -35,6 +36,8 @@ import {
   generateMap,
   hookKinematics,
   isAcquisitionDef,
+  isAfloat,
+  isSunk,
   islandDistance,
   loadoutFor,
   nearestCoastPoint,
@@ -53,6 +56,7 @@ import {
   stepShell,
   stepShip,
   transformPolygon,
+  transitionLifecycle,
   wrapPositive,
   appendWakeSample,
   createShipWake,
@@ -87,6 +91,7 @@ import {
   type Rng,
   type ShellOutcome,
   type ShellState,
+  type ShipLifecycle,
   type ShipState,
   type StarShellsMode,
   type SunkEvent,
@@ -413,7 +418,28 @@ export interface ShipRecord {
   stats: EffectiveStats;
   state: ShipState;
   hp: number;
-  alive: boolean;
+  /**
+   * THE one representation of this hull's life and death (Story 5.1,
+   * amendment 2) — `alive: boolean` is REPLACED by it, never shadowed: a
+   * derived `alive` mirror would be two representations of one truth, the
+   * exact desync class effectiveStats() exists to prevent.
+   *
+   * Read it through the shared predicates, never by comparing `kind` inline:
+   * `isAfloat()` for "a live combatant the sim damages, steers and counts",
+   * `isSunk()` for "this life is over" (the respawn arm). They are exact
+   * complements TODAY only because `sinking` is unreachable (amendment 1);
+   * Story 5.2 makes them diverge, and every call site that went through the
+   * predicate moves with it for free.
+   *
+   * Written ONLY by the four named edges — construction (addShip, straight to
+   * LIFECYCLE_ALIVE), `sinkInstant` (sinkShip) and `redeploy` (redeployShip /
+   * respawn) — all through transitionLifecycle(), which validates against the
+   * one table. Nothing else assigns it.
+   *
+   * NOT on the wire (amendment 7): `OwnShip.alive` and `PlayerMeta.alive`
+   * stay booleans projected from isAfloat() by frames.ts / syncRoster().
+   */
+  lifecycle: ShipLifecycle;
   input: InputMsg; // latest applied input (validated + clamped)
   /**
    * EVERY input accepted for this ship since the previous tick, in seq order
@@ -978,7 +1004,12 @@ export class World {
       stats,
       state: { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x), speed: 0 },
       hp: stats.maxHp,
-      alive: true,
+      // CONSTRUCTION, not a transition (Story 5.1): a record that does not yet
+      // exist has no state to move FROM, so it is initialized to the shared
+      // frozen `alive` singleton rather than driven through the table. The
+      // three real `-> alive` edges (match-start redeploy, respawn) go through
+      // transitionLifecycle.
+      lifecycle: LIFECYCLE_ALIVE,
       input: neutralInput(),
       tickIntents: [],
       lastAckSeq: 0,
@@ -1099,7 +1130,10 @@ export class World {
     ship.boonBehaviors = NO_BEHAVIORS;
     ship.stats = effectiveStats(ship.cls);
     ship.hp = ship.stats.maxHp;
-    ship.alive = true;
+    // The match-start `redeploy` edge (Story 5.1, amendment 3): legal from ANY
+    // state — the common case is `alive -> alive` (a hull that never died being
+    // reset at the countdown->active boundary).
+    ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
     // A fresh life never inherits an open boost window — nor a slow or dazzle.
     ship.boostUntil = 0;
@@ -1150,7 +1184,10 @@ export class World {
    */
   sinkShip(id: string, by?: string): void {
     const ship = this.ships.get(id);
-    if (!ship || !ship.alive) return;
+    // THE SOLE IDEMPOTENCY LOCK (amendment 1): exactly one `sunk` event per
+    // hull per life hangs off this early return, and the `sinkInstant` edge
+    // below exists precisely so the transition it guards stays ONE move.
+    if (!ship || !isAfloat(ship.lifecycle)) return;
     // THE PRE-SINK BOUNTY READ (Story 4.6): captured before ANYTHING mutates —
     // the kill credit below may move the throne, and the bonus + the `bty`
     // channel are both about who held it at the instant of sinking. A
@@ -1158,7 +1195,11 @@ export class World {
     // the victim.
     const bountyMark = this.bountyMark(id, by);
     const victimHeldBounty = bountyMark === 'v';
-    ship.alive = false;
+    // `alive -> sunk` DIRECTLY (Story 5.1, amendment 1): sinking stays
+    // INSTANTANEOUS: `sinking` is declared-only until Story 5.2 builds the
+    // window, and splitting this one transition into sink+founder is exactly
+    // how the `sunk` event gets emitted twice or not at all.
+    ship.lifecycle = transitionLifecycle(ship.lifecycle, 'sinkInstant', this.now);
     ship.hp = 0;
     ship.state.speed = 0;
     // Close any open speed-boost window at the instant of death (Story 1.6): a
@@ -1233,7 +1274,7 @@ export class World {
   private recomputeBounty(): void {
     const cands: BountyCandidate[] = [];
     for (const s of this.ships.values()) {
-      cands.push({ id: s.id, alive: s.alive, isDrone: s.isDrone, captainKills: s.captainKills });
+      cands.push({ id: s.id, lifecycle: s.lifecycle, isDrone: s.isDrone, captainKills: s.captainKills });
     }
     this.bountyId = nextBountyHolder(this.bountyId, cands);
   }
@@ -1349,7 +1390,7 @@ export class World {
     ship.boonBehaviors = ship.boonDefs.length === 0 ? NO_BEHAVIORS : boonBehaviors(ship.boonDefs);
     const prevStats = ship.stats;
     ship.stats = effectiveStats(ship.cls, ship.boonDefs);
-    if (def?.healOnGrant === true && ship.alive) {
+    if (def?.healOnGrant === true && isAfloat(ship.lifecycle)) {
       const delta = Math.max(0, ship.stats.maxHp - prevStats.maxHp);
       ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);
     }
@@ -1486,7 +1527,7 @@ export class World {
    * four cards you passed on can be drawn again.
    */
   private spendHeal(ship: ShipRecord, front: BoonOffer): boolean {
-    if (!ship.alive || ship.hp >= ship.stats.maxHp) return false;
+    if (!isAfloat(ship.lifecycle) || ship.hp >= ship.stats.maxHp) return false;
     ship.offers.shift();
     ship.deck = returnCards(ship.deck, front);
     const dc = CONFIG.damageControl;
@@ -1586,8 +1627,8 @@ export class World {
     // position: dead LAST among the hp movers, after EVERY damage source this
     // tick (storm, ballistics, mine blasts, the incendiary DoT) has already
     // bitten and any lethal bite has already routed through sinkShip. Two
-    // things follow, both intended. (1) The alive gate reads POST-DAMAGE truth
-    // — a hull the storm sank this very tick is already `alive: false` with its
+    // things follow, both intended. (1) The afloat gate reads POST-DAMAGE truth
+    // — a hull the storm sank this very tick is already `sunk` with its
     // pool zeroed, so a regen pool can never un-sink a hull at 0 hp; damage
     // wins the tie by construction, with no explicit tie-break code. (2) The
     // storm overlap nets exactly (regen rate − stormDps) per tick, because both
@@ -1629,7 +1670,7 @@ export class World {
     this.processRespawns();
     // Passive XP (Story 2.6) — DELIBERATE step-order position: dead LAST, after
     // respawns and before the event swap. After respawns so a hull that came
-    // back this very tick is already alive for its own accrual (the alive gate
+    // back this very tick is already afloat for its own accrual (the afloat gate
     // reads post-respawn truth, not a one-tick-stale one); before the swap so a
     // level banked here publishes its `pt` event on THIS tick's frame rather
     // than trailing into the next one. Nothing downstream in the step reads XP,
@@ -1703,7 +1744,7 @@ export class World {
    *  the same effectiveStats() result, so prediction stays in lockstep. */
   private stepShips(dt: number): void {
     for (const ship of this.ships.values()) {
-      if (!ship.alive) continue;
+      if (!isAfloat(ship.lifecycle)) continue;
       // Snapshot the pre-kinematics pose (induction-valid) for resolveShipPose's
       // rollback branch, then advance.
       const p = ship.prevPose;
@@ -1749,7 +1790,7 @@ export class World {
    */
   private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
-      if (!ship.alive) continue;
+      if (!isAfloat(ship.lifecycle)) continue;
       const res = resolveShipPose(
         ship.prevPose,
         ship.state,
@@ -1782,7 +1823,7 @@ export class World {
   private sampleWakes(): void {
     for (const ship of this.ships.values()) {
       pruneWake(ship.wake, this.now);
-      if (ship.alive) appendWakeSample(ship.wake, ship.state.x, ship.state.y, this.now);
+      if (isAfloat(ship.lifecycle)) appendWakeSample(ship.wake, ship.state.x, ship.state.y, this.now);
     }
     for (const r of this.torpWakes.values()) pruneWake(r, this.now);
     for (let i = this.orphanWakes.length - 1; i >= 0; i--) {
@@ -1862,7 +1903,7 @@ export class World {
     const ring = this.zoneLiveRing;
     const bite = CONFIG.zone.stormDps * dt;
     for (const ship of this.ships.values()) {
-      if (!ship.alive || !isOutside(ship.state, ring.cx, ring.cy, ring.r)) continue;
+      if (!isAfloat(ship.lifecycle) || !isOutside(ship.state, ring.cx, ring.cy, ring.r)) continue;
       ship.hp -= bite;
       if (ship.hp <= 0) this.sinkShip(ship.id); // by=undefined — the storm has no killer
     }
@@ -1883,13 +1924,13 @@ export class World {
    * lives entirely in `repairHp += regenHp` at spend time, not here.
    *
    * Only LIVING hulls tick — a wreck's pool is already zeroed by sinkShip, so
-   * the alive gate is belt-and-braces against a directed caller.
+   * the afloat gate is belt-and-braces against a directed caller.
    */
   private tickRepairs(dtMs: number): void {
     const dc = CONFIG.damageControl;
     const budget = (dc.regenHp / dc.regenMs) * dtMs;
     for (const ship of this.ships.values()) {
-      if (!ship.alive || ship.repairHp <= 0) continue;
+      if (!isAfloat(ship.lifecycle) || ship.repairHp <= 0) continue;
       const paid = Math.min(budget, ship.repairHp);
       ship.repairHp -= paid; // wall-clock drain: spent even when the hp is clamped away
       ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
@@ -1903,7 +1944,7 @@ export class World {
   private aliveHulls(): HullTarget[] {
     const hulls: HullTarget[] = [];
     for (const ship of this.ships.values()) {
-      if (!ship.alive) continue;
+      if (!isAfloat(ship.lifecycle)) continue;
       const s = ship.state;
       transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading, ship.hullPoly);
       hulls.push({ id: ship.id, poly: ship.hullPoly });
@@ -2145,7 +2186,10 @@ export class World {
     let resolved = 0;
     for (const victimId of mineBlastVictims(m, hulls, blastRadius)) {
       const victim = this.ships.get(victimId);
-      if (!victim || !victim.alive) continue;
+      // Per-victim re-check against the DELIBERATELY STALE `hulls` snapshot: a
+      // hull sunk earlier this tick is still in it, and damage semantics live
+      // in this re-check rather than in the snapshot (amendment 5).
+      if (!victim || !isAfloat(victim.lifecycle)) continue;
       resolved += 1;
       this.hitShip(victim, damage, m.ownerId);
       // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
@@ -2271,7 +2315,7 @@ export class World {
     if (shell.lit) this.spawnLitZone(shell, outcome);
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
     const victim = this.ships.get(outcome.victimId);
-    if (!victim || !victim.alive) return;
+    if (!victim || !isAfloat(victim.lifecycle)) return;
     // EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05): a later
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
@@ -2315,7 +2359,7 @@ export class World {
       const id = terminal ? shell.id : `${shell.id}#p${h.order}`;
       this.pending.push({ k: 'boom', id, hit: h.victimId, x: h.x, y: h.y });
       const victim = this.ships.get(h.victimId);
-      if (victim && victim.alive) this.hitShip(victim, pierceDamage(shell.damage, h.order), shell.ownerId);
+      if (victim && isAfloat(victim.lifecycle)) this.hitShip(victim, pierceDamage(shell.damage, h.order), shell.ownerId);
     }
   }
 
@@ -2354,7 +2398,7 @@ export class World {
     if (shell.damage > 0) {
       for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
         const victim = this.ships.get(victimId);
-        if (!victim || !victim.alive) continue;
+        if (!victim || !isAfloat(victim.lifecycle)) continue;
         resolved += 1;
         this.hitShip(victim, shell.damage, shell.ownerId);
       }
@@ -2448,9 +2492,9 @@ export class World {
     const bite = CONFIG.starShells.incendiaryDps * dt;
     const burning = new Set<string>();
     for (const ship of this.ships.values()) {
-      if (!ship.alive) continue;
+      if (!isAfloat(ship.lifecycle)) continue;
       for (const ownerId of this.markZoneEffects(ship)) {
-        if (!ship.alive) break; // a mid-loop sink stops further burns
+        if (!isAfloat(ship.lifecycle)) break; // a mid-loop sink stops further burns
         burning.add(dotKey(ownerId, ship.id));
         this.burnShip(ship, bite, ownerId);
       }
@@ -2592,7 +2636,7 @@ export class World {
   private consumeClick(ship: ShipRecord, input: InputMsg): void {
     const clicked = input.fireSeq > ship.lastFireSeq;
     ship.lastFireSeq = Math.max(ship.lastFireSeq, input.fireSeq);
-    if (!ship.alive || !clicked) return;
+    if (!isAfloat(ship.lifecycle) || !clicked) return;
     // The CLICK channel dispatches WEAPONS ONLY — the mirror of
     // activationControl's ability wall (Story 1.6). A forged click naming an
     // ability or empty slot (e.g. a TB's speedBoost in slot 2) is silently
@@ -2670,7 +2714,7 @@ export class World {
   private consumePress(ship: ShipRecord, input: InputMsg): void {
     const activated = input.actSeq > ship.lastActSeq;
     ship.lastActSeq = Math.max(ship.lastActSeq, input.actSeq);
-    if (!ship.alive || !activated) return;
+    if (!isAfloat(ship.lifecycle) || !activated) return;
     // actSeq targets ABILITIES only: a weapon or empty slot is a no-op (no
     // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
     // the mirror of fireControl's weapon-only wall.
@@ -2714,7 +2758,7 @@ export class World {
   private consumeHonk(ship: ShipRecord, input: InputMsg): void {
     const pressed = input.hornSeq > ship.lastHornSeq;
     ship.lastHornSeq = Math.max(ship.lastHornSeq, input.hornSeq);
-    if (!pressed || !ship.alive || ship.isDrone || this.now < ship.nextHonkAt) return;
+    if (!pressed || !isAfloat(ship.lifecycle) || ship.isDrone || this.now < ship.nextHonkAt) return;
     ship.nextHonkAt = this.now + CONFIG.foghorn.cooldownMs;
     this.pending.push({ k: 'fh', h: ship.horn, x: ship.state.x, y: ship.state.y, id: ship.id });
   }
@@ -2740,7 +2784,7 @@ export class World {
     slotIndex: number,
     fireT: number = this.now,
   ): ActivationResult {
-    if (!ship.alive) return { ok: false, reason: 'dead' };
+    if (!isAfloat(ship.lifecycle)) return { ok: false, reason: 'dead' };
     const slot = ship.loadout[slotIndex];
     if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
     return EQUIPMENT[slot.equipmentId].activate(this.activationContext(ship, fireT), slot);
@@ -2953,7 +2997,7 @@ export class World {
   private tickXp(dtMs: number): void {
     if (!this.xpEnabled) return;
     for (const ship of this.ships.values()) {
-      if (ship.alive) this.addXpMs(ship, dtMs);
+      if (isAfloat(ship.lifecycle)) this.addXpMs(ship, dtMs);
     }
   }
 
@@ -2976,7 +3020,7 @@ export class World {
   private tickSmoke(): void {
     const bands = CONFIG.damageBands;
     for (const ship of this.ships.values()) {
-      if (!ship.alive || this.now < ship.nextSmokeAt) continue;
+      if (!isAfloat(ship.lifecycle) || this.now < ship.nextSmokeAt) continue;
       const frac = ship.hp / ship.stats.maxHp;
       if (frac >= bands.amberBelow) continue;
       ship.nextSmokeAt = this.now + CONFIG.smoke.puffIntervalMs;
@@ -2984,17 +3028,20 @@ export class World {
     }
   }
 
-  /** Bring sunk ships back on the ring once their respawn delay elapses. */
+  /** Bring sunk ships back on the ring once their respawn delay elapses.
+   *  isSunk(), NOT !isAfloat(): this gate means "this life is over" — the
+   *  TERMINAL state that armed `respawnAt` — and a hull merely on its way down
+   *  (Story 5.2's window) must not be revived out from under it. */
   private processRespawns(): void {
     for (const ship of this.ships.values()) {
-      if (ship.alive || ship.respawnAt === 0 || this.now < ship.respawnAt) continue;
+      if (!isSunk(ship.lifecycle) || ship.respawnAt === 0 || this.now < ship.respawnAt) continue;
       this.respawn(ship);
     }
   }
 
   private respawn(ship: ShipRecord): void {
     const occupied = [...this.ships.values()]
-      .filter((s) => s.id !== ship.id && s.alive)
+      .filter((s) => s.id !== ship.id && isAfloat(s.lifecycle))
       .map((s) => ({ x: s.state.x, y: s.state.y }));
     const p = pickSpawn(this.map, occupied, this.rng);
     ship.state.x = p.x;
@@ -3007,7 +3054,11 @@ export class World {
     // untouched here. (redeployShip, the match boundary, is where the whole
     // build, XP included, gets wiped.)
     ship.hp = ship.stats.maxHp;
-    ship.alive = true;
+    // The respawn `redeploy` edge (Story 5.1, amendment 3): `sunk -> alive`.
+    // Production-unreachable in a live match (damageEnabled and respawnEnabled
+    // are mutually exclusive by construction, match.ts) but driven by every
+    // standalone-World test, which defaults both flags true.
+    ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
     // The throne is a THIRD recompute seam (Story 4.6 gap fix, beside sinkShip
     // and removeShip): captainKills persists across the death (only

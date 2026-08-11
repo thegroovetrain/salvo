@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   CONFIG,
   hullSilhouette,
   inArc,
@@ -321,7 +322,7 @@ describe('World combat — burst at the clicked point', () => {
     b.hp = CONFIG.gun.damage; // one burst finishes it
     w.submitInput('a', gunInput(HALF_PI, 100));
     const events = stepCollect(w, 25);
-    expect(b.alive).toBe(false);
+    expect(isAfloat(b.lifecycle)).toBe(false);
     expect(a.kills).toBe(1);
     expect(b.deaths).toBe(1);
     expect(a.offers).toHaveLength(1); // the kill banked an upgrade point
@@ -407,7 +408,7 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     for (const d of dmgs) expect(d.amount).toBe(a.stats.gun.damage);
     expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 3 * a.stats.gun.damage);
     // A base triple mount is 45 into a 125hp hull — a real bite, not a kill.
-    expect(b.alive).toBe(true);
+    expect(isAfloat(b.lifecycle)).toBe(true);
   });
 
   it('AREA THROUGHPUT still holds: two hulls straddling the fan each take their own hits', () => {
@@ -487,7 +488,7 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
     w.submitInput('a', gunInput(HALF_PI, 300, 1, 1)); // click while dead
     const ticks = CONFIG.ship.respawnDelay / CONFIG.tick.simDtMs + 10;
     const events = stepCollect(w, ticks);
-    expect(a.alive).toBe(true); // it respawned along the way
+    expect(isAfloat(a.lifecycle)).toBe(true); // it respawned along the way
     expect(shellsOf(events)).toHaveLength(0); // the dead click never fired
     expect(a.lastFireSeq).toBe(1); // ...but it WAS consumed
   });
@@ -650,13 +651,13 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     // burst inside fireControl, b (iterated later) would already be dead and
     // never fire.
     expect(w.shells.size).toBe(2);
-    expect(a.alive).toBe(true);
-    expect(b.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
+    expect(isAfloat(b.lifecycle)).toBe(true);
     // Next tick: both resolve against the tick-start hull list — mutual kill.
     w.step();
     expect(w.shells.size).toBe(0);
-    expect(a.alive).toBe(false);
-    expect(b.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
+    expect(isAfloat(b.lifecycle)).toBe(false);
   });
 
   it('TORPEDO: bornAt back-dates and pre-advances the fish; FR7 owner immunity holds through the pre-step', () => {

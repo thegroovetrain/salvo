@@ -139,6 +139,7 @@ import {
   BOON_CATALOG,
   CONFIG,
   angleDiff,
+  isAfloat,
   mulberry32,
   nearestCoastPoint,
   type InputMsg,
@@ -237,7 +238,7 @@ function nearestEnemy(world: World, self: ShipRecord): { ship: ShipRecord; d: nu
   let best: ShipRecord | null = null;
   let bestD = Infinity;
   for (const ship of world.ships.values()) {
-    if (!ship.alive || ship.id === self.id) continue;
+    if (!isAfloat(ship.lifecycle) || ship.id === self.id) continue;
     const d = Math.hypot(ship.state.x - self.state.x, ship.state.y - self.state.y);
     if (d < bestD) {
       bestD = d;
@@ -379,7 +380,7 @@ class GunnerPilot implements CaptainPilot {
     // Spends are legal while dead (builds persist across waiting-phase deaths);
     // drain at most one banked level per tick through the REAL spend flow.
     if (ship.offers.length > 0) world.spendPoint(this.id, pickSpendChoice(ship.offers[0], this.rng, ship.boons));
-    if (!ship.alive) {
+    if (!isAfloat(ship.lifecycle)) {
       // A respawn teleports the hull: carrying the pre-death pose forward would
       // read as a giant displacement (harmless) or, worse, keep a stale stuck
       // count alive across the gap. Start the seamanship state clean.

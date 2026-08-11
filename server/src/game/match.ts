@@ -30,6 +30,7 @@
 
 import {
   CONFIG,
+  isAfloat,
   type HullId,
   type MatchPhase,
   type ResultsMsg,
@@ -486,14 +487,14 @@ export class Match {
   private aliveHumans(): ShipRecord[] {
     const out: ShipRecord[] = [];
     for (const s of this.world.ships.values()) {
-      if (!s.isDrone && s.alive) out.push(s);
+      if (!s.isDrone && isAfloat(s.lifecycle)) out.push(s);
     }
     return out;
   }
 
   private aliveDroneCount(): number {
     let n = 0;
-    for (const s of this.world.ships.values()) if (s.isDrone && s.alive) n += 1;
+    for (const s of this.world.ships.values()) if (s.isDrone && isAfloat(s.lifecycle)) n += 1;
     return n;
   }
 
