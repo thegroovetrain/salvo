@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-10  # cycle 73 (0.17.73)
+# last_updated: 2026-08-11  # epic-4 CLOSED (retro epic-4-retro-2026-08-11.md); last cycle 75 (0.17.75), PV 33
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -13,7 +13,7 @@
 #
 # Everything else has a home that is already canonical:
 #   rulings, amendments, design narrative, "what will bite the next agent"
-#       -> epic-N-context-amendments.md   (append-only; amendments 1-215 live there today)
+#       -> epic-N-context-amendments.md   (append-only; amendments 1-243 live there today)
 #   open threads, deferred work, review-gate defers
 #       -> deferred-work.md
 #   per-cycle implementation record
@@ -92,7 +92,7 @@
 #   cycle 72 (0.17.72)  the storm comes off the scope — amendment 128 retired
 
 generated: 2026-07-17
-last_updated: 2026-08-08
+last_updated: 2026-08-11
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -148,7 +148,7 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: in-progress  # see the interstitial cycle index above for non-story cycles in this epic
+  epic-4: done  # 11/12 stories landed cycles 41-75; 4-1 deferred by Eric ruling (amendment 1), number reserved. See the interstitial cycle index above for non-story cycles in this epic
   4-1-the-listening-ring: deferred  # 2026-08-04 Eric ruling; amendment 1; bmad-dev-auto-result-4-1-listening-ring-deferred.md
   4-2-class-legible-blips: done  # 2026-08-04 cycle 41 (0.17.41); PV 19->20; amendments 7-14
   4-3-the-gunnery-conversation: done  # 2026-08-04 cycle 43 (0.17.43); PV 21->22; amendments 15-20
@@ -164,7 +164,7 @@ development_status:
   4-10-the-physical-return-model: done  # 2026-08-07 cycle 61 (0.17.61); PV 30; amendments 127-137
   4-11-height-aware-radar-shadows: done  # 2026-08-08 cycle 68 (0.17.68); PV 31; amendments 176-188
   4-12-radar-wakes: done  # 2026-08-08 cycle 70 (0.17.70); PV 31->32; amendments 204-211
-  epic-4-retrospective: optional
+  epic-4-retrospective: done  # 2026-08-11 epic-4-retro-2026-08-11.md; unattended run; 1 significant-discovery alert (Story 5.4 radar re-derivation)
 
   # epic-5: The Living Ocean (GDD E4)
   epic-5: backlog
@@ -238,7 +238,7 @@ action_items:
   - epic: 4
     action: "Story 4-8 must not pin a listening-ring Tier-1 attention channel (deferred with 4-1); shipped Tier-1 set is the low-HP rail pulse + live denied pulse. Still owns resolving the tier-table <25%-vs-50% doc drift with Eric rather than inheriting the stale number"
     owner: "spec author (create-story 4-8)"
-    status: open
+    status: done  # cycle 75: Tier-1 set is railCritical + all denied pulses; the 25/50 'drift' was closed as a CATEGORY ERROR not a typo (amendment 239)
   - epic: 4
     action: "Weapon cooldown / TTK rebalance — LANDED as cycles 42 (global cooldown ruling) and 44 (per-weapon numbers, amendments 21-25, with the batch-sim pass cycle 42 skipped). Full record: epic-4-context-amendments.md, batch-sim-evidence-2026-08-04.md"
     owner: "ledger (Eric-gated)"
@@ -246,7 +246,7 @@ action_items:
   - epic: 4
     action: "Aggregate flash budget still has NO global mechanism. The ratified accessibility floor says no element or screen region flashes more than 3x/s regardless of how many compliant events stack — and the accessibility review wrote that rule FOR muzzle flashes and Hit Call blooms specifically. Story 4-3 shipped only the per-source 300ms tone floor; muzzle-carries is the FIRST feature that can actually bind the budget (up to 19 other hulls flashing inside your halo). Story 4-8 owns attention priority and is its natural home. Related: 4-3 promoted `muzzle` and `spark` out of isJuiceEffect, so 4-8 inherits a changed juice/information split"
     owner: "spec author (create-story 4-8)"
-    status: open
+    status: done  # cycle 75 built it: client/src/render/flashBudget.ts (coalesce, then DEGRADE — never delete; amendment 240)
   - epic: 2
     action: "DAMAGE CONTROL heal strip — LANDED as cycle 46 (0.17.46); PV 22->23. Discharges epic-2 amendment 38's level-heal item. Full record: amendments 58-64"
     owner: "ledger (Eric-gated)"
@@ -275,3 +275,39 @@ action_items:
     action: "THE STORM COMES OFF THE SCOPE — LANDED as cycle 72 (0.17.72); PV 32, client-only. The Story 4.10 storm wall is DELETED and amendment 128 retired with it, by PREFERENCE not defect. The storm still renders ON THE WATER exactly as before (Story 3.2's grammar untouched); it simply stops being a radar RETURN. Full record: the cycle-72 spec"
     owner: "ledger"
     status: done  # ONE thread left open and named in deferred-work.md — re-adding any storm return must re-derive amendment 128's AREA question from scratch rather than assuming the fixed-thickness wall is the safe default, because the wall WAS the compromise and the compromise is what Eric rejected
+  - epic: 4
+    action: "Re-derive Story 5.4 (Fog Banks) radar interaction against the SHIPPED physical return model before specifying it — its AC ('radar may still paint me') was written for binary LOS blips; size against amendment 108 and cycle 72's rejection of area returns (epic-4 retro significant-discovery alert)"
+    owner: "spec author (create-story 5-4)"
+    status: open
+  - epic: 4
+    action: "Ratify or retune CLIENT_CONFIG.flashBudget.degradeAlphaFactor (0.35) against the readability-gate close-up captures — ships stamped implementer draft (epic-4 retro action 2)"
+    owner: "Eric (looking pass)"
+    status: open
+  - epic: 4
+    action: "Rule the foghorn intel-truesight band fork — hearing rides intel range vs re-anchor the ladder; the obvious clamp is WRONG (it re-deafens on dazzle, undoing amendment 122)"
+    owner: "Eric (ruling)"
+    status: open
+  - epic: 4
+    action: "Rule the 1.5x-zoom radar-return / BR-chrome-bar overlap — backing scrim, band exclusion, or accept; not introduced by 4-8 (return grammar meets Story 3.3 bar)"
+    owner: "Eric (ruling)"
+    status: open
+  - epic: 4
+    action: "Run a deferred-work triage pass — 178 entries, 8 resolved, none triaged since 2026-07-18; partition resolved-by-later-work / still-open / needs-Eric as the 2026-07-18 cycle did"
+    owner: "interstitial chore"
+    status: open
+  - epic: 4
+    action: "Carry the human-playtest checkpoint a SECOND epic: BB endgame share + terminal-ring island pockets + epic-4's eye-dependent claims (wake legibility under clutter, degraded-flash catchability, 'threat channels read first')"
+    owner: "ledger (playtest checkpoint)"
+    status: open
+  - epic: 4
+    action: "7-5 doc batch grew by 7 rows (amendment 243); TWO of them are unspecified BEHAVIOUR not stale text (Tier-2-under-Tier-2; Tier-3-under-Tier-2-alone) and need a ruling, not a text edit"
+    owner: "Eric-gated 7-5 batch"
+    status: open
+  - epic: 4
+    action: "Prove 'threat channels read first' TEMPORALLY (video capture or per-channel alpha trace) — the readability gate proves everything except its own headline claim; arbitration is unit-pinned either way"
+    owner: "Epic 7 reference-device pass"
+    status: open
+  - epic: 4
+    action: "NFR1 whole-frame verdict vs 16.6ms on real hardware — never obtained this epic (headless rAF throttling; dev build invalid basis), now carrying a full epic of render growth (return heatmap, shadows, wakes, chop, flash budget)"
+    owner: "Story 7-1 (Chromebook perf pass)"
+    status: open
