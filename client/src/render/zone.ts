@@ -220,14 +220,23 @@ export class RevealOneShot {
    *  reveal already fires at most once per ring identity behind a `revealFloorMs`
    *  floor, so this claim can realistically never bind — it is the AGGREGATE
    *  guarantee stated in code rather than a filter this channel needs, and an
-   *  absent budget (tests, a caller from before Story 4.8) simply animates. */
+   *  absent budget (tests, a caller from before Story 4.8) simply animates.
+   *
+   *  THE CLAIM ONLY HAPPENS WHEN THE FLASH WILL ACTUALLY DRAW (review gate P3):
+   *  at `motion: 'off'` the amplitude is 0 and nothing renders, and the budget's
+   *  own contract is that a flash that did not flash must not consume budget (a
+   *  `'degrade'` verdict records nothing for exactly this reason). This is the
+   *  ordering every other claim site already uses — effects.ts claims after its
+   *  `peakAlpha <= 0` early-out, ships.ts and upgradeMenu.ts behind their motion
+   *  checks. The ring identity is still latched either way, so toggling motion
+   *  back on later cannot resurrect a flash for a ring the player already saw. */
   update(next: ZoneRing | null, nowMs: number, amp: number, budget?: FlashBudget): number {
     const key = ringKey(next);
     if (key !== null && key !== this.firedKey && nowMs - this.firedAt >= Z.revealFloorMs) {
       this.firedKey = key;
       this.firedAt = nowMs;
       this.firedAmp = amp;
-      this.firedDegraded = budget?.claim(FLASH_ELEMENTS.zoneReveal, nowMs) === 'degrade';
+      this.firedDegraded = amp > 0 && budget?.claim(FLASH_ELEMENTS.zoneReveal, nowMs) === 'degrade';
     }
     // The latched amplitude, CLAMPED to this frame's: the latch exists so a
     // motion level raised after the fact cannot resurrect a flash, but it must

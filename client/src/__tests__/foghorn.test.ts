@@ -35,7 +35,7 @@ import {
   bandGain,
   type HornBand,
 } from '../render/foghorn.js';
-import { FLASH_ELEMENTS, type FlashBudget, type FlashVerdict } from '../render/flashBudget.js';
+import { FLASH_ELEMENTS, createFlashBudget, type FlashBudget, type FlashVerdict } from '../render/flashBudget.js';
 import { isFogImmuneEffect, isJuiceEffect, effectPeakAlpha } from '../render/effects.js';
 import { bindRoom, type RoomBindingDeps } from '../net/roomBindings.js';
 import type { Connection } from '../net/connection.js';
@@ -642,8 +642,9 @@ describe('Foghorn — the pooled chevron list', () => {
 
 // --- the flash budget claim (Story 4.8 wave 2c) ------------------------------
 //
-// The chevron pop claims `FLASH_ELEMENTS.foghornChevron` at the honk's own
-// server time — the same clock its TTL fade ages against. A 'degrade' verdict
+// The chevron pop claims `FLASH_ELEMENTS.foghornChevron` on the PAGE-MONOTONIC
+// clock — the one every other claimant on the shared budget uses — while the
+// honk's SERVER timestamp `t` keeps driving the TTL fade. A 'degrade' verdict
 // must never touch presence, direction, band weight or the TTL fade: it is
 // scoped to the ONE motion-scaled channel the file header names, the pop-in
 // scale. Everything below reads the actual Pixi Graphics the adapter drives
@@ -657,7 +658,12 @@ describe('Foghorn — the flash-budget claim (Story 4.8 wave 2c)', () => {
     reset: () => {},
   });
 
-  it('claims FLASH_ELEMENTS.foghornChevron at the honk\'s own server time', () => {
+  it('claims FLASH_ELEMENTS.foghornChevron on the PAGE clock, not the honk\'s server time', () => {
+    // ONE BUDGET, ONE CLOCK (review gate P1). `f.t` is the server's clock, which
+    // starts at 0 at ROOM creation; every other claimant on this budget uses
+    // `performance.now()`, which starts at 0 at PAGE load. Claiming at `t` puts
+    // two clock domains into one sliding window — see the sweep test below for
+    // what that costs. The TTL fade still ages against `t` (asserted below).
     const claims: Array<[string, number]> = [];
     const budget: FlashBudget = {
       claim: (key, nowMs) => {
@@ -667,9 +673,41 @@ describe('Foghorn — the flash-budget claim (Story 4.8 wave 2c)', () => {
       coalesce: () => true,
       reset: () => {},
     };
-    const f = new Foghorn(new Container(), budget);
-    f.onHonk(0, 1, 1234);
-    expect(claims).toEqual([[FLASH_ELEMENTS.foghornChevron, 1234]]);
+    const f = new Foghorn(new Container(), budget, () => 5_000); // page clock
+    f.onHonk(0, 1, 3_600_000); // a room that has been up an hour
+    expect(claims).toEqual([[FLASH_ELEMENTS.foghornChevron, 5_000]]);
+  });
+
+  it('a honk never prunes the region onsets of a budget fed by the page clock', () => {
+    // The concrete damage of two clock domains: `SlidingFlashBudget.maybeSweep`
+    // fires on every 64th claim and prunes EVERY key against the CLAIMING call's
+    // clock. A honk landing on that sweep, stamped an hour ahead in server time,
+    // wipes every region's onset history — and the next three flashes per region
+    // animate when the ratified 3/s floor says they must degrade. That is the
+    // floor failing at exactly the heavy-stack moment it was written for.
+    const budget = createFlashBudget();
+    const page = 5_000;
+    const f = new Foghorn(new Container(), budget, () => page);
+    // 60 unrelated claims + the region's 3, leaving the honk as the 64th claim.
+    for (let i = 0; i < 60; i++) budget.claim(`k${i}`, page);
+    for (let i = 0; i < CLIENT_CONFIG.flashBudget.maxPerSecond; i++) {
+      expect(budget.claim('r0:0', page)).toBe('animate');
+    }
+    f.onHonk(0, 1, 3_600_000); // the sweeping claim
+    // The region's window is still full — a fourth flash there degrades.
+    expect(budget.claim('r0:0', page)).toBe('degrade');
+  });
+
+  it('the TTL fade still ages against the honk\'s SERVER timestamp', () => {
+    // The clock fix moves the CLAIM only. `t` is server-clock work and stays.
+    const layer = new Container();
+    const f = new Foghorn(layer, fakeBudget('animate'), () => 5_000);
+    f.onHonk(0, 3, 3_600_000);
+    const gfx = layer.children[0] as Graphics;
+    f.render(3_600_000 + 100, W / 2, H / 2, W, H);
+    expect(gfx.alpha).toBeCloseTo(chevronAlpha(100, chevronWeight(3).alpha), 9);
+    f.render(3_600_000 + TTL, W / 2, H / 2, W, H);
+    expect(f.liveMarks).toBe(0);
   });
 
   it('a DEGRADED chevron still renders: present, on the correct bearing, correct band weight, TTL fade intact — only the pop is gone', () => {

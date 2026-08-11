@@ -79,15 +79,31 @@ export interface FlashBudget {
 
 /**
  * Pure: the per-key onset list, minus everything outside the window at `nowMs`.
+ * The surviving predicate is "this onset is IN THE PAST and inside the window".
  *
  * PRUNED BY TIMESTAMP, NEVER BY COUNT. A backgrounded tab (or a long hitch)
  * jumps the clock by seconds; a count-based ring would keep those stale onsets
  * and burst-degrade the first real flashes after the restore, which is exactly
  * the accessibility promise inverted. Filtering also tolerates a non-monotonic
  * clock without assuming the list stays sorted.
+ *
+ * A FUTURE TIMESTAMP IS DROPPED, NOT RETAINED (review gate P2). `nowMs - t <
+ * windowMs` alone is true for ANY `t > nowMs` — a negative difference is always
+ * under the window — so an onset stamped ahead of the clock would survive every
+ * prune FOREVER: a permanent false `'degrade'` on that key, and a key the sweep
+ * can never collect. It is reachable through any backward clock movement, and
+ * it was reachable outright while a second clock domain claimed on this budget.
+ * The guard FAILS SAFE, toward `'animate'`: an onset whose timestamp cannot be
+ * trusted is dropped from the window rather than held against the next flash,
+ * because the budget's whole job is to be a ceiling on real flashes, not on
+ * bookkeeping artifacts. `t === nowMs` (a same-frame claim, difference 0) is IN
+ * the window and still counts, which is the common case for a stack.
  */
 function withinWindow(onsets: readonly number[], nowMs: number): number[] {
-  return onsets.filter((t) => nowMs - t < FB.windowMs);
+  return onsets.filter((t) => {
+    const age = nowMs - t;
+    return age >= 0 && age < FB.windowMs;
+  });
 }
 
 /** How many claims between sweeps of the onset map. Keys accumulate over a long

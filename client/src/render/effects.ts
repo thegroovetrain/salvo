@@ -140,6 +140,30 @@ export function isBudgetedFlash(kind: EffectKind): boolean {
 }
 
 /**
+ * Pure: may this kind be COALESCED — collapsed into a co-located same-kind mark
+ * already spawned this frame? Every kind may EXCEPT `burst`.
+ *
+ * The coalescer's principle is that two same-kind marks on the same point in one
+ * frame are ONE FACT, and that holds only while their specs are interchangeable.
+ * A `burst` ring is the one kind spawned with a PER-SPAWN RADIUS — the real
+ * blast extent, resolved per detonation (`spawnEffect`'s `radius` override, from
+ * roomBindings.handleBurst) — so two different-radius bursts inside the 0.1u
+ * coalescing quantum are NOT one fact: collapsing them keeps whichever arrived
+ * first, and when that is the smaller one the larger blast extent — real spatial
+ * information about a danger zone — never draws at all. Amendment 37's parent
+ * grammar SUMS magnitude rather than dropping it; a max-radius merge is not
+ * worth building here, and excluding a kind whose instances are not
+ * interchangeable is the simpler and more honest statement of the same law.
+ *
+ * THIS IS THE COALESCER ONLY. A burst still CLAIMS the budget and still degrades
+ * normally, so a burst stack is bounded exactly like every other flash — it just
+ * cannot silently delete a bigger blast on its way there.
+ */
+export function isCoalescableFlash(kind: EffectKind): boolean {
+  return kind !== 'burst';
+}
+
+/**
  * Pure: a one-shot's alpha at life fraction `k`, given its latched verdict.
  * Degraded = the flat `motion: 'off'` keyframe — `degradeAlphaFactor` of the
  * peak, held for the whole life, no ramp. The luminance CHANGE is what a flash
@@ -603,12 +627,14 @@ export class Effects {
    * same-kind flashes inside ONE frame are one fact, so they collapse to one
    * draw and only the survivor claims), then CLAIM. `collapsed` is the only
    * outcome that does not draw, and it is not a deletion: the mark it collapsed
-   * into is being drawn at the same point in the same frame.
+   * into is being drawn at the same point in the same frame — which is true
+   * only for the kinds `isCoalescableFlash` admits (the `burst`, alone, carries
+   * a per-spawn radius and is therefore never collapsed).
    */
   private arbitrate(kind: Exclude<EffectKind, 'wake'>, x: number, y: number): FlashVerdict | 'collapsed' {
     const gate = this.gate;
     if (gate === null || !isBudgetedFlash(kind)) return 'animate';
-    if (!gate.first(kind, x, y, this.frameId)) return 'collapsed';
+    if (isCoalescableFlash(kind) && !gate.first(kind, x, y, this.frameId)) return 'collapsed';
     return gate.claim(x, y);
   }
 

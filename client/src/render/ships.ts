@@ -205,6 +205,9 @@ export class ShipView {
    *  motion level's multiplier — `reduced` = a half-strength flash, full length). */
   private flashAmount = 1;
   private fade = 1; // sight fade multiplier (contacts fade in/out over 150ms)
+  /** Has this view ever been given a pose (`update()`)? Until it has, `gfx.position`
+   *  is Pixi's default (0,0) — a real map coordinate, and the wrong one. */
+  private positioned = false;
   private hullId: HullId;
   private style: ShipStyle;
 
@@ -256,12 +259,20 @@ export class ShipView {
    * AFTER the motion gate, so a flash the setting already suppressed spends no
    * budget. The hull's world position is its last rendered pose (`update()`);
    * a hull moves well under a region in the frame between the two.
+   *
+   * A VIEW WITH NO POSE YET NEVER CLAIMS (review gate P5). A ShipView created
+   * and damaged inside the same network batch flashes before its first
+   * `update()`, when `gfx.position` is still Pixi's default (0,0) — a real map
+   * coordinate, and the wrong one, so the claim would charge the map-centre
+   * region for a hull that is elsewhere: both a mis-degrade of THIS flash and a
+   * stolen onset from the flashes that legitimately land there. Fail toward
+   * ANIMATING, the direction every unwired path in this budget already fails.
    */
   flash(): void {
     const amount = motionIntensity(settings.current.motion);
     if (amount <= 0) return;
     const p = this.gfx.position;
-    const degraded = hullFlashGate !== null && hullFlashGate.claim(p.x, p.y) === 'degrade';
+    const degraded = this.positioned && hullFlashGate !== null && hullFlashGate.claim(p.x, p.y) === 'degrade';
     this.flashAmount = hullFlashIntensity(amount, degraded);
     this.flashUntil = performance.now() + CLIENT_CONFIG.ship.flashMs;
   }
@@ -280,6 +291,7 @@ export class ShipView {
 
   /** Position + orient the hull from a world pose, applying tint/alpha state. */
   update(x: number, y: number, heading: number): void {
+    this.positioned = true;
     this.gfx.position.set(x, y);
     this.gfx.rotation = heading;
     this.applyLook();

@@ -156,6 +156,27 @@ describe('the hull hit flash under a 20-hull stack', () => {
   });
 });
 
+describe('a hull that has never rendered never charges the wrong region', () => {
+  it('animates, and spends no onset, when the view has no pose yet', () => {
+    // `flash()` buckets by `this.gfx.position` — the LAST RENDERED pose. A
+    // ShipView created and damaged inside the same network batch flashes before
+    // its first `update()`, so it reads (0,0) and would charge the map-centre
+    // region for a hull that is somewhere else entirely. Fail SAFE: no claim, no
+    // mis-bucket, and the flash animates.
+    const budget = wireGate();
+    const unrendered = new ShipView(FALLBACK_STYLE, 'torpedoBoat'); // never update()d
+    unrendered.flash();
+    expect(unrendered.flashIntensityAt(performance.now())).toBe(1);
+    // ...and it did not eat an onset from the region it would have mis-bucketed
+    // into: three real hulls there still flash at full strength.
+    const real = Array.from({ length: FB.maxPerSecond }, (_, i) => hullAt(10 + i, 10)); // r0:0
+    for (const h of real) h.flash();
+    for (const h of real) expect(h.flashIntensityAt(performance.now())).toBe(1);
+    expect(budget.claim('r0:0', 1_000)).toBe('degrade'); // exactly three, no more
+    for (const h of [unrendered, ...real]) h.destroy();
+  });
+});
+
 describe('the hull flash at motion: \'off\' is unchanged by the budget', () => {
   it('does not flash and does not spend an onset', () => {
     settings.set({ motion: 'off' });

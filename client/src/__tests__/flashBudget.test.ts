@@ -58,6 +58,26 @@ describe('claim — the per-key sliding window', () => {
     expect(b.claim(KEY, 2_001)).toBe('degrade');
   });
 
+  it('a FUTURE-stamped onset never survives the window (and a same-instant one still counts)', () => {
+    // `nowMs - t < windowMs` is true for ANY t > nowMs — a negative difference is
+    // always under the window — so an onset stamped ahead of the clock would be
+    // retained FOREVER, degrading that key permanently and defeating the sweep's
+    // key cleanup. Reachable through any backward clock movement (and, before the
+    // foghorn's clock fix, through a second clock domain claiming on the same
+    // budget). The window's predicate is "in the PAST and inside the window", and
+    // it fails SAFE — an onset that cannot be trusted is dropped, i.e. toward
+    // 'animate'.
+    const b = createFlashBudget();
+    for (let i = 0; i < FB.maxPerSecond; i++) b.claim(KEY, 10_000); // stamped far ahead
+    expect(b.claim(KEY, 1_000)).toBe('animate'); // the real now is not held hostage
+    expect(b.claim(KEY, 1_001)).toBe('animate');
+    // ...and the correction must not overshoot: a same-frame claim (difference 0)
+    // is IN the window, so three of them still fill it.
+    const c = createFlashBudget();
+    for (let i = 0; i < FB.maxPerSecond; i++) expect(c.claim(KEY, 1_000)).toBe('animate');
+    expect(c.claim(KEY, 1_000)).toBe('degrade');
+  });
+
   it('keys are independent — one busy region never gags another', () => {
     const b = createFlashBudget();
     for (let i = 0; i < FB.maxPerSecond + 5; i++) b.claim('r0:0', 1_000);

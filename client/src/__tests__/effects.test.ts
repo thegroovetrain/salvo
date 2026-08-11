@@ -6,7 +6,7 @@
 // it stayed under the fog. Everything else stays in the fogged world.
 
 import { afterEach, describe, it, expect } from 'vitest';
-import { Container } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import {
   Effects,
   WorldFlashGate,
@@ -219,6 +219,41 @@ describe('coalescing — one frame, one cue (amendment 37 extended to visuals)',
       expect(budget.claim(regionKey(100, 100, 800, 600), 1_000)).toBe('animate');
     }
     expect(budget.claim(regionKey(100, 100, 800, 600), 1_000)).toBe('degrade');
+  });
+
+  it('never collapses a BURST — its instances are not interchangeable', () => {
+    // The coalescer's principle is that two co-located same-kind marks are ONE
+    // FACT, which holds only while their specs are identical. A `burst` ring is
+    // spawned with a PER-SPAWN RADIUS (the real blast extent —
+    // roomBindings.handleBurst), so collapsing two different-radius bursts inside
+    // the 0.1u quantum would drop the LARGER blast extent whenever the smaller
+    // arrived first: real spatial information about a danger zone, deleted. It is
+    // therefore excluded from the COALESCER only — it still claims budget and
+    // still degrades (next test).
+    const { fx } = harness();
+    const layer = new Container();
+    const solo = new Effects(layer, layer, layer);
+    solo.setFlashGate(null);
+    fx.spawnEffect('burst', 100, 100, 1, 20);
+    fx.spawnEffect('burst', 100, 100, 1, 60); // a much bigger blast, same water
+    expect(fx.liveShots).toHaveLength(2);
+    // …and the BIGGER extent really draws: the two rings' radii differ.
+    solo.spawnEffect('burst', 100, 100, 1, 20);
+    solo.spawnEffect('burst', 100, 100, 1, 60);
+    solo.update(0.3, 0); // late in the 0.35s life, where the two extents diverge
+    const radii = (layer.children.filter((c) => c instanceof Graphics && c.visible) as Graphics[])
+      .map((g) => g.getLocalBounds().width / 2)
+      .sort((a, b) => a - b);
+    expect(radii).toHaveLength(2);
+    expect(radii[1]).toBeGreaterThan(radii[0] * 2);
+  });
+
+  it('a burst STILL claims budget and degrades past the floor', () => {
+    const { fx } = harness();
+    for (let i = 0; i < 5; i++) fx.spawnEffect('burst', 100, 100, 1, 20 + i * 10);
+    expect(fx.liveShots).toHaveLength(5);
+    expect(fx.liveShots.filter((s) => !s.degraded)).toHaveLength(FB.maxPerSecond);
+    for (const s of fx.liveShots) expect(s.alpha).toBeGreaterThan(0);
   });
 
   it('budgets by SCREEN region — a busy region never gags a quiet one', () => {

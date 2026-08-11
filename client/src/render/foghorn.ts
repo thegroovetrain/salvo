@@ -317,6 +317,18 @@ interface LiveChevron {
  * requires at `motion: 'off'`. Undefined (no budget wired yet, or a caller that
  * never passes one — every existing test constructs a bare `Foghorn`) behaves
  * byte-identical to before this wave: every claim reads as `'animate'`.
+ *
+ * THE CLAIM IS ON THE PAGE-MONOTONIC CLOCK, NOT ON `t` (review gate P1). This
+ * module's own decay math is deliberately SERVER-clock (`serverNow - m.t`, the
+ * file header's rule), but the budget is SHARED with every other flash site in
+ * the client, and those all claim on `performance.now()`. The two clocks have
+ * unrelated origins — the server's starts at ROOM creation, the page's at LOAD
+ * — so mixing them into one sliding window both corrupts the periodic sweep
+ * (which prunes EVERY key against the claiming call's clock) and permanently
+ * mis-ages this key's own onsets. `WorldFlashGate` and `DeniedPulse` inject
+ * their clock for exactly this reason; so does this. `effects.ts` states the
+ * rule in as many words: *"One budget fed from two clocks would count a window
+ * that never existed."*
  */
 export class Foghorn {
   private readonly pool: Pool<Graphics>;
@@ -325,6 +337,9 @@ export class Foghorn {
   constructor(
     private readonly layer: Container,
     private readonly budget?: FlashBudget,
+    /** The shared flash budget's clock — page-monotonic, the house shape. Only
+     *  the budget CLAIM reads it; every decay here stays on server time. */
+    private readonly now: () => number = () => performance.now(),
   ) {
     this.pool = new Pool<Graphics>(() => this.makeChevronGraphics());
   }
@@ -376,10 +391,11 @@ export class Foghorn {
     this.drawChevron(gfx, weight);
     gfx.rotation = bearing;
     gfx.visible = true;
-    // Story 4.8 wave 2c: the ONSET claim, at `t` (the honk's own server time —
-    // the same clock its TTL fade ages against). No budget wired -> 'animate',
-    // byte-identical to every pre-wave behavior.
-    const verdict = this.budget?.claim(FLASH_ELEMENTS.foghornChevron, t) ?? 'animate';
+    // Story 4.8 wave 2c: the ONSET claim, on the SHARED budget's page-monotonic
+    // clock (never `t` — see the class doc). `t` is still stored on the mark
+    // below, because the TTL fade is server-clock work. No budget wired ->
+    // 'animate', byte-identical to every pre-wave behavior.
+    const verdict = this.budget?.claim(FLASH_ELEMENTS.foghornChevron, this.now()) ?? 'animate';
     this.marks.push({ gfx, t, bearing, weight, degraded: verdict === 'degrade' });
     this.retire(capOldest(this.marks, CH.maxMarks));
   }

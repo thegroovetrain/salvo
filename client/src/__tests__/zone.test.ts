@@ -393,6 +393,26 @@ describe('the reveal ONE-SHOT (amendment 17)', () => {
     expect(claims).toEqual([0]); // one onset, one claim, however many frames run
   });
 
+  it('spends NO onset for a flash the motion setting suppressed', () => {
+    // The budget's own contract: a flash that did not flash must not consume
+    // budget (a degraded claim records nothing for exactly this reason). At
+    // `motion: 'off'` the amplitude is 0 and the reveal draws nothing at all, so
+    // claiming there would charge the zoneReveal element for a flash no one saw
+    // — and the other three sites already order it this way (effects.ts claims
+    // after its `peakAlpha <= 0` early-out; ships.ts and upgradeMenu.ts gate the
+    // claim behind their motion checks).
+    const budget = createFlashBudget();
+    const claims: number[] = [];
+    const spy = { claim: (k: string, t: number) => (claims.push(t), budget.claim(k, t)), coalesce: budget.coalesce.bind(budget), reset: budget.reset.bind(budget) };
+    const os = new RevealOneShot();
+    expect(os.update(RING1, 0, 0, spy)).toBe(0); // motion off: nothing draws
+    expect(claims).toHaveLength(0);
+    // ...and the element's window is untouched: three real flashes still animate.
+    for (let i = 0; i < CLIENT_CONFIG.flashBudget.maxPerSecond; i++) {
+      expect(budget.claim(FLASH_ELEMENTS.zoneReveal, 0)).toBe('animate');
+    }
+  });
+
   it('a DEGRADED reveal still lands its mark — flat, full life, never zero', () => {
     // Force the verdict by filling the element's window first: the budget's
     // floor is `maxPerSecond` onsets, so the next claim degrades.
