@@ -3938,3 +3938,92 @@ Source: Eric ruling ("C.") at the question gate, plus the cycle's own review-gat
      per-category detunes that have been waiting since Story 2.9 — want a LISTENING PASS with Eric.
      That pass is the remaining half of Story 4.7's original charter and is ledgered in
      `deferred-work.md`, not silently closed by this cycle.
+
+## 2026-08-11 — Eric rulings, Story 4-8 pre-implementation question gate (bmad-dev-auto, cycle 75)
+
+Source: Eric, at the question gate. Full record with the 31-channel inventory, the seven doc
+disagreements and the reasoning behind each recommendation:
+`bmad-dev-auto-result-4-8-attention-priority-questions.md`.
+
+239. **THE TIER-1 HP CHANNEL IS THE CRIMSON BAND, AND THE 25%-vs-50% "DOC DRIFT" WAS A CATEGORY
+     ERROR, NOT A TYPO.** The discrepancy has been ledgered since Story 3-2 as documentation drift
+     awaiting correction (`deferred-work.md:323`) — EXPERIENCE.md's tier table says the Tier-1 HP
+     channel is *"HP Rail pulse <25%"*, the shipped rail breathes below 50%, and amendment 16
+     deliberately pinned the seam to the rail's own predicate so the number had a single source.
+     **Both documents were right the whole time and describe different things.** `<25%` is exactly
+     the CRIMSON `damage-marker` band ratified by amendment 41; 25-50% is the AMBER warning band.
+     Tier 1 is the THREAT tier, and the honest reading is that a warning is not a threat. Two
+     consequences make this the load-bearing choice rather than a wording preference. First, **the
+     amber corollary is only implementable if the amber rail is not Tier 1**: *"only the
+     highest-tier active amber channel pulses"* would otherwise resolve to "the rail always wins"
+     in every wounded endgame, since a 25-50% rail would permanently outrank the final-10s ring's
+     amber — the exact opposite of the rule's purpose. Second, **below-50% hull is not a rare
+     state**, so at the 50% reading Tier 1 is active through most of the back half of most fights,
+     pinning the storm vignette at its lit keyframe and preventing the final-10s ring from ever
+     pulsing at all: an arbitration whose entire purpose is keeping the climax readable would sit
+     permanently jammed in its climax state. **The rail's own display grammar does not move one
+     bit** — it still breathes below 50% at the same ramp, and `railPulsing` is untouched. What
+     changes is only WHEN the rail claims the threat tier, so no shipped behaviour regresses and
+     amendment 16's principle survives intact: the seam still composes a predicate the owning
+     module exports (now a `criticalBelow` sibling) rather than declaring a second threshold of its
+     own. EXPERIENCE.md and epics.md need no correction; `deferred-work.md:323`'s drift entry is
+     CLOSED as a misdiagnosis rather than fixed.
+
+240. **THE AGGREGATE FLASH BUDGET COALESCES, THEN DEGRADES — IT NEVER DELETES, BECAUSE ITS BIGGEST
+     STACKERS ARE DECLARED INFORMATION.** The accessibility floor (*"no element or screen region
+     flashes more than 3×/s regardless of how many compliant events stack"*, NFR13 /
+     EXPERIENCE.md:138 / DESIGN.md:256) has been ratified since day one and **has never had a
+     mechanism** (`deferred-work.md:447`); the client counts flashes per region nowhere. The reason
+     it was hard is that the worst stacking in the game is muzzle flashes, hull hit flashes and
+     fall-of-shot splashes, and Story 4.3 explicitly promoted `muzzle` and `spark` OUT of
+     `isJuiceEffect` — they are sanctioned sensor readings, so a budget that drops them deletes
+     information under exactly the load the floor was written for, violating the standing law that
+     the motion setting *"removes MOTION, never INFORMATION."* The mechanism is therefore two
+     stages, **neither of which invents a new principle**: (1) **COALESCE** — co-located same-kind
+     flashes within one frame collapse to a single draw, which is amendment 37's already-ratified
+     one-frame-one-cue grammar (*"one shake, one tone at the summed magnitude"*) extended from
+     audio to visuals; (2) **DEGRADE** — if a region is still over budget, further flashes render at
+     their **already-ratified `motion: 'off'` keyframe**, the static mark every channel is already
+     required to carry. Presence, position and weight survive BY CONSTRUCTION, because each channel
+     already guarantees its off-state carries the information; only the animation is spent. This
+     also means the budget can never be accused of leaking or hiding: the degraded rendering is a
+     state the game already ships and every player can already select.
+
+241. **TIER ARBITRATION STOPS AT HUD CHROME; THE FLASH BUDGET COVERS EVERYTHING INCLUDING THE
+     WATER.** The ratified tier table (EXPERIENCE.md:88-96) lists only HUD chrome, while
+     `epic-4-context.md:62` says 4.8 must arbitrate ALL channels landed by 4.2-4.12 including the
+     radar-physics visuals — and the inventory found **31 animated channels shipped, of which
+     exactly 2 are wired to the seam**, so 29 sat in the gap between those two statements. They are
+     split because they answer different questions. **A tier hold means "hold at your lit or dim
+     keyframe", which is a coherent instruction for a breathing widget and a meaningless one for a
+     120ms muzzle flash at a world position**; world effects are diegetic information, not chrome
+     competing for the eye — they ARE what the eye is hunting. So ~8 HUD chrome channels receive
+     tier assignments, and all 31 answer to the flash budget, whose floor says "element **or screen
+     region**" and would be gutted by exempting the water. This is also the scope decision that
+     keeps 4-8 to one cycle: the alternative (tiers over all 31) was put to Eric and declined, and
+     would have been split into two cycles explicitly rather than discovered halfway.
+
+242. **THE READABILITY GATE SHIPS AS A STAGED HEADLESS CAPTURE, NOT A MOCKUP AND NOT A VIBE.** The
+     only squint test of record (`EXPERIENCE.md:160`) was run on a static HTML mockup, which by
+     construction cannot show the thing 4.8 exists to bound — channels STACKING. The gate is a
+     dev-only staged worst-case scene (multiple contacts, torpedoes inbound, storm closing, kill
+     leader active, own hull critical), captured headlessly at both zoom extremes with the measured
+     per-frame cost alongside, written up as the documented check for Eric's review. The scene is
+     built to be reusable, so wiring it as a playable dev room option later is cheap if Eric wants
+     to fly it. This matches how every recent cycle produced evidence and keeps the gate an
+     artifact rather than an assertion.
+
+243. **RECORDED AT THE SAME GATE, NOT RULED: seven documentation disagreements across DESIGN.md /
+     EXPERIENCE.md / epics.md.** Beyond the HP threshold that amendment 239 closes, the gate's
+     investigation found: the Listening Ring still reads as ratified Tier-1 in all three spines
+     despite amendment 1's deferral; `epics.md:162` (UX-DR19) still carries the Bounty Bloom
+     unretired although DESIGN.md and EXPERIENCE.md struck it under amendment 216; the squint-test
+     staging says *"bounty active"* where the copy ruling made it *"kill leader"*; the Tier-2 rule
+     says *"unless a Tier 1 channel is active"* while Tier 3 says *"any higher tier"*, and no doc
+     states what a Tier-2 channel does under another Tier 2 or whether Tier 3 freezes under Tier 2
+     alone; and amendments 65/71's unqualified *"amber is RESERVED and UNASSIGNED"* language is
+     scoped to radar sensor provenance but reads as though it vacates amber's live HUD chrome role
+     (DESIGN.md:139). **All are stale text for the Eric-gated 7-5 doc-sync batch and none is edited
+     in-cycle.** This cycle implements the Tier-2/Tier-3 asymmetry LITERALLY as written (Tier 3
+     freezes under any higher tier including Tier 2 alone; a Tier-2 channel does not hold under
+     another Tier 2), and reads amber's HUD role as untouched by 65/71.
