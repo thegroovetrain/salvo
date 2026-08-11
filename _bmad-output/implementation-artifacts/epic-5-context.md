@@ -32,7 +32,7 @@ Epic 5 gives the ocean itself narrative texture and turns dying into a designed 
 ## Technical Decisions
 
 - **AR8 — STEP_ORDER as data.** `world.step()` iterates a named step array; sinking deceleration, whirlpool force, PvE roving, and future bot decisions are one-line reviewable insertions rather than hand-threaded logic.
-- **AR9 — lifecycle.ts is the one shared state machine.** `alive | sinking(since) | sunk(at)`, transitions validated in exactly one place, `sinking -> alive` reserved for a future heal; `match.ts`'s win predicate becomes one predicate over lifecycle states.
+- **AR9 — lifecycle.ts is the one shared state machine.** `alive | sinking(since) | sunk(at)`, transitions validated in exactly one place, `sinking -> alive` reserved for a future heal; `match.ts`'s win predicate becomes one predicate over lifecycle states. **AMENDED (amendment 3): AR9's return-edge list is INCOMPLETE against the shipped code** — `redeploy` (`any -> alive`: creation, match-start reset, respawn) also exists and is production-reachable every match. Build the table from amendment 3, not from AR9 alone.
 - **D4 — sinking-era win semantics.** Sinking ships stay win-eligible until fully sunk; last sinker among all-sinking survivors wins; same-tick mutual destruction is a draw. Deliberately kept as one cheap predicate so it stays revisitable.
 - **AR14 — hemisphere secrecy and dev tooling.** The whirlpool hemisphere lives in World state, never the map seed or wire. A dev-only fog-lift and dev spectate-all camera exist server-side, gated behind `HC_DEV_OPTIONS`.
 - **AR15 — hidden-information placement.** Whirlpool current math lives in shared sim (own-ship prediction needs it identical on both sides); fog-bank truesight modification is a perception-layer predicate change, integrated with existing observe()/invariant machinery; the hemisphere must be inferable only through observed motion, never a queryable flag.
@@ -54,5 +54,25 @@ Epic 5 gives the ocean itself narrative texture and turns dying into a designed 
 - **5.3 depends on 5.2** — the omniscient reveal and results flow trigger off the `sunk` lifecycle state that 5.2's sinking window transitions into.
 - **5.4 and 5.5 both extend the perception/shared-sim boundary** already established in earlier epics (Epic 4's perception invariants, the shared `stepShip`/prediction pattern) — own-ship prediction parity is a hard constraint for both, not new architecture.
 - **5.6's XP payout reuses Epic 2's hooks** (FR18 tier fractions) and its drone kinematics/HP must be rescaled against the Story 1.6 hull-speed rebalance (small/medium/large drone envelopes predate that rescale and need deliberate re-tuning here, updating the shipClasses identity test's drone table).
-- **Outbound to Epic 6:** the D4 win predicate this epic establishes is what FR31's participants-only win check (Story 6.3) builds on; roster-scaled map generation (Story 6.2) must scale fog-bank and whirlpool placement coherently along with island density, and both sides must keep rebuilding fog banks/whirlpool placement deterministically from the seed at any roster size.
+- **Outbound to Epic 6:** the D4 win predicate this epic establishes is what FR31's participants-only win check (Story 6.3) builds on — **AMENDED (amendment 4): the drone gate is dropped in Story 5.1, not 6.3, and Story 6-5 (Solo vs AI) now owes a termination rule for human-versus-drones**; roster-scaled map generation (Story 6.2) must scale fog-bank and whirlpool placement coherently along with island density, and both sides must keep rebuilding fog banks/whirlpool placement deterministically from the seed at any roster size.
 - **Inbound from Epic 3:** the BR Chrome Bar's persistence through the omniscient reveal was already built as part of the ratified survivor set in Epic 3 — this epic is where that persistence is actually exercised end-to-end for the first time.
+
+## Ratified Amendments (durable — survives recompiles)
+
+Full text: `epic-5-context-amendments.md`. On any conflict with the compiled content above, **the
+amendment wins**. Summary of the record as of 2026-08-11 (all Eric rulings, Story 5.1 question gate):
+
+1. **`sinking` is DECLARED-ONLY in Story 5.1** — the sim keeps `alive -> sunk` instantaneous; the state
+   is entered only by transition tests until Story 5.2.
+2. **`ShipRecord.alive` is REPLACED, not shadowed** — `lifecycle` is the only representation; no
+   compatibility boolean getter.
+3. **AR9's transition list is INCOMPLETE** — a `redeploy` (`any -> alive`) edge exists and is
+   production-reachable. `sunk -> alive` cannot fire in live play (damage and respawn policy are
+   mutually exclusive by phase) but IS exercised by the unit tests.
+4. **Drones stop gating the win in 5.1** — partially supersedes epic-4 amendment 31; three dev
+   harnesses are rewritten; Story 6-5 owes a solo-termination rule.
+5. **STEP_ORDER covers sim steps only** — clock advance, the `aliveHulls()` snapshot and the event swap
+   stay fixed prologue/epilogue.
+6. **An order-identity test pins the tick order** — the `shipClasses` identity-test pattern.
+7. **No wire change; PROTOCOL_VERSION stays 33** — and `spectates()`'s unfogged-view gate is flagged
+   for Story 5.2.

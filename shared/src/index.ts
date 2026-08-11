@@ -315,6 +315,7 @@ export * from './math/rng.js';
 
 // Simulation
 export * from './sim/ship.js';
+export * from './sim/lifecycle.js';
 export * from './sim/stats.js';
 export * from './sim/boons.js';
 export * from './sim/hooks.js';
