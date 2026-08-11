@@ -51,11 +51,40 @@ const VIEWPORT = { width: 1600, height: 900 };
 
 /** ms of settling after a zoom change (the fog re-bake is debounced ~150ms). */
 const SETTLE_MS = 1200;
-/** ms of frame-cost sampling per zoom. */
-const MEASURE_MS = 6000;
+/** ms of dwell before the shutter, so the shot is a battle in progress rather
+ *  than the instant a zoom landed (phosphor laid, flash windows saturated). */
+const DWELL_MS = 3000;
 
-/** The ratified per-frame budget this capture is compared against. */
-const BUDGET = { frameMs: 16.6, simMs: 3, renderMs: 10, headroomMs: 3.6 };
+/**
+ * THE DEGRADE CLOSE-UP's crop, in px around the hot flash cluster's projected
+ * screen position — the frame `CLIENT_CONFIG.flashBudget.degradeAlphaFactor`
+ * (0.35, stamped implementer-draft) has to be ruled on by eye, with DEGRADED and
+ * ANIMATED marks side by side in one picture.
+ */
+const CLOSEUP = { w: 640, h: 420 };
+
+/**
+ * NO FRAME-RATE VERDICT IS PRODUCED HERE, BY RULING (Eric, 2026-08-11).
+ *
+ * The previous run of this script reported 17 frames in 6 s (2.8 fps) beside a
+ * 1.1 ms frame time — self-contradictory, because headless Chromium throttles
+ * `requestAnimationFrame`, so the frame COUNT measured the throttle and not the
+ * game. Eric added that the Vite DEV build runs poorly on his machine, which
+ * makes a dev-server frame rate an invalid basis for an NFR1 verdict in either
+ * direction. The ruling: targeted benchmarks, no browser — the posture cycles
+ * 68-72 used for every cost claim they made.
+ *
+ * So this script CAPTURES ONLY. `measurements.json` records the frame budget it
+ * did NOT measure, with the reason and a pointer, so nobody mistakes silence for
+ * a pass.
+ */
+const FRAME_TIMING = {
+  obtained: false,
+  reason:
+    'Headless rAF is throttled and the dev build is not representative hardware, so a browser frame rate is not evidence (Eric ruling 2026-08-11). Whole-frame FPS is UNCOSTED this cycle.',
+  costEvidence: 'client/src/__benchmarks__/attentionSeam.bench.ts (vitest bench)',
+  ratifiedBudgetNotMeasuredHere: { frameMs: 16.6, simMs: 3, renderMs: 10, headroomMs: 3.6 },
+};
 
 /** Where an existing playwright-core might live, in priority order. */
 function playwrightCandidates() {
@@ -127,31 +156,63 @@ function verifyBundle() {
   return 1;
 }
 
-/** Capture one zoom extreme: settle, measure, screenshot. */
+/** Capture one zoom extreme: settle, dwell, screenshot. */
 async function captureZoom(page, zoom) {
   await page.evaluate((z) => window.__hcStage.setZoom(z), zoom.value);
-  await page.waitForTimeout(SETTLE_MS);
-  await page.evaluate(() => window.__hcStage.resetSamples());
-  await page.waitForTimeout(MEASURE_MS);
-  const measured = await page.evaluate(() => ({
-    stats: window.__hcStage.stats(),
+  await page.waitForTimeout(SETTLE_MS + DWELL_MS);
+  const scene = await page.evaluate(() => ({
     zoom: window.__hcStage.zoom(),
     tick: window.__hcStage.tick(),
   }));
   const file = join(OUT_DIR, `worstcase-${zoom.name}.png`);
   await page.screenshot({ path: file, type: 'png' });
-  return { ...measured, requestedZoom: zoom.value, image: `worstcase-${zoom.name}.png` };
+  return { ...scene, requestedZoom: zoom.value, image: `worstcase-${zoom.name}.png` };
 }
 
-/** Budget verdicts. REPORTED, never tuned toward (the story forbids retuning). */
-function verdicts(stats) {
-  if (!stats) return null;
-  const headroom = BUDGET.frameMs - stats.total.p95;
+/**
+ * The degrade close-up: the hot flash cluster, cropped, at the close zoom.
+ *
+ * THE CROP IS PROJECTED, NEVER FIXED. The cluster rides a constant offset off
+ * the own bow and the own hull orbits, so its screen position moves every frame;
+ * a hard-coded rectangle would be off it within seconds. `clusterScreen()`
+ * projects it through the live camera at the instant of the shot.
+ */
+async function captureCloseup(page) {
+  await page.evaluate((z) => window.__hcStage.setZoom(z), 1.5);
+  await page.waitForTimeout(SETTLE_MS + DWELL_MS);
+  const at = await page.evaluate(() => window.__hcStage.clusterScreen());
+  const clip = {
+    x: Math.max(0, Math.min(VIEWPORT.width - CLOSEUP.w, Math.round(at.x - CLOSEUP.w / 2))),
+    y: Math.max(0, Math.min(VIEWPORT.height - CLOSEUP.h, Math.round(at.y - CLOSEUP.h / 2))),
+    width: CLOSEUP.w,
+    height: CLOSEUP.h,
+  };
+  const image = 'worstcase-degrade-closeup.png';
+  const shots = await page.evaluate(() => window.__hcStage.shots());
+  const tick = await page.evaluate(() => window.__hcStage.tick());
+  await page.screenshot({ path: join(OUT_DIR, image), type: 'png', clip });
+  return { image, tick, clip, clusterScreen: at, requestedZoom: 1.5, flashCensus: census(shots) };
+}
+
+/**
+ * WHICH MARKS ARE WHICH, in the frame the close-up was taken of — the ground
+ * truth the picture alone cannot carry. Per kind: how many live marks the budget
+ * DEGRADED vs let ANIMATE, and the alpha range each is drawing at, so
+ * `degradeAlphaFactor` is ruled on against numbers as well as by eye.
+ */
+function census(shots) {
+  const byKind = {};
+  for (const s of shots) {
+    const k = (byKind[s.kind] ??= { animated: 0, degraded: 0, alphaMin: Infinity, alphaMax: -Infinity });
+    k[s.degraded ? 'degraded' : 'animated'] += 1;
+    k.alphaMin = Math.min(k.alphaMin, s.alpha);
+    k.alphaMax = Math.max(k.alphaMax, s.alpha);
+  }
   return {
-    simP95WithinBudget: stats.sim.p95 <= BUDGET.simMs,
-    renderP95WithinBudget: stats.render.p95 <= BUDGET.renderMs,
-    headroomP95Ms: headroom,
-    headroomWithinBudget: headroom >= BUDGET.headroomMs,
+    liveMarks: shots.length,
+    degraded: shots.filter((s) => s.degraded).length,
+    animated: shots.filter((s) => !s.degraded).length,
+    byKind,
   };
 }
 
@@ -224,31 +285,28 @@ async function run() {
     await page.mouse.move(VIEWPORT.width * 0.58, VIEWPORT.height * 0.42);
 
     for (const zoom of ZOOMS) results.push(await captureZoom(page, zoom));
+    results.push(await captureCloseup(page));
 
     const report = {
       generatedAt: new Date().toISOString(),
-      scene: { marker, seed: await page.evaluate(() => window.__hcStage.seed), url: SCENE_URL },
+      scene: {
+        marker,
+        seed: await page.evaluate(() => window.__hcStage.seed),
+        url: SCENE_URL,
+        radarGrammar: 'return',
+      },
       viewport: VIEWPORT,
-      measureMs: MEASURE_MS,
-      budget: BUDGET,
+      frameTiming: FRAME_TIMING,
       playwrightFrom: pw.from,
       consoleErrors,
-      captures: results.map((r) => ({ ...r, verdicts: verdicts(r.stats) })),
+      captures: results,
     };
     writeFileSync(join(OUT_DIR, 'measurements.json'), `${JSON.stringify(report, null, 2)}\n`);
     for (const r of report.captures) {
-      const s = r.stats;
-      if (!s) {
-        console.log(`${r.image}: no samples`);
-        continue;
-      }
-      console.log(
-        `${r.image}  zoom ${r.zoom.toFixed(2)}x  ${s.fps.toFixed(1)} fps  ` +
-          `total p50 ${s.total.p50.toFixed(2)}ms p95 ${s.total.p95.toFixed(2)}ms  ` +
-          `sim p95 ${s.sim.p95.toFixed(2)}ms  render p95 ${s.render.p95.toFixed(2)}ms`,
-      );
+      console.log(`${r.image}  zoom ${(r.zoom ?? r.requestedZoom).toFixed(2)}x  scene tick ${r.tick ?? '-'}`);
     }
-    console.log(`\nWrote ${OUT_DIR.slice(REPO.length + 1)}/ (2 PNGs + measurements.json)`);
+    console.log(`\nWrote ${OUT_DIR.slice(REPO.length + 1)}/ (${results.length} PNGs + measurements.json)`);
+    console.log('Frame timing: NOT OBTAINED by design — see measurements.json frameTiming.');
     if (consoleErrors.length > 0) console.warn(`\n${consoleErrors.length} console error(s) — see measurements.json`);
     return 0;
   } finally {

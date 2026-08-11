@@ -19,6 +19,8 @@ import {
   BOUNTY_INDEX,
   OWN_CLASS,
   SCENE,
+  SCENE_EPOCH_MS,
+  SCENE_RADAR_GRAMMAR,
   STAGE_SEED,
   bankedPointsAt,
   buildSceneWorld,
@@ -29,10 +31,12 @@ import {
   sceneFrame,
   scenePublicPlane,
   sceneOwn,
+  sceneWelcome,
 } from '../stage/worstCaseScene.js';
 import { railCritical, railPulsing } from '../render/hud.js';
 import { tier1Active, tier2Active, freezeAtDimKeyframe } from '../render/attention.js';
-import { ringReadout } from '../ui/chromeBar.js';
+import { barVisible, chromeBarSegments, ringReadout } from '../ui/chromeBar.js';
+import { KILL_LEADER_MARK } from '../ui/bounty.js';
 import { zoneViewFrom } from '../sim/zoneView.js';
 
 const MAP_RADIUS = 1500;
@@ -128,6 +132,98 @@ describe('staged worst-case scene — Tier 2 (the storm closing)', () => {
   });
 });
 
+describe('staged worst-case scene — the RADAR GRAMMAR it stages', () => {
+  // Eric ruling 2026-08-11: `silhouette` (Story 4.2's hull outlines + ARPA
+  // vector) is being removed wholesale — *"I am going to be completely removing
+  // all radar shit that existed before that. Its too good."* A readability gate
+  // captured against a doomed grammar is evidence about the wrong game, so the
+  // staged value is PINNED here rather than left as a literal in the shell.
+  it('stages `return`, the physical model that ships — never `silhouette`', () => {
+    expect(SCENE_RADAR_GRAMMAR).toBe('return');
+    expect(sceneWelcome(MAP_RADIUS, SCENE_EPOCH_MS).radarGrammar).toBe('return');
+  });
+
+  it('emits return-grammar echoes: a cell rect and a mask, and NO identity', () => {
+    const blips = sceneEvents(world, 200, SCENE_EPOCH_MS).filter((e) => e.k === 'blip');
+    expect(blips.length).toBeGreaterThan(0);
+    for (const b of blips) {
+      expect(Object.keys(b).sort()).toEqual(['bits', 'gx', 'gy', 'h', 'k', 't', 'w']);
+      if (!('bits' in b)) throw new Error('staged blip is not a return-grammar echo');
+      // The mask is the SHIPPED shaper's (paintCoverage), so the wire's own
+      // structural gate holds: bits sized exactly to the rect.
+      expect(b.bits).toHaveLength(Math.ceil((b.w * b.h) / 32));
+      expect(b.bits.some((word) => word !== 0)).toBe(true);
+    }
+  });
+
+  it('leaves identity alone — `roster`, which `return` never consults', () => {
+    expect(sceneWelcome(MAP_RADIUS, SCENE_EPOCH_MS).radarIdentity).toBe('roster');
+  });
+});
+
+describe('staged worst-case scene — the BR CHROME BAR is actually on screen', () => {
+  // THE DEFECT THIS PINS: `scenePublicPlane` anchors the timeline at
+  // `serverNow − 175s`. The scene's clock was `performance.now()`, which starts
+  // at 0 on page load — so every capture published a NEGATIVE anchor, and
+  // `barVisible()` correctly refused to draw the bar against it. That silently
+  // removed one of only two Tier-2 channels the gate exists to demonstrate,
+  // plus the kill-leader register. The fix is SCENE_EPOCH_MS: the scene stamps
+  // a real server clock, exactly as a server that has been up for a while does.
+  const fresh = SCENE_EPOCH_MS + 1_200; // a freshly loaded page, 1.2s in
+  const plane = scenePublicPlane(world, fresh);
+  const zv = zoneViewFrom(plane, MAP_RADIUS, fresh);
+
+  it('publishes a POSITIVE zone anchor seconds after page load', () => {
+    expect(plane.zoneStartT).toBeGreaterThan(0);
+    expect(barVisible(zv.state, zv.startT)).toBe(true);
+  });
+
+  it('would NOT have been visible on the raw page clock — the epoch is why', () => {
+    const raw = scenePublicPlane(world, 1_200); // performance.now() on a fresh page
+    expect(raw.zoneStartT).toBeLessThan(0);
+    expect(barVisible(zoneViewFrom(raw, MAP_RADIUS, 1_200).state, raw.zoneStartT)).toBe(false);
+  });
+
+  it('draws the ring segment in its URGENT amber window (the Tier-2 channel)', () => {
+    const ring = ringReadout(zv.state, zv.closesInMs);
+    expect(ring.urgent).toBe(true);
+    const segs = chromeBarSegments({
+      visible: true,
+      afloat: 8,
+      kills: 3,
+      matchMs: Math.max(0, fresh - zv.startT),
+      ring,
+      bounty: { name: world.roster[BOUNTY_INDEX].name, hue: world.roster[BOUNTY_INDEX].color },
+      tier1: true,
+    });
+    expect(segs.some((s) => s.pulsed === true && s.text.includes('RING CLOSES IN'))).toBe(true);
+  });
+
+  it('carries the published kill leader in the bar\'s tail register', () => {
+    const leader = world.roster[BOUNTY_INDEX];
+    expect(plane.bountyId).toBe(leader.id);
+    const segs = chromeBarSegments({
+      visible: true,
+      afloat: 8,
+      kills: 3,
+      matchMs: 175_000,
+      ring: ringReadout(zv.state, zv.closesInMs),
+      bounty: { name: leader.name, hue: leader.color },
+      tier1: false,
+    });
+    expect(segs.some((s) => s.text === `${KILL_LEADER_MARK} ${leader.name}`)).toBe(true);
+  });
+
+  it('keeps the T+ clock a real match time, not the server\'s uptime', () => {
+    // The bar's clock is `serverNow − zoneStartT`; with the anchor re-seated
+    // every poll that is exactly the staged elapsed time, at any page age.
+    for (const at of [SCENE_EPOCH_MS + 500, SCENE_EPOCH_MS + 90_000]) {
+      const p = scenePublicPlane(world, at);
+      expect(at - p.zoneStartT).toBe(SCENE.zoneElapsedMs);
+    }
+  });
+});
+
 describe('staged worst-case scene — the population', () => {
   it('stages the arena cap worth of hulls (19 others + you)', () => {
     expect(world.roster).toHaveLength(CONFIG.map.playerCap);
@@ -152,10 +248,12 @@ describe('staged worst-case scene — the population', () => {
       const blips = sceneEvents(world, t, 0).filter((e) => e.k === 'blip');
       expect(blips).toHaveLength(SCENE.farContacts);
       for (const b of blips) {
-        // `BlipEvent` is a TAGLESS union (silhouette | return); the staged scene
-        // speaks the shipped `silhouette` grammar, so narrow on the pose fields.
-        if (!('x' in b) || !('y' in b)) throw new Error('staged blip is not a silhouette blip');
-        const d = Math.hypot(b.x - own.x, b.y - own.y);
+        // `BlipEvent` is a TAGLESS union (silhouette | return); the scene speaks
+        // `return` (SCENE_RADAR_GRAMMAR), so a blip is a cell rect — its world
+        // position is the rect's centre on the shipped lattice.
+        if (!('gx' in b)) throw new Error('staged blip is not a return-grammar echo');
+        const cell = CONFIG.vision.radarCellU;
+        const d = Math.hypot((b.gx + b.w / 2) * cell - own.x, (b.gy + b.h / 2) * cell - own.y);
         // Compared against the pose the blip was PAINTED at (blips are stale by
         // design), so the bound is the band's own width plus that staleness.
         expect(d).toBeGreaterThan(CONFIG.vision.sight * 0.5);

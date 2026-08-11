@@ -1,0 +1,92 @@
+{
+  "generatedAt": "2026-08-11T20:30:13.262Z",
+  "scene": {
+    "marker": "HC_STAGED_WORSTCASE_4_8",
+    "seed": 4082026,
+    "url": "http://localhost:5173/?stage=worstcase",
+    "radarGrammar": "return"
+  },
+  "viewport": {
+    "width": 1600,
+    "height": 900
+  },
+  "frameTiming": {
+    "obtained": false,
+    "reason": "Headless rAF is throttled and the dev build is not representative hardware, so a browser frame rate is not evidence (Eric ruling 2026-08-11). Whole-frame FPS is UNCOSTED this cycle.",
+    "costEvidence": "client/src/__benchmarks__/attentionSeam.bench.ts (vitest bench)",
+    "ratifiedBudgetNotMeasuredHere": {
+      "frameMs": 16.6,
+      "simMs": 3,
+      "renderMs": 10,
+      "headroomMs": 3.6
+    }
+  },
+  "playwrightFrom": "/Users/ericseibt/.claude/skills/gstack/node_modules/playwright-core/index.mjs",
+  "consoleErrors": [],
+  "captures": [
+    {
+      "zoom": 0.5,
+      "tick": 165,
+      "requestedZoom": 0.5,
+      "image": "worstcase-zoom-0.5x-wide.png"
+    },
+    {
+      "zoom": 1.5,
+      "tick": 221,
+      "requestedZoom": 1.5,
+      "image": "worstcase-zoom-1.5x-close.png"
+    },
+    {
+      "image": "worstcase-degrade-closeup.png",
+      "tick": 281,
+      "clip": {
+        "x": 433,
+        "y": 337,
+        "width": 640,
+        "height": 420
+      },
+      "clusterScreen": {
+        "x": 753.0304169827075,
+        "y": 546.5977419919598
+      },
+      "requestedZoom": 1.5,
+      "flashCensus": {
+        "liveMarks": 105,
+        "degraded": 97,
+        "animated": 8,
+        "byKind": {
+          "splash": {
+            "animated": 0,
+            "degraded": 48,
+            "alphaMin": 0.24499999999999997,
+            "alphaMax": 0.24499999999999997
+          },
+          "burst": {
+            "animated": 0,
+            "degraded": 24,
+            "alphaMin": 0.33249999999999996,
+            "alphaMax": 0.33249999999999996
+          },
+          "muzzle": {
+            "animated": 3,
+            "degraded": 9,
+            "alphaMin": 0.14999999999999997,
+            "alphaMax": 0.315
+          },
+          "spark": {
+            "animated": 5,
+            "degraded": 15,
+            "alphaMin": 0.35,
+            "alphaMax": 0.5
+          },
+          "sink": {
+            "animated": 0,
+            "degraded": 1,
+            "alphaMin": 0.315,
+            "alphaMax": 0.315
+          }
+        }
+      }
+    }
+  ]
+}

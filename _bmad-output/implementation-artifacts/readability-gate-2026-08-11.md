@@ -138,16 +138,108 @@ be ruled on with the evidence in front of him.
 
 ## Part 3 — The staged scene
 
-*(Filled at capture. The scene is deterministic and seeded so two runs are comparable.)*
+`client/src/stage/` — a pure seeded composer (`worstCaseScene.ts`) plus a wiring shell
+(`worstCase.ts`). Every hull orbit, flash position, event schedule and roster row is a total
+function of `(seed, tick)`, so two captures are comparable. **Nothing downstream of `bindRoom` is
+mocked**: the shell builds a stub room and pumps synthetic frames through the real `buildGame()`,
+so `attention.ts`, `flashBudget.ts`, the HUD, chrome bar, radar, effects, kill feed and XP rail all
+run exactly as they ship. A scene that mocked the systems under test would prove nothing.
 
-## Part 4 — Measured frame cost
+Staged simultaneously: 19 other hulls across truesight and the radar annulus · 5 torpedoes inbound ·
+the storm in a pre-close beat with the next ring revealed and the own hull outside the live ring ·
+the kill leader published with matching feed lines · own hull at 20% (crimson — Tier 1 active) · a
+periodic denied press (the other Tier-1 channel) · a banked XP level still inside its 10 s breathing
+window so the Tier-3 chip has a breath to freeze · a flash stack concentrated in one ~26u cluster.
 
-Ratified budget (NFR1): **16.6 ms = sim ≤ 3 ms + render ≤ 10 ms + headroom ≥ 3.6 ms**, on the
-reference device (Chrome at 4× CPU throttle until a real low-end Chromebook is benched — Epic 7
-replaces the proxy permanently).
+**The flash stack asks ONE screen region for ~93× the ratified 3 onsets/s** (14 budgeted onsets per
+50 ms tick = 280/s). It is deliberately sized *above* the arena's structural ceiling but only ~10×,
+not 40× — an unreachable effect count would have made any cost number a lie in the pessimistic
+direction.
 
-*(Filled at capture, at both zoom extremes. Numbers are reported, never tuned toward.)*
+Dev-only behind a double gate (`import.meta.env.DEV` **and** `?stage=worstcase`, behind a dynamic
+import), so in production the query parameter is not merely ignored — the code that reads it is not
+shipped. That is CHECKED, not asserted: `readabilityCapture.mjs --verify-bundle` greps the built
+assets for four distinctive strings and confirms no extra chunk was emitted. It passes.
+
+**Radar grammar: `return`** (Eric ruling, 2026-08-11 — *"I am going to be completely removing all
+radar shit that existed before that. Its too good."*). The scene stubs its own welcome, so the
+server's `HC_RADAR_GRAMMAR` never reaches it; the grammar is set in the composer and pinned by test.
+The first capture attempt was taken under `silhouette` and was **discarded as evidence about the
+wrong game.**
+
+Two staging gaps, stated plainly: wire-disclosed `wk` wake segments for FAR hulls are not staged
+(in-truesight wake is client-synthesized from contacts, the real shipped path, and does appear); and
+`AFLOAT` reads 17 rather than 20 because it correctly excludes the 3 drones.
+
+## Part 4 — Cost
+
+Ratified budget (NFR1): **16.6 ms = sim ≤ 3 ms + render ≤ 10 ms + headroom ≥ 3.6 ms**.
+
+**Whole-frame FPS was NOT OBTAINED this cycle, and no verdict against the 16.6 ms budget is claimed
+here.** The first attempt measured it in a headless browser and produced 17 frames in 6 seconds
+(2.8 fps) beside a 1.1 ms frame time — two numbers that cannot both be true, because headless `rAF`
+is throttled. Eric additionally notes the Vite dev build runs poorly on his machine, so a dev server
+was never a valid basis for an NFR1 verdict at all (unminified modules, HMR, source maps — not what
+a player runs). He ruled: **targeted benchmarks, no browser** — the shape cycles 68-72 used.
+
+`client/src/__benchmarks__/attentionSeam.bench.ts`. Loads taken from the staged scene itself: 14
+budgeted onsets per 50 ms tick into ONE region (~93× the ceiling) with all 12 region keys and 9
+element keys live. Nothing was tuned toward anything; the benches assert nothing.
+
+| Path | Load | mean | p99 |
+|---|---|---|---|
+| `claim` + `coalesce`, one staged tick | 14 onsets, 1 hot region, 21 keys live | **6.0 µs/tick** — 0.012% of a 50 ms tick | 8.2 µs |
+| `regionKey` projection | 14 flashes | **0.51 µs** (~36 ns each) | 0.6 µs |
+| one `claim` against a FULL key map (worst-case `withinWindow` prune) | every key at the ceiling | **0.27 µs** | 1.4 µs |
+| tier resolution (both tiers + both holds + amber corollary) | one frame | **0.20 µs/frame** | 0.2 µs |
+| DRAW: animated vs degraded | ~185 live marks redrawn/frame, 11 spawns/frame at 60 fps = 3× the staged rate | ANIMATED 0.345 / 0.402 ms · DEGRADED 0.333 / 0.363 ms | ~0.8 ms |
+
+**Degrading is not more expensive than animating.** The two variants were run alternately, twice
+each, precisely because a single ordering shows a spurious gap — across both runs each variant is
+once fastest and once slowest. Expected: the paths differ only in one alpha expression and share the
+same `clear/circle/fill`.
+
+The arbitration this story added is therefore **~6 µs per tick against a 50 ms budget**. Whole-frame
+cost on real hardware remains for Epic 7's reference-device pass, which replaces the throttle proxy
+permanently.
 
 ## Part 5 — The squint test
 
-*(Filled at capture: does the threat channel read first?)*
+**What the captures establish:** under a stack asking one region for ~93× the ratified flash budget,
+with both Tier-1 channels active, both Tier-2 channels active and a Tier-3 chip banked — **every
+channel is present, legible and un-deleted.** The chrome bar reads its full register
+(`17 AFLOAT · 0 KILLS · T+02:57 · RING CLOSES IN 0:03 · ☠ VESSEL-07`) with the ring segment amber
+inside its urgency window and the leader name in its own hue. The radar is unmistakably `return`
+grammar. Nothing vanished.
+
+**Degraded marks read as present-but-quiet, not invisible.** Census in the close-up: **105 live
+marks — 97 degraded, 8 animated**, so both classes genuinely coexist in one frame. The amber rings
+are 24 degraded `burst`s (α 0.3325); the pale rings are 48 degraded `splash`es (α 0.245 — the
+faintest thing in frame and the closest to the "too quiet" edge, though its expansion geometry stays
+traceable); the bright dots are muzzle and spark, degraded and animated intermixed.
+
+**What the captures DO NOT establish, stated plainly: that threat channels "read first."** That
+claim is TEMPORAL — the tier system's assertion is that Tier 1 keeps animating while Tier 2 and
+Tier 3 hold at a keyframe — and a still image cannot show motion-versus-hold. In the frame, the
+crimson low-HP rail is a ~6 px sliver at the right edge while the storm vignette floods the whole
+frame and the near radar returns are the loudest thing on screen by area. Demonstrating "threat
+reads first" rather than arguing it needs a video or a per-channel alpha trace. **This half of the
+acceptance criterion is argued and unit-tested, not visually proven, and that is recorded here
+rather than papered over.**
+
+**Two observations for Eric that are NOT defects introduced by this story:**
+
+1. **At 1.5× zoom the radar return cells overlap the top-center chrome bar** — `T+02:57` sits on a
+   blue/green return blob. A real legibility collision between world paint and HUD chrome, created
+   by the `return` grammar rather than by attention priority. Worth a ruling; out of 4-8's scope.
+2. **Under this load ~92-99% of everything in the hot region is degraded**, so "degraded" *is* the
+   worst case's appearance rather than an edge state. That is the right frame in which to rule on
+   `degradeAlphaFactor` (0.35), which ships stamped as implementer draft.
+
+### Verdict
+
+**The guardrail holds on everything a still can prove, and the one thing it cannot prove is named
+rather than claimed.** Information survives the worst case the game can produce: no channel is
+deleted, no bearing is dropped, no mark becomes confusable with another. The arbitration costs ~6 µs
+a tick. The temporal claim and the `degradeAlphaFactor` calibration both await Eric's eye on moving
+pixels.

@@ -32,12 +32,15 @@ import {
   CONFIG,
   REGATTA_NO_HUE,
   mulberry32,
+  paintCoverage,
   type Contact,
   type FrameMsg,
   type GameEvent,
   type HullId,
   type OwnShip,
+  type RadarGrammar,
   type ShipClassId,
+  type WelcomeMsg,
   type ZoneRing,
 } from '@salvo/shared';
 
@@ -56,6 +59,54 @@ export const STAGE_SEED = 4082026;
 
 /** Scene tick = the sim tick (20 Hz), so a tick index IS a scene time. */
 export const SCENE_TICK_MS = CONFIG.tick.simDtMs;
+
+/** The map seed the staged ocean is generated from (deterministic, like a
+ *  room's). Lives here, with the rest of the scene's data, because the welcome
+ *  it rides in is composed here too. */
+export const STAGE_MAP_SEED = 20260811;
+
+/**
+ * THE RADAR GRAMMAR THE SCENE STAGES (Eric ruling 2026-08-11).
+ *
+ * `return` — the physical return model — is what ships; `silhouette` (Story
+ * 4.2's true-scale hull outlines + ARPA vector) is being removed wholesale
+ * (*"I am going to be completely removing all radar shit that existed before
+ * that. Its too good."*). A readability gate captured against a doomed grammar
+ * would be evidence about the wrong game, so the scene synthesizes its own
+ * welcome with this value and the wire blips it emits are `ReturnBlipEvent`s.
+ *
+ * IT IS NOT READ FROM THE SERVER. The scene builds a STUB room and synthesizes
+ * the welcome handshake, so the server process's `HC_RADAR_GRAMMAR` never
+ * reaches it: THIS constant is what decides the capture, which is why it is
+ * pinned by a test rather than left as a literal in the wiring shell.
+ *
+ * `radarIdentity` stays `roster` and is out of scope: under `return` the hue
+ * resolver is never called (amendments 65/67), so identity is independent.
+ */
+export const SCENE_RADAR_GRAMMAR: RadarGrammar = 'return';
+
+/**
+ * THE STAGED SERVER-CLOCK EPOCH (ms) — the origin the scene's server
+ * timestamps are measured from, and the fix for a defect that silently voided
+ * a whole channel of the gate's evidence.
+ *
+ * The scene's own clock is `performance.now()`, which starts at 0 on page load.
+ * `scenePublicPlane` anchors the zone timeline at `serverNow − zoneElapsedMs`
+ * (175 s), so on a fresh page every plausible `serverNow` produced an anchor
+ * ~170 s in the NEGATIVE — and `barVisible()` requires `zoneStartT > 0`
+ * (correctly: 0 is the server's "not anchored yet" sentinel, and `now − 0`
+ * would print the server's whole uptime as the match clock). The BR chrome bar
+ * therefore never drew in a capture, taking with it one of only two Tier-2
+ * channels the gate exists to demonstrate and the kill-leader register.
+ *
+ * A real server stamps frames off a clock that has been running for far longer
+ * than one match, so the scene does too: every server timestamp it emits (the
+ * welcome's `t` and every frame's) is `SCENE_EPOCH_MS + elapsed`. The client's
+ * ServerClock estimates offset = clientAt − serverT, so `serverNow()` simply
+ * tracks `performance.now() + SCENE_EPOCH_MS` — one clock, no skew to model,
+ * and an anchor that is a real timestamp.
+ */
+export const SCENE_EPOCH_MS = 86_400_000; // a day of "server uptime"
 
 /**
  * The staged constants, each traceable to what amendment 242 names.
@@ -401,12 +452,26 @@ function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
   return out;
 }
 
-/** Radar paint for the fogged far band — the scope's load under the same frame. */
+/**
+ * Radar paint for the fogged far band — the scope's load under the same frame.
+ *
+ * `RETURN` GRAMMAR (SCENE_RADAR_GRAMMAR): a wire blip is a world-anchored
+ * cell-rect plus a packed coverage mask, carrying NO identity — never the
+ * `silhouette` grammar's id/pose payload. The mask comes from the SHIPPED
+ * shaper (`paintCoverage`, the same function the server's blip row calls) at
+ * the shipped lattice, so a staged echo and a real one are the same artifact by
+ * construction; anything hand-rolled here would be a picture of a mask, not a
+ * mask. Each paint is deliberately STALE by its own age, exactly as a real
+ * sweep's paints are, and its `t` is the time it was painted at.
+ */
 function blipEvents(world: SceneWorld, tick: number, serverT: number): GameEvent[] {
   const far = world.hulls.filter((h) => h.far);
   return far.map((h, i) => {
-    const p = hullPose(h, world, tick - (i * 7) % 40);
-    return { k: 'blip' as const, id: h.id, x: p.x, y: p.y, t: serverT - ((i * 7) % 40) * SCENE_TICK_MS, cls: h.cls, heading: p.heading, speed: p.speed };
+    const age = (i * 7) % 40;
+    const p = hullPose(h, world, tick - age);
+    const t = serverT - age * SCENE_TICK_MS;
+    const c = paintCoverage(h.cls, p.x, p.y, p.heading, CONFIG.vision.radarCellU, t);
+    return { k: 'blip' as const, t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
   });
 }
 
@@ -489,6 +554,31 @@ export function sceneFrame(world: SceneWorld, tick: number, serverT: number): Fr
   };
   if (tick % SCENE.deniedEveryTicks === 0) frame.denied = [{ slot: 1, reason: 'cooling', seq: tick }];
   return frame;
+}
+
+/**
+ * The staged welcome handshake.
+ *
+ * `t` is a REAL server timestamp (`SCENE_EPOCH_MS + elapsed`), not the client's
+ * `performance.now()` — see SCENE_EPOCH_MS for the defect that cost. The
+ * ServerClock's offset therefore lands at −SCENE_EPOCH_MS and `serverNow()`
+ * tracks the scene's stamps exactly: one clock, no skew to model.
+ *
+ * `radarGrammar` is SCENE_RADAR_GRAMMAR (`return`), which is the whole reason
+ * this function lives in the pure half — the value that decides what the
+ * capture is evidence ABOUT is pinned by a test, not buried in wiring.
+ */
+export function sceneWelcome(mapRadius: number, serverT: number): WelcomeMsg {
+  return {
+    sessionId: 'hc00',
+    mapSeed: STAGE_MAP_SEED,
+    mapRadius,
+    playerCap: CONFIG.map.playerCap,
+    t: serverT,
+    config: CONFIG,
+    radarGrammar: SCENE_RADAR_GRAMMAR,
+    radarIdentity: 'roster',
+  };
 }
 
 /** The zone + match plane of the room schema, in `publicState()`'s shape. */

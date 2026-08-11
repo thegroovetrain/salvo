@@ -20,24 +20,25 @@
 // scene has warmed up.
 
 import type { Room } from '@colyseus/sdk';
-import { CONFIG, generateMap, type GameMap, type ShipClassId, type WelcomeMsg } from '@salvo/shared';
+import { CONFIG, generateMap, type GameMap, type ShipClassId } from '@salvo/shared';
 import type { Connection, FrameSink } from '../net/connection.js';
 import type { Stage } from '../render/stage.js';
 import type { LoopCallbacks } from '../app/loop.js';
 import {
   OWN_CLASS,
+  SCENE_EPOCH_MS,
   SCENE_TICK_MS,
+  STAGE_MAP_SEED,
   STAGE_MARKER,
   STAGE_SEED,
   buildSceneWorld,
+  clusterCentre,
   scenePublicPlane,
   sceneFrame,
+  sceneWelcome,
   type SceneRosterRow,
   type SceneWorld,
 } from './worstCaseScene.js';
-
-/** The map seed the staged ocean is generated from (deterministic, like a room's). */
-const STAGE_MAP_SEED = 20260811;
 
 /**
  * Scene ticks that must have run before the harness reports `ready`, so a
@@ -78,9 +79,23 @@ export interface SeriesStats {
   max: number;
 }
 
+/**
+ * Cost samples over one measurement window — A DEV SEAM ONLY, deliberately NOT
+ * the story's cost evidence (Eric ruling 2026-08-11).
+ *
+ * THERE IS NO `fps` FIELD AND THERE MUST NOT BE ONE. The first run of this gate
+ * reported "17 frames in 6 s (2.8 fps)" beside a 1.1 ms frame time — two numbers
+ * that cannot both be true, because headless Chromium throttles
+ * `requestAnimationFrame` and the frame COUNT was measuring the throttle. Eric
+ * also rules a Vite DEV build an invalid basis for an NFR1 verdict at all ("the
+ * dev build runs poorly on my machine"). The per-callback times below are real
+ * measurements of real work and are useful when a human drives the scene by
+ * hand; they are not a frame-rate verdict, and the capture script no longer
+ * reports them. The story's cost evidence is
+ * `client/src/__benchmarks__/attentionSeam.bench.ts`.
+ */
 export interface FrameStats {
   frames: number;
-  fps: number;
   total: SeriesStats;
   sim: SeriesStats;
   render: SeriesStats;
@@ -101,6 +116,20 @@ export interface StageHarness {
    *  re-bake the fog for it, exactly as the live zoom path does. */
   setZoom(z: number): void;
   zoom(): number;
+  /**
+   * The hot flash cluster's CURRENT screen position (px), for the degrade
+   * close-up. The cluster rides a fixed offset off the own bow and the own hull
+   * orbits, so its screen position is only knowable by projecting it through
+   * the live camera — a fixed crop rectangle would drift off it within seconds.
+   */
+  clusterScreen(): { x: number; y: number };
+  /**
+   * Every live one-shot's LATCHED budget verdict and current alpha — the ground
+   * truth behind the degrade close-up. Without it the close-up is a picture of
+   * some rings and nobody can say which of them the budget degraded, which is
+   * the one question `degradeAlphaFactor` has to be ruled on.
+   */
+  shots(): LiveShot[];
   /** Drop every sample and start a fresh measurement window. */
   resetSamples(): void;
   /** The samples collected since the last reset. */
@@ -121,8 +150,18 @@ export interface StagedGameHandle {
     readonly userZoom: number;
     readonly zoom: number;
     snapTo(p: { x: number; y: number }): void;
+    worldToScreen(p: { x: number; y: number }): { x: number; y: number };
   };
   fog: { rebake(w: number, h: number, zoom: number): void };
+  /** The one-shot layer, for its budget seam (`liveShots`) — see `shots()`. */
+  effects: { readonly liveShots: readonly LiveShot[] };
+}
+
+/** One live one-shot's budget state, as `Effects.liveShots` reports it. */
+export interface LiveShot {
+  kind: string;
+  degraded: boolean;
+  alpha: number;
 }
 
 /** Everything the shell needs from main.ts, injected rather than imported. */
@@ -182,9 +221,13 @@ class SceneRoster {
  * `publicState()` treats it as; every listener the client registers is accepted
  * and never fired (the staged scene never leaves, errors, drops or reconnects).
  */
-function makeRoom(world: SceneWorld): { room: Room; state: Record<string, unknown> } {
+function makeRoom(world: SceneWorld, serverT: number): { room: Room; state: Record<string, unknown> } {
   const state: Record<string, unknown> = {
-    ...scenePublicPlane(world, 0),
+    // Seeded at the staged server time, never at 0: the plane anchors the zone
+    // timeline at `serverNow − 175s`, so a zero here would publish a NEGATIVE
+    // anchor on the very first polled frame and `barVisible()` would (rightly)
+    // refuse to draw the chrome bar against it.
+    ...scenePublicPlane(world, serverT),
     players: new SceneRoster(world.roster),
   };
   const noop = (): void => undefined;
@@ -203,31 +246,27 @@ function makeRoom(world: SceneWorld): { room: Room; state: Record<string, unknow
   return { room: room as unknown as Room, state };
 }
 
-/** The staged welcome. `t` is the client clock, so the ServerClock's offset is
- *  ~0 and `serverNow()` tracks `performance.now()` — one clock, no skew to model. */
-function makeWelcome(map: GameMap, now: number): WelcomeMsg {
-  return {
-    sessionId: 'hc00',
-    mapSeed: STAGE_MAP_SEED,
-    mapRadius: map.radius,
-    playerCap: CONFIG.map.playerCap,
-    t: now,
-    config: CONFIG,
-    radarGrammar: 'silhouette',
-    radarIdentity: 'roster',
-  };
-}
-
-/** Pumps staged frames into the real frame sink on the sim cadence. */
+/**
+ * Pumps staged frames into the real frame sink on the sim cadence.
+ *
+ * TWO CLOCKS, DELIBERATELY SEPARATE. `startedAt` is the CLIENT clock
+ * (`performance.now()`) and paces the pump; `serverBase` is the staged SERVER
+ * clock (`startedAt + SCENE_EPOCH_MS`) and stamps everything that leaves it.
+ * Stamping frames with the client clock is what hid the chrome bar for a whole
+ * capture — see SCENE_EPOCH_MS.
+ */
 class ScenePump {
   private ticks = 0;
+  private readonly serverBase: number;
 
   constructor(
     private readonly world: SceneWorld,
     private readonly sink: FrameSink,
     private readonly state: Record<string, unknown>,
     private readonly startedAt: number,
-  ) {}
+  ) {
+    this.serverBase = startedAt + SCENE_EPOCH_MS;
+  }
 
   get tick(): number {
     return this.ticks;
@@ -265,7 +304,7 @@ class ScenePump {
    * and everything downstream of it want.
    */
   private emit(): void {
-    const serverT = this.startedAt + this.ticks * SCENE_TICK_MS;
+    const serverT = this.serverBase + this.ticks * SCENE_TICK_MS;
     Object.assign(this.state, scenePublicPlane(this.world, serverT));
     this.sink.handler(sceneFrame(this.world, this.ticks, serverT));
   }
@@ -274,21 +313,14 @@ class ScenePump {
 /** Sample collector with a bounded ring. */
 class SampleStore {
   private items: FrameSample[] = [];
-  private firstAt = 0;
-  private lastAt = 0;
 
   push(s: FrameSample): void {
-    const now = performance.now();
-    if (this.items.length === 0) this.firstAt = now;
-    this.lastAt = now;
     this.items.push(s);
     if (this.items.length > SAMPLE_CAP) this.items.shift();
   }
 
   reset(): void {
     this.items = [];
-    this.firstAt = 0;
-    this.lastAt = 0;
   }
 
   all(): FrameSample[] {
@@ -297,10 +329,8 @@ class SampleStore {
 
   stats(): FrameStats | null {
     if (this.items.length < 2) return null;
-    const span = Math.max(1, this.lastAt - this.firstAt);
     return {
       frames: this.items.length,
-      fps: ((this.items.length - 1) * 1000) / span,
       total: series(this.items.map((s) => s.total)),
       sim: series(this.items.map((s) => s.sim)),
       render: series(this.items.map((s) => s.render)),
@@ -348,10 +378,11 @@ function whenSettled(done: () => boolean): Promise<void> {
 export function runWorstCaseScene(deps: StageDeps): StageHarness {
   const map = generateMap(STAGE_MAP_SEED, CONFIG.map.playerCap);
   const world = buildSceneWorld(map.radius, STAGE_SEED);
-  const { room, state } = makeRoom(world);
   const now = performance.now();
+  const serverT = now + SCENE_EPOCH_MS;
+  const { room, state } = makeRoom(world, serverT);
   const sink: FrameSink = { handler: () => undefined };
-  const conn: Connection = { room, welcome: makeWelcome(map, now), sink };
+  const conn: Connection = { room, welcome: sceneWelcome(map.radius, serverT), sink };
 
   const game = deps.start(conn, map, OWN_CLASS);
   game.camera.snapTo(world.ownStart);
@@ -378,6 +409,8 @@ export function runWorstCaseScene(deps: StageDeps): StageHarness {
       game.fog.rebake(deps.stage.app.screen.width, deps.stage.app.screen.height, game.camera.zoom);
     },
     zoom: () => game.camera.userZoom,
+    clusterScreen: () => game.camera.worldToScreen(clusterCentre(world, pump.tick)),
+    shots: () => game.effects.liveShots.map((s) => ({ kind: s.kind, degraded: s.degraded, alpha: s.alpha })),
     resetSamples: () => store.reset(),
     samples: () => store.all(),
     stats: () => store.stats(),

@@ -3278,7 +3278,7 @@ async function startStagedScene(
       const g = buildGame(stage, conn, map, audio, cls, portal, settingsOverlay);
       gameRef = g;
       bindResize(stage, g);
-      return { callbacks: makeCallbacks(g), camera: g.camera, fog: g.fog };
+      return { callbacks: makeCallbacks(g), camera: g.camera, fog: g.fog, effects: g.effects };
     },
   });
 }
