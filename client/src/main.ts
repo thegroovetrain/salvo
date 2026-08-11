@@ -3233,6 +3233,56 @@ async function startGame(
   startLoop(stage.app, makeCallbacks(game));
 }
 
+/**
+ * Was the dev-only staged worst-case scene asked for (`?stage=worstcase`)?
+ *
+ * The opt-in is EXPLICIT and the gate is DOUBLE: this predicate only ever runs
+ * inside an `import.meta.env.DEV` branch, which Vite folds to `false` in a
+ * production build — so the query parameter is not merely ignored in
+ * production, the code that reads it is not shipped. Same posture as the
+ * server's `HC_DEV_OPTIONS`: a production client cannot reach it at all.
+ */
+function stagedSceneRequested(): boolean {
+  try {
+    return new URLSearchParams(location.search).get('stage') === 'worstcase';
+  } catch {
+    return false; // a hostile/absent location must never break boot
+  }
+}
+
+/**
+ * Boot the dev-only staged worst-case scene (Story 4.8, amendment 242) — the
+ * readability gate's capture subject.
+ *
+ * DEAD-STRIPPED FROM PRODUCTION: the sole call site sits inside an
+ * `import.meta.env.DEV` branch, which Vite substitutes with `false` before
+ * Rollup runs, so the branch, this function's dynamic import, and the whole
+ * `src/stage/*` module graph behind it are eliminated. Verified by grepping the
+ * built assets for `STAGE_MARKER` (client/scripts/readabilityCapture.mjs
+ * --verify-bundle).
+ *
+ * The scene runs the REAL game — `buildGame` against a staged connection —
+ * because a gate that measured a mock would prove nothing about the shipped
+ * arbitration.
+ */
+async function startStagedScene(
+  stage: Stage,
+  audio: Audio,
+  portal: PortalAdapter,
+  settingsOverlay: SettingsOverlay,
+): Promise<void> {
+  const { runWorstCaseScene } = await import('./stage/worstCase.js');
+  runWorstCaseScene({
+    stage,
+    start: (conn, map, cls) => {
+      const g = buildGame(stage, conn, map, audio, cls, portal, settingsOverlay);
+      gameRef = g;
+      bindResize(stage, g);
+      return { callbacks: makeCallbacks(g), camera: g.camera, fog: g.fog };
+    },
+  });
+}
+
 async function main(): Promise<void> {
   // Design tokens first: inject the --hc-* CSS custom properties + type registers
   // before any DOM chrome (the menu below) builds, so every overlay resolves its
@@ -3289,6 +3339,14 @@ async function main(): Promise<void> {
   applyRenderSettings();
   setUiScaleVar(scaleFactor(effectiveScale(settings.current, stage.app.screen.width)));
   settings.subscribe(applyRenderSettings);
+
+  // THE READABILITY GATE's staged worst-case scene (Story 4.8, amendment 242).
+  // DEV ONLY, and dead-stripped from a production build (see startStagedScene).
+  if (import.meta.env.DEV && stagedSceneRequested()) {
+    stopAmbient(); // the staged scene owns worldRoot; the CIC ambient must not fight it
+    await startStagedScene(stage, audio, portal, settingsOverlay);
+    return; // no home, no connection — the staged scene is the whole page
+  }
 
   const home = showHome(
     version,
