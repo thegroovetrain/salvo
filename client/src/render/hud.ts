@@ -39,6 +39,14 @@ import { glyphFadeAlpha, helmGlyphs, type HelmGlyphStore, type HelmPair } from '
 // re-derived: amendment 16's hold is ONE behavior with one time constant shape,
 // and a second implementation of it would be a second thing to keep in step.
 import { easeHold } from './zone.js';
+// THE ATTENTION SEAM. This module owns BOTH amber channels — the chrome bar's
+// ring segment and the HP rail — so the amber corollary is resolved HERE, with
+// the seam's own ranked resolver, rather than being re-decided by two call
+// sites. (attention.ts imports `railCritical` back out of this module: the
+// cycle is benign, since neither module calls the other at load time, and it is
+// the price of amendment 16's rule that the OWNING module exports the
+// predicate.)
+import { amberPulseWinner, holdAtLitKeyframe } from './attention.js';
 import {
   CHROME_BAR_SEGMENTS,
   RING_PULSE_AMP,
@@ -286,6 +294,51 @@ export function railPulsing(frac: number): boolean {
 }
 
 /**
+ * Pure: is the rail in its CRITICAL (crimson `damageMarker`) band? THE TIER-1
+ * GATE — render/attention.ts composes this, never a threshold of its own
+ * (amendment 16's rule: the owning module exports the predicate).
+ *
+ * Amendment 239: the attention table's Tier-1 HP channel is `<25%`, which is
+ * exactly this band; 25-50% is the AMBER WARNING band, and a warning is not a
+ * threat. The rail's own display grammar does NOT move — it still breathes below
+ * 50% (`railPulsing`, untouched) at the same ramp and in the same colors. Only
+ * WHEN the rail claims the threat tier changed.
+ *
+ * The bound is EXCLUSIVE, matching `hpColor`'s convention exactly: a fraction of
+ * exactly `criticalBelow` still reads amber and is NOT critical.
+ */
+export function railCritical(frac: number): boolean {
+  return frac < V.criticalBelow;
+}
+
+/**
+ * Pure: is the rail an AMBER CHANNEL this frame — breathing (below 50%) but not
+ * yet crimson (at or above 25%)? THE AMBER COROLLARY's rail input, composed from
+ * the two gates above rather than from a third threshold: `railPulsing` says it
+ * is animating and `railCritical` says it has left the amber band for the
+ * critical one, and the corollary's subject is exactly the difference.
+ *
+ * Below 25% this goes FALSE, which is the whole point: a crimson rail is not a
+ * lesser amber that could lose a ranking — it is the Tier-1 threat channel, and
+ * the corollary has nothing to say about it (attention.ts's tier table).
+ */
+export function railAmberChannel(frac: number): boolean {
+  return railPulsing(frac) && !railCritical(frac);
+}
+
+/**
+ * Pure: the rail's remaining fraction, clamped to [0,1] — THE one derivation
+ * both the rail's own draw and the attention seam's HP input read, so the band
+ * the player sees and the tier the seam computes can never be taken off two
+ * different numbers. A missing/zero denominator reads 0 here; NULL-vs-ZERO is
+ * the CALLER's distinction (Tier1Input.hpFrac is nullable precisely because a
+ * hull that does not exist is not a hull at 0%).
+ */
+export function railFraction(hp: number, maxHp: number): number {
+  return maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
+}
+
+/**
  * Pure: the rail geometry's redraw signature. The fraction is quantized (0.001
  * of the bar — finer than a pixel at this height), but the BAND and the PULSE
  * GATE are carried exactly: quantizing alone would let 0.4996 share a signature
@@ -368,6 +421,33 @@ export function advancePulsePhase(phase: number, frac: number, dt: number): numb
 export function hullFillAlpha(frac: number, phase: number, amp: number = V.pulseAmp): number {
   if (frac >= V.amberBelow) return V.railFillAlpha;
   return V.railFillAlpha + amp * Math.sin(phase);
+}
+
+/** Clamp to [0,1] (a blend factor, or a caller's degenerate input). */
+function clamp01(v: number): number {
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+}
+
+/**
+ * Pure: the rail fill's alpha actually drawn — the breathing value and its LIT
+ * keyframe mixed by an eased `hold` blend (0 = breathing, 1 = fully held lit).
+ *
+ * THE AMBER COROLLARY's loser-side draw. When the ring wins the amber ranking
+ * the rail does not simply stop moving — a hard stop is itself a luminance step,
+ * the exact thing this story exists to prevent — so the caller eases the blend
+ * with the vignette's own `easeHold` (240ms) and the rail SWELLS to its lit
+ * keyframe and holds there. The keyframe is `sin(φ)=1`, i.e. the top of the very
+ * same wave `hullFillAlpha` draws, so a held rail is never DIMMER than a
+ * breathing one and the fill's information (height, band color) never moves.
+ *
+ * Two no-ops by construction: at or above 50% hull there is no pulse, and at
+ * motion=off (amp 0) both endpoints are `railFillAlpha` — so the hold can never
+ * introduce motion at a level that asked for none.
+ */
+export function hullFillHeld(frac: number, phase: number, amp: number, hold: number): number {
+  const breathing = hullFillAlpha(frac, phase, amp);
+  const lit = hullFillAlpha(frac, Math.PI / 2, amp);
+  return breathing + (lit - breathing) * clamp01(hold);
 }
 
 /**
@@ -515,6 +595,11 @@ export class Hud {
    *  changing hull fraction can never jump it (see advancePulsePhase). */
   private pulsePhase = 0;
   private lastPulseSec: number | null = null;
+  /** The eased AMBER-COROLLARY hold blend for the rail (0 = breathing, 1 = held
+   *  at its lit keyframe because the ring outranked it). Its own blend, not the
+   *  bar's: the two ambers are held for different reasons and can never be held
+   *  at the same time (the winner never holds). */
+  private railHold = 0;
 
   constructor(
     private readonly hudLayer: Container,
@@ -712,7 +797,7 @@ export class Hud {
    * `nowSec` is the server-clock estimate in seconds — the same clock the HP
    * rail's pulse rides.
    */
-  private drawChromeBar(bar: ChromeBarView, screenW: number, nowSec: number): void {
+  private drawChromeBar(bar: ChromeBarView, screenW: number, nowSec: number, ringPulses: boolean): void {
     const dt = this.lastBarSec === null ? 0 : nowSec - this.lastBarSec;
     this.lastBarSec = nowSec;
     if (!bar.visible) {
@@ -721,7 +806,7 @@ export class Hud {
     }
     const segs = chromeBarSegments(bar);
     this.layoutChromeBar(segs, screenW);
-    this.breatheRing(bar, segs, dt);
+    this.breatheRing(bar, segs, dt, ringPulses);
   }
 
   /** Assign / re-measure the row. Text assignment and the layout both run only
@@ -761,18 +846,31 @@ export class Hud {
    * urgency window, so it always starts lit), an eased Tier-1 hold toward the
    * lit keyframe, and a motion-scaled amplitude — at `off` the amplitude is zero
    * and the segment simply holds amber and lit, information intact.
+   *
+   * `ringPulses` is the AMBER COROLLARY's verdict for this segment (resolved in
+   * update()/updateSpectate() by `amberPulseWinner`), not the raw urgency flag.
+   * Under the shipped rank the ring outranks the rail, so a ring inside its
+   * window ALWAYS wins and the two are the same boolean — which is exactly why
+   * there is no eased loser-path here: the ring can never lose, so building one
+   * would be dead code with no way to test it. If a future channel ever outranks
+   * the ring, THIS is the line that has to grow the rail's `hullFillHeld` blend.
    */
-  private breatheRing(bar: ChromeBarView, segs: readonly ChromeSegment[], dtSec: number): void {
-    const urgent = bar.ring.urgent;
+  private breatheRing(
+    bar: ChromeBarView,
+    segs: readonly ChromeSegment[],
+    dtSec: number,
+    ringPulses: boolean,
+  ): void {
     // The amplitude gates the INTEGRATOR as well as the wave: at motion=off the
     // phase holds at 0, so turning motion back on mid-window starts the breath
     // from the lit keyframe instead of wherever a free-running phase had drifted.
     const amp = motionScaled(RING_PULSE_AMP, settings.current.motion);
-    this.ringPhase = advanceRingPhase(this.ringPhase, urgent, dtSec, amp);
-    this.ringHold = easeHold(this.ringHold, bar.tier1 ? 1 : 0, Math.max(0, dtSec) * 1000, CB.holdEaseMs);
+    this.ringPhase = advanceRingPhase(this.ringPhase, ringPulses, dtSec, amp);
+    const hold = holdAtLitKeyframe(bar.tier1) ? 1 : 0;
+    this.ringHold = easeHold(this.ringHold, hold, Math.max(0, dtSec) * 1000, CB.holdEaseMs);
     const pulsed = ringSegmentAlpha(this.ringPhase, amp, this.ringHold);
     for (let i = 0; i < segs.length; i++) {
-      this.barSegs[i].alpha = segs[i].pulsed && urgent ? pulsed : segs[i].alpha;
+      this.barSegs[i].alpha = segs[i].pulsed && ringPulses ? pulsed : segs[i].alpha;
     }
   }
 
@@ -906,9 +1004,8 @@ export class Hud {
    * (motion-gated — the base alpha is information and holds at `off`), driven by
    * an integrated phase so a changing hull fraction never jumps the wave.
    */
-  private updateHpRail(status: OwnStatus, nowSec: number): void {
+  private updateHpRail(status: OwnStatus, nowSec: number, frac: number, holdAmber: boolean): void {
     const maxHp = status.stats.maxHp;
-    const frac = maxHp > 0 ? Math.max(0, Math.min(1, status.hp / maxHp)) : 0;
     const pending = repairFraction(status.hp, status.repairHp, maxHp);
     const sig = railSig(frac, pending);
     if (sig !== this.lastRailSig) {
@@ -918,7 +1015,12 @@ export class Hud {
     const dt = this.lastPulseSec === null ? 0 : nowSec - this.lastPulseSec;
     this.lastPulseSec = nowSec;
     this.pulsePhase = advancePulsePhase(this.pulsePhase, frac, dt);
-    this.railFill.alpha = hullFillAlpha(frac, this.pulsePhase, motionScaled(V.pulseAmp, settings.current.motion));
+    // The AMBER COROLLARY's hold is EASED, never snapped (the vignette's own
+    // 240ms τ, via easeHold's default) — a rail that stopped dead at the lit
+    // keyframe would be the luminance step the tier table exists to remove.
+    this.railHold = easeHold(this.railHold, holdAmber ? 1 : 0, Math.max(0, dt) * 1000);
+    const amp = motionScaled(V.pulseAmp, settings.current.motion);
+    this.railFill.alpha = hullFillHeld(frac, this.pulsePhase, amp, this.railHold);
     const hull = hullHeaderValue(status.hp, maxHp);
     if (hull !== this.lastHull) {
       this.hullValue.text = hull;
@@ -1035,13 +1137,20 @@ export class Hud {
     // active — via the one shared speed mutator, never a hand-tweaked maxSpeed.
     const kin = boostedKinematics(status.stats.kinematics, status.stats.boost.speedBonus, status.boostActive);
     this.updateTelegraph(axes, ship.speed, kin);
-    this.updateHpRail(status, nowSec);
+    // THE AMBER COROLLARY, resolved ONCE for the frame: this module owns both
+    // amber channels, so the ranking is decided here and each channel is then
+    // told only whether it won. The rail's fraction comes from `railFraction` —
+    // the same derivation the seam's Tier-1 read takes — so the corollary and
+    // the tier can never disagree about which band the hull is in.
+    const frac = railFraction(status.hp, status.stats.maxHp);
+    const amber = amberPulseWinner({ ring: bar.ring.urgent, hpRail: railAmberChannel(frac) });
+    this.updateHpRail(status, nowSec, frac, railAmberChannel(frac) && amber !== 'hpRail');
     this.updateHelmGlyphs(nowSec);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawTells(status, screenW, screenH);
     this.drawStormWarn(inStorm, screenW, screenH);
-    this.drawChromeBar(bar, screenW, nowSec);
+    this.drawChromeBar(bar, screenW, nowSec, amber === 'ring');
     this.drawMatch(match, screenW, screenH);
   }
 
@@ -1085,7 +1194,12 @@ export class Hud {
     }
     this.spectateBanner.visible = true;
     this.spectateBanner.position.set(screenW / 2, screenH * 0.16);
-    this.drawChromeBar(bar, screenW, nowSec);
+    // A spectator owns no HP rail at all, so the amber set holds exactly one
+    // member and the ring wins whenever its window is open — the corollary is
+    // resolved the same way here rather than by short-circuiting past it, and
+    // `hpRail: false` is a STATEMENT (there is no hull), not a stale read.
+    this.railHold = 0;
+    this.drawChromeBar(bar, screenW, nowSec, amberPulseWinner({ ring: bar.ring.urgent, hpRail: false }) === 'ring');
     this.drawMatch(match, screenW, screenH);
   }
 }

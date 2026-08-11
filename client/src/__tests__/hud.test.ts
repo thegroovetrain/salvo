@@ -10,6 +10,10 @@ import {
   hullFillAlpha,
   hullHeaderValue,
   advancePulsePhase,
+  hullFillHeld,
+  railAmberChannel,
+  railCritical,
+  railFraction,
   railPulsing,
   railSig,
   repairFraction,
@@ -49,7 +53,7 @@ import { KeyboardInput, type KeyboardHooks } from '../input/keyboard.js';
 import { abilityPressDenied } from '../sim/inputSampler.js';
 import { DeniedPulse } from '../render/deniedFire.js';
 import { tier1Active } from '../render/attention.js';
-import { vignetteAlpha } from '../render/zone.js';
+import { easeHold, vignetteAlpha } from '../render/zone.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -147,14 +151,34 @@ describe('hullPulseHz — the accelerating, hard-capped rail pulse', () => {
     expect(vignetteAlpha(true, 0.25 / CAP_HZ)).toBeCloseTo(Z.vignetteBase + Z.vignetteAmp, 6);
   });
 
-  it('IS the Tier-1 low-HP gate (Story 3.2, amendment 16) — one threshold, not two', () => {
-    // render/attention.ts composes THIS predicate rather than declaring its own
-    // low-HP threshold, so the rail and the storm vignette's hold can never
-    // disagree about when the hull is a threat channel.
+  it('is the BREATHING gate, and no longer the Tier-1 gate (amendment 239)', () => {
+    // The rail's display grammar is UNTOUCHED: it still breathes below 50%, at
+    // the same ramp and in the same colors. What moved is only which band claims
+    // the THREAT tier — `railCritical` (<25%, the crimson band) is the Tier-1
+    // gate now, because a warning is not a threat and an always-Tier-1 amber
+    // rail would outrank the final-10s ring in every wounded endgame.
     expect(railPulsing(V.amberBelow)).toBe(false);
     expect(railPulsing(V.amberBelow - 1e-9)).toBe(true);
-    expect(tier1Active({ hpFrac: 0.3, deniedLive: false })).toBe(railPulsing(0.3));
-    expect(tier1Active({ hpFrac: 0.9, deniedLive: false })).toBe(railPulsing(0.9));
+    expect(railPulsing(0.3)).toBe(true);
+    expect(tier1Active({ hpFrac: 0.3, deniedLive: false })).toBe(false);
+    expect(tier1Active({ hpFrac: 0.9, deniedLive: false })).toBe(false);
+  });
+
+  it('railCritical IS the Tier-1 gate (amendment 239) — one threshold, not two', () => {
+    // render/attention.ts composes THIS predicate rather than declaring its own
+    // threshold, so the rail and the storm vignette's hold can never disagree
+    // about when the hull is a threat channel. The bound is EXCLUSIVE, exactly
+    // as hpColor's is: at exactly 25% the rail is still amber.
+    expect(railCritical(V.criticalBelow)).toBe(false);
+    expect(hpColor(V.criticalBelow)).toBe(CLIENT_CONFIG.colors.amber);
+    expect(railCritical(V.criticalBelow - 1e-9)).toBe(true);
+    for (const frac of [0.24, 0.1, 0]) {
+      expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(railCritical(frac));
+      expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(true);
+    }
+    // Every critical hull is also a breathing one — the tier is a SUBSET of the
+    // pulse band, never a competing band.
+    for (const frac of [0.24, 0.1, 0]) expect(railPulsing(frac)).toBe(true);
   });
 });
 
@@ -1298,5 +1322,202 @@ describe('Hud — the tells on a live frame', () => {
     draw(hud, { ...base, dazzledMsLeft: 5000 });
     hud.updateSpectate(quiet, match, 1366, 768, 'SPECTATING', 0);
     expect(hud.tellText(1)).toBe('');
+  });
+});
+
+// --- STORY 4.8: THE AMBER COROLLARY --------------------------------------------
+//
+// *"Only the highest-tier active amber channel pulses; every other amber element
+// holds steady."* This module owns BOTH amber channels — the chrome bar's
+// final-10s ring segment and the HP rail's 25-50% band — so the ranking is
+// resolved here (attention.ts's `amberPulseWinner`) and each channel is told
+// only whether it won. The LOSER holds at its LIT keyframe, EASED, because a
+// hard stop at a keyframe is itself the luminance step this story removes.
+
+describe('railAmberChannel / railFraction — the corollary\'s rail input', () => {
+  it('is the band BETWEEN the two shipped gates, never a third threshold', () => {
+    for (const frac of [0.49, 0.4, 0.3, V.criticalBelow]) {
+      expect(railAmberChannel(frac)).toBe(railPulsing(frac) && !railCritical(frac));
+      expect(railAmberChannel(frac)).toBe(true);
+    }
+  });
+
+  it('a CRIMSON rail is NOT an amber channel — it is the threat tier', () => {
+    for (const frac of [0.24, 0.1, 0]) {
+      expect(railCritical(frac)).toBe(true);
+      expect(railAmberChannel(frac)).toBe(false); // it cannot lose a ranking it is not in
+      expect(tier1Active({ hpFrac: frac, deniedLive: false })).toBe(true);
+    }
+    // ...and a healthy rail is not in it either.
+    expect(railAmberChannel(V.amberBelow)).toBe(false);
+    expect(railAmberChannel(1)).toBe(false);
+  });
+
+  it('clamps, and reads a missing denominator as 0 (NULL is the CALLER\'s job)', () => {
+    expect(railFraction(50, 100)).toBe(0.5);
+    expect(railFraction(140, 100)).toBe(1);
+    expect(railFraction(-3, 100)).toBe(0);
+    expect(railFraction(50, 0)).toBe(0);
+  });
+});
+
+describe('hullFillHeld — the rail\'s eased hold at its lit keyframe', () => {
+  const AMP = V.pulseAmp;
+  const LIT = V.railFillAlpha + AMP;
+
+  it('a full hold is the LIT keyframe at every phase — never dimmer than breathing', () => {
+    for (const phase of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2, 5.1]) {
+      expect(hullFillHeld(0.4, phase, AMP, 1)).toBeCloseTo(LIT, 9);
+      expect(hullFillHeld(0.4, phase, AMP, 1)).toBeGreaterThanOrEqual(hullFillAlpha(0.4, phase, AMP) - 1e-9);
+    }
+  });
+
+  it('EASES rather than snaps — a partial blend is a real intermediate value', () => {
+    const trough = (3 * Math.PI) / 2; // sin = -1, the dimmest frame of the breath
+    const breathing = hullFillAlpha(0.4, trough, AMP);
+    // One 16ms frame of the shared 240ms ease covers ~6.5% of the delta: strictly
+    // between the two endpoints, which is the whole property (a snap would be
+    // AT the endpoint on frame one).
+    const oneFrame = hullFillHeld(0.4, trough, AMP, easeHold(0, 1, 16));
+    expect(oneFrame).toBeGreaterThan(breathing);
+    expect(oneFrame).toBeLessThan(LIT - 1e-3);
+    // ...and it converges, rather than stalling short.
+    let hold = 0;
+    for (let i = 0; i < 120; i++) hold = easeHold(hold, 1, 16); // ~2s = 8τ
+    expect(hullFillHeld(0.4, trough, AMP, hold)).toBeCloseTo(LIT, 3);
+  });
+
+  it('is a NO-OP above the band and at motion=off — it can never ADD motion', () => {
+    expect(hullFillHeld(0.9, 1.2, AMP, 1)).toBe(V.railFillAlpha); // no pulse to hold
+    expect(hullFillHeld(0.4, 1.2, 0, 1)).toBe(V.railFillAlpha); // motion:off endpoints coincide
+  });
+});
+
+describe('Hud — the amber corollary on the real instrument', () => {
+  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const MAX = stats.maxHp;
+  const LIT = V.railFillAlpha + V.pulseAmp;
+  const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
+  const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
+
+  function status(frac: number): OwnStatus {
+    return {
+      hp: MAX * frac,
+      repairHp: 0,
+      ammo: [null, null, null, null],
+      primedSlot: 0,
+      alive: true,
+      respawnInMs: 0,
+      cls: 'torpedoBoat',
+      stats,
+      loadout: ['gun', 'torpedo', null, null],
+      boostActive: false,
+      slowedMsLeft: 0,
+      dazzledMsLeft: 0,
+    };
+  }
+
+  function bar(over: Partial<ChromeBarView> = {}): ChromeBarView {
+    return {
+      visible: true,
+      afloat: 4,
+      kills: 1,
+      matchMs: 252_000,
+      ring: ringReadout('clear', 154_000), // NOT urgent
+      bounty: null,
+      tier1: false,
+      ...over,
+    };
+  }
+
+  const URGENT = bar({ ring: ringReadout('reveal', 9_400) }); // inside the final 10s
+  const RING = chromeBarSegments(bar()).findIndex((s) => s.pulsed);
+
+  function run(hud: Hud, frac: number, v: ChromeBarView, frames: number, t0 = 0): number {
+    let t = t0;
+    for (let i = 0; i < frames; i++) hud.update(ship, { throttle: 0, rudder: 0 }, status(frac), false, v, match, 1366, 768, (t += 0.016));
+    return t;
+  }
+
+  afterEach(() => settings.reset());
+
+  it('ring urgent + amber rail: the RING pulses and the RAIL holds lit', () => {
+    const hud = new Hud(new Container());
+    expect(railAmberChannel(0.4)).toBe(true); // both ambers genuinely active
+    expect(URGENT.ring.urgent).toBe(true);
+    run(hud, 0.4, URGENT, 125); // ~2s, well past the 240ms ease
+    // The RAIL: settled at its lit keyframe, its information (band, height) intact.
+    expect(hud.railFillAlpha).toBeCloseTo(LIT, 2);
+    // The RING: still breathing — over a second of frames it visits real troughs.
+    const seen = new Set<string>();
+    for (let i = 0; i < 70; i++) {
+      run(hud, 0.4, URGENT, 1, 2 + i * 0.016);
+      seen.add(hud.chromeBarAlpha(RING).toFixed(3));
+    }
+    expect(seen.size).toBeGreaterThan(5);
+    expect(Math.min(...[...seen].map(Number))).toBeLessThan(1);
+  });
+
+  it('with NO urgent ring the amber rail breathes exactly as it always has', () => {
+    const hud = new Hud(new Container());
+    const alphas: number[] = [];
+    for (let i = 0; i < 90; i++) {
+      run(hud, 0.4, bar(), 1, i * 0.016);
+      alphas.push(hud.railFillAlpha);
+    }
+    expect(new Set(alphas.map((a) => a.toFixed(4))).size).toBeGreaterThan(10); // it moves
+    expect(Math.min(...alphas)).toBeLessThan(V.railFillAlpha); // ...below the base, i.e. a real breath
+  });
+
+  it('EASES into the hold — the frame the ring goes urgent is not a snap', () => {
+    // TWO instruments on the same clock and the same hull: one whose ring goes
+    // urgent, one whose does not. The DIFFERENCE between them is the hold alone,
+    // which is the only way to isolate it from the breath still running
+    // underneath (over one 16ms frame the wave can move further than the ease).
+    const held = new Hud(new Container());
+    const free = new Hud(new Container());
+    let t = 0;
+    for (let i = 0; i < 40; i++) {
+      t += 0.016;
+      run(held, 0.4, bar(), 1, t - 0.016);
+      run(free, 0.4, bar(), 1, t - 0.016);
+    }
+    expect(held.railFillAlpha).toBeCloseTo(free.railFillAlpha, 9); // identical so far
+    expect(free.railFillAlpha).toBeLessThan(LIT - 0.01);
+    run(held, 0.4, URGENT, 1, t); // ...one single frame of hold
+    run(free, 0.4, bar(), 1, t);
+    expect(held.railFillAlpha).toBeGreaterThan(free.railFillAlpha); // the hold has begun
+    expect(held.railFillAlpha).toBeLessThan(LIT - 0.01); // ...and only begun: an EASE
+    run(held, 0.4, URGENT, 200, t + 0.016);
+    expect(held.railFillAlpha).toBeCloseTo(LIT, 2);
+  });
+
+  it('a CRIMSON rail keeps its own pulse — it left the amber set (amendment 239)', () => {
+    const hud = new Hud(new Container());
+    // Below 25% with the ring urgent AND Tier 1 therefore live: the rail is the
+    // threat channel and goes on breathing, while the RING (Tier 2) holds lit.
+    const held = bar({ ring: URGENT.ring, tier1: true });
+    const alphas: number[] = [];
+    for (let i = 0; i < 90; i++) {
+      run(hud, 0.2, held, 1, i * 0.016);
+      alphas.push(hud.railFillAlpha);
+    }
+    expect(new Set(alphas.map((a) => a.toFixed(4))).size).toBeGreaterThan(10); // the rail moves
+    expect(Math.min(...alphas)).toBeLessThan(V.railFillAlpha);
+    run(hud, 0.2, held, 125, 2); // ...and the ring has settled at ITS lit keyframe
+    expect(hud.chromeBarAlpha(RING)).toBeCloseTo(1, 2);
+  });
+
+  it('a SPECTATE frame resolves the corollary with no rail at all', () => {
+    const hud = new Hud(new Container());
+    run(hud, 0.4, URGENT, 60); // ...alive first, so the rail hold is genuinely armed
+    hud.updateSpectate(URGENT, match, 1366, 768, 'SUNK — SPECTATING', 2);
+    // The ring is the only amber left, so it wins and keeps breathing.
+    const seen = new Set<string>();
+    for (let i = 0; i < 70; i++) {
+      hud.updateSpectate(URGENT, match, 1366, 768, 'SUNK — SPECTATING', 2 + i * 0.016);
+      seen.add(hud.chromeBarAlpha(RING).toFixed(3));
+    }
+    expect(seen.size).toBeGreaterThan(5);
   });
 });

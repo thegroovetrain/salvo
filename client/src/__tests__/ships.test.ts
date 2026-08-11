@@ -3,7 +3,7 @@
 // fallbacks, and the ShipView.setColors recolor path (own hull boots on the
 // fallback and swaps to its hue once the roster syncs).
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { CONFIG, REGATTA_HUES, hullSilhouette } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
@@ -13,9 +13,14 @@ import {
   FALLBACK_STYLE,
   hullStyle,
   contactStyle,
+  hullFlashIntensity,
   isDroneHull,
+  setHullFlashGate,
   ShipView,
 } from '../render/ships.js';
+import { WorldFlashGate } from '../render/effects.js';
+import { createFlashBudget } from '../render/flashBudget.js';
+import { settings } from '../settings/store.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -66,6 +71,130 @@ describe('ShipView.setColors — the recolor path', () => {
     expect(() => view.setColors(C.players.cyan, C.playerFills.cyan)).not.toThrow();
     expect(() => view.setColors(C.amber, null)).not.toThrow(); // back to hollow fallback
     view.destroy();
+  });
+});
+
+// --- STORY 4.8: THE HULL HIT FLASH'S BUDGET CLAIM ------------------------------
+//
+// The 130 ms hit flash is the game's worst stacking surface after the muzzle
+// flashes — one burst lands on every hull inside its radius at once, and up to
+// 20 hulls can flash in the same second. It claims against the client's ONE
+// aggregate budget by the screen REGION of that hull, and an over-budget flash
+// DEGRADES (a dimmer mark, same hull, same full 130 ms) rather than vanishing:
+// a hull that took a hit and did not show it would be deleted information.
+
+const FB = CLIENT_CONFIG.flashBudget;
+/** World units ARE screen px on an 800x600 viewport (4x3 grid → 200x200 cells). */
+const PROJECTOR = {
+  worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }),
+  screenCenter: { x: 400, y: 300 },
+};
+
+function wireGate(now: () => number = () => 1_000): ReturnType<typeof createFlashBudget> {
+  const budget = createFlashBudget();
+  setHullFlashGate(new WorldFlashGate(budget, PROJECTOR, now));
+  return budget;
+}
+
+/** A hull parked at a world point, ready to take a hit. */
+function hullAt(x: number, y: number): ShipView {
+  const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+  v.update(x, y, 0);
+  return v;
+}
+
+afterEach(() => {
+  setHullFlashGate(null); // the module-level gate is shared state — always unwire
+  settings.set({ motion: 'full' });
+});
+
+describe('hullFlashIntensity — the pure degrade', () => {
+  it('spends the AMPLITUDE and nothing else', () => {
+    expect(hullFlashIntensity(1, false)).toBe(1);
+    expect(hullFlashIntensity(1, true)).toBeCloseTo(FB.degradeAlphaFactor, 10);
+    // Composes multiplicatively with Story 2.3's `reduced` halving, which is
+    // untouched: strength, never duration.
+    expect(hullFlashIntensity(0.5, true)).toBeCloseTo(0.5 * FB.degradeAlphaFactor, 10);
+    expect(hullFlashIntensity(1, true)).toBeGreaterThan(0); // a mark, never a deletion
+  });
+});
+
+describe('the hull hit flash under a 20-hull stack', () => {
+  it('claims per region, degrades past the floor, and still marks EVERY hull', () => {
+    wireGate();
+    const hulls = Array.from({ length: 20 }, (_, i) => hullAt(100 + i, 100)); // one region
+    for (const h of hulls) h.flash();
+    const now = performance.now();
+    const lit = hulls.map((h) => h.flashIntensityAt(now));
+    expect(lit.filter((v) => v === 1)).toHaveLength(FB.maxPerSecond); // the floor binds…
+    for (const v of lit) expect(v).toBeGreaterThan(0); // …and nothing is deleted
+    for (const v of lit.slice(FB.maxPerSecond)) expect(v).toBeCloseTo(FB.degradeAlphaFactor, 10);
+    // The DURATION is untouched by the degrade — the flash still ends on time.
+    for (const h of hulls) expect(h.flashIntensityAt(now + CLIENT_CONFIG.ship.flashMs + 1)).toBe(0);
+    for (const h of hulls) h.destroy();
+  });
+
+  it('gives a hull in a quiet region its full flash while another region is saturated', () => {
+    wireGate();
+    const busy = Array.from({ length: 6 }, (_, i) => hullAt(100 + i, 100)); // r0:0
+    for (const h of busy) h.flash();
+    const quiet = hullAt(700, 500); // r3:2
+    quiet.flash();
+    expect(quiet.flashIntensityAt(performance.now())).toBe(1);
+    for (const h of [...busy, quiet]) h.destroy();
+  });
+
+  it('LATCHES the verdict — a live flash never brightens as the window empties', () => {
+    let t = 1_000;
+    wireGate(() => t);
+    const hulls = Array.from({ length: 5 }, (_, i) => hullAt(100 + i, 100));
+    for (const h of hulls) h.flash();
+    const degraded = hulls[4];
+    t += FB.windowMs * 5; // the window empties under a flash already on screen
+    expect(degraded.flashIntensityAt(performance.now())).toBeCloseTo(FB.degradeAlphaFactor, 10);
+    for (const h of hulls) h.destroy();
+  });
+});
+
+describe('a hull that has never rendered never charges the wrong region', () => {
+  it('animates, and spends no onset, when the view has no pose yet', () => {
+    // `flash()` buckets by `this.gfx.position` — the LAST RENDERED pose. A
+    // ShipView created and damaged inside the same network batch flashes before
+    // its first `update()`, so it reads (0,0) and would charge the map-centre
+    // region for a hull that is somewhere else entirely. Fail SAFE: no claim, no
+    // mis-bucket, and the flash animates.
+    const budget = wireGate();
+    const unrendered = new ShipView(FALLBACK_STYLE, 'torpedoBoat'); // never update()d
+    unrendered.flash();
+    expect(unrendered.flashIntensityAt(performance.now())).toBe(1);
+    // ...and it did not eat an onset from the region it would have mis-bucketed
+    // into: three real hulls there still flash at full strength.
+    const real = Array.from({ length: FB.maxPerSecond }, (_, i) => hullAt(10 + i, 10)); // r0:0
+    for (const h of real) h.flash();
+    for (const h of real) expect(h.flashIntensityAt(performance.now())).toBe(1);
+    expect(budget.claim('r0:0', 1_000)).toBe('degrade'); // exactly three, no more
+    for (const h of [unrendered, ...real]) h.destroy();
+  });
+});
+
+describe('the hull flash at motion: \'off\' is unchanged by the budget', () => {
+  it('does not flash and does not spend an onset', () => {
+    settings.set({ motion: 'off' });
+    const budget = wireGate();
+    const hulls = Array.from({ length: 10 }, (_, i) => hullAt(100 + i, 100));
+    for (const h of hulls) h.flash();
+    for (const h of hulls) expect(h.flashIntensityAt(performance.now())).toBe(0); // exactly as before 4.8
+    // A suppressed flash did not flash, so the region's budget is untouched.
+    for (let i = 0; i < FB.maxPerSecond; i++) expect(budget.claim('r0:0', 1_000)).toBe('animate');
+    for (const h of hulls) h.destroy();
+  });
+
+  it('unwired (no gate) every hull flashes at full strength, exactly as it shipped', () => {
+    setHullFlashGate(null);
+    const hulls = Array.from({ length: 20 }, (_, i) => hullAt(100 + i, 100));
+    for (const h of hulls) h.flash();
+    for (const h of hulls) expect(h.flashIntensityAt(performance.now())).toBe(1);
+    for (const h of hulls) h.destroy();
   });
 });
 

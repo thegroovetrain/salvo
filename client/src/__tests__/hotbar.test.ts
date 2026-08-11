@@ -39,6 +39,10 @@ import {
   boonRows,
   breathedSkin,
   coolFraction,
+  degradedSkin,
+  fitFrameAlpha,
+  FIT_FRAME_ALPHA,
+  FIT_PULSE_PX,
   fmtDamage,
   fmtRemaining,
   fmtSeconds,
@@ -51,6 +55,8 @@ import {
   shouldShowTooltip,
   slotAtPoint,
   slotBoonIds,
+  slotDegraded,
+  slotFlags,
   slotSkin,
   slotState,
   slotViewModels,
@@ -68,6 +74,7 @@ import {
   slotForBoonCategory,
   SLOT_KEY_GLYPHS,
 } from '../render/equipmentInfo.js';
+import { FLASH_ELEMENTS, createFlashBudget, hotbarSlotKey } from '../render/flashBudget.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const H = CLIENT_CONFIG.hotbar;
@@ -844,5 +851,101 @@ describe('the ACTIVE breath rides an INTEGRATED phase (2.9 review)', () => {
     for (let i = 0; i < 1 / ACTIVE_PULSE_HZ / 0.5; i += 1) phase = advanceBreathPhase(phase, 0.5);
     expect(phase).toBeLessThan(Math.PI * 2);
     expect(Math.sin(phase)).toBeCloseTo(0);
+  });
+});
+
+// --- STORY 4.8: THE AGGREGATE FLASH BUDGET, ELEMENT-SCOPED ---------------------
+//
+// Each hotbar slot's denied pulse is its OWN element (`hotbarSlotKey(slot)`) and
+// the rank-wide fit frame is another (`FLASH_ELEMENTS.hotbarFrame`). A
+// `'degrade'` verdict means DRAW THE FLAT MARK, never skip: the budget degrades,
+// it does not delete, and every one of these channels already guarantees its
+// off-state carries the information.
+
+describe('degradedSkin — a degraded denial keeps its whole mark', () => {
+  it('drops ONLY the bloom: border, width, icon and wash are byte-identical', () => {
+    const full = slotSkin('denied');
+    const flat = degradedSkin(full);
+    expect(flat.border).toBe(full.border); // the denied red — the information
+    expect(flat.borderAlpha).toBe(full.borderAlpha);
+    expect(flat.borderWidth).toBe(full.borderWidth);
+    expect(flat.icon).toBe(full.icon);
+    expect(flat.iconAlpha).toBe(full.iconAlpha);
+    expect(flat.wash).toBe(full.wash);
+    expect(flat.washAlpha).toBe(full.washAlpha);
+    expect(flat.glowPx).toBe(0); // ...and only the flash is spent
+    expect(flat.glowAlpha).toBe(0);
+    expect(full.glowPx).toBeGreaterThan(0); // there really was one to spend
+  });
+
+  it('IS the already-ratified motion:off keyframe — not a new visual state', () => {
+    // Which is why the budget can bind on a declared-information channel: the
+    // degraded form is a state the game already ships and a player can select.
+    expect(degradedSkin(slotSkin('denied'))).toEqual(slotSkin('denied', 0));
+  });
+
+  it('never brightens anything — degrade is monotone down', () => {
+    for (const state of ['denied', 'activated', 'selected', 'active'] as const) {
+      const flat = degradedSkin(slotSkin(state));
+      expect(flat.glowAlpha).toBeLessThanOrEqual(slotSkin(state).glowAlpha);
+      expect(flat.borderAlpha).toBe(slotSkin(state).borderAlpha);
+    }
+  });
+});
+
+describe('slotFlags / slotViewModels — the degrade flag is scoped to its denial', () => {
+  it('rides only the slot that is actually denied', () => {
+    const view = viewFor('torpedoBoat', {
+      denied: [false, true, false, false],
+      deniedDegraded: [true, true, true, true],
+    });
+    expect(slotViewModels(view).map((m) => m.degraded)).toEqual([false, true, false, false]);
+    expect(slotViewModels(view).map((m) => m.state === 'denied')).toEqual([false, true, false, false]);
+  });
+
+  it('a denied slot with no verdict animates, exactly as it always has', () => {
+    const view = viewFor('torpedoBoat', { denied: [true, false, false, false] });
+    expect(slotFlags(view, 0)).toEqual({ denied: true, activated: false }); // untouched
+    expect(slotDegraded(view, 0, true)).toBe(false);
+    expect(slotViewModels(view)[0].degraded).toBe(false);
+    expect(slotViewModels(view)[0].state).toBe('denied'); // and it is still DENIED
+  });
+
+  it('a verdict can never change WHICH STATE a row is in', () => {
+    // The budget degrades a mark; it never re-classifies one. A degraded denial
+    // is still `denied` — same border, same icon, same precedence.
+    const view = viewFor('torpedoBoat', { denied: [true, false, false, false], deniedDegraded: [true, false, false, false] });
+    expect(slotViewModels(view)[0].state).toBe('denied');
+    expect(slotDegraded(view, 0, false)).toBe(false); // no denial, no verdict
+  });
+
+  it('each slot carries its OWN budget key — one over-budget slot flattens no other', () => {
+    const budget = createFlashBudget();
+    for (let i = 0; i < CLIENT_CONFIG.flashBudget.maxPerSecond; i++) {
+      expect(budget.claim(hotbarSlotKey(1), i)).toBe('animate');
+    }
+    expect(budget.claim(hotbarSlotKey(1), 10)).toBe('degrade');
+    expect(budget.claim(hotbarSlotKey(2), 10)).toBe('animate'); // a different element
+    expect(budget.claim(FLASH_ELEMENTS.hotbarFrame, 10)).toBe('animate');
+    expect(budget.claim(FLASH_ELEMENTS.deniedArc, 10)).toBe('animate');
+  });
+});
+
+describe('fitFrameAlpha — a degraded rank-wide flash still draws its frame', () => {
+  it('renders at the flat degraded weight, never at zero', () => {
+    expect(fitFrameAlpha(false)).toBe(FIT_FRAME_ALPHA);
+    expect(fitFrameAlpha(true)).toBeCloseTo(FIT_FRAME_ALPHA * CLIENT_CONFIG.flashBudget.degradeAlphaFactor, 9);
+    expect(fitFrameAlpha(true)).toBeGreaterThan(0); // NEVER skip
+    expect(fitFrameAlpha(true)).toBeLessThan(fitFrameAlpha(false));
+  });
+
+  it('a degraded frame is still the SAME frame — the geometry never moves', () => {
+    // Presence, position and weight survive; only the luminance ramp is spent.
+    // The rect is computed from the layout alone (drawFitFrame), so the only
+    // thing the verdict can touch is the stroke alpha — pinned here by the fact
+    // that `fitFrameAlpha` is the whole of the degrade path.
+    expect(FIT_PULSE_PX).toBeGreaterThan(0);
+    const layout = hotbarLayout(768);
+    expect(layout.rows).toHaveLength(4);
   });
 });

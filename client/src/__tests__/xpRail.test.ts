@@ -20,6 +20,8 @@ import {
   XpRail,
   chipAlpha,
   chipBreathing,
+  chipDimKeyframe,
+  chipHeld,
   chipLabel,
   cueLine,
   levelTag,
@@ -29,6 +31,7 @@ import {
   type XpChipState,
 } from '../render/xpRail.js';
 import { hotbarLayout, slotAtPoint } from '../render/hotbar.js';
+import { easeHold } from '../render/zone.js';
 import { settings } from '../settings/store.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -337,5 +340,113 @@ describe('XpRail shell — a live frame, a bank, and death', () => {
     expect(() => {
       for (const xp of [0, 0.001, 0.5, 0.999, 0]) rail.update({ lvl: 1, xp, pts: 0 }, FLOOR.h, 1);
     }).not.toThrow();
+  });
+});
+
+// --- STORY 4.8: THE TIER-3 FREEZE ----------------------------------------------
+//
+// The bank chip is the ONE Tier-3 channel that actually breathes (the toasts
+// fade on a TTL and the XP rail itself does not animate), so it is where the
+// economy tier's *"freezes at its dim keyframe under ANY higher tier"* rule
+// lands — Tier 2 ALONE included (amendment 243's literal reading).
+
+describe('chipDimKeyframe / chipHeld — the Tier-3 freeze', () => {
+  const banked = nextChipState(XP_CHIP_IDLE, 1, 0);
+
+  it('the dim keyframe is the LOW extreme of the breath — dim, never gone', () => {
+    expect(chipDimKeyframe(banked, 0.4)).toBeCloseTo(X.chipAlpha - X.pulseAmp, 9);
+    expect(chipDimKeyframe(banked, 0.4)).toBeGreaterThan(0);
+    // Every frame of the breath is at or above it, so the freeze can never make
+    // the chip brighter than it would have been at that instant... or invisible.
+    for (let t = 0.05; t < 2; t += 0.05) {
+      expect(chipAlpha(banked, t)).toBeGreaterThanOrEqual(chipDimKeyframe(banked, t) - 1e-9);
+    }
+  });
+
+  it('EASES rather than snaps — a partial blend is a real intermediate value', () => {
+    const peak = 1 / (4 * CHIP_PULSE_HZ); // sin = 1, the brightest frame
+    const breathing = chipAlpha(banked, peak, X.pulseAmp);
+    const oneFrame = chipHeld(banked, peak, X.pulseAmp, easeHold(0, 1, 16));
+    expect(oneFrame).toBeLessThan(breathing);
+    expect(oneFrame).toBeGreaterThan(chipDimKeyframe(banked, peak) + 1e-3);
+    let freeze = 0;
+    for (let i = 0; i < 120; i++) freeze = easeHold(freeze, 1, 16); // ~2s = 8τ
+    expect(chipHeld(banked, peak, X.pulseAmp, freeze)).toBeCloseTo(chipDimKeyframe(banked, peak), 3);
+  });
+
+  it('is a NO-OP at motion=off and on a decayed (static) chip', () => {
+    expect(chipHeld(banked, 0.4, 0, 1)).toBe(X.chipAlpha); // motion:off: one endpoint
+    const late = X.unspentSec + 1;
+    expect(chipHeld(banked, late, X.pulseAmp, 1)).toBe(chipAlpha(banked, late, X.pulseAmp));
+  });
+});
+
+describe('XpRail — the freeze on the real instrument', () => {
+  function build(): { layer: Container; rail: XpRail } {
+    const layer = new Container();
+    return { layer, rail: new XpRail(layer) };
+  }
+
+  afterEach(() => settings.reset());
+
+  it('settles the chip at its dim keyframe while a higher tier is active', () => {
+    const { rail } = build();
+    const view = { lvl: 1, xp: 0.5, pts: 1 };
+    let ms = 0;
+    // ~2s of frozen frames (server seconds and monotonic ms advance together).
+    for (let i = 0; i < 125; i++) {
+      ms += 16;
+      rail.update(view, FLOOR.h, ms / 1000, true, ms);
+    }
+    expect(rail.chipFillAlpha).toBeCloseTo(X.chipAlpha - X.pulseAmp, 2);
+  });
+
+  it('breathes again when every higher tier clears', () => {
+    const { rail } = build();
+    const view = { lvl: 1, xp: 0.5, pts: 1 };
+    let ms = 0;
+    for (let i = 0; i < 125; i++) {
+      ms += 16;
+      rail.update(view, FLOOR.h, ms / 1000, true, ms);
+    }
+    const alphas: number[] = [];
+    for (let i = 0; i < 200; i++) {
+      ms += 16;
+      rail.update(view, FLOOR.h, ms / 1000, false, ms);
+      alphas.push(rail.chipFillAlpha);
+    }
+    expect(new Set(alphas.map((a) => a.toFixed(4))).size).toBeGreaterThan(20); // it moves again
+    expect(Math.max(...alphas)).toBeGreaterThan(X.chipAlpha - X.pulseAmp + 0.01);
+  });
+
+  it('defaults to NOT frozen, so a caller from before Story 4.8 is unchanged', () => {
+    const { rail } = build();
+    const a = build().rail;
+    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
+    a.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0, false);
+    const quarter = 1 / (4 * CHIP_PULSE_HZ);
+    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, quarter);
+    a.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, quarter, false);
+    expect(rail.chipFillAlpha).toBeCloseTo(X.chipAlpha + X.pulseAmp, 9);
+    expect(rail.chipFillAlpha).toBe(a.chipFillAlpha);
+  });
+
+  it('drops the freeze blend with the hull, but keeps it across a pose gap', () => {
+    const { rail } = build();
+    const view = { lvl: 1, xp: 0.5, pts: 1 };
+    let ms = 0;
+    for (let i = 0; i < 125; i++) {
+      ms += 16;
+      rail.update(view, FLOOR.h, ms / 1000, true, ms);
+    }
+    const frozen = rail.chipFillAlpha;
+    rail.hideTransient(); // the forceSnap pose gap: a frame the player never saw
+    ms += 16;
+    rail.update(view, FLOOR.h, ms / 1000, true, ms);
+    expect(rail.chipFillAlpha).toBeCloseTo(frozen, 3); // the hold survived it
+    rail.hide(); // ...death, though, is a real boundary
+    ms += 16;
+    rail.update(view, FLOOR.h, ms / 1000, false, ms);
+    expect(rail.chipFillAlpha).toBeCloseTo(X.chipAlpha, 9); // a fresh window, unfrozen
   });
 });

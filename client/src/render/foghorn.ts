@@ -65,6 +65,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { Pool, capOldest } from '../util/pool.js';
 import { clamp01 } from '../util/math.js';
+import { FLASH_ELEMENTS, type FlashBudget } from './flashBudget.js';
 
 const F = CLIENT_CONFIG.foghorn;
 const CH = F.chevron;
@@ -290,23 +291,56 @@ export function bearingTo(fromX: number, fromY: number, toX: number, toY: number
   return wrapPositive(Math.atan2(toY - fromY, toX - fromX));
 }
 
-/** One live chevron. `t` is the SERVER timestamp of the frame it arrived on. */
+/** One live chevron. `t` is the SERVER timestamp of the frame it arrived on.
+ *  `degraded` is the flash budget's onset verdict, FIXED at spawn (Story 4.8
+ *  wave 2c) — it never re-evaluates against a live budget state per frame, the
+ *  same "a frozen paint is never re-evaluated" rule the radar shadow carries. */
 interface LiveChevron {
   gfx: Graphics;
   t: number;
   bearing: number;
   weight: ChevronWeight;
+  degraded: boolean;
 }
 
 /**
  * The Pixi adapter. Thin by design (not unit tested beyond its cap/spawn
  * bookkeeping): every number it draws comes from the pure functions above.
+ *
+ * `budget` (Story 4.8 wave 2c) is the OPTIONAL aggregate flash-budget instance
+ * — main.ts's single per-client `FlashBudget` (`render/flashBudget.ts`), layered
+ * on TOP of everything above, never replacing it. It claims
+ * `FLASH_ELEMENTS.foghornChevron` once per honk; a `'degrade'` verdict skips
+ * ONLY the pop-in scale (the file header's one motion-scaled channel) and
+ * renders the chevron at true size — presence, direction, band weight and the
+ * TTL fade are untouched, exactly as the header's UX-DR36 contract already
+ * requires at `motion: 'off'`. Undefined (no budget wired yet, or a caller that
+ * never passes one — every existing test constructs a bare `Foghorn`) behaves
+ * byte-identical to before this wave: every claim reads as `'animate'`.
+ *
+ * THE CLAIM IS ON THE PAGE-MONOTONIC CLOCK, NOT ON `t` (review gate P1). This
+ * module's own decay math is deliberately SERVER-clock (`serverNow - m.t`, the
+ * file header's rule), but the budget is SHARED with every other flash site in
+ * the client, and those all claim on `performance.now()`. The two clocks have
+ * unrelated origins — the server's starts at ROOM creation, the page's at LOAD
+ * — so mixing them into one sliding window both corrupts the periodic sweep
+ * (which prunes EVERY key against the claiming call's clock) and permanently
+ * mis-ages this key's own onsets. `WorldFlashGate` and `DeniedPulse` inject
+ * their clock for exactly this reason; so does this. `effects.ts` states the
+ * rule in as many words: *"One budget fed from two clocks would count a window
+ * that never existed."*
  */
 export class Foghorn {
   private readonly pool: Pool<Graphics>;
   private readonly marks: LiveChevron[] = [];
 
-  constructor(private readonly layer: Container) {
+  constructor(
+    private readonly layer: Container,
+    private readonly budget?: FlashBudget,
+    /** The shared flash budget's clock — page-monotonic, the house shape. Only
+     *  the budget CLAIM reads it; every decay here stays on server time. */
+    private readonly now: () => number = () => performance.now(),
+  ) {
     this.pool = new Pool<Graphics>(() => this.makeChevronGraphics());
   }
 
@@ -357,7 +391,12 @@ export class Foghorn {
     this.drawChevron(gfx, weight);
     gfx.rotation = bearing;
     gfx.visible = true;
-    this.marks.push({ gfx, t, bearing, weight });
+    // Story 4.8 wave 2c: the ONSET claim, on the SHARED budget's page-monotonic
+    // clock (never `t` — see the class doc). `t` is still stored on the mark
+    // below, because the TTL fade is server-clock work. No budget wired ->
+    // 'animate', byte-identical to every pre-wave behavior.
+    const verdict = this.budget?.claim(FLASH_ELEMENTS.foghornChevron, this.now()) ?? 'animate';
+    this.marks.push({ gfx, t, bearing, weight, degraded: verdict === 'degrade' });
     this.retire(capOldest(this.marks, CH.maxMarks));
   }
 
@@ -403,7 +442,11 @@ export class Foghorn {
       const p = chevronPoint(m.bearing, originX, originY, screenW, screenH);
       m.gfx.position.set(p.x, p.y);
       m.gfx.alpha = chevronAlpha(age, m.weight.alpha);
-      m.gfx.scale.set(chevronPop(age, intensity));
+      // Story 4.8 wave 2c: a DEGRADED chevron draws at true size (scale 1,
+      // exactly what chevronPop already returns at intensity 0) — the pop is
+      // the only channel the budget may spend; alpha and position above are
+      // computed identically either way.
+      m.gfx.scale.set(m.degraded ? 1 : chevronPop(age, intensity));
     }
   }
 }

@@ -17,6 +17,7 @@ import { Pool, capOldest } from '../util/pool.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { CHOP_HEAD_MULTIPLE } from './radarSources.js';
+import { regionKey, type FlashBudget, type FlashVerdict } from './flashBudget.js';
 import { WakeSources, type WakeHull, type WakeSource } from './wake.js';
 
 /** Effect kinds routed through spawnEffect(). */
@@ -101,6 +102,129 @@ export function isFogImmuneEffect(kind: EffectKind): boolean {
   return kind === 'burst' || kind === 'splash' || kind === 'spark' || kind === 'muzzle' || kind === 'horn';
 }
 
+// --- THE AGGREGATE FLASH BUDGET, WORLD SIDE (Story 4.8, amendment 240) ---------
+//
+// Every one-shot FLASH claims against the client's one `FlashBudget` before it
+// spawns. Over-budget flashes DEGRADE — flat alpha, true position, the effect's
+// normal life — and are NEVER skipped: Story 4.3 deliberately promoted `muzzle`
+// and `spark` OUT of `isJuiceEffect` because they are sanctioned SENSOR
+// READINGS, so dropping one under load would delete information under exactly
+// the stack the photosensitivity floor was written for, violating the standing
+// law that the motion setting *"removes MOTION, never INFORMATION."*
+//
+// THE VERDICT IS LATCHED AT SPAWN AND NEVER RE-EVALUATED (amendment 83, applied
+// to effects: *"everything about a paint is decided ONCE at creation and only
+// alpha changes afterward"*). Re-deciding per frame would let a flash flicker
+// between degraded and animated as the window slid out from under it — a strobe
+// manufactured by the anti-strobe mechanism.
+//
+// THE BUDGET IS A SECOND, INDEPENDENT FILTER ON TOP OF THE MOTION GATE, never a
+// replacement for it: arbitration runs AFTER `effectPeakAlpha`'s `<= 0`
+// early-out, so a juice flash the motion setting already suppressed neither
+// draws nor spends budget, and the budget can never render anything MORE
+// visible than it is today.
+
+/**
+ * Pure: does this kind claim against the flash budget? Every one-shot does
+ * EXCEPT the two wake materials.
+ *
+ * `wake` is not a one-shot at all, and `torpwake` — the creeping MINE's trail
+ * bubble (render/mines.ts) — is its sibling: a dim dot laid on a cadence along a
+ * track, at 0.4 alpha, non-additive. A stream of trail dots is not a flash, and
+ * budgeting it would do the one thing the floor exists to prevent — a mine
+ * crawling through a region would spend that region's three onsets on its own
+ * track and degrade the muzzle flashes and Hit Calls that land there next.
+ */
+export function isBudgetedFlash(kind: EffectKind): boolean {
+  return kind !== 'wake' && kind !== 'torpwake';
+}
+
+/**
+ * Pure: may this kind be COALESCED — collapsed into a co-located same-kind mark
+ * already spawned this frame? Every kind may EXCEPT `burst`.
+ *
+ * The coalescer's principle is that two same-kind marks on the same point in one
+ * frame are ONE FACT, and that holds only while their specs are interchangeable.
+ * A `burst` ring is the one kind spawned with a PER-SPAWN RADIUS — the real
+ * blast extent, resolved per detonation (`spawnEffect`'s `radius` override, from
+ * roomBindings.handleBurst) — so two different-radius bursts inside the 0.1u
+ * coalescing quantum are NOT one fact: collapsing them keeps whichever arrived
+ * first, and when that is the smaller one the larger blast extent — real spatial
+ * information about a danger zone — never draws at all. Amendment 37's parent
+ * grammar SUMS magnitude rather than dropping it; a max-radius merge is not
+ * worth building here, and excluding a kind whose instances are not
+ * interchangeable is the simpler and more honest statement of the same law.
+ *
+ * THIS IS THE COALESCER ONLY. A burst still CLAIMS the budget and still degrades
+ * normally, so a burst stack is bounded exactly like every other flash — it just
+ * cannot silently delete a bigger blast on its way there.
+ */
+export function isCoalescableFlash(kind: EffectKind): boolean {
+  return kind !== 'burst';
+}
+
+/**
+ * Pure: a one-shot's alpha at life fraction `k`, given its latched verdict.
+ * Degraded = the flat `motion: 'off'` keyframe — `degradeAlphaFactor` of the
+ * peak, held for the whole life, no ramp. The luminance CHANGE is what a flash
+ * is; spending it while keeping presence, position and weight is precisely why
+ * the budget can bind on declared information without deleting any.
+ */
+export function oneShotAlpha(peakAlpha: number, k: number, degraded: boolean): number {
+  return degraded ? peakAlpha * FB.degradeAlphaFactor : peakAlpha * (1 - k);
+}
+
+/**
+ * The camera surface the budget needs: a world→screen projection and the
+ * viewport extent to bucket it against. `render/camera.ts`'s `Camera` satisfies
+ * this structurally, so the flash is bucketed by the SAME transform the renderer
+ * draws with rather than a second copy of it that can drift.
+ */
+export interface FlashProjector {
+  worldToScreen(p: { x: number; y: number }): { x: number; y: number };
+  readonly screenCenter: { x: number; y: number };
+}
+
+/**
+ * THE WORLD FLASH GATE — the seam between world one-shots (this module, plus the
+ * hull hit flash in render/ships.ts) and the shared budget. ONE instance per
+ * client, constructed in main.ts over the ONE `FlashBudget` every chrome surface
+ * also claims against: the ratified floor is per "element OR SCREEN REGION", so
+ * a second budget instance would silently double a region's ceiling.
+ *
+ * REGION KEYS ARE SCREEN-SPACE AND EFFECTS SPAWN IN WORLD SPACE, so the
+ * projection happens HERE, at the claim — a camera pan must be able to re-bucket
+ * a flash, which is what a screen-region floor means. The COALESCER stays in
+ * WORLD units: its quantum is `coalesceQuantumU`, the gunneryFeed impact-key
+ * convention, and two shells landing on one point are one fact wherever the
+ * camera happens to be.
+ *
+ * The clock is INJECTED (the deniedFire / gunneryFeed house shape) and defaults
+ * to `performance.now()` — the monotonic clock every other flash site in the
+ * client already claims on, NOT the server estimate. One budget fed from two
+ * clocks would count a window that never existed.
+ */
+export class WorldFlashGate {
+  constructor(
+    private readonly budget: FlashBudget,
+    private readonly projector: FlashProjector,
+    private readonly now: () => number = () => performance.now(),
+  ) {}
+
+  /** Claim a flash ONSET at a WORLD point. `degrade` = draw the flat mark. */
+  claim(x: number, y: number): FlashVerdict {
+    const p = this.projector.worldToScreen({ x, y });
+    const c = this.projector.screenCenter;
+    return this.budget.claim(regionKey(p.x, p.y, c.x * 2, c.y * 2), this.now());
+  }
+
+  /** True the FIRST time this (kind, world point) is seen in `frameId`; false
+   *  for every co-located duplicate in that same frame. */
+  first(kind: string, x: number, y: number, frameId: number): boolean {
+    return this.budget.coalesce(kind, x, y, frameId);
+  }
+}
+
 interface OneShotSpec {
   type: 'dot' | 'ring';
   life: number; // s
@@ -113,6 +237,7 @@ interface OneShotSpec {
 }
 
 const C = CLIENT_CONFIG.colors;
+const FB = CLIENT_CONFIG.flashBudget;
 
 const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   muzzle: { type: 'dot', life: 0.12, color: C.muzzle, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
@@ -260,9 +385,14 @@ export function chopOutline(pts: readonly ChopPoint[]): number[] {
 
 interface OneShot {
   gfx: Graphics;
+  kind: Exclude<EffectKind, 'wake'>;
   spec: OneShotSpec;
   /** Peak alpha AFTER the motion gate (resolved once, at spawn). */
   peakAlpha: number;
+  /** The flash budget's verdict, LATCHED AT SPAWN and never re-evaluated —
+   *  re-deciding per frame would strobe a mark as the window slid (amendment 83
+   *  applied to effects). */
+  degraded: boolean;
   x: number;
   y: number;
   age: number;
@@ -295,6 +425,17 @@ export class Effects {
    *  child order by whichever happened to be created first. */
   private readonly chopLayer: Container;
   private readonly foamLayer: Container;
+  /** The client's ONE flash gate, or null before main.ts wires it (and in
+   *  headless tests) — with no gate every one-shot animates exactly as it did
+   *  before Story 4.8, which is the safe default for a budget that must never
+   *  make anything less visible than the code it replaced without a verdict. */
+  private gate: WorldFlashGate | null = null;
+  /** Monotonically-changing frame id for the coalescer, driven by this class's
+   *  own per-frame entry point (`update`) rather than an invented clock: one-shot
+   *  spawns arrive from message handlers BETWEEN frames, so "the same frame" is
+   *  exactly "the same batch of spawns since the last update". A constant id
+   *  would collapse every repeated mark forever. */
+  private frameId = 0;
 
   constructor(
     wakeLayer: Container,
@@ -356,9 +497,28 @@ export class Effects {
     this.clearWake();
   }
 
+  /**
+   * Adopt the client's ONE flash gate (main.ts owns the budget it wraps — the
+   * same instance every chrome one-shot claims against, since the floor is
+   * aggregate per region). Passing null restores the pre-4.8 unbudgeted path.
+   */
+  setFlashGate(gate: WorldFlashGate | null): void {
+    this.gate = gate;
+  }
+
   /** Live foam dots, across every source — the particle-budget seam. */
   get liveWakeDots(): number {
     return this.wake.length;
+  }
+
+  /**
+   * The live one-shots' budget state — the flash budget's observable seam (the
+   * sibling of `liveWakeDots`): each mark's kind, its LATCHED verdict and the
+   * alpha it was last drawn at. A degraded mark reads a flat alpha across its
+   * whole life here; an animated one ramps down. Diagnostics and tests only.
+   */
+  get liveShots(): readonly { kind: EffectKind; degraded: boolean; alpha: number }[] {
+    return this.shots.map((s) => ({ kind: s.kind, degraded: s.degraded, alpha: oneShotAlpha(s.peakAlpha, s.age / s.spec.life, s.degraded) }));
   }
 
   /** Live displaced-water envelopes (one per tracked source). */
@@ -447,6 +607,11 @@ export class Effects {
     const spec = radius !== undefined && base.type === 'ring' ? { ...base, r1: radius } : base;
     const peakAlpha = effectPeakAlpha(kind, spec.alpha, motionIntensity(settings.current.motion));
     if (peakAlpha <= 0) return; // motion off: the juice flashes simply don't spawn
+    // The budget runs AFTER the motion gate (a suppressed flash must not spend
+    // an onset) and BEFORE the pool acquire (a coalesced duplicate never takes a
+    // Graphics it will not draw).
+    const verdict = this.arbitrate(kind, x, y);
+    if (verdict === 'collapsed') return;
     const pool = isFogImmuneEffect(kind) ? this.burstPool : this.shotPool;
     const g = pool.acquire();
     g.clear();
@@ -454,7 +619,23 @@ export class Effects {
     g.alpha = 1;
     g.scale.set(1);
     g.position.set(x, y);
-    this.shots.push({ gfx: g, spec, peakAlpha, x, y, age: 0, pool });
+    this.shots.push({ gfx: g, kind, spec, peakAlpha, degraded: verdict === 'degrade', x, y, age: 0, pool });
+  }
+
+  /**
+   * The two budget stages, in the ratified order: COALESCE first (co-located
+   * same-kind flashes inside ONE frame are one fact, so they collapse to one
+   * draw and only the survivor claims), then CLAIM. `collapsed` is the only
+   * outcome that does not draw, and it is not a deletion: the mark it collapsed
+   * into is being drawn at the same point in the same frame — which is true
+   * only for the kinds `isCoalescableFlash` admits (the `burst`, alone, carries
+   * a per-spawn radius and is therefore never collapsed).
+   */
+  private arbitrate(kind: Exclude<EffectKind, 'wake'>, x: number, y: number): FlashVerdict | 'collapsed' {
+    const gate = this.gate;
+    if (gate === null || !isBudgetedFlash(kind)) return 'animate';
+    if (isCoalescableFlash(kind) && !gate.first(kind, x, y, this.frameId)) return 'collapsed';
+    return gate.claim(x, y);
   }
 
   /**
@@ -475,6 +656,7 @@ export class Effects {
    * drop pose, never travels one sample cadence, and therefore lays nothing.
    */
   update(dt: number, nowMs: number, hulls: readonly WakeHull[] = []): void {
+    this.frameId++; // the coalescer's frame boundary (see `frameId`)
     this.layWake(nowMs, hulls);
     this.ageWake(dt);
     this.ageShots(dt);
@@ -624,8 +806,12 @@ export class Effects {
 
   private drawShot(s: OneShot, k: number): void {
     const spec = s.spec;
+    // The RADIUS ramp is untouched by a degrade: a splash ring's expansion is
+    // the mark's shape, and it already draws exactly like this at `motion: 'off'`
+    // (the non-juice one-shots were never motion-gated). What a degrade spends is
+    // the luminance CHANGE — the thing a flash actually is.
     const r = spec.r0 + (spec.r1 - spec.r0) * k;
-    const a = s.peakAlpha * (1 - k);
+    const a = oneShotAlpha(s.peakAlpha, k, s.degraded);
     const g = s.gfx;
     g.clear();
     if (spec.type === 'dot') g.circle(0, 0, r).fill({ color: spec.color, alpha: a });

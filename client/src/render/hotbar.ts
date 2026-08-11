@@ -264,6 +264,9 @@ export interface SlotViewModel {
   fitFlash: boolean;
   /** Accrued boons on this slot's family (the `◆n` count, unclamped). */
   boonCount: number;
+  /** This frame's one-shot on this row is DEGRADED by the aggregate flash budget
+   *  (amendment 240): draw the flat mark, not the bloom. Absent = animate. */
+  degraded?: boolean;
 }
 
 /** The own-ship inputs the hotbar reads (one-way: state → view, never back). */
@@ -278,6 +281,11 @@ export interface HotbarView {
   primedSlot: number;
   /** Per-slot denied pulse state this frame. */
   denied: readonly boolean[];
+  /** Per-slot: this frame's denied pulse was over the AGGREGATE FLASH BUDGET
+   *  (render/flashBudget.ts, amendment 240) and must render DEGRADED — the flat
+   *  `motion: 'off'` mark. The denial itself is never suppressed: the budget
+   *  degrades, it does not delete. Absent = nothing was over budget. */
+  deniedDegraded?: readonly boolean[];
   /** Per-slot activated pop state this frame. */
   activated: readonly boolean[];
   /** The refit modal is open: dim to 38%, slot keys AND clicks suspended. */
@@ -298,6 +306,9 @@ export interface HotbarView {
   /** Rank-wide fit pulse: a shipwide (INTEL/SHIP) boon landed, which no single
    *  slot owns — the whole stack flashes once instead (amendment 51). */
   fitFrame?: boolean;
+  /** That rank-wide pulse was over the aggregate flash budget: it still draws,
+   *  at the flat degraded weight (see drawFitFrame). */
+  fitFrameDegraded?: boolean;
   /** Server-clock SECONDS — the ACTIVE outline's breathing phase (the xpRail /
    *  HP rail idiom: one shared clock, integrated phase, never a frame counter). */
   nowSec?: number;
@@ -323,7 +334,10 @@ export function coolFraction(reloadMsLeft: number, reloadMs: number): number {
 
 /** The unfitted (offer) slot's row: dashed box, `+` glyph, awaiting-refit label. */
 function emptySlotModel(slot: number, keyGlyph: string): SlotViewModel {
-  return { slot, id: null, state: 'empty', selected: false, chamfer: false, keyGlyph, name: EMPTY_SLOT_LABEL, quickInfo: '', badge: null, coolFrac: 0, fitFlash: false, boonCount: 0 };
+  // `degraded: false` is explicit rather than omitted: an unfitted slot holds
+  // nothing to deny, so it can never carry a budget verdict, and a total model
+  // keeps the flag from reading `undefined` on exactly one row.
+  return { slot, id: null, state: 'empty', selected: false, chamfer: false, keyGlyph, name: EMPTY_SLOT_LABEL, quickInfo: '', badge: null, coolFrac: 0, fitFlash: false, boonCount: 0, degraded: false };
 }
 
 /**
@@ -337,6 +351,21 @@ export function slotFlags(view: HotbarView, slot: number): SlotFlags {
     denied: view.denied[slot] ?? false,
     activated: (view.activated[slot] ?? false) && motionAllowed(view.motion ?? 'full'),
   };
+}
+
+/**
+ * Pure: is this slot's denied pulse DEGRADED this frame (the aggregate flash
+ * budget's `'degrade'` verdict — main.ts owns the claim, per slot, against
+ * `hotbarSlotKey`)?
+ *
+ * Deliberately NOT a third `SlotFlags` field: the flags are the STATE latches
+ * that decide which state a row is in, and a budget verdict must never be able
+ * to change that — a degraded denial is still a denial. It is ANDed with the
+ * pulse it describes, because a degrade flag with no denial showing would
+ * silently flatten some other state's bloom.
+ */
+export function slotDegraded(view: HotbarView, slot: number, denied: boolean): boolean {
+  return denied && (view.deniedDegraded?.[slot] ?? false);
 }
 
 function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
@@ -365,6 +394,7 @@ function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
     coolFrac: coolFraction(left, info.reloadMs),
     fitFlash,
     boonCount,
+    degraded: slotDegraded(view, slot, flags.denied),
   };
 }
 
@@ -510,8 +540,39 @@ export function breathedSkin(state: SlotState, motionIntensity: number, breath: 
   return { ...skin, borderAlpha: skin.borderAlpha * breath, glowAlpha: skin.glowAlpha * breath };
 }
 
+/**
+ * Pure: the skin a DEGRADED one-shot paints (the aggregate flash budget's
+ * `'degrade'` verdict, amendment 240) — the row's already-ratified
+ * `motion: 'off'` keyframe, which is exactly `slotSkin`'s zero-intensity form:
+ * the BLOOM is gone and the border, its width, the icon and the wash are
+ * byte-identical. The denial therefore keeps its presence, its position and its
+ * full weight; what it loses is the sudden halo, i.e. the flash.
+ *
+ * This is why the budget can bind on a declared-information channel without
+ * violating *"removes MOTION, never INFORMATION"*: the degraded state is one the
+ * game already ships and any player can already select.
+ */
+export function degradedSkin(skin: SlotSkin): SlotSkin {
+  return { ...skin, glowPx: 0, glowAlpha: 0 };
+}
+
 /** Outset (px) of a fit pulse's ring from the surface it flashes around. */
 export const FIT_PULSE_PX = 6;
+
+/** Peak alpha of the RANK-WIDE fit frame's stroke (amendment 51's one-shot). */
+export const FIT_FRAME_ALPHA = 0.5;
+
+/**
+ * Pure: the rank-wide fit frame's stroke alpha this frame. A DEGRADED one-shot
+ * (the aggregate flash budget, amendment 240) still draws its full-size frame at
+ * its true position for its full life — only at the flat degraded weight, so the
+ * stack still says "a shipwide boon landed" without contributing another
+ * luminance step to a screen already over its 3-per-second floor. It is never
+ * skipped: the budget degrades, it does not delete.
+ */
+export function fitFrameAlpha(degraded: boolean): number {
+  return degraded ? FIT_FRAME_ALPHA * CLIENT_CONFIG.flashBudget.degradeAlphaFactor : FIT_FRAME_ALPHA;
+}
 
 // --- pure core: layout + hit-test ----------------------------------------------
 
@@ -1168,7 +1229,8 @@ export class Hotbar {
   }
 
   private drawRow(m: SlotViewModel, row: HotbarRow, breath: number): void {
-    const skin = breathedSkin(m.state, motionIntensity(settings.current.motion), breath);
+    const breathed = breathedSkin(m.state, motionIntensity(settings.current.motion), breath);
+    const skin = m.degraded ? degradedSkin(breathed) : breathed;
     this.drawBox(m, row.box, skin);
     this.drawIcon(m, row.box, skin);
     this.drawKeyChip(m, row);
@@ -1188,7 +1250,7 @@ export class Hotbar {
     const pad = FIT_PULSE_PX;
     this.gfx
       .rect(first.row.x - pad, layout.stackTop - pad, first.row.w + pad * 2, layout.stackHeight + pad * 2)
-      .stroke({ width: 1.5, color: C.phosphorBright, alpha: 0.5 });
+      .stroke({ width: 1.5, color: C.phosphorBright, alpha: fitFrameAlpha(view.fitFrameDegraded ?? false) });
   }
 
   private drawBox(m: SlotViewModel, box: SlotRect, skin: SlotSkin): void {

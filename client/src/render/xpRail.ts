@@ -29,6 +29,10 @@ import { Container, Graphics, Text } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { hotbarLayout } from './hotbar.js';
+// The Tier-3 freeze eases with the SAME first-order approach the storm
+// vignette's Tier-2 hold uses — one behavior, one implementation (the hud's
+// ring segment imports it for the same reason).
+import { easeHold } from './zone.js';
 
 const C = CLIENT_CONFIG.colors;
 const V = CLIENT_CONFIG.vitals; // the shared RAIL IDIOM (track/fill/glow)
@@ -192,6 +196,45 @@ export function chipAlpha(state: XpChipState, nowSec: number, amp: number = X.pu
 }
 
 /**
+ * Pure: the chip's DIM keyframe — the low extreme of its breath, which is where
+ * Tier 3 freezes (render/attention.ts's `freezeAtDimKeyframe`). DIM, not off:
+ * the chip, its count and its cue line are INFORMATION and stay fully present;
+ * what stops is the motion.
+ *
+ * A chip that has already decayed to static (past `unspentSec`) has no breath
+ * left to freeze, so its dim keyframe IS its steady alpha and the freeze is a
+ * literal no-op — the ratified 10s decay is untouched by the tier rule, not
+ * replaced by it.
+ */
+export function chipDimKeyframe(state: XpChipState, nowSec: number, amp: number = X.pulseAmp): number {
+  return chipBreathing(state, nowSec) ? X.chipAlpha - amp : X.chipAlpha;
+}
+
+/** Clamp to [0,1] (a blend factor, or a caller's degenerate input). */
+function clamp01(v: number): number {
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+}
+
+/**
+ * Pure: the chip's alpha actually drawn — its breathing value and its dim
+ * keyframe mixed by an EASED `freeze` blend (0 = breathing, 1 = fully frozen).
+ *
+ * TIER 3 (Story 4.8, amendment 243). The economy tier freezes under ANY higher
+ * tier — Tier 2 alone included, so sailing into the storm on a healthy hull
+ * settles the chip. The blend is eased by the caller with the vignette's own
+ * `easeHold` rather than switched, for the reason the whole story exists: a hard
+ * stop at a keyframe is itself a luminance step.
+ *
+ * At motion=off (amp 0) both endpoints are `X.chipAlpha`, so the freeze is a
+ * literal no-op — it can never introduce, or remove, motion that was not there.
+ */
+export function chipHeld(state: XpChipState, nowSec: number, amp: number, freeze: number): number {
+  const breathing = chipAlpha(state, nowSec, amp);
+  const dim = chipDimKeyframe(state, nowSec, amp);
+  return breathing + (dim - breathing) * clamp01(freeze);
+}
+
+/**
  * The Pixi shell. Lives in the HUD layer (so it scales with the accessibility
  * UI scale like every other HUD surface) and is hidden outright whenever there
  * is no own ship to describe — death, spectate, results.
@@ -207,6 +250,13 @@ export class XpRail {
   private chip: XpChipState = XP_CHIP_IDLE;
   /** One-shot re-arm signal (TAB opened the refit window), consumed next frame. */
   private rearmPending = false;
+  /** The EASED Tier-3 freeze blend (0 = breathing → 1 = held at the dim
+   *  keyframe) and the monotonic clock it was last advanced on (-1 = never; the
+   *  first frame eases by nothing). Monotonic, not the server estimate: a clock
+   *  resync must not stretch or rewind an ease, which is the zone vignette's
+   *  ruling for exactly this blend. */
+  private freezeBlend = 0;
+  private lastFreezeMs = -1;
   private lastFillSig = '';
   private lastTag = '';
   private lastChip = '';
@@ -239,6 +289,12 @@ export class XpRail {
     this.root.visible = false;
     this.chip = XP_CHIP_IDLE;
     this.rearmPending = false;
+    // The freeze blend dies with the chip state: a chip that comes back on the
+    // next life must start from its own breath, not from a tier hold that was
+    // easing when the hull went down. (hideTransient deliberately keeps BOTH —
+    // the pose gap is a frame the player never saw.)
+    this.freezeBlend = 0;
+    this.lastFreezeMs = -1;
   }
 
   /**
@@ -258,14 +314,34 @@ export class XpRail {
    * Render one frame. `nowSec` is the server-clock estimate in SECONDS — the
    * same clock the HP rail's breathing and the storm vignette ride.
    */
-  update(view: XpView, screenH: number, nowSec: number): void {
+  update(
+    view: XpView,
+    screenH: number,
+    nowSec: number,
+    /** A higher attention tier is active (attention.ts `freezeAtDimKeyframe`):
+     *  the bank chip eases to its DIM keyframe and holds there. */
+    freeze = false,
+    /** MONOTONIC ms for the freeze ease. Defaults to the server clock so a
+     *  caller from before Story 4.8 behaves exactly as it did. */
+    nowMs: number = nowSec * 1000,
+  ): void {
     this.root.visible = true;
     const L = xpRailLayout(screenH);
     this.chip = nextChipState(this.chip, view.pts, nowSec, this.rearmPending);
     this.rearmPending = false;
+    this.advanceFreeze(freeze, nowMs);
     this.drawRail(L, xpFillFraction(view.xp));
     this.updateTag(L, view.lvl);
     this.updateChip(L, view.pts, nowSec);
+  }
+
+  /** Ease the Tier-3 freeze blend one frame toward its target (the storm
+   *  vignette's `easeHold`, at its own 240ms τ — amendment 37's rule that an
+   *  existing floor is reused rather than given a sibling). */
+  private advanceFreeze(freeze: boolean, nowMs: number): void {
+    const dtMs = this.lastFreezeMs < 0 ? 0 : nowMs - this.lastFreezeMs;
+    this.lastFreezeMs = nowMs;
+    this.freezeBlend = easeHold(this.freezeBlend, freeze ? 1 : 0, dtMs);
   }
 
   /** Dim phosphor track + bottom-up fill with the shared soft bloom (the HP
@@ -321,7 +397,7 @@ export class XpRail {
     this.chipText.position.set(L.chip.x + L.chip.size / 2, L.chip.y + L.chip.size / 2);
     this.cueText.position.set(L.cue.x, L.cue.y);
     this.drawChipBox(L);
-    const alpha = chipAlpha(this.chip, nowSec, motionScaled(X.pulseAmp, settings.current.motion));
+    const alpha = chipHeld(this.chip, nowSec, motionScaled(X.pulseAmp, settings.current.motion), this.freezeBlend);
     this.chipBox.alpha = alpha;
     this.chipText.alpha = alpha;
     this.cueText.alpha = alpha;

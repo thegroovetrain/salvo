@@ -74,6 +74,23 @@ export class DeniedPulse {
   liveAt(nowMs: number): boolean {
     return pulseLiveAt(this.activeUntil, nowMs);
   }
+
+  /**
+   * READ-ONLY: did this pulse accept a new trigger on the frame stamped
+   * `nowMs` — i.e. is this frame the flash's ONSET?
+   *
+   * The aggregate flash budget (render/flashBudget.ts, Story 4.8) counts ONSETS,
+   * not lit frames: a claim per frame would charge one 80ms flash five times and
+   * hold the window permanently full. `update()` already owns the accept/refuse
+   * decision (the 300ms same-source floor), so this only reports it — a sibling
+   * of `liveAt` in every respect, including that ASKING can never change the
+   * answer. Exact equality is the right test because the caller drives the pulse
+   * with the FRAME's one timestamp and asks with that same value; anything
+   * looser would re-report an onset on a later frame and double-charge it.
+   */
+  onsetAt(nowMs: number): boolean {
+    return this.lastTriggerAt === nowMs;
+  }
 }
 
 /** Pure: is a pulse that runs until `activeUntil` still live at `nowMs`? The

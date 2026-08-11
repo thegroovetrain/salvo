@@ -37,6 +37,8 @@ import type { ZonePhase, ZoneRing } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { strokeWorldWidth } from '../util/math.js';
+import { holdAtLitKeyframe } from './attention.js';
+import { FLASH_ELEMENTS, type FlashBudget } from './flashBudget.js';
 import { bakeVignetteTexture } from './textures.js';
 
 const Z = CLIENT_CONFIG.zone;
@@ -172,6 +174,19 @@ export function revealFlashAlpha(elapsedMs: number, amp: number): number {
 }
 
 /**
+ * Pure: the DEGRADED reveal one-shot's added alpha — the aggregate flash
+ * budget's `'degrade'` draw (amendment 240), in the ratified shape: the SAME
+ * envelope length at a FLAT fraction of the peak instead of the peak→zero ramp.
+ * The telegraph still lands with extra weight at the exact moment it becomes
+ * public; only the luminance CHANGE is spent. Never zero inside the envelope, so
+ * a degraded reveal can never read as no reveal.
+ */
+export function degradedFlashAlpha(elapsedMs: number, amp: number): number {
+  if (!(elapsedMs >= 0) || elapsedMs >= Z.revealMs) return 0;
+  return amp * CLIENT_CONFIG.flashBudget.degradeAlphaFactor;
+}
+
+/**
  * The reveal one-shot (amendment 17), pure state + timing (no Pixi).
  *
  * Fires when a ring becomes public — the rising edge of the CLIENT's view, which
@@ -192,15 +207,36 @@ export class RevealOneShot {
   private firedKey: string | null = null;
   private firedAt = -Infinity;
   private firedAmp = 0;
+  /** Was the ONSET over the aggregate flash budget? Latched at the fire instant
+   *  and held for the whole envelope: a claim is made once per flash, never
+   *  re-asked per frame (re-claiming would both charge the window repeatedly and
+   *  let a flash change its own form mid-life). */
+  private firedDegraded = false;
 
   /** Feed the currently revealed ring (or null) each frame with a monotonic
-   *  clock; returns the extra alpha the telegraph carries THIS frame. */
-  update(next: ZoneRing | null, nowMs: number, amp: number): number {
+   *  clock; returns the extra alpha the telegraph carries THIS frame.
+   *
+   *  `budget` is the client's aggregate flash budget (render/flashBudget.ts). The
+   *  reveal already fires at most once per ring identity behind a `revealFloorMs`
+   *  floor, so this claim can realistically never bind — it is the AGGREGATE
+   *  guarantee stated in code rather than a filter this channel needs, and an
+   *  absent budget (tests, a caller from before Story 4.8) simply animates.
+   *
+   *  THE CLAIM ONLY HAPPENS WHEN THE FLASH WILL ACTUALLY DRAW (review gate P3):
+   *  at `motion: 'off'` the amplitude is 0 and nothing renders, and the budget's
+   *  own contract is that a flash that did not flash must not consume budget (a
+   *  `'degrade'` verdict records nothing for exactly this reason). This is the
+   *  ordering every other claim site already uses — effects.ts claims after its
+   *  `peakAlpha <= 0` early-out, ships.ts and upgradeMenu.ts behind their motion
+   *  checks. The ring identity is still latched either way, so toggling motion
+   *  back on later cannot resurrect a flash for a ring the player already saw. */
+  update(next: ZoneRing | null, nowMs: number, amp: number, budget?: FlashBudget): number {
     const key = ringKey(next);
     if (key !== null && key !== this.firedKey && nowMs - this.firedAt >= Z.revealFloorMs) {
       this.firedKey = key;
       this.firedAt = nowMs;
       this.firedAmp = amp;
+      this.firedDegraded = amp > 0 && budget?.claim(FLASH_ELEMENTS.zoneReveal, nowMs) === 'degrade';
     }
     // The latched amplitude, CLAMPED to this frame's: the latch exists so a
     // motion level raised after the fact cannot resurrect a flash, but it must
@@ -208,7 +244,8 @@ export class RevealOneShot {
     // `reduced`) DURING the 80ms envelope has to see it stop immediately, rather
     // than sit through a flourish they just switched off. At `off` amp is 0, so
     // the residual flash dies on the very next frame.
-    return revealFlashAlpha(nowMs - this.firedAt, Math.min(this.firedAmp, amp));
+    const envelope = this.firedDegraded ? degradedFlashAlpha : revealFlashAlpha;
+    return envelope(nowMs - this.firedAt, Math.min(this.firedAmp, amp));
   }
 }
 
@@ -369,6 +406,10 @@ export interface ZoneFrame extends FillView {
    *  fill's visible-diagonal term). */
   screenW: number;
   screenH: number;
+  /** THE client's aggregate flash budget (render/flashBudget.ts) — the reveal
+   *  one-shot claims `FLASH_ELEMENTS.zoneReveal` against it. Optional: a frame
+   *  without one animates exactly as it always has. */
+  flash?: FlashBudget;
 }
 
 export class Zone {
@@ -465,7 +506,10 @@ export class Zone {
     this.vignette.height = f.screenH;
     const dtMs = this.lastVigMs < 0 ? 0 : f.nowMs - this.lastVigMs;
     this.lastVigMs = f.nowMs;
-    this.holdBlend = easeHold(this.holdBlend, f.tier1 ? 1 : 0, dtMs);
+    // The tier table's Tier-2 rule, NAMED rather than re-inlined as `? 1 : 0`:
+    // render/attention.ts is the one place it lives (Story 4.8), and the chrome
+    // bar's ring segment now asks the same question through the same predicate.
+    this.holdBlend = easeHold(this.holdBlend, holdAtLitKeyframe(f.tier1) ? 1 : 0, dtMs);
     const amp = motionScaled(Z.vignetteAmp, settings.current.motion);
     this.vignette.alpha = active ? vignetteHeld(f.inStorm, f.nowSec, amp, this.holdBlend) : 0;
   }
@@ -480,6 +524,7 @@ export class Zone {
       vis.telegraph ? f.next : null,
       f.nowMs,
       motionScaled(Z.revealAmp, settings.current.motion),
+      f.flash,
     );
     if (vis.telegraph && f.next) this.updateTarget(f.next, f.zoom, flash);
     this.updateVignette(f, vis.plane);
