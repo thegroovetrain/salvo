@@ -607,6 +607,36 @@ export interface ShipRecord {
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
 }
 
+/**
+ * Per-tick values handed to every STEP_ORDER row (Story 5.1, AR8). The rows
+ * have three distinct signatures today — dt in SECONDS (integrators), dt in
+ * MILLISECONDS (wall-clock timers), and the shared post-move hulls snapshot —
+ * and this context carries each under its own name so a row passes its method
+ * EXACTLY what the method's unchanged signature demands. Both dt forms are
+ * rebuilt from step()'s own `dtMs` argument every tick (never captured at
+ * module scope), so a caller-supplied dt reaches every row exactly as before.
+ */
+export interface StepContext {
+  /** This tick's dt in SECONDS — the kinematics/ballistics integrators' unit. */
+  readonly dt: number;
+  /** This tick's dt in MILLISECONDS — the wall-clock timers' unit (reloads, XP, sweeps). */
+  readonly dtMs: number;
+  /**
+   * The tick's ONE aliveHulls() snapshot, memoized on first access — see
+   * World.stepContext() for why it is neither a STEP_ORDER row nor a prologue
+   * statement, and why its staleness is semantic.
+   */
+  readonly hulls: () => HullTarget[];
+}
+
+/** One named simulation step in World.STEP_ORDER (Story 5.1, AR8). The name
+ *  is the row's identity: the order-identity test (stepOrder.test.ts,
+ *  amendment 6) pins the exact name sequence, so it must stay stable. */
+export interface StepRow {
+  readonly name: string;
+  readonly run: (world: World, ctx: StepContext) => void;
+}
+
 export class World {
   readonly map: GameMap;
   readonly playerCap: number;
@@ -1589,40 +1619,58 @@ export class World {
     ship.offers = scrubbed.offers.filter((offer) => offer.length > 0);
   }
 
-  /** Advance the simulation one fixed step (default SIM_DT = 50ms). */
-  step(dtMs: number = CONFIG.tick.simDtMs): void {
-    this.tick += 1;
-    this.now += dtMs;
-    const dt = dtMs / 1000;
-
+  /**
+   * THE TICK ORDER AS DATA (Story 5.1, AR8): every simulation step step()
+   * runs, in the exact order it runs them. The order-identity test
+   * (stepOrder.test.ts, amendment 6) pins the name sequence, so any reorder,
+   * insertion, or removal is a deliberate reviewed edit rather than a silent
+   * behavior change — several rows below are correct ONLY because of where
+   * they sit, and their comments (moved here verbatim from the old inline
+   * step() body) are the sole documentation of those orderings.
+   *
+   * Rows hold SIM STEPS ONLY (amendment 5). Three statements stay in step()
+   * itself, outside this array: the clock advance, the aliveHulls() snapshot
+   * (see stepContext()), and the end-of-tick event/denial/muzzle-dedupe swap.
+   * Those are frame BOUNDARIES, not insertable positions — a row placed
+   * "before the clock" or "after the swap" would not be part of the tick it
+   * thinks it is in.
+   *
+   * Each row's thunk passes its method EXACTLY the arguments the method's
+   * unchanged signature demands (ctx.dt seconds / ctx.dtMs milliseconds /
+   * ctx.hulls() / nothing) — the signatures themselves did not move, so the
+   * type-checker re-verifies every call against the real method and a row
+   * cannot silently drift onto the wrong unit or a stale capture.
+   */
+  static readonly STEP_ORDER: readonly StepRow[] = Object.freeze([
     // Drones write their inputs through the same store humans use, so they are
     // picked up by applyInputs exactly like any client this tick.
-    this.drones.tick();
-    this.applyInputs();
-    this.stepShips(dt);
-    this.resolveCollisions();
+    { name: 'dronesTick', run: (w) => w.drones.tick() },
+    { name: 'applyInputs', run: (w) => w.applyInputs() },
+    { name: 'stepShips', run: (w, ctx) => w.stepShips(ctx.dt) },
+    { name: 'resolveCollisions', run: (w) => w.resolveCollisions() },
     // Wake sampling (Story 4.12) hangs off the kinematics pass — DELIBERATELY
     // after resolveCollisions, not inside stepShips: resolveShipPose can roll
     // a candidate pose back off an island, and a wake sample must record the
     // RESOLVED pose (water where the hull actually is), never a rolled-back
     // candidate inside land. Torpedo ribbons sample in stepShells below.
-    this.sampleWakes();
+    { name: 'sampleWakes', run: (w) => w.sampleWakes() },
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
-    this.applyStorm(dt);
-    // Ballistics + mines both test against post-move hulls (built once).
-    const hulls = this.aliveHulls();
-    this.stepShells(dt, hulls);
+    { name: 'applyStorm', run: (w, ctx) => w.applyStorm(ctx.dt) },
+    // Ballistics + mines both test against post-move hulls (built once):
+    // ctx.hulls() materializes the tick's ONE snapshot here, on first access
+    // (see stepContext()), and the two mine rows below reuse it as-is.
+    { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hulls()) },
     // Self-propelled mines creep BEFORE the trigger scan (Story 2.8) — a
     // deliberate step-order position: a mine that crawls into trigger range
     // this tick trips this tick, against the same post-move hulls.
-    this.creepMines(dt, hulls);
-    this.stepMines(hulls);
+    { name: 'creepMines', run: (w, ctx) => w.creepMines(ctx.dt, ctx.hulls()) },
+    { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hulls()) },
     // Star-shell doctrine zone effects (Story 2.8): incendiary DoT + dazzle
     // marking, against post-move centers, BEFORE the expiry sweep so a zone
     // burns/dazzles through its final tick.
-    this.applyZoneEffects(dt);
+    { name: 'applyZoneEffects', run: (w, ctx) => w.applyZoneEffects(ctx.dt) },
     // DAMAGE CONTROL regen (Eric rulings 2026-08-04) — DELIBERATE step-order
     // position: dead LAST among the hp movers, after EVERY damage source this
     // tick (storm, ballistics, mine blasts, the incendiary DoT) has already
@@ -1637,37 +1685,37 @@ export class World {
     // restores full hp and zeroes the pool, so anything paid to a wreck here
     // would be overwritten rather than banked. Nothing downstream in the step
     // reads hp or repairHp, so no other system depends on this position.
-    this.tickRepairs(dtMs);
+    { name: 'tickRepairs', run: (w, ctx) => w.tickRepairs(ctx.dtMs) },
     // WOUNDED SMOKE (Story 4.4) — DELIBERATE step-order position: directly
     // after the LAST hp mover (tickRepairs), so every damage source AND the
     // regen drain have already resolved. A hull that crossed a band this tick
     // smokes at its post-resolution hp, and one healed above the band goes
     // silent the same tick it recovered.
-    this.tickSmoke();
+    { name: 'tickSmoke', run: (w) => w.tickSmoke() },
     // Lit zones (Story 1.7): natural-expiry sweep, positioned with the other
     // static-entity resolution (the mines precedent). Zones are SPAWNED inside
     // stepShells (resolveBurst on a star shell) and deliberately survive their
     // owner's death — expiry is the only way out.
-    this.expireLitZones();
+    { name: 'expireLitZones', run: (w) => w.expireLitZones() },
     // Decoy buoys (Story 1.8): the same natural-expiry law, swept beside the
     // zones. Buoys are SPAWNED by the decoy ability row (activationControl) and
     // survive their owner's death — expiry (or owner replacement) is the only
     // way out.
-    this.expireDecoys();
-    this.fireControl(dtMs);
+    { name: 'expireDecoys', run: (w) => w.expireDecoys() },
+    { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
     // into activations through the single sinking gate.
-    this.activationControl();
+    { name: 'activationControl', run: (w) => w.activationControl() },
     // Foghorn (Story 4.5): the hornSeq sibling, resolved in the same
     // step-order position — post-move, so a honk sounds at the ship's TRUE
     // position this tick. An emote, never an activation: it goes nowhere near
     // the sinking gate, the equipment rows, or the denial queue.
-    this.hornControl();
+    { name: 'hornControl', run: (w) => w.hornControl() },
     // Radar: the sweep advances here; the per-observer paint (blips) happens
     // at frame-build time in perception.ts using [prevSweepAngle, sweepAngle).
-    this.advanceSweeps(dtMs);
-    this.processRespawns();
+    { name: 'advanceSweeps', run: (w, ctx) => w.advanceSweeps(ctx.dtMs) },
+    { name: 'processRespawns', run: (w) => w.processRespawns() },
     // Passive XP (Story 2.6) — DELIBERATE step-order position: dead LAST, after
     // respawns and before the event swap. After respawns so a hull that came
     // back this very tick is already afloat for its own accrual (the afloat gate
@@ -1675,8 +1723,22 @@ export class World {
     // level banked here publishes its `pt` event on THIS tick's frame rather
     // than trailing into the next one. Nothing downstream in the step reads XP,
     // so no other system's behavior can depend on where it sits.
-    this.tickXp(dtMs);
+    { name: 'tickXp', run: (w, ctx) => w.tickXp(ctx.dtMs) },
+  ] satisfies StepRow[]);
 
+  /** Advance the simulation one fixed step (default SIM_DT = 50ms). */
+  step(dtMs: number = CONFIG.tick.simDtMs): void {
+    // Fixed PROLOGUE (amendment 5): the clock advance is the tick's opening
+    // frame boundary, not an insertable position — it stays outside STEP_ORDER.
+    this.tick += 1;
+    this.now += dtMs;
+    const ctx = this.stepContext(dtMs);
+
+    for (const row of World.STEP_ORDER) row.run(this, ctx);
+
+    // Fixed EPILOGUE (amendment 5): the end-of-tick swap is the closing frame
+    // boundary — a row appended "after" it would land in the NEXT tick's
+    // publish window, so it too stays outside STEP_ORDER.
     // Publish this tick's events (including joins/sinks queued between steps).
     this.events = this.pending;
     this.pending = [];
@@ -1686,6 +1748,32 @@ export class World {
     // Muzzle-flash dedupe (Story 4.3) resets with the tick's other per-tick
     // state: next tick's first gun-family spawn per owner flashes again.
     this.mzOwnersThisTick.clear();
+  }
+
+  /**
+   * Build one tick's StepContext. Both dt forms derive from step()'s own dtMs
+   * argument each tick, so a caller-supplied dt flows to every row unchanged.
+   *
+   * `hulls` is the tick's ONE aliveHulls() snapshot, memoized on FIRST access
+   * — which the pinned order guarantees is stepShells, the exact position the
+   * old inline `const hulls = this.aliveHulls()` statement occupied. It is
+   * DELIBERATELY STALE from then on: a hull sunk by stepShells remains in the
+   * array for creepMines/stepMines, each of which re-checks liveness per
+   * victim — the damage semantics live in those re-checks, NOT in the
+   * snapshot (amendment 5). It is not a STEP_ORDER row because a row would
+   * advertise an insertable slot right after it, and anything inserted there
+   * silently inherits that staleness trap. And it cannot move to the prologue
+   * either: aliveHulls() bakes post-move polygon transforms and filters on
+   * post-storm liveness at call time, so a prologue snapshot would hand
+   * ballistics pre-move geometry and hulls the storm already sank this tick.
+   */
+  private stepContext(dtMs: number): StepContext {
+    let hulls: HullTarget[] | undefined;
+    return {
+      dt: dtMs / 1000,
+      dtMs,
+      hulls: () => (hulls ??= this.aliveHulls()),
+    };
   }
 
   /**
