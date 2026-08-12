@@ -1238,14 +1238,16 @@ function tickSinkingWindow(g: Game): void {
   g.keyboard.revertToGun();
   if (!g.pendingElimination) return; // a ready-room founder: hygiene only, no debrief
   g.pendingElimination = false;
-  // THE GAME-END TABLE IS NEVER REPLACED (amendment 17): the match may finish
-  // WHILE a hull is still sinking — the outcome is decided at sink-entry, and
-  // `finish()` is deliberately not held open for the window — in which case the
-  // final debrief has already been presented and the results flow supersedes
-  // the rest of that hull's beat. This is the same clause canOpenElimination
-  // enforces at sink-entry, restated at the deferred end because the state can
-  // now change BETWEEN the two moments (it never could before 5.2). The resets
-  // above still run: the life is over either way.
+  // THE GAME-END TABLE IS NEVER REPLACED: results and your own founder can
+  // land on the SAME tick. Since the amendment-17 REVERSAL (Eric veto
+  // 2026-08-12) the server holds the match open for every sinking captain's
+  // window — the outcome is still decided at sink-entry, only the transition
+  // waits — so when YOUR window is the last one (the 1v1 loser, the
+  // revenge-sunk winner, the same-tick-wipe draw) `finish()` fires on your
+  // founder tick and the final debrief may already be up when this runs. This
+  // is the same clause canOpenElimination enforces at sink-entry, restated at
+  // the deferred end because the state can change BETWEEN the two moments.
+  // The resets above still run: the life is over either way.
   if (g.resultsFinal) return;
   showEliminationResults(g);
 }

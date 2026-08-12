@@ -127,9 +127,13 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
  * carries `you` (with `sinkingUntil`), so the dying captain aims through the
  * same fog as everyone else until the founder edge lands.
  *
- * The `finished` branch deliberately stays first (amendment 17): a match may
- * finish while a hull is still sinking, and the results flow — including this
- * unfogged view — supersedes that hull's remaining window.
+ * The `finished` branch deliberately stays first: a match may still finish
+ * while a hull is mid-window. Since the amendment-17 REVERSAL (Eric veto
+ * 2026-08-12) the match is held open for sinking CAPTAINS — a captain's own
+ * window now always completes before the finish — but a sinking DRONE never
+ * delays it, and the match machine's hard safety-net deadline can land a
+ * finish regardless of lifecycle state. In both shapes the results flow —
+ * including this unfogged view — supersedes that hull's remaining window.
  */
 function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
   if (phase === 'finished') return true;

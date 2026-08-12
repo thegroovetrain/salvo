@@ -436,3 +436,48 @@ clean read on "that hull is in its window." Widening `tickSmoke` would make a **
 amendment 15's three and would change an enemy-facing channel, which is Eric's call, not the
 implementer's. Recorded for his ruling; the information it reveals is in any case already free by
 the composition above.
+
+## Amendment 20 — THE MATCH IS HELD OPEN FOR A SINKING CAPTAIN (Eric veto 2026-08-12) — REVERSES amendment 17
+
+> *"I just tested against myself in a 1v1. No sinking window, the game just immediately ends."*
+
+**Amendment 17 is reversed by the owner on first contact with the water, and its reasoning was
+wrong.** It was weighed for a twenty-player lobby — *"the last kill is ONE death out of 19, and the
+beat it truncates is replaced by the omniscient reveal"* — and that arithmetic is right and
+irrelevant. **In a 1v1 every death is the match-ending death**, so the truncation was not an edge
+case at all: it was 100% of duels, and 100% of the way the game is actually tested by one person
+with two tabs. A feature invisible in the most common way it is exercised is not shipped.
+
+Diagnosed before changing anything, and there was **no second defect** — the window mechanism itself
+was sound:
+
+- 3 captains, one sinks → phase stays `active`, hull is `sinking`. Works.
+- 2 captains, one sinks → phase is `finished` **one tick** after the sink. The results flow ate the
+  window.
+
+**Ruled — LATCH THE OUTCOME, DEFER ONLY THE TRANSITION.** The first `checkWin` to find ≤1 afloat
+captain resolves and records the winner **at that instant** (afloat survivor, else the
+mutual-destruction resolution, else `''` for the draw) and never re-derives it. The phase then stays
+`active` while any **non-drone** hull is `isSinking`, and `finish()` consumes the latch verbatim once
+the water is clear.
+
+**This does not touch amendment 14, it is what makes it true.** *"Sinking does not affect the game
+outcome"* is now enforced by construction rather than by timing: the sink order can grow during the
+hold — a revenge kill, a late-consumed leave — and the result cannot move, because the answer was
+computed before the hold began. The winner of record may therefore be a hull that is itself sinking,
+or sunk, by the time the results broadcast. **You can take your killer with you; you still cannot
+take the win with you.**
+
+**Only captains hold the match open** (drones are not combatants — epic-4 amendments 29-34, epic-5
+amendment 4), a sinking captain who disconnects stops holding the instant `removeShip` takes the
+hull, and a **safety net** fires the finish at `latch + window + 1000 ms` regardless of lifecycle
+state — commented as a net, not a mechanism, because a match that can never finish is catastrophic
+and the hold's correctness now depends on a lifecycle edge rather than on a clock.
+
+**The cost amendment 17 was avoiding is real and was paid:** the winner of a duel now watches the
+loser go down for five seconds before the results land. That is the beat, not dead time.
+
+**Proven over real sockets, which the shipping cycle did not do:** `matchSmoke` now traces the full
+window → founder → results flow (*"B got 5 spec frames; A spec'd only after the finish"*), and
+`metricsSmoke` confirms the leave-driven finish is unaffected. The smoke's step-4 frame budget had to
+widen, because a loser's spectator frames now legitimately begin five seconds after their sunk event.

@@ -11,6 +11,12 @@ import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 
 const DT = CONFIG.tick.simDtMs;
+// Ticks in one full sinking window. Since the amendment-17 REVERSAL (Eric veto
+// 2026-08-12) the match is HELD OPEN while any CAPTAIN is in its window: the
+// outcome latches on the sink tick, but 'finished' lands only at the last
+// captain founder — so every terminal sink below is followed by a window of
+// stepping before the finish assertions.
+const SINK_TICKS = CONFIG.ship.sinkingWindowMs / DT;
 // joinWindowMs: 0 = the legacy fast path (waiting -> countdown + lock at
 // minHumans, no gathering phase) so every pre-gathering suite keeps its exact
 // assertions; the gathering window has its own suite below.
@@ -384,6 +390,8 @@ describe('match — active phase', () => {
     expect(ctx.m.phase).toBe('active');
     ctx.w.sinkShip('b', 'a');
     step(ctx);
+    expect(ctx.m.phase).toBe('active'); // held open for the sinking windows (amendment 17 reversed)
+    step(ctx, SINK_TICKS);
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a');
     expect(ctx.m.placements.get('a')).toBe(1);
@@ -411,7 +419,7 @@ describe('match — active phase', () => {
     expect(ctx.m.phase).toBe('active'); // 3 humans now alive: no insta-finish
     ctx.w.sinkShip('a', 'late');
     ctx.w.sinkShip('b', 'late');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // the losers' windows must run out first (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('late');
     expect(ctx.m.placements.get('late')).toBe(1);
@@ -428,7 +436,7 @@ describe('match — active phase', () => {
     activate(ctx);
     ctx.w.sinkShip('a', 'b');
     ctx.w.sinkShip('b', 'a'); // same tick — the wipe amendment 14 rules a draw
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // both windows hold the transition (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     // Every remaining captain went down on one tick: no "later sinker" exists,
     // so winnerId is deliberately '' and the client renders a DRAW.
@@ -465,7 +473,8 @@ describe('match — finished phase', () => {
     const ctx = setup(['a', 'b']);
     activate(ctx);
     ctx.w.sinkShip('b', 'a');
-    step(ctx);
+    // The finish waits for b's whole window (amendment 17 reversed).
+    step(ctx, SINK_TICKS + 1);
     expect(ctx.m.phase).toBe('finished');
     return ctx;
   }
@@ -531,7 +540,7 @@ describe('match — the results table is captains only', () => {
     const ctx = withDrones(['a', 'b'], 3);
     expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(3);
     ctx.w.sinkShip('b', 'a');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // b's window runs out first (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     const msg = ctx.results[0];
     expect(msg.rows.some(isDroneRow)).toBe(false); // drones are not in the results
@@ -553,7 +562,7 @@ describe('match — the results table is captains only', () => {
     step(ctx);
     expect(ctx.m.phase).toBe('active');
     ctx.w.sinkShip('b', 'a');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // the windows run out (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a');
     // 3 captains -> exactly 3 rows at 1..3, unaffected by the 2 drones (one
@@ -577,7 +586,7 @@ describe('match — the results table is captains only', () => {
       ctx.w.sinkShip('drone-1', 'a');
       step(ctx);
       ctx.w.sinkShip('b', 'a');
-      step(ctx);
+      step(ctx, SINK_TICKS + 1); // the windows run out (amendment 17 reversed)
       expect(ctx.m.phase).toBe('finished');
       return ctx.results[0].rows.map((r) => [r.id, r.placement]);
     };
@@ -596,7 +605,7 @@ describe('match — the results table is captains only', () => {
     const ctx = withDrones(['a', 'b'], 2);
     ctx.w.sinkShip('a', 'b');
     ctx.w.sinkShip('b', 'a'); // same tick — a draw since Story 5.2
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // both windows hold the transition (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe(''); // drones can't claim it and neither captain may
     expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(2);
@@ -611,7 +620,7 @@ describe('match — the results table is captains only', () => {
     ctx.w.sinkShip('drone-1', 'a');
     step(ctx);
     ctx.w.sinkShip('b', 'a');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // b's window runs out (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.results[0].rows).toHaveLength(2); // captains only on the wire…
     const sum = ctx.m.endSummary();

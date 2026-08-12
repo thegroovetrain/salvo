@@ -16,6 +16,11 @@ import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
+// One sinking window in ticks: since the amendment-17 REVERSAL (Eric veto
+// 2026-08-12) a terminal captain SINK holds the match open for the dying
+// hull's window, so the sunk-out finishes below step a window before their
+// finish assertions. Drone sinks never hold — that stays pinned here.
+const SINK_TICKS = CONFIG.ship.sinkingWindowMs / DT;
 
 /** A bare, island-free world unless the test adds islands back. */
 function bareWorld(seed = 1, zone: ZoneTimeline = CONFIG.zone): World {
@@ -312,7 +317,7 @@ describe('match — drone fill + win exclusion', () => {
       expect(ctx.m.phase).toBe('active'); // two captains afloat: still fighting
     }
     ctx.w.sinkShip('rival', 'human');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // the rival's window holds the finish (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human');
     expect(ctx.m.placements.get('human')).toBe(1);
@@ -337,7 +342,7 @@ describe('match — drone fill + win exclusion', () => {
     expect(ctx.m.phase).toBe('active'); // both captains afloat: no check trips
     ctx.w.sinkShip('rival'); // storm-style, unattributed
     ctx.w.sinkShip('human'); // same tick — the amendment-14 wipe
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // both captains' windows hold the finish (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe(''); // a DRAW — and NOT a surviving drone
     // Captain-relative placements keep numbering from 1 with no winner row.

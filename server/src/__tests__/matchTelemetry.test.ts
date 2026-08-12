@@ -14,6 +14,12 @@ import {
 } from '../game/match.js';
 
 const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 }; // 2 ticks / 4 ticks; no gathering window (legacy fast path)
+// Ticks in one sinking window: since the amendment-17 REVERSAL (Eric veto
+// 2026-08-12) a terminal SINK holds the match open for the dying captain's
+// whole window, so every sunk-out finish below steps a window before its
+// finish assertions. Leave-only finishes are unaffected (a removed hull is
+// not a sinking hull).
+const SINK_TICKS = CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs;
 
 function noopHooks(): MatchHooks {
   return {
@@ -97,9 +103,10 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     ctx.w.sinkShip('d1');
     step(ctx);
     expect(ctx.m.phase).toBe('active'); // both humans still afloat
-    // 'a' (torpedoBoat) sinks 'b' (mineLayer) → win check finishes at a.
+    // 'a' (torpedoBoat) sinks 'b' (mineLayer) → the outcome latches at a; the
+    // finish waits for b's sinking window (amendment 17 reversed).
     ctx.w.sinkShip('b', 'a');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1);
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a');
     return ctx;
@@ -112,7 +119,13 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     expect(s.winnerClass).toBe('torpedoBoat');
     expect(s.killsByClass).toEqual({ torpedoBoat: 1, mineLayer: 0, droneLarge: 0 });
     expect(s.stormDeaths).toBe(1);
-    expect(s.durationS).toBeCloseTo(0.1, 5); // finishedAt 200 - activatedAt 100
+    // The finish lands on b's founder tick: sink-entry at 150 (activation 100
+    // + one drone-sink tick) + the 5000ms window → finishedAt 5150, activated
+    // 100 → 5.05s, rounded to 1 decimal (half-up) = 5.1.
+    expect(s.durationS).toBeCloseTo(
+      Math.round((150 + CONFIG.ship.sinkingWindowMs - 100) / 100) / 10,
+      5,
+    );
     expect(s.endedBy).toBe('fieldCleared'); // 'a' survives an empty ocean
   });
 });
@@ -140,7 +153,7 @@ describe('Match.endSummary — endedBy classification', () => {
     const ctx = activated(1);
     ctx.w.sinkShip('d0', 'a');
     ctx.w.sinkShip('b', 'a');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // b's window holds the finish (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a');
     expect(ctx.m.endSummary().endedBy).toBe('fieldCleared');
@@ -154,7 +167,7 @@ describe('Match.endSummary — endedBy classification', () => {
     // lastHumanSunk.
     ctx.w.sinkShip('a');
     ctx.w.sinkShip('b');
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // both windows hold the finish (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe(''); // same-tick wipe: a draw (Story 5.2)
     const s = ctx.m.endSummary();
@@ -167,7 +180,7 @@ describe('Match.endSummary — endedBy classification', () => {
     const ctx = activated(0);
     ctx.w.sinkShip('a', 'b');
     ctx.w.sinkShip('b', 'a'); // same tick
-    step(ctx);
+    step(ctx, SINK_TICKS + 1); // both windows hold the finish (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.endSummary().endedBy).toBe('lastHumanSunk');
   });
@@ -175,14 +188,19 @@ describe('Match.endSummary — endedBy classification', () => {
   it('lastHumanLeft: the last afloat human quits out mid-match', () => {
     const ctx = activated(1);
     // Amendment 4: drones no longer hold the match open, so the win check now
-    // finishes on 'a' the moment it runs with 'b' down. The DEPARTURE therefore
+    // latches on 'a' the moment it runs with 'b' down. The DEPARTURE therefore
     // has to arrive before that check — the leave is what leaves 0 captains
     // afloat, which is exactly what 'lastHumanLeft' classifies. (No step()
     // between the sink and the leave; a step would run checkWin('sink') first.)
     ctx.w.sinkShip('b', 'a');
     ctx.m.onPlayerLeave('a');
+    // b — still in the water, mid-window — holds the transition open even
+    // though the OUTCOME latched at the leave (amendment 17 reversed): the
+    // sinking captain's five seconds are honored whoever else quits.
+    expect(ctx.m.phase).toBe('active');
+    step(ctx, SINK_TICKS + 1);
     expect(ctx.m.phase).toBe('finished');
-    expect(ctx.m.winnerId).toBe('a'); // latest-sunk (sunk-at-leave-time)
+    expect(ctx.m.winnerId).toBe('a'); // latest-sunk (sunk-at-leave-time), frozen at the latch
     expect(ctx.m.endSummary().endedBy).toBe('lastHumanLeft');
   });
 

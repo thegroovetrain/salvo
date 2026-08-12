@@ -93,5 +93,7 @@ Story 5.2 question gate (all Eric rulings 2026-08-12 unless marked):
     superseded. Sinking re-opens exactly three seams: motion, weapons/horn, perceivability.
 16. **Wire (orchestrator): `alive` goes false immediately; a new self-private `OwnShip` key keeps the
     controls live.** PV 33 → 34; the master invariant stays at exactly SIX exceptions.
-17. **The match is NOT held open for a sinking hull (orchestrator — Eric has veto)** — the last
-    captain to die gets a truncated window.
+17. ~~**The match is NOT held open for a sinking hull**~~ — **REVERSED by Eric's veto, amendment 20.**
+20. **The match IS held open for a sinking captain (Eric veto 2026-08-12)** — amendment 17 made the
+    window invisible in 100% of 1v1s. The outcome is LATCHED when it is determined and only the
+    transition defers, so amendment 14 is now enforced by construction rather than by timing.
