@@ -278,14 +278,17 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
     expect(agg.endedBy).toEqual({ fieldCleared: 1 });
   });
 
-  it('endedBy lastHumanSunk: an instant lethal storm sinks the last captain', () => {
+  // TWO captains, not one: since amendment 4 a lone captain wins at activation
+  // (drones no longer gate the win), so 'lastHumanSunk' needs a storm lethal
+  // enough to take the LAST TWO captains down on the same tick.
+  it('endedBy lastHumanSunk: an instant lethal storm sinks the last captains', () => {
     const restore = applyOverrides({
       'zone.beatMs': 1,
       'zone.terminalSightFactor': 0,
       'zone.stormDps': 100000,
     });
     try {
-      const result = runBatch({ seed: 3, matches: 1, captains: 1, drones: 1 });
+      const result = runBatch({ seed: 3, matches: 1, captains: 2, drones: 1 });
       expect(result.matches).toHaveLength(1);
       expect(result.matches[0].endedBy).toBe('lastHumanSunk');
       expect(result.matches[0].stormDeaths).toBeGreaterThan(0);
@@ -308,7 +311,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
     });
     let sunk;
     try {
-      sunk = runBatch({ seed: 4, matches: 1, captains: 1, drones: 1 });
+      sunk = runBatch({ seed: 4, matches: 1, captains: 2, drones: 1 });
     } finally {
       restore();
     }

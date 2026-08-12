@@ -23,7 +23,8 @@
 //               (death → spectator frames, see frames.ts). Sink order is
 //               tracked for placement; a player leaving mid-match counts as
 //               sunk-at-leave-time.
-//   finished  — alive human hulls ≤ 1. winnerId = the survivor, or (mutual
+//   finished  — AFLOAT CAPTAINS ≤ 1 (amendment 4: drones no longer gate the
+//               win — see checkWin). winnerId = the survivor, or (mutual
 //               destruction, RULING) the LATEST-sunk human. Placements set,
 //               one 'results' broadcast, damage frozen; after resultsMs the
 //               room disconnects (autoDispose). No new matches in this room.
@@ -162,6 +163,27 @@ export interface MatchEndSummary {
    *  no-survivor default ('lastHumanSunk'); durationS 0 + winnerClass null are
    *  what mark a summary as not-yet-finished. */
   endedBy: MatchEndCause;
+}
+
+/**
+ * THE win predicate (Story 5.1 AC; amendment 4) — a CAPTAIN still in the fight.
+ *
+ * One predicate over lifecycle state, expressed once and reused: checkWin() is
+ * the only rule, afloatCaptains() its only collector. There is no second,
+ * near-identical walk of world.ships deciding who counts — the drone-side
+ * counterpart (aliveDroneCount) is gone with the gate it existed for.
+ *
+ * `isAfloat` is the seam: when Story 5.2 rules whether a `sinking` hull still
+ * counts as a combatant, this predicate moves with it for free.
+ *
+ * Drones are not captains, and drones are not combatants — the same position
+ * the Public Register took for `sunk` (CONFIG.xp.droneTierLevels pays a
+ * fraction of a level where a captain pays a full one) and Story 4.6's bounty
+ * throne took for `captainKills`. Neither of those is touched here:
+ * ShipRecord.kills still counts drones for the roster/results tally.
+ */
+function isAfloatCaptain(s: ShipRecord): boolean {
+  return !s.isDrone && isAfloat(s.lifecycle);
 }
 
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
@@ -339,8 +361,9 @@ export class Match {
         damageDealt: aliveWinner.damageDealt,
       });
     }
-    // RULING: with 0 humans alive (simultaneous mutual destruction, or the lone
-    // human sinking to the storm while drones survive) the winner is the
+    // RULING: with 0 captains afloat (simultaneous mutual destruction — the last
+    // two captains going down on the same tick, since any tick that leaves ONE
+    // afloat now finishes on that captain, amendment 4) the winner is the
     // latest-sunk HUMAN — drones can never win, so we skip past them in the sink
     // order rather than taking its last entry blindly.
     this.winnerId = aliveWinner?.id ?? this.latestSunkHuman() ?? '';
@@ -394,19 +417,35 @@ export class Match {
   }
 
   /**
-   * Post-step / post-leave win check. A match with drones aboard cannot finish
-   * on the "≤1 human afloat" rule alone — that is already true at activation (1
-   * human + 5 drones), which would insta-finish. So the match ends only when:
-   *   - no human is alive (all humans sunk — winner = latest-sunk human), OR
-   *   - exactly one human is alive AND no other hull (drone or human) remains
-   *     (the lone human has cleared the field — winner = that human).
-   * A lone human with drones still afloat keeps fighting.
+   * Post-step / post-leave win check — ONE predicate (isAfloatCaptain) over
+   * lifecycle state, counting CAPTAINS ONLY. The match ends when at most one
+   * captain is still afloat:
+   *   - one afloat captain  → that captain won, however many drones remain,
+   *   - zero afloat captains → mutual destruction; winner = latest-sunk human.
+   *
+   * DRONES NO LONGER GATE THE WIN (Eric ruling 2026-08-11, amendment 4:
+   * *"Drones should stop gating the win, the game cant even fucking start
+   * without two or more live players right now"*), partially superseding the
+   * epic-4 amendment 31 defer. The old `aliveDroneCount() > 0` guard existed
+   * because "≤1 human afloat" is already true at activation for a SOLO human +
+   * fill drones, which would insta-finish. That hazard is confined to
+   * configurations overriding CONFIG.match.minHumans (2) down to 1 — which only
+   * dev tooling can do, since sanitizeRoomOptions gates matchOverride behind
+   * HC_DEV_OPTIONS. Production can never start a live match with one captain,
+   * so the guard bought nothing and cost a lone survivor a fight against hulls
+   * that can never win.
+   *
+   * LEFT OPEN, RECORDED HERE: Story 6-5 (Solo vs AI) owes a termination rule
+   * for a human-versus-drones match. Drones can never win (finish() skips past
+   * them in the sink order) and a lone human can no longer lose to them by
+   * attrition — with minHumans overridden to 1 such a match now finishes the
+   * instant it activates, and Solo vs AI needs a real answer rather than this
+   * one (amendment 4).
    */
   private checkWin(trigger: WinTrigger): void {
-    const humans = this.aliveHumans();
-    if (humans.length > 1) return;
-    if (humans.length === 1 && this.aliveDroneCount() > 0) return;
-    this.finish(humans[0], trigger);
+    const captains = this.afloatCaptains();
+    if (captains.length > 1) return;
+    this.finish(captains[0], trigger);
   }
 
   private maybeDisconnect(): void {
@@ -484,18 +523,11 @@ export class Match {
     return n;
   }
 
-  private aliveHumans(): ShipRecord[] {
+  /** Every captain still afloat — the ONLY collector over the win predicate. */
+  private afloatCaptains(): ShipRecord[] {
     const out: ShipRecord[] = [];
-    for (const s of this.world.ships.values()) {
-      if (!s.isDrone && isAfloat(s.lifecycle)) out.push(s);
-    }
+    for (const s of this.world.ships.values()) if (isAfloatCaptain(s)) out.push(s);
     return out;
-  }
-
-  private aliveDroneCount(): number {
-    let n = 0;
-    for (const s of this.world.ships.values()) if (s.isDrone && isAfloat(s.lifecycle)) n += 1;
-    return n;
   }
 
   /** Latest-sunk human id (scanning the sink order from the end), or undefined. */

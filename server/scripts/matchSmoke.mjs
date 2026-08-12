@@ -14,10 +14,12 @@
 //      receives spec:true frames (you omitted, unfogged contacts incl. A).
 //      A NEVER receives a spec frame before the frame that reports B's sink
 //      (the finish happens on the sink tick — from then on everyone spectates).
-//   5. results broadcast (after the storm clears the fill drones): winnerId=A,
-//      A placed 1st and rows[0]=A, EVERY hull placed >= 1 (no alive stragglers),
-//      B bounded 2..N (its exact rank is a drone-vs-B sink race, not asserted),
-//      A's kills >= 1 and damageDealt >= B's hull.
+//   5. results broadcast ON THAT SAME SINK (amendment 4 — drones no longer gate
+//      the win, so there is no storm mop-up phase any more): winnerId=A, A
+//      placed 1st and first among the PLACED rows, B placed 2nd, every CAPTAIN
+//      placed, at least one drone still AFLOAT and therefore unplaced
+//      (placement 0 — which now sorts ahead of the winner), A's kills >= 1 and
+//      damageDealt >= B's hull.
 //   6. The room disconnects both clients ~resultsMs later (autoDispose).
 // Then kills its own server process group and verifies port 2599 is free.
 //
@@ -60,30 +62,15 @@ const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 500
 // spare. 45s (not 60s) is deliberate — beatMs stretches the WHOLE timeline, and
 // every extra second is paid twelve times over in this smoke's runtime.
 //
-// The step-5 endgame budget is DERIVED from this value (see 'results broadcast')
-// rather than hardcoded, because a bare 60000 here first traded the step-4
-// failure for a `timeout: results broadcast` — full closure moved 360s -> 720s
-// and the fixed 480s budget below no longer covered it. Deriving it means the
-// two can never drift apart again.
-//
-// terminalSightFactor is a small NON-zero value on purpose. A pure point (0)
-// makes the endgame an hp race A cannot reliably win: at the original 70hp
-// torpedo boat the 120hp droneLarge fill hull outright outlasted A at a
-// zero-radius floor (today's 125hp TB would win that race by a 5hp coin flip
-// — still no margin to smoke-test against). Instead we leave
-// a floor pocket (0.04 x 330 = 13.2u) that ONLY A can hold: the drone AI never
-// throttles below 0.5 (drones.ts MIN_THROTTLE) so a dumb hull is always moving
-// >=15u/s and cannot loiter inside so tight a circle — it keeps crossing the
-// ring and storm-sinks — while A throttles right down and holds inside it,
-// safe. Too LARGE a pocket and drones camp it forever (the historical flake);
-// 13.2u is well under a dumb hull's minimum turning circle but roomy enough
-// for A's wobbling center hold. offsetCap 0 keeps every ring CONCENTRIC so the
-// steer-to-center endgame choreography holds (zoneSmoke covers offset rings).
-// So the match finishes with A alive, every drone (and B) placed, A the winner.
+// AMENDMENT 4 (Eric ruling 2026-08-11) RETIRED THE STORM ENDGAME THIS SMOKE USED
+// TO RUN. Drones no longer gate the win, so the match finishes the moment A
+// sinks B — there is no longer a phase where A must outlast the fill drones. The
+// step-5 storm mop-up (steerToCenter into a 13.2u floor pocket, a budget derived
+// from full closure at 12 beats) is DELETED with the rule that required it, and
+// terminalSightFactor's pocket tuning went with it: nothing in this smoke waits
+// on closure any more. beatMs still matters — the pre-close beats are what keep
+// the storm off the step-4 fight — so it stays exactly as tuned above.
 const ZONE_OVERRIDE = { beatMs: 45000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.04 };
-// Full closure = 3 ring groups x 4 beats = 12 beats. Every budget that waits on
-// the storm derives from this so a beatMs retune can never strand one behind.
-const FULL_CLOSURE_MS = 12 * ZONE_OVERRIDE.beatMs;
 // Fire only from close, well-aimed range: a short lane keeps ready-room drones
 // from wandering into the shot and makes each fish near-certain on a head-on
 // target (fish + closing target ≈ 90 u/s over <4s).
@@ -95,7 +82,6 @@ const TORP_RANGE = 350; // u — click only inside this
 // absorb the bow turning between client input-sample and server apply. A tight
 // gate (0.15) threw away most valid shots and made the ready-room hit flaky.
 const ARC = 0.4;
-const ORIGIN = { x: 0, y: 0 }; // map center — the storm's fully-closed point
 // Island obstacle field, rebuilt client-side from welcome.mapSeed (deterministic,
 // islands never travel on the wire — see net/connection.ts). Populated once A's
 // welcome lands; used for PROACTIVE avoidance so a full-throttle hull never rams
@@ -387,46 +373,6 @@ function huntPeer(a, b, armed) {
   else control(b, a.you, false);
 }
 
-/**
- * Drive a ship toward map center (0,0) and hold TIGHT there. Used in the endgame:
- * A holds inside the tiny storm floor pocket (13.5u, see ZONE_OVERRIDE) where it
- * is permanently safe, while the dumb drones — which never throttle below 0.5 and
- * so cannot loiter in so tight a circle — keep crossing the ring and storm-sink.
- * Honest mechanics note: the slow hold throttles (0.45/0.2) sit below
- * unstickInput's stuck threshold (1.5u/tick = 30u/s), so during the hold the
- * detector periodically fires a ~0.7s astern burst + ~1.2s grace. The observed
- * behavior is a slow wobble around the origin that stays well inside the pocket
- * (proven across repeated full-lifecycle gate runs); if this hold ever drifts
- * out, scope unstickInput to full-throttle legs rather than retuning throttles.
- * A survives, so the match finishes with ALL drones placed and A the winner.
- * Weapons cold here.
- */
-function steerToCenter(ctx) {
-  if (!ctx.you) return;
-  const un = unstickInput(ctx);
-  if (un) {
-    ctx.room.send('i', un);
-    return;
-  }
-  const brg = bearing(ctx.you, ORIGIN);
-  const d = Math.hypot(ctx.you.x, ctx.you.y);
-  // Ease throttle down as A closes so it wobbles around the origin (see the
-  // doc comment above for what actually executes here — the slow hold interacts
-  // with unstickInput's astern bursts) instead of overshooting at full speed.
-  ctx.room.send('i', {
-    seq: ++ctx.seq,
-    throttle: d > 200 ? 1 : d > 30 ? 0.45 : 0.2,
-    rudder: clamp(angleDiff(ctx.you.heading, brg) * 3 + islandBias(ctx.you, d), -1, 1),
-    aim: 0,
-    fireSeq: ctx.fireSeq,
-    aimDist: 0,
-    slot: 1,
-    fireT: 0,
-    actSeq: 0,
-    actSlot: 0, hornSeq: 0,
-  });
-}
-
 function phase(ctx) {
   return ctx.room.state?.matchPhase ?? 'unknown';
 }
@@ -546,48 +492,43 @@ async function main() {
     log.push(`B sunk by A; B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
 
     // --- 5. results ----------------------------------------------------------
-    // A steers to and holds the tiny storm-floor pocket at map center
-    // (steerToCenter — concentric rings per the override) where it is
-    // permanently safe, while the storm mops up the fill drones (which never
-    // throttle below 0.5 and so cannot loiter in the pocket). A survives, so
-    // the match finishes with A the winner and ALL drones sunk. We assert
-    // LIFECYCLE INVARIANTS, not the drone-vs-B sink race: B's exact rank
-    // depends on which drone sinks when, so we bound it (2..N) rather than pin
-    // it. The load-bearing checks are: A wins and is placement 1
-    // (first, sorted); EVERY row is placed >= 1 (no alive placement-0 hull — the
-    // proof all four drones storm-died); A is credited the kill + hull damage.
-    const endgameTick = () => {
-      if (!a.results) steerToCenter(a);
-    };
-    // Budget DERIVED from FULL_CLOSURE_MS (2026-08-04 balance pass), not
-    // hardcoded: the phased timeline reaches the 13.2u floor FULL_CLOSURE_MS
-    // after go-live (12 beats); drones bleed at 4hp/s whenever a close strands
-    // them (droneLarge 120hp is the tail), so the last sink lands roughly
-    // 20-60s past closure while step 5 starts ~55s in. The +120s tail leaves
-    // comfortable headroom. This WAS a flat 480000 tuned against 30s beats; when
-    // the balance pass widened beatMs the flat number silently stopped covering
-    // closure and the smoke failed on `timeout: results broadcast`. Deriving it
-    // means the next beatMs retune carries this budget with it automatically.
-    await runUntil(endgameTick, () => a.results !== null && b.results !== null,
-      FULL_CLOSURE_MS + 120000, 'results broadcast');
+    // AMENDMENT 4: B's sink IS the finish — A is the only afloat CAPTAIN, and the
+    // fill drones (which used to have to storm-die first) no longer gate it. So
+    // the results ride the same tick as the sink; the only wait here is the
+    // broadcast round trip, not a storm timeline.
+    await runUntil(() => {}, () => a.results !== null && b.results !== null, 10000, 'results broadcast');
     const res = a.results;
     assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
     const rowA = res.rows.find((r) => r.id === a.room.sessionId);
     const rowB = res.rows.find((r) => r.id === b.room.sessionId);
     assert(rowA && rowB, `results rows missing A/B (rows: ${res.rows.map((r) => r.id).join(',')})`);
     assert(rowA.placement === 1, `A placement=${rowA.placement}, expected 1`);
-    assert(res.rows[0].id === rowA.id, `rows not sorted / winner not first (rows[0]=${res.rows[0].id})`);
+    assert(rowB.placement === 2, `B placement=${rowB.placement}, expected 2 (the only sink)`);
+    // CONSEQUENCE OF RECORD (amendment 4): the match now finishes with hulls
+    // still afloat, and an afloat hull is never in the sink order — so every
+    // surviving drone ends UNPLACED (placement 0). computePlacements() is
+    // deliberately unchanged, so rows sort placement-ascending with those zeros
+    // FIRST: the winner is the first PLACED row, no longer rows[0]. Every
+    // CAPTAIN is still placed; only drones can be unplaced.
+    const placed = res.rows.filter((r) => r.placement >= 1);
+    assert(placed[0].id === rowA.id, `winner not the first placed row (got ${placed[0].id})`);
     assert(
-      res.rows.every((r) => r.placement >= 1),
-      `an unplaced (alive) hull remained — not every drone storm-died: ${JSON.stringify(res.rows.map((r) => r.placement))}`,
+      res.rows.every((r) => r.placement >= 1 || r.id.startsWith('drone-')),
+      `a CAPTAIN row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
     );
-    assert(rowB.placement >= 2 && rowB.placement <= res.rows.length, `B placement=${rowB.placement}, expected 2..${res.rows.length}`);
+    assert(
+      res.rows.some((r) => r.placement === 0),
+      'no unplaced hull — the match did not finish with drones still afloat (amendment 4)',
+    );
     for (let i = 1; i < res.rows.length; i++) {
       assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
     }
     assert(rowA.kills >= 1, `A kills=${rowA.kills}, expected >= 1`);
     assert(rowA.damageDealt >= CONFIG.shipClasses.torpedoBoat.hp, `A damageDealt=${rowA.damageDealt} < ${CONFIG.shipClasses.torpedoBoat.hp}`);
-    log.push(`results: winner=ALPHA (1st, ${rowA.kills} kill, ${rowA.damageDealt}dmg); B placed ${rowB.placement}; all ${res.rows.length} hulls placed`);
+    log.push(
+      `results: winner=ALPHA (1st, ${rowA.kills} kill, ${rowA.damageDealt}dmg); B placed 2; ` +
+      `${res.rows.filter((r) => r.placement === 0).length} drone(s) still afloat and unplaced of ${res.rows.length} rows`,
+    );
 
     // --- 6. room disconnects after resultsMs ---------------------------------
     await runUntil(() => {}, () => a.leftCode !== null && b.leftCode !== null,

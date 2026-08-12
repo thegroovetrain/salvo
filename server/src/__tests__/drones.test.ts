@@ -2,12 +2,14 @@
 // (game/match.ts). Drones are ordinary ships driven only through the normal
 // input path: the controller submits a sanitized InputMsg per drone per tick and
 // NEVER fires. Steering is dumb-but-safe: waypoint sailing with island/boundary
-// avoidance and a zone-recovery override. On the match side, a lone human +
-// fillTo-1 drones must NOT insta-finish, drones can hold placements, and a
-// drone can never win.
+// avoidance and a zone-recovery override. On the match side (amendment 4, Eric
+// ruling 2026-08-11): DRONES NO LONGER GATE THE WIN — a lone afloat captain wins
+// immediately however many drones are still sailing — while two afloat captains
+// keep fighting through a full drone fill, drones can still hold placements, and
+// a drone can never win.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, dist, pointPolygonDistance, type ZoneTimeline } from '@salvo/shared';
+import { CONFIG, dist, isAfloat, pointPolygonDistance, type ZoneTimeline } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { circleIsland } from './islandFixture.js';
@@ -187,8 +189,17 @@ interface MatchCtx {
   results: unknown[];
 }
 
-/** Timings that let a SOLO human start the countdown and fill with drones. */
+/**
+ * DEV-ONLY timings that let a SOLO captain start the countdown and fill with
+ * drones. `minHumans: 1` is unreachable in production — CONFIG.match.minHumans
+ * is 2 and sanitizeRoomOptions gates matchOverride behind HC_DEV_OPTIONS —
+ * which is precisely the premise amendment 4 rests on. Kept so the ruling can
+ * be pinned in the one configuration where it is observable at activation.
+ */
 const SOLO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0, minHumans: 1 };
+
+/** Production timings: the countdown needs CONFIG.match.minHumans (2) captains. */
+const DUO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 };
 
 /** A hooks impl whose fillToCapacity tops the world up to CONFIG.match.fillTo. */
 function fillingHooks(w: World, calls: string[], results: unknown[]): MatchHooks {
@@ -206,15 +217,22 @@ function fillingHooks(w: World, calls: string[], results: unknown[]): MatchHooks
   };
 }
 
-function soloMatch(seed = 1): MatchCtx {
+function buildMatch(ids: string[], timings: MatchTimings, seed: number): MatchCtx {
   const w = bareWorld(seed);
   const calls: string[] = [];
   const results: unknown[] = [];
-  const m = new Match(w, SOLO_TIMINGS, fillingHooks(w, calls, results));
-  w.addShip('human', 'HUMAN');
-  m.notifyRosterChanged(); // solo -> countdown (minHumans=1)
+  const m = new Match(w, timings, fillingHooks(w, calls, results));
+  for (const id of ids) {
+    w.addShip(id, id.toUpperCase());
+    m.notifyRosterChanged();
+  }
   return { w, m, calls, results };
 }
+
+/** One captain, dev minHumans=1 -> countdown. Finishes AT activation now. */
+const soloMatch = (seed = 1): MatchCtx => buildMatch(['human'], SOLO_TIMINGS, seed);
+/** Two captains — the production shape (minHumans 2) -> countdown. */
+const duoMatch = (seed = 1): MatchCtx => buildMatch(['human', 'rival'], DUO_TIMINGS, seed);
 
 function step(ctx: MatchCtx, ticks = 1): void {
   for (let i = 0; i < ticks; i++) {
@@ -223,39 +241,71 @@ function step(ctx: MatchCtx, ticks = 1): void {
   }
 }
 
+/** Run the countdown out. Leaves whatever phase the win check settled on —
+ *  'active' for a duo, 'finished' for a solo captain (amendment 4). */
+function runCountdown(ctx: MatchCtx): void {
+  for (let i = 0; i < 100 && ctx.m.phase === 'countdown'; i++) step(ctx);
+  expect(ctx.m.phase).not.toBe('countdown');
+}
+
 function activate(ctx: MatchCtx): void {
-  for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
+  runCountdown(ctx);
   expect(ctx.m.phase).toBe('active');
+}
+
+function afloatDroneIds(ctx: MatchCtx): string[] {
+  return [...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle)).map((s) => s.id);
 }
 
 describe('match — drone fill + win exclusion', () => {
   it('fills exactly fillTo - humans drones at activation', () => {
-    const ctx = soloMatch();
+    const ctx = duoMatch();
     activate(ctx);
     expect(ctx.calls).toContain('fill');
     expect(ctx.w.ships.size).toBe(CONFIG.match.fillTo);
     let drones = 0;
     for (const s of ctx.w.ships.values()) if (s.isDrone) drones += 1;
-    expect(drones).toBe(CONFIG.match.fillTo - 1);
+    expect(drones).toBe(CONFIG.match.fillTo - 2); // fillTo - humans
   });
 
-  it('does NOT insta-finish a lone human against fresh drones', () => {
+  // THE RULING (amendment 4). This test FAILS against the old
+  // `aliveDroneCount() > 0` gate, which held the match open at 'active'.
+  it('a lone afloat captain wins IMMEDIATELY with every drone still afloat', () => {
     const ctx = soloMatch();
+    runCountdown(ctx);
+    expect(ctx.calls).toContain('fill'); // the fill seam still ran
+    // The drones are genuinely in the water and genuinely afloat — this is not
+    // "the field was empty", it is "drones no longer gate the win".
+    expect(afloatDroneIds(ctx)).toHaveLength(CONFIG.match.fillTo - 1);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('human');
+    expect(ctx.m.placements.get('human')).toBe(1);
+  });
+
+  // THE PRODUCTION-SAFETY ARGUMENT the ruling rests on: CONFIG.match.minHumans
+  // is 2, so a live match always opens with two captains, and the win check
+  // stays quiet through a full drone fill until one of them is out.
+  it('two afloat captains + a full drone fill: NO win fires (minHumans 2)', () => {
+    const ctx = duoMatch();
     activate(ctx);
-    // The bug this guards: aliveHumans===1 at activation would end the match.
+    expect(afloatDroneIds(ctx)).toHaveLength(CONFIG.match.fillTo - 2);
     step(ctx, 20);
     expect(ctx.m.phase).toBe('active');
     expect(ctx.calls).not.toContain('results');
+    expect(ctx.results).toHaveLength(0);
   });
 
-  it('the lone human wins once every drone is sunk; drones hold placements', () => {
-    const ctx = soloMatch();
+  it('the last captain wins once the other is sunk; drones hold placements', () => {
+    const ctx = duoMatch();
     activate(ctx);
-    const drones = [...ctx.w.ships.values()].filter((s) => s.isDrone).map((s) => s.id);
+    const drones = afloatDroneIds(ctx);
     for (const id of drones) {
       ctx.w.sinkShip(id, 'human');
       step(ctx);
+      expect(ctx.m.phase).toBe('active'); // two captains afloat: still fighting
     }
+    ctx.w.sinkShip('rival', 'human');
+    step(ctx);
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human');
     expect(ctx.m.placements.get('human')).toBe(1);
@@ -270,17 +320,20 @@ describe('match — drone fill + win exclusion', () => {
   });
 
   it('a drone can NEVER win — human sinking last still wins', () => {
-    const ctx = soloMatch();
+    const ctx = duoMatch();
     activate(ctx);
-    const drones = [...ctx.w.ships.values()].filter((s) => s.isDrone).map((s) => s.id);
-    // Sink one drone, then the human. Drones survive; human is the LAST human.
+    const drones = afloatDroneIds(ctx);
+    // Sink one drone, then BOTH captains on the same tick (mutual destruction).
+    // Drones survive it; the latest-sunk human still takes the win.
     ctx.w.sinkShip(drones[0], 'human');
     step(ctx);
-    expect(ctx.m.phase).toBe('active'); // drones still afloat, but no human check trips yet
-    ctx.w.sinkShip('human'); // storm-style, unattributed
+    expect(ctx.m.phase).toBe('active'); // both captains afloat: no check trips
+    ctx.w.sinkShip('rival'); // storm-style, unattributed
+    ctx.w.sinkShip('human'); // same tick, sunk after rival
     step(ctx);
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human'); // NOT a surviving drone
     expect(ctx.m.placements.get('human')).toBe(1);
+    expect(afloatDroneIds(ctx).length).toBeGreaterThan(0); // drones outlived the match
   });
 });
