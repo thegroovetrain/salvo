@@ -3,6 +3,7 @@ import {
   LIFECYCLE_ALIVE,
   canTransition,
   isAfloat,
+  isSinking,
   isSunk,
   sinkingSince,
   sunkAt,
@@ -58,13 +59,30 @@ describe('ship lifecycle — the union', () => {
     expect(Object.isFrozen(sunk)).toBe(true);
   });
 
-  it('isAfloat is TRUE for alive only in Story 5.1', () => {
+  it('isAfloat answers `alive` ONLY — ruled permanent by Story 5.2 (amendment 15)', () => {
     expect(isAfloat(LIFECYCLE_ALIVE)).toBe(true);
     expect(isAfloat(sunkAt(0))).toBe(false);
-    // `sinking` is DECLARED-ONLY (amendment 1) — the sim never enters it, so
-    // its afloat-ness is Story 5.2's ruling, not this story's. This assertion
-    // pins TODAY's answer so 5.2 changing it is a visible, deliberate edit.
+    // LOAD-BEARING, not incidental: amendment 15 SUPERSEDED the pre-answer
+    // plan to widen this predicate over `sinking`. A sinking hull is dead for
+    // every bookkeeping purpose (win check, damage, roster/AFLOAT, XP,
+    // repairs, refit, respawn) — the window re-opens exactly three seams via
+    // isSinking() instead, and NOT ONE isAfloat call site moved. Widening
+    // this line is a ruling change, never a refactor.
     expect(isAfloat(sinkingSince(0))).toBe(false);
+  });
+
+  it('isSinking names the WINDOW — and is not a complement of its siblings', () => {
+    expect(isSinking(sinkingSince(0))).toBe(true);
+    expect(isSinking(LIFECYCLE_ALIVE)).toBe(false);
+    expect(isSinking(sunkAt(0))).toBe(false);
+    // Exactly one predicate answers true per state — they partition the union
+    // rather than negate each other. In particular isSinking is NOT
+    // `!isAfloat`: a hull on the bottom is not-afloat but not sinking.
+    expect(isSinking(sunkAt(0))).not.toBe(!isAfloat(sunkAt(0)));
+    for (const lc of [LIFECYCLE_ALIVE, sinkingSince(0), sunkAt(0)]) {
+      const answers = [isAfloat(lc), isSinking(lc), isSunk(lc)];
+      expect(answers.filter(Boolean), lc.kind).toHaveLength(1);
+    }
   });
 
   it('isSunk answers the TERMINAL question, not the negation of isAfloat', () => {
@@ -181,6 +199,7 @@ describe('ship lifecycle — purity', () => {
       'sinkingSince',
       'sunkAt',
       'isAfloat',
+      'isSinking',
       'isSunk',
       'canTransition',
       'transitionLifecycle',

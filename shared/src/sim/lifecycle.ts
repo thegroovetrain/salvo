@@ -11,22 +11,23 @@
 // an assignment any caller may make. Both live here: the union, and the ONE
 // function that validates a move across it.
 //
-// `sinking` is DECLARED-ONLY in this story (amendment 1). The simulation keeps
-// `alive -> sunk` INSTANTANEOUS via the `sinkInstant` edge below; nothing in
-// world.ts enters `sinking` until Story 5.2 builds the sinking window. It is
-// not dead code — the AC names the mechanism ("`sinking -> alive` a reserved
-// legal transition (future heal — never dead code, covered by a transition
-// test)"), and the transition tests are that coverage.
+// `sinking` was DECLARED-ONLY in Story 5.1 (amendment 1); Story 5.2 makes it
+// REACHABLE — a flat CONFIG.ship.sinkingWindowMs (5000 ms) beat between 0 HP
+// and the bottom, all bookkeeping unmoved at sink-entry (amendment 11). The
+// window's decel cap and founder-deadline math live in sim/sinking.ts; the
+// three seams it re-opens are enumerated on isSinking() below.
 //
 // Pure and I/O-free like every shared/ sim module: no clock, no RNG. Every
 // timestamp arrives as a parameter, from the server's single World clock
 // (world.ts `this.now`) — so a lifecycle is a plain, structurally-comparable
 // object that serializes, snapshots and diffs identically on both sides.
 //
-// NOT on the wire (amendment 7). `OwnShip.alive` and `PlayerMeta.alive` stay
-// booleans projected from isAfloat(); PROTOCOL_VERSION stays 33. Story 5.2
-// owns the wire change, because that is when `sinking` first becomes something
-// a client can observe.
+// ON the wire since Story 5.2 (amendment 16, PV 34) — but only for YOURSELF:
+// `OwnShip.alive` and `PlayerMeta.alive` stay booleans projected from
+// isAfloat() (so `alive` goes false the instant the hull starts sinking —
+// correct for AFLOAT and the register), and the optional self-private
+// `OwnShip.sinkingUntil` deadline is the sole disclosure of the window. It
+// rides `you` and NOTHING else — no enemy-facing sinking channel exists.
 
 /**
  * A hull's life state. Discriminated on `kind` — exhaustive, so a future state
@@ -105,21 +106,50 @@ export function sunkAt(at: number): ShipLifecycle {
  * Does this hull COUNT AS AFLOAT — a live combatant the sim damages, steers,
  * arms and counts toward the win?
  *
- * Story 5.1: `alive` only. `sinking` is unreachable (amendment 1), so whether
- * a sinking hull is afloat is Story 5.2's ruling and deliberately NOT
- * pre-decided here. When 5.2 rules it, this is a ONE-LINE change — and every
- * consumer that went through this predicate rather than testing `kind` inline
- * moves with it for free. That is the whole reason the predicate exists as a
- * function instead of a comparison at 44 call sites.
- *
- * NOTE for 5.2: it is not the only decision in the room — frames.ts:102
- * spectates() grants the UNFOGGED spectator view on not-afloat, so a sinking
- * hull must project as not-afloat-but-not-spectating or it receives full-map
- * vision for the whole window (amendment 7). Widening this predicate is not by
- * itself the answer to that.
+ * `alive` only — RULED PERMANENT by Story 5.2 (amendment 15). The pre-answer
+ * plan was to widen this to include `sinking` and subtract exceptions; Eric's
+ * rulings removed its foundation. The kill lands immediately (amendment 11),
+ * damage on a sinking hull is a no-op (amendment 12) and the outcome is
+ * decided at sink-entry (amendment 14) — so the win check, damage, roster/
+ * AFLOAT, XP, repairs, refit and respawn ALL want this shipped answer: a
+ * sinking hull is dead for every bookkeeping purpose. Widening would have made
+ * "sinking counts as alive" the silent default inherited by every FUTURE call
+ * site added to the sim — the wrong default for a hull that is, in every sense
+ * the bookkeeping cares about, dead. The window re-opens exactly three named
+ * seams via isSinking() below instead; NOT ONE call site of this predicate
+ * moved when 5.2 landed, and that is a load-bearing invariant, not an
+ * incidental (it is pinned by test).
  */
 export function isAfloat(lc: ShipLifecycle): boolean {
   return lc.kind === 'alive';
+}
+
+/**
+ * Is this hull IN THE SINKING WINDOW — going down, not yet on the bottom?
+ *
+ * This predicate exists FOR the three seams Story 5.2 re-opens (amendment 15),
+ * and nothing else. A sinking hull is dead to every bookkeeping question (see
+ * isAfloat above), and exactly three things come back to life for the window,
+ * each by an explicit isSinking()-aware check at a named seam:
+ *
+ *   1. MOTION — it still steers (helm accepted, speed decaying through the
+ *      sim/sinking.ts cap), still pushes out of islands, still lays wake.
+ *   2. WEAPONS / EQUIPMENT / HORN — all seven registry rows and the foghorn
+ *      stay live (amendment 10's fitment criterion: "it is in a ship equipment
+ *      slot so it meets criteria for usability"). The REFIT — upgrade menu,
+ *      picks, heal — is what closes, on its own code path ("once sinking,
+ *      you're done").
+ *   3. PERCEIVABILITY — still a contact and still a blip under the normal
+ *      sight/radar rules: still a participant, still a target.
+ *
+ * Deliberately NOT expressed as `!isAfloat(lc) && !isSunk(lc)` at call sites:
+ * each re-opened seam must read as a positive, greppable question ("is it
+ * sinking?") so the re-openings stay additive and enumerable — and a future
+ * fourth lifecycle state would silently satisfy the compound negation while
+ * never satisfying this.
+ */
+export function isSinking(lc: ShipLifecycle): boolean {
+  return lc.kind === 'sinking';
 }
 
 /**

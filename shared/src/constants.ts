@@ -140,6 +140,16 @@ export const CONFIG = {
     // sustained contact and took rudder authority with it. Pressing the MAP
     // EDGE is not grounding and is never damped.
     islandSpeedMult: 0.25,
+    // ms — THE SINKING WINDOW (Story 5.2, Eric ruling 2026-08-12, amendment
+    // 13: "5s is fine all around"). A FLAT 5000 for ALL three classes —
+    // per-class windows (a Battleship going down slower than a Torpedo Boat)
+    // were offered and DECLINED for now; that stays available as a post-live
+    // balance pass, and it is a table-for-a-constant swap when it comes.
+    // Consumed by sim/sinking.ts (the shared decel cap + founder deadline).
+    // Interaction FIXED IN PLACE by the ruling: mine armDelay is 3000 ms
+    // against this 5000 ms window, so a mine laid in the first two seconds of
+    // sinking arms before its layer founders and one laid later arms after.
+    sinkingWindowMs: 5000,
   },
 
   /**

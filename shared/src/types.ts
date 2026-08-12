@@ -324,6 +324,24 @@ export interface OwnShip {
    * hole honestly from THIS field. VICTIM-PRIVATE exactly like `slowedUntil`.
    */
   dazzledUntil?: number;
+  /**
+   * ms — server-clock time this SINKING hull founders (Story 5.2, amendments
+   * 13/16): `sinceMs + CONFIG.ship.sinkingWindowMs`, stamped at sink-entry via
+   * sim/sinking.ts founderDeadline(). Present IFF the hull is in the sinking
+   * window; OMITTED entirely otherwise — never an `undefined` value (the
+   * msgpack rule; the `slowedUntil` precedent, spread-conditional at frame
+   * build). An absolute timestamp so the client renders the going-down
+   * countdown against its existing server-clock estimate — no second clock.
+   * SELF-PRIVATE BY CONSTRUCTION (the boostUntil precedent): rides `you` and
+   * NOTHING else — never a Contact, blip, ballistic event, boom, or spectator
+   * payload — so it adds NO new perception exception (the master invariant
+   * stays at exactly SIX). An enemy already reads a sinking hull only through
+   * its observed kinematics (a decelerating contact); no enemy-facing sinking
+   * channel exists. This is the key that carries the client's THIRD state:
+   * `alive` goes false at sink-entry (amendment 11), and `sinkingUntil` is
+   * what keeps hull/helm/hotbar/firing-arc/horn live instead of spectate.
+   */
+  sinkingUntil?: number;
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
