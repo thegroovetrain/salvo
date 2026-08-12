@@ -456,16 +456,47 @@ export class Match {
 
   // --- results ----------------------------------------------------------------
 
-  /** Winner = 1; everyone else by reverse sink order (later sink places higher). */
+  /**
+   * Winner = 1; then every OTHER hull that never sank; then the sunk hulls by
+   * reverse sink order (later sink places higher).
+   *
+   * THE SURVIVOR TIER (RULING 2026-08-11) exists because amendment 4 made a
+   * finish-with-hulls-still-afloat reachable for the first time: drones no
+   * longer gate the win, so a match now ends with the fill still sailing. A
+   * hull that never sank OUTLASTED every hull that did, so it places above the
+   * sunk ones and below the winner. Before amendment 4 every drone was
+   * necessarily in the sink order by the time the match finished, so this tier
+   * was empty and the two-tier rule was complete; this is the natural extension
+   * of it, not a new grammar. Without it those hulls fell through to
+   * resultsMsg()'s `?? 0` default and sorted ABOVE the winner (a real match
+   * showed 18 of 20 rows at placement 0 ahead of 1st).
+   *
+   * INVARIANT: every participant gets a placement >= 1, so `placement: 0` is
+   * unreachable for any results row. The three tiers partition `participants`:
+   * sinkOrder ⊆ participants (recordSink's guard), survivors is exactly
+   * participants \ sinkOrder, and the winner is a participant (finish()
+   * backfills a late-joining one). Placements are the dense range 1..N.
+   *
+   * SURVIVOR ORDER = ACTIVATION ROSTER ORDER — the insertion order of the
+   * `participants` Map, which activate() fills from world.ships in join order
+   * (captains as they joined, then the drone fill in the order it was created).
+   * Deterministic by construction: Map iteration order is insertion order per
+   * spec, the insertions come from a single ordered walk at activation, and
+   * nothing here reads live world state. A survivor tie is impossible because
+   * ids are unique.
+   */
   private computePlacements(): void {
     this.placements.clear();
-    if (this.winnerId) this.placements.set(this.winnerId, 1);
-    let next = 2;
+    let next = 1;
+    if (this.winnerId) this.placements.set(this.winnerId, next++);
+    for (const id of this.participants.keys()) {
+      if (this.placements.has(id) || this.sinkOrder.includes(id)) continue;
+      this.placements.set(id, next++);
+    }
     for (let i = this.sinkOrder.length - 1; i >= 0; i--) {
       const id = this.sinkOrder[i];
       if (this.placements.has(id)) continue; // the mutual-destruction winner
-      this.placements.set(id, next);
-      next += 1;
+      this.placements.set(id, next++);
     }
   }
 
@@ -475,7 +506,12 @@ export class Match {
       rows.push({
         id,
         name: p.name,
-        placement: this.placements.get(id) ?? 0,
+        // UNREACHABLE by computePlacements()' partition invariant (every
+        // participant is the winner, a survivor, or in the sink order). The
+        // fallback sorts LAST rather than first so that if that invariant is
+        // ever broken, an unplaced hull can never be seated above the winner
+        // again — the exact shape of the defect this replaced.
+        placement: this.placements.get(id) ?? this.participants.size + 1,
         kills: p.kills,
         damageDealt: p.damageDealt,
       });

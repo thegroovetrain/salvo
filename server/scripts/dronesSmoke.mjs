@@ -17,8 +17,9 @@
 //      now the only afloat CAPTAIN, so the match FINISHES ON THAT SINK with
 //      drones still sailing (amendment 4 — drones no longer gate the win) and
 //      the winner is a HUMAN: drones can NEVER win. Results rows include the
-//      drones; the drone HUNTER sank holds a placement, and at least one still-
-//      afloat drone is unplaced — the socket-level proof of the ruling.
+//      drones, NO row is left at placement 0, and every still-afloat drone (read
+//      off the roster) places between the winner and the last sink — the
+//      socket-level proof of the ruling and of the T4b placement fix.
 // Then kills its own server process group and verifies port 2599 is free.
 //
 // WHY TWO CAPTAINS (amendment 4, Eric ruling 2026-08-11): this smoke used to run
@@ -308,6 +309,15 @@ function droneRosterCount(ctx) {
   return n;
 }
 
+/** Drone ids the ROSTER still reports as afloat — an oracle independent of the
+ *  results placements, so "the match finished with drones afloat" is observed
+ *  rather than inferred from the placement numbers being tested. */
+function afloatDroneIds(ctx) {
+  const out = [];
+  ctx.room.state.players.forEach((meta, id) => { if (isDrone(id) && meta.alive) out.push(id); });
+  return out;
+}
+
 async function runUntil(tick, done, timeoutMs, label) {
   const start = Date.now();
   while (!done()) {
@@ -387,23 +397,47 @@ async function main() {
     assert(rowH && rowH.placement === 1, `hunter placement=${rowH?.placement}, expected 1`);
     assert(rowH.kills >= 1, `hunter kills=${rowH.kills}`);
     const rowK = res.rows.find((r) => r.id === k.room.sessionId);
-    // 2 unless a drone happened to sink on the same tick (sink order within a
-    // tick is emission order) — bounded, not pinned, like matchSmoke's rowB.
+    // Bounded, not pinned (like matchSmoke's rowB): the consort heads the SUNK
+    // tier, which starts behind the winner and every still-afloat drone, and a
+    // drone sinking on the same tick after it (sink order within a tick is
+    // emission order) would take that head slot.
     assert(rowK && rowK.placement >= 2, `consort placement=${rowK?.placement}, expected >= 2`);
     const droneRows = res.rows.filter((r) => isDrone(r.id));
     assert(droneRows.length === CONFIG.match.fillTo - 2, `results missing drone rows (${droneRows.length})`);
-    assert(droneRows.some((r) => r.placement > 0), 'no drone holds a placement in the results');
-    // THE RULING: the match ended with drones still afloat — an afloat hull is
-    // never in the sink order, so it ends unplaced (placement 0). Under the old
-    // gate this could not happen: the win waited until every drone was down.
+    // THE RULING (T4b): the match ended with drones still afloat, and a hull
+    // that never sank OUTLASTED every hull that did — so those drones place
+    // between the winner and the sunk tier instead of falling out at placement
+    // 0 (which used to sort them ahead of the winner). NO row is unplaced, and
+    // placements are the dense range 1..N.
     assert(
-      droneRows.some((r) => r.placement === 0),
+      res.rows.every((r) => r.placement >= 1),
+      `a row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
+    );
+    const seen = res.rows.map((r) => r.placement).sort((x, y) => x - y);
+    assert(
+      seen.every((p, i) => p === i + 1),
+      `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`,
+    );
+    assert(res.rows[0].id === rowH.id, `winner is not the first row (got ${res.rows[0].id})`);
+    // Read the survivors off the ROSTER (independent oracle), then require each
+    // of them to place ahead of the consort — the last sink. At least one must
+    // exist: drones afloat at the finish is the whole point of amendment 4.
+    const afloat = afloatDroneIds(h);
+    assert(
+      afloat.length > 0,
       'every drone was sunk at the finish — the match did not end with drones afloat (amendment 4)',
     );
+    const survivorDrones = droneRows.filter((r) => afloat.includes(r.id));
+    assert(
+      survivorDrones.every((r) => r.placement > 1 && r.placement < rowK.placement),
+      'a still-afloat drone did not place between the winner and the last sink: ' +
+      JSON.stringify(res.rows.map((r) => [r.id, r.placement])),
+    );
     log.push(
-      `finish: HUNTER WON (placement 1, kills ${rowH.kills}) with ` +
-      `${droneRows.filter((r) => r.placement === 0).length} drone(s) STILL AFLOAT; consort placed ${rowK.placement}; ` +
-      `${droneRows.length} drone rows, placements [${droneRows.map((r) => r.placement).sort((a, b) => a - b).join(',')}]`,
+      `finish: HUNTER WON (placement 1, first row, kills ${rowH.kills}) with ` +
+      `${survivorDrones.length} drone(s) STILL AFLOAT placed ${survivorDrones.map((r) => r.placement).sort((a, b) => a - b).join(',')}; ` +
+      `consort placed ${rowK.placement}; ${droneRows.length} drone rows, ` +
+      `placements [${droneRows.map((r) => r.placement).sort((a, b) => a - b).join(',')}]; no row at placement 0`,
     );
 
     // --- 6. room disconnects after resultsMs ---------------------------------

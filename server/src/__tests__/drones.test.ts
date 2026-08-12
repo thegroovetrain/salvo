@@ -280,6 +280,11 @@ describe('match — drone fill + win exclusion', () => {
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human');
     expect(ctx.m.placements.get('human')).toBe(1);
+    // ...and every drone that outlasted the match is PLACED behind the winner
+    // (T4b ruling): with an empty sink order the survivor tier is the whole
+    // fill, in activation roster order, so placements are the dense 1..fillTo.
+    const placed = afloatDroneIds(ctx).map((id) => ctx.m.placements.get(id));
+    expect(placed).toEqual(Array.from({ length: CONFIG.match.fillTo - 1 }, (_, i) => i + 2));
   });
 
   // THE PRODUCTION-SAFETY ARGUMENT the ruling rests on: CONFIG.match.minHumans

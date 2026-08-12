@@ -486,6 +486,101 @@ describe('match — finished phase', () => {
   });
 });
 
+// --- survivors at the finish (post-amendment-4 placement) ---------------------
+//
+// Amendment 4 made a finish-with-hulls-still-afloat reachable for the first
+// time (drones no longer gate the win), which exposed a placement gap: a hull
+// that never sank was in neither tier of the old "winner = 1, everyone else by
+// reverse sink order" rule, fell through resultsMsg()'s `?? 0` default, and
+// sorted ABOVE the winner. RULING: a hull that never sank OUTLASTED every hull
+// that did — it places above the sunk ones and below the winner.
+describe('match — placement with hulls still afloat at the finish', () => {
+  /** Captains + `drones` drone hulls in the water, activated. The drones join
+   *  AFTER the captains, so activation roster order is captains then drones. */
+  function withDrones(captains: string[], drones: number): Ctx {
+    const ctx = setup(captains);
+    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, true);
+    activate(ctx);
+    return ctx;
+  }
+
+  // THE REGRESSION TEST. Against the pre-fix computePlacements() every surviving
+  // drone stayed out of the placements Map, resultsMsg() defaulted it to 0, and
+  // the ascending sort seated all three of them ahead of the winner: rows would
+  // read [drone-1 0, drone-2 0, drone-3 0, a 1, b 2].
+  it('no results row is left at placement 0, and the winner is the FIRST row', () => {
+    const ctx = withDrones(['a', 'b'], 3);
+    expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(3);
+    ctx.w.sinkShip('b', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    const msg = ctx.results[0];
+    expect(msg.rows.every((r) => r.placement >= 1)).toBe(true);
+    expect(msg.rows[0].id).toBe('a');
+    expect(msg.rows[0].placement).toBe(1);
+    // Dense 1..N, no duplicates, no gaps — the partition invariant.
+    expect(msg.rows.map((r) => r.placement)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('pins the full order: winner, then survivors, then sunk in reverse sink order', () => {
+    const ctx = withDrones(['a', 'b', 'c'], 2);
+    ctx.w.sinkShip('drone-1', 'a'); // a drone that DID sink stays in the sunk tier
+    step(ctx);
+    ctx.w.sinkShip('c', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('active');
+    ctx.w.sinkShip('b', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('a');
+    expect(ctx.results[0].rows.map((r) => [r.id, r.placement])).toEqual([
+      ['a', 1], // winner
+      ['drone-2', 2], // never sank: outlasted everything that did
+      ['b', 3], // sunk last of the sunk
+      ['c', 4],
+      ['drone-1', 5], // sunk first: places last
+    ]);
+  });
+
+  it('orders MULTIPLE survivors by activation roster order, deterministically across runs', () => {
+    const run = (): [string, number][] => {
+      const ctx = withDrones(['a', 'b'], 4);
+      ctx.w.sinkShip('drone-3', 'a'); // one survivor gap in the middle of the roster
+      step(ctx);
+      ctx.w.sinkShip('b', 'a');
+      step(ctx);
+      expect(ctx.m.phase).toBe('finished');
+      return ctx.results[0].rows.map((r) => [r.id, r.placement]);
+    };
+    const expected: [string, number][] = [
+      ['a', 1],
+      ['drone-1', 2], // survivors in the order they entered the roster
+      ['drone-2', 3],
+      ['drone-4', 4],
+      ['b', 5], // sunk tier, reverse sink order
+      ['drone-3', 6],
+    ];
+    expect(run()).toEqual(expected);
+    expect(run()).toEqual(expected);
+    expect(run()).toEqual(expected);
+  });
+
+  it('a mutual-destruction finish with survivors: latest-sunk human is 1, survivors follow', () => {
+    const ctx = withDrones(['a', 'b'], 2);
+    ctx.w.sinkShip('a', 'b');
+    ctx.w.sinkShip('b', 'a'); // same tick, sunk after a
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('b');
+    expect(ctx.results[0].rows.map((r) => [r.id, r.placement])).toEqual([
+      ['b', 1],
+      ['drone-1', 2],
+      ['drone-2', 3],
+      ['a', 4],
+    ]);
+  });
+});
+
 describe('world storm damage respects the damage policy flag', () => {
   it('bleeds no hp while damage is suppressed, even outside the zone', () => {
     // Fast zone: fully closed on a tiny concentric terminal within a few ticks.

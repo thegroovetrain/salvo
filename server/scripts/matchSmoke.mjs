@@ -16,10 +16,9 @@
 //      (the finish happens on the sink tick — from then on everyone spectates).
 //   5. results broadcast ON THAT SAME SINK (amendment 4 — drones no longer gate
 //      the win, so there is no storm mop-up phase any more): winnerId=A, A
-//      placed 1st and first among the PLACED rows, B placed 2nd, every CAPTAIN
-//      placed, at least one drone still AFLOAT and therefore unplaced
-//      (placement 0 — which now sorts ahead of the winner), A's kills >= 1 and
-//      damageDealt >= B's hull.
+//      placed 1st and the FIRST row, the still-AFLOAT drones placed next (they
+//      outlasted everything that sank — T4b ruling), B placed LAST as the only
+//      sink, NO row at placement 0, A's kills >= 1 and damageDealt >= B's hull.
 //   6. The room disconnects both clients ~resultsMs later (autoDispose).
 // Then kills its own server process group and verifies port 2599 is free.
 //
@@ -95,6 +94,8 @@ function assert(cond, msg) {
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Fill-drone ids are minted as `drone-N` by ArenaRoom.fillToCapacity. */
+const isDrone = (id) => typeof id === 'string' && id.startsWith('drone-');
 
 // --- server lifecycle --------------------------------------------------------
 
@@ -503,22 +504,33 @@ async function main() {
     const rowB = res.rows.find((r) => r.id === b.room.sessionId);
     assert(rowA && rowB, `results rows missing A/B (rows: ${res.rows.map((r) => r.id).join(',')})`);
     assert(rowA.placement === 1, `A placement=${rowA.placement}, expected 1`);
-    assert(rowB.placement === 2, `B placement=${rowB.placement}, expected 2 (the only sink)`);
-    // CONSEQUENCE OF RECORD (amendment 4): the match now finishes with hulls
-    // still afloat, and an afloat hull is never in the sink order — so every
-    // surviving drone ends UNPLACED (placement 0). computePlacements() is
-    // deliberately unchanged, so rows sort placement-ascending with those zeros
-    // FIRST: the winner is the first PLACED row, no longer rows[0]. Every
-    // CAPTAIN is still placed; only drones can be unplaced.
-    const placed = res.rows.filter((r) => r.placement >= 1);
-    assert(placed[0].id === rowA.id, `winner not the first placed row (got ${placed[0].id})`);
+    // T4b RULING over real sockets: amendment 4 made a finish-with-hulls-afloat
+    // reachable, and a hull that never sank OUTLASTED every hull that did — so
+    // the surviving drones place between the winner and the sunk tier, and NO
+    // row is left at placement 0 (which used to sort ahead of the winner).
+    // B is the LAST sink, so it heads the sunk tier: everything placed after it
+    // is a drone that went down earlier.
+    assert(rowB.placement >= 2, `B placement=${rowB.placement}, expected >= 2`);
+    assert(res.rows[0].id === rowA.id, `winner is not the first row (got ${res.rows[0].id})`);
     assert(
-      res.rows.every((r) => r.placement >= 1 || r.id.startsWith('drone-')),
-      `a CAPTAIN row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
+      res.rows.every((r) => r.placement >= 1),
+      `a row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
+    );
+    // Dense 1..N with no duplicates and no gaps — the partition invariant.
+    const seen = res.rows.map((r) => r.placement).sort((x, y) => x - y);
+    assert(
+      seen.every((p, i) => p === i + 1),
+      `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`,
+    );
+    const survivors = res.rows.filter((r) => r.placement > 1 && r.placement < rowB.placement);
+    assert(
+      survivors.length > 0 && survivors.every((r) => isDrone(r.id)),
+      'no still-afloat drone placed between the winner and the last sink — the match ' +
+      `did not finish with drones afloat (amendment 4): ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
     );
     assert(
-      res.rows.some((r) => r.placement === 0),
-      'no unplaced hull — the match did not finish with drones still afloat (amendment 4)',
+      res.rows.every((r) => r.placement <= rowB.placement || isDrone(r.id)),
+      `a CAPTAIN placed behind the last sink: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
     );
     for (let i = 1; i < res.rows.length; i++) {
       assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
@@ -526,8 +538,9 @@ async function main() {
     assert(rowA.kills >= 1, `A kills=${rowA.kills}, expected >= 1`);
     assert(rowA.damageDealt >= CONFIG.shipClasses.torpedoBoat.hp, `A damageDealt=${rowA.damageDealt} < ${CONFIG.shipClasses.torpedoBoat.hp}`);
     log.push(
-      `results: winner=ALPHA (1st, ${rowA.kills} kill, ${rowA.damageDealt}dmg); B placed 2; ` +
-      `${res.rows.filter((r) => r.placement === 0).length} drone(s) still afloat and unplaced of ${res.rows.length} rows`,
+      `results: winner=ALPHA (1st row, ${rowA.kills} kill, ${rowA.damageDealt}dmg); ` +
+      `${survivors.length} still-afloat drone(s) placed ${survivors.map((r) => r.placement).join(',')}; ` +
+      `B (only sink) placed ${rowB.placement} of ${res.rows.length} rows; no row at placement 0`,
     );
 
     // --- 6. room disconnects after resultsMs ---------------------------------
