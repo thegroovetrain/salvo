@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, hullSilhouette, polygonMaxRadius, transformPolygon } from '@salvo/shared';
+import { isAfloat, CONFIG, hullSilhouette, polygonMaxRadius, transformPolygon } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const SIM_DT = CONFIG.tick.simDtMs;
@@ -36,7 +36,7 @@ describe('World clock + lifecycle', () => {
     const w = new World(1);
     const rec = w.addShip('a', 'ALPHA');
     expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-    expect(rec.alive).toBe(true);
+    expect(isAfloat(rec.lifecycle)).toBe(true);
     expect(rec.isDrone).toBe(false);
     expect(w.ships.size).toBe(1);
     w.removeShip('a');
@@ -196,15 +196,15 @@ describe('World step — sweep + respawn', () => {
     const w = new World(7);
     const rec = w.addShip('a', 'ALPHA');
     w.sinkShip('a', 'b');
-    expect(rec.alive).toBe(false);
+    expect(isAfloat(rec.lifecycle)).toBe(false);
     expect(rec.hp).toBe(0);
     expect(rec.respawnAt).toBe(CONFIG.ship.respawnDelay);
 
     const ticksToRespawn = CONFIG.ship.respawnDelay / SIM_DT;
     stepN(w, ticksToRespawn - 1);
-    expect(rec.alive).toBe(false);
+    expect(isAfloat(rec.lifecycle)).toBe(false);
     w.step();
-    expect(rec.alive).toBe(true);
+    expect(isAfloat(rec.lifecycle)).toBe(true);
     expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(rec.respawnAt).toBe(0);
     expect(Math.hypot(rec.state.x, rec.state.y)).toBeCloseTo(w.map.spawnRing, 6);

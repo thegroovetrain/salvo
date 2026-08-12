@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   CONFIG,
   bearing,
   mulberry32,
@@ -296,7 +297,7 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
   expect(f.you).toBeDefined();
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
-    expect(target.alive).toBe(true);
+    expect(isAfloat(target.lifecycle)).toBe(true);
     expect(c.id).not.toBe(me.id);
     expect(sighted(w, me, target.state)).toBe(true);
   }
@@ -314,7 +315,7 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       // paint carries the 4.2 id/position shape.
       const target = w.ships.get((e as import('@salvo/shared').SilhouetteBlipEvent).id)!;
       const d = dist(me.state, target.state);
-      expect(target.alive).toBe(true);
+      expect(isAfloat(target.lifecycle)).toBe(true);
       expect(d).toBeGreaterThan(SIGHT);
       expect(d).toBeLessThanOrEqual(RADAR);
       expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
@@ -404,7 +405,7 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
           const phases: MatchPhase[] = ['active', 'finished', 'waiting'];
           const phase = phases[rng.int(0, 2)];
           const f = buildFrame(w, id, phase);
-          if (phase === 'finished' || (phase === 'active' && !me.alive)) {
+          if (phase === 'finished' || (phase === 'active' && !isAfloat(me.lifecycle))) {
             expect(f.spec).toBe(true);
             expect(f.you).toBeUndefined();
           } else {

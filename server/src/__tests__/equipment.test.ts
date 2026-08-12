@@ -15,6 +15,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import {
+  isAfloat,
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   SLOT_COUNT,
@@ -254,7 +255,7 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
     const ship = place(w, 'a');
     setInput(ship, { aim: Math.PI / 2, aimDist: 300, slot: SLOT_GUN }); // would fire if alive
     w.sinkShip('a');
-    expect(ship.alive).toBe(false);
+    expect(isAfloat(ship.lifecycle)).toBe(false);
     expect(w.sinkingActivationGate(ship, SLOT_GUN)).toEqual({ ok: false, reason: 'dead' });
   });
 });
@@ -408,7 +409,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     w.sinkShip('a');
     const steps = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
     for (let i = 0; i < steps; i++) w.step();
-    expect(ship.alive).toBe(true);
+    expect(isAfloat(ship.lifecycle)).toBe(true);
     expectFreshLoadout(ship);
   });
 

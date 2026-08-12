@@ -13,9 +13,9 @@
 //   3. /metrics DURING the live match: rooms >= 1, players >= 1, tick.samples>0
 //      with p50/p95/max > 0, messages.total > 0 (the clients' inputs are counted).
 //   4. Match driven to a REAL match.end by the most deterministic route the win
-//      logic allows (see MATCH-DRIVING STRATEGY below): both humans LEAVE while
-//      active, so aliveHumans() hits 0 and Match.finish() fires — winner is the
-//      latest-sunk human. No combat, no storm, no drone-clearing: nothing timing
+//      logic allows (see MATCH-DRIVING STRATEGY below): captain A LEAVES while
+//      active, which leaves B the only afloat captain, so Match.finish() fires
+//      with B the winner. No combat, no storm, no drone-clearing: nothing timing
 //      -flaky. matchSmoke's endgame-via-storm path is deliberately NOT copied.
 //   5. Captured-stdout assertions: exactly one `info match.end {...}` line whose
 //      JSON parses and carries ALL of matchId, mode:'arena', rosterSize,
@@ -26,13 +26,19 @@
 //      isn't a `level event {json}` line is a defect — tsx/node/colyseus banner
 //      noise is fine and filtered out by prefix).
 //
-// MATCH-DRIVING STRATEGY (why it's deterministic): checkWin() finishes the match
-// only when no human is alive, OR exactly one human is alive with no other hull
-// afloat. With 2 humans + fill drones, the sole non-flaky finish is "no human
-// alive": A leaves (recorded sunk-at-leave, 1 human + drones remain → no finish),
-// then B leaves (0 humans alive → finish, winner = latest-sunk human = B). This
-// needs no weapons hits, no storm timing, and no drone attrition — the two
+// MATCH-DRIVING STRATEGY (why it's deterministic): since amendment 4 (Eric
+// ruling 2026-08-11) checkWin() counts CAPTAINS ONLY — drones no longer gate the
+// win — so it finishes as soon as at most one captain is afloat. With 2 humans +
+// fill drones the finish is one consented leave: A leaves (recorded
+// sunk-at-leave) → B is the only afloat captain → finish, winner = B, ALIVE,
+// with every fill drone still sailing. B then leaves into the results window,
+// which must NOT produce a second match.end (proof #5a pins exactly one).
+// This needs no weapons hits, no storm timing, and no drone attrition — the
 // consented leaves are the entire choreography.
+//
+// This smoke previously drove the finish with BOTH leaves, because a lone human
+// with drones afloat could not win; the assertion set is unchanged, only the
+// tick at which the finish lands (and the winner: B alive, not B latest-sunk).
 //
 // Then kills its own server process group and verifies port 2631 is free — a
 // leaked listener FAILS the smoke (nonzero exit), it doesn't just warn.
@@ -308,12 +314,15 @@ async function main() {
       `samples:${live.body.tick.samples}} messages.total=${live.body.messages.total}`,
     );
 
-    // --- proof #4: drive to a REAL match.end (both humans leave) -------------
-    // A leaves first: 1 human + drones remain, so no finish yet.
+    // --- proof #4: drive to a REAL match.end (A leaves, B is left alone) -----
+    // Capture B's hull class BEFORE it stops receiving frames, so the match.end
+    // winnerClass can be checked against the captain we know actually won.
+    assert(b.you && typeof b.you.cls === 'string', 'no `you` frame for B before the finish');
+    const bClass = b.you.cls;
+    // A leaves: B is the only afloat CAPTAIN (the fill drones are all still
+    // afloat and no longer gate the win, amendment 4) -> Match.finish() ->
+    // broadcastResults -> match.end, with B the ALIVE winner.
     await a.room.leave();
-    await sleep(300);
-    // B leaves: no human alive -> Match.finish() -> broadcastResults -> match.end.
-    await b.room.leave();
     // Give the finishing tick + its synchronous log line time to flush to stdout.
     await runUntil(
       () => {},
@@ -321,10 +330,20 @@ async function main() {
       8000,
       'match.end line on stdout',
     );
-    log.push('both captains left the live match -> Match.finish() fired');
+    log.push('captain A left the live match -> Match.finish() fired with B alive');
+    // B then quits the results window: the match is already finished, so this
+    // must NOT drive a second finish (proof #5a asserts exactly one match.end).
+    await b.room.leave();
+    await sleep(500);
 
     // --- proof #5: captured-stdout assertions -------------------------------
     const endFields = proveMatchEndLine();
+    // The winner is B, alive, so winnerClass must be B's hull class (amendment
+    // 4: A's departure decided it, with drones still afloat).
+    assert(
+      endFields.winnerClass === bClass,
+      `match.end winnerClass=${endFields.winnerClass}, expected B's hull ${bClass}`,
+    );
     log.push(`match.end fields: ${JSON.stringify(endFields)}`);
     log.push(proveContextLine('client.join'));
     log.push(proveContextLine('match.activate'));

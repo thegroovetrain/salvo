@@ -8,7 +8,7 @@
 // speed, and nothing survives the practice-field wipe.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
+import { isAfloat, CONFIG, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -118,7 +118,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     // into the orphan store (a kept ribbon would chain a bogus wreck→spawn
     // segment across the map) and the new life starts clean.
     for (let i = 0; i < Math.ceil(CONFIG.ship.respawnDelay / DT) + 2; i++) w.step();
-    expect(b.alive).toBe(true);
+    expect(isAfloat(b.lifecycle)).toBe(true);
     expect(b.wake).not.toBe(laid);
     // The fresh ribbon holds at most the spawn-position anchor sample — no
     // segment can bridge the death gap.

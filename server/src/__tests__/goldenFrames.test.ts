@@ -19,6 +19,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   CONFIG,
   HEAL_CHOICE,
   coverageHas,
@@ -988,7 +989,7 @@ function scnWake(g: Golden): void {
     coverageHas(e, Math.floor(x / CONFIG.vision.radarCellU) - e.gx, Math.floor(y / CONFIG.vision.radarCellU) - e.gy);
   const fa = cap(g, w, 'a');
   const wks = fa.events.filter((e): e is WakeBlipEvent => e.k === 'wk');
-  prove(g, 'wake-outlives-ship', wks.length > 0 && !w.ships.get('b')!.alive);
+  prove(g, 'wake-outlives-ship', wks.length > 0 && !isAfloat(w.ships.get('b')!.lifecycle));
   prove(
     g,
     'wake-identity-free',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { isAfloat, CONFIG } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -165,7 +165,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     expect(buildFrame(w, 'a').contacts).toEqual([]);
     for (let i = 0; i < CONFIG.ship.respawnDelay / CONFIG.tick.simDtMs; i++) w.step();
     const b = w.ships.get('b')!;
-    expect(b.alive).toBe(true); // respawned on the ring, far outside a's sight
+    expect(isAfloat(b.lifecycle)).toBe(true); // respawned on the ring, far outside a's sight
     expect(buildFrame(w, 'a').contacts).toEqual([]);
     b.state.x = 100; // steam back into a's bubble
     b.state.y = 0;

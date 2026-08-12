@@ -6,7 +6,7 @@
 // and independently re-verified by the perception invariant suite.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type GameEvent, type SmokeEvent } from '@salvo/shared';
+import { isAfloat, CONFIG, type GameEvent, type SmokeEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 
 const INTERVAL = CONFIG.smoke.puffIntervalMs;
@@ -162,7 +162,7 @@ describe('world — wounded smoke timer resets at life boundaries', () => {
     w.sinkShip('a');
     a.respawnAt = w.now + DT; // accelerate the respawn inside the stale window
     w.step(); // respawns this tick (full hp — silent), timer must be zeroed
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.nextSmokeAt).toBe(0);
     a.hp = a.stats.maxHp * 0.3; // wounded again, still inside the OLD interval
     w.step();

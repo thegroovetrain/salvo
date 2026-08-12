@@ -40,6 +40,7 @@
 import {
   CONFIG,
   bearing,
+  isAfloat,
   islandBlocksSegment,
   paintCoverage,
   visibilityTo,
@@ -420,7 +421,7 @@ function blipShape(
 const contactSignal: SignalSpec<ShipRecord, Contact> = {
   eventType: 'contact',
   visible(ctx, ship) {
-    if (!ship.alive) return false;
+    if (!isAfloat(ship.lifecycle)) return false;
     if (ctx.mode === 'spectator') return true;
     const me = ctx.me;
     if (ship.id === me.id) return false;
@@ -571,7 +572,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     if (!('state' in target)) return false;
     if (ctx.mode !== 'fogged') return false;
     const me = ctx.me;
-    if (!target.alive || target.id === me.id) return false;
+    if (!isAfloat(target.lifecycle) || target.id === me.id) return false;
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
     return blipGate(me, target.state, ctx.heightRaster, ctx.now);
   },

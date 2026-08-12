@@ -1,22 +1,35 @@
 // Target-drone smoke: self-boots the colyseus server on PORT 2599 (never the dev
-// server's 2567), joins ONE live @colyseus/sdk client with a DEV matchOverride
-// that lets a solo human start the countdown (minHumans:1) + a fast storm, and
-// proves the whole drone loop end to end:
-//   1. Solo join -> countdown; at activation the room fills to CONFIG.match.fillTo
-//      with weaponless drones (fillTo-1 drones + the human, one DRONE-xx roster
-//      row each), and the match does NOT insta-finish (the win-check fix).
-//   2. Drones SAIL: every drone position the human ever observes (radar blips +
+// server's 2567), joins TWO live @colyseus/sdk clients with a DEV matchOverride
+// (the production minHumans:2) + a fast storm, and proves the whole drone loop
+// end to end:
+//   1. Two captains join the SAME room -> countdown; at activation the room
+//      fills to CONFIG.match.fillTo with weaponless drones (fillTo-2 drones +
+//      the two humans, one DRONE-xx roster row each) and the match goes LIVE.
+//   2. Drones SAIL: every drone position a human ever observes (radar blips +
 //      sight contacts) moves over time and stays in-bounds (inside the map, out
-//      of every island). The human's scope paints drone blips.
-//   3. Drones carry NO weapons: the human fires ONLY torpedoes, so ANY gun
-//      ('shell') ballistic or any enemy-owned mine seen would be a drone firing.
-//      Assert zero of both across the whole match.
-//   4. The human hunts by radar/sight and TORPEDOES a drone dead (its roster
-//      kills reaches 1; a drone 'sunk' event carries by=human).
-//   5. The human then parks in the storm as the zone closes -> it sinks. With no
-//      humans left the match FINISHES: winner = the human (drones can NEVER win,
-//      per ruling), results rows include the drones with placements.
+//      of every island). The hunter's scope paints drone blips.
+//   3. Drones carry NO weapons: the humans fire ONLY torpedoes (the consort
+//      fires nothing at all), so ANY gun ('shell') ballistic or any enemy-owned
+//      mine seen would be a drone firing. Assert zero of both across the match.
+//   4. HUNTER hunts by radar/sight and TORPEDOES a drone dead (its roster kills
+//      reaches 1; a drone 'sunk' event carries by=hunter).
+//   5. CONSORT then parks in the storm as the zone closes -> it sinks. HUNTER is
+//      now the only afloat CAPTAIN, so the match FINISHES ON THAT SINK with
+//      drones still sailing (amendment 4 — drones no longer gate the win) and
+//      the winner is a HUMAN: drones can NEVER win. The results table is
+//      CAPTAINS ONLY (Eric ruling 2026-08-11: *"just don't show the drones in
+//      the match results"*, superseding amendment 8's survivors tier): NOT ONE
+//      drone row appears even though the roster proves drones existed and were
+//      still afloat at the finish, and the two captains hold the dense
+//      placements 1..2 — the socket-level proof of the ruling.
 // Then kills its own server process group and verifies port 2599 is free.
+//
+// WHY TWO CAPTAINS (amendment 4, Eric ruling 2026-08-11): this smoke used to run
+// ONE human on a dev minHumans:1 override and assert the match stayed active
+// against a full drone fill. Drones no longer gate the win, so that setup now
+// finishes on the activation tick with nothing to observe. Two captains is also
+// the production shape (CONFIG.match.minHumans === 2) — the very premise the
+// ruling rests on. Every drone assertion above is carried over unchanged.
 //
 // matchOverride/zoneOverride are dev tools — the real client never sets them.
 // Run: node server/scripts/dronesSmoke.mjs
@@ -30,8 +43,9 @@ import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, pointInIslan
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599;
 const endpoint = `ws://localhost:${PORT}`;
-// Solo countdown + a phased storm fast enough to funnel the field in minutes.
-const MATCH_OVERRIDE = { minHumans: 1, countdownMs: 3000, resultsMs: 3000, joinWindowMs: 0 }; // no gathering window — legacy fast path
+// Production two-captain countdown + a phased storm fast enough to funnel the
+// field in minutes.
+const MATCH_OVERRIDE = { minHumans: 2, countdownMs: 3000, resultsMs: 3000, joinWindowMs: 0 }; // no gathering window — legacy fast path
 // Phased timeline (Story 3.1), compressed: 12s beats close ring 1/2/3 at
 // 36-48s / 84-96s / 132-144s, funneling the dumb drones toward center (they
 // head for the live ring center whenever the storm catches them) — giving a
@@ -43,6 +57,12 @@ const MATCH_OVERRIDE = { minHumans: 1, countdownMs: 3000, resultsMs: 3000, joinW
 // three holding beats (36s), so trailing drones re-enter with hp to spare
 // (worst tier ~30 u/s soaks ~20-30s of 4hp/s storm on 80-120hp hulls).
 const ZONE_OVERRIDE = { beatMs: 12000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.7 };
+/** Map center — the storm's fully-closed point (concentric rings, offsetCap 0). */
+const ORIGIN = { x: 0, y: 0 };
+/** The consort's station: deep inside the terminal ring (231u) so the storm
+ *  never touches it, but off the hunter's center loiter so the two captains
+ *  aren't stacked on the same water while torpedoes are in the air. */
+const CONSORT_STATION = { x: 0, y: -160 };
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -208,7 +228,7 @@ function islandAvoid(ctx) {
  * click-per-tick fire (reload-paced) whittles a drone down over the hunting
  * window until it sinks.
  */
-function huntTick(ctx) {
+function huntTick(ctx, consort) {
   const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
   if (!ctx.you) return void ctx.room.send('i', inp);
   const target = nearestLive(ctx);
@@ -228,10 +248,45 @@ function huntTick(ctx) {
     // maneuvering drone — a stalled hull can't turn (rudder scales with speed).
     inp.throttle = dist(ctx.you, target) > 120 ? 1 : 0.4;
     // Click every tick while the solution is tight — the tube reload paces the
-    // actual launches (each click is consumed, fired or not).
-    if (Math.abs(angleDiff(ctx.you.heading, brg)) < 0.12) inp.fireSeq = ++ctx.fireSeq;
+    // actual launches (each click is consumed, fired or not) — UNLESS the
+    // consort is sitting in the lane. Two captains share this water now, and a
+    // stray fish into the consort would sink it early and finish the match
+    // before the hunt lands its kill (amendment 4: one captain down ends it).
+    const aligned = Math.abs(angleDiff(ctx.you.heading, brg)) < 0.12;
+    if (aligned && !friendlyInLane(ctx, consort, brg, dist(ctx.you, target))) inp.fireSeq = ++ctx.fireSeq;
   } else {
     inp.throttle = fromCenter > 60 ? 1 : 0.3; // hold near center, keep steerageway
+  }
+  ctx.room.send('i', inp);
+}
+
+/**
+ * Is the consort inside the firing lane — within FRIENDLY_CONE of the shot
+ * bearing and no further out than the target? Out-of-band knowledge (the
+ * harness drives both captains), used ONLY to hold fire; nothing here reads a
+ * frame the client wasn't sent.
+ */
+const FRIENDLY_CONE = 0.35; // rad
+function friendlyInLane(ctx, consort, brg, targetDist) {
+  if (!consort?.you || consort.sunkSeen) return false;
+  const d = dist(ctx.you, consort.you);
+  if (d > targetDist + 150) return false;
+  return Math.abs(angleDiff(bearing(ctx.you, consort.you), brg)) < FRIENDLY_CONE;
+}
+
+/**
+ * HOLD STATION: make for `pt` and loiter there. `pt` sits well inside the
+ * terminal ring (concentric, 231u), so a captain holding it is storm-safe for
+ * the whole match — which is what keeps the consort alive through the hunt and
+ * the hunter alive through the finish. Weapons cold: fireSeq never advances.
+ */
+function holdTick(ctx, pt) {
+  const inp = { seq: ++ctx.seq, throttle: 0.4, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+  if (ctx.you) {
+    const brg = bearing(ctx.you, pt);
+    const d = dist(ctx.you, pt);
+    inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3 + islandAvoid(ctx), -1, 1);
+    inp.throttle = d > 200 ? 1 : d > 60 ? 0.5 : 0.3; // keep steerageway, don't overshoot
   }
   ctx.room.send('i', inp);
 }
@@ -256,6 +311,16 @@ function droneRosterCount(ctx) {
   return n;
 }
 
+/** Drone ids the ROSTER still reports as afloat — an oracle independent of the
+ *  results rows, which is the ONLY way to observe "the match finished with
+ *  drones afloat" now that the results are captains only (Eric ruling
+ *  2026-08-11). The roster schema keeps mirroring every hull's `alive`. */
+function afloatDroneIds(ctx) {
+  const out = [];
+  ctx.room.state.players.forEach((meta, id) => { if (isDrone(id) && meta.alive) out.push(id); });
+  return out;
+}
+
 async function runUntil(tick, done, timeoutMs, label) {
   const start = Date.now();
   while (!done()) {
@@ -271,27 +336,43 @@ async function main() {
   try {
     await waitForServer(15000);
 
-    // --- 1. solo countdown -> activation fills with drones ------------------
-    const h = await joinClient('SOLO');
+    // --- 1. two captains -> countdown -> activation fills with drones -------
+    const h = await joinClient('HUNTER');
+    const k = await joinClient('CONSORT');
+    assert(h.room.roomId === k.room.roomId, 'HUNTER and CONSORT joined different rooms');
     await sleep(400);
-    assert(phase(h) === 'countdown', `solo join should start the countdown (got ${phase(h)})`);
+    assert(phase(h) === 'countdown', `2nd join should start the countdown (got ${phase(h)})`);
     await runUntil(() => {}, () => phase(h) === 'active', MATCH_OVERRIDE.countdownMs + 8000, 'activation');
     await sleep(300);
     const filled = droneRosterCount(h);
-    assert(filled === CONFIG.match.fillTo - 1, `expected ${CONFIG.match.fillTo - 1} drones, got ${filled}`);
+    assert(filled === CONFIG.match.fillTo - 2, `expected ${CONFIG.match.fillTo - 2} drones, got ${filled}`);
     assert(h.room.state.zoneState !== 'idle', 'storm timeline not anchored at activation');
-    log.push(`activation: filled ${filled} drones (${CONFIG.match.fillTo} hulls total), match stayed active`);
+    log.push(`activation: filled ${filled} drones (${CONFIG.match.fillTo} hulls total), match went live`);
 
-    // --- 2/3/4. drones sail, paint blips, never fire; human torpedoes one ----
+    // --- 2/3/4. drones sail, paint blips, never fire; hunter torpedoes one ---
     // Single tube => a drone kill needs two 70-dmg fish across two ~30s reloads
     // (was one two-tube volley); widened window to absorb the extra reload.
     // NOTE: the 2026-08-04 balance pass took the reload 12s -> 30s, so every
     // MISS now costs 30s of this window instead of 12s.
     // Budget WIDENED 170s -> 300s in the same pass, for the same reason.
-    await runUntil(() => huntTick(h), () => h.kills >= 1, 300000, 'human torpedoes a drone');
+    // CONSORT holds its storm-safe station throughout: it must outlive the hunt,
+    // because the moment it is out HUNTER wins and the match is over.
+    await runUntil(
+      () => { huntTick(h, k); holdTick(k, CONSORT_STATION); },
+      () => h.kills >= 1,
+      300000,
+      'hunter torpedoes a drone',
+    );
+    assert(!k.sunkSeen, 'CONSORT sank during the hunt — the match would have ended early');
     assert(h.blipDroneIds.size >= 1, 'the scope never painted a drone blip');
     assert(h.shellEvents === 0, `saw ${h.shellEvents} gun shells — a drone fired guns`);
+    assert(k.shellEvents === 0, `CONSORT saw ${k.shellEvents} gun shells — a drone fired guns`);
     assert(h.enemyMines === 0, `saw ${h.enemyMines} enemy mines — a drone dropped a mine`);
+    assert(k.enemyMines === 0, `CONSORT saw ${k.enemyMines} enemy mines — a drone dropped a mine`);
+    // The consort never clicks: its fireSeq never advances (holdTick is cold).
+    // NOTE: k.myTorps is NOT the check — a `torp` event is any OBSERVED torpedo
+    // reveal, so the consort counts the hunter's fish too.
+    assert(k.fireSeq === 0, `CONSORT clicked ${k.fireSeq} time(s) (it must stay weapons-cold)`);
     // Every drone we tracked long enough must have visibly moved.
     let moved = 0;
     for (const [, t] of h.droneTrack) if (dist(t.first, t.last) > 20) moved += 1;
@@ -302,25 +383,66 @@ async function main() {
       `killed ${h.killedDroneId} (roster kills=${h.kills})`,
     );
 
-    // --- 5. park in the storm -> human sinks -> match finishes ---------------
-    await runUntil(() => fleeTick(h), () => h.sunkSeen || phase(h) === 'finished', 90000, 'storm sinks the human');
+    // --- 5. consort parks in the storm -> it sinks -> match finishes ---------
+    // AMENDMENT 4 over real sockets: the finish lands on CONSORT's sink, with
+    // drones still sailing. HUNTER holds its safe station and simply wins.
+    await runUntil(
+      () => { holdTick(h, ORIGIN); fleeTick(k); },
+      () => k.sunkSeen || phase(h) === 'finished',
+      90000,
+      'storm sinks the consort',
+    );
     await runUntil(() => {}, () => h.results !== null, 8000, 'results broadcast');
     const res = h.results;
-    assert(res.winnerId === h.room.sessionId, `winnerId=${res.winnerId}, expected the human (drones can't win)`);
+    assert(res.winnerId === h.room.sessionId, `winnerId=${res.winnerId}, expected the hunter (drones can't win)`);
+    assert(!isDrone(res.winnerId), `a DRONE won (${res.winnerId})`);
     const rowH = res.rows.find((r) => r.id === h.room.sessionId);
-    assert(rowH && rowH.placement === 1, `human placement=${rowH?.placement}, expected 1`);
-    assert(rowH.kills >= 1, `human kills=${rowH.kills}`);
+    assert(rowH && rowH.placement === 1, `hunter placement=${rowH?.placement}, expected 1`);
+    assert(rowH.kills >= 1, `hunter kills=${rowH.kills}`);
+    const rowK = res.rows.find((r) => r.id === k.room.sessionId);
+    // Placement is CAPTAIN-RELATIVE now, so the consort is pinned rather than
+    // bounded: it is the only sunk captain, so it is exactly 2 of 2 — no drone
+    // sink (and a whole fill of them may have gone down first) moves it.
+    assert(rowK && rowK.placement === 2, `consort placement=${rowK?.placement}, expected 2`);
+    // THE RULING (Eric 2026-08-11): NOT ONE drone row. The roster below proves
+    // the drones existed and were still sailing at the finish — they are simply
+    // not shown in the results, which is what makes a 2-captain match read
+    // "1st / 2nd" instead of "1st / 20th".
     const droneRows = res.rows.filter((r) => isDrone(r.id));
-    assert(droneRows.length === CONFIG.match.fillTo - 1, `results missing drone rows (${droneRows.length})`);
-    assert(droneRows.some((r) => r.placement > 0), 'no drone holds a placement in the results');
+    assert(
+      droneRows.length === 0,
+      `results carried ${droneRows.length} DRONE row(s): ${JSON.stringify(droneRows.map((r) => [r.id, r.placement]))}`,
+    );
+    assert(res.rows.length === 2, `expected exactly the 2 captains, got ${res.rows.length} rows`);
+    assert(
+      res.rows.every((r) => r.placement >= 1),
+      `a row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
+    );
+    const seen = res.rows.map((r) => r.placement).sort((x, y) => x - y);
+    assert(
+      seen.every((p, i) => p === i + 1),
+      `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`,
+    );
+    assert(res.rows[0].id === rowH.id, `winner is not the first row (got ${res.rows[0].id})`);
+    // The drones ARE there, on the ROSTER (independent oracle) — sailing, alive,
+    // and simply not in the table. At least one must be afloat: a match that
+    // finished with drones still up is the whole point of amendment 4.
+    const afloat = afloatDroneIds(h);
+    assert(
+      afloat.length > 0,
+      'every drone was sunk at the finish — the match did not end with drones afloat (amendment 4)',
+    );
+    assert(droneRosterCount(h) === CONFIG.match.fillTo - 2, 'the drone roster rows vanished too — only the RESULTS drop drones');
     log.push(
-      `finish: human WON (placement 1, kills ${rowH.kills}); ` +
-      `${droneRows.length} drone rows, placements [${droneRows.map((r) => r.placement).sort((a, b) => a - b).join(',')}]`,
+      `finish: HUNTER WON (placement 1, first row, kills ${rowH.kills}); consort placed ` +
+      `${rowK.placement} of ${res.rows.length} rows (both CAPTAINS, dense 1..2); ` +
+      `${droneRosterCount(h)} drones on the roster with ${afloat.length} STILL AFLOAT, ` +
+      `and ZERO drone rows in the results`,
     );
 
     // --- 6. room disconnects after resultsMs ---------------------------------
-    await runUntil(() => {}, () => h.leftCode !== null, MATCH_OVERRIDE.resultsMs + 8000, 'room disconnect');
-    log.push(`room disconnected the client (code ${h.leftCode}) after ~${MATCH_OVERRIDE.resultsMs}ms`);
+    await runUntil(() => {}, () => h.leftCode !== null && k.leftCode !== null, MATCH_OVERRIDE.resultsMs + 8000, 'room disconnect');
+    log.push(`room disconnected both clients (codes ${h.leftCode}/${k.leftCode}) after ~${MATCH_OVERRIDE.resultsMs}ms`);
 
     console.log('DRONES SMOKE OK:', { room: h.room.roomId, trace: log });
   } finally {

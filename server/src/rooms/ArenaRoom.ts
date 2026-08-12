@@ -13,6 +13,7 @@ import {
   DRONE_HULL_IDS,
   MSG,
   REGATTA_NO_HUE,
+  isAfloat,
   mulberry32,
   sanitizeClassId,
   sanitizeHornId,
@@ -580,7 +581,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const policy = dropPolicy(
       this.match?.phase === 'active',
       ship !== undefined,
-      ship?.alive === true,
+      ship !== undefined && isAfloat(ship.lifecycle),
       RECONNECTABLE_CLOSE_CODES.has(code ?? -1),
     );
     if (policy === 'hold') {
@@ -891,7 +892,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.state.players.forEach((meta: PlayerMeta, id: string) => {
       const ship = this.world.ships.get(id);
       if (!ship) return;
-      if (meta.alive !== ship.alive) meta.alive = ship.alive;
+      // THE WIRE DOES NOT MOVE (Story 5.1, amendment 7): PlayerMeta.alive stays
+      // a schema boolean, PROJECTED from the lifecycle here.
+      const afloat = isAfloat(ship.lifecycle);
+      if (meta.alive !== afloat) meta.alive = afloat;
       if (meta.kills !== ship.kills) meta.kills = ship.kills;
       if (meta.deaths !== ship.deaths) meta.deaths = ship.deaths;
       if (revealDamage && meta.damageDealt !== ship.damageDealt) meta.damageDealt = ship.damageDealt;

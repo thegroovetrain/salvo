@@ -23,13 +23,15 @@
 //               (death → spectator frames, see frames.ts). Sink order is
 //               tracked for placement; a player leaving mid-match counts as
 //               sunk-at-leave-time.
-//   finished  — alive human hulls ≤ 1. winnerId = the survivor, or (mutual
+//   finished  — AFLOAT CAPTAINS ≤ 1 (amendment 4: drones no longer gate the
+//               win — see checkWin). winnerId = the survivor, or (mutual
 //               destruction, RULING) the LATEST-sunk human. Placements set,
 //               one 'results' broadcast, damage frozen; after resultsMs the
 //               room disconnects (autoDispose). No new matches in this room.
 
 import {
   CONFIG,
+  isAfloat,
   type HullId,
   type MatchPhase,
   type ResultsMsg,
@@ -163,6 +165,27 @@ export interface MatchEndSummary {
   endedBy: MatchEndCause;
 }
 
+/**
+ * THE win predicate (Story 5.1 AC; amendment 4) — a CAPTAIN still in the fight.
+ *
+ * One predicate over lifecycle state, expressed once and reused: checkWin() is
+ * the only rule, afloatCaptains() its only collector. There is no second,
+ * near-identical walk of world.ships deciding who counts — the drone-side
+ * counterpart (aliveDroneCount) is gone with the gate it existed for.
+ *
+ * `isAfloat` is the seam: when Story 5.2 rules whether a `sinking` hull still
+ * counts as a combatant, this predicate moves with it for free.
+ *
+ * Drones are not captains, and drones are not combatants — the same position
+ * the Public Register took for `sunk` (CONFIG.xp.droneTierLevels pays a
+ * fraction of a level where a captain pays a full one) and Story 4.6's bounty
+ * throne took for `captainKills`. Neither of those is touched here:
+ * ShipRecord.kills still counts drones for the roster/results tally.
+ */
+function isAfloatCaptain(s: ShipRecord): boolean {
+  return !s.isDrone && isAfloat(s.lifecycle);
+}
+
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
 interface Participant {
   name: string;
@@ -194,9 +217,13 @@ export class Match {
    *  survivor, no winnerId), never from a clock or the room. */
   private endedBy: MatchEndCause = 'lastHumanSunk';
 
-  /** Human ids in sink order (earliest first). Later sink = better placement. */
+  /** Participant ids in sink order (earliest first), DRONES INCLUDED — the
+   *  order is the raw record; computePlacements() is what filters it to
+   *  captains. Later sink = better placement. */
   private readonly sinkOrder: string[] = [];
-  /** Humans present at activation — the results roster (stats refreshed on exit/finish). */
+  /** Everyone present at activation, drones included (stats refreshed on
+   *  exit/finish). Telemetry reads all of it; the results rows read the
+   *  captains only. */
   private readonly participants = new Map<string, Participant>();
   private finishedAt = 0;
   private disconnectFired = false;
@@ -302,9 +329,11 @@ export class Match {
     this.stormDeaths = 0;
     this.participants.clear();
     this.sinkOrder.length = 0;
-    // Drones ARE participants (kill feed / contacts / results rows include them
-    // and they can hold a placement) — the win + winner logic below is what
-    // keeps a drone from ever winning, not their exclusion from the roster.
+    // Drones ARE participants — they are combatants for the KILL FEED, the
+    // contact stream and the operator telemetry (endSummary reads this Map, and
+    // rosterSize/rosterByClass/killsByClass must count every hull). They are
+    // NOT shown in the RESULTS: resultsMsg() filters them out and
+    // computePlacements() places captains only (Eric ruling 2026-08-11).
     for (const s of this.world.ships.values()) {
       this.participants.set(s.id, {
         name: s.name,
@@ -338,8 +367,9 @@ export class Match {
         damageDealt: aliveWinner.damageDealt,
       });
     }
-    // RULING: with 0 humans alive (simultaneous mutual destruction, or the lone
-    // human sinking to the storm while drones survive) the winner is the
+    // RULING: with 0 captains afloat (simultaneous mutual destruction — the last
+    // two captains going down on the same tick, since any tick that leaves ONE
+    // afloat now finishes on that captain, amendment 4) the winner is the
     // latest-sunk HUMAN — drones can never win, so we skip past them in the sink
     // order rather than taking its last entry blindly.
     this.winnerId = aliveWinner?.id ?? this.latestSunkHuman() ?? '';
@@ -376,7 +406,7 @@ export class Match {
     w.xpEnabled = this.phase === 'active';
   }
 
-  /** Record this tick's sink events (humans only) into the placement order. */
+  /** Record this tick's sink events (every participant) into the sink order. */
   private consumeSinks(): void {
     for (const e of this.world.tickEvents) {
       if (e.k !== 'sunk') continue;
@@ -393,19 +423,35 @@ export class Match {
   }
 
   /**
-   * Post-step / post-leave win check. A match with drones aboard cannot finish
-   * on the "≤1 human afloat" rule alone — that is already true at activation (1
-   * human + 5 drones), which would insta-finish. So the match ends only when:
-   *   - no human is alive (all humans sunk — winner = latest-sunk human), OR
-   *   - exactly one human is alive AND no other hull (drone or human) remains
-   *     (the lone human has cleared the field — winner = that human).
-   * A lone human with drones still afloat keeps fighting.
+   * Post-step / post-leave win check — ONE predicate (isAfloatCaptain) over
+   * lifecycle state, counting CAPTAINS ONLY. The match ends when at most one
+   * captain is still afloat:
+   *   - one afloat captain  → that captain won, however many drones remain,
+   *   - zero afloat captains → mutual destruction; winner = latest-sunk human.
+   *
+   * DRONES NO LONGER GATE THE WIN (Eric ruling 2026-08-11, amendment 4:
+   * *"Drones should stop gating the win, the game cant even fucking start
+   * without two or more live players right now"*), partially superseding the
+   * epic-4 amendment 31 defer. The old `aliveDroneCount() > 0` guard existed
+   * because "≤1 human afloat" is already true at activation for a SOLO human +
+   * fill drones, which would insta-finish. That hazard is confined to
+   * configurations overriding CONFIG.match.minHumans (2) down to 1 — which only
+   * dev tooling can do, since sanitizeRoomOptions gates matchOverride behind
+   * HC_DEV_OPTIONS. Production can never start a live match with one captain,
+   * so the guard bought nothing and cost a lone survivor a fight against hulls
+   * that can never win.
+   *
+   * LEFT OPEN, RECORDED HERE: Story 6-5 (Solo vs AI) owes a termination rule
+   * for a human-versus-drones match. Drones can never win (finish() skips past
+   * them in the sink order) and a lone human can no longer lose to them by
+   * attrition — with minHumans overridden to 1 such a match now finishes the
+   * instant it activates, and Solo vs AI needs a real answer rather than this
+   * one (amendment 4).
    */
   private checkWin(trigger: WinTrigger): void {
-    const humans = this.aliveHumans();
-    if (humans.length > 1) return;
-    if (humans.length === 1 && this.aliveDroneCount() > 0) return;
-    this.finish(humans[0], trigger);
+    const captains = this.afloatCaptains();
+    if (captains.length > 1) return;
+    this.finish(captains[0], trigger);
   }
 
   private maybeDisconnect(): void {
@@ -416,26 +462,72 @@ export class Match {
 
   // --- results ----------------------------------------------------------------
 
-  /** Winner = 1; everyone else by reverse sink order (later sink places higher). */
+  /**
+   * PLACEMENT IS CAPTAIN-RELATIVE (Eric ruling 2026-08-11: *"just don't show
+   * the drones in the match results. problem solved."* — supersedes amendment
+   * 8's survivors tier). Winner = 1; then the sunk CAPTAINS by reverse sink
+   * order (later sink places higher) — the ORIGINAL shipped rule, now
+   * restricted to captains.
+   *
+   * WHY THE FILTER IS HERE AND NOT ONLY IN resultsMsg(): drones are excluded
+   * from the results ROWS, so leaving them in the placement numbering would
+   * render a 2-captain match as "1st" and "20th" — the table would still look
+   * broken. Placing captains only is what makes the surviving filter honest.
+   *
+   * AMENDMENT 8's SURVIVOR TIER IS DELETED, not kept as defensive code: it is
+   * UNREACHABLE once drones are excluded. checkWin() finishes only when at most
+   * ONE captain is afloat, and finish() takes exactly that captain as the
+   * winner — so every OTHER captain is not afloat at the finish, and every
+   * non-afloat captain is in `sinkOrder` (world.sinkShip is the sole
+   * `alive -> sunk` edge and always emits `sunk`, consumeSinks records it
+   * BEFORE checkWin in the same update, a mid-match departure is recorded by
+   * onPlayerLeave before its own check, and activate() redeploys every hull
+   * alive so nobody enters the match already down).
+   *
+   * INVARIANT: every CAPTAIN participant gets a placement >= 1, so
+   * `placement: 0` is unreachable for any results row. The two tiers partition
+   * the captains: captain sinks ⊆ participants (recordSink's guard) and the
+   * winner is a captain participant (finish() backfills a late-joining one).
+   * Captain placements are the dense range 1..(captain count).
+   *
+   * Drones keep NO placement at all — `ArenaRoom.syncRoster()` mirrors 0 onto
+   * their PlayerMeta.placement, which no client reads (the results table is
+   * built from ResultsMsg rows, and the provisional number from the roster's
+   * `alive` count).
+   */
   private computePlacements(): void {
     this.placements.clear();
-    if (this.winnerId) this.placements.set(this.winnerId, 1);
-    let next = 2;
+    let next = 1;
+    if (this.winnerId) this.placements.set(this.winnerId, next++);
     for (let i = this.sinkOrder.length - 1; i >= 0; i--) {
       const id = this.sinkOrder[i];
-      if (this.placements.has(id)) continue; // the mutual-destruction winner
-      this.placements.set(id, next);
-      next += 1;
+      // Skip the mutual-destruction winner (already placed) and every drone —
+      // drones are not combatants, so they hold no placement and get no row.
+      if (this.placements.has(id) || this.participants.get(id)?.isDrone) continue;
+      this.placements.set(id, next++);
     }
   }
 
+  /**
+   * The results rows are CAPTAINS ONLY (Eric ruling 2026-08-11). Drones are not
+   * combatants — the same position the Public Register took for `sunk` and the
+   * bounty throne took for `captainKills` — and the project docs have described
+   * placement/results as humans-only since the AFLOAT ruling. Telemetry is
+   * unaffected: endSummary() still counts every hull, drones included.
+   */
   private resultsMsg(): ResultsMsg {
     const rows: ResultsRow[] = [];
     for (const [id, p] of this.participants) {
+      if (p.isDrone) continue;
       rows.push({
         id,
         name: p.name,
-        placement: this.placements.get(id) ?? 0,
+        // UNREACHABLE by computePlacements()' partition invariant (every
+        // captain participant is the winner or in the sink order). The fallback
+        // sorts LAST rather than first so that if that invariant is ever
+        // broken, an unplaced hull can never be seated above the winner again —
+        // the exact shape of the defect this replaced.
+        placement: this.placements.get(id) ?? this.participants.size + 1,
         kills: p.kills,
         damageDealt: p.damageDealt,
       });
@@ -483,18 +575,11 @@ export class Match {
     return n;
   }
 
-  private aliveHumans(): ShipRecord[] {
+  /** Every captain still afloat — the ONLY collector over the win predicate. */
+  private afloatCaptains(): ShipRecord[] {
     const out: ShipRecord[] = [];
-    for (const s of this.world.ships.values()) {
-      if (!s.isDrone && s.alive) out.push(s);
-    }
+    for (const s of this.world.ships.values()) if (isAfloatCaptain(s)) out.push(s);
     return out;
-  }
-
-  private aliveDroneCount(): number {
-    let n = 0;
-    for (const s of this.world.ships.values()) if (s.isDrone && s.alive) n += 1;
-    return n;
   }
 
   /** Latest-sunk human id (scanning the sink order from the end), or undefined. */

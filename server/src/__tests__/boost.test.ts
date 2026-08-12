@@ -7,7 +7,7 @@
 // a fixed seed or scripted input.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -115,7 +115,7 @@ describe('a dead ship cannot activate', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     w.sinkShip('a');
-    expect(a.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'dead' });
     expect(a.boostUntil).toBe(0);
   });
@@ -197,7 +197,7 @@ describe('death/respawn state reset (Story 1.6)', () => {
     w.sinkShip('a');
     const steps = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
     for (let i = 0; i < steps; i++) w.step();
-    expect(a.alive).toBe(true); // respawned
+    expect(isAfloat(a.lifecycle)).toBe(true); // respawned
     expect(a.boostUntil).toBe(0); // window cleared on respawn (fresh life)
     // lastActSeq is deliberately PRESERVED (mirrors lastFireSeq): the stored
     // input still carries actSeq 1, so a reset to 0 would read as a fresh press
@@ -272,7 +272,7 @@ describe('death during boost resets the window (Story 1.6)', () => {
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now); // mid-window
     w.sinkShip('a'); // killed while boosting
-    expect(a.alive).toBe(false);
+    expect(isAfloat(a.lifecycle)).toBe(false);
     expect(a.boostUntil).toBe(0); // window closed AT death, not deferred to respawn
     // The owner's frame no longer advertises an active window during the gap.
     expect(buildFrame(w, 'a').you!.boostUntil).toBe(0);

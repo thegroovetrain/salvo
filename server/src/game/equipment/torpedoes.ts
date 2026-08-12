@@ -18,6 +18,7 @@ import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   inArc,
+  isAfloat,
   minCommandDistance as sharedMinCommandDistance,
   sectorArcFor,
   wrapAngle,
@@ -126,7 +127,7 @@ export function fireTorpedo(
   mapRadius: number = Number.POSITIVE_INFINITY,
 ): ShellState | null {
   const slotIndex = ship.loadout.findIndex((s) => s.equipmentId === 'torpedo');
-  if (!ship.alive || slotIndex < 0 || ship.input.slot !== slotIndex) return null;
+  if (!isAfloat(ship.lifecycle) || slotIndex < 0 || ship.input.slot !== slotIndex) return null;
   // Loadout invariant: a fitted slot always has state.
   return launchTorpedo(ship, ship.loadout[slotIndex].state!, now, mkId, mapRadius).torp;
 }

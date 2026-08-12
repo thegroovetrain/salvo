@@ -25,13 +25,16 @@
 // sequentially, which is why the per-evaluation tie rule almost never fires
 // in a live match but must still be exact.
 
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, isAfloat, type ShipLifecycle } from '@salvo/shared';
 
 /** One ship's view into the throne rule — a plain snapshot, never a live
  *  ShipRecord (the module stays pure and trivially unit-testable). */
 export interface BountyCandidate {
   id: string;
-  alive: boolean;
+  /** The candidate's LIFECYCLE, not a derived `alive` boolean (Story 5.1,
+   *  amendment 2): the snapshot carries the one representation forward so the
+   *  throne rule reads it through isAfloat() exactly as the sim does. */
+  lifecycle: ShipLifecycle;
   /** Drones can neither hold the throne nor count toward it — guarded here
    *  as well as at the increment site (defense in depth: a future combat-bot
    *  path that mis-credits a drone still cannot crown one). */
@@ -53,7 +56,7 @@ export interface BountyCandidate {
  * held throne stays held and a vacant one stays vacant.
  */
 export function nextBountyHolder(current: string, cands: readonly BountyCandidate[]): string {
-  const held = cands.find((c) => c.id === current && c.alive && !c.isDrone);
+  const held = cands.find((c) => c.id === current && isAfloat(c.lifecycle) && !c.isDrone);
   // FAIL-CLOSED on a non-finite incumbent count (defense in depth — unreachable
   // today, `captainKills` is only ever 0-initialized and `+= 1`, same posture
   // as `addXpMs` in world.ts): an unguarded NaN floor fails every `<=` skip
@@ -72,7 +75,7 @@ export function nextBountyHolder(current: string, cands: readonly BountyCandidat
  *  every `<= floor` skip below (NaN comparisons are always false), which
  *  would let a corrupt candidate become the running `best` and be crowned. */
 function eligible(c: BountyCandidate, current: string): boolean {
-  return c.alive && !c.isDrone && c.id !== current && Number.isFinite(c.captainKills);
+  return isAfloat(c.lifecycle) && !c.isDrone && c.id !== current && Number.isFinite(c.captainKills);
 }
 
 /**

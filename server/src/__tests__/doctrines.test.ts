@@ -7,7 +7,7 @@
 // dazzled observer's shrunken sight) — plus the vacated-owner CONFIG fallback.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland } from './islandFixture.js';
@@ -704,8 +704,8 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     expect(toA).toEqual([]);
     // Kill credit: burn b down — the sink attributes to the zone owner.
     b.hp = 0.01;
-    for (let i = 0; i < 3 && b.alive; i++) w.step();
-    expect(b.alive).toBe(false);
+    for (let i = 0; i < 3 && isAfloat(b.lifecycle); i++) w.step();
+    expect(isAfloat(b.lifecycle)).toBe(false);
     expect(a.kills).toBe(1);
   });
 
@@ -749,11 +749,11 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const hp0 = b.hp;
     b.hp = 0.2; // a couple of bites from death, mid-window
     const seen: { amount: number }[] = [];
-    for (let i = 0; i < 5 && b.alive; i++) {
+    for (let i = 0; i < 5 && isAfloat(b.lifecycle); i++) {
       w.step();
       seen.push(...(dmgFor(w.tickEvents, 'b') as { amount: number }[]));
     }
-    expect(b.alive).toBe(false);
+    expect(isAfloat(b.lifecycle)).toBe(false);
     expect(a.kills).toBe(1); // kill credit timing unchanged
     // The dmg arrived on the sinking tick (not stranded in an open bucket),
     // and reports every point applied: all the hp it had, and no more than one

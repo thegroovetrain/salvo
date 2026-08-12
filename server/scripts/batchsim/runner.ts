@@ -264,6 +264,10 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     // therefore models the FUTURE solo-vs-AI shape (Epic 6) / this dev seam,
     // NOT a lobby that ships today — a real solo captain never leaves the
     // weapons-safe ready room. Read 1vN rows as forward-looking, not current.
+    // SINCE AMENDMENT 4 a `--captains 1` run is also DEGENERATE: drones no
+    // longer gate the win, so the lone captain wins on the activation tick and
+    // the sample carries no combat at all. Story 6-5 owes the termination rule
+    // that makes 1vN meaningful again; until then, batch evidence needs >= 2.
     minHumans: 1,
   };
   const match = new Match(world, timings, harnessHooks(world, droneCount));

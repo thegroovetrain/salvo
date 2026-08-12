@@ -33,6 +33,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   BOON_CATALOG,
   CONFIG,
   HEAL_CHOICE,
@@ -1477,7 +1478,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();
-    expect(target.alive).toBe(true);
+    expect(isAfloat(target.lifecycle)).toBe(true);
     expect(c.id).not.toBe(viewerId);
     expect('boons' in c).toBe(false); // enemy builds are hidden (anti-cheat)
     expect('stats' in c).toBe(false);
@@ -1511,11 +1512,11 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
  * crossing.
  */
 function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
-  if (w.radarGrammar !== 'return' || !me.alive) return;
+  if (w.radarGrammar !== 'return' || !isAfloat(me.lifecycle)) return;
   const blips = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
   let gated = 0;
   for (const target of w.ships.values()) {
-    if (!target.alive || target.id === me.id || !blipPredicate(w, me, target.state)) continue;
+    if (!isAfloat(target.lifecycle) || target.id === me.id || !blipPredicate(w, me, target.state)) continue;
     gated++;
     const expected = maskOracle(target.hullId, target.state.x, target.state.y, target.state.heading, w.now);
     expect(blips.some((b) => maskEquals(expected, b)), `gated ship ${target.id} accounted for`).toBe(true);
@@ -1871,7 +1872,7 @@ function blipPoseMatches(
 function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   if (w.radarGrammar === 'return') {
     for (const target of w.ships.values()) {
-      if (!target.alive || target.id === me.id) continue;
+      if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
       if (!blipPredicate(w, me, target.state)) continue;
       if (blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading, target.state.speed)) return true;
     }
@@ -1880,7 +1881,7 @@ function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   const rosterId = rosterIdOf(w, (ev as SilhouetteBlipEvent).id);
   if (rosterId === undefined) return false;
   const target = w.ships.get(rosterId);
-  if (!target || !target.alive || target.id === me.id) return false;
+  if (!target || !isAfloat(target.lifecycle) || target.id === me.id) return false;
   if (!blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading, target.state.speed)) return false;
   return blipPredicate(w, me, target.state);
 }
@@ -1892,7 +1893,7 @@ function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
  *  impossible for genuine ships and would unmask the buoy on the wire. */
 function ownerContactVisible(w: World, me: ShipRecord, ownerId: string): boolean {
   const owner = w.ships.get(ownerId);
-  if (!owner || !owner.alive || owner.id === me.id) return false;
+  if (!owner || !isAfloat(owner.lifecycle) || owner.id === me.id) return false;
   return sighted(w, me, owner.state) || zoneCovers(w, me, owner.state);
 }
 
@@ -2338,7 +2339,7 @@ function verifyWake(w: World, me: ShipRecord, e: GameEvent): void {
  * and fails HERE.
  */
 function verifyWakeCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
-  if (!me.alive) return;
+  if (!isAfloat(me.lifecycle)) return;
   const wks = f.events.filter((e): e is WakeBlipEvent => e.k === 'wk');
   let gated = 0;
   for (const ribbon of w.wakeRibbons) {

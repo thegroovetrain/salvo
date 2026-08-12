@@ -6,7 +6,7 @@
 // payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 
@@ -149,7 +149,7 @@ describe('match — waiting phase (ready room)', () => {
     injectShell(ctx, 's1', 'ghost', a.state.x - 20, a.state.y); // point blank on a
     stepUntilBoom(ctx); // impact still visible (boom emitted)...
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // ...but no hp is lost
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
     expect(ctx.w.tickEvents.some((e) => e.k === 'dmg')).toBe(false);
   });
 
@@ -171,7 +171,7 @@ describe('match — waiting phase (ready room)', () => {
     expect(ctx.w.mines.size).toBe(0); // triggered + despawned
     expect(ctx.w.tickEvents.some((e) => e.k === 'boom')).toBe(true);
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // no hp lost — damage is suppressed
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
   });
 
   it('keeps the respawn loop alive', () => {
@@ -180,7 +180,7 @@ describe('match — waiting phase (ready room)', () => {
     const a = ctx.w.ships.get('a')!;
     expect(a.respawnAt).toBeGreaterThan(0);
     step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 1);
-    expect(a.alive).toBe(true);
+    expect(isAfloat(a.lifecycle)).toBe(true);
   });
 });
 
@@ -238,7 +238,7 @@ describe('match — countdown', () => {
     expect(ctx.w.xpEnabled).toBe(true); // the passive tick starts with the match
     for (const ship of ctx.w.ships.values()) {
       expect(ship.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-      expect(ship.alive).toBe(true);
+      expect(isAfloat(ship.lifecycle)).toBe(true);
       expect(Math.hypot(ship.state.x, ship.state.y)).toBeCloseTo(ctx.w.map.spawnRing, 6);
       // Full pools on every weapon slot (0-2; slot 3 is the empty extra slot).
       expect(ship.loadout.slice(0, 3).every((s) => s.state!.n > 0 && s.state!.reloadMsLeft === 0)).toBe(true);
@@ -287,7 +287,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
     ctx.w.sinkShip('a');
     step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 1);
     expect(ctx.m.phase).toBe('gathering'); // still inside the window
-    expect(ctx.w.ships.get('a')!.alive).toBe(true);
+    expect(isAfloat(ctx.w.ships.get('a')!.lifecycle)).toBe(true);
   });
 
   it('a join during the window never resets the timer', () => {
@@ -358,7 +358,7 @@ describe('match — active phase', () => {
     const c = ctx.w.ships.get('c')!;
     expect(c.respawnAt).toBe(0);
     step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 2);
-    expect(c.alive).toBe(false);
+    expect(isAfloat(c.lifecycle)).toBe(false);
     expect(ctx.m.phase).toBe('active'); // two humans still afloat
   });
 
@@ -483,6 +483,135 @@ describe('match — finished phase', () => {
     step(ctx, 5);
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.calls.filter((c) => c === 'lock')).toHaveLength(1); // only the original countdown
+  });
+});
+
+// --- results are CAPTAINS ONLY (Eric ruling 2026-08-11) -----------------------
+//
+// Amendment 4 made a finish-with-hulls-still-afloat reachable for the first
+// time (drones no longer gate the win), which exposed a placement gap: a hull
+// that never sank was in neither tier of the shipped "winner = 1, everyone else
+// by reverse sink order" rule, fell through resultsMsg()'s `?? 0` default, and
+// sorted ABOVE the winner (a real match showed 18 of 20 rows at placement 0).
+//
+// ERIC'S RULING — *"just don't show the drones in the match results. problem
+// solved."* — SUPERSEDES amendment 8's survivors tier, which is deleted. The
+// results rows are captains only and placement is CAPTAIN-RELATIVE, so the
+// shipped two-tier rule is restored intact, just restricted to captains. This
+// is what the project docs already claimed ("humans-only placement/results")
+// and what the Public Register's "drones are not combatants" position implies.
+//
+// The survivors tier is UNREACHABLE now, not merely unused: checkWin() finishes
+// only when at most ONE captain is afloat and that captain IS the winner, so
+// every other captain is sunk (or departed, which records a sink) by then.
+describe('match — the results table is captains only', () => {
+  /** Captains + `drones` drone hulls in the water, activated. The drones join
+   *  AFTER the captains, so activation roster order is captains then drones. */
+  function withDrones(captains: string[], drones: number): Ctx {
+    const ctx = setup(captains);
+    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, true);
+    activate(ctx);
+    return ctx;
+  }
+
+  const isDroneRow = (r: { id: string }): boolean => r.id.startsWith('drone-');
+
+  // THE REGRESSION TEST. Against the pre-fix computePlacements() every surviving
+  // drone stayed out of the placements Map, resultsMsg() defaulted it to 0, and
+  // the ascending sort seated all three of them ahead of the winner: rows would
+  // read [drone-1 0, drone-2 0, drone-3 0, a 1, b 2].
+  it('no results row is a DRONE, none is left at placement 0, and the winner is the FIRST row', () => {
+    const ctx = withDrones(['a', 'b'], 3);
+    expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(3);
+    ctx.w.sinkShip('b', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    const msg = ctx.results[0];
+    expect(msg.rows.some(isDroneRow)).toBe(false); // drones are not in the results
+    expect(msg.rows.every((r) => r.placement >= 1)).toBe(true);
+    expect(msg.rows[0].id).toBe('a');
+    expect(msg.rows[0].placement).toBe(1);
+    // Dense 1..(captain count) — the partition invariant, captain-relative.
+    expect(msg.rows.map((r) => [r.id, r.placement])).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+  });
+
+  it('pins the full order: winner, then the sunk CAPTAINS in reverse sink order', () => {
+    const ctx = withDrones(['a', 'b', 'c'], 2);
+    ctx.w.sinkShip('drone-1', 'a'); // a drone sink must not consume a placement
+    step(ctx);
+    ctx.w.sinkShip('c', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('active');
+    ctx.w.sinkShip('b', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('a');
+    // 3 captains -> exactly 3 rows at 1..3, unaffected by the 2 drones (one
+    // sunk, one still afloat) that shared the water with them.
+    expect(ctx.results[0].rows.map((r) => [r.id, r.placement])).toEqual([
+      ['a', 1], // winner
+      ['b', 2], // sunk last of the captains
+      ['c', 3],
+    ]);
+    expect(ctx.m.placements.has('drone-1')).toBe(false); // a sunk drone holds none
+    expect(ctx.m.placements.has('drone-2')).toBe(false); // nor an afloat one
+  });
+
+  it('is deterministic across runs, with drone sinks interleaved through the captains', () => {
+    const run = (): [string, number][] => {
+      const ctx = withDrones(['a', 'b', 'c'], 4);
+      ctx.w.sinkShip('drone-3', 'a'); // drone sinks bracket the captain sinks…
+      step(ctx);
+      ctx.w.sinkShip('c', 'a');
+      step(ctx);
+      ctx.w.sinkShip('drone-1', 'a');
+      step(ctx);
+      ctx.w.sinkShip('b', 'a');
+      step(ctx);
+      expect(ctx.m.phase).toBe('finished');
+      return ctx.results[0].rows.map((r) => [r.id, r.placement]);
+    };
+    // …and change nothing: the captains hold the dense range 1..3.
+    const expected: [string, number][] = [
+      ['a', 1],
+      ['b', 2], // sunk last of the captains
+      ['c', 3],
+    ];
+    expect(run()).toEqual(expected);
+    expect(run()).toEqual(expected);
+    expect(run()).toEqual(expected);
+  });
+
+  it('a mutual-destruction finish with drones afloat: latest-sunk human is 1, the other captain 2', () => {
+    const ctx = withDrones(['a', 'b'], 2);
+    ctx.w.sinkShip('a', 'b');
+    ctx.w.sinkShip('b', 'a'); // same tick, sunk after a
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('b');
+    expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(2);
+    expect(ctx.results[0].rows.map((r) => [r.id, r.placement])).toEqual([
+      ['b', 1],
+      ['a', 2],
+    ]);
+  });
+
+  it('leaves TELEMETRY counting every hull — presentation changed, the operator data did not', () => {
+    const ctx = withDrones(['a', 'b'], 3);
+    ctx.w.sinkShip('drone-1', 'a');
+    step(ctx);
+    ctx.w.sinkShip('b', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.results[0].rows).toHaveLength(2); // captains only on the wire…
+    const sum = ctx.m.endSummary();
+    expect(sum.rosterSize).toBe(5); // …but every hull in the telemetry
+    const byClass = Object.values(sum.rosterByClass).reduce((n, v) => n + v, 0);
+    expect(byClass).toBe(5);
+    expect(Object.values(sum.killsByClass).reduce((n, v) => n + v, 0)).toBe(2); // both drone + captain kills
   });
 });
 

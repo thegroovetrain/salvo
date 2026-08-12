@@ -9,6 +9,7 @@
 import {
   CONFIG,
   DRONE_HULL_IDS,
+  isAfloat,
   type FrameMsg,
   type MatchPhase,
   type OwnShip,
@@ -34,7 +35,10 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     heading: ship.state.heading,
     speed: ship.state.speed,
     hp: ship.hp,
-    alive: ship.alive,
+    // THE WIRE DOES NOT MOVE (Story 5.1, amendment 7): OwnShip.alive stays a
+    // boolean, PROJECTED from the lifecycle here. Story 5.2 owns the wire
+    // change, because that is when `sinking` first becomes observable.
+    alive: isAfloat(ship.lifecycle),
     // Slot-aligned ammo (length SLOT_COUNT, null = empty slot): pool count +
     // reload timer per loadout slot in slot order (equipment/index.ts).
     ammo: slotAmmo(ship),
@@ -96,10 +100,16 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
  * finished (no way back into play either way). Every other observer — alive
  * in active, anyone in waiting/countdown (lobby keeps the one fogged code
  * path), a fresh wreck awaiting respawn in waiting — stays fully fogged.
+ *
+ * MEANING UNCHANGED by the Story 5.1 migration: NOT-AFLOAT, exactly as before.
+ * Recorded for Story 5.2 (amendment 7): when `sinking` becomes reachable, a
+ * sinking hull reaching this predicate would receive full-map vision for the
+ * whole window — it must project as not-afloat-but-not-spectating, and that
+ * projection has to be chosen here deliberately rather than inherited.
  */
 function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
   if (phase === 'finished') return true;
-  return phase === 'active' && ship !== undefined && !ship.alive;
+  return phase === 'active' && ship !== undefined && !isAfloat(ship.lifecycle);
 }
 
 /**

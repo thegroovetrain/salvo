@@ -17,7 +17,7 @@
 //     store) and still counts in the win check.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, MSG, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
+import { CONFIG, LIFECYCLE_ALIVE, MSG, PROTOCOL_VERSION, sunkAt, type ResultsMsg, type ShipLifecycle } from '@salvo/shared';
 import { CloseCode, ServerError, ErrorCode } from 'colyseus';
 import { World } from '../game/world.js';
 import { Match, dropPolicy, type MatchHooks } from '../game/match.js';
@@ -267,7 +267,7 @@ describe('deferred teardown (grace window)', () => {
 // and stub allowReconnection with a spy returning a controllable promise.
 
 interface WiringRoom {
-  world: { ships: Map<string, { alive: boolean }> };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }> };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
@@ -276,13 +276,13 @@ interface WiringRoom {
 
 function wiringRoom(opts: {
   phase: string;
-  ship?: { alive: boolean };
+  ship?: { lifecycle: ShipLifecycle };
   lastResults?: ResultsMsg;
   reconnectPromise?: Promise<unknown>;
 }): { room: WiringRoom; allow: ReturnType<typeof vi.fn> } {
   const allow = vi.fn(() => opts.reconnectPromise ?? new Promise<unknown>(() => undefined));
   const room = new ArenaRoom() as unknown as WiringRoom;
-  const ships = new Map<string, { alive: boolean }>();
+  const ships = new Map<string, { lifecycle: ShipLifecycle }>();
   if (opts.ship) ships.set('a', opts.ship);
   room.world = { ships };
   room.match = { phase: opts.phase };
@@ -296,21 +296,21 @@ const CLIENT = { sessionId: 'a' };
 
 describe('ArenaRoom.onDrop wiring', () => {
   it('(a) reconnectable close + active + alive -> allowReconnection(grace)', () => {
-    const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: true } });
+    const { room, allow } = wiringRoom({ phase: 'active', ship: { lifecycle: LIFECYCLE_ALIVE } });
     room.onDrop(CLIENT, RESUMABLE);
     expect(allow).toHaveBeenCalledTimes(1);
     expect(allow.mock.calls[0][1]).toBe(CONFIG.net.reconnectGraceSeconds);
   });
 
   it('(b) punitive close (WITH_ERROR 4002) -> allowReconnection NOT called', () => {
-    const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: true } });
+    const { room, allow } = wiringRoom({ phase: 'active', ship: { lifecycle: LIFECYCLE_ALIVE } });
     room.onDrop(CLIENT, CloseCode.WITH_ERROR);
     expect(allow).not.toHaveBeenCalled();
   });
 
   it('(b2) undefined / server-shutdown / consented codes -> NOT called', () => {
     for (const code of [undefined, CloseCode.SERVER_SHUTDOWN, CloseCode.CONSENTED, CloseCode.FAILED_TO_RECONNECT]) {
-      const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: true } });
+      const { room, allow } = wiringRoom({ phase: 'active', ship: { lifecycle: LIFECYCLE_ALIVE } });
       room.onDrop(CLIENT, code);
       expect(allow).not.toHaveBeenCalled();
     }
@@ -318,14 +318,14 @@ describe('ArenaRoom.onDrop wiring', () => {
 
   it('(c) drop during waiting/countdown -> allowReconnection NOT called', () => {
     for (const phase of ['waiting', 'countdown', 'finished']) {
-      const { room, allow } = wiringRoom({ phase, ship: { alive: true } });
+      const { room, allow } = wiringRoom({ phase, ship: { lifecycle: LIFECYCLE_ALIVE } });
       room.onDrop(CLIENT, RESUMABLE);
       expect(allow).not.toHaveBeenCalled();
     }
   });
 
   it('(c2) reconnectable close but hull already sunk -> NOT called', () => {
-    const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: false } });
+    const { room, allow } = wiringRoom({ phase: 'active', ship: { lifecycle: sunkAt(0) } });
     room.onDrop(CLIENT, RESUMABLE);
     expect(allow).not.toHaveBeenCalled();
   });
@@ -335,7 +335,7 @@ describe('ArenaRoom.onDrop wiring', () => {
     const newClient = { send: vi.fn() };
     const { room } = wiringRoom({
       phase: 'active',
-      ship: { alive: true },
+      ship: { lifecycle: LIFECYCLE_ALIVE },
       lastResults: results,
       reconnectPromise: Promise.resolve(newClient),
     });
@@ -349,7 +349,7 @@ describe('ArenaRoom.onDrop wiring', () => {
     const newClient = { send: vi.fn() };
     const { room } = wiringRoom({
       phase: 'active',
-      ship: { alive: true },
+      ship: { lifecycle: LIFECYCLE_ALIVE },
       reconnectPromise: Promise.resolve(newClient),
     });
     room.onDrop(CLIENT, RESUMABLE);
@@ -361,7 +361,7 @@ describe('ArenaRoom.onDrop wiring', () => {
   it('(d3) a rejected reconnection promise is swallowed (no unhandled rejection)', async () => {
     const { room } = wiringRoom({
       phase: 'active',
-      ship: { alive: true },
+      ship: { lifecycle: LIFECYCLE_ALIVE },
       reconnectPromise: Promise.reject(new Error('grace expired')),
     });
     expect(() => room.onDrop(CLIENT, RESUMABLE)).not.toThrow();

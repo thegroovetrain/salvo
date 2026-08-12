@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isAfloat,
   CONFIG,
   hullSilhouette,
   transformPolygon,
@@ -249,7 +250,7 @@ describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-a
     b.hp = CONFIG.mine.damage; // one blast sinks it
     for (let i = 0; i < CONFIG.mine.armDelay / CONFIG.tick.simDtMs + 2; i++) w.step();
     expect(w.mines.size).toBe(0); // detonated + despawned
-    expect(b.alive).toBe(false);
+    expect(isAfloat(b.lifecycle)).toBe(false);
     expect(a.kills).toBe(1);
     expect(a.hp).toBe(a.stats.maxHp); // owner EXCLUDED from its own blast, even in radius
   });

@@ -121,8 +121,9 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
 // needs, so a quit-out match can't be read as a fought-out one. One case per
 // cause, driven through the real transitions (no direct field pokes).
 describe('Match.endSummary — endedBy classification', () => {
-  /** Two humans + `drones` drones, activated. The drones keep a lone survivor
-   *  from insta-winning so the terminal event can be chosen deliberately. */
+  /** Two humans + `drones` drones, activated. Since amendment 4 the drones do
+   *  NOT hold the match open for a lone survivor — the second captain is what
+   *  keeps it live — but they still prove a finish can happen with hulls afloat. */
   function activated(drones: number): Ctx {
     const ctx = build();
     ctx.w.addShip('a', 'A', false, 'torpedoBoat');
@@ -170,9 +171,12 @@ describe('Match.endSummary — endedBy classification', () => {
 
   it('lastHumanLeft: the last afloat human quits out mid-match', () => {
     const ctx = activated(1);
+    // Amendment 4: drones no longer hold the match open, so the win check now
+    // finishes on 'a' the moment it runs with 'b' down. The DEPARTURE therefore
+    // has to arrive before that check — the leave is what leaves 0 captains
+    // afloat, which is exactly what 'lastHumanLeft' classifies. (No step()
+    // between the sink and the leave; a step would run checkWin('sink') first.)
     ctx.w.sinkShip('b', 'a');
-    step(ctx);
-    expect(ctx.m.phase).toBe('active'); // the drone keeps 'a' fighting
     ctx.m.onPlayerLeave('a');
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a'); // latest-sunk (sunk-at-leave-time)
