@@ -49,7 +49,27 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
     for (const row of World.STEP_ORDER) expect(typeof row.run).toBe('function');
   });
 
-  it('the array is frozen — no runtime reorder', () => {
+  it('the array AND every row are frozen — no runtime reorder or row swap', () => {
     expect(Object.isFrozen(World.STEP_ORDER)).toBe(true);
+    // Freezing the container alone leaves `STEP_ORDER[i].run` writable, which
+    // would let a row be replaced without moving a single name past the pin
+    // above.
+    for (const row of World.STEP_ORDER) expect(Object.isFrozen(row)).toBe(true);
+  });
+
+  // THE SNAPSHOT'S MATERIALIZATION POINT IS A COUPLING, AND THIS IS ITS ONLY
+  // ENFORCEMENT. The tick's one aliveHulls() snapshot is memoized on FIRST
+  // ACCESS of ctx.hulls(), which lands at the `stepShells` row — the exact
+  // position the old inline `const hulls = this.aliveHulls()` statement held,
+  // AFTER ships move and AFTER the storm bites. A future row inserted before
+  // stepShells that touches ctx.hulls() would move the snapshot earlier and
+  // silently hand ballistics pre-storm geometry, and the name-sequence pin
+  // above would NOT catch it: the names would all still be in order.
+  it('no row before stepShells touches the memoized hulls snapshot', () => {
+    const rows = World.STEP_ORDER;
+    const shells = rows.findIndex((row) => row.name === 'stepShells');
+    expect(shells).toBeGreaterThan(0);
+    const early = rows.slice(0, shells).filter((row) => /\bhulls\b/.test(String(row.run)));
+    expect(early.map((row) => row.name)).toEqual([]);
   });
 });

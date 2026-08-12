@@ -1641,7 +1641,8 @@ export class World {
    * type-checker re-verifies every call against the real method and a row
    * cannot silently drift onto the wrong unit or a stale capture.
    */
-  static readonly STEP_ORDER: readonly StepRow[] = Object.freeze([
+  static readonly STEP_ORDER: readonly StepRow[] = Object.freeze(
+    ([
     // Drones write their inputs through the same store humans use, so they are
     // picked up by applyInputs exactly like any client this tick.
     { name: 'dronesTick', run: (w) => w.drones.tick() },
@@ -1724,7 +1725,12 @@ export class World {
     // than trailing into the next one. Nothing downstream in the step reads XP,
     // so no other system's behavior can depend on where it sits.
     { name: 'tickXp', run: (w, ctx) => w.tickXp(ctx.dtMs) },
-  ] satisfies StepRow[]);
+    // Each ROW is frozen too, not just the container (review finding F2b):
+    // Object.freeze on the array alone leaves `STEP_ORDER[i].run` writable, so
+    // a shallow freeze would let a row be swapped out from under the identity
+    // pin without moving a single name.
+    ] satisfies StepRow[]).map((row) => Object.freeze(row)),
+  );
 
   /** Advance the simulation one fixed step (default SIM_DT = 50ms). */
   step(dtMs: number = CONFIG.tick.simDtMs): void {
