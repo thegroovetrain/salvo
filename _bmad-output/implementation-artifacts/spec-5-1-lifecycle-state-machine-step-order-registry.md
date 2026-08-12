@@ -16,7 +16,7 @@ drones stop gating the win.
 
 ## Governing rulings
 
-**`_bmad-output/implementation-artifacts/epic-5-context-amendments.md` (amendments 1-8) is binding.**
+**`_bmad-output/implementation-artifacts/epic-5-context-amendments.md` (amendments 1-9) is binding.**
 On any conflict between this spec and that file, the amendment wins. Summary:
 
 1. `sinking` is DECLARED-ONLY — sim keeps `alive → sunk` instantaneous; entered only by tests.

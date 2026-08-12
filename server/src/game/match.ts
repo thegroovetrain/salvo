@@ -217,9 +217,13 @@ export class Match {
    *  survivor, no winnerId), never from a clock or the room. */
   private endedBy: MatchEndCause = 'lastHumanSunk';
 
-  /** Human ids in sink order (earliest first). Later sink = better placement. */
+  /** Participant ids in sink order (earliest first), DRONES INCLUDED — the
+   *  order is the raw record; computePlacements() is what filters it to
+   *  captains. Later sink = better placement. */
   private readonly sinkOrder: string[] = [];
-  /** Humans present at activation — the results roster (stats refreshed on exit/finish). */
+  /** Everyone present at activation, drones included (stats refreshed on
+   *  exit/finish). Telemetry reads all of it; the results rows read the
+   *  captains only. */
   private readonly participants = new Map<string, Participant>();
   private finishedAt = 0;
   private disconnectFired = false;
@@ -325,9 +329,11 @@ export class Match {
     this.stormDeaths = 0;
     this.participants.clear();
     this.sinkOrder.length = 0;
-    // Drones ARE participants (kill feed / contacts / results rows include them
-    // and they can hold a placement) — the win + winner logic below is what
-    // keeps a drone from ever winning, not their exclusion from the roster.
+    // Drones ARE participants — they are combatants for the KILL FEED, the
+    // contact stream and the operator telemetry (endSummary reads this Map, and
+    // rosterSize/rosterByClass/killsByClass must count every hull). They are
+    // NOT shown in the RESULTS: resultsMsg() filters them out and
+    // computePlacements() places captains only (Eric ruling 2026-08-11).
     for (const s of this.world.ships.values()) {
       this.participants.set(s.id, {
         name: s.name,
@@ -400,7 +406,7 @@ export class Match {
     w.xpEnabled = this.phase === 'active';
   }
 
-  /** Record this tick's sink events (humans only) into the placement order. */
+  /** Record this tick's sink events (every participant) into the sink order. */
   private consumeSinks(): void {
     for (const e of this.world.tickEvents) {
       if (e.k !== 'sunk') continue;
@@ -457,60 +463,70 @@ export class Match {
   // --- results ----------------------------------------------------------------
 
   /**
-   * Winner = 1; then every OTHER hull that never sank; then the sunk hulls by
-   * reverse sink order (later sink places higher).
+   * PLACEMENT IS CAPTAIN-RELATIVE (Eric ruling 2026-08-11: *"just don't show
+   * the drones in the match results. problem solved."* — supersedes amendment
+   * 8's survivors tier). Winner = 1; then the sunk CAPTAINS by reverse sink
+   * order (later sink places higher) — the ORIGINAL shipped rule, now
+   * restricted to captains.
    *
-   * THE SURVIVOR TIER (RULING 2026-08-11) exists because amendment 4 made a
-   * finish-with-hulls-still-afloat reachable for the first time: drones no
-   * longer gate the win, so a match now ends with the fill still sailing. A
-   * hull that never sank OUTLASTED every hull that did, so it places above the
-   * sunk ones and below the winner. Before amendment 4 every drone was
-   * necessarily in the sink order by the time the match finished, so this tier
-   * was empty and the two-tier rule was complete; this is the natural extension
-   * of it, not a new grammar. Without it those hulls fell through to
-   * resultsMsg()'s `?? 0` default and sorted ABOVE the winner (a real match
-   * showed 18 of 20 rows at placement 0 ahead of 1st).
+   * WHY THE FILTER IS HERE AND NOT ONLY IN resultsMsg(): drones are excluded
+   * from the results ROWS, so leaving them in the placement numbering would
+   * render a 2-captain match as "1st" and "20th" — the table would still look
+   * broken. Placing captains only is what makes the surviving filter honest.
    *
-   * INVARIANT: every participant gets a placement >= 1, so `placement: 0` is
-   * unreachable for any results row. The three tiers partition `participants`:
-   * sinkOrder ⊆ participants (recordSink's guard), survivors is exactly
-   * participants \ sinkOrder, and the winner is a participant (finish()
-   * backfills a late-joining one). Placements are the dense range 1..N.
+   * AMENDMENT 8's SURVIVOR TIER IS DELETED, not kept as defensive code: it is
+   * UNREACHABLE once drones are excluded. checkWin() finishes only when at most
+   * ONE captain is afloat, and finish() takes exactly that captain as the
+   * winner — so every OTHER captain is not afloat at the finish, and every
+   * non-afloat captain is in `sinkOrder` (world.sinkShip is the sole
+   * `alive -> sunk` edge and always emits `sunk`, consumeSinks records it
+   * BEFORE checkWin in the same update, a mid-match departure is recorded by
+   * onPlayerLeave before its own check, and activate() redeploys every hull
+   * alive so nobody enters the match already down).
    *
-   * SURVIVOR ORDER = ACTIVATION ROSTER ORDER — the insertion order of the
-   * `participants` Map, which activate() fills from world.ships in join order
-   * (captains as they joined, then the drone fill in the order it was created).
-   * Deterministic by construction: Map iteration order is insertion order per
-   * spec, the insertions come from a single ordered walk at activation, and
-   * nothing here reads live world state. A survivor tie is impossible because
-   * ids are unique.
+   * INVARIANT: every CAPTAIN participant gets a placement >= 1, so
+   * `placement: 0` is unreachable for any results row. The two tiers partition
+   * the captains: captain sinks ⊆ participants (recordSink's guard) and the
+   * winner is a captain participant (finish() backfills a late-joining one).
+   * Captain placements are the dense range 1..(captain count).
+   *
+   * Drones keep NO placement at all — `ArenaRoom.syncRoster()` mirrors 0 onto
+   * their PlayerMeta.placement, which no client reads (the results table is
+   * built from ResultsMsg rows, and the provisional number from the roster's
+   * `alive` count).
    */
   private computePlacements(): void {
     this.placements.clear();
     let next = 1;
     if (this.winnerId) this.placements.set(this.winnerId, next++);
-    for (const id of this.participants.keys()) {
-      if (this.placements.has(id) || this.sinkOrder.includes(id)) continue;
-      this.placements.set(id, next++);
-    }
     for (let i = this.sinkOrder.length - 1; i >= 0; i--) {
       const id = this.sinkOrder[i];
-      if (this.placements.has(id)) continue; // the mutual-destruction winner
+      // Skip the mutual-destruction winner (already placed) and every drone —
+      // drones are not combatants, so they hold no placement and get no row.
+      if (this.placements.has(id) || this.participants.get(id)?.isDrone) continue;
       this.placements.set(id, next++);
     }
   }
 
+  /**
+   * The results rows are CAPTAINS ONLY (Eric ruling 2026-08-11). Drones are not
+   * combatants — the same position the Public Register took for `sunk` and the
+   * bounty throne took for `captainKills` — and the project docs have described
+   * placement/results as humans-only since the AFLOAT ruling. Telemetry is
+   * unaffected: endSummary() still counts every hull, drones included.
+   */
   private resultsMsg(): ResultsMsg {
     const rows: ResultsRow[] = [];
     for (const [id, p] of this.participants) {
+      if (p.isDrone) continue;
       rows.push({
         id,
         name: p.name,
         // UNREACHABLE by computePlacements()' partition invariant (every
-        // participant is the winner, a survivor, or in the sink order). The
-        // fallback sorts LAST rather than first so that if that invariant is
-        // ever broken, an unplaced hull can never be seated above the winner
-        // again — the exact shape of the defect this replaced.
+        // captain participant is the winner or in the sink order). The fallback
+        // sorts LAST rather than first so that if that invariant is ever
+        // broken, an unplaced hull can never be seated above the winner again —
+        // the exact shape of the defect this replaced.
         placement: this.placements.get(id) ?? this.participants.size + 1,
         kills: p.kills,
         damageDealt: p.damageDealt,

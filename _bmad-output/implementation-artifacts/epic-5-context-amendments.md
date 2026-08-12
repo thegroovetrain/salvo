@@ -172,3 +172,44 @@ was between three defensible orderings and one broken one. The ordering above is
 Story 5-3 (Omniscient Reveal & Results) owns this screen and inherits one related open item: the
 client's PROVISIONAL placement counts human rivals only, so an eliminated captain's number still snaps
 when the real results land — pre-existing, but wider now (see `deferred-work.md`).
+
+## Amendment 9 — DRONES ARE NOT RANKED AND DO NOT APPEAR IN THE RESULTS (Eric ruling 2026-08-11) — SUPERSEDES amendment 8
+
+> *"just don't show the drones in the match results. problem solved."*
+> *"ffs just stop counting drones. they exist to test features. they are disposable and should not be ranked."*
+
+Amendment 8 (the orchestrator's survivors-placement tier) is **superseded and its code deleted**. It
+solved the wrong problem: it found a defensible ORDER for drones in the results table when drones
+should not have been in the table at all.
+
+**Ruled:** `ResultsMsg.rows` contains **captains only**, and placements are **captain-relative** —
+winner is 1, then the remaining captains by reverse sink order (later sink places higher), which is
+the ORIGINAL shipped rule restricted to captains. Both filters are load-bearing: the row filter
+removes the rows, and the placement filter is what stops a 2-captain match rendering "1st" and "20th".
+
+**This is a RECONCILIATION, not a new asymmetry.** The project already described *"humans-only
+placement/results"* as the intended counterpart to the AFLOAT count, and the Public Register
+(epic-4 amendments 29-34) already ruled *"drones are NOT combatants"*. The shipped code simply never
+matched either statement. It does now.
+
+**Amendment 8's survivors tier is deleted rather than kept as defensive code, because it is
+unreachable once drones are excluded**: `checkWin()` only finishes when at most one captain is afloat,
+and that captain IS the winner, so no non-winner captain can be afloat at finish — and every
+non-afloat captain is in `sinkOrder`, since `sinkShip` is the sole `alive → sunk` edge and always
+pushes its event, `consumeSinks()` runs before `checkWin()` in the same `update()`, `onPlayerLeave`
+records the leave-as-sink before its own check, and `activate()` redeploys every hull to `alive`.
+`resultsMsg()`'s defensive fallback is KEPT but is now unreachable — it sorts LAST rather than 0, so
+the amendment-8 defect's shape (a row above the winner) cannot recur.
+
+**What did NOT move:** telemetry still counts every hull (`rosterSize`, `rosterByClass`,
+`killsByClass`, `stormDeaths` are the operator's data, not presentation, and are now pinned by a
+test); `ShipRecord.kills` still counts drone kills for the roster/results KILLS column, and
+`captainKills` still drives the bounty throne alone (Story 4.6's split, untouched); the roster schema
+is untouched, and a drone's `PlayerMeta.placement` simply stays 0, which has no client consumer —
+re-verified that the only client roster reads anywhere are `id`, `alive` and `color`.
+
+**A pre-existing defect closes for free.** The client's PROVISIONAL placement (`score.ts`) has always
+counted human rivals only, so it disagreed with a drone-inclusive final placement — in the
+2-captain/18-drone shape the loser read #2 provisionally and #20 finally. Captain-relative placement
+makes the two agree by construction, with no client change. The `deferred-work.md` entry filed for it
+this cycle is closed on arrival.

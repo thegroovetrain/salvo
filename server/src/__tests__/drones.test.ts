@@ -5,8 +5,9 @@
 // avoidance and a zone-recovery override. On the match side (amendment 4, Eric
 // ruling 2026-08-11): DRONES NO LONGER GATE THE WIN — a lone afloat captain wins
 // immediately however many drones are still sailing — while two afloat captains
-// keep fighting through a full drone fill, drones can still hold placements, and
-// a drone can never win.
+// keep fighting through a full drone fill, and a drone can never win. Drones are
+// also absent from the RESULTS entirely (Eric ruling 2026-08-11, superseding
+// amendment 8): no row, no placement — the table is captains only.
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, dist, isAfloat, pointPolygonDistance, type ZoneTimeline } from '@salvo/shared';
@@ -180,7 +181,7 @@ describe('drones — zone recovery', () => {
   });
 });
 
-// --- match integration: drones fill, can't win, hold placements ---------------
+// --- match integration: drones fill, can't win, never appear in the results ---
 
 interface MatchCtx {
   w: World;
@@ -280,11 +281,12 @@ describe('match — drone fill + win exclusion', () => {
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human');
     expect(ctx.m.placements.get('human')).toBe(1);
-    // ...and every drone that outlasted the match is PLACED behind the winner
-    // (T4b ruling): with an empty sink order the survivor tier is the whole
-    // fill, in activation roster order, so placements are the dense 1..fillTo.
-    const placed = afloatDroneIds(ctx).map((id) => ctx.m.placements.get(id));
-    expect(placed).toEqual(Array.from({ length: CONFIG.match.fillTo - 1 }, (_, i) => i + 2));
+    // ...and NOT ONE of them holds a placement or a results row (Eric ruling
+    // 2026-08-11: *"just don't show the drones in the match results"*). The
+    // captain is the whole table: a solo winner is 1 of 1, not 1 of fillTo.
+    expect(afloatDroneIds(ctx).every((id) => ctx.m.placements.get(id) === undefined)).toBe(true);
+    const msg = ctx.results[0] as { rows: { id: string }[] };
+    expect(msg.rows.map((r) => r.id)).toEqual(['human']);
   });
 
   // THE PRODUCTION-SAFETY ARGUMENT the ruling rests on: CONFIG.match.minHumans
@@ -300,7 +302,7 @@ describe('match — drone fill + win exclusion', () => {
     expect(ctx.results).toHaveLength(0);
   });
 
-  it('the last captain wins once the other is sunk; drones hold placements', () => {
+  it('the last captain wins once the other is sunk; drones hold NO placement and NO row', () => {
     const ctx = duoMatch();
     activate(ctx);
     const drones = afloatDroneIds(ctx);
@@ -314,14 +316,13 @@ describe('match — drone fill + win exclusion', () => {
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human');
     expect(ctx.m.placements.get('human')).toBe(1);
-    // Every drone placed (2..fillTo); none placed 1st.
-    for (const id of drones) {
-      const p = ctx.m.placements.get(id);
-      expect(p).toBeGreaterThan(1);
-    }
+    // The rival is 2nd of TWO — a whole fill of sunk drones sat between them in
+    // the sink order and consumed no placement (Eric ruling 2026-08-11).
+    expect(ctx.m.placements.get('rival')).toBe(2);
+    for (const id of drones) expect(ctx.m.placements.get(id)).toBeUndefined();
     const msg = ctx.results[0] as { winnerId: string; rows: { id: string }[] };
     expect(msg.winnerId).toBe('human');
-    expect(msg.rows.some((r) => r.id === drones[0])).toBe(true); // drones in results
+    expect(msg.rows.map((r) => r.id)).toEqual(['human', 'rival']); // captains only
   });
 
   it('a drone can NEVER win — human sinking last still wins', () => {
