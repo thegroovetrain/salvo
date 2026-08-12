@@ -22,6 +22,7 @@ import {
   LIFECYCLE_ALIVE,
   NO_BOONS,
   applyGroundingDamp,
+  applySinkingDecel,
   applySlotEffect,
   boonBehaviors,
   boostedKinematics,
@@ -34,9 +35,11 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   generateMap,
+  hasFoundered,
   hookKinematics,
   isAcquisitionDef,
   isAfloat,
+  isSinking,
   isSunk,
   islandDistance,
   loadoutFor,
@@ -331,9 +334,11 @@ export interface ShipRecord {
    * (a detach at the teleport is mandatory for correctness, not just
    * lifecycle hygiene: appendWakeSample chains consecutive samples, so a
    * kept ribbon would draw a bogus death-point→spawn-point segment across
-   * the map). sinkShip deliberately does NOT detach: a wreck stops moving,
-   * so the attached ribbon simply stops growing and ages out in place while
-   * the record survives for the spectate/respawn window. Capacity is
+   * the map). sinkShip deliberately does NOT detach: a sinking hull KEEPS
+   * laying wake through its window (Story 5.2 motion seam) with no teleport
+   * anywhere in sight, and once foundered the attached ribbon simply stops
+   * growing and ages out in place while the record survives for the
+   * spectate/respawn window. Capacity is
    * provisioned from the TRUE attainable top speed — effective kinematics
    * maxSpeed + the boost speedBonus, via effectiveStats(), the sole
    * derivation path — and re-provisioned by applyBoon when a speed card
@@ -426,18 +431,24 @@ export interface ShipRecord {
    *
    * Read it through the shared predicates, never by comparing `kind` inline:
    * `isAfloat()` for "a live combatant the sim damages, steers and counts",
-   * `isSunk()` for "this life is over" (the respawn arm). They are exact
-   * complements TODAY only because `sinking` is unreachable (amendment 1);
-   * Story 5.2 makes them diverge, and every call site that went through the
-   * predicate moves with it for free.
+   * `isSinking()` for "in Story 5.2's five-second window" (the three re-opened
+   * seams: motion, weapons/horn, perceivability — amendment 15), `isSunk()`
+   * for "this life is over" (the respawn arm). Since 5.2 the three states are
+   * all REACHABLE and none is another's complement.
    *
-   * Written ONLY by the four named edges — construction (addShip, straight to
-   * LIFECYCLE_ALIVE), `sinkInstant` (sinkShip) and `redeploy` (redeployShip /
-   * respawn) — all through transitionLifecycle(), which validates against the
-   * one table. Nothing else assigns it.
+   * Written ONLY by the named edges — construction (addShip, straight to
+   * LIFECYCLE_ALIVE), `sink` (sinkShip — the entry into the window, all
+   * bookkeeping at entry per amendment 11), `founder` (founderSinking, the
+   * window's expiry — event-free) and `redeploy` (redeployShip / respawn) —
+   * all through transitionLifecycle(), which validates against the one table.
+   * Nothing else assigns it. (`sinkInstant` remains a legal table edge for
+   * the transition tests; the sim no longer takes it.)
    *
-   * NOT on the wire (amendment 7): `OwnShip.alive` and `PlayerMeta.alive`
-   * stay booleans projected from isAfloat() by frames.ts / syncRoster().
+   * On the wire ONLY as projections (amendments 7/16): `OwnShip.alive` and
+   * `PlayerMeta.alive` stay booleans projected from isAfloat() by frames.ts /
+   * syncRoster() — false the instant the hull starts sinking — and the
+   * SELF-PRIVATE `OwnShip.sinkingUntil` deadline is the sole disclosure of
+   * the window (it rides `you` and nothing else).
    */
   lifecycle: ShipLifecycle;
   input: InputMsg; // latest applied input (validated + clamped)
@@ -1204,19 +1215,28 @@ export class World {
   }
 
   /**
-   * Sink a ship: dead, hp 0, respawn scheduled (only while respawnEnabled —
-   * in the active match phase the dead transition to spectators instead),
-   * death counted. Attributes a kill (and its XP, which banks a point on every
-   * level crossed) to `by` when it names a different ship still in the room —
-   * a DEAD killer (mutual destruction) still gets both; storm (`by` undefined)
-   * and self-kills grant nothing by construction. Combat routes damage through
-   * here; tests drive it directly.
+   * Sink a ship — the entry into THE SINKING WINDOW (Story 5.2): `alive ->
+   * sinking` via the `sink` edge, with EVERY piece of bookkeeping firing HERE
+   * at sink-entry, unmoved (amendment 11 — the question gate offered deferring
+   * it to founder and Eric rejected that): kill credit and its XP, the bounty
+   * recompute, deaths, the single public `sunk` event and its kill-feed line,
+   * the roster `alive` flip (syncRoster projects isAfloat) and the respawn
+   * arm. The CONFIG.ship.sinkingWindowMs that follow belong to the dying
+   * captain alone — the hull keeps its way and its weapons (the three
+   * amendment-15 seams) until the founderSinking step takes the `founder`
+   * edge at the deadline WITHOUT a second event. Attributes a kill (and its
+   * XP, which banks a point on every level crossed) to `by` when it names a
+   * different ship still in the room — a DEAD killer (mutual destruction)
+   * still gets both; storm (`by` undefined) and self-kills grant nothing by
+   * construction. Combat routes damage through here; tests drive it directly.
    */
   sinkShip(id: string, by?: string): void {
     const ship = this.ships.get(id);
     // THE SOLE IDEMPOTENCY LOCK (amendment 1): exactly one `sunk` event per
-    // hull per life hangs off this early return, and the `sinkInstant` edge
-    // below exists precisely so the transition it guards stays ONE move.
+    // hull per life hangs off this early return. A hull already `sinking`
+    // fails isAfloat, so re-entry during the window is refused here — the
+    // split into sink+founder did NOT weaken the lock, because founderSinking
+    // emits nothing and this remains the only emitter.
     if (!ship || !isAfloat(ship.lifecycle)) return;
     // THE PRE-SINK BOUNTY READ (Story 4.6): captured before ANYTHING mutates —
     // the kill credit below may move the throne, and the bonus + the `bty`
@@ -1225,24 +1245,32 @@ export class World {
     // the victim.
     const bountyMark = this.bountyMark(id, by);
     const victimHeldBounty = bountyMark === 'v';
-    // `alive -> sunk` DIRECTLY (Story 5.1, amendment 1): sinking stays
-    // INSTANTANEOUS: `sinking` is declared-only until Story 5.2 builds the
-    // window, and splitting this one transition into sink+founder is exactly
-    // how the `sunk` event gets emitted twice or not at all.
-    ship.lifecycle = transitionLifecycle(ship.lifecycle, 'sinkInstant', this.now);
+    // `alive -> sinking` (Story 5.2): the `sink` edge opens the window. All
+    // bookkeeping below fires NOW; only the physical foundering is deferred.
+    ship.lifecycle = transitionLifecycle(ship.lifecycle, 'sink', this.now);
     ship.hp = 0;
-    ship.state.speed = 0;
-    // Close any open speed-boost window at the instant of death (Story 1.6): a
-    // future boostUntil must not ride the owner's frames through the death gap,
-    // where it would paint active-boost HUD chrome on a dead ship. The slow and
-    // dazzle marks die with it (Story 2.8) — same dead-chrome rule.
-    ship.boostUntil = 0;
-    // The DAMAGE CONTROL pool dies with the hull (2026-08-04): nothing carries
-    // through the death gap, so a wreck can never trickle hp back and a fresh
-    // life never inherits a stranger's repair.
+    // WHAT SINK-ENTRY DELIBERATELY DOES **NOT** ZERO (Story 5.2 — each kept
+    // field is a decision, not an omission; founderSinking zeroes them all at
+    // the window's end):
+    //   - state.speed — the ritardando IS the window: the hull keeps its way
+    //     and decays through the shared sim/sinking.ts cap in stepShips.
+    //   - boostUntil — amendment 10 admits speedBoost while sinking (the
+    //     doomed surge), so an OPEN boost window must survive sink-entry and
+    //     keep composing with the decel cap; zeroing it here would kill a
+    //     live surge the ruling explicitly allows. The old "no active-boost
+    //     HUD chrome on a dead ship" rationale no longer applies at entry:
+    //     the owner's frame still carries `you` and the hotbar stays live.
+    //   - slowedUntil / dazzledUntil — a hull that sinks fouled sinks fouled:
+    //     the motion seam re-opens with the hull's REAL state (the slow keeps
+    //     lowering the cap the decel scales; the dazzle keeps shrinking the
+    //     dying captain's own fog hole). Neither can be REFRESHED while
+    //     sinking (mine blasts and zone effects gate on isAfloat), so both
+    //     expire naturally within the window.
+    // The DAMAGE CONTROL pool DOES die at entry (2026-08-04 rule, unchanged):
+    // the economy is what a sinking captain loses (amendment 10 — "once
+    // sinking, you're done"), tickRepairs would never tick it anyway (afloat
+    // gate), and nothing may trickle hp back onto a hull already at 0.
     ship.repairHp = 0;
-    ship.slowedUntil = 0;
-    ship.dazzledUntil = 0;
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
@@ -1257,6 +1285,37 @@ export class World {
     // captainKills competes in this very evaluation — one recompute per sink,
     // in sink order, so simultaneous challengers resolve sequentially.
     this.recomputeBounty();
+  }
+
+  /**
+   * THE FOUNDER EDGE (Story 5.2): every hull whose sinking window has expired
+   * takes `sinking -> sunk` — and emits NOTHING. All bookkeeping (kill credit,
+   * XP, bounty, deaths, the `sunk` event, the respawn arm, the roster flip)
+   * fired at sink-entry (amendment 11); this step is purely the physical end
+   * of the window, so a second `sunk` here would be exactly the duplicate
+   * amendment 1's idempotency lock exists to prevent. hasFoundered's
+   * INCLUSIVE deadline matches the shared decel cap reaching exactly 0, so
+   * "stopped" and "foundered" land on the same tick by construction.
+   *
+   * The fields sink-entry deliberately KEPT (see sinkShip) are zeroed here,
+   * at the actual end of the life: the residual speed (the cap is exactly 0
+   * on this tick — the assignment makes the wreck's parked state explicit
+   * rather than an artifact of the ramp), any still-open boost window (the
+   * original "no active-boost chrome on a dead ship" rule now applies — the
+   * next frame is a spectator frame with no `you`), and the slow/dazzle marks
+   * (nothing carries through the death gap; respawn re-zeroes them for
+   * symmetry exactly as before).
+   */
+  private founderSinking(): void {
+    for (const ship of this.ships.values()) {
+      const lc = ship.lifecycle;
+      if (lc.kind !== 'sinking' || !hasFoundered(lc.since, this.now)) continue;
+      ship.lifecycle = transitionLifecycle(lc, 'founder', this.now);
+      ship.state.speed = 0;
+      ship.boostUntil = 0;
+      ship.slowedUntil = 0;
+      ship.dazzledUntil = 0;
+    }
   }
 
   /**
@@ -1512,7 +1571,8 @@ export class World {
    * production catalog, so digit 4 is live — Story 2.7; a short offer from a
    * small injected catalog bounds itself). Levels ARE spendable while dead
    * (builds persist across waiting-phase respawns — same precedent as the dead
-   * killer's reward).
+   * killer's reward) but NEVER while SINKING (Story 5.2, amendment 10 — see
+   * the guard below).
    *
    * The fitted boon is applied through applyBoon (the 2.5 seam, now live) and
    * the SELF-PRIVATE `bn` event is queued HERE, not inside applyBoon: a
@@ -1529,6 +1589,15 @@ export class World {
   spendPoint(id: string, rawChoice: unknown): boolean {
     const ship = this.ships.get(id);
     if (!ship || ship.offers.length === 0) return false;
+    // THE REFIT IS CLOSED WHILE SINKING (Story 5.2, amendment 10 — "once
+    // sinking, you're done"): card picks AND the HEAL_CHOICE spend are refused
+    // outright — a clean denial (false), never a throw; the bank and the queue
+    // stay untouched, so the banked level is still there for the next life.
+    // Deliberately NOT routed through sinkingActivationGate: the economy never
+    // went near it, and this is the actual policy that gate's amendment names.
+    // Note the asymmetry is three-state: alive spends, SUNK spends (builds
+    // persist across waiting-phase respawns), sinking alone shops nothing.
+    if (isSinking(ship.lifecycle)) return false;
     if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
     const front = ship.offers[0];
     if (rawChoice === HEAL_CHOICE) return this.spendHeal(ship, front);
@@ -1549,7 +1618,9 @@ export class World {
    * inert + a denied pulse). This is the one asymmetry with a card pick, which
    * is legal while dead because a build persists across the death gap; a heal
    * cannot, because tickRepairs only ticks living hulls and sinkShip zeroes the
-   * pool.
+   * pool. (A SINKING hull never reaches this method — spendPoint refuses the
+   * whole spend first, amendment 10 — but the isAfloat guard here would refuse
+   * it anyway: belt and braces on the "no hp comes back" rule.)
    *
    * On success exactly ONE level is consumed and the ENTIRE front offer returns
    * to the deck — unlike a card pick, which withholds the chosen card. No card
@@ -1655,6 +1726,20 @@ export class World {
     // RESOLVED pose (water where the hull actually is), never a rolled-back
     // candidate inside land. Torpedo ribbons sample in stepShells below.
     { name: 'sampleWakes', run: (w) => w.sampleWakes() },
+    // THE FOUNDER EDGE (Story 5.2) — DELIBERATE step-order position, chosen
+    // not inherited (amendment 6). AFTER the motion block (stepShips /
+    // resolveCollisions / sampleWakes): the window's final tick still moves,
+    // resolves against land and lays its last wake sample as `sinking`, and
+    // the transition reads POST-move truth. BEFORE every later consumer of
+    // liveness, so on the deadline tick the hull is already `sunk` for the
+    // damage rows (a no-op either way — amendment 12 makes a sinking victim
+    // untouchable, so this placement cannot change damage semantics; that is
+    // exactly why it is safe here), for the activation gates (the firing
+    // window closes on precisely the tick the shared decel cap reaches 0 —
+    // hasFoundered and the cap share the inclusive deadline, so "stopped",
+    // "silenced" and "foundered" are the same tick), and for processRespawns
+    // (a standalone-World respawn owes no extra tick past the deadline).
+    { name: 'founderSinking', run: (w) => w.founderSinking() },
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
@@ -1833,12 +1918,16 @@ export class World {
     }
   }
 
-  /** Kinematics for every living hull (shared stepShip, same as prediction).
-   *  EFFECTIVE kinematics (maxSpeed upgrade); the client predictor steps with
-   *  the same effectiveStats() result, so prediction stays in lockstep. */
+  /** Kinematics for every hull still on the water — afloat OR SINKING (Story
+   *  5.2 motion seam 1 of 3, amendment 15): a sinking hull still answers its
+   *  helm through the same shared stepShip, then decays through the shared
+   *  sinking cap below. EFFECTIVE kinematics (maxSpeed upgrade); the client
+   *  predictor steps with the same effectiveStats() result, so prediction
+   *  stays in lockstep. */
   private stepShips(dt: number): void {
     for (const ship of this.ships.values()) {
-      if (!isAfloat(ship.lifecycle)) continue;
+      const lc = ship.lifecycle;
+      if (!isAfloat(lc) && !isSinking(lc)) continue;
       // Snapshot the pre-kinematics pose (induction-valid) for resolveShipPose's
       // rollback branch, then advance.
       const p = ship.prevPose;
@@ -1868,6 +1957,16 @@ export class World {
       const slowed = slowedKinematics(boosted, CONFIG.mine.foulFactor, this.now < ship.slowedUntil);
       const kin = hookKinematics(slowed, ship.boonBehaviors, this.hookRegistry);
       stepShip(ship.state, ship.input, kin, dt);
+      // THE RITARDANDO (Story 5.2): the shared linear speed cap, applied
+      // right after stepShip exactly where prediction.ts applies it — and
+      // fed the POST-boost/slow PER-TICK max (kin.maxSpeed), NEVER the rated
+      // class max: amendment 10 admits speedBoost while sinking, and a
+      // rated-max ramp would silently cap the surge out of existence. A live
+      // boost lifts the ceiling the ramp scales (bonus × remaining), a slow
+      // lowers it, and either way the cap is exactly 0 at the founder
+      // deadline. (The `kind` read, not isSinking(), because the `since`
+      // payload needs the discriminant narrow — the gate above is the seam.)
+      if (lc.kind === 'sinking') applySinkingDecel(ship.state, kin.maxSpeed, lc.since, this.now);
     }
   }
 
@@ -1884,7 +1983,10 @@ export class World {
    */
   private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
-      if (!isAfloat(ship.lifecycle)) continue;
+      // Story 5.2 motion seam 2 of 3 (amendment 15): a SINKING hull still
+      // pushes out of islands and off the map edge — it moved this tick, so
+      // its pose must resolve, or the window would let it coast into land.
+      if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) continue;
       const res = resolveShipPose(
         ship.prevPose,
         ship.state,
@@ -1905,7 +2007,9 @@ export class World {
   }
 
   /**
-   * Per-tick wake upkeep (Story 4.12): every ALIVE hull records its resolved
+   * Per-tick wake upkeep (Story 4.12): every hull still on the water — afloat
+   * OR SINKING (Story 5.2 motion seam 3 of 3, amendment 15: a hull making way
+   * lays wake, and a sinking hull is still making way) — records its resolved
    * pose on the shared distance cadence (appendWakeSample drops non-finite
    * samples and enforces the cadence itself — a stopped or dead hull simply
    * lays nothing); every ribbon's expired tail is pruned; and DETACHED
@@ -1917,7 +2021,9 @@ export class World {
   private sampleWakes(): void {
     for (const ship of this.ships.values()) {
       pruneWake(ship.wake, this.now);
-      if (isAfloat(ship.lifecycle)) appendWakeSample(ship.wake, ship.state.x, ship.state.y, this.now);
+      if (isAfloat(ship.lifecycle) || isSinking(ship.lifecycle)) {
+        appendWakeSample(ship.wake, ship.state.x, ship.state.y, this.now);
+      }
     }
     for (const r of this.torpWakes.values()) pruneWake(r, this.now);
     for (let i = this.orphanWakes.length - 1; i >= 0; i--) {
@@ -2032,9 +2138,14 @@ export class World {
   }
 
   /** Alive hull silhouette polygons (post-move) that shells and mines test
-   *  against this tick. Each ship's transformed verts are written into its own
-   *  hullPoly scratch (transformPolygon reuses the array), so the 20Hz loop
-   *  allocates only the small per-tick target list. */
+   *  against this tick. DELIBERATELY EXCLUDES SINKING HULLS (Story 5.2,
+   *  amendment 12): a hull in the window is not a collision subject — ordnance
+   *  passes through rather than resolving a no-op hit, so damage on it is
+   *  structurally impossible upstream of hitShip's guard (the perceivability
+   *  seam makes it a visible TARGET; nothing makes it a HITTABLE one). Each
+   *  ship's transformed verts are written into its own hullPoly scratch
+   *  (transformPolygon reuses the array), so the 20Hz loop allocates only the
+   *  small per-tick target list. */
   private aliveHulls(): HullTarget[] {
     const hulls: HullTarget[] = [];
     for (const ship of this.ships.values()) {
@@ -2327,6 +2438,15 @@ export class World {
    */
   private hitShip(victim: ShipRecord, amount: number, byId: string): void {
     if (!this.damageEnabled) return;
+    // A SINKING HULL CANNOT BE FINISHED OFF (Story 5.2, amendment 12): damage
+    // landing inside the window is a NO-OP — no hp, no dmg event, no re-sink,
+    // no change to the founder deadline. Load-bearing for correctness, not
+    // only feel: a lethal second hit would otherwise drive sinkShip at a
+    // `sinking` victim (its own guard also refuses — this is defense-in-depth
+    // at the single damage choke, since every in-sim caller already re-checks
+    // isAfloat per victim and aliveHulls() never offers a sinking silhouette
+    // as a target; a directed caller is what this line actually stops).
+    if (isSinking(victim.lifecycle)) return;
     victim.hp -= amount;
     this.creditDamage(byId, victim.id, amount);
     this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
@@ -2608,6 +2728,12 @@ export class World {
    * before its `sunk` — the ordering the non-DoT path already guarantees.
    */
   private burnShip(victim: ShipRecord, amount: number, ownerId: string): void {
+    // A SINKING HULL CANNOT BE FINISHED OFF (Story 5.2, amendment 12) — the
+    // DoT choke gets the same guard as hitShip: applyZoneEffects already
+    // filters and mid-loop-breaks on isAfloat, so in-sim this is unreachable,
+    // but a directed caller must not be able to burn hp off a hull already at
+    // 0 or nudge sinkShip at a sinking victim.
+    if (isSinking(victim.lifecycle)) return;
     victim.hp -= amount;
     this.creditDamage(ownerId, victim.id, amount);
     const key = dotKey(ownerId, victim.id);
@@ -2730,7 +2856,10 @@ export class World {
   private consumeClick(ship: ShipRecord, input: InputMsg): void {
     const clicked = input.fireSeq > ship.lastFireSeq;
     ship.lastFireSeq = Math.max(ship.lastFireSeq, input.fireSeq);
-    if (!isAfloat(ship.lifecycle) || !clicked) return;
+    // Afloat OR SINKING (Story 5.2 weapons seam, amendments 10/15): every
+    // weapon stays live for the whole window — the guns are the point of the
+    // dying captain's beat. Only a hull whose life is over is skipped.
+    if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || !clicked) return;
     // The CLICK channel dispatches WEAPONS ONLY — the mirror of
     // activationControl's ability wall (Story 1.6). A forged click naming an
     // ability or empty slot (e.g. a TB's speedBoost in slot 2) is silently
@@ -2808,7 +2937,10 @@ export class World {
   private consumePress(ship: ShipRecord, input: InputMsg): void {
     const activated = input.actSeq > ship.lastActSeq;
     ship.lastActSeq = Math.max(ship.lastActSeq, input.actSeq);
-    if (!isAfloat(ship.lifecycle) || !activated) return;
+    // Afloat OR SINKING (Story 5.2 weapons seam, amendments 10/15): abilities
+    // meet the fitment criterion — "it is in a ship equipment slot" — so
+    // speedBoost's doomed surge and the decoy drop stay live while sinking.
+    if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || !activated) return;
     // actSeq targets ABILITIES only: a weapon or empty slot is a no-op (no
     // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
     // the mirror of fireControl's weapon-only wall.
@@ -2852,7 +2984,10 @@ export class World {
   private consumeHonk(ship: ShipRecord, input: InputMsg): void {
     const pressed = input.hornSeq > ship.lastHornSeq;
     ship.lastHornSeq = Math.max(ship.lastHornSeq, input.hornSeq);
-    if (!pressed || !isAfloat(ship.lifecycle) || ship.isDrone || this.now < ship.nextHonkAt) return;
+    // Afloat OR SINKING (Story 5.2, amendment 10 — "Weapons and equipment
+    // only. And foghorn."): the horn is named alongside the slots, so a
+    // sinking captain keeps the last word.
+    if (!pressed || (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || ship.isDrone || this.now < ship.nextHonkAt) return;
     ship.nextHonkAt = this.now + CONFIG.foghorn.cooldownMs;
     this.pending.push({ k: 'fh', h: ship.horn, x: ship.state.x, y: ship.state.y, id: ship.id });
   }
@@ -2862,23 +2997,29 @@ export class World {
    * anywhere. Takes the SELECTED slot INDEX and resolves the slot on THIS
    * ship internally, so a caller can never hand it ship A plus ship B's slot
    * object (a cross-ship aliasing hazard that would fire from A while draining
-   * B's pool). A dead ship is refused first ('dead') — defense-in-depth on a
-   * public seam (fireControl already skips the dead, but Epic 5's sinking
-   * policy will drive this gate directly). Today otherwise a PASSTHROUGH:
-   * every activation on a fitted slot is allowed. The sinking-state policy
-   * (which equipment a sinking ship may still activate) is deliberately TBD
-   * per D4 — Epic 5 wires the sinking state through here; no policy logic
-   * lands before it. An empty or out-of-range slot is answered here
-   * (empty-slot denial, no dereference) so rows never see one. Public so
-   * directed tests can drive activation and read the ActivationResult (never
-   * on the wire).
+   * B's pool).
+   *
+   * THE SINKING POLICY IS CLOSED (Story 5.2, amendment 10 — the TBD this gate
+   * carried since Epic 1): NO RESTRICTION AT THE GATE. The ratified criterion
+   * is FITMENT, not category — "it is in a ship equipment slot so it meets
+   * criteria for usability" — so all seven registry rows (gun, torpedo, mine,
+   * cannon, starShells, speedBoost, decoyBuoy) activate while SINKING exactly
+   * as when alive, and a future row is in by default rather than needing a
+   * ruling. What a sinking captain loses is the ECONOMY — the upgrade menu,
+   * picks and the heal — which never routed through this gate at all (that
+   * block lives in spendPoint: "once sinking, you're done"). Only a hull
+   * whose life is OVER is refused ('dead'): defense-in-depth on a public seam
+   * (fireControl/activationControl already skip the sunk). An empty or
+   * out-of-range slot is answered here (empty-slot denial, no dereference) so
+   * rows never see one. Public so directed tests can drive activation and
+   * read the ActivationResult (never on the wire).
    */
   sinkingActivationGate(
     ship: ShipRecord,
     slotIndex: number,
     fireT: number = this.now,
   ): ActivationResult {
-    if (!isAfloat(ship.lifecycle)) return { ok: false, reason: 'dead' };
+    if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return { ok: false, reason: 'dead' };
     const slot = ship.loadout[slotIndex];
     if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
     return EQUIPMENT[slot.equipmentId].activate(this.activationContext(ship, fireT), slot);

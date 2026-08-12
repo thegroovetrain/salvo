@@ -372,6 +372,9 @@ describe('spendPoint — validation table', () => {
     bank(w, a, 1);
     w.respawnEnabled = false;
     w.sinkShip('a');
+    // Story 5.2 (amendment 10): the refit is closed while SINKING — dead
+    // spending resumes only once the hull founders. Cross the window first.
+    w.step(CONFIG.ship.sinkingWindowMs);
     expect(isAfloat(a.lifecycle)).toBe(false);
     const pick = a.offers[0][0];
     expect(w.spendPoint('a', 0)).toBe(true);
@@ -559,7 +562,8 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     w.spendPoint('a', HEAL_CHOICE);
     expect(a.repairHp).toBe(DC.regenHp);
     w.sinkShip('a'); // respawnEnabled (waiting phase) — zeroed here...
-    const ticks = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
+    // Story 5.2: revive lands on the founder tick (window > respawn delay).
+    const ticks = Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 2;
     for (let i = 0; i < ticks; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.repairHp).toBe(0); // ...and again on the way back
@@ -870,7 +874,8 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     const offersBefore = a.offers.map((o) => [...o]);
     const xpBefore = a.xpMs;
     w.sinkShip('a');
-    for (let i = 0; i < Math.ceil(CONFIG.ship.respawnDelay / DT) + 1; i++) w.step();
+    // Story 5.2: the revive waits on the founder tick (window > respawn delay).
+    for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.boons).toEqual(['shipHull', 'shipHull']);
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);

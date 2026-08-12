@@ -25,9 +25,12 @@
 //               sunk-at-leave-time.
 //   finished  — AFLOAT CAPTAINS ≤ 1 (amendment 4: drones no longer gate the
 //               win — see checkWin). winnerId = the survivor, or (mutual
-//               destruction, RULING) the LATEST-sunk human. Placements set,
-//               one 'results' broadcast, damage frozen; after resultsMs the
-//               room disconnects (autoDispose). No new matches in this room.
+//               destruction, RULING) the LATEST-sunk human — unless the last
+//               captains standing went down on the SAME tick, which is a
+//               genuine DRAW: winnerId '' (Story 5.2, amendment 14).
+//               Placements set, one 'results' broadcast, damage frozen; after
+//               resultsMs the room disconnects (autoDispose). No new matches
+//               in this room.
 
 import {
   CONFIG,
@@ -173,8 +176,11 @@ export interface MatchEndSummary {
  * near-identical walk of world.ships deciding who counts — the drone-side
  * counterpart (aliveDroneCount) is gone with the gate it existed for.
  *
- * `isAfloat` is the seam: when Story 5.2 rules whether a `sinking` hull still
- * counts as a combatant, this predicate moves with it for free.
+ * `isAfloat` is the seam — and Story 5.2 RULED it (amendment 14): a SINKING
+ * hull is NOT win-eligible. The outcome is decided at sink-entry, exactly as
+ * shipped, so this predicate deliberately keeps the isAfloat answer and the
+ * five-second window changes nothing about who won (D4's "later sinker wins"
+ * clause is dead — with a flat window, sink-entry order IS founder order).
  *
  * Drones are not captains, and drones are not combatants — the same position
  * the Public Register took for `sunk` (CONFIG.xp.droneTierLevels pays a
@@ -221,6 +227,11 @@ export class Match {
    *  order is the raw record; computePlacements() is what filters it to
    *  captains. Later sink = better placement. */
   private readonly sinkOrder: string[] = [];
+  /** SINK-ENTRY timestamp (world.now ms) per sinkOrder entry — amendment 14's
+   *  draw detector: two captains sharing a stamp went down on the same tick.
+   *  Kept beside (not inside) sinkOrder so the ordered record stays the plain
+   *  array every existing consumer walks. */
+  private readonly sinkTimes = new Map<string, number>();
   /** Everyone present at activation, drones included (stats refreshed on
    *  exit/finish). Telemetry reads all of it; the results rows read the
    *  captains only. */
@@ -329,6 +340,7 @@ export class Match {
     this.stormDeaths = 0;
     this.participants.clear();
     this.sinkOrder.length = 0;
+    this.sinkTimes.clear();
     // Drones ARE participants — they are combatants for the KILL FEED, the
     // contact stream and the operator telemetry (endSummary reads this Map, and
     // rosterSize/rosterByClass/killsByClass must count every hull). They are
@@ -367,12 +379,14 @@ export class Match {
         damageDealt: aliveWinner.damageDealt,
       });
     }
-    // RULING: with 0 captains afloat (simultaneous mutual destruction — the last
-    // two captains going down on the same tick, since any tick that leaves ONE
-    // afloat now finishes on that captain, amendment 4) the winner is the
-    // latest-sunk HUMAN — drones can never win, so we skip past them in the sink
-    // order rather than taking its last entry blindly.
-    this.winnerId = aliveWinner?.id ?? this.latestSunkHuman() ?? '';
+    // RULING (Story 5.2, amendment 14): with 0 captains afloat the winner is
+    // the latest-sunk HUMAN — drones can never win, so we skip past them in
+    // the sink order — UNLESS every captain left standing went down on the
+    // SAME tick, which is a genuine DRAW: winnerId stays '' deliberately and
+    // the client renders it as one. A flat sinking window preserves exact
+    // ties exactly (sink-entry order IS founder order), so the same-tick wipe
+    // is the one shape where "latest sunk" cannot name a winner without lying.
+    this.winnerId = aliveWinner?.id ?? this.mutualDestructionWinner() ?? '';
     this.endedBy = this.classifyEnd(aliveWinner, trigger);
     this.computePlacements();
     this.phase = 'finished';
@@ -420,6 +434,12 @@ export class Match {
   private recordSink(id: string): void {
     if (!this.participants.has(id) || this.sinkOrder.includes(id)) return;
     this.sinkOrder.push(id);
+    // Amendment 14's raw material: world.now is the ONE clock and consumeSinks
+    // runs inside the same update() as the events it reads, so every sink of
+    // one tick stamps identically — exact ties are preserved exactly. (A
+    // mid-match leave stamps its leave tick; the first record wins, since a
+    // hull already in sinkOrder never re-records.)
+    this.sinkTimes.set(id, this.world.now);
   }
 
   /**
@@ -475,20 +495,31 @@ export class Match {
    * broken. Placing captains only is what makes the surviving filter honest.
    *
    * AMENDMENT 8's SURVIVOR TIER IS DELETED, not kept as defensive code: it is
-   * UNREACHABLE once drones are excluded. checkWin() finishes only when at most
-   * ONE captain is afloat, and finish() takes exactly that captain as the
-   * winner — so every OTHER captain is not afloat at the finish, and every
-   * non-afloat captain is in `sinkOrder` (world.sinkShip is the sole
-   * `alive -> sunk` edge and always emits `sunk`, consumeSinks records it
-   * BEFORE checkWin in the same update, a mid-match departure is recorded by
-   * onPlayerLeave before its own check, and activate() redeploys every hull
-   * alive so nobody enters the match already down).
+   * UNREACHABLE once drones are excluded. checkWin() finishes only when at
+   * most ONE captain is afloat, and finish() takes exactly that captain as
+   * the winner — so every OTHER captain is not afloat at the finish, and
+   * every not-afloat captain is in `sinkOrder`. That last step's argument
+   * moved in Story 5.2 and is restated here in full: a not-afloat captain is
+   * either `sinking` or `sunk`, and BOTH states are entered only through
+   * world.sinkShip — the sole edge out of `alive` (the `sink` edge into the
+   * window), which always pushes the public `sunk` EVENT at sink-entry
+   * (amendment 11) before returning; the later `founder` edge
+   * (world.founderSinking, `sinking -> sunk`) is bookkeeping-free and emits
+   * nothing, so it can neither add nor drop a sink record. consumeSinks
+   * records the event BEFORE checkWin in the same update, a mid-match
+   * departure is recorded by onPlayerLeave before its own check, and
+   * activate() redeploys every hull alive so nobody enters the match already
+   * down.
    *
    * INVARIANT: every CAPTAIN participant gets a placement >= 1, so
    * `placement: 0` is unreachable for any results row. The two tiers partition
    * the captains: captain sinks ⊆ participants (recordSink's guard) and the
    * winner is a captain participant (finish() backfills a late-joining one).
-   * Captain placements are the dense range 1..(captain count).
+   * Captain placements are the dense range 1..(captain count). A DRAW
+   * (winnerId '' on a same-tick wipe, amendment 14) moves only the numbering's
+   * starting point: with no winner row, every captain places by reverse sink
+   * order from 1 — within the fatal tick that order is event order, a
+   * stable-but-arbitrary tiebreak the DRAW banner supersedes on the client.
    *
    * Drones keep NO placement at all — `ArenaRoom.syncRoster()` mirrors 0 onto
    * their PlayerMeta.placement, which no client reads (the results table is
@@ -589,5 +620,25 @@ export class Match {
       if (!this.participants.get(id)?.isDrone) return id;
     }
     return undefined;
+  }
+
+  /**
+   * Winner resolution for a ZERO-AFLOAT finish (Story 5.2, amendment 14): the
+   * latest-sunk human — but a SAME-TICK WIPE is a DRAW. When the latest-sunk
+   * human shares its sink-entry stamp with any other captain, every captain
+   * still standing at that tick went down together, so no "later sinker"
+   * exists and the answer is nobody (undefined → winnerId ''). Cross-tick
+   * mutual destruction keeps the shipped latest-sunk rule byte-identical.
+   * Drones are skipped on both sides of the comparison — a drone sharing the
+   * fatal tick neither claims nor breaks the draw.
+   */
+  private mutualDestructionWinner(): string | undefined {
+    const last = this.latestSunkHuman();
+    if (last === undefined) return undefined;
+    const lastAt = this.sinkTimes.get(last);
+    for (const [id, at] of this.sinkTimes) {
+      if (id !== last && at === lastAt && !this.participants.get(id)?.isDrone) return undefined;
+    }
+    return last;
   }
 }

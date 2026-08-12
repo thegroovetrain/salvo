@@ -537,8 +537,8 @@ describe('decoy buoy — decoys channel tiers (the truth)', () => {
     place(w, 'b', 300, 0);
     injectDecoy(w, 'd1', 'a', 5_000, 5_000, 42_000); // absurdly far from everyone
     w.respawnEnabled = false;
-    w.sinkShip('b', 'a'); // b spectates in the active phase
-    w.step();
+    w.sinkShip('b', 'a'); // b spectates in the active phase...
+    w.step(CONFIG.ship.sinkingWindowMs); // ...once foundered (Story 5.2)
     // spectator 'b' does not own it (own: false); owner 'a' still reads own: true even as a finished-phase spectator.
     expect(buildFrame(w, 'b', 'active').decoys).toEqual([{ id: 'd1', x: 5_000, y: 5_000, until: 42_000, own: false, by: 'a' }]);
     expect(buildFrame(w, 'a', 'finished').decoys).toEqual([{ id: 'd1', x: 5_000, y: 5_000, until: 42_000, own: true, by: 'a' }]);

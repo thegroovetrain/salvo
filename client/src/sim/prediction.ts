@@ -26,10 +26,22 @@
 // boost there is no optimistic regime — a tick is slowed iff its OWN recorded
 // server-time estimate is inside the last frame's window (`t < slowedUntil`),
 // which makes localTick and replayFrom agree by construction.
+//
+// THE SINKING WINDOW (Story 5.2, amendments 10/13/16): the self-private
+// you.sinkingUntil folds in per tick through the SHARED applySinkingDecel —
+// the identical function world.ts calls, the applyGroundingDamp precedent — so
+// the ritardando cannot drift between the two sides. Authoritative-only for the
+// same reason the slow is: the client never predicts its own sinking, so a tick
+// is capped iff the last frame reported a window. Two properties make replay
+// safe here: the cap is derived purely from (since, now), so applying it twice
+// or replaying it across a reconcile yields the same speed; and it is applied
+// AFTER stepShip, so this tick's integrated position is untouched and the cap
+// only shapes the next tick's start speed — exactly as on the server.
 
 import {
   angleDiff,
   applyGroundingDamp,
+  applySinkingDecel,
   boostedKinematics,
   hookKinematics,
   slowedKinematics,
@@ -91,6 +103,12 @@ export interface ServerKinematics {
    * a real frame's `you` carries it whenever the victim is fouled.
    */
   slowedUntil?: number;
+  /**
+   * ms — server-clock time this SINKING hull founders (OwnShip.sinkingUntil,
+   * Story 5.2); ABSENT = not sinking. Optional for the same reason as the two
+   * windows above, and absent for all but five seconds of any hull's life.
+   */
+  sinkingUntil?: number;
 }
 
 interface PendingInput {
@@ -140,6 +158,15 @@ export class Predictor {
    * client never predicts a mine blast, so there is no optimistic twin here.
    */
   private authSlowedUntil = 0;
+  /**
+   * Authoritative SINKING-window deadline (you.sinkingUntil from the latest
+   * server frame; 0 = not sinking). Authoritative-ONLY, exactly like the slow:
+   * the client never predicts its own sinking, so there is no optimistic twin.
+   * Stored as the DEADLINE (the wire's own shape) and converted to the shared
+   * fold's `since` at use — one subtraction against the shared window constant,
+   * so the two sides read the same pair of numbers.
+   */
+  private authSinkingUntil = 0;
   /**
    * Optimistic boost window opened at a predicted-ready activation press
    * (predictBoostActivation), so the speed-up doesn't wait a round trip.
@@ -281,6 +308,11 @@ export class Predictor {
     // Same for the slow window: the server clears slowedUntil on death /
     // redeploy, and the next frame re-seeds it.
     this.authSlowedUntil = 0;
+    // ...and for the sinking window. A hard re-init is a respawn / reconnect /
+    // class swap, none of which a sinking hull survives — leaving a stale
+    // deadline behind would cap the NEXT life's speed to zero for the rest of
+    // an already-expired window.
+    this.authSinkingUntil = 0;
   }
 
   /**
@@ -310,7 +342,12 @@ export class Predictor {
     // this.prev is the pre-step (induction-valid) pose — reuse it as the
     // rollback prev for this tick's collision resolve.
     this.prev = clone(this.curr);
-    stepShip(this.curr, input, this.tickKin(tickT, input.seq), this.dt);
+    const kin = this.tickKin(tickT, input.seq);
+    stepShip(this.curr, input, kin, this.dt);
+    // The sinking cap folds against THIS tick's effective kinematics (see
+    // sinkingDecel) — the same object stepShip just used, so a live boost
+    // raises the ceiling the ritardando scales rather than being refused.
+    this.sinkingDecel(this.curr, kin, tickT);
     this.resolveCollisions(this.curr, this.prev);
   }
 
@@ -336,6 +373,11 @@ export class Predictor {
     // BEFORE the replay is what makes the replayed ticks re-make the same
     // slow decisions the original local ticks will make from here on.
     this.authSlowedUntil = you.slowedUntil ?? 0;
+    // Adopted BEFORE the replay for the same reason the slow is: the pending
+    // ticks about to be replayed will be re-stepped from here on under this
+    // window, so they must re-make the same decisions the original local ticks
+    // will. A frame that omits the key (not sinking / foundered) clears it.
+    this.authSinkingUntil = you.sinkingUntil ?? 0;
     const replayed = this.replayFrom(you);
     if (!this.ready) {
       this.adopt(replayed);
@@ -373,10 +415,36 @@ export class Predictor {
       prev.x = s.x;
       prev.y = s.y;
       prev.heading = s.heading;
-      stepShip(s, { throttle: p.throttle, rudder: p.rudder }, this.tickKin(p.t, p.seq), this.dt);
+      const kin = this.tickKin(p.t, p.seq);
+      stepShip(s, { throttle: p.throttle, rudder: p.rudder }, kin, this.dt);
+      this.sinkingDecel(s, kin, p.t);
       this.resolveCollisions(s, prev);
     }
     return s;
+  }
+
+  /**
+   * The SINKING RITARDANDO for one tick — the SHARED applySinkingDecel, the
+   * identical function world.ts folds into its own stepShips, at the identical
+   * 50ms dt (the applyGroundingDamp precedent: one implementation, so the two
+   * sides cannot drift).
+   *
+   * `kin.maxSpeed` is the PER-TICK EFFECTIVE forward max — post
+   * boostedKinematics/slowedKinematics/hookKinematics — and that is
+   * DELIBERATELY UNLIKE the RATED max resolveCollisions passes to
+   * applyGroundingDamp. Amendment 10 admits speedBoost while sinking knowing it
+   * fights the ritardando, so the boost must raise the CEILING the ramp scales
+   * (a doomed surge the hull can accelerate into) rather than be refused; the
+   * cap still reaches exactly 0 at the deadline either way. sinking.ts's header
+   * is where that composition is ruled.
+   *
+   * Not sinking (the overwhelmingly common case, and every tick of a hull that
+   * never sank) costs one compare and returns the tick byte-identical to the
+   * pre-5.2 one.
+   */
+  private sinkingDecel(s: ShipState, kin: ShipConfig, t: number): void {
+    if (this.authSinkingUntil <= 0) return;
+    applySinkingDecel(s, kin.maxSpeed, this.authSinkingUntil - CONFIG.ship.sinkingWindowMs, t);
   }
 
   /**

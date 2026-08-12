@@ -37,6 +37,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import type { GameState } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
+import { isSinkingNow } from '../sim/sinkingWindow.js';
 import type { Connection } from './connection.js';
 import type { ServerClock } from './clock.js';
 import { ContactStore, SnapshotBuffer } from './snapshots.js';
@@ -1330,8 +1331,21 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
     // spectate mode owns the overlay); in waiting the respawn overlay reads it.
     deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
     deps.state.killerId = e.by ?? null; // follow-your-killer default
-    deps.resetThrottle(); // a sunk ship's engine order clears — respawn starts at STOP
-    deps.resetPrime(); // and the primed skillshot reverts to the gun for the next life
+    // THE SINKING WINDOW HOLDS BOTH RESETS (Story 5.2, amendments 10/16). The
+    // `sunk` event still fires at sink-entry, unmoved — but the hull is not
+    // gone yet: for five seconds it is still under the player's hand. Clearing
+    // the engine order here would STOP the ship the window exists to keep
+    // sailing (rudder authority scales with speed, so it would take the helm
+    // with it), and reverting the prime would steal the torpedo a captain went
+    // down intending to fire. main.ts's tickSinkingWindow does both at FOUNDER
+    // instead — the same hygiene at the boundary that actually ends the life.
+    // `net.you` is this frame's own ship (handleFrame adopts it before events),
+    // so the window is read off the frame that opened it; with no window (or no
+    // `you` at all) this is the shipped path, byte for byte.
+    if (!isSinkingNow(deps.state.net.you, t)) {
+      deps.resetThrottle(); // a sunk ship's engine order clears — respawn starts at STOP
+      deps.resetPrime(); // and the primed skillshot reverts to the gun for the next life
+    }
   } else if (e.seen) {
     deps.contactViews.markSunk(e.id); // teardown is spatial — witnessed only
   }

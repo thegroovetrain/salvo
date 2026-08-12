@@ -174,7 +174,7 @@ describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
       cls: 'torpedoBoat' as const, pts: 1, offer: ['cannonAp', 'gunDamage'], boostUntil: 0,
       boons: ['cannonArcing'], lvl: 0, xp: 0, repairHp: 0,
     };
-    menu.toggle(offerView(you, false, false)!);
+    menu.toggle(offerView(you, false, false, false)!);
     const card = document.querySelector('#upgrade-menu button') as HTMLElement;
     // The chip is still the card's FIRST child (the pinned digit→slot mapping)
     // and it is NOT inside the clipped body — it overhangs the corner by design.

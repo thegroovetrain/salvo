@@ -254,7 +254,11 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
     const w = bareWorld();
     const ship = place(w, 'a');
     setInput(ship, { aim: Math.PI / 2, aimDist: 300, slot: SLOT_GUN }); // would fire if alive
+    w.respawnEnabled = false;
     w.sinkShip('a');
+    // Story 5.2 (amendment 10): a SINKING hull still fires — only a foundered
+    // one is refused. Cross the window before asserting.
+    w.step(CONFIG.ship.sinkingWindowMs);
     expect(isAfloat(ship.lifecycle)).toBe(false);
     expect(w.sinkingActivationGate(ship, SLOT_GUN)).toEqual({ ok: false, reason: 'dead' });
   });
@@ -407,7 +411,8 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     const ship = place(w, 'a');
     ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: 999 }; // dirty it, prove the rebuild
     w.sinkShip('a');
-    const steps = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
+    // Story 5.2: the revive lands on the founder tick (window > respawn delay).
+    const steps = Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 2;
     for (let i = 0; i < steps; i++) w.step();
     expect(isAfloat(ship.lifecycle)).toBe(true);
     expectFreshLoadout(ship);

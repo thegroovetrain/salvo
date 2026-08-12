@@ -396,7 +396,8 @@ describe('lifecycle — redeployShip wipes boons, respawn preserves the build', 
     w.applyBoon(a, 'bolterRack');
     w.sinkShip(a.id);
     expect(isAfloat(a.lifecycle)).toBe(false);
-    const ticks = Math.ceil(CONFIG.ship.respawnDelay / DT) + 1;
+    // Story 5.2: the revive lands on the founder tick (window > respawn delay).
+    const ticks = Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1;
     for (let i = 0; i < ticks; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.boons).toEqual(['ironPlating', 'bolterRack']);

@@ -422,8 +422,14 @@ describe('perception — sight tier boundaries (exact)', () => {
   it('dead ships are never contacts; a viewer with no ship sees nothing', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    place(w, 'b', 100, 0);
+    const b = place(w, 'b', 100, 0);
+    w.respawnEnabled = false;
     w.sinkShip('b');
+    // Story 5.2 (amendment 15 seam 3): while SINKING, b is deliberately still
+    // a contact — it vanishes only at founder. Assert both halves.
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+    w.step(CONFIG.ship.sinkingWindowMs);
+    expect(isAfloat(b.lifecycle)).toBe(false);
     expect(buildFrame(w, 'a').contacts).toEqual([]);
     const watcher = buildFrame(w, 'watcher');
     expect(watcher.contacts).toEqual([]);

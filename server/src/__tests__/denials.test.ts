@@ -190,17 +190,21 @@ describe('denial channel — lifecycle + privacy edges', () => {
     const a = place(w, 'a', 0, 0);
     w.respawnEnabled = false;
     w.sinkShip('a');
+    // Story 5.2: sinkShip now opens the five-second window (a SINKING hull
+    // fires normally — amendment 10), so ride it out to a genuinely dead hull
+    // before pressing. One oversized step crosses the founder deadline.
+    w.step(CONFIG.ship.sinkingWindowMs);
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0 }));
     w.step(); // fireControl skips dead ships entirely — nothing queues
     expect(w.denialsFor('a')).toBeUndefined();
   });
 });
 
-describe('pv join gate — the 32→33 bump (PV 33: THE BOUNTY — Story 4.6 adds ArenaState.bountyId and the trailing SunkEvent.bty flag, both of which a stale client would silently mis-render) is enforced at matchmake', () => {
-  it('rejects pv-32 and pv-31 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(33);
+describe('pv join gate — the 33→34 bump (PV 34: THE SINKING WINDOW — Story 5.2 adds the self-private OwnShip.sinkingUntil key, without which a stale client reads a sinking captain as plain dead and tears down the live helm/hotbar) is enforced at matchmake', () => {
+  it('rejects pv-33 and pv-32 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(34);
+    expect(protocolVersionError(33)).toMatch(/refresh/);
     expect(protocolVersionError(32)).toMatch(/refresh/);
-    expect(protocolVersionError(31)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

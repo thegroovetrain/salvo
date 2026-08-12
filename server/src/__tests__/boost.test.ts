@@ -114,7 +114,11 @@ describe('a dead ship cannot activate', () => {
   it('the gate refuses with dead before any row runs', () => {
     const w = bareWorld();
     const a = place(w, 'a');
+    w.respawnEnabled = false;
     w.sinkShip('a');
+    // Story 5.2 (amendment 10): a SINKING hull still activates — only a
+    // foundered one is dead. Cross the window before asserting the refusal.
+    w.step(CONFIG.ship.sinkingWindowMs);
     expect(isAfloat(a.lifecycle)).toBe(false);
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'dead' });
     expect(a.boostUntil).toBe(0);
@@ -123,7 +127,9 @@ describe('a dead ship cannot activate', () => {
   it('activationControl skips the dead: a stored press never fires while sunk', () => {
     const w = bareWorld();
     const a = place(w, 'a');
+    w.respawnEnabled = false;
     w.sinkShip('a');
+    w.step(CONFIG.ship.sinkingWindowMs); // Story 5.2: cross the window first
     pressActivate(w, 'a', 1, 1, SLOT_BOOST);
     w.step();
     expect(a.boostUntil).toBe(0); // no activation
@@ -194,8 +200,9 @@ describe('death/respawn state reset (Story 1.6)', () => {
     expect(a.boostUntil).toBeGreaterThan(0);
     const lastActSeq = a.lastActSeq;
     // Sink (respawnEnabled default true -> a waiting-phase respawn is scheduled).
+    // Story 5.2: the revive lands on the founder tick (window > respawn delay).
     w.sinkShip('a');
-    const steps = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
+    const steps = Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 2;
     for (let i = 0; i < steps; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true); // respawned
     expect(a.boostUntil).toBe(0); // window cleared on respawn (fresh life)
@@ -262,20 +269,30 @@ describe('a click never activates an ability (fireControl weapon wall)', () => {
   });
 });
 
-// ---------- death during boost closes the window at the instant of death ------
+// ---------- death during boost: the window survives sink-entry, dies at founder
 
-describe('death during boost resets the window (Story 1.6)', () => {
-  it('sinkShip zeroes boostUntil immediately, so the death gap shows no active-boost chrome', () => {
+describe('death during boost — Story 5.2 supersedes the 1.6 instant close', () => {
+  it('a live boost rides through the sinking window (amendment 10) and founder zeroes it', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     pressActivate(w, 'a', 1, 1, SLOT_BOOST);
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now); // mid-window
+    w.respawnEnabled = false;
     w.sinkShip('a'); // killed while boosting
     expect(isAfloat(a.lifecycle)).toBe(false);
-    expect(a.boostUntil).toBe(0); // window closed AT death, not deferred to respawn
-    // The owner's frame no longer advertises an active window during the gap.
-    expect(buildFrame(w, 'a').you!.boostUntil).toBe(0);
+    // Amendment 10 admits speedBoost while sinking, so an OPEN window must
+    // SURVIVE sink-entry and keep composing with the decel cap (the doomed
+    // surge). The old "no active-boost chrome on a dead ship" concern does not
+    // apply at entry: the owner's frame still carries `you` and advertises the
+    // window honestly.
+    expect(a.boostUntil).toBeGreaterThan(w.now);
+    expect(buildFrame(w, 'a', 'active').you!.boostUntil).toBe(a.boostUntil);
+    // At FOUNDER the original dead-chrome rule applies: the hull's life is
+    // over, the next frame is a spectator frame with no `you`, and
+    // founderSinking zeroes the window with the rest of the kept marks.
+    w.step(CONFIG.ship.sinkingWindowMs);
+    expect(a.boostUntil).toBe(0);
   });
 });
 

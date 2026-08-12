@@ -311,8 +311,22 @@ export interface OfferView {
  * through must go inert (digit picks included, since currentOfferView() also
  * returns null) rather than silently misfire.
  */
-export function offerView(you: OwnShip | null, spectating: boolean, locked: boolean): OfferView | null {
-  if (!you || spectating || you.pts === 0 || you.offer.length === 0) return null;
+export function offerView(you: OwnShip | null, spectating: boolean, locked: boolean, sinking: boolean): OfferView | null {
+  // ONCE SINKING, YOU'RE DONE (Story 5.2, amendment 10). A sinking hull keeps
+  // every weapon, every ability and the foghorn — what it loses is the ECONOMY:
+  // the refit window, the picks and the DAMAGE CONTROL heal.
+  //
+  // IT MUST BE ITS OWN FLAG, and neither of the two nearby shortcuts works:
+  // `!you.alive` would also close the band for a WRECK AWAITING RESPAWN in the
+  // waiting phase, which is deliberately open (builds persist across respawns,
+  // and `spectates()` keeps that observer fogged and non-spectating precisely
+  // so it stays open); and `spectating` is false for the whole window by
+  // design. So the third state arrives here the same way it arrives everywhere
+  // else — as an explicit caller-supplied fact, exactly like `spectating`
+  // beside it. With the whole view null the band auto-hides, TAB opens nothing
+  // and every digit pick falls through main.ts's own guard; `healView` below
+  // separately inerts the DAMAGE CONTROL rail on its own `!alive` clause.
+  if (!you || spectating || sinking || you.pts === 0 || you.offer.length === 0) return null;
   const defs = resolveBoons(you.offer, BOON_CATALOG);
   if (defs.length !== you.offer.length) return null; // fail-closed: row k == server slot k
   return { pts: you.pts, options: defs.map((def) => toCard(def, you)), locked, heal: healView(you, locked) };

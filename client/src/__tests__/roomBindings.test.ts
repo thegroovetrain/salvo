@@ -339,6 +339,64 @@ describe('bindRoom own sunk', () => {
     // and (for our own hull, in a live match) opens the elimination modal.
     expect(onSunkObserved).toHaveBeenCalledWith('me', null);
   });
+
+  // Story 5.2 (amendments 10/16): the `sunk` event still fires at SINK-ENTRY,
+  // unmoved — but the hull is not gone yet. Clearing the engine order here
+  // would stop the ship the five-second window exists to keep sailing (rudder
+  // authority scales with speed, so it takes the helm with it), and reverting
+  // the prime would steal the torpedo a captain went down intending to fire.
+  // Both move to FOUNDER (main.ts's tickSinkingWindow). Everything else on the
+  // path — the score credit, the feed line, the killer, the respawn ETA — is
+  // deliberately unchanged: the kill is real the moment it lands.
+  it('HOLDS both resets while the hull is inside its sinking window', () => {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const resetThrottle = vi.fn();
+    const resetPrime = vi.fn();
+    const onSunkObserved = vi.fn();
+    const state = {
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
+      spectating: false, phase: '', respawnEta: null, killerId: null, mode: 'interp',
+    };
+    const deps = {
+      state,
+      clock: { addSample: vi.fn() },
+      contacts: { pushFrame: vi.fn() },
+      mines: { sync: vi.fn() },
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
+      litZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      effects: { spawnEffect: vi.fn() },
+      audio: { play: vi.fn() },
+      names: (id: string) => id,
+      colors: () => null,
+      ordnanceHue: () => 0,
+      onOwnStats: vi.fn(),
+      ownBuffer: { push: vi.fn() },
+      radar: { onSweepSample: vi.fn() },
+      resetThrottle,
+      resetPrime,
+      onSunkObserved,
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    // The frame that carries the `sunk` also carries the own ship with the
+    // self-private founder deadline — handleFrame adopts `you` before it routes
+    // events, so the window is read off the very frame that opened it.
+    const you = {
+      id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 0, alive: false, ammo: [], sweep: 0,
+      cls: 'torpedoBoat', pts: 0, offer: [], boostUntil: 0, boons: [], lvl: 0, xp: 0,
+      repairHp: 0, sinkingUntil: 5200,
+    };
+    sink.handler({ t: 200, tick: 2, ackSeq: 0, you, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: 'rival' }] });
+    expect(resetThrottle).not.toHaveBeenCalled();
+    expect(resetPrime).not.toHaveBeenCalled();
+    // ...while the bookkeeping the amendment pins to sink-entry all still lands.
+    expect(onSunkObserved).toHaveBeenCalledWith('me', 'rival');
+    expect(state.killerId).toBe('rival');
+    expect(state.respawnEta).not.toBeNull();
+  });
 });
 
 // --- own spawn resets the LOCAL foghorn cooldown gate (review fix) ----------

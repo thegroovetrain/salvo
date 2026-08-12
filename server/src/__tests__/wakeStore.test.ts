@@ -116,8 +116,9 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     expect(b.wake).toBe(laid); // still attached: the record carries it through the death gap
     // Waiting-phase respawn: the hull TELEPORTS, so the old water detaches
     // into the orphan store (a kept ribbon would chain a bogus wreck→spawn
-    // segment across the map) and the new life starts clean.
-    for (let i = 0; i < Math.ceil(CONFIG.ship.respawnDelay / DT) + 2; i++) w.step();
+    // segment across the map) and the new life starts clean. Story 5.2: the
+    // revive waits on the FOUNDER tick (window 5000ms > respawn delay 3000ms).
+    for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 2; i++) w.step();
     expect(isAfloat(b.lifecycle)).toBe(true);
     expect(b.wake).not.toBe(laid);
     // The fresh ribbon holds at most the spawn-position anchor sample — no

@@ -148,16 +148,19 @@ describe('Match.endSummary — endedBy classification', () => {
 
   it('lastHumanSunk: a terminal sinking leaves 0 humans alive (storm case)', () => {
     const ctx = activated(1);
-    // Killer-less sinks = storm deaths; the drone outlives both captains, so
-    // the winner comes from latest-sunk placement, not a survivor.
+    // Killer-less sinks = storm deaths; the drone outlives both captains. Both
+    // captains going down on ONE tick is amendment 14's wipe — a DRAW — but
+    // the endedBy classification is about CAUSE, not winner, and stays
+    // lastHumanSunk.
     ctx.w.sinkShip('a');
     ctx.w.sinkShip('b');
     step(ctx);
     expect(ctx.m.phase).toBe('finished');
-    expect(ctx.m.winnerId).toBe('b'); // latest-sunk human
+    expect(ctx.m.winnerId).toBe(''); // same-tick wipe: a draw (Story 5.2)
     const s = ctx.m.endSummary();
     expect(s.stormDeaths).toBe(2);
     expect(s.endedBy).toBe('lastHumanSunk');
+    expect(s.winnerClass).toBeNull(); // no winner, no winner class
   });
 
   it('lastHumanSunk: mutual destruction in combat classifies as sunk, not cleared', () => {
