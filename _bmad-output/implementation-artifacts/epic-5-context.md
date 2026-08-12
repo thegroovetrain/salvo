@@ -74,5 +74,6 @@ amendment wins**. Summary of the record as of 2026-08-11 (all Eric rulings, Stor
 5. **STEP_ORDER covers sim steps only** — clock advance, the `aliveHulls()` snapshot and the event swap
    stay fixed prologue/epilogue.
 6. **An order-identity test pins the tick order** — the `shipClasses` identity-test pattern.
+8. **Never-sunk hulls place above the sunk, below the winner** — orchestrator ruling, Eric has veto.
 7. **No wire change; PROTOCOL_VERSION stays 33** — and `spectates()`'s unfogged-view gate is flagged
    for Story 5.2.

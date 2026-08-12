@@ -142,3 +142,33 @@ project as *not-afloat but not-spectating*, or a sinking hull receives full-map 
 five-second window — an anti-cheat widening the master perception invariant explicitly asserts
 against. It cannot bite in 5.1 (amendment 1 makes `sinking` unreachable), but the projection must be
 chosen deliberately rather than inherited.
+
+## Amendment 8 — Never-sunk hulls place ABOVE the sunk, BELOW the winner (orchestrator ruling 2026-08-11 — **Eric has veto, this was not his call**)
+
+Amendment 4 made a new state reachable: a match can now finish with hulls still afloat. Nothing had
+ever produced that before, because drones gated the win until every one of them sank.
+
+**The defect it exposed:** `computePlacements()` only placed the winner and the `sinkOrder`, and
+`resultsMsg()` defaulted everyone else to `placement: 0`. Rows sort placement-ASCENDING, and
+`client/src/ui/results.ts` renders the number verbatim — so every surviving drone sorted **above the
+winner**. A real match observed **18 of 20 rows at placement 0, ahead of the winner.**
+
+**Ruled:** placement is three tiers — (1) the winner, (2) every other still-afloat hull, in activation
+roster order, (3) the sunk in reverse sink order (the existing rule, untouched). `placement: 0` is now
+unreachable for any participant, and the defensive fallback in `resultsMsg()` sorts LAST rather than
+first, so this defect's shape cannot recur even if the invariant is broken later.
+
+**Why this reading and not another:** it is the least-inventive extension of the shipped rule
+(*"Winner = 1; everyone else by reverse sink order (later sink places higher)"*) — a hull that never
+sank outlasted every hull that did — and it restores the property that held before amendment 4, when
+every drone was necessarily in the sink order. Two alternatives were available and NOT taken: placing
+survivors last (which would rank a hull that survived below one that sank), and dropping surviving
+drones from the results rows entirely (which would change which hulls appear at all).
+
+**This is a presentation ruling made by the orchestrator, not by Eric.** It was taken rather than
+asked because a "0" row sorting above the winner is indefensible under every reading, so the choice
+was between three defensible orderings and one broken one. The ordering above is Eric's to overrule.
+
+Story 5-3 (Omniscient Reveal & Results) owns this screen and inherits one related open item: the
+client's PROVISIONAL placement counts human rivals only, so an eliminated captain's number still snaps
+when the real results land — pre-existing, but wider now (see `deferred-work.md`).
