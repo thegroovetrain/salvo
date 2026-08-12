@@ -213,3 +213,169 @@ counted human rivals only, so it disagreed with a drone-inclusive final placemen
 2-captain/18-drone shape the loser read #2 provisionally and #20 finally. Captain-relative placement
 makes the two agree by construction, with no client change. The `deferred-work.md` entry filed for it
 this cycle is closed on arrival.
+
+## Amendment 10 — THE SINKING-ACTIVATION POLICY: everything in a slot, plus the foghorn; the REFIT is what's blocked (Eric ruling 2026-08-12) — closes the AR7 TBD
+
+> *"Weapons and equipment only. And foghorn. Speedboost and torpedo boat are about to get major
+> changes, for right now it is in a ship equipment slot so it meets criteria for usability. However
+> opening the upgrade menu and choosing upgrades (or the heal) is blocked entirely (once sinking,
+> you're done)."*
+
+The TBD that `world.ts:2860-2875` has carried since Epic 1 closes as **NO RESTRICTION AT THE GATE**.
+All seven registry rows (`gun, torpedo, mine, cannon, starShells, speedBoost, decoyBuoy`) may
+activate while sinking, and the foghorn (`hornControl`) stays live with them. **The stated criterion
+is fitment, not category:** *"it is in a ship equipment slot so it meets criteria for usability"* —
+so speedBoost and decoyBuoy are in on the same grounds as the guns, and a future row is in by
+default rather than needing a ruling.
+
+**The policy is real, it just lands somewhere else than the gate.** What a sinking captain loses is
+the **economy**: the upgrade menu, the upgrade picks, and the `HEAL_CHOICE` spend are blocked
+entirely. That is a separate code path (`world.ts:1423`/`:1560`, `ui/upgradeMenu.ts`) which never
+routed through `sinkingActivationGate` at all, so anyone implementing this off the gate's docstring
+alone will implement nothing. *"Once sinking, you're done"* is the governing sentence: you keep every
+weapon you brought, and you may not go shopping on the way down.
+
+**Consequence worth naming:** `speedBoost` on a hull whose defining behaviour is decelerating to a
+stop was put to Eric as a mechanical contradiction and he took it anyway, on the fitment criterion.
+So the sinking decel and a live boost must COMPOSE rather than one winning — the decel is a cap the
+boost pushes against, not a state that refuses it. Torpedo Boat and speedBoost are both flagged for
+major changes, so this is deliberately the low-commitment answer.
+
+## Amendment 11 — THE KILL LANDS IMMEDIATELY; the window is the KILLEE's beat, not the killer's wait (Eric ruling 2026-08-12)
+
+> *"Immediately. Killer is granted kill immediately, killee gets a 'GOING DOWN WITH THE SHIP!'
+> notification and gets 5 seconds of sinking."*
+
+Everything `sinkShip` does today at one instant — kill credit, XP, bounty recompute, `deaths++`, the
+public `sunk` event and its kill-feed line, the roster `alive` flip and therefore the AFLOAT count —
+**keeps firing at sink-entry, unmoved.** The question gate offered deferring them to founder and it
+was rejected. The five seconds belong to the dying captain alone.
+
+**This is the ruling that makes the cycle small.** With no bookkeeping moving, `sinkShip`'s single
+`sunk` emission stays exactly where it is and amendment 1's idempotency property is preserved by
+construction rather than by careful re-engineering.
+
+**Accepted consequence, named:** for five seconds the AFLOAT count and the kill feed disagree with
+what is visibly on the water — the register says a hull is gone while it is still moving and still
+shooting. That is the intended reading (*the kill is real the moment it lands*), not a defect.
+
+**New client surface:** a `GOING DOWN WITH THE SHIP!` notification to the dying captain, on the
+existing `showBanner` slot.
+
+## Amendment 12 — A SINKING HULL CANNOT BE FINISHED OFF (Eric ruling 2026-08-12)
+
+> *"No, it can't be finished off early."*
+
+The window always runs its full length. Damage landing on a sinking hull is a **no-op**: no hp, no
+re-sink, no shortening. The revenge shot is guaranteed, and the counterplay to a sinking enemy is to
+leave, not to shoot.
+
+This is also load-bearing for correctness, not only feel: `hitShip` must early-return on a sinking
+victim, or the second hit attempts an illegal `sink`-from-`sinking` edge and
+`transitionLifecycle()` **throws** (`lifecycle.ts:205`).
+
+## Amendment 13 — THE WINDOW IS A FLAT 5000 ms (Eric ruling 2026-08-12)
+
+> *"5s is fine all around."*
+
+One `CONFIG` constant, all three classes. Per-class windows (a Battleship going down slower than a
+Torpedo Boat) were offered and declined for now; that stays available as a balance pass after live
+play, and it is a table-for-a-constant swap when it comes.
+
+Note the interaction this fixes in place: mine `armDelay` is 3000 ms against a 5000 ms window, so a
+mine laid in the first two seconds arms before its layer founders and one laid later arms after.
+
+## Amendment 14 — SINKING DOES NOT AFFECT THE OUTCOME, AND A SAME-TICK WIPE IS A DRAW (Eric ruling 2026-08-12) — amends D4
+
+> *"The only way a draw could happen is if all remaining players die at the same time, and if that
+> happens, a draw is acceptable. Otherwise, sinking windows do not affect the game outcome."*
+
+**D4 is amended.** The epic's ratified D4 read *"sinking ships stay win-eligible until fully sunk;
+if all remaining participants are sinking, the later sinker wins."* Under this ruling a sinking ship
+is **not** win-eligible: the outcome is decided at **sink-entry**, exactly as it is today, and the
+window changes nothing about who won. D4's "later sinker wins" clause is therefore **dead** — with a
+fixed window length, sink-entry order and founder order are the same order, so the clause could never
+distinguish anything anyway.
+
+**The draw becomes real and needs building.** Today `Match.finish()` resolves a zero-survivor finish
+to `latestSunkHuman()` (`match.ts:375`), so somebody always wins; `winnerId: ''` is a documented but
+in-practice-unreachable shape (`types.ts:1052`) and `winnerBanner()` renders it **`WINNER: UNKNOWN`**
+(`client/src/ui/results.ts:45-47`) — which is the defect a draw would ship as. A same-tick wipe of
+every remaining captain must produce `winnerId: ''` deliberately and read as a **DRAW**.
+
+**One intuition to correct, because it is natural and wrong:** you might expect the window to make
+true same-tick destruction rare. It does not. A fixed window is a constant delay, so two hulls that
+enter `sinking` on the same tick found on the same tick — exact ties are preserved exactly, not
+scattered.
+
+## Amendment 15 — THE DERIVATION FLIPS: `isAfloat` DOES NOT MOVE, and sinking RE-OPENS EXACTLY THREE THINGS (orchestrator ruling 2026-08-12, forced by amendments 11/12/14)
+
+The question gate's pre-answer ruling R1 (*"`isAfloat(sinking) = true` with two named exceptions"*)
+is **SUPERSEDED and must not be built.** It was derived from D4 and from "remains fully perceivable",
+and amendments 11/12/14 removed its foundation: with the kill landing immediately, damage a no-op,
+and the outcome decided at sink-entry, the majority of `isAfloat`'s ~30 call sites now want the
+**shipped** answer.
+
+**Ruled:** `isAfloat(lc)` stays byte-identical (`kind === 'alive'`). **Not one of its call sites
+moves.** A sinking hull is dead for every bookkeeping purpose — win check, damage, roster/AFLOAT,
+XP, repairs, refit, respawn — and the window re-opens exactly three things by explicit
+`isSinking()`-aware predicate at named seams:
+
+1. **Motion** — `stepShips` (`world.ts:1841`), `resolveCollisions` (`:1887`), `sampleWakes` (`:1920`).
+   A sinking hull still steers (decayed), still pushes out of islands, still lays wake.
+2. **Weapons, equipment and horn** — `consumeClick` (`:2733`), `consumePress` (`:2811`),
+   `hornControl` (`:2855`), and the `'dead'` refusal inside `sinkingActivationGate` (`:2881`).
+3. **Perceivability** — `contactSignal.visible` (`signals.ts:424`) and `blipSignal.visible` (`:575`).
+   It is still a contact and still a target.
+
+Plus the two seams Story 5.1 pre-marked: `spectates()` (`frames.ts:112`) becomes `isSunk`-based so a
+sinking captain stays **fogged and keeps `you`** (amendment 7 discharged), and `hitShip` early-returns
+on a sinking victim (amendment 12).
+
+**Why this is the better architecture and not merely the smaller one:** the flip-`isAfloat` shape
+would have re-pointed a 30-site predicate and then subtracted exceptions from it, so every future
+call site added anywhere in the sim would silently inherit "sinking counts as alive" — the wrong
+default for a hull that is, in every sense the bookkeeping cares about, dead. This shape makes the
+re-openings **additive and enumerable**: three seams, each a deliberate edit, each testable. It is
+also by far the lower-risk change against the suite, since the shipped meaning of every untouched
+call site is preserved by construction.
+
+## Amendment 16 — THE WIRE: `alive` GOES FALSE IMMEDIATELY, and a new self-private `sinking` key keeps the controls live (orchestrator ruling 2026-08-12) — PV 33 → 34
+
+Amendment 11 requires the roster `alive` flip at sink-entry, and amendment 15 keeps
+`OwnShip.alive = isAfloat(...)`, so **`alive` goes false the instant the hull starts sinking** — which
+is correct for AFLOAT and the register, and catastrophic for the client, whose `!alive` path tears
+down the hotbar, the firing arc and the aim preview (`main.ts:2163`, `:2281`) that amendment 10 just
+ruled must stay live.
+
+**Ruled:** one **optional, self-private** `OwnShip` key carrying the founder deadline, appended last
+and omitted when absent — the `slowedUntil`/`dazzledUntil` precedent (`types.ts:319-326`, spread-
+conditional at `frames.ts:92-93`). It rides `you`, never a `Contact` and never a spectator payload,
+so it needs **no new perception exception and no oracle case: the master invariant stays at exactly
+SIX.** `PROTOCOL_VERSION` 33 → 34.
+
+The client gains a **third state**, not a second: `alive` (full HUD) / `sinking` (hull, helm, hotbar,
+firing arc and horn all live; refit inert; the going-down banner) / dead (spectate). The trap to
+avoid is `main.ts:548`'s `alive: you?.alive ?? true`, which reads a missing `you` as alive.
+
+**No enemy-facing sinking channel.** A sighted enemy already sees the hull decelerate through
+`Contact.speed`, and wounded smoke already covers the wounded case. Nothing new is disclosed about
+another player's lifecycle, so the smallest-new-channel house rule holds.
+
+## Amendment 17 — THE MATCH IS NOT HELD OPEN FOR A SINKING HULL (orchestrator ruling 2026-08-12 — **Eric has veto, this was not his call**)
+
+Amendment 14 decides the outcome at sink-entry, so `checkWin()` fires there and the match can
+**finish while a hull is still sinking** — in which case the results flow supersedes that hull's
+remaining window. The last captain to die in a match therefore gets a **truncated** window, and only
+they.
+
+Deferring `finish()` until every sinking hull founders was considered and **rejected**: it would
+invent a `finishing` sub-state in the match machine that Story 5-3 (which owns the reveal and results
+flow) would then have to work around, it makes the winner wait on the loser, and it collides with
+`spectates()` granting every observer the unfogged view at `phase === 'finished'` — a third seam
+needing a sinking special-case. Against that, the beat being truncated is replaced by the omniscient
+reveal, which is its own climax and a better payoff than five seconds of shooting at a winner whose
+victory is already locked.
+
+Recorded as an orchestrator ruling because the question gate signalled the opposite lean before the
+architecture was built out. It is Eric's to overrule; doing so costs the `finishing` sub-state above.
