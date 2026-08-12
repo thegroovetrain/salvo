@@ -37,7 +37,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import type { GameState } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
-import { isSinkingNow } from '../sim/sinkingWindow.js';
+import { conningFlag, isSinkingNow } from '../sim/sinkingWindow.js';
 import type { Connection } from './connection.js';
 import type { ServerClock } from './clock.js';
 import { ContactStore, SnapshotBuffer } from './snapshots.js';
@@ -196,6 +196,21 @@ export interface RoomBindingDeps {
    */
   resetPrime: () => void;
   /**
+   * WILL THE SERVER RESPAWN US IF WE SINK RIGHT NOW? — the client's mirror of
+   * `World.respawnEnabled`, which `Match.applyPolicy()` sets for the READY ROOM
+   * phases only (waiting/gathering/countdown) and clears for the active match.
+   *
+   * A function, not a value: the phase moves under us, and the answer is only
+   * meaningful at the instant the `sunk` arrives. It exists because the frame
+   * shape at sink-entry is IDENTICAL in both cases — a fogged `you` with
+   * `alive: false` and a `sinkingUntil`, no `spec` — so nothing already on the
+   * wire can tell the two apart, and the alternative (setting a deadline for a
+   * respawn the server never armed) put a `SUNK — RESPAWNING IN 0s` placard
+   * over the middle of a live match. main.ts answers it off the public match
+   * phase in the roster schema; the client re-derives no policy of its own.
+   */
+  respawnArmed: () => boolean;
+  /**
    * Reset the client's local foghorn cooldown gate (`Game.nextHonkAt`) to 0 —
    * ready. Called on own spawn ONLY (review fix), mirroring the server, which
    * clears `nextHonkAt` on both respawn and redeploy (world.ts). Deliberately
@@ -336,6 +351,16 @@ interface BindState {
    * mark drew — the coupling both handlers' comments explicitly reject.
    */
   splashCues: ImpactDedup;
+  /**
+   * THE DEFERRED WRECKS (Story 5.2 review fix) — witnessed sinkings whose
+   * SPATIAL presentation (the crimson plume, the downed contact tint) is
+   * waiting for the hull to actually go down, `at` being the server-clock
+   * founder deadline. See handleSunk / queueWreck / flushFoundered.
+   *
+   * A list, not a single pending id: a ring-closure scrum sinks several hulls
+   * within a second of each other and every one of them owes a plume.
+   */
+  wrecks: { id: string; at: number }[];
 }
 
 /**
@@ -393,6 +418,7 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
     hitCallTone: hitCallToneFloor(),
     worldTones: worldToneFloors(),
     splashCues: new ImpactDedup(),
+    wrecks: [],
   };
   conn.sink.handler = (f) => handleFrame(f, deps, s);
   conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
@@ -443,6 +469,13 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const net = deps.state.net;
   net.tick = f.tick;
   net.ackSeq = f.ackSeq;
+  // FOUNDER first, BEFORE `net.you` is replaced and before this frame's events
+  // run (Story 5.2 review fix). Both halves of that position are load-bearing:
+  // a hull that founders and respawns inside one server tick (the ready room —
+  // founderSinking and processRespawns share a step) would otherwise draw its
+  // own death plume at the SPAWN point, and an enemy's deferred `markSunk` must
+  // land before the same frame's `spawn` clears the downed tint, not after it.
+  flushFoundered(f.t, deps, s);
   if (f.spec && !deps.state.spectating) {
     deps.state.spectating = true;
     deps.onSpectate();
@@ -599,7 +632,7 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
 function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   switch (e.k) {
     case 'spawn': handleSpawn(e, deps); return;
-    case 'sunk': handleSunk(e, f.t, deps); return;
+    case 'sunk': handleSunk(e, f.t, deps, s); return;
     case 'shell': handleShell(e, deps); return;
     case 'torp': handleTorp(e, deps); return;
     case 'torpU': deps.projectiles.onBallisticUpdate(e); return;
@@ -737,10 +770,16 @@ function unplacedCue(): WorldCue {
  *
  * A dead-in-waiting captain (`you.alive === false`) listens from the camera too:
  * the hull on `you` is a wreck the camera has already left behind.
+ *
+ * A SINKING captain does NOT (Story 5.2 review fix): for five seconds that hull
+ * is still on the water, still under the player's hand and still the thing the
+ * camera is following, so the ear stays on it. `t` is the FRAME's server time —
+ * the same instant every cue in this frame is measured against — never a local
+ * clock reading, so the ear cannot move on clock jitter mid-frame.
  */
-function listenerPos(deps: RoomBindingDeps): { x: number; y: number } {
+function listenerPos(deps: RoomBindingDeps, t: number): { x: number; y: number } {
   const you = deps.state.net.you;
-  return hasLiveOwnHull(deps) && you ? { x: you.x, y: you.y } : deps.cameraCenter();
+  return hasLiveOwnHull(deps, t) && you ? { x: you.x, y: you.y } : deps.cameraCenter();
 }
 
 /**
@@ -755,11 +794,44 @@ function listenerPos(deps: RoomBindingDeps): { x: number; y: number } {
  * for our own gun. The spectating flag is the authoritative half — it is set the
  * instant the server says `spec` — so both clauses are checked here, once.
  *
+ * STORY 5.2 REVIEW FIX — THIS PREDICATE MEANS "A HULL ON THE WATER", NOT
+ * "`alive`". `alive` goes FALSE at sink-entry (amendment 11: the kill is real
+ * immediately) while every weapon stays live for the whole window (amendment
+ * 10), so reading the raw flag reported NO HULL for five seconds of a hull that
+ * is visibly steering and shooting. The audible consequence was on every single
+ * shot of the beat this story exists to create: `handleShell` sounded the close
+ * `fireGun` (its `nearOwnShip` test is position-only and never saw the flag)
+ * while `handleMuzzle`'s own-fire suppression let go, so the SAME round also
+ * played the distant `gunReport` world tone at ~0 m — the exact double-sound
+ * that function's comment forbids. It now composes the third state through
+ * `conningFlag`, so the answer is the widened one, taken at the frame's `t`.
+ *
  * Deliberately NOT folded into `nearOwnShip`: that predicate's other caller is
  * the torpedo own-fire whoosh, whose behavior predates this and is not ours to
  * retune (see handleTorp). The gate goes at the audio call sites.
  */
-function hasLiveOwnHull(deps: RoomBindingDeps): boolean {
+function hasLiveOwnHull(deps: RoomBindingDeps, t: number): boolean {
+  const { spectating, net } = deps.state;
+  return !spectating && conningFlag(net.you, t, spectating) === true;
+}
+
+/**
+ * ...AND THE NARROWER QUESTION ITS THIRD CONSUMER ACTUALLY ASKS: is our hull
+ * still something ordnance can HURT — i.e. is there a per-frame damage
+ * aggregate for a world cue to double against?
+ *
+ * This is `inOwnBlast`'s question, and it is NOT the widened one (Story 5.2
+ * review fix, decided deliberately rather than inherited). Amendment 12 makes
+ * damage on a sinking hull a total no-op — no hp, no re-sink, no shortening —
+ * so from sink-entry there is no `dmg` event, no shake, and no `damage`/`burn`
+ * cue for the amendment-37 suppression to be protecting. Widening this one
+ * would therefore have bought a SILENCE with nothing on the other side of it:
+ * a burst going off on our own sinking hull would fill the screen with a ring
+ * and say nothing at all. That is the "lie about the water" `inOwnBlast`'s own
+ * docstring rejects, and its stated tie-break — between a smear and a lie, take
+ * the smear — decides this case the same way.
+ */
+function ownHullFeelsDamage(deps: RoomBindingDeps): boolean {
   return !deps.state.spectating && !!deps.state.net.you?.alive;
 }
 
@@ -794,13 +866,15 @@ function worldTone(
   deps: RoomBindingDeps,
 ): void {
   if (floor && !floor.request(t)) return;
-  deps.audio.play(id, placeCue(pos, deps));
+  deps.audio.play(id, placeCue(pos, deps, t));
 }
 
-/** The pan/gain for a world position, or the unplaced fallback. */
-function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps): WorldCue {
+/** The pan/gain for a world position, or the unplaced fallback. `t` is the
+ *  frame's server time, threaded through only so the ear can ask whether we
+ *  still have a hull (listenerPos → hasLiveOwnHull). */
+function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): WorldCue {
   if (!pos) return unplacedCue();
-  const ear = listenerPos(deps);
+  const ear = listenerPos(deps, t);
   // CONFIG.vision.radar — the eighths ladder's 8/8 rung (full intel range) — is
   // the falloff scale for EVERY world cue, read from shared CONFIG rather than
   // mirrored into a client tunable. Per-cue rungs were considered and rejected:
@@ -856,14 +930,16 @@ function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s:
  */
 function handleMuzzle(e: MuzzleEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   deps.effects.spawnEffect('muzzle', e.x, e.y);
-  if (onOwnLiveHull(e.x, e.y, deps)) return;
+  if (onOwnLiveHull(e.x, e.y, deps, t)) return;
   worldTone('gunReport', s.worldTones.gunReport, e, t, deps);
 }
 
 /** Did this happen ON our own hull — one we actually still have? The audio-side
- *  composition of `nearOwnShip` with `hasLiveOwnHull` (never a change to either). */
-function onOwnLiveHull(x: number, y: number, deps: RoomBindingDeps): boolean {
-  return hasLiveOwnHull(deps) && nearOwnShip(x, y, deps);
+ *  composition of `nearOwnShip` with `hasLiveOwnHull` (never a change to either).
+ *  A SINKING hull counts: it is still firing, so its shot is still ours to
+ *  suppress (see hasLiveOwnHull). */
+function onOwnLiveHull(x: number, y: number, deps: RoomBindingDeps, t: number): boolean {
+  return hasLiveOwnHull(deps, t) && nearOwnShip(x, y, deps);
 }
 
 /**
@@ -1270,7 +1346,11 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
  */
 function inOwnBlast(x: number, y: number, radius: number | undefined, deps: RoomBindingDeps): boolean {
   const you = deps.state.net.you;
-  if (!hasLiveOwnHull(deps) || !you) return false;
+  // `ownHullFeelsDamage`, NOT `hasLiveOwnHull` (Story 5.2 review fix): this is
+  // the one caller asking "is there damage to double against", and a sinking
+  // hull takes none (amendment 12). See ownHullFeelsDamage for the full
+  // reasoning — the split is deliberate, not an oversight.
+  if (!ownHullFeelsDamage(deps) || !you) return false;
   const r = radius ?? CONFIG.gun.burstRadius;
   const dx = x - you.x;
   const dy = y - you.y;
@@ -1286,26 +1366,42 @@ function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: str
   return { name: deps.names(id) ?? UNKNOWN_VESSEL, id };
 }
 
-// No `BindState` on this path any more: the sinking cue is the one world cue
-// with no tone floor (a hull sinks once — see `WorldFloorId`), so there is no
-// per-binding memory left for it to read.
-function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
-  // THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
-  // observer never saw. Everything SPATIAL is gated on the server's
-  // per-observer `seen` stamp — a stale last-known contact position must
-  // never draw a sink plume for a kill we did not witness. The feed line, the
-  // score credit, the `kill` tone, and the own-death branch stay
-  // UNCONDITIONAL: identity is public, location is not.
-  // RESOLVED ONCE, UP FRONT, and handed to BOTH consumers (review gate): the
-  // plume below and the cue at the bottom of this function place the wreck at
-  // the same point, and `markSunk` runs between them. Today those two lookups
-  // would still agree — `markSunk` tears down a contact VIEW while the position
-  // comes from the snapshot store — but a teardown that ever pruned snapshots
-  // too would leave the plume drawn at the wreck while the cue silently
-  // degraded to unplaced. That is the exact defect class already fixed once on
-  // this path; one read cannot drift from itself.
+/**
+ * A hull went down — the IDENTITY half of it, which lands NOW.
+ *
+ * THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
+ * observer never saw. Everything SPATIAL is gated on the server's per-observer
+ * `seen` stamp — a stale last-known contact position must never draw a sink
+ * plume for a kill we did not witness. The feed line, the score credit, the
+ * `kill` tone, and the own-death branch stay UNCONDITIONAL: identity is
+ * public, location is not.
+ *
+ * STORY 5.2 REVIEW FIX — THE SPATIAL HALF NOW WAITS FOR FOUNDER, and the split
+ * is the Public Register's own line ("sinking is public knowledge, its LOCATION
+ * is not") applied in TIME rather than in space. The `sunk` event fires at
+ * sink-entry, unmoved (amendment 11), but the hull it names keeps steering,
+ * boosting and shooting for five more seconds (amendment 10). Drawing the
+ * crimson `sink` plume and the `setDowned` wreck tint on that event meant an
+ * enemy watched a faded, visually-dead hull turn and torpedo them, with its own
+ * death plume left up to ~110u astern of where it actually went down — the
+ * exact reading this story exists to prevent. So:
+ *   • IDENTITY, AT SINK-ENTRY, UNCHANGED — the kill-feed line, the roster/
+ *     AFLOAT drop (schema, not ours), the score credit, the `sunk`/`kill` cue.
+ *   • LOCATION/WRECK, AT FOUNDER — the plume and the tint (queueWreck below).
+ * The founder beat is DERIVED, never disclosed: an enemy's `sinkingUntil` is
+ * self-private and correctly so, but the event's own arrival time plus the
+ * SHARED `CONFIG.ship.sinkingWindowMs` name the same instant, so both sides
+ * land on the same tick with no new wire field.
+ */
+function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
+  // The wreck presentation, deadline-stamped. Still `seen`-gated, byte for
+  // byte: an unwitnessed sinking queues nothing and can never draw a plume.
+  queueWreck(e, t, s);
+  // RESOLVED ONCE, UP FRONT (review gate) — now for the CUE alone, since the
+  // plume it used to share this read with has moved to founder. Kept here
+  // rather than inside sunkCue so the "one read cannot drift from itself"
+  // property survives if a second sink-entry consumer is ever added back.
   const pos = sunkPosition(e.id, deps);
-  if (e.seen && pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
   // feedNameRef: a roster miss renders the neutral UNKNOWN_VESSEL label,
   // never the raw session id — a global feed puts this line in front of
   // EVERY client.
@@ -1327,9 +1423,18 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // SAME observed sinking the kill feed does — no new wire data.
   deps.onSunkObserved(e.id, e.by ?? null);
   if (e.id === sessionId) {
-    // In active this ETA is never used (the same frame carries spec:true and
-    // spectate mode owns the overlay); in waiting the respawn overlay reads it.
-    deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
+    // ONLY WHEN THE SERVER ACTUALLY ARMED ONE (Story 5.2 review fix). This used
+    // to be unconditional, on the reasoning that "in active this ETA is never
+    // used — the same frame carries spec:true and spectate mode owns the
+    // overlay". The sinking window broke that: `spec` now arrives five seconds
+    // later, at founder, and for the ~½ RTT before it does, renderAlive is
+    // still the render path while `conning(status)` has just gone false. It
+    // drew `SUNK — RESPAWNING IN 0s` (0s because respawnDelay 3000 < the 5000
+    // window) over the middle of an ACTIVE match, where no respawn is coming at
+    // all. The honest fix is at the source: `World.respawnEnabled` is the ready
+    // room only, so a client that cannot see a respawn armed must not invent a
+    // deadline for one. In the ready room the overlay reads it exactly as before.
+    if (deps.respawnArmed()) deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
     deps.state.killerId = e.by ?? null; // follow-your-killer default
     // THE SINKING WINDOW HOLDS BOTH RESETS (Story 5.2, amendments 10/16). The
     // `sunk` event still fires at sink-entry, unmoved — but the hull is not
@@ -1342,17 +1447,83 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
     // `net.you` is this frame's own ship (handleFrame adopts it before events),
     // so the window is read off the frame that opened it; with no window (or no
     // `you` at all) this is the shipped path, byte for byte.
-    if (!isSinkingNow(deps.state.net.you, t)) {
+    if (!isSinkingNow(deps.state.net.you, t, deps.state.spectating)) {
       deps.resetThrottle(); // a sunk ship's engine order clears — respawn starts at STOP
       deps.resetPrime(); // and the primed skillshot reverts to the gun for the next life
     }
-  } else if (e.seen) {
-    deps.contactViews.markSunk(e.id); // teardown is spatial — witnessed only
   }
+  // NOTE what is NOT here any more: the `markSunk` teardown. It was the other
+  // half of the sink-entry presentation and rides the deferred queue with the
+  // plume — see handleSunk's header and queueWreck.
+  //
   // The cue is resolved LAST and exactly once (see sunkCue) — after the feed
   // line, the score credit and the state resets, so the order the events were
   // generated in survives (handleEvents' pre-pass already felt the damage).
   sunkCue(e, pos, t, deps);
+}
+
+/**
+ * QUEUE THE WRECK'S SPATIAL PRESENTATION FOR FOUNDER (Story 5.2 review fix).
+ *
+ * `seen`-gated exactly as the plume it replaces was: an unwitnessed sinking
+ * queues nothing, so the Public Register's fog kill still draws no mark at a
+ * stale position. The deadline is the event's own arrival `t` — the FRAME's
+ * server time, the tick the server took the `sink` edge on — plus the shared
+ * `CONFIG.ship.sinkingWindowMs`, which is the same arithmetic `founderDeadline`
+ * does server-side, so the two land on the same tick without the client ever
+ * being told an enemy's self-private `sinkingUntil`.
+ *
+ * DEDUPED BY ID, because `sunk` is idempotent-by-contract but the queue is not:
+ * a replayed event would otherwise draw two plumes five seconds later. One
+ * entry per hull per sinking; the id leaves the queue when it fires.
+ */
+function queueWreck(e: SunkEvent, t: number, s: BindState): void {
+  if (!e.seen) return;
+  if (s.wrecks.some((w) => w.id === e.id)) return;
+  s.wrecks.push({ id: e.id, at: t + CONFIG.ship.sinkingWindowMs });
+}
+
+/**
+ * FOUNDER: every queued wreck whose window has run out, presented against THIS
+ * frame's server time.
+ *
+ * Frame-driven rather than render-driven on purpose — the deadline is a
+ * SERVER-clock instant, and `f.t` is the only exact reading of that clock the
+ * client ever gets (the same argument the tone floors and the mine arming dim
+ * already make). The consequence is stated rather than hidden: if frames stop
+ * arriving entirely, the plume never draws — which is the correct failure, as
+ * a disconnected client should not be inventing wrecks.
+ */
+function flushFoundered(t: number, deps: RoomBindingDeps, s: BindState): void {
+  let i = 0;
+  while (i < s.wrecks.length) {
+    if (t < s.wrecks[i].at) {
+      i += 1;
+      continue;
+    }
+    const [w] = s.wrecks.splice(i, 1);
+    presentWreck(w.id, deps);
+  }
+}
+
+/**
+ * The wreck itself: the crimson plume at the hull's THEN-current known
+ * position, and the downed tint on the contact view.
+ *
+ * The position is re-resolved HERE, never carried from sink-entry — carrying it
+ * is the defect this fix exists to close (a plume up to ~110u astern of where
+ * the hull actually went down). `sunkPosition`'s existing staleness rules are
+ * followed verbatim and no new position is invented: a contact that has aged
+ * out of the store resolves null and simply draws nothing, exactly as an
+ * unplaceable wreck already did on this path.
+ *
+ * `markSunk` is skipped for our own id for the shipped reason — we are not one
+ * of our own contacts.
+ */
+function presentWreck(id: string, deps: RoomBindingDeps): void {
+  const pos = sunkPosition(id, deps);
+  if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
+  if (id !== deps.state.net.sessionId) deps.contactViews.markSunk(id);
 }
 
 /**

@@ -125,6 +125,7 @@ import {
   recordElimination,
   recordSunk,
   refinePlacement,
+  respawnArmedIn,
   scoreAfterReconnect,
   type PersonalScore,
   type ScoreState,
@@ -407,8 +408,23 @@ interface Game {
    * impossible while it is up. The server still emits `sunk` at sink-entry
    * (unmoved, amendment 11), so the client cannot simply wait for a later event;
    * it latches here and fires at founder (tickSinkingWindow).
+   *
+   * THE DEBRIEF ONLY. Whether a window is running at all is `pendingFounder`
+   * below — the two were one flag until the review gate found that fusing them
+   * made the banner and the founder-time hygiene unreachable outside a live
+   * match (see handleSunkObserved).
    */
   pendingElimination: boolean;
+  /**
+   * A SINKING WINDOW OF OURS IS RUNNING and its founder-time hygiene (the
+   * engine-order reset, the prime revert) has not fired yet — set the instant
+   * the going-down banner goes up, in ANY match phase, and cleared at founder.
+   *
+   * Phase-agnostic on purpose: a window ends a life wherever it happens, and
+   * the life-boundary hygiene is owed either way. Only the DEBRIEF is a live-
+   * match question.
+   */
+  pendingFounder: boolean;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
@@ -566,7 +582,10 @@ function ownStatus(g: Game): OwnStatus {
     // never inherit that — isSinkingNow returns false without a `you`, so an
     // absent own ship can never fabricate a window that keeps a torn-down
     // hull's controls live. `alive` and `sinking` are disjoint by construction.
-    sinking: isSinkingNow(you, g.clock.serverNow()),
+    // The spectating flag is the predicate's third clause (review fix): `you`
+    // is never CLEARED, so a stale one whose deadline has not expired would
+    // otherwise read as a live window on a hull we no longer have.
+    sinking: isSinkingNow(you, g.clock.serverNow(), g.state.spectating),
     respawnInMs: respawnMs(g.state.respawnEta, g.clock.serverNow()),
     loadout: g.ownSlots,
     boostActive: g.clock.serverNow() < boostUntilNow(g),
@@ -700,7 +719,7 @@ function currentOfferView(g: Game): OfferView | null {
     g.state.net.you,
     g.state.spectating,
     g.spendInFlight !== null,
-    isSinkingNow(g.state.net.you, g.clock.serverNow()),
+    isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating),
   );
 }
 
@@ -1136,6 +1155,16 @@ function handleSunkObserved(g: Game, victimId: string, killerId: string | null):
     g.state.net.sessionId,
   );
   if (victimId !== g.state.net.sessionId) return;
+  // THE WINDOW IS THE HULL'S BEAT, NOT THE MODAL'S (review fix). This used to
+  // sit BELOW the canOpenElimination gate, which made the going-down banner and
+  // the founder-time keyboard hygiene reachable only in the ACTIVE phase — so a
+  // hull sinking in the ready room got a full five-second window with no banner
+  // and never reverted its primed weapon for the next life, the exact opposite
+  // of the shipped intent. Production-unreachable (`damageEnabled` is active-
+  // only and `respawnEnabled` is ready-room-only, so no hull reaches 0 hp
+  // outside a live match) and fixed anyway, because the two latches answer two
+  // different questions and only one of them is about a debrief.
+  const sinking = openSinkingWindow(g);
   // The three ways an own-sinking is NOT an elimination-modal moment: a
   // ready-room respawn, an own-`sunk` racing in behind the game-end results
   // broadcast, and a duplicate of a sinking already latched. See
@@ -1147,7 +1176,10 @@ function handleSunkObserved(g: Game, victimId: string, killerId: string | null):
   // later once rivals have died behind us. updateOpenResults' pure refine keeps
   // converging it on server truth through the window (see refinePlacement).
   g.score = recordElimination(g.score, othersAlive(g));
-  if (openSinkingWindow(g)) return; // the modal waits for founder — see below
+  if (sinking) {
+    g.pendingElimination = true; // the modal waits for founder — see below
+    return;
+  }
   showEliminationResults(g);
 }
 
@@ -1162,10 +1194,19 @@ function handleSunkObserved(g: Game, victimId: string, killerId: string | null):
  * transient must never displace it), and auto-hides on the SHARED window
  * constant, so the notification's life is the beat's life by construction
  * rather than by a second feel number.
+ *
+ * `pendingFounder` — the window latch — is set HERE and is PHASE-AGNOSTIC: it
+ * says "a hull of ours is going down", which is true wherever it happens. The
+ * modal's own latch (`pendingElimination`) stays gated by canOpenElimination in
+ * the caller, so the debrief rules are untouched.
  */
 function openSinkingWindow(g: Game): boolean {
-  if (!isSinkingNow(g.state.net.you, g.clock.serverNow())) return false;
-  g.pendingElimination = true;
+  if (!isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating)) return false;
+  // Latched, exactly like the elimination it used to share a flag with: this
+  // now runs ABOVE canOpenElimination (which carries the never-twice clause),
+  // so a duplicate/replayed `sunk` inside one window must not re-banner.
+  if (g.pendingFounder) return true;
+  g.pendingFounder = true;
   if (!g.reconnecting) showBanner('GOING DOWN WITH THE SHIP!', { autoHideMs: CONFIG.ship.sinkingWindowMs });
   return true;
 }
@@ -1183,12 +1224,20 @@ function openSinkingWindow(g: Game): boolean {
  * shipped hard-boundary hygiene — they just belong at the boundary that is now
  * five seconds later. enterSpectateVisuals repeats resetThrottle when the
  * spectate frame lands; both are idempotent.
+ *
+ * TWO LATCHES, NOT ONE (review fix). The HYGIENE rides `pendingFounder` — every
+ * window ends a life, in any phase — while the DEBRIEF rides
+ * `pendingElimination`, which only a live match ever sets. A ready-room sinking
+ * therefore resets its orders and its prime and shows no results table, which
+ * is what a respawn wants.
  */
 function tickSinkingWindow(g: Game): void {
-  if (!founderDue(g.pendingElimination, isSinkingNow(g.state.net.you, g.clock.serverNow()))) return;
-  g.pendingElimination = false;
+  if (!founderDue(g.pendingFounder, isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating))) return;
+  g.pendingFounder = false;
   resetOwnOrders(g);
   g.keyboard.revertToGun();
+  if (!g.pendingElimination) return; // a ready-room founder: hygiene only, no debrief
+  g.pendingElimination = false;
   // THE GAME-END TABLE IS NEVER REPLACED (amendment 17): the match may finish
   // WHILE a hull is still sinking — the outcome is decided at sink-entry, and
   // `finish()` is deliberately not held open for the window — in which case the
@@ -1465,7 +1514,7 @@ function conningLive(g: Game | null): boolean {
  */
 function conningNow(g: Game | null): boolean | undefined {
   if (!g) return undefined;
-  return conningFlag(g.state.net.you, g.clock.serverNow());
+  return conningFlag(g.state.net.you, g.clock.serverNow(), g.state.spectating);
 }
 
 /**
@@ -1903,7 +1952,7 @@ function buildGame(
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, pendingFounder: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
@@ -2064,6 +2113,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // resetThrottle fires on own spawn AND own sunk — the hard state boundaries.
     resetThrottle: () => resetOwnOrders(g),
     resetPrime: () => g.keyboard.revertToGun(),
+    // Story 5.2 review fix: the client's mirror of World.respawnEnabled, read
+    // off the PUBLIC match phase (the roster schema every client already
+    // holds), so an own sinking only sets a respawn deadline the server
+    // actually armed. Read live — the phase moves under us.
+    respawnArmed: () => respawnArmedIn(publicState(g).matchPhase ?? 'waiting'),
     // Review fix: the server clears nextHonkAt on respawn/redeploy (world.ts);
     // mirror it here so a captain who honks, dies, and respawns inside the old
     // cooldown window can honk again immediately rather than having the client
@@ -2879,15 +2933,23 @@ function renderAlive(
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  // The 50%/25% band alarms (Story 4.7) — same edge idiom. LEFT ON `hp` ALONE
-  // through the sinking window (Story 5.2), deliberately: the two HP-driven
-  // channels here — this sting and the Tier-1 low-rail pulse in frameAttention
-  // below — read the hull's actual condition, and a hull at 0 sounding and
-  // showing mortal damage is the honest read, not a bug. Two consequences are
-  // ledgered rather than papered over: the killing blow can cross a band and
-  // fire one sting alongside the `sink` tone, and the rail pulses (holding both
-  // Tier-2 channels at their lit keyframe) for the whole five seconds. Both
-  // stop at founder, where renderSpectate resets the edge to null.
+  // The 50%/25% band alarms (Story 4.7) — same edge idiom. The two HP-driven
+  // channels here are deliberately NOT symmetric through the sinking window
+  // (Story 5.2), and the difference is not a choice — it falls out of what each
+  // one reads:
+  //   • THE STING IS SILENT for the whole window, because `ownHpFrac` returns
+  //     NULL unless `status.alive`, and `alive` is false from sink-entry
+  //     (amendment 11). It cannot even fire on the KILLING BLOW: that frame is
+  //     already the first `alive: false` one, so the fraction is null before any
+  //     band could be crossed, and `hpBandEdge` reports nothing against a null.
+  //     (An earlier version of this comment ledgered a sting alongside the
+  //     `sink` tone as an accepted consequence. It cannot happen — corrected at
+  //     the review gate.)
+  //   • THE TIER-1 LOW-RAIL PULSE DOES run, for the whole five seconds, holding
+  //     both Tier-2 channels at their lit keyframe — `ownTier1` reads
+  //     `status.hp` against `maxHp` with no `alive` gate at all, so a hull at 0
+  //     reads as mortally damaged, which is the honest read and not a bug.
+  // Both stop at founder, where renderSpectate resets the edge to null.
   playHpSting(g, status, nowMs);
   // THE frame's Tier-1 read comes back OUT of renderOwn: it is taken there,
   // after renderFiring has driven the denied pulse, and both Tier-2 consumers

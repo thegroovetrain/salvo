@@ -623,14 +623,32 @@ export class Match {
   }
 
   /**
-   * Winner resolution for a ZERO-AFLOAT finish (Story 5.2, amendment 14): the
-   * latest-sunk human — but a SAME-TICK WIPE is a DRAW. When the latest-sunk
-   * human shares its sink-entry stamp with any other captain, every captain
-   * still standing at that tick went down together, so no "later sinker"
-   * exists and the answer is nobody (undefined → winnerId ''). Cross-tick
-   * mutual destruction keeps the shipped latest-sunk rule byte-identical.
-   * Drones are skipped on both sides of the comparison — a drone sharing the
-   * fatal tick neither claims nor breaks the draw.
+   * Winner resolution for a ZERO-AFLOAT finish (Story 5.2, amendment 14): a
+   * SAME-TICK WIPE is a DRAW. When the latest-sunk human shares its sink-entry
+   * stamp with any other captain, every captain still standing at that tick
+   * went down together, so no "later sinker" exists and the answer is nobody
+   * (undefined → winnerId ''). Drones are skipped on both sides of the
+   * comparison — a drone sharing the fatal tick neither claims nor breaks the
+   * draw.
+   *
+   * THE `latestSunkHuman()` RETURN IS DEFENSIVE-ONLY, and the comment here used
+   * to claim otherwise (review-gate correction). It said "cross-tick mutual
+   * destruction keeps the shipped latest-sunk rule byte-identical", which
+   * describes a case the machine can no longer reach: `checkWin()` finishes the
+   * instant AT MOST ONE captain is afloat, so the first captain of a pair to
+   * sink ends the match with the other one alive and winning. Zero afloat
+   * captains therefore means they went down together, and every reachable
+   * zero-afloat finish IS the same-tick wipe. The scan is kept because the
+   * alternative is asserting an invariant in a winner path, but it names no
+   * winner in any reachable state.
+   *
+   * ONE ALIASING HAZARD, DOCUMENTED RATHER THAN DESIGNED AROUND: `recordSink`
+   * stamps a mid-match LEAVE with `world.now` — the same clock and the same
+   * tick granularity a real sinking uses — so a captain quitting on the tick
+   * another captain sinks is indistinguishable here and reads as a draw. The
+   * behaviour is deliberately left as-is (a leave IS a loss, and a draw between
+   * a quitter and a casualty is defensible); what is not acceptable is
+   * discovering the aliasing while debugging it, so it is written down.
    */
   private mutualDestructionWinner(): string | undefined {
     const last = this.latestSunkHuman();
