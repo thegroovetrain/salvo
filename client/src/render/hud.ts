@@ -191,6 +191,16 @@ export interface OwnStatus {
   ammo: (WeaponAmmo | null)[];
   primedSlot: number; // primed loadout slot (0 = gun) — client-local, immediate
   alive: boolean;
+  /**
+   * THE THIRD STATE (Story 5.2, amendment 16): the hull is inside its five-
+   * second sinking window — `alive` is already false (the kill landed at
+   * sink-entry, amendment 11) but the captain is still conning: helm, hotbar,
+   * firing arc and foghorn all live, refit inert. Derived from the self-private
+   * `you.sinkingUntil` against the server clock (sim/sinkingWindow.ts), and
+   * NEVER from `alive`'s `?? true` default — a missing `you` reads false here.
+   * `alive` and `sinking` are disjoint by construction.
+   */
+  sinking: boolean;
   respawnInMs: number; // 0 when alive / unknown
   cls: ShipClassId; // own class — drives hull-length lookups (firing UX)
   /** Cached effectiveStats(cls, boons) — ALL HUD denominators (max hp, speed
@@ -210,6 +220,18 @@ export interface OwnStatus {
   slowedMsLeft: number;
   /** ms remaining on the DAZZLE window (`you.dazzledUntil`; 0 = not dazzled). */
   dazzledMsLeft: number;
+}
+
+/**
+ * Pure: is the player CONNING A HULL this frame — alive, OR inside the sinking
+ * window (Story 5.2's third state)? THE gate every teardown that used to read
+ * `!status.alive` should consult instead, so "the controls are live" is decided
+ * in one place rather than re-spelled at each seam. Deliberately NOT the same
+ * question as `alive`: the economy surfaces (the XP rail, the refit) key on
+ * `alive` and correctly close at sink-entry.
+ */
+export function conning(status: Pick<OwnStatus, 'alive' | 'sinking'>): boolean {
+  return status.alive || status.sinking;
 }
 
 /** The two victim tells, top-down in the order they stack above the cluster. */
@@ -899,13 +921,17 @@ export class Hud {
    * not running renders NOTHING (no placeholder, no dimmed ghost) and the
    * remaining line closes up into the bottom slot, so the column never carries a
    * hole. Hidden wholesale on a dead hull — a sunk ship is not fouled.
+   *
+   * A SINKING hull still shows them (Story 5.2): it is still making way, still
+   * steering and still shooting, so a live foul or dazzle is still shaping what
+   * the captain can do with their last five seconds.
    */
   private drawTells(status: OwnStatus, screenW: number, screenH: number): void {
     const at = vitalsLayout(screenW, screenH).tells;
     const windows = [status.slowedMsLeft, status.dazzledMsLeft];
     let slot = 0;
     for (let i = 0; i < this.tells.length; i++) {
-      const line = status.alive ? tellLine(TELL_LABELS[i], windows[i]) : '';
+      const line = conning(status) ? tellLine(TELL_LABELS[i], windows[i]) : '';
       const t = this.tells[i];
       if (line !== this.lastTells[i]) {
         t.text = line;
@@ -1101,8 +1127,15 @@ export class Hud {
     }
   }
 
+  /**
+   * The centre-screen `SUNK — RESPAWNING IN Ns` overlay (the ready room's
+   * respawn wait). A SINKING hull must never see it: the ship is still under
+   * the player's hand and still shooting, so a "SUNK" placard over the middle
+   * of the fight would be both a lie about the controls and a wall across the
+   * one view the beat exists for. It returns the instant the window closes.
+   */
   private updateOverlay(status: OwnStatus, screenW: number, screenH: number): void {
-    if (status.alive) {
+    if (conning(status)) {
       if (this.overlay.visible) this.overlay.visible = false;
       return;
     }

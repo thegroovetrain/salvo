@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isAfloat,
+  transitionLifecycle,
   CONFIG,
   HEAL_CHOICE,
   coverageHas,
@@ -325,7 +326,11 @@ function scnSpectator(g: Golden): void {
   place(w, 'c', -600, 400, 1.2);
   injectMine(w, 'sm', 'a', 800, 800);
   w.respawnEnabled = false; // active-phase policy: the dead stay dead
-  w.sinkShip('a', 'b'); // a dies in the active phase -> spectates
+  w.sinkShip('a', 'b'); // a dies in the active phase -> spectates once FOUNDERED
+  // Story 5.2: spectate keys on isSunk. Drive the founder edge directly (the
+  // validated table edge) rather than stepping the 5000ms window, so the
+  // fixture's tick count — and every downstream byte — stays put.
+  w.ships.get('a')!.lifecycle = transitionLifecycle(w.ships.get('a')!.lifecycle, 'founder', w.now);
   w.step();
   cap(g, w, 'a', 'active'); // spec: unfogged contacts b,c + own mine
   cap(g, w, 'b', 'finished'); // finished: everyone spectates
@@ -456,6 +461,9 @@ function scnSpectatorBallistic(g: Golden): void {
   injectShell(w, 'fly', 'd', 300, 300, Math.PI / 4, 500, 'shell'); // stays airborne (reveal subject)
   w.respawnEnabled = false; // active-phase policy: the dead stay dead
   w.sinkShip('c', 'b'); // c dies -> spectates (phantom killer 'b')
+  // Story 5.2: spectate begins at founder; stepping the real window would burn
+  // the injected shells' whole flight, so take the table edge directly.
+  w.ships.get('c')!.lifecycle = transitionLifecycle(w.ships.get('c')!.lifecycle, 'founder', w.now);
   w.step(); // shell strikes e; fly flies on
   const spec = cap(g, w, 'c', 'active'); // spectator: fly reveal + dmg(e) + raw boom
   prove(g, 'spectator-ballistic-reveal', spec.events.some((ev) => ev.k === 'shell' && ev.id === 'fly'));
@@ -981,6 +989,10 @@ function scnWake(g: Golden): void {
   w.torpWakes.set('fish', torp);
   w.respawnEnabled = false; // active-phase policy: the dead stay dead
   w.sinkShip('b');
+  // Story 5.2: a SINKING b would still lay wake (the motion seam) and chain a
+  // bogus (448,0)→(900,900) segment onto the injected fixture ring — this
+  // scenario is about a WRECK's water, so founder it before the step.
+  w.ships.get('b')!.lifecycle = transitionLifecycle(w.ships.get('b')!.lifecycle, 'founder', w.now);
   w.step();
   // Open a's paint window across both tracks' bearings (0 .. ~0.012 rad).
   a.prevSweepAngle = wrapPositive(-0.005);

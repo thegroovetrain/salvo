@@ -132,7 +132,12 @@ describe('World step — inputs and motion', () => {
   it('dead ships do not move but still ack inputs', () => {
     const w = new World(3);
     const rec = w.addShip('a', 'ALPHA');
+    w.respawnEnabled = false; // the window now outlasts the respawn delay
     w.sinkShip('a');
+    // Story 5.2: sinkShip opens the five-second window (a SINKING hull still
+    // steers — the motion seam), so ride it out to a genuinely SUNK hull
+    // before asserting the parked wreck.
+    w.step(CONFIG.ship.sinkingWindowMs);
     w.submitInput('a', input(1));
     const before = { ...rec.state };
     w.step();
@@ -200,8 +205,12 @@ describe('World step — sweep + respawn', () => {
     expect(rec.hp).toBe(0);
     expect(rec.respawnAt).toBe(CONFIG.ship.respawnDelay);
 
-    const ticksToRespawn = CONFIG.ship.respawnDelay / SIM_DT;
-    stepN(w, ticksToRespawn - 1);
+    // Story 5.2: the respawn delay (3000ms) now elapses INSIDE the sinking
+    // window (5000ms), and processRespawns revives only the SUNK — so the
+    // revive lands on the FOUNDER tick, where founderSinking runs earlier in
+    // the same step order.
+    const ticksToFounder = CONFIG.ship.sinkingWindowMs / SIM_DT;
+    stepN(w, ticksToFounder - 1);
     expect(isAfloat(rec.lifecycle)).toBe(false);
     w.step();
     expect(isAfloat(rec.lifecycle)).toBe(true);
@@ -229,7 +238,10 @@ describe('World step — sweep + respawn', () => {
     w.step();
     expect(w.tickEvents).toEqual([{ k: 'sunk', id: 'a', by: 'k' }]);
     const seen: unknown[] = [];
-    for (let i = 0; i < CONFIG.ship.respawnDelay / SIM_DT + 5; i++) {
+    // Story 5.2: the window (5000ms) outlasts the respawn delay (3000ms), so
+    // cover through the founder tick — the spawn fires there, and CRUCIALLY
+    // no second `sunk` ever does (the toEqual below pins exactly one event).
+    for (let i = 0; i < CONFIG.ship.sinkingWindowMs / SIM_DT + 5; i++) {
       w.step();
       seen.push(...w.tickEvents);
     }

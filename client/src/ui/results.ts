@@ -40,8 +40,27 @@ export function fmtDamage(d: number): string {
   return String(Math.round(d));
 }
 
-/** Pure: the banner line above the placement table at GAME END. */
+/** The DRAW reading — every remaining captain sank on the same tick, so the
+ *  match has no winner at all (Story 5.2, amendment 14). */
+export const DRAW_BANNER = 'DRAW';
+
+/**
+ * Pure: the banner line above the placement table at GAME END.
+ *
+ * THE EMPTY WINNER IS A DRAW, NOT AN UNKNOWN ONE (amendment 14, Eric: *"if all
+ * remaining players die at the same time... a draw is acceptable"*). Story 5.2
+ * makes `winnerId: ''` genuinely reachable — a fixed-length sinking window is a
+ * constant delay, so two hulls entering the window on one tick found on one
+ * tick and exact ties are PRESERVED rather than scattered — and the shipped
+ * fallthrough rendered that as `WINNER: UNKNOWN`, which reads as a lookup
+ * failure rather than a result.
+ *
+ * Tested FIRST, ahead of the victory compare: an own id that is somehow also
+ * empty (no session, a torn-down room) must read the match's outcome, never
+ * claim a victory nobody won.
+ */
 export function winnerBanner(msg: ResultsMsg, ownId: string): string {
+  if (msg.winnerId === '') return DRAW_BANNER;
   if (msg.winnerId === ownId) return 'VICTORY';
   const winner = msg.rows.find((r) => r.id === msg.winnerId);
   return `WINNER: ${winner?.name ?? 'UNKNOWN'}`;

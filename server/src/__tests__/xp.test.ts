@@ -330,9 +330,11 @@ describe('wire — lvl/xp are self-private and ride `you` alone', () => {
       expect('xp' in c).toBe(false);
     }
     // Dead-in-active = spectator: unfogged, and `you` (with it, the economy) is
-    // omitted outright.
+    // omitted outright. Story 5.2: spectate begins at FOUNDER, not sink-entry
+    // (a sinking captain stays fogged with `you`), so cross the window first.
+    w.respawnEnabled = false;
     w.sinkShip('b', 'a');
-    w.step();
+    w.step(CONFIG.ship.sinkingWindowMs);
     const spec = buildFrame(w, 'b', 'active');
     expect(spec.spec).toBe(true);
     expect(spec.you).toBeUndefined();

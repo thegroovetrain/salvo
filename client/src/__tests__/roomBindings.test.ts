@@ -327,6 +327,7 @@ describe('bindRoom own sunk', () => {
       colors: () => null,
       ordnanceHue: () => 0,
       resetThrottle,
+      respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetPrime,
       onSunkObserved,
     } as unknown as RoomBindingDeps;
@@ -338,6 +339,158 @@ describe('bindRoom own sunk', () => {
     // Story 2.3: the SAME observed sinking feeds the personal-score accumulator
     // and (for our own hull, in a live match) opens the elimination modal.
     expect(onSunkObserved).toHaveBeenCalledWith('me', null);
+  });
+
+  // Story 5.2 (amendments 10/16): the `sunk` event still fires at SINK-ENTRY,
+  // unmoved — but the hull is not gone yet. Clearing the engine order here
+  // would stop the ship the five-second window exists to keep sailing (rudder
+  // authority scales with speed, so it takes the helm with it), and reverting
+  // the prime would steal the torpedo a captain went down intending to fire.
+  // Both move to FOUNDER (main.ts's tickSinkingWindow). Everything else on the
+  // path — the score credit, the feed line, the killer, the respawn ETA — is
+  // deliberately unchanged: the kill is real the moment it lands.
+  it('HOLDS both resets while the hull is inside its sinking window', () => {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const resetThrottle = vi.fn();
+    const resetPrime = vi.fn();
+    const onSunkObserved = vi.fn();
+    const state = {
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
+      spectating: false, phase: '', respawnEta: null, killerId: null, mode: 'interp',
+    };
+    const deps = {
+      state,
+      clock: { addSample: vi.fn() },
+      contacts: { pushFrame: vi.fn() },
+      mines: { sync: vi.fn() },
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
+      litZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      effects: { spawnEffect: vi.fn() },
+      audio: { play: vi.fn() },
+      names: (id: string) => id,
+      colors: () => null,
+      ordnanceHue: () => 0,
+      onOwnStats: vi.fn(),
+      ownBuffer: { push: vi.fn() },
+      radar: { onSweepSample: vi.fn() },
+      resetThrottle,
+      respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
+      resetPrime,
+      onSunkObserved,
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    // The frame that carries the `sunk` also carries the own ship with the
+    // self-private founder deadline — handleFrame adopts `you` before it routes
+    // events, so the window is read off the very frame that opened it.
+    const you = {
+      id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 0, alive: false, ammo: [], sweep: 0,
+      cls: 'torpedoBoat', pts: 0, offer: [], boostUntil: 0, boons: [], lvl: 0, xp: 0,
+      repairHp: 0, sinkingUntil: 5200,
+    };
+    sink.handler({ t: 200, tick: 2, ackSeq: 0, you, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: 'rival' }] });
+    expect(resetThrottle).not.toHaveBeenCalled();
+    expect(resetPrime).not.toHaveBeenCalled();
+    // ...while the bookkeeping the amendment pins to sink-entry all still lands.
+    expect(onSunkObserved).toHaveBeenCalledWith('me', 'rival');
+    expect(state.killerId).toBe('rival');
+    expect(state.respawnEta).not.toBeNull();
+  });
+});
+
+// --- THE RESPAWN DEADLINE IS THE SERVER'S TO ARM (Story 5.2 review fix) ------
+//
+// `respawnEta` used to be set on EVERY own sinking, on the reasoning that "in
+// active this ETA is never used — the same frame carries spec:true". The
+// sinking window broke that: `spec` now arrives five seconds later, and for the
+// ~½ RTT between founder and its arrival `renderAlive` is still the render path
+// with `conning(status)` freshly false, so hud.ts drew `SUNK — RESPAWNING IN 0s`
+// (0s because respawnDelay 3000 < the 5000 window) over the middle of a LIVE
+// match, where no respawn was ever armed.
+
+describe('bindRoom own sunk — the respawn ETA', () => {
+  function setupEta(armed: boolean) {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const state = {
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
+      spectating: false, phase: '', respawnEta: null, killerId: null, mode: 'interp',
+    };
+    const spawnEffect = vi.fn();
+    const deps = {
+      state,
+      clock: { addSample: vi.fn() },
+      contacts: { pushFrame: vi.fn(), get: () => null },
+      contactViews: { markSunk: vi.fn() },
+      mines: { sync: vi.fn() },
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
+      litZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      effects: { spawnEffect },
+      audio: { play: vi.fn() },
+      names: (id: string) => id,
+      colors: () => null,
+      ordnanceHue: () => 0,
+      onOwnStats: vi.fn(),
+      ownBuffer: { push: vi.fn() },
+      radar: { onSweepSample: vi.fn() },
+      predictor: { onServerState: vi.fn() },
+      resetThrottle: vi.fn(),
+      resetPrime: vi.fn(),
+      respawnArmed: () => armed,
+      onSpectate: vi.fn(),
+      onSunkObserved: vi.fn(),
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    document.getElementById('kill-feed')?.remove();
+    return { sink, state, spawnEffect };
+  }
+
+  /** An own-ship frame carrying the third state (dead on the wire, still sailing). */
+  const sinkingFrame = (t: number, x: number, y: number, events: unknown[] = []): unknown => ({
+    t, tick: 1, ackSeq: 0, contacts: [], mines: [], events,
+    you: {
+      id: 'me', x, y, heading: 0, speed: 10, hp: 0, alive: false, ammo: [], sweep: 0,
+      cls: 'torpedoBoat', pts: 0, offer: [], boons: [], boostUntil: 0, lvl: 0, xp: 0,
+      repairHp: 0, sinkingUntil: 1000 + CONFIG.ship.sinkingWindowMs,
+    },
+  });
+
+  it('the READY ROOM still arms one — the overlay reads it exactly as before', () => {
+    const { sink, state } = setupEta(true);
+    sink.handler(sinkingFrame(1000, 0, 0, [{ k: 'sunk', id: 'me', by: 'rival' }]));
+    expect(state.respawnEta).toBe(1000 + CONFIG.ship.respawnDelay);
+  });
+
+  it('an ACTIVE match arms NONE — no client-side promise the server never made', () => {
+    const { sink, state } = setupEta(false);
+    sink.handler(sinkingFrame(1000, 0, 0, [{ k: 'sunk', id: 'me', by: 'rival' }]));
+    expect(state.respawnEta).toBeNull(); // ...so the placard has nothing to count down
+  });
+
+  // --- OWN AND ENEMY WRECKS LAND ON THE SAME BEAT ---------------------------
+
+  it('OUR OWN sink plume waits for founder, and draws where the hull actually ended up', () => {
+    const { sink, state, spawnEffect } = setupEta(false);
+    sink.handler(sinkingFrame(1000, 0, 0, [{ k: 'sunk', id: 'me', by: 'rival', seen: true }]));
+    expect(spawnEffect).not.toHaveBeenCalled(); // we are still under way
+    // Five seconds of sinking, sailed: the hull ends up well away from where it
+    // was holed. The founder frame is the spec frame the server sends when the
+    // window closes — it carries no `you`, so the last sinking pose is the one
+    // the plume takes (net.you is deliberately not replaced before the flush).
+    sink.handler(sinkingFrame(1000 + CONFIG.ship.sinkingWindowMs - 50, 220, -40));
+    expect(spawnEffect).not.toHaveBeenCalled();
+    sink.handler({
+      t: 1000 + CONFIG.ship.sinkingWindowMs, tick: 2, ackSeq: 0, spec: true,
+      contacts: [], mines: [], events: [],
+    });
+    expect(spawnEffect).toHaveBeenCalledWith('sink', 220, -40);
+    expect(state.spectating).toBe(true);
   });
 });
 
@@ -379,6 +532,7 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       litZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       resetThrottle,
+      respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetHonkCooldown,
       onOwnSpawn,
       colors: () => null,
@@ -437,6 +591,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     // case, which still SOUNDS (unpanned, at the floor).
     contactPos: { x: number; y: number } | null = { x: 40, y: 50 },
   ) {
+    // MUTABLE, so the deferred-presentation suite can sail the hull on between
+    // sink-entry and founder and prove the plume follows it.
+    let pos = contactPos;
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
     const conn = { room, welcome: {}, sink } as unknown as Connection;
@@ -454,7 +611,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
         pushFrame: vi.fn(),
         // The stale last-known snapshot resolves a position by default — the
         // point of the suite is that `seen` (not availability) gates its use.
-        get: () => (contactPos ? { newest: contactPos } : null),
+        get: () => (pos ? { newest: pos } : null),
       },
       contactViews: { markSunk, flash: vi.fn(), markSpawn: vi.fn() },
       mines: { sync: vi.fn() },
@@ -471,16 +628,31 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       colors: () => null,
       ordnanceHue: () => 0,
       resetThrottle: vi.fn(),
+      respawnArmed: () => true,
       resetPrime: vi.fn(),
       onSunkObserved,
     } as unknown as RoomBindingDeps;
     bindRoom(conn, deps);
     document.getElementById('kill-feed')?.remove();
-    return { sink, spawnEffect, markSunk, play, onSunkObserved };
+    return {
+      sink,
+      spawnEffect,
+      markSunk,
+      play,
+      onSunkObserved,
+      /** Sail the still-fighting hull on (or age its contact out with null). */
+      moveContact: (p: { x: number; y: number } | null) => void (pos = p),
+    };
   }
 
+  const SUNK_T = 500;
   const sunkFrame = (event: unknown): unknown =>
-    ({ t: 500, tick: 5, ackSeq: 0, spec: true, contacts: [], mines: [], events: [event] });
+    ({ t: SUNK_T, tick: 5, ackSeq: 0, spec: true, contacts: [], mines: [], events: [event] });
+
+  /** An empty frame at server time `t` — the client's only exact reading of the
+   *  server clock, and therefore what drives the deferred founder flush. */
+  const tickFrame = (t: number): unknown =>
+    ({ t, tick: 6, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
 
   const feedLines = (): string[] => {
     const feed = document.getElementById('kill-feed');
@@ -496,12 +668,92 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(onSunkObserved).toHaveBeenCalledWith('victim', 'killer'); // score rides regardless
   });
 
-  it('a SEEN sunk does both — the plume at the last-known position, and the teardown', () => {
+  // --- THE SPATIAL HALF WAITS FOR FOUNDER (Story 5.2 review fix) ------------
+  //
+  // The `sunk` event fires at SINK-ENTRY (amendment 11) on a hull that keeps
+  // steering and shooting for five more seconds (amendment 10). Drawing the
+  // wreck there meant an enemy watched a faded, visually-dead contact turn and
+  // torpedo them, with its death plume left up to ~110u astern of where it
+  // actually went down. Identity lands now; location lands at founder.
+
+  it('a SEEN sunk prints the line NOW but draws NO wreck yet — the hull is still fighting', () => {
     const { sink, spawnEffect, markSunk } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
-    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']);
-    expect(spawnEffect).toHaveBeenCalledWith('sink', 40, 50);
+    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']); // identity, immediately
+    expect(spawnEffect).not.toHaveBeenCalled(); // ...and nothing spatial
+    expect(markSunk).not.toHaveBeenCalled();
+  });
+
+  it('...holds it for the WHOLE window, to the last tick before the deadline', () => {
+    const { sink, spawnEffect, markSunk } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs - 1));
+    expect(spawnEffect).not.toHaveBeenCalled();
+    expect(markSunk).not.toHaveBeenCalled();
+  });
+
+  it('...then draws BOTH at founder, at the hull\'s THEN-current position', () => {
+    const { sink, spawnEffect, markSunk, moveContact } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    // The doomed hull sails on through its window — this is the whole point.
+    moveContact({ x: 140, y: -60 });
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    // NOT (40,50): a plume at the sink-entry position is the defect.
+    expect(spawnEffect).toHaveBeenCalledWith('sink', 140, -60);
     expect(markSunk).toHaveBeenCalledWith('victim');
+  });
+
+  it('...exactly ONCE, however many frames follow', () => {
+    const { sink, spawnEffect, markSunk } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs + 50));
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs + 5000));
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
+    expect(markSunk).toHaveBeenCalledTimes(1);
+  });
+
+  it('a replayed `sunk` for the same hull still yields ONE wreck', () => {
+    const { sink, spawnEffect } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
+  });
+
+  it('an UNSEEN sunk never queues a wreck — founder comes and goes in silence', () => {
+    // The `seen` gate is unchanged, only moved: a fog kill must still never draw
+    // a plume at a stale position, at sink-entry OR five seconds later.
+    const { sink, spawnEffect, markSunk } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    expect(spawnEffect).not.toHaveBeenCalled();
+    expect(markSunk).not.toHaveBeenCalled();
+  });
+
+  it('a wreck whose contact aged out by founder draws no plume — but still tears down', () => {
+    // Today's staleness rule, followed rather than replaced: an unresolvable
+    // position simply draws nothing (sunkPosition returns null). No position is
+    // invented, and the view teardown does not depend on having one.
+    const { sink, spawnEffect, markSunk, moveContact } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    moveContact(null);
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    expect(spawnEffect).not.toHaveBeenCalled();
+    expect(markSunk).toHaveBeenCalledWith('victim');
+  });
+
+  it('OUR OWN wreck lands on the same beat, and never calls markSunk on ourselves', () => {
+    // Own-death is the one case the client knows the deadline for outright
+    // (`you.sinkingUntil`), and it must not draw its plume on a different beat
+    // from every enemy's. The own position comes off `net.you`, which this
+    // spectating harness never receives — so the plume is simply skipped,
+    // exactly as an aged-out contact is.
+    const { sink, spawnEffect, markSunk } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'me', by: 'killer', seen: true }));
+    expect(spawnEffect).not.toHaveBeenCalled();
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    expect(markSunk).not.toHaveBeenCalled(); // we are not one of our own contacts
   });
 
   it('an OWN fog kill still plays the kill tone and reaches onSunkObserved', () => {
@@ -992,6 +1244,7 @@ function setupWater(
     names: (id: string) => id,
     onSunkObserved: vi.fn(),
     resetThrottle: vi.fn(),
+    respawnArmed: () => true,
     resetPrime: vi.fn(),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
@@ -1914,5 +2167,79 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
       { k: 'sp', id: 'me', x: 400, y: 100 },
     ], {}, { t: 1100 }));
     expect(ids(play)).toEqual(['splash', 'splash']); // ours is heard
+  });
+
+  // --- THE SINKING HULL IS STILL OURS (Story 5.2 review fix) ----------------
+  //
+  // `hasLiveOwnHull` asks "do we have a hull on the water", and until this fix
+  // it answered with the raw `you.alive` — which amendment 11 flips FALSE at
+  // sink-entry, five seconds before the hull actually goes down. The audible
+  // result was on every single shot of the beat this story exists to create:
+  // `handleShell`'s own-fire crack still fired (its `nearOwnShip` test is
+  // position-only) while `handleMuzzle`'s suppression let go, so the SAME round
+  // also played the distant `gunReport` world tone from ~0 m away.
+
+  /** Our own ship, mid-window: dead by the wire's reckoning, still on the water. */
+  const sinkingYou = (t: number) => ({ alive: false, sinkingUntil: t + CONFIG.ship.sinkingWindowMs });
+
+  it('ONE SHOT, ONE REPORT while we are going down — the shot must not double-sound', () => {
+    const { sink, play } = setupWater();
+    // Our own gun-family shell reveals on our own hull and the server's public
+    // `mz` lands on the same point in the same frame — exactly what a shot from
+    // a sinking hull produces.
+    sink.handler(victimFrame([
+      { k: 'shell', id: 's1', x: 0, y: 0, vx: 40, vy: 0 },
+      { k: 'mz', x: 0, y: 0 },
+    ], sinkingYou(1000)));
+    expect(ids(play)).toEqual(['fireGun']); // the close crack, and NOTHING else
+  });
+
+  it('...while an enemy gun firing elsewhere is still reported, sinking or not', () => {
+    // The suppression must not widen into a blanket silence: it is keyed on our
+    // own hull, and this flash is 330u away from it.
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'mz', x: 330, y: 0 }], sinkingYou(1000)));
+    expect(ids(play)).toEqual(['gunReport']);
+  });
+
+  it('the EAR stays on the sinking hull, and does not jump to the camera', () => {
+    // listenerPos shares the predicate. Hull and mark at the same point, 300u
+    // off the camera at the origin: placed against the camera this would pan
+    // hard to starboard, and against the hull it is dead centre.
+    const { sink, play } = setupWater(null, { x: 0, y: 0 });
+    sink.handler(victimFrame(
+      [{ k: 'boom', id: 's1', x: 300, y: 0 }],
+      { ...sinkingYou(1000), x: 300, y: 0 },
+    ));
+    expect(optsOf(play, 'splash').pan).toBe(0);
+  });
+
+  it('but a burst on our SINKING hull still thuds — amendment 12 leaves nothing to double', () => {
+    // `inOwnBlast` deliberately does NOT take the widened predicate. Its whole
+    // job is "could this be the damage I am already feeling this frame", and a
+    // sinking hull feels none: damage on it is a total no-op (amendment 12), so
+    // there is no `dmg`, no shake and no `damage` cue to smear against. Silence
+    // here would be a ring filling the screen with nothing to hear — the lie the
+    // function's own docstring rejects.
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 0, y: 0 }], sinkingYou(1000)));
+    expect(ids(play)).toEqual(['impact']);
+  });
+
+  it('...and on a LIVE hull it is still silent — the damage aggregate is the cue', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'burst', id: 's1', x: 0, y: 0 }], {}));
+    expect(ids(play)).toEqual([]);
+  });
+
+  it('SPECTATING is still the hard stop: a stale sinking `you` conns nothing', () => {
+    // `net.you` is never cleared, so a spec frame arriving mid-window (the
+    // amendment 17 truncation) leaves a `sinkingUntil` in the future on a hull
+    // we no longer have. The ear must be back on the camera and the enemy's gun
+    // must be audible again.
+    const { sink, play } = setupWater(null, { x: 0, y: 0 });
+    sink.handler(victimFrame([], { ...sinkingYou(1000), x: 500, y: 0 }, { t: 1000 }));
+    sink.handler(victimFrame([{ k: 'mz', x: 500, y: 0 }], null, { t: 2000 }));
+    expect(ids(play)).toEqual(['gunReport']);
   });
 });

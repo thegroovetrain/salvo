@@ -8,6 +8,7 @@ import {
   islandDistance,
   islandFromPolygon,
   applyGroundingDamp,
+  applySinkingDecel,
   resolveShipPose,
   stepShip,
   transformPolygon,
@@ -678,6 +679,125 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
       const inp = input(seq, 1, 0);
       p.localTick(inp, tickT(seq));
       serverStep(server, inp); // un-fouled reference
+    }
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+});
+
+// --- Story 5.2: THE SINKING WINDOW ----------------------------------------------
+//
+// The self-private you.sinkingUntil folds through the SHARED applySinkingDecel
+// — the identical function world.ts calls, at the identical 50ms dt — so the
+// ritardando cannot drift between the two sides. What these pin, beyond raw
+// parity: the cap is applied AFTER stepShip (so this tick's integrated position
+// is untouched and only the next tick's start speed moves); it is derived
+// purely from (since, now), so a replay across a lagged ack re-makes the exact
+// same decision; it scales the PER-TICK EFFECTIVE max, so amendment 10's
+// speedBoost genuinely lifts it (a doomed surge) instead of being refused; and
+// it reaches exactly 0 on the founder tick.
+
+describe('Predictor sinking window (Story 5.2)', () => {
+  const SINCE = 900_000; // sink-entry, in server-clock ms
+  const UNTIL = SINCE + CONFIG.ship.sinkingWindowMs;
+  const tickT = (seq: number): number => SINCE + seq * CONFIG.tick.simDtMs;
+  /** Ticks from sink-entry to the founder deadline (the window is a multiple
+   *  of the sim dt by construction — sinking.ts's header). */
+  const FOUNDER_SEQ = CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs;
+
+  /** Reference server tick for a SINKING hull — world.stepShips' composition
+   *  with the shared decel folded in against THIS tick's effective kinematics,
+   *  then the shared collision/grounding pass the predictor also runs. */
+  function serverSinkStep(s: ShipState, inp: InputMsg, t: number, boostUntil = 0): void {
+    const kinT = boostedKinematics(TB.kinematics, CONFIG.speedBoost.speedBonus, t < boostUntil);
+    const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    stepShip(s, inp, kinT, DT);
+    applySinkingDecel(s, kinT.maxSpeed, SINCE, t);
+    applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+  }
+
+  it('decays a full-ahead hull to EXACTLY zero at the founder tick, in lock-step', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const server: ShipState = { ...spawn };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), sinkingUntil: UNTIL }, 0);
+    for (let seq = 1; seq <= FOUNDER_SEQ; seq++) {
+      const inp = input(seq, 1, 0); // full ahead the whole way down
+      p.localTick(inp, tickT(seq));
+      serverSinkStep(server, inp, tickT(seq));
+      expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    }
+    // The linear ramp hits 0 at exactly since + window — "stopped" and
+    // "foundered" agree on the SAME tick by construction.
+    expect(p.predicted.speed).toBe(0);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    // ...and stays there: a tick recorded past the deadline reads remaining 0.
+    p.localTick(input(FOUNDER_SEQ + 1, 1, 0), tickT(FOUNDER_SEQ + 1));
+    expect(p.predicted.speed).toBe(0);
+  });
+
+  it('replays the window correctly under lagged acks (reconcile parity)', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), sinkingUntil: UNTIL }, 0);
+    for (let seq = 1; seq <= FOUNDER_SEQ; seq++) {
+      const inp = input(seq, 1, 0.6); // still steering all the way down
+      p.localTick(inp, tickT(seq));
+      serverSinkStep(server, inp, tickT(seq));
+      history[seq] = { ...server };
+      if (seq % 3 === 0 && seq > 4) {
+        // Ack lags 4 ticks: every replayed tick must re-derive its own cap from
+        // its OWN recorded time, or the ramp lands at the wrong point.
+        p.onServerState({ ...kin(history[seq - 4]), sinkingUntil: UNTIL }, seq - 4);
+        expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
+      }
+    }
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    expect(p.predicted.y).toBeCloseTo(server.y, 9);
+    expect(p.predicted.heading).toBeCloseTo(server.heading, 9);
+  });
+
+  it('the ramp scales the POST-BOOST max, so a mid-window boost is a doomed surge (amendment 10)', () => {
+    // The decel is a CAP THE BOOST PUSHES AGAINST, never a state that refuses
+    // it: at the same instant in the same window a boosted hull is allowed
+    // (max + bonus) × remaining, strictly more than max × remaining.
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const boosted = new Predictor({ radius: MAP_R, islands: [] });
+    const plain = new Predictor({ radius: MAP_R, islands: [] });
+    const boostUntil = UNTIL + 1; // open for the whole window
+    boosted.onServerState({ ...kin(spawn), sinkingUntil: UNTIL, boostUntil }, 0);
+    plain.onServerState({ ...kin(spawn), sinkingUntil: UNTIL }, 0);
+    const server: ShipState = { ...spawn };
+    const half = FOUNDER_SEQ / 2;
+    for (let seq = 1; seq <= half; seq++) {
+      const inp = input(seq, 1, 0);
+      boosted.localTick(inp, tickT(seq));
+      plain.localTick(inp, tickT(seq));
+      serverSinkStep(server, inp, tickT(seq), boostUntil);
+    }
+    expect(boosted.predicted.speed).toBeCloseTo(server.speed, 9); // server parity
+    expect(boosted.predicted.speed).toBeGreaterThan(plain.predicted.speed);
+    const remaining = 1 - (tickT(half) - SINCE) / CONFIG.ship.sinkingWindowMs;
+    expect(boosted.predicted.speed).toBeCloseTo(
+      (TB.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus) * remaining,
+      6,
+    );
+  });
+
+  it('an absent sinkingUntil is not sinking, and a hard re-init drops the window', () => {
+    // The overwhelming majority of ticks: byte-identical to the pre-5.2 path.
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), sinkingUntil: UNTIL }, 0);
+    p.forceSnap(); // respawn / reconnect / class swap — the next life must not inherit it
+    p.onServerState(kin(spawn), 0); // next frame carries NO sinkingUntil
+    const server: ShipState = { ...spawn };
+    for (let seq = 1; seq <= 30; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverStep(server, inp); // un-capped reference
     }
     expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
     expect(p.predicted.x).toBeCloseTo(server.x, 9);

@@ -170,7 +170,11 @@ describe('cannon — denials + cross-hull parity', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_CANNON });
+    w.respawnEnabled = false;
     w.sinkShip('a');
+    // Story 5.2 (amendment 10): a SINKING Battleship still fires — only a
+    // foundered one is dead. Cross the window before asserting the refusal.
+    w.step(CONFIG.ship.sinkingWindowMs);
     expect(w.sinkingActivationGate(bb, SLOT_CANNON)).toEqual({ ok: false, reason: 'dead' });
   });
 

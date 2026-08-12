@@ -7,7 +7,7 @@
 // dazzled observer's shrunken sight) — plus the vacated-owner CONFIG fallback.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland } from './islandFixture.js';
@@ -285,7 +285,11 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     const { w } = homingBoard();
     const c = place(w, 'c', -600, 0);
     w.respawnEnabled = false;
-    w.sinkShip('c'); // dead-in-active ⇒ spectator frames
+    w.sinkShip('c'); // dead-in-active ⇒ spectator frames...
+    // ...once FOUNDERED (Story 5.2). Stepping the real 5000ms window would
+    // burn the homing fish's whole flight before the loop starts, so drive
+    // the founder edge directly through the validated transition table.
+    c.lifecycle = transitionLifecycle(c.lifecycle, 'founder', w.now);
     let reveals = 0;
     let updates = 0;
     for (let i = 0; i < 200; i++) {

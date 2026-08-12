@@ -56,6 +56,23 @@ describe('winnerBanner', () => {
   it('degrades gracefully when the winner is not in the rows', () => {
     expect(winnerBanner({ winnerId: 'x', rows: [row('b', 2)] }, 'b')).toBe('WINNER: UNKNOWN');
   });
+
+  // Story 5.2 / amendment 14: an EMPTY winner is a DRAW — every remaining
+  // captain sank on the same tick — not a failed name lookup. A fixed-length
+  // sinking window is a constant delay, so exact ties are PRESERVED rather than
+  // scattered, which is what makes this shape genuinely reachable.
+  it('reads DRAW for an empty winnerId, never `WINNER: UNKNOWN`', () => {
+    const draw: ResultsMsg = { winnerId: '', rows: [row('a', 1), row('b', 1)] };
+    expect(winnerBanner(draw, 'b')).toBe('DRAW');
+    expect(winnerBanner(draw, 'b')).not.toContain('UNKNOWN');
+  });
+
+  it('a draw never reads as anybody\'s VICTORY, even for an empty own id', () => {
+    // The draw clause is tested FIRST on purpose: an own id that is somehow also
+    // empty (no session, a torn-down room) must read the match's outcome rather
+    // than claim a victory nobody won.
+    expect(winnerBanner({ winnerId: '', rows: [] }, '')).toBe('DRAW');
+  });
 });
 
 describe('fmtDamage', () => {

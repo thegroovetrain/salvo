@@ -160,8 +160,12 @@ describe('world — wounded smoke timer resets at life boundaries', () => {
     w.step(); // puff — nextSmokeAt = now + INTERVAL
     expect(smokes(w.tickEvents)).toHaveLength(1);
     w.sinkShip('a');
-    a.respawnAt = w.now + DT; // accelerate the respawn inside the stale window
-    w.step(); // respawns this tick (full hp — silent), timer must be zeroed
+    a.respawnAt = w.now + DT; // accelerate the respawn
+    // Story 5.2: the revive waits on the founder edge, so cross the whole
+    // window in one step — founder + respawn land on the same tick (full hp —
+    // silent; a SINKING hull never puffs either: tickSmoke is not one of the
+    // three re-opened seams). The timer must be zeroed by the respawn.
+    w.step(CONFIG.ship.sinkingWindowMs); // respawns this tick, timer zeroed
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.nextSmokeAt).toBe(0);
     a.hp = a.stats.maxHp * 0.3; // wounded again, still inside the OLD interval

@@ -61,7 +61,7 @@ import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
 import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
-import { Hud, railFraction, reloadFraction, type OwnStatus } from './render/hud.js';
+import { Hud, conning, railFraction, reloadFraction, type OwnStatus } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
 import { slotForBoonCategory } from './render/equipmentInfo.js';
@@ -83,6 +83,7 @@ import {
 } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, hornPressVerdict, shouldConsumePrime } from './sim/inputSampler.js';
+import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -124,6 +125,7 @@ import {
   recordElimination,
   recordSunk,
   refinePlacement,
+  respawnArmedIn,
   scoreAfterReconnect,
   type PersonalScore,
   type ScoreState,
@@ -395,6 +397,34 @@ interface Game {
    *  is). Results-phase ESC/Enter arm only after CLIENT_CONFIG.results.keyGraceMs
    *  has elapsed, so a key aimed at the refit modal can't instantly return. */
   resultsShownAt: number;
+  /**
+   * THE DEFERRED ELIMINATION (Story 5.2, amendment 16): our own sinking has
+   * been observed and LATCHED (placement recorded, banner shown) but the
+   * ELIMINATED modal is being held back until the hull actually founders.
+   *
+   * It has to be held, not merely delayed: the modal is FOCUSED — presentResults
+   * calls keyboard.clearKeys() and overlayFocused() then suppresses every
+   * non-overlay key — so a live helm, a live hotbar and a live trigger are all
+   * impossible while it is up. The server still emits `sunk` at sink-entry
+   * (unmoved, amendment 11), so the client cannot simply wait for a later event;
+   * it latches here and fires at founder (tickSinkingWindow).
+   *
+   * THE DEBRIEF ONLY. Whether a window is running at all is `pendingFounder`
+   * below — the two were one flag until the review gate found that fusing them
+   * made the banner and the founder-time hygiene unreachable outside a live
+   * match (see handleSunkObserved).
+   */
+  pendingElimination: boolean;
+  /**
+   * A SINKING WINDOW OF OURS IS RUNNING and its founder-time hygiene (the
+   * engine-order reset, the prime revert) has not fired yet — set the instant
+   * the going-down banner goes up, in ANY match phase, and cleared at founder.
+   *
+   * Phase-agnostic on purpose: a window ends a life wherever it happens, and
+   * the life-boundary hygiene is owed either way. Only the DEBRIEF is a live-
+   * match question.
+   */
+  pendingFounder: boolean;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
@@ -546,6 +576,16 @@ function ownStatus(g: Game): OwnStatus {
     // come from the server-authoritative ammo[] above.
     primedSlot: g.keyboard.primedSlot,
     alive: you?.alive ?? true,
+    // THE THIRD STATE (Story 5.2, amendment 16). Note what is deliberately NOT
+    // shared with the line above: `alive` defaults a missing `you` to TRUE (the
+    // pre-first-frame gap must not read as death), and the sinking window must
+    // never inherit that — isSinkingNow returns false without a `you`, so an
+    // absent own ship can never fabricate a window that keeps a torn-down
+    // hull's controls live. `alive` and `sinking` are disjoint by construction.
+    // The spectating flag is the predicate's third clause (review fix): `you`
+    // is never CLEARED, so a stale one whose deadline has not expired would
+    // otherwise read as a live window on a hull we no longer have.
+    sinking: isSinkingNow(you, g.clock.serverNow(), g.state.spectating),
     respawnInMs: respawnMs(g.state.respawnEta, g.clock.serverNow()),
     loadout: g.ownSlots,
     boostActive: g.clock.serverNow() < boostUntilNow(g),
@@ -665,9 +705,22 @@ function syncRefitBand(g: Game): void {
   if (deniedCard !== null && g.upgradeMenu.visible) g.upgradeMenu.pulseDenied(deniedCard);
 }
 
-/** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
+/**
+ * The spend view for THIS frame (null = nothing to show → menu auto-hides).
+ * The fourth flag is the third state (Story 5.2, amendment 10): the refit goes
+ * INERT for the whole sinking window — "once sinking, you're done" — while the
+ * weapons, the abilities and the horn stay live. This is the ONE seam that
+ * closes it, and it is enough: TAB (handleRefitToggle), every digit and card
+ * pick (handleRefitPick) and the per-frame band sync (syncRefitBand) all read
+ * the refit's state through here.
+ */
 function currentOfferView(g: Game): OfferView | null {
-  return offerView(g.state.net.you, g.state.spectating, g.spendInFlight !== null);
+  return offerView(
+    g.state.net.you,
+    g.state.spectating,
+    g.spendInFlight !== null,
+    isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating),
+  );
 }
 
 /**
@@ -1102,13 +1155,135 @@ function handleSunkObserved(g: Game, victimId: string, killerId: string | null):
     g.state.net.sessionId,
   );
   if (victimId !== g.state.net.sessionId) return;
+  // THE WINDOW IS THE HULL'S BEAT, NOT THE MODAL'S (review fix). This used to
+  // sit BELOW the canOpenElimination gate, which made the going-down banner and
+  // the founder-time keyboard hygiene reachable only in the ACTIVE phase — so a
+  // hull sinking in the ready room got a full five-second window with no banner
+  // and never reverted its primed weapon for the next life, the exact opposite
+  // of the shipped intent. Production-unreachable (`damageEnabled` is active-
+  // only and `respawnEnabled` is ready-room-only, so no hull reaches 0 hp
+  // outside a live match) and fixed anyway, because the two latches answer two
+  // different questions and only one of them is about a debrief.
+  const sinking = openSinkingWindow(g);
   // The three ways an own-sinking is NOT an elimination-modal moment: a
   // ready-room respawn, an own-`sunk` racing in behind the game-end results
   // broadcast, and a duplicate of a sinking already latched. See
   // score.ts canOpenElimination for the full reasoning on each.
   if (!canOpenElimination(publicState(g).matchPhase ?? 'waiting', g.resultsFinal, g.score.eliminated)) return;
+  // The PLACEMENT is latched HERE, at sink-entry, even when the modal is held
+  // back: the outcome is decided the instant the hull hits 0 (amendment 14), so
+  // the number must be read off the roster at that instant, not five seconds
+  // later once rivals have died behind us. updateOpenResults' pure refine keeps
+  // converging it on server truth through the window (see refinePlacement).
   g.score = recordElimination(g.score, othersAlive(g));
+  if (sinking) {
+    g.pendingElimination = true; // the modal waits for founder — see below
+    return;
+  }
   showEliminationResults(g);
+}
+
+/**
+ * THE GOING-DOWN BEAT (Story 5.2, amendments 11/16). Our own `sunk` has landed;
+ * is this a sinking window rather than an immediate death — and if so, open it.
+ *
+ * The banner is Eric's own words, verbatim: *"killee gets a 'GOING DOWN WITH
+ * THE SHIP!' notification and gets 5 seconds of sinking"*. It rides the
+ * existing single banner slot on the standing discipline (`if (!g.reconnecting)`
+ * — the persistent RECONNECTING banner owns that slot for up to 60s and a
+ * transient must never displace it), and auto-hides on the SHARED window
+ * constant, so the notification's life is the beat's life by construction
+ * rather than by a second feel number.
+ *
+ * `pendingFounder` — the window latch — is set HERE and is PHASE-AGNOSTIC: it
+ * says "a hull of ours is going down", which is true wherever it happens. The
+ * modal's own latch (`pendingElimination`) stays gated by canOpenElimination in
+ * the caller, so the debrief rules are untouched.
+ */
+function openSinkingWindow(g: Game): boolean {
+  if (!isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating)) return false;
+  // Latched, exactly like the elimination it used to share a flag with: this
+  // now runs ABOVE canOpenElimination (which carries the never-twice clause),
+  // so a duplicate/replayed `sunk` inside one window must not re-banner.
+  if (g.pendingFounder) return true;
+  g.pendingFounder = true;
+  if (!g.reconnecting) showBanner('GOING DOWN WITH THE SHIP!', { autoHideMs: CONFIG.ship.sinkingWindowMs });
+  return true;
+}
+
+/**
+ * FOUNDER: the deferred beat is over. Called once per sinking window from the
+ * render loop, keyed on the window itself rather than on a spectate frame's
+ * arrival, so a dropped or late frame can never strand a captain with no
+ * debrief.
+ *
+ * The two keyboard resets moved here WITH the modal (they fire at sink-entry
+ * today, in roomBindings.handleSunk): clearing the engine order would stop the
+ * hull the window exists to keep sailing, and reverting the prime would steal
+ * the primed torpedo a captain went down intending to fire. Both are the
+ * shipped hard-boundary hygiene — they just belong at the boundary that is now
+ * five seconds later. enterSpectateVisuals repeats resetThrottle when the
+ * spectate frame lands; both are idempotent.
+ *
+ * TWO LATCHES, NOT ONE (review fix). The HYGIENE rides `pendingFounder` — every
+ * window ends a life, in any phase — while the DEBRIEF rides
+ * `pendingElimination`, which only a live match ever sets. A ready-room sinking
+ * therefore resets its orders and its prime and shows no results table, which
+ * is what a respawn wants.
+ */
+function tickSinkingWindow(g: Game): void {
+  if (!founderDue(g.pendingFounder, isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating))) return;
+  g.pendingFounder = false;
+  resetOwnOrders(g);
+  g.keyboard.revertToGun();
+  if (!g.pendingElimination) return; // a ready-room founder: hygiene only, no debrief
+  g.pendingElimination = false;
+  // THE GAME-END TABLE IS NEVER REPLACED (amendment 17): the match may finish
+  // WHILE a hull is still sinking — the outcome is decided at sink-entry, and
+  // `finish()` is deliberately not held open for the window — in which case the
+  // final debrief has already been presented and the results flow supersedes
+  // the rest of that hull's beat. This is the same clause canOpenElimination
+  // enforces at sink-entry, restated at the deferred end because the state can
+  // now change BETWEEN the two moments (it never could before 5.2). The resets
+  // above still run: the life is over either way.
+  if (g.resultsFinal) return;
+  showEliminationResults(g);
+}
+
+/**
+ * THE HARD-BOUNDARY ORDER RESET — own spawn, own founder, the match-activation
+ * teleport. Extracted from the roomBindings `resetThrottle` dep (which is still
+ * its only other caller) because Story 5.2 gave it a SECOND call site: the
+ * boundary moved off sink-entry and onto founder for a sinking hull, and the
+ * two paths must do byte-identical work or a life would end differently
+ * depending on whether it ended in a window.
+ *
+ * Drops any queued-but-unconsumed ability press (FINDING A) so a press queued
+ * in one life (or mashed while dead/spectating) never fires into the next;
+ * consumed counters stay monotonic (clearActivations leaves them), mirroring
+ * the server's un-reset lastActSeq.
+ */
+function resetOwnOrders(g: Game): void {
+  g.keyboard.resetThrottle();
+  g.keyboard.clearActivations();
+  // Story 2.9: the decoy slot's ACTIVE window dies at the same hard boundary.
+  // The latch is fed by the reconcile's own-spawn hook, which only ever fires
+  // for a NEW buoy — so a window left standing across death would keep a slot
+  // reading ACTIVE for a buoy the next life does not own. Missing juice beats a
+  // lying slot.
+  g.ownDecoyUntil = 0;
+  // Story 2.9: the own-fire latch dies at that same boundary. A claim is a
+  // promise about the next reveal on our own bow, and death/respawn breaks it —
+  // the shot it describes either splashed unseen or belongs to a hull that no
+  // longer exists, so letting it stand would dress the FIRST reveal of the next
+  // life (quite possibly somebody else's shell, landing where we just spawned)
+  // as our cannon shot. An unclaimed reveal reads generic, the honest fallback.
+  g.ownFire.clear();
+  // Reset the denial dedup at the SAME boundary (Story 1.10): dropping queued
+  // presses without advancing actCount would otherwise let the next press reuse
+  // a still-marked (slot, seq), suppressing a genuine later server denial as an
+  // echo.
+  g.denialDedup.clear();
 }
 
 /** The elimination modal: personal score + placement, SPECTATE + RETURN TO PORT. */
@@ -1153,17 +1328,38 @@ function presentResults(g: Game, view: ResultsView): void {
 }
 
 /**
- * Converge the OPEN elimination modal on server truth as roster patches land
+ * Converge the elimination placement on server truth as roster patches land
  * (fixes both the multi-death-tick placement inflation and the mutual-kill
  * tally race). Cheap by construction: the pure refine is a no-op once the
  * roster has applied our own sinking, and updateResultsScore compares a
  * signature before it touches the DOM. The game-end table is never re-derived
  * here — its numbers came from the results message, which is already final.
+ *
+ * THE REFINE RUNS WHETHER OR NOT THE MODAL IS ON SCREEN (Story 5.2). It used to
+ * be gated on `resultsVisible()` because elimination and modal were the same
+ * instant; with the modal deferred to founder, that gate would freeze the
+ * placement at its provisional sink-entry value for the whole five seconds and
+ * then open the modal on a number the roster had already corrected. Only the
+ * DOM write stays behind the visibility check — there is nothing on screen to
+ * update until founder, and the pure state is what the modal reads when it
+ * finally opens.
  */
 function updateOpenResults(g: Game): void {
-  if (g.resultsFinal || !g.score.eliminated || !resultsVisible()) return;
+  if (g.resultsFinal || !g.score.eliminated) return;
   g.score = refinePlacement(g.score, othersAlive(g), ownRosterSettled(g));
-  updateResultsScore(ownScore(g));
+  if (resultsVisible()) updateResultsScore(ownScore(g));
+}
+
+/**
+ * The elimination debrief's whole per-frame upkeep, in the ONE order that is
+ * correct: converge the placement on roster truth FIRST, then check for founder
+ * — so a modal deferred through a sinking window opens on the refined number
+ * rather than on the provisional one latched at sink-entry. Both halves are
+ * no-ops for a captain who has not been eliminated.
+ */
+function updateEliminationUx(g: Game): void {
+  updateOpenResults(g);
+  tickSinkingWindow(g);
 }
 
 // --- return to port / disconnect ---------------------------------------------
@@ -1301,7 +1497,24 @@ function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
  */
 function conningLive(g: Game | null): boolean {
   const s = g?.state;
-  return s !== undefined && helmInputCounts(s.spectating, s.net.you?.alive);
+  // A SINKING hull is still being conned (Story 5.2, amendment 16): the helm is
+  // live all the way down — decayed by the ritardando, never cut — so the
+  // telegraph bell rings and a W/S/A/D input still retires its coach mark.
+  return s !== undefined && helmInputCounts(s.spectating, conningNow(g));
+}
+
+/**
+ * `you.alive` WIDENED through the sinking window — the flag every CONTROL-side
+ * gate reads (helm, weapons, abilities, horn, zoom, denied feedback) in place
+ * of the raw `you?.alive` it used to. Returns `undefined` with no own ship, so
+ * each caller keeps its own deliberate default (`?? true` for the ability
+ * press, `?? false` for the horn, `=== true` for the helm/zoom); see
+ * sim/sinkingWindow.ts. The ECONOMY gates deliberately do NOT use this — the
+ * refit, the heal and the XP rail close at sink-entry (amendment 10).
+ */
+function conningNow(g: Game | null): boolean | undefined {
+  if (!g) return undefined;
+  return conningFlag(g.state.net.you, g.clock.serverNow(), g.state.spectating);
 }
 
 /**
@@ -1368,8 +1581,9 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       // 60, epic-4-context-amendments.md) found this FIFO-full path missing
       // it — the keyboard chokepoint deliberately doesn't gate on life
       // itself (onFoghorn's doc: "alive, spectating, cooldown — is main.ts's
-      // call").
-      if (deniedFeedbackHasNoTwin(g.state.spectating, g.state.net.you?.alive)) return;
+      // call"). Story 5.2: a SINKING hull still has its hotbar on screen, so
+      // the twin exists and the feedback plays — hence conningNow, not `alive`.
+      if (deniedFeedbackHasNoTwin(g.state.spectating, conningNow(g))) return;
       g.abilityDeniedPress[slot] = true;
       playDenied(g);
     },
@@ -1435,7 +1649,11 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const you = g.state.net.you;
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
-  if (abilityPressDenied(you?.alive ?? true, loaded)) {
+  // Story 5.2 / amendment 10 — NO RESTRICTION AT THE GATE: every fitted slot
+  // activates while sinking, speedBoost and decoyBuoy included (the criterion
+  // is fitment, not category), so this reads the WIDENED flag. The `?? true`
+  // default for a missing own ship is unchanged.
+  if (abilityPressDenied(conningNow(g) ?? true, loaded)) {
     // No live hotbar to flash into (sunk / spectating) — the tone's only
     // twin can't render there, so suppress the whole predicted-denial
     // feedback here, mirroring handleServerDenial's guard below (Story
@@ -1445,7 +1663,8 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
     // epic-4-context-amendments.md) found this predicted path missing it —
     // the keyboard chokepoint deliberately doesn't gate on life itself
     // (onFoghorn's doc: "alive, spectating, cooldown — is main.ts's call").
-    if (deniedFeedbackHasNoTwin(g.state.spectating, you?.alive)) return;
+    // Story 5.2: widened like the gate above — the sinking hotbar is the twin.
+    if (deniedFeedbackHasNoTwin(g.state.spectating, conningNow(g))) return;
     g.abilityDeniedPress[slot] = true;
     // Story 1.10 exactly-one-feedback: this predicted denial IS the feedback
     // (chip flash above + the denial tone) — mark its (slot, actSeq) key so
@@ -1508,7 +1727,11 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
  */
 function handleFoghornPress(g: Game): void {
   const now = g.clock.serverNow();
-  const verdict = hornPressVerdict(g.state.net.you?.alive ?? false, g.state.spectating, now, g.nextHonkAt);
+  // THE FOGHORN STAYS LIVE WHILE SINKING (Story 5.2 — Eric named it explicitly
+  // alongside the weapons: *"Weapons and equipment only. And foghorn."*), so
+  // the gate reads the widened flag. The server's hornControl re-opens on the
+  // same terms, which is what keeps this from teaching a rule the sim lacks.
+  const verdict = hornPressVerdict(conningNow(g) ?? false, g.state.spectating, now, g.nextHonkAt);
   // 'ignore' and 'denied' are both a no-op from here: a denied honk (Eric
   // ruling 2026-08-05) gets NO side effect of any kind — no tone, no visual.
   // See the doc comment above for why the tone was cut rather than given a
@@ -1729,7 +1952,7 @@ function buildGame(
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, pendingFounder: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
@@ -1888,34 +2111,13 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),
     // resetThrottle fires on own spawn AND own sunk — the hard state boundaries.
-    // Drop any queued-but-unconsumed ability press there too (FINDING A), so a
-    // press queued in one life (or mashed while dead/spectating) never fires
-    // into the next. Consumed counters stay monotonic (clearActivations leaves
-    // them), mirroring the server's un-reset lastActSeq.
-    resetThrottle: () => {
-      g.keyboard.resetThrottle();
-      g.keyboard.clearActivations();
-      // Story 2.9: the decoy slot's ACTIVE window dies at the same hard boundary
-      // (own sunk / spawn / the match-activation teleport). The latch is fed by
-      // the reconcile's own-spawn hook, which only ever fires for a NEW buoy —
-      // so a window left standing across death would keep a slot reading ACTIVE
-      // for a buoy the next life does not own. Missing juice beats a lying slot.
-      g.ownDecoyUntil = 0;
-      // Story 2.9: the own-fire latch dies at that same boundary. A claim is a
-      // promise about the next reveal on our own bow, and death/respawn breaks
-      // it — the shot it describes either splashed unseen or belongs to a hull
-      // that no longer exists, so letting it stand would dress the FIRST reveal
-      // of the next life (quite possibly somebody else's shell, landing where we
-      // just spawned) as our cannon shot. An unclaimed reveal reads generic,
-      // which is the honest fallback.
-      g.ownFire.clear();
-      // Reset the denial dedup at the SAME boundary (Story 1.10): dropping
-      // queued presses without advancing actCount would otherwise let the next
-      // press reuse a still-marked (slot, seq), suppressing a genuine later
-      // server denial as an echo.
-      g.denialDedup.clear();
-    },
+    resetThrottle: () => resetOwnOrders(g),
     resetPrime: () => g.keyboard.revertToGun(),
+    // Story 5.2 review fix: the client's mirror of World.respawnEnabled, read
+    // off the PUBLIC match phase (the roster schema every client already
+    // holds), so an own sinking only sets a respawn deadline the server
+    // actually armed. Read live — the phase moves under us.
+    respawnArmed: () => respawnArmedIn(publicState(g).matchPhase ?? 'waiting'),
     // Review fix: the server clears nextHonkAt on respawn/redeploy (world.ts);
     // mirror it here so a captain who honks, dies, and respawns inside the old
     // cooldown window can honk again immediately rather than having the client
@@ -2077,6 +2279,12 @@ function renderOwn(
     g.cameraSnapped = true;
   }
   g.ownView.gfx.visible = true;
+  // DELIBERATELY `!alive`, NOT `!conning(status)` (Story 5.2): the downed tint
+  // is the one `!alive` teardown that is RIGHT during the sinking window. The
+  // hull IS mortally hit — the kill is already real and public (amendment 11) —
+  // so the tint is the dying captain's own honest read on their last five
+  // seconds, and it is the only on-water tell they get. It costs no capability:
+  // the hull stays visible and stays theirs to steer.
   g.ownView.setDowned(!status.alive);
   g.ownView.update(pose.x, pose.y, pose.heading);
   g.camera.update(frameDt, pose);
@@ -2103,6 +2311,13 @@ function renderOwn(
   // TIER 3: the bank chip freezes at its dim keyframe under ANY higher tier —
   // Tier 2 alone included, so a healthy hull sailing in the storm settles it
   // (amendment 243). `nowMs` is the frame's monotonic clock, for the ease.
+  //
+  // STILL `status.alive`, DELIBERATELY (Story 5.2, amendment 10): the XP rail
+  // is an ECONOMY surface — banked levels you could spend — and the economy is
+  // exactly what a sinking captain loses ("once sinking, you're done"). It
+  // closes with the refit at sink-entry rather than lingering as an affordance
+  // that leads nowhere. `alive` is already false through the window, so this
+  // line needs no change; it is called out because it looks like an omission.
   updateXpRail(g, status.alive, now / 1000, attn.freeze, nowMs);
   return attn.tier1;
 }
@@ -2155,12 +2370,15 @@ function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
 }
 
 /**
- * The hotbar renders ONLY while alive in-match (the weapons-safe waiting room
- * included) — it dies with the hull (death / spectate / reveal) and on return
- * to port. Called after renderFiring so this frame's denied pulse is resolved.
+ * The hotbar renders while the player is CONNING a hull in-match (the
+ * weapons-safe waiting room included, and — Story 5.2 — the whole sinking
+ * window: amendment 10 keeps every fitted slot activatable all the way down, so
+ * the surface those slots live on has to stay on screen). It dies with the hull
+ * at FOUNDER (spectate / reveal) and on return to port. Called after
+ * renderFiring so this frame's denied pulse is resolved.
  */
 function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
-  if (!status.alive) {
+  if (!conning(status)) {
     g.hotbar.hide();
     return;
   }
@@ -2278,7 +2496,10 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const clicked = g.mouse.clickCount !== g.prevClickCount;
   g.prevClickCount = g.mouse.clickCount;
   drivePulses(g, nowMs);
-  if (!status.alive) {
+  // Story 5.2: the arc, the reticle and the aim preview survive the sinking
+  // window — you cannot go down shooting without being able to aim. They tear
+  // down at FOUNDER, which is where `conning` goes false.
+  if (!conning(status)) {
     g.firing.hide();
     g.aimPreview.hide();
     g.deniedFlash = false;
@@ -2400,7 +2621,12 @@ function clickPrediction(
   const a = you?.ammo[primedSlot] ?? null;
   const id = g.ownSlots[primedSlot] ?? null;
   return {
-    alive: you?.alive ?? false,
+    // Story 5.2: WIDENED through the sinking window — a click from a sinking
+    // hull genuinely fires (the server's gate re-opens for it), so it must also
+    // consume the prime and latch the own-fire correlation, exactly as an alive
+    // click does. Left un-widened, a sinking captain's torpedo would fire while
+    // the client kept the prime armed and mis-attributed the reveal.
+    alive: conningNow(g) ?? false,
     loaded: !!a && a.n > 0,
     // The mine's placement reach is part of its aim gate (Story 2.8): an
     // out-of-range click is refused server-side with nothing consumed, so it
@@ -2465,9 +2691,12 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
 function handleServerDenial(g: Game, d: DeniedView): void {
   if (g.state.spectating) return; // no live conning UI to feed back into
   // A denial for a pre-death press is moot once sunk: renderFiring discards
-  // serverDeniedClick on a dead frame, so play the whole path only while alive
-  // (otherwise the tone + chip latch fire with no matching arc pulse).
-  if (g.state.net.you?.alive === false) return;
+  // serverDeniedClick on a dead frame, so play the whole path only while there
+  // is still an arc on screen to pulse (otherwise the tone + chip latch fire
+  // with no matching visual). Story 5.2 widens that to the sinking window,
+  // where the arc, the reticle and the hotbar are all still rendering — and
+  // where a denial (an empty pool, an out-of-arc torpedo) is now routine.
+  if (conningNow(g) === false) return;
   if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
   playDenied(g);
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
@@ -2704,7 +2933,24 @@ function renderAlive(
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  playHpSting(g, status, nowMs); // the 50%/25% band alarms (Story 4.7) — same edge idiom
+  // The 50%/25% band alarms (Story 4.7) — same edge idiom. The two HP-driven
+  // channels here are deliberately NOT symmetric through the sinking window
+  // (Story 5.2), and the difference is not a choice — it falls out of what each
+  // one reads:
+  //   • THE STING IS SILENT for the whole window, because `ownHpFrac` returns
+  //     NULL unless `status.alive`, and `alive` is false from sink-entry
+  //     (amendment 11). It cannot even fire on the KILLING BLOW: that frame is
+  //     already the first `alive: false` one, so the fraction is null before any
+  //     band could be crossed, and `hpBandEdge` reports nothing against a null.
+  //     (An earlier version of this comment ledgered a sting alongside the
+  //     `sink` tone as an accepted consequence. It cannot happen — corrected at
+  //     the review gate.)
+  //   • THE TIER-1 LOW-RAIL PULSE DOES run, for the whole five seconds, holding
+  //     both Tier-2 channels at their lit keyframe — `ownTier1` reads
+  //     `status.hp` against `maxHp` with no `alive` gate at all, so a hull at 0
+  //     reads as mortally damaged, which is the honest read and not a bug.
+  // Both stop at founder, where renderSpectate resets the edge to null.
+  playHpSting(g, status, nowMs);
   // THE frame's Tier-1 read comes back OUT of renderOwn: it is taken there,
   // after renderFiring has driven the denied pulse, and both Tier-2 consumers
   // (the chrome bar's amber ring segment and the storm vignette below) share
@@ -2943,7 +3189,11 @@ function makeCallbacks(g: Game): LoopCallbacks {
   return {
     simTick: () => {
       // RULING: a dead (or post-match) client stops sending inputs entirely —
-      // the keyboard drives the spectator camera instead.
+      // the keyboard drives the spectator camera instead. KEYED ON
+      // `spectating`, WHICH IS WHY THIS LINE NEEDED NO CHANGE FOR STORY 5.2: a
+      // sinking captain is emphatically not spectating (frames.ts's
+      // `spectates()` is `isSunk`-based, so the window stays fogged and keeps
+      // `you`), so helm, aim and trigger keep riding the wire all the way down.
       if (g.state.spectating) return;
       const cursor = g.camera.screenToWorld(g.mouse.screenPos);
       const aim = worldAim(g.lastOwn.x, g.lastOwn.y, cursor);
@@ -2984,7 +3234,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const mu = matchUxFromRoom(g, now);
       updateScoreEpoch(g); // the ready room's sinkings are not match score
       updateBounty(g); // the throne's claim register + the self toast/tone (4.6)
-      updateOpenResults(g); // converge an open elimination modal on roster truth
+      updateEliminationUx(g); // converge the placement, then open a deferred modal at founder
       updateMatchAudioCues(g, now);
       advanceCameraFrame(g, frameDt);
       updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
@@ -3081,14 +3331,19 @@ function bindVisibility(game: Game): void {
 /**
  * Apply an alive user-zoom target (clamped [0.5, 1.5] over the base radar-fit
  * framing by Camera.setUserZoom) and schedule the fog re-bake the new zoom
- * needs. ALIVE-ONLY (canUserZoom): inert while spectating (the spectate wheel
+ * needs. CONNING-ONLY (canUserZoom): inert while spectating (the spectate wheel
  * path below owns zoom there), while sunk-awaiting-respawn, AND before the
- * first frame ever lands (no `you` yet = not alive). Client-render-only — fog
+ * first frame ever lands (no `you` yet = not conning). Client-render-only — fog
  * visibility stays server-authoritative, so zoom is never an information
  * exploit (the fog hole scales with the zoom; what is revealed does not).
+ *
+ * Story 5.2 widens it through the sinking window: framing is part of aiming,
+ * and a captain fighting their last five seconds must not have the camera go
+ * rigid under them. It costs nothing on the anti-cheat side for the same reason
+ * it never did — zoom reveals no water the server has not already sent.
  */
 function applyUserZoom(g: Game, next: number): void {
-  if (!canUserZoom(g.state.spectating, g.state.net.you?.alive)) return;
+  if (!canUserZoom(g.state.spectating, conningNow(g))) return;
   const before = g.camera.userZoom;
   g.camera.setUserZoom(next);
   if (g.camera.userZoom === before) return;

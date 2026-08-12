@@ -161,9 +161,12 @@ describe('buildFrame — contacts (fogged via perception)', () => {
   it('excludes dead ships; a respawned ship reappears once back in sight', () => {
     const w = makeWorld();
     w.sinkShip('b');
-    w.step();
-    expect(buildFrame(w, 'a').contacts).toEqual([]);
-    for (let i = 0; i < CONFIG.ship.respawnDelay / CONFIG.tick.simDtMs; i++) w.step();
+    // Story 5.2: b stays a legitimate SINKING contact for the window — the
+    // exclusion this test pins starts at founder, and the respawn now lands
+    // on the founder tick too (window 5000ms > respawn delay 3000ms).
+    w.step(CONFIG.ship.sinkingWindowMs - CONFIG.tick.simDtMs);
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']); // still sinking
+    for (let i = 0; i < 2; i++) w.step();
     const b = w.ships.get('b')!;
     expect(isAfloat(b.lifecycle)).toBe(true); // respawned on the ring, far outside a's sight
     expect(buildFrame(w, 'a').contacts).toEqual([]);

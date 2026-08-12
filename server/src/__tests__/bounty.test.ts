@@ -23,7 +23,9 @@ const SIM_DT = CONFIG.tick.simDtMs;
 /** Advance the world through a full respawn delay (ready-room posture only —
  *  respawnEnabled defaults true on a bare World). */
 function stepThroughRespawn(w: World): void {
-  const ticks = CONFIG.ship.respawnDelay / SIM_DT;
+  // Story 5.2: a sunk hull first rides its 5000ms sinking window; the revive
+  // lands on the founder tick (window > the 3000ms respawn delay).
+  const ticks = CONFIG.ship.sinkingWindowMs / SIM_DT;
   for (let i = 0; i < ticks; i++) w.step();
 }
 

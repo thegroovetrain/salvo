@@ -15,6 +15,7 @@ import {
   recordElimination,
   recordSunk,
   refinePlacement,
+  respawnArmedIn,
   scoreAfterReconnect,
   boonCount,
   type SunkObservation,
@@ -216,6 +217,37 @@ describe('canOpenElimination — the ordering law for the elimination modal', ()
 
   it('is latched — a duplicate own sunk can never re-open it', () => {
     expect(canOpenElimination('active', false, true)).toBe(false);
+  });
+});
+
+describe('respawnArmedIn — the client mirror of World.respawnEnabled', () => {
+  // Story 5.2 review fix. The client used to set a respawn deadline on EVERY
+  // own sinking; with the sinking window between founder and the spec frame,
+  // that put `SUNK — RESPAWNING IN 0s` on screen in a live match. The answer is
+  // Match.applyPolicy()'s own rule, mirrored here rather than inferred.
+
+  it('is TRUE for exactly the three ready-room phases', () => {
+    expect(respawnArmedIn('waiting')).toBe(true);
+    expect(respawnArmedIn('gathering')).toBe(true);
+    expect(respawnArmedIn('countdown')).toBe(true);
+  });
+
+  it('is FALSE in a live match — an active-phase death is a spectate, not a respawn', () => {
+    expect(respawnArmedIn('active')).toBe(false);
+  });
+
+  it('fails CLOSED on `finished` and on any phase it does not recognise', () => {
+    // Written as the server writes it (the three phases named), never as
+    // `!== 'active'`: a placard promising a respawn nobody armed is a lie about
+    // the match, while a missing one is cosmetic.
+    expect(respawnArmedIn('finished')).toBe(false);
+    expect(respawnArmedIn('')).toBe(false);
+    expect(respawnArmedIn('some-future-phase')).toBe(false);
+  });
+
+  it('is NOT the inverse of canOpenElimination — `finished` is false for both', () => {
+    expect(respawnArmedIn('finished')).toBe(false);
+    expect(canOpenElimination('finished', false, false)).toBe(false);
   });
 });
 

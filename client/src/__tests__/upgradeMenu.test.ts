@@ -328,13 +328,13 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
 
 describe('offerView — pure spend-view derivation over BOON ids', () => {
   it('is null with no own ship, while spectating, or with an empty bank', () => {
-    expect(offerView(null, false, false)).toBeNull();
-    expect(offerView(ownShip(), true, false)).toBeNull(); // spectating
-    expect(offerView(ownShip({ pts: 0, offer: [] }), false, false)).toBeNull();
+    expect(offerView(null, false, false, false)).toBeNull();
+    expect(offerView(ownShip(), true, false, false)).toBeNull(); // spectating
+    expect(offerView(ownShip({ pts: 0, offer: [] }), false, false, false)).toBeNull();
   });
 
   it('resolves the front offer to four cards with catalog category + ratified copy', () => {
-    const view = offerView(ownShip(), false, false);
+    const view = offerView(ownShip(), false, false, false);
     expect(view?.options.map((o) => o.id)).toEqual(OFFER);
     expect(view?.options).toHaveLength(CONFIG.offer.size);
     expect(view?.pts).toBe(1);
@@ -357,15 +357,15 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // can never be violated. With boon ids the trigger is a catalog id the client
   // does not know — the PV join gate is what keeps it unreachable in practice.
   it('returns null (drops the whole view) when ANY offer id is unresolvable', () => {
-    expect(offerView(ownShip({ offer: [OFFER[0], 'notARealBoon', OFFER[2], OFFER[3]] }), false, false)).toBeNull();
-    expect(offerView(ownShip({ offer: ['notARealBoon', ...OFFER.slice(1)] }), false, false)).toBeNull();
+    expect(offerView(ownShip({ offer: [OFFER[0], 'notARealBoon', OFFER[2], OFFER[3]] }), false, false, false)).toBeNull();
+    expect(offerView(ownShip({ offer: ['notARealBoon', ...OFFER.slice(1)] }), false, false, false)).toBeNull();
     // The prototype-key trap: resolveBoons is own-property gated, so this is an
     // unresolvable id like any other — never Object.prototype.constructor.
-    expect(offerView(ownShip({ offer: ['constructor', ...OFFER.slice(1)] }), false, false)).toBeNull();
+    expect(offerView(ownShip({ offer: ['constructor', ...OFFER.slice(1)] }), false, false, false)).toBeNull();
   });
 
   it('renders a SHORT offer verbatim (a small catalog rolls fewer cards, never a crash)', () => {
-    const view = offerView(ownShip({ offer: [OFFER[0], OFFER[1]] }), false, false);
+    const view = offerView(ownShip({ offer: [OFFER[0], OFFER[1]] }), false, false, false);
     expect(view?.options.map((o) => o.id)).toEqual([OFFER[0], OFFER[1]]);
   });
 
@@ -374,52 +374,65 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // same reflex as the unresolvable id (only reachable through a degenerate
   // catalog — the server never rolls zero ids against the shipped one).
   it('returns null for an EMPTY front offer, even with levels banked', () => {
-    expect(offerView(ownShip({ offer: [] }), false, false)).toBeNull();
-    expect(offerView(ownShip({ pts: 3, offer: [] }), false, false)).toBeNull();
+    expect(offerView(ownShip({ offer: [] }), false, false, false)).toBeNull();
+    expect(offerView(ownShip({ pts: 3, offer: [] }), false, false, false)).toBeNull();
   });
 
   it('is available while DEAD in the waiting phase (builds persist across respawns)', () => {
-    expect(offerView(ownShip({ alive: false, hp: 0 }), false, false)).not.toBeNull();
+    expect(offerView(ownShip({ alive: false, hp: 0 }), false, false, false)).not.toBeNull();
+  });
+
+  // Story 5.2 / amendment 10 — "once sinking, you're done". A sinking hull
+  // keeps every weapon, every ability and the foghorn; what it loses is the
+  // ECONOMY. The flag is its own, deliberately: `!alive` would also close the
+  // band for the wreck-awaiting-respawn case directly above (which is open by
+  // ruling), and `spectating` is false for the whole window by design.
+  it('is INERT while SINKING, whatever the bank holds', () => {
+    expect(offerView(ownShip({ alive: false, hp: 0 }), false, false, true)).toBeNull();
+    expect(offerView(ownShip({ pts: 3 }), false, false, true)).toBeNull();
+    // ...and the same hull with the window closed is spendable again, so the
+    // flag — not some coincidence of the fixture — is what closed it.
+    expect(offerView(ownShip({ pts: 3 }), false, false, false)).not.toBeNull();
   });
 
   // --- Story 2.8: the card face is resolved against the PLAYER'S OWN BUILD ----
 
   it('names each card at the rung the player\'s stack puts it at (name-by-stack-position)', () => {
-    const fresh = offerView(ownShip(), false, false);
+    const fresh = offerView(ownShip(), false, false, false);
     expect(fresh?.options[0].name).toBe(boonName('gunDamage', 0));
-    const stacked = offerView(ownShip({ boons: ['gunDamage', 'gunDamage'] }), false, false);
+    const stacked = offerView(ownShip({ boons: ['gunDamage', 'gunDamage'] }), false, false, false);
     expect(stacked?.options[0].name).toBe(boonName('gunDamage', 2));
     expect(stacked?.options[0].name).not.toBe(fresh?.options[0].name);
   });
 
   it('carries the rarity tier: nothing for a common, RARE / EXCLUSIVE otherwise', () => {
-    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret', 'torpedoHoming', 'acquireMine'] }), false, false);
+    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret', 'torpedoHoming', 'acquireMine'] }), false, false, false);
     expect(view?.options.map((o) => o.rarity)).toEqual(['', 'RARE', 'EXCLUSIVE', 'RARE']);
   });
 
   it('carries the lineage handrail for multi-copy lines only, at the right position', () => {
-    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret'], boons: ['gunDamage'] }), false, false);
+    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret'], boons: ['gunDamage'] }), false, false, false);
     expect(view?.options[0].lineage).toBe('II/V'); // one held → this card is the second
     expect(view?.options[1].lineage).toBeNull(); // AFT TURRET is a single copy
   });
 
   it('carries the doctrine-swap line ONLY while the rival is held (amendment 44)', () => {
-    const none = offerView(ownShip({ offer: ['torpedoCommand'] }), false, false);
+    const none = offerView(ownShip({ offer: ['torpedoCommand'] }), false, false, false);
     expect(none?.options[0].replaces).toBeNull();
-    const held = offerView(ownShip({ offer: ['torpedoCommand'], boons: ['torpedoHoming'] }), false, false);
+    const held = offerView(ownShip({ offer: ['torpedoCommand'], boons: ['torpedoHoming'] }), false, false, false);
     expect(held?.options[0].replaces).toBe('REPLACES: ACOUSTIC HOMING');
   });
 
   it('prints rules text with the player\'s LIVE values (a preview diff, not a static table)', () => {
-    const fresh = offerView(ownShip({ offer: ['intelSweep'] }), false, false);
-    const stacked = offerView(ownShip({ offer: ['intelSweep'], boons: ['intelSweep'] }), false, false);
+    const fresh = offerView(ownShip({ offer: ['intelSweep'] }), false, false, false);
+    const stacked = offerView(ownShip({ offer: ['intelSweep'], boons: ['intelSweep'] }), false, false, false);
     expect(fresh?.options[0].description).toContain('RPM →');
     expect(stacked?.options[0].description).not.toBe(fresh?.options[0].description);
   });
 
   it('resolves the card face against the OWN CLASS too (hull stats differ per class)', () => {
-    const tb = offerView(ownShip({ offer: ['shipHull'] }), false, false);
-    const bb = offerView(ownShip({ cls: 'battleship', offer: ['shipHull'] }), false, false);
+    const tb = offerView(ownShip({ offer: ['shipHull'] }), false, false, false);
+    const bb = offerView(ownShip({ cls: 'battleship', offer: ['shipHull'] }), false, false, false);
     expect(bb?.options[0].description).not.toBe(tb?.options[0].description);
   });
 
@@ -427,8 +440,8 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // caller (main.ts's spendInFlight) — offerView stays pure, it just carries
   // the flag into the view so the DOM adapter can dim/inert the cards.
   it('carries the caller-supplied `locked` flag straight through', () => {
-    expect(offerView(ownShip(), false, true)?.locked).toBe(true);
-    expect(offerView(ownShip(), false, false)?.locked).toBe(false);
+    expect(offerView(ownShip(), false, true, false)?.locked).toBe(true);
+    expect(offerView(ownShip(), false, false, false)?.locked).toBe(false);
   });
 });
 
@@ -493,11 +506,11 @@ describe('healView — the rail is ARMED only where the server would honor the p
   });
 
   it('rides offerView as a SIBLING of the cards, never as a fifth option', () => {
-    const v = offerView(ownShip({ hp: 80 }), false, false);
+    const v = offerView(ownShip({ hp: 80 }), false, false, false);
     expect(v?.options).toHaveLength(CONFIG.offer.size);
     expect(v?.options.map((o) => o.id)).toEqual(OFFER); // no heal entry among them
     expect(v?.heal.state).toBe('armed');
-    expect(offerView(ownShip({ hp: maxHpOf('torpedoBoat') }), false, false)?.heal.state).toBe('inert');
+    expect(offerView(ownShip({ hp: maxHpOf('torpedoBoat') }), false, false, false)?.heal.state).toBe('inert');
   });
 });
 

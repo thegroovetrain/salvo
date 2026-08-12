@@ -11,6 +11,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   isAfloat,
+  isSinking,
+  isSunk,
   CONFIG,
   bearing,
   mulberry32,
@@ -97,7 +99,11 @@ describe('spectator frames — dead observer in the active phase', () => {
     place(w, 'c', -600, 400, 1.2);
     w.respawnEnabled = false; // active-phase policy
     w.sinkShip('a', 'b');
-    w.step();
+    // Story 5.2: spectate begins at FOUNDER (a sinking captain stays fogged
+    // with `you`), so one oversized step crosses the window. The `sunk` event
+    // (emitted at sink-entry) still publishes on this very step, so the
+    // sunk-carries-seen case below keeps reading it off tickEvents.
+    w.step(CONFIG.ship.sinkingWindowMs);
     return w;
   }
 
@@ -251,8 +257,11 @@ describe('spectator frames — phase gating', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 400, 0);
+    w.respawnEnabled = false;
     w.sinkShip('b', 'a');
-    w.step();
+    // Story 5.2: a SINKING b would still (correctly) be a spectator contact —
+    // this test pins the sunk-wreck shape, so cross the window first.
+    w.step(CONFIG.ship.sinkingWindowMs);
     const winner = buildFrame(w, 'a', 'finished');
     expect(winner.spec).toBe(true);
     expect(winner.you).toBeUndefined();
@@ -297,7 +306,11 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
   expect(f.you).toBeDefined();
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
-    expect(isAfloat(target.lifecycle)).toBe(true);
+    // Story 5.2 (amendment 15 seam 3): a SINKING hull is still a legitimate
+    // contact — only the sunk vanish. And amendment 16: the contact shape
+    // must disclose NOTHING about the window, so pin the exact key set.
+    expect(isAfloat(target.lifecycle) || isSinking(target.lifecycle)).toBe(true);
+    expect(Object.keys(c).sort()).toEqual(['cls', 'heading', 'id', 'speed', 'x', 'y']);
     expect(c.id).not.toBe(me.id);
     expect(sighted(w, me, target.state)).toBe(true);
   }
@@ -315,7 +328,8 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       // paint carries the 4.2 id/position shape.
       const target = w.ships.get((e as import('@salvo/shared').SilhouetteBlipEvent).id)!;
       const d = dist(me.state, target.state);
-      expect(isAfloat(target.lifecycle)).toBe(true);
+      // Story 5.2: a sinking hull still paints (amendment 15 seam 3).
+      expect(isAfloat(target.lifecycle) || isSinking(target.lifecycle)).toBe(true);
       expect(d).toBeGreaterThan(SIGHT);
       expect(d).toBeLessThanOrEqual(RADAR);
       expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
@@ -405,7 +419,12 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
           const phases: MatchPhase[] = ['active', 'finished', 'waiting'];
           const phase = phases[rng.int(0, 2)];
           const f = buildFrame(w, id, phase);
-          if (phase === 'finished' || (phase === 'active' && !isAfloat(me.lifecycle))) {
+          // Story 5.2 (amendment 7 discharged): the spectator gate keys on
+          // isSunk — a SINKING observer in the active phase stays on the
+          // FOGGED branch below, with `you` and no unfogged data. Within
+          // this 6-tick run a sinkShip'd hull never founders (window 5000ms),
+          // so every "death" here exercises the sinking case.
+          if (phase === 'finished' || (phase === 'active' && isSunk(me.lifecycle))) {
             expect(f.spec).toBe(true);
             expect(f.you).toBeUndefined();
           } else {

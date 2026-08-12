@@ -78,3 +78,20 @@ amendment wins**. Summary of the record as of 2026-08-11 (all Eric rulings, Stor
 9. **Drones are not ranked and never appear in the results** — captains-only rows, captain-relative placements.
 7. **No wire change; PROTOCOL_VERSION stays 33** — and `spectates()`'s unfogged-view gate is flagged
    for Story 5.2.
+
+Story 5.2 question gate (all Eric rulings 2026-08-12 unless marked):
+
+10. **The sinking-activation policy closes as NO RESTRICTION at the gate** — all seven equipment rows
+    plus the foghorn stay live; the **refit/heal is what's blocked**. Closes the AR7 TBD.
+11. **The kill lands IMMEDIATELY** — credit, XP, bounty, the `sunk` event, the kill feed and AFLOAT
+    all fire at sink-entry, unmoved. The five seconds are the killee's beat.
+12. **A sinking hull cannot be finished off** — damage on it is a no-op.
+13. **The window is a flat 5000 ms**, all classes.
+14. **Sinking does not affect the outcome; a same-tick wipe is a DRAW** — **amends D4**, whose
+    "later sinker wins" clause is now dead.
+15. **The derivation FLIPS (orchestrator): `isAfloat` does NOT move** — question-gate ruling R1 is
+    superseded. Sinking re-opens exactly three seams: motion, weapons/horn, perceivability.
+16. **Wire (orchestrator): `alive` goes false immediately; a new self-private `OwnShip` key keeps the
+    controls live.** PV 33 → 34; the master invariant stays at exactly SIX exceptions.
+17. **The match is NOT held open for a sinking hull (orchestrator — Eric has veto)** — the last
+    captain to die gets a truncated window.

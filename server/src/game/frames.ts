@@ -9,7 +9,9 @@
 import {
   CONFIG,
   DRONE_HULL_IDS,
+  founderDeadline,
   isAfloat,
+  isSunk,
   type FrameMsg,
   type MatchPhase,
   type OwnShip,
@@ -35,9 +37,11 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     heading: ship.state.heading,
     speed: ship.state.speed,
     hp: ship.hp,
-    // THE WIRE DOES NOT MOVE (Story 5.1, amendment 7): OwnShip.alive stays a
-    // boolean, PROJECTED from the lifecycle here. Story 5.2 owns the wire
-    // change, because that is when `sinking` first becomes observable.
+    // PROJECTED, never mirrored (Story 5.2, amendments 11/16): `alive` is
+    // isAfloat(), so it goes FALSE the instant the hull starts sinking —
+    // correct for the register and the roster, and exactly why the trailing
+    // `sinkingUntil` key below exists: it alone tells this client "not alive
+    // but not spectating yet", the third state.
     alive: isAfloat(ship.lifecycle),
     // Slot-aligned ammo (length SLOT_COUNT, null = empty slot): pool count +
     // reload timer per loadout slot in slot order (equipment/index.ts).
@@ -91,25 +95,45 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // dazzledUntil shrinks the client's own fog hole honestly.
     ...(ship.slowedUntil > now ? { slowedUntil: ship.slowedUntil } : {}),
     ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
+    // ms — the founder deadline while THIS hull is in the sinking window
+    // (Story 5.2, amendment 16): present IFF sinking, OMITTED entirely
+    // otherwise — never an `undefined` value (the slowedUntil precedent
+    // above; msgpack drops nothing silently). SELF-PRIVATE BY CONSTRUCTION:
+    // rides `you` and NOTHING else — never a Contact, blip, event or
+    // spectator payload — so the master perception invariant keeps exactly
+    // SIX declared exceptions. Derived through the shared founderDeadline()
+    // (since + CONFIG.ship.sinkingWindowMs), the same math the sim's founder
+    // edge runs, so the countdown the client renders IS the deadline the
+    // server enforces.
+    ...(ship.lifecycle.kind === 'sinking'
+      ? { sinkingUntil: founderDeadline(ship.lifecycle.since) }
+      : {}),
   };
 }
 
 /**
- * THE spectator gate (anti-cheat sensitive): unfogged frames go ONLY to a
- * dead observer during the active phase, or to everyone once the match is
- * finished (no way back into play either way). Every other observer — alive
- * in active, anyone in waiting/countdown (lobby keeps the one fogged code
- * path), a fresh wreck awaiting respawn in waiting — stays fully fogged.
+ * THE spectator gate (anti-cheat sensitive): unfogged frames go ONLY to an
+ * observer whose life is OVER during the active phase, or to everyone once
+ * the match is finished (no way back into play either way). Every other
+ * observer — alive OR SINKING in active, anyone in waiting/countdown (lobby
+ * keeps the one fogged code path), a fresh wreck awaiting respawn in waiting —
+ * stays fully fogged.
  *
- * MEANING UNCHANGED by the Story 5.1 migration: NOT-AFLOAT, exactly as before.
- * Recorded for Story 5.2 (amendment 7): when `sinking` becomes reachable, a
- * sinking hull reaching this predicate would receive full-map vision for the
- * whole window — it must project as not-afloat-but-not-spectating, and that
- * projection has to be chosen here deliberately rather than inherited.
+ * KEYED ON isSunk, NOT !isAfloat (Story 5.2 — amendment 7's recorded warning,
+ * discharged): a sinking captain is not-afloat for the whole five-second
+ * window, and `!isAfloat` here would hand them the unfogged full-map view for
+ * all of it — precisely the anti-cheat widening the master perception
+ * invariant asserts against. A sinking hull's frame stays FOGGED and still
+ * carries `you` (with `sinkingUntil`), so the dying captain aims through the
+ * same fog as everyone else until the founder edge lands.
+ *
+ * The `finished` branch deliberately stays first (amendment 17): a match may
+ * finish while a hull is still sinking, and the results flow — including this
+ * unfogged view — supersedes that hull's remaining window.
  */
 function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
   if (phase === 'finished') return true;
-  return phase === 'active' && ship !== undefined && !isAfloat(ship.lifecycle);
+  return phase === 'active' && ship !== undefined && isSunk(ship.lifecycle);
 }
 
 /**

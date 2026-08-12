@@ -126,7 +126,18 @@ describe('shared barrel', () => {
     // CONFIG gains the `bounty` block (killLevels / minCaptainKills), riding
     // the welcome config snapshot. A stale client would miss the schema field
     // and drop `bty`, silently mis-rendering the bounty registers.
-    expect(PROTOCOL_VERSION).toBe(33);
+    // THE SINKING WINDOW (PV 34, Story 5.2, Eric rulings 2026-08-12,
+    // amendments 10-17): OwnShip gains the optional SELF-PRIVATE trailing
+    // `sinkingUntil` (absolute server-clock ms the hull founders; omitted when
+    // not sinking — the slowedUntil precedent, rides `you` and nothing else,
+    // master perception invariant stays at exactly SIX exceptions). Needed
+    // because `alive` goes false at sink-entry (amendment 11) while every
+    // weapon and the horn stay live for the flat 5 s window (amendment 10) —
+    // a stale client would read a sinking captain as plain dead and snap to
+    // spectate five seconds early. CONFIG.ship.sinkingWindowMs (5000, all
+    // classes — amendment 13) rides the welcome config snapshot; new shared
+    // sim/sinking.ts rides the barrel.
+    expect(PROTOCOL_VERSION).toBe(34);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no

@@ -179,7 +179,9 @@ describe('match — waiting phase (ready room)', () => {
     ctx.w.sinkShip('a');
     const a = ctx.w.ships.get('a')!;
     expect(a.respawnAt).toBeGreaterThan(0);
-    step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 1);
+    // Story 5.2: the revive lands on the founder tick (sinking window 5000ms
+    // outlasts the 3000ms respawn delay; processRespawns revives only the SUNK).
+    step(ctx, Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1);
     expect(isAfloat(a.lifecycle)).toBe(true);
   });
 });
@@ -285,7 +287,8 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
     expect(ctx.w.xpEnabled).toBe(false);
     expect(ctx.w.respawnEnabled).toBe(true); // a ready-room death must respawn
     ctx.w.sinkShip('a');
-    step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 1);
+    // Story 5.2: revive lands on the founder tick (5000ms > respawn delay).
+    step(ctx, Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1);
     expect(ctx.m.phase).toBe('gathering'); // still inside the window
     expect(isAfloat(ctx.w.ships.get('a')!.lifecycle)).toBe(true);
   });
@@ -420,14 +423,18 @@ describe('match — active phase', () => {
     expect(row!.placement).toBe(1);
   });
 
-  it('mutual destruction: the latest-sunk human wins (RULING)', () => {
+  it('same-tick mutual destruction is a DRAW (Story 5.2, amendment 14 — supersedes latest-sunk-wins)', () => {
     const ctx = setup(['a', 'b']);
     activate(ctx);
     ctx.w.sinkShip('a', 'b');
-    ctx.w.sinkShip('b', 'a'); // same tick, sunk after a
+    ctx.w.sinkShip('b', 'a'); // same tick — the wipe amendment 14 rules a draw
     step(ctx);
     expect(ctx.m.phase).toBe('finished');
-    expect(ctx.m.winnerId).toBe('b');
+    // Every remaining captain went down on one tick: no "later sinker" exists,
+    // so winnerId is deliberately '' and the client renders a DRAW.
+    expect(ctx.m.winnerId).toBe('');
+    // Placements keep the reverse-sink numbering from 1 (no winner row); the
+    // within-tick order is event order, superseded by the DRAW banner.
     expect(ctx.m.placements.get('b')).toBe(1);
     expect(ctx.m.placements.get('a')).toBe(2);
   });
@@ -585,13 +592,13 @@ describe('match — the results table is captains only', () => {
     expect(run()).toEqual(expected);
   });
 
-  it('a mutual-destruction finish with drones afloat: latest-sunk human is 1, the other captain 2', () => {
+  it('a same-tick wipe with drones afloat: DRAW (amendment 14), captains still row 1 and 2', () => {
     const ctx = withDrones(['a', 'b'], 2);
     ctx.w.sinkShip('a', 'b');
-    ctx.w.sinkShip('b', 'a'); // same tick, sunk after a
+    ctx.w.sinkShip('b', 'a'); // same tick — a draw since Story 5.2
     step(ctx);
     expect(ctx.m.phase).toBe('finished');
-    expect(ctx.m.winnerId).toBe('b');
+    expect(ctx.m.winnerId).toBe(''); // drones can't claim it and neither captain may
     expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(2);
     expect(ctx.results[0].rows.map((r) => [r.id, r.placement])).toEqual([
       ['b', 1],

@@ -167,6 +167,9 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     const a = place(w, 'a', 0, 0);
     w.respawnEnabled = false;
     w.sinkShip('a');
+    // Story 5.2 (amendment 10 — "And foghorn."): a SINKING captain still
+    // honks; only a foundered one is silent. Cross the window first.
+    w.step(CONFIG.ship.sinkingWindowMs);
     honk(w, 'a', 1, 1);
     w.step();
     expect(honks(w.tickEvents)).toHaveLength(0);
@@ -181,7 +184,10 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     expect(honks(w.tickEvents)).toHaveLength(1);
     w.sinkShip('a');
     a.respawnAt = w.now + DT;
-    w.step(); // respawns this tick
+    // Story 5.2: the revive waits on the founder edge (processRespawns only
+    // touches the SUNK), so cross the whole window in one step — founder and
+    // respawn land on the same tick.
+    w.step(CONFIG.ship.sinkingWindowMs);
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.nextHonkAt).toBe(0); // stale cooldown wiped
     expect(a.lastHornSeq).toBe(1); // counter NOT reset (phantom-honk guard)
@@ -595,7 +601,8 @@ describe('foghorn end to end — one press, every observer mode in one tick', ()
     place(w, 'c', 2_000, 0); // far beyond earshot — but a spectator soon
     place(w, 'd', 0, 2_000); // far beyond earshot, alive — receives NOTHING
     w.respawnEnabled = false;
-    w.sinkShip('c'); // c spectates in the active phase
+    w.sinkShip('c'); // c spectates in the active phase...
+    w.step(CONFIG.ship.sinkingWindowMs); // ...once foundered (Story 5.2)
     honk(w, 'a', 1, 1);
     w.step();
 

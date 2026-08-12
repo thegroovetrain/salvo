@@ -484,13 +484,22 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
 
   it('a click while dead is consumed — no shot on the respawn tick', () => {
     const { w, a } = armed();
+    w.respawnEnabled = false;
     w.sinkShip('a');
+    // Story 5.2: a click while SINKING would legitimately fire (amendment 10),
+    // so ride out the window first — this test pins the genuinely-dead click.
+    w.step(CONFIG.ship.sinkingWindowMs);
     w.submitInput('a', gunInput(HALF_PI, 300, 1, 1)); // click while dead
-    const ticks = CONFIG.ship.respawnDelay / CONFIG.tick.simDtMs + 10;
-    const events = stepCollect(w, ticks);
-    expect(isAfloat(a.lifecycle)).toBe(true); // it respawned along the way
-    expect(shellsOf(events)).toHaveLength(0); // the dead click never fired
+    w.step();
+    expect(shellsOf([...w.tickEvents])).toHaveLength(0); // the dead click never fired
     expect(a.lastFireSeq).toBe(1); // ...but it WAS consumed
+    // And the stale click stays consumed across the respawn: no shot fires on
+    // (or after) the revive tick.
+    w.respawnEnabled = true;
+    a.respawnAt = w.now + CONFIG.tick.simDtMs;
+    const events = stepCollect(w, 10);
+    expect(isAfloat(a.lifecycle)).toBe(true); // it respawned along the way
+    expect(shellsOf(events)).toHaveLength(0);
   });
 
   it('the shell event still reaches other observers through the perception seam', () => {

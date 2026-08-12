@@ -11,8 +11,12 @@
 // creepMines before stepMines (a mine that crawls into trigger range this
 // tick trips this tick); applyZoneEffects before the expiry sweep (a zone
 // burns/dazzles through its final tick); processRespawns before tickXp (a
-// hull revived this tick accrues this tick). This pin fails the moment a row
-// is reordered, added, or removed without a matching, reviewed test change.
+// hull revived this tick accrues this tick); and founderSinking (Story 5.2)
+// after the motion block but before the damage rows and the activation gates
+// (the window's last tick still moves and lays wake as `sinking`, while the
+// firing window closes on exactly the tick the shared decel cap reaches 0).
+// This pin fails the moment a row is reordered, added, or removed without a
+// matching, reviewed test change.
 
 import { describe, it, expect } from 'vitest';
 import { World } from '../game/world.js';
@@ -25,6 +29,10 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'stepShips',
       'resolveCollisions',
       'sampleWakes',
+      // Story 5.2's founder edge — the one deliberate insertion this pin has
+      // absorbed: after motion, before damage/activation (see the row comment
+      // in world.ts for the full placement rationale).
+      'founderSinking',
       'applyStorm',
       'stepShells',
       'creepMines',

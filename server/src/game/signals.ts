@@ -41,6 +41,7 @@ import {
   CONFIG,
   bearing,
   isAfloat,
+  isSinking,
   islandBlocksSegment,
   paintCoverage,
   visibilityTo,
@@ -411,17 +412,24 @@ function blipShape(
 // ---------------------------------------------------------------------------
 
 /**
- * `contact` — true-sight tier: another live hull within the observer's
- * effective sight range (boundary INCLUSIVE) + LOS-clear, OR the hull's
- * CENTER inside a lit zone the observer OWNS (Story 1.7 — firer-only
- * truesight parity, "lit from above": no LOS term on the zone path). Live
- * position/heading/speed straight from the sim. Spectators (unfogged) see
- * every alive hull — including, in the finished phase, their own.
+ * `contact` — true-sight tier: another hull still on the water (afloat OR
+ * sinking) within the observer's effective sight range (boundary INCLUSIVE)
+ * + LOS-clear, OR the hull's CENTER inside a lit zone the observer OWNS
+ * (Story 1.7 — firer-only truesight parity, "lit from above": no LOS term on
+ * the zone path). Live position/heading/speed straight from the sim.
+ * Spectators (unfogged) see every such hull — including, in the finished
+ * phase, their own.
  */
 const contactSignal: SignalSpec<ShipRecord, Contact> = {
   eventType: 'contact',
   visible(ctx, ship) {
-    if (!isAfloat(ship.lifecycle)) return false;
+    // Afloat OR SINKING (Story 5.2, amendment 15 seam 3 — perceivability): a
+    // sinking hull is still a participant and still a target, a contact under
+    // the unchanged sight/LOS rules for its whole window. NOTHING in the
+    // payload discloses the window (amendment 16): materialize builds the
+    // same {id,x,y,heading,speed,cls} as for any live hull, so an observer
+    // reads only the visible deceleration — no enemy-facing sinking channel.
+    if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return false;
     if (ctx.mode === 'spectator') return true;
     const me = ctx.me;
     if (ship.id === me.id) return false;
@@ -572,7 +580,10 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     if (!('state' in target)) return false;
     if (ctx.mode !== 'fogged') return false;
     const me = ctx.me;
-    if (!isAfloat(target.lifecycle) || target.id === me.id) return false;
+    // Afloat OR SINKING (Story 5.2, amendment 15 seam 3): a sinking hull
+    // still paints under the identical annulus/sweep/shadow gate — the blip
+    // payload carries pose only, so nothing discloses the window here either.
+    if ((!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) || target.id === me.id) return false;
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
     return blipGate(me, target.state, ctx.heightRaster, ctx.now);
   },

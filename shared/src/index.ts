@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  34: THE SINKING WINDOW (Story 5.2, Eric rulings 2026-08-12, amendments
+ *  10-17) — OwnShip gains an optional SELF-PRIVATE trailing `sinkingUntil`
+ *  (absolute server-clock ms the hull founders; omitted entirely when not
+ *  sinking — the slowedUntil precedent). It rides `you` and nothing else, so
+ *  the master perception invariant keeps exactly SIX declared exceptions and
+ *  no enemy-facing sinking channel exists. The key is required because the
+ *  wire's `alive` boolean goes FALSE at sink-entry (amendment 11 flips the
+ *  roster and bookkeeping immediately) while amendment 10 keeps every weapon,
+ *  ability and the foghorn live for the flat 5 s window: the client needs a
+ *  THIRD state (alive / sinking / dead) and `alive` alone cannot carry it — a
+ *  stale client would read a sinking captain as plain dead, tear down the
+ *  hotbar/firing arc/aim preview and snap to spectate five seconds early. New
+ *  CONFIG.ship.sinkingWindowMs (5000, flat for all classes — amendment 13)
+ *  rides the welcome config snapshot; new shared sim/sinking.ts (the linear
+ *  decel cap both sim sides fold identically + the founder-deadline math)
+ *  rides the barrel.
  *  33: THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) — the held throne over
  *  captain-only kills. ArenaState gains `bountyId` (a string appended after
  *  winnerId: the holder's session id, '' while vacant — IDENTITY ONLY, never
@@ -299,7 +315,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 33;
+export const PROTOCOL_VERSION = 34;
 
 // Tunables
 export * from './constants.js';
@@ -316,6 +332,7 @@ export * from './math/rng.js';
 // Simulation
 export * from './sim/ship.js';
 export * from './sim/lifecycle.js';
+export * from './sim/sinking.js';
 export * from './sim/stats.js';
 export * from './sim/boons.js';
 export * from './sim/hooks.js';

@@ -186,6 +186,26 @@ export function canOpenElimination(phase: string, resultsFinal: boolean, already
 }
 
 /**
+ * Pure: does a sinking in this match phase get a RESPAWN? — the client's mirror
+ * of `Match.applyPolicy()`'s `world.respawnEnabled` (server/src/game/match.ts),
+ * which is the READY ROOM and nothing else.
+ *
+ * Written as the server writes it — the three ready-room phases named
+ * explicitly, never `phase !== 'active'` — so an unknown or future phase
+ * (`finished`, or anything a newer server sends) answers NO. This is a
+ * conservative direction on purpose: a missed respawn placard in a phase that
+ * does respawn is a cosmetic gap, while a placard promising a respawn nobody
+ * armed is a lie about the match the player is in.
+ *
+ * NOT folded into canOpenElimination above, even though the two are opposites
+ * today: they answer different questions (may I show a debrief / did the server
+ * arm a respawn), and `finished` is a phase where BOTH are false.
+ */
+export function respawnArmedIn(phase: string): boolean {
+  return phase === 'waiting' || phase === 'gathering' || phase === 'countdown';
+}
+
+/**
  * Pure: the placement a player who is eliminated RIGHT NOW earns, given how many
  * OTHER contestants are still floating. With k rivals still afloat the best you
  * can finish is behind all of them, so you place k + 1 (everyone alive at your

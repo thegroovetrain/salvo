@@ -325,20 +325,22 @@ describe('match — drone fill + win exclusion', () => {
     expect(msg.rows.map((r) => r.id)).toEqual(['human', 'rival']); // captains only
   });
 
-  it('a drone can NEVER win — human sinking last still wins', () => {
+  it('a drone can NEVER win — a same-tick captain wipe is a DRAW, never a drone victory (amendment 14)', () => {
     const ctx = duoMatch();
     activate(ctx);
     const drones = afloatDroneIds(ctx);
     // Sink one drone, then BOTH captains on the same tick (mutual destruction).
-    // Drones survive it; the latest-sunk human still takes the win.
+    // Drones survive it; since Story 5.2 the same-tick wipe is a DRAW — the
+    // point pinned here is that the surviving drones still claim NOTHING.
     ctx.w.sinkShip(drones[0], 'human');
     step(ctx);
     expect(ctx.m.phase).toBe('active'); // both captains afloat: no check trips
     ctx.w.sinkShip('rival'); // storm-style, unattributed
-    ctx.w.sinkShip('human'); // same tick, sunk after rival
+    ctx.w.sinkShip('human'); // same tick — the amendment-14 wipe
     step(ctx);
     expect(ctx.m.phase).toBe('finished');
-    expect(ctx.m.winnerId).toBe('human'); // NOT a surviving drone
+    expect(ctx.m.winnerId).toBe(''); // a DRAW — and NOT a surviving drone
+    // Captain-relative placements keep numbering from 1 with no winner row.
     expect(ctx.m.placements.get('human')).toBe(1);
     expect(afloatDroneIds(ctx).length).toBeGreaterThan(0); // drones outlived the match
   });
