@@ -379,3 +379,60 @@ victory is already locked.
 
 Recorded as an orchestrator ruling because the question gate signalled the opposite lean before the
 architecture was built out. It is Eric's to overrule; doing so costs the `finishing` sub-state above.
+
+## Amendment 18 — IDENTITY AT SINK-ENTRY, LOCATION AT FOUNDER (orchestrator ruling 2026-08-12, forced by a review finding)
+
+Both adversarial review passes caught the same user-visible defect, and it went to the heart of the
+story: the client's enemy-side death presentation fired at **sink-entry**, because that is when the
+`sunk` event arrives. So a hull that was still turning, boosting and putting a torpedo into you
+rendered in the faded `sunkTint` (alpha 0.4 — *"already dead"*) for the whole window, with its
+crimson death plume left up to **110 u astern** of where it actually went down (the integral of the
+linear decel ramp: 45 u/s × 5 s ÷ 2). The visual grammar said "wreck" during precisely the five
+seconds the hull is a guaranteed revenge threat.
+
+**Ruled — split the presentation exactly the way the Public Register already splits DISCLOSURE**
+(epic-4 amendments 29-34: *"sinking is public knowledge, its LOCATION is not"*):
+
+- **Identity, at sink-entry, unmoved:** the kill-feed line, the roster/AFLOAT drop, the death cue.
+  The kill is real the moment it lands (amendment 11).
+- **Location, at founder:** the crimson `sink` plume and the `setDowned` wreck tint — a hull marks
+  the water where it actually goes down, not where it was mortally hit.
+
+**The client cannot read an enemy's deadline and must not be given one.** `sinkingUntil` is
+self-private by construction (amendment 16), so the enemy path derives founder locally: the `sunk`
+event arrives at sink-entry and `CONFIG.ship.sinkingWindowMs` is shared, so the spatial half is
+scheduled at `eventTime + window` and its position is **re-resolved at founder** rather than
+remembered from entry. The `seen` gate moves with it byte-identical — an unwitnessed sinking still
+never draws a plume — and a contact that is gone or aged out by founder draws nothing, exactly as
+today. **This adds no wire field and no perception exception.**
+
+**Ledgered, not fixed:** the death GROAN still sounds at sink-entry at the sink-entry position, so
+the cue and its plume are now ~5 s and up to 110 u apart. That is defensible — the groan marks the
+killing blow, the plume marks the sinking — but it has never been seen on the water. If it reads
+badly, **the cue is the thing to move, not the plume.**
+
+## Amendment 19 — THE WINDOW IS DERIVABLE BY COMPOSITION, AND THAT IS ACCEPTED (orchestrator ruling 2026-08-12) — corrects Story 5.2's own AC
+
+Story 5.2's acceptance criterion says *"no field anywhere discloses that it is sinking."* **Read
+strictly that is true and read practically it is false, so it is corrected here rather than left to
+be rediscovered as a leak.**
+
+No single field discloses the window: `Contact` carries `{id, x, y, heading, speed, cls}` and nothing
+else (now pinned by an exact key-set assertion in `spectator.test.ts`), and `sinkingUntil` rides
+`you` alone. But `PlayerMeta.alive` is mirrored **unfogged to every client every tick** and now goes
+false at sink-entry while the hull is still a live `Contact` — so any client can compose the two
+public channels and compute, for any sighted enemy, *"sinking since the roster flip, founders at
+flip + 5000."*
+
+**Accepted, with no seventh exception, on the Bounty precedent** (epic-4 amendments 216-221:
+publishing what a client *"could already compute anyway"* reconciles the server's answer with
+information already free, rather than widening disclosure). Both halves were already public before
+this story; only their conjunction is new, and it discloses a five-second timer on a hull the
+observer can already see decelerating.
+
+**A second disclosure-by-omission was found and deliberately left alone:** `tickSmoke` stays
+`isAfloat`-gated, so a wounded hull's smoke **stops** at sink-entry while it sails on — itself a
+clean read on "that hull is in its window." Widening `tickSmoke` would make a **fourth** seam out of
+amendment 15's three and would change an enemy-facing channel, which is Eric's call, not the
+implementer's. Recorded for his ruling; the information it reveals is in any case already free by
+the composition above.
