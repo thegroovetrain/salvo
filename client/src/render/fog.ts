@@ -14,16 +14,20 @@
 // already-composited world, not reveal it). Enemy zones never clear your fog
 // (you gain no vision from them — their amber circle stays a marker only).
 //
-// Z-order (verified against stage.ts): worldRoot (ships/shells, fogged) →
-// fogSprite (this) → chartRoot (islands/blips/sweep, fog-immune) → hudRoot.
-// Thin Pixi adapter (not unit tested); the hole participation + fade math it
-// consumes are the pure functions in render/litZones.ts.
+// Z-order (verified against stage.ts): worldRoot (shells/wake/mines, fogged) →
+// fogSprite (this) → chartRoot (islands/blips/HULLS/sweep, fog-immune) → hudRoot.
+// HULLS ARE NO LONGER UNDER THIS OVERLAY (this cycle): they moved into chartRoot
+// so radar paint stops covering the ships it represents, which means the sight-
+// boundary softening this composite used to give them for free is now applied
+// per hull by `hullSightSoftness` below — same feather, same numbers, different
+// channel. Thin Pixi adapter (not unit tested); the hole participation + fade
+// math it consumes are the pure functions in render/litZones.ts.
 
 import { Graphics, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { bakeFogTexture } from './textures.js';
+import { FOG_FILL_ALPHA, HOLE_FEATHER_START, bakeFogTexture } from './textures.js';
 
 /**
  * Pure: the world-space radius (u) the fog's sight hole is baked at — the
@@ -35,6 +39,41 @@ import { bakeFogTexture } from './textures.js';
  */
 export function fogHoleRadiusU(sightRange: number, dazzled: boolean): number {
   return dazzled ? sightRange * CONFIG.starShells.dazzleSightFactor : sightRange;
+}
+
+/**
+ * Pure: the alpha multiplier a HULL wears at `distU` from own hull, mirroring
+ * the softening the fog composite used to give it (this cycle).
+ *
+ * WHY IT EXISTS. Hulls now render ABOVE the fog (render/stage.ts), so radar
+ * paint can no longer cover the ship it represents. What that lifted them out of
+ * is the fog texture's feathered hole: a contact used to dim smoothly as it
+ * approached the edge of the bubble and then hand off to its blip. Above the fog
+ * it would instead read at FULL strength right to the boundary and then vanish,
+ * which is a harder edge than the one the fog draws.
+ *
+ * IT IS THE FOG'S OWN CURVE, NOT A NEW ONE. Under the composite a hull's
+ * remaining contribution is `1 − fogAlpha × feather`, where `feather` ramps 0 → 1
+ * across `HOLE_FEATHER_START × sight` → `sight` — so this reproduces exactly
+ * that, from exactly those constants (render/textures.ts, one source). The fog
+ * fill is near-black (`fogBase` = a hair above void), so the alpha term is the
+ * whole of the effect and the reproduction is faithful rather than approximate:
+ * 1 through the clear centre, 0.15 at the rim.
+ *
+ * IT NEVER REACHES 0. The 150ms sight fade (render/fade.ts) is what takes a hull
+ * off the water when the server stops sending it; this is a softening, and a
+ * softening that hit zero would delete a contact the observer legitimately holds
+ * — including one revealed beyond the bubble by an owned star shell, which the
+ * caller exempts outright (main.ts `hullSoftnessFor`). A non-finite input reads
+ * as 1: fail toward the hull being VISIBLE, the same direction every other
+ * unwired path in the render layer fails.
+ */
+export function hullSightSoftness(distU: number, sightU: number): number {
+  if (!Number.isFinite(distU) || !(sightU > 0) || !Number.isFinite(sightU)) return 1;
+  const start = sightU * HOLE_FEATHER_START;
+  if (distU <= start) return 1;
+  const feather = distU >= sightU ? 1 : (distU - start) / (sightU - start);
+  return 1 - FOG_FILL_ALPHA * feather;
 }
 
 /** One fog-clearing hole in SCREEN space: center + (fade-scaled) radius, px. */

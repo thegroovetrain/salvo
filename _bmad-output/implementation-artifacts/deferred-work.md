@@ -904,6 +904,10 @@ and the permanently-invisible straight torpedo — remain OPEN.
   evidence: four consecutive cycle-78 runs with three distinct failure modes; `server/scripts/matchSmoke.mjs` steps 2 and 5; direct World repro of the ready-room torpedo path.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-2-the-sinking-window.md`
+  summary: WANTS ERIC'S EYE ON THE WATER — FOUR SIDE EFFECTS OF LIFTING HULLS ABOVE THE CHART LAYER (amendment 22). He ordered the ordering, not each of these: (1) the storm-side fill and the in-zone wash NO LONGER TINT HULLS, so a ship inside the storm loses that read — the most likely of the four to be unwanted; (2) wounded-smoke plumes now draw UNDER hulls; (3) lit-zone glow and own mine/decoy chart marks now draw under hulls; (4) the charted island and contour linework now draws under hulls. All four read as "the hull is more visible", which is the ask, and none can be individually reverted without re-splitting the ship layer. Also unverified by human eyes: the re-anchored radar mask across the whole sight bubble, and whether the hull-alpha feather at the sight boundary still feels like the fog composite it replaced.
+  evidence: `client/src/render/stage.ts` CHART_LAYER_ORDER (ship between blip and aim); epic-5 amendment 22; flagged by the implementing agent, not caught by any test.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-the-sinking-window.md`
   summary: THIS CYCLE SHIPPED WITH NO LIVE OR VISUAL VERIFICATION — everything is code plus 4189 unit tests. Three things specifically want one human look before they are trusted: the `GOING DOWN WITH THE SHIP!` banner's timing and legibility, the hotbar/firing arc surviving the window while the hull visibly slows, and the camera holding on the own hull instead of cutting to the killer. The audio seam in particular had NO test coverage at all before this cycle, which is exactly why a double-sounding shot on every shot of the beat survived implementation and was caught only at the review gate.
   evidence: Story 5-2 client wave report ("No visual sanity check"); review finding P1 (`hasLiveOwnHull`), which the full suite was green against.
 

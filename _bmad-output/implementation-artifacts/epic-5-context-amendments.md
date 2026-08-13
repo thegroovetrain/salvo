@@ -535,3 +535,53 @@ window the whole story exists to make playable. The own hull now settles only pa
 than completing — otherwise it pops to full wreck for the ~½ RTT before the `spec` frame hides it.
 The ratified mockup (`death-reveal-results-1.html` frame F1) draws the own hull at FULL personal hue
 with a full-strength glow during the window, so the cap may shrink toward that mockup, never grow.
+
+## Amendment 22 — A HULL YOU CAN SEE OUTRANKS ITS OWN ECHO (Eric ruling 2026-08-13) — completes epic-4 amendment 181
+
+> *"Lets make hulls in general more visible over radar blips when they are visible."*
+
+Two shipped facts stacked against the hull, and Eric chose to fix **both**:
+
+1. **`blip` drew above `ship`.** `createStage` did `addChild(worldRoot, plateRoot, fogSprite,
+   chartRoot, hudRoot)` with `ship` in `worldRoot` and `blip` in `chartRoot` — so radar paint was
+   literally on top of every hull silhouette.
+2. **The client paints a radar echo for a hull it can already see** (epic-4 amendments 88/141: inside
+   truesight it stamps the hull into the field from the `Contact` it holds), and epic-4 amendment
+   181's display mask was **anchored to the wrong ruler** — 1/8 → 5/8, which left the echo at **80%
+   opacity at the edge of the bubble** and 40% halfway out.
+
+**Point 2 is a correction of amendment 181, not a new rule.** Eric's original sentence was *"less
+prominent in the near sight range where i am going to aim based on LOS rather than radar ghosts"* —
+that describes the **sight bubble**, and the implementation anchored to the eighths ladder instead.
+The mask now holds its floor across the WHOLE bubble (4/8) and reaches full strength at 5/8, the next
+rung out and the first radius at which radar is the sole sensor — the shortest ramp the ladder can
+express without muting returns in water nothing else sees. **The 0.2 floor is untouched**; it is
+Eric's ratified number and re-tuning it was not asked for.
+
+**And the mask is now OBSERVER-SCALED, which is a bug fix nobody had noticed.** It was baked ONCE at
+construction from static base constants, so a dazzled or `intelTruesight`-boosted captain got a ramp
+for a bubble they did not have. It now derives from the same `fogHoleRadiusU` the fog hole is baked
+at and the server gates contacts with, and the rebake sits on the per-frame placement path so no
+future caller can forget it. The mask still hangs on `blipLayer` and never on `heat.sprite`
+(amendment 181's trap), and still reads nothing back (amendment 83).
+
+**The lift's cost was paid, not accepted.** Hulls moved into `chartRoot` directly above `blip` and
+below `aim`, and layer placement became **declared data with a build-failing completeness check**.
+Lifting them above the fog would have cost the sight boundary's feather, so the fog's own two
+constants are now exported and reproduced as a **hull alpha** — numerically the same ramp, same
+radii, same endpoint as the composite gave, and now dazzle/boon-scaled where the baked hole already
+was. **Nameplates deliberately did NOT follow the hulls** and stay under the fog: a label is not a
+mark. A live trap was caught in passing — hulls inside your own star-shell lit zone BEYOND the bubble
+are legitimate contacts, and a pure distance feather would have dimmed them to 15%, so owned lit
+zones are exempt.
+
+**No disclosure moved, verified rather than assumed:** `perception.ts` builds contacts solely from
+`contactSignal.visible`, which is `dist² ≤ sightOf()² && losClear()` or `ownZoneCovers()`. There is no
+other producer. **The fog was selling the reveal, never enforcing it**, so raising hulls above it
+reveals nothing. Client-only; `PROTOCOL_VERSION` untouched.
+
+**Ledgered consequences of "above `blip`" that Eric should eyeball on the water** — all read as
+*hull is more visible*, which is the ask, but he ordered the ordering and not each of these: the
+storm-side fill and in-zone wash **no longer tint hulls**, and wounded-smoke plumes, lit-zone glow,
+own mine/decoy chart marks and the charted island linework now draw **under** hulls. `DESIGN.md`'s
+z-order line was updated, since this ruling is precisely what it rules on.

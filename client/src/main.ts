@@ -41,9 +41,9 @@ import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
-import { Camera, canUserZoom } from './render/camera.js';
+import { Camera, canUserZoom, type Point } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist, setHullFlashGate } from './render/ships.js';
-import { ContactViews, type PlateFrame } from './render/contacts.js';
+import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
 import { ownSettle } from './render/sinkSettle.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
@@ -57,7 +57,7 @@ import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Smoke } from './render/smoke.js';
 import { Foghorn } from './render/foghorn.js';
-import { Fog, type FogHole } from './render/fog.js';
+import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
@@ -430,6 +430,17 @@ interface Game {
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
   wasInStorm: boolean;
+  /**
+   * THIS FRAME'S HULL SIGHT-BOUNDARY FEATHER (this cycle) — the spatial alpha
+   * multiplier every contact hull wears, built by `hullSoftnessFor`.
+   *
+   * It is a per-frame field rather than an argument because the two renderers
+   * that know the observer (`renderAlive` / `renderSpectate`) run BEFORE the one
+   * call site that draws contacts, which sits outside both. Exactly one of the
+   * two runs per frame and both always set it, so it can never go stale; it boots
+   * at `NO_SOFTENING` for the frames before either has run.
+   */
+  hullSoftness: HullSoftness;
   /**
    * Own hull fraction last frame, for THE BAND STINGS' downward-crossing edge
    * (Story 4.7, audio/tones.ts `hpBandEdge`) — the `wasInStorm` idiom, one field
@@ -1956,6 +1967,7 @@ function buildGame(
     ...abilityFeedbackState(),
     audio, portal,
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, pendingFounder: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    hullSoftness: NO_SOFTENING,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
@@ -2774,6 +2786,37 @@ function updateDazzle(g: Game, now: number): void {
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
+/**
+ * THIS FRAME'S HULL FEATHER (this cycle) — the spatial alpha multiplier a
+ * contact hull wears, now that hulls render ABOVE the fog composite and no longer
+ * inherit its feathered sight hole (render/stage.ts).
+ *
+ * IT IS THE FOG'S OWN GEOMETRY, READ OFF THE FOG'S OWN NUMBERS. The radius is
+ * `radar.sightHoleU` — i.e. `fogHoleRadiusU`, the very radius the hole is baked
+ * at and the same one the server's `sightOf` gates contacts with — so a dazzle
+ * burst tightens the hull feather on the same frame it tightens the fog. And an
+ * owned star-shell zone is EXEMPT for exactly the reason it punches a fog hole
+ * (`ownZoneFogHoles`, one line down): the server grants truesight parity inside
+ * it, so a hull revealed there is fully seen and must draw fully — feathering it
+ * against a bubble it is nowhere near would dim the whole point of the flare.
+ * The zone's own dying fade scales its radius, the same closing circle the fog
+ * hole uses.
+ *
+ * With no own pose (the forceSnap gap) there is no observer to feather against,
+ * so hulls draw at full strength — the direction every unwired path here fails.
+ */
+function hullSoftnessFor(g: Game, pose: Point | null, zones: readonly OwnZone[], now: number): HullSoftness {
+  if (!pose) return NO_SOFTENING;
+  const sightU = g.radar.sightHoleU;
+  return (x, y) => {
+    for (const z of zones) {
+      const r = z.r * litZoneFade(z.until - now);
+      if ((x - z.x) ** 2 + (y - z.y) ** 2 <= r * r) return 1;
+    }
+    return hullSightSoftness(Math.hypot(x - pose.x, y - pose.y), sightU);
+  };
+}
+
 /** SCREEN-space fog holes for the own ACTIVE lit zones — center via the camera,
  *  radius = world radius × zoom × the zone's fade (a closing hole as it dies).
  *  Only owned zones reach here; enemy zones never clear the own fog. */
@@ -3039,6 +3082,11 @@ function renderAlive(
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
   g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
+  // ...and the hulls, which now render ABOVE that fog, carry its feather
+  // themselves. Built from the SAME pose, the same effective sight radius and the
+  // same owned zones the two lines above use, so the two surfaces cannot disagree
+  // about where the bubble ends.
+  g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
 }
 
 // --- spectate rendering ----------------------------------------------------------
@@ -3095,6 +3143,10 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
 
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
+  // A spectator has no hull and no bubble, and the fog overlay is off entirely
+  // here — so there is no feather to mirror and every hull draws at full
+  // strength, exactly as it did before hulls moved above the fog.
+  g.hullSoftness = NO_SOFTENING;
   // No hull, so no band edge exists to be crossed (Story 4.7): dropping the
   // remembered fraction to null keeps a death from reading as a crossing into
   // critical, and re-arms both stings for the next life for free.
@@ -3272,7 +3324,12 @@ function makeCallbacks(g: Game): LoopCallbacks {
         now,
         frameDt * 1000,
         (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
-        plateFrame, // Story 1.13: per-contact truesight nameplate (hoisted, reused)
+        // `plateFrame` — Story 1.13: per-contact truesight nameplate (hoisted,
+        // reused). `hullSoftness` — this frame's sight-boundary feather, set by
+        // whichever of the two renderers above just ran (this cycle: hulls draw
+        // ABOVE the fog now, so they carry its feather themselves). Kept on one
+        // line so this callback stays inside its line budget.
+        plateFrame, g.hullSoftness,
       );
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },

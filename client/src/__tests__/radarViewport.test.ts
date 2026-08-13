@@ -53,6 +53,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Camera, USER_ZOOM_MAX, USER_ZOOM_MIN } from '../render/camera.js';
 import { DIM_MASK_LABEL, Radar, type ViewRect } from '../render/radar.js';
+import { dimRadii } from '../render/radarDim.js';
 import { GRID_QUANTUM, anchorGrid, gridSpan, makeGrid } from '../render/radarHeatmap.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { DIM_MASK_TEXTURE_SIZE } from '../render/textures.js';
@@ -1054,10 +1055,16 @@ describe('`silhouette` mode never grows a buffer, camera or not', () => {
 describe('the near-range dim mask', () => {
   const DIM = CLIENT_CONFIG.blip.heatmap.dim;
 
-  it('BOTH RADII COME OFF THE EIGHTHS LADDER, never off a literal', () => {
-    expect(DIM.innerU).toBeCloseTo(RADAR / 8, 12);
-    expect(DIM.outerU).toBeCloseTo((RADAR * 5) / 8, 12);
-    expect(DIM.minScale, "Eric's 20% floor").toBe(0.2);
+  it('BOTH RADII COME OFF THE EIGHTHS LADDER, never off a literal — and they are '
+    + 'ANCHORED TO TRUESIGHT, so they scale with the observer', () => {
+    // The factors are multiples of the observer's EFFECTIVE sight, not fixed
+    // radii: at the base hull they land on the 4/8 and 5/8 rungs.
+    const base = dimRadii(CONFIG.vision.sight);
+    expect(base.innerU, 'inner = the sight bubble itself (4/8)').toBeCloseTo(RADAR / 2, 12);
+    expect(base.outerU, 'outer = the next rung out (5/8)').toBeCloseTo((RADAR * 5) / 8, 12);
+    expect(DIM.outerFactor, 'and the ratio is a ladder derivation')
+      .toBeCloseTo(CONFIG.vision.muzzleFlash / CONFIG.vision.sight, 12);
+    expect(DIM.minScale, "Eric's 20% floor, untouched by the re-anchoring").toBe(0.2);
   });
 
   it('hangs on the LAYER, not on the heat sprite — and survives the resize that '

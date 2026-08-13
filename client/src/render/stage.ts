@@ -1,20 +1,43 @@
 // Pixi 8 application + scene-graph construction. Thin Pixi adapter (not unit
-// tested). Builds the layer tree in the exact z-order the plan specifies:
+// tested). Builds the layer tree in the exact z-order the plan specifies, and
+// the order is DECLARED (the three `*_LAYER_ORDER` arrays below) rather than
+// implied by the order of an object literal, so a test can assert it without a
+// GPU and a future refactor cannot quietly re-stack the scene:
 //
-//   worldRoot   (camera-transformed): ocean, wake, projectile, ship
+//   worldRoot   (camera-transformed): ocean, wake, projectile, mines, decoys
 //   plateRoot   (screen space)        — truesight nameplates (render/nameplates.ts)
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, smoke, blip, aim, burstFx, sweep   (fog-immune: above fog)
+//   chartRoot   (camera-transformed): map, smoke, blip, SHIP, aim, burstFx, sweep  (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD, then foghorn chevrons
+//
+// HULLS SIT ABOVE THE RADAR PAINT (this cycle, Eric: *"Lets make hulls in general
+// more visible over radar blips when they are visible."*). `ship` used to be the
+// top layer of worldRoot, which put it under `fogSprite` and therefore under
+// EVERY chart layer — including `blip`, so the radar echo the client synthesizes
+// for a hull you can already see (amendments 88/141) was drawn on top of the very
+// silhouette it represents. It now sits in chartRoot immediately ABOVE `blip` and
+// immediately BELOW `aim`: above the returns, below the reticle and the burst
+// rings, which are the marks you aim and read damage with and must never be
+// occluded by a hull.
+//
+// THE COST OF THAT LIFT, AND WHERE IT IS PAID. Being under the fog gave hulls the
+// composite's feathered sight hole for free — a contact softened as it neared the
+// edge of the bubble instead of vanishing at full strength. That softening now
+// rides the hull's own alpha (`fog.ts hullSightSoftness`, the same feather
+// constants the texture bakes, applied per contact in render/contacts.ts). It
+// discloses nothing new: the server only ever sends a `Contact` for a hull inside
+// effective truesight + LOS or inside an owned star-shell zone (server
+// signals.ts `contactSignal`), so every hull the client holds is one it has
+// legitimately seen — the fog was selling the reveal, never enforcing it.
 //
 // worldRoot and chartRoot share the same camera transform; plateRoot, fogSprite,
 // and hudRoot stay in screen space. plateRoot sits BELOW the fog composite so the
-// plates dim/occlude with the fog exactly like the hulls they label (DESIGN:
-// nameplates fade with truesight resolution). `aim` (crosshair + bearing line) lives in chartRoot rather
-// than worldRoot's `ship` layer because gun range exceeds sight range: aiming at a
-// radar blip would otherwise place the reticle under the fog. The gun-arc sectors
-// stay in `ship` — they're always inside the sight bubble, so fog is plan-correct
-// there. Fonts are preloaded before any Text is created.
+// plates dim/occlude with the fog (DESIGN: nameplates fade with truesight
+// resolution) — deliberately NOT lifted with the hulls, since a plate is a label
+// and the fog is the only thing that resolves it away. `aim` (crosshair + bearing
+// line) lives in chartRoot because gun range exceeds sight range: aiming at a
+// radar blip would otherwise place the reticle under the fog. Fonts are preloaded
+// before any Text is created.
 
 import { Application, Container } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -29,7 +52,6 @@ export interface StageLayers {
   /** Truesighted enemy decoy buoys (render/decoys.ts) — fogged; they only
    *  arrive when the observer legitimately sees them (mineWorld precedent). */
   decoyWorld: Container;
-  ship: Container;
   // chartRoot children
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
@@ -51,7 +73,17 @@ export interface StageLayers {
    *  buoy is always readable; a truesighted enemy buoy goes to decoyWorld. */
   decoyChart: Container;
   blip: Container;
-  /** Crosshair + bearing line (render/firing.ts) — fog-immune, above blips. */
+  /**
+   * HULL SILHOUETTES — own ship (main.ts), every contact (render/contacts.ts)
+   * and the own firing-arc sectors (render/firing.ts).
+   *
+   * CHARTED AND ABOVE `blip` since this cycle, where it was the top of worldRoot
+   * (fogged, and therefore under every return). A hull you can see must read over
+   * the radar echo of itself; the sight-boundary softening the fog used to supply
+   * is applied per hull instead — see this file's header.
+   */
+  ship: Container;
+  /** Crosshair + bearing line (render/firing.ts) — fog-immune, above hulls. */
   aim: Container;
   /** Gun-shell burst rings (render/effects.ts) — fog-immune so a burst at radar
    *  range (the story's headline capability) is not ~85% eaten by the fog, the
@@ -78,6 +110,48 @@ export interface StageLayers {
   foghorn: Container;
 }
 
+/** Every layer name — the keys of `StageLayers`, as a value-level union. */
+export type LayerName = keyof StageLayers;
+
+// THE DECLARED Z-ORDER. Each array is added to its root IN THIS ORDER, and in
+// Pixi order added == z-order, so these three lists ARE the scene's stacking.
+// They exist as data rather than as the shape of a literal for one reason: the
+// stack is a contract (hulls over returns, reticle over hulls, chevrons over the
+// HUD) and a contract wants an assertion, but `createStage` needs a WebGL context
+// no unit test has. Reading the order off the declaration keeps the pin honest.
+
+/** worldRoot, bottom → top: everything the fog composite dims. */
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld'] as const;
+/** chartRoot, bottom → top: everything above the fog. `ship` sits between `blip`
+ *  and `aim` — over the returns, under the reticle and the burst rings. */
+export const CHART_LAYER_ORDER = [
+  'map',
+  'zone',
+  'litZone',
+  'smoke',
+  'mineChart',
+  'decoyChart',
+  'blip',
+  'ship',
+  'aim',
+  'burstFx',
+  'sweep',
+] as const;
+/** hudRoot, bottom → top: the vignette wash, the HUD, then the foghorn chevrons
+ *  (added last == drawn above the HUD readouts). */
+export const HUD_LAYER_ORDER = ['vignette', 'hud', 'foghorn'] as const;
+
+type PlacedLayer =
+  | (typeof WORLD_LAYER_ORDER)[number]
+  | (typeof CHART_LAYER_ORDER)[number]
+  | (typeof HUD_LAYER_ORDER)[number];
+
+/** BUILD-FAILING EXHAUSTIVENESS: `createStage` builds its layer record from the
+ *  three arrays, so a `StageLayers` key missing from all of them would be
+ *  `undefined` at runtime and blow up on the first `addChild`. This resolves to
+ *  `false` the moment that happens, and the initializer stops compiling. */
+export const EVERY_LAYER_PLACED: Exclude<LayerName, PlacedLayer> extends never ? true : false = true;
+
 export interface Stage {
   app: Application;
   /** Camera-transformed world content. */
@@ -87,7 +161,9 @@ export interface Stage {
   /** Screen-space fog overlay (render/fog.ts adds its baked sprite here). */
   fogSprite: Container;
   /** Screen-space truesight nameplate container (render/nameplates.ts) — above
-   *  the world, below fog — plates inherit fog occlusion like the hulls they label. */
+   *  the world, below fog, so a plate resolves away with the fog exactly as
+   *  DESIGN.md asks. It deliberately did NOT follow the hulls above the fog this
+   *  cycle: a label is not a mark, and the fog is the only thing that fades it. */
   plateRoot: Container;
   /** Screen-space HUD. */
   hudRoot: Container;
@@ -124,10 +200,13 @@ async function preloadFonts(): Promise<void> {
   }
 }
 
-function child(parent: Container): Container {
-  const c = new Container();
-  parent.addChild(c);
-  return c;
+/** Add one empty child container per name, in the declared order, into `out`. */
+function addLayers(parent: Container, names: readonly LayerName[], out: StageLayers): void {
+  for (const name of names) {
+    const c = new Container();
+    parent.addChild(c);
+    out[name] = c;
+  }
 }
 
 /** Create the Pixi app and full layer tree. Returns once fonts + GPU are ready. */
@@ -152,27 +231,12 @@ export async function createStage(): Promise<Stage> {
   // Order added == z-order.
   app.stage.addChild(worldRoot, plateRoot, fogSprite, chartRoot, hudRoot);
 
-  const layers: StageLayers = {
-    ocean: child(worldRoot),
-    wake: child(worldRoot),
-    projectile: child(worldRoot),
-    mineWorld: child(worldRoot),
-    decoyWorld: child(worldRoot),
-    ship: child(worldRoot),
-    map: child(chartRoot),
-    zone: child(chartRoot),
-    litZone: child(chartRoot),
-    smoke: child(chartRoot),
-    mineChart: child(chartRoot),
-    decoyChart: child(chartRoot),
-    blip: child(chartRoot),
-    aim: child(chartRoot),
-    burstFx: child(chartRoot),
-    sweep: child(chartRoot),
-    vignette: child(hudRoot),
-    hud: child(hudRoot),
-    foghorn: child(hudRoot), // added last == drawn above the HUD readouts
-  };
+  // Built from the declared order arrays — the cast is safe because
+  // EVERY_LAYER_PLACED makes "a key in no array" a compile error.
+  const layers = {} as StageLayers;
+  addLayers(worldRoot, WORLD_LAYER_ORDER, layers);
+  addLayers(chartRoot, CHART_LAYER_ORDER, layers);
+  addLayers(hudRoot, HUD_LAYER_ORDER, layers);
 
   return { app, worldRoot, chartRoot, fogSprite, plateRoot, hudRoot, layers };
 }

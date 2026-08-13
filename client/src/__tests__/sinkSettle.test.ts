@@ -183,10 +183,22 @@ describe('the kill flash — the shipped hit-flash channel, held longer', () => 
     expect(SHIP.sinkFlashMs).toBeGreaterThan(SHIP.flashMs);
     const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
     v.update(0, 0, 0);
-    const t0 = performance.now();
+    // BRACKET the call rather than sampling once. `sinkFlash()` stamps its
+    // deadline from its OWN performance.now(), so a single `t0` taken before it
+    // is a LOWER bound on that stamp, never the stamp itself — asserting
+    // expiry at `t0 + sinkFlashMs + 1` raced the real deadline and failed under
+    // full-suite load (it passed in isolation, which is exactly how this class
+    // of flake hides). `before <= stamp <= after` holds by construction, so
+    // each assertion uses the end of the bracket that makes it conservative.
+    const before = performance.now();
     v.sinkFlash();
-    expect(v.flashIntensityAt(t0 + SHIP.flashMs + 1)).toBe(1); // still lit past a hit's life
-    expect(v.flashIntensityAt(t0 + SHIP.sinkFlashMs + 1)).toBe(0); // ...and bounded
+    const after = performance.now();
+    // Still lit past a hit's life: `before` under-estimates the stamp, so this
+    // instant is no later than it would be against the true deadline.
+    expect(v.flashIntensityAt(before + SHIP.flashMs + 1)).toBe(1);
+    // ...and bounded: `after` over-estimates the stamp, so this instant is
+    // strictly past the true deadline however long the call took.
+    expect(v.flashIntensityAt(after + SHIP.sinkFlashMs + 1)).toBe(0);
     v.destroy();
   });
 

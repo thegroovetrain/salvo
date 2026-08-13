@@ -2479,18 +2479,33 @@ export const CLIENT_CONFIG = {
        * sprite on `blipLayer`, never as a per-cell recompute inside
        * `quantizeInto`.
        *
-       * BOTH RADII LAND ON THE EIGHTHS LADDER (amendment 113), never on literals:
-       * 1/8 and 5/8 of BASE `CONFIG.vision.radar` — 82.5u and 412.5u at the
-       * shipped rung. Retuning `SIGHT` moves them with everything else.
+       * BOTH RADII LAND ON THE EIGHTHS LADDER (amendment 113), never on literals
+       * — and since this cycle they are ANCHORED TO TRUESIGHT AND OBSERVER-
+       * SCALED, so what lives here is the RATIO to the observer's effective sight
+       * rather than a fixed radius. The floor holds across the whole sight bubble
+       * (4/8) and reaches full at the first rung outside it (5/8), which is the
+       * first radius where radar is the only sensor; render/radarDim.ts carries
+       * the derivation and the reasoning, and is the one place the curve exists.
+       * Eric's own statement of the rule is a statement about the BUBBLE (*"less
+       * prominent in the near sight range where i am going to aim based on LOS
+       * rather than radar ghosts"*), and the shipped 1/8 → 5/8 ramp did not
+       * follow it: it stood at 80% opacity at the EDGE of the bubble (40%
+       * halfway out), over exactly the water the player aims at by eye.
        */
       dim: {
-        /** Flat `minScale` at and inside this radius (u) — 1/8 intel range. */
-        innerU: CONFIG.vision.radar / 8,
-        /** Full painted opacity from this radius out (u) — 5/8 intel range. */
-        outerU: (CONFIG.vision.radar * 5) / 8,
-        /** Displayed fraction of the painted opacity inside `innerU`. Eric's
-         *  number: *"painted at 20% its usual opacity within 1/8 intel range"*.
-         *  It is a DISPLAY scale on top of age, so the two compose
+        /** Flat `minScale` at and inside this multiple of the observer's
+         *  EFFECTIVE truesight — 1.0, i.e. the whole sight bubble (the ladder's
+         *  4/8 rung). A MULTIPLE and not a radius, because a dazzle burst shrinks
+         *  the bubble and an `intelTruesight` boon widens it. */
+        innerFactor: 1,
+        /** Full painted opacity from this multiple of effective truesight out:
+         *  the 5/8 rung expressed against the 4/8 one (= 1.25), so it stays a
+         *  LADDER derivation and never a literal. */
+        outerFactor: CONFIG.vision.muzzleFlash / CONFIG.vision.sight,
+        /** Displayed fraction of the painted opacity inside the bubble. Eric's
+         *  ratified number (*"painted at 20% its usual opacity"*), UNCHANGED by
+         *  the re-anchoring above — moving it would be a second knob nobody asked
+         *  for. It is a DISPLAY scale on top of age, so the two compose
          *  multiplicatively and the stored record is byte-identical throughout. */
         minScale: 0.2,
         /**
@@ -2502,7 +2517,11 @@ export const CLIENT_CONFIG = {
          * to reach past the furthest cell the radar layer can draw. That bound is
          * a boon-widened scope (~2.01× base = ~1327u) plus the distance own hull
          * can travel during a paint's ~12s phosphor life (a boon-scaled hull at
-         * ~60 u/s ≈ 720u): ~2047u, comfortably inside 4× base radar (2640u). It
+         * ~60 u/s ≈ 720u): ~2047u, comfortably inside 4× base radar (2640u). The
+         * span is deliberately NOT observer-scaled with the two factors above:
+         * the sprite's world extent is what CLIPS the layer, so scaling it with a
+         * dazzled (shrunken) bubble would hide the far scope outright. Only the
+         * baked RAMP tracks the observer; the frame stays this fixed reach. It
          * is deliberately NOT sized to the viewport — the camera can show water
          * no paint has ever reached, and hiding a mask-less region that holds
          * nothing costs nothing.

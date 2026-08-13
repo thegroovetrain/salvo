@@ -10,6 +10,7 @@
 import { Texture } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
+import { dimRadii, dimScaleAt } from './radarDim.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -28,10 +29,22 @@ function makeCanvas(w: number, h: number): { canvas: BakeCanvas; ctx: BakeCtx } 
 
 // --- 1. fog + sight hole -----------------------------------------------------
 
-/** DESIGN.md fogged-ocean overlay color (fog-base token @ 0.85). */
-const FOG_FILL = cssRgba(C.fogBase, 0.85);
-/** Hole feather: fully clear to 0.75×sight, fading to full fog at 1.0×sight. */
-const HOLE_FEATHER_START = 0.75;
+/**
+ * Opacity of the fogged-ocean overlay (DESIGN.md fog-base token @ 0.85) — i.e.
+ * how much of the world under it the fog swallows at full strength.
+ *
+ * EXPORTED BECAUSE THE HULL LAYER NOW HAS TO MIRROR IT (this cycle). Hulls moved
+ * ABOVE the fog composite so radar paint can no longer sit on top of them, which
+ * also lifted them out of the feathered sight hole that used to soften a contact
+ * as it approached the bubble's edge. `render/fog.ts`'s `hullSightSoftness`
+ * reproduces that softening as a per-hull alpha, and it reads THESE constants —
+ * one feather, two consumers, so the drawn fog and the hull ramp cannot drift.
+ */
+export const FOG_FILL_ALPHA = 0.85;
+/** Hole feather: fully clear to 0.75×sight, fading to full fog at 1.0×sight.
+ *  Exported for the same reason as `FOG_FILL_ALPHA` above. */
+export const HOLE_FEATHER_START = 0.75;
+const FOG_FILL = cssRgba(C.fogBase, FOG_FILL_ALPHA);
 
 /**
  * Bake the fog overlay: viewport + 2×margin on each axis, with the feathered
@@ -159,8 +172,15 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
 
 /**
  * Bake the near-range dim mask (Story 4.11, amendment 181): a radial ramp from
- * `minScale` at the centre out to `innerU`, rising LINEARLY to full at `outerU`,
- * flat at full everywhere beyond.
+ * `minScale` at the centre out to the observer's effective sight radius, rising
+ * LINEARLY to full at the 5/8 rung, flat at full everywhere beyond.
+ *
+ * IT TAKES THE OBSERVER'S EFFECTIVE TRUESIGHT, not a constant, because the ramp
+ * is anchored to the sight bubble and the bubble moves (a dazzle burst shrinks
+ * it, an `intelTruesight` boon widens it). Both stops come from
+ * render/radarDim.ts — the same pure curve the tests pin — so the drawn ramp and
+ * the stated rule cannot drift. Re-baked only when that radius actually changes,
+ * exactly as the fog hole is (render/radar.ts `syncDimMask`).
  *
  * IT IS DRAWN IN THE RED CHANNEL AT FULL ALPHA, and that is a Pixi contract
  * rather than a style choice. A sprite mask samples the RED channel by default
@@ -173,8 +193,9 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  * other bake here it happens ONCE — the mask is positioned and scaled per frame,
  * never re-baked.
  */
-export function bakeDimMaskTexture(): Texture {
-  const { innerU, outerU, minScale, spanU } = CLIENT_CONFIG.blip.heatmap.dim;
+export function bakeDimMaskTexture(sightU: number): Texture {
+  const { spanU } = CLIENT_CONFIG.blip.heatmap.dim;
+  const { innerU, outerU } = dimRadii(sightU);
   const size = DIM_MASK_TEXTURE_SIZE;
   const { canvas, ctx } = makeCanvas(size, size);
   const c = size / 2;
@@ -186,7 +207,9 @@ export function bakeDimMaskTexture(): Texture {
   const r0 = Math.max(0, innerU * px);
   const r1 = Math.max(r0 + 1, outerU * px);
   const grad = ctx.createRadialGradient(c, c, r0, c, c, r1);
-  const floor = Math.round(255 * Math.max(0, Math.min(1, minScale)));
+  // Both stops are READ OFF the curve rather than re-stated here: the inner one
+  // is the floor the whole bubble holds, the outer one is full strength.
+  const floor = Math.round(255 * Math.max(0, Math.min(1, dimScaleAt(innerU, sightU))));
   grad.addColorStop(0, cssRgba((floor << 16) | (floor << 8) | floor, 1));
   grad.addColorStop(1, cssRgba(C.white, 1));
   ctx.fillStyle = grad;
