@@ -425,7 +425,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       state,
       clock: { addSample: vi.fn() },
       contacts: { pushFrame: vi.fn(), get: () => null },
-      contactViews: { markSunk: vi.fn() },
+      contactViews: { markSunk: vi.fn(), sinkFlash: vi.fn(), setSink: vi.fn() },
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
@@ -523,7 +523,7 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: false, phase: '', respawnEta: null, mode: 'interp' },
       clock: { addSample: vi.fn() },
       contacts: { pushFrame: vi.fn(), clear: vi.fn() },
-      contactViews: { markSpawn: vi.fn() },
+      contactViews: { markSpawn: vi.fn(), sinkFlash: vi.fn(), setSink: vi.fn() },
       ownBuffer: { clear: ownBufferClear },
       predictor: { forceSnap },
       mines: { sync: vi.fn() },
@@ -599,6 +599,11 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     const conn = { room, welcome: {}, sink } as unknown as Connection;
     const spawnEffect = vi.fn();
     const markSunk = vi.fn();
+    // THE SINKING BEAT'S two new spatial seams (Story 5.2 fix): the
+    // sink-entry kill flash and the per-frame settle push. Both ride the SAME
+    // `seen`-gated queue entry the plume does, which is what the suite proves.
+    const sinkFlash = vi.fn();
+    const setSink = vi.fn();
     const play = vi.fn();
     const onSunkObserved = vi.fn();
     const deps = {
@@ -613,7 +618,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
         // point of the suite is that `seen` (not availability) gates its use.
         get: () => (pos ? { newest: pos } : null),
       },
-      contactViews: { markSunk, flash: vi.fn(), markSpawn: vi.fn() },
+      contactViews: { markSunk, sinkFlash, setSink, flash: vi.fn(), markSpawn: vi.fn() },
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
@@ -638,6 +643,8 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       sink,
       spawnEffect,
       markSunk,
+      sinkFlash,
+      setSink,
       play,
       onSunkObserved,
       /** Sail the still-fighting hull on (or age its contact out with null). */
@@ -727,6 +734,67 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     const { sink, spawnEffect, markSunk } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
     sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    expect(spawnEffect).not.toHaveBeenCalled();
+    expect(markSunk).not.toHaveBeenCalled();
+  });
+
+  // --- THE SINKING BEAT IS NO LONGER SILENT (Story 5.2 fix, 2026-08-13) -----
+  //
+  // Amendment 18 was right to move the WRECK to founder and wrong to leave the
+  // five seconds in between empty: sinking a hull looked like nothing happening
+  // followed by a delayed-death bug. The kill flash opens the beat at
+  // sink-entry and the settle walks the hull to the wreck across the window —
+  // both on the SAME `seen`-gated queue entry the plume rides, so the fog kill's
+  // silence is untouched.
+
+  it('a SEEN sunk flashes the killed hull ONCE, on the sink-entry tick', () => {
+    const { sink, sinkFlash } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    expect(sinkFlash).toHaveBeenCalledWith('victim');
+    expect(sinkFlash).toHaveBeenCalledTimes(1);
+  });
+
+  it('a replayed `sunk` never fires a SECOND confirmation bloom', () => {
+    const { sink, sinkFlash } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    expect(sinkFlash).toHaveBeenCalledTimes(1);
+  });
+
+  it('...then settles the hull continuously, arriving at 1 exactly at founder', () => {
+    const { sink, setSink, markSunk } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    const at = (t: number): number => {
+      setSink.mockClear();
+      sink.handler(tickFrame(SUNK_T + t));
+      expect(setSink).toHaveBeenCalledWith('victim', expect.any(Number));
+      return setSink.mock.calls[0][1] as number;
+    };
+    const quarter = at(CONFIG.ship.sinkingWindowMs / 4);
+    const half = at(CONFIG.ship.sinkingWindowMs / 2);
+    const last = at(CONFIG.ship.sinkingWindowMs - 50);
+    expect(quarter).toBeCloseTo(0.25, 9);
+    expect(half).toBeCloseTo(0.5, 9);
+    expect(last).toBeGreaterThan(half); // monotone, and never the wreck early
+    expect(last).toBeLessThan(1);
+    // The founder tick hands over to the wreck look and the hull leaves the
+    // queue, so the settle stops pushing — the two can never fight.
+    setSink.mockClear();
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    expect(markSunk).toHaveBeenCalledWith('victim');
+    expect(setSink).not.toHaveBeenCalled();
+  });
+
+  it('an UNSEEN sinking draws NOTHING anywhere — no flash, no settle, no plume', () => {
+    // The Public Register's line, whole: identity is public, LOCATION is not.
+    // One `seen` gate covers all three spatial channels (openWreckWindow).
+    const { sink, sinkFlash, setSink, spawnEffect, markSunk } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
+    for (const t of [1_000, 2_500, CONFIG.ship.sinkingWindowMs, CONFIG.ship.sinkingWindowMs + 50]) {
+      sink.handler(tickFrame(SUNK_T + t));
+    }
+    expect(sinkFlash).not.toHaveBeenCalled();
+    expect(setSink).not.toHaveBeenCalled();
     expect(spawnEffect).not.toHaveBeenCalled();
     expect(markSunk).not.toHaveBeenCalled();
   });
@@ -1217,7 +1285,7 @@ function setupWater(
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
     radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
     contacts: { pushFrame: vi.fn(), ids: () => [], get: () => null },
-    contactViews: { flash },
+    contactViews: { flash, sinkFlash: vi.fn(), setSink: vi.fn() },
     mines: { sync: vi.fn() },
     // The own-private preview seams (aim-preview cycle): the burst ring's
     // effective radius and the own-mine rings. Both fail to `undefined` by

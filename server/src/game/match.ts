@@ -28,6 +28,12 @@
 //               destruction, RULING) the LATEST-sunk human — unless the last
 //               captains standing went down on the SAME tick, which is a
 //               genuine DRAW: winnerId '' (Story 5.2, amendment 14).
+//               THE TRANSITION IS HELD OPEN FOR SINKING CAPTAINS (Eric veto
+//               2026-08-12, reversing amendment 17): the outcome LATCHES the
+//               instant ≤1 captain is afloat, but the phase stays 'active' —
+//               damage live, the dying hull firing — until no captain is in
+//               its sinking window. Only then does finish() land, with the
+//               latched winner. See checkWin.
 //               Placements set, one 'results' broadcast, damage frozen; after
 //               resultsMs the room disconnects (autoDispose). No new matches
 //               in this room.
@@ -35,6 +41,7 @@
 import {
   CONFIG,
   isAfloat,
+  isSinking,
   type HullId,
   type MatchPhase,
   type ResultsMsg,
@@ -143,6 +150,18 @@ export type MatchEndCause = 'lastHumanSunk' | 'fieldCleared' | 'lastHumanLeft';
 type WinTrigger = 'sink' | 'leave';
 
 /**
+ * SAFETY-NET margin over the sinking window for the hard finish deadline —
+ * see checkWin. This is a NET, not a mechanism: the window is bounded and
+ * founderSinking is a STEP_ORDER row, so every sinking captain founders by
+ * construction and the deadline never fires in a healthy sim. It exists
+ * because a match that can never finish is catastrophic, and the one thing
+ * worse than a truncated window is a room stuck 'active' forever if the
+ * founder edge ever breaks. One second ≈ 20 ticks of slack over the widest
+ * legitimate hold.
+ */
+const FINISH_DEADLINE_MARGIN_MS = 1000;
+
+/**
  * Pure, room-agnostic telemetry aggregate for a match, assembled sim-side so the
  * numbers stay unit-testable without a Colyseus room. The room decorates it with
  * identity (matchId, mode) before emitting `match.end`. Safe to call in any
@@ -238,6 +257,34 @@ export class Match {
   private readonly participants = new Map<string, Participant>();
   private finishedAt = 0;
   private disconnectFired = false;
+
+  // --- THE OUTCOME LATCH (Eric veto 2026-08-12, REVERSING amendment 17) -------
+  //
+  // The outcome is still decided at sink-entry (amendment 14 holds verbatim:
+  // "sinking does not affect the outcome") — but the TRANSITION to 'finished'
+  // now waits for every sinking CAPTAIN's window. The first checkWin() to
+  // find ≤1 afloat captain writes ALL FOUR fields exactly once; every later
+  // check only asks "may we finish yet?". Latched, never re-derived: the
+  // loser's revenge shot can sink the pending winner mid-window without
+  // moving the result — that hull still wins, and the match then waits for
+  // ITS window too.
+  /** True once the outcome is decided. Written exactly once per match. */
+  private outcomeLatched = false;
+  /** The afloat captain at latch time (winner), or undefined on a zero-afloat
+   *  latch (wipe/leave). Kept as the ShipRecord for finish()'s P2 backfill
+   *  and classifyEnd — it may be sinking, or even removed, by finish time. */
+  private latchedWinner: ShipRecord | undefined;
+  /** The RESOLVED winner id, frozen at latch time: the afloat captain, else
+   *  the latest-sunk human, else '' (the amendment-14 draw). finish() uses
+   *  this verbatim — the win determination is never re-run. */
+  private latchedWinnerId = '';
+  private latchedTrigger: WinTrigger = 'sink';
+  /** Hard finish deadline (server ms) — the safety net, not the mechanism.
+   *  Re-armed to now + window + margin at the latch and again at every
+   *  post-latch CAPTAIN sink (the revenge case extends the legitimate hold),
+   *  so it strictly bounds every window it could ever wait on. Past it the
+   *  finish fires regardless of lifecycle state. */
+  private finishDeadline = 0;
 
   constructor(
     private readonly world: World,
@@ -358,7 +405,11 @@ export class Match {
     this.applyPolicy();
   }
 
-  private finish(aliveWinner: ShipRecord | undefined, trigger: WinTrigger): void {
+  /** Land the LATCHED outcome (checkWin is the only caller, and only once the
+   *  hold has cleared). Reads the latch fields verbatim — nothing here decides
+   *  anything about who won. */
+  private finish(): void {
+    const aliveWinner = this.latchedWinner;
     for (const s of this.world.ships.values()) {
       if (this.participants.has(s.id)) this.snapshotStats(s);
     }
@@ -386,8 +437,12 @@ export class Match {
     // the client renders it as one. A flat sinking window preserves exact
     // ties exactly (sink-entry order IS founder order), so the same-tick wipe
     // is the one shape where "latest sunk" cannot name a winner without lying.
-    this.winnerId = aliveWinner?.id ?? this.mutualDestructionWinner() ?? '';
-    this.endedBy = this.classifyEnd(aliveWinner, trigger);
+    // That resolution ran AT LATCH TIME (latchOutcome) and is consumed here
+    // verbatim: re-running it now would read a sink order that grew during
+    // the hold (the revenge sink, a late-consumed leave-tick event) and could
+    // move a result amendment 14 froze at sink-entry.
+    this.winnerId = this.latchedWinnerId;
+    this.endedBy = this.classifyEnd(aliveWinner, this.latchedTrigger);
     this.computePlacements();
     this.phase = 'finished';
     this.finishedAt = this.world.now;
@@ -440,6 +495,12 @@ export class Match {
     // mid-match leave stamps its leave tick; the first record wins, since a
     // hull already in sinkOrder never re-records.)
     this.sinkTimes.set(id, this.world.now);
+    // A CAPTAIN sinking after the latch is the revenge case: the match now
+    // legitimately waits for THEIR window too, so the safety net stretches to
+    // cover it. Bounded by construction — each captain sinks at most once, so
+    // the deadline can move at most (captain count) times, each to a fixed
+    // offset from a sink-entry stamp, never sliding with the clock.
+    if (this.outcomeLatched && !this.participants.get(id)!.isDrone) this.armFinishDeadline();
   }
 
   /**
@@ -467,11 +528,77 @@ export class Match {
    * attrition — with minHumans overridden to 1 such a match now finishes the
    * instant it activates, and Solo vs AI needs a real answer rather than this
    * one (amendment 4).
+   *
+   * THE MATCH IS HELD OPEN FOR SINKING CAPTAINS (Eric veto 2026-08-12,
+   * REVERSING amendment 17). That amendment reasoned from a 20-player lobby
+   * — "the last kill is one death out of nineteen", the omniscient reveal a
+   * better payoff than a truncated window — and missed that in a 1v1 EVERY
+   * death is the match-ending death, so the entire Story 5.2 window was
+   * invisible in every duel and in the most common way the game is tested.
+   * Eric played a 1v1 and reported it verbatim: *"No sinking window, the
+   * game just immediately ends."* He is right; the results flow no longer
+   * supersedes anyone's window.
+   *
+   * The shape is LATCH-then-HOLD, two separable halves:
+   *   - LATCH (latchOutcome, exactly once): the instant ≤1 captain is afloat
+   *     the winner, its resolved id, and the trigger are frozen. This keeps
+   *     amendment 14 verbatim — the outcome is decided at sink-entry and the
+   *     window changes nothing about who won, INCLUDING when the loser's
+   *     revenge shot sinks the pending winner mid-window (the entire point
+   *     of the story): that hull still wins, sinking or not.
+   *   - HOLD (holdsForSinkingCaptain): while any CAPTAIN is in its window the
+   *     phase stays 'active' and finish() is deferred — damage stays live,
+   *     the dying hull keeps firing. Drones never hold (they are not
+   *     combatants — epic-4 amendments 29-34, epic-5 amendment 4), so a
+   *     finish can still land with a drone mid-window. A sinking captain who
+   *     LEAVES stops holding the moment removeShip takes the hull, and the
+   *     leave's own checkWin lands the finish promptly.
+   *
+   * RE-ENTRANCY: this runs every active tick (update) and from onPlayerLeave.
+   * The latch is guarded by outcomeLatched (written once); double-finish is
+   * impossible because finish() flips the phase and every caller gates on
+   * phase === 'active'. The finishDeadline term is the bounded safety net —
+   * see FINISH_DEADLINE_MARGIN_MS.
    */
   private checkWin(trigger: WinTrigger): void {
+    if (!this.outcomeLatched && !this.latchOutcome(trigger)) return;
+    if (this.holdsForSinkingCaptain()) return;
+    this.finish();
+  }
+
+  /** Decide + freeze the outcome. False while >1 captain is afloat (nothing
+   *  to decide yet); true means the latch is written and the match WILL
+   *  finish with exactly these values. */
+  private latchOutcome(trigger: WinTrigger): boolean {
     const captains = this.afloatCaptains();
-    if (captains.length > 1) return;
-    this.finish(captains[0], trigger);
+    if (captains.length > 1) return false;
+    this.outcomeLatched = true;
+    this.latchedWinner = captains[0];
+    // Zero afloat: resolve latest-sunk-human / the amendment-14 draw NOW, on
+    // the exact sink order the shipped sink-tick finish would have read.
+    this.latchedWinnerId = captains[0]?.id ?? this.mutualDestructionWinner() ?? '';
+    this.latchedTrigger = trigger;
+    this.armFinishDeadline();
+    return true;
+  }
+
+  /** The hold: any CAPTAIN still in its sinking window defers the finish —
+   *  until the safety-net deadline, past which the finish fires regardless. */
+  private holdsForSinkingCaptain(): boolean {
+    if (this.world.now >= this.finishDeadline) return false; // safety net
+    for (const s of this.world.ships.values()) {
+      if (!s.isDrone && isSinking(s.lifecycle)) return true;
+    }
+    return false;
+  }
+
+  /** (Re-)arm the safety net: one full window plus margin from now. Monotonic
+   *  (max), so a later legitimate extension can never SHORTEN the net. */
+  private armFinishDeadline(): void {
+    this.finishDeadline = Math.max(
+      this.finishDeadline,
+      this.world.now + CONFIG.ship.sinkingWindowMs + FINISH_DEADLINE_MARGIN_MS,
+    );
   }
 
   private maybeDisconnect(): void {
@@ -495,10 +622,12 @@ export class Match {
    * broken. Placing captains only is what makes the surviving filter honest.
    *
    * AMENDMENT 8's SURVIVOR TIER IS DELETED, not kept as defensive code: it is
-   * UNREACHABLE once drones are excluded. checkWin() finishes only when at
+   * UNREACHABLE once drones are excluded. checkWin() latches only when at
    * most ONE captain is afloat, and finish() takes exactly that captain as
-   * the winner — so every OTHER captain is not afloat at the finish, and
-   * every not-afloat captain is in `sinkOrder`. That last step's argument
+   * the winner — so every OTHER captain is not afloat at the latch, none can
+   * BECOME afloat during the sinking-window hold (respawn is disabled in
+   * 'active' and the room is locked), and every not-afloat captain is in
+   * `sinkOrder`. That last step's argument
    * moved in Story 5.2 and is restated here in full: a not-afloat captain is
    * either `sinking` or `sunk`, and BOTH states are entered only through
    * world.sinkShip — the sole edge out of `alive` (the `sink` edge into the
@@ -532,8 +661,11 @@ export class Match {
     if (this.winnerId) this.placements.set(this.winnerId, next++);
     for (let i = this.sinkOrder.length - 1; i >= 0; i--) {
       const id = this.sinkOrder[i];
-      // Skip the mutual-destruction winner (already placed) and every drone —
-      // drones are not combatants, so they hold no placement and get no row.
+      // Skip any already-placed winner — the mutual-destruction winner, and
+      // (since the amendment-17 reversal) a latched winner the loser's revenge
+      // shot put into the sink order mid-hold: they placed 1st above, sunk or
+      // not. Also skip every drone — drones are not combatants, so they hold
+      // no placement and get no row.
       if (this.placements.has(id) || this.participants.get(id)?.isDrone) continue;
       this.placements.set(id, next++);
     }
@@ -623,7 +755,7 @@ export class Match {
   }
 
   /**
-   * Winner resolution for a ZERO-AFLOAT finish (Story 5.2, amendment 14): a
+   * Winner resolution for a ZERO-AFLOAT latch (Story 5.2, amendment 14): a
    * SAME-TICK WIPE is a DRAW. When the latest-sunk human shares its sink-entry
    * stamp with any other captain, every captain still standing at that tick
    * went down together, so no "later sinker" exists and the answer is nobody
@@ -631,16 +763,17 @@ export class Match {
    * comparison — a drone sharing the fatal tick neither claims nor breaks the
    * draw.
    *
-   * THE `latestSunkHuman()` RETURN IS DEFENSIVE-ONLY, and the comment here used
-   * to claim otherwise (review-gate correction). It said "cross-tick mutual
-   * destruction keeps the shipped latest-sunk rule byte-identical", which
-   * describes a case the machine can no longer reach: `checkWin()` finishes the
-   * instant AT MOST ONE captain is afloat, so the first captain of a pair to
-   * sink ends the match with the other one alive and winning. Zero afloat
-   * captains therefore means they went down together, and every reachable
-   * zero-afloat finish IS the same-tick wipe. The scan is kept because the
-   * alternative is asserting an invariant in a winner path, but it names no
-   * winner in any reachable state.
+   * CALLED AT LATCH TIME, NEVER AT FINISH TIME (the amendment-17 reversal):
+   * latchOutcome() runs this the instant zero captains are afloat and freezes
+   * the answer into latchedWinnerId. That is deliberate and load-bearing —
+   * during the sinking-window hold the sink order keeps growing (a sinking
+   * hull whose `sunk` event was un-consumed at a leave-triggered latch lands
+   * in consumeSinks a tick later), so a finish-time evaluation could read a
+   * DIFFERENT latest-sunk human than the one the outcome was decided on.
+   * Amendment 14 fixes the outcome at sink-entry; evaluating here, once, at
+   * the latch is what enforces that. The zero-afloat latch is reached by the
+   * same-tick wipe (its events consumed before this runs, so both stamps are
+   * present and the draw resolves) and by the leave alias below.
    *
    * ONE ALIASING HAZARD, DOCUMENTED RATHER THAN DESIGNED AROUND: `recordSink`
    * stamps a mid-match LEAVE with `world.now` — the same clock and the same

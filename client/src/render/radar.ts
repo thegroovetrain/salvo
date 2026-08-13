@@ -63,13 +63,27 @@
 // 181). Eric: *"I want everything painted at max intensity (0.8 alpha) at all
 // times. I want it DISPLAYED muted based on how close to the ship it is."* A
 // baked radial-gradient sprite masks `blipLayer` — 20% of the painted opacity
-// inside 1/8 intel range, ramping to 100% at 5/8 — anchored on own hull in WORLD
-// space and updated every frame. It is a presentation transform over the
-// composited layer: no paint record is read back, recomputed or mutated, which
-// is the distinction amendment 83 actually draws. It masks everything the radar
-// DRAWS — the heat buffer and the `silhouette` grammar's Graphics alike — and
-// deliberately not the sweep wedge or the range rings, which live in
-// `sweepLayer` and are chrome rather than returns.
+// across the WHOLE SIGHT BUBBLE, ramping to 100% at the 5/8 rung — anchored on
+// own hull in WORLD space and updated every frame. It is a presentation
+// transform over the composited layer: no paint record is read back, recomputed
+// or mutated, which is the distinction amendment 83 actually draws. It masks
+// everything the radar DRAWS — the heat buffer and the `silhouette` grammar's
+// Graphics alike — and deliberately not the sweep wedge or the range rings,
+// which live in `sweepLayer` and are chrome rather than returns.
+//
+// THE RAMP IS ANCHORED TO TRUESIGHT AND OBSERVER-SCALED (this cycle, correcting
+// the shipped 1/8 → 5/8 anchoring). Amendment 181's stated reason is a statement
+// about the BUBBLE — *"less prominent in the near sight range where i am going to
+// aim based on LOS rather than radar ghosts"* — but the ramp was hung on intel
+// range instead, standing at 80% opacity at the very EDGE of the bubble (40%
+// halfway out) — exactly the water where hull silhouettes and radar paint
+// fought. The floor now holds out to `sightHoleU` and full strength begins at the
+// first rung outside it, so the scope is quiet everywhere the eye is the primary
+// sensor and at full strength everywhere radar is the only one. Because
+// `sightHoleU` is the dazzle-scaled, boon-widened bubble rather than a constant,
+// the mask is RE-BAKED whenever that radius moves (`syncDimMask`) — the fog
+// hole's own cadence, at most twice per dazzle event plus stat changes.
+// render/radarDim.ts owns the curve; render/textures.ts draws it.
 //
 // TWO SOURCES OF HULL RETURNS, COMPLEMENTARY BY RANGE (amendment 89, unchanged;
 // amendment 141 for how they paint). The server has never sent a blip for a
@@ -373,6 +387,8 @@ export class Radar {
   /**
    * THE NEAR-RANGE DIM MASK (Story 4.11, amendment 181) — a baked radial ramp,
    * anchored on own hull in WORLD units, masking everything `blipLayer` draws.
+   * Its two radii ride the observer's EFFECTIVE truesight (`sightHoleU`), so it
+   * is re-baked when that number moves; see `syncDimMask`.
    *
    * IT HANGS ON `blipLayer`, NEVER ON `heat.sprite`, and that is not a
    * preference: `fitHeat` DESTROYS the heat sprite and adds a new one whenever
@@ -387,6 +403,12 @@ export class Radar {
    * is in the scene graph without ever being drawn).
    */
   private readonly dim: Sprite;
+  /** The effective truesight radius (u) the current `dim` texture was baked at.
+   *  `syncDimMask` compares against `sightHoleU` and re-bakes on a real change —
+   *  never per frame (a 1024² canvas draw), and never missed either, because the
+   *  compare sits on the per-frame placement path rather than on the stat and
+   *  dazzle setters, which are two ways in for one number. */
+  private dimBakedAtU: number;
   /** Scratch for the pose transform — consumed synchronously by the trace, so
    *  one array serves every blip (the 20Hz loop stays allocation-light). */
   private readonly scratch: Vec2[] = [];
@@ -460,7 +482,8 @@ export class Radar {
     this.blipLayer = blipLayer;
     // BEFORE the Graphics pool and before any heat sprite, so the mask is the
     // layer's first child and nothing depends on where it lands in the list.
-    this.dim = new Sprite(bakeDimMaskTexture());
+    this.dimBakedAtU = this.sightHoleU;
+    this.dim = new Sprite(bakeDimMaskTexture(this.dimBakedAtU));
     this.dim.label = DIM_MASK_LABEL;
     this.dim.anchor.set(0.5);
     // One texel is `2 × spanU / size` world units, so the ramp's two radii sit
@@ -1170,12 +1193,47 @@ export class Radar {
    * ruling (amendment 181) while the returns are the instrument.
    */
   private updateDimMask(own: OwnPoint | null): void {
+    this.syncDimMask();
     if (own === null || !Number.isFinite(own.x + own.y)) {
       this.blipLayer.mask = null;
       return;
     }
     this.dim.position.set(own.x, own.y);
     if (this.blipLayer.mask !== this.dim) this.blipLayer.mask = this.dim;
+  }
+
+  /**
+   * Re-bake the ramp if the observer's bubble has moved (this cycle).
+   *
+   * THE RAMP IS ANCHORED TO TRUESIGHT, AND TRUESIGHT IS NOT A CONSTANT: a dazzle
+   * burst cuts it by the ratified factor and an `intelTruesight` boon widens it,
+   * so a mask baked once at the base radius would quiet the wrong water for the
+   * rest of the match. It reads `sightHoleU` — `fogHoleRadiusU`, i.e. the exact
+   * number the fog hole is baked at and the server's `sightOf` gates contacts
+   * with — so the quiet region, the visible bubble and the server's idea of
+   * truesight are one radius by construction.
+   *
+   * THE COMPARE LIVES ON THE PER-FRAME PATH, NOT ON THE SETTERS, deliberately.
+   * Two independent inputs move this number (`setRanges` for a boon, `setDazzled`
+   * for a flare) and a third could be added; hanging the rebake off the value
+   * itself means no caller can forget. A no-change frame costs one float compare,
+   * and a real change costs the same 1024² canvas draw the fog already pays on
+   * exactly the same events.
+   *
+   * The old texture is destroyed with it (`bakeFogTexture`'s precedent) — these
+   * are full-size canvases and a match can rack up several dazzle events.
+   */
+  private syncDimMask(): void {
+    const want = this.sightHoleU;
+    if (want === this.dimBakedAtU) return;
+    this.dimBakedAtU = want;
+    const old = this.dim.texture;
+    this.dim.texture = bakeDimMaskTexture(want);
+    // The EMPTY guard is `Fog.rebake`'s, verbatim and for its reason: a headless
+    // caller (tests stub the bake, jsdom has no 2d canvas) holds the shared
+    // `Texture.EMPTY`, and destroying that would take every other consumer of it
+    // down with it.
+    if (old !== Texture.EMPTY) old.destroy(true);
   }
 
   /** The dim mask sprite — the observation seam for amendment 181's placement,

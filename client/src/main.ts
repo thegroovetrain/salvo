@@ -41,9 +41,10 @@ import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
-import { Camera, canUserZoom } from './render/camera.js';
+import { Camera, canUserZoom, type Point } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist, setHullFlashGate } from './render/ships.js';
-import { ContactViews, type PlateFrame } from './render/contacts.js';
+import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
+import { ownSettle } from './render/sinkSettle.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
@@ -56,7 +57,7 @@ import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Smoke } from './render/smoke.js';
 import { Foghorn } from './render/foghorn.js';
-import { Fog, type FogHole } from './render/fog.js';
+import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
@@ -429,6 +430,17 @@ interface Game {
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
   wasInStorm: boolean;
+  /**
+   * THIS FRAME'S HULL SIGHT-BOUNDARY FEATHER (this cycle) — the spatial alpha
+   * multiplier every contact hull wears, built by `hullSoftnessFor`.
+   *
+   * It is a per-frame field rather than an argument because the two renderers
+   * that know the observer (`renderAlive` / `renderSpectate`) run BEFORE the one
+   * call site that draws contacts, which sits outside both. Exactly one of the
+   * two runs per frame and both always set it, so it can never go stale; it boots
+   * at `NO_SOFTENING` for the frames before either has run.
+   */
+  hullSoftness: HullSoftness;
   /**
    * Own hull fraction last frame, for THE BAND STINGS' downward-crossing edge
    * (Story 4.7, audio/tones.ts `hpBandEdge`) — the `wasInStorm` idiom, one field
@@ -1238,14 +1250,16 @@ function tickSinkingWindow(g: Game): void {
   g.keyboard.revertToGun();
   if (!g.pendingElimination) return; // a ready-room founder: hygiene only, no debrief
   g.pendingElimination = false;
-  // THE GAME-END TABLE IS NEVER REPLACED (amendment 17): the match may finish
-  // WHILE a hull is still sinking — the outcome is decided at sink-entry, and
-  // `finish()` is deliberately not held open for the window — in which case the
-  // final debrief has already been presented and the results flow supersedes
-  // the rest of that hull's beat. This is the same clause canOpenElimination
-  // enforces at sink-entry, restated at the deferred end because the state can
-  // now change BETWEEN the two moments (it never could before 5.2). The resets
-  // above still run: the life is over either way.
+  // THE GAME-END TABLE IS NEVER REPLACED: results and your own founder can
+  // land on the SAME tick. Since the amendment-17 REVERSAL (Eric veto
+  // 2026-08-12) the server holds the match open for every sinking captain's
+  // window — the outcome is still decided at sink-entry, only the transition
+  // waits — so when YOUR window is the last one (the 1v1 loser, the
+  // revenge-sunk winner, the same-tick-wipe draw) `finish()` fires on your
+  // founder tick and the final debrief may already be up when this runs. This
+  // is the same clause canOpenElimination enforces at sink-entry, restated at
+  // the deferred end because the state can change BETWEEN the two moments.
+  // The resets above still run: the life is over either way.
   if (g.resultsFinal) return;
   showEliminationResults(g);
 }
@@ -1953,6 +1967,7 @@ function buildGame(
     ...abilityFeedbackState(),
     audio, portal,
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, pendingFounder: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    hullSoftness: NO_SOFTENING,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
@@ -2279,13 +2294,29 @@ function renderOwn(
     g.cameraSnapped = true;
   }
   g.ownView.gfx.visible = true;
-  // DELIBERATELY `!alive`, NOT `!conning(status)` (Story 5.2): the downed tint
-  // is the one `!alive` teardown that is RIGHT during the sinking window. The
-  // hull IS mortally hit — the kill is already real and public (amendment 11) —
-  // so the tint is the dying captain's own honest read on their last five
-  // seconds, and it is the only on-water tell they get. It costs no capability:
-  // the hull stays visible and stays theirs to steer.
-  g.ownView.setDowned(!status.alive);
+  // THE OWN HULL'S SETTLE (Story 5.2 fix, Eric ruling 2026-08-13) — the same
+  // ramp every enemy hull now runs, CAPPED (render/sinkSettle.ts `ownSettle`).
+  //
+  // It used to be `setDowned(!status.alive)`: a SNAP to the full wreck look on
+  // the sink-entry tick, argued at the time as "the dying captain's honest read
+  // on their last five seconds". Two things are wrong with that, and both are
+  // why this line moved. Coherence is the smaller one — every other hull in the
+  // game now walks continuously from alive to wreck across the window, and ours
+  // was the only one that stepped. The larger one is a straight legibility
+  // defect: `sunkTint` (DESIGN.md's dark crimson) has ZERO green and blue in
+  // it and a Pixi tint
+  // MULTIPLIES, so a cyan, lime or spring captain spent the entire window
+  // steering a black silhouette at 0.4 alpha across a black ocean — on the hull
+  // they are still aiming, still steering and still shooting with.
+  //
+  // So the own ramp is capped at `CLIENT_CONFIG.ship.ownSettleMax`: enough to
+  // read "this hull is going down" without ever costing the player the ship
+  // they are fighting from. DESIGN.md's ratified sinking mock (F1 of
+  // mockups/death-reveal-results-1.html) draws the own hull at FULL personal
+  // hue during the window and carries the death on the HP rail, the banner and
+  // the sink rings, so even the capped ramp is a departure TOWARD the enemy
+  // grammar — the cap may shrink, never grow.
+  g.ownView.setSink(ownSettle(g.state.net.you, g.clock.serverNow()));
   g.ownView.update(pose.x, pose.y, pose.heading);
   g.camera.update(frameDt, pose);
   updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)
@@ -2755,6 +2786,37 @@ function updateDazzle(g: Game, now: number): void {
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
+/**
+ * THIS FRAME'S HULL FEATHER (this cycle) — the spatial alpha multiplier a
+ * contact hull wears, now that hulls render ABOVE the fog composite and no longer
+ * inherit its feathered sight hole (render/stage.ts).
+ *
+ * IT IS THE FOG'S OWN GEOMETRY, READ OFF THE FOG'S OWN NUMBERS. The radius is
+ * `radar.sightHoleU` — i.e. `fogHoleRadiusU`, the very radius the hole is baked
+ * at and the same one the server's `sightOf` gates contacts with — so a dazzle
+ * burst tightens the hull feather on the same frame it tightens the fog. And an
+ * owned star-shell zone is EXEMPT for exactly the reason it punches a fog hole
+ * (`ownZoneFogHoles`, one line down): the server grants truesight parity inside
+ * it, so a hull revealed there is fully seen and must draw fully — feathering it
+ * against a bubble it is nowhere near would dim the whole point of the flare.
+ * The zone's own dying fade scales its radius, the same closing circle the fog
+ * hole uses.
+ *
+ * With no own pose (the forceSnap gap) there is no observer to feather against,
+ * so hulls draw at full strength — the direction every unwired path here fails.
+ */
+function hullSoftnessFor(g: Game, pose: Point | null, zones: readonly OwnZone[], now: number): HullSoftness {
+  if (!pose) return NO_SOFTENING;
+  const sightU = g.radar.sightHoleU;
+  return (x, y) => {
+    for (const z of zones) {
+      const r = z.r * litZoneFade(z.until - now);
+      if ((x - z.x) ** 2 + (y - z.y) ** 2 <= r * r) return 1;
+    }
+    return hullSightSoftness(Math.hypot(x - pose.x, y - pose.y), sightU);
+  };
+}
+
 /** SCREEN-space fog holes for the own ACTIVE lit zones — center via the camera,
  *  radius = world radius × zoom × the zone's fade (a closing hole as it dies).
  *  Only owned zones reach here; enemy zones never clear the own fog. */
@@ -3020,6 +3082,11 @@ function renderAlive(
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
   g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
+  // ...and the hulls, which now render ABOVE that fog, carry its feather
+  // themselves. Built from the SAME pose, the same effective sight radius and the
+  // same owned zones the two lines above use, so the two surfaces cannot disagree
+  // about where the bubble ends.
+  g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
 }
 
 // --- spectate rendering ----------------------------------------------------------
@@ -3076,6 +3143,10 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
 
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
+  // A spectator has no hull and no bubble, and the fog overlay is off entirely
+  // here — so there is no feather to mirror and every hull draws at full
+  // strength, exactly as it did before hulls moved above the fog.
+  g.hullSoftness = NO_SOFTENING;
   // No hull, so no band edge exists to be crossed (Story 4.7): dropping the
   // remembered fraction to null keeps a death from reading as a crossing into
   // critical, and re-arms both stings for the next life for free.
@@ -3253,7 +3324,12 @@ function makeCallbacks(g: Game): LoopCallbacks {
         now,
         frameDt * 1000,
         (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
-        plateFrame, // Story 1.13: per-contact truesight nameplate (hoisted, reused)
+        // `plateFrame` — Story 1.13: per-contact truesight nameplate (hoisted,
+        // reused). `hullSoftness` — this frame's sight-boundary feather, set by
+        // whichever of the two renderers above just ran (this cycle: hulls draw
+        // ABOVE the fog now, so they carry its feather themselves). Kept on one
+        // line so this callback stays inside its line budget.
+        plateFrame, g.hullSoftness,
       );
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },

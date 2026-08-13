@@ -122,27 +122,63 @@ function mixColor(a: number, b: number, t: number): number {
   return ch(16) | ch(8) | ch(0);
 }
 
-/** A hull's rendered tint + alpha for one frame. */
+/** A hull's rendered tint + alpha + scale for one frame. */
 export interface HullLook {
   tint: number;
   alpha: number;
+  /** Hull scale — 1 alive, `CLIENT_CONFIG.ship.sunkScale` fully foundered.
+   *  "Settling lower in the water" in the only channel a top-down chart has. */
+  scale: number;
+}
+
+/** [0,1] clamp; NaN reads as 0 (`!(v > 0)` catches it). */
+function clamp01(v: number): number {
+  if (!(v > 0)) return 0;
+  return v > 1 ? 1 : v;
 }
 
 /**
- * Pure: the hull look for a frame. `flash` is the hit-flash INTENSITY in [0,1],
- * NOT a duration — Story 2.3 / amendment: `reduced` motion halves the flash's
- * STRENGTH while keeping its full duration (a shorter flash is easier to MISS,
- * which is the opposite of an accessibility affordance), and `off` passes 0 so
- * no flash is applied at all. The hp bar, damage markers and kill feed carry the
- * information statically at every level.
+ * Pure: the hull look for a frame.
+ *
+ * `flash` is the hit-flash INTENSITY in [0,1], NOT a duration — Story 2.3 /
+ * amendment: `reduced` motion halves the flash's STRENGTH while keeping its
+ * full duration (a shorter flash is easier to MISS, which is the opposite of an
+ * accessibility affordance), and `off` passes 0 so no flash is applied at all.
+ * The hp bar, damage markers and kill feed carry the information statically at
+ * every level.
+ *
+ * `sink` is THE SETTLE (Story 5.2 fix): the hull's progress through its sinking
+ * window in [0,1], and it was a BOOLEAN until this cycle. Every channel is now
+ * a continuous interpolation between the alive look at 0 and the wreck look at
+ * 1, so a hull crossing the window darkens toward `sunkTint`, fades toward
+ * `sunkAlpha` and settles toward `sunkScale` instead of stepping between the
+ * two — the step was invisible mid-window (nothing at all happened for five
+ * seconds) and then a snap.
+ *
+ * `sink === 1` returns the wreck look EXACTLY, byte for byte, which is what
+ * makes the founder handover pop-free: `ContactViews.markSunk` at the deferred
+ * founder beat is `setSink(1)`, i.e. the same terminal value the ramp has
+ * already reached on its own. There is one wreck look and one function that
+ * produces it.
+ *
+ * The settle is deliberately NOT motion-gated. The motion setting covers
+ * "directional screen shake, camera motion effects, and pulse/flash intensity"
+ * (EXPERIENCE.md · Accessibility Floor) and a monotonic five-second ramp is
+ * none of the three: it cannot strobe, it carries state rather than juice, and
+ * suppressing it would delete the very information this cycle exists to add.
+ * The shipped precedent is render/fade.ts's 150ms sight fade, which is likewise
+ * ungated. Only the FLASH answers to the motion setting.
  */
-export function hullLook(flash: number, downed: boolean, fade: number): HullLook {
-  const baseTint = downed ? CLIENT_CONFIG.ship.sunkTint : C.white;
-  const baseAlpha = downed ? 0.4 : 1;
-  const t = Math.min(1, Math.max(0, flash));
+export function hullLook(flash: number, sink: number, fade: number): HullLook {
+  const s = clamp01(sink);
+  const cfg = CLIENT_CONFIG.ship;
+  const baseTint = s <= 0 ? C.white : mixColor(C.white, cfg.sunkTint, s);
+  const baseAlpha = 1 + (cfg.sunkAlpha - 1) * s;
+  const t = clamp01(flash);
   return {
     tint: t <= 0 ? baseTint : mixColor(baseTint, C.white, t),
     alpha: (baseAlpha + (1 - baseAlpha) * t) * fade,
+    scale: 1 + (cfg.sunkScale - 1) * s,
   };
 }
 
@@ -199,7 +235,9 @@ function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
 
 export class ShipView {
   readonly gfx: Graphics;
-  private downed = false;
+  /** THE SETTLE (Story 5.2 fix): progress through the sinking window, [0,1].
+   *  0 alive, 1 the wreck. Was a boolean `downed` — see `hullLook`. */
+  private sink = 0;
   private flashUntil = 0;
   /** Hit-flash INTENSITY in [0,1] for the window ending at flashUntil (the
    *  motion level's multiplier — `reduced` = a half-strength flash, full length). */
@@ -242,9 +280,22 @@ export class ShipView {
     g.stroke({ width: 1.5, color: this.style.stroke, alpha: 1 });
   }
 
-  /** Fade + tint the hull as sunk (true) or restore it on (re)spawn (false). */
+  /**
+   * Drive the settle: 0 = alive, 1 = fully foundered (the wreck look, exactly).
+   * Called every frame for a hull inside its sinking window and once, with 1,
+   * at founder. Applies immediately — a settle that waited for the next
+   * `update()` would freeze on a hull whose snapshot buffer has run dry.
+   */
+  setSink(progress: number): void {
+    this.sink = clamp01(progress);
+    this.applyLook();
+  }
+
+  /** Fade + tint the hull as sunk (true) or restore it on (re)spawn (false) —
+   *  the two ENDPOINTS of the settle, kept as the terminal/reset seam the
+   *  contact lifecycle (markSunk / markSpawn) actually speaks in. */
   setDowned(v: boolean): void {
-    this.downed = v;
+    this.setSink(v ? 1 : 0);
   }
 
   /**
@@ -269,12 +320,38 @@ export class ShipView {
    * ANIMATING, the direction every unwired path in this budget already fails.
    */
   flash(): void {
+    this.bloom(CLIENT_CONFIG.ship.flashMs);
+  }
+
+  /**
+   * THE KILL FLASH (Story 5.2 fix): the confirmation beat at SINK-ENTRY, so a
+   * killer sees on the tick they scored that they scored. Same white bloom,
+   * same motion gate, same budget claim, same degrade rule as the hit flash it
+   * reuses — only longer (`sinkFlashMs`, the ratified 300ms same-source floor).
+   * It is not mistakable for a hit flash in practice because the hull begins
+   * to SETTLE on the same beat and never stops.
+   *
+   * ONE-SHOT AND BOUNDED, like every other world flash, and UNTIERED: the
+   * attention table's amendment 241 puts on-water one-shots (muzzle flashes,
+   * sparks, splashes, hull hit flashes) outside the tier system entirely —
+   * "hold at your lit keyframe" is a meaningless instruction for a flash at a
+   * world position — and answers them to render/flashBudget.ts instead, which
+   * this claims against exactly as `flash()` does.
+   */
+  sinkFlash(): void {
+    this.bloom(CLIENT_CONFIG.ship.sinkFlashMs);
+  }
+
+  /** The shared onset: motion gate, then budget claim, then latch amount +
+   *  deadline. One implementation so a new flash length can never acquire a
+   *  different accessibility story than the shipped one. */
+  private bloom(durationMs: number): void {
     const amount = motionIntensity(settings.current.motion);
     if (amount <= 0) return;
     const p = this.gfx.position;
     const degraded = this.positioned && hullFlashGate !== null && hullFlashGate.claim(p.x, p.y) === 'degrade';
     this.flashAmount = hullFlashIntensity(amount, degraded);
-    this.flashUntil = performance.now() + CLIENT_CONFIG.ship.flashMs;
+    this.flashUntil = performance.now() + durationMs;
   }
 
   /** The hit flash's applied intensity at `nowMs` (0 once the window closes) —
@@ -298,9 +375,10 @@ export class ShipView {
   }
 
   private applyLook(): void {
-    const look = hullLook(this.flashIntensityAt(), this.downed, this.fade);
+    const look = hullLook(this.flashIntensityAt(), this.sink, this.fade);
     this.gfx.tint = look.tint;
     this.gfx.alpha = look.alpha;
+    this.gfx.scale.set(look.scale);
   }
 
   destroy(): void {

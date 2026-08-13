@@ -1,14 +1,18 @@
 // THE SINKING WINDOW (Story 5.2) — server-side coverage of the spec's I/O &
 // Edge-Case Matrix plus the AC-mandated perception and input-validation
-// invariants during sinking. The shape under test (amendments 10-17):
+// invariants during sinking. The shape under test (amendments 10-16/18-19,
+// with 17 REVERSED by Eric's veto 2026-08-12 — *"No sinking window, the game
+// just immediately ends"* — see the match-outcome suite at the bottom):
 // sinkShip takes the `sink` edge with EVERY piece of bookkeeping unmoved at
 // sink-entry (one `sunk` event, kill credit, XP, deaths, respawn arm); the
 // founderSinking STEP_ORDER row takes `sinking -> sunk` at the flat
 // CONFIG.ship.sinkingWindowMs deadline emitting NOTHING; and exactly three
 // seams re-open for the window — motion, weapons/equipment/horn,
 // perceivability — while damage is a no-op, the refit is closed, the frame
-// stays fogged with `you` + `sinkingUntil`, and a same-tick captain wipe is a
-// genuine DRAW (winnerId '').
+// stays fogged with `you` + `sinkingUntil`, a same-tick captain wipe is a
+// genuine DRAW (winnerId ''), and the match is HELD OPEN while any CAPTAIN
+// is in its window (outcome latched at sink-entry, transition deferred to
+// the last captain founder).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -422,11 +426,22 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
   });
 });
 
-// ---------- the match: outcome at sink-entry, and the draw -------------------
+// ---------- the match: outcome LATCHED at sink-entry, transition HELD --------
+//
+// AMENDMENT 17 IS REVERSED (Eric veto 2026-08-12). The orchestrator ruling
+// weighed the truncated window for a 20-player lobby ("the last kill is one
+// death out of nineteen") and missed that in a 1v1 EVERY death is the
+// match-ending death — the feature was invisible in every duel. Eric played
+// one and reported it verbatim: "No sinking window, the game just immediately
+// ends." The fix is latch-then-hold: the OUTCOME still freezes the instant
+// ≤1 captain is afloat (amendment 14 verbatim — sinking never moves a
+// result), but the TRANSITION to 'finished' waits for every sinking
+// CAPTAIN's window. Drones never hold; a hard safety-net deadline bounds the
+// hold even if the founder edge were ever to break.
 
 const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 };
 
-function matchSetup(ids: string[]): { w: World; m: Match; results: ResultsMsg[] } {
+function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: ResultsMsg[] } {
   const w = new World(1);
   w.map.islands.length = 0;
   const results: ResultsMsg[] = [];
@@ -442,6 +457,7 @@ function matchSetup(ids: string[]): { w: World; m: Match; results: ResultsMsg[] 
     w.addShip(id, id.toUpperCase());
     m.notifyRosterChanged();
   }
+  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, true);
   for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
     w.step();
     m.update();
@@ -450,25 +466,106 @@ function matchSetup(ids: string[]): { w: World; m: Match; results: ResultsMsg[] 
   return { w, m, results };
 }
 
-describe('match outcome (amendments 14/17)', () => {
-  it('the match finishes at sink-entry while the loser is still sinking (never held open)', () => {
-    const { w, m } = matchSetup(['a', 'b']);
-    w.sinkShip('a', 'b');
+function stepMatch(w: World, m: Match, n = 1): void {
+  for (let i = 0; i < n; i++) {
     w.step();
     m.update();
-    expect(m.phase).toBe('finished'); // decided at entry — a's window changes nothing
+  }
+}
+
+describe('match outcome (amendment 14; amendment 17 REVERSED by Eric veto 2026-08-12)', () => {
+  // THE 1v1 REGRESSION Eric reported. Without the latch-then-hold fix the
+  // first assertion below reads 'finished' ONE TICK after the sink — the
+  // whole window destroyed in exactly the case every duel ends in.
+  it("1v1: the match stays ACTIVE for the loser's whole window, the loser still fires, and the finish lands at founder", () => {
+    const { w, m, results } = matchSetup(['a', 'b']);
+    w.sinkShip('a', 'b');
+    stepMatch(w, m);
+    expect(m.phase).toBe('active'); // NOT finished on the sink tick any more
+    expect(isSinking(w.ships.get('a')!.lifecycle)).toBe(true);
+    expect(results).toHaveLength(0); // no results broadcast mid-window
+    // Mid-window the dying captain's guns still work (the weapons seam,
+    // amendment 10 — and the reason the hold exists at all).
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aim: 0, aimDist: 300 }));
+    stepMatch(w, m);
+    expect(w.shells.size).toBe(1); // the revenge shot left the tube
+    stepMatch(w, m, TICKS - 3); // one tick short of the founder deadline
+    expect(m.phase).toBe('active');
+    expect(isSinking(w.ships.get('a')!.lifecycle)).toBe(true);
+    stepMatch(w, m); // the founder tick: window over, transition lands
+    expect(isSunk(w.ships.get('a')!.lifecycle)).toBe(true);
+    expect(m.phase).toBe('finished');
     expect(m.winnerId).toBe('b');
-    expect(isSinking(w.ships.get('a')!.lifecycle)).toBe(true); // mid-window at the finish
+    expect(results[0].winnerId).toBe('b');
   });
 
-  it('a same-tick wipe of every remaining captain is a genuine DRAW: winnerId is empty', () => {
+  it("the loser's revenge shot sinks the latched winner mid-window: the winner STILL wins, placed 1st", () => {
+    const { w, m, results } = matchSetup(['a', 'b']);
+    w.sinkShip('a', 'b'); // the outcome latches HERE: b wins
+    stepMatch(w, m);
+    expect(m.phase).toBe('active');
+    w.sinkShip('b', 'a'); // the revenge kill, one tick later — NOT a same-tick wipe
+    stepMatch(w, m);
+    expect(m.phase).toBe('active'); // now waiting on BOTH windows; b's ends last
+    stepMatch(w, m, TICKS + 1);
+    expect(m.phase).toBe('finished');
+    expect(m.winnerId).toBe('b'); // latched at a's sink-entry; b's own sinking moved NOTHING
+    expect(m.placements.get('b')).toBe(1); // first even though b ended up in the sink order
+    expect(m.placements.get('a')).toBe(2);
+    expect(results[0].winnerId).toBe('b');
+    expect(results[0].rows.map((r) => [r.id, r.placement])).toEqual([
+      ['b', 1],
+      ['a', 2],
+    ]);
+  });
+
+  it('a same-tick wipe of every remaining captain is STILL a genuine DRAW once both windows run out', () => {
     const { w, m, results } = matchSetup(['a', 'b']);
     w.sinkShip('a', 'b');
     w.sinkShip('b', 'a'); // the same tick — amendment 14's wipe
-    w.step();
-    m.update();
+    stepMatch(w, m);
+    expect(m.phase).toBe('active'); // both windows hold the transition
+    stepMatch(w, m, TICKS);
     expect(m.phase).toBe('finished');
-    expect(m.winnerId).toBe('');
+    expect(m.winnerId).toBe(''); // the draw resolution was latched at the wipe tick
     expect(results[0].winnerId).toBe(''); // the wire carries the draw verbatim
+  });
+
+  it('a sinking DRONE never delays the finish (drones are not combatants)', () => {
+    const { w, m } = matchSetup(['a', 'b'], 1);
+    w.sinkShip('b', 'a'); // latch: a wins; hold for b's window
+    stepMatch(w, m, TICKS / 2);
+    expect(m.phase).toBe('active');
+    w.sinkShip('d0', 'a'); // the drone's window now outlives b's by half a window
+    stepMatch(w, m, TICKS / 2 + 1); // b's founder tick
+    expect(m.phase).toBe('finished'); // landed ON b's founder…
+    expect(isSinking(w.ships.get('d0')!.lifecycle)).toBe(true); // …with the drone mid-window
+    expect(m.winnerId).toBe('a');
+  });
+
+  it('the last sinking captain LEAVES mid-window: the finish is prompt, never hung', () => {
+    const { w, m } = matchSetup(['a', 'b']);
+    w.sinkShip('a', 'b');
+    stepMatch(w, m);
+    expect(m.phase).toBe('active'); // holding for a's window
+    m.onPlayerLeave('a'); // removeShip takes the sinking hull with it
+    expect(m.phase).toBe('finished'); // nothing left to wait for — same call
+    expect(m.winnerId).toBe('b'); // latched at the sink tick, untouched by the leave
+  });
+
+  it('the SAFETY NET: a founder edge that never lands cannot hold the match open forever', () => {
+    const { w, m } = matchSetup(['a', 'b']);
+    w.sinkShip('a', 'b');
+    stepMatch(w, m);
+    expect(m.phase).toBe('active');
+    // Sabotage the founder edge: shove the sinking stamp into the far future
+    // so hasFoundered can never fire — the "match that can never finish"
+    // catastrophe the net exists for. Nothing in a healthy sim does this.
+    const a = w.ships.get('a')!;
+    a.lifecycle = { kind: 'sinking', since: w.now + 100 * WINDOW };
+    stepMatch(w, m, TICKS + 40); // latch + window + margin (1s) comfortably passed
+    expect(isSinking(a.lifecycle)).toBe(true); // the hull is genuinely stuck…
+    expect(m.phase).toBe('finished'); // …and the net finished the match anyway
+    expect(m.winnerId).toBe('b');
   });
 });

@@ -10,11 +10,14 @@
 //      boom strike itself but loses ZERO hp until the match activates.
 //   3. countdown end -> active: both hulls teleported to the spawn ring at
 //      full hp, storm timeline anchored (zoneState leaves 'idle').
-//   4. A sinks B (two torpedoes): B's own sunk event carries by=A; B then
-//      receives spec:true frames (you omitted, unfogged contacts incl. A).
-//      A NEVER receives a spec frame before the frame that reports B's sink
-//      (the finish happens on the sink tick — from then on everyone spectates).
-//   5. results broadcast ON THAT SAME SINK (amendment 4 — drones no longer gate
+//   4. A sinks B (two torpedoes): B's own sunk event carries by=A; B rides out
+//      its full sinking window (Story 5.2 — the match is HELD OPEN for a
+//      sinking captain since the amendment-17 reversal, Eric veto 2026-08-12)
+//      and then receives spec:true frames (you omitted, unfogged contacts
+//      incl. A). A NEVER receives a spec frame before the frame that reports
+//      B's sink (the finish lands at B's founder — from then on everyone
+//      spectates).
+//   5. results broadcast at B's FOUNDER (amendment 4 — drones no longer gate
 //      the win, so there is no storm mop-up phase any more): winnerId=A, A
 //      placed 1st and the FIRST row, B placed 2nd, and the table is exactly
 //      those TWO CAPTAINS — no drone row at all, even though the roster shows a
@@ -497,7 +500,13 @@ async function main() {
     // window. Assertion unchanged: only the patience is.
     await runUntil(fightTick, () => b.sunkSeen, 240000, 'A sinking B');
     assert(b.sunkBy === a.room.sessionId, `B sunk by ${b.sunkBy}, expected A`);
-    await runUntil(fightTick, () => b.specFrames >= 5, 5000, 'B spec frames');
+    // THE SINKING WINDOW HOLDS THE FINISH (Story 5.2 + the amendment-17
+    // REVERSAL, Eric veto 2026-08-12): B's `sunk` lands at sink-entry, but B
+    // stays a fogged, firing hull for the whole CONFIG.ship.sinkingWindowMs
+    // and the match stays 'active' until B founders — spec frames (and the
+    // results right behind them) arrive only then, so the budget is the
+    // window plus generous socket slack.
+    await runUntil(fightTick, () => b.specFrames >= 5, CONFIG.ship.sinkingWindowMs + 10000, 'B spec frames');
     assert(b.specWithYou === 0, 'a spec frame carried `you`');
     assert(b.specContactIds.has(a.room.sessionId), 'B spec frames never showed A unfogged');
     assert(a.specBeforeFinish === 0, 'A received a spec frame before the finishing sink');
@@ -505,10 +514,11 @@ async function main() {
     log.push(`B sunk by A; B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
 
     // --- 5. results ----------------------------------------------------------
-    // AMENDMENT 4: B's sink IS the finish — A is the only afloat CAPTAIN, and the
-    // fill drones (which used to have to storm-die first) no longer gate it. So
-    // the results ride the same tick as the sink; the only wait here is the
-    // broadcast round trip, not a storm timeline.
+    // AMENDMENT 4: B's sink DECIDES the finish — A is the only afloat CAPTAIN,
+    // and the fill drones (which used to have to storm-die first) no longer
+    // gate it. Since the amendment-17 reversal the broadcast rides B's FOUNDER
+    // tick rather than the sink tick (the match holds open for B's window) —
+    // step 4 already waited out the window, so this is the round trip only.
     await runUntil(() => {}, () => a.results !== null && b.results !== null, 10000, 'results broadcast');
     const res = a.results;
     assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);

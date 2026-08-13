@@ -188,9 +188,10 @@ describe('ArenaRoom.teardown', () => {
     // Grace expires later -> teardown runs. recordSink must dedupe (a already sank).
     h.teardown('a');
     expect(h.w.ships.has('a')).toBe(false);
-    // b sinks next; c is the last human afloat -> match ends.
+    // b sinks next; c is the last human afloat -> the outcome latches at c and
+    // the finish waits out b's sinking window (amendment 17 reversed).
     h.w.sinkShip('b');
-    step(h);
+    step(h, CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs + 1);
     expect(h.m.phase).toBe('finished');
     expect(h.m.winnerId).toBe('c');
     // Real order: a sank FIRST (worst placement). A double-recorded sink-at-leave

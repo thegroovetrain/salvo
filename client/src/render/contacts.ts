@@ -3,8 +3,17 @@
 // fade (fade.ts): a view fades IN when its id first appears in the ContactStore
 // and fades OUT (holding its last pose) once the store prunes it, then is
 // destroyed. A contact that drops from sight but was just painted hands off
-// visually for free — the hull fades below the fog while its blip (chartRoot,
-// above the fog) keeps decaying; no coupling needed.
+// visually for free — the hull fades out while its blip keeps decaying; no
+// coupling needed.
+//
+// TWO MULTIPLIERS DRIVE A HULL'S ALPHA, AND THEY ARE DIFFERENT THINGS. The Fader
+// is a LIFECYCLE ramp (a contact appears / is pruned); the `softness` callback is
+// a SPATIAL one — the sight-boundary feather hulls used to get for free from the
+// fog composite, and lost this cycle when the `ship` layer moved ABOVE it so
+// radar paint would stop covering the ships it represents (render/stage.ts).
+// They compose multiplicatively into the one `setFade` channel. The NAMEPLATE
+// deliberately keeps the Fader alone: plates still render below the fog, so
+// softening them here would apply the same feather twice.
 //
 // Story 1.12 (Regatta Hoist): each contact draws in its pilot's personal hue —
 // resolved from the roster via the `rosterIndex` callback threaded into render().
@@ -33,6 +42,20 @@ export const CONTACT_STALE_MS = CONFIG.tick.interpDelayMs + 300;
 /** Roster hue-index resolver: the contact's Regatta wheel index (0..19), or null
  *  for a drone/roster-miss/not-yet-synced pilot. */
 export type RosterIndex = (id: string) => number | null;
+
+/**
+ * The SPATIAL alpha multiplier for a hull at a world point — the sight-boundary
+ * feather (render/fog.ts `hullSightSoftness`), with the caller's exemptions
+ * applied (an owned star-shell zone reveals a hull beyond the bubble, and a
+ * spectator has no bubble at all). main.ts owns it because only main.ts knows the
+ * own pose, the effective sight radius and the active zones; this module only
+ * multiplies it in.
+ */
+export type HullSoftness = (x: number, y: number) => number;
+
+/** No bubble, no softening — spectate frames are unfogged, and any caller that
+ *  has no observer fails toward the hull being fully VISIBLE. */
+export const NO_SOFTENING: HullSoftness = () => 1;
 
 /** Per-frame nameplate driving context (Story 1.13). */
 export interface PlateFrame {
@@ -93,7 +116,29 @@ export class ContactViews {
     this.views.get(id)?.view.flash();
   }
 
-  /** Tint a contact as sunk; it fades until the store prunes it. */
+  /**
+   * THE KILL FLASH (Story 5.2 fix): the confirmation beat on an enemy hull at
+   * SINK-ENTRY. No-op if the hull is not currently viewed, exactly like
+   * `flash`/`markSunk` — a sinking we witnessed but whose contact we do not
+   * hold draws nothing rather than inventing a view at an invented position.
+   */
+  sinkFlash(id: string): void {
+    this.views.get(id)?.view.sinkFlash();
+  }
+
+  /**
+   * THE PROGRESSIVE SETTLE (Story 5.2 fix): drive a witnessed enemy's window
+   * fraction, 0 at sink-entry → 1 at founder. Pushed per frame by
+   * net/roomBindings.ts, which owns the deferred-wreck queue and the only exact
+   * reading of the server clock. Silently no-ops for an unviewed hull.
+   */
+  setSink(id: string, progress: number): void {
+    this.views.get(id)?.view.setSink(progress);
+  }
+
+  /** Tint a contact as sunk; it fades until the store prunes it. The terminal
+   *  value of the settle above (`setSink(1)`), so the founder handover is a
+   *  continuation rather than a step — see render/ships.ts `hullLook`. */
   markSunk(id: string): void {
     this.views.get(id)?.view.setDowned(true);
   }
@@ -109,6 +154,9 @@ export class ContactViews {
    * contact's personal hue (Story 1.12); `plates` drives the truesight
    * nameplate per contact (Story 1.13) — a drone/miss/not-yet-synced pilot
    * resolves to null (drone greys via the hull id, else the amber fallback).
+   * `softness` is the frame's sight-boundary feather (see `HullSoftness`);
+   * omitted, hulls draw at full strength, which is the pre-lift behaviour and
+   * the right degradation for a caller with no observer.
    */
   render(
     store: ContactStore,
@@ -117,6 +165,7 @@ export class ContactViews {
     dtMs: number,
     rosterIndex: RosterIndex,
     plates: PlateFrame,
+    softness: HullSoftness = NO_SOFTENING,
   ): void {
     this.syncHueRevision();
     store.prune(serverNow, CONTACT_STALE_MS);
@@ -131,7 +180,7 @@ export class ContactViews {
       if (buf && buf.size > 0) this.viewFor(id, store, rosterIndex).fader.show();
     }
     for (const [id, fv] of this.views) {
-      if (this.updateView(id, fv, store, renderTime, dtMs, rosterIndex, plates)) {
+      if (this.updateView(id, fv, store, renderTime, dtMs, rosterIndex, plates, softness)) {
         this.nameplates.remove(id);
         fv.view.destroy();
         this.views.delete(id);
@@ -164,12 +213,17 @@ export class ContactViews {
     dtMs: number,
     rosterIndex: RosterIndex,
     plates: PlateFrame,
+    softness: HullSoftness,
   ): boolean {
     if (!fv.colored) this.tryRecolor(id, fv, store, rosterIndex);
     const s = store.get(id)?.sampleAt(renderTime);
     if (s) fv.view.update(s.x, s.y, s.heading);
     else if (!store.get(id)) fv.fader.hide(); // pruned: hold last pose, fade out
-    fv.view.setFade(fv.fader.update(dtMs));
+    // The feather reads the view's LAST-APPLIED pose (the same one the plate
+    // rides), so a fading-out hull keeps softening against where it actually is
+    // rather than snapping to full strength for its last 150ms.
+    const p = fv.view.gfx.position;
+    fv.view.setFade(fv.fader.update(dtMs) * softness(p.x, p.y));
     this.drivePlate(id, fv, rosterIndex, plates);
     return fv.fader.hidden;
   }

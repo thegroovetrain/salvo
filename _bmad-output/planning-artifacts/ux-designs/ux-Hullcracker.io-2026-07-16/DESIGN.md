@@ -207,7 +207,7 @@ No drop-shadow language. Depth is expressed two ways:
 1. **Glow** — phosphor/amber box-shadow bloom on active elements (e.g. selected slot `0 0 16px rgba(255,184,0,.4)` + inset wash). Glow strength encodes state, never decoration.
 2. **Dark glass** — where text must be glanceable over the battle, a near-opaque scrim ({colors.card-scrim} at .9) is permitted as the one departure from water-shows-through; gaps between floating elements keep the battle visible. Full-screen takeovers are reserved for the results/menu layer.
 
-Z-order: world → fog composite → chart layer (fog-immune: sweep, blips, arcs, **listening ring + pips — which therefore render above the refit card layer**) → Pixi HUD → DOM chrome. DOM z-scale: feed/toasts 900 · modals/banner 1000 · menu 1100 (formalized from today's informal values).
+Z-order: world → fog composite → chart layer (fog-immune: sweep, blips, arcs, **listening ring + pips — which therefore render above the refit card layer**) → Pixi HUD → DOM chrome. **Hulls are the one exception (Eric ruling 2026-08-13): the ship layer sits in the chart layer directly above blips and below the aim reticle, so a hull you can actually see always reads above the radar paint. It carries the fog's own feather curve as a hull alpha so the sight boundary still softens; nameplates did NOT follow it and stay under the fog.** DOM z-scale: feed/toasts 900 · modals/banner 1000 · menu 1100 (formalized from today's informal values).
 
 ## Shapes
 

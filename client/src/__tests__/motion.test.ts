@@ -167,18 +167,21 @@ describe('hull hit-flash — reduced halves the STRENGTH, never the duration', (
   const SUNK = CLIENT_CONFIG.ship.sunkTint;
   const WHITE = CLIENT_CONFIG.colors.white;
 
+  // `1` is the fully-settled hull — the second argument became the SETTLE
+  // fraction (0 alive → 1 wreck) in the Story 5.2 fix cycle, and 1 is exactly
+  // the boolean `true` these assertions were written against.
   it('the flash is a blend toward white, and reduced lands exactly halfway', () => {
-    const full = hullLook(motionIntensity('full'), true, 1);
-    const half = hullLook(motionIntensity('reduced'), true, 1);
-    const none = hullLook(motionIntensity('off'), true, 1);
+    const full = hullLook(motionIntensity('full'), 1, 1);
+    const half = hullLook(motionIntensity('reduced'), 1, 1);
+    const none = hullLook(motionIntensity('off'), 1, 1);
 
     expect(full.tint).toBe(WHITE);
     expect(full.alpha).toBe(1);
     // off = no flash at all: the plain sunk look.
     expect(none.tint).toBe(SUNK);
-    expect(none.alpha).toBeCloseTo(0.4, 9);
+    expect(none.alpha).toBeCloseTo(CLIENT_CONFIG.ship.sunkAlpha, 9);
     // reduced sits halfway between them on BOTH channels.
-    expect(half.alpha).toBeCloseTo((0.4 + 1) / 2, 9);
+    expect(half.alpha).toBeCloseTo((CLIENT_CONFIG.ship.sunkAlpha + 1) / 2, 9);
     for (const shift of [16, 8, 0]) {
       const ch = (c: number): number => (c >> shift) & 0xff;
       expect(ch(half.tint), `channel ${shift}`).toBe(Math.round((ch(SUNK) + ch(WHITE)) / 2));
@@ -194,12 +197,12 @@ describe('hull hit-flash — reduced halves the STRENGTH, never the duration', (
   });
 
   it('the sight FADE still multiplies through, at every flash strength', () => {
-    expect(hullLook(1, false, 0.5).alpha).toBeCloseTo(0.5, 9);
-    expect(hullLook(0, false, 0.25).alpha).toBeCloseTo(0.25, 9);
+    expect(hullLook(1, 0, 0.5).alpha).toBeCloseTo(0.5, 9);
+    expect(hullLook(0, 0, 0.25).alpha).toBeCloseTo(0.25, 9);
   });
 
   it('clamps a nonsense intensity instead of producing an out-of-range color', () => {
-    expect(hullLook(5, true, 1).tint).toBe(WHITE);
-    expect(hullLook(-1, true, 1).tint).toBe(SUNK);
+    expect(hullLook(5, 1, 1).tint).toBe(WHITE);
+    expect(hullLook(-1, 1, 1).tint).toBe(SUNK);
   });
 });

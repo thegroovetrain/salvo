@@ -592,11 +592,15 @@ export interface ReturnModelOpts {
  * into one radial-gradient mask sprite and positions it on own hull.
  */
 export interface DimOpts {
-  /** Flat `minScale` at and inside this radius (u) — 1/8 intel range. */
-  innerU: number;
-  /** Full painted opacity from this radius out (u) — 5/8 intel range. */
-  outerU: number;
-  /** Displayed fraction of the painted opacity inside `innerU`. */
+  /** Flat `minScale` at and inside this multiple of the observer's EFFECTIVE
+   *  truesight — 1.0, the whole sight bubble (the ladder's 4/8 rung). A
+   *  MULTIPLE, not a radius: the bubble shrinks under dazzle and widens on an
+   *  `intelTruesight` boon, and the ramp rides it (render/radarDim.ts). */
+  innerFactor: number;
+  /** Full painted opacity from this multiple of effective truesight out — the
+   *  5/8 rung expressed against the 4/8 one. */
+  outerFactor: number;
+  /** Displayed fraction of the painted opacity inside the bubble. */
   minScale: number;
   /** Half-extent (u) of the baked mask sprite — a COVERAGE bound (a sprite mask
    *  clips to its own frame), never a look knob. */
