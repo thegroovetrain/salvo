@@ -1,6 +1,16 @@
 // Spectator camera math — pure helpers (no Pixi), unit-tested. Drives the
 // death → spectate mode: follow-your-killer by default, WASD free pan, and
 // mouse-wheel zoom OUT (spectators only, clamped [0.5x, 1x]).
+//
+// THESE TWO ARE THE MANUAL-CONTROL SEAM (Story 5.3, amendment 25). Both feed a
+// Camera mutator — `wheelZoom` → `Camera.setZoomFactor`, `spectatePan` →
+// `Camera.pan` — and BOTH of those mutators release the reveal framing, so
+// taking the camera by hand always hands it back to the clamped spectate path
+// below. The release lives on the camera rather than here on purpose: these
+// helpers are pure arithmetic that hold no camera and no mode, and a "did the
+// player touch it" flag threaded through them would be a second place to
+// forget. The resulting 0.275× → 0.5× pop on the first wheel notch is ledgered
+// and accepted (see Camera.setZoomFactor).
 
 import { SPECTATE_ZOOM_MIN, SPECTATE_ZOOM_MAX } from './camera.js';
 import type { Axes } from '../input/keyboard.js';

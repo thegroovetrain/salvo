@@ -63,7 +63,7 @@ describe('port panels cap their height against the VIEWPORT, in border-box (amen
         rows: [{ id: 'me', name: 'AAAAAAAAAAAAAA', placement: 1, kills: 3, damageDealt: 0 }],
         canSpectate: true,
         ownId: 'me',
-        score: { winner: false, placement: 4, boons: 24, kills: 3, sunkContestants: ['BBBBBBBBBBBBBB'] },
+        score: { winner: false, placement: 4, boons: 24, kills: 3, sunkContestants: ['BBBBBBBBBBBBBB'], matchLog: [], afloatMs: null },
       },
       { onSpectate: () => undefined, onReturn: () => undefined },
     );

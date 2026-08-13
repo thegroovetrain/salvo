@@ -91,6 +91,7 @@
 #   cycle 71 (0.17.71)  wake length + tail fade — amendments 213-214
 #   cycle 72 (0.17.72)  the storm comes off the scope — amendment 128 retired
 #   cycle 78 (0.17.78)  the sinking window playtest pass: match held open, kill made visible, hulls over radar — amendments 20-22 (Eric)
+#   cycle 79 (0.17.79)  Story 5-3 the omniscient reveal & results — amendments 23-30; PV 34 (no wire change)
 
 generated: 2026-07-17
 last_updated: 2026-08-12
@@ -171,7 +172,7 @@ development_status:
   epic-5: in-progress
   5-1-lifecycle-state-machine-step-order-registry: done  # 2026-08-11 cycle 76 (0.17.76); PV 33; amendments 1-7; drones stop gating the win (amendment 4)
   5-2-the-sinking-window: done  # 2026-08-12 cycle 77 (0.17.77); PV 33->34; amendments 10-19; AR7 sinking-activation TBD closed
-  5-3-omniscient-reveal-results: backlog
+  5-3-omniscient-reveal-results: done  # 2026-08-13 cycle 79 (0.17.79); PV 34; amendments 23-30; UX open question #25 closed
   5-4-fog-banks: backlog
   5-5-whirlpools: backlog
   5-6-roving-pve-fleets: backlog
