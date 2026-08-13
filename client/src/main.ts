@@ -44,6 +44,7 @@ import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist, setHullFlashGate } from './render/ships.js';
 import { ContactViews, type PlateFrame } from './render/contacts.js';
+import { ownSettle } from './render/sinkSettle.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
@@ -2281,13 +2282,29 @@ function renderOwn(
     g.cameraSnapped = true;
   }
   g.ownView.gfx.visible = true;
-  // DELIBERATELY `!alive`, NOT `!conning(status)` (Story 5.2): the downed tint
-  // is the one `!alive` teardown that is RIGHT during the sinking window. The
-  // hull IS mortally hit — the kill is already real and public (amendment 11) —
-  // so the tint is the dying captain's own honest read on their last five
-  // seconds, and it is the only on-water tell they get. It costs no capability:
-  // the hull stays visible and stays theirs to steer.
-  g.ownView.setDowned(!status.alive);
+  // THE OWN HULL'S SETTLE (Story 5.2 fix, Eric ruling 2026-08-13) — the same
+  // ramp every enemy hull now runs, CAPPED (render/sinkSettle.ts `ownSettle`).
+  //
+  // It used to be `setDowned(!status.alive)`: a SNAP to the full wreck look on
+  // the sink-entry tick, argued at the time as "the dying captain's honest read
+  // on their last five seconds". Two things are wrong with that, and both are
+  // why this line moved. Coherence is the smaller one — every other hull in the
+  // game now walks continuously from alive to wreck across the window, and ours
+  // was the only one that stepped. The larger one is a straight legibility
+  // defect: `sunkTint` (DESIGN.md's dark crimson) has ZERO green and blue in
+  // it and a Pixi tint
+  // MULTIPLIES, so a cyan, lime or spring captain spent the entire window
+  // steering a black silhouette at 0.4 alpha across a black ocean — on the hull
+  // they are still aiming, still steering and still shooting with.
+  //
+  // So the own ramp is capped at `CLIENT_CONFIG.ship.ownSettleMax`: enough to
+  // read "this hull is going down" without ever costing the player the ship
+  // they are fighting from. DESIGN.md's ratified sinking mock (F1 of
+  // mockups/death-reveal-results-1.html) draws the own hull at FULL personal
+  // hue during the window and carries the death on the HP rail, the banner and
+  // the sink rings, so even the capped ramp is a departure TOWARD the enemy
+  // grammar — the cap may shrink, never grow.
+  g.ownView.setSink(ownSettle(g.state.net.you, g.clock.serverNow()));
   g.ownView.update(pose.x, pose.y, pose.heading);
   g.camera.update(frameDt, pose);
   updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)

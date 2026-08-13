@@ -93,7 +93,29 @@ export class ContactViews {
     this.views.get(id)?.view.flash();
   }
 
-  /** Tint a contact as sunk; it fades until the store prunes it. */
+  /**
+   * THE KILL FLASH (Story 5.2 fix): the confirmation beat on an enemy hull at
+   * SINK-ENTRY. No-op if the hull is not currently viewed, exactly like
+   * `flash`/`markSunk` — a sinking we witnessed but whose contact we do not
+   * hold draws nothing rather than inventing a view at an invented position.
+   */
+  sinkFlash(id: string): void {
+    this.views.get(id)?.view.sinkFlash();
+  }
+
+  /**
+   * THE PROGRESSIVE SETTLE (Story 5.2 fix): drive a witnessed enemy's window
+   * fraction, 0 at sink-entry → 1 at founder. Pushed per frame by
+   * net/roomBindings.ts, which owns the deferred-wreck queue and the only exact
+   * reading of the server clock. Silently no-ops for an unviewed hull.
+   */
+  setSink(id: string, progress: number): void {
+    this.views.get(id)?.view.setSink(progress);
+  }
+
+  /** Tint a contact as sunk; it fades until the store prunes it. The terminal
+   *  value of the settle above (`setSink(1)`), so the founder handover is a
+   *  continuation rather than a step — see render/ships.ts `hullLook`. */
   markSunk(id: string): void {
     this.views.get(id)?.view.setDowned(true);
   }

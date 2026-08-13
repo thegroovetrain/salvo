@@ -481,3 +481,57 @@ loser go down for five seconds before the results land. That is the beat, not de
 window → founder → results flow (*"B got 5 spec frames; A spec'd only after the finish"*), and
 `metricsSmoke` confirms the leave-driven finish is unaffected. The smoke's step-4 frame budget had to
 widen, because a loser's spectator frames now legitimately begin five seconds after their sunk event.
+
+## Amendment 21 — YOU MUST SEE THEM GO DOWN: the enemy-facing sinking treatment (Eric ruling 2026-08-13) — supersedes amendment 16's presentation stance, amends 18
+
+> *"Killing drones though? It tells you you killed them, and then there is no indication onscreen
+> they are down and sinking at all. To me as the killing player, it looks as though nothing happened
+> and its a delayed death bug. I want to SEE that I have scored a kill on the enemy ship and that
+> their captain is going down with the ship!"*
+
+**Two of my rulings combined into this defect and both are corrected here.** Amendment 16 ruled *"no
+enemy-facing sinking channel"* on the smallest-new-channel principle. Amendment 18 then moved the
+wreck tint AND the crimson plume from sink-entry to founder — correctly, because a hull rendering
+"already dead" while it is still turning and shooting is the exact misread the window exists to
+prevent. Together they left the five seconds between the two beats with **no enemy-side feedback of
+any kind**: you sank a hull, the feed said so, and it sailed on looking perfectly healthy until it
+snapped to a wreck. The most legible reading of that is a bug, which is exactly how it read.
+
+**Ruled — PROGRESSIVE SETTLE + KILL FLASH,** chosen by Eric from four options:
+
+- **At sink-entry, a kill flash on the hull** — an unmistakable "you scored" beat.
+- **Across the window, a continuous settle** — the hull interpolates from its live look to the wreck
+  look, arriving at the wreck EXACTLY at founder, on the beat the deferred plume already lands.
+- **The plume stays at founder.** Amendment 18's location/identity split is untouched — this is not
+  a reversal of it, it is the missing middle it never supplied.
+
+**AMENDMENT 16'S WIRE STANCE IS UNCHANGED AND THIS COSTS NOTHING.** No wire field, no server change,
+no seventh perception exception, no new disclosure of any kind — because the client ALREADY holds
+both facts: the `sunk` event arrives at sink-entry (public for captains via the Public Register;
+killer-and-witness for a drone) and `CONFIG.ship.sinkingWindowMs` is a shared constant. This is
+**amendment 19's composition rendered**, not a new channel. What amendment 16 actually got wrong was
+narrower than it looked: it reasoned about what may be DISCLOSED and silently also decided what may
+be DRAWN, and those are different questions.
+
+**The `seen` gate is absolute and now narrower:** an unwitnessed sinking draws nothing — no flash, no
+settle, no plume — enforced at a single early return that owns all three. Location stays protected.
+
+**Design decisions, all grounded rather than invented:** the flash REUSES the shipped hull hit-flash
+channel at its ratified 300 ms same-source floor (EXPERIENCE.md's accessibility floor) rather than
+inventing a second grammar, so it claims the same `WorldFlashGate` budget and degrades identically;
+it is **untiered**, per `render/attention.ts`'s own rule that world effects are diegetic information
+rather than chrome. The settle is **linear**, borrowing `sim/sinking.ts`'s own "linear, not eased"
+argument verbatim so **the hull's look decays on the same shape as its speed cap — one ritardando,
+not two.** `setDowned(true)` is now literally `setSink(1)`, so the founder handover cannot pop by
+construction rather than by test. Motion-off removes the flash entirely and keeps the settle, which
+is a monotonic state ramp and cannot strobe.
+
+**A live legibility defect was found and fixed in passing, and it is worth knowing about:** the own
+hull SNAPPED to the full wreck look the instant `alive` went false. `sunkTint` (`#8B0000`) has zero
+green and blue and a Pixi tint MULTIPLIES — so a cyan, lime or spring captain spent their last five
+fighting seconds steering a **literally black silhouette at 0.4 alpha across a black ocean**, in the
+window the whole story exists to make playable. The own hull now settles only part way
+(`ownSettleMax`), holding ≥0.8 alpha and readable colour, and holds at the cap past founder rather
+than completing — otherwise it pops to full wreck for the ~½ RTT before the `spec` frame hides it.
+The ratified mockup (`death-reveal-results-1.html` frame F1) draws the own hull at FULL personal hue
+with a full-strength glow during the window, so the cap may shrink toward that mockup, never grow.

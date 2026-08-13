@@ -97,3 +97,7 @@ Story 5.2 question gate (all Eric rulings 2026-08-12 unless marked):
 20. **The match IS held open for a sinking captain (Eric veto 2026-08-12)** — amendment 17 made the
     window invisible in 100% of 1v1s. The outcome is LATCHED when it is determined and only the
     transition defers, so amendment 14 is now enforced by construction rather than by timing.
+21. **You must SEE them go down (Eric ruling 2026-08-13)** — a kill flash at sink-entry plus a
+    continuous settle to the wreck look at founder. Supersedes amendment 16's PRESENTATION stance
+    (its wire stance is unchanged: still no new field, no seventh exception — this renders
+    amendment 19's composition). The plume stays at founder, so amendment 18's split holds.

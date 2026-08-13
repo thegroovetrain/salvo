@@ -793,7 +793,56 @@ export const CLIENT_CONFIG = {
   /** Own/contact ship view feel constants. */
   ship: {
     flashMs: 130, // ms — hit-flash duration
+    /**
+     * THE KILL FLASH (Story 5.2 fix) — the confirmation beat on the hull at
+     * SINK-ENTRY, so a killer sees they scored on the tick they scored.
+     *
+     * It is the SHIPPED hit-flash channel with a longer hold, deliberately, and
+     * not a second grammar: same white bloom (EXPERIENCE.md · Game Feel &
+     * Juice, "130 ms white hull flash on struck contacts"), same motion gate,
+     * same aggregate budget claim, same degrade-the-amplitude-never-the-
+     * duration rule. What separates it from a hit is DURATION plus what follows
+     * it — the hull immediately begins to settle, which a hit never does.
+     *
+     * 300ms is the ratified same-source flash floor (EXPERIENCE.md ·
+     * Accessibility Floor: "repeated same-source flashes share the 300 ms
+     * floor"; CLIENT_CONFIG.gunnery.hitCallToneFloorMs is the same number for
+     * the same reason), so ONE kill flash occupies exactly one floor slot and
+     * can never overlap the hit flash that preceded it into a stutter.
+     */
+    sinkFlashMs: 300,
     sunkTint: COLORS.damage, // DESIGN.md dark crimson tint for a sunk hull
+    /** Alpha of a fully-foundered hull — extracted from the `hullLook` literal
+     *  it used to be, because the SETTLE now interpolates toward it (Story 5.2
+     *  fix) and an end-state the ramp aims at cannot be a magic number. */
+    sunkAlpha: 0.4,
+    /**
+     * Hull scale of a fully-foundered hull — "settling lower in the water" in
+     * the only channel a top-down chart has. Safe to shrink: a sinking hull is
+     * already untouchable (amendment 12 makes damage on it a total no-op), so
+     * the silhouette-IS-the-hitbox rule (DESIGN.md · Do's and Don'ts) is not
+     * being contradicted — nothing can hit it to notice.
+     */
+    sunkScale: 0.85,
+    /**
+     * How far along the settle the OWN hull is ever allowed to travel.
+     *
+     * The enemy hull runs the ramp to 1.0; ours stops at a fraction of it,
+     * because it is the hull the player is still fighting from for five more
+     * seconds and it must stay legible and aimable the whole way. This is
+     * already a DEPARTURE toward the enemy grammar rather than away from it:
+     * DESIGN.md's ratified sinking mock (mockups/death-reveal-results-1.html,
+     * frame F1 "SINKING WINDOW — ~5 s RITARDANDO, GUNS LIVE") draws the own
+     * hull at FULL personal hue with a full-strength glow, carrying the death
+     * on the HP rail, the banner, the sink rings and the smoke instead. So this
+     * number may shrink, never grow.
+     *
+     * The ceiling also has a hard floor under it: `sunkTint` (#8B0000) has ZERO
+     * green and blue, and a Pixi tint MULTIPLIES — so a fully-settled cyan,
+     * lime or spring hull renders literally black. At 0.3 a cyan hull keeps
+     * ~70% of its green and blue and reads as itself, dimmed.
+     */
+    ownSettleMax: 0.3,
   },
 
   /** Truesight nameplates (Story 1.13) — screen-space callsign labels floated
