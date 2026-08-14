@@ -41,6 +41,30 @@
 
 import { Application, Container } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
+import type { Camera } from './camera.js';
+
+/**
+ * Push the camera's world transform onto the world + chart containers — THE one
+ * place that transform is written.
+ *
+ * It lived in main.ts until cycle 82, when the pre-join home scene needed it
+ * too. main.ts runs its own bootstrap at import time, so nothing may import it;
+ * the alternative to moving the function was a second copy of the transform,
+ * which is exactly the two-derivations desync class this project refuses
+ * everywhere else (`effectiveStats`, the shared sim). It belongs here anyway:
+ * `worldRoot`/`chartRoot` are this module's containers, and the rule that they
+ * SHARE one transform (while plateRoot/fogSprite/hudRoot stay in screen space)
+ * is this module's contract.
+ */
+export function applyCamera(camera: Camera, world: Container, chart: Container): void {
+  const c = camera.screenCenter;
+  const px = c.x - camera.center.x * camera.zoom + camera.shake.x;
+  const py = c.y - camera.center.y * camera.zoom + camera.shake.y;
+  world.scale.set(camera.zoom);
+  world.position.set(px, py);
+  chart.scale.set(camera.zoom);
+  chart.position.set(px, py);
+}
 
 export interface StageLayers {
   // worldRoot children

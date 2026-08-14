@@ -1,228 +1,285 @@
-// Pre-join ambient CIC scene (Story 1.14 · UX-DR25) — the game "breathing"
-// behind the DOM home menu so the canvas is NEVER blank before PLAY. A thin Pixi
-// adapter (not unit tested); the layout/crossing math is extracted into the
-// pure, exported functions below and tested in __tests__/ambient.test.ts (the
-// repo pattern: pure logic tested, the Pixi shell left to manual/visual QA).
+// THE HOME SCENE — Pixi wiring shell (cycle 82, rebuilding Story 1.14 / UX-DR25).
 //
-// This is the GAME's radar, idling (Eric ruling 2026-07-24 — the ambient must
-// not be "its own thing with its own rules"):
-//   • the sweep is the in-game wedge texture (render/textures.bakeSweepTexture)
-//     rotating at the game's base rate (CONFIG.vision.sweepRpm — the real,
-//     un-upgraded revolution);
-//   • blips are the in-game blip sprite (bakeBlipTexture) and only LIGHT when
-//     the beam actually crosses a contact's bearing; they then decay via the
-//     game's own phosphor math (render/phosphor.blipAlpha/blipTint), dying
-//     exactly as the beam comes back around — no independent timers, no decay
-//     tiers, no random respawns;
-//   • a handful of fake drifting contacts stand in for ships (client render MAY
-//     use Math.random — the seeded-RNG law binds SIM code only);
-//   • concentric range-ring hairlines, faint island masses, and a radial scrim
-//     (chart furniture — not radar-ruled) complete the picture.
+// The pre-join canvas is never blank (EXPERIENCE.md: *"home renders over a live
+// ambient CIC canvas"*), and since this cycle what it renders is A REAL SLICE OF
+// THE GAME rather than a picture of one. Every system below is the SHIPPED one,
+// called through its public API and composed directly:
 //
-// Photosensitivity law: nothing here flashes — the sweep rotates continuously
-// and a fresh paint fades over a full sweep period. All colors come from
-// CLIENT_CONFIG.colors tokens (zero raw literals — the tokens guard scans this
-// file); the blip/sweep textures carry the game's own phosphor palette.
+//   • the ocean and its islands   — `generateMap` + `render/map.ts` (the ratified
+//     hypsometric terrain ramp; no ellipse stand-ins, no viewport fractions);
+//   • the scope                    — the real `Radar` in `return` grammar, with the
+//     height raster wired (so terrain SHADOWS the returns) and the client's own
+//     wake sources wired (so tracks paint);
+//   • the hulls                    — real `ShipView` silhouettes on real `stepShip`
+//     kinematics, laying real wake through `WakeSources`/`Effects`;
+//   • the fog and the camera       — the game's own `Fog` composite and `Camera`.
+//
+// Nothing here re-implements a radar, terrain, wake or kinematics rule: that is
+// precisely what the Eric ruling of 2026-07-24 forbids ("the ambient must not be
+// its own thing with its own rules"), and it is the whole point of the rebuild.
+//
+// THIS FILE IS THE PIXI HALF and is deliberately NOT unit-tested (the repo
+// pattern — see `stage/worstCase.ts`, its model). All of the scene's COMPOSITION
+// — the seeded world, the helm, the beam-crossing paint decision, the motion
+// setting, the off-centre camera — lives in the PURE `render/ambientScene.ts`
+// beside its tests. What is left here is wiring, layout and teardown.
+//
+// WHY NOT `buildGame` + a stub room (the proven `stage/worstCase.ts` mechanism):
+// it boots the WHOLE game over the menu — HUD, hotbar, BR chrome bar, kill feed,
+// nameplates. A backdrop needs the water and the scope, not the chrome.
+// Composing the renderers directly is lighter AND is what makes "no combat, no
+// storm, no HUD on the menu" true by construction rather than by suppression.
+//
+// TWO SILENT NO-PAINT TRAPS, both real, neither of which throws: `Radar.render`
+// draws nothing unless `onSweepSample` has been anchored at least once, and
+// nothing unless `own !== null`. Both are satisfied every frame below.
+//
+// TEARDOWN IS TOTAL. The scene owns `worldRoot`, `chartRoot` and the fog sprite
+// pre-join, and `stopAmbient()` is the ONLY path that runs before the real game
+// claims those same roots — so `destroy()` empties every layer it touched,
+// restores every alpha it set, drops the resize listener, and is a safe no-op the
+// second time.
 
-import { Application, Container, FillGradient, Graphics, Sprite } from 'pixi.js';
-import { CONFIG, wrapPositive } from '@salvo/shared';
+import { Container, FillGradient, Graphics } from 'pixi.js';
+import { CONFIG, generateMap, paintCoverage, type GameMap } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
-import { bakeSweepTexture, bakeBlipTexture, SWEEP_TEXTURE_RADIUS, BLIP_TEXTURE_SIZE } from './textures.js';
-import { blipAlpha, blipTint } from './phosphor.js';
+import { settings } from '../settings/store.js';
+import { ContactStore } from '../net/snapshots.js';
+import { Camera } from './camera.js';
+import { CONTACT_STALE_MS } from './contacts.js';
+import { Effects } from './effects.js';
+import { Fog } from './fog.js';
+import { buildMap, type MapChart } from './map.js';
+import { Radar } from './radar.js';
+import { ShipView, contactStyle } from './ships.js';
+import { applyCamera, type LayerName, type Stage } from './stage.js';
+import type { WakeHull } from './wake.js';
+import {
+  advanceAmbient,
+  ambientCameraTarget,
+  ambientContacts,
+  ambientPaints,
+  buildAmbientWorld,
+  type AmbientTick,
+  type AmbientWorld,
+} from './ambientScene.js';
 
 const A = CLIENT_CONFIG.home.ambient;
 const C = CLIENT_CONFIG.colors;
 
-// --- pure layout / crossing math (tested) ------------------------------------
+/** Every stage layer this scene puts something into — the teardown list, kept as
+ *  data so "the scene emptied what it filled" is one loop rather than a habit. */
+const TOUCHED_LAYERS: readonly LayerName[] = ['ocean', 'wake', 'map', 'blip', 'ship', 'sweep', 'vignette'];
 
-/**
- * Uniform scale that fits the reference-authored ring geometry to the live
- * viewport height, clamped so the scene never collapses on a short viewport or
- * balloons on a very tall one. `ambientScale(1080, 1080) === 1`.
- */
-export function ambientScale(screenH: number, refHeight: number = A.refHeight): number {
-  if (!(refHeight > 0)) return 1;
-  return Math.min(1.5, Math.max(0.5, screenH / refHeight));
-}
-
-/** The reference ring radii scaled to the live viewport. */
-export function ringLayout(radii: readonly number[], scale: number): number[] {
-  return radii.map((r) => r * scale);
-}
-
-/** Sweep beam heading (rad) at `elapsedMs` into a `periodMs` full revolution. */
-export function sweepAngleAt(elapsedMs: number, periodMs: number): number {
-  if (!(periodMs > 0)) return 0;
-  return ((elapsedMs % periodMs) / periodMs) * Math.PI * 2;
-}
-
-/**
- * Did the beam cross `bearing` while advancing `prevAngle` → `curAngle`
- * (wrap-safe)? The half-open sweep interval (prev, cur] means a stationary
- * beam (zero step) never paints and a bearing exactly at the new beam angle
- * paints exactly once.
- */
-export function sweepCrossed(prevAngle: number, curAngle: number, bearing: number): boolean {
-  const step = wrapPositive(curAngle - prevAngle);
-  if (step === 0) return false;
-  const offset = wrapPositive(bearing - prevAngle);
-  return offset > 0 && offset <= step;
-}
-
-// --- Pixi scene shell (not unit tested) -------------------------------------
-
-/** A fake drifting ship the idle radar keeps painting. The single blip sprite
- *  is unlit (age = Infinity → alpha 0) until the beam first crosses it. */
-interface Contact {
-  blip: Sprite;
-  fx: number; // viewport-fractional position [0,1]
-  fy: number;
-  vx: number; // drift, fractions of min(viewport) per second
-  vy: number;
-  paintAgeMs: number;
-}
-
-interface Island {
-  g: Graphics;
-  fx: number;
-  fy: number;
-  r: number; // reference-px radius (scaled at layout)
-}
-
-function rand(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
-function driftVelocity(): { vx: number; vy: number } {
-  const heading = rand(0, Math.PI * 2);
-  return { vx: Math.cos(heading) * A.contactDriftFrac, vy: Math.sin(heading) * A.contactDriftFrac };
+/** Empty a container and destroy what came out, textures included (every texture
+ *  under these layers was baked by this scene: the fog composite, the sweep
+ *  wedge, the near-range dim mask, the heatmap buffer). Pixi's own `destroy`
+ *  early-returns on an already-destroyed node, so this is re-entrant. */
+function clearLayer(c: Container): void {
+  for (const child of c.removeChildren()) child.destroy({ children: true, texture: true });
 }
 
 export class AmbientScene {
-  private readonly root = new Container();
-  private readonly rings = new Graphics();
-  private readonly sweep: Sprite;
+  private readonly map: GameMap;
+  private readonly world: AmbientWorld;
+  private readonly camera: Camera;
+  private readonly chart: MapChart;
+  private readonly radar: Radar;
+  private readonly effects: Effects;
+  private readonly fog: Fog;
+  /** The truesight source of hull returns — a real store, fed real frames and
+   *  sampled `interpDelayMs` in the past, exactly as the live client does. */
+  private readonly contacts = new ContactStore();
+  private readonly views = new Map<string, ShipView>();
   private readonly scrim = new Graphics();
-  private readonly islands: Island[] = [];
-  private readonly contacts: Contact[] = [];
-  private elapsedMs = 0;
-  private sweepAngle = 0;
+  /** This frame's wake sources — reused, never reallocated (render-loop rule). */
+  private readonly wakes: WakeHull[] = [];
+  private destroyed = false;
   private readonly onResize = (): void => this.layout();
 
-  /** `parent` = a screen-space-ish container beneath any DOM and above the void
-   *  clear color; pass `stage.worldRoot` (empty + identity-transformed pre-join). */
-  constructor(
-    private readonly app: Application,
-    parent: Container,
-  ) {
-    this.root.alpha = A.sceneAlpha; // master menu-page dimmer
-    this.sweep = new Sprite(bakeSweepTexture());
-    this.sweep.anchor.set(0.5);
-    this.sweep.blendMode = 'add';
-    this.sweep.alpha = A.sweepAlpha;
-    const blipTexture = bakeBlipTexture();
-    for (let i = 0; i < A.islandCount; i++) this.islands.push(this.makeIsland());
-    for (let i = 0; i < A.contactCount; i++) this.contacts.push(this.makeContact(blipTexture));
-    // z-order within the scene: chart furniture (rings → islands) under the
-    // legibility scrim, then the LIVE radar (sweep → blips) above it — the same
-    // relationship the game gives blips/sweep, which render fog-immune above
-    // the fog composite (see render/stage.ts chartRoot).
-    this.root.addChild(this.rings);
-    for (const isl of this.islands) this.root.addChild(isl.g);
-    this.root.addChild(this.scrim, this.sweep);
-    for (const c of this.contacts) this.root.addChild(c.blip);
-    parent.addChild(this.root);
+  constructor(private readonly stage: Stage) {
+    this.map = generateMap(A.mapSeed, CONFIG.map.playerCap);
+    this.world = buildAmbientWorld(this.map);
+    const stats = this.world.stats;
+    // Lead is deliberately zero: the in-match camera throws itself ahead of the
+    // bow, which is right when you are steering and wrong for a backdrop that
+    // must hold a composed picture behind a column of text.
+    this.camera = new Camera({ radarRange: stats.radarRange, followRate: A.followRate, leadSeconds: 0, leadMax: 0 });
+    this.camera.setViewport(this.viewW, this.viewH);
+    this.camera.snapTo(ambientCameraTarget(this.world));
+    this.chart = buildMap(this.map, stage.layers, this.camera.zoom);
+    // `return` grammar, and no hue resolver: under `return` the scope carries no
+    // identity at all (amendments 65/67), so there is nothing for one to answer.
+    this.radar = new Radar(stage.layers.blip, stage.layers.sweep, () => null, 'return');
+    this.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
+    this.radar.setHeightRaster(this.map.heightRaster);
+    // One layer for all three of Effects' sinks: the scene spawns wake and
+    // NOTHING else, so the one-shot and burst layers are never reached. That is
+    // the "no combat on the menu" rule expressed as wiring rather than as a
+    // check somebody has to remember.
+    this.effects = new Effects(stage.layers.wake);
+    this.radar.setWakeSources(this.effects.wakeSources, this.map.islands);
+    this.fog = new Fog(stage.fogSprite);
+    this.fog.setSightRange(stats.sightRange);
+    for (const h of this.world.hulls) {
+      const view = new ShipView(contactStyle(h.cls, h.hue), h.cls);
+      stage.layers.ship.addChild(view.gfx);
+      this.views.set(h.id, view);
+    }
+    stage.layers.vignette.addChild(this.scrim);
+    // The three darkening layers, all knobs (Design Note: tuned by eye, not by
+    // argument): the master dimmer over the picture, the game's own fog held
+    // back, and the radial legibility scrim drawn in `layout`.
+    stage.worldRoot.alpha = A.sceneAlpha;
+    stage.chartRoot.alpha = A.sceneAlpha;
+    stage.fogSprite.alpha = A.fogAlpha;
     this.layout();
     window.addEventListener('resize', this.onResize);
   }
 
-  /** Advance the idling radar (call every render frame): rotate the beam at the
-   *  game's real period, paint any contact the beam crossed, phosphor-decay. */
+  /** Advance and draw one frame. `dtMs` arrives as raw `Ticker.deltaMS` with no
+   *  clamp of its own — the composer clamps it (see `MAX_FRAME_MS`). */
   update(dtMs: number): void {
-    this.elapsedMs += dtMs;
-    // Base (un-upgraded) revolution — no observer exists on the menu.
-    const period = 60000 / CONFIG.vision.sweepRpm;
-    const prev = this.sweepAngle;
-    const cur = sweepAngleAt(this.elapsedMs, period);
-    this.sweep.rotation = cur;
-    this.sweepAngle = cur;
-    const w = this.app.screen.width;
-    const h = this.app.screen.height;
-    const cx = w / 2;
-    const cy = h * A.centerYFrac;
-    for (const c of this.contacts) this.stepContact(c, prev, cur, { w, h, cx, cy, dtMs, period });
+    if (this.destroyed) return;
+    const tick = advanceAmbient(this.world, this.map, dtMs, settings.current.motion);
+    if (tick.dtMs === 0) return;
+    const now = tick.nowMs;
+    this.feedContacts(now);
+    // The beam anchor. Without at least one of these the march never runs and
+    // the scope stays black — silently.
+    this.radar.onSweepSample(tick.sweep, now);
+    this.paintReturns(tick, now);
+    this.camera.update(tick.dtSec, ambientCameraTarget(this.world));
+    applyCamera(this.camera, this.stage.worldRoot, this.stage.chartRoot);
+    this.chart.update(this.camera.zoom);
+    this.drawHulls(now);
+    this.effects.update(tick.dtSec, now, this.wakes);
+    this.radar.render(this.world.observer.state, now, this.contacts, this.camera.worldView);
+    const hole = this.camera.worldToScreen(this.world.observer.state);
+    this.fog.update(hole.x, hole.y);
   }
 
-  /** Tear the scene down (at game start). */
+  /** Tear the scene down (at PLAY, before the real world claims these roots). */
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     window.removeEventListener('resize', this.onResize);
-    this.root.destroy({ children: true });
+    this.radar.setWakeSources(null);
+    this.effects.clearWake();
+    this.views.clear();
+    for (const name of TOUCHED_LAYERS) clearLayer(this.stage.layers[name]);
+    clearLayer(this.stage.fogSprite);
+    this.stage.worldRoot.alpha = 1;
+    this.stage.chartRoot.alpha = 1;
+    this.stage.fogSprite.alpha = 1;
   }
 
-  // --- radar rules (game-faithful) -------------------------------------------
+  // --- perception: the two sources of hull returns ----------------------------
 
-  private stepContact(
-    c: Contact,
-    prevAngle: number,
-    curAngle: number,
-    v: { w: number; h: number; cx: number; cy: number; dtMs: number; period: number },
-  ): void {
-    // Drift + bounce inside the visible band. Velocity is in fractions of the
-    // min viewport dimension per second; convert to per-axis fractions.
-    const driftPx = Math.min(v.w, v.h) * (v.dtMs / 1000);
-    if (v.w > 0) c.fx += c.vx * (driftPx / v.w);
-    if (v.h > 0) c.fy += c.vy * (driftPx / v.h);
-    if (c.fx < 0.06 || c.fx > 0.94) c.vx = -c.vx;
-    if (c.fy < 0.08 || c.fy > 0.92) c.vy = -c.vy;
-    const x = c.fx * v.w;
-    const y = c.fy * v.h;
-    // The paint rule: light ONLY when the beam crosses the contact's bearing.
-    const bearing = wrapPositive(Math.atan2(y - v.cy, x - v.cx));
-    if (sweepCrossed(prevAngle, curAngle, bearing)) {
-      c.paintAgeMs = 0;
-      c.blip.position.set(x, y); // painted where the beam found it
-    } else {
-      c.paintAgeMs += v.dtMs;
+  /**
+   * Push this frame's TRUESIGHTED hulls into the contact store — the
+   * inside-the-bubble source (amendment 89). The radar samples this store at
+   * `serverNow − interpDelayMs`, so for the first ~100ms of scene time there is
+   * no history to sample and a near hull is simply not stamped yet; that is the
+   * live client's own behaviour at join and needs no special case.
+   */
+  private feedContacts(now: number): void {
+    const list = ambientContacts(this.world, this.map.islands);
+    if (list.length > 0) this.contacts.pushFrame(now, list);
+    // A hull that sails out of the bubble (or behind a coast) stops being fed;
+    // pruning it is what stops the scope synthesizing an echo from a frozen,
+    // extrapolated ghost pose.
+    this.contacts.prune(now, CONTACT_STALE_MS);
+  }
+
+  /**
+   * Wire blips for the hulls the beam just found OUTSIDE truesight — the
+   * annulus source. The footprint comes from the SHIPPED shaper
+   * (`paintCoverage`, the very function the server's `return`-grammar blip row
+   * calls) on the shipped lattice, so a menu echo and a match echo are the same
+   * artifact by construction.
+   *
+   * There is deliberately no `wk` (wake) row here. A far hull's water reaches a
+   * real client only because the SERVER rasterizes it per segment; with no
+   * server the honest options were to synthesize a disclosure nobody made, or to
+   * let a fogged hull lay visible foam on the water. The scene does neither: the
+   * wake you see, on the water and on the scope alike, is a truesighted hull's,
+   * through `setWakeSources` — the exact half the client owns in a real match.
+   */
+  private paintReturns(tick: AmbientTick, now: number): void {
+    for (const hull of ambientPaints(this.world, tick)) {
+      const s = hull.state;
+      const cov = paintCoverage(hull.cls, s.x, s.y, s.heading, CONFIG.vision.radarCellU, now);
+      this.radar.onBlip({ k: 'blip', t: now, gx: cov.gx, gy: cov.gy, w: cov.w, h: cov.h, bits: cov.bits });
     }
-    // The game's phosphor decay: alpha 1 → 0 across one sweep period, tint
-    // cooling bright → dark over the first ~30% (render/phosphor.ts).
-    c.blip.alpha = blipAlpha(c.paintAgeMs, v.period);
-    c.blip.tint = blipTint(c.paintAgeMs, v.period);
   }
 
-  // --- layout (screen-size aware, re-run on resize) -------------------------
+  // --- drawing ----------------------------------------------------------------
 
+  /**
+   * Place every visible hull and collect this frame's wake sources.
+   *
+   * The observer draws at its LIVE pose (it is the local ship); every other hull
+   * draws at its interp-delayed contact sample — the same time the radar's own
+   * `shipStamp` and the live client's `wakeHulls` read — so the silhouette, its
+   * foam and its echo all agree about where it was. A hull with no sample (out
+   * of the bubble, or younger than the interp delay) is hidden: it exists on the
+   * scope as a return, and nowhere else.
+   */
+  private drawHulls(now: number): void {
+    this.wakes.length = 0;
+    const at = now - CLIENT_CONFIG.net.interpDelayMs;
+    for (const h of this.world.hulls) {
+      const view = this.views.get(h.id);
+      if (view === undefined) continue;
+      const pose = h === this.world.observer ? h.state : (this.contacts.get(h.id)?.sampleAt(at) ?? null);
+      view.gfx.visible = pose !== null;
+      if (pose === null) continue;
+      view.update(pose.x, pose.y, pose.heading);
+      this.wakes.push({
+        id: h.id,
+        x: pose.x,
+        y: pose.y,
+        heading: pose.heading,
+        speed: pose.speed,
+        cls: h.cls,
+        color: contactStyle(h.cls, h.hue).stroke,
+      });
+    }
+  }
+
+  // --- layout (viewport-size aware, re-run on resize) -------------------------
+
+  private get viewW(): number {
+    return Math.max(1, this.stage.app.screen.width);
+  }
+
+  private get viewH(): number {
+    return Math.max(1, this.stage.app.screen.height);
+  }
+
+  /** Adopt the live viewport: re-fit the camera, re-bake the fog for the new
+   *  zoom, redraw the scrim. Degenerate (0-size) viewports are floored at 1px so
+   *  neither the base-zoom division nor the fog bake sees a zero. */
   private layout(): void {
-    const w = this.app.screen.width;
-    const h = this.app.screen.height;
-    const scale = ambientScale(h);
-    const cx = w / 2;
-    const cy = h * A.centerYFrac;
-    const outer = A.ringRadii[A.ringRadii.length - 1] * scale;
-    this.rings.position.set(cx, cy);
-    this.sweep.position.set(cx, cy);
-    this.sweep.scale.set(outer / SWEEP_TEXTURE_RADIUS);
-    this.drawRings(scale);
-    for (const isl of this.islands) this.placeIsland(isl, scale, w, h);
+    if (this.destroyed) return;
+    const w = this.viewW;
+    const h = this.viewH;
+    this.camera.setViewport(w, h);
+    this.fog.rebake(w, h, this.camera.zoom);
     this.drawScrim(w, h);
   }
 
-  private drawRings(scale: number): void {
-    this.rings.clear();
-    ringLayout(A.ringRadii, scale).forEach((r, i) => {
-      const color = i === 0 ? C.phosphorBright : C.silver;
-      this.rings.circle(0, 0, r).stroke({ width: A.ringWidth, color, alpha: A.ringAlphas[i] });
-    });
-  }
-
+  /** The radial legibility scrim: void, lightest under the home column's centre
+   *  and heaviest at the edges, so DOM text keeps its contrast over the water. */
   private drawScrim(w: number, h: number): void {
-    const cyFrac = A.scrimCenterYFrac;
+    const cy = A.scrimCenterYFrac;
     const grad = new FillGradient({
       type: 'radial',
-      center: { x: 0.5, y: cyFrac },
+      center: { x: 0.5, y: cy },
       innerRadius: 0,
-      outerCenter: { x: 0.5, y: cyFrac },
+      outerCenter: { x: 0.5, y: cy },
       outerRadius: 0.75,
       textureSpace: 'local',
       colorStops: [
@@ -233,27 +290,5 @@ export class AmbientScene {
     });
     this.scrim.clear();
     this.scrim.rect(0, 0, w, h).fill(grad);
-  }
-
-  private makeIsland(): Island {
-    return { g: new Graphics(), fx: rand(0.08, 0.92), fy: rand(0.1, 0.9), r: rand(A.islandMinR, A.islandMaxR) };
-  }
-
-  private placeIsland(isl: Island, scale: number, w: number, h: number): void {
-    isl.g.clear();
-    isl.g
-      .ellipse(0, 0, isl.r * scale, isl.r * scale * 0.78)
-      .fill({ color: C.islandFill, alpha: A.islandFillAlpha })
-      .stroke({ width: 1, color: C.islandStroke, alpha: A.islandStrokeAlpha });
-    isl.g.position.set(isl.fx * w, isl.fy * h);
-  }
-
-  private makeContact(blipTexture: ReturnType<typeof bakeBlipTexture>): Contact {
-    const blip = new Sprite(blipTexture);
-    blip.anchor.set(0.5);
-    blip.blendMode = 'add';
-    blip.scale.set(A.blipDiameterPx / BLIP_TEXTURE_SIZE);
-    blip.alpha = 0; // unlit until the beam first finds it
-    return { blip, ...driftVelocity(), fx: rand(0.1, 0.9), fy: rand(0.12, 0.88), paintAgeMs: Number.POSITIVE_INFINITY };
   }
 }

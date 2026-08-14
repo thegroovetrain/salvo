@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 81 (0.17.81), PV 34
+# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 82 (0.17.82), PV 34
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -94,6 +94,7 @@
 #   cycle 79 (0.17.79)  Story 5-3 the omniscient reveal & results — amendments 23-30; PV 34 (no wire change)
 #   cycle 80 (0.17.80)  the deck stops hoarding: lazy front-offer draw — epic-2 amendments 69-73; PV 34 (no wire change)
 #   cycle 81 (0.17.81)  the death plume moves to the killing blow — epic-5 amendment 32; PV 34 (client-only)
+#   cycle 82 (0.17.82)  the home scene: the menu backdrop becomes a real slice of the game — PV 34 (client-only)
 
 generated: 2026-07-17
 last_updated: 2026-08-14

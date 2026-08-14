@@ -7,7 +7,7 @@
 // spectate (follow-killer camera, WASD pan, wheel zoom-out), results overlay,
 // return to port (fresh joinOrCreate via reload).
 
-import type { Container, Ticker } from 'pixi.js';
+import type { Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
@@ -39,7 +39,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
-import { createStage, type Stage } from './render/stage.js';
+import { applyCamera, createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom, type Point } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist, setHullFlashGate } from './render/ships.js';
@@ -496,17 +496,6 @@ interface Game {
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */
   ownSlots: readonly (EquipmentId | null)[];
-}
-
-/** Push the camera's world transform onto the world + chart containers. */
-function applyCamera(camera: Camera, world: Container, chart: Container): void {
-  const c = camera.screenCenter;
-  const px = c.x - camera.center.x * camera.zoom + camera.shake.x;
-  const py = c.y - camera.center.y * camera.zoom + camera.shake.y;
-  world.scale.set(camera.zoom);
-  world.position.set(px, py);
-  chart.scale.set(camera.zoom);
-  chart.position.set(px, py);
 }
 
 /** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
@@ -3836,12 +3825,14 @@ async function main(): Promise<void> {
   const audio = new Audio();
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
 
-  // The live ambient CIC scene (UX-DR25): the game "breathing" behind the DOM
-  // home. It renders into stage.worldRoot (empty + identity-transformed pre-join)
-  // and animates off its OWN ticker callback — the game loop (startLoop) only
-  // spins up post-connect. Torn down the moment we deploy (see startGame), so the
-  // scene never fights the real world for the same worldRoot.
-  const ambient = new AmbientScene(stage.app, stage.worldRoot);
+  // THE HOME SCENE (UX-DR25, rebuilt cycle 82): a real, seeded slice of the
+  // game's own ocean breathing behind the DOM home — the shipped map, radar,
+  // hulls, wake and fog, composed directly rather than imitated. It claims
+  // worldRoot, chartRoot and the fog sprite (all empty + identity-transformed
+  // pre-join) and animates off its OWN ticker callback — the game loop
+  // (startLoop) only spins up post-connect. Torn down the moment we deploy (see
+  // startGame), so the scene never fights the real world for the same roots.
+  const ambient = new AmbientScene(stage);
   const ambientTick = (t: Ticker): void => ambient.update(t.deltaMS);
   stage.app.ticker.add(ambientTick);
   const stopAmbient = (): void => {
