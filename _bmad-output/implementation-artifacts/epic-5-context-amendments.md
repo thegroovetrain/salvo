@@ -1473,3 +1473,49 @@ them, and anyone retuning waves should re-derive from the ratio.
 `PROTOCOL_VERSION` is **unchanged**: both values are server-side simulation constants. The client
 never computes a fleet hull's stats (`frames.ts` throws if a drone hull reaches `toOwnShip`) and
 never reads `CONFIG.fleet`, so a stale bundle cannot mis-render either number.
+
+## Amendment 46 — THE HOME TAGLINE BECOMES A POOL OF NAUTICAL PUNS (Eric rulings 2026-08-14)
+
+Interstitial cycle 87 (0.17.87). The fixed home-wordmark tagline `LAST HULL FLOATING WINS`
+(`client/src/ui/home.ts`) is replaced by a uniform draw from a frozen 20-entry pun pool
+(`client/src/ui/taglines.ts`). Client-only DOM chrome on the pre-join menu; no `shared/` or
+`server/` change; `PROTOCOL_VERSION` unchanged at 36.
+
+**(a) Register is MIXED.** One pool holds both broad groaners (`SEAS THE DAY`, `PIER PRESSURE`) and
+dry naval gallows wit (`THE SEA ALWAYS COLLECTS`, `DAMAGE CONTROL IS A MINDSET`), drawn from as a
+single set rather than two separate rotations. Dry-wit-only and groaners-only were both offered and
+not taken.
+
+**(b) Cadence is PER RETURN TO PORT.** A new pun is drawn on mount and again on every return from a
+match. Because `returnToPort()` is a full `location.reload()` (`client/src/main.ts:1422` →
+`app/returnToPort.ts`), a pick made at `makeWordmark()` time satisfies this with no extra machinery
+— fresh module state on every load already gives a fresh draw. A rotate-on-a-timer option was
+**offered and declined**; this is recorded explicitly so a future contributor does not "improve" the
+feature by adding motion to this slot (it would also open a new photosensitivity/attention-tier
+question this ruling never authorized).
+
+**(c) The win-condition line is FULLY REPLACED.** `LAST HULL FLOATING WINS` leaves the home page
+entirely — it is not kept as a second line and does not join the pun rotation. Both alternatives
+(keep-the-rule-add-a-line, and rule-joins-the-pool) were offered and declined. Note `results.ts`'s
+win banner `LAST HULL FLOATING — YOU WON` is a different string on a different surface (the results
+modal, not the home page) and is untouched by this ruling.
+
+**CORRECTION OF RECORD, same cycle:** the option was put to Eric with the justification *"HOW TO
+PLAY carries the rule now"*, and **that premise is FALSE**. The home page's HOW TO PLAY control
+paints the stub `FIELD MANUAL ARRIVES IN A LATER REFIT` (`client/src/ui/home.ts`, `NOTE_HOWTO`) —
+there is no field manual behind it. The consequence is that the win condition is now stated NOWHERE
+a new player can read it: the only surviving statement is the results-modal banner, shown solely to
+the player who already won. The ruling STANDS as given — Eric chose full replacement over both
+alternatives, and the implementation enacts that faithfully — but it was taken on a false premise
+and is worth re-putting on a corrected one. Surfaced by this cycle's Fable review gate, confirmed
+against the code by the orchestrator, and ledgered in `deferred-work.md`. Whoever ships the field
+manual should close this loop.
+
+**(d) The pool is Eric-approved copy, verbatim.** The 20 strings are the owner's approved words, not
+the implementer's, and may not be reworded, reordered, or extended without a new ruling. Two further
+candidates were offered and **EXCLUDED** — `WHAT A LOAD OF SHIP` and `LET'S GET SHIPFACED` — named
+here so a future contributor does not re-propose them.
+
+**Length pin:** the pool carries a ≤28-character length cap protecting amendment 47's container-fit
+law (the rigid ~668px port column) — the longest approved entry is 27 characters against the old
+line's 23, so the slot gets slightly wider but not taller.
