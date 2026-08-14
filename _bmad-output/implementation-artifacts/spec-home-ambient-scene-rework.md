@@ -2,10 +2,10 @@
 title: 'The Home Scene — the menu backdrop becomes a real scene from the game'
 type: 'feature'
 created: '2026-08-14'
-status: 'in-review'
+status: 'done'
 baseline_revision: '45ce489be9c6b4573af82b73e050fa07956118f5'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: ['{project-root}/_bmad-output/project-context.md']
 warnings: ['oversized']
 ---
@@ -100,6 +100,27 @@ warnings: ['oversized']
 - Given the home page at the 1366×768 floor, when the scene is at its brightest phase, then the centered home column's text remains legible over it (visual verification with screenshots at 1366×768 and 1920×1080).
 - Given `npm run check`, when it completes, then lint, all three type-checks and the full suite pass with the ambient composer's new tests included.
 
+## Review Triage Log
+
+### 2026-08-14 — Review pass (Blind Hunter + Edge Case Hunter, in parallel)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 16: (high 3, medium 6, low 7)
+- defer: 3: (medium 2, low 1)
+- reject: 2: (low 2)
+- addressed_findings:
+  - `[high]` `[patch]` A throw anywhere in the scene constructor rejected `main()` BEFORE `showHome()`, costing the player the entire menu — and `generateMap` blocked the main thread for a measured 333ms steady / 526ms cold before the menu existed. Construction moved after `showHome()`, behind a `requestAnimationFrame` and a try/catch, with a latch so PLAY landing in that window is safe.
+  - `[high]` `[patch]` Acting on the (correct) texture-source leak finding KILLED THE NEXT MATCH: `textureSource: true` while sweeping BORROWED layers threw `Cannot read properties of null` out of `BindGroup.getResource` under `AlphaMaskPipe`, leaving a live match with terrain drawn, no HUD, no hull and a stopped loop. Caught only by smoking a real join. Flag reverted, `Texture.EMPTY` guard kept, and the file now records the failure and what a correct retry looks like (free through each owner's seam).
+  - `[high]` `[patch]` Strengthening the grounding assertion from `> 0` to the hull half-length exposed a REAL GROUNDING on the cycle-83 ocean: worst bow overlap 50.2u against a 50u half-length — a hull whose centre had crossed the coastline. Tuning did not reach it (avoidU 160→195 moved the worst case 0.3u, the wrong way). Fixed structurally: `avoidCoast` now carries hull half-length in both radii and its hard clause steers out of the whole POCKET rather than off the single nearest coast. Re-measured over 10 minutes of scene time: worst overlap 0.000u.
+  - `[medium]` `[patch]` Teardown left `stage.layers.blip.mask` pointing at a destroyed sprite; now released through Radar's own `clearBlips()` seam and defensively nulled.
+  - `[medium]` `[patch]` The hand-maintained `TOUCHED_LAYERS` teardown list replaced by an unconditional sweep over every `StageLayers` key, plus a test.
+  - `[medium]` `[patch]` Resize listened on `window` and read `app.screen` synchronously, but Pixi defers the real resize a frame — the scene was permanently one resize stale. Moved onto `renderer.on('resize')`.
+  - `[medium]` `[patch]` A hull leaving truesight left a frozen, FOG-IMMUNE ghost silhouette and phantom foam for ~400ms, then popped. `sampleAt` returns null only for an EMPTY buffer, never a stale one — the code comment and this spec's own I/O row both had that wrong. Visibility now rides this frame's truesight membership.
+  - `[medium]` `[patch]` The colorblind palette never reached menu hulls (styles resolved before `applyRenderSettings`), and a live toggle recoloured each wake but not its hull. One style per hull per frame, re-resolved on `hueRevision()`.
+  - `[medium]` `[patch]` The "pure, zero I/O" composer imported `settings/store`, which touches `localStorage` at module scope. It now takes a numeric motion multiplier and imports nothing from the store.
+  - `[low]` `[patch]` Camera kept easing after motion=off (now eases on the motion-scaled step); wake speed is 0 when frozen; a dt-0 frame no longer skips `applyCamera` (it drew the whole scene at the identity transform).
+  - `[low]` `[patch]` Corrections of record: the config comment claiming a contrast "measurement" now states the values were tuned by eye against captures; the tracker's "NOT YET VERIFIED BY HUMAN EYES" replaced by a verification stamp; the wake AC corrected to say only TRUESIGHTED hulls lay wake (the annulus deliberately carries no synthesized `wk` row); the camera-offset test renamed to the world-space floor it actually pins.
+
 ## Design Notes
 
 **Why this is a continuation, not a new invention.** The 2026-07-24 Eric ruling already moved the ambient from a mock-CSS pastiche onto the game's real sweep texture, real sweep RPM, real blip sprite and real phosphor math. Every system named here post-dates that ruling; applying it to them is the same rule, not a new one. No planning doc anticipates an attract-mode, and none forbids one — DESIGN.md carries no ambient component row at all, so the binding constraints are the accessibility floor, the token law, and EXPERIENCE.md's "home renders over a live ambient CIC canvas (never a blank page)".
@@ -119,3 +140,24 @@ warnings: ['oversized']
 **Manual checks:**
 - Start a dev server IN THIS WORKTREE on non-default ports (never the user's), load the home page, and screenshot at 1366×768 and 1920×1080: confirm fractal islands with hypsometric bands, hulls under way with wakes, sweep painting returns, a visible terrain shadow behind an island, and legible home text.
 - Press PLAY and confirm the scene tears down cleanly with no leftover sprites and no console errors.
+
+## Auto Run Result
+
+Status: done (landed as cycle 84 / 0.17.84; authored as 82, renumbered on merge — cycles 82 and 83 landed on main first).
+
+**What changed.** The pre-join home backdrop is no longer a picture of the game: it is a real, seeded, world-unit slice of it, composed from the SHIPPED renderers. `generateMap` terrain in the ratified hypsometric ramp, the real `Radar` in `return` grammar with the height raster wired (terrain shadows the returns) and wake sources wired (tracks paint), `ShipView` hulls on the shared `stepShip` kinematics laying real wake through `WakeSources`/`Effects`, and the game's own `Fog` and `Camera`. Split the repo's way: a PURE unit-tested composer plus a thin Pixi shell. Client-only; `PROTOCOL_VERSION` untouched at 36.
+
+**Files.**
+- `client/src/render/ambientScene.ts` (NEW, pure) — seeded world build, open-water helm over `stepShip`, beam-crossing paint decision, truesight/annulus split, camera target.
+- `client/src/render/ambient.ts` (rewritten) — the Pixi shell: map chart, radar, hulls, wake, fog, scrim, layout, teardown.
+- `client/src/render/stage.ts` — `applyCamera` extracted from `main.ts` so both consumers share ONE transform.
+- `client/src/main.ts` — scene built after `showHome()` behind rAF + try/catch; both `stopAmbient()` call sites and the connect-failure behavior preserved.
+- `client/src/config.ts` — the `home.ambient` knob set; `islandFill`/`islandStroke` deleted with their last consumer.
+- `client/src/__tests__/ambient.test.ts`, `tokens.test.ts` — composer tests; retired-token absence pins.
+- Trackers + `deferred-work.md`.
+
+**Review.** Two adversarial passes in parallel. 0 intent gaps, 0 bad-spec loopbacks, 16 patches applied (3 high), 3 deferred, 2 rejected. The gate earned its keep twice: it caught a change that would have shipped a MENU THAT BREAKS THE GAME (freeing borrowed GPU texture sources killed the next match), and a strengthened assertion exposed a real grounding on the new ocean that tuning could not fix and a router change did.
+
+**Verification.** `npm run check` green on the merged tree — 0 lint errors (2 pre-existing warnings), all three type-checks clean, **4453 tests** (740 shared / 1148 server / 2565 client). `npm run build` clean. Visually verified in a browser at 1366×768 and 1920×1080 on both the pre-merge and the post-merge (bigger, cycle-83) ocean: fractal islands with hypsometric bands, sweep, terrain-shadowed returns, hulls with wakes, home column legible throughout. Live join smoked repeatedly: clean match start (HUD, hotbar, own hull, sweep), zero console errors, no leftover scene artifacts. The darkening values (`sceneAlpha` 0.82 / `fogAlpha` 0.38 / scrim 0.10-0.26-0.44) were tuned BY EYE against those captures — no contrast measurement was taken.
+
+**Residual risks.** The 1920×1080 instability seen in headless Chromium is a SOFTWARE-WebGL artifact, not this scene: a cold load of the pre-existing `?stage=worstcase` scene fails identically. The three deferred entries (narrow-channel steering, the off-scope margin pinned as config arithmetic rather than simulated, per-frame allocations) are real but unexercised on the shipped seed. `followup_review_recommended: true` — the review pass itself made high-consequence changes (a match-killing crash, a router change, a boot-lifecycle reorder) that have not themselves had an independent pass.

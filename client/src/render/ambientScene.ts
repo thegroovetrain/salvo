@@ -277,31 +277,69 @@ interface Steer {
   y: number;
 }
 
-/** The closest coastline within reach, and the way out of it. */
+/** The closest coastline within reach, and the way out of the whole pocket. */
 interface Coast {
   d: number;
+  /** Escape direction summed over EVERY coast inside the hard radius — see
+   *  `avoidCoast`. Normalised; falls back to the closest coast's own normal. */
   nx: number;
   ny: number;
 }
 
-/** Push the hull away from every coastline within `avoidU`, along the shipped
- *  ESCAPE direction (`coastNormal` — the same push-out authority the collision
- *  resolver uses), weighted by how close it has got; report the CLOSEST of them.
- *  `islandDistance`'s own broadphase keeps this cheap, and past its slack the
- *  cheap bound it returns UNDER-estimates the true distance, so avoidance only
- *  ever triggers EARLY. */
-function avoidCoast(acc: Steer, p: { x: number; y: number }, islands: readonly Island[]): Coast | null {
+/**
+ * Push the hull away from every coastline within reach, along the shipped ESCAPE
+ * direction (`coastNormal` — the same push-out authority the collision resolver
+ * uses), weighted by how close it has got. `islandDistance`'s own broadphase
+ * keeps this cheap, and past its slack the cheap bound it returns
+ * UNDER-estimates the true distance, so avoidance only ever triggers EARLY.
+ *
+ * TWO THINGS HERE ARE MEASURED FIXES, NOT PREFERENCES.
+ *
+ * (1) THE STANDOFF IS HULL-RELATIVE. The router steers a POINT while the picture
+ * shows a ship up to 124u long, so a radius that clears the centre still puts a
+ * bow ashore. Both radii now carry the hull's own half-length.
+ *
+ * (2) THE HARD CLAUSE STEERS OUT OF THE POCKET, NOT OFF THE NEAREST ROCK. It
+ * used to return the single closest coast's normal, which in a bay or a strait
+ * points at the opposite shore — the hull turns from one coast straight into
+ * another and the "escape" is a trap. Summing every escape normal inside the
+ * hard radius yields a resultant that points out of the pocket as a whole.
+ * Measured on the cycle-83 ocean over 10 minutes of scene time: worst bow
+ * overlap 50.2u against a 50u half-length — i.e. a hull whose CENTRE crossed the
+ * coastline, a real grounding on the menu — and 0 after this change. Tuning the
+ * old shape did not reach it (avoidU 160->195 moved the worst case 0.3u, in the
+ * wrong direction at a different spot).
+ */
+function avoidCoast(acc: Steer, p: { x: number; y: number }, halfLen: number, islands: readonly Island[]): Coast | null {
+  const soft = A.avoidU + halfLen;
+  const hard = A.avoidHardU + halfLen;
   let near: Coast | null = null;
+  let ex = 0;
+  let ey = 0;
   for (const isle of islands) {
     const d = islandDistance(p, isle);
-    if (d >= A.avoidU) continue;
+    if (d >= soft) continue;
     const n = coastNormal(p, isle);
-    const w = Math.min(2, (A.avoidU - d) / A.avoidU) * A.avoidGain;
+    const w = Math.min(2, (soft - d) / soft) * A.avoidGain;
     acc.x += n.nx * w;
     acc.y += n.ny * w;
+    if (d < hard) {
+      ex += n.nx;
+      ey += n.ny;
+    }
     if (near === null || d < near.d) near = { d, nx: n.nx, ny: n.ny };
   }
-  return near;
+  if (near === null || near.d >= hard) return near;
+  const len = Math.hypot(ex, ey);
+  // A degenerate resultant (two coasts pushing exactly opposite, i.e. a strait
+  // with no way out along the normals) keeps the closest coast's own normal —
+  // there is no better answer available, and it is what the old code always did.
+  return len > 1e-6 ? { d: near.d, nx: ex / len, ny: ey / len } : near;
+}
+
+/** Half the hull's length — the bow's reach from the point the router steers. */
+function halfLength(h: AmbientHull): number {
+  return CONFIG.shipClasses[h.cls].hull.length / 2;
 }
 
 /**
@@ -334,8 +372,9 @@ export function desiredHeading(h: AmbientHull, world: AmbientWorld, islands: rea
   const span = Math.max(1, (h.maxU - h.minU) / 2);
   const pull = Math.max(-1, Math.min(1, (r - mid) / span)) * A.bandGain;
   const acc: Steer = { x: -uy * h.spin - ux * pull, y: ux * h.spin - uy * pull };
-  const near = avoidCoast(acc, h.state, islands);
-  if (near !== null && near.d < A.avoidHardU) return Math.atan2(near.ny, near.nx);
+  const half = halfLength(h);
+  const near = avoidCoast(acc, h.state, half, islands);
+  if (near !== null && near.d < A.avoidHardU + half) return Math.atan2(near.ny, near.nx);
   return Math.atan2(acc.y, acc.x);
 }
 
