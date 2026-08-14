@@ -175,7 +175,7 @@ development_status:
   5-3-omniscient-reveal-results: done  # 2026-08-13 cycle 79 (0.17.79); PV 34; amendments 23-30; UX open question #25 closed
   5-4-fog-banks: backlog
   5-5-whirlpools: backlog
-  5-6-roving-pve-fleets: backlog
+  5-6-roving-pve-fleets: done  # 2026-08-14 cycle 80 (0.17.80); PV 34->35; amendments 32-41
   epic-5-retrospective: optional
 
   # epic-6: Honest Lobbies & Modes (GDD E5)

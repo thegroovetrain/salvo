@@ -1,14 +1,27 @@
 // Balance guardrails (HULLCRACKER_NOTES "PROBLEMS SO FAR"): no single hit may
-// ever kill an undamaged hull — now extended to MAX-STACKED catalog ladders
-// (Story 2.8: every damage ladder, fully stacked to its copy cap, stays under
-// the lightest hull on the water) — and a torpedo must always outrun every
-// hull. The TTK & Objective Pip Rebalance (Eric ruling 2026-08-03) moved class
-// hp onto the toughness ladder (TB 70→125, ML 105→150, BS 150→175), which
-// FLIPS the lightest-hull identity: the 80hp small drone is now the floor,
-// not the torpedoBoat (drones stay 80/100/120, unchanged). The star-shell
-// damage pins FLIPPED deliberately (amendment 39: the flare is damageless —
-// the CONFIG field is DELETED, not zeroed). Pure CONFIG/catalog pins — they
-// fail the moment a retune or a catalog step drifts across a line.
+// ever kill an undamaged PLAYER-PILOTED hull — extended to MAX-STACKED
+// catalog ladders (Story 2.8: every damage ladder, fully stacked to its copy
+// cap, stays under the lightest CLASS hull on the water) — and a torpedo must
+// always outrun every hull, drones included. The TTK & Objective Pip
+// Rebalance (Eric ruling 2026-08-03) moved class hp onto the toughness ladder
+// (TB 70→125, ML 105→150, BS 150→175).
+//
+// THE GUARDRAIL'S SCOPE NARROWS TO CLASS HULLS (Story 5.6, Eric rulings
+// 2026-08-14, amendments 32/33/37). Drones dropped 80/100/120 → 60/75/90 and
+// are no longer symmetric combatants a fill could hand a human — they are
+// roving PvE fleet content, explicitly designed as farmable fodder (amendment
+// 32: clearing one whole fleet solo is "43 gun hits... for 3 levels," and a
+// max-stacked triple-mount click one-shotting a small drone was ALREADY an
+// accepted consequence below, pre-dating this story). At 60hp a base cannon
+// (65) or base torpedo (70) now one-shots a small drone even unboosted — a
+// direct, foreseeable consequence of the hp cut that this guardrail would
+// otherwise block. Re-scoping it to CLASS hulls only (the actual "undamaged
+// PLAYER hull" the HULLCRACKER_NOTES problem was about) is the deliberate
+// fix; drone hp/damage values are still pinned below, just no longer wired
+// into the no-one-shot law. The star-shell damage pins FLIPPED deliberately
+// (amendment 39: the flare is damageless — the CONFIG field is DELETED, not
+// zeroed). Pure CONFIG/catalog pins — they fail the moment a retune or a
+// catalog step drifts across a line.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -22,7 +35,11 @@ import {
 
 const classHps = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp);
 const droneHps = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].hp);
-const minHullHp = Math.min(...classHps, ...droneHps);
+// The one-hit-kill LAW protects player-piloted CLASS hulls only (Story 5.6 —
+// see the file header). Drone hp is tracked separately below, deliberately
+// NOT folded into this floor.
+const minHullHp = Math.min(...classHps);
+const minDroneHp = Math.min(...droneHps);
 
 const classSpeeds = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].kinematics.maxSpeed);
 const droneSpeeds = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].kinematics.maxSpeed);
@@ -32,7 +49,7 @@ const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
 const stacked = (id: string, n = BOON_CATALOG[id].copies) =>
   effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(new Array<string>(n).fill(id)));
 
-describe('one-hit-kill guardrail — CONFIG bases (classes AND drones)', () => {
+describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, Story 5.6)', () => {
   it('gun burst / contact damage cannot one-hit the lightest hull; bodyblock is the lighter outcome', () => {
     expect(CONFIG.gun.damage).toBeLessThan(minHullHp);
     expect(CONFIG.gun.contactDamage).toBeLessThan(minHullHp);
@@ -50,42 +67,51 @@ describe('one-hit-kill guardrail — CONFIG bases (classes AND drones)', () => {
     expect(CONFIG.cannon.contactDamage).toBeLessThanOrEqual(CONFIG.cannon.damage);
   });
 
-  it('the lightest CLASS hull is the 125hp torpedoBoat; every drone is now LIGHTER than every class hull', () => {
+  it('the lightest CLASS hull is the 125hp torpedoBoat; drones sit BELOW it and are no longer floor-eligible', () => {
     // Objective toughness ladder (Eric ruling 2026-08-03) moved class hp onto
     // 100 + 25/pip: TB 125 (2 pips) is the lightest CLASS hull, below ML 150
     // (3 pips) and BS 175 (4 pips).
     expect(Math.min(...classHps)).toBe(125);
     expect(Math.min(...classHps)).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-    // Drones (80/100/120, byte-for-byte unchanged) are now ALL lighter than
-    // every pickable class hull — the small drone becomes the lightest hull
-    // on the water, a deliberate consequence of the ladder move, not a drone
-    // retune.
+    // Drones (60/75/90 — Story 5.6, amendment 33, was 80/100/120) are ALL
+    // lighter than every pickable class hull. Unlike before this story, that
+    // no longer makes the small drone "the lightest hull on the water" for
+    // GUARDRAIL purposes — fleet hulls are PvE fodder now (amendment 32) and
+    // are deliberately NOT protected by the one-hit-kill law. minHullHp is
+    // therefore the CLASS floor (125), not the drone floor (60).
     for (const droneHp of droneHps) {
       for (const classHp of classHps) {
         expect(droneHp).toBeLessThan(classHp);
       }
     }
-    expect(minHullHp).toBe(80);
-    expect(minHullHp).toBe(CONFIG.drones.small.hp);
+    expect(minHullHp).toBe(125);
+    expect(minDroneHp).toBe(60);
+    expect(minDroneHp).toBe(CONFIG.drones.small.hp);
   });
 });
 
-describe('one-hit-kill guardrail — the small drone (80hp) is the new floor (Eric ruling 2026-08-03)', () => {
-  it('no single weapon, even fully max-stacked, one-shots the 80hp small drone — the lightest hull afloat', () => {
-    // The objective toughness ladder made the small drone the lightest hull on
-    // the water (it was 70hp-TB-relative before). Re-pin the max-stacked
-    // ladder endpoints directly against CONFIG.drones.small.hp so this
-    // guardrail can never quietly regress if the generic minHullHp derivation
-    // changes shape.
-    expect(stacked('gunDamage').gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 30 < 80
-    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(CONFIG.drones.small.hp); // 75 < 80
-    expect(stacked('torpedoDamage').torpedo.damage).toBeLessThan(CONFIG.drones.small.hp); // 75 < 80
-    expect(stacked('mineDamage').mine.damage).toBeLessThan(CONFIG.drones.small.hp); // 75 < 80
+describe('the small drone (60hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 33)', () => {
+  it('the size-appropriate weapon (the fleet-clearing gun, amendment 32) still cannot one-shot even the smallest drone', () => {
+    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 15 < 60
+  });
+
+  it('heavier PLAYER weapons can now one-shot a small drone at BASE, and it is an accepted, foreseeable consequence — not a bug', () => {
+    // Amendment 33 cut small-drone hp 80 -> 60 without touching the
+    // player-combat damage ladders (unrelated systems). Cannon and torpedo
+    // already clear 60 at their unboosted base; mine does not at base but
+    // does once stacked. This is documented rather than silently allowed to
+    // drift: fleet hulls are farmable content (amendment 32's "farming
+    // roughly doubles your rate"), so a well-built captain one-shotting
+    // fodder is the intended feel, not a regression of player fairness.
+    expect(CONFIG.cannon.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 65 >= 60
+    expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 70 >= 60
+    expect(CONFIG.mine.damage).toBeLessThan(CONFIG.drones.small.hp); // 55 < 60, base mine still doesn't
+    expect(stacked('mineDamage').mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 75 >= 60, stacked mine does
   });
 });
 
-describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', () => {
-  it('every damage ladder, stacked to its copy cap, stays UNDER the 80hp lightest hull', () => {
+describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; player-classes-only scope per Story 5.6)', () => {
+  it('every damage ladder, stacked to its copy cap, stays UNDER the 125hp lightest CLASS hull', () => {
     // Computed FROM the catalog defs, so a step retune re-checks automatically.
     expect(stacked('gunDamage').gun.damage).toBeLessThan(minHullHp);
     expect(stacked('cannonDamage').cannon.damage).toBeLessThan(minHullHp);
@@ -119,11 +145,13 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', (
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
     // And this is the consequence Eric was shown and ACCEPTED: a fully
     // max-stacked triple mount whose three overlapping bursts all connect deals
-    // 90 and one-clicks an undamaged 80hp small drone. That is not a breach —
-    // it is three hits. No player hull falls to the SHELLS ALONE: the lightest
-    // is the 125hp Torpedo Boat, which takes 72%. Rejected alternatives (do not
-    // re-propose): falloff on later same-click hits, an aggregate cap below the
-    // floor, shrinking the HEAVY SHELLS step.
+    // 90 and one-clicks an undamaged 60hp small drone (was 80hp pre-Story-5.6;
+    // now ALSO breached at BASE by cannon/torpedo — see the dedicated small-
+    // drone describe above). That is not a breach — it is three hits. No
+    // player hull falls to the SHELLS ALONE: the lightest is the 125hp Torpedo
+    // Boat, which takes 72%. Rejected alternatives (do not re-propose):
+    // falloff on later same-click hits, an aggregate cap below the floor,
+    // shrinking the HEAVY SHELLS step.
     //
     // SCOPE, precisely: this bounds the click's GUN SHELLS and nothing else. A
     // burst also detonates the shooter's own armed mines inside burstRadius
@@ -131,8 +159,8 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', (
     // click walked over your own field can obviously exceed any hull's hp. That
     // is the minefield paying out, not the gun, and it is deliberately outside
     // this pin.
-    expect(perShell * barrels).toBeGreaterThan(minHullHp);
-    expect(perShell * barrels).toBeLessThan(Math.min(...classHps));
+    expect(perShell * barrels).toBeGreaterThan(minDroneHp);
+    expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 
   it('AP falloff can only DECREASE a hit: even the 100% first pierce obeys the max-stacked pin', () => {

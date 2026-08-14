@@ -231,19 +231,27 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   });
 });
 
-describe('closing-rate criterion (amendment 7) — pinned over committed CONFIG', () => {
-  it('worst-case escape per close = (1 + offsetCap) × max Δr ≤ a battleship-minute, ≈80%', () => {
+describe('closing-rate criterion (amendment 41, re-ratifying amendment 7) — pinned over committed CONFIG', () => {
+  it('worst-case escape per close = (1 + offsetCap) × max Δr ≈ 1.019 battleship-minutes', () => {
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);
     let maxDelta = 0;
     for (let g = 1; g < radii.length; g += 1) maxDelta = Math.max(maxDelta, radii[g - 1] - radii[g]);
     const worstEscape = (1 + CONFIG.zone.offsetCap) * maxDelta;
     const battleshipMinute =
       CONFIG.shipClasses.battleship.kinematics.maxSpeed * (CONFIG.zone.beatMs / 1000); // 2100u at the targets
-    expect(worstEscape).toBeLessThanOrEqual(battleshipMinute);
-    // The ratified target band: ≈80% of a battleship-minute ("neither dilly nor dally").
+    // `baseRadius` grew 2400 → 2800 (amendment 41) so a battleship caught at the
+    // worst possible position can no longer out-escape a close beat: it must run
+    // the ENTIRE beat at flank speed and still just misses safety, taking a bite
+    // of storm rather than dying. That is the forced-movement outcome Eric asked
+    // for ("the map is a little too small, so each stage doesn't force enough
+    // movement"), so the old `worstEscape <= battleshipMinute` ceiling is DELETED
+    // rather than widened — it is now deliberately, narrowly false. The ratified
+    // target band re-ratifies ≈1.019 (epic-5 amendment 41), replacing the old
+    // 0.75-0.85 ("neither dilly nor dally") band that this same radius change
+    // blew through.
     const fraction = worstEscape / battleshipMinute;
-    expect(fraction).toBeGreaterThan(0.75);
-    expect(fraction).toBeLessThan(0.85);
+    expect(fraction).toBeGreaterThan(1.0);
+    expect(fraction).toBeLessThan(1.05);
   });
 });
 

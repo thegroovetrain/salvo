@@ -98,7 +98,9 @@ describe('MAP_RULES pinning', () => {
 describe('mapRadius', () => {
   it('scales as base * sqrt(cap / capRef)', () => {
     expect(mapRadius(CONFIG.map.capRef)).toBeCloseTo(CONFIG.map.baseRadius);
-    expect(mapRadius(5)).toBeCloseTo(2400 * Math.sqrt(5 / 20));
+    // 2400 -> 2800 (Story 5.6, amendment 41): read off CONFIG rather than a
+    // second literal, so this pin can't itself go stale on the next retune.
+    expect(mapRadius(5)).toBeCloseTo(CONFIG.map.baseRadius * Math.sqrt(5 / 20));
   });
 });
 

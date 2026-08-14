@@ -1,12 +1,14 @@
 // Pins the shared loadout spine: the slot grammar constants, the
 // state-null-iff-equipmentId-null invariant, and the per-hull fit (Stories
-// 1.6–1.8). loadoutFor builds from a REAL effectiveStats() so pool sizes match
-// what the server writes on spawn/respawn/redeploy: the Torpedo Boat fits
-// [gun, torpedo, speedBoost, empty]; the Battleship fits
+// 1.6–1.8, 5.6). loadoutFor builds from a REAL effectiveStats() so pool sizes
+// match what the server writes on spawn/respawn/redeploy: the Torpedo Boat
+// fits [gun, torpedo, speedBoost, empty]; the Battleship fits
 // [gun, cannon, starShells, empty]; the Mine Layer fits
-// [gun, mine, decoyBuoy, empty] (Story 1.8); every drone keeps the universal
-// [gun, torpedo, mine, empty]. Also pins the EQUIPMENT_IS_WEAPON split — the
-// single source server rows and the client activation path read. Pure, zero I/O.
+// [gun, mine, decoyBuoy, empty] (Story 1.8); a PvE fleet hull fits
+// [gun, empty, empty, empty] (Story 5.6, amendment 33 — gun-only self-defence
+// fit, superseding the old universal [gun, torpedo, mine, empty]). Also pins
+// the EQUIPMENT_IS_WEAPON split — the single source server rows and the
+// client activation path read. Pure, zero I/O.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -34,12 +36,13 @@ function statsFor(id: HullId): EffectiveStats {
   return effectiveStats(hullEnvelope(id));
 }
 
-/** The two specials each hull id fits under the per-hull rule (1.6–1.8). */
+/** The two specials each PICKABLE class fits under the per-hull rule (1.6–1.8).
+ *  PvE fleet hulls fit no specials at all (amendment 33) and are excluded —
+ *  see the dedicated drone-fit assertions below. */
 function expectedSpecials(id: HullId): [EquipmentId, EquipmentId] {
   if (id === 'torpedoBoat') return ['torpedo', 'speedBoost'];
   if (id === 'battleship') return ['cannon', 'starShells'];
-  if (id === 'mineLayer') return ['mine', 'decoyBuoy'];
-  return ['torpedo', 'mine'];
+  return ['mine', 'decoyBuoy']; // mineLayer
 }
 
 describe('slot-grammar constants', () => {
@@ -109,16 +112,16 @@ describe('loadoutFor — the per-hull fit (Stories 1.6–1.7)', () => {
     expect(loadout[2].state).toEqual({ n: CONFIG.decoyBuoy.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('every drone keeps the universal [gun, torpedo, mine, empty] (unchanged by 1.8)', () => {
+  it('every PvE fleet hull fits gun-only [gun, empty, empty, empty] (Story 5.6, amendment 33 — was the universal [gun, torpedo, mine, empty])', () => {
     for (const id of HULL_IDS) {
       if (id === 'torpedoBoat' || id === 'battleship' || id === 'mineLayer') continue;
       const loadout = loadoutFor(id, statsFor(id));
-      expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'mine', null]);
+      expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', null, null, null]);
     }
   });
 
-  it('the specials match the per-hull rule on every hull id — with class-correct pools', () => {
-    for (const id of HULL_IDS) {
+  it('the specials match the per-hull rule on every PICKABLE class — with class-correct pools', () => {
+    for (const id of SHIP_CLASS_IDS) {
       const stats = statsFor(id);
       const loadout = loadoutFor(id, stats);
       const [slotOne, slotTwo] = expectedSpecials(id);
