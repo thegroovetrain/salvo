@@ -75,4 +75,16 @@ describe('pickTagline — deterministic draw', () => {
       expect(HOME_TAGLINES).toContain(pickTagline());
     }
   });
+
+  // Review gate (cycle 85, flagged by both reviewers). No production caller can
+  // reach these — makeWordmark() passes the default Math.random — but the
+  // export is annotated `: string`, and an unguarded malformed RNG returned
+  // `undefined`, which would paint an empty tagline rather than fail loudly.
+  it('never returns undefined for a malformed injected rand', () => {
+    for (const bad of [NaN, -0.01, -1, -Infinity, Infinity, 2]) {
+      const line = pickTagline(() => bad);
+      expect(typeof line).toBe('string');
+      expect(HOME_TAGLINES).toContain(line);
+    }
+  });
 });

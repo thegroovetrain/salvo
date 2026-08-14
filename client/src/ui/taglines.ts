@@ -34,10 +34,18 @@ export const HOME_TAGLINES: readonly string[] = Object.freeze([
 /**
  * Draw uniformly from HOME_TAGLINES. `rand` is injectable (default
  * Math.random — legal here, this is DOM chrome, not sim code) so tests are
- * deterministic. Clamped so a degenerate rand() === 1 returns the last entry
- * rather than indexing past the array (undefined).
+ * deterministic. For rand() in [0,1) the draw is exactly uniform: each index k
+ * owns the bin [k/20, (k+1)/20).
+ *
+ * The index is clamped into range on BOTH sides, and non-finite draws fall back
+ * to the first entry. Review gate (cycle 85): the only production caller passes
+ * the default Math.random, so no live path can reach the degenerate cases — but
+ * this function is exported and annotated `: string`, and an unguarded
+ * NaN/negative draw would hand back `undefined` in violation of its own return
+ * type. Cheap to make honest, so it is.
  */
 export function pickTagline(rand: () => number = Math.random): string {
-  const idx = Math.min(HOME_TAGLINES.length - 1, Math.floor(rand() * HOME_TAGLINES.length));
+  const raw = Math.floor(rand() * HOME_TAGLINES.length);
+  const idx = Number.isFinite(raw) ? Math.min(HOME_TAGLINES.length - 1, Math.max(0, raw)) : 0;
   return HOME_TAGLINES[idx];
 }

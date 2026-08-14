@@ -2,7 +2,7 @@
 title: 'Home Tagline — a random nautical pun replaces LAST HULL FLOATING WINS'
 type: 'chore'
 created: '2026-08-14'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: 'f5d705de2e7d09917d342af7a0f6b705834160aa'
 final_revision: ''
 review_loop_iteration: 0
@@ -195,3 +195,37 @@ entry to `deferred-work.md`.
 - `npm run check` green — all existing tests plus the new ones.
 - The change is client-only: `git diff --stat` touches no `shared/` or `server/` file, and
   `PROTOCOL_VERSION` is unchanged at 36.
+
+## Auto Run Result
+
+Status: **done**. `npm run check` exit 0 — lint 0 errors (2 pre-existing warnings:
+`buildGame`, `openClassSelect` line counts), 4465 tests green (shared 740 / server 1148 /
+client 2577).
+
+### Review gate — Fable adversarial + Codex cross-model, same commit, both **build-on-it**
+
+**Both models flagged one thing** (Codex CONFIRMED, Fable raised then dropped as
+unreachable): `pickTagline` clamped only the upper bound, so a malformed injected RNG
+(`NaN`, negative, `-Infinity`) indexed off the array and returned `undefined` — a violation
+of the function's own `: string` annotation. No production path could reach it (the sole
+caller passes the default `Math.random`), but the export is public. FIXED: the index is now
+clamped on both sides with a non-finite fallback to entry 0. The regression test was proven
+to fail without the fix (`expected 'undefined' to be 'string'`) and pass with it.
+
+**Fable alone raised, orchestrator confirmed against the code — PLAUSIBLE, intent-level,
+routed to the ledger rather than fixed:** ruling 3's stated justification ("HOW TO PLAY
+carries the rule now") is FALSE — that control paints the stub `FIELD MANUAL ARRIVES IN A
+LATER REFIT`. The win condition is now stated nowhere a new player can read it. The
+implementation enacts Eric's explicit ruling faithfully, so nothing in this cycle changes;
+the ruling deserves re-putting on a corrected premise. Full entry in `deferred-work.md`.
+
+**Independently verified clean by both:** draw uniformity over the 20 bins; `Object.freeze`
+immutability (ES-module strict mode makes mutation throw); the new `home.test.ts` pin is
+non-vacuous and can genuinely fail; `results.ts:159`'s `LAST HULL FLOATING — YOU WON` win
+banner untouched; VERSION / package.json / package-lock.json all 0.17.85; no `shared/` or
+`server/` file moved and `PROTOCOL_VERSION` still 36. Fable additionally established that
+the `<=28` character pin IS a rendered-width pin here because the `label` register is
+MONOSPACE — worst case ~495px against a 1366px floor, so amendment 47 is not threatened.
+
+Incidental: the lockfile had been stale at 0.17.79 since cycle 79; it is synced to 0.17.85
+here (version string only, no dependency-tree change).
