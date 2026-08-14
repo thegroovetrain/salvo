@@ -210,10 +210,30 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean 
  * dazzle factor enters perception — every sight-tier predicate below calls
  * this, so a NON-dazzled observer's numbers are bit-identical to pre-2.8.
  */
-function sightOf(me: ShipRecord, now: number): number {
+export function sightOf(me: ShipRecord, now: number): number {
   return now < me.dazzledUntil
     ? me.stats.sightRange * CONFIG.starShells.dazzleSightFactor
     : me.stats.sightRange;
+}
+
+/**
+ * "Can `me` see `other`'s hull centre right now?" — the contact row's own
+ * predicate, minus the lit-zone term, hoisted for reuse by the PvE fleet AI
+ * (Story 5.6). Exported deliberately rather than re-derived there: a second
+ * hand-rolled copy of the sight tier is exactly the desync class this file
+ * exists to prevent, and `observe()` is the wrong tool for a fleet ship (it is
+ * eight full scans, it allocates a SignalContext, and it MUTATES observer
+ * state — seenBallistics/torpDirs — so it cannot be called speculatively).
+ *
+ * The lit-zone term is deliberately absent: a star shell is a captain's tool
+ * for revealing hulls to CAPTAINS, and letting it also hand the AI free vision
+ * would make firing one actively dangerous in a way nobody ruled on.
+ */
+export function shipSees(me: ShipRecord, other: ShipRecord, islands: readonly Island[], now: number): boolean {
+  const dx = other.state.x - me.state.x;
+  const dy = other.state.y - me.state.y;
+  const sight = sightOf(me, now);
+  return dx * dx + dy * dy <= sight * sight && losClear(me.state, other.state, islands);
 }
 
 /** Sight-tier test for a point: within the OBSERVER'S effective sight range

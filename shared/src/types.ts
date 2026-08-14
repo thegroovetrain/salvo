@@ -357,6 +357,25 @@ export interface Contact {
    * are never a class YOU can be.
    */
   cls: HullId;
+  /**
+   * SELF-PRIVATE aggro mark (Story 5.6, epic-5 amendment 39). Present and
+   * `true` ONLY when this contact is a PvE fleet ship that has acquired THE
+   * OBSERVER RECEIVING THIS FRAME; omitted entirely in every other case,
+   * including for other observers watching the same hull and for spectators.
+   *
+   * WHY THIS NEEDS NO SEVENTH PERCEPTION EXCEPTION: it is an extra attribute
+   * on a contact the observer can ALREADY see (the row only exists because
+   * `contactSignal.visible` passed), so it widens no spatial disclosure — it
+   * is the `sinkingUntil`/`slowedUntil` shape applied to a Contact instead of
+   * to `you`. It is also unforgeable intent rather than derived state: a
+   * client cannot compute it, which is exactly why Eric's *"very visually
+   * obvious that a PvE ship has aggro'd you"* needs a field at all.
+   *
+   * Appended LAST and optional so the historical key order stays byte-stable;
+   * `spectator.test.ts`'s exact Contact key-set assertion (epic-5 amendment
+   * 19) is updated deliberately alongside it.
+   */
+  aggro?: true;
 }
 
 // --- GameEvent union (discriminated on `k`) --------------------------------
