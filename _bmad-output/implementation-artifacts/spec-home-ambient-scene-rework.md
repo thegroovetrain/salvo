@@ -5,6 +5,7 @@ created: '2026-08-14'
 status: 'done'
 baseline_revision: '45ce489be9c6b4573af82b73e050fa07956118f5'
 review_loop_iteration: 0
+final_revision: '2719706'
 followup_review_recommended: true
 context: ['{project-root}/_bmad-output/project-context.md']
 warnings: ['oversized']
