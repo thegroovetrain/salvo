@@ -53,7 +53,7 @@ import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
-import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
+import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
 import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
@@ -1377,6 +1377,38 @@ function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: str
 }
 
 /**
+ * THE VICTIM'S NAME, in its full four-step resolution order (Eric ruling
+ * 2026-08-14). This is the ONE place that holds both the event and the client's
+ * own knowledge, so it is the only place the order can live:
+ *
+ *   1. `e.vcls` — the SIZED fleet name (`SMALL DRONE`). Present only on the
+ *      credited killer's copy of the row, which is exactly the case the client
+ *      could never answer for itself: you can mine a hull you never saw. It
+ *      OUTRANKS everything because *the size is the payout* and the moment of
+ *      the kill is when the player wants it. A captain victim carries a `vcls`
+ *      that is not a fleet hull, so `fleetSizeName` returns null and the roster
+ *      callsign still wins — this cannot rename a human.
+ *   2. the HULL MEMO — plain `DRONE`, for a fleet sinking we WITNESSED but were
+ *      not credited with (no `vcls`), on a hull that may already have aged out
+ *      of the contact set. Inside `deps.names` (main.ts `feedName`).
+ *   3. the roster CALLSIGN — every captain, also inside `deps.names`.
+ *   4. `UNKNOWN_VESSEL` — now genuinely unreachable for our OWN kills, and still
+ *      correct for a hull that is neither ours nor ever seen. Never a raw
+ *      session id: a global feed would print transport plumbing to every client.
+ */
+function victimNameRef(e: SunkEvent, deps: RoomBindingDeps): { name: string; id: string } {
+  return { name: fleetSizeName(e.vcls) ?? deps.names(e.id) ?? UNKNOWN_VESSEL, id: e.id };
+}
+
+/** The line's colour resolver. A victim named from `vcls` is by definition one
+ *  the roster and contact set both miss, so the ordinary id lookup would resolve
+ *  null and render the drone in plain body text; pin it. Every other id — the
+ *  killer's included — still goes through the shipped resolver untouched. */
+function sunkColors(e: SunkEvent, deps: RoomBindingDeps): (id: string) => number | null {
+  return fleetSizeName(e.vcls) === null ? deps.colors : pinDroneColor(e.id, deps.colors);
+}
+
+/**
  * A hull went down — the IDENTITY half of it, which lands NOW.
  *
  * THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
@@ -1426,9 +1458,10 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
   const pos = sunkPosition(e.id, deps);
   // feedNameRef: a roster miss renders the neutral UNKNOWN_VESSEL label,
   // never the raw session id — a global feed puts this line in front of
-  // EVERY client.
+  // EVERY client. The VICTIM runs the wider four-step order (victimNameRef),
+  // because only the victim can be a fleet hull the wire has just named for us.
   const killer = e.by ? feedNameRef(e.by, deps) : null;
-  const victim = feedNameRef(e.id, deps);
+  const victim = victimNameRef(e, deps);
   // THE KILL LEADER'S MARK (Story 4.6, 2026-08-10 rework): `bty` is the
   // server's PRE-SINK truth — which participant held the throne at the
   // instant of sinking ('v' victim, 'k' killer). It is taken verbatim and
@@ -1439,7 +1472,7 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
   // CLAIMED/LIFTED trailing connectives carried a paid/unpaid distinction the
   // grammar no longer has.
   const line = e.bty ? bountyKillLine(victim, killer, e.bty) : killLine(victim, killer);
-  pushKillLine(line, deps.colors);
+  pushKillLine(line, sunkColors(e, deps));
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the
   // SAME observed sinking the kill feed does — no new wire data.

@@ -954,23 +954,36 @@ function rosterColor(g: Game, id: string): number | null {
  * function is where the remaining channel is centralised so no call site has to
  * know that history.
  *
- * KNOWN LIMIT, and it is the honest consequence of having one channel instead of
- * two: `ContactStore` drops a contact's class entry when it prunes the contact,
- * so a fleet hull we NEVER saw (a mine trip or a blind snipe out in the fog)
- * answers `false` here. Everything that matters degrades safely — such a victim
- * also has no roster callsign, so it is already excluded from `SHIPS YOU SANK`
- * and from the MATCH LOG by the name test — and the only visible effect is the
- * kill-feed line reading the neutral `UNKNOWN VESSEL` instead of `DRONE`.
+ * IT READS THE HULL MEMO, NOT THE LIVE CONTACT (Story 5.6 follow-up ruling).
+ * `classOf` goes undefined the tick a contact is pruned, which made a fleet hull
+ * you sailed past and then MINED unidentifiable — and that is a Mine Layer's
+ * ordinary playstyle rather than an edge case. `everSeenClassOf` remembers what
+ * we actually observed and never forgets it; see its own note in
+ * net/snapshots.ts for why this asserts nothing we did not see, and for the two
+ * things it deliberately still refuses to guess.
+ *
+ * IT IS THE SECOND ANSWER, NOT THE FIRST (Eric ruling 2026-08-14). For OUR OWN
+ * kills the wire now names the victim outright — `SunkEvent.vcls` — and carries
+ * the SIZE with it, because *the size is the payout*. The memo keeps the case
+ * `vcls` cannot reach: a fleet sinking we WITNESSED but were not credited with.
+ * A hull that is neither our kill nor ever seen still answers `false`, and its
+ * line still reads `UNKNOWN VESSEL` — we genuinely do not know what it was.
  */
 function isDroneId(g: Game, id: string): boolean {
-  const hull = g.contacts.classOf(id);
+  const hull = g.contacts.everSeenClassOf(id);
   return hull !== undefined && isDroneHull(hull);
 }
 
 /** Kill-feed name for a vessel id: a fleet hull is the literal `DRONE` (the
  *  nameplate's own precedent — amendment 38: *"a fleet sinking reads DRONE,
  *  never DRONE-07"*), everyone else the synced roster callsign or null (the feed
- *  then prints its neutral UNKNOWN_VESSEL label). */
+ *  then prints its neutral UNKNOWN_VESSEL label). The hull half comes from the
+ *  memo, so a trap sprung long after the target aged out of sight still names it.
+ *
+ *  STEPS 2-3 OF THE VICTIM'S RESOLUTION ORDER. Step 1 is `SunkEvent.vcls`, which
+ *  outranks this and carries the SIZE (`SMALL DRONE`); step 4 is the feed's
+ *  `UNKNOWN VESSEL`. Both live at the one place that holds the event —
+ *  net/roomBindings.ts `victimNameRef`. */
 function feedName(g: Game, id: string): string | null {
   return isDroneId(g, id) ? DRONE_PLATE_TEXT : rosterNameOrNull(g, id);
 }

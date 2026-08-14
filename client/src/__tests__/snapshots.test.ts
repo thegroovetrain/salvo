@@ -138,6 +138,19 @@ describe('ContactStore lifecycle', () => {
     expect(store.aggroOf('nobody')).toBe(false);
   });
 
+  it('remembers every hull id it has EVER seen, and never forgets on prune', () => {
+    const store = new ContactStore();
+    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneLarge' }]);
+    expect(store.everSeenClassOf('d')).toBe('droneLarge');
+    store.prune(1000, 100);
+    // `classOf` forgets (it answers "what am I holding?"); the memo does not
+    // (it answers "what was that thing?").
+    expect(store.classOf('d')).toBeUndefined();
+    expect(store.everSeenClassOf('d')).toBe('droneLarge');
+    // Never seen at all is still undefined — the memo invents nothing.
+    expect(store.everSeenClassOf('ghost')).toBeUndefined();
+  });
+
   it('drops the aggro mark on prune, so a fading ghost cannot hold a bracket', () => {
     const store = new ContactStore();
     store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneLarge', aggro: true }]);
@@ -164,3 +177,4 @@ describe('ContactStore lifecycle', () => {
     expect(store.get('a')!.sampleAt(100)!.x).toBe(500); // clamps to new spawn
   });
 });
+
