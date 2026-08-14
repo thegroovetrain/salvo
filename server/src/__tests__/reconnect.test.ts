@@ -49,7 +49,6 @@ function setup(ids: string[]): Harness {
   const hooks: MatchHooks = {
     lock: () => calls.push('lock'),
     unlock: () => calls.push('unlock'),
-    fillToCapacity: () => calls.push('fill'),
     broadcastResults: () => calls.push('results'),
     disconnect: () => calls.push('disconnect'),
   };

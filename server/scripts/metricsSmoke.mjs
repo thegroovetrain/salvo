@@ -27,18 +27,19 @@
 //      noise is fine and filtered out by prefix).
 //
 // MATCH-DRIVING STRATEGY (why it's deterministic): since amendment 4 (Eric
-// ruling 2026-08-11) checkWin() counts CAPTAINS ONLY — drones no longer gate the
-// win — so it finishes as soon as at most one captain is afloat. With 2 humans +
-// fill drones the finish is one consented leave: A leaves (recorded
-// sunk-at-leave) → B is the only afloat captain → finish, winner = B, ALIVE,
-// with every fill drone still sailing. B then leaves into the results window,
-// which must NOT produce a second match.end (proof #5a pins exactly one).
-// This needs no weapons hits, no storm timing, and no drone attrition — the
-// consented leaves are the entire choreography.
+// ruling 2026-08-11) checkWin() counts CAPTAINS ONLY, so the match finishes as
+// soon as at most one captain is afloat. The finish is one consented leave: A
+// leaves (recorded sunk-at-leave) → B is the only afloat captain → finish,
+// winner = B, ALIVE. B then leaves into the results window, which must NOT
+// produce a second match.end (proof #5a pins exactly one). This needs no
+// weapons hits and no storm timing — the consented leaves are the entire
+// choreography.
 //
-// This smoke previously drove the finish with BOTH leaves, because a lone human
-// with drones afloat could not win; the assertion set is unchanged, only the
-// tick at which the finish lands (and the winner: B alive, not B latest-sunk).
+// Story 5.6 (amendment 40) DELETED the match-start drone fill outright, so the
+// ocean this smoke drives is now genuinely just its two captains — rosterSize 2
+// where it used to be CONFIG.match.fillTo. Nothing in the choreography or the
+// assertion set moved: the fill was never what decided the finish (amendment 4
+// had already taken that away), it was only extra hulls on the water.
 //
 // Then kills its own server process group and verifies port 2631 is free — a
 // leaked listener FAILS the smoke (nonzero exit), it doesn't just warn.
@@ -319,8 +320,7 @@ async function main() {
     // winnerClass can be checked against the captain we know actually won.
     assert(b.you && typeof b.you.cls === 'string', 'no `you` frame for B before the finish');
     const bClass = b.you.cls;
-    // A leaves: B is the only afloat CAPTAIN (the fill drones are all still
-    // afloat and no longer gate the win, amendment 4) -> Match.finish() ->
+    // A leaves: B is the only afloat CAPTAIN -> Match.finish() ->
     // broadcastResults -> match.end, with B the ALIVE winner.
     await a.room.leave();
     // Give the finishing tick + its synchronous log line time to flush to stdout.
@@ -338,8 +338,8 @@ async function main() {
 
     // --- proof #5: captured-stdout assertions -------------------------------
     const endFields = proveMatchEndLine();
-    // The winner is B, alive, so winnerClass must be B's hull class (amendment
-    // 4: A's departure decided it, with drones still afloat).
+    // The winner is B, alive, so winnerClass must be B's hull class
+    // (amendment 4: A's departure decided it).
     assert(
       endFields.winnerClass === bClass,
       `match.end winnerClass=${endFields.winnerClass}, expected B's hull ${bClass}`,

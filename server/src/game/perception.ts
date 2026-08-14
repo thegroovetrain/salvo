@@ -74,6 +74,8 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     radarGrammar: world.radarGrammar,
     radarIdentity: world.radarIdentity,
     pseudonymOf: (id: string) => world.pseudonymFor(id),
+    // Story 5.6 (amendment 39): the self-private aggro mark's ONE input.
+    aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
   };
 }
 
@@ -100,6 +102,10 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     radarGrammar: world.radarGrammar,
     radarIdentity: world.radarIdentity,
     pseudonymOf: (id: string) => world.pseudonymFor(id),
+    // Story 5.6 (amendment 39): DEAD on this path — the contact row refuses
+    // the aggro mark for `mode: 'spectator'` before it ever asks. It rides
+    // uniformly so the context stays one shape (the radarGrammar posture).
+    aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
   };
 }
 

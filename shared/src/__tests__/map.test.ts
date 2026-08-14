@@ -527,9 +527,31 @@ describe('generation-time guard', () => {
     const t0 = performance.now();
     generateMap(4242, 20);
     const elapsed = performance.now() - t0;
-    // Prototype: 38ms server / 44ms client. Generous CI headroom; the real
-    // number is reported in the wave report.
-    expect(elapsed).toBeLessThan(250);
+    // Prototype: 38ms server / 44ms client.
+    //
+    // RE-BASED 250 → 500 by Story 5.6 (amendment 41 grew the board 2400 →
+    // 2800). Measured rather than guessed, because a perf budget moved without
+    // evidence is just a number that stops meaning anything:
+    //
+    //   warm, this seed, solo:   2400u  77ms  ->  2800u  117ms   (1.52x)
+    //   warm, 7 seeds, solo:     ratio 1.22-1.52x, median ~1.44x
+    //
+    // which tracks the 1.36x AREA ratio — generation is O(r^2) in the height
+    // field, so this is the expected cost of the bigger ocean and not a
+    // regression in the generator.
+    //
+    // WHY THE HEADROOM IS SO WIDE, and why it was already wide before: this
+    // guard measures MACHINE CONTENTION as much as code. The same call cold in
+    // a bare node process measures ~590ms at the OLD radius and ~820ms at the
+    // new one (JIT of the whole generation path, which does not scale with
+    // radius at all); inside vitest it is warm by the time it runs — the
+    // 100-map sweep above sees to that — but it still read 400ms under the
+    // full parallel suite, against 117ms solo. So the old 250 was already
+    // marginal and would have flaked on a loaded machine at the old radius
+    // too. 500 keeps the guard catching what it is actually for — an
+    // order-of-magnitude regression in the generator — without failing the
+    // build because three workspaces happened to run their suites at once.
+    expect(elapsed).toBeLessThan(500);
   });
 });
 

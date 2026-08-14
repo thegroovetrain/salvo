@@ -310,7 +310,20 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     // contact — only the sunk vanish. And amendment 16: the contact shape
     // must disclose NOTHING about the window, so pin the exact key set.
     expect(isAfloat(target.lifecycle) || isSinking(target.lifecycle)).toBe(true);
-    expect(Object.keys(c).sort()).toEqual(['cls', 'heading', 'id', 'speed', 'x', 'y']);
+    // THE EXACT CONTACT KEY SET, updated deliberately for Story 5.6 (epic-5
+    // amendment 39). `aggro` is the ONE optional key a contact may now carry,
+    // and only when it is a PvE fleet hull that has acquired THIS observer —
+    // so a contact that is not a fleet hull hunting `me` must still be
+    // byte-identical to the shipped six. Both shapes are enumerated rather
+    // than allowed loosely: a stray seventh key still fails.
+    const keys = Object.keys(c).sort();
+    if (c.aggro === undefined) {
+      expect(keys).toEqual(['cls', 'heading', 'id', 'speed', 'x', 'y']);
+    } else {
+      expect(keys).toEqual(['aggro', 'cls', 'heading', 'id', 'speed', 'x', 'y']);
+      expect(c.aggro).toBe(true); // never `false` — omitted is the negative
+      expect(w.drones.isTargeting(c.id, me.id)).toBe(true); // the independent oracle
+    }
     expect(c.id).not.toBe(me.id);
     expect(sighted(w, me, target.state)).toBe(true);
   }
@@ -371,6 +384,12 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       if (e.seen !== undefined) {
         expect(e.seen).toBe(true);
         expect(witnessed).toBe(true);
+      }
+      // `vcls` (Story 5.6, amendment 42): the victim's hull id, to the
+      // CREDITED KILLER alone. A witness who did not fire never gets it.
+      if (e.vcls !== undefined) {
+        expect(e.by).toBe(me.id);
+        expect(e.vcls).toBe(wreck.hullId);
       }
       return;
     }

@@ -194,9 +194,13 @@ describe('buildFrame — events (fogged via perception)', () => {
     w.sinkShip('b', 'a');
     w.step();
     const seen = { k: 'sunk', id: 'b', by: 'a', seen: true };
+    // The KILLER's row additionally carries `vcls` (Story 5.6, amendment 42):
+    // the victim's hull id, to the credited killer alone. Everyone else's row
+    // — witness or public — is the shipped shape, byte for byte.
+    const killerRow = { ...seen, vcls: 'torpedoBoat' };
     // The killer additionally gets its self-private banked-point pt event.
     const aEvents = buildFrame(w, 'a').events;
-    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([seen]); // wreck 100u away — witnessed
+    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([killerRow]); // wreck 100u away — witnessed
     expect(aEvents.filter((e) => e.k === 'pt')).toEqual([{ k: 'pt', id: 'a' }]);
     expect(buildFrame(w, 'b').events).toEqual([seen]); // victim always told (own hull ⇒ seen), never the killer's point
     // The public register: c never saw the wreck — the feed line's identity

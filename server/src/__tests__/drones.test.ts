@@ -1,16 +1,41 @@
-// Target-drone controller (game/drones.ts) + the drone-aware match win check
-// (game/match.ts). Drones are ordinary ships driven only through the normal
-// input path: the controller submits a sanitized InputMsg per drone per tick and
-// NEVER fires. Steering is dumb-but-safe: waypoint sailing with island/boundary
-// avoidance and a zone-recovery override. On the match side (amendment 4, Eric
-// ruling 2026-08-11): DRONES NO LONGER GATE THE WIN — a lone afloat captain wins
-// immediately however many drones are still sailing — while two afloat captains
-// keep fighting through a full drone fill, and a drone can never win. Drones are
-// also absent from the RESULTS entirely (Eric ruling 2026-08-11, superseding
-// amendment 8): no row, no placement — the table is captains only.
+// PvE FLEET CONTROLLER (game/drones.ts) + the wave scheduler (world.ts) +
+// the match-side rules that changed with them (Story 5.6, epic-5 amendments
+// 32-40, all Eric rulings 2026-08-14).
+//
+// What this suite pins, in the order the story rules it:
+//   * inputs are STILL the only interface — but the hulls are ARMED now, so
+//     the retired controller's "fireSeq can never advance" guarantee is
+//     replaced by explicit coverage of WHEN it may advance and when it may not
+//     (no target => never; acquired but blind => never);
+//   * WAVES: timing off the ZONE clock, exact composition (2 large + 3 medium
+//     + 4 small = 9 hulls, exactly 3.000 levels), and the anchor rule —
+//     outside every captain's intel disc, retried, then a LOGGED max-min
+//     fallback so the wave always arrives (amendment 36);
+//   * SELF-DEFENCE: a hit acquires the attacker, the witness sweep is
+//     evaluated ONCE at that instant (a hull that gains LOS later never
+//     joins), a MINE never aggros, memory expires at CONFIG.fleet.memoryMs,
+//     and fleet ships never damage each other (amendments 34/35);
+//   * ACCOUNTING: a PvE kill pays XP and fires `sunk`, but advances no tally
+//     and never moves the throne (amendment 37);
+//   * THE FILL IS GONE: a match activates with nothing but its captains
+//     (amendment 40), and drones still cannot win.
+//
+// The self-private `Contact.aggro` mark (amendment 39) is covered in
+// perception.test.ts, beside the invariant oracles it must not widen.
 
-import { describe, it, expect } from 'vitest';
-import { CONFIG, dist, isAfloat, pointPolygonDistance, type ZoneTimeline } from '@salvo/shared';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  CONFIG,
+  DEFAULT_HORN_ID,
+  dist,
+  droneHullOf,
+  fleetHullIds,
+  fleetLevels,
+  isAfloat,
+  pointPolygonDistance,
+  type DroneSizeId,
+  type ZoneTimeline,
+} from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { circleIsland } from './islandFixture.js';
@@ -19,118 +44,161 @@ const DT = CONFIG.tick.simDtMs;
 // One sinking window in ticks: since the amendment-17 REVERSAL (Eric veto
 // 2026-08-12) a terminal captain SINK holds the match open for the dying
 // hull's window, so the sunk-out finishes below step a window before their
-// finish assertions. Drone sinks never hold — that stays pinned here.
+// finish assertions. Fleet sinks never hold — that stays pinned here.
 const SINK_TICKS = CONFIG.ship.sinkingWindowMs / DT;
 
 /** A bare, island-free world unless the test adds islands back. */
 function bareWorld(seed = 1, zone: ZoneTimeline = CONFIG.zone): World {
-  const w = new World(seed, CONFIG.match.fillTo, zone);
+  const w = new World(seed, CONFIG.map.playerCap, zone);
   w.map.islands.length = 0;
   return w;
 }
 
-function addDrone(w: World, id: string): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), true);
+/**
+ * Register ONE fleet hull by hand at an exact position — the public seam the
+ * wave spawner itself uses (World.addShip with `at`, then
+ * FleetController.add). Behaviour tests want a pinned geometry, not a rolled
+ * anchor; the wave tests below drive the real scheduler instead.
+ */
+function fleetShip(w: World, id: string, size: DroneSizeId, x: number, y: number, fleetId = 1): ShipRecord {
+  const rec = w.addShip(id, 'DRONE', true, droneHullOf(size), DEFAULT_HORN_ID, { x, y });
+  w.drones.add(id, size, fleetId, { x: 0, y: 0 });
+  return rec;
+}
+
+function captain(w: World, id: string, x = 0, y = 0): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), false, 'torpedoBoat', DEFAULT_HORN_ID, { x, y });
+  return rec;
 }
 
 function centerDist(s: ShipRecord): number {
   return Math.hypot(s.state.x, s.state.y);
 }
 
-describe('drones — inputs are the only interface', () => {
-  it('never emits a click (fireSeq stays 0), always aim=0 / aimDist=0 / slot=0, over 1000 ticks', () => {
+/** Every fleet hull currently in the world. */
+function fleetHulls(w: World): ShipRecord[] {
+  return [...w.ships.values()].filter((s) => s.isDrone);
+}
+
+describe('fleet hulls — inputs are the only interface', () => {
+  it('a hull with NO target never clicks, and aims at nothing, over 1000 ticks', () => {
     const w = bareWorld(7);
-    const ids = ['d1', 'd2', 'd3'];
-    for (const id of ids) addDrone(w, id);
+    const ids = ['f1', 'f2', 'f3'];
+    ids.forEach((id, i) => fleetShip(w, id, 'medium', i * 200, 0));
     for (let t = 0; t < 1000; t++) {
       w.step();
       for (const id of ids) {
         const inp = w.inputs.get(id);
         expect(inp).toBeDefined();
-        expect(inp!.fireSeq).toBe(0);
+        expect(inp!.fireSeq).toBe(0); // wantsShot() is the ONLY trigger, and it needs a target
         expect(inp!.aimDist).toBe(0);
         expect(inp!.aim).toBe(0);
-        expect(inp!.slot).toBe(0);
+        expect(inp!.slot).toBe(0); // the gun — the only weapon a fleet hull fits
       }
     }
-    // Structural corollary: with no human firing, no drone ever spawns ordnance.
+    // Structural corollary: an un-aggroed fleet spawns no ordnance at all.
     expect(w.shells.size).toBe(0);
     expect(w.mines.size).toBe(0);
   });
 
+  it('never activates an ability or honks — actSeq/actSlot/hornSeq are structurally constant', () => {
+    const w = bareWorld(7);
+    const f1 = fleetShip(w, 'f1', 'large', 0, 0);
+    captain(w, 'cap', 100, 0);
+    shellHit(w, f1, 'cap'); // aggro it, so the hull is in its BUSIEST state
+    for (let t = 0; t < 50; t++) {
+      w.step();
+      const inp = w.inputs.get('f1')!;
+      expect(inp.actSeq).toBe(0);
+      expect(inp.actSlot).toBe(0);
+      expect(inp.hornSeq).toBe(0);
+      expect(inp.fireT).toBe(0); // the no-claim sentinel: a server shooter never back-dates
+    }
+  });
+
   it('drives ships through submitInput (ack seq advances, ship actually moves)', () => {
     const w = bareWorld(3);
-    const d = addDrone(w, 'd');
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
     const start = { x: d.state.x, y: d.state.y };
     for (let t = 0; t < 40; t++) w.step();
     expect(d.lastAckSeq).toBeGreaterThan(0);
     expect(dist(d.state, start)).toBeGreaterThan(10); // it sailed somewhere
   });
 
-  it('a dead drone submits no input (idles until removed/respawned)', () => {
+  it('a dead fleet hull submits no input (idles until removed)', () => {
     const w = bareWorld(5);
-    addDrone(w, 'd');
+    fleetShip(w, 'f', 'small', 0, 0);
     w.step();
-    const seqAlive = w.inputs.get('d')!.seq;
-    w.sinkShip('d');
-    // While dead (respawn pending) the controller submits nothing new.
+    const seqAlive = w.inputs.get('f')!.seq;
+    w.sinkShip('f');
     for (let t = 0; t < 3; t++) w.step();
-    expect(w.inputs.get('d')!.seq).toBe(seqAlive);
+    expect(w.inputs.get('f')!.seq).toBe(seqAlive);
   });
 });
 
-describe('drones — waypoint sailing', () => {
-  it('reaches its waypoint neighborhood and retargets to a new one', () => {
+describe('fleet hulls — roving', () => {
+  it('reaches its fleet waypoint neighbourhood and retargets to a new one', () => {
     const w = bareWorld(11);
-    const d = addDrone(w, 'd');
+    fleetShip(w, 'f', 'medium', 0, 0);
+    const d = w.ships.get('f')!;
     w.step(); // controller picks the first waypoint
-    const first = w.drones.waypointOf('d');
-    expect(first).not.toBeNull();
+    expect(w.drones.waypointOf('f')).not.toBeNull();
 
     let retargeted = false;
     let closedToReach = false;
-    for (let t = 0; t < 4000 && !retargeted; t++) {
-      const before = w.drones.waypointOf('d')!;
-      if (dist(d.state, before) < 60) closedToReach = true;
+    for (let t = 0; t < 6000 && !retargeted; t++) {
+      const before = w.drones.waypointOf('f')!;
+      // The controller's own reach threshold is 120u, and it is measured
+      // inside the step — so the last pre-step sample is the one that proves
+      // the hull actually closed rather than being handed a nearer waypoint.
+      if (dist(d.state, before) < 121) closedToReach = true;
       w.step();
-      const after = w.drones.waypointOf('d')!;
+      const after = w.drones.waypointOf('f')!;
       if (after.x !== before.x || after.y !== before.y) retargeted = true;
     }
-    expect(closedToReach).toBe(true); // it actually approached the waypoint
-    expect(retargeted).toBe(true); // and then picked a fresh one
+    expect(closedToReach).toBe(true);
+    expect(retargeted).toBe(true);
   });
 
   it('never picks a waypoint that sits inside an island', () => {
     const w = bareWorld(21);
     w.map.islands.push(circleIsland(120, 0, 80), circleIsland(-200, 150, 60));
     const ids = ['a', 'b', 'c', 'd'];
-    for (const id of ids) addDrone(w, id);
+    ids.forEach((id, i) => fleetShip(w, id, 'small', -600 + i * 100, -600));
     for (let t = 0; t < 500; t++) {
       w.step();
       for (const id of ids) {
         const wp = w.drones.waypointOf(id);
         if (!wp) continue;
         for (const isle of w.map.islands) {
-          expect(pointPolygonDistance(wp, isle.poly)).toBeGreaterThan(0); // never ashore
+          expect(pointPolygonDistance(wp, isle.poly)).toBeGreaterThan(0);
         }
       }
     }
   });
-});
 
-describe('drones — avoidance', () => {
+  it('one fleet shares ONE waypoint stream; two fleets do not (amendment 34 — they travel together)', () => {
+    const w = bareWorld(13);
+    fleetShip(w, 'a1', 'small', 0, 0, 1);
+    fleetShip(w, 'a2', 'small', 60, 0, 1);
+    fleetShip(w, 'b1', 'small', -800, 0, 2);
+    w.step();
+    expect(w.drones.waypointOf('a1')).toEqual(w.drones.waypointOf('a2'));
+    expect(w.drones.waypointOf('b1')).not.toEqual(w.drones.waypointOf('a1'));
+  });
+
   it('never ends a tick inside an island (property over several seeds)', () => {
     for (const seed of [1, 2, 3, 7, 42, 99]) {
       const w = bareWorld(seed);
       w.map.islands.push(circleIsland(100, 0, 70), circleIsland(-120, -80, 55));
       const ids = ['a', 'b', 'c', 'd', 'e'];
-      for (const id of ids) addDrone(w, id);
+      ids.forEach((id, i) => fleetShip(w, id, 'medium', -500 + i * 120, 400));
       for (let t = 0; t < 400; t++) {
         w.step();
         for (const id of ids) {
           const s = w.ships.get(id)!;
           for (const isle of w.map.islands) {
-            expect(pointPolygonDistance(s.state, isle.poly)).toBeGreaterThan(0); // never ashore
+            expect(pointPolygonDistance(s.state, isle.poly)).toBeGreaterThan(0);
           }
         }
       }
@@ -140,7 +208,7 @@ describe('drones — avoidance', () => {
   it('stays inside the map boundary while free-sailing', () => {
     const w = bareWorld(33);
     const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
-    for (const id of ids) addDrone(w, id);
+    ids.forEach((id, i) => fleetShip(w, id, 'large', i * 90, 0));
     for (let t = 0; t < 800; t++) {
       w.step();
       for (const id of ids) {
@@ -149,44 +217,483 @@ describe('drones — avoidance', () => {
     }
   });
 
-  it('turns back toward center when parked out near the boundary', () => {
-    const w = bareWorld(4);
-    const d = addDrone(w, 'd');
-    // Force it out near the edge, pointing straight OUT.
-    d.state.x = w.map.radius - 30;
-    d.state.y = 0;
-    d.state.heading = 0; // +x = outward
-    d.state.speed = 0;
-    const before = centerDist(d);
-    for (let t = 0; t < 120; t++) w.step();
-    expect(centerDist(d)).toBeLessThan(before); // it worked its way back inward
-  });
-});
-
-describe('drones — zone recovery', () => {
-  it('heads for the LIVE ring center when caught outside the safe ring', () => {
-    // Fast zone: fully closed on a small OFFSET terminal ring within a few
-    // ticks (offsetCap 1 exercises the Story 3.1 offset-center steering).
+  it('heads for the LIVE ring centre when caught outside the safe ring', () => {
     const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
-    const d = addDrone(w, 'd');
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
     w.startZone();
-    for (let t = 0; t < 10; t++) w.step(); // zone now tiny
+    for (let t = 0; t < 10; t++) w.step();
     const ring = w.zoneLiveRing;
     const ringDist = (s: ShipRecord): number => Math.hypot(s.state.x - ring.cx, s.state.y - ring.cy);
-    // Strand the drone far outside the safe ring, pointing away from it.
     d.state.x = ring.cx + w.map.radius * 0.5;
     d.state.y = ring.cy;
     d.state.heading = 0;
     d.state.speed = 0;
     expect(ringDist(d)).toBeGreaterThan(ring.r);
     const before = ringDist(d);
-    // Slow-turning hull with outward momentum: allow the U-turn to complete.
     for (let t = 0; t < 300; t++) w.step();
-    expect(ringDist(d)).toBeLessThan(before - 100); // measurably converged on the ring
+    expect(ringDist(d)).toBeLessThan(before - 100);
   });
 });
 
-// --- match integration: drones fill, can't win, never appear in the results ---
+// --- SELF-DEFENCE (amendments 34/35) -----------------------------------------
+
+/** The World's ONE damage choke. It is private by design (every in-sim caller
+ *  is inside world.ts), and it is exactly the seam the aggro rule hangs off —
+ *  so these tests reach it the way perception.test.ts reaches `events`, with
+ *  a typed cast rather than by widening the production API. */
+type DamageChoke = { hitShip(v: ShipRecord, amount: number, byId: string, fromMine: boolean): void };
+
+/** Damage `victim` as if `by` SHELLED it (`fromMine: false`). */
+function shellHit(w: World, victim: ShipRecord, by: string, amount = 5): void {
+  (w as unknown as DamageChoke).hitShip(victim, amount, by, false);
+}
+
+/** Damage `victim` as if a MINE blast caught it (`fromMine: true`) —
+ *  amendment 35: a mine gives no bearing worth chasing. */
+function mineHit(w: World, victim: ShipRecord, by: string, amount = 5): void {
+  (w as unknown as DamageChoke).hitShip(victim, amount, by, true);
+}
+
+describe('fleet self-defence — acquisition, the ONE-SHOT witness sweep, memory', () => {
+  it('being shelled acquires the attacker', () => {
+    const w = bareWorld(2);
+    const f = fleetShip(w, 'f', 'medium', 0, 0);
+    captain(w, 'cap', 200, 0);
+    expect(w.drones.targetOf('f')).toBeNull();
+    shellHit(w, f, 'cap');
+    expect(w.drones.targetOf('f')).toBe('cap');
+  });
+
+  it('a MINE hit causes NO aggro (amendment 35) — the same damage, the other ordnance', () => {
+    const w = bareWorld(2);
+    const f = fleetShip(w, 'f', 'medium', 0, 0);
+    captain(w, 'cap', 200, 0);
+    mineHit(w, f, 'cap');
+    expect(w.drones.targetOf('f')).toBeNull();
+    // ...and the hull DID take the damage: this is an aggro rule, not a damage one.
+    expect(f.hp).toBeLessThan(f.stats.maxHp);
+    // The identical hit from a shell does acquire, which is what makes the
+    // mine case a real distinction rather than a broken damage path.
+    shellHit(w, f, 'cap');
+    expect(w.drones.targetOf('f')).toBe('cap');
+  });
+
+  it('the witness sweep is evaluated ONCE, at the instant of the hit', () => {
+    const w = bareWorld(4);
+    const victim = fleetShip(w, 'victim', 'medium', 0, 0);
+    fleetShip(w, 'near', 'medium', 100, 0); // sees both
+    fleetShip(w, 'far', 'medium', 2000, 0); // sees neither
+    captain(w, 'cap', 150, 0);
+    shellHit(w, victim, 'cap');
+    expect(w.drones.targetOf('victim')).toBe('cap');
+    expect(w.drones.targetOf('near')).toBe('cap'); // witnessed it
+    expect(w.drones.targetOf('far')).toBeNull(); // out of sight of both
+  });
+
+  it('a hull that gains LOS LATER never joins that fight (the ONE-SHOT rule)', () => {
+    const w = bareWorld(4);
+    const victim = fleetShip(w, 'victim', 'medium', 0, 0);
+    const late = fleetShip(w, 'late', 'medium', 2000, 0);
+    captain(w, 'cap', 150, 0);
+    shellHit(w, victim, 'cap');
+    expect(w.drones.targetOf('late')).toBeNull();
+    // Now teleport `late` into perfect view of BOTH — the exact geometry that
+    // would have made it a witness a moment ago — and run the sim on. Under a
+    // CONTINUOUS witness rule it would join here; under the ratified one-shot
+    // rule it never can, because the sweep already happened.
+    late.state.x = 80;
+    late.state.y = 80;
+    for (let t = 0; t < 40; t++) w.step();
+    expect(w.drones.targetOf('late')).toBeNull();
+  });
+
+  it('a witness with a target of its OWN is never re-pointed', () => {
+    const w = bareWorld(4);
+    const busy = fleetShip(w, 'busy', 'medium', 100, 0);
+    const victim = fleetShip(w, 'victim', 'medium', 0, 0);
+    // `first` is parked well beyond `victim`'s sight, so the FIRST hit's
+    // witness sweep cannot reach `victim` and the two hulls start the second
+    // exchange in genuinely different states: busy holding, victim free.
+    captain(w, 'first', 1400, 0);
+    captain(w, 'second', 150, -60);
+    shellHit(w, busy, 'first'); // busy locks onto `first`
+    expect(w.drones.targetOf('busy')).toBe('first');
+    expect(w.drones.targetOf('victim')).toBeNull();
+    shellHit(w, victim, 'second'); // busy WITNESSES this but already has a target
+    expect(w.drones.targetOf('victim')).toBe('second');
+    expect(w.drones.targetOf('busy')).toBe('first'); // held, never traded
+  });
+
+  it('a NEW attacker never steals a held target (amendment 35 — third-party rescue is a real play)', () => {
+    const w = bareWorld(4);
+    const f = fleetShip(w, 'f', 'medium', 0, 0);
+    captain(w, 'prey', 150, 0);
+    captain(w, 'rescuer', -150, 0);
+    shellHit(w, f, 'prey');
+    expect(w.drones.targetOf('f')).toBe('prey');
+    // The rescuer shells it hard and repeatedly. Under an unguarded
+    // acquisition this pulls the hull off its prey; under the ruling it
+    // cannot, and the prey stays hunted.
+    for (let i = 0; i < 5; i++) shellHit(w, f, 'rescuer', 1);
+    expect(w.drones.targetOf('f')).toBe('prey');
+  });
+
+  it('an island between the witness and the fight keeps it out of it', () => {
+    const w = bareWorld(4);
+    // The island sits ON the segment from the witness to both the victim and
+    // the attacker, so the LOS term — not the range term — is what excludes it.
+    w.map.islands.push(circleIsland(0, 150, 90));
+    const victim = fleetShip(w, 'victim', 'medium', 0, 0);
+    fleetShip(w, 'blind', 'medium', 0, 300);
+    captain(w, 'cap', 20, 60);
+    shellHit(w, victim, 'cap');
+    expect(w.drones.targetOf('victim')).toBe('cap');
+    expect(w.drones.targetOf('blind')).toBeNull();
+  });
+
+  it('fleet ships never aggro each other', () => {
+    const w = bareWorld(4);
+    const a = fleetShip(w, 'a', 'medium', 0, 0);
+    fleetShip(w, 'b', 'medium', 120, 0);
+    shellHit(w, a, 'b');
+    expect(w.drones.targetOf('a')).toBeNull();
+    expect(w.drones.targetOf('b')).toBeNull();
+  });
+
+  it('memory expires CONFIG.fleet.memoryMs after the last contact, not before', () => {
+    const w = bareWorld(6);
+    const f = fleetShip(w, 'f', 'medium', 0, 0);
+    const cap = captain(w, 'cap', 200, 0);
+    shellHit(w, f, 'cap');
+    expect(w.drones.targetOf('f')).toBe('cap');
+    // Break contact hard: park the captain far outside sight AND freeze the
+    // fleet hull where it is, so nothing can re-establish LOS.
+    cap.state.x = 20000;
+    const ticks = Math.ceil(CONFIG.fleet.memoryMs / DT);
+    for (let t = 0; t < ticks - 2; t++) {
+      f.state.x = 0;
+      f.state.y = 0;
+      w.step();
+    }
+    expect(w.drones.targetOf('f')).toBe('cap'); // still remembered
+    for (let t = 0; t < 6; t++) {
+      f.state.x = 0;
+      f.state.y = 0;
+      w.step();
+    }
+    expect(w.drones.targetOf('f')).toBeNull(); // forgotten
+  });
+
+  it('a hit REFRESHES memory even from outside sight — the sniper keeps the hunt alive', () => {
+    const w = bareWorld(6);
+    const f = fleetShip(w, 'f', 'medium', 0, 0);
+    captain(w, 'sniper', 600, 0); // well outside the fleet hull's 330u sight
+    shellHit(w, f, 'sniper');
+    expect(w.drones.targetOf('f')).toBe('sniper');
+    const ticks = Math.ceil(CONFIG.fleet.memoryMs / DT);
+    for (let t = 0; t < ticks * 3; t++) {
+      f.state.x = 0;
+      f.state.y = 0;
+      w.step();
+      if (t % 10 === 0) shellHit(w, f, 'sniper', 0.001); // keep shelling
+    }
+    expect(w.drones.targetOf('f')).toBe('sniper');
+  });
+
+  it('the target dies -> the hull forgets it immediately', () => {
+    const w = bareWorld(6);
+    const f = fleetShip(w, 'f', 'medium', 0, 0);
+    captain(w, 'cap', 200, 0);
+    shellHit(w, f, 'cap');
+    w.sinkShip('cap');
+    w.step();
+    expect(w.drones.targetOf('f')).toBeNull();
+  });
+});
+
+describe('fleet gunnery — the one trigger', () => {
+  it('an acquired hull WITH line of sight fires; a blind one holds', () => {
+    const w = bareWorld(8);
+    const f = fleetShip(w, 'f', 'large', 0, 0);
+    const cap = captain(w, 'cap', 150, 0);
+    shellHit(w, f, 'cap');
+    let sawShot = false;
+    for (let t = 0; t < 60 && !sawShot; t++) {
+      w.step();
+      if (w.inputs.get('f')!.fireSeq > 0) sawShot = true;
+      cap.state.x = 150; // hold the captain in view
+      cap.state.y = 0;
+      f.state.x = 0;
+      f.state.y = 0;
+    }
+    expect(sawShot).toBe(true);
+
+    const w2 = bareWorld(8);
+    const f2 = fleetShip(w2, 'f', 'large', 0, 0);
+    const sniper = captain(w2, 'cap', 3000, 0); // acquired, never visible
+    shellHit(w2, f2, 'cap');
+    for (let t = 0; t < 60; t++) {
+      sniper.state.x = 3000;
+      f2.state.x = 0;
+      f2.state.y = 0;
+      w2.step();
+    }
+    expect(w2.inputs.get('f')!.fireSeq).toBe(0);
+  });
+
+  it('a fleet shell never damages another fleet hull (amendment 35)', () => {
+    const w = bareWorld(8);
+    const shooter = fleetShip(w, 'shooter', 'large', 0, 0);
+    const friend = fleetShip(w, 'friend', 'large', 120, 0);
+    const cap = captain(w, 'cap', 300, 0); // dead astern of `friend` from the shooter
+    shellHit(w, shooter, 'cap');
+    const friendHp = friend.hp;
+    for (let t = 0; t < 300; t++) {
+      // Freeze the geometry: the friendly hull sits ON the firing line.
+      shooter.state.x = 0;
+      shooter.state.y = 0;
+      friend.state.x = 120;
+      friend.state.y = 0;
+      cap.state.x = 300;
+      cap.state.y = 0;
+      w.step();
+    }
+    expect(friend.hp).toBe(friendHp); // never scratched, and never intercepted the shell
+    expect(cap.hp).toBeLessThan(cap.stats.maxHp); // the captain, meanwhile, got hit
+  });
+});
+
+// --- WAVES (amendments 32/36) -------------------------------------------------
+
+/** Fast-forward the wave clock so `atMs` lands on the very next step. */
+function armWaveClock(w: World, atMs: number): void {
+  w.startZone(w.now - atMs);
+}
+
+describe('fleet waves — timing and exact composition (amendment 32)', () => {
+  it('nothing spawns before the first beat, and the first wave is exactly 3 fleets', () => {
+    const w = bareWorld(17);
+    w.startZone();
+    const firstBeat = CONFIG.fleet.waves[0].atMs;
+    for (let t = 0; t < firstBeat / DT - 1; t++) w.step();
+    expect(w.now).toBeLessThan(firstBeat);
+    expect(fleetHulls(w)).toHaveLength(0); // not one hull before the beat
+    w.step(); // the tick the beat lands on
+    expect(w.now).toBe(firstBeat);
+    expect(fleetHulls(w)).toHaveLength(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
+  });
+
+  it('each fleet is 2 large + 3 medium + 4 small, and one fleet is exactly 3.000 levels', () => {
+    const w = bareWorld(17);
+    armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+    w.step();
+    const hulls = fleetHulls(w);
+    const perFleet = fleetHullIds().length;
+    expect(hulls).toHaveLength(CONFIG.fleet.waves[0].fleets * perFleet);
+    const byHull = new Map<string, number>();
+    for (const s of hulls) byHull.set(s.hullId, (byHull.get(s.hullId) ?? 0) + 1);
+    const fleets = CONFIG.fleet.waves[0].fleets;
+    expect(byHull.get('droneLarge')).toBe(2 * fleets);
+    expect(byHull.get('droneMedium')).toBe(3 * fleets);
+    expect(byHull.get('droneSmall')).toBe(4 * fleets);
+    expect(fleetLevels()).toBe(3);
+  });
+
+  it('the whole schedule lands 54 hulls and 18 levels, wave by wave', () => {
+    const w = bareWorld(19);
+    w.startZone();
+    const perFleet = fleetHullIds().length;
+    let expected = 0;
+    for (const wave of CONFIG.fleet.waves) {
+      while (w.now < wave.atMs) w.step();
+      w.step();
+      expected += wave.fleets * perFleet;
+      expect(fleetHulls(w)).toHaveLength(expected);
+    }
+    expect(expected).toBe(54);
+    const totalFleets = CONFIG.fleet.waves.reduce((n, wv) => n + wv.fleets, 0);
+    expect(totalFleets * fleetLevels()).toBe(18);
+  });
+
+  it('a wave fires only while the match is live (zone anchored AND damage enabled)', () => {
+    const w = bareWorld(17);
+    w.damageEnabled = false;
+    armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+    for (let t = 0; t < 10; t++) w.step();
+    expect(fleetHulls(w)).toHaveLength(0); // the ready room stays empty
+    w.damageEnabled = true;
+    w.step();
+    expect(fleetHulls(w).length).toBeGreaterThan(0);
+  });
+
+  it('an unanchored zone never fires a wave, however long the world runs', () => {
+    const w = bareWorld(17);
+    for (let t = 0; t < CONFIG.fleet.waves[0].atMs / DT + 40; t++) w.step();
+    expect(fleetHulls(w)).toHaveLength(0);
+  });
+
+  it('every spawned hull is registered with the controller and gets an input', () => {
+    const w = bareWorld(23);
+    armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+    w.step();
+    const hulls = fleetHulls(w);
+    expect(hulls.length).toBeGreaterThan(0);
+    w.step();
+    for (const s of hulls) expect(w.inputs.get(s.id)).toBeDefined();
+    expect(w.drones.size).toBe(hulls.length);
+  });
+
+  it('every spawned hull pushes a `spawn` event at its own position', () => {
+    const w = bareWorld(23);
+    armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+    w.step();
+    const spawns = w.tickEvents.filter((e) => e.k === 'spawn') as { k: 'spawn'; id: string; x: number; y: number }[];
+    const hulls = fleetHulls(w);
+    expect(spawns).toHaveLength(hulls.length);
+    for (const s of hulls) {
+      const ev = spawns.find((e) => e.id === s.id)!;
+      expect(ev.x).toBeCloseTo(s.state.x, 6);
+      expect(ev.y).toBeCloseTo(s.state.y, 6);
+    }
+  });
+
+  it('the nine hulls of one fleet spawn within the ratified spread of their anchor', () => {
+    const w = bareWorld(29);
+    armWaveClock(w, CONFIG.fleet.waves[2].atMs); // the 9:00 beat...
+    w.step();
+    // ...and arming the clock at 9:00 means every earlier beat is already due,
+    // so all six fleets land together. Group by fleet through the shared
+    // waypoint the controller gives each one (one more tick, since a hull
+    // spawned at the end of a tick has not run its controller yet).
+    w.step();
+    const hulls = fleetHulls(w);
+    const groups = new Map<string, ShipRecord[]>();
+    for (const s of hulls) {
+      const key = JSON.stringify(w.drones.waypointOf(s.id));
+      groups.set(key, [...(groups.get(key) ?? []), s]);
+    }
+    for (const group of groups.values()) {
+      expect(group.length).toBe(fleetHullIds().length);
+      // Every pair inside a fleet is within twice the spread radius of the other.
+      for (const a of group) {
+        for (const b of group) expect(dist(a.state, b.state)).toBeLessThanOrEqual(CONFIG.fleet.spreadU * 2 + 1e-6);
+      }
+    }
+  });
+});
+
+describe('fleet waves — the anchor rule (amendment 36)', () => {
+  it('the anchor lands OUTSIDE every captain intel disc, and inside the live ring', () => {
+    const w = bareWorld(31);
+    // A ring of captains, none of whom may see the arrival.
+    const caps: ShipRecord[] = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI * 2) / 6;
+      caps.push(captain(w, `cap-${i}`, Math.cos(a) * 1400, Math.sin(a) * 1400));
+    }
+    armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+    w.step();
+    const hulls = fleetHulls(w);
+    expect(hulls.length).toBeGreaterThan(0);
+    // The ANCHOR is what the rule constrains, and it is not stored — but every
+    // hull sits within spreadU of it, so a hull deep inside a captain's disc
+    // would have to have come from an anchor inside it too. Assert the strong,
+    // checkable consequence: no hull within (radar - spread) of a captain.
+    const slack = CONFIG.fleet.spreadU;
+    for (const s of hulls) {
+      for (const c of caps) {
+        expect(dist(s.state, c.state)).toBeGreaterThan(c.stats.radarRange - slack);
+      }
+    }
+    const ring = w.zoneLiveRing;
+    for (const s of hulls) {
+      expect(Math.hypot(s.state.x - ring.cx, s.state.y - ring.cy)).toBeLessThanOrEqual(ring.r);
+    }
+  });
+
+  it('no feasible anchor: the wave RETRIES, then arrives anyway at the max-min point AND LOGS', () => {
+    const w = bareWorld(37);
+    const cap = captain(w, 'cap', 0, 0);
+    // One captain whose intel disc swallows the entire ocean: every sampled
+    // anchor is denied, forever. The wave must still arrive.
+    cap.stats = { ...cap.stats, radarRange: w.map.radius * 10 };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+      w.step();
+      expect(fleetHulls(w)).toHaveLength(0); // held back on the first tick...
+      for (let t = 0; t < CONFIG.fleet.spawnRetryTicks - 2; t++) w.step();
+      expect(fleetHulls(w)).toHaveLength(0); // ...and through the whole retry budget
+      for (let t = 0; t < 3; t++) w.step();
+      expect(fleetHulls(w)).toHaveLength(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.filter((l) => l.includes('fleet.spawnFallback'))).toHaveLength(CONFIG.fleet.waves[0].fleets);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('a wave whose anchor frees up mid-retry spawns WITHOUT the fallback log', () => {
+    const w = bareWorld(41);
+    const cap = captain(w, 'cap', 0, 0);
+    cap.stats = { ...cap.stats, radarRange: w.map.radius * 10 };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+      w.step();
+      expect(fleetHulls(w)).toHaveLength(0);
+      cap.stats = { ...cap.stats, radarRange: CONFIG.vision.radar }; // the sky clears
+      w.step();
+      expect(fleetHulls(w)).toHaveLength(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
+      expect(log.mock.calls.map((c) => String(c[0])).some((l) => l.includes('fleet.spawnFallback'))).toBe(false);
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+// --- ACCOUNTING (amendment 37) ------------------------------------------------
+
+describe('a PvE kill counts nowhere, but still pays and still announces', () => {
+  it('no tally, no throne — but XP and a `sunk` event both fire', () => {
+    const w = bareWorld(43);
+    const cap = captain(w, 'cap', 0, 0);
+    const f = fleetShip(w, 'f', 'large', 200, 0);
+    const killsBefore = cap.kills;
+    const xpBefore = cap.xpMs;
+    w.sinkShip(f.id, 'cap');
+    expect(cap.kills).toBe(killsBefore); // the tally does NOT move
+    expect(w.bountyId).toBe(''); // and the throne stays vacant
+    expect(cap.xpMs).toBeGreaterThan(xpBefore); // the XP does
+    w.step();
+    const sunk = w.tickEvents.filter((e) => e.k === 'sunk') as { k: 'sunk'; id: string; by?: string }[];
+    expect(sunk.map((e) => e.id)).toContain('f');
+    expect(sunk.find((e) => e.id === 'f')!.by).toBe('cap');
+  });
+
+  it('a CAPTAIN kill still advances the tally and the throne', () => {
+    const w = bareWorld(43);
+    const cap = captain(w, 'cap', 0, 0);
+    captain(w, 'rival', 200, 0);
+    w.sinkShip('rival', 'cap');
+    expect(cap.kills).toBe(1);
+    expect(w.bountyId).toBe('cap');
+  });
+
+  it('the size tier still sets the XP: large > medium > small', () => {
+    const paid = (size: DroneSizeId): number => {
+      const w = bareWorld(43);
+      const cap = captain(w, 'cap', 0, 0);
+      fleetShip(w, 'f', size, 200, 0);
+      w.sinkShip('f', 'cap');
+      return cap.xpMs + cap.level * CONFIG.xp.levelMs;
+    };
+    expect(paid('large')).toBeGreaterThan(paid('medium'));
+    expect(paid('medium')).toBeGreaterThan(paid('small'));
+  });
+});
+
+// --- THE FILL IS GONE (amendment 40) ------------------------------------------
 
 interface MatchCtx {
   w: World;
@@ -196,28 +703,22 @@ interface MatchCtx {
 }
 
 /**
- * DEV-ONLY timings that let a SOLO captain start the countdown and fill with
- * drones. `minHumans: 1` is unreachable in production — CONFIG.match.minHumans
- * is 2 and sanitizeRoomOptions gates matchOverride behind HC_DEV_OPTIONS —
- * which is precisely the premise amendment 4 rests on. Kept so the ruling can
- * be pinned in the one configuration where it is observable at activation.
+ * DEV-ONLY timings that let a SOLO captain start the countdown. `minHumans: 1`
+ * is unreachable in production — CONFIG.match.minHumans is 2 and
+ * sanitizeRoomOptions gates matchOverride behind HC_DEV_OPTIONS — which is
+ * precisely the premise amendment 4 rests on.
  */
 const SOLO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0, minHumans: 1 };
 
 /** Production timings: the countdown needs CONFIG.match.minHumans (2) captains. */
 const DUO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 };
 
-/** A hooks impl whose fillToCapacity tops the world up to CONFIG.match.fillTo. */
-function fillingHooks(w: World, calls: string[], results: unknown[]): MatchHooks {
-  let filled = 0;
+/** Inert hooks. THERE IS NO FILL HOOK ANY MORE (amendment 40) — the interface
+ *  itself no longer carries one, so a re-added fill cannot compile. */
+function inertHooks(calls: string[], results: unknown[]): MatchHooks {
   return {
     lock: () => calls.push('lock'),
     unlock: () => calls.push('unlock'),
-    fillToCapacity: () => {
-      const need = CONFIG.match.fillTo - w.ships.size;
-      for (let i = 0; i < need; i++) w.addShip(`drone-${++filled}`, `DRONE-0${filled}`, true);
-      calls.push('fill');
-    },
     broadcastResults: (msg) => results.push(msg),
     disconnect: () => calls.push('disconnect'),
   };
@@ -227,7 +728,7 @@ function buildMatch(ids: string[], timings: MatchTimings, seed: number): MatchCt
   const w = bareWorld(seed);
   const calls: string[] = [];
   const results: unknown[] = [];
-  const m = new Match(w, timings, fillingHooks(w, calls, results));
+  const m = new Match(w, timings, inertHooks(calls, results));
   for (const id of ids) {
     w.addShip(id, id.toUpperCase());
     m.notifyRosterChanged();
@@ -235,9 +736,7 @@ function buildMatch(ids: string[], timings: MatchTimings, seed: number): MatchCt
   return { w, m, calls, results };
 }
 
-/** One captain, dev minHumans=1 -> countdown. Finishes AT activation now. */
 const soloMatch = (seed = 1): MatchCtx => buildMatch(['human'], SOLO_TIMINGS, seed);
-/** Two captains — the production shape (minHumans 2) -> countdown. */
 const duoMatch = (seed = 1): MatchCtx => buildMatch(['human', 'rival'], DUO_TIMINGS, seed);
 
 function step(ctx: MatchCtx, ticks = 1): void {
@@ -247,8 +746,6 @@ function step(ctx: MatchCtx, ticks = 1): void {
   }
 }
 
-/** Run the countdown out. Leaves whatever phase the win check settled on —
- *  'active' for a duo, 'finished' for a solo captain (amendment 4). */
 function runCountdown(ctx: MatchCtx): void {
   for (let i = 0; i < 100 && ctx.m.phase === 'countdown'; i++) step(ctx);
   expect(ctx.m.phase).not.toBe('countdown');
@@ -259,94 +756,54 @@ function activate(ctx: MatchCtx): void {
   expect(ctx.m.phase).toBe('active');
 }
 
-function afloatDroneIds(ctx: MatchCtx): string[] {
-  return [...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle)).map((s) => s.id);
-}
-
-describe('match — drone fill + win exclusion', () => {
-  it('fills exactly fillTo - humans drones at activation', () => {
+describe('match — the match-start drone fill is DELETED (amendment 40)', () => {
+  it('activation adds nothing: the world is exactly its captains', () => {
     const ctx = duoMatch();
     activate(ctx);
-    expect(ctx.calls).toContain('fill');
-    expect(ctx.w.ships.size).toBe(CONFIG.match.fillTo);
-    let drones = 0;
-    for (const s of ctx.w.ships.values()) if (s.isDrone) drones += 1;
-    expect(drones).toBe(CONFIG.match.fillTo - 2); // fillTo - humans
+    expect(ctx.w.ships.size).toBe(2);
+    expect(fleetHulls(ctx.w)).toHaveLength(0);
+    step(ctx, 20);
+    expect(ctx.w.ships.size).toBe(2);
   });
 
-  // THE RULING (amendment 4). This test FAILS against the old
-  // `aliveDroneCount() > 0` gate, which held the match open at 'active'.
-  it('a lone afloat captain wins IMMEDIATELY with every drone still afloat', () => {
+  it('a solo captain wins immediately — with an EMPTY ocean, not a full one', () => {
     const ctx = soloMatch();
     runCountdown(ctx);
-    expect(ctx.calls).toContain('fill'); // the fill seam still ran
-    // The drones are genuinely in the water and genuinely afloat — this is not
-    // "the field was empty", it is "drones no longer gate the win".
-    expect(afloatDroneIds(ctx)).toHaveLength(CONFIG.match.fillTo - 1);
+    expect(fleetHulls(ctx.w)).toHaveLength(0);
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human');
-    expect(ctx.m.placements.get('human')).toBe(1);
-    // ...and NOT ONE of them holds a placement or a results row (Eric ruling
-    // 2026-08-11: *"just don't show the drones in the match results"*). The
-    // captain is the whole table: a solo winner is 1 of 1, not 1 of fillTo.
-    expect(afloatDroneIds(ctx).every((id) => ctx.m.placements.get(id) === undefined)).toBe(true);
     const msg = ctx.results[0] as { rows: { id: string }[] };
     expect(msg.rows.map((r) => r.id)).toEqual(['human']);
   });
 
-  // THE PRODUCTION-SAFETY ARGUMENT the ruling rests on: CONFIG.match.minHumans
-  // is 2, so a live match always opens with two captains, and the win check
-  // stays quiet through a full drone fill until one of them is out.
-  it('two afloat captains + a full drone fill: NO win fires (minHumans 2)', () => {
+  it('two afloat captains keep fighting; a fleet that arrives mid-match never gates the win', () => {
     const ctx = duoMatch();
     activate(ctx);
-    expect(afloatDroneIds(ctx)).toHaveLength(CONFIG.match.fillTo - 2);
-    step(ctx, 20);
+    // The 1:00 wave lands into a live match. The wave clock is the ZONE
+    // clock, which anchors at activation — not at world creation.
+    while (ctx.w.now - ctx.w.zoneStartMs < CONFIG.fleet.waves[0].atMs) step(ctx);
+    expect(fleetHulls(ctx.w).length).toBeGreaterThan(0);
     expect(ctx.m.phase).toBe('active');
-    expect(ctx.calls).not.toContain('results');
-    expect(ctx.results).toHaveLength(0);
-  });
-
-  it('the last captain wins once the other is sunk; drones hold NO placement and NO row', () => {
-    const ctx = duoMatch();
-    activate(ctx);
-    const drones = afloatDroneIds(ctx);
-    for (const id of drones) {
-      ctx.w.sinkShip(id, 'human');
-      step(ctx);
-      expect(ctx.m.phase).toBe('active'); // two captains afloat: still fighting
-    }
     ctx.w.sinkShip('rival', 'human');
-    step(ctx, SINK_TICKS + 1); // the rival's window holds the finish (amendment 17 reversed)
+    step(ctx, SINK_TICKS + 1);
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('human');
-    expect(ctx.m.placements.get('human')).toBe(1);
-    // The rival is 2nd of TWO — a whole fill of sunk drones sat between them in
-    // the sink order and consumed no placement (Eric ruling 2026-08-11).
-    expect(ctx.m.placements.get('rival')).toBe(2);
-    for (const id of drones) expect(ctx.m.placements.get(id)).toBeUndefined();
-    const msg = ctx.results[0] as { winnerId: string; rows: { id: string }[] };
-    expect(msg.winnerId).toBe('human');
-    expect(msg.rows.map((r) => r.id)).toEqual(['human', 'rival']); // captains only
+    // Fleet hulls hold NO placement and NO results row.
+    for (const s of fleetHulls(ctx.w)) expect(ctx.m.placements.get(s.id)).toBeUndefined();
+    const msg = ctx.results[0] as { rows: { id: string }[] };
+    expect(msg.rows.map((r) => r.id)).toEqual(['human', 'rival']);
   });
 
-  it('a drone can NEVER win — a same-tick captain wipe is a DRAW, never a drone victory (amendment 14)', () => {
+  it('a fleet hull can never win — a same-tick captain wipe is a DRAW (amendment 14)', () => {
     const ctx = duoMatch();
     activate(ctx);
-    const drones = afloatDroneIds(ctx);
-    // Sink one drone, then BOTH captains on the same tick (mutual destruction).
-    // Drones survive it; since Story 5.2 the same-tick wipe is a DRAW — the
-    // point pinned here is that the surviving drones still claim NOTHING.
-    ctx.w.sinkShip(drones[0], 'human');
-    step(ctx);
-    expect(ctx.m.phase).toBe('active'); // both captains afloat: no check trips
-    ctx.w.sinkShip('rival'); // storm-style, unattributed
-    ctx.w.sinkShip('human'); // same tick — the amendment-14 wipe
-    step(ctx, SINK_TICKS + 1); // both captains' windows hold the finish (amendment 17 reversed)
+    fleetShip(ctx.w, 'f', 'medium', 500, 500);
+    ctx.w.sinkShip('rival');
+    ctx.w.sinkShip('human');
+    step(ctx, SINK_TICKS + 1);
     expect(ctx.m.phase).toBe('finished');
-    expect(ctx.m.winnerId).toBe(''); // a DRAW — and NOT a surviving drone
-    // Captain-relative placements keep numbering from 1 with no winner row.
+    expect(ctx.m.winnerId).toBe('');
     expect(ctx.m.placements.get('human')).toBe(1);
-    expect(afloatDroneIds(ctx).length).toBeGreaterThan(0); // drones outlived the match
+    expect(fleetHulls(ctx.w).filter((s) => isAfloat(s.lifecycle)).length).toBeGreaterThan(0);
   });
 });

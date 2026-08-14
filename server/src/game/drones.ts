@@ -219,14 +219,25 @@ export class FleetController {
    * (amendment 35: a mine gives no bearing worth chasing).
    *
    * Runs the victim's own acquisition and then the ONE-SHOT witness sweep.
+   *
+   * THE VICTIM'S ACQUISITION IS GUARDED, and the guard is the whole of
+   * amendment 35's *"a held target is NOT given up for a new attacker"*: a
+   * hull already hunting someone keeps hunting them, so a friend shelling
+   * your pursuer CANNOT pull it off you (*"third-party rescue is therefore a
+   * real play"* — ruled the other way, deliberately). Re-acquisition happens
+   * only once the current target is LOST, through refreshTarget's memory
+   * expiry. Hits from the CURRENT target still land in acquire(), because
+   * that is the contact refresh Eric's close-on-the-bearing ruling runs on —
+   * a sniper outside both sight ranges keeps the hunt alive with every shell.
    */
   onDamaged(victimId: string, byId: string | undefined, fromMine: boolean): void {
     if (!byId || fromMine || byId === victimId) return;
     const victim = this.world.ships.get(victimId);
     const attacker = this.world.ships.get(byId);
-    if (!victim || !attacker || !this.minds.has(victimId)) return;
+    const mind = this.minds.get(victimId);
+    if (!victim || !attacker || !mind) return;
     if (attacker.isDrone) return; // fleet ships never aggro each other
-    this.acquire(victimId, attacker);
+    if (mind.targetId === null || mind.targetId === attacker.id) this.acquire(victimId, attacker);
     this.propagateWitnesses(victim, attacker);
   }
 

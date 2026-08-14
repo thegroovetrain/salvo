@@ -17,8 +17,6 @@ export interface CliOptions {
   matches: number;
   seed: number;
   captains: number;
-  /** Drone fill per match; null = default (CONFIG.match.fillTo - captains). */
-  drones: number | null;
   /** Captain pilot policy name (PILOT_REGISTRY key); default 'gunner'. */
   pilot: string;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
@@ -37,7 +35,6 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --matches N        matches per run (default 100)
   --seed S           run seed (default 1)
   --captains C       scripted captains (default 3; classes round-robin)
-  --drones D         drone fill per match (default CONFIG.match.fillTo - captains)
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
                      xp.*, deck.*, offer.size, match.fillTo, map.baseRadius,
                      zone.* (phased shape: beatMs, ringSteps.N, offsetCap,
@@ -59,7 +56,6 @@ function defaults(): CliOptions {
     matches: 100,
     seed: 1,
     captains: 3,
-    drones: null,
     pilot: 'gunner',
     set: {},
     sweeps: [],
@@ -130,7 +126,6 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--matches': (o, v) => void (o.matches = parseCount(v, '--matches', 1)),
   '--seed': (o, v) => void (o.seed = toUint32Seed(parseCount(v, '--seed', 0))),
   '--captains': (o, v) => void (o.captains = parseCount(v, '--captains', 1)),
-  '--drones': (o, v) => void (o.drones = parseCount(v, '--drones', 0)),
   '--draws': (o, v) => void (o.draws = parseCount(v, '--draws', 1)),
   // Validated against the real registry at parse time so a typo fails fast
   // with the legal names instead of silently running the default pilot.

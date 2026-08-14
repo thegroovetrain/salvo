@@ -39,9 +39,10 @@ export interface BountyCandidate {
    *  as well as at the increment site (defense in depth: a future combat-bot
    *  path that mis-credits a drone still cannot crown one). */
   isDrone: boolean;
-  /** Human-captain victims only (ShipRecord.captainKills — never `kills`,
-   *  which keeps counting drones for the roster tally). */
-  captainKills: number;
+  /** CAPTAIN victims only. ONE field since Story 5.6 (amendment 37 emptied
+   *  `kills` of PvE sinkings, which made the 4.6 `captainKills` split
+   *  identical by construction and therefore redundant). */
+  kills: number;
 }
 
 /**
@@ -58,12 +59,12 @@ export interface BountyCandidate {
 export function nextBountyHolder(current: string, cands: readonly BountyCandidate[]): string {
   const held = cands.find((c) => c.id === current && isAfloat(c.lifecycle) && !c.isDrone);
   // FAIL-CLOSED on a non-finite incumbent count (defense in depth — unreachable
-  // today, `captainKills` is only ever 0-initialized and `+= 1`, same posture
+  // today, `kills` is only ever 0-initialized and `+= 1`, same posture
   // as `addXpMs` in world.ts): an unguarded NaN floor fails every `<=` skip
   // below, so a zero-kill challenger would wrongly clear it. Infinity instead
   // means nothing can ever displace a corrupt incumbent.
   const floor = held
-    ? Number.isFinite(held.captainKills) ? held.captainKills : Number.POSITIVE_INFINITY
+    ? Number.isFinite(held.kills) ? held.kills : Number.POSITIVE_INFINITY
     : CONFIG.bounty.minCaptainKills - 1;
   const winner = uniqueChallengerAbove(floor, current, cands);
   if (winner !== null) return winner.id;
@@ -75,7 +76,7 @@ export function nextBountyHolder(current: string, cands: readonly BountyCandidat
  *  every `<= floor` skip below (NaN comparisons are always false), which
  *  would let a corrupt candidate become the running `best` and be crowned. */
 function eligible(c: BountyCandidate, current: string): boolean {
-  return isAfloat(c.lifecycle) && !c.isDrone && c.id !== current && Number.isFinite(c.captainKills);
+  return isAfloat(c.lifecycle) && !c.isDrone && c.id !== current && Number.isFinite(c.kills);
 }
 
 /**
@@ -87,11 +88,11 @@ function uniqueChallengerAbove(floor: number, current: string, cands: readonly B
   let best: BountyCandidate | null = null;
   let tiedAtBest = false;
   for (const c of cands) {
-    if (!eligible(c, current) || c.captainKills <= floor) continue; // strict overtake only
-    if (best === null || c.captainKills > best.captainKills) {
+    if (!eligible(c, current) || c.kills <= floor) continue; // strict overtake only
+    if (best === null || c.kills > best.kills) {
       best = c;
       tiedAtBest = false;
-    } else if (c.captainKills === best.captainKills) {
+    } else if (c.kills === best.kills) {
       tiedAtBest = true; // shared maximum: nobody claims
     }
   }

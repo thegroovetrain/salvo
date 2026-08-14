@@ -25,7 +25,6 @@ function noopHooks(): MatchHooks {
   return {
     lock: () => {},
     unlock: () => {},
-    fillToCapacity: () => {},
     broadcastResults: () => {},
     disconnect: () => {},
   };

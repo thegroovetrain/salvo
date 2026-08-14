@@ -25,11 +25,9 @@
 import {
   BOON_CATALOG,
   CONFIG,
-  DRONE_HULL_IDS,
   SHIP_CLASS_IDS,
   zoneClosedAtMs,
   zoneGroups,
-  type HullId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
@@ -54,8 +52,6 @@ export interface RunSpec {
   seed: number;
   matches: number;
   captains: number;
-  /** null = CONFIG.match.fillTo - captains (never below 0). */
-  drones: number | null;
   /** Pilot factory; defaults to the v1 gunner (PILOT_REGISTRY.gunner). */
   pilot?: PilotFactory;
 }
@@ -223,17 +219,14 @@ export class MatchCollector {
   }
 }
 
-/** Inert lobby hooks + the ArenaRoom-faithful round-robin drone fill. */
-function harnessHooks(world: World, droneCount: number): MatchHooks {
+/** Inert lobby hooks. The round-robin drone fill they used to carry died
+ *  with the fill itself (Story 5.6, amendment 40) — the harness's committed
+ *  drone-lobby tuning method loses its implementation with it, homed at Epic
+ *  6's combat bots (see deferred-work.md). */
+function harnessHooks(): MatchHooks {
   return {
     lock: () => {},
     unlock: () => {},
-    fillToCapacity: () => {
-      for (let i = 0; i < droneCount; i += 1) {
-        const hullId: HullId = DRONE_HULL_IDS[i % DRONE_HULL_IDS.length];
-        world.addShip(`drone-${i + 1}`, `DRONE-${String(i + 1).padStart(2, '0')}`, true, hullId);
-      }
-    },
     broadcastResults: () => {},
     disconnect: () => {},
   };
@@ -245,8 +238,7 @@ function harnessHooks(world: World, droneCount: number): MatchHooks {
  *  structural impossibility of a match that never even ACTIVATED in budget. */
 export function runMatch(index: number, spec: RunSpec): MatchSample {
   const matchSeed = mixSeed(spec.seed, index);
-  const droneCount = spec.drones ?? Math.max(0, CONFIG.match.fillTo - spec.captains);
-  const playerCap = Math.max(CONFIG.match.fillTo, spec.captains + droneCount);
+  const playerCap = Math.max(CONFIG.map.playerCap, spec.captains);
   // zoneSeeds: production rooms roll independent per-ring nonces (amendment
   // 10); the harness instead derives one per ring from the match seed on its
   // own ordinal band so ring rolls are part of the reproducible run key
@@ -270,7 +262,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     // that makes 1vN meaningful again; until then, batch evidence needs >= 2.
     minHumans: 1,
   };
-  const match = new Match(world, timings, harnessHooks(world, droneCount));
+  const match = new Match(world, timings, harnessHooks());
   const factory = spec.pilot ?? PILOT_REGISTRY.gunner;
   const pilots: CaptainPilot[] = [];
   const captainIds: string[] = [];

@@ -119,12 +119,12 @@ describe('sanitizeColorPref — join-option plumbing (never dev-gated)', () => {
   });
 });
 
-// --- room-layer wiring (ArenaRoom.onJoin / fillToCapacity) -------------------
+// --- room-layer wiring (ArenaRoom.onJoin) ------------------------------------
 // The pure function above is exercised in isolation; these prove the ROOM wires
 // it correctly at join time. Harness mirrors operability.test.ts's joinRoom: a
 // bare `new ArenaRoom()` never runs @colyseus/core's __init(), so world/state/
 // clock/hueRng are plain injected properties and a fake client is a literal with
-// spies. joinCounter/droneCounter come from the class-field defaults (0).
+// spies. joinCounter comes from the class-field default (0).
 
 interface FakeClient {
   sessionId: string;
@@ -141,7 +141,6 @@ interface JoinRoom {
   clock: { setTimeout: ReturnType<typeof vi.fn> };
   hueRng: Rng;
   onJoin(client: FakeClient, options?: unknown): void;
-  fillToCapacity(): void;
   usedHues(): Set<number>;
 }
 
@@ -189,22 +188,18 @@ describe('ArenaRoom.onJoin — Regatta hue assignment wiring (Story 1.12)', () =
     expect(room.state.players.get('b')!.color).toBe(8); // nearest free, ascending on tie
   });
 
-  it('fillToCapacity drones keep the 255 sentinel — never a wheel hue', () => {
-    const room = joinRoom();
-    join(room, 'human');
-    room.fillToCapacity();
-    const drones = [...room.state.players.values()].filter((m) => m.id.startsWith('drone-'));
-    expect(drones.length).toBeGreaterThan(0);
-    for (const d of drones) expect(d.color).toBe(REGATTA_NO_HUE);
-  });
-
-  it('usedHues excludes the 255 sentinel (drones never reserve a wheel index)', () => {
+  // The two fill-drone hue cases that used to live here died with the fill
+  // itself (Story 5.6, amendment 40): there is no fillToCapacity to call, and
+  // a PvE fleet hull never gets a PlayerMeta row at all (amendment 38), so no
+  // sentinel-coloured entry can reach the roster to be excluded from the
+  // wheel. What survives is the property that actually matters — usedHues
+  // reserves exactly the hues real captains hold.
+  it('usedHues reserves exactly the captains hues (the roster is captains-only)', () => {
     const room = joinRoom();
     join(room, 'human', { colorPref: 3 });
-    room.fillToCapacity(); // drones join at color 255
     const used = room.usedHues();
     expect(used.has(REGATTA_NO_HUE)).toBe(false);
-    expect(used.has(3)).toBe(true); // only the human's hue is reserved
+    expect(used.has(3)).toBe(true);
     expect(used.size).toBe(1);
   });
 

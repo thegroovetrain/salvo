@@ -32,7 +32,7 @@ function overridesLine(set: Record<string, number>): string {
 
 function headerLines(opts: CliOptions): string[] {
   const mode = opts.deckOnly ? `deck-only draws=${opts.draws}` : `batch matches=${opts.matches}`;
-  const roster = opts.deckOnly ? '' : ` captains=${opts.captains} drones=${opts.drones ?? 'default'} pilot=${opts.pilot}`;
+  const roster = opts.deckOnly ? '' : ` captains=${opts.captains} pilot=${opts.pilot}`;
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
     `run key: seed=${opts.seed} mode=${mode}${roster} overrides=${overridesLine(opts.set)} sweeps=${opts.sweeps.length}`,
@@ -60,7 +60,6 @@ function batchMode(opts: CliOptions): ModeOutput {
           seed: opts.seed,
           matches: opts.matches,
           captains: opts.captains,
-          drones: opts.drones,
           pilot: PILOT_REGISTRY[opts.pilot],
         },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),

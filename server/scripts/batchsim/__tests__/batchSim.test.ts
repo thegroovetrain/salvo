@@ -25,14 +25,13 @@ import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 describe('args — CLI parsing', () => {
   it('parses the full flag set', () => {
     const opts = parseArgs([
-      '--matches', '20', '--seed', '7', '--captains', '2', '--drones', '4',
+      '--matches', '20', '--seed', '7', '--captains', '2',
       '--set', 'xp.levelMs=45000', '--sweep', 'deck.rareWeightPerDryLevel=0.2,0.35',
       '--deck-only', '--draws', '5000', '--json', '/tmp/x.json', '--quiet',
     ]);
     expect(opts.matches).toBe(20);
     expect(opts.seed).toBe(7);
     expect(opts.captains).toBe(2);
-    expect(opts.drones).toBe(4);
     expect(opts.set).toEqual({ 'xp.levelMs': 45000 });
     expect(opts.sweeps).toEqual([{ key: 'deck.rareWeightPerDryLevel', values: [0.2, 0.35] }]);
     expect(opts.deckOnly).toBe(true);
@@ -174,7 +173,7 @@ describe('overrides — tunable CONFIG dials', () => {
     restore();
     expect(CONFIG.zone.beatMs).toBe(60000);
     expect(CONFIG.zone.ringSteps[1]).toBeCloseTo(2 / 3, 12);
-    expect(CONFIG.map.baseRadius).toBe(2400);
+    expect(CONFIG.map.baseRadius).toBe(2800); // Story 5.6 amendment 41: the bigger ocean
     // An out-of-range ringSteps index is a real rejection, not a silent no-op.
     expect(() => applyOverrides({ 'zone.ringSteps.7': 0.5 })).toThrow(TunableError);
   });
@@ -255,7 +254,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
       'zone.stormDps': 40,
     });
     try {
-      const spec = { seed: 5, matches: 2, captains: 2, drones: 2 };
+      const spec = { seed: 5, matches: 2, captains: 2 };
       const a = runBatch(spec);
       const b = runBatch(spec);
       expect(a.matches.length).toBe(2);
@@ -270,8 +269,8 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
     }
   });
 
-  it('endedBy fieldCleared: a lone captain with zero drones wins at activation', () => {
-    const result = runBatch({ seed: 3, matches: 1, captains: 1, drones: 0 });
+  it('endedBy fieldCleared: a lone captain on an empty ocean wins at activation', () => {
+    const result = runBatch({ seed: 3, matches: 1, captains: 1 });
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0].endedBy).toBe('fieldCleared');
     const agg = buildAggregate(result, 1);
@@ -288,7 +287,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
       'zone.stormDps': 100000,
     });
     try {
-      const result = runBatch({ seed: 3, matches: 1, captains: 2, drones: 1 });
+      const result = runBatch({ seed: 3, matches: 1, captains: 2 });
       expect(result.matches).toHaveLength(1);
       expect(result.matches[0].endedBy).toBe('lastHumanSunk');
       expect(result.matches[0].stormDeaths).toBeGreaterThan(0);
@@ -303,7 +302,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   it('the aggregate splits endedBy across a mixed batch', () => {
     // One fieldCleared sample + one lastHumanSunk sample, merged by hand into
     // a single aggregate — proves the split surfaces per cause, not as a blob.
-    const cleared = runBatch({ seed: 3, matches: 1, captains: 1, drones: 0 });
+    const cleared = runBatch({ seed: 3, matches: 1, captains: 1 });
     const restore = applyOverrides({
       'zone.beatMs': 1,
       'zone.terminalSightFactor': 0,
@@ -311,7 +310,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
     });
     let sunk;
     try {
-      sunk = runBatch({ seed: 4, matches: 1, captains: 2, drones: 1 });
+      sunk = runBatch({ seed: 4, matches: 1, captains: 2 });
     } finally {
       restore();
     }
@@ -735,7 +734,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
 describe('runner — winnerClass (Story 3.4 evidence field)', () => {
   it('a resolved match names the winning hull class; an unresolved one is null', () => {
-    const cleared = runBatch({ seed: 3, matches: 1, captains: 1, drones: 0 });
+    const cleared = runBatch({ seed: 3, matches: 1, captains: 1 });
     const m = cleared.matches[0];
     expect(m.endedBy).toBe('fieldCleared');
     // FAIL-PROOF: runner.ts dropped summary.winnerClass entirely before 3.4.
@@ -745,7 +744,7 @@ describe('runner — winnerClass (Story 3.4 evidence field)', () => {
     const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
     let unresolved;
     try {
-      unresolved = runBatch({ seed: 11, matches: 1, captains: 2, drones: 0, pilot: PILOT_REGISTRY.pacifist });
+      unresolved = runBatch({ seed: 11, matches: 1, captains: 2, pilot: PILOT_REGISTRY.pacifist });
     } finally {
       restore();
     }
@@ -796,13 +795,13 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
 
 describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
   it('collects an honest endedBy=unresolved sample instead of a failure', () => {
-    // Two pacifists, zero drones, harmless storm: nobody can ever win, so the
+    // Two pacifists, harmless storm: nobody can ever win, so the
     // tick budget is the only way out. beatMs 1000 keeps the budget's timeline
     // half tiny (the endgame slack dominates: ~12.3k ticks — bounded, honest).
     const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
     let result;
     try {
-      result = runBatch({ seed: 11, matches: 1, captains: 2, drones: 0, pilot: PILOT_REGISTRY.pacifist });
+      result = runBatch({ seed: 11, matches: 1, captains: 2, pilot: PILOT_REGISTRY.pacifist });
     } finally {
       restore();
     }
@@ -868,7 +867,7 @@ describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', (
   }
 
   it('records the departed captain and excludes it from the aggregates, never throwing', () => {
-    const result = runBatch({ seed: 5, matches: 1, captains: 2, drones: 0, pilot: quitterFactory('cap-2', 60) });
+    const result = runBatch({ seed: 5, matches: 1, captains: 2, pilot: quitterFactory('cap-2', 60) });
     // FAIL-PROOF: with the old `world.ships.get(id)!` collection this is a
     // recorded failure ("Cannot read properties of undefined"), not a match.
     expect(result.failures).toEqual([]);

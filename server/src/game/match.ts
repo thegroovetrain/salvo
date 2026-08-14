@@ -17,7 +17,7 @@
 //               countdownEndT = now + countdown. The room LOCKS (late joiners
 //               land in fresh rooms via joinOrCreate). CANCELS back to waiting
 //               (and unlocks) if humans drop below the minimum.
-//   active    — countdown elapsed: drone-fill seam runs (STEP 15 STUB), the
+//   active    — countdown elapsed: the
 //               field is cleared and every hull redeployed to the spawn ring,
 //               THEN the storm timeline anchors. Damage live, respawn DISABLED
 //               (death → spectator frames, see frames.ts). Sink order is
@@ -74,8 +74,9 @@ export interface MatchHooks {
   lock(): void;
   /** Reopen the room (countdown cancelled). */
   unlock(): void;
-  /** Drone-fill seam, run at countdown end BEFORE the field reset. STEP 15 STUB. */
-  fillToCapacity(): void;
+  // (The drone-fill seam died with the fill itself — Story 5.6, amendment 40.
+  // Nothing runs at countdown end but the field reset and the storm anchor;
+  // PvE fleets arrive on their own wave clock, in the World.)
   /** Broadcast the one-time end-of-match results message. */
   broadcastResults(msg: ResultsMsg): void;
   /** Gracefully disconnect every client (room disposes via autoDispose). */
@@ -376,9 +377,9 @@ export class Match {
     this.hooks.lock();
   }
 
-  /** Countdown end → active. Fill seam, field reset, THEN the storm anchors. */
+  /** Countdown end → active. Field reset, THEN the storm anchors — which is
+   *  also the PvE wave clock's zero (Story 5.6: waves fire off zone start). */
   private activate(): void {
-    this.hooks.fillToCapacity(); // STEP 15 STUB — drones land here
     this.world.resetForMatchStart();
     this.world.startZone(this.world.now);
     this.phase = 'active';
