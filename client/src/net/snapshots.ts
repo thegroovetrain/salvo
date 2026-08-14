@@ -113,6 +113,17 @@ export class ContactStore {
   /** Static per-id hull id (a contact never changes hull mid-life; may be a
    *  drone id, so this is HullId, not just a pickable ShipClassId). */
   private classes = new Map<string, HullId>();
+  /**
+   * Ids whose LAST OBSERVED frame carried the self-private `aggro` mark (Story
+   * 5.6, amendment 39) — a PvE fleet ship that has acquired US specifically.
+   *
+   * A SET, NOT A TIMESTAMP, and re-derived on every push: unlike `classes` this
+   * is not static — the server omits the key the moment the hull's memory of us
+   * expires, and the absence IS the de-aggro. A contact that stops appearing in
+   * frames altogether keeps its last mark until prune drops it, which is
+   * correct: its hull view is already fading out on the same beat.
+   */
+  private aggro = new Set<string>();
 
   /** Ingest one frame's contact list at server time `t`. */
   pushFrame(t: number, contacts: readonly Contact[]): void {
@@ -125,6 +136,8 @@ export class ContactStore {
       buf.push({ t, x: c.x, y: c.y, heading: c.heading, speed: c.speed });
       this.lastSeen.set(c.id, t);
       this.classes.set(c.id, c.cls);
+      if (c.aggro === true) this.aggro.add(c.id);
+      else this.aggro.delete(c.id);
     }
   }
 
@@ -135,6 +148,13 @@ export class ContactStore {
   /** The hull id of a contact (static, set on first sighting). */
   classOf(id: string): HullId | undefined {
     return this.classes.get(id);
+  }
+
+  /** Has this contact acquired US, as of its last observed frame? (Story 5.6 —
+   *  self-private by construction: the server only ever sets `aggro` on the
+   *  frame it sends to the observer being hunted.) */
+  aggroOf(id: string): boolean {
+    return this.aggro.has(id);
   }
 
   ids(): IterableIterator<string> {
@@ -154,6 +174,7 @@ export class ContactStore {
       this.buffers.delete(id);
       this.lastSeen.delete(id);
       this.classes.delete(id);
+      this.aggro.delete(id);
       removed.push(id);
     }
     return removed;

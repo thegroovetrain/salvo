@@ -123,7 +123,7 @@ describe('the kill-leader feed registers render through the shipped adapter', ()
     // A drone can never hold the throne (captain kills only); the adapter
     // enforces it independently, so a bad flag cannot glow the pinned grey.
     const droneOutline = CLIENT_CONFIG.colors.droneOutline;
-    pushKillLine([{ text: `${KILL_LEADER_MARK} DRONE-01`, id: 'd', leader: true }], () => droneOutline);
+    pushKillLine([{ text: `${KILL_LEADER_MARK} DRONE`, id: 'd', leader: true }], () => droneOutline);
     const span = feed().firstChild!.firstChild as HTMLSpanElement;
     expect(span.style.textShadow).toBe('');
     // ...and the drone grey stays pinned verbatim, un-lightened.
@@ -165,8 +165,12 @@ describe('pushKillLine — DOM span building', () => {
   });
 
   it('pins a DRONE name to the droneOutline token VERBATIM (never run through textSafe)', () => {
+    // The name is the bare literal `DRONE` since Story 5.6 (amendment 38: "a
+    // fleet sinking reads DRONE, never DRONE-07") — fleet hulls hold no roster
+    // row, so the feed sources the label from the hull exactly as the nameplate
+    // always has.
     const droneOutline = CLIENT_CONFIG.colors.droneOutline;
-    pushKillLine(killLine({ name: 'DRONE-01', id: 'd' }, null), () => droneOutline);
+    pushKillLine(killLine({ name: 'DRONE', id: 'd' }, null), () => droneOutline);
     const span = feed().firstChild!.firstChild as HTMLSpanElement;
     // jsdom normalizes color strings, so compare against a reference span set to
     // the raw token — the drone name must render the token itself, un-lightened.

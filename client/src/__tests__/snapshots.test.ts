@@ -121,6 +121,31 @@ describe('ContactStore lifecycle', () => {
     expect(store.classOf('d')).toBe('droneMedium');
   });
 
+  it('tracks the self-private `aggro` mark per FRAME — the absence IS the de-aggro', () => {
+    // Story 5.6, amendment 39. Unlike `cls` this is NOT static: the server omits
+    // the key the tick the fleet ship's memory of us expires, so the store has
+    // to re-derive it on every push rather than latch it.
+    const store = new ContactStore();
+    const at = (t: number, aggro?: true) =>
+      store.pushFrame(t, [aggro ? { id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneSmall', aggro } : { id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneSmall' }]);
+    at(100);
+    expect(store.aggroOf('d')).toBe(false);
+    at(150, true);
+    expect(store.aggroOf('d')).toBe(true);
+    at(200); // the key is simply gone — that is the de-aggro
+    expect(store.aggroOf('d')).toBe(false);
+    // An id the store has never heard of is not locked on to us.
+    expect(store.aggroOf('nobody')).toBe(false);
+  });
+
+  it('drops the aggro mark on prune, so a fading ghost cannot hold a bracket', () => {
+    const store = new ContactStore();
+    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneLarge', aggro: true }]);
+    expect(store.aggroOf('d')).toBe(true);
+    store.prune(1000, 100);
+    expect(store.aggroOf('d')).toBe(false);
+  });
+
   it('prunes contacts unseen past the ttl and reports removals', () => {
     const store = new ContactStore();
     store.pushFrame(100, [contact('a'), contact('b')]);

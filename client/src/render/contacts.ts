@@ -35,6 +35,7 @@ import type { Point } from './camera.js';
 import { ShipView, contactStyle, hueRevision, isDroneHull } from './ships.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './nameplates.js';
 import { Fader } from './fade.js';
+import { AggroMark, bracketHalfSize } from './aggro.js';
 
 /** Start a contact's fade-out once unseen for this much server time (ms). */
 export const CONTACT_STALE_MS = CONFIG.tick.interpDelayMs + 300;
@@ -84,7 +85,19 @@ interface FadingView {
   /** True once the nameplate's text + color have resolved and been set —
    *  latched, so a later roster leave keeps the plate (position/alpha only). */
   plated: boolean;
+  /** THE AGGRO BRACKET (Story 5.6, amendment 39), created LAZILY on this hull's
+   *  first acquire and kept afterwards. Lazy because the overwhelming majority
+   *  of contacts — every captain, and every fleet hull hunting somebody else —
+   *  never wear one, and an eagerly-built Graphics per contact would put twenty
+   *  empty display objects on the ship layer for nothing. */
+  aggro: AggroMark | null;
 }
+
+/** A lock changed hands on some hull. `acquired` = a fleet ship just took US as
+ *  its target; `released` = one just lost us. Fired at most once per hull per
+ *  transition; the caller (main.ts) sounds the cue — this module owns no audio,
+ *  because the one-way data flow runs net → sim → render and never back. */
+export type AggroCue = (kind: 'acquired' | 'released') => void;
 
 /**
  * Pure: the latch state a view must fall back to when the hue table is swapped
@@ -100,10 +113,24 @@ export class ContactViews {
   private views = new Map<string, FadingView>();
   /** The hue-table revision every live view is currently painted against. */
   private hueRev = hueRevision();
+  /**
+   * THIS FRAME's monotonic timestamp, sampled ONCE at the top of `render` and
+   * read by every aggro mark driven under it.
+   *
+   * A per-frame field rather than a ninth `updateView` argument, and a field
+   * rather than a `performance.now()` call per mark: the whole point of the
+   * project's sample-exactly-once discipline is that two marks in one frame
+   * cannot disagree about what instant it is (one bracket completing its snap
+   * while its neighbour, armed on the same tick, has not).
+   */
+  private frameNowMs = 0;
 
   constructor(
     private readonly layer: Container,
     private readonly nameplates: NameplateLayer,
+    /** Sounds the aggro lock/release stings. Defaults to a no-op so headless
+     *  tests and any caller with no audio behave exactly as before. */
+    private readonly aggroCue: AggroCue = () => {},
   ) {}
 
   /** How many contact views are live, including fading ones (tests/debug). */
@@ -168,6 +195,7 @@ export class ContactViews {
     softness: HullSoftness = NO_SOFTENING,
   ): void {
     this.syncHueRevision();
+    this.frameNowMs = performance.now();
     store.prune(serverNow, CONTACT_STALE_MS);
     // Only start/keep a view for ids whose buffer can actually produce a pose.
     // A respawn's frame-contacts push can land in the same tick as the spawn
@@ -183,6 +211,7 @@ export class ContactViews {
       if (this.updateView(id, fv, store, renderTime, dtMs, rosterIndex, plates, softness)) {
         this.nameplates.remove(id);
         fv.view.destroy();
+        fv.aggro?.destroy();
         this.views.delete(id);
       }
     }
@@ -225,7 +254,30 @@ export class ContactViews {
     const p = fv.view.gfx.position;
     fv.view.setFade(fv.fader.update(dtMs) * softness(p.x, p.y));
     this.drivePlate(id, fv, rosterIndex, plates);
+    this.driveAggro(id, fv, store, softness);
     return fv.fader.hidden;
+  }
+
+  /**
+   * THE AGGRO BRACKET (Story 5.6, amendment 39): drive this hull's mark from the
+   * store's per-frame `aggro` truth, creating it on the first acquire.
+   *
+   * A PRUNED CONTACT READS AS NO LONGER LOCKED, and that is the honest answer
+   * rather than a shortcut: `store.aggroOf` goes false the tick prune drops the
+   * id, so a hull that sails out of sight while hunting us takes its bracket
+   * with it — we have stopped being told, and a bracket held on a fading ghost
+   * would be an assertion the wire is no longer making. The mark's alpha rides
+   * the same fader × feather product the hull does, so the two leave together.
+   */
+  private driveAggro(id: string, fv: FadingView, store: ContactStore, softness: HullSoftness): void {
+    const locked = store.aggroOf(id);
+    if (!locked && fv.aggro === null) return; // the overwhelmingly common case
+    const p = fv.view.gfx.position;
+    if (fv.aggro === null) fv.aggro = new AggroMark(this.layer, bracketHalfSize(fv.hull));
+    fv.aggro.place(p.x, p.y);
+    const cue = fv.aggro.set(locked, this.frameNowMs);
+    if (cue !== null) this.aggroCue(cue);
+    fv.aggro.render(this.frameNowMs, fv.fader.alpha * softness(p.x, p.y));
   }
 
   /** Latch (once) the plate's text/color, then position + fade it every frame.
@@ -265,7 +317,7 @@ export class ContactViews {
       const style = contactStyle(hullId, idx);
       // Colored already iff a drone (greys) or the personal hue resolved now;
       // a still-null human hue leaves the amber fallback for tryRecolor to fix.
-      fv = { view: new ShipView(style, hullId), fader: new Fader(false), hull: hullId, colored: isDroneHull(hullId) || idx !== null, plated: false };
+      fv = { view: new ShipView(style, hullId), fader: new Fader(false), hull: hullId, colored: isDroneHull(hullId) || idx !== null, plated: false, aggro: null };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);
     }

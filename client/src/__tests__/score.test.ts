@@ -1,5 +1,5 @@
 // Story 2.3 (amendments 22/23) — the client-derived personal score: the
-// sunk-contestant roll (drone kills count in the tally, never in the list),
+// sunk-contestant roll (PvE kills appear in NO record — amendment 37),
 // elimination placement from the public alive count, and the winner state.
 
 import { describe, it, expect } from 'vitest';
@@ -50,13 +50,16 @@ describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () =
     expect(ownDown.sunkIds).toEqual([]);
   });
 
-  it('a DRONE we sank never enters the list (the tally still counts it)', () => {
+  it('a PvE fleet hull we sank enters NEITHER record (amendment 37)', () => {
     const base = freshScore();
     const droned = recordSunk(base, obs({ victimIsDrone: true }), OWN);
     expect(droned.sunkContestants).toEqual([]);
     expect(droned.sunkIds).toEqual([]);
-    // It DOES earn a MATCH LOG line (amendment 28) — see the log's own suite for
-    // why the two lists part company on drones.
+    // ...and no MATCH LOG line either, which REVERSES Story 5.3's rule: the
+    // roster tally that argument leaned on no longer counts drones, so the two
+    // now agree by exclusion. The state is returned IDENTICAL.
+    expect(droned.matchLog).toEqual([]);
+    expect(droned).toBe(base);
   });
 
   it('de-duplicates by victim id (a respawn-and-resink lists one hull)', () => {
@@ -65,14 +68,17 @@ describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () =
     expect(s.sunkContestants).toEqual(['RIVAL']);
   });
 
-  it('the I/O matrix row: 2 drones + 1 human ⇒ kills 3, list shows the human only', () => {
+  it('2 fleet hulls + 1 captain ⇒ kills 1 (the server already dropped the PvE two)', () => {
     let s = freshScore();
-    s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE-1', victimIsDrone: true }), OWN);
-    s = recordSunk(s, obs({ victimId: 'd2', victimName: 'DRONE-2', victimIsDrone: true }), OWN);
+    s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE', victimIsDrone: true }), OWN);
+    s = recordSunk(s, obs({ victimId: 'd2', victimName: 'DRONE', victimIsDrone: true }), OWN);
     s = recordSunk(s, obs({ victimId: 'h1', victimName: 'CAPTAIN-2' }), OWN);
-    const score = personalScore(s, [], 3, false, null);
-    expect(score.kills).toBe(3);
+    // `kills` is the roster tally handed in, and amendment 37 stopped that
+    // tally counting PvE sinkings at the SOURCE — the client filters nothing.
+    const score = personalScore(s, [], 1, false, null);
+    expect(score.kills).toBe(1);
     expect(score.sunkContestants).toEqual(['CAPTAIN-2']);
+    expect(score.matchLog.map((e) => e.name)).toEqual(['CAPTAIN-2']);
   });
 });
 
@@ -139,74 +145,76 @@ describe('a victim with no resolvable callsign is OMITTED, never shown as an id'
   });
 });
 
-describe('isLiveRival — placement counts HUMANS, never drones', () => {
-  const DRONE = 255;
-
-  it('excludes drones, the dead, and ourselves', () => {
-    expect(isLiveRival({ id: 'a', alive: true, color: 3 }, OWN, DRONE)).toBe(true);
-    expect(isLiveRival({ id: 'd', alive: true, color: DRONE }, OWN, DRONE)).toBe(false);
-    expect(isLiveRival({ id: 'a', alive: false, color: 3 }, OWN, DRONE)).toBe(false);
-    expect(isLiveRival({ id: OWN, alive: true, color: 3 }, OWN, DRONE)).toBe(false);
+describe('isLiveRival — placement counts the ROSTER, which is captains only (amendment 38)', () => {
+  it('excludes the dead and ourselves — and no longer takes a drone sentinel at all', () => {
+    expect(isLiveRival({ id: 'a', alive: true, color: 3 }, OWN)).toBe(true);
+    expect(isLiveRival({ id: 'a', alive: false, color: 3 }, OWN)).toBe(false);
+    expect(isLiveRival({ id: OWN, alive: true, color: 3 }, OWN)).toBe(false);
   });
 
-  it('the solo-captain case: 5 live drones + 1 live human ⇒ you place 2nd, not 7th', () => {
+  it('COUNTS a captain whose colour byte has not patched in — 255 is no longer "drone"', () => {
+    // The sentinel was DUAL-PURPOSE ("drone" AND "hue not assigned yet"). With
+    // fleet hulls off the roster only the second meaning survives, and dropping
+    // such a row would drop a real captain mid-patch.
+    expect(isLiveRival({ id: 'late', alive: true, color: 255 }, OWN)).toBe(true);
+    expect(isLiveRival({ id: 'late', alive: true }, OWN)).toBe(true);
+  });
+
+  it('the solo-captain case: fleet hulls are not on the roster, so you place 2nd', () => {
+    // Story 5.6: the nine hulls of a fleet contribute NO roster rows, which is
+    // why this no longer needs a filter to reach the same answer.
     const roster = [
       { id: OWN, alive: true, color: 1 },
       { id: 'human', alive: true, color: 2 },
-      ...[0, 1, 2, 3, 4].map((n) => ({ id: `drone${n}`, alive: true, color: DRONE })),
     ];
-    const rivals = roster.filter((m) => isLiveRival(m, OWN, DRONE)).length;
+    const rivals = roster.filter((m) => isLiveRival(m, OWN)).length;
     expect(rivals).toBe(1);
     expect(placementFor(rivals)).toBe(2);
   });
 });
 
-describe('afloatCount — the chrome bar counts CAPTAINS: humans only, us included (PV 23)', () => {
-  const DRONE = 255;
-  // A solo captain's field: our hull, one human rival, five drones.
+describe('afloatCount — the chrome bar counts CAPTAINS, which is now simply the roster', () => {
+  // A solo captain's field. The fleet hulls sailing alongside are ABSENT from
+  // this list rather than filtered out of it — that is the whole change
+  // (amendment 38: "n AFLOAT gets simpler rather than harder").
   const field = [
     { id: OWN, alive: true, color: 1 },
     { id: 'human', alive: true, color: 2 },
-    ...[0, 1, 2, 3, 4].map((n) => ({ id: `drone${n}`, alive: true, color: DRONE })),
   ];
 
-  it('excludes DRONES (not combatants) but still counts the LOCAL PLAYER', () => {
-    expect(afloatCount(field, DRONE)).toBe(2); // us + the one human rival
-    expect(isAfloatHull({ id: 'd', alive: true, color: DRONE }, DRONE)).toBe(false);
-    expect(isAfloatHull({ id: OWN, alive: true, color: 1 }, DRONE)).toBe(true);
+  it('counts every live row INCLUDING the local player', () => {
+    expect(afloatCount(field)).toBe(2); // us + the one human rival
+    expect(isAfloatHull({ id: OWN, alive: true, color: 1 })).toBe(true);
   });
 
-  it('thins as the CAPTAINS die — drones sinking never move the number', () => {
-    // The human rival goes down: 2 → 1. Every drone going down changes nothing.
+  it('thins as the CAPTAINS die', () => {
     const rivalDown = field.map((m) => (m.id === 'human' ? { ...m, alive: false } : m));
-    expect(afloatCount(rivalDown, DRONE)).toBe(1);
-    const dronesDown = field.map((m) => (m.color === DRONE ? { ...m, alive: false } : m));
-    expect(afloatCount(dronesDown, DRONE)).toBe(2);
-    expect(afloatCount(field.map((m) => ({ ...m, alive: false })), DRONE)).toBe(0);
+    expect(afloatCount(rivalDown)).toBe(1);
+    expect(afloatCount(field.map((m) => ({ ...m, alive: false })))).toBe(0);
   });
 
-  it('a room of 4 humans and 16 drones all alive reads 4 AFLOAT', () => {
+  it('a room of 4 captains reads 4 AFLOAT however many fleet hulls are on the water', () => {
     const room = [
       { id: OWN, alive: true, color: 1 },
       ...[2, 3, 4].map((n) => ({ id: `h${n}`, alive: true, color: n })),
-      ...Array.from({ length: 16 }, (_, n) => ({ id: `drone${n}`, alive: true, color: DRONE })),
     ];
-    expect(afloatCount(room, DRONE)).toBe(4);
+    expect(afloatCount(room)).toBe(4);
   });
 
-  it('excludes the dead, and an entry the roster has not synced yet', () => {
-    expect(isAfloatHull({ id: 'a', alive: false, color: 3 }, DRONE)).toBe(false);
-    expect(isAfloatHull({ id: 'a' }, DRONE)).toBe(false); // `alive` undefined is not afloat
-    expect(afloatCount([], DRONE)).toBe(0);
+  it('excludes the dead, and counts an entry whose HUE has not synced yet', () => {
+    expect(isAfloatHull({ id: 'a', alive: false, color: 3 })).toBe(false);
+    expect(isAfloatHull({ id: 'a' })).toBe(false); // `alive` undefined is not afloat
+    expect(isAfloatHull({ id: 'late', alive: true, color: 255 })).toBe(true); // captain mid-patch
+    expect(afloatCount([])).toBe(0);
   });
 
   it('still DISAGREES with the placement count — the LOCAL-PLAYER half of the asymmetry survives', () => {
-    // The surviving half of the old asymmetry: placement ranks the OTHER
-    // contestants (us excluded), AFLOAT includes our own hull. The drone half
-    // is gone — both counts now exclude drones (the public-register ruling).
-    const rivals = field.filter((m) => isLiveRival(m, OWN, DRONE)).length;
+    // Placement ranks the OTHER contestants (us excluded); AFLOAT includes our
+    // own hull. The drone half of the old asymmetry is gone twice over now:
+    // both counts exclude fleet hulls, and neither has to test for them.
+    const rivals = field.filter((m) => isLiveRival(m, OWN)).length;
     expect(rivals).toBe(1); // the one human rival
-    expect(afloatCount(field, DRONE)).toBe(2); // ...but TWO captains are afloat (them + us)
+    expect(afloatCount(field)).toBe(2); // ...but TWO captains are afloat (them + us)
     expect(placementFor(rivals)).toBe(2); // and the placement number is unchanged
   });
 });
@@ -419,7 +427,7 @@ describe('matchLogLine — which sinkings earn the local player a line', () => {
   });
 });
 
-describe('recordSunk — the MATCH LOG fold (drones IN, chronological, de-duplicated)', () => {
+describe('recordSunk — the MATCH LOG fold (chronological, de-duplicated, PvE OUT)', () => {
   it('builds amendment 28\'s example log in ARRIVAL order, our death last', () => {
     let s = freshScore();
     s = recordSunk(s, obs({ victimId: 'a', victimName: 'SALT SHAKER', tMs: tPlus(2, 41) }), OWN);
@@ -434,15 +442,29 @@ describe('recordSunk — the MATCH LOG fold (drones IN, chronological, de-duplic
     expect(s.matchLog.map((e) => e.tMs)).toEqual([...s.matchLog.map((e) => e.tMs)].sort((x, y) => x - y));
   });
 
-  it('LOGS a drone kill even though the ROLL drops it (amendment 9 is about the results TABLE)', () => {
-    // The adjacent KILLS tile is the roster's drone-inclusive tally; a log that
-    // dropped drone kills would show one line beside a tile reading 2.
+  it('DROPS a PvE kill from the log, exactly as the roll does (amendment 37)', () => {
+    // Story 5.3 logged drone kills because the adjacent KILLS tile counted them
+    // and a log that dropped them would disagree with the tile. Amendment 37
+    // emptied the tile, so the log empties with it: one line, one kill, one
+    // number, all three agreeing.
     let s = freshScore();
-    s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE-01', victimIsDrone: true, tMs: 30_000 }), OWN);
+    s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE', victimIsDrone: true, tMs: 30_000 }), OWN);
     s = recordSunk(s, obs({ victimId: 'h1', victimName: 'CAPTAIN-2', tMs: 60_000 }), OWN);
-    expect(s.matchLog.map((e) => e.name)).toEqual(['DRONE-01', 'CAPTAIN-2']);
+    expect(s.matchLog.map((e) => e.name)).toEqual(['CAPTAIN-2']);
     expect(s.sunkContestants).toEqual(['CAPTAIN-2']);
-    expect(personalScore(s, [], 2, false, 90_000).kills).toBe(2);
+    expect(personalScore(s, [], 1, false, 90_000).kills).toBe(1);
+  });
+
+  it('STILL logs our own death when a PvE fleet hull is what sank us', () => {
+    // The victim test runs first, so the new drone clause can never eat the one
+    // line the log exists to guarantee: the player's own end.
+    const s = recordSunk(
+      freshScore(),
+      obs({ victimId: OWN, victimIsDrone: true, killerId: 'd1', killerName: null, tMs: 77_000 }),
+      OWN,
+    );
+    expect(s.matchLog).toEqual([{ tMs: 77_000, kind: 'sunkBy', name: 'UNKNOWN VESSEL' }]);
+    expect(s.sunkAtMs).toBe(77_000);
   });
 
   it('never logs a hull twice (a duplicate/replayed `sunk` is swallowed)', () => {

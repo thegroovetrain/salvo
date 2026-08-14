@@ -56,6 +56,19 @@ export function plateColor(hueIndex: number, isDrone: boolean): number {
   return isDrone ? C.droneOutline : textSafe(PLAYER_HUES[hueIndex] ?? C.amber);
 }
 
+/**
+ * THE ONE LABEL A PvE FLEET HULL EVER WEARS.
+ *
+ * The plate has resolved to this literal since Story 1.13 — *"a drone always
+ * resolves to the literal 'DRONE' (never its roster 'DRONE-NN' name)"* — and
+ * Story 5.6 makes it load-bearing in a second place: fleet hulls no longer hold
+ * roster rows at all (amendment 38), so the KILL FEED lost its name source and
+ * follows this precedent rather than printing the feed's neutral
+ * `UNKNOWN VESSEL` for a hull whose identity is perfectly well known. Exported
+ * so the two surfaces cannot drift into two spellings of one word.
+ */
+export const DRONE_PLATE_TEXT = 'DRONE';
+
 /** The plate a hull should show, or null when it cannot yet resolve (the latch
  *  gate): a drone always resolves to the literal "DRONE" (never its roster
  *  "DRONE-NN" name); a human needs BOTH a synced name and a hue index. */
@@ -64,7 +77,7 @@ export function resolvePlate(
   hueIndex: number | null,
   isDrone: boolean,
 ): { text: string; color: number } | null {
-  if (isDrone) return { text: 'DRONE', color: plateColor(0, true) };
+  if (isDrone) return { text: DRONE_PLATE_TEXT, color: plateColor(0, true) };
   if (name === null || hueIndex === null) return null;
   // Strip control chars only (a newline must never reach Pixi as a multi-line
   // plate) — KEEP format chars (\p{Cf}) so emoji ZWJ sequences survive intact.

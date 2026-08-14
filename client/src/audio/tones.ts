@@ -38,6 +38,8 @@ export type ToneId =
   | 'dazzled'
   | 'sink'
   | 'bounty'
+  | 'aggroLock'
+  | 'aggroRelease'
   // --- the SOUND MAP (Story 4.7): things that happen out in the world --------
   | 'gunReport'
   | 'impact'
@@ -176,6 +178,28 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // 700→1500, dazzled washes up and thins. Draft spec (the standing draft-copy
   // rule); the visual twin is the toast + the bar's own BOUNTY register.
   bounty: { freqStart: 990, freqMid: 660, freqEnd: 990, duration: 0.15, volume: 0.46, type: 'square' },
+  // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 39) ----------------------
+  // A PvE fleet ship has taken you as its target — or has just lost you. Eric
+  // asked for BOTH edges to be *"very visually obvious"*, and the audio follows
+  // the same pairing: the two cues are the SAME contour played in opposite
+  // directions, so they are a matched pair by construction rather than by
+  // adjective, exactly as the bracket's one `spread` channel runs down on
+  // acquire and up on release.
+  //
+  // THE LOCK is a hard ASCENDING triangle sting — a mid-register snap UP that
+  // stops dead. It is not the klaxon (that square shape is the bounty's alone
+  // and fires on a status change about YOU, not about a threat), it is well
+  // below `dazzled`'s glassy wash and well above `hitCall`'s 130Hz thud, and it
+  // rises where `slowed` sags. Deliberately SHORTER and quieter than `damage`:
+  // being aimed at is not being hit, and the catalog must not let the two
+  // trade places in a fight.
+  aggroLock: { freqStart: 420, freqMid: 700, freqEnd: 760, duration: 0.11, volume: 0.36, type: 'triangle' },
+  // THE RELEASE is the same contour inverted and softened — a descending sine
+  // that thins out, *"a distinct, softer descending cue"* (amendment 39). Lower
+  // peak volume than its own lock, because losing a hunter is relief rather
+  // than an event demanding a reaction; sine rather than triangle so the two
+  // differ in TIMBRE as well as in direction and survive a noisy mix.
+  aggroRelease: { freqStart: 700, freqMid: 460, freqEnd: 340, duration: 0.13, volume: 0.26, type: 'sine' },
   // --- THE SOUND MAP (Story 4.7, Eric ruling 2026-08-10) ----------------------
   //
   // Six cues for things that happen OUT IN THE WORLD rather than to you — the

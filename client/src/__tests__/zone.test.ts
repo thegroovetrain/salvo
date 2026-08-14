@@ -180,8 +180,18 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
   });
 
   it('FAIL-PROOF: 3440x720 at min zoom with a maxed radar stack', () => {
-    // The pre-fix constant bound (mapRadius x 7 = 16800u) fell ~760u short here,
-    // which paints an arc of un-tinted void along the outside of the fill.
+    // THE HISTORICAL DEMONSTRATION IS RETIRED, NOT THE TEST (Story 5.6,
+    // amendment 41). At mapRadius 2400 the pre-fix CONSTANT bound
+    // (mapRadius x 7 = 16800u) fell ~760u short of this configuration, and this
+    // case asserted that shortfall directly. At 2800 the constant scales to
+    // 19600u while the viewport term does not move at all, so the constant
+    // would now cover THIS case — the old assertion is simply false, and
+    // re-deriving a bigger constant to chase it would be re-introducing the bug
+    // the dynamic bound exists to prevent. What remains is the property that
+    // was always the point: the dynamic radius covers the honest worst case at
+    // the map's widest camera separation. That no constant can EVER cover it is
+    // proved by the far-panned-spectator case below, where free pan is
+    // unclamped and `needed` is unbounded.
     const v = view({
       screenW: 3440,
       screenH: 720,
@@ -192,7 +202,8 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
       camX: MAP_R,
       camY: 0,
     });
-    expect(needed(v)).toBeGreaterThan(MAP_R * Z.fillOuterFactor); // the old bound WAS short
+    // The camera sits a full map diameter from the ring and still sees past it.
+    expect(needed(v)).toBeGreaterThan(2 * MAP_R);
     expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
   });
 

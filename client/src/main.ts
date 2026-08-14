@@ -23,7 +23,6 @@ import {
   isOutside,
   resolveBoons,
   slotsWithBoons,
-  REGATTA_NO_HUE,
   SLOT_COUNT,
   type BoonDef,
   type Island,
@@ -42,10 +41,11 @@ import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom, type Point } from './render/camera.js';
-import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, setColorblindAssist, setHullFlashGate } from './render/ships.js';
+import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, isDroneHull, setColorblindAssist, setHullFlashGate } from './render/ships.js';
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
+import { setAggroFlashGate } from './render/aggro.js';
 import { ownSettle } from './render/sinkSettle.js';
-import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
+import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
@@ -925,26 +925,64 @@ function rosterNameOrNull(g: Game, id: string): string | null {
 }
 
 /**
- * Personal-hue INDEX (0..19) for a roster id (Story 1.12), or null for the drone
- * sentinel (255), a roster miss, or a not-yet-synced entry. The source of truth
- * for own + contact hull colors and the ordnance-marker tint.
+ * Personal-hue INDEX (0..19) for a roster id (Story 1.12), or null for a roster
+ * miss or a not-yet-synced entry. The source of truth for own + contact hull
+ * colors and the ordnance-marker tint.
+ *
+ * A FLEET HULL RESOLVES NULL HERE STRUCTURALLY (Story 5.6, amendment 38): it has
+ * no roster row at all, so it takes the same path a not-yet-synced captain does
+ * — and that is correct, because `contactStyle` routes a drone HULL ID to the
+ * greys before it ever looks at an index.
  */
 function rosterColor(g: Game, id: string): number | null {
   const c = publicState(g).players?.get(id)?.color;
-  // The single chokepoint: ANY value outside a real wheel index (0..19) — the 255
-  // drone sentinel, a malformed schema byte, a not-yet-synced entry — resolves to
-  // null, which keeps every downstream PLAYER_HUES[idx] lookup in range.
+  // The single chokepoint: ANY value outside a real wheel index (0..19) — the
+  // schema's unassigned-hue default, a malformed byte, an absent entry —
+  // resolves to null, which keeps every downstream PLAYER_HUES[idx] lookup in
+  // range.
   return typeof c === 'number' && Number.isInteger(c) && c >= 0 && c < PLAYER_HUES.length ? c : null;
 }
 
-/** Kill-feed name color for a vessel id: the bright personal hue for a human,
- *  drone-outline for a drone (sentinel 255), null for a roster miss (the feed
- *  leaves the name in text-secondary). */
+/**
+ * TRUE IFF `id` NAMES A PvE FLEET HULL — read off `Contact.cls` via the shared
+ * `isDroneHull` predicate (Story 5.6, amendment 38).
+ *
+ * THE 255-SENTINEL CHANNEL IS GONE. The client used to detect drones through
+ * TWO independent channels — a drone hull id on the contact, and the
+ * `REGATTA_NO_HUE` roster hue — and taking fleet ships off the roster deleted
+ * the second. Amendment 38 named that cost explicitly when it was ruled; this
+ * function is where the remaining channel is centralised so no call site has to
+ * know that history.
+ *
+ * KNOWN LIMIT, and it is the honest consequence of having one channel instead of
+ * two: `ContactStore` drops a contact's class entry when it prunes the contact,
+ * so a fleet hull we NEVER saw (a mine trip or a blind snipe out in the fog)
+ * answers `false` here. Everything that matters degrades safely — such a victim
+ * also has no roster callsign, so it is already excluded from `SHIPS YOU SANK`
+ * and from the MATCH LOG by the name test — and the only visible effect is the
+ * kill-feed line reading the neutral `UNKNOWN VESSEL` instead of `DRONE`.
+ */
+function isDroneId(g: Game, id: string): boolean {
+  const hull = g.contacts.classOf(id);
+  return hull !== undefined && isDroneHull(hull);
+}
+
+/** Kill-feed name for a vessel id: a fleet hull is the literal `DRONE` (the
+ *  nameplate's own precedent — amendment 38: *"a fleet sinking reads DRONE,
+ *  never DRONE-07"*), everyone else the synced roster callsign or null (the feed
+ *  then prints its neutral UNKNOWN_VESSEL label). */
+function feedName(g: Game, id: string): string | null {
+  return isDroneId(g, id) ? DRONE_PLATE_TEXT : rosterNameOrNull(g, id);
+}
+
+/** Kill-feed name color for a vessel id: the bright personal hue for a captain,
+ *  drone-outline for a fleet hull, null for a roster miss (the feed leaves the
+ *  name in text-secondary). */
 function feedColor(g: Game, id: string): number | null {
+  if (isDroneId(g, id)) return CLIENT_CONFIG.colors.droneOutline; // drone grey
   const c = publicState(g).players?.get(id)?.color;
   if (typeof c !== 'number') return null; // roster miss
-  if (c === REGATTA_NO_HUE) return CLIENT_CONFIG.colors.droneOutline; // drone grey
-  return PLAYER_HUES[c] ?? null; // human personal hue
+  return PLAYER_HUES[c] ?? null; // captain's personal hue
 }
 
 /**
@@ -1102,10 +1140,11 @@ function chromeBarView(g: Game, zv: ZoneView, now: number, tier1: boolean): Chro
     // that sentinel would print `now − 0` as the match clock.
     visible: barVisible(zv.state, zv.startT),
     // The public-register cycle (superseding amendment 19): AFLOAT counts
-    // CAPTAINS — drones are not combatants and are excluded via the roster hue
-    // sentinel — but the LOCAL PLAYER is still counted, unlike the rival count
-    // placement uses (score.ts isAfloatHull has the full doctrine note).
-    afloat: players ? afloatCount(players, REGATTA_NO_HUE) : 0,
+    // CAPTAINS — and since Story 5.6 that is simply the roster, because fleet
+    // hulls hold no rows in it (amendment 38). The LOCAL PLAYER is still
+    // counted, unlike the rival count placement uses (score.ts isAfloatHull has
+    // the full doctrine note).
+    afloat: players ? afloatCount(players) : 0,
     kills: ownKills(g),
     matchMs: Math.max(0, now - zv.startT),
     // `closesInMs` is handed over verbatim — its dual meaning (to close START
@@ -1123,26 +1162,28 @@ function chromeBarView(g: Game, zv: ZoneView, now: number, tier1: boolean): Chro
 
 /**
  * Live CONTESTANT count excluding the local player — the placement input
- * (k rivals still floating ⇒ you place k+1). Read off the public roster, and
- * DRONES ARE NOT CONTESTANTS: they fill empty slots so a solo captain still
- * gets a battle royale, the win check is human-gated, and the results table
- * lists humans only — so a placement counting them reported a number that
- * matched nothing else the player is shown.
+ * (k rivals still floating ⇒ you place k+1). Read off the public roster, which
+ * IS the contestant list since Story 5.6: fleet hulls hold no rows in it
+ * (amendment 38), so the drone exclusion that used to be a hue test is now
+ * structural and `isLiveRival` no longer takes a sentinel to test against.
  */
 function othersAlive(g: Game): number {
   const players = publicState(g).players;
   if (!players) return 0;
   let n = 0;
-  players.forEach((meta: { id?: string; alive?: boolean; color?: number }) => {
-    if (isLiveRival(meta, g.state.net.sessionId, REGATTA_NO_HUE)) n += 1;
+  players.forEach((meta: { id?: string; alive?: boolean }) => {
+    if (isLiveRival(meta, g.state.net.sessionId)) n += 1;
   });
   return n;
 }
 
 /**
  * THE FIELD SIZE — the `OF 14` of `9TH OF 14` (Story 5.3, amendment 29). Every
- * CAPTAIN on the roster, alive or sunk, drones excluded by the same sentinel
- * every other captains-only count uses (epic-4 amendment 32, epic-5 amendment 9).
+ * CAPTAIN on the roster, alive or sunk — which since Story 5.6 is every ROW on
+ * the roster, because fleet hulls hold none (amendment 38). The hue test this
+ * used to run is retired with the sentinel it read: keeping it would now drop a
+ * real captain whose colour byte had not patched in yet, since 255 no longer
+ * means "drone" and only ever meant "hue not assigned" besides.
  *
  * Deliberately the LIVE roster rather than a match-start tally: a captain who
  * quits is removed outright (`Match.onPlayerLeave` → `removeShip`), so a field
@@ -1154,8 +1195,8 @@ function captainCount(g: Game): number | null {
   const players = publicState(g).players;
   if (!players) return null;
   let n = 0;
-  players.forEach((meta: { color?: number }) => {
-    if (typeof meta.color === 'number' && meta.color !== REGATTA_NO_HUE) n += 1;
+  players.forEach(() => {
+    n += 1;
   });
   return n > 0 ? n : null;
 }
@@ -1167,14 +1208,11 @@ function ownRosterSettled(g: Game): boolean {
   return publicState(g).players?.get(g.state.net.sessionId)?.alive === false;
 }
 
-/** The own roster kill tally (server-authoritative, public, drones included). */
+/** The own roster kill tally (server-authoritative, public — CAPTAINS ONLY since
+ *  Story 5.6, because amendment 37 stopped a PvE sinking incrementing it at the
+ *  source; the client filters nothing here and never did). */
 function ownKills(g: Game): number {
   return publicState(g).players?.get(g.state.net.sessionId)?.kills ?? 0;
-}
-
-/** True iff `id` is a DRONE (the roster's 255 hue sentinel). */
-function isDroneId(g: Game, id: string): boolean {
-  return publicState(g).players?.get(id)?.color === REGATTA_NO_HUE;
 }
 
 /** Did the local player win? (Public match plane, once finished.) */
@@ -1223,10 +1261,12 @@ function ownResultsIdentity(g: Game): ResultsOwn | null {
 
 /**
  * EVERY observed sinking (own included) folds into the score accumulator: a kill
- * credited to us adds the victim to the sunk-contestant roll (drones excluded),
- * and OUR OWN sinking during a LIVE match latches the elimination placement and
- * opens the results modal immediately — the ratified replacement for the old
- * silent auto-spectate.
+ * credited to us adds the victim to the sunk-contestant roll AND to the MATCH
+ * LOG (PvE fleet hulls excluded from BOTH since Story 5.6, amendment 37 — the
+ * feed line, the kill flash, the settle and the XP all still fire; it is the
+ * persistent RECORD that empties), and OUR OWN sinking during a LIVE match
+ * latches the elimination placement and opens the results modal immediately —
+ * the ratified replacement for the old silent auto-spectate.
  */
 function handleSunkObserved(g: Game, victimId: string, killerId: string | null): void {
   g.score = recordSunk(
@@ -1959,6 +1999,12 @@ function armWorldFlashBudget(g: Game, camera: Camera, budget: FlashBudget): void
   const gate = new WorldFlashGate(budget, camera);
   g.effects.setFlashGate(gate);
   setHullFlashGate(gate);
+  // Story 5.6: the aggro bracket's ACQUIRE pop is an on-water one-shot at a
+  // world position, so it claims the same aggregate budget by the same rule
+  // (amendment 241 keeps world one-shots outside the tier system and answers
+  // them to render/flashBudget.ts). Over budget it loses the pop and keeps the
+  // bracket, which is the only part that carries information.
+  setAggroFlashGate(gate);
 }
 
 function buildGame(
@@ -2003,7 +2049,11 @@ function buildGame(
     mouse,
     sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
     ownView,
-    contactViews: new ContactViews(stage.layers.ship, nameplates),
+    // Story 5.6: the aggro bracket's two stings. The renderer detects the edge
+    // (it is the only thing holding per-hull lock state) and calls back with the
+    // TRANSITION; the sound stays here, on the data flow's audio side, so
+    // render/ never reaches into audio/.
+    contactViews: new ContactViews(stage.layers.ship, nameplates, (kind) => audio.play(kind === 'acquired' ? 'aggroLock' : 'aggroRelease')),
     nameplates,
     // NO TRAIL CALLBACK ANY MORE (cycle-69 review gate, P10): a fish's water is
     // the one shared wake ribbon, pulled by `wakeHulls` from
@@ -2243,8 +2293,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // The FEED's name lookup is the nullable resolver, NOT rosterName: a
     // departed vessel must render the feed's neutral UNKNOWN_VESSEL label
     // (roomBindings.handleSunk), never the raw-session-id fallback — the same
-    // rule the score card already applies (handleSunkObserved below).
-    names: (id) => rosterNameOrNull(g, id),
+    // rule the score card already applies (handleSunkObserved below). Story 5.6
+    // routes it through `feedName` so a PvE fleet hull — which has no roster row
+    // at all any more (amendment 38) — reads `DRONE` rather than falling into
+    // that neutral label.
+    names: (id) => feedName(g, id),
     // Story 1.12 personal-hue resolvers (roster-driven): kill-feed name color +
     // ordnance-marker firer tint.
     colors: (id) => feedColor(g, id),
