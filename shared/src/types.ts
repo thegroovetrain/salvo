@@ -359,7 +359,7 @@ export interface Contact {
    */
   cls: HullId;
   /**
-   * SELF-PRIVATE aggro mark (Story 5.6, epic-5 amendment 39). Present and
+   * SELF-PRIVATE aggro mark (Story 5.6, epic-5 amendment 40). Present and
    * `true` ONLY when this contact is a PvE fleet ship that has acquired THE
    * OBSERVER RECEIVING THIS FRAME; omitted entirely in every other case,
    * including for other observers watching the same hull and for spectators.
@@ -879,14 +879,14 @@ export interface SunkEvent {
   bty?: 'v' | 'k';
   /**
    * THE VICTIM'S HULL ID, delivered ONLY to the observer credited with the
-   * kill (Story 5.6, Eric ruling 2026-08-14, epic-5 amendment 42):
+   * kill (Story 5.6, Eric ruling 2026-08-14, epic-5 amendment 43):
    * *"I want to know the kills I get when I get them. Meaning I want to know
    * I killed a Small Drone if a Small Drone is killed by my mine."*
    *
    * WHY THIS COULD NOT BE DONE CLIENT-SIDE, which is the whole reason a wire
    * field exists: you can sink a fleet ship you never saw — a mine it sailed
    * over, or a shell at 500u, since the gun reaches 660u and truesight is 330.
-   * With drones off the roster (amendment 38) the client then holds no name,
+   * With drones off the roster (amendment 39) the client then holds no name,
    * no hull and no row for that id, and the feed could only say
    * `UNKNOWN VESSEL`. The server knows; nobody else can.
    *
@@ -905,7 +905,7 @@ export interface SunkEvent {
    *
    * It names the SIZE because the size is the payout (¼ / ⅓ / ½ level), and it
    * changes nothing else: PvE kills still never increment the KILLS tally and
-   * still never reach the match log or the end-game record (amendment 37,
+   * still never reach the match log or the end-game record (amendment 38,
    * re-confirmed by Eric in the same ruling).
    */
   vcls?: HullId;

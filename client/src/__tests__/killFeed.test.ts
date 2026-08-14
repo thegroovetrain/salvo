@@ -169,7 +169,7 @@ describe('pushKillLine — DOM span building', () => {
   });
 
   it('pins a DRONE name to the droneOutline token VERBATIM (never run through textSafe)', () => {
-    // The name is the bare literal `DRONE` since Story 5.6 (amendment 38: "a
+    // The name is the bare literal `DRONE` since Story 5.6 (amendment 39: "a
     // fleet sinking reads DRONE, never DRONE-07") — fleet hulls hold no roster
     // row, so the feed sources the label from the hull exactly as the nameplate
     // always has.

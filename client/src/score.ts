@@ -11,7 +11,7 @@
 //                 count, so score continuity holds (spec 2.8 Design Notes).
 //   • kills     — the public roster's PlayerMeta.kills for the own session
 //                 (captains only since Story 5.6 — the server stopped counting
-//                 PvE sinkings there, amendment 37, so the client filters
+//                 PvE sinkings there, amendment 38, so the client filters
 //                 nothing)
 //   • sunk list — the `sunk` events the kill feed already renders, filtered to
 //                 kills credited to the own session and to non-drone victims
@@ -58,11 +58,11 @@ export interface SunkObservation {
    *
    * RESOLVED FROM `Contact.cls` (via render/ships.ts `isDroneHull`), NOT from a
    * roster hue: Story 5.6 took fleet ships off the roster entirely (amendment
-   * 38), which deleted the `REGATTA_NO_HUE` sentinel as a drone channel and left
+   * 39), which deleted the `REGATTA_NO_HUE` sentinel as a drone channel and left
    * the hull id as the only one. See main.ts `isDroneId`.
    *
    * It now excludes the victim from EVERY record — the roll below and the MATCH
-   * LOG alike (amendment 37: *"i dont want PvE kills to show up as 'kills' in a
+   * LOG alike (amendment 38: *"i dont want PvE kills to show up as 'kills' in a
    * player's killcount or as events in their records"*). It used to exclude them
    * from the roll only.
    */
@@ -134,7 +134,7 @@ export interface ScoreState {
   /** Victim ids already LOGGED — the log's own de-dup key, deliberately
    *  separate from `sunkIds` above because the two lists still admit different
    *  events (the log takes our own death; the roll takes neither that nor a
-   *  drone, and since amendment 37 the log takes no drone either).
+   *  drone, and since amendment 38 the log takes no drone either).
    *  A hull sinks at most once per live match — respawns are ready-room-only
    *  (`respawnArmedIn`) and the accumulator is reset on the → active edge — so
    *  this can only ever swallow a DUPLICATE/replayed `sunk`, never a second
@@ -198,7 +198,7 @@ function killerLabel(obs: SunkObservation): string {
  * DRONES ARE OUT — and this REVERSES the rule this function shipped with.
  * Story 5.3 admitted drone kills to the log on the argument that the adjacent
  * KILLS tile was the roster's drone-INCLUSIVE tally, so dropping them would show
- * one line beside a tile reading 3. Story 5.6's amendment 37 removed the other
+ * one line beside a tile reading 3. Story 5.6's amendment 38 removed the other
  * half of that pair: a PvE sinking no longer increments `kills` anywhere, so the
  * two now AGREE BY EXCLUSION rather than by inclusion, and the disagreement the
  * old rule was avoiding cannot arise. Eric: *"i dont want PvE kills to show up
@@ -247,7 +247,7 @@ function recordMatchLog(state: ScoreState, obs: SunkObservation, ownId: string):
  *
  * The MATCH LOG folds FIRST and on a slightly wider admission (amendment 28): it
  * takes our own death, which the roll drops. It NO LONGER takes drone kills —
- * amendment 37 emptied every persistent record of them — so the two folds now
+ * amendment 38 emptied every persistent record of them — so the two folds now
  * differ on exactly one event class instead of two. They share this one call
  * site so main.ts keeps a single entry point per observed sinking and the two
  * lists can never disagree about which events arrived.
@@ -274,7 +274,7 @@ export interface RosterEntry {
   id?: string;
   alive?: boolean;
   /** Regatta hue index. No longer ever the `REGATTA_NO_HUE` drone sentinel in
-   *  practice — Story 5.6 took fleet hulls off the roster (amendment 38), so 255
+   *  practice — Story 5.6 took fleet hulls off the roster (amendment 39), so 255
    *  survives only as the schema's "hue not assigned yet" default. Neither
    *  predicate below reads it any more. */
   color?: number;
@@ -283,7 +283,7 @@ export interface RosterEntry {
 /**
  * Pure: does this roster entry count as a live RIVAL for placement?
  *
- * THE ROSTER IS CAPTAINS-ONLY SINCE STORY 5.6 (amendment 38: *"fleet ships are
+ * THE ROSTER IS CAPTAINS-ONLY SINCE STORY 5.6 (amendment 39: *"fleet ships are
  * not roster members"*), so this no longer has to filter drones out — there are
  * none in it to filter. What the predicate still asserts is unchanged and is
  * still the whole point: placement ranks the OTHER contestants, so it counts
@@ -299,7 +299,7 @@ export function isLiveRival(meta: RosterEntry, ownId: string): boolean {
  * Pure: does this roster entry count toward `n AFLOAT`? Alive — and that is now
  * the whole test.
  *
- * THE RULE IS UNCHANGED AND ITS IMPLEMENTATION GOT SIMPLER (amendment 38:
+ * THE RULE IS UNCHANGED AND ITS IMPLEMENTATION GOT SIMPLER (amendment 39:
  * *"`n AFLOAT` gets simpler rather than harder: the roster becomes
  * captains-only, so the count is the roster"*). DRONES ARE NOT COMBATANTS still
  * holds — a fleet kill pays a fraction of a level where a captain pays a full

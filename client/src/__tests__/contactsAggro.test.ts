@@ -1,4 +1,4 @@
-// THE AGGRO BRACKET, END TO END THROUGH THE RENDERER (Story 5.6, amendment 39).
+// THE AGGRO BRACKET, END TO END THROUGH THE RENDERER (Story 5.6, amendment 40).
 //
 // render/aggro.test.ts pins the pure look and the mark's own state machine; this
 // file pins the WIRING — that `Contact.aggro` reaching the ContactStore actually

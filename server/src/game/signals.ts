@@ -122,7 +122,7 @@ interface SignalContextBase {
   pseudonymOf(shipId: string): string;
   /**
    * Has PvE fleet hull `fleetShipId` acquired `observerId`? (Story 5.6,
-   * amendment 39 — FleetController.isTargeting.) The ONE input to the
+   * amendment 40 — FleetController.isTargeting.) The ONE input to the
    * self-private `Contact.aggro` mark, read by the contact row and by
    * NOTHING else. It is not a perception gate: it never decides whether a
    * contact exists, only whether an already-visible contact carries one more
@@ -474,7 +474,7 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     const s = ship.state;
     // `cls` is the full HullId — drone contacts carry droneSmall/Medium/Large.
     const base = { id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls: ship.hullId };
-    // THE SELF-PRIVATE AGGRO MARK (Story 5.6, amendment 39). Appended LAST so
+    // THE SELF-PRIVATE AGGRO MARK (Story 5.6, amendment 40). Appended LAST so
     // the historical key order is byte-stable, and present ONLY when this
     // contact is a fleet hull that has acquired THE OBSERVER RECEIVING THIS
     // FRAME. Three properties, each load-bearing:
@@ -1361,12 +1361,12 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
 
 /**
  * `vcls` — THE VICTIM'S HULL ID, TO THE CREDITED KILLER ALONE (Story 5.6,
- * epic-5 amendment 42, Eric ruling 2026-08-14): *"I want to know the kills I
+ * epic-5 amendment 43, Eric ruling 2026-08-14): *"I want to know the kills I
  * get when I get them... if a Small Drone is killed by my mine."*
  *
  * WHY IT MUST BE ON THE WIRE. You can sink a fleet ship you never saw — a
  * mine it sailed over, or a shell at 500u, since the gun reaches 660u while
- * truesight is 330u. With fleet hulls off the roster (amendment 38) the
+ * truesight is 330u. With fleet hulls off the roster (amendment 39) the
  * client then holds no name, no hull and no row for that id at all, so the
  * feed could only read `UNKNOWN VESSEL`. The server knows; nobody else can.
  *
@@ -1378,7 +1378,7 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
  * the row without the key; a SPECTATOR who IS the credited killer gets it.
  *
  * THE VIEW MODE IS NOT A GATE (orchestrator ruling, review gate). An earlier
- * draft also required `mode === 'fogged'`, reading amendment 42's *"witnesses
+ * draft also required `mode === 'fogged'`, reading amendment 43's *"witnesses
  * and spectators included"* as excluding a dead killer — a misreading: that
  * phrase names OBSERVERS WHO ARE NOT THE KILLER. Eric's ruling is *"I want to
  * know the kills I get when I get them"*, and a mine you laid before you died,

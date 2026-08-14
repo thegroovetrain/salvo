@@ -120,7 +120,7 @@ function fallbackSpawn(map: MapShape, occupied: readonly Vec2[], offset: number)
 }
 
 // ---------------------------------------------------------------------------
-// FLEET ANCHORS (Story 5.6, amendment 36) — the SIBLING placement path.
+// FLEET ANCHORS (Story 5.6, amendment 37) — the SIBLING placement path.
 // ---------------------------------------------------------------------------
 
 /** Samples drawn per anchor request. One pass, one tick; the retry budget
@@ -159,7 +159,7 @@ export function insideIntelDisc(p: Vec2, discs: readonly IntelDisc[]): boolean {
 }
 
 /**
- * Pick a fleet anchor inside the live ring (Story 5.6, amendment 36).
+ * Pick a fleet anchor inside the live ring (Story 5.6, amendment 37).
  *
  * NOT a variant of pickSpawn: that places ONE hull on the spawn RING at match
  * start with no hard constraint at all (`occupied` only scores). This is the

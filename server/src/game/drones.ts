@@ -25,7 +25,7 @@
 //   * `fireT: 0` — still the explicit no-claim sentinel: a server-driven
 //     shooter rides the zero-compensation path and never back-dates.
 //
-// THE BEHAVIOUR MODEL (epic-5 amendments 34/35, all Eric rulings 2026-08-14)
+// THE BEHAVIOUR MODEL (epic-5 amendments 35/36, all Eric rulings 2026-08-14)
 // --------------------------------------------------------------------------
 // They do not attack first. They defend themselves, and their friends' fights
 // are their business only if they SAW it happen:
@@ -208,7 +208,7 @@ export class FleetController {
   }
 
   /** True iff this fleet hull has acquired `observerId` — the source of the
-   *  self-private `Contact.aggro` mark (epic-5 amendment 39). */
+   *  self-private `Contact.aggro` mark (epic-5 amendment 40). */
   isTargeting(fleetShipId: string, observerId: string): boolean {
     return this.minds.get(fleetShipId)?.targetId === observerId;
   }
@@ -216,12 +216,12 @@ export class FleetController {
   /**
    * THE AGGRO ENTRY POINT — called by World.hitShip when a fleet hull takes
    * damage. `byId` is the attacker; `fromMine` suppresses aggro entirely
-   * (amendment 35: a mine gives no bearing worth chasing).
+   * (amendment 36: a mine gives no bearing worth chasing).
    *
    * Runs the victim's own acquisition and then the ONE-SHOT witness sweep.
    *
    * THE VICTIM'S ACQUISITION IS GUARDED, and the guard is the whole of
-   * amendment 35's *"a held target is NOT given up for a new attacker"*: a
+   * amendment 36's *"a held target is NOT given up for a new attacker"*: a
    * hull already hunting someone keeps hunting them, so a friend shelling
    * your pursuer CANNOT pull it off you (*"third-party rescue is therefore a
    * real play"* — ruled the other way, deliberately). Re-acquisition happens
@@ -251,7 +251,7 @@ export class FleetController {
   }
 
   /**
-   * The witness rule, evaluated ONCE at the instant of the hit (amendment 34):
+   * The witness rule, evaluated ONCE at the instant of the hit (amendment 35):
    * every OTHER fleet hull that can see both the attacker and the victim, and
    * has no target of its own, joins the fight.
    */
@@ -281,7 +281,7 @@ export class FleetController {
         // Its input tick is skipped on the line below, so through the whole
         // sinking window it is structurally unable to steer or fire — but
         // refreshTarget stops running with it, so `isTargeting()` would keep
-        // answering true and the self-private `aggro` mark (amendment 39)
+        // answering true and the self-private `aggro` mark (amendment 40)
         // would go on claiming a threat that cannot exist. Clearing here is
         // the ONE place: the mark reads the mind, so the mind must be the
         // thing that stops being true.

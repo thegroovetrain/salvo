@@ -130,11 +130,11 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
   });
 });
 
-// PvE telemetry (Story 5.6, epic-5 amendment 43): the faucet's economy signal.
+// PvE telemetry (Story 5.6, epic-5 amendment 44): the faucet's economy signal.
 // A PvE kill still reaches no tally and no record — killsByClass must count
 // NONE of it — while pveKillsByClass carries the per-size truth an operator can
 // turn back into XP paid (¼ / ⅓ / ½ level).
-describe('Match.endSummary — the PvE column (amendment 43)', () => {
+describe('Match.endSummary — the PvE column (amendment 44)', () => {
   it('counts drone sinkings per VICTIM size, and leaves killsByClass untouched', () => {
     const ctx = build();
     ctx.w.addShip('a', 'A', false, 'torpedoBoat');

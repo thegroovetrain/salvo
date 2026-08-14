@@ -142,7 +142,7 @@ const FLEET_ANCHOR_MIN_FRACTION = 0.35;
  *  itself (island-clear always, intel-clear whenever the anchor was not the
  *  logged fallback — see fleetOffset). */
 const FLEET_OFFSET_TRIES = 12;
-/** The ShipRecord.name every fleet hull carries (Story 5.6, amendment 38):
+/** The ShipRecord.name every fleet hull carries (Story 5.6, amendment 39):
  *  fleet hulls hold no roster row, and every client surface resolves `DRONE`
  *  off the hull id — so there is no numbered identity to mint. */
 const FLEET_SHIP_NAME = 'DRONE';
@@ -646,7 +646,7 @@ export interface ShipRecord {
    * the bounty throne's one ruler, now the same number.
    *
    * Story 4.6 split this into `kills` (everything, drones included) and
-   * `captainKills` (the throne). Story 5.6 amendment 37 ruled PvE kills count
+   * `captainKills` (the throne). Story 5.6 amendment 38 ruled PvE kills count
    * NOWHERE — *"i dont want PvE kills to show up as 'kills' in a player's
    * killcount or as events in their records"* — which made the two identical
    * by construction, so the split is RETIRED in favour of this one field. A
@@ -656,7 +656,7 @@ export interface ShipRecord {
   kills: number;
   /**
    * PvE SINKINGS BY VICTIM HULL ID — OPERATOR TELEMETRY, NEVER ON THE WIRE
-   * (Story 5.6, epic-5 amendment 43, Eric ruling 2026-08-14: *"PvE fleet kills
+   * (Story 5.6, epic-5 amendment 44, Eric ruling 2026-08-14: *"PvE fleet kills
    * DO NOT show up in the match log. I don't care what time I killed each
    * drone. But we can keep this data anyway, maybe for server stats?"*).
    *
@@ -748,7 +748,7 @@ export class World {
   /** How many rows of CONFIG.fleet.waves have already been enqueued. */
   private wavesFired = 0;
   /** Fleets owed but not yet placed — one entry per fleet, each carrying its
-   *  own retry count against CONFIG.fleet.spawnRetryTicks (amendment 36: the
+   *  own retry count against CONFIG.fleet.spawnRetryTicks (amendment 37: the
    *  wave ALWAYS arrives; it degrades visibly rather than never spawning). */
   private pendingFleets: { retries: number }[] = [];
   /** Monotonic fleet ordinal (the FleetController's shared-waypoint group). */
@@ -1114,7 +1114,7 @@ export class World {
    *  gates them).
    *
    *  `at` (Story 5.6) places the hull EXACTLY there instead of on the spawn
-   *  ring — the mid-match fleet-wave path (amendment 36), the first placement
+   *  ring — the mid-match fleet-wave path (amendment 37), the first placement
    *  in the codebase that is neither the ring nor a redeploy. Everything else
    *  about the record is identical, including the `spawn` event (whose
    *  `pointSighted` gate means a fleet arriving outside every captain's intel
@@ -1175,12 +1175,12 @@ export class World {
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
-      // ONE tally (Story 5.6, amendment 37): `kills` counts CAPTAIN victims
+      // ONE tally (Story 5.6, amendment 38): `kills` counts CAPTAIN victims
       // only, so the Story 4.6 `captainKills` split is retired — the two
       // became identical by construction the moment PvE kills stopped
       // counting anywhere.
       kills: 0,
-      pveKills: {}, // operator telemetry only (amendment 43) — never on the wire
+      pveKills: {}, // operator telemetry only (amendment 44) — never on the wire
       deaths: 0,
       damageDealt: 0,
     };
@@ -1315,7 +1315,7 @@ export class World {
       ? EMPTY_DECK
       : buildDeck(this.boonCatalog, World.carriedEquipment(ship.loadout));
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
-    ship.pveKills = {}; // ...and its telemetry sibling (amendment 43), same boundary
+    ship.pveKills = {}; // ...and its telemetry sibling (amendment 44), same boundary
     ship.deaths = 0;
     ship.damageDealt = 0;
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
@@ -1452,10 +1452,10 @@ export class World {
    * an attributed sink. A DEAD killer (mutual destruction) still gets both;
    * storm (`by` undefined) and self-kills credit nothing by construction.
    * `kills` — the roster tally AND the bounty ruler, one field since Story
-   * 5.6 — advances ONLY on a CAPTAIN victim (amendment 37: a PvE kill counts
+   * 5.6 — advances ONLY on a CAPTAIN victim (amendment 38: a PvE kill counts
    * nowhere, while its XP, its `sunk` event and its onscreen kill flash all
    * still fire). A drone victim instead advances `pveKills` under its own hull
-   * id — the OPERATOR-ONLY sibling (amendment 43), which counts precisely what
+   * id — the OPERATOR-ONLY sibling (amendment 44), which counts precisely what
    * `kills` deliberately refuses to. Sinking the throne's holder pays
    * `CONFIG.bounty.killLevels` ON TOP of the standard kill value, through the
    * unchanged grantXp pipeline (fractional carry untouched).
@@ -1509,7 +1509,7 @@ export class World {
    * The bank loop is a WHILE: one grant may cross several levels (a kill on
    * top of near-full progress, or a kill worth > 1 level), and each crossing
    * banks its own point + pre-rolled offer through the unchanged grantPoint.
-   * The remainder always carries — no XP is ever snapped away (amendment 32).
+   * The remainder always carries — no XP is ever snapped away (amendment 33).
    */
   grantXp(ship: ShipRecord, levels: number): void {
     if (!Number.isFinite(levels) || levels <= 0) return;
@@ -1962,7 +1962,7 @@ export class World {
     // than trailing into the next one. Nothing downstream in the step reads XP,
     // so no other system's behavior can depend on where it sits.
     { name: 'tickXp', run: (w, ctx) => w.tickXp(ctx.dtMs) },
-    // PvE FLEET WAVES (Story 5.6, amendment 36) — DELIBERATE step-order
+    // PvE FLEET WAVES (Story 5.6, amendment 37) — DELIBERATE step-order
     // position: dead LAST, after every row that touches a hull.
     //
     // The obvious slot is before `dronesTick`, so a hull spawning this tick
@@ -2336,7 +2336,7 @@ export class World {
   }
 
   // -------------------------------------------------------------------------
-  // PvE FLEET WAVES (Story 5.6, amendments 32/36)
+  // PvE FLEET WAVES (Story 5.6, amendments 33/37)
   // -------------------------------------------------------------------------
 
   /**
@@ -2347,7 +2347,7 @@ export class World {
    * applyStorm's: in a room `damageEnabled` is true exactly in the active
    * phase, and a standalone World (unit tests, sandbox smokes) has to call
    * startZone() before anything arrives. Nothing in the codebase spawned a
-   * ship mid-match before this (amendment 36).
+   * ship mid-match before this (amendment 37).
    */
   private spawnFleetWaves(): void {
     if (this.zoneStartT === null || !this.damageEnabled) return;
@@ -2436,7 +2436,7 @@ export class World {
       this.fleetHullSeq += 1;
       const id = `fleet-${this.fleetHullSeq}`;
       // The name is the HULL's name, not a numbered roster identity (amendment
-      // 38): fleet hulls hold no PlayerMeta row, and every client-side surface
+      // 39): fleet hulls hold no PlayerMeta row, and every client-side surface
       // reads `DRONE` off Contact.cls. Never `DRONE-07`.
       this.addShip(id, FLEET_SHIP_NAME, true, hullId, DEFAULT_HORN_ID, {
         x: anchor.x + offset.x,
@@ -2468,7 +2468,7 @@ export class World {
    * every disc (`fallback === false`) the anchor is intel-clear BY
    * CONSTRUCTION and wins over it, so on the nominal path no hull can ever
    * land in intel range. Only on the already-degraded fallback anchor (logged,
-   * ratified by amendment 36) does `landOnly` ship — there neither option is
+   * ratified by amendment 37) does `landOnly` ship — there neither option is
    * clear, and a spread fleet beats nine hulls stacked on one point.
    *
    * The ring clamp is untouched: offsets stay bounded by `spreadU`, which
@@ -2499,7 +2499,7 @@ export class World {
   private stepShells(dt: number, hulls: HullTarget[]): void {
     let friendlyFree: HullTarget[] | undefined; // lazy, per-tick (see shellTargets)
     for (const [id, shell] of this.shells) {
-      // FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 35). The
+      // FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 36). The
       // amendment names burstVictims, but the exclusion is applied one level
       // UP — a fleet-owned shell simply does not see a friendly hull as a
       // collision subject at all. Excluding only at the burst leaves a
@@ -2742,7 +2742,7 @@ export class World {
       // in this re-check rather than in the snapshot (amendment 5).
       if (!victim || !isAfloat(victim.lifecycle)) continue;
       resolved += 1;
-      this.hitShip(victim, damage, m.ownerId, true); // MINE: no aggro (amendment 35)
+      this.hitShip(victim, damage, m.ownerId, true); // MINE: no aggro (amendment 36)
       // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
       // assignment), never stack. Gated with damage (no fouling in the
       // damage-suppressed ready room).
@@ -2783,7 +2783,7 @@ export class World {
    * single choke for shell, torpedo, and mine damage alike.
    *
    * `fromMine` is REQUIRED at every call site and threaded EXPLICITLY (Story
-   * 5.6, amendment 35): a mine hit gives a PvE fleet ship no bearing worth
+   * 5.6, amendment 36): a mine hit gives a PvE fleet ship no bearing worth
    * closing on — its layer may be dead or 2000u away — so it must cause no
    * aggro, and the ordnance that caused a hit is knowable only here at the
    * caller. Inferring it downstream (from `byId`'s distance, from the absence

@@ -1,6 +1,6 @@
 // PvE FLEET CONTROLLER (game/drones.ts) + the wave scheduler (world.ts) +
 // the match-side rules that changed with them (Story 5.6, epic-5 amendments
-// 32-40, all Eric rulings 2026-08-14).
+// 33-41, all Eric rulings 2026-08-14).
 //
 // What this suite pins, in the order the story rules it:
 //   * inputs are STILL the only interface — but the hulls are ARMED now, so
@@ -10,17 +10,17 @@
 //   * WAVES: timing off the ZONE clock, exact composition (2 large + 3 medium
 //     + 4 small = 9 hulls, exactly 3.000 levels), and the anchor rule —
 //     outside every captain's intel disc, retried, then a LOGGED max-min
-//     fallback so the wave always arrives (amendment 36);
+//     fallback so the wave always arrives (amendment 37);
 //   * SELF-DEFENCE: a hit acquires the attacker, the witness sweep is
 //     evaluated ONCE at that instant (a hull that gains LOS later never
 //     joins), a MINE never aggros, memory expires at CONFIG.fleet.memoryMs,
-//     and fleet ships never damage each other (amendments 34/35);
+//     and fleet ships never damage each other (amendments 35/36);
 //   * ACCOUNTING: a PvE kill pays XP and fires `sunk`, but advances no tally
-//     and never moves the throne (amendment 37);
+//     and never moves the throne (amendment 38);
 //   * THE FILL IS GONE: a match activates with nothing but its captains
-//     (amendment 40), and drones still cannot win.
+//     (amendment 41), and drones still cannot win.
 //
-// The self-private `Contact.aggro` mark (amendment 39) is covered in
+// The self-private `Contact.aggro` mark (amendment 40) is covered in
 // perception.test.ts, beside the invariant oracles it must not widen.
 
 import { describe, it, expect, vi } from 'vitest';
@@ -178,7 +178,7 @@ describe('fleet hulls — roving', () => {
     }
   });
 
-  it('one fleet shares ONE waypoint stream; two fleets do not (amendment 34 — they travel together)', () => {
+  it('one fleet shares ONE waypoint stream; two fleets do not (amendment 35 — they travel together)', () => {
     const w = bareWorld(13);
     fleetShip(w, 'a1', 'small', 0, 0, 1);
     fleetShip(w, 'a2', 'small', 60, 0, 1);
@@ -236,7 +236,7 @@ describe('fleet hulls — roving', () => {
   });
 });
 
-// --- SELF-DEFENCE (amendments 34/35) -----------------------------------------
+// --- SELF-DEFENCE (amendments 35/36) -----------------------------------------
 
 /** The World's ONE damage choke. It is private by design (every in-sim caller
  *  is inside world.ts), and it is exactly the seam the aggro rule hangs off —
@@ -250,7 +250,7 @@ function shellHit(w: World, victim: ShipRecord, by: string, amount = 5): void {
 }
 
 /** Damage `victim` as if a MINE blast caught it (`fromMine: true`) —
- *  amendment 35: a mine gives no bearing worth chasing. */
+ *  amendment 36: a mine gives no bearing worth chasing. */
 function mineHit(w: World, victim: ShipRecord, by: string, amount = 5): void {
   (w as unknown as DamageChoke).hitShip(victim, amount, by, true);
 }
@@ -265,7 +265,7 @@ describe('fleet self-defence — acquisition, the ONE-SHOT witness sweep, memory
     expect(w.drones.targetOf('f')).toBe('cap');
   });
 
-  it('a MINE hit causes NO aggro (amendment 35) — the same damage, the other ordnance', () => {
+  it('a MINE hit causes NO aggro (amendment 36) — the same damage, the other ordnance', () => {
     const w = bareWorld(2);
     const f = fleetShip(w, 'f', 'medium', 0, 0);
     captain(w, 'cap', 200, 0);
@@ -325,7 +325,7 @@ describe('fleet self-defence — acquisition, the ONE-SHOT witness sweep, memory
     expect(w.drones.targetOf('busy')).toBe('first'); // held, never traded
   });
 
-  it('a NEW attacker never steals a held target (amendment 35 — third-party rescue is a real play)', () => {
+  it('a NEW attacker never steals a held target (amendment 36 — third-party rescue is a real play)', () => {
     const w = bareWorld(4);
     const f = fleetShip(w, 'f', 'medium', 0, 0);
     captain(w, 'prey', 150, 0);
@@ -462,7 +462,7 @@ describe('fleet gunnery — the one trigger', () => {
     expect(w2.inputs.get('f')!.fireSeq).toBe(0);
   });
 
-  it('a fleet shell never damages another fleet hull (amendment 35)', () => {
+  it('a fleet shell never damages another fleet hull (amendment 36)', () => {
     const w = bareWorld(8);
     const shooter = fleetShip(w, 'shooter', 'large', 0, 0);
     const friend = fleetShip(w, 'friend', 'large', 120, 0);
@@ -484,14 +484,14 @@ describe('fleet gunnery — the one trigger', () => {
   });
 });
 
-// --- WAVES (amendments 32/36) -------------------------------------------------
+// --- WAVES (amendments 33/37) -------------------------------------------------
 
 /** Fast-forward the wave clock so `atMs` lands on the very next step. */
 function armWaveClock(w: World, atMs: number): void {
   w.startZone(w.now - atMs);
 }
 
-describe('fleet waves — timing and exact composition (amendment 32)', () => {
+describe('fleet waves — timing and exact composition (amendment 33)', () => {
   it('nothing spawns before the first beat, and the first wave is exactly 3 fleets', () => {
     const w = bareWorld(17);
     w.startZone();
@@ -603,7 +603,7 @@ describe('fleet waves — timing and exact composition (amendment 32)', () => {
   });
 });
 
-describe('fleet waves — the anchor rule (amendment 36)', () => {
+describe('fleet waves — the anchor rule (amendment 37)', () => {
   it('the anchor lands OUTSIDE every captain intel disc, and inside the live ring', () => {
     const w = bareWorld(31);
     // A ring of captains, none of whom may see the arrival.
@@ -655,7 +655,7 @@ describe('fleet waves — the anchor rule (amendment 36)', () => {
   });
 
   it('a captain whose intel range the SPREAD DISC overlaps still never receives a hull inside it', () => {
-    // The review-gate finding: amendment 36 constrains the ANCHOR, but the nine
+    // The review-gate finding: amendment 37 constrains the ANCHOR, but the nine
     // hulls then scatter up to spreadU (400u) from it — worst case one
     // materialized 260u from a captain, inside the 330u sight bubble. The fix
     // is per hull, so the formation deforms instead of the wave failing.
@@ -706,7 +706,7 @@ describe('fleet waves — the anchor rule (amendment 36)', () => {
   });
 });
 
-// --- ACCOUNTING (amendment 37) ------------------------------------------------
+// --- ACCOUNTING (amendment 38) ------------------------------------------------
 
 describe('a PvE kill counts nowhere, but still pays and still announces', () => {
   it('no tally, no throne — but XP and a `sunk` event both fire', () => {
@@ -734,7 +734,7 @@ describe('a PvE kill counts nowhere, but still pays and still announces', () => 
     expect(w.bountyId).toBe('cap');
   });
 
-  it('...but the DATA is kept: pveKills counts per victim size while `kills` stays at zero (amendment 43)', () => {
+  it('...but the DATA is kept: pveKills counts per victim size while `kills` stays at zero (amendment 44)', () => {
     const w = bareWorld(47);
     const cap = captain(w, 'cap', 0, 0);
     for (const [i, size] of (['small', 'medium', 'large'] as DroneSizeId[]).entries()) {
@@ -749,7 +749,7 @@ describe('a PvE kill counts nowhere, but still pays and still announces', () => 
       [droneHullOf('large')]: 1,
     });
     // THE PAIR, pinned together against future drift: the presentation tally
-    // stays empty (amendment 37) while the telemetry sibling fills.
+    // stays empty (amendment 38) while the telemetry sibling fills.
     expect(cap.kills).toBe(0);
     expect(w.bountyId).toBe('');
   });
@@ -777,7 +777,7 @@ describe('a PvE kill counts nowhere, but still pays and still announces', () => 
   });
 });
 
-// --- THE FILL IS GONE (amendment 40) ------------------------------------------
+// --- THE FILL IS GONE (amendment 41) ------------------------------------------
 
 interface MatchCtx {
   w: World;
@@ -797,7 +797,7 @@ const SOLO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindo
 /** Production timings: the countdown needs CONFIG.match.minHumans (2) captains. */
 const DUO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 };
 
-/** Inert hooks. THERE IS NO FILL HOOK ANY MORE (amendment 40) — the interface
+/** Inert hooks. THERE IS NO FILL HOOK ANY MORE (amendment 41) — the interface
  *  itself no longer carries one, so a re-added fill cannot compile. */
 function inertHooks(calls: string[], results: unknown[]): MatchHooks {
   return {
@@ -840,7 +840,7 @@ function activate(ctx: MatchCtx): void {
   expect(ctx.m.phase).toBe('active');
 }
 
-describe('match — the match-start drone fill is DELETED (amendment 40)', () => {
+describe('match — the match-start drone fill is DELETED (amendment 41)', () => {
   it('activation adds nothing: the world is exactly its captains', () => {
     const ctx = duoMatch();
     activate(ctx);

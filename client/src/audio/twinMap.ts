@@ -61,7 +61,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // drawn with.
   bounty:
     'the YOU ARE THE KILL LEADER toast (ui/upgradeToast) + the persistent kill-leader register naming the holder in the chrome bar (ui/chromeBar, render/hud)',
-  // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 39) ----------------------
+  // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 40) ----------------------
   // The easiest twin in the table to name, because the ruling that created the
   // cue created the visual FIRST and the audio second: the bracket is the whole
   // signal, dual-coded by SHAPE precisely so it survives greyscale drones,

@@ -8,7 +8,7 @@
 // UNCHANGED and byte-for-byte pinned.
 //
 // The drone table is DELIBERATELY RE-PINNED (Story 5.6, Eric rulings
-// 2026-08-14, epic-5 amendment 33): hp 80/100/120 → 60/75/90, and maxSpeed
+// 2026-08-14, epic-5 amendment 34): hp 80/100/120 → 60/75/90, and maxSpeed
 // 46/38/30 → 40/35/30 with reverse/accel/decel scaled proportionally —
 // discharging `epics.md:1090`'s open note that the drone envelopes predate
 // the 1.6 hull-speed rescale (droneSmall was the fastest hull afloat at 46,
@@ -127,7 +127,7 @@ describe('SHIP_CLASS_IDS / HULL_IDS', () => {
   });
 });
 
-describe('drone envelope table (Story 5.6, amendment 33 — retuned off the retired destroyer/cruiser/battleship blocks)', () => {
+describe('drone envelope table (Story 5.6, amendment 34 — retuned off the retired destroyer/cruiser/battleship blocks)', () => {
   it('hp 60/75/90, chevron dims 85×25 / 100×30 / 115×35 (hull dims unchanged)', () => {
     expect(CONFIG.drones.small.hp).toBe(60);
     expect(CONFIG.drones.medium.hp).toBe(75);
@@ -164,7 +164,7 @@ describe('drone envelope table (Story 5.6, amendment 33 — retuned off the reti
     });
   });
 
-  it('every drone entry has the ship-class envelope shape PLUS its own self-defence gun (amendment 33 — fit is gun-only)', () => {
+  it('every drone entry has the ship-class envelope shape PLUS its own self-defence gun (amendment 34 — fit is gun-only)', () => {
     for (const size of DRONE_SIZE_IDS) {
       const d = CONFIG.drones[size];
       expect(Object.keys(d).sort()).toEqual(['gun', 'hp', 'hull', 'kinematics']);
@@ -175,7 +175,7 @@ describe('drone envelope table (Story 5.6, amendment 33 — retuned off the reti
     }
   });
 
-  it('gun damage 6/8/10, flat 5s reload for every size (amendment 33)', () => {
+  it('gun damage 6/8/10, flat 5s reload for every size (amendment 34)', () => {
     expect(CONFIG.drones.small.gun).toEqual({ damage: 6, reloadMs: 5000 });
     expect(CONFIG.drones.medium.gun).toEqual({ damage: 8, reloadMs: 5000 });
     expect(CONFIG.drones.large.gun).toEqual({ damage: 10, reloadMs: 5000 });

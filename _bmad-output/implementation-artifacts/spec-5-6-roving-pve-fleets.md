@@ -9,9 +9,9 @@ warnings: [multiple-goals]
 # Story 5.6 — Roving PvE Fleets, and the ocean grows
 
 **Authority:** every design decision here is ratified in
-`_bmad-output/implementation-artifacts/epic-5-context-amendments.md`, **amendments 32-41**
+`_bmad-output/implementation-artifacts/epic-5-context-amendments.md`, **amendments 33-44**
 (Eric rulings 2026-08-14). On any conflict, the amendments win and this file is wrong.
-Read amendments 32-41 before writing code. Do not re-open a ruling; if one is genuinely
+Read amendments 33-44 before writing code. Do not re-open a ruling; if one is genuinely
 ambiguous mid-flight, report it to the orchestrator rather than deciding it.
 
 ## Intent contract
@@ -47,7 +47,7 @@ storm stage forces more movement.
    `effectiveStats()` stays the sole derivation path (no hull id param, no post-hoc mutation).
 3. `shared/src/sim/loadout.ts` — fleet hulls fit `[gun, empty, empty, empty]`.
 4. `shared/src/sim/heightField.ts` — `regionWavelength` tracks `CONFIG.map.baseRadius`.
-5. `shared/src/index.ts` — `PROTOCOL_VERSION` 34 → 35 + changelog entry.
+5. `shared/src/index.ts` — `PROTOCOL_VERSION` 34 → 36 + changelog entry.
 6. `shared/src/types.ts` — `Contact.aggro?: true`, optional and trailing.
 7. `server/src/game/signals.ts` — `sightOf` exported; new exported `shipSees(me, other, islands, now)`.
 8. `server/src/game/drones.ts` — **fully rewritten** as `FleetController`. Read it first.
@@ -75,7 +75,7 @@ If a task needs a `shared/` source change, **report it — do not make it.**
 unchanged** (row 0, immediately before `applyInputs`) — `stepOrder.test.ts` pins it and the
 ordering rationale (fleet inputs must be picked up the same tick) still holds.
 
-### A2. Wave spawning (amendments 32/36)
+### A2. Wave spawning (amendments 33/37)
 - New STEP_ORDER row for the wave scheduler. Waves fire on `CONFIG.fleet.waves` measured
   from **zone start**, only while the match is active.
 - Placement: pick a fleet **anchor** inside the live ring and **outside every captain's
@@ -91,7 +91,7 @@ ordering rationale (fleet inputs must be picked up the same tick) still holds.
 - `spawn.ts` helpers you need (`bestOnCircle`, `islandClearance`) are module-private — export
   them or add a sibling; do not duplicate the island-clearance math.
 
-### A3. Aggro wiring (amendments 34/35)
+### A3. Aggro wiring (amendments 35/36)
 - `hitShip` calls `FleetController.onDamaged(victimId, byId, fromMine)` when the victim is a
   fleet hull. **A mine hit passes `fromMine: true` and causes no aggro.** You must be able to
   tell mine damage from shell/torpedo damage at that call site — thread it explicitly rather
@@ -99,7 +99,7 @@ ordering rationale (fleet inputs must be picked up the same tick) still holds.
 - `burstVictims` must exclude fleet hulls when the **shooter is a fleet hull** (fleet ships
   never damage each other). Captain shells still damage fleet hulls normally.
 
-### A4. Kill accounting (amendment 37)
+### A4. Kill accounting (amendment 38)
 - `creditKill`: a **drone victim no longer increments `killer.kills`**. XP still grants
   (`killXpLevels`), the `sunk` event still fires, the kill flash/settle still happen.
 - `kills` and `captainKills` are now identical by construction. **Retire `captainKills`** in
@@ -108,7 +108,7 @@ ordering rationale (fleet inputs must be picked up the same tick) still holds.
   behaviour in any way, STOP and report instead.
 - Telemetry (`rosterSize`/`rosterByClass`/`killsByClass`) **does not move**.
 
-### A5. The self-private `Contact.aggro` (amendment 39)
+### A5. The self-private `Contact.aggro` (amendment 40)
 - In the contact row, set `aggro: true` **only** when the contact is a fleet hull that has
   acquired **the observer receiving this frame** (`FleetController.isTargeting`). Omit the key
   entirely otherwise — including for spectators.
@@ -116,7 +116,7 @@ ordering rationale (fleet inputs must be picked up the same tick) still holds.
   contact (the `sinkingUntil` shape). Update `spectator.test.ts`'s exact Contact key-set
   assertion deliberately, and add an oracle test proving a third-party observer never sees it.
 
-### A6. Delete the fill (amendment 40)
+### A6. Delete the fill (amendment 41)
 - Remove `ArenaRoom.fillToCapacity` + the `match.ts` hook, and **drone `PlayerMeta` roster
   rows** (fleet hulls are not roster members).
 - Delete `server/scripts/dronesSmoke.mjs` and the batch-sim `--drones` flag + harness fill.
@@ -140,18 +140,18 @@ no-damage, and the self-private aggro mark.
 
 ## Task B — client (Opus)
 
-### B1. Drone detection moves to `Contact.cls` (amendment 38)
+### B1. Drone detection moves to `Contact.cls` (amendment 39)
 Fleet hulls no longer hold roster rows, so the `REGATTA_NO_HUE` (255) sentinel channel is
 gone. Re-point onto `Contact.cls` via the existing `isDroneHull()`: `feedColor`,
 `rosterColor`, `isDroneId` (`main.ts:1139`), `isLiveRival`/`afloatCount` (`score.ts`), and the
 radar `hueFor` adapter (`main.ts:1941`). Nameplates already resolve `DRONE` off the hull and
 need no change. A fleet kill-feed line reads **`DRONE`**, never `DRONE-07`.
 
-### B2. PvE kills leave the records, keep the feedback (amendment 37)
+### B2. PvE kills leave the records, keep the feedback (amendment 38)
 Keep: kill flash, progressive settle, kill-feed line, XP. Remove PvE kills from: the KILLS
 tally, the **MATCH LOG** (amendment 28), and **SHIPS YOU SANK**.
 
-### B3. The aggro bracket (amendment 39)
+### B3. The aggro bracket (amendment 40)
 - An angular **bracket** around the chevron, driven by `Contact.aggro`.
 - **On acquire:** bracket snaps on + one flash + an audio sting.
 - **While held:** static. **Not animated** — a pulse would claim photosensitivity budget and
@@ -179,9 +179,9 @@ motion-off behaviour.
 ### C1. Re-ratify the closing-rate band
 `shared/src/__tests__/zone.test.ts:235-247` asserts `0.75 < fraction < 0.85`. At the new
 radius the fraction is **≈1.019**. Update the band to bracket ~1.0 and **replace the comment
-with amendment 41's reasoning** (a battleship at the worst position runs the whole close beat
+with amendment 42's reasoning** (a battleship at the worst position runs the whole close beat
 at flank speed and just misses safety; it takes a bite of storm rather than dying). Also drop
-the now-false `worstEscape <= battleshipMinute` assertion — amendment 41 supersedes it.
+the now-false `worstEscape <= battleshipMinute` assertion — amendment 42 supersedes it.
 
 ### C2. Other shared tests
 - `shipClasses.test.ts` — the drone identity table (hp 60/75/90, maxSpeed 40/35/30, scaled
@@ -197,7 +197,7 @@ the now-false `worstEscape <= battleshipMinute` assertion — amendment 41 super
 - **BOTH** `sprint-status.yaml` **and** `gds-workflow-status.yaml` — one line each, status +
   stamp only, never narrative. This is mandatory and has been missed before.
 - `deferred-work.md`: a new entry for **AR18's committed batch-sim tuning method losing its
-  implementation** when the drone fill was deleted (amendment 40), homed at Epic 6 combat bots.
+  implementation** when the drone fill was deleted (amendment 41), homed at Epic 6 combat bots.
 - `VERSION` + `package.json` — bump the patch (0.17.X, X = landed cycle).
 - `DESIGN.md` — add the aggro bracket to the components table; it is a real new component.
 

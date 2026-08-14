@@ -178,7 +178,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // 700→1500, dazzled washes up and thins. Draft spec (the standing draft-copy
   // rule); the visual twin is the toast + the bar's own BOUNTY register.
   bounty: { freqStart: 990, freqMid: 660, freqEnd: 990, duration: 0.15, volume: 0.46, type: 'square' },
-  // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 39) ----------------------
+  // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 40) ----------------------
   // A PvE fleet ship has taken you as its target — or has just lost you. Eric
   // asked for BOTH edges to be *"very visually obvious"*, and the audio follows
   // the same pairing: the two cues are the SAME contour played in opposite
@@ -195,7 +195,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // trade places in a fight.
   aggroLock: { freqStart: 420, freqMid: 700, freqEnd: 760, duration: 0.11, volume: 0.36, type: 'triangle' },
   // THE RELEASE is the same contour inverted and softened — a descending sine
-  // that thins out, *"a distinct, softer descending cue"* (amendment 39). Lower
+  // that thins out, *"a distinct, softer descending cue"* (amendment 40). Lower
   // peak volume than its own lock, because losing a hunter is relief rather
   // than an event demanding a reaction; sine rather than triangle so the two
   // differ in TIMBRE as well as in direction and survive a noisy mix.

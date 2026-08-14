@@ -7,10 +7,10 @@
 // (TB 70→125, ML 105→150, BS 150→175).
 //
 // THE GUARDRAIL'S SCOPE NARROWS TO CLASS HULLS (Story 5.6, Eric rulings
-// 2026-08-14, amendments 32/33/37). Drones dropped 80/100/120 → 60/75/90 and
+// 2026-08-14, amendments 33/34/38). Drones dropped 80/100/120 → 60/75/90 and
 // are no longer symmetric combatants a fill could hand a human — they are
 // roving PvE fleet content, explicitly designed as farmable fodder (amendment
-// 32: clearing one whole fleet solo is "43 gun hits... for 3 levels," and a
+// 33: clearing one whole fleet solo is "43 gun hits... for 3 levels," and a
 // max-stacked triple-mount click one-shotting a small drone was ALREADY an
 // accepted consequence below, pre-dating this story). At 60hp a base cannon
 // (65) or base torpedo (70) now one-shots a small drone even unboosted — a
@@ -73,10 +73,10 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
     // (3 pips) and BS 175 (4 pips).
     expect(Math.min(...classHps)).toBe(125);
     expect(Math.min(...classHps)).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-    // Drones (60/75/90 — Story 5.6, amendment 33, was 80/100/120) are ALL
+    // Drones (60/75/90 — Story 5.6, amendment 34, was 80/100/120) are ALL
     // lighter than every pickable class hull. Unlike before this story, that
     // no longer makes the small drone "the lightest hull on the water" for
-    // GUARDRAIL purposes — fleet hulls are PvE fodder now (amendment 32) and
+    // GUARDRAIL purposes — fleet hulls are PvE fodder now (amendment 33) and
     // are deliberately NOT protected by the one-hit-kill law. minHullHp is
     // therefore the CLASS floor (125), not the drone floor (60).
     for (const droneHp of droneHps) {
@@ -90,8 +90,8 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
   });
 });
 
-describe('the small drone (60hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 33)', () => {
-  it('the size-appropriate weapon (the fleet-clearing gun, amendment 32) still cannot one-shot even the smallest drone', () => {
+describe('the small drone (60hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 34)', () => {
+  it('the size-appropriate weapon (the fleet-clearing gun, amendment 33) still cannot one-shot even the smallest drone', () => {
     expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 15 < 60
   });
 
@@ -100,7 +100,7 @@ describe('the small drone (60hp) TRADES the one-hit-kill floor for the farming e
     // player-combat damage ladders (unrelated systems). Cannon and torpedo
     // already clear 60 at their unboosted base; mine does not at base but
     // does once stacked. This is documented rather than silently allowed to
-    // drift: fleet hulls are farmable content (amendment 32's "farming
+    // drift: fleet hulls are farmable content (amendment 33's "farming
     // roughly doubles your rate"), so a well-built captain one-shotting
     // fodder is the intended feel, not a regression of player fairness.
     expect(CONFIG.cannon.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 65 >= 60

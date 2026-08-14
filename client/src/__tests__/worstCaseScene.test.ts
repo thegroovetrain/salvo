@@ -44,7 +44,7 @@ const world = buildSceneWorld(MAP_RADIUS, STAGE_SEED);
 
 /** The kill leader's ROSTER ROW, resolved by id. `BOUNTY_INDEX` is a SCENE SLOT
  *  index and stopped being a roster index the moment fleet hulls came off the
- *  roster (Story 5.6, amendment 38) — the two are only equal in a world where
+ *  roster (Story 5.6, amendment 39) — the two are only equal in a world where
  *  every hull holds a row. */
 function leaderRow(): (typeof world.roster)[number] {
   const row = world.roster.find((r) => r.id === world.bountyId);
@@ -236,7 +236,7 @@ describe('staged worst-case scene — the BR CHROME BAR is actually on screen', 
 
 describe('staged worst-case scene — the population', () => {
   it('stages the arena cap worth of HULLS, and a roster of CAPTAINS ONLY', () => {
-    // Story 5.6 (amendment 38): the hull population is unchanged — 19 contacts
+    // Story 5.6 (amendment 39): the hull population is unchanged — 19 contacts
     // plus the local captain — but a PvE fleet hull holds no roster row, so the
     // roster is now strictly SHORTER than the hull count, and the difference is
     // exactly the drone slots.
@@ -279,7 +279,7 @@ describe('staged worst-case scene — the population', () => {
   });
 
   it('keeps every FLEET HULL off the roster, so AFLOAT counts captains for free', () => {
-    // The exclusion is STRUCTURAL now (amendment 38) rather than a hue test: no
+    // The exclusion is STRUCTURAL now (amendment 39) rather than a hue test: no
     // row exists to filter, and the sentinel channel is gone entirely.
     const rosterIds = new Set(world.roster.map((r) => r.id));
     const drones = world.hulls.filter((h) => isDroneHull(h.cls));
@@ -291,7 +291,7 @@ describe('staged worst-case scene — the population', () => {
   });
 
   it('puts the aggro bracket on the water: every NEAR fleet hull has acquired us', () => {
-    // Story 5.6, amendment 39 — the readability gate has to see the bracket
+    // Story 5.6, amendment 40 — the readability gate has to see the bracket
     // STACKED with every other channel, and `aggro` is self-private so a scene
     // that is always the local captain's own frame may legitimately set it.
     const near = world.hulls.filter((h) => isDroneHull(h.cls) && !h.far);

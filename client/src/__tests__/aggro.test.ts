@@ -1,4 +1,4 @@
-// THE AGGRO BRACKET (Story 5.6, epic-5 amendment 39) — the three states, the
+// THE AGGRO BRACKET (Story 5.6, epic-5 amendment 40) — the three states, the
 // two transitions, and the motion setting's contract.
 //
 // The ruling is short and every clause of it is pinned here: *"On aggro: the
@@ -247,7 +247,7 @@ describe('AggroMark — the driver: one cue per transition, and no self-firing',
 });
 
 describe('the aggro cues carry their ratified grammar and their visual twins', () => {
-  it('release DESCENDS and lock RISES — the matched pair (amendment 39)', () => {
+  it('release DESCENDS and lock RISES — the matched pair (amendment 40)', () => {
     const lock = TONES.aggroLock;
     const release = TONES.aggroRelease;
     expect(lock.freqEnd).toBeGreaterThan(lock.freqStart); // rises

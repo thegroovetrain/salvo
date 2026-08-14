@@ -194,7 +194,7 @@ describe('buildFrame — events (fogged via perception)', () => {
     w.sinkShip('b', 'a');
     w.step();
     const seen = { k: 'sunk', id: 'b', by: 'a', seen: true };
-    // The KILLER's row additionally carries `vcls` (Story 5.6, amendment 42):
+    // The KILLER's row additionally carries `vcls` (Story 5.6, amendment 43):
     // the victim's hull id, to the credited killer alone. Everyone else's row
     // — witness or public — is the shipped shape, byte for byte.
     const killerRow = { ...seen, vcls: 'torpedoBoat' };

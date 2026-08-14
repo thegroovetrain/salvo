@@ -53,7 +53,7 @@ export const UNKNOWN_VESSEL = 'UNKNOWN VESSEL';
  *
  * IT NAMES NOTHING ELSE. A captain victim returns null and keeps their roster
  * callsign, and none of this touches the KILLS tally, the MATCH LOG or SHIPS YOU
- * SANK — amendment 37 is unmoved and Eric re-confirmed all three in the same
+ * SANK — amendment 38 is unmoved and Eric re-confirmed all three in the same
  * breath (*"it doesn't increment my kill count... doesn't need to show up in my
  * end-game kills record"*).
  */

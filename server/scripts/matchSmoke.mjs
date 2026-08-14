@@ -21,8 +21,8 @@
 //      the win, so there is no storm mop-up phase any more): winnerId=A, A
 //      placed 1st and the FIRST row, B placed 2nd, and the table is exactly
 //      those TWO CAPTAINS — and since Story 5.6 the ROSTER is captains-only
-//      too: the match-start fill is deleted outright (amendment 40) and a PvE
-//      fleet hull holds no PlayerMeta row (amendment 38). A's kills >= 1 and
+//      too: the match-start fill is deleted outright (amendment 41) and a PvE
+//      fleet hull holds no PlayerMeta row (amendment 39). A's kills >= 1 and
 //      damageDealt >= B's hull.
 //   6. The room disconnects both clients ~resultsMs later (autoDispose).
 // Then kills its own server process group and verifies port 2599 is free.
@@ -44,7 +44,7 @@ const endpoint = `ws://localhost:${PORT}`;
 // orbits at current ship speeds mean each 12s reload gets roughly one shot per
 // pass); results short so the disposal is observable.
 //
-// 120000 -> 180000 (Story 5.6, amendment 41 — the ocean grew to R=2800). Two
+// 120000 -> 180000 (Story 5.6, amendment 42 — the ocean grew to R=2800). Two
 // captains spawn max-min apart on the spawn ring, so their separation is
 // 2 x 0.8R: 3840u before, 4480u now. At the Torpedo Boat's 45 u/s that is a
 // ~100s CLOSE before the first shot is even possible, and the 120s ready room
@@ -107,7 +107,7 @@ const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Non-captain hull ids. `drone-N` was the deleted match-start fill
- *  (amendment 40); `fleet-N` is the PvE wave namespace that replaced it. */
+ *  (amendment 41); `fleet-N` is the PvE wave namespace that replaced it. */
 const isDrone = (id) => typeof id === 'string' && (id.startsWith('drone-') || id.startsWith('fleet-'));
 
 // --- server lifecycle --------------------------------------------------------
@@ -392,7 +392,7 @@ function phase(ctx) {
 }
 
 /** Roster rows that are NOT one of the two captains — the independent oracle
- *  for amendment 40/38 over a real socket: the match-start drone fill is
+ *  for amendment 41/39 over a real socket: the match-start drone fill is
  *  deleted outright and PvE fleet hulls hold no `PlayerMeta` row at all, so
  *  the roster this smoke sees must be captains and nothing else. (This
  *  replaces the pre-5.6 oracle, which asserted the opposite — that a fill of
@@ -560,13 +560,13 @@ async function main() {
       seen.every((p, i) => p === i + 1),
       `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`,
     );
-    // The independent oracle (Story 5.6, amendments 38/40): the roster is
+    // The independent oracle (Story 5.6, amendments 39/41): the roster is
     // CAPTAINS ONLY. No fill was ever created, and a PvE fleet hull holds no
     // PlayerMeta row, so nothing but the two captains may appear here.
     const strays = nonCaptainRosterRows(a, [a.room.sessionId, b.room.sessionId]);
     assert(
       strays.length === 0,
-      `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendments 38/40)`,
+      `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendments 39/41)`,
     );
     for (let i = 1; i < res.rows.length; i++) {
       assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');

@@ -39,7 +39,7 @@ export interface BountyCandidate {
    *  as well as at the increment site (defense in depth: a future combat-bot
    *  path that mis-credits a drone still cannot crown one). */
   isDrone: boolean;
-  /** CAPTAIN victims only. ONE field since Story 5.6 (amendment 37 emptied
+  /** CAPTAIN victims only. ONE field since Story 5.6 (amendment 38 emptied
    *  `kills` of PvE sinkings, which made the 4.6 `captainKills` split
    *  identical by construction and therefore redundant). */
   kills: number;

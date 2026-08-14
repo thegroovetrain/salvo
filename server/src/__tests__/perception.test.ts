@@ -685,7 +685,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     // register), WITHOUT the spatial license: no `seen`.
     expect(fa.events.filter((e) => e.k === 'boom')).toEqual([]);
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
-    // `vcls` (Story 5.6, amendment 42) rides to the CREDITED KILLER, appended
+    // `vcls` (Story 5.6, amendment 43) rides to the CREDITED KILLER, appended
     // LAST — the killer learns WHAT they sank even having never seen it.
     expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', vcls: 'torpedoBoat' }]);
   });
@@ -722,7 +722,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.sinkShip('d1', 'a');
     w.step();
     // The killer learns its trap/round connected — no `seen` (never witnessed).
-    // ...and `vcls` names WHICH drone (Story 5.6, amendment 42): with fleet
+    // ...and `vcls` names WHICH drone (Story 5.6, amendment 43): with fleet
     // hulls off the roster this is the only way the killer can know.
     expect(buildFrame(w, 'a').events.filter((e) => e.k === 'sunk')).toEqual([
       { k: 'sunk', id: 'd1', by: 'a', vcls: 'droneSmall' },
@@ -1255,7 +1255,7 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
 
 // ---------- Story 5.6: the self-private aggro mark (directed) -----------------
 
-describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 39)', () => {
+describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 40)', () => {
   /** Register a PvE fleet hull at an exact pose (the wave spawner's own seam). */
   function fleet(w: World, id: string, x: number, y: number): ShipRecord {
     const rec = w.addShip(id, 'DRONE', true, 'droneMedium', undefined, { x, y });
@@ -1345,7 +1345,7 @@ describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 39)
 
 // ---------- Story 5.6: SunkEvent.vcls, killer-only (directed) ------------------
 
-describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amendment 42)', () => {
+describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amendment 43)', () => {
   /** The sunk rows in one observer's frame this tick. */
   function sunkRows(w: World, viewer: string, phase: MatchPhase = 'active'): SunkEvent[] {
     return buildFrame(w, viewer, phase).events.filter((e): e is SunkEvent => e.k === 'sunk');
@@ -1409,7 +1409,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
 
   it('a SPECTATOR who IS the credited killer DOES receive it (the mine you laid before you died)', () => {
     // The view mode is NOT a gate (orchestrator ruling, review gate): amendment
-    // 42's "witnesses and spectators included" names observers who are not the
+    // 43's "witnesses and spectators included" names observers who are not the
     // killer. A mine laid before you went down, tripped by a fleet ship while
     // you spectate, is exactly the kill "I want to know the kills I get when I
     // get them" is about — and the SIZE is the payout.
@@ -1725,7 +1725,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
 }
 
 /**
- * THE SELF-PRIVATE AGGRO ORACLE (Story 5.6, epic-5 amendment 39) —
+ * THE SELF-PRIVATE AGGRO ORACLE (Story 5.6, epic-5 amendment 40) —
  * INDEPENDENTLY REIMPLEMENTED, in the style every declared exception in this
  * suite carries. `Contact.aggro` is NOT a seventh perception exception: it
  * discloses nothing spatial (the row only ran because the contact was already
@@ -2275,7 +2275,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   // the world emission, or a materialize() regression back to pass-through,
   // fails HERE even though every visibility clause still holds.
   for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen', 'bty', 'vcls']).toContain(key);
-  // `vcls` (Story 5.6, epic-5 amendment 42): THE VICTIM'S HULL ID, and the
+  // `vcls` (Story 5.6, epic-5 amendment 43): THE VICTIM'S HULL ID, and the
   // ONLY class field this row may ever carry. Reimplemented here as a hard
   // biconditional against the two clauses it is allowed to depend on — the
   // observer is the CREDITED KILLER, and the wreck record still exists — so

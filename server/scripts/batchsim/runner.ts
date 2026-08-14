@@ -220,7 +220,7 @@ export class MatchCollector {
 }
 
 /** Inert lobby hooks. The round-robin drone fill they used to carry died
- *  with the fill itself (Story 5.6, amendment 40) — the harness's committed
+ *  with the fill itself (Story 5.6, amendment 41) — the harness's committed
  *  drone-lobby tuning method loses its implementation with it, homed at Epic
  *  6's combat bots (see deferred-work.md). */
 function harnessHooks(): MatchHooks {

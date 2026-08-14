@@ -17,7 +17,7 @@ export const CONFIG = {
    * Circular water map. radius = base * sqrt(playerCap / capRef).
    *
    * RADIUS 2400 → 2800 (Story 5.6, Eric ruling 2026-08-14, epic-5 amendment
-   * 41): *"lets scale the ring up a bit, I feel like the map is a little too
+   * 42): *"lets scale the ring up a bit, I feel like the map is a little too
    * small, so each stage doesn't force enough movement."* That sentence is TWO
    * asks with two knobs, and the shipped closing-rate test proves it: it pins
    * worst-case escape per close between 0.75 and 0.85 of a battleship-minute,
@@ -38,7 +38,7 @@ export const CONFIG = {
    * the band as a function of radius rather than as a literal.
    */
   map: {
-    baseRadius: 2800, // u — map radius tuned for capRef players (2400 → 2800, amendment 41)
+    baseRadius: 2800, // u — map radius tuned for capRef players (2400 → 2800, amendment 42)
     capRef: 20, // players the base radius is scaled against
     playerCap: 20, // u — max clients per arena room
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
@@ -104,7 +104,7 @@ export const CONFIG = {
    * legacy chevron trio scaled ~2.5× to board scale.
    *
    * RETUNED WHOLESALE by Story 5.6 (Eric rulings 2026-08-14, epic-5 amendment
-   * 33). These were weaponless target drones on byte-for-byte the retired
+   * 34). These were weaponless target drones on byte-for-byte the retired
    * destroyer/cruiser/battleship prototype kinematics; they are now armed PvE
    * fleet ships (see CONFIG.fleet).
    *
@@ -173,9 +173,9 @@ export const CONFIG = {
 
   /**
    * ROVING PvE FLEETS (Story 5.6, Eric rulings 2026-08-14, epic-5 amendments
-   * 32/34/35/36). World content, never roster fill (FR34) — these hulls are
+   * 33/35/36/37). World content, never roster fill (FR34) — these hulls are
    * not participants, hold no roster row, gate no win check, and their kills
-   * count nowhere (amendments 37/38).
+   * count nowhere (amendments 38/39).
    *
    * THE ECONOMY IS EXACT BY CONSTRUCTION, not by search. One fleet is
    * 2 large + 3 medium + 4 small = 2(½) + 3(⅓) + 4(¼) = 1 + 1 + 1 = exactly
@@ -204,7 +204,7 @@ export const CONFIG = {
     /**
      * u — radius the 9 hulls scatter over around their fleet anchor, and the
      * radius the fleet holds as it roves. THIS NUMBER IS THE DIFFICULTY DIAL
-     * (amendment 34): a hit is witnessed by any fleet ship with LOS to both
+     * (amendment 35): a hit is witnessed by any fleet ship with LOS to both
      * attacker and victim within sight (330u), so the spread sets how many
      * guns answer. At ~150u all nine witness every hit and the witness rule
      * stops meaning anything; at ~700u none do and "fleet" stops meaning

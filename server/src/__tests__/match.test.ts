@@ -235,7 +235,7 @@ describe('match — countdown', () => {
 
     activate(ctx);
 
-    // No 'fill' call to assert any more: amendment 40 deleted the drone-fill
+    // No 'fill' call to assert any more: amendment 41 deleted the drone-fill
     // hook outright, so activation is field reset + storm anchor and nothing
     // else. Nothing may have been added to the world at activation.
     expect(ctx.calls).not.toContain('fill');
@@ -630,7 +630,7 @@ describe('match — the results table is captains only', () => {
     expect(sum.rosterSize).toBe(5); // …but every hull in the telemetry
     const byClass = Object.values(sum.rosterByClass).reduce((n, v) => n + v, 0);
     expect(byClass).toBe(5);
-    // ONE kill, not two: the telemetry SHAPE did not move (amendment 37 is
+    // ONE kill, not two: the telemetry SHAPE did not move (amendment 38 is
     // explicit that rosterSize/rosterByClass/killsByClass stay as they are),
     // but the number it reads changed at its source — `ShipRecord.kills` now
     // counts CAPTAIN victims only, so the drone sinking above pays XP and

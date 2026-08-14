@@ -1,4 +1,4 @@
-// THE AGGRO BRACKET (Story 5.6, epic-5 amendment 39) — the angular mark a PvE
+// THE AGGRO BRACKET (Story 5.6, epic-5 amendment 40) — the angular mark a PvE
 // fleet ship wears while it has acquired YOU.
 //
 // Eric: *"I want it very visually obvious that a PvE ship has aggro'd you, and
@@ -23,7 +23,7 @@
 // breaks at the corners and fades"*). One number, opposite directions, so the
 // two beats cannot drift apart as separate animations would.
 //
-// THE MOTION SETTING REMOVES MOTION, NEVER INFORMATION (amendment 39). At
+// THE MOTION SETTING REMOVES MOTION, NEVER INFORMATION (amendment 40). At
 // `motionIntensity() === 0` the bracket SNAPS on at its resting look with no
 // flash and SNAPS off with no fade — the state is still fully carried, it just
 // stops moving. `reduced` halves the flash's amplitude and keeps its full

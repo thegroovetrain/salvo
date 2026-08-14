@@ -28,7 +28,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { EQUIPMENT, slotAmmo, type Equipment } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
-// THE FIXTURE MOVED TO REAL SHIP CLASSES (Story 5.6, epic-5 amendment 33).
+// THE FIXTURE MOVED TO REAL SHIP CLASSES (Story 5.6, epic-5 amendment 34).
 // This suite was built on `droneMedium` because the drone hulls were the last
 // carriers of the universal [gun, torpedo, mine, empty] fit; PvE fleet hulls
 // now fit [gun, empty, empty, empty], so that fit no longer exists anywhere

@@ -264,7 +264,7 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   });
 });
 
-describe('closing-rate criterion (epic-5 amendment 42, re-ratifying epic-3 amendment 7) — pinned over committed CONFIG', () => {
+describe('closing-rate criterion (epic-5 amendment 43, re-ratifying epic-3 amendment 7) — pinned over committed CONFIG', () => {
   const battleshipMinute =
     CONFIG.shipClasses.battleship.kinematics.maxSpeed * (CONFIG.zone.beatMs / 1000); // 2100u at the targets
 

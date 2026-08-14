@@ -122,7 +122,7 @@ describe('ContactStore lifecycle', () => {
   });
 
   it('tracks the self-private `aggro` mark per FRAME — the absence IS the de-aggro', () => {
-    // Story 5.6, amendment 39. Unlike `cls` this is NOT static: the server omits
+    // Story 5.6, amendment 40. Unlike `cls` this is NOT static: the server omits
     // the key the tick the fleet ship's memory of us expires, so the store has
     // to re-derive it on every push rather than latch it.
     const store = new ContactStore();

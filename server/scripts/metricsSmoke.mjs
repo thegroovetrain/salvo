@@ -35,7 +35,7 @@
 // weapons hits and no storm timing — the consented leaves are the entire
 // choreography.
 //
-// Story 5.6 (amendment 40) DELETED the match-start drone fill outright, so the
+// Story 5.6 (amendment 41) DELETED the match-start drone fill outright, so the
 // ocean this smoke drives is now genuinely just its two captains — rosterSize 2
 // where it used to be CONFIG.match.fillTo. Nothing in the choreography or the
 // assertion set moved: the fill was never what decided the finish (amendment 4

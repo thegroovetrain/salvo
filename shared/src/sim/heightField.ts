@@ -189,7 +189,7 @@ export const TERRAIN_PARAMS: TerrainParams = {
   // to span the map disc roughly once, so the field reads as one coherent
   // gradient (this side of the ocean is islandier than that side) rather than
   // as a repeating pattern. It therefore TRACKS THE MAP RADIUS — when Story
-  // 5.6 grew the board 2400 → 2800 (epic-5 amendment 41), leaving this at the
+  // 5.6 grew the board 2400 → 2800 (epic-5 amendment 42), leaving this at the
   // old literal would have started repeating the region term across the map.
   // Every other wavelength above is a real feature scale and deliberately does
   // NOT scale with the board.

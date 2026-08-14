@@ -115,7 +115,7 @@ export class ContactStore {
   private classes = new Map<string, HullId>();
   /**
    * Ids whose LAST OBSERVED frame carried the self-private `aggro` mark (Story
-   * 5.6, amendment 39) — a PvE fleet ship that has acquired US specifically.
+   * 5.6, amendment 40) — a PvE fleet ship that has acquired US specifically.
    *
    * A SET, NOT A TIMESTAMP, and re-derived on every push: unlike `classes` this
    * is not static — the server omits the key the moment the hull's memory of us
@@ -129,7 +129,7 @@ export class ContactStore {
    * contact wearing, NEVER cleared on prune.
    *
    * WHY IT EXISTS. `classes` above is deleted the moment a contact ages out, and
-   * amendment 38 left `Contact.cls` as the client's ONLY channel for "is this a
+   * amendment 39 left `Contact.cls` as the client's ONLY channel for "is this a
    * PvE fleet hull" — so a fleet ship you sailed past and then MINED after it
    * dropped out of your contact set became unidentifiable, and its kill-feed
    * line read the neutral `UNKNOWN VESSEL` instead of `DRONE`. That is not an

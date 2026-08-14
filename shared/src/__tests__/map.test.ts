@@ -98,7 +98,7 @@ describe('MAP_RULES pinning', () => {
 describe('mapRadius', () => {
   it('scales as base * sqrt(cap / capRef)', () => {
     expect(mapRadius(CONFIG.map.capRef)).toBeCloseTo(CONFIG.map.baseRadius);
-    // 2400 -> 2800 (Story 5.6, amendment 41): read off CONFIG rather than a
+    // 2400 -> 2800 (Story 5.6, amendment 42): read off CONFIG rather than a
     // second literal, so this pin can't itself go stale on the next retune.
     expect(mapRadius(5)).toBeCloseTo(CONFIG.map.baseRadius * Math.sqrt(5 / 20));
   });
@@ -529,7 +529,7 @@ describe('generation-time guard', () => {
     const elapsed = performance.now() - t0;
     // Prototype: 38ms server / 44ms client.
     //
-    // RE-BASED 250 → 500 by Story 5.6 (amendment 41 grew the board 2400 →
+    // RE-BASED 250 → 500 by Story 5.6 (amendment 42 grew the board 2400 →
     // 2800). Measured rather than guessed, because a perf budget moved without
     // evidence is just a number that stops meaning anything:
     //

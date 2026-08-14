@@ -1064,7 +1064,7 @@ describe("the corrected rule on REAL generated terrain (Eric's case: a mountain 
     // the defect in one number — the shipped mask could not paint ground
     // meaningfully above the antenna.
     //
-    // AT THE STORY 5.6 2800u MAP (amendment 41), the SAME seeds' 63 rays now
+    // AT THE STORY 5.6 2800u MAP (amendment 42), the SAME seeds' 63 rays now
     // include exactly one counter-example (seed 3, island index 1, bearing
     // 3/8) where after.span (80) < before.span (100) though after.top ==
     // before.top (53). Investigated, not a regression: on that ray a near

@@ -252,7 +252,7 @@ describe('shared barrel', () => {
     expect(typeof polygonMaxRadius).toBe('function');
     // The return-grammar echo-size primitive (radar realism cycle, PV 26).
     expect(typeof perpendicularExtent).toBe('function');
-    expect(CONFIG.drones.medium.hp).toBe(75); // RETUNED 100 -> 75 (Story 5.6, amendment 33)
+    expect(CONFIG.drones.medium.hp).toBe(75); // RETUNED 100 -> 75 (Story 5.6, amendment 34)
   });
 
   it('re-exports the loadout + kinematics-fold systems (boost AND the 2.8 slow)', () => {
@@ -383,7 +383,7 @@ describe('shared barrel', () => {
     expect('upgradePoints' in CONFIG).toBe(false);
   });
 
-  // Story 5.6 (Eric rulings 2026-08-14, epic-5 amendment 32): the fleet
+  // Story 5.6 (Eric rulings 2026-08-14, epic-5 amendment 33): the fleet
   // composition (2 large + 3 medium + 4 small) is EXACT-XP BY CONSTRUCTION —
   // 2(1/2) + 3(1/3) + 4(1/4) = 1 + 1 + 1 = 3.000 levels, and that identity
   // holds exactly in IEEE754 (verified — 1/3 and its ×3 cancel exactly). This
@@ -391,7 +391,7 @@ describe('shared barrel', () => {
   // composition edit which breaks the exact-XP property (e.g. changing medium
   // count without re-solving the tier fractions) must fail the build outright
   // rather than quietly start paying a fractional level.
-  it('CONFIG.fleet block + the exact-XP identity (Story 5.6, amendment 32)', () => {
+  it('CONFIG.fleet block + the exact-XP identity (Story 5.6, amendment 33)', () => {
     expect(fleetLevels()).toBe(3);
     const hulls = fleetHullIds();
     expect(hulls).toHaveLength(9);

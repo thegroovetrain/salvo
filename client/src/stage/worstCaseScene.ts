@@ -185,7 +185,7 @@ const CONTACT_HULLS: readonly HullId[] = [
 /**
  * The staged hull id for scene slot `i` — ONE expression, read by both the hull
  * builder and the roster builder, because Story 5.6 made them disagree at their
- * peril: a PvE fleet hull holds NO roster row (amendment 38), so "which slots
+ * peril: a PvE fleet hull holds NO roster row (amendment 39), so "which slots
  * are drones" is now a fact both sides have to answer identically.
  */
 export function sceneHullFor(i: number): HullId {
@@ -252,7 +252,7 @@ function callsign(i: number): string {
  * The roster: the local captain plus every RIVAL CAPTAIN slot — and NOTHING
  * ELSE.
  *
- * STORY 5.6 (amendment 38): a PvE fleet hull is not a roster member, so the
+ * STORY 5.6 (amendment 39): a PvE fleet hull is not a roster member, so the
  * slots staging drone hulls contribute no row at all. The scene keeps its drone
  * CONTACTS (the greyscale chevrons are part of what the readability gate has to
  * show) while the roster shrinks around them, which is exactly the shape the
@@ -303,7 +303,7 @@ function buildHull(i: number, rng: () => number, near: number): SceneHull {
     // Every NEAR fleet hull is hunting us, so the readability gate sees the
     // aggro bracket stacked with every other channel rather than in isolation.
     // A FAR one is not: at radar range you hold no hull view to hang a bracket
-    // on, which is the honest picture of what amendment 39 actually renders.
+    // on, which is the honest picture of what amendment 40 actually renders.
     aggro: !far && sceneSlotIsDrone(i),
   };
 }
@@ -363,7 +363,7 @@ export function hullPose(h: SceneHull, world: SceneWorld, tick: number): Contact
   const heading = a + (h.rateRadPerTick >= 0 ? Math.PI / 2 : -Math.PI / 2);
   const speed = Math.abs(h.rateRadPerTick) * h.radiusU * (1000 / SCENE_TICK_MS);
   // THE AGGRO BRACKET is a channel the readability gate has to see stacked with
-  // everything else (Story 5.6, amendment 39), so every NEAR fleet hull in the
+  // everything else (Story 5.6, amendment 40), so every NEAR fleet hull in the
   // scene is hunting us. `aggro` is self-private on the wire and this scene is
   // always the local captain's own frame, so setting it here is exactly what a
   // real server would send this observer.

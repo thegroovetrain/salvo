@@ -189,8 +189,8 @@ describe('ArenaRoom.onJoin — Regatta hue assignment wiring (Story 1.12)', () =
   });
 
   // The two fill-drone hue cases that used to live here died with the fill
-  // itself (Story 5.6, amendment 40): there is no fillToCapacity to call, and
-  // a PvE fleet hull never gets a PlayerMeta row at all (amendment 38), so no
+  // itself (Story 5.6, amendment 41): there is no fillToCapacity to call, and
+  // a PvE fleet hull never gets a PlayerMeta row at all (amendment 39), so no
   // sentinel-coloured entry can reach the roster to be excluded from the
   // wheel. What survives is the property that actually matters — usedHues
   // reserves exactly the hues real captains hold.

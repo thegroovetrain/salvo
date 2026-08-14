@@ -85,7 +85,7 @@ interface FadingView {
   /** True once the nameplate's text + color have resolved and been set —
    *  latched, so a later roster leave keeps the plate (position/alpha only). */
   plated: boolean;
-  /** THE AGGRO BRACKET (Story 5.6, amendment 39), created LAZILY on this hull's
+  /** THE AGGRO BRACKET (Story 5.6, amendment 40), created LAZILY on this hull's
    *  first acquire and kept afterwards. Lazy because the overwhelming majority
    *  of contacts — every captain, and every fleet hull hunting somebody else —
    *  never wear one, and an eagerly-built Graphics per contact would put twenty
@@ -259,7 +259,7 @@ export class ContactViews {
   }
 
   /**
-   * THE AGGRO BRACKET (Story 5.6, amendment 39): drive this hull's mark from the
+   * THE AGGRO BRACKET (Story 5.6, amendment 40): drive this hull's mark from the
    * store's per-frame `aggro` truth, creating it on the first acquire.
    *
    * A PRUNED CONTACT READS AS NO LONGER LOCKED, and that is the honest answer

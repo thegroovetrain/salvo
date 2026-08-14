@@ -113,7 +113,7 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  *  Torpedo Boat (1.6), cannon + starShells for the Battleship (1.7), mine +
  *  decoyBuoy for the Mine Layer (1.8).
  *
- *  PvE FLEET HULLS FIT NOTHING (Story 5.6, epic-5 amendment 33). They used to
+ *  PvE FLEET HULLS FIT NOTHING (Story 5.6, epic-5 amendment 34). They used to
  *  fall through this function's catch-all and inherit the universal
  *  torpedo + mine — so every drone afloat carried loaded tubes and a mine rack
  *  it could never use, with both reload timers ticking every tick forever.

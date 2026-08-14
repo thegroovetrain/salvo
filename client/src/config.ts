@@ -863,7 +863,7 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE AGGRO BRACKET (Story 5.6, epic-5 amendment 39) — the angular mark a PvE
+   * THE AGGRO BRACKET (Story 5.6, epic-5 amendment 40) — the angular mark a PvE
    * fleet ship wears once it has acquired YOU. *"I want it very visually obvious
    * that a PvE ship has aggro'd you, and very visually obvious if it de-aggro's
    * you, as well."*

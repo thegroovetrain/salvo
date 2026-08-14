@@ -45,7 +45,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'dazzled',
   'sink',
   'bounty',
-  // the AGGRO STINGS (Story 5.6, amendment 39) — the matched acquire/release pair
+  // the AGGRO STINGS (Story 5.6, amendment 40) — the matched acquire/release pair
   'aggroLock',
   'aggroRelease',
   // the SOUND MAP (Story 4.7) — the six world cues

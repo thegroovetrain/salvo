@@ -311,7 +311,7 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
     // must disclose NOTHING about the window, so pin the exact key set.
     expect(isAfloat(target.lifecycle) || isSinking(target.lifecycle)).toBe(true);
     // THE EXACT CONTACT KEY SET, updated deliberately for Story 5.6 (epic-5
-    // amendment 39). `aggro` is the ONE optional key a contact may now carry,
+    // amendment 40). `aggro` is the ONE optional key a contact may now carry,
     // and only when it is a PvE fleet hull that has acquired THIS observer —
     // so a contact that is not a fleet hull hunting `me` must still be
     // byte-identical to the shipped six. Both shapes are enumerated rather
@@ -385,7 +385,7 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
         expect(e.seen).toBe(true);
         expect(witnessed).toBe(true);
       }
-      // `vcls` (Story 5.6, amendment 42): the victim's hull id, to the
+      // `vcls` (Story 5.6, amendment 43): the victim's hull id, to the
       // CREDITED KILLER alone — one gate, the view mode is not a second one
       // (see perception.test.ts's verifySunk). A witness who did not fire
       // never gets it; a spectating killer does. Biconditional: a killer with

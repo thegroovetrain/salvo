@@ -201,7 +201,7 @@ function baseStats(cls: ShipClass): EffectiveStats {
     cooldownScale: 1, // base: the global cooldown scale is a no-op until shipCooldown stacks
     gun: {
       // A PvE fleet envelope carries its own weaker gun (Story 5.6, epic-5
-      // amendment 33): damage 6/8/10 by size against a captain's 15, on a flat
+      // amendment 34): damage 6/8/10 by size against a captain's 15, on a flat
       // 5s cooldown. Read from the ENVELOPE so effectiveStats() stays the one
       // derivation path — no hull id parameter, no post-construction mutation
       // of ship.stats. Every real ship class omits `cls.gun` and so keeps

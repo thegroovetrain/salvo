@@ -4,7 +4,7 @@
 // tests that FAIL if the strict `>` comparison is ever weakened to `>=`, in
 // BOTH the vacant and the held direction — and the World wiring: the
 // `kills` tally (CAPTAIN victims only since Story 5.6 retired the redundant
-// `captainKills` split — amendment 37), the pre-sink read,
+// `captainKills` split — amendment 38), the pre-sink read,
 // the `bty` flag on the sunk emission, the bonus XP grant, the recompute
 // seams (per sink, on removal), and the match-boundary reset.
 //
@@ -150,7 +150,7 @@ describe('World — kill tally and throne recompute (per sink, in sink order)', 
     expect(w.bountyId).toBe('a');
   });
 
-  it('a PvE kill advances NOTHING — not the tally, not the throne (amendment 37)', () => {
+  it('a PvE kill advances NOTHING — not the tally, not the throne (amendment 38)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     captainKill(w, 'a'); // a holds at 1
@@ -158,7 +158,7 @@ describe('World — kill tally and throne recompute (per sink, in sink order)', 
     const d = place(w, 'd', 200, 0, 'droneMedium', true);
     const xpBefore = a.xpMs;
     w.sinkShip('d', 'a');
-    // Story 5.6 amendment 37 REVERSES the 4.6 clause that kept `kills`
+    // Story 5.6 amendment 38 REVERSES the 4.6 clause that kept `kills`
     // counting drones: a PvE kill now lands in no tally at all...
     expect(a.kills).toBe(before);
     expect(w.bountyId).toBe('a');

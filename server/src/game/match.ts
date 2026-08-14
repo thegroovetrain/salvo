@@ -74,7 +74,7 @@ export interface MatchHooks {
   lock(): void;
   /** Reopen the room (countdown cancelled). */
   unlock(): void;
-  // (The drone-fill seam died with the fill itself — Story 5.6, amendment 40.
+  // (The drone-fill seam died with the fill itself — Story 5.6, amendment 41.
   // Nothing runs at countdown end but the field reset and the storm anchor;
   // PvE fleets arrive on their own wave clock, in the World.)
   /** Broadcast the one-time end-of-match results message. */
@@ -182,14 +182,14 @@ export interface MatchEndSummary {
   killsByClass: Record<string, number>;
   /**
    * VICTIM drone hull id -> total PvE hulls sunk across all combatants (Story
-   * 5.6, epic-5 amendment 43). Operator telemetry only — a PvE kill still
-   * reaches no tally, no match log and no end-game record (amendment 37), and
+   * 5.6, epic-5 amendment 44). Operator telemetry only — a PvE kill still
+   * reaches no tally, no match log and no end-game record (amendment 38), and
    * `killsByClass` above therefore counts none of them.
    *
    * Per SIZE rather than a bare total, because size IS the payout (¼ / ⅓ / ½
    * level, CONFIG.xp.droneTierLevels): these three counts alone reconstruct
    * exactly how much XP the PvE faucet paid out in a real match. That
-   * PARTIALLY REPLACES the evidence stream amendment 40 removed when it
+   * PARTIALLY REPLACES the evidence stream amendment 41 removed when it
    * deleted the drone-lobby batch-sim harness — real matches now carry the
    * economy signal that harness used to generate.
    */
@@ -232,7 +232,7 @@ interface Participant {
   isDrone: boolean;
   hullId: HullId;
   kills: number;
-  /** Victim drone hull id -> PvE hulls this combatant sank (amendment 43).
+  /** Victim drone hull id -> PvE hulls this combatant sank (amendment 44).
    *  Snapshotted exactly as `kills` is, so it survives the ship record's
    *  removal — a captain who leaves still carries their PvE column into the
    *  end-of-match telemetry. */

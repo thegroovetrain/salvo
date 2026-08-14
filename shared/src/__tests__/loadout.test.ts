@@ -5,7 +5,7 @@
 // fits [gun, torpedo, speedBoost, empty]; the Battleship fits
 // [gun, cannon, starShells, empty]; the Mine Layer fits
 // [gun, mine, decoyBuoy, empty] (Story 1.8); a PvE fleet hull fits
-// [gun, empty, empty, empty] (Story 5.6, amendment 33 — gun-only self-defence
+// [gun, empty, empty, empty] (Story 5.6, amendment 34 — gun-only self-defence
 // fit, superseding the old universal [gun, torpedo, mine, empty]). Also pins
 // the EQUIPMENT_IS_WEAPON split — the single source server rows and the
 // client activation path read. Pure, zero I/O.
@@ -37,7 +37,7 @@ function statsFor(id: HullId): EffectiveStats {
 }
 
 /** The two specials each PICKABLE class fits under the per-hull rule (1.6–1.8).
- *  PvE fleet hulls fit no specials at all (amendment 33) and are excluded —
+ *  PvE fleet hulls fit no specials at all (amendment 34) and are excluded —
  *  see the dedicated drone-fit assertions below. */
 function expectedSpecials(id: HullId): [EquipmentId, EquipmentId] {
   if (id === 'torpedoBoat') return ['torpedo', 'speedBoost'];
@@ -112,7 +112,7 @@ describe('loadoutFor — the per-hull fit (Stories 1.6–1.7)', () => {
     expect(loadout[2].state).toEqual({ n: CONFIG.decoyBuoy.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('every PvE fleet hull fits gun-only [gun, empty, empty, empty] (Story 5.6, amendment 33 — was the universal [gun, torpedo, mine, empty])', () => {
+  it('every PvE fleet hull fits gun-only [gun, empty, empty, empty] (Story 5.6, amendment 34 — was the universal [gun, torpedo, mine, empty])', () => {
     for (const id of HULL_IDS) {
       if (id === 'torpedoBoat' || id === 'battleship' || id === 'mineLayer') continue;
       const loadout = loadoutFor(id, statsFor(id));

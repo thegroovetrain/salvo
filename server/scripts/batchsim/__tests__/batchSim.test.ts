@@ -173,7 +173,7 @@ describe('overrides — tunable CONFIG dials', () => {
     restore();
     expect(CONFIG.zone.beatMs).toBe(60000);
     expect(CONFIG.zone.ringSteps[1]).toBeCloseTo(2 / 3, 12);
-    expect(CONFIG.map.baseRadius).toBe(2800); // Story 5.6 amendment 41: the bigger ocean
+    expect(CONFIG.map.baseRadius).toBe(2800); // Story 5.6 amendment 42: the bigger ocean
     // An out-of-range ringSteps index is a real rejection, not a silent no-op.
     expect(() => applyOverrides({ 'zone.ringSteps.7': 0.5 })).toThrow(TunableError);
   });

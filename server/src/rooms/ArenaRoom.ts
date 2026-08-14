@@ -225,7 +225,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   /**
    * The room's World: map sized for the PLAYER CAP (mapRadius(CONFIG.map.
    * playerCap) — 2800u since Story 5.6's bigger ocean). It rode
-   * CONFIG.match.fillTo until amendment 40 deleted the fill: the constant
+   * CONFIG.match.fillTo until amendment 41 deleted the fill: the constant
    * meaning "how many drones to top up to" was also the constant meaning "how
    * big is the ocean". Both are 20, so nothing observable moved.
    * zoneOverride (dev-only) reshapes the storm timeline
@@ -406,7 +406,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return {
       lock: () => void this.lock(),
       unlock: () => void this.unlock(),
-      // (The drone-fill hook is GONE — Story 5.6, amendment 40 deleted the
+      // (The drone-fill hook is GONE — Story 5.6, amendment 41 deleted the
       // match-start fill outright. PvE fleets are world content on their own
       // wave clock inside the World, hold no PlayerMeta row, and never top up
       // a roster.)
@@ -426,7 +426,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   /** The hue indices the roster currently holds (Story 1.12) — the `used` set for
    *  assignHue. Skips the 255 sentinel, which since Story 5.6 only ever marks a
    *  not-yet-assigned entry: PvE fleet hulls hold no roster row at all
-   *  (amendment 38), so they never reach the wheel to be excluded from it. */
+   *  (amendment 39), so they never reach the wheel to be excluded from it. */
   private usedHues(): Set<number> {
     const used = new Set<number>();
     this.state.players.forEach((meta: PlayerMeta) => {
@@ -460,7 +460,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     meta.name = name;
     // Regatta Hoist (Story 1.12): assign a unique personal hue FCFS at join.
     // `used` is every hue the roster already holds. Since Story 5.6 the roster
-    // is CAPTAINS ONLY (amendment 38), so no sentinel entry can occupy a wheel
+    // is CAPTAINS ONLY (amendment 39), so no sentinel entry can occupy a wheel
     // index — fleet hulls never get a row at all.
     // `joinCounter` feeds ONLY assignHue's defensive exhaustion fallback (wheel
     // full → joinOrder % 20); at cap 20 the wheel always has a free hue first.

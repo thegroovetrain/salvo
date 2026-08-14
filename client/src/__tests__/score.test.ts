@@ -1,5 +1,5 @@
 // Story 2.3 (amendments 22/23) — the client-derived personal score: the
-// sunk-contestant roll (PvE kills appear in NO record — amendment 37),
+// sunk-contestant roll (PvE kills appear in NO record — amendment 38),
 // elimination placement from the public alive count, and the winner state.
 
 import { describe, it, expect } from 'vitest';
@@ -50,7 +50,7 @@ describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () =
     expect(ownDown.sunkIds).toEqual([]);
   });
 
-  it('a PvE fleet hull we sank enters NEITHER record (amendment 37)', () => {
+  it('a PvE fleet hull we sank enters NEITHER record (amendment 38)', () => {
     const base = freshScore();
     const droned = recordSunk(base, obs({ victimIsDrone: true }), OWN);
     expect(droned.sunkContestants).toEqual([]);
@@ -73,7 +73,7 @@ describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () =
     s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE', victimIsDrone: true }), OWN);
     s = recordSunk(s, obs({ victimId: 'd2', victimName: 'DRONE', victimIsDrone: true }), OWN);
     s = recordSunk(s, obs({ victimId: 'h1', victimName: 'CAPTAIN-2' }), OWN);
-    // `kills` is the roster tally handed in, and amendment 37 stopped that
+    // `kills` is the roster tally handed in, and amendment 38 stopped that
     // tally counting PvE sinkings at the SOURCE — the client filters nothing.
     const score = personalScore(s, [], 1, false, null);
     expect(score.kills).toBe(1);
@@ -145,7 +145,7 @@ describe('a victim with no resolvable callsign is OMITTED, never shown as an id'
   });
 });
 
-describe('isLiveRival — placement counts the ROSTER, which is captains only (amendment 38)', () => {
+describe('isLiveRival — placement counts the ROSTER, which is captains only (amendment 39)', () => {
   it('excludes the dead and ourselves — and no longer takes a drone sentinel at all', () => {
     expect(isLiveRival({ id: 'a', alive: true, color: 3 }, OWN)).toBe(true);
     expect(isLiveRival({ id: 'a', alive: false, color: 3 }, OWN)).toBe(false);
@@ -176,7 +176,7 @@ describe('isLiveRival — placement counts the ROSTER, which is captains only (a
 describe('afloatCount — the chrome bar counts CAPTAINS, which is now simply the roster', () => {
   // A solo captain's field. The fleet hulls sailing alongside are ABSENT from
   // this list rather than filtered out of it — that is the whole change
-  // (amendment 38: "n AFLOAT gets simpler rather than harder").
+  // (amendment 39: "n AFLOAT gets simpler rather than harder").
   const field = [
     { id: OWN, alive: true, color: 1 },
     { id: 'human', alive: true, color: 2 },
@@ -442,7 +442,7 @@ describe('recordSunk — the MATCH LOG fold (chronological, de-duplicated, PvE O
     expect(s.matchLog.map((e) => e.tMs)).toEqual([...s.matchLog.map((e) => e.tMs)].sort((x, y) => x - y));
   });
 
-  it('DROPS a PvE kill from the log, exactly as the roll does (amendment 37)', () => {
+  it('DROPS a PvE kill from the log, exactly as the roll does (amendment 38)', () => {
     // Story 5.3 logged drone kills because the adjacent KILLS tile counted them
     // and a log that dropped them would disagree with the tile. Amendment 37
     // emptied the tile, so the log empties with it: one line, one kill, one

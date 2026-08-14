@@ -7,7 +7,7 @@
 // a tile's stored ceiling is never below any sample beneath it, at every level.
 //
 // Most cases run at a small radius; the production disc (2800u — Story 5.6,
-// amendment 41: 2400 → 2800) is exercised once, because a full field is
+// amendment 42: 2400 → 2800) is exercised once, because a full field is
 // ~164k samples and the suite pays for it.
 
 import { readFileSync } from 'node:fs';
@@ -343,7 +343,7 @@ describe('max-height pyramid — the radar-shadow substrate', () => {
   });
 });
 
-describe('production map size (radius 2800 — Story 5.6, amendment 41: was 2400)', () => {
+describe('production map size (radius 2800 — Story 5.6, amendment 42: was 2400)', () => {
   const r = rasterFor(2026, 2800);
 
   it('builds the ~164KB raster the radar-shadow pass marches', () => {
@@ -374,7 +374,7 @@ describe('heightField.ts — no transcendentals on the generation path', () => {
   });
 
   it('imports nothing outside shared/ (sim purity)', () => {
-    // Story 5.6 (amendment 41): `regionWavelength` now tracks
+    // Story 5.6 (amendment 42): `regionWavelength` now tracks
     // `CONFIG.map.baseRadius` (was a fixed 2400 literal) so the macro
     // land-clustering term keeps spanning the disc exactly once at the new
     // 2800u radius — a genuine new CONFIG import, still entirely within
