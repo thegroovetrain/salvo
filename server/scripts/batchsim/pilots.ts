@@ -379,7 +379,7 @@ class GunnerPilot implements CaptainPilot {
     if (!ship) return;
     // Spends are legal while dead (builds persist across waiting-phase deaths);
     // drain at most one banked level per tick through the REAL spend flow.
-    if (ship.offers.length > 0) world.spendPoint(this.id, pickSpendChoice(ship.offers[0], this.rng, ship.boons));
+    if (ship.offer !== null) world.spendPoint(this.id, pickSpendChoice(ship.offer, this.rng, ship.boons));
     if (!isAfloat(ship.lifecycle)) {
       // A respawn teleports the hull: carrying the pre-death pose forward would
       // read as a giant displacement (harmless) or, worse, keep a stale stuck

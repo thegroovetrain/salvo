@@ -325,7 +325,7 @@ describe('World combat — burst at the clicked point', () => {
     expect(isAfloat(b.lifecycle)).toBe(false);
     expect(a.kills).toBe(1);
     expect(b.deaths).toBe(1);
-    expect(a.offers).toHaveLength(1); // the kill banked an upgrade point
+    expect(a.bankedLevels).toBe(1); // the kill banked an upgrade point
     expect(events.some((e) => e.k === 'sunk' && e.id === 'b' && e.by === 'a')).toBe(true);
   });
 

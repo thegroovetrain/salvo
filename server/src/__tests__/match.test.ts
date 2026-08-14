@@ -146,7 +146,7 @@ describe('match — waiting phase (ready room)', () => {
     step(ctx, CONFIG.xp.levelMs / DT + 10); // well past one level of match time
     expect(a.xpMs).toBe(0);
     expect(a.level).toBe(0);
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
   });
 
   it('suppresses all shell damage (target practice: boom, no hp loss)', () => {

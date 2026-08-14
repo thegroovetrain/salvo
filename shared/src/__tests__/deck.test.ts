@@ -4,8 +4,10 @@
 // copies per catalog — the TB 8/15/15 + 12 + 5 + 4 matrix after the
 // 2026-08-04 global-cooldown thinning, with shipCooldown widened to ×5);
 // (2) drawOffer distinctness / weighting / determinism / rare escalation +
-// reset / empty-and-thin-deck fail-safety; (3) returnCards / consume-
-// Acquisition purge / scrubAcquisitions (amendment 43) semantics; (4) a
+// reset / empty-and-thin-deck fail-safety — and, since the lazy-draw bugfix,
+// that a draw is NON-CONSUMING (the pool is only READ); (3) consumeCard (the
+// fit — the deck's one and only outflow) / returnCards (the doctrine swap-out)
+// / consumeAcquisition purge semantics; (4) a
 // full-economy replay property (no line ever exceeds its copy count, the
 // deck visibly thins, same seed = same economy). This suite also absorbs the
 // retired offers.test.ts (rollBoonOffer died with the category-first roll —
@@ -20,11 +22,11 @@ import {
   CONFIG,
   buildDeck,
   consumeAcquisition,
+  consumeCard,
   drawOffer,
   isAcquisitionDef,
   mulberry32,
   returnCards,
-  scrubAcquisitions,
   type BoonCatalog,
   type BoonDef,
   type BoonId,
@@ -132,18 +134,18 @@ describe('buildDeck — composition per hull loadout', () => {
 describe('drawOffer — distinct weighted lines, determinism, escalation', () => {
   const tbDeck = (): DeckState => buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
 
-  it('draws CONFIG.offer.size DIFFERENT lines and removes exactly those copies', () => {
+  it('draws CONFIG.offer.size DIFFERENT lines and takes NOTHING out of the pool', () => {
     for (let seed = 0; seed < 100; seed += 1) {
       const start = tbDeck();
       const { deck, offer } = drawOffer(start, mulberry32(seed));
       expect(offer).toHaveLength(CONFIG.offer.size);
       expect(new Set(offer).size).toBe(offer.length); // distinct lines
-      expect(deck.cards).toHaveLength(start.cards.length - offer.length);
-      const before = tally(start.cards);
-      const after = tally(deck.cards);
+      // THE ANTI-HOARDING PIN (the lazy-draw bugfix): a draw is a READ. Every
+      // drawn line is still at full copies — banking a level costs no cards.
+      expect(deck.cards).toHaveLength(start.cards.length);
+      expect(tally(deck.cards)).toEqual(tally(start.cards));
       for (const id of new Set(offer)) {
-        const drawn = offer.filter((x) => x === id).length;
-        expect(after.get(id) ?? 0).toBe((before.get(id) ?? 0) - drawn);
+        expect(tally(deck.cards).get(id)).toBe(BOON_CATALOG[id].copies);
       }
     }
   });
@@ -163,7 +165,7 @@ describe('drawOffer — distinct weighted lines, determinism, escalation', () =>
     const offers: string[] = [];
     for (let i = 0; i < 6; i += 1) {
       const r = drawOffer(deck, rng);
-      deck = returnCards(r.deck, r.offer); // return everything, redraw
+      deck = r.deck; // nothing left the pool — just redraw off the same stream
       offers.push(r.offer.join(','));
     }
     expect(new Set(offers).size).toBeGreaterThan(1);
@@ -206,7 +208,7 @@ describe('drawOffer — distinct weighted lines, determinism, escalation', () =>
     const thin: DeckState = { cards: ['a', 'a', 'a', 'b'], levelsSinceRare: 0 };
     const { deck, offer } = drawOffer(thin, mulberry32(5), cat);
     expect([...offer].sort()).toEqual(['a', 'b']); // 2 distinct lines only
-    expect(deck.cards).toHaveLength(2); // two 'a' copies left
+    expect(deck.cards).toEqual(thin.cards); // ...and all 4 copies still in the pool
   });
 
   it('junk ids in the pool are never drawable (fail-closed) but stay in the cards', () => {
@@ -218,7 +220,7 @@ describe('drawOffer — distinct weighted lines, determinism, escalation', () =>
   });
 });
 
-describe('returnCards — the unchosen give-back', () => {
+describe('returnCards — the doctrine swap-out give-back', () => {
   it('appends the ids and leaves levelsSinceRare untouched', () => {
     const deck: DeckState = { cards: ['a', 'b'], levelsSinceRare: 4 };
     const out = returnCards(deck, ['c', 'a']);
@@ -227,11 +229,57 @@ describe('returnCards — the unchosen give-back', () => {
     expect(returnCards(deck, [])).toBe(deck); // empty return: same state reference
   });
 
-  it('draw → return round-trips the multiset (nothing lost, nothing invented)', () => {
+  it('consume → return round-trips the multiset (a doctrine can ping-pong)', () => {
     const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
-    const { deck, offer } = drawOffer(start, mulberry32(11));
-    const restored = returnCards(deck, offer);
-    expect(tally(restored.cards)).toEqual(tally(start.cards));
+    const fitted = consumeCard(start, 'torpedoHoming');
+    expect(tally(returnCards(fitted, ['torpedoHoming']).cards)).toEqual(tally(start.cards));
+  });
+});
+
+describe('consumeCard — the FIT, the deck\'s one and only outflow', () => {
+  it('removes exactly ONE copy and leaves levelsSinceRare untouched', () => {
+    const deck: DeckState = { cards: ['a', 'b', 'a', 'a'], levelsSinceRare: 4 };
+    const out = consumeCard(deck, 'a');
+    expect(out.cards).toEqual(['b', 'a', 'a']); // one copy, order preserved
+    expect(out.levelsSinceRare).toBe(4);
+  });
+
+  it('an id with no copy left is a NO-OP (fail-closed, same state reference)', () => {
+    const deck: DeckState = { cards: ['a'], levelsSinceRare: 1 };
+    const once = consumeCard(deck, 'a');
+    expect(once.cards).toEqual([]);
+    expect(consumeCard(once, 'a')).toBe(once); // nothing to take: untouched
+    expect(consumeCard(deck, 'ghost')).toBe(deck);
+  });
+
+  it('N fits remove exactly N cards — the deck thins by what was FITTED, nothing else', () => {
+    const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
+    const rng = mulberry32(4);
+    let deck = start;
+    const fitted: BoonId[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const { deck: after, offer } = drawOffer(deck, rng);
+      deck = consumeCard(after, offer[0]); // draw took nothing; the FIT takes one
+      fitted.push(offer[0]);
+      expect(deck.cards).toHaveLength(start.cards.length - (i + 1));
+    }
+    // ...and every card removed is exactly one of the fitted lines.
+    const before = tally(start.cards);
+    for (const [id, n] of tally(deck.cards)) {
+      expect(n, id).toBe((before.get(id) ?? 0) - fitted.filter((f) => f === id).length);
+    }
+  });
+
+  it('a single-copy line, once fitted, can NEVER be drawn again (the cap is exact)', () => {
+    const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
+    expect(BOON_CATALOG.torpedoHoming.copies).toBe(1);
+    let deck = consumeCard(start, 'torpedoHoming');
+    const rng = mulberry32(77);
+    for (let i = 0; i < 200; i += 1) {
+      const r = drawOffer(deck, rng);
+      expect(r.offer).not.toContain('torpedoHoming');
+      deck = r.deck;
+    }
   });
 });
 
@@ -256,63 +304,25 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
   });
 });
 
-describe('scrubAcquisitions — the stale-card rule (amendment 43)', () => {
-  const purgedDeck = (): DeckState =>
-    consumeAcquisition(buildDeck(BOON_CATALOG, CARRIED.torpedoBoat), BOON_CATALOG, 'mine');
-
-  it('removes acquisition ids from each banked offer and refills to prior size with distinct fresh lines', () => {
-    const deck = purgedDeck();
-    const offers = [
-      ['gunDamage', 'acquireCannon', 'intelSweep', 'shipHull'],
-      ['torpedoSpeed', 'boostMax', 'acquireDecoy', 'acquireStarShells'],
-    ];
-    const out = scrubAcquisitions(deck, BOON_CATALOG, offers, mulberry32(9));
-    expect(out.offers).toHaveLength(2);
-    for (let i = 0; i < 2; i += 1) {
-      const offer = out.offers[i];
-      expect(offer).toHaveLength(4); // refilled to prior size
-      expect(offer.some((id) => isAcquisitionDef(BOON_CATALOG[id]))).toBe(false);
-      expect(new Set(offer).size).toBe(4); // still 4 DIFFERENT lines
-      // Kept cards keep identity and order.
-      expect(offer.slice(0, offers[i].filter((id) => !isAcquisitionDef(BOON_CATALOG[id])).length)).toEqual(
-        offers[i].filter((id) => !isAcquisitionDef(BOON_CATALOG[id])),
-      );
-    }
-    // Refill draws left the deck.
-    expect(out.deck.cards).toHaveLength(deck.cards.length - 3);
-    expect(out.deck.levelsSinceRare).toBe(deck.levelsSinceRare); // NOT a level draw
-  });
-
-  it('offers without acquisition cards pass through untouched, spending no draws', () => {
-    const deck = purgedDeck();
-    const offers = [['gunDamage', 'intelSweep', 'shipHull', 'boostMax']];
-    const out = scrubAcquisitions(deck, BOON_CATALOG, offers, mulberry32(3));
-    expect(out.offers).toEqual(offers);
-    expect(out.deck.cards).toEqual([...deck.cards]);
-  });
-
-  it('is deterministic on the same stream (the own-pick-triggered, never-reroll guarantee)', () => {
-    const offers = [['acquireCannon', 'gunDamage', 'intelRadar', 'torpedoDamage']];
-    const a = scrubAcquisitions(purgedDeck(), BOON_CATALOG, offers, mulberry32(21));
-    const b = scrubAcquisitions(purgedDeck(), BOON_CATALOG, offers, mulberry32(21));
-    expect(a.offers).toEqual(b.offers);
-    expect(a.deck).toEqual(b.deck);
-  });
-
-  it('never refills an acquisition back in, even against an UN-purged deck (defensive)', () => {
-    const unpurged = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat); // acquisitions still in the pool
-    const offers = [['acquireCannon', 'acquireDecoy', 'acquireStarShells', 'gunDamage']];
+// scrubAcquisitions (amendment 43) and its four pins were RETIRED by the
+// lazy-draw bugfix, not adapted: the function cleaned dead acquisition cards
+// out of OTHER banked offers, and only the FRONT offer is ever materialized
+// now — a stale acquisition card is unreachable by construction. The surviving
+// obligation (a purged deck never OFFERS an acquisition again) is a
+// consumeAcquisition + drawOffer property, pinned here.
+describe('after an acquisition pick the deck never offers another one', () => {
+  it('drawOffer against a purged deck never yields an acquisition line', () => {
+    const purged = consumeAcquisition(buildDeck(BOON_CATALOG, CARRIED.torpedoBoat), BOON_CATALOG, 'mine');
     for (let seed = 0; seed < 40; seed += 1) {
-      const out = scrubAcquisitions(unpurged, BOON_CATALOG, offers, mulberry32(seed));
-      expect(out.offers[0]).toHaveLength(4);
-      expect(out.offers[0].some((id) => isAcquisitionDef(BOON_CATALOG[id]))).toBe(false);
+      const { offer } = drawOffer(purged, mulberry32(seed));
+      expect(offer.some((id: BoonId) => isAcquisitionDef(BOON_CATALOG[id]))).toBe(false);
     }
   });
 });
 
 describe('full-economy replay — the deck plays out clean (property)', () => {
-  /** Play a whole match economy: draw, pick the first card, return the rest;
-   *  on an acquisition pick, consume + scrub (no banked offers held). */
+  /** Play a whole match economy the way the server now does: draw (taking
+   *  nothing), consume ONLY the picked card; on an acquisition pick, purge. */
   function playEconomy(seed: number): { picks: BoonId[]; drawn: BoonId[]; drawsUntilEmpty: number } {
     const rng = mulberry32(seed);
     let deck = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
@@ -321,18 +331,19 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
     let draws = 0;
     for (; draws < 500; draws += 1) {
       const r = drawOffer(deck, rng);
-      if (r.offer.length === 0) break; // empty deck: level banks nothing
+      if (r.offer.length === 0) break; // empty deck: level materializes nothing
       drawn.push(...r.offer);
-      const [chosen, ...unchosen] = r.offer;
+      const chosen = r.offer[0];
       picks.push(chosen);
-      deck = returnCards(r.deck, unchosen);
+      deck = consumeCard(r.deck, chosen); // ONLY the fitted card leaves
       const chosenDef = BOON_CATALOG[chosen];
       if (isAcquisitionDef(chosenDef) && chosenDef.effects[0].kind === 'slotFill') {
         deck = consumeAcquisition(deck, BOON_CATALOG, chosenDef.effects[0].equipmentId);
-        deck = scrubAcquisitions(deck, BOON_CATALOG, [], rng).deck;
       }
     }
     expect(deck.cards).toHaveLength(0); // fully played out
+    // One card left the deck per pick — the deck thins by exactly the fits.
+    expect(picks).toHaveLength(draws);
     return { picks, drawn, drawsUntilEmpty: draws };
   }
 

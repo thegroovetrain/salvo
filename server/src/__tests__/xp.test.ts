@@ -45,11 +45,11 @@ describe('passive XP tick — the anti-snowball floor', () => {
     for (let i = 0; i < TICKS_PER_LEVEL - 1; i++) w.step();
     expect(a.xpMs).toBe(XP.levelMs - DT);
     expect(a.level).toBe(0);
-    expect(a.offers).toHaveLength(0);
+    expect(a.bankedLevels).toBe(0);
     w.step(); // the 1200th tick
     expect(a.level).toBe(1);
     expect(a.xpMs).toBe(0); // exact — integer ms, no float drift
-    expect(a.offers).toHaveLength(1);
+    expect(a.bankedLevels).toBe(1);
     expect(ptsOf(w.tickEvents)).toEqual([{ k: 'pt', id: 'a' }]);
   });
 
@@ -58,7 +58,7 @@ describe('passive XP tick — the anti-snowball floor', () => {
     const a = place(w, 'a');
     for (let i = 0; i < TICKS_PER_LEVEL * 3; i++) w.step();
     expect(a.level).toBe(3);
-    expect(a.offers).toHaveLength(3); // pts === offers.length, untouched
+    expect(a.bankedLevels).toBe(3); // pts === offers.length, untouched
     expect(a.xpMs).toBe(0);
   });
 
@@ -79,7 +79,7 @@ describe('passive XP tick — the anti-snowball floor', () => {
     for (let i = 0; i < TICKS_PER_LEVEL + 5; i++) w.step();
     expect(d.xpMs).toBe(0);
     expect(d.level).toBe(0);
-    expect(d.offers).toEqual([]);
+    expect(d.bankedLevels).toBe(0);
     expect(a.level).toBe(1); // ...while the human beside it leveled normally
   });
 
@@ -101,7 +101,7 @@ describe('passive XP tick — the anti-snowball floor', () => {
       const w = bareWorld(4242);
       const a = place(w, 'a');
       for (let i = 0; i < TICKS_PER_LEVEL; i++) w.step();
-      return { tick: w.tick, offer: [...a.offers[0]] };
+      return { tick: w.tick, offer: [...a.offer!] };
     };
     expect(run()).toEqual(run());
   });
@@ -117,7 +117,7 @@ describe('xpEnabled — the match-phase gate (amendment 34)', () => {
     for (let i = 0; i < TICKS_PER_LEVEL + 10; i++) w.step();
     expect(a.xpMs).toBe(0);
     expect(a.level).toBe(0);
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
   });
 
   it('does NOT gate kill credit — sinkShip credits the killer even with xpEnabled off', () => {
@@ -128,7 +128,7 @@ describe('xpEnabled — the match-phase gate (amendment 34)', () => {
     w.sinkShip('b', 'a');
     w.step();
     expect(a.level).toBe(1);
-    expect(a.offers).toHaveLength(1);
+    expect(a.bankedLevels).toBe(1);
   });
 
   // The Match-driven half of this gate (waiting/countdown off, active on,
@@ -146,7 +146,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     a.xpMs = Math.round(XP.levelMs * 0.4); // 40% of the way there
     w.sinkShip('b', 'a');
     expect(a.level).toBe(1);
-    expect(a.offers).toHaveLength(1);
+    expect(a.bankedLevels).toBe(1);
     expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.4)); // the 0.4 carried, unscathed
   });
 
@@ -159,7 +159,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     a.xpMs = Math.round(XP.levelMs * 0.4); // the carry must survive the stacked grant
     w.sinkShip('b', 'a'); // a sinks the holder — one grant, both levels
     expect(a.level).toBe(XP.killLevels + CONFIG.bounty.killLevels);
-    expect(a.offers).toHaveLength(XP.killLevels + CONFIG.bounty.killLevels);
+    expect(a.bankedLevels).toBe(XP.killLevels + CONFIG.bounty.killLevels);
     expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.4)); // the 0.4 carried, unscathed
   });
 
@@ -176,7 +176,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
       w.sinkShip(d.id, 'a');
       expect(a.xpMs).toBe(Math.round(XP.levelMs * fraction));
       expect(a.level).toBe(0); // a single drone is never a whole level
-      expect(a.offers).toEqual([]);
+      expect(a.bankedLevels).toBe(0);
     }
   });
 
@@ -188,7 +188,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
       w.sinkShip(d.id, 'a');
     }
     expect(a.level).toBe(1);
-    expect(a.offers).toHaveLength(1);
+    expect(a.bankedLevels).toBe(1);
     expect(a.xpMs).toBe(0); // round(60000/3) × 3 === 60000 exactly
   });
 
@@ -210,7 +210,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     a.xpMs = Math.round(XP.levelMs * 0.9);
     w.sinkShip('b', 'a'); // +1.0 → 1.9 total
     expect(a.level).toBe(1);
-    expect(a.offers).toHaveLength(1);
+    expect(a.bankedLevels).toBe(1);
     expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.9));
   });
 
@@ -220,7 +220,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     a.xpMs = Math.round(XP.levelMs * 0.5);
     w.grantXp(a, 1.6); // 0.5 + 1.6 = 2.1
     expect(a.level).toBe(2);
-    expect(a.offers).toHaveLength(2); // one pre-rolled offer PER level
+    expect(a.bankedLevels).toBe(2); // one pre-rolled offer PER level
     expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.5 + XP.levelMs * 1.6) - 2 * XP.levelMs);
   });
 
@@ -234,7 +234,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     // The mutual destruction's second sink stacks the bounty bonus on the
     // standard captain level (Story 4.6): the dead killer banks BOTH.
     expect(a.level).toBe(XP.killLevels + CONFIG.bounty.killLevels);
-    expect(a.offers).toHaveLength(XP.killLevels + CONFIG.bounty.killLevels);
+    expect(a.bankedLevels).toBe(XP.killLevels + CONFIG.bounty.killLevels);
   });
 
   it('a DRONE killer banks nothing, however many hulls it sinks', () => {
@@ -244,7 +244,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     w.sinkShip('a', 'd');
     expect(d.xpMs).toBe(0);
     expect(d.level).toBe(0);
-    expect(d.offers).toEqual([]);
+    expect(d.bankedLevels).toBe(0);
     expect(ptsOf(w.tickEvents)).toEqual([]);
   });
 
@@ -258,7 +258,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     expect(a.level).toBe(0);
     expect(a.xpMs).toBe(0);
     expect(b.level).toBe(0);
-    expect(b.offers).toEqual([]);
+    expect(b.bankedLevels).toBe(0);
     expect(ptsOf(w.tickEvents)).toEqual([]);
   });
 
@@ -279,7 +279,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     w.grantXp(a, -2);
     expect(a.xpMs).toBe(0);
     expect(a.level).toBe(0);
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
   });
 
   // Fail-closed on non-finite: `<= 0` is FALSE for NaN, so a NaN slipped past
@@ -294,7 +294,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     w.grantXp(a, -Infinity);
     expect(a.xpMs).toBe(1234); // untouched — not NaN, not overflowed
     expect(a.level).toBe(0);
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
     // ...and the ship still accrues normally afterwards (nothing was poisoned).
     w.grantXp(a, 1);
     expect(a.level).toBe(1);
