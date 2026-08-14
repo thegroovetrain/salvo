@@ -52,11 +52,14 @@ const COLORS = {
   denied: 0xff3b3b, // the single denied red (consolidates the legacy DOM red)
   damage: 0x8b0000,
   damageMarker: 0xff6666,
-  // Pre-join AMBIENT terrain only (render/ambient.ts's CIC scene). DESIGN.md:41
-  // marks these a "provisional carry-over — Open Question"; the in-match chart
-  // no longer reads them (see `terrain` below, cycle 59).
-  islandFill: 0x2a2410,
-  islandStroke: 0x8b7520,
+  // `islandFill` / `islandStroke` (the provisional yellow) are GONE as of cycle
+  // 82. DESIGN.md:41 marked them a "provisional carry-over — Open Question";
+  // cycle 59 took the in-match chart off them, and the home scene — their last
+  // consumer — now renders its terrain through the same hypsometric `terrain`
+  // ramp below. Removed end to end in the cycle-69 style so no dead token
+  // survives; the DESIGN.md Open Question is resolved BY DELETION and the
+  // doc-sync is ledgered in deferred-work.md (design docs are not edited
+  // in-story).
   /**
    * THE HYPSOMETRIC TERRAIN RAMP (cycle 59, Eric ruling 2026-08-06) — the four
    * elevation bands of a height-field island, chosen from rendered comparison
@@ -966,64 +969,119 @@ export const CLIENT_CONFIG = {
       turning: { base: 0.2, step: 0.2 }, // rad/s — 1 pip = 0.2 rad/s, +0.2/pip
     },
 
-    /** Ambient pre-join CIC scene (render/ambient.ts) — the game "breathing"
-     *  behind the DOM menu (UX-DR25). Ring/island/scrim geometry is lifted from
-     *  the ratified mock's `.cic` CSS (home-class-picker-1.html); the RADAR
-     *  behavior is the game's own (Eric ruling 2026-07-24): the in-game sweep
-     *  texture rotating at the base CONFIG.vision.sweepRpm, and blips that light only
-     *  when the beam crosses them, then decay via render/phosphor's blipAlpha/
-     *  blipTint — no independent timers. Client render MAY place contacts/
-     *  islands with Math.random — the seeded-RNG law binds sim code only.
-     *  Photosensitivity: everything here is slow/continuous. */
+    /**
+     * THE HOME SCENE (render/ambientScene.ts + render/ambient.ts) — the game
+     * "breathing" behind the DOM menu (UX-DR25), rebuilt in cycle 82 as a real,
+     * seeded, WORLD-UNIT slice of the ocean driven by the SHIPPED renderers.
+     *
+     * The Story 1.14 block this replaces is gone entirely, and so are the things
+     * it described: reference-height ring radii, viewport-FRACTION contact
+     * drift, ellipse island stand-ins and their `islandFill`/`islandStroke`
+     * yellow (both tokens retired with their last consumer). Everything the
+     * menu draws is now the game's own — `generateMap` terrain in the
+     * hypsometric ramp, the real `Radar` in `return` grammar with the height
+     * raster and wake sources wired, `ShipView` hulls on `stepShip` kinematics,
+     * the real `Fog` and `Camera` — because the standing Eric ruling of
+     * 2026-07-24 is that the ambient must not be "its own thing with its own
+     * rules". Nothing here may re-derive a sensor range or a sweep rate: those
+     * come from `effectiveStats` at runtime.
+     *
+     * Photosensitivity: nothing in the scene flashes, and no combat renders on
+     * the menu at all.
+     */
     ambient: {
-      /** Master scene dimmer — root-container alpha over the whole picture
-       *  (Eric 2026-07-24: the idle radar reads at half strength on the menu). */
-      sceneAlpha: 0.5,
-      /** Scene center as a fraction of viewport height (mock: `top:54%`). */
-      centerYFrac: 0.54,
-      /** Reference viewport height the ring radii were authored against (mock
-       *  frame is 1080 tall); the scene scales by screenH/this so it fills any
-       *  viewport (see render/ambient.ts `ambientScale`). */
-      refHeight: 1080,
-      /** Range-ring radii (px @ the reference height). Innermost is the phosphor
-       *  hairline, the rest silver — mock radial-gradient stops 130/290/460/640/
-       *  830 on the 850px-radius (1700px) ring disc. */
-      ringRadii: [130, 290, 460, 640, 830],
-      /** Per-ring stroke alpha (mock: .10 phosphor inner, then .07/.06/.05/.045
-       *  silver outers). Same length/order as ringRadii. */
-      ringAlphas: [0.5, 0.32, 0.26, 0.22, 0.18],
-      /** Ring hairline stroke width (px). */
-      ringWidth: 1.5,
-      /** Sweep sprite alpha — the wedge is the in-game baked texture
-       *  (render/textures.bakeSweepTexture) rotating at the game's real
-       *  base rate (CONFIG.vision.sweepRpm); this only blends it against the scrim. */
-      sweepAlpha: 0.9,
-      /** Fake drifting contacts the idle radar paints (blips light ONLY on a
-       *  beam crossing, then phosphor-decay over exactly one sweep period). */
-      contactCount: 5,
-      /** Contact drift speed, in fractions of min(viewport) per second. */
-      contactDriftFrac: 0.012,
-      /** Painted blip diameter (px) — the soft dot (bakeBlipTexture) at roughly
-       *  the on-screen size the in-game blip used to have. The menu scope keeps
-       *  the dot deliberately: its drifting contacts have no owner and no class,
-       *  so the Story 4.2 silhouette grammar has nothing to say about them. */
-      blipDiameterPx: 16,
-      /** Faint island masses scattered in the picture (count + fill/stroke alpha,
-       *  mock: fill .5, stroke .34). Radii range in px @ reference height. */
-      islandCount: 3,
-      islandFillAlpha: 0.7,
-      islandStrokeAlpha: 0.55,
-      islandMinR: 40,
-      islandMaxR: 95,
-      /** Radial legibility scrim over the scene (mock `.scrim`: void at .42 in the
-       *  center → .78 mid → .94 at the edge, so DOM text stays readable). */
-      /** Scrim gradient center as a fraction of viewport height. Genuinely
-       *  distinct from the ring center (centerYFrac 0.54): the mock's `.scrim` is
-       *  a radial-gradient authored `at 50% 46%`, higher than the ring stack. */
+      /** The ocean's map seed. Written in DECIMAL — the token guard scan
+       *  (tokens.test.ts) rejects a `0x` literal outside the colour source, and
+       *  a seed is not worth an exemption (worstCaseScene.ts's precedent). */
+      mapSeed: 20260814,
+      /** The SCENE seed: anchor, hull placement, circulation senses. */
+      seed: 82142026,
+      /** The hull the camera follows and the scope belongs to. A battleship:
+       *  slow and steady is the right helm for a backdrop. */
+      observerClass: 'battleship',
+      /** Rival hull classes, cycled over `rivalBands`. */
+      rivalClasses: ['torpedoBoat', 'mineLayer', 'torpedoBoat'],
+      /**
+       * Each rival's roaming ANNULUS about the scene anchor (u), as multiples
+       * of base truesight. Band 0 sits inside the bubble (a live silhouette
+       * with an on-water wake); bands 1-2 sit out in the radar annulus (pure
+       * returns). The outermost radius plus `observerRoamU` stays under base
+       * radar range, so a far rival never quietly falls off the scope.
+       */
+      rivalBands: [
+        { minU: CONFIG.vision.sight * 0.2, maxU: CONFIG.vision.sight * 0.55 },
+        { minU: CONFIG.vision.sight * 1.15, maxU: CONFIG.vision.sight * 1.4 },
+        { minU: CONFIG.vision.sight * 1.35, maxU: CONFIG.vision.sight * 1.6 },
+      ],
+      /** The observer's own roaming disc about the anchor (u). */
+      observerRoamU: CONFIG.vision.sight * 0.33,
+      /** How far off the map centre the anchor may be picked (fraction of map
+       *  radius) — well inside the boundary, so no hull ever presses the rim. */
+      anchorSpreadFrac: 0.5,
+      /** Sea room the anchor and each hull are placed with (u). */
+      anchorClearU: 180,
+      spawnClearU: 110,
+      /** Seeded rejection-sampling attempts before taking the roomiest miss. */
+      placementTries: 48,
+      /** Fixed throttle for every hull — a calm sea, and a tighter turn radius
+       *  than full ahead, which is what keeps coast avoidance comfortable. */
+      throttle: 0.55,
+      /** Coast standoff (u) the helm starts easing away at, and the weight of
+       *  that push relative to the circulation term. */
+      avoidU: 160,
+      avoidGain: 3.2,
+      /** The HARD standoff (u): inside this the escape direction is the only
+       *  term in the helm. Sized past the worst hull's turning circle at this
+       *  throttle (a battleship needs ~48u to swing 90°) — see `desiredHeading`
+       *  for the grounding a summed-field-only router actually produced. */
+      avoidHardU: 90,
+      /** Weight of the spring that holds a hull inside its own annulus. */
+      bandGain: 1.6,
+      /** Heading error (rad) at which the rudder is hard over. */
+      rudderBandRad: 0.5,
+      /** Camera follow rate (1/s) — slower than the in-match camera: a backdrop
+       *  should drift, not track. */
+      followRate: 1.2,
+      /**
+       * Camera-centre offset from the observer (u), in multiples of base
+       * truesight. NEGATIVE x pushes the camera left of the hull, which seats
+       * the hull — and the one genuinely BRIGHT region of the picture, its
+       * truesight bubble — out on the right flank instead of behind the ~480px
+       * centred home column. DOM legibility is a gate, not a nicety.
+       */
+      observerOffset: { x: CONFIG.vision.sight * -1.45, y: CONFIG.vision.sight * 0.08 },
+      /**
+       * Master scene dimmer — alpha over worldRoot + chartRoot (Eric
+       * 2026-07-24: the idle radar reads at half strength on the menu).
+       *
+       * TUNED BY EYE (the Design Note's instruction), and the first pass was
+       * far too dark: at 0.55 under the fog AND the scrim, the terrain read as
+       * near-black outlines and the ocean as nothing at all. Three darkening
+       * layers multiply, so each one has to be gentler than it would be alone.
+       * The ruling this honours is comparative — the menu scope reads DIMMER
+       * than the in-match one — not a specific number.
+       */
+      sceneAlpha: 0.82,
+      /** The game's OWN fog composite, held back. It is a third darkening layer
+       *  over a page that must stay legible, and at full strength it would take
+       *  the terrain outside the bubble with it. */
+      fogAlpha: 0.38,
+      /** Radial legibility scrim (void) over the whole scene, so DOM text stays
+       *  readable: centre → mid → edge. Centre is a fraction of viewport height
+       *  (the ratified mock's `.scrim` is authored `at 50% 46%`).
+       *
+       *  PROVENANCE OF THESE NUMBERS, stated exactly: they were tuned BY EYE
+       *  against screenshots captured at 1366x768 and 1920x1080, together with
+       *  `sceneAlpha` 0.82 and `fogAlpha` 0.38 — three darkening layers that
+       *  multiply, so none of them can be judged alone. No contrast ratio was
+       *  measured and there is no computed margin over a legibility floor; an
+       *  earlier version of this comment claimed one, and nothing in the cycle
+       *  supported it. Re-tune the same way (capture, look), or measure — but
+       *  do not cite a measurement that was never taken. */
       scrimCenterYFrac: 0.46,
-      scrimInnerAlpha: 0.18,
-      scrimMidAlpha: 0.38,
-      scrimOuterAlpha: 0.6,
+      scrimInnerAlpha: 0.1,
+      scrimMidAlpha: 0.26,
+      scrimOuterAlpha: 0.44,
     },
   },
 

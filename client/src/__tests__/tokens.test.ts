@@ -162,8 +162,12 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     expect(C.denied).toBe(0xff3b3b);
     expect(C.damage).toBe(0x8b0000);
     expect(C.damageMarker).toBe(0xff6666);
-    expect(C.islandFill).toBe(0x2a2410);
-    expect(C.islandStroke).toBe(0x8b7520);
+    // islandFill / islandStroke were RETIRED in cycle 82 with their last
+    // consumer (the Story 1.14 ambient's ellipse island stand-ins). The home
+    // scene now draws real generated terrain through the hypsometric `terrain`
+    // ramp, so the provisional yellow has nothing left to colour.
+    expect('islandFill' in C).toBe(false);
+    expect('islandStroke' in C).toBe(false);
     // combat effects
     expect(C.splash).toBe(0xb8ccc6);
     expect(C.muzzle).toBe(0xe8f2ec);
