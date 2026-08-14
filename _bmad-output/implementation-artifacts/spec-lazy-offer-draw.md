@@ -2,7 +2,7 @@
 title: 'The deck stops hoarding: lazy front-offer draw'
 type: 'bugfix'
 created: '2026-08-14'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
