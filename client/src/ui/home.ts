@@ -32,6 +32,7 @@ import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
+import { pickTagline } from './taglines.js';
 import {
   ColorHoist,
   openClassSelect,
@@ -227,7 +228,7 @@ function makeWordmark(version: string): HTMLElement {
   io.style.color = 'var(--hc-phosphor-bright)';
   mark.appendChild(io);
   const tagline = document.createElement('div');
-  tagline.textContent = 'LAST HULL FLOATING WINS';
+  tagline.textContent = pickTagline();
   tagline.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);letter-spacing:0.44em;margin-top:8px`;
   const ver = document.createElement('div');
   ver.textContent = `RT PROTOTYPE // v${version}`;

@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 86 (0.17.86), PV 36
+# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 87 (0.17.87), PV 36
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -98,6 +98,7 @@
 #   cycle 84 (0.17.84)  the home scene: the menu backdrop becomes a real slice of the game — PV 36 (client-only)
 #   cycle 85 (0.17.85)  PvE fleet rebalance: gun 6/8/10 -> 1/2/3, waves 3/2/1 -> 4/2/1 fleets — epic-5 amendment 45; PV 36 (server-side constants)
 #   cycle 86 (0.17.86)  the home scene is a different ocean every load (Eric ask); off-scope defect fixed + 20-seed sweep — PV 36 (client-only)
+#   cycle 87 (0.17.87)  home tagline: random nautical pun pool replaces the fixed line — epic-5 amendment 46; PV unchanged at 36 (client-only)
 
 generated: 2026-07-17
 last_updated: 2026-08-14
@@ -287,6 +288,10 @@ action_items:
     action: "SUDDEN DEATH — THE FINAL COLLAPSE — LANDED as cycle 82 (0.17.82); PV 34->35. The parked SUDDEN DEATH contingency is BUILT under a new Eric ruling; epic-3 amendment 24's post-closure-shrink clause is superseded (the damage ramp is NOT). Full record: epic-3 amendments 27-30 + spec-sudden-death-final-collapse.md"
     owner: "ledger"
     status: done  # TWO threads open, both named in the cycle report — whether the collapse gets its own SUDDEN DEATH chrome-bar register (no new copy was invented), and NFR6's "~15:00" doc text now superseded by a ~17:00 worst-case ceiling (routed to the 7-5 doc batch)
+  - epic: 5
+    action: "HOME TAGLINE — NAUTICAL PUNS — LANDED as cycle 87 (0.17.87); PV unchanged at 36, client-only. Full record: epic-5 amendment 46"
+    owner: "ledger"
+    status: done  # doc-sync (stale mockup tagline text) routed to deferred-work.md
   - epic: 4
     action: "Re-derive Story 5.4 (Fog Banks) radar interaction against the SHIPPED physical return model before specifying it — its AC ('radar may still paint me') was written for binary LOS blips; size against amendment 108 and cycle 72's rejection of area returns (epic-4 retro significant-discovery alert)"
     owner: "spec author (create-story 5-4)"

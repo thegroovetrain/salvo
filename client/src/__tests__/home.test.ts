@@ -16,6 +16,7 @@ import {
   showHome,
 } from '../ui/home.js';
 import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+import { HOME_TAGLINES } from '../ui/taglines.js';
 
 // The connection module caches the session's rolled hue (review-gate fix for
 // blocked-storage divergence); reset it per test so corrupt/absent-pref cases
@@ -407,6 +408,37 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
     const howto = [...home().querySelectorAll('span')].find((s) => s.textContent === 'HOW TO PLAY') as HTMLElement;
     howto.click();
     expect(home().textContent).toContain('FIELD MANUAL ARRIVES IN A LATER REFIT');
+  });
+});
+
+// Cycle 87 — the wordmark tagline is now a random draw from HOME_TAGLINES
+// instead of the fixed "LAST HULL FLOATING WINS" line (Eric ruling
+// 2026-08-14: the win-condition copy moves to HOW TO PLAY and does not join
+// the pool). Style/position pins per amendment 47 (container-fit).
+describe('showHome — wordmark tagline (cycle 87: random pun, not a fixed line)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => home()?.remove());
+
+  function wordmarkChildren(): HTMLElement[] {
+    return [...(home().children[0] as HTMLElement).children] as HTMLElement[];
+  }
+
+  it('renders a HOME_TAGLINES member, not the retired win-condition line', () => {
+    showHome('0.0.0-test', vi.fn());
+    const [, tagline] = wordmarkChildren();
+    expect(HOME_TAGLINES).toContain(tagline.textContent);
+    expect(home().textContent).not.toContain('LAST HULL FLOATING WINS');
+  });
+
+  it('wordmark is still exactly [mark, tagline, ver], style untouched', () => {
+    showHome('0.0.0-test', vi.fn());
+    const [mark, tagline, ver] = wordmarkChildren();
+    expect(wordmarkChildren().length).toBe(3);
+    expect(mark.textContent).toContain('HULLCRACKER');
+    expect(ver.textContent).toContain('RT PROTOTYPE');
+    expect(tagline.style.letterSpacing).toBe('0.44em');
+    expect(tagline.style.marginTop).toBe('8px');
+    expect(tagline.style.color).toBe('var(--hc-phosphor)');
   });
 });
 
