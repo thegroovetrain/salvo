@@ -1404,12 +1404,49 @@ A fleet is now **attrition, not a threat that resolves a fight on its own.** At 
 witnesses the 400 u spread produces (amendment 35), incoming fire is roughly **2-6 damage per
 volley** — a bleed you can ignore for a while, not a clock you must respect.
 
-**What this does NOT change, and it is the part worth watching:** clearing a whole fleet solo still
-costs ~43 gun hits ≈ 3.6 minutes, and aggro accumulates as you work through the hulls, so the
-integrated damage over a full clear is still on the order of a hull's health. The farm remains a
-commitment; what it stops being is *lethal in the moment*. The risk this ruling accepts is the
-opposite of the one it fixes — that at 1 damage the small hull's gun reads as **no threat at all**,
-which is a legibility question (why is it shooting?) rather than a balance one. Eye it on the water.
+**What this does NOT change:** clearing a whole fleet solo still costs ~43 gun hits ≈ 3.6 minutes,
+and aggro accumulates as you work through the hulls, so the integrated damage over a full clear is
+still on the order of a hull's health. The farm remains a commitment; what it stops being is
+*lethal in the moment*.
+
+### THE REAL ARGUMENT IS ECONOMIC, NOT "TOO STRONG" — Eric's derivation, recorded because it is load-bearing
+
+The headline quote undersells the finding. Eric's arithmetic (verified exactly against the shipped
+constants — gun 15, small drone 60 hp, `damageControl` 25 instant + 25 regen for one banked level):
+
+> *"Small drone has 60 HP, which is 4 shots from an unupgraded gun over 20 seconds. In that same 20
+> seconds, the small drone can shoot at you 4x… it was set to 6, 8, 10, which in that same span of
+> time is 24, 32, or 40 damage. Two small ships could hit for nearly 50 damage before one is killed,
+> and even when both are killed, that's only half a level. Not worth it, given that healing costs a
+> level and restores only 50."*
+
+**AT 6/8/10 THE PvE FARM WAS XP-NEGATIVE, which is a different and much worse defect than being
+hard.** The exchange rate:
+
+| | at 6/8/10 | at 1/2/3 |
+|---|---|---|
+| damage taken killing two small hulls | ~48 hp | **8 hp** |
+| XP earned | ½ level | ½ level |
+| levels to repair that damage (50 hp = 1 level) | ~1 | **~0.16** |
+| **net** | **≈ −½ level** | **≈ +⅓ level** |
+
+So a captain who farmed correctly and won the fight came out **behind** where a captain who ignored
+the fleet entirely would be. The feature's entire premise — *"my XP has a second faucet"* — was
+inverted by its own damage numbers, and no amount of skill fixed it, because the loss was in the
+exchange rate rather than in the execution.
+
+**This retires the risk this amendment originally flagged.** The first draft recorded an accepted
+inverse risk — that at 1 damage the small hull's gun might read as *no threat at all*. Eric answered
+it directly and the answer is structural rather than reassuring: *"The fleets stick together as
+fleets, they are a danger, and the players fighting over them amplify that."* The threat is
+**numbers and contest**, not per-shot damage — nine hulls that travel together (amendment 35), a
+witness rule that recruits the ones who saw you, and rival captains drawn to the same prey. A single
+small hull was never meant to be the danger, so its shot reading as small is correct rather than
+broken.
+
+**The number that must stay in view when this is next retuned is the EXCHANGE RATE, not the dps:**
+50 hp of repair costs one banked level, so any PvE damage profile has to be checked against what its
+victims pay to undo it. That is the test amendment 33's original balance note failed to apply.
 
 ### The waves: 3/2/1 → 4/2/1 fleets, and they are now a RATIO
 
