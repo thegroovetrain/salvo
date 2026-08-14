@@ -5,6 +5,7 @@ created: '2026-08-14'
 status: 'done'
 baseline_revision: '799b14f'  # rebased onto cycle 80 mid-run; original baseline was 3ff8004
 review_loop_iteration: 0
+final_revision: '8d23897'
 followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context-amendments.md'
