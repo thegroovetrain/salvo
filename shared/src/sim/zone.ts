@@ -279,9 +279,19 @@ export function rollZoneRings(mapRadius: number, cfg: ZoneTimeline, ringSeeds: r
  * latency window at final closure: its mirror may still carry the 660u terminal
  * as `zoneCur*` for a patch or two, and holding that would render an open safe
  * circle in a map that is entirely storm.
+ *
+ * A TIMELINE THAT NEVER RAN DOES NOT COLLAPSE (`ran`). The degenerate-beat
+ * paths (beatMs 0/negative/NaN/Infinity) also land here, and this file's
+ * fail-closed contract has always meant "the timeline is over, park on the
+ * terminal ring" — NOT "kill everyone". Collapsing on that path would make a
+ * mistyped dev `zoneOverride` storm the entire map from zone start and bleed
+ * every hull out at once, which is a far worse failure than the one the
+ * fail-closed rule exists to prevent. Collapse only when a real timeline
+ * actually reached its end.
  */
 function closedState(groups: number, terminal: ZoneRing, cfg: ZoneTimeline): ZoneState {
-  const current = zoneCollapses(cfg) ? collapseRingOf(terminal) : terminal;
+  const ran = beatMsOf(cfg) !== null;
+  const current = zoneCollapses(cfg) && ran ? collapseRingOf(terminal) : terminal;
   return { phase: 'closed', groupIndex: groups - 1, current, next: null, closesInMs: 0 };
 }
 
@@ -339,6 +349,15 @@ export function zoneLiveState(
   const beat = Math.floor(elapsed / beatMs);
   const group = Math.floor(beat / ZONE_BEATS_PER_GROUP);
   if (group >= groups) return closedState(groups, next ?? current, cfg);
+  // AN ALREADY-COLLAPSED RING IS CLOSED, whatever the clock says. This is the
+  // OTHER staleness direction from zoneViewFrom's guard: there the local clock
+  // runs ahead of the schema, here the schema patches to closed (mirroring
+  // zoneCurR 0) while the client's server-clock estimate still reads the last
+  // closing beat. Deriving a close FROM a ring with no radius would shrink 0
+  // to 0 and hand back a live r=0 for the width of the clock error. The server
+  // never supplies a zero-radius `current` mid-close — its final group opens on
+  // the 660u terminal — so this only ever fires on a stale mirror.
+  if (zoneCollapses(cfg) && !(current.r > 0)) return closedState(groups, current, cfg);
   const beatInGroup = beat - group * ZONE_BEATS_PER_GROUP;
   const phase = BEAT_PHASES[beatInGroup];
   const groupEndMs = (group + 1) * ZONE_BEATS_PER_GROUP * beatMs;
@@ -347,15 +366,35 @@ export function zoneLiveState(
     const revealed = phase === 'reveal' ? eff : null;
     return { phase, groupIndex: group, current, next: revealed, closesInMs: groupEndMs - beatMs - elapsed };
   }
+  return closingState(elapsed, groupEndMs, beatMs, group, current, eff);
+}
+
+/**
+ * The CLOSING beat: ring g interpolated linearly (center AND radius) toward the
+ * effective next ring over the beat. Split out of zoneLiveState purely for the
+ * complexity budget — no behavior of its own.
+ *
+ * Fail-closed: a null `eff` is a stale schema at a group boundary (there is a
+ * closing beat but no ring to close onto), and holding ring g is the only safe
+ * answer — never interpolate toward nothing.
+ */
+function closingState(
+  elapsed: number,
+  groupEndMs: number,
+  beatMs: number,
+  group: number,
+  current: ZoneRing,
+  eff: ZoneRing | null,
+): ZoneState {
   const closesInMs = groupEndMs - elapsed;
-  if (eff === null) return { phase, groupIndex: group, current, next: null, closesInMs };
+  if (eff === null) return { phase: 'closing', groupIndex: group, current, next: null, closesInMs };
   const f = (elapsed - (groupEndMs - beatMs)) / beatMs;
   const live: ZoneRing = {
     cx: current.cx + (eff.cx - current.cx) * f,
     cy: current.cy + (eff.cy - current.cy) * f,
     r: current.r + (eff.r - current.r) * f,
   };
-  return { phase, groupIndex: group, current: live, next: eff, closesInMs };
+  return { phase: 'closing', groupIndex: group, current: live, next: eff, closesInMs };
 }
 
 /**

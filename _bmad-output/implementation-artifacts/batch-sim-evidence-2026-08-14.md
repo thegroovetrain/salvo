@@ -30,11 +30,15 @@ Twelve of twelve matches conclude, by pilots that never fire a shot. The storm a
 `min` 527.5 s is not a collapse result: with only 3 captains, storm attrition can clear the human field
 before 12:00 in an unlucky match — the same seed produces the same early match in the endgame leg below.
 
-**The predicted ceiling holds empirically.** The spec's acceptance criterion argued from HP arithmetic
-that a match cannot outlive ~17:00 (battleship max 175 hp — `maxHp` does not scale with boons — at
-4 hp/s, against a passive XP tick funding at most ~0.83 hp/s of heal). Measured max is **16:43**, inside
-that bound with room to spare. NFR6's *"inside ~15:00"* is now wrong in the worst case, but wrong in the
-right direction: before this cycle the worst case was **unbounded**.
+**The measured worst case is 16:43 — but it is NOT the ceiling, and an earlier draft of this document
+said it was.** The HP arithmetic behind that claim (175 hp battleship at 4 hp/s = ~44s) only holds for a
+captain with NOTHING BANKED. `ShipRecord.bankedLevels` is uncapped and a heal is spendable at any moment
+while alive, worth ~50 hp each (25 instant + a 25 hp pool), so every hoarded level buys ~12.5s: sixteen of
+them — one per minute, never spent — push the outer edge past 19:00. These pilots spend as they earn
+(picks p50 16), which is exactly why the campaign tops out at 16:43; a hoarding human is not represented
+here. The mechanic still always TERMINATES, because the tick funds ~0.83 hp/s against 4 hp/s of storm and
+the drain always wins. NFR6's *"inside ~15:00"* is wrong in the worst case, but wrong in the right
+direction: before this cycle the worst case was **unbounded**.
 
 ## Result 2 — the endgame instrument still measures the ENDGAME, not the collapse
 

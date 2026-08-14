@@ -324,6 +324,22 @@ describe('needsRedraw — the throttle keyed on radius AND zoom', () => {
     expect(needsRedraw(-1, -1, 2400, 1)).toBe(true);
   });
 
+  it('ALWAYS redraws when the ring collapses to nothing, however small the last step', () => {
+    // The collapse ends by pinning the radius at exactly 0, arriving from a
+    // last redraw somewhere inside the sub-unit epsilon. Without the degenerate
+    // -boundary clause the epsilon swallows that final step, drawStorm's whole
+    // radius-0 branch never runs, and the fully collapsed plane keeps a
+    // sub-unit hole with a ring edge stroked around the collapse point — a
+    // visible dot where the map is supposed to be solid storm.
+    expect(needsRedraw(Z.redrawEpsU / 2, 1, 0, 1)).toBe(true);
+    expect(needsRedraw(0.01, 1, 0, 1)).toBe(true);
+    // ...and in the other direction, so a re-anchored zone re-cuts its hole.
+    expect(needsRedraw(0, 1, Z.redrawEpsU / 2, 1)).toBe(true);
+    // A non-degenerate sub-epsilon step is still throttled (the clause is about
+    // a change of KIND, not a change of size).
+    expect(needsRedraw(0.6, 1, 0.9, 1)).toBe(false);
+  });
+
   it('ignores sub-epsilon radius drift while closing (position-only updates)', () => {
     expect(needsRedraw(2400, 1, 2400 + Z.redrawEpsU / 2, 1)).toBe(false);
     expect(needsRedraw(2400, 1, 2400 - Z.redrawEpsU * 2, 1)).toBe(true);

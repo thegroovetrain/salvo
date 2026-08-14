@@ -143,10 +143,10 @@ describe('shared barrel', () => {
     // storm from 16:00). NO schema field, NO new event, NO perception change —
     // the collapse ring rides the wire as the existing `zoneNextR === 0`
     // unrevealed sentinel and both sides synthesize it. The bump is needed
-    // because CONFIG.zone gains `suddenDeath` in the welcome config snapshot
-    // AND the group count/total length change (zoneClosedAtMs 720_000 →
-    // 960_000): a stale client would derive the wrong rhythm from the same
-    // zoneStartT and draw an open 660u safe circle over an all-storm map.
+    // because the group count and total length change (zoneClosedAtMs 720_000 →
+    // 960_000): a stale client would derive the wrong rhythm from its own
+    // bundled CONFIG.zone and the same zoneStartT. (NOT because CONFIG gained a
+    // field: no client code reads `welcome.config` — see index.ts's PV 35 note.) and draw an open 660u safe circle over an all-storm map.
     expect(PROTOCOL_VERSION).toBe(35);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |

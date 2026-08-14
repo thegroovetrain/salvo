@@ -200,7 +200,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 34→35 bump (PV 35: SUDDEN DEATH — the storm timeline gains its collapse group, so CONFIG.zone gains suddenDeath in the welcome snapshot AND the group count/length move; a stale client would derive the wrong beat rhythm and draw an open safe circle over an all-storm map) is enforced at matchmake', () => {
+describe('pv join gate — the 34→35 bump (PV 35: SUDDEN DEATH — the storm timeline gains its collapse group, the group count and total length move (720_000 -> 960_000); a stale client derives the wrong beat rhythm from its own bundled CONFIG.zone and draws an open safe circle over an all-storm map) is enforced at matchmake', () => {
   it('rejects pv-34 and pv-33 (previous protocols) and a missing pv; accepts the current one', () => {
     expect(PROTOCOL_VERSION).toBe(35);
     expect(protocolVersionError(34)).toMatch(/refresh/);

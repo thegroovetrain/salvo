@@ -469,7 +469,7 @@ describe('zoneLiveState — the schema-fed client shape agrees with the full set
       const g = full.groupIndex;
       // The schema mirror: current = ring g at the last boundary; next = ring
       // g+1 only from reveal (zeroed before — modeled as null here).
-      const revealedNext = full.next !== null || full.phase === 'closing' ? rings[g + 1] ?? null : null;
+      const revealedNext = full.next !== null ? rings[g + 1] ?? null : null;
       const live = zoneLiveState(START + ms, START, rings[g], revealedNext, CONFIG.zone);
       expect(live).toEqual(full);
     }
@@ -633,7 +633,9 @@ describe('sudden death — the collapse group', () => {
       // ring only when its radius is non-zero — the collapse ring is zeroed by
       // the sentinel and therefore arrives as null.
       const mirroredCur = full.phase === 'closed' ? rings[rings.length - 1] : rings[g];
-      const revealed = full.next !== null || full.phase === 'closing' ? rings[g + 1] ?? null : null;
+      // (`full.next !== null` alone IS the mirror's rule — syncZoneGeometry writes
+      // `zoneRevealedNextRing ?? ZERO_RING`, so no extra phase clause belongs here.)
+      const revealed = full.next !== null ? rings[g + 1] ?? null : null;
       const wireNext = revealed !== null && revealed.r > 0 ? revealed : null;
       expect(zoneLiveState(START + ms, START, mirroredCur, wireNext, CONFIG.zone)).toEqual(full);
     }
@@ -674,14 +676,37 @@ describe('sudden death — the collapse group', () => {
     }
   });
 
-  it('fails CLOSED on a degenerate beat duration: closed immediately on a radius-0 ring, never open forever', () => {
+  it('fails CLOSED on a degenerate beat duration: closed immediately, PARKED on the terminal ring — a broken timeline must not collapse', () => {
+    // A timeline that never RAN does not get to end the match. Fail-closed here
+    // has always meant "the timeline is over, park on the terminal ring"; under
+    // sudden death, collapsing on this path instead would storm the whole map
+    // from zone start and bleed out every hull at once on a mistyped dev
+    // override — a far worse failure than the one the rule guards against.
     for (const beatMs of [0, -1, NaN, Infinity]) {
       const cfg: ZoneTimeline = { ...CONFIG.zone, beatMs };
       const s = zoneLiveState(START + 1, START, ENDGAME, null, cfg);
       expect(s.phase).toBe('closed');
-      expect(s.current.r).toBe(0);
-      expect(isOutside({ x: s.current.cx, y: s.current.cy }, s.current.cx, s.current.cy, s.current.r)).toBe(true);
+      expect(s.current).toEqual(ENDGAME);
+      expect(s.current.r).toBeGreaterThan(0);
+      // The ring centre is still SAFE, which is the whole point of parking.
+      expect(isOutside({ x: s.current.cx, y: s.current.cy }, s.current.cx, s.current.cy, s.current.r)).toBe(false);
     }
+  });
+
+  it('an ALREADY-COLLAPSED current ring reads closed even if the clock still says closing (the schema-ahead staleness direction)', () => {
+    // zoneViewFrom guards the local-clock-ahead-of-schema direction. This is its
+    // mirror: the schema patches to closed (zoneCurR 0) while the client's
+    // server-clock estimate still sits in the last closing beat. Deriving a
+    // close FROM a ring with no radius would shrink 0 to 0 and report a live
+    // r=0 for the width of the clock error.
+    const collapsePoint = { cx: ENDGAME.cx, cy: ENDGAME.cy, r: 0 };
+    const stillClosing = START + zoneClosedAtMs(CONFIG.zone) - 10;
+    const s = zoneLiveState(stillClosing, START, collapsePoint, null, CONFIG.zone);
+    expect(s.phase).toBe('closed');
+    expect(s.current).toEqual(collapsePoint);
+    expect(s.closesInMs).toBe(0);
+    // And it is genuinely all-storm, not a 0-to-0 interpolation artifact.
+    expect(isOutside({ x: ENDGAME.cx, y: ENDGAME.cy }, s.current.cx, s.current.cy, s.current.r)).toBe(true);
   });
 });
 

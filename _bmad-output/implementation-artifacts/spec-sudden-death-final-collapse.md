@@ -2,10 +2,10 @@
 title: 'Sudden Death — the final collapse'
 type: 'feature'
 created: '2026-08-14'
-status: 'in-review'
-baseline_revision: '3ff8004f47e14e7fa1556989907f6652c67c2faf'
+status: 'done'
+baseline_revision: '799b14f'  # rebased onto cycle 80 mid-run; original baseline was 3ff8004
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context-amendments.md'
   - '{project-root}/_bmad-output/implementation-artifacts/deferred-work.md'
@@ -91,10 +91,42 @@ warnings: ['oversized']
 - Given the shipped CONFIG, when the match clock reaches 14:00, then the collapse point is marked on the water at the terminal ring's exact center with a one-shot reveal flash, and the mark persists through closure.
 - Given the match clock is between 15:00 and 16:00, when the ring closes, then its radius interpolates linearly 660u -> 0 with its center held FIXED (concentric collapse, no drift), and the chrome bar reads `RING CLOSING m:ss`.
 - Given the match clock reaches 16:00, when any hull is afloat anywhere on the map, then it is outside the ring and takes `stormDps`, the storm fill covers the entire map, and the chrome bar reads `RING CLOSED`.
-- Given a full-HP battleship (175 hp, the game's maximum) alone in a fully collapsed storm, when no heal is banked, then it sinks within 45s of 16:00 — the match cannot outlive ~17:00 even in the worst case, because the passive XP tick funds at most ~0.83 hp/s of heal against 4 hp/s of storm.
+- Given a full-HP battleship (175 hp, the game's maximum — maxHp does not scale with boons) alone in a fully collapsed storm with NOTHING banked, when 16:00 passes, then it sinks within ~45s. The collapse always terminates because the passive XP tick funds only ~0.83 hp/s of heal against 4 hp/s of storm; it is NOT bounded at ~17:00, because `bankedLevels` is uncapped and each level spent on heal is worth ~50 hp (~12.5s), so a hoarding captain extends the outer edge past 19:00.
 - Given a client fed only by the room schema (`zoneNextR === 0` during the final group), when it derives the live ring, then its geometry equals the server's authoritative ring at every tick — no desync, and `PROTOCOL_VERSION` is the only wire-facing change.
 - Given `suddenDeath` is disabled (every existing `zoneOverride` and smoke literal), when the timeline runs, then it is byte-identical to today: 3 groups, closure at 12:00, terminal ring held.
 - Given the batch-sim endgame campaign is rerun, when the pacifist control reaches the collapse, then matches that previously ended `unresolved` at the tick cap now RESOLVE — the structural non-conclusion documented under amendment 24 is eliminated.
+
+## Spec Change Log
+
+No `bad_spec` loopback occurred. The spec's boundaries held through implementation and review: no code was re-derived, and nothing inside `<intent-contract>` was touched.
+
+## Review Triage Log
+
+### 2026-08-14 — Review pass (Blind Hunter + Edge Case Hunter, parallel, no shared context)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 15: (high 1, medium 4, low 10)
+- defer: 4: (high 0, medium 2, low 2)
+- reject: 4: (high 0, medium 1, low 3)
+- addressed_findings:
+  - `[high]` `[patch]` The survival ceiling asserted in four places (amendment 30, CLAUDE.md, the spec AC, the evidence doc) was WRONG. It reasoned only from hull HP and the passive tick, but `ShipRecord.bankedLevels` is uncapped and a heal is spendable at any moment while alive, worth ~50 hp each — so a hoarding captain buys ~12.5s per banked level and pushes the outer edge past 19:00, not "under ~17:30". Corrected everywhere, together with the reason the measured 16:43 does not represent that case (these pilots spend as they earn). The mechanic still always terminates; only the bound was wrong.
+  - `[medium]` `[patch]` `drawStorm`'s radius-0 branch was UNREACHABLE in the normal flow: `needsRedraw`'s sub-unit `redrawEpsU` swallowed the final step to exactly 0, so the fully collapsed plane kept a sub-unit hole with a ring edge stroked around the collapse point — a visible dot where the AC says solid storm. `needsRedraw` now always redraws when the radius crosses the degenerate boundary in either direction; pinned by test.
+  - `[medium]` `[patch]` `closedState` collapsed the ring on the DEGENERATE-timeline path too, inverting this file's fail-closed contract: a mistyped dev `zoneOverride` (beatMs 0/NaN) would storm the whole map from zone start and bleed out every hull at once. Fail-closed here has always meant "park on the terminal ring", never "kill everyone". Now gated on the timeline having actually run; the existing test that pinned the old behavior was re-derived rather than deleted.
+  - `[medium]` `[patch]` The PV 35 ledger (index.ts, barrel.test.ts, denials.test.ts) justified the bump partly as "CONFIG.zone gains a field and ships in the welcome snapshot". No client code reads `welcome.config` — it is dead payload carrying the static constant rather than the room's effective zoneCfg — so that rationale taught a false rule for future bumps. Rewritten to the true reason (the group count and total length move, and the client derives the rhythm from its own bundled CONFIG), with the dead-payload fact recorded explicitly.
+  - `[medium]` `[patch]` `zoneSmoke`'s "the collapse ring is never transmitted" assertion tested its own decoder rather than the wire: `nextRing()` maps any r<=0 to null, so asserting null was vacuous for a ring whose radius is 0 by construction. Re-derived to read the raw schema field — and the first form of that fix FAILED against a real boundary race (sampling by client-derived group can catch a frame where the server is still in the previous group's closing beat, legitimately advertising 660u), so it was re-derived again to key on the server's own mirrored phase: a reveal beat carrying a zeroed next is impossible for any non-collapse group.
+  - `[low]` `[patch]` `planeVisibility` dropped `cur.r > 0`, which had also been the only guard against a non-finite ring CENTRE reaching a Pixi transform (`updateStorm` writes `cur.cx/cy` every plane frame). Restored as an explicit finite-centre check, with the two degenerate cases documented as failing in deliberately opposite directions (a broken radius paints storm everywhere, matching `isOutside`; a broken centre has nowhere to paint).
+  - `[low]` `[patch]` `telegraph` and `mark` were not actually mutually exclusive, contradicting the comment that justifies their sharing one `RevealOneShot`. Now enforced rather than assumed (the telegraph wins).
+  - `[low]` `[patch]` `zoneLiveState` derived a close FROM an already-collapsed ring when the schema patched to closed ahead of the client's clock estimate — the mirror of the staleness direction `zoneViewFrom` already guards. Now reads closed; pinned by test.
+  - `[low]` `[patch]` The above pushed `zoneLiveState` to cyclomatic complexity 11 against the enforced limit of 10; the closing-beat branch was extracted to `closingState` with no behavior change.
+  - `[low]` `[patch]` `BatchAggregate.pastClosureRate` kept its name while its meaning moved to the endgame ring; renamed `pastEndgameRate` so the field says what it measures.
+  - `[low]` `[patch]` Both wire-parity oracles carried a dead disjunct (`|| full.phase === 'closing'`) that is also not how `syncZoneGeometry` behaves; removed so the oracle mirrors the real rule.
+  - `[low]` `[patch]` `pilots.ts`'s `hunt` JSDoc still documented the retired `zonePhase === 'closed'` gate — the one doc a reader lands on when hovering the parameter this cycle changed.
+  - `[low]` `[patch]` `roomOptions.ts` documented the override shape without `suddenDeath`, and its desync note predated a field that forks the GROUP COUNT rather than only magnitudes; both updated.
+  - `[low]` `[patch]` The `deferred-work.md` SUDDEN DEATH entry said RESOLVED in its summary while its untouched `evidence:` line still said amendment 24 "remains the law of record until an explicit supersession" — a sweep reading the evidence field would have re-opened a closed entry.
+  - `[low]` `[patch]` The new CLAUDE.md bullet was still headed "cycle 80" after the rebase renumbering.
+
+Rejected, with reasons: (1) "`closedState`'s `next ?? current` can take a stale non-terminal centre" — the staleness model is backwards; `next` is always the most recently revealed geometry, so preferring it is correct and `current` is the staler value. (2) "the evidence file named in Verification does not exist" — it was written after the review diff was cut. (3) "the client is not flag-aware, so a `zoneOverride` omitting `suddenDeath` desyncs it" — real, but pre-existing and already documented: ANY override field desyncs a client that derives from `CONFIG.zone`, which is why overrides are `HC_DEV_OPTIONS`-gated and never reach a production client; the doc half was patched. (4) "the wire-parity test re-implements the mirror instead of driving it" — `shared` cannot import `server`; the real mirror is covered by the server suite's getter-agreement tests.
 
 ## Design Notes
 
@@ -124,3 +156,17 @@ const eff = next ?? (finalGroup ? collapseRingOf(current) : null);
 **Manual checks (if no CLI):**
 - On the built client with a compressed `zoneOverride`: the X appears at the reveal beat, the ring shrinks onto it without center drift, and at closure the whole map is stormed with the mark still visible and the vignette lit.
 </content>
+
+## Auto Run Result
+
+Status: **done** — landed as cycle 81 (0.17.81), `PROTOCOL_VERSION` 34 → 35.
+
+**What shipped.** The long-parked SUDDEN DEATH contingency, under Eric's authorizing ruling of 2026-08-14. A fourth ring group runs the existing four-beat rhythm from 12:00 — clear, supply, the collapse point MARKED with an X at 14:00, then the terminal 660u ring closing CONCENTRICALLY onto its own centre between 15:00 and 16:00. From 16:00 the map is 100% storm. Epic-3 amendment 24 is superseded on its post-closure-shrink clause alone: `stormDps` is untouched at 4 hp/s and no damage ramp was built.
+
+**Files changed (code).** `shared/src/sim/zone.ts` (the timeline: the `suddenDeath` flag, the appended collapse group, concentric roll, client-side synthesis via `effectiveNext`, `isOutside` fail-closed on a radius-less ring, `zoneEndgameAtMs`, `closingState` extraction) · `shared/src/constants.ts` (`CONFIG.zone.suddenDeath`) · `shared/src/index.ts` (PV 35 + ledger) · `client/src/sim/zoneView.ts` (absence-gated radius decode — the full-map-fallback trap) · `client/src/render/zone.ts` (the X mark, the storm plane surviving r=0, the degenerate-boundary redraw, finite-centre guard) · `client/src/config.ts` (`markPx`/`markArmPx`) · `server/src/game/world.ts` (`zoneEndgameReached`) · `server/scripts/batchsim/pilots.ts` + `report.ts` (endgame gate re-pointed; `pastEndgameRate`) · `server/scripts/zoneSmoke.mjs` (collapse leg) · `server/src/rooms/roomOptions.ts` (override doc).
+
+**Review.** Two adversarial passes in parallel with no shared context. 0 intent gaps, 0 bad-spec loopbacks, 15 patches applied (1 high, 4 medium, 10 low), 4 deferred, 4 rejected — see the Review Triage Log. The high-severity finding was mine: a survival-ceiling claim asserted in four places, including a durable ruling record, that ignored uncapped banked heals.
+
+**Verification.** `npm run check` green — shared 736, server 1106, client 2500 = **4342 tests** (baseline 4309), lint 0 errors (2 pre-existing warnings). `zoneSmoke.mjs` passes over a real socket with the strengthened assertion. Batch-sim evidence in `batch-sim-evidence-2026-08-14.md`: the pacifist control, previously `unresolved` by structure, now resolves **12/12** at p50 16:27 / max 16:43; the endgame instrument still concludes at p50 12:46, proving the pilot re-gate preserved Story 3.4's measurement window.
+
+**Residual risks.** (1) The true worst case is set by HOARDED HEALS, not hull HP — a captain banking levels can push past 19:00; the mechanic still always terminates. (2) Sudden death guarantees a death but not a WINNER: uniform damage makes a same-tick DRAW structurally likely between equal-HP hulls, and no tiebreak was invented. (3) The collapse resolves by HP rather than by play, which is inherent to "geometry, not the damage curve". (4) NFR6's "~15:00" doc text is now wrong in the worst case, routed to the 7-5 batch. (5) UNVERIFIED BY HUMAN EYES — the X mark, its layer position and the collapse's feel have never been seen on the water. All five are ledgered in `deferred-work.md`.

@@ -126,9 +126,21 @@ function bucketUp(r: number): number {
  * drawn geometry, so it joins the key (relative, since `zoom` is px-per-unit
  * and its scale depends on the viewport). `lastR < 0` is the never-drawn
  * sentinel.
+ *
+ * CROSSING THE DEGENERATE BOUNDARY ALWAYS REDRAWS (sudden death, cycle 81).
+ * The `redrawEpsU` throttle is a SUB-UNIT tolerance, and the collapse ends by
+ * pinning the radius at exactly 0 — arriving from a last redraw somewhere in
+ * (0, redrawEpsU], which the epsilon then swallows. Without this clause the
+ * final frame never re-strokes, so drawStorm's whole radius-0 branch is
+ * unreachable in the normal flow and the fully collapsed plane keeps a
+ * sub-unit hole cut in it with a ring edge stroked around the collapse point —
+ * a visible dot where the acceptance criterion says solid storm. A radius
+ * that is zero (or non-finite) is a different KIND of geometry, not a nearby
+ * value, so the epsilon must not have a say in either direction.
  */
 export function needsRedraw(lastR: number, lastZoom: number, r: number, zoom: number): boolean {
   if (lastR < 0) return true;
+  if (r > 0 !== lastR > 0) return true;
   if (Math.abs(r - lastR) > Z.redrawEpsU) return true;
   return Math.abs(zoom - lastZoom) > Math.abs(lastZoom) * Z.redrawZoomFrac;
 }
@@ -375,18 +387,32 @@ function isPointRing(ring: ZoneRing | null): boolean {
  * collapse it would delete the entire storm plane at the exact instant the
  * whole map BECOMES storm — the worst possible inversion. drawStorm() carries
  * the degenerate case instead: no hole, no edge, just fill.
+ *
+ * It DOES require a finite CENTER, which is the half of the old clause that
+ * still had work to do. `cur.r > 0` was false for a NaN radius and so hid the
+ * plane; the replacement guard in drawStorm only inspects the radius, while
+ * `updateStorm` writes `cur.cx/cy` into a Pixi transform on every plane frame.
+ * A non-finite centre must therefore be caught here or it reaches that
+ * transform. Note the two degenerate cases fail in OPPOSITE directions on
+ * purpose: a broken RADIUS paints storm everywhere (matching isOutside, which
+ * marks every hull outside a NaN ring — the dangerous side is the safe default),
+ * whereas a broken CENTRE has no meaningful place to paint at all.
  */
 export function planeVisibility(
   state: ZoneDisplay,
   cur: ZoneRing,
   next: ZoneRing | null,
 ): ZoneVisibility {
-  const plane = state !== 'idle';
-  return {
-    plane,
-    telegraph: plane && next !== null && next.r > 0,
-    mark: plane && (isPointRing(next) || isPointRing(cur)),
-  };
+  const plane = state !== 'idle' && Number.isFinite(cur.cx) && Number.isFinite(cur.cy);
+  const telegraph = plane && next !== null && next.r > 0;
+  // MUTUALLY EXCLUSIVE BY CONSTRUCTION, ENFORCED RATHER THAN ASSUMED: update()
+  // shares one RevealOneShot between the two on the strength of this. They are
+  // the same channel (a next ring becoming public) drawn for a target with and
+  // without a radius, so a frame that wanted both would be incoherent — a
+  // dashed circle for a real revealed ring while an X marks a live ring that
+  // has already collapsed. The telegraph wins; the degenerate current ring is
+  // not something to point at while newer geometry is public.
+  return { plane, telegraph, mark: plane && !telegraph && (isPointRing(next) || isPointRing(cur)) };
 }
 
 /**

@@ -9,14 +9,19 @@
  *  16:00. NO schema field, NO new event and NO perception change — the collapse
  *  ring is CONCENTRIC with the terminal ring, so it rides the wire as the
  *  existing `zoneNextR === 0` unrevealed sentinel and both sides synthesize it
- *  from geometry the client already holds. The bump is required on two grounds
- *  that each MISRENDER rather than fail on a stale client: (1) CONFIG.zone gains
- *  `suddenDeath` and ships in the welcome config snapshot, and (2) the group
- *  COUNT and total length change (zoneClosedAtMs 720_000 -> 960_000), so an
- *  un-bumped client would derive the wrong beat rhythm from the same
- *  zoneStartT — reading the collapse group's clear beat as "closed", drawing an
- *  open 660u safe circle over a map that is entirely storm, and running its
- *  chrome-bar countdown against the wrong clock.
+ *  from geometry the client already holds. The bump is required because the
+ *  group COUNT and total length change (zoneClosedAtMs 720_000 -> 960_000):
+ *  the client derives the whole rhythm from its OWN BUNDLED CONFIG.zone plus
+ *  zoneStartT, so a stale bundle reads the collapse group's clear beat as
+ *  "closed", draws an open 660u safe circle over a map that is entirely storm,
+ *  and runs its chrome-bar countdown against the wrong clock. It MISRENDERS
+ *  rather than failing, which is exactly what the join gate exists to prevent.
+ *  NOTE for whoever reads this next: the reason is NOT "CONFIG gained a field
+ *  and CONFIG rides WelcomeMsg". It does ride it (ArenaRoom sends `config:
+ *  CONFIG`), but no client code reads `welcome.config` — it is dead payload,
+ *  and it carries the static shipped constant rather than the room's effective
+ *  zoneCfg, so it could not convey a dev override anyway. A CONFIG field
+ *  addition is not by itself a wire break in this codebase.
  *  34: THE SINKING WINDOW (Story 5.2, Eric rulings 2026-08-12, amendments
  *  10-17) — OwnShip gains an optional SELF-PRIVATE trailing `sinkingUntil`
  *  (absolute server-clock ms the hull founders; omitted entirely when not

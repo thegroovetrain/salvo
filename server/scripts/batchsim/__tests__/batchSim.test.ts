@@ -780,7 +780,7 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
     expect(agg.durationS.n).toBe(3); // the all-matches summary is unchanged
     expect(agg.resolvedDurationS.n).toBe(2);
     expect(agg.resolvedDurationS.max).toBe(closureS + 60);
-    expect(agg.pastClosureRate).toBe(0.5);
+    expect(agg.pastEndgameRate).toBe(0.5);
     expect(agg.winnerClass).toEqual({ torpedoBoat: 1, battleship: 1, none: 1 });
     const body = renderBatchReport('x', agg).join('\n');
     expect(body).toContain('resolved past endgame ring: 50.0%');
@@ -793,7 +793,7 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
       1,
     );
     expect(agg.resolvedDurationS.n).toBe(0);
-    expect(agg.pastClosureRate).toBe(0);
+    expect(agg.pastEndgameRate).toBe(0);
     const body = renderBatchReport('all-unresolved', agg).join('\n');
     expect(body).toContain('resolved match length s: n=0');
     expect(body).toContain('resolved past endgame ring: n=0');

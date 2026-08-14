@@ -374,8 +374,10 @@ class GunnerPilot implements CaptainPilot {
     readonly id: string,
     seed: number,
     /** The hunt policy, evaluated per tick: `() => false` is the pacifist
-     *  control (never target, never fire); `(w) => w.zonePhase === 'closed'`
-     *  is the Story 3.4 endgame instrument. Never consumes rng. */
+     *  control (never target, never fire); `(w) => w.zoneEndgameReached` is the
+     *  Story 3.4 endgame instrument (NOT `zonePhase === 'closed'` — those were
+     *  the same instant until sudden death appended the collapse group, and the
+     *  phase equality now fires four minutes late). Never consumes rng. */
     private readonly hunt: HuntPolicy = () => true,
   ) {
     this.rng = mulberry32(seed);

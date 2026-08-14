@@ -328,11 +328,34 @@ async function main() {
     log.push(`inside: B held the ring center at full HP (cur r=${ringB.r.toFixed(0)}u, center ${Math.hypot(ringB.cx, ringB.cy).toFixed(0)}u off-origin)`);
 
     // --- 5. SUDDEN DEATH: the final collapse ---------------------------------
-    // The claim under test is that NOTHING new rides the wire: through the whole
-    // collapse group zoneNext* stays the zeroed unrevealed sentinel, and the
-    // client re-derives the ring from the terminal ring it already holds.
+    // The claim under test is that the collapse ring's RADIUS never rides the
+    // wire: through the whole collapse group zoneNextR stays 0 — the unrevealed
+    // sentinel — and the client re-derives the ring from the terminal ring it
+    // already holds. Stated precisely, because "nothing new rides the wire" is
+    // too strong: at the collapse group's reveal beat syncZoneGeometry does
+    // write zoneNextCx/Cy, moving them from ZERO_RING's {0,0} to the terminal
+    // ring's centre, which is a schema patch that did not exist before. It
+    // discloses NOTHING — that centre is the current ring the client has been
+    // holding since 11:00 — and it adds no FIELD, which is what "no new schema
+    // field" means. The radius is the channel that would have collided with the
+    // sentinel, and it is the one asserted here.
     let terminal = null; // the 660u ring the collapse group opens on
-    let leakedNext = 0; // frames where the collapse ring rode the wire (must be 0)
+    // RAW schema read, deliberately NOT through nextRing(): that decoder maps
+    // any r <= 0 to null, so asserting it stayed null would be vacuous for a
+    // ring whose radius is 0 by construction — it would test the decoder, not
+    // the wire.
+    //
+    // The assertion is keyed to the SERVER's own mirrored phase, not to a group
+    // index derived from the client's clock estimate. Sampling by derived group
+    // races the boundary: the client's stamp can cross into the collapse group
+    // while the server is still finishing the previous group's closing beat,
+    // where a 660u next ring is legitimately advertised.
+    //
+    // A REVEAL BEAT CARRYING A ZEROED NEXT IS THE DISTINGUISHING OBSERVATION.
+    // Every ordinary reveal beat advertises a real radius; only the collapse
+    // group's reveal has nothing to advertise, because its next ring IS the
+    // zero-radius sentinel and the client rebuilds it instead.
+    let zeroedReveals = 0; // reveal-beat frames whose zoneNextR was 0 (must be > 0)
     let maxDrift = 0; // how far the derived live center wandered off it (must be 0)
     let minLiveR = Infinity;
     let hpAtCollapseClose = null;
@@ -343,7 +366,7 @@ async function main() {
       if (Math.floor((b.lastT - s.zoneStartT) / GROUP_MS) < COLLAPSE_GROUP) return;
       const cur = curRing(b);
       if (terminal === null && cur !== null && s.zoneState === 'clear') terminal = { ...cur };
-      if (nextRing(b) !== null) leakedNext += 1;
+      if (s.zoneState === 'reveal' && (s.zoneNextR ?? 0) === 0) zeroedReveals += 1;
       const live = liveRing(b, b.lastT);
       if (live !== null && terminal !== null) {
         maxDrift = Math.max(maxDrift, Math.hypot(live.cx - terminal.cx, live.cy - terminal.cy));
@@ -358,7 +381,8 @@ async function main() {
     assert(terminal !== null, 'never observed the collapse group opening on the terminal ring');
     assert(Math.abs(terminal.r - 2 * CONFIG.vision.sight) < 1e-3,
       `the collapse group opened on r=${terminal.r} (expected the 660u terminal ring)`);
-    assert(leakedNext === 0, `zoneNext* carried the collapse ring ${leakedNext}x — it must ride as the ZEROED sentinel`);
+    assert(zeroedReveals > 0,
+      'never observed a reveal beat with zoneNextR === 0 — the collapse ring must ride as the ZEROED sentinel');
     assert(maxDrift < 1e-6, `the collapse drifted ${maxDrift.toFixed(3)}u off the terminal center (it must be CONCENTRIC)`);
     assert(minLiveR < 1, `the derived live ring only reached r=${minLiveR.toFixed(1)} (it must close to 0)`);
     assert(closedCurR === 0, `schema zoneCurR at full closure was ${closedCurR}, expected exactly 0`);
