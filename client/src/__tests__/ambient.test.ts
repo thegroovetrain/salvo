@@ -437,3 +437,79 @@ describe('clearAmbientLayers — the teardown sweep is unconditional', () => {
     expect(fogSprite.children.length, 'fog sprite left dirty').toBe(0);
   });
 });
+
+// --- the scene is a DIFFERENT ocean every load --------------------------------
+
+describe('the scene holds on ANY ocean, not just the shipped one', () => {
+  // THIS TEST IS THE FEATURE'S LICENCE. While the home scene used one fixed
+  // seed, a single ocean verified by eye plus the single-seed helm test above
+  // was honest coverage. Randomising the seed per load turns every property
+  // into a claim about oceans NOBODY HAS EVER LOOKED AT, so the properties have
+  // to be proven over a sample instead of an example.
+  //
+  // It earns its runtime by having already paid for itself: sweeping the
+  // pre-fix build found a rival wandering past base radar range on 5 of 40
+  // oceans (worst 763u against 660u), where it stops painting and is simply
+  // missing from the picture with no cue that anything is wrong. The cause was
+  // anchor sea room — 180u, while the formation orbits out to 528u — and every
+  // failing seed had under 300u of it while every seed with 315u or more was
+  // clean. Fixed by DERIVING the requirement from the formation's own radius,
+  // pulling the outer band in, and adding the escape-cone leash.
+  //
+  // The seeds here are deliberately NOT the ones the fix was measured against:
+  // tuning against a sample and then testing that same sample proves only that
+  // the tuning happened. 24 oceans x 60s of scene time costs ~8.5s.
+  const SEEDS = 20;
+  const STEPS = 1000;
+  // AN EXPLICIT TIMEOUT, BECAUSE THIS TEST IS SLOW ON PURPOSE. It runs ~3s of
+  // real simulation, and vitest's 5s default is close enough to that to flake
+  // under the parallel load of the full client suite — which it did, passing
+  // alone and failing inside `npm run check`. A property test that samples 20
+  // oceans is allowed to take seconds; what it is not allowed to be is
+  // load-sensitive.
+  const BUDGET_MS = 120_000;
+
+  it('never grounds a hull and never loses one off the scope', () => {
+    const radar = CONFIG.vision.radar;
+    // THE ASSERTIONS ARE OUTSIDE THE LOOP ON PURPOSE. Asserting per hull per
+    // step is ~200k `expect` calls and costs more than the simulation it is
+    // checking (11.6s against 2.5s). The worst case plus the seed that produced
+    // it is the whole diagnostic anyway — a failure names the exact ocean, and
+    // `?homeseed=<n>` puts it on screen.
+    let aground = '';
+    let offscope = '';
+    let worstMargin = Infinity; // clearance minus half-length, over every step
+    let worstRange = 0;
+    for (let s = 0; s < SEEDS; s += 1) {
+      const mapSeed = 500000 + s * 104729;
+      const map = generateMap(mapSeed, CONFIG.map.playerCap);
+      const w = buildAmbientWorld(map, 90210 + s * 131);
+      for (let i = 0; i <= STEPS; i += 1) {
+        if (i > 0) advanceAmbient(w, map, 50, 1);
+        for (const h of w.hulls) {
+          const half = CONFIG.shipClasses[h.cls].hull.length / 2;
+          const margin = coastClearance(h.state, map.islands) - half;
+          if (margin < worstMargin) worstMargin = margin;
+          // Step 0 is PLACEMENT: it must be sound before anything moves.
+          if (margin <= 0 && aground === '') aground = `seed ${mapSeed}: ${h.id} ${i === 0 ? 'placed aground' : `ashore at step ${i}`}`;
+          if (h === w.observer) continue;
+          const r = rangeTo(w, h);
+          if (r > worstRange) worstRange = r;
+          if (r > radar && offscope === '') offscope = `seed ${mapSeed}: ${h.id} off-scope (${r.toFixed(0)}u) at step ${i}`;
+        }
+      }
+    }
+    expect(aground, `worst coast margin ${worstMargin.toFixed(1)}u`).toBe('');
+    expect(offscope, `worst range ${worstRange.toFixed(0)}u of ${radar}u`).toBe('');
+  }, BUDGET_MS);
+
+  it('gives the formation sea room derived from its own radius, not a literal', () => {
+    const outer = Math.max(...A.rivalBands.map((b) => b.maxU));
+    // The bug in one line: the anchor cleared 180u while the outermost orbit ran
+    // to 528u, so the formation was placed ON coastlines by construction.
+    expect(A.anchorClearU).toBeGreaterThan(outer);
+    // ...and the formation fits the scope with real headroom, not the 23u it
+    // used to run on.
+    expect(outer + A.observerRoamU).toBeLessThan(CONFIG.vision.radar * 0.95);
+  });
+});
