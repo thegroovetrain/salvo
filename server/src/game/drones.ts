@@ -276,7 +276,19 @@ export class FleetController {
         this.minds.delete(id);
         continue;
       }
-      if (!isAfloat(ship.lifecycle)) continue;
+      if (!isAfloat(ship.lifecycle)) {
+        // A HULL THAT LEAVES `alive` DROPS ITS TARGET (review gate, Story 5.6).
+        // Its input tick is skipped on the line below, so through the whole
+        // sinking window it is structurally unable to steer or fire — but
+        // refreshTarget stops running with it, so `isTargeting()` would keep
+        // answering true and the self-private `aggro` mark (amendment 39)
+        // would go on claiming a threat that cannot exist. Clearing here is
+        // the ONE place: the mark reads the mind, so the mind must be the
+        // thing that stops being true.
+        mind.targetId = null;
+        mind.lastKnown = null;
+        continue;
+      }
       this.refreshTarget(ship, mind);
       this.world.submitInput(id, this.buildInput(ship, mind));
     }

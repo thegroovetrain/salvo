@@ -180,6 +180,20 @@ export interface MatchEndSummary {
   winnerClass: string | null;
   /** hullId -> summed kills across combatants (drones included). */
   killsByClass: Record<string, number>;
+  /**
+   * VICTIM drone hull id -> total PvE hulls sunk across all combatants (Story
+   * 5.6, epic-5 amendment 43). Operator telemetry only — a PvE kill still
+   * reaches no tally, no match log and no end-game record (amendment 37), and
+   * `killsByClass` above therefore counts none of them.
+   *
+   * Per SIZE rather than a bare total, because size IS the payout (¼ / ⅓ / ½
+   * level, CONFIG.xp.droneTierLevels): these three counts alone reconstruct
+   * exactly how much XP the PvE faucet paid out in a real match. That
+   * PARTIALLY REPLACES the evidence stream amendment 40 removed when it
+   * deleted the drone-lobby batch-sim harness — real matches now carry the
+   * economy signal that harness used to generate.
+   */
+  pveKillsByClass: Record<string, number>;
   /** Sinks with no attributable killer (storm deaths) observed while active. */
   stormDeaths: number;
   /** How the match ended (amendment 53). Before a finish this reads the
@@ -218,6 +232,11 @@ interface Participant {
   isDrone: boolean;
   hullId: HullId;
   kills: number;
+  /** Victim drone hull id -> PvE hulls this combatant sank (amendment 43).
+   *  Snapshotted exactly as `kills` is, so it survives the ship record's
+   *  removal — a captain who leaves still carries their PvE column into the
+   *  end-of-match telemetry. */
+  pveKills: Record<string, number>;
   damageDealt: number;
 }
 
@@ -400,6 +419,7 @@ export class Match {
         isDrone: s.isDrone,
         hullId: s.hullId,
         kills: 0,
+        pveKills: {},
         damageDealt: 0,
       });
     }
@@ -428,6 +448,7 @@ export class Match {
         isDrone: aliveWinner.isDrone,
         hullId: aliveWinner.hullId,
         kills: aliveWinner.kills,
+        pveKills: { ...aliveWinner.pveKills },
         damageDealt: aliveWinner.damageDealt,
       });
     }
@@ -709,9 +730,15 @@ export class Match {
   endSummary(): MatchEndSummary {
     const rosterByClass: Record<string, number> = {};
     const killsByClass: Record<string, number> = {};
+    // Keyed by the VICTIM's hull, not the killer's — the PvE column answers
+    // "how much drone tonnage went down", which is the XP the faucet paid.
+    const pveKillsByClass: Record<string, number> = {};
     for (const p of this.participants.values()) {
       rosterByClass[p.hullId] = (rosterByClass[p.hullId] ?? 0) + 1;
       killsByClass[p.hullId] = (killsByClass[p.hullId] ?? 0) + p.kills;
+      for (const [victimHull, n] of Object.entries(p.pveKills)) {
+        pveKillsByClass[victimHull] = (pveKillsByClass[victimHull] ?? 0) + n;
+      }
     }
     const finished = this.finishedAt > 0 && this.activatedAt > 0;
     const durationS = finished ? Math.round((this.finishedAt - this.activatedAt) / 100) / 10 : 0;
@@ -721,6 +748,7 @@ export class Match {
       durationS,
       winnerClass: this.participants.get(this.winnerId)?.hullId ?? null,
       killsByClass,
+      pveKillsByClass,
       stormDeaths: this.stormDeaths,
       endedBy: this.endedBy,
     };
@@ -730,6 +758,7 @@ export class Match {
     const p = this.participants.get(ship.id);
     if (!p) return;
     p.kills = ship.kills;
+    p.pveKills = { ...ship.pveKills }; // COPIED, never aliased (the record outlives the ship)
     p.damageDealt = ship.damageDealt;
   }
 

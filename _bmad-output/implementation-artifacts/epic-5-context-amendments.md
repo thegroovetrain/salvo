@@ -1259,3 +1259,59 @@ alternative. Uniformity was chosen; reversing it is a one-line narrowing.
 **Nameplates deliberately did NOT follow.** A fleet hull's plate still reads `DRONE` with no size.
 The ruling is about the moment of the kill, and widening plates was neither asked for nor put to
 Eric — the three sizes are already visually distinct at 85 / 100 / 115 u.
+
+## Amendment 43 — THE RECORD STAYS SHUT, BUT THE DATA STOPS BEING THROWN AWAY (Eric ruling 2026-08-14)
+
+> *"PvE fleet kills DO NOT show up in the match log. I don't care what time I killed each drone. But
+> we can keep this data anyway, maybe for server stats? I do want to start tracking every metric i
+> can eventually."*
+
+**The first half CONFIRMS amendment 37 rather than changing it** — PvE kills stay out of the KILLS
+tally, the MATCH LOG and SHIPS YOU SANK, and the transient feedback (flash, settle, feed line, XP)
+stays. Nothing player-facing moves.
+
+**The second half closes a hole amendment 37 opened without noticing.** Because `creditKill` simply
+stops incrementing on a drone victim, a PvE sinking left **no trace anywhere** — and
+`MatchEndSummary.killsByClass`, which sums `Participant.kills`, therefore silently lost every PvE
+kill in the match. Presentation and telemetry are different questions, and amendment 9 already
+settled that one: *"telemetry still counts every hull… the operator's data, not presentation."*
+The same principle applies here and was simply not carried across.
+
+**Ruled — server-side only, never on the wire:** `ShipRecord` carries a PvE kill tally keyed by the
+**victim's drone hull id**, incremented exactly where `kills` is now deliberately skipped and
+sharing `kills`' lifecycle (zeroed at `redeployShip`, preserved across a waiting-phase respawn);
+`Participant` snapshots it at activation so it survives the ship record's removal; and
+`MatchEndSummary` gains `pveKillsByClass`, summed beside the existing `killsByClass`.
+
+**Per-size, not a bare total, and the reason is the economy:** size IS the payout (¼ / ⅓ / ½ level),
+so a per-size breakdown alone reconstructs exactly how much XP the PvE faucet paid out in a real
+match.
+
+**This partially replaces evidence amendment 40 destroyed.** Deleting the match-start fill took the
+drone-lobby batch-sim harness with it, and AR18 had committed to *"batch-simulate XP tick and
+kill-bonus outcomes with drone lobbies before human playtests."* Real matches now carry that signal
+themselves, from live play rather than from a synthetic lobby — which is better evidence than the
+harness produced, and arrives without the harness. The `deferred-work.md` entry filed for AR18 stays
+open (the load-test and bot-evaluation duties are not covered), but its economy-tuning leg is.
+
+**Forward-looking, deliberately not built now:** *"I do want to start tracking every metric I can
+eventually"* is a direction, not a request for a stats system this cycle. What lands here is the
+data being KEPT in the existing telemetry aggregate, not new infrastructure to serve it.
+
+**ONE PvE LINE SURVIVES IN THE PLAYER-FACING LOG, and it is the player's own death** (Eric ruling,
+same day, resolving the orchestrator's read-check):
+
+> *"if you actually die to a drone, I DO want to see that in the end-game report given to players
+> lol. You SHOULD be embarrassed hahaha. That's the only time though."*
+
+So amendment 28's `SUNK BY` line stays when a fleet ship is the killer — it is the player's own
+sinking, never a PvE kill they scored, and it is the ONLY PvE-related entry the match log may carry.
+*"That's the only time though"* is the boundary and is quoted here so a later story does not read
+this as permission to widen.
+
+**And the fleet hull is named BY SIZE wherever the client can determine it** — `SMALL DRONE` /
+`MEDIUM DRONE` / `LARGE DRONE`, falling back to plain `DRONE` when the size is unknowable. The size
+is what makes the line land, and a single naming rule applied at one resolver is what stops the kill
+feed and the match log disagreeing about the same event — a defect the review gate had just caught
+in its cruder form (`DRONE` vs `UNKNOWN VESSEL`), and one that a log-only sizing change would have
+quietly reintroduced.

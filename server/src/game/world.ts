@@ -119,7 +119,15 @@ import {
 import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
-import { islandClearance, pickFleetAnchor, pickSpawn, SPAWN_ISLAND_CLEARANCE, type FleetAnchor, type IntelDisc } from './spawn.js';
+import {
+  insideIntelDisc,
+  islandClearance,
+  pickFleetAnchor,
+  pickSpawn,
+  SPAWN_ISLAND_CLEARANCE,
+  type FleetAnchor,
+  type IntelDisc,
+} from './spawn.js';
 import { logWarn } from '../log.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
 
@@ -128,8 +136,10 @@ const TAU = Math.PI * 2;
 /** Floor on the fleet-anchor sampling radius as a fraction of the live ring —
  *  the guard for the late game, where `ring.r - spreadU` would go negative. */
 const FLEET_ANCHOR_MIN_FRACTION = 0.35;
-/** Attempts to land one fleet hull's scatter offset in water before giving up
- *  and stationing it on the (island-clear) anchor itself. */
+/** Attempts to land one fleet hull's scatter offset in water AND outside every
+ *  captain's intel disc before giving up and stationing it on the anchor
+ *  itself (island-clear always, intel-clear whenever the anchor was not the
+ *  logged fallback — see fleetOffset). */
 const FLEET_OFFSET_TRIES = 12;
 /** The ShipRecord.name every fleet hull carries (Story 5.6, amendment 38):
  *  fleet hulls hold no roster row, and every client surface resolves `DRONE`
@@ -632,6 +642,28 @@ export interface ShipRecord {
    * its kill flash and feed line; it just never lands in a tally.
    */
   kills: number;
+  /**
+   * PvE SINKINGS BY VICTIM HULL ID — OPERATOR TELEMETRY, NEVER ON THE WIRE
+   * (Story 5.6, epic-5 amendment 43, Eric ruling 2026-08-14: *"PvE fleet kills
+   * DO NOT show up in the match log. I don't care what time I killed each
+   * drone. But we can keep this data anyway, maybe for server stats?"*).
+   *
+   * Amendment 37's presentation ruling does not move an inch — a PvE kill
+   * still lands in NO tally, NO match log and NO end-game record. What changes
+   * is that it stops being thrown away: `kills` deliberately does not advance
+   * on a drone victim, so before this the sinking left no trace anywhere and
+   * `MatchEndSummary.killsByClass` silently lost the whole PvE faucet. This is
+   * amendment 9's principle — telemetry counts what presentation does not.
+   *
+   * Keyed by the VICTIM's drone hull id rather than totalled, because SIZE IS
+   * THE PAYOUT (¼ / ⅓ / ½ level, CONFIG.xp.droneTierLevels): the per-size
+   * counts alone reconstruct exactly how much XP the PvE economy paid out in a
+   * real match.
+   *
+   * Same lifecycle as `kills`: zeroed at redeployShip (the match boundary),
+   * preserved across a waiting-phase respawn.
+   */
+  pveKills: Record<string, number>;
   deaths: number; // times this ship has been sunk
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
 }
@@ -1114,6 +1146,7 @@ export class World {
       // became identical by construction the moment PvE kills stopped
       // counting anywhere.
       kills: 0,
+      pveKills: {}, // operator telemetry only (amendment 43) — never on the wire
       deaths: 0,
       damageDealt: 0,
     };
@@ -1247,6 +1280,7 @@ export class World {
       ? EMPTY_DECK
       : buildDeck(this.boonCatalog, World.carriedEquipment(ship.loadout));
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
+    ship.pveKills = {}; // ...and its telemetry sibling (amendment 43), same boundary
     ship.deaths = 0;
     ship.damageDealt = 0;
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
@@ -1385,15 +1419,18 @@ export class World {
    * `kills` — the roster tally AND the bounty ruler, one field since Story
    * 5.6 — advances ONLY on a CAPTAIN victim (amendment 37: a PvE kill counts
    * nowhere, while its XP, its `sunk` event and its onscreen kill flash all
-   * still fire). Sinking the throne's holder pays `CONFIG.bounty.killLevels`
-   * ON TOP of the standard kill value, through the unchanged grantXp pipeline
-   * (fractional carry untouched).
+   * still fire). A drone victim instead advances `pveKills` under its own hull
+   * id — the OPERATOR-ONLY sibling (amendment 43), which counts precisely what
+   * `kills` deliberately refuses to. Sinking the throne's holder pays
+   * `CONFIG.bounty.killLevels` ON TOP of the standard kill value, through the
+   * unchanged grantXp pipeline (fractional carry untouched).
    */
   private creditKill(victim: ShipRecord, by: string | undefined, victimHeldBounty: boolean): void {
     if (!by || by === victim.id) return;
     const killer = this.ships.get(by);
     if (!killer) return;
-    if (!victim.isDrone) killer.kills += 1;
+    if (victim.isDrone) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
+    else killer.kills += 1;
     const bonus = victimHeldBounty ? CONFIG.bounty.killLevels : 0;
     this.grantXp(killer, World.killXpLevels(victim) + bonus);
   }
@@ -2293,14 +2330,24 @@ export class World {
   private fleetAnchor(): FleetAnchor {
     const ring = this.zoneLiveRing;
     const occupied: Vec2[] = [];
-    const denied: IntelDisc[] = [];
     for (const s of this.ships.values()) {
-      if (!isAfloat(s.lifecycle)) continue;
-      occupied.push({ x: s.state.x, y: s.state.y });
-      if (!s.isDrone) denied.push({ x: s.state.x, y: s.state.y, r: s.stats.radarRange });
+      if (isAfloat(s.lifecycle)) occupied.push({ x: s.state.x, y: s.state.y });
     }
     const max = Math.max(ring.r - CONFIG.fleet.spreadU, ring.r * FLEET_ANCHOR_MIN_FRACTION);
-    return pickFleetAnchor({ x: ring.cx, y: ring.cy }, max, this.map.islands, occupied, denied, this.rng);
+    return pickFleetAnchor({ x: ring.cx, y: ring.cy }, max, this.map.islands, occupied, this.captainDiscs(), this.rng);
+  }
+
+  /** Every afloat CAPTAIN's intel disc, at their EFFECTIVE `stats.radarRange`
+   *  (a stacked intel build denies the area it actually sees). THE one
+   *  derivation of the denied region: the anchor and the per-hull scatter both
+   *  read it, so they can never disagree about where a fleet may appear. */
+  private captainDiscs(): IntelDisc[] {
+    const denied: IntelDisc[] = [];
+    for (const s of this.ships.values()) {
+      if (!isAfloat(s.lifecycle) || s.isDrone) continue;
+      denied.push({ x: s.state.x, y: s.state.y, r: s.stats.radarRange });
+    }
+    return denied;
   }
 
   /**
@@ -2313,8 +2360,9 @@ export class World {
   private spawnFleet(anchor: FleetAnchor): void {
     this.fleetSeq += 1;
     const fleetId = this.fleetSeq;
+    const denied = this.captainDiscs(); // read ONCE: fleet hulls deny nothing
     for (const hullId of fleetHullIds()) {
-      const offset = this.fleetOffset(anchor);
+      const offset = this.fleetOffset(anchor, denied);
       this.fleetHullSeq += 1;
       const id = `fleet-${this.fleetHullSeq}`;
       // The name is the HULL's name, not a numbered roster identity (amendment
@@ -2328,19 +2376,48 @@ export class World {
     }
   }
 
-  /** One hull's scatter/station offset: uniform over a disc of
-   *  `CONFIG.fleet.spreadU`, rejecting land through the SAME clearance the
-   *  spawn ring demands (spawn.ts owns that math). A hull that cannot find
-   *  water sits on the anchor, which is island-clear by construction. */
-  private fleetOffset(anchor: FleetAnchor): Vec2 {
+  /**
+   * One hull's scatter/station offset: uniform over a disc of
+   * `CONFIG.fleet.spreadU`, rejecting land through the SAME clearance the spawn
+   * ring demands (spawn.ts owns that math) AND rejecting any point inside a
+   * captain's intel disc.
+   *
+   * THE INTEL TEST IS PER HULL, NOT ON THE ANCHOR (review gate, Story 5.6).
+   * Amendment 36 constrains the ANCHOR to sit outside every captain's intel
+   * disc, but the nine hulls then scatter up to `spreadU` (400u) from it — so
+   * worst case a hull materialized 260u from a captain, INSIDE the 330u sight
+   * bubble: exactly the visible pop-in the amendment exists to prevent.
+   * Inflating the anchor's denied radius by `spreadU` instead was costed and
+   * REJECTED: it takes the denied area per captain from ~1.37M u² to ~3.53M u²,
+   * which at a full roster exceeds the map, so every wave would take the
+   * max-min fallback and the rule would stop meaning anything. The FORMATION
+   * deforms slightly instead — the wave never fails.
+   *
+   * The fallback ladder, in order: a land-clear-but-intel-dirty offset is only
+   * REMEMBERED (`landOnly`), never preferred. When the anchor itself cleared
+   * every disc (`fallback === false`) the anchor is intel-clear BY
+   * CONSTRUCTION and wins over it, so on the nominal path no hull can ever
+   * land in intel range. Only on the already-degraded fallback anchor (logged,
+   * ratified by amendment 36) does `landOnly` ship — there neither option is
+   * clear, and a spread fleet beats nine hulls stacked on one point.
+   *
+   * The ring clamp is untouched: offsets stay bounded by `spreadU`, which
+   * `fleetAnchor` already subtracts from the live ring radius, so a nudged
+   * hull still cannot land in the storm.
+   */
+  private fleetOffset(anchor: FleetAnchor, denied: readonly IntelDisc[]): Vec2 {
+    let landOnly: Vec2 | null = null;
     for (let i = 0; i < FLEET_OFFSET_TRIES; i += 1) {
       const a = this.rng.float(0, TAU);
       const r = Math.sqrt(this.rng.next()) * CONFIG.fleet.spreadU; // sqrt => uniform
       const off = { x: Math.cos(a) * r, y: Math.sin(a) * r };
       const p = { x: anchor.x + off.x, y: anchor.y + off.y };
-      if (islandClearance(p, this.map.islands) > SPAWN_ISLAND_CLEARANCE) return off;
+      if (islandClearance(p, this.map.islands) <= SPAWN_ISLAND_CLEARANCE) continue;
+      if (!insideIntelDisc(p, denied)) return off;
+      landOnly ??= off;
     }
-    return { x: 0, y: 0 };
+    if (!anchor.fallback) return { x: 0, y: 0 }; // the anchor cleared every disc
+    return landOnly ?? { x: 0, y: 0 };
   }
 
   /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit).

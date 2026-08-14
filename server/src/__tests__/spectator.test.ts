@@ -386,10 +386,15 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
         expect(witnessed).toBe(true);
       }
       // `vcls` (Story 5.6, amendment 42): the victim's hull id, to the
-      // CREDITED KILLER alone. A witness who did not fire never gets it.
+      // CREDITED KILLER alone — one gate, the view mode is not a second one
+      // (see perception.test.ts's verifySunk). A witness who did not fire
+      // never gets it; a spectating killer does. Biconditional: a killer with
+      // a live wreck record MUST get it.
       if (e.vcls !== undefined) {
         expect(e.by).toBe(me.id);
         expect(e.vcls).toBe(wreck.hullId);
+      } else {
+        expect(e.by === me.id).toBe(false);
       }
       return;
     }

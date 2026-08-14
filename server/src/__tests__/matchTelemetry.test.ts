@@ -60,6 +60,7 @@ describe('Match.endSummary — pre-activation safety', () => {
       durationS: 0,
       winnerClass: null,
       killsByClass: {},
+      pveKillsByClass: {},
       stormDeaths: 0,
       // Pre-finish default (amendment 53): the no-survivor winner-resolution
       // state. durationS 0 + winnerClass null are the not-yet-finished tell.
@@ -126,6 +127,42 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
       5,
     );
     expect(s.endedBy).toBe('fieldCleared'); // 'a' survives an empty ocean
+  });
+});
+
+// PvE telemetry (Story 5.6, epic-5 amendment 43): the faucet's economy signal.
+// A PvE kill still reaches no tally and no record — killsByClass must count
+// NONE of it — while pveKillsByClass carries the per-size truth an operator can
+// turn back into XP paid (¼ / ⅓ / ½ level).
+describe('Match.endSummary — the PvE column (amendment 43)', () => {
+  it('counts drone sinkings per VICTIM size, and leaves killsByClass untouched', () => {
+    const ctx = build();
+    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
+    ctx.m.notifyRosterChanged();
+    ctx.w.addShip('b', 'B', false, 'mineLayer');
+    ctx.m.notifyRosterChanged();
+    for (const [id, hull] of [
+      ['d1', 'droneSmall'],
+      ['d2', 'droneSmall'],
+      ['d3', 'droneMedium'],
+      ['d4', 'droneLarge'],
+    ] as const) {
+      ctx.w.addShip(id, id.toUpperCase(), true, hull);
+      ctx.m.notifyRosterChanged();
+    }
+    for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
+    expect(ctx.m.phase).toBe('active');
+    for (const id of ['d1', 'd2', 'd3', 'd4']) ctx.w.sinkShip(id, 'a');
+    step(ctx);
+    ctx.w.sinkShip('b', 'a'); // ...and ONE captain kill, for the contrast
+    step(ctx, SINK_TICKS + 1);
+    expect(ctx.m.phase).toBe('finished');
+    const s = ctx.m.endSummary();
+    expect(s.pveKillsByClass).toEqual({ droneSmall: 2, droneMedium: 1, droneLarge: 1 });
+    // The presentation tally saw exactly the captain kill — the four drones
+    // are absent from it, keyed by the KILLER's hull as it always was.
+    expect(s.killsByClass.torpedoBoat).toBe(1);
+    expect(s.killsByClass.droneSmall).toBe(0);
   });
 });
 

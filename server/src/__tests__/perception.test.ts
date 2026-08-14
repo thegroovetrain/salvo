@@ -1383,22 +1383,60 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     expect(sunkRows(w, 'killer')[0].vcls).toBe('droneLarge'); // ...and the killer still gets it
   });
 
-  it('a SPECTATOR never receives it, not even the killer once they are spectating', () => {
+  /** Sink `id` and run the sinking window out, so their next frame is the
+   *  unfogged spectator view (frame.spec === true). */
+  function spectateOut(w: World, id: string, by: string): void {
+    w.respawnEnabled = false;
+    w.sinkShip(id, by);
+    for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs) + 2; i++) w.step();
+  }
+
+  it('a SPECTATOR who is not the killer never receives it', () => {
+    const w = bareWorld();
+    const watcher = place(w, 'watcher', 100, 0);
+    place(w, 'killer', 0, 0);
+    w.addShip('f', 'DRONE', true, 'droneMedium', undefined, { x: 150, y: 0 });
+    spectateOut(w, 'watcher', 'killer');
+    expect(isAfloat(watcher.lifecycle)).toBe(false);
+    w.sinkShip('f', 'killer'); // someone ELSE's kill, while they watch
+    w.step();
+    const frame = buildFrame(w, 'watcher', 'active');
+    expect(frame.spec).toBe(true);
+    const rows = frame.events.filter((e): e is SunkEvent => e.k === 'sunk');
+    expect(rows).toHaveLength(1);
+    expect('vcls' in rows[0]).toBe(false); // the unfogged view is not a licence
+  });
+
+  it('a SPECTATOR who IS the credited killer DOES receive it (the mine you laid before you died)', () => {
+    // The view mode is NOT a gate (orchestrator ruling, review gate): amendment
+    // 42's "witnesses and spectators included" names observers who are not the
+    // killer. A mine laid before you went down, tripped by a fleet ship while
+    // you spectate, is exactly the kill "I want to know the kills I get when I
+    // get them" is about — and the SIZE is the payout.
     const w = bareWorld();
     const killer = place(w, 'killer', 0, 0);
     place(w, 'watcher', 100, 0);
-    w.addShip('f', 'DRONE', true, 'droneMedium', undefined, { x: 150, y: 0 });
-    w.respawnEnabled = false;
-    w.sinkShip('f', 'killer');
-    // Kill the killer too and run their window out, so their next frame is
-    // the unfogged spectator view.
-    w.sinkShip('killer', 'watcher');
-    for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs) + 2; i++) w.step();
+    // 2000u away: never sighted, and now the killer has no hull to see with.
+    w.addShip('f', 'DRONE', true, 'droneMedium', undefined, { x: 2000, y: 0 });
+    spectateOut(w, 'killer', 'watcher');
     expect(isAfloat(killer.lifecycle)).toBe(false);
-    w.sinkShip('f2-absent'); // no-op; keeps the tick shape honest
+    w.sinkShip('f', 'killer'); // the trap springs posthumously
+    w.step();
     const frame = buildFrame(w, 'killer', 'active');
     expect(frame.spec).toBe(true);
-    for (const e of frame.events) expect('vcls' in e).toBe(false);
+    const rows = frame.events.filter((e): e is SunkEvent => e.k === 'sunk');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].vcls).toBe('droneMedium');
+    expect(Object.keys(rows[0])).toEqual(['k', 'id', 'by', 'seen', 'vcls']); // key ORDER pinned
+    // The BICONDITIONAL, restated on the spectator path: verifySunk's own
+    // `vcls` clause is mode-free and would pass here, but the rest of that
+    // oracle re-derives the WITNESS geometry, which the unfogged path stamps
+    // unconditionally — so the vcls half is asserted directly instead of
+    // running a fogged-frame oracle over a spec frame.
+    const creditedToMe = rows[0].by === 'killer';
+    expect(creditedToMe).toBe(true);
+    expect('vcls' in rows[0]).toBe(creditedToMe);
+    expect(rows[0].vcls).toBe(w.ships.get('f')!.hullId);
   });
 
   it('a CAPTAIN victim carries it to their killer too — the rule is uniform', () => {
@@ -2241,9 +2279,15 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   // ONLY class field this row may ever carry. Reimplemented here as a hard
   // biconditional against the two clauses it is allowed to depend on — the
   // observer is the CREDITED KILLER, and the wreck record still exists — so
-  // any leak to a bystander, to a spectator, or to a witness who did not fire
-  // fails here. Deliberately NOT keyed on `wreck.isDrone`: the rule is
-  // uniform across every victim, and a fleet-only stamping would fail this.
+  // any leak to a bystander or to a witness who did not fire fails here.
+  // Deliberately NOT keyed on `wreck.isDrone`: the rule is uniform across
+  // every victim, and a fleet-only stamping would fail this. And deliberately
+  // NOT keyed on the VIEW MODE either (orchestrator ruling, review gate): a
+  // spectator who IS the credited killer must get it, and the directed suite
+  // restates this same biconditional over a spec frame (this oracle itself is
+  // a FOGGED-frame audit — its witness clauses re-derive geometry the unfogged
+  // path stamps unconditionally — so it is not run there). A spectator who is
+  // not the killer still fails `creditedToMe`, and so must not get it.
   const creditedToMe = ev.by !== undefined && ev.by === me.id;
   const wreckNow = w.ships.get(ev.id);
   if ('vcls' in ev) {

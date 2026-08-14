@@ -1372,13 +1372,21 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
  *
  * PER-OBSERVER, on the `seen` pattern and DELIBERATELY NOT the `bty` one:
  * `bty` is observer-independent (every recipient gets the same value), while
- * this key exists for exactly one recipient. Two gates, both required:
- *   * `mode === 'fogged'` — a SPECTATOR never receives it, including a dead
- *     killer watching the match out. The unfogged view is a presentation
- *     channel, not a private ledger;
- *   * `by === observerId` — the credited killer, the same identity
- *     `sunkCreditedTo` reads. A bystander who WITNESSED the identical sinking
- *     gets the row without the key.
+ * this key exists for exactly one recipient. ONE GATE, not two:
+ * `by === observerId` — THE CREDITED KILLER, FULL STOP, the same identity
+ * `sunkCreditedTo` reads. A bystander who WITNESSED the identical sinking gets
+ * the row without the key; a SPECTATOR who IS the credited killer gets it.
+ *
+ * THE VIEW MODE IS NOT A GATE (orchestrator ruling, review gate). An earlier
+ * draft also required `mode === 'fogged'`, reading amendment 42's *"witnesses
+ * and spectators included"* as excluding a dead killer — a misreading: that
+ * phrase names OBSERVERS WHO ARE NOT THE KILLER. Eric's ruling is *"I want to
+ * know the kills I get when I get them"*, and a mine you laid before you died,
+ * tripped by a fleet ship while you spectate, is exactly such a kill — the
+ * SIZE is the payout, so withholding it withholds the thing the ruling asks
+ * for. A one-gate rule is also strictly simpler than a two-gate one and cannot
+ * drift from `sunkCreditedTo`. No leak: materialize() runs PER OBSERVER, so
+ * `by === observerId` still admits exactly one recipient regardless of mode.
  *
  * NO SEVENTH PERCEPTION EXCEPTION. The row is already a declared exception
  * and already reaches its killer through `sunkCreditedTo`; this adds one
@@ -1393,7 +1401,7 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
  * apply, never `undefined` (msgpack encodes that).
  */
 function stampVictimClass(ctx: SignalContext, e: SunkEvent, out: SunkEvent): void {
-  if (ctx.mode !== 'fogged' || e.by === undefined || e.by !== ctx.observerId) return;
+  if (e.by === undefined || e.by !== ctx.observerId) return;
   const wreck = ctx.ships.get(e.id);
   if (wreck !== undefined) out.vcls = wreck.hullId;
 }

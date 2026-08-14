@@ -145,7 +145,11 @@ export interface FleetAnchor {
   fallback: boolean;
 }
 
-function insideAnyDisc(p: Vec2, discs: readonly IntelDisc[]): boolean {
+/** Is `p` inside ANY captain's intel disc? EXPORTED (Story 5.6, review gate)
+ *  so the per-hull scatter rejects the same region the anchor does — one
+ *  predicate, one place, no second derivation of "already in someone's
+ *  intel". */
+export function insideIntelDisc(p: Vec2, discs: readonly IntelDisc[]): boolean {
   for (const d of discs) {
     const dx = p.x - d.x;
     const dy = p.y - d.y;
@@ -192,7 +196,7 @@ export function pickFleetAnchor(
       alt = p;
       altScore = score;
     }
-    if (insideAnyDisc(p, denied)) continue;
+    if (insideIntelDisc(p, denied)) continue;
     if (score > bestScore) {
       best = p;
       bestScore = score;

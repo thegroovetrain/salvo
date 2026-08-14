@@ -32,6 +32,7 @@ const SUMMARY: MatchEndSummary = {
   durationS: 42.5,
   winnerClass: 'torpedoBoat',
   killsByClass: { torpedoBoat: 5, battleship: 0, droneSmall: 0 },
+  pveKillsByClass: { droneSmall: 3 }, // operator-only (amendment 43) — keyed by VICTIM hull
   stormDeaths: 1,
   endedBy: 'fieldCleared',
 };

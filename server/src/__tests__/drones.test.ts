@@ -32,6 +32,7 @@ import {
   fleetHullIds,
   fleetLevels,
   isAfloat,
+  isSinking,
   pointPolygonDistance,
   type DroneSizeId,
   type ZoneTimeline,
@@ -409,6 +410,26 @@ describe('fleet self-defence — acquisition, the ONE-SHOT witness sweep, memory
     w.step();
     expect(w.drones.targetOf('f')).toBeNull();
   });
+
+  it('a SINKING hull drops its target — the aggro mark never outlives the threat', () => {
+    // The review-gate finding: tick() skips a non-afloat hull, so refreshTarget
+    // stopped running and isTargeting() stayed true for the whole 5s window,
+    // marking a hull that is structurally unable to steer or fire.
+    const w = bareWorld(8);
+    const f = fleetShip(w, 'f', 'medium', 0, 0);
+    const cap = captain(w, 'cap', 200, 0);
+    shellHit(w, f, 'cap');
+    w.step();
+    expect(w.drones.isTargeting('f', cap.id)).toBe(true);
+    w.sinkShip('f', 'cap'); // the hull is now SINKING, not yet sunk
+    expect(isSinking(f.lifecycle)).toBe(true);
+    w.step();
+    expect(w.drones.targetOf('f')).toBeNull();
+    expect(w.drones.isTargeting('f', cap.id)).toBe(false);
+    // ...and it stays false for the rest of the window (nothing re-acquires).
+    for (let t = 0; t < SINK_TICKS - 2; t++) w.step();
+    expect(w.drones.isTargeting('f', cap.id)).toBe(false);
+  });
 });
 
 describe('fleet gunnery — the one trigger', () => {
@@ -633,6 +654,39 @@ describe('fleet waves — the anchor rule (amendment 36)', () => {
     }
   });
 
+  it('a captain whose intel range the SPREAD DISC overlaps still never receives a hull inside it', () => {
+    // The review-gate finding: amendment 36 constrains the ANCHOR, but the nine
+    // hulls then scatter up to spreadU (400u) from it — worst case one
+    // materialized 260u from a captain, inside the 330u sight bubble. The fix
+    // is per hull, so the formation deforms instead of the wave failing.
+    //
+    // The geometry here FORCES the overlap rather than hoping for it: one
+    // captain at the ring centre with an intel disc covering 90% of the anchor
+    // sampling radius, so every feasible anchor sits in a thin outer annulus
+    // and a large share of its 400u spread points back inside the disc.
+    for (const seed of [53, 59, 61, 67]) {
+      const w = bareWorld(seed);
+      const ring = w.zoneLiveRing;
+      const cap = captain(w, 'cap', ring.cx, ring.cy);
+      const sampleMax = ring.r - CONFIG.fleet.spreadU;
+      cap.stats = { ...cap.stats, radarRange: sampleMax * 0.9 };
+      armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+      w.step();
+      const hulls = fleetHulls(w);
+      expect(hulls.length).toBe(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
+      let nearest = Infinity;
+      for (const s of hulls) {
+        const d = dist(s.state, cap.state);
+        expect(d).toBeGreaterThan(cap.stats.radarRange); // the whole point
+        nearest = Math.min(nearest, d);
+      }
+      // NON-VACUITY: the spread disc really does reach into the intel disc —
+      // some hull ends up hard against its edge, which is exactly where the
+      // pre-fix scatter would have crossed it.
+      expect(nearest).toBeLessThan(cap.stats.radarRange + CONFIG.fleet.spreadU);
+    }
+  });
+
   it('a wave whose anchor frees up mid-retry spawns WITHOUT the fallback log', () => {
     const w = bareWorld(41);
     const cap = captain(w, 'cap', 0, 0);
@@ -678,6 +732,36 @@ describe('a PvE kill counts nowhere, but still pays and still announces', () => 
     w.sinkShip('rival', 'cap');
     expect(cap.kills).toBe(1);
     expect(w.bountyId).toBe('cap');
+  });
+
+  it('...but the DATA is kept: pveKills counts per victim size while `kills` stays at zero (amendment 43)', () => {
+    const w = bareWorld(47);
+    const cap = captain(w, 'cap', 0, 0);
+    for (const [i, size] of (['small', 'medium', 'large'] as DroneSizeId[]).entries()) {
+      fleetShip(w, `f${i}`, size, 200, 0);
+      w.sinkShip(`f${i}`, 'cap');
+    }
+    fleetShip(w, 'f3', 'small', 200, 0); // a second small, to prove it counts up
+    w.sinkShip('f3', 'cap');
+    expect(cap.pveKills).toEqual({
+      [droneHullOf('small')]: 2,
+      [droneHullOf('medium')]: 1,
+      [droneHullOf('large')]: 1,
+    });
+    // THE PAIR, pinned together against future drift: the presentation tally
+    // stays empty (amendment 37) while the telemetry sibling fills.
+    expect(cap.kills).toBe(0);
+    expect(w.bountyId).toBe('');
+  });
+
+  it('the PvE counter zeroes at the match boundary, exactly like `kills`', () => {
+    const w = bareWorld(47);
+    const cap = captain(w, 'cap', 0, 0);
+    fleetShip(w, 'f', 'medium', 200, 0);
+    w.sinkShip('f', 'cap');
+    expect(Object.values(cap.pveKills)).toEqual([1]);
+    w.resetForMatchStart(); // countdown -> active: redeployShip runs
+    expect(cap.pveKills).toEqual({});
   });
 
   it('the size tier still sets the XP: large > medium > small', () => {
