@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 85 (0.17.85), PV 36
+# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 86 (0.17.86), PV 36
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -97,6 +97,7 @@
 #   cycle 82 (0.17.82)  sudden death — the final collapse; epic-3 amendments 27-30; PV 34->35
 #   cycle 84 (0.17.84)  the home scene: the menu backdrop becomes a real slice of the game — PV 36 (client-only)
 #   cycle 85 (0.17.85)  PvE fleet rebalance: gun 6/8/10 -> 1/2/3, waves 3/2/1 -> 4/2/1 fleets — epic-5 amendment 45; PV 36 (server-side constants)
+#   cycle 86 (0.17.86)  the home scene is a different ocean every load (Eric ask); off-scope defect fixed + 20-seed sweep — PV 36 (client-only)
 
 generated: 2026-07-17
 last_updated: 2026-08-14

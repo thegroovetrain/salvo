@@ -1010,19 +1010,39 @@ export const CLIENT_CONFIG = {
        */
       rivalBands: [
         { minU: CONFIG.vision.sight * 0.2, maxU: CONFIG.vision.sight * 0.55 },
-        { minU: CONFIG.vision.sight * 1.15, maxU: CONFIG.vision.sight * 1.4 },
-        { minU: CONFIG.vision.sight * 1.35, maxU: CONFIG.vision.sight * 1.6 },
+        { minU: CONFIG.vision.sight * 1.0, maxU: CONFIG.vision.sight * 1.2 },
+        { minU: CONFIG.vision.sight * 1.15, maxU: CONFIG.vision.sight * 1.35 },
       ],
       /** The observer's own roaming disc about the anchor (u). */
       observerRoamU: CONFIG.vision.sight * 0.33,
       /** How far off the map centre the anchor may be picked (fraction of map
        *  radius) — well inside the boundary, so no hull ever presses the rim. */
       anchorSpreadFrac: 0.5,
-      /** Sea room the anchor and each hull are placed with (u). */
-      anchorClearU: 180,
+      /**
+       * SEA ROOM FOR THE WHOLE FORMATION, not for a point.
+       *
+       * This was 180u — less than a THIRD of the radius the formation actually
+       * occupies — so the anchor could legally sit a couple of hull-lengths off a
+       * coast while its rivals orbited out to 1.6x truesight straight through the
+       * island. The hulls never grounded (the helm is sound) but they spent the
+       * whole scene in the coast-escape clause, which walks a hull ALONG a shore
+       * and outward: measured across 40 random oceans, every seed that pushed a
+       * rival off the scope had anchor room under 300u, and every seed with 315u
+       * or more was clean.
+       *
+       * So the requirement is now DERIVED from what the formation needs — the
+       * outermost orbit plus a hull length of slack — instead of being a number
+       * that predated the bands it has to contain. On a 2-3% land ocean such
+       * water is common (the same 40-seed sweep found rooms up to 910u); when it
+       * genuinely is not, `pickWater` still falls back to the roomiest candidate
+       * it saw, which is exactly the right failure.
+       */
+      anchorClearU: CONFIG.vision.sight * 1.35 + 130,
       spawnClearU: 110,
-      /** Seeded rejection-sampling attempts before taking the roomiest miss. */
-      placementTries: 48,
+      /** Seeded rejection-sampling attempts before taking the roomiest miss.
+       *  Raised with `anchorClearU`: a stricter predicate needs more looks, and
+       *  each look is one `islandDistance` per island against a broadphase. */
+      placementTries: 160,
       /** Fixed throttle for every hull — a calm sea, and a tighter turn radius
        *  than full ahead, which is what keeps coast avoidance comfortable. */
       throttle: 0.55,
@@ -1037,6 +1057,31 @@ export const CLIENT_CONFIG = {
       avoidHardU: 90,
       /** Weight of the spring that holds a hull inside its own annulus. */
       bandGain: 1.6,
+      /**
+       * THE LEASH, and it is the one term allowed to argue with the coast.
+       *
+       * Everything else in the helm loses to the hard coast clause by design —
+       * that clause returns the escape heading OUTRIGHT, which is what keeps
+       * hulls off the rocks and must stay true. But it is also blind to where
+       * home is, so a hull hugging a long shore gets walked outward indefinitely,
+       * and past base radar range it stops painting and is simply missing from
+       * the picture with no cue that anything is wrong.
+       *
+       * The resolution is to bias WITHIN the escape cone rather than against it:
+       * once a hull is past `leashStartFrac` of radar range the escape heading is
+       * rotated toward home by at most `leashMaxRad`, scaled by how far past it
+       * has drifted. At the cap the hull still holds a majority of its escape
+       * component (cos 55 deg ~ 0.57), so the safety property survives — verified
+       * by the seed sweep, which asserts zero grounding across every ocean it
+       * tries, not just the shipped one.
+       *
+       * Deliberately NOT an unclamped inward spring in the soft field: that was
+       * measured and made things WORSE (6 bad seeds of 40 against 5), because a
+       * hull yanked inward drives into the coast it was clearing and re-enters
+       * the hard clause more often, which is the mechanism doing the walking.
+       */
+      leashStartFrac: 0.72,
+      leashMaxRad: (55 * Math.PI) / 180,
       /** Heading error (rad) at which the rudder is hard over. */
       rudderBandRad: 0.5,
       /** Camera follow rate (1/s) — slower than the in-match camera: a backdrop

@@ -141,6 +141,42 @@ export function clearAmbientLayers(layers: StageLayers, fogSprite: Container): v
   clearLayer(fogSprite);
 }
 
+/**
+ * The seeds for THIS page load — a different ocean every time you come to port.
+ *
+ * `Math.random` is legal here and nowhere near the sim: this is the render
+ * shell, and the seeded-RNG law binds SIM code (a scene the server never sees
+ * cannot desync anything). What the randomness costs is REPRODUCIBILITY, which
+ * is why `?homeseed=<n>` exists and why the chosen seed is logged — the
+ * darkening was tuned by eye against captures, and a menu you cannot rebuild
+ * cannot be tuned or debugged that way again.
+ *
+ * ONE NUMBER REPRODUCES THE WHOLE PICTURE. The scene seed is derived from the
+ * map seed rather than carried separately, so a bug report is a single integer
+ * instead of a pair somebody will transcribe half of.
+ *
+ * Not dev-gated, unlike `?stage=worstcase`: that switches the client into a
+ * different mode, this only chooses which ocean a decorative backdrop draws.
+ * The value is validated, so a hostile or absent `location` yields a random
+ * scene rather than an exception on the boot path.
+ */
+export function pickSceneSeeds(): { mapSeed: number; seed: number } {
+  const mapSeed = requestedSeed() ?? Math.floor(Math.random() * 2_000_000_000);
+  return { mapSeed, seed: (mapSeed * 31 + 7) >>> 0 };
+}
+
+/** `?homeseed=<n>`, when it is a usable non-negative integer. */
+function requestedSeed(): number | null {
+  try {
+    const raw = new URLSearchParams(location.search).get('homeseed');
+    if (raw === null) return null;
+    const n = Number(raw);
+    return Number.isSafeInteger(n) && n >= 0 ? n : null;
+  } catch {
+    return null; // a hostile/absent location must never break boot
+  }
+}
+
 export class AmbientScene {
   private readonly map: GameMap;
   private readonly world: AmbientWorld;
@@ -168,8 +204,13 @@ export class AmbientScene {
   private readonly onResize = (): void => this.layout();
 
   constructor(private readonly stage: Stage) {
-    this.map = generateMap(A.mapSeed, CONFIG.map.playerCap);
-    this.world = buildAmbientWorld(this.map);
+    const seeds = pickSceneSeeds();
+    this.map = generateMap(seeds.mapSeed, CONFIG.map.playerCap);
+    this.world = buildAmbientWorld(this.map, seeds.seed);
+    // The one line that makes a random scene debuggable: any screenshot can be
+    // rebuilt with `?homeseed=<n>`. Without it a report of "the menu looked
+    // wrong" is unreproducible by construction.
+    console.info(`[home] scene seed ${seeds.mapSeed} (reproduce with ?homeseed=${seeds.mapSeed})`);
     const stats = this.world.stats;
     // Lead is deliberately zero: the in-match camera throws itself ahead of the
     // bow, which is right when you are steering and wrong for a backdrop that

@@ -343,6 +343,31 @@ function halfLength(h: AmbientHull): number {
 }
 
 /**
+ * Rotate an ESCAPE heading toward home, by at most `leashMaxRad` and only once
+ * the hull has drifted past `leashStartFrac` of radar range.
+ *
+ * This is the only place the range term is allowed to touch the hard coast
+ * clause, and it does so from INSIDE the escape cone: the returned heading keeps
+ * the majority of its escape component at full bias, so a hull under the leash
+ * is still turning away from the rock, just favouring the homeward side of the
+ * two ways around it. `(ux, uy)` is the OUTWARD radial from the anchor, so
+ * `(-ux, -uy)` is home.
+ *
+ * Below the start fraction this returns `escape` unchanged, which is the whole
+ * scene almost all of the time — the leash exists for the tail, not the norm.
+ */
+function leashed(escape: number, r: number, ux: number, uy: number, radarRange: number): number {
+  const start = radarRange * A.leashStartFrac;
+  if (r <= start) return escape;
+  const span = Math.max(1, radarRange - start);
+  const urgency = Math.min(1, (r - start) / span);
+  const home = Math.atan2(-uy, -ux);
+  const delta = wrapAngle(home - escape);
+  const bias = Math.max(-A.leashMaxRad, Math.min(A.leashMaxRad, delta)) * urgency;
+  return wrapAngle(escape + bias);
+}
+
+/**
  * The heading this hull wants: circulate about the anchor, spring back toward
  * the middle of its own annulus, and stand off every nearby coast.
  *
@@ -374,7 +399,9 @@ export function desiredHeading(h: AmbientHull, world: AmbientWorld, islands: rea
   const acc: Steer = { x: -uy * h.spin - ux * pull, y: ux * h.spin - uy * pull };
   const half = halfLength(h);
   const near = avoidCoast(acc, h.state, half, islands);
-  if (near !== null && near.d < A.avoidHardU + half) return Math.atan2(near.ny, near.nx);
+  if (near !== null && near.d < A.avoidHardU + half) {
+    return leashed(Math.atan2(near.ny, near.nx), r, ux, uy, world.stats.radarRange);
+  }
   return Math.atan2(acc.y, acc.x);
 }
 
