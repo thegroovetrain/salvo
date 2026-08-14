@@ -1,10 +1,20 @@
 ---
-status: blocked
+status: answered
 ---
 
 # BMad Dev Auto Result — Story 5.6 Roving PvE Fleets + ring scale-up: QUESTION GATE
 
-Status: blocked (pre-implementation question gate; Eric rulings required before a spec exists)
+> **GATE DISCHARGED 2026-08-14.** Every question below was ruled on by Eric in session. The rulings
+> are recorded durably as **amendments 32-41** in `epic-5-context-amendments.md` — that file is the
+> authority, not this one. This document is retained as the *evidence* behind the rulings (the
+> measurements, the arithmetic, the file:line inventory), not as an open question list.
+>
+> Three rulings went **against** the orchestrator's recommendation and are flagged as such in the
+> amendments: the match-start fill is deleted outright rather than kept behind `HC_DEV_OPTIONS`
+> (amendment 40), fleet ships come off the roster (38), and there is no warning for aggro you cannot
+> see (39).
+
+Status: answered (was: blocked — pre-implementation question gate)
 Blocking condition: nineteen design rulings across five clusters — the XP arithmetic (which decides
 how many hulls are on the water, and therefore whether the story is buildable at all), the
 self-defence behaviour model, the mid-match spawn rule, what survives the deletion of the
@@ -89,42 +99,62 @@ server — a sweep for `aggro|threat|npc|hostil|pursue|chase` returns two incide
 `DroneController` says so itself (`drones.ts:17`): *"Steering is deliberately dumb (this is NOT an
 AI)"*. Its `DroneMind` is `{rng, seq, waypoint, throttle}` and it never reads another ship.
 
-## Headline 2: the XP arithmetic decides whether this story is buildable, and I cannot resolve it
+## Headline 2: the fleet is 9 hulls and exactly 3 levels — the story is buildable, and the composition is the design
 
-The tier values are already shipped and already match the ruling exactly —
-`CONFIG.xp.droneTierLevels` = `{droneSmall: 0.25, droneMedium: 1/3, droneLarge: 0.5}`
-(`constants.ts:846-850`), consumed by `World.killXpLevels` (`world.ts:1377-1382`). Nothing to change.
+**RESOLVED by Eric's ruling of 2026-08-14** (waves cut 15/6/5 → **9 / 6 / 3** levels; fixed
+composition **2 large + 3 medium + 4 small**, replacing the round-robin fill). Recorded here rather
+than asked, and the arithmetic re-run below. The original question — whether "15 XP" meant 15
+levels — is answered *yes*, and then made harmless by the smaller totals.
 
-The problem is the wave totals. The codebase has **no XP unit other than the level** — `killLevels:
-1`, `levelMs: 60000`, and the tiers are literally fractions of a level. So *"enough PvE fleets to
-provide 15 XP"* reads as **15 levels**, and the hull counts follow directly:
+The tier values were already shipped and already match — `CONFIG.xp.droneTierLevels` =
+`{droneSmall: 0.25, droneMedium: 1/3, droneLarge: 0.5}` (`constants.ts:846-850`), consumed by
+`World.killXpLevels` (`world.ts:1377-1382`). Nothing to change there.
 
-| Wave | Target | Fewest hulls (all large) | Most hulls (all small) |
-|---|---|---|---|
-| 1:00 | 15 levels | **30** | 60 |
-| 5:00 | 10 levels | **20** | 40 |
-| 9:00 | 5 levels | **10** | 20 |
-| **cumulative** | 30 levels | **60** | **120** |
+**One fleet = 2(½) + 3(⅓) + 4(¼) = 1 + 1 + 1 = exactly 3.000 levels, in 9 hulls.** The *exactly*
+constraint is now satisfied by construction rather than by search, and every wave is a whole number
+of fleets:
 
-The *exactly* constraint is satisfiable — in twelfths the sizes are 3/4/6 and the targets 180/120/60,
-so `3a + 4b + 6c = target` has many integer solutions. That part is fine.
+| Wave | Levels | Fleets | Hulls | Cumulative hulls |
+|---|---|---|---|---|
+| 1:00 | 9 | **3** | 27 | 27 |
+| 5:00 | 6 | **2** | 18 | 45 |
+| 9:00 | 3 | **1** | 9 | **54** |
 
-**The hull count is not fine.** Today's reference scenario is 20 hulls. This is 4–7× that, on top
-of up to 20 captains, and the measured budgets were taken at 20:
+**This is buildable, and the reason is clustering, not the raw count.** 54 fleet hulls plus up to 20
+captains is 74 peak — still 3.7× the 20-hull reference scenario — but the two budgets scale on
+different quantities:
 
-- Client radar worst case **1.74 ms against a 2.5 ms bar** with 20 moving hulls (cycle 70).
-- Server wake rasterization **+425–470 µs/tick** adversarial at 20 hulls.
-- `observe()` per client is a full scan of ships, shells, mines, zones, decoys **and every wake
-  ribbon segment** (`perception.ts:113-259`), run once per connected client per tick. At 140 hulls
-  × 20 clients that is 2,800 ship rows per tick before the wake ribbons.
+- **Client (the tight one, 1.74 ms against a 2.5 ms bar at 20 moving hulls) scales on hulls
+  *concurrently in sensor range*, not on hulls afloat.** At the recommended R=2800 the map is
+  24.6 M u² and a radar disc is 1.37 M u² — 5.6% of it — so ~4 hulls are in range at any moment if
+  scattered. Because fleets are clustered, the real worst case is *one fleet plus whatever captains
+  are contesting it*: roughly 9 + 5, which is **at or under today's measured worst case.** The
+  bigger ocean is doing real work here.
+- **Server scales on hulls afloat, and has the headroom.** `observe()` is a full per-client scan
+  (`perception.ts:113-259`), so ship rows go 20×20 = 400 → 20×74 = 1,480 per tick. Pro-rating the
+  two shipped adversarial measurements — radar shadow 278 µs/tick, wake rasterization 425–470 µs/tick,
+  both at 20 hulls — lands around **2.6 ms/tick against a 50 ms budget, ~5%.** Comfortable, and it
+  wants a measurement rather than an argument before ship.
 
-There is also a **geometry** problem independent of perf: by 9:00 the live ring is ~1015 u
-(see Headline 3), and 60–120 fleet hulls do not fit in it in any meaningful sense.
+**The composition is not flavour — it is the skill expression.** Run the two directions:
 
-For scale on the economy side: 30 levels of PvE XP is **more than every captain kill in a full
-20-player match combined** (19 levels) and ~2.5× a survivor's whole passive accrual. That may be
-exactly the intent — *"my XP has a second faucet"* — but it is a large enough shift that I will not
-assume it.
+- **Clearing a whole fleet solo** costs 4×4 + 3×5 + 2×6 = **43 gun hits** (60/75/90 hp against a
+  15-damage gun), at a 5 s reload = **~3.6 minutes** with every shot landing, for 3 levels. Passive
+  accrual over the same 3.6 minutes is 3.6 levels. **So farming roughly doubles your rate** — a real
+  faucet, not a jackpot, and it costs a quarter of the match.
+- **Aggroing the whole fleet at once kills you.** 4×6 + 3×8 + 2×10 = **68 damage per volley**,
+  13.6 dps — a 125 hp Torpedo Boat dies in **9.2 seconds**. So the fleet must be picked apart from
+  positions where the rest cannot witness the hit.
+
+That is a genuinely good mechanic, and it means **the witness rule (Q7) is the central skill of the
+feature**, not a detail. It also raises the stakes on Q7's timing sub-question: one-shot evaluation
+makes island-masked picking work; continuous evaluation means a long fight eventually recruits the
+whole fleet anyway and the skill evaporates.
+
+**On the economy:** 18 levels of PvE XP across the match now sits *below* the 19 levels of captain
+kills available in a full lobby and around 1.5× a survivor's passive accrual — a third faucet
+comparable to the other two, rather than dominating them. At the old 30-level figure it was larger
+than both combined.
 
 ## Headline 3: the ring cannot be scaled up. A shipped test says so, and it is the right test.
 

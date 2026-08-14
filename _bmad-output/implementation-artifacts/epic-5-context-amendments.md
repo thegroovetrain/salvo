@@ -840,3 +840,340 @@ own listener calls `setZoomFactor`) but WASD never would.
 verbs, amendment 30's action-set pin (real, not a tautology), and the `ownMatchTime` staleness class —
 stamps resolve at fold time and `sunkAtMs` latches first-wins, so a per-frame modal refresh cannot
 grow TIME AFLOAT. Nothing at CRITICAL severity; the perception boundary is untouched.
+
+## Amendment 32 — THE FLEET IS A FIXED COMPOSITION AND AN EXACT ECONOMY (Eric rulings 2026-08-14)
+
+Story 5.6's AC left counts and composition as *"CONFIG design targets"* and the invocation's first
+pass named wave totals of 15 / 10 / 5 levels. **Both are superseded by a single ruling that makes
+the economy exact by construction rather than by search.**
+
+> *"lets make it 9, 6, and 3 XP worth of levels per stage... Each 3 levels worth of XP should be
+> broken down into 2 large, 3 medium, 4 small (change from the random fill)."*
+
+**ONE FLEET = 2 large + 3 medium + 4 small = 2(½) + 3(⅓) + 4(¼) = 1 + 1 + 1 = exactly 3.000 levels,
+in 9 hulls.** The AC's *"so long as their total XP value is exactly the number"* stops being a
+constraint to satisfy and becomes an identity: every wave is a whole number of fleets.
+
+| Wave | Levels | Fleets | Hulls | Cumulative |
+|---|---|---|---|---|
+| 1:00 | 9 | 3 | 27 | 27 |
+| 5:00 | 6 | 2 | 18 | 45 |
+| 9:00 | 3 | 1 | 9 | **54** |
+
+This **replaces the round-robin fill** (`ArenaRoom.ts:442`, `DRONE_HULL_IDS[i % 3]`), which was the
+only composition rule the codebase had.
+
+**Why the cut from 30 levels to 18 mattered more than it looks.** At 15/10/5 the counts were 30-60
+hulls in wave one and 60-120 cumulative, against a 20-hull reference scenario, a measured 1.74 ms /
+2.5 ms client radar budget, and a 660 u terminal ring that could not physically hold them. At 18
+levels the story becomes buildable, and **the binding constraint turns out to be hulls
+*concurrently in sensor range*, not hulls afloat** — because fleets are clustered (amendment 34),
+the realistic worst case is one fleet plus contesting captains, ≈9 + 5, at or under today's measured
+worst case. The bigger ocean (amendment 41) is doing real work here. Server cost scales on hulls
+afloat instead: ship rows go 400 → 1,480 per tick, pro-rating the two shipped adversarial
+measurements to ≈2.6 ms/tick against a 50 ms budget. **Comfortable, and it wants a measurement
+rather than an argument before ship.**
+
+**The economy is now a third faucet rather than the dominant one.** 18 levels across a match sits
+*below* the 19 levels of captain kills available in a full lobby and around 1.5× a survivor's
+passive accrual. At 30 it was larger than both combined.
+
+**Totals are FIXED, not roster-scaled** (Eric ruling): the ocean carries the same fleets whether two
+captains showed up or twenty. A thin lobby is therefore a target-rich one, which is a deliberate
+consolation and the counterpart to deleting the drone fill (amendment 40). Story 6.2 is where
+roster-scaling lives if it is ever wanted.
+
+**The two directions of the fight, both computed and both intended:**
+- Clearing a whole fleet solo costs 4×4 + 3×5 + 2×6 = **43 gun hits** (60/75/90 hp against a
+  15-damage gun) at a 5 s reload ≈ **3.6 minutes** with every shot landing, for 3 levels — against
+  3.6 levels of passive accrual in the same time. **Farming roughly doubles your rate**, and costs a
+  quarter of the match.
+- Aggroing all nine at once is 4×6 + 3×8 + 2×10 = **68 damage per volley**, 13.6 dps: a 125 hp
+  Torpedo Boat dies in **9.2 seconds.**
+
+## Amendment 33 — THE FLEET ENVELOPE, AND THE RESCALE STORY 1.6 HAS OWED SINCE 2026-07-21 (Eric rulings 2026-08-14)
+
+|  | small | medium | large |
+|---|---|---|---|
+| hp | **60** | **75** | **90** *(was 80 / 100 / 120)* |
+| gun damage | **6** | **8** | **10** — flat 5 s cooldown, all sizes |
+| kill value | ¼ | ⅓ | ½ level — already shipped verbatim |
+| maxSpeed | **40** | **35** | **30** *(was 46 / 38 / 30)* |
+| reverse / accel / decel | scaled proportionally with maxSpeed | | |
+| turnRate / steerageSpeed | **unchanged** | | |
+
+**The speed ruling discharges `epics.md:1090`**, open since Story 1.6 (2026-07-21): *"the pinned
+drone envelopes predate the 1.6 hull-speed rescale, leaving droneSmall the fastest hull afloat."*
+It was — 46 against the Torpedo Boat's 45. At 40 it sits below every player class, `droneMedium` at
+35 ties the Battleship, and the torpedo's `speed: 60` still outruns everything (the
+`damageGuardrail` pin holds). `shipClasses.test.ts:121-156`'s identity table updates deliberately,
+which is exactly the reviewed-edit mechanism it exists to force.
+
+**turnRate and steerageSpeed deliberately do NOT move**, so agility stays a size property rather
+than drifting with a speed retune.
+
+**Fit is GUN ONLY.** Today `loadout.ts:116-121`'s catch-all default fits every drone hull with
+`[gun, torpedo, mine, empty]` at full ammo — so every drone afloat right now already carries a
+loaded gun, and `fireControl` already ticks its reload. `specialsFor()` gains a fleet branch
+returning no specials. **Named cost:** `server/src/__tests__/equipment.test.ts:46-65` built the
+entire equipment suite's fixture on `droneMedium` carrying the universal fit; that suite is
+re-pointed at a real ship class.
+
+**Per-size gun damage is architecturally free and this is worth knowing before implementing it:**
+`ShellState.damage` is captured **at fire time** from `ship.stats.gun` (`guns.ts:141-152`) and read
+at hit time **from the shell**, never from CONFIG. No damage-path change is needed at all.
+
+## Amendment 34 — THE WITNESS RULE IS EVALUATED ONCE, AND THE SPREAD IS THE DIFFICULTY DIAL (Eric rulings 2026-08-14)
+
+*"All PvE ships who can see both you and the ship that was attacked and otherwise have no target
+will target you"* is evaluated **ONCE, at the instant of the hit.** A fleet ship that rounds an
+island two seconds later never joins that engagement.
+
+**Why once and not continuously:** continuous evaluation makes every long fight trend toward full
+aggro, which collapses the 68-damage volley onto anyone who takes more than a few seconds to work —
+and the positioning skill evaporates with it. One-shot is bounded, cheaper, and makes *hit them
+where the rest cannot see you* the core skill of the feature.
+
+**The fleet spawns spread over a ~400 u radius, and that number IS the difficulty.** A hit is
+witnessed by any fleet ship with LOS to both attacker and victim within 330 u (amendment 35), so
+spread sets how many guns answer:
+
+- **~150 u** — all nine inside each other's sight; touching any one aggros all nine, always. The
+  witness rule stops meaning anything because the answer is always "everyone."
+- **~400 u (RULED)** — typical neighbour spacing lands near the sight edge, so ~2-4 witness. Full
+  aggro becomes a mistake you made rather than the default.
+- **~700 u** — 0-1 witness; the composition ruling becomes invisible and "fleet" stops meaning
+  anything on the water.
+
+**The fleet TRAVELS TOGETHER** on a shared waypoint stream (per-hull jitter and throttle), holding
+roughly its spawn spread for the whole match — so the witness geometry tuned above still holds at
+9:00, not only at 1:00. Independent roving (today's `DroneController` behaviour) was offered and
+declined: the nine scatter within a minute and the spread dial stops meaning anything.
+
+## Amendment 35 — SELF-DEFENCE: the six behavioural rulings (Eric rulings 2026-08-14)
+
+1. **Sight is `CONFIG.vision.sight` (330 u) for all three sizes.** One number, already the 4/8 rung
+   of the eighths ladder, already the radius the sim uses for "can this hull see that hull." A
+   per-size ladder was offered and declined — size reads through hp, damage, speed and gunnery
+   instead.
+2. **A blind victim CLOSES ON THE INCOMING BEARING.** The captain's gun reaches 660 u and a fleet
+   ship sees 330, so shelling one from outside its world was risk-free under a strict reading of
+   *"defend themselves within LOS range"* — which would have made the guns decorative. An attacked
+   ship now steers to the incoming bearing until it has LOS. **Sniping still works; it starts a
+   clock instead of being free.**
+3. **Mines do NOT aggro.** A shell or torpedo gives a bearing worth closing on; a mine's layer may
+   be dead or 2000 u away, and chasing it produces a hull wandering off after a ghost. Mine Layers
+   keep their trap play against fleets.
+4. **~3 s target memory on LOS break.** Instant forgetting — the literal reading — makes them
+   jitter at every island edge as LOS flickers and turns any rock into a perfect off-switch.
+5. **They LEAD the target, with a per-size aim scatter** (largest on the small hull). This is a
+   design decision, not a detail: the gun bursts at a *point* with a 15 u radius, shell speed 500
+   u/s, so at 330 u the flight is 0.66 s in which a Torpedo Boat moves 30 u — **twice the burst
+   radius.** No-lead misses nearly everything; perfect lead nearly never misses. Scatter makes
+   *kill the large one first* a real decision.
+6. **Fleet ships never damage and never aggro each other.** `burstVictims` (`world.ts:2617`)
+   excludes only the shooter today; it widens to exclude any fleet hull. Keeps the fleet a single
+   opposing force instead of a comedy of drones brawling in the corner.
+
+**A held target is NOT given up for a new attacker** — the invocation already settled this
+(*"once you leave their LOS, they stop chasing you and can acquire a new target if attacked by
+someone else"*): re-acquisition happens only after the current target is lost. Third-party rescue is
+therefore a real play.
+
+## Amendment 36 — MID-MATCH WAVE SPAWNING IS A GENUINELY NEW EDGE (Eric ruling 2026-08-14)
+
+**Nothing in the codebase spawns a ship mid-match today.** `addShip` runs at join, `redeployShip` at
+the countdown→active boundary, `respawn` in the waiting phase only (`respawnEnabled` and
+`damageEnabled` are mutually exclusive by construction). And **`pickSpawn` has no hard
+minimum-distance constraint at all** — `occupied` only affects a max-min *score* (`spawn.ts:124-138`)
+— so *"outside all combatants' intel ranges"* is a new hard constraint with no existing
+infeasibility branch.
+
+**The arithmetic is against it.** At the new R=2800 the map is 24.6 M u² and one captain's intel disc
+is π·660² = 1.37 M u² (up to 1327 u on a stacked `intelRadar` build, `boons.ts:344`). Twenty captains
+deny more area than the map contains, and the 9:00 wave is the hardest because the live ring is
+smallest.
+
+**Ruled — a fleet gets an ANCHOR and spreads around it:**
+1. Sample anchors **inside the live ring**.
+2. Keep those outside **every** captain's intel disc.
+3. Spread the nine hulls over ~400 u around the anchor (amendment 34).
+4. No anchor? **retry next tick, bounded.**
+5. Still none? take the farthest-from-anyone point anyway (the existing max-min score) **and log
+   it.** The wave always arrives, and degrades visibly rather than silently.
+
+Deferring until a spot opens was offered and declined — a late wave could then never arrive,
+silently deleting specced XP. Anchoring in the storm was also declined: hulls would arrive wounded
+and incomplete.
+
+**Two things every existing placement path does that this one must also do:** `detachWake(ship)`
+(`world.ts:3330` — a teleport that skips it draws a bogus cross-map wake segment) and pushing the
+`spawn` event. The `spawn` row's visibility rides `pointSighted`, so a fleet spawning outside
+everyone's intel emits an event nobody receives — which is the desired behaviour, but **confirm the
+row rather than inherit it.**
+
+## Amendment 37 — PvE KILLS COUNT NOWHERE (Eric ruling 2026-08-14) — SUPERSEDES epic-4 amendments 29-34 and epic-5 amendment 9 on this point
+
+> *"i dont want PvE kills to show up as 'kills' in a player's killcount or as events in their
+> records."*
+
+**This reverses a clause both prior amendments explicitly preserved.** Epic-4 amendments 29-34's
+"what did NOT move" list and epic-5 amendment 9's identical clause both state: *"`ShipRecord.kills`
+still counts drone kills for the roster/results KILLS column, and `captainKills` still drives the
+bounty throne alone."* That is now false.
+
+| | fires? |
+|---|---|
+| kill flash + progressive settle (amendment 21) | **YES** |
+| kill feed line | **YES** |
+| XP grant (¼ / ⅓ / ½ level) | **YES** |
+| KILLS column (roster + results) | **NO** |
+| MATCH LOG line (amendment 28) | **NO** |
+| SHIPS YOU SANK roll | **NO** |
+
+**The feed/record split is the whole ruling.** Clearing one fleet is up to 43 gun hits and 3.6
+minutes; you need to know each sinking landed, and **amendment 21 exists precisely because Eric
+objected to drones dying with no onscreen indication.** Going silent would walk that back. What he
+means by *records* is the persistent tally, and that is what empties.
+
+**Consequence the spec must resolve, flagged rather than assumed:** with `kills` no longer counting
+drones, `kills` and `captainKills` become **identical by construction**, so Story 4.6's split is
+redundant. Retiring `captainKills` in favour of `kills` is the honest simplification, but it touches
+a ratified split and should be a deliberate, reviewed edit — not a silent collapse. **Telemetry does
+NOT move**: `rosterSize`/`rosterByClass`/`killsByClass` are the operator's data (amendment 9), are
+computed from `Match.participants` rather than the schema roster, and are pinned by test.
+
+## Amendment 38 — FLEET SHIPS COME OFF THE ROSTER (Eric ruling 2026-08-14 — taken against the orchestrator's recommendation)
+
+Every drone today carries a `PlayerMeta` row (`ArenaRoom.ts:444-448`) with the `REGATTA_NO_HUE`
+(255) sentinel, mirrored to every client each tick. At 54 fleet hulls that is 74 rows in a full
+lobby. **Ruled: fleet ships are not roster members**, which is FR34's *"never roster fill"* taken
+literally and is the natural consequence of amendment 37 — a hull whose kills count nowhere has
+little left to mirror.
+
+**The cost is real and is named, because it was recommended against.** The client detects drones
+through **two independent channels** today, and this deletes one of them: `Contact.cls` carrying a
+drone hull id, and that 255 sentinel. Six client sites re-point onto `Contact.cls`: `feedColor`,
+`rosterColor`, `isDroneId` (`main.ts:1139`), `isLiveRival` / `afloatCount` (`score.ts:117,163`), and
+the radar `hueFor` adapter (`main.ts:1941`).
+
+**The kill-feed line survives the roster's deletion** (amendment 37 requires it) but must source its
+name and colour from the hull rather than the roster. The precedent already exists and is exact:
+`nameplates.ts:67`'s `resolvePlate` returns `{text: 'DRONE', color: droneOutline}` **before** any
+name or hue lookup. The feed follows it — a fleet sinking reads `DRONE`, never `DRONE-07`.
+
+`n AFLOAT` gets simpler rather than harder: the roster becomes captains-only, so the count is the
+roster.
+
+## Amendment 39 — THE AGGRO BRACKET: threat is dual-coded by SHAPE, and blindness is not warned (Eric rulings 2026-08-14)
+
+> *"I want it very visually obvious that a PvE ship has aggro'd you, and very visually obvious if it
+> de-aggro's you, as well."*
+
+**Colour was never available for this.** Drones are locked greyscale (`DESIGN.md:157`,
+`drone-outline`/`drone-fill`), and `DESIGN.md:162` puts **threat and state on the dual-coding
+floor** even under the Variant-C identity waiver. So the channel has to be shape.
+
+**Ruled — an angular BRACKET around the chevron:**
+- **On aggro:** the bracket snaps on with one flash and an audio sting.
+- **While held:** static. Deliberately not animated — a pulse would claim a slice of the
+  photosensitivity budget and would need Story 4.8 attention-tier arbitration, which is exactly the
+  argument epic-4 amendment 220 used to keep the kill-leader glow static.
+- **On de-aggro:** the bracket visibly breaks at the corners and fades (~400 ms) with a distinct,
+  softer descending cue.
+
+Presence/absence of a shape survives greyscale, colourblind modes and the drone palette
+simultaneously.
+
+**No warning for aggro you cannot see (ruled against the orchestrator's recommendation).** Because a
+sniped-but-blind fleet ship closes on the bearing (amendment 35), it can aggro from 500 u — beyond
+*both* sight ranges — where a hull marker shows nothing. A bearing-less, count-less "ENGAGED" cue
+was offered on the Hit Call precedent (it confirms a consequence of your own shot without revealing
+a position) and **declined.** The accepted consequence, stated plainly: **sniping quietly spawns
+hunters you never see coming**, and the bracket appears only once they close inside 330 u — by which
+point they are already in gun range. **Zero new fog-piercing channels, which is the property the
+ruling buys.**
+
+**Wire note for the spec:** the client cannot derive aggro state, so this needs a **self-private**
+per-contact flag — visible only to the targeted observer, on the `sinkingUntil` precedent
+(amendment 16). It discloses nothing spatially new (you already see the hull) and therefore needs
+**no seventh perception exception** — but it DOES break `spectator.test.ts`'s exact `Contact`
+key-set pin (amendment 19), which must be updated deliberately.
+
+## Amendment 40 — THE MATCH-START DRONE FILL IS DELETED OUTRIGHT (Eric ruling 2026-08-14 — taken against the orchestrator's recommendation)
+
+> *"drones the spawn at the start of the game with players should be removed from the game entirely
+> in their present form."*
+
+The fill goes, and **so does everything built on it**: `ArenaRoom.fillToCapacity` (`:434-449`),
+`dronesSmoke.mjs` in full, `drones.test.ts`'s fill suite, the batch-sim harness fill
+(`batchsim/runner.ts:227-240`) and its `--drones N` flag.
+
+Keeping the fill behind `HC_DEV_OPTIONS` — the gate `matchOverride`/`zoneOverride` already use — was
+offered and **declined.** The cost is therefore accepted rather than mitigated, and it is named
+here so it is not rediscovered as a surprise: **AR18's committed tuning method loses its
+implementation.** AR12 names the drone-lobby batch-sim harness as triple-duty infrastructure
+(economy tuning, pre-launch load test, bot-vs-bot AI evaluation) and AR18 commits to
+*"batch-simulate XP tick and kill-bonus outcomes with drone lobbies before human playtests."*
+**Epic 6's combat bots are where that capability would be rebuilt.** A `deferred-work.md` entry is
+owed.
+
+**This is a ratified direction, not a surprise, on the FR34 side:** *"zero bot-fill exists in
+Standard — roving PvE fleets are world content, never roster fill."*
+
+**Also ruled (a correctness cleanup, not a behaviour change): `CONFIG.match.fillTo` stops sizing the
+map.** `ArenaRoom.ts:253` constructs `new World(seed, CONFIG.match.fillTo, ...)` and
+`mapRadius(playerCap) = baseRadius × sqrt(playerCap / capRef)` (`constants.ts:1108-1110`) — so the
+constant meaning *"how many drones to fill to"* is currently also the constant meaning *"how big is
+the ocean."* With the fill deleted, `CONFIG.map.playerCap` is the honest source. Both are 20 today,
+so nothing observable moves.
+
+## Amendment 41 — THE OCEAN GROWS TO 2800, AND THE CLOSING-RATE BAND IS RE-RATIFIED (Eric ruling 2026-08-14)
+
+> *"lets scale the ring up a bit, I feel like the map is a little too small, so each stage doesn't
+> force enough movement."*
+
+**That sentence contains two different asks with two different knobs, and the shipped test proves
+it.** `zone.test.ts:235-247` pins `worstEscape = (1 + offsetCap) × maxΔr` between **0.75 and 0.85 of
+a battleship-minute** (35 u/s × beatMs). Because the terminal radius is derived from truesight and
+never moves while R grows, `maxΔr` grows against a denominator that does not — so **`baseRadius` has
+about 3% of headroom (~2480) before the test fails**, and it fails outright by R=3000
+(fraction 1.13).
+
+**More importantly: that pin holds worst-case forced movement CONSTANT regardless of map size.** A
+bigger ocean therefore *cannot by itself* make each stage force more movement — it buys open water,
+islands, transit time and lower encounter density. The two halves of the ask are separable, and
+three of the four costed packages only delivered one of them.
+
+**Ruled: `CONFIG.map.baseRadius` 2400 → 2800, and nothing else moves.**
+
+| | before | after |
+|---|---|---|
+| ocean area | — | **+36%** |
+| ring radii | 2400 → 1560.8 → 1015.0 → 660 | **2800 → 1729.7 → 1068.3 → 660** |
+| max shrink | 839.2 u | **1070.3 u** |
+| worst-case escape | 0.799 | **1.019** |
+| match length | 12:00 | **12:00 (unchanged)** |
+| `beatMs` / `offsetCap` | 60 s / 1.0 | **unchanged** |
+
+**1.019 means a battleship caught at the worst possible position must run the entire close beat at
+flank speed and just misses safety** — it takes a bite of storm rather than dying. That is a precise
+statement of *"forces movement,"* and **it replaces the ratified 0.75-0.85 band, which is Eric's
+re-ratification to make and not the implementer's.** The test is doing its job by refusing the
+change; it is updated deliberately, with this amendment as its citation.
+
+**Landed NOW rather than deferred to Story 6.2** (which owns roster-dynamic sizing and names this
+exact coupling in its ACs, per `deferred-work.md:313-314`). It is a static-literal change 6.2 would
+revisit regardless; 6.2 later replaces the literal with a curve and re-derives the band as a
+function of radius.
+
+**Two consequences that must ride with it:**
+- **`PROTOCOL_VERSION` bumps** — the same seed now builds a different ocean, exactly the cycle-59
+  precedent; the client sanity-checks `welcome.mapRadius` at `connection.ts:333-339`.
+- **`heightField.ts:160-221`'s `regionWavelength: 2400` is a fixed world-unit literal currently
+  sized to span the disc exactly once.** Past 2400 u the macro land-clustering term begins repeating
+  across the map. It should track the radius, and the result wants an eyeball pass — this is the
+  tuning panel Eric approves by eye (`heightField.ts:42-43`).
+
+Island count scales with disc area at fixed 2-3% coverage (~18 → ~24), and the height raster grows
+O(R²) to ~160 KB. Both fine; both measured rather than assumed.
