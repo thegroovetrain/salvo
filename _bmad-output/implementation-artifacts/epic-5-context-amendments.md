@@ -840,3 +840,70 @@ own listener calls `setZoomFactor`) but WASD never would.
 verbs, amendment 30's action-set pin (real, not a tautology), and the `ownMatchTime` staleness class —
 stamps resolve at fold time and `sunkAtMs` latches first-wins, so a per-frame modal refresh cannot
 grow TIME AFLOAT. Nothing at CRITICAL severity; the perception boundary is untouched.
+
+## Amendment 32 — THE PLUME MARKS THE KILLING BLOW, NOT THE RESTING PLACE (Eric ruling 2026-08-14) — reverses amendment 18's LOCATION clause for the plume alone
+
+> *"when a ship is destroyed, it changes to sinking status, and then 5s later it is sunk. There is a
+> red explosion when the ship sinks all the way. Makes no sense? Lets move that to the moment when the
+> ship is brought to 0 HP or less and begins sinking. Slowly fading to black is indication enough that
+> it has sunk."*
+
+**Amendment 18 moved two things together and only one of them belonged there.** It ruled IDENTITY at
+sink-entry, LOCATION at founder, and moved the `setDowned` wreck tint AND the crimson `sink` plume to
+the far end of the window. The tint half was right and stands: a hull rendering "already dead" while
+it is still turning and putting a torpedo into you is the exact misread the sinking window exists to
+prevent. **But that argument is about the hull's persistent LOOK, and the plume is not a look.** A
+0.9 s expanding ring is an EVENT MARK — it says *a hit landed here* — and the event it marks is the
+holing, which is true at sink-entry and only approximately true 110 u later. Nothing about a
+transient ring makes a still-fighting hull read as a wreck.
+
+**What moved:** `deps.effects.spawnEffect('sink', …)` leaves `presentWreck` (founder) for
+`openWreckWindow` (sink-entry). Nothing else.
+
+**What did NOT move, stated explicitly because this is the third ruling on one beat and the next
+agent will be reading all three at once:**
+
+- **Amendment 21 survives whole.** The kill flash still opens the beat at sink-entry; the settle
+  still walks the hull continuously from its alive look to exactly the wreck look; the own hull's
+  settle is still capped at `ownSettleMax`. Nothing about that ruling is reopened.
+- **The founder beat keeps the wreck tint.** `markSunk` still latches there, and `setSink(1)` is
+  still byte-for-byte `setDowned(true)`, so the handover remains pop-free BY CONSTRUCTION. With the
+  plume gone from that instant, this equality is now the ONLY thing standing between founder and a
+  visible pop — which is why its test survives with its rationale restated rather than retired.
+- **The `seen` gate is untouched and still ONE early return.** The plume spawn was put inside
+  `openWreckWindow`, after the gate and after the dedup guard, rather than beside the cue in
+  `handleSunk` — so "an unwitnessed sinking draws nothing anywhere" is still one line to read, and a
+  replayed `sunk` still cannot detonate twice over a hull already going down.
+- **The Public Register's line holds.** Identity is public, location is not. A fog kill still draws
+  no mark at a stale position, at ANY beat.
+- **No wire field, no server change, no shared change.** `PROTOCOL_VERSION` stays 34 and no
+  perception exception was added — the master invariant still has exactly SIX. Client presentation
+  only.
+
+**WHAT THIS CLOSES.** Amendment 18 ledgered its own consequence in writing: *"the death GROAN still
+sounds at sink-entry at the sink-entry position, so the cue and its plume are now ~5 s and up to
+110 u apart... If it reads badly, the cue is the thing to move, not the plume."* It read badly, and
+the owner moved the plume instead. They are one beat again — and the implementation resolves BOTH
+from a single `sunkPosition` read in `handleSunk`, which restores the property `sunkCue`'s own header
+has been claiming untruthfully since the split (*"`pos` is resolved by the caller and shared with the
+sink plume, so the cue and the mark can never disagree about where the wreck was"*).
+
+**THE OWN HULL MOVES TOO, and that was ruled rather than assumed.** Eric's sentence names *a ship*,
+not *an enemy*. Our own plume now fires where we were holed, on the tick our own death groan sounds,
+instead of at the end of a five-second coast. `markSunk` is still never called on ourselves (we are
+not one of our own contacts).
+
+**LEDGERED, NOT FIXED — the flash and the plume now share a tick.** Amendment 21's 300 ms kill flash
+and the crimson plume land on the same instant, on the same hull, in the same screen region: 2 of the
+ratified 3 `WorldFlashGate` onsets per region per second (NFR13 / EXPERIENCE.md:138). They do not
+degrade each other on their own, but they leave a region one onset from degrading in a ring-closure
+scrum, and the flash's argument for existing (*"the five seconds had no enemy-side feedback"*) is
+weaker now that a detonation opens the beat. **Whether the flash is still earned under a co-located
+plume is Eric's call, not the implementer's** — it is a ratified channel and was left exactly as
+shipped.
+
+**One consequence of the deletion worth knowing:** `presentWreck` no longer resolves a position at
+all, so amendment 18's *"the position is re-resolved HERE, never carried from sink-entry"* doctrine is
+gone with the code it governed. A tint hangs on the contact view, not on the water. The
+"unplaceable hull draws no plume" rule survives, moved to sink-entry, where it is far rarer (a hull is
+almost always placeable on the tick it is holed) but not unreachable.

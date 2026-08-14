@@ -95,7 +95,10 @@ describe('hullLook across the settle — no pop at either end', () => {
     expect(ALIVE).toEqual({ tint: CLIENT_CONFIG.colors.white, alpha: 1, scale: 1 });
   });
 
-  it('founder is the WRECK look, byte for byte — the plume lands on a match', () => {
+  it('founder is the WRECK look, byte for byte — markSunk latches a match', () => {
+    // Since amendment 32 the plume no longer lands here, so this equality is
+    // the ONLY thing keeping founder from popping: `markSunk` is `setSink(1)`,
+    // which must be exactly where the ramp already arrived.
     expect(WRECK).toEqual({ tint: SHIP.sunkTint, alpha: SHIP.sunkAlpha, scale: SHIP.sunkScale });
   });
 
