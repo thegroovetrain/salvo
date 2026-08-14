@@ -520,7 +520,7 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
     expect(fleetLevels()).toBe(3);
   });
 
-  it('the whole schedule lands 54 hulls and 18 levels, wave by wave', () => {
+  it('the whole schedule lands 63 hulls and 21 levels, wave by wave (amendment 45: 4/2/1 fleets)', () => {
     const w = bareWorld(19);
     w.startZone();
     const perFleet = fleetHullIds().length;
@@ -531,9 +531,9 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
       expected += wave.fleets * perFleet;
       expect(fleetHulls(w)).toHaveLength(expected);
     }
-    expect(expected).toBe(54);
+    expect(expected).toBe(63);
     const totalFleets = CONFIG.fleet.waves.reduce((n, wv) => n + wv.fleets, 0);
-    expect(totalFleets * fleetLevels()).toBe(18);
+    expect(totalFleets * fleetLevels()).toBe(21);
   });
 
   it('a wave fires only while the match is live (zone anchored AND damage enabled)', () => {

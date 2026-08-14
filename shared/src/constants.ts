@@ -133,7 +133,14 @@ export const CONFIG = {
       // The self-defence gun. Lives on the ENVELOPE rather than in
       // CONFIG.fleet so effectiveStats() can apply it structurally, with no
       // hull-id parameter threaded through the one derivation path.
-      gun: { damage: 6, reloadMs: 5000 },
+      //
+      // DAMAGE CUT 6/8/10 → 1/2/3 (Eric ruling 2026-08-14, amendment 45:
+      // *"Oops, they are too strong!"*). A full nine-hull volley falls 68 → 16
+      // damage, so full fleet aggro goes from killing a 125hp Torpedo Boat in
+      // 9.2s to 39s. These are ATTRITION now, not a threat that resolves a
+      // fight on its own — see amendment 45 for what that does and does not
+      // change about the farm.
+      gun: { damage: 1, reloadMs: 5000 },
       kinematics: {
         maxSpeed: 40, // u/s — full-ahead (Eric ruling 2026-08-14; was 46, the fastest hull afloat)
         reverseSpeed: 12, // u/s — full-astern (magnitude), scaled 14 × 40/46
@@ -146,7 +153,7 @@ export const CONFIG = {
     medium: {
       hull: { length: 100, beam: 30 }, // u — legacy 40×12 chevron ×2.5
       hp: 75, // hit points — 5 captain gun hits to sink
-      gun: { damage: 8, reloadMs: 5000 },
+      gun: { damage: 2, reloadMs: 5000 }, // 8 → 2 (amendment 45)
       kinematics: {
         maxSpeed: 35, // u/s — full-ahead (Eric ruling 2026-08-14; was 38) — ties the Battleship
         reverseSpeed: 11, // u/s — full-astern (magnitude), scaled 12 × 35/38
@@ -159,7 +166,7 @@ export const CONFIG = {
     large: {
       hull: { length: 115, beam: 35 }, // u — legacy 46×14 chevron ×2.5
       hp: 90, // hit points — 6 captain gun hits to sink
-      gun: { damage: 10, reloadMs: 5000 },
+      gun: { damage: 3, reloadMs: 5000 }, // 10 → 3 (amendment 45)
       kinematics: {
         maxSpeed: 30, // u/s — full-ahead (Eric ruling 2026-08-14; unchanged, so the block below is too)
         reverseSpeed: 10, // u/s — full-astern (magnitude)
@@ -184,10 +191,17 @@ export const CONFIG = {
    * satisfy. `fleetLevels()` below asserts the identity against
    * CONFIG.xp.droneTierLevels rather than trusting this comment.
    *
-   * 3 + 2 + 1 fleets = 27 + 18 + 9 = 54 hulls and 18 levels across a match —
-   * BELOW the 19 levels of captain kills a full lobby offers, so this is a
-   * third faucet rather than the dominant one. Totals are FIXED, never
-   * roster-scaled: a thin lobby is deliberately a target-rich one.
+   * 4 + 2 + 1 fleets = 36 + 18 + 9 = 63 hulls and 21 levels across a match
+   * (amendment 45 added the fourth first-wave fleet). That is now slightly
+   * ABOVE the 19 levels of captain kills a full lobby offers, so PvE is the
+   * largest single faucet on paper — but only if it is all farmed, which costs
+   * ~3.6 minutes per fleet, and it is CONTESTED rather than granted.
+   *
+   * The wave sizes are a RATIO, not a budget: one fleet per ~5 captains, held
+   * constant as the storm halves the field. Totals stay FIXED rather than
+   * roster-scaled at spawn time — a thin lobby is deliberately a target-rich
+   * one — so the ~5:1 ratio is tuned for a FULL lobby and a short-handed match
+   * gets proportionally more prey.
    */
   fleet: {
     /** Hulls per fleet by size — the exact-3-levels composition. */
@@ -197,7 +211,13 @@ export const CONFIG = {
      * Deliberately literal rather than derived: Eric set these beats.
      */
     waves: [
-      { atMs: 60000, fleets: 3 }, // 1:00 — 9 levels
+      // FLEETS PER WAVE ARE SIZED TO THE LIVE ROSTER, not to a level budget
+      // (Eric ruling 2026-08-14, amendment 45). One fleet per ~5 captains,
+      // held CONSTANT as the storm thins the field: 20 captains / 4 fleets at
+      // 1:00, then ~10 / 2 at 5:00, then ~5 / 1 at 9:00, on the assumption
+      // that each ring stage takes roughly half the field. The level totals
+      // (12 / 6 / 3) are the CONSEQUENCE of that ratio, not the input to it.
+      { atMs: 60000, fleets: 4 }, // 1:00 — 12 levels (was 3 fleets / 9 levels)
       { atMs: 300000, fleets: 2 }, // 5:00 — 6 levels
       { atMs: 540000, fleets: 1 }, // 9:00 — 3 levels
     ],
@@ -1133,7 +1153,7 @@ export interface HullEnvelope {
   hp: number;
   /**
    * OPTIONAL per-hull gun override (Story 5.6). Present only on PvE fleet
-   * envelopes, which carry a weaker gun than a captain's (6/8/10 vs 15).
+   * envelopes, which carry a weaker gun than a captain's (1/2/3 vs 15).
    * Applied inside `baseStats()` so `effectiveStats()` remains the single
    * derivation path — no hull id is threaded through it and nothing mutates
    * `ship.stats` after construction. Absent on every real ship class, which
