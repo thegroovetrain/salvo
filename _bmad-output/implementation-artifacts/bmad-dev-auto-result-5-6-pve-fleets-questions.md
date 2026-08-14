@@ -5,10 +5,11 @@ status: blocked
 # BMad Dev Auto Result — Story 5.6 Roving PvE Fleets + ring scale-up: QUESTION GATE
 
 Status: blocked (pre-implementation question gate; Eric rulings required before a spec exists)
-Blocking condition: seventeen design rulings across four clusters — the XP arithmetic (which decides
+Blocking condition: nineteen design rulings across five clusters — the XP arithmetic (which decides
 how many hulls are on the water, and therefore whether the story is buildable at all), the
-self-defence behaviour model, the mid-match spawn rule, and the ring scale-up (where the shipped
-constraint test says the requested change is impossible without a second ruling).
+self-defence behaviour model, the mid-match spawn rule, what survives the deletion of the
+match-start fill, and the ring scale-up (where the shipped constraint test says the requested
+change is impossible without a second ruling).
 
 ## Intent (invocation, 2026-08-14)
 
@@ -179,7 +180,7 @@ repeating across the map. It should track the radius, and the result wants an ey
 AC explicitly names this same coupling. `deferred-work.md:313-314` says the 3.1 map bump was *"sized
 for the closing-rate criterion, NOT for teams; 6.2 owns roster-dynamic sizing."* Doing the radius
 half now without a curve is the wrong half first — but it is a static-literal change 6.2 would
-re-derive anyway, so I read it as cheap to do now. Q16 puts that to Eric rather than assuming.
+re-derive anyway, so I read it as cheap to do now. Q19 puts that to Eric rather than assuming.
 
 ---
 
@@ -240,11 +241,19 @@ a layer who may be nowhere nearby. *Recommendation:* the victim aggros on the *a
 damage already carries (`hitShip(victim, amount, byId)`), and Q5's answer decides what it can do
 about it. A mine kill should probably **not** aggro, since there is nothing to chase.
 
-**Q7. Does a fleet ship already holding a target switch when a NEW captain attacks it?**
-The ruling covers witnesses (*"otherwise have no target"*) but not the directly-attacked ship.
-*Recommendation:* **no switch** — first aggressor holds until destroyed or lost. It matches
-*"otherwise have no target"*'s spirit, it is one less state transition, and it makes third-party
-rescue a real play.
+**Q7. Confirming target-switching, and asking when the witness check is evaluated.**
+The first half looks **already answered** — *"once you leave their LOS, they stop chasing you and
+can acquire a new target if attacked by someone else"* implies a held target is **not** given up for
+a new attacker; re-acquisition happens only after the current one is lost. I am reading it that way
+and only flagging it in case the directly-attacked case was meant to be an exception. It makes
+third-party rescue a real play, so I like it.
+The genuinely open half is **timing**: *"all PvE ships who can see both you and the ship that was
+attacked"* — is that evaluated **once, at the instant of the hit**, or **continuously while the
+fight lasts**? One-shot means a fleet ship that rounds an island two seconds later never joins in;
+continuous means a running fight steadily recruits everything that wanders into view, which is a
+much bigger fight and a much bigger perf question.
+*Recommendation:* evaluate **once, at the instant of the hit.** It is cheaper, it is bounded, and it
+rewards positioning — hit them where the rest of the fleet cannot see you.
 
 **Q8. On losing LOS, do they forget instantly?**
 An instant drop makes them jitter at every island edge and trivially kiteable behind a rock.
@@ -363,6 +372,28 @@ spectator receives a splash and a hit-call marker for every shot every fleet shi
 range, through any fog. That is existing correct-for-humans behaviour meeting a new class of
 shooter. At 60 armed hulls the spectate view becomes unreadable. Either suppress at the emission
 sites for drone owners, or accept it. I will take the suppression unless told otherwise.
+
+## Cluster E — the ring scale-up
+
+**Q18. Which package?** The four costed options are tabled in Headline 3. In one line each:
+**(0)** shorter close, same ocean, 9:36 match · **(1) ★** +36% ocean and an urgent close, 12:00
+unchanged · **(2)** +56% ocean, urgency unchanged, rings much less off-centre · **(3)** +56% ocean,
+urgent close, 13:35 match.
+The thing to decide first is which half of your sentence matters more, because they are separate
+levers: *"the map is a little too small"* is the radius, and *"each stage doesn't force enough
+movement"* is the closing-rate band — and **the band is what currently holds forced movement
+constant no matter how big the ocean gets.** Option 1 moves both.
+Whichever lands, the target fraction replaces the ratified 0.75–0.85 band in
+`zone.test.ts:235-247`, and that re-ratification is yours to make, not mine — the test is doing its
+job by refusing the change.
+
+**Q19. Now, or with Story 6.2?** 6.2 (Roster-Scaled Oceans) owns roster-dynamic sizing and its AC
+names this exact coupling; `deferred-work.md:313-314` says the 3.1 map bump was *"sized for the
+closing-rate criterion, NOT for teams; 6.2 owns roster-dynamic sizing."* So doing the radius half
+now is the wrong half first, and whatever compensation is chosen may be re-derived as a function of
+dynamic radius later.
+*Recommendation:* **do it now anyway.** It is a static-literal change 6.2 would revisit regardless,
+and you want to sail the bigger ocean long before Epic 6 lands. But it should be a knowing choice.
 
 ---
 
