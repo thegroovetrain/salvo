@@ -221,11 +221,12 @@ describe('pushKillLine — DOM span building', () => {
   });
 });
 
-// THE VICTIM'S NAME — the full four-step resolution order (Eric ruling
-// 2026-08-14, layered over the Story 5.6 hull memo).
+// THE VICTIM'S NAME — the full four-step resolution order (Eric rulings
+// 2026-08-14, layered over the Story 5.6 hull memo; the second same-day ruling
+// sized step 2, which used to answer plain DRONE — review-gate fix).
 //
 //   1. `SunkEvent.vcls`  → SMALL / MEDIUM / LARGE DRONE  (our own kills only)
-//   2. the HULL MEMO     → DRONE                         (witnessed, uncredited)
+//   2. the HULL MEMO     → SMALL / MEDIUM / LARGE DRONE  (witnessed, uncredited)
 //   3. the roster CALLSIGN
 //   4. UNKNOWN VESSEL
 //
@@ -234,18 +235,31 @@ describe('pushKillLine — DOM span building', () => {
 // three real parts — `fleetSizeName`, a real `ContactStore`, and a roster stub.
 // If the production order ever changes, these expectations are what should have
 // to change with it.
+//
+// THIS SAME `names` FUNCTION IS main.ts `feedName` — the ONE resolver Eric's
+// review-gate fix routed BOTH the kill feed's killer segment (`feedNameRef`)
+// AND the MATCH LOG's `killerName` (main.ts `handleSunkObserved`) through, so
+// the two surfaces can never disagree about the same event again. See the
+// pinning test at the end of this block.
 describe('the kill feed names its victim: vcls, then the memo, then the roster', () => {
   const store = new ContactStore();
   const roster: Record<string, string> = { cap: 'SALT SHAKER' };
 
-  /** main.ts `feedName`: the memo's DRONE, else the roster callsign, else null. */
+  /** main.ts `feedName`, verbatim: a fleet hull sizes off the memo via
+   *  `fleetSizeName` (falling back to the unsized `DRONE_PLATE_TEXT` only if a
+   *  hull `isDroneHull` admits somehow has no `droneSizeOf` size — unreachable
+   *  today), else the roster callsign, else null. */
   const names = (id: string): string | null => {
     const hull = store.everSeenClassOf(id);
-    return hull !== undefined && isDroneHull(hull) ? DRONE_PLATE_TEXT : (roster[id] ?? null);
+    if (hull !== undefined && isDroneHull(hull)) return fleetSizeName(hull) ?? DRONE_PLATE_TEXT;
+    return roster[id] ?? null;
   };
   /** roomBindings `victimNameRef`, verbatim. */
   const victimName = (id: string, vcls?: HullId): string =>
     fleetSizeName(vcls) ?? names(id) ?? UNKNOWN_VESSEL;
+  /** roomBindings `feedNameRef`, verbatim — the KILLER's resolver (never gets a
+   *  `vcls`; a killer's size, when knowable, comes from step 2 alone). */
+  const killerName = (id: string): string => names(id) ?? UNKNOWN_VESSEL;
 
   const sight = (id: string, cls: HullId): void => {
     store.pushFrame(100, [{ id, x: 0, y: 0, heading: 0, speed: 0, cls }]);
@@ -266,20 +280,27 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
     }
   });
 
-  it('vcls OUTRANKS the memo, so a fleet hull we DID see still reads its size', () => {
+  it('vcls and the memo agree on SIZE — both steps answer MEDIUM DRONE (review-gate fix)', () => {
+    // Before the review-gate fix, step 2 (the memo, no `vcls`) answered plain
+    // `DRONE`, so vcls "outranking" it was also a SIZE upgrade, not just a
+    // priority tiebreak between two equally-precise sources. Now both steps
+    // are sized off the same `fleetSizeName`, so the outrank is pure priority:
+    // vcls still wins on a row that carries it, but the two answers coincide.
     sight('f-seen', 'droneMedium');
-    expect(victimName('f-seen')).toBe(DRONE_PLATE_TEXT); // step 2 on its own
-    expect(victimName('f-seen', 'droneMedium')).toBe('MEDIUM DRONE'); // step 1 wins
+    expect(victimName('f-seen')).toBe('MEDIUM DRONE'); // step 2 on its own, SIZED
+    expect(victimName('f-seen', 'droneMedium')).toBe('MEDIUM DRONE'); // step 1, same answer
   });
 
-  it('a fleet sinking we WITNESSED but did not cause reads plain DRONE (no vcls)', () => {
+  it('a fleet sinking we WITNESSED but did not cause reads its SIZE (no vcls, review-gate fix)', () => {
     // No `vcls` — the server stamps it only for the credited killer — so the
-    // memo answers, and it still answers after the hull has aged out.
+    // memo answers, sized, and it still answers sized after the hull has aged
+    // out of the live contact set (the mined-trap case: `everSeenClassOf`
+    // outlives `classOf`).
     sight('f-other', 'droneLarge');
-    expect(victimName('f-other')).toBe(DRONE_PLATE_TEXT);
+    expect(victimName('f-other')).toBe('LARGE DRONE');
     store.prune(100_000, 500);
     expect(store.classOf('f-other')).toBeUndefined();
-    expect(victimName('f-other')).toBe(DRONE_PLATE_TEXT); // the mined-trap case
+    expect(victimName('f-other')).toBe('LARGE DRONE'); // the mined-trap case
   });
 
   it('never renames a CAPTAIN: fleetSizeName is null for every non-drone hull', () => {
@@ -291,6 +312,30 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
 
   it('falls through to UNKNOWN VESSEL only for a hull that is neither ours nor seen', () => {
     expect(victimName('ghost')).toBe(UNKNOWN_VESSEL);
+  });
+
+  it('PINNING: the kill feed and the MATCH LOG agree on a fleet KILLER — same resolver, same size', () => {
+    // Eric: "I fixed a feed-vs-log disagreement about this exact event an hour
+    // ago. If the log says SMALL DRONE while the feed says DRONE, I have simply
+    // reintroduced the same class of bug in a subtler form."
+    //
+    // A fleet hull that SANK YOU is one you almost certainly saw (its gun range
+    // equals its 330u sight, symmetric with yours), so the memo has it. Both
+    // the kill feed's killer segment (`feedNameRef` → `deps.names`) and the
+    // MATCH LOG's `killerName` (main.ts `handleSunkObserved` → `feedName`) call
+    // the identical resolver modeled here as `names`/`killerName` — so this one
+    // assertion pins that a captain can never see the two surfaces disagree
+    // about the size, or about whether a size is shown at all.
+    sight('f-killer', 'droneSmall');
+    const feedKillerName = killerName('f-killer'); // the kill feed's "<X> SUNK BY <killer>"
+    const matchLogKillerName = names('f-killer') ?? UNKNOWN_VESSEL; // main.ts killerName fold input
+    expect(feedKillerName).toBe('SMALL DRONE');
+    expect(feedKillerName).toBe(matchLogKillerName);
+
+    // And the negative: a killer we never saw is UNKNOWN VESSEL on BOTH — never
+    // plain DRONE on one and UNKNOWN on the other.
+    expect(killerName('never-seen-killer')).toBe(UNKNOWN_VESSEL);
+    expect(killerName('never-seen-killer')).toBe(names('never-seen-killer') ?? UNKNOWN_VESSEL);
   });
 });
 

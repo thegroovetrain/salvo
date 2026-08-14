@@ -102,7 +102,7 @@ import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
 import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
-import { pushKillLine, UNKNOWN_VESSEL } from './ui/killFeed.js';
+import { fleetSizeName, pushKillLine, UNKNOWN_VESSEL } from './ui/killFeed.js';
 import { pushUpgradeToast } from './ui/upgradeToast.js';
 import {
   closeResultsAsSpectate,
@@ -974,18 +974,39 @@ function isDroneId(g: Game, id: string): boolean {
   return hull !== undefined && isDroneHull(hull);
 }
 
-/** Kill-feed name for a vessel id: a fleet hull is the literal `DRONE` (the
- *  nameplate's own precedent — amendment 38: *"a fleet sinking reads DRONE,
- *  never DRONE-07"*), everyone else the synced roster callsign or null (the feed
- *  then prints its neutral UNKNOWN_VESSEL label). The hull half comes from the
- *  memo, so a trap sprung long after the target aged out of sight still names it.
+/**
+ * Kill-feed / MATCH LOG name for a vessel id — ONE resolver, shared by BOTH
+ * surfaces (review-gate fix, Eric ruling 2026-08-14: *"if you actually die to
+ * a drone, I DO want to see that in the end-game report... You SHOULD be
+ * embarrassed"* — and, in the same ruling, *"SUNK BY SMALL DRONE is both
+ * funnier and strictly more informative"* than plain `DRONE`, since the size
+ * IS the payout, ¼/⅓/½ of a level).
  *
- *  STEPS 2-3 OF THE VICTIM'S RESOLUTION ORDER. Step 1 is `SunkEvent.vcls`, which
- *  outranks this and carries the SIZE (`SMALL DRONE`); step 4 is the feed's
- *  `UNKNOWN VESSEL`. Both live at the one place that holds the event —
- *  net/roomBindings.ts `victimNameRef`. */
+ * A fleet hull sizes itself off the SAME ever-seen memo `isDroneId` reads —
+ * `SMALL DRONE` / `MEDIUM DRONE` / `LARGE DRONE` via `fleetSizeName`; plain
+ * `DRONE_PLATE_TEXT` is a defensive fallback only, unreachable today because
+ * every hull id `isDroneHull` admits also has a `droneSizeOf` size — the two
+ * predicates are kept in lockstep by construction, not by this call site.
+ * Everyone else gets the synced roster callsign or null (the feed prints
+ * `UNKNOWN_VESSEL`; the log omits the line). The hull half comes from the
+ * memo, so a trap sprung long after the target aged out of sight still sizes.
+ *
+ * NAMEPLATES STAY UNSIZED — plain `DRONE`, by deliberate, separate ruling; do
+ * not route this resolver into render/nameplates.ts.
+ *
+ * STEPS 2-3 OF THE VICTIM'S RESOLUTION ORDER (and the ONLY step for a
+ * killer). Step 1 is `SunkEvent.vcls` — our own credited kill — which
+ * outranks this and is ALSO sized, via the same `fleetSizeName`; step 4 is the
+ * feed's `UNKNOWN_VESSEL`. All four resolve at the one place that holds the
+ * event — net/roomBindings.ts `victimNameRef` — and THIS function is what
+ * both the feed's killer name and the MATCH LOG's `killerName` call, so a
+ * fleet hull that sank you can never read sized on one surface and plain on
+ * the other.
+ */
 function feedName(g: Game, id: string): string | null {
-  return isDroneId(g, id) ? DRONE_PLATE_TEXT : rosterNameOrNull(g, id);
+  const hull = g.contacts.everSeenClassOf(id);
+  if (hull !== undefined && isDroneHull(hull)) return fleetSizeName(hull) ?? DRONE_PLATE_TEXT;
+  return rosterNameOrNull(g, id);
 }
 
 /** Kill-feed name color for a vessel id: the bright personal hue for a captain,

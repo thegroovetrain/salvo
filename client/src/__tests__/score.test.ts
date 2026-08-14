@@ -455,23 +455,29 @@ describe('recordSunk — the MATCH LOG fold (chronological, de-duplicated, PvE O
     expect(personalScore(s, [], 1, false, 90_000).kills).toBe(1);
   });
 
-  it('STILL logs our own death when a PvE fleet hull is what sank us, NAMED (review-gate fix)', () => {
+  it('STILL logs our own death when a PvE fleet hull is what sank us, SIZED (review-gate fix)', () => {
     // The victim test runs first, so the new drone clause can never eat the one
     // line the log exists to guarantee: the player's own end.
     //
-    // killerName here is 'DRONE', not null: main.ts resolves the MATCH LOG's
-    // killer name through `feedName` (the same resolver the kill feed uses),
-    // which reads DRONE off the memo for a fleet hull rather than falling
-    // through the roster lookup to null. Before this fix the two surfaces
-    // disagreed — the kill feed read "DRONE SANK <you>" while the MATCH LOG
-    // read "SUNK BY UNKNOWN VESSEL" — for a designed, common outcome of the
-    // PvE fleet feature.
+    // killerName here is 'LARGE DRONE', not null and not plain 'DRONE': main.ts
+    // resolves the MATCH LOG's killer name through `feedName` (the same
+    // resolver the kill feed uses), which now sizes a fleet hull off the memo
+    // via `fleetSizeName` rather than either falling through the roster lookup
+    // to null OR answering the unsized `DRONE_PLATE_TEXT`. Eric's ruling
+    // 2026-08-14 (the size-the-death-line follow-up): *"if you actually die to
+    // a drone, I DO want to see that... SUNK BY SMALL DRONE is both funnier and
+    // strictly more informative"* — the size IS the embarrassment. A hull that
+    // sank you is one you almost certainly saw (symmetric 330u sight/gun
+    // range), so the memo has it. Before the FIRST review-gate fix the two
+    // surfaces disagreed outright (feed "DRONE SANK <you>" vs. log "SUNK BY
+    // UNKNOWN VESSEL"); before THIS one they'd have agreed on the wrong,
+    // unsized answer. Both must resolve the identical sized string.
     const s = recordSunk(
       freshScore(),
-      obs({ victimId: OWN, victimIsDrone: true, killerId: 'd1', killerName: 'DRONE', tMs: 77_000 }),
+      obs({ victimId: OWN, victimIsDrone: true, killerId: 'd1', killerName: 'LARGE DRONE', tMs: 77_000 }),
       OWN,
     );
-    expect(s.matchLog).toEqual([{ tMs: 77_000, kind: 'sunkBy', name: 'DRONE' }]);
+    expect(s.matchLog).toEqual([{ tMs: 77_000, kind: 'sunkBy', name: 'LARGE DRONE' }]);
     expect(s.sunkAtMs).toBe(77_000);
   });
 

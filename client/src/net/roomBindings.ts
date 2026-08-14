@@ -1377,9 +1377,11 @@ function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: str
 }
 
 /**
- * THE VICTIM'S NAME, in its full four-step resolution order (Eric ruling
- * 2026-08-14). This is the ONE place that holds both the event and the client's
- * own knowledge, so it is the only place the order can live:
+ * THE VICTIM'S NAME, in its full four-step resolution order (Eric rulings
+ * 2026-08-14, the second same-day: *"if you actually die to a drone, I DO want
+ * to see that... SUNK BY SMALL DRONE is both funnier and strictly more
+ * informative"*). This is the ONE place that holds both the event and the
+ * client's own knowledge, so it is the only place the order can live:
  *
  *   1. `e.vcls` — the SIZED fleet name (`SMALL DRONE`). Present only on the
  *      credited killer's copy of the row, which is exactly the case the client
@@ -1388,9 +1390,12 @@ function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: str
  *      the kill is when the player wants it. A captain victim carries a `vcls`
  *      that is not a fleet hull, so `fleetSizeName` returns null and the roster
  *      callsign still wins — this cannot rename a human.
- *   2. the HULL MEMO — plain `DRONE`, for a fleet sinking we WITNESSED but were
- *      not credited with (no `vcls`), on a hull that may already have aged out
- *      of the contact set. Inside `deps.names` (main.ts `feedName`).
+ *   2. the HULL MEMO — ALSO SIZED (`SMALL DRONE`, via the same `fleetSizeName`,
+ *      now folded into `deps.names` itself / main.ts `feedName`), for a fleet
+ *      sinking we WITNESSED but were not credited with (no `vcls`), on a hull
+ *      that may already have aged out of the contact set. One resolver, so the
+ *      kill feed and the MATCH LOG's `killerName` (which calls the same
+ *      `feedName`) can never disagree about the same event's size.
  *   3. the roster CALLSIGN — every captain, also inside `deps.names`.
  *   4. `UNKNOWN_VESSEL` — now genuinely unreachable for our OWN kills, and still
  *      correct for a hull that is neither ours nor ever seen. Never a raw
