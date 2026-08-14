@@ -240,3 +240,56 @@ describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
     expect(Math.max(...droneSpeeds)).toBeLessThan(CONFIG.torpedo.speed);
   });
 });
+
+// --- The PvE exchange rate (epic-5 amendment 45) ------------------------------
+//
+// THE GUARDRAIL AMENDMENT 33 FAILED TO APPLY, and the one that actually caught
+// the 6/8/10 fleet gun. A PvE kill is only a faucet if the XP it pays exceeds
+// what the damage taken COSTS TO UNDO — and undoing damage has a hard price in
+// the same currency: `damageControl` restores instantHp + regenHp (50) for one
+// banked level. So the honest test of a PvE damage profile is an EXCHANGE RATE,
+// never a dps or a time-to-kill.
+//
+// Eric's derivation, 2026-08-14: an unupgraded gun (15) needs 4 shots to sink a
+// 60hp small hull; on a 5s reload that is 20 seconds, in which the drone fires
+// back 4 times. At 6 damage that is 24 hp taken for a quarter-level earned —
+// and 24 hp costs about half a level to repair. Every size was NET NEGATIVE:
+// farming correctly and winning left a captain BEHIND one who ignored the
+// fleet entirely, which is a broken faucet rather than a hard fight.
+describe('the PvE farm must PAY — damage taken costs less to repair than the kill earns', () => {
+  const HEAL_HP = CONFIG.damageControl.instantHp + CONFIG.damageControl.regenHp; // 50 per level
+  const TIERS = [
+    ['small', 'droneSmall'],
+    ['medium', 'droneMedium'],
+    ['large', 'droneLarge'],
+  ] as const;
+
+  it('a solo duel with each fleet size is XP-POSITIVE after repair costs', () => {
+    expect(HEAL_HP).toBe(50); // the price of a level, in hp — the whole basis of this test
+    for (const [size, hullId] of TIERS) {
+      const drone = CONFIG.drones[size];
+      // Shots the captain needs, on the base gun; the drone answers on its own
+      // reload for exactly as long as that takes.
+      const shotsToKill = Math.ceil(drone.hp / CONFIG.gun.damage);
+      const duelMs = shotsToKill * CONFIG.gun.reloadMs;
+      const volleysBack = Math.floor(duelMs / drone.gun.reloadMs);
+      const damageTaken = volleysBack * drone.gun.damage;
+
+      const levelsEarned = CONFIG.xp.droneTierLevels[hullId];
+      const levelsToRepair = damageTaken / HEAL_HP;
+
+      expect(levelsToRepair).toBeLessThan(levelsEarned);
+    }
+  });
+
+  it('and the OLD 6/8/10 gun fails this same test on every size — the pin is not vacuous', () => {
+    const OLD = { small: 6, medium: 8, large: 10 } as const;
+    for (const [size, hullId] of TIERS) {
+      const drone = CONFIG.drones[size];
+      const shotsToKill = Math.ceil(drone.hp / CONFIG.gun.damage);
+      const volleysBack = Math.floor((shotsToKill * CONFIG.gun.reloadMs) / drone.gun.reloadMs);
+      const damageTaken = volleysBack * OLD[size];
+      expect(damageTaken / HEAL_HP).toBeGreaterThan(CONFIG.xp.droneTierLevels[hullId]);
+    }
+  });
+});
