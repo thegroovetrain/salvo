@@ -1,4 +1,4 @@
-# Batch-sim evidence — Sudden Death, the final collapse (cycle 81, 0.17.81)
+# Batch-sim evidence — Sudden Death, the final collapse (cycle 82, 0.17.82)
 
 Instrument: `HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --pilot <p> --matches 12 --seed 4141 --quiet`
 Roster: 3 scripted captains + drone fill (20 hulls). No `--set` overrides — shipped CONFIG, `suddenDeath: true`.

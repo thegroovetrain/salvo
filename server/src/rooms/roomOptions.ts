@@ -102,7 +102,7 @@ export interface MatchOverride {
  * deliberately NOT part of the shape: damage is never overridable) so closes
  * are observable in seconds. Matchmaking / the real client NEVER set it (the
  * client derives its ring phases from CONFIG.zone, so an override desyncs the
- * client's derived timeline — and since cycle 81 note that omitting
+ * client's derived timeline — and since cycle 82 note that omitting
  * `suddenDeath` forks the GROUP COUNT rather than only the magnitudes, so the
  * two sides disagree about how many groups exist, not merely how long they
  * last; a headless smoke that asserts client-side phases must set the flag). Gated by sanitizeRoomOptions same as

@@ -86,7 +86,7 @@ warnings: ['oversized']
 - [x] `client/src/__tests__/zone.test.ts` + `client/src/__tests__/zoneView.test.ts` (wherever the guard suite lives) -- retire the "degenerate r=0 sentinel draws nothing" case in favour of "a collapsed ring draws a full-map storm plane plus the X mark", and add the closed-state decode (`zoneCurR: 0` must not fall back to `mapRadius`).
 - [x] `server/src/__tests__/zone.test.ts` -- add a compressed-timeline case that runs the final group end to end and asserts storm damage bites EVERY afloat hull after full collapse.
 - [x] `server/scripts/zoneSmoke.mjs` -- exercise the collapse group over a real socket on a compressed override (reveal gating, concentric center, r=0 at closure).
-- [x] Docs + trackers -- `CLAUDE.md` (phased-storm and Endgame Guarantee bullets), `epic-3-context-amendments.md` (the new dated Eric ruling superseding amendment 24), `deferred-work.md` (mark the SUDDEN DEATH entry RESOLVED and open a ledger row for the ~15:00 covenant now being provably ~17:00 worst case, routed to the 7-5 doc batch), `sprint-status.yaml` AND `gds-workflow-status.yaml` (both, same PR), `VERSION` -> 0.17.81.
+- [x] Docs + trackers -- `CLAUDE.md` (phased-storm and Endgame Guarantee bullets), `epic-3-context-amendments.md` (the new dated Eric ruling superseding amendment 24), `deferred-work.md` (mark the SUDDEN DEATH entry RESOLVED and open a ledger row for the ~15:00 covenant now being provably ~17:00 worst case, routed to the 7-5 doc batch), `sprint-status.yaml` AND `gds-workflow-status.yaml` (both, same PR), `VERSION` -> 0.17.82.
 
 **Acceptance Criteria:**
 - Given the shipped CONFIG, when the match clock reaches 14:00, then the collapse point is marked on the water at the terminal ring's exact center with a one-shot reveal flash, and the mark persists through closure.
@@ -160,7 +160,7 @@ const eff = next ?? (finalGroup ? collapseRingOf(current) : null);
 
 ## Auto Run Result
 
-Status: **done** — landed as cycle 81 (0.17.81), `PROTOCOL_VERSION` 34 → 35.
+Status: **done** — landed as cycle 82 (0.17.82), `PROTOCOL_VERSION` 34 → 35.
 
 **What shipped.** The long-parked SUDDEN DEATH contingency, under Eric's authorizing ruling of 2026-08-14. A fourth ring group runs the existing four-beat rhythm from 12:00 — clear, supply, the collapse point MARKED with an X at 14:00, then the terminal 660u ring closing CONCENTRICALLY onto its own centre between 15:00 and 16:00. From 16:00 the map is 100% storm. Epic-3 amendment 24 is superseded on its post-closure-shrink clause alone: `stormDps` is untouched at 4 hp/s and no damage ramp was built.
 

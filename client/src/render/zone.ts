@@ -127,7 +127,7 @@ function bucketUp(r: number): number {
  * and its scale depends on the viewport). `lastR < 0` is the never-drawn
  * sentinel.
  *
- * CROSSING THE DEGENERATE BOUNDARY ALWAYS REDRAWS (sudden death, cycle 81).
+ * CROSSING THE DEGENERATE BOUNDARY ALWAYS REDRAWS (sudden death, cycle 82).
  * The `redrawEpsU` throttle is a SUB-UNIT tolerance, and the collapse ends by
  * pinning the radius at exactly 0 — arriving from a last redraw somewhere in
  * (0, redrawEpsU], which the epsilon then swallows. Without this clause the

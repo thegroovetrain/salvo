@@ -83,7 +83,7 @@ The seamanship shipped in two iterations under this single ruling: v1 (astern bu
 
 26. **The ring readout is a CONTINUOUS COUNTDOWN — `RING REVEALED` is retired and the pre-close register gains "IN" (supersedes amendment 20's reveal-beat announcement clause).** Eric hit the gap live: "the timer ticks down to the ring reveal text, then there's no indicator of when it will close." Ruling (both via AskUserQuestion): every pre-close beat — clear, supply, AND reveal — reads `RING CLOSES IN m:ss` counting down to the next close START, unbroken from cycle start; the reveal beat's HUD story is carried entirely by the on-water dashed telegraph (3.2). The amber exactly-1 Hz final-10s urgency window, `RING CLOSING m:ss` (to close end, no amber), and `RING CLOSED` are unchanged. Copy change: `RING CLOSES` → `RING CLOSES IN` (Eric's explicit pick over keeping the ratified mock voice). Amendments 20's other clauses (countdown counts to close START; urgency window semantics) stand.
 
-## 2026-08-14 — Eric ruling, SUDDEN DEATH authorized (dev-auto invocation, cycle 81)
+## 2026-08-14 — Eric ruling, SUDDEN DEATH authorized (dev-auto invocation, cycle 82)
 
 Source: Eric, verbatim invocation intent: *"After the 12:00 closure, I want the ring to close in on itself entirely from 15:00 to 16:00, forcing the match to end. Find the center of the final ring, mark it somehow (either a point, or an x or something) at 14:00, close it at 15:00, map is now 100% storm at 16:00 and someone will die."*
 
