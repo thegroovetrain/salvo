@@ -62,3 +62,42 @@ describe('Fog.setDazzled — the rebake staleness edge', () => {
     expect(rebakes).toBe(2);
   });
 });
+
+// THE OMNISCIENT REVEAL (Story 5.3) IS BUILT ON setVisible, NOT A FADE. main.ts's
+// enterSpectateVisuals calls `g.fog.setVisible(false)` — never touches alpha or
+// rebakes toward transparent — and the reason is structural, ratified in that
+// call's own doc comment (amendment 24's `Never` clause, epic-5 amendment 22 "a
+// label is not a mark"): render/stage.ts's `createStage` mounts the roots
+// worldRoot, plateRoot, fogSprite, chartRoot, hudRoot IN THAT ORDER, so
+// `plateRoot` (truesight nameplates) sits BELOW the fog composite while `ship`
+// (hulls) sits in `chartRoot`, ABOVE it. A fog *fade* would therefore dim every
+// nameplate on the water while leaving the hulls they label at full brightness —
+// only a hide takes the whole composite off screen in one step, for both layers
+// at once.
+//
+// That root-mount order lives entirely inside `createStage` (an inline
+// `app.stage.addChild(...)` call, not one of the exported *_LAYER_ORDER arrays
+// stage.ts declares for its child layers), and `createStage` requires a live
+// Pixi Application (WebGL/canvas) that jsdom cannot provide — stage.ts's own
+// header calls it "a thin Pixi adapter (not unit tested)". So the root ordering
+// itself is asserted only by inspection (see the comment above and
+// render/stage.ts's header) rather than by a test here; what IS pinned below is
+// the one thing setVisible actually promises: the sprite goes fully off and
+// fully back on, never partially.
+describe('Fog.setVisible — the reveal is a HIDE, never a fade', () => {
+  it('setVisible(false) hides the fog sprite outright; setVisible(true) restores it', () => {
+    const layer = new Container();
+    const fog = new Fog(layer);
+    // The Fog constructor adds its sprite before its hole mask (Graphics), so
+    // the sprite is always the layer's first child — no private-field reach-in.
+    const sprite = layer.children[0];
+    expect(sprite.visible).toBe(true); // boots visible, same as every other Pixi node
+
+    fog.setVisible(false);
+    expect(sprite.visible).toBe(false); // OFF outright — not a partial alpha
+    expect(sprite.alpha).toBe(1); // and setVisible never touches alpha either
+
+    fog.setVisible(true);
+    expect(sprite.visible).toBe(true); // restored, same object — no rebake needed
+  });
+});

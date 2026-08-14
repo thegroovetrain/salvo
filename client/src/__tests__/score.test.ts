@@ -18,13 +18,18 @@ import {
   respawnArmedIn,
   scoreAfterReconnect,
   boonCount,
+  afloatMsFor,
+  matchLogLine,
+  matchTimeMs,
+  STORM_KILLER,
+  UNKNOWN_KILLER,
   type SunkObservation,
 } from '../score.js';
 
 const OWN = 'me';
 
 function obs(over: Partial<SunkObservation> = {}): SunkObservation {
-  return { victimId: 'v1', victimName: 'RIVAL', killerId: OWN, victimIsDrone: false, ...over };
+  return { victimId: 'v1', victimName: 'RIVAL', killerId: OWN, victimIsDrone: false, tMs: 0, killerName: null, ...over };
 }
 
 describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () => {
@@ -37,12 +42,21 @@ describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () =
     const base = freshScore();
     expect(recordSunk(base, obs({ killerId: 'other' }), OWN)).toBe(base);
     expect(recordSunk(base, obs({ killerId: null }), OWN)).toBe(base);
-    expect(recordSunk(base, obs({ victimId: OWN }), OWN)).toBe(base);
+    // Our own sinking adds no ROLL entry (it never did). It DOES now add a
+    // MATCH LOG line (amendment 28), so the identity assertion the other two
+    // keep is checked on the roll's own fields here.
+    const ownDown = recordSunk(base, obs({ victimId: OWN }), OWN);
+    expect(ownDown.sunkContestants).toEqual([]);
+    expect(ownDown.sunkIds).toEqual([]);
   });
 
   it('a DRONE we sank never enters the list (the tally still counts it)', () => {
     const base = freshScore();
-    expect(recordSunk(base, obs({ victimIsDrone: true }), OWN)).toBe(base);
+    const droned = recordSunk(base, obs({ victimIsDrone: true }), OWN);
+    expect(droned.sunkContestants).toEqual([]);
+    expect(droned.sunkIds).toEqual([]);
+    // It DOES earn a MATCH LOG line (amendment 28) — see the log's own suite for
+    // why the two lists part company on drones.
   });
 
   it('de-duplicates by victim id (a respawn-and-resink lists one hull)', () => {
@@ -56,7 +70,7 @@ describe('recordSunk — only OUR kills on CONTESTANT hulls join the roll', () =
     s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE-1', victimIsDrone: true }), OWN);
     s = recordSunk(s, obs({ victimId: 'd2', victimName: 'DRONE-2', victimIsDrone: true }), OWN);
     s = recordSunk(s, obs({ victimId: 'h1', victimName: 'CAPTAIN-2' }), OWN);
-    const score = personalScore(s, [], 3, false);
+    const score = personalScore(s, [], 3, false, null);
     expect(score.kills).toBe(3);
     expect(score.sunkContestants).toEqual(['CAPTAIN-2']);
   });
@@ -89,7 +103,7 @@ describe('boonCount + personalScore', () => {
 
   it('a WINNER gets the winner flag instead of a placement number', () => {
     const s = recordElimination(freshScore(), 2);
-    const won = personalScore(s, ['gunDamage', 'shipHull'], 4, true);
+    const won = personalScore(s, ['gunDamage', 'shipHull'], 4, true, null);
     expect(won.winner).toBe(true);
     expect(won.placement).toBeNull();
     expect(won.boons).toBe(2);
@@ -98,11 +112,11 @@ describe('boonCount + personalScore', () => {
 
   it('an eliminated player reports the recorded placement', () => {
     const s = recordElimination(freshScore(), 2);
-    expect(personalScore(s, [], 0, false).placement).toBe(3);
+    expect(personalScore(s, [], 0, false, null).placement).toBe(3);
   });
 
   it('a still-alive player has no placement yet', () => {
-    expect(personalScore(freshScore(), [], 0, false).placement).toBeNull();
+    expect(personalScore(freshScore(), [], 0, false, null).placement).toBeNull();
   });
 });
 
@@ -312,7 +326,7 @@ describe('personalScoreFromResults — the GAME-END score comes off the MESSAGE'
   it('the winner reads VICTORY even while the schema has not patched winnerId yet', () => {
     // The schema-derived path reported `winner: false` here (winnerId still ''),
     // so the actual winner saw an amber "ELIMINATED" line under a VICTORY banner.
-    const s = personalScoreFromResults(freshScore(), ['gunDamage', 'gunDamage'], msg, OWN, 0);
+    const s = personalScoreFromResults(freshScore(), ['gunDamage', 'gunDamage'], msg, OWN, 0, null);
     expect(s.winner).toBe(true);
     expect(s.placement).toBeNull();
     expect(s.kills).toBe(4); // from the row, not the lagging roster tally
@@ -320,15 +334,198 @@ describe('personalScoreFromResults — the GAME-END score comes off the MESSAGE'
   });
 
   it('a loser takes the placement from their own results row, not the roster', () => {
-    const s = personalScoreFromResults(recordElimination(freshScore(), 4), undefined, msg, 'rival', 0);
+    const s = personalScoreFromResults(recordElimination(freshScore(), 4), undefined, msg, 'rival', 0, null);
     expect(s.winner).toBe(false);
     expect(s.placement).toBe(2); // NOT the provisional #5 the roster had latched
     expect(s.kills).toBe(1);
   });
 
   it('falls back to the latched placement + roster tally when we have no row', () => {
-    const s = personalScoreFromResults(recordElimination(freshScore(), 4), undefined, msg, 'ghost', 7);
+    const s = personalScoreFromResults(recordElimination(freshScore(), 4), undefined, msg, 'ghost', 7, null);
     expect(s.placement).toBe(5);
     expect(s.kills).toBe(7);
+  });
+});
+
+// --- THE MATCH LOG + TIME AFLOAT (Story 5.3, amendment 28) --------------------
+
+/** A minute-and-second match stamp, for readable expectations. */
+function tPlus(m: number, s: number): number {
+  return (m * 60 + s) * 1000;
+}
+
+describe('matchTimeMs — T+ is `serverNow − zoneStartT`, and an UNANCHORED clock is absent', () => {
+  it('is the elapsed match time once the timeline is anchored', () => {
+    expect(matchTimeMs(1_000_000, 900_000)).toBe(100_000);
+  });
+
+  it('reports NULL rather than the server uptime while zoneStartT is 0', () => {
+    // The whole reason the type is nullable: `serverNow − 0` is a huge number
+    // that would render as a plausible-looking match clock.
+    expect(matchTimeMs(1_000_000, 0)).toBeNull();
+    expect(matchTimeMs(1_000_000, -5)).toBeNull();
+    expect(matchTimeMs(Number.NaN, 900_000)).toBeNull();
+    expect(matchTimeMs(1_000_000, Number.NaN)).toBeNull();
+  });
+
+  it('clamps at 0 for a frame sampled just before the anchor lands', () => {
+    expect(matchTimeMs(899_990, 900_000)).toBe(0);
+  });
+});
+
+describe('matchLogLine — which sinkings earn the local player a line', () => {
+  it('OUR kill on a named hull is a `sank` line at the observed stamp', () => {
+    expect(matchLogLine(obs({ victimName: 'SALT SHAKER', tMs: tPlus(2, 41) }), OWN))
+      .toEqual({ tMs: tPlus(2, 41), kind: 'sank', name: 'SALT SHAKER' });
+  });
+
+  it('OUR OWN sinking is a `sunkBy` line credited to the killer', () => {
+    const line = matchLogLine(obs({ victimId: OWN, killerId: 'k', killerName: "KRAKEN'S BANE", tMs: tPlus(6, 27) }), OWN);
+    expect(line).toEqual({ tMs: tPlus(6, 27), kind: 'sunkBy', name: "KRAKEN'S BANE" });
+  });
+
+  it('a STORM death (no killer at all) reads SUNK BY THE STORM', () => {
+    const line = matchLogLine(obs({ victimId: OWN, killerId: null, killerName: null, tMs: tPlus(9, 3) }), OWN);
+    expect(line).toEqual({ tMs: tPlus(9, 3), kind: 'sunkBy', name: STORM_KILLER });
+  });
+
+  it('a killer we cannot NAME is UNKNOWN VESSEL, never the storm', () => {
+    // Something sank us; saying "THE STORM" would be a lie about our own death.
+    // (The kill feed spells this same case UNKNOWN VESSEL.)
+    const line = matchLogLine(obs({ victimId: OWN, killerId: 'gone', killerName: null, tMs: 1000 }), OWN);
+    expect(line?.name).toBe(UNKNOWN_KILLER);
+    expect(UNKNOWN_KILLER).not.toBe(STORM_KILLER);
+  });
+
+  it('earns NO line for someone else\'s kill', () => {
+    expect(matchLogLine(obs({ killerId: 'other', tMs: 1000 }), OWN)).toBeNull();
+    expect(matchLogLine(obs({ killerId: null, tMs: 1000 }), OWN)).toBeNull();
+  });
+
+  it('earns NO line for an UNSEEN kill we cannot name (the inherited limitation)', () => {
+    // deferred-work.md:211-212 — an LOS-less kill yields no victim NAME. The log
+    // inherits the roll's rule: omit the line rather than print a blank or an id.
+    expect(matchLogLine(obs({ victimName: null, tMs: 1000 }), OWN)).toBeNull();
+  });
+
+  it('earns NO line when the timeline is not anchored (a ready-room sinking)', () => {
+    expect(matchLogLine(obs({ tMs: null }), OWN)).toBeNull();
+    expect(matchLogLine(obs({ victimId: OWN, tMs: null }), OWN)).toBeNull();
+  });
+
+  it('our own death OUTRANKS the kill branch when both would match', () => {
+    const line = matchLogLine(obs({ victimId: OWN, killerId: OWN, killerName: 'ME', tMs: 500 }), OWN);
+    expect(line?.kind).toBe('sunkBy');
+  });
+});
+
+describe('recordSunk — the MATCH LOG fold (drones IN, chronological, de-duplicated)', () => {
+  it('builds amendment 28\'s example log in ARRIVAL order, our death last', () => {
+    let s = freshScore();
+    s = recordSunk(s, obs({ victimId: 'a', victimName: 'SALT SHAKER', tMs: tPlus(2, 41) }), OWN);
+    s = recordSunk(s, obs({ victimId: 'b', victimName: 'IRON KETTLE', tMs: tPlus(4, 12) }), OWN);
+    s = recordSunk(s, obs({ victimId: OWN, killerId: 'k', killerName: "KRAKEN'S BANE", tMs: tPlus(6, 27) }), OWN);
+    expect(s.matchLog).toEqual([
+      { tMs: tPlus(2, 41), kind: 'sank', name: 'SALT SHAKER' },
+      { tMs: tPlus(4, 12), kind: 'sank', name: 'IRON KETTLE' },
+      { tMs: tPlus(6, 27), kind: 'sunkBy', name: "KRAKEN'S BANE" },
+    ]);
+    // Stamps only ever run forward, so appending IS sorting.
+    expect(s.matchLog.map((e) => e.tMs)).toEqual([...s.matchLog.map((e) => e.tMs)].sort((x, y) => x - y));
+  });
+
+  it('LOGS a drone kill even though the ROLL drops it (amendment 9 is about the results TABLE)', () => {
+    // The adjacent KILLS tile is the roster's drone-inclusive tally; a log that
+    // dropped drone kills would show one line beside a tile reading 2.
+    let s = freshScore();
+    s = recordSunk(s, obs({ victimId: 'd1', victimName: 'DRONE-01', victimIsDrone: true, tMs: 30_000 }), OWN);
+    s = recordSunk(s, obs({ victimId: 'h1', victimName: 'CAPTAIN-2', tMs: 60_000 }), OWN);
+    expect(s.matchLog.map((e) => e.name)).toEqual(['DRONE-01', 'CAPTAIN-2']);
+    expect(s.sunkContestants).toEqual(['CAPTAIN-2']);
+    expect(personalScore(s, [], 2, false, 90_000).kills).toBe(2);
+  });
+
+  it('never logs a hull twice (a duplicate/replayed `sunk` is swallowed)', () => {
+    let s = recordSunk(freshScore(), obs({ victimName: 'HORNET', tMs: 10_000 }), OWN);
+    const after = recordSunk(s, obs({ victimName: 'HORNET', tMs: 12_000 }), OWN);
+    expect(after.matchLog).toHaveLength(1);
+    expect(after).toBe(s); // identity preserved: no re-render churn
+    // …and a replayed OWN sinking can neither re-post the line nor move the clock.
+    s = recordSunk(s, obs({ victimId: OWN, killerId: 'k', killerName: 'RAIL', tMs: 20_000 }), OWN);
+    const dup = recordSunk(s, obs({ victimId: OWN, killerId: 'k', killerName: 'RAIL', tMs: 25_000 }), OWN);
+    expect(dup).toBe(s);
+    expect(dup.sunkAtMs).toBe(20_000);
+  });
+
+  it('an event earning no line leaves the state IDENTICAL', () => {
+    const base = freshScore();
+    expect(recordSunk(base, obs({ killerId: 'other', tMs: 1000 }), OWN)).toBe(base);
+    expect(recordSunk(base, obs({ victimName: null, tMs: 1000 }), OWN)).toBe(base);
+  });
+
+  it('an UNSTAMPED kill still joins the ROLL — only the LOG needs a clock', () => {
+    // The roll is a list of names and never asked when anything happened, so a
+    // ready-room sinking (no anchor) is a log omission, not a roll omission.
+    const s = recordSunk(freshScore(), obs({ tMs: null }), OWN);
+    expect(s.sunkContestants).toEqual(['RIVAL']);
+    expect(s.matchLog).toEqual([]);
+  });
+
+  it('a kill scored DURING our own sinking window lands after the death line', () => {
+    // Story 5.2 amendment 11: you go down shooting. Chronological is the truth
+    // of what happened, so the log is not re-ordered to keep the death last.
+    let s = recordSunk(freshScore(), obs({ victimId: OWN, killerId: 'k', killerName: 'RAIL', tMs: 100_000 }), OWN);
+    s = recordSunk(s, obs({ victimId: 'late', victimName: 'PARTING SHOT', tMs: 103_000 }), OWN);
+    expect(s.matchLog.map((e) => e.kind)).toEqual(['sunkBy', 'sank']);
+    expect(s.sunkAtMs).toBe(100_000); // TIME AFLOAT still ends at OUR sink-entry
+  });
+});
+
+describe('afloatMsFor — the clock stops at our SINK-ENTRY, or runs to now', () => {
+  it('runs to NOW while we are still afloat (the winner\'s case)', () => {
+    expect(afloatMsFor(freshScore(), tPlus(11, 40))).toBe(tPlus(11, 40));
+  });
+
+  it('freezes at the moment our own hull went down', () => {
+    const s = recordSunk(freshScore(), obs({ victimId: OWN, killerId: 'k', killerName: 'RAIL', tMs: tPlus(6, 27) }), OWN);
+    expect(afloatMsFor(s, tPlus(9, 0))).toBe(tPlus(6, 27));
+    // …and it agrees exactly with the log's own SUNK BY stamp, which is why
+    // sink-entry is used rather than founder (five seconds later).
+    expect(s.matchLog[0].tMs).toBe(afloatMsFor(s, tPlus(9, 0)));
+  });
+
+  it('is NULL — the tile\'s omit signal — when the timeline has no anchor', () => {
+    expect(afloatMsFor(freshScore(), matchTimeMs(1_000_000, 0))).toBeNull();
+    expect(personalScore(freshScore(), [], 0, false, null).afloatMs).toBeNull();
+  });
+});
+
+describe('personalScore + personalScoreFromResults carry the log and the clock', () => {
+  const sank = recordSunk(freshScore(), obs({ victimName: 'HORNET', tMs: tPlus(1, 5) }), OWN);
+
+  it('the elimination modal reads both off the local fold', () => {
+    const view = personalScore(sank, [], 1, false, tPlus(3, 0));
+    expect(view.matchLog).toBe(sank.matchLog);
+    expect(view.afloatMs).toBe(tPlus(3, 0));
+  });
+
+  it('the GAME-END modal reads both off the local fold too (the message carries neither)', () => {
+    const msg = { winnerId: OWN, rows: [{ id: OWN, placement: 1, kills: 1 }] };
+    const view = personalScoreFromResults(sank, [], msg, OWN, 0, tPlus(12, 0));
+    expect(view.winner).toBe(true);
+    expect(view.matchLog).toEqual(sank.matchLog);
+    expect(view.afloatMs).toBe(tPlus(12, 0)); // the winner is still on the water
+  });
+
+  it('a RECONNECT clears the log with the roll but KEEPS the sink time', () => {
+    let s = recordSunk(freshScore(), obs({ victimName: 'HORNET', tMs: tPlus(1, 5) }), OWN);
+    s = recordSunk(s, obs({ victimId: OWN, killerId: 'k', killerName: 'RAIL', tMs: tPlus(4, 0) }), OWN);
+    const after = scoreAfterReconnect(s);
+    // The outage may have swallowed events, so the observed list restarts clean…
+    expect(after.matchLog).toEqual([]);
+    expect(after.loggedIds).toEqual([]);
+    // …but TIME AFLOAT must not resume counting up for a dead player.
+    expect(after.sunkAtMs).toBe(tPlus(4, 0));
+    expect(afloatMsFor(after, tPlus(9, 0))).toBe(tPlus(4, 0));
   });
 });

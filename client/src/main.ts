@@ -111,16 +111,18 @@ import {
   showResults,
   updateResultsScore,
   winnerBanner,
+  type ResultsOwn,
   type ResultsView,
 } from './ui/results.js';
 import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction } from './ui/settings.js';
-import { effectiveScale, scaleFactor, settings } from './settings/store.js';
+import { effectiveScale, motionIntensity, scaleFactor, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
   afloatCount,
   canOpenElimination,
   freshScore,
   isLiveRival,
+  matchTimeMs,
   personalScore,
   personalScoreFromResults,
   recordElimination,
@@ -1036,6 +1038,20 @@ function updateOwnColor(g: Game): void {
  * caller (renderOwn) runs this after camera.update so the projection matches the
  * hull; the plate hides whenever the hull hides (spectate / forceSnap gap).
  */
+/**
+ * THE OWN WRECK'S POSE while spectating, or null when there is no wreck to draw
+ * (never sank, or no `you` was ever received). `net.you` is deliberately never
+ * cleared on death — "the wreck's last pose survives the entire spectate
+ * period" — so the hull's final resting position is simply the last one the
+ * server sent. Mirrors `enterSpectateVisuals`'s `=== false` test so the two can
+ * never disagree about whether a wreck exists.
+ */
+function ownWreckPose(g: Game): RenderPose | null {
+  const you = g.state.net.you;
+  if (!you || you.alive !== false) return null;
+  return { x: you.x, y: you.y, heading: you.heading, speed: you.speed };
+}
+
 function updateOwnPlate(g: Game, pose: RenderPose): void {
   const id = g.state.net.sessionId;
   if (!g.ownPlated) {
@@ -1123,6 +1139,27 @@ function othersAlive(g: Game): number {
   return n;
 }
 
+/**
+ * THE FIELD SIZE — the `OF 14` of `9TH OF 14` (Story 5.3, amendment 29). Every
+ * CAPTAIN on the roster, alive or sunk, drones excluded by the same sentinel
+ * every other captains-only count uses (epic-4 amendment 32, epic-5 amendment 9).
+ *
+ * Deliberately the LIVE roster rather than a match-start tally: a captain who
+ * quits is removed outright (`Match.onPlayerLeave` → `removeShip`), so a field
+ * that shrinks mid-match is what the roster actually knows. The game-end modal
+ * does not use this — it derives the field from the results table's own rows,
+ * which include departed captains and are the authoritative record.
+ */
+function captainCount(g: Game): number | null {
+  const players = publicState(g).players;
+  if (!players) return null;
+  let n = 0;
+  players.forEach((meta: { color?: number }) => {
+    if (typeof meta.color === 'number' && meta.color !== REGATTA_NO_HUE) n += 1;
+  });
+  return n > 0 ? n : null;
+}
+
 /** Has the ROSTER caught up with our own sinking? While it hasn't, the alive
  *  count it reports is a patch-lagged snapshot and the placement derived from
  *  it is provisional (see score.ts refinePlacement). */
@@ -1145,9 +1182,43 @@ function isWinner(g: Game): boolean {
   return publicState(g).winnerId === g.state.net.sessionId;
 }
 
+/**
+ * MATCH TIME (T+) for the results card — `serverNow − zoneStartT`, the exact
+ * derivation the BR chrome bar has used since Story 3.3, so the MATCH LOG's
+ * stamps and the bar's clock can never disagree. Null until the timeline is
+ * anchored (`zoneStartT` is 0 in the ready room), which is what lets the modal
+ * drop the TIME AFLOAT tile rather than print a zero (Story 5.3, amendment 28).
+ */
+function ownMatchTime(g: Game): number | null {
+  return matchTimeMs(g.clock.serverNow(), publicState(g).zoneStartT ?? 0);
+}
+
 /** Assemble the modal's personal-score block from the accumulator + roster. */
 function ownScore(g: Game): PersonalScore {
-  return personalScore(g.score, g.state.net.you?.boons, ownKills(g), isWinner(g));
+  return personalScore(g.score, g.state.net.you?.boons, ownKills(g), isWinner(g), ownMatchTime(g));
+}
+
+/**
+ * The modal's OWN-IDENTITY block (Story 5.3): callsign · class in the personal
+ * hue, plus the build it is reviewing. Every field is already in hand — the
+ * roster for name/hue, and `net.you` for class/boons/offer, which is NEVER
+ * cleared on death (roomBindings: "the wreck's last pose survives the entire
+ * spectate period"), so this costs no wire and no PROTOCOL_VERSION bump.
+ * Null when either half is unresolved: the modal then simply omits the line.
+ */
+function ownResultsIdentity(g: Game): ResultsOwn | null {
+  const you = g.state.net.you;
+  const name = rosterNameOrNull(g, g.state.net.sessionId);
+  const idx = rosterColor(g, g.state.net.sessionId);
+  if (!you || name === null || idx === null) return null;
+  return {
+    name,
+    cls: you.cls,
+    hue: PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.droneOutline,
+    boons: you.boons ?? [],
+    offer: you.offer ?? [],
+    pts: you.pts ?? 0,
+  };
 }
 
 /**
@@ -1163,7 +1234,18 @@ function handleSunkObserved(g: Game, victimId: string, killerId: string | null):
     // rosterNameOrNull, never rosterName: a victim who has already LEFT the
     // roster has no callsign, and the id fallback would print a session id into
     // "SHIPS YOU SANK". A nameless kill still counts in the roster tally.
-    { victimId, victimName: rosterNameOrNull(g, victimId), killerId, victimIsDrone: isDroneId(g, victimId) },
+    {
+      victimId,
+      victimName: rosterNameOrNull(g, victimId),
+      killerId,
+      victimIsDrone: isDroneId(g, victimId),
+      // The MATCH LOG's stamp and killer name (Story 5.3, amendment 28). Both
+      // are resolved HERE, at fold time, because both are perishable: the T+
+      // clock only means anything at the moment the sinking is observed, and a
+      // killer who leaves the roster later would no longer resolve to a name.
+      tMs: ownMatchTime(g),
+      killerName: killerId === null ? null : rosterNameOrNull(g, killerId),
+    },
     g.state.net.sessionId,
   );
   if (victimId !== g.state.net.sessionId) return;
@@ -1302,7 +1384,20 @@ function resetOwnOrders(g: Game): void {
 
 /** The elimination modal: personal score + placement, SPECTATE + RETURN TO PORT. */
 function showEliminationResults(g: Game): void {
-  presentResults(g, { banner: 'ELIMINATED', victory: false, score: ownScore(g), rows: null, ownId: g.state.net.sessionId, canSpectate: true });
+  presentResults(g, {
+    // IGNORED AT AN ELIMINATION and deliberately empty: `bannerText()` owns the
+    // death register (amendment 29 — the banner reads SUNK, with the placement
+    // on its second line, per mockup F3 and EXPERIENCE.md's dry-naval voice).
+    // The field carries GAME-END copy only (VICTORY / WINNER: NAME / DRAW).
+    banner: '',
+    victory: false,
+    score: ownScore(g),
+    rows: null,
+    ownId: g.state.net.sessionId,
+    canSpectate: true,
+    own: ownResultsIdentity(g),
+    fieldSize: captainCount(g),
+  });
 }
 
 /**
@@ -1314,7 +1409,7 @@ function showEliminationResults(g: Game): void {
  * PLACE #n" under a VICTORY banner until the patch caught up.
  */
 function showMatchResults(g: Game, msg: ResultsMsg): void {
-  const score = personalScoreFromResults(g.score, g.state.net.you?.boons, msg, g.state.net.sessionId, ownKills(g));
+  const score = personalScoreFromResults(g.score, g.state.net.you?.boons, msg, g.state.net.sessionId, ownKills(g), ownMatchTime(g));
   presentResults(g, {
     banner: winnerBanner(msg, g.state.net.sessionId),
     victory: score.winner,
@@ -1322,6 +1417,9 @@ function showMatchResults(g: Game, msg: ResultsMsg): void {
     rows: msg.rows,
     ownId: g.state.net.sessionId,
     canSpectate: false, // nothing left to watch
+    own: ownResultsIdentity(g),
+    // No fieldSize: the results table's own rows ARE the field (captains only,
+    // departed captains included), so the module derives it for free.
   });
 }
 
@@ -3091,14 +3189,46 @@ function renderAlive(
 
 // --- spectate rendering ----------------------------------------------------------
 
-/** One-time visual switch into spectate: fog off, sweep/blips gone, hull hidden. */
+/**
+ * One-time visual switch into spectate — and, since Story 5.3, THE OMNISCIENT
+ * REVEAL ITSELF. The fog comes off, the sweep and blips go, the combat surfaces
+ * die with the hull, and the camera pulls back to frame the whole ocean.
+ *
+ * THE FOG IS HIDDEN, NEVER FADED (amendment 24's `Never` clause): `plateRoot`
+ * sits BELOW `fogSprite` while hulls sit above it in `chartRoot` (epic-5
+ * amendment 22 — "a label is not a mark"), so a fade would dim every nameplate
+ * on the water while leaving the hulls they label at full brightness.
+ *
+ * YOUR OWN WRECK STAYS ON SCREEN — BUT ONLY IF YOU ACTUALLY SANK. It used to be
+ * hidden here unconditionally, which was defensible when the reveal was a
+ * curtain nobody saw through; mockup F2/F3 draw the wreck marking the water
+ * where you went down, with your callsign on it, and under amendment 24 the
+ * reveal is the backdrop the results modal sits over. `net.you` is never
+ * cleared on death, so the last pose is still in hand, and the wreck's LOOK is
+ * already right: amendment 21's settle holds it at `ownSettleMax` with readable
+ * colour rather than completing to the black-silhouette wreck tint.
+ *
+ * THE WINNER IS THE CASE THAT MAKES THIS CONDITIONAL (review finding). Everyone
+ * spectates at `phase === 'finished'`, the winner included — and an AFLOAT hull
+ * reaches its own client as an ordinary spectator CONTACT (`signals.ts`'s
+ * spectator branch precedes the self-exclusion). So a winner who kept `ownView`
+ * visible would render TWO copies of their own ship: the frozen predicted one
+ * and the live interpolated one, visibly diverging for the whole results
+ * period. Only a hull that is genuinely gone is absent from the contact set and
+ * therefore needs drawing itself. `=== false` rather than `!alive` on purpose:
+ * a missing `you` must read as afloat here, never as a wreck (main.ts's
+ * standing `alive ?? true` trap).
+ */
 function enterSpectateVisuals(g: Game): void {
   if (g.spectate.visualsSet) return;
   g.spectate.visualsSet = true;
+  const wrecked = g.state.net.you?.alive === false;
   g.fog.setVisible(false);
   g.radar.clearBlips();
-  g.ownView.gfx.visible = false;
-  g.nameplates.hide(g.state.net.sessionId); // own plate hidden while spectating (hull hidden)
+  if (!wrecked) {
+    g.ownView.gfx.visible = false;
+    g.nameplates.hide(g.state.net.sessionId);
+  }
   g.firing.hide();
   g.aimPreview.hide(); // nothing is aimed from a sunk hull
   g.hotbar.hide(); // the loadout surface dies with the hull (Story 2.2)
@@ -3109,6 +3239,13 @@ function enterSpectateVisuals(g: Game): void {
   // Any debounced zoom re-bake still in flight dies with it (fog is off here).
   g.camera.resetUserZoom();
   cancelZoomFogRebake(g);
+  // THE REVEAL FRAMING (Story 5.3, amendment 25). Ordered AFTER resetUserZoom
+  // deliberately: that call clears the alive user zoom and must not cancel the
+  // reveal target set here. The framing is derived from the live map radius and
+  // radar range, never a literal, so Story 6.2's roster-dynamic map sizing moves
+  // it automatically. It is exempt from the spectate clamp; the first manual
+  // wheel or pan releases it back to the clamped [0.5, 1] path.
+  g.camera.beginReveal(g.mapRadius, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
   // Drop any WASD held at the moment of death so updateSpectateCamera sees a
   // clean edge — otherwise steering into your own death instantly (and
   // permanently) engages free-pan, skipping the follow-your-killer default.
@@ -3125,12 +3262,47 @@ function enterSpectateVisuals(g: Game): void {
   g.denialDedup.clear();
 }
 
+/**
+ * THE REVEAL FRAMES THE OCEAN, WHICH MEANS THE CENTRE MOVES TOO (review
+ * finding). `beginReveal` sets a zoom FACTOR and nothing else, so on its own the
+ * camera pulled back while still trailing your killer — and a killer even a few
+ * hundred units off-centre cropped a slice of the map straight off the screen,
+ * which is not "the whole ocean" by any reading of the AC or mockup F2. The map
+ * disc is centred on the origin by construction (`sim/map.ts` spans
+ * [-radius, +radius] on both axes), so the reveal's centre target is (0, 0).
+ *
+ * It EASES on the same exponential the follow uses rather than snapping, so the
+ * pull-back and the drift to centre are one motion; at `motion: off` the camera
+ * arrives immediately, matching the zoom's own snap (amendment 26 — the setting
+ * costs the travel, never the framing). Releasing the reveal (any manual wheel
+ * or pan) hands the centre straight back to follow-your-killer.
+ */
+function updateRevealCamera(g: Game, frameDt: number): void {
+  // speed 0 is load-bearing, not filler: the camera's forward LEAD is derived
+  // from the followed target's speed, and any lead would push the map disc
+  // off-centre — the exact thing this function exists to prevent.
+  const center = { x: 0, y: 0, heading: 0, speed: 0 };
+  if (motionIntensity(settings.current.motion) <= 0) {
+    g.camera.snapTo(center);
+    return;
+  }
+  g.camera.update(frameDt, center);
+}
+
 /** Follow-your-killer by default; any WASD press hands the camera to free pan. */
 function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
   // Spectate pan reads the HELD WASD state (panAxes), not the driving axes():
   // its "throttle" is live W/S for up/down panning, not the (reset) telegraph order.
+  //
+  // FREE-PAN IS TESTED BEFORE THE REVEAL, NOT AFTER. Taking the camera by hand
+  // is exactly what releases the reveal (amendment 25), so a WASD press has to
+  // reach `camera.pan` — which is what clears the target. Gating the reveal
+  // first would have made the mode unreleasable by keyboard: the wheel would
+  // still escape it (its own listener calls setZoomFactor) but WASD never would.
   const axes = g.keyboard.panAxes();
   if (shouldEngageFreePan(axes)) g.spectate.freePan = true;
+  // Otherwise the reveal owns the camera while it is live — centre included.
+  if (!g.spectate.freePan && g.camera.revealing) return updateRevealCamera(g, frameDt);
   if (g.spectate.freePan) {
     const d = spectatePan(axes, frameDt, g.camera.zoomFactor);
     g.camera.pan(d.dx, d.dy);
@@ -3152,6 +3324,22 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // critical, and re-arms both stings for the next life for free.
   g.wasHpFrac = null;
   updateSpectateCamera(g, frameDt, now);
+  // THE REVEAL'S PULL-BACK (Story 5.3, amendments 25/26). Driven after the
+  // spectate camera so a manual pan in the same frame releases the target
+  // before it eases. The motion INTENSITY is passed in rather than read inside
+  // camera.ts, which stays pure math: `full` travels, `reduced` halves the
+  // duration, `off` arrives on this frame at the identical framing.
+  g.camera.tickZoom(frameDt * 1000, motionIntensity(settings.current.motion));
+  // THE WRECK'S PLATE MUST BE RE-PROJECTED EVERY FRAME (review finding).
+  // Nameplates are SCREEN-space (`plateRoot` is not camera-transformed), and the
+  // own plate is placed only by updateOwnPlate inside renderOwn — which does not
+  // run here. The wreck's HULL is world-space and stays put on its own, but a
+  // plate left unplaced would freeze at the pixels it occupied on the last alive
+  // frame and then drift free of the wreck as the reveal zooms out and the
+  // camera eases away — a callsign floating over open water. Placed AFTER the
+  // camera work, exactly as renderOwn orders it, so the projection matches.
+  const wreck = ownWreckPose(g);
+  if (wreck) updateOwnPlate(g, wreck);
   // A spectator is never IN the storm and owns no Tier-1 channel (no hull, no
   // fire control) — the plane renders, the vignette does not.
   updateZone(g, zv, false, false, now, nowMs);
@@ -3466,6 +3654,16 @@ function bindWheelZoom(game: Game): void {
   window.addEventListener(
     'wheel',
     (e: WheelEvent) => {
+      // A WHEEL AIMED AT THE RESULTS MODAL IS NOT A CAMERA INTENT (review
+      // finding). The modal is a scrollable panel and Story 5.3 made it taller
+      // — match log, boons, last offer — so scrolling it is now an ordinary
+      // action. This listener is on `window`, so every one of those ticks also
+      // drove the spectate zoom behind it, which CLEARS the reveal target and
+      // pops the backdrop from the whole-map framing to the clamp floor. It was
+      // near-invisible before (the dim was almost opaque and the zoom stayed
+      // inside [0.5, 1]); against the 0.62 dim it destroys the reveal by
+      // reading a scroll as a zoom.
+      if (resultsVisible()) return;
       if (game.state.spectating) {
         game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
         return;

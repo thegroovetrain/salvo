@@ -101,3 +101,28 @@ Story 5.2 question gate (all Eric rulings 2026-08-12 unless marked):
     continuous settle to the wreck look at founder. Supersedes amendment 16's PRESENTATION stance
     (its wire stance is unchanged: still no new field, no seventh exception — this renders
     amendment 19's composition). The plume stays at founder, so amendment 18's split holds.
+22. **A hull you can see outranks its own echo (Eric ruling 2026-08-13)** — hulls draw above radar
+    paint, and the near-range opacity mask re-anchors to the whole sight bubble. Nameplates
+    deliberately stay under the fog: a label is not a mark.
+
+Story 5.3 question gate (all Eric rulings 2026-08-13):
+
+23. **The modal's VERBS do not move** — epic-2 amendments 22/23 beat Story 5.3's own AC. SPECTATE +
+    RETURN TO PORT stay; ESC still means SPECTATE. 5.3 changes CONTENTS and STYLING only.
+24. **The reveal is the BACKDROP, not a beat** — mockup frame F2 is deleted as a stage; the modal
+    still opens at founder. The `0.88` → `0.62` dim is what makes the feature visible at all.
+25. **The reveal gets its OWN framing mode** (~0.275× to fit the 4800u map); `SPECTATE_ZOOM_MIN`
+    stays 0.5 and keeps governing the manual wheel. The entry-vs-manual pop is ledgered.
+26. **The reveal zoom is NOT exempt from the motion setting** — scaled by `motionIntensity`, and it
+    SNAPS at `off`. **Closes UX open question #25**, the story's named design-with-Eric gate.
+27. **`CONFIG.match.resultsSeconds` 10 → 45** — the old ceiling predates having anything to read.
+28. **The MATCH LOG** — kills (and your own death) get `T+mm:ss` stamps in their own block; TIME
+    AFLOAT stays. Zero wire. Boons/last-offer are BUILT but left as an open owner decision.
+29. **The banner reads `SUNK` / `9TH OF 14`** plus a `<CALLSIGN> · <CLASS>` identity line, retiring
+    the shipped `ELIMINATED` copy. This is EXPERIENCE.md's ratified death-register voice.
+30. **NO INSTANT RE-QUEUE. EVER.** — a standing constraint, now pinned by test. The mockup's
+    `SET SAIL IS ONE PRESS AWAY` sub-line is deleted; home's `PLAY` button is NOT renamed.
+31. **The reveal frames the ocean, so the CENTRE moves too** (orchestrator ruling at the review gate,
+    Eric has veto) — it targets the map origin, not your killer. Plus four review corrections: the
+    winner's doubled own hull, the wreck's frozen nameplate, TIME AFLOAT ceiling against its own log
+    stamp, and a modal scroll destroying the reveal behind it.

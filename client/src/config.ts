@@ -504,6 +504,23 @@ export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
   0,
 );
 
+/**
+ * Nominal travel time (ms) of the reveal zoom — the pull-back to the whole
+ * ocean at your own founder (Story 5.3). Authored as a DURATION because that is
+ * the shape of the thing Eric ruled on (amendment 26 scales it by the motion
+ * setting), and converted to the exponential rate the camera actually eases at
+ * just below.
+ */
+const REVEAL_ZOOM_MS = 1600;
+
+/**
+ * How many time constants of the exponential approach count as "arrived", used
+ * only to turn the authored duration into a rate. exp(-3) ≈ 5% of the travel
+ * left, which the camera's settle epsilon then closes. An exponential never
+ * literally lands, so a duration knob needs exactly this one convention.
+ */
+const REVEAL_ZOOM_TAUS = 3;
+
 export const CLIENT_CONFIG = {
   /** Design tokens (Story 1.11) — the single styling source (see above). */
   colors: COLORS,
@@ -952,6 +969,40 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE OMNISCIENT REVEAL (Story 5.3, epic-5 amendments 24-26) — the camera
+   * pull-back to the whole ocean when your own hull founders. Client-only feel:
+   * the reveal discloses nothing new (a spectator's frames already carry every
+   * afloat-or-sinking hull unfogged), it only decides how much of that water is
+   * on screen and how long the camera takes to get there. Nothing here is
+   * gameplay-authoritative, which is why it lives in this file rather than in
+   * shared CONFIG.
+   *
+   * There is no `zoomFactor` knob: the framing is DERIVED at kickoff by
+   * render/camera.ts's `revealZoomFactor()` from the camera's live radarRange
+   * and the Game's mapRadius, so a sensor or map-size retune moves it with them
+   * (amendment 25; Story 6.2 makes map sizing roster-dynamic).
+   */
+  reveal: {
+    /** Nominal travel time (ms) of the pull-back, before the motion setting
+     *  scales it (amendment 26: `full` ×1, `reduced` ×0.5, `off` snaps). */
+    zoomMs: REVEAL_ZOOM_MS,
+    /**
+     * Exponential approach rate (1/s) handed to Camera.beginReveal(), derived
+     * from the authored duration above so there is ONE number to tune. Same
+     * easing vocabulary — and the same units — as `camera.followRate`, which is
+     * how the camera's centre has always been smoothed.
+     */
+    zoomRate: REVEAL_ZOOM_TAUS / (REVEAL_ZOOM_MS / 1000),
+    /**
+     * Fit margin (> 1): the reveal frames a disc this much larger than the map,
+     * so the ocean's edge sits just inside the screen's short axis instead of
+     * flush against it. 1.05 = a 5% border — enough to read the boundary as a
+     * boundary, not enough to waste the frame the whole feature is about.
+     */
+    mapFitMargin: 1.05,
+  },
+
+  /**
    * CHARTED TERRAIN (cycle 59) — how the static island layer draws the height
    * field's elevation bands. Colours are NOT here: render/map.ts reads the
    * `colors.terrain` ramp. Nothing in this group is gameplay authoritative —
@@ -1158,8 +1209,29 @@ export const CLIENT_CONFIG = {
     urgentMs: 10_000,
   },
 
-  /** End-of-match results overlay feel. */
+  /** End-of-match results overlay feel + the mockup-F3 panel geometry. */
   results: {
+    /**
+     * THE FULLSCREEN DIM behind the modal (over `colors.fogBase`) — mockup F3's
+     * `rgba(2,6,4,.62)`.
+     *
+     * THIS NUMBER IS THE FEATURE, not a styling detail (Story 5.3, amendment
+     * 24): the omniscient reveal is the BACKDROP the modal sits on rather than
+     * a beat of its own, so the dim has to be thin enough to read the whole
+     * ocean through. The shipped 0.88 near-opaque black would have hidden the
+     * entire pull-back. Do not "tidy" it back up.
+     */
+    dimAlpha: 0.62,
+    /** Panel column (px) — mockup F3 `.results` width. */
+    panelWidth: 620,
+    /** Panel padding, verbatim from mockup F3 (heavier at the head than the foot
+     *  so the banner has air above it). */
+    panelPad: '40px 44px 36px',
+    /** {rounded.lg} — port chrome goes soft; the tactical register's hard corners
+     *  stay on the water (DESIGN.md:217). */
+    panelRadius: 12,
+    /** {rounded.md} — buttons and the dashed last-offer cards. */
+    controlRadius: 8,
     /**
      * ms — arming grace before results-phase ESC/Enter drive RETURN TO PORT.
      * The refit modal can be open the instant results land; an ESC/Enter the

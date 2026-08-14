@@ -20,6 +20,7 @@ import {
   chromeBarLayout,
   chromeBarSegments,
   fmtBarClock,
+  fmtElapsedClock,
   fmtRingClock,
   ringReadout,
   ringSegmentAlpha,
@@ -110,6 +111,30 @@ describe('ringReadout — amendment 26\'s continuous-countdown grammar', () => {
     expect(ringReadout('clear', -5_000).text).toBe('RING CLOSES IN 0:00');
     expect(ringReadout('closing', Number.NaN).text).toBe('RING CLOSING 0:00');
     expect(ringReadout('clear', Number.NaN).urgent).toBe(false); // a NaN clock is not an alarm
+  });
+});
+
+describe('fmtElapsedClock — unpadded SHAPE, elapsed DIRECTION (Story 5.3)', () => {
+  it('floors like fmtBarClock but drops the minute padding like fmtRingClock', () => {
+    // The third corner: the two shipped formatters covered elapsed+padded and
+    // countdown+unpadded, and TIME AFLOAT needed elapsed+unpadded. Reaching for
+    // fmtRingClock because its shape was right silently bought its ceil.
+    expect(fmtElapsedClock(387_400)).toBe('6:27'); // fmtRingClock would say 6:28
+    expect(fmtElapsedClock(387_000)).toBe('6:27'); // boundary: both agree
+    expect(fmtElapsedClock(1)).toBe('0:00'); // 1ms in has not finished a second
+    expect(fmtElapsedClock(0)).toBe('0:00');
+  });
+
+  it('shares the direction of fmtBarClock and the shape of fmtRingClock', () => {
+    for (const ms of [0, 1, 999, 1000, 61_500, 387_400, 3_599_999]) {
+      // Same seconds as the padded elapsed clock — only the minute padding differs.
+      expect(fmtElapsedClock(ms).padStart(5, '0')).toBe(fmtBarClock(ms));
+    }
+  });
+
+  it('clamps a negative or non-finite span to 0:00 rather than rendering junk', () => {
+    expect(fmtElapsedClock(-1)).toBe('0:00');
+    expect(fmtElapsedClock(Number.NaN)).toBe('0:00');
   });
 });
 

@@ -927,7 +927,13 @@ export const CONFIG = {
     joinWindow: 30000, // ms — room stays open/joinable after minHumans before the countdown arms (gathering phase; Eric ruling 2026-08-02)
     minHumans: 2, // humans required to start the countdown
     fillTo: 20, // total ships at start (drones fill the rest) — 3.1 design target (amendment 7)
-    resultsSeconds: 10, // s — results overlay before room disposes
+    // s — results overlay before the room disposes. 10 -> 45 (Story 5.3, epic-5
+    // amendment 27): the old ceiling predates there being anything to READ on
+    // that screen. It must now contain the last sinking captain's window closing
+    // (amendment 20 holds finish() open for it), the omniscient reveal, and a
+    // modal carrying the MATCH LOG. The dev-only matchOverride.resultsMs is
+    // untouched, so every headless smoke still runs at its own 3000 ms.
+    resultsSeconds: 45,
   },
 
   /** Fixed-tick timing (both server sim and client accumulator). */

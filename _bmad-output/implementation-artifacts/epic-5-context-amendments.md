@@ -585,3 +585,258 @@ reveals nothing. Client-only; `PROTOCOL_VERSION` untouched.
 storm-side fill and in-zone wash **no longer tint hulls**, and wounded-smoke plumes, lit-zone glow,
 own mine/decoy chart marks and the charted island linework now draw **under** hulls. `DESIGN.md`'s
 z-order line was updated, since this ruling is precisely what it rules on.
+
+## Amendment 23 — THE MODAL'S VERBS DO NOT MOVE: epic-2 amendments 22/23 beat Story 5.3's own AC (Eric ruling 2026-08-13)
+
+> *"Yeah, amendment wins out here."*
+
+Story 5.3's acceptance criterion and UX-DR27 (both 2026-07-16) specify *"the single amber RETURN TO
+PORT action (Enter or ESC) — no re-queue here, no dead spectate button."* **Eric ruled the opposite
+on 2026-07-26** in epic-2 amendments 22/23, and the shipped code implements that later ruling:
+the elimination modal carries **SPECTATE + RETURN TO PORT**, **ESC means SPECTATE** and never
+returns to port (`client/src/main.ts:806-826`, `ui/results.ts:203`), and **Enter confirms only at
+game end** (`main.ts:850-856`).
+
+**Ruled: the later amendment governs, and 5.3 does not touch the modal's verbs.** This story changes
+the modal's CONTENTS and its STYLING only. `escapeAction`'s uniform topmost-close law, the
+`canSpectate` gate, the 400 ms `resultsKeysArmed` grace and the Enter/`matchOver` predicate all stay
+byte-identical.
+
+**The AC's *"no dead spectate button"* clause is DISCHARGED rather than overruled** — it was written
+when spectate did not exist and was guarding against a placeholder. Spectate shipped in amendment 22
+and the button works, so there is no dead button to remove. The only genuinely superseded clause is
+*"Enter or ESC"*.
+
+**One consequence declined for now, recorded so it is not rediscovered:** `deferred-work.md:214-215`
+notes that ESC-closing the GAME-END modal strands a player *"on the dead ocean with settings→ABANDON
+as the only exit and the placement table gone for good."* A phase-split (ESC returns to port at game
+end, where there is nothing left to spectate) was offered and NOT taken. That entry stays open.
+
+## Amendment 24 — THE REVEAL IS THE BACKDROP, NOT A BEAT (Eric ruling 2026-08-13) — deletes mockup frame F2 as a stage
+
+> *"its the backdrop."*
+
+The ratified mockup draws F2 — the omniscient reveal — as its own full screen, held until Enter, with
+`SUNK — 9TH OF 14` center-top and an `ENTER · RESULTS` prompt, and its sequence footnote reads
+*"F2 → F3 is Enter/click."* **That stage is deleted.** The results modal keeps opening at founder
+exactly as amendment 22 requires, and the reveal is what is visible BEHIND and AROUND it — mockup
+frame **F3** ("results modal over the dimmed reveal") is the whole delivered composition.
+
+**This makes ONE shipped number load-bearing, and it is the change that makes the feature visible at
+all.** The modal currently dims the world with near-opaque black — `rgba(0,0,0,0.88)`
+(`ui/results.ts:128`). At 0.88 the client would zoom out to the whole ocean and the player would see
+none of it. The mockup's F3 specifies **`rgba(2,6,4,.62)`**, and that value is now the feature rather
+than a styling detail.
+
+**What this ruling REMOVES from the story:** no new client UX state, no Enter-to-proceed, no new key
+surface, no registration with `escapeAction`/`openSurfaces`, and no auto-advance question. The
+question gate's pre-taken rulings R8 (key the reveal on own founder, not on the spectate latch) and
+R9 (the reveal owns its own key surface) are **moot** — with no beat there is nothing to key. The
+reveal simply happens as the spectate view is entered.
+
+**The `SUNK — 9TH OF 14` register is not lost** — amendment 29 moves that exact copy onto the modal's
+banner, which is where the player now reads it.
+
+## Amendment 25 — THE REVEAL GETS ITS OWN FRAMING MODE; the spectate clamp is untouched (Eric ruling 2026-08-13)
+
+> *"Reveal gets its own framing, we might revisit the clamp later."*
+
+The reveal's defining framing is arithmetically illegal under the shipped clamp, and this is a
+measured fact rather than a preference. `baseZoom = shortAxis / (2 × radarRange)`
+(`render/camera.ts:163-166`) fits **1320u** across the screen; the map is **4800u** across
+(`CONFIG.map.baseRadius` 2400). Framing the whole ocean therefore needs a zoom factor of
+1320/4800 ≈ **0.275×**, against `SPECTATE_ZOOM_MIN = 0.5` (`camera.ts:34`) — **ratified by epic-2
+amendment 8** and pinned by two tests. At the floor the player sees 2640u, **55% of the map.**
+
+**Ruled:** a distinct REVEAL framing computes its own fit-the-map factor and is exempt from the
+spectate clamp. `SPECTATE_ZOOM_MIN`/`MAX` keep their values and keep governing the MANUAL wheel zoom,
+which is what epic-2 amendment 8 actually ruled on. Lowering the clamp to ~0.27 was offered and NOT
+taken, because it would hand every spectator a permanent whole-map view — a different feature.
+
+**Ledgered discontinuity, deliberately accepted:** the reveal framing is the ENTRY state, and the
+first manual wheel/pan hands control back to the clamped path — so a player who wheels once jumps
+from 0.275× into [0.5, 1.0]. Eric anticipated exactly this in the same breath (*"we might revisit the
+clamp later"*), so the pop is recorded rather than engineered around.
+
+**A perf worry chased down and retired:** a 0.275× framing triples the radar heat buffer's area, which
+`radarViewport.test.ts` watches. It does not apply — in spectate the client calls
+`radar.render(null, ...)` (`main.ts:3166`) and a null pose makes `paintHeat` hide the buffer outright
+(`radar.ts:1438-1440`). No radar surface is sized during the reveal. The map chart (island coastlines
+and contour bands across the full disc at once, which nothing has ever drawn) is the real new cost and
+wants a measurement, not a redesign.
+
+## Amendment 26 — THE REVEAL ZOOM IS NOT EXEMPT FROM THE MOTION SETTING (Eric ruling 2026-08-13) — CLOSES UX open question #25
+
+> *"That works."* — on: scale the zoom animation by `motionIntensity`, and at `off` SNAP to the
+> whole-map framing instead of animating to it.
+
+UX open question #25 (`EXPERIENCE.md:279`, *"whether the death-reveal camera zoom is exempt from the
+motion/shake setting (it's the climax beat)"*) closes as **NOT EXEMPT**, and the story's named
+design-with-Eric gate is discharged.
+
+**The three facts that decided it:**
+
+1. **Nothing in the game is currently exempt from `motion`.** All ~25 consumers multiply their
+   amplitude by `motionIntensity()` → `{full: 1, reduced: 0.5, off: 0}` (`settings/store.ts:97-101`);
+   none branches on the tier. The two exemptions that DO exist are exemptions from the *flash budget*
+   (`render/flashBudget.ts:30-35`) and from *attention tiering* (`render/attention.ts:32-37`), not
+   from `motion`. An exemption here would have been **the first of its kind.**
+2. **The setting's own standing law forbids it** (`store.ts:17-18`): *"`off` removes motion, **never
+   information**."*
+3. **Exempting it buys nothing.** At `motion: off` the snap arrives at the identical whole-map view on
+   the frame the animation would have started. Nothing about the reveal is lost; only the travel is.
+   There is no version of this where an accessibility setting costs a player the content.
+
+`render/camera.ts` and `render/spectate.ts` contain zero references to `motion` today, so this is the
+first camera property the setting reaches — which is precisely why the question existed.
+
+**Per the standing team agreement** (`deferred-work.md:860`, *"prefer 'ship it behind a flag and look'
+over 'choose from four written descriptions' for any question about a visual"*, which names this gate
+by name): the ruling is taken on the reasoning above, and the snap at `off` still wants one human
+look. If it reads badly, THAT is what reopens the exemption — not a paragraph.
+
+## Amendment 27 — `resultsSeconds` 10 → 45 (Eric ruling 2026-08-13)
+
+> *"Yes, raise to 45."*
+
+`CONFIG.match.resultsSeconds` was **10** (`shared/src/constants.ts:930`). Ten seconds after
+`finish()` the room disconnects every client (`match.ts:605`) and the client force-reloads to the
+menu (`main.ts:1432`).
+
+That ceiling predates there being anything to READ on the results screen. It must now contain the
+last sinking captain's window closing (amendment 20 holds the finish open for it), the reveal, and a
+modal that this story adds a MATCH LOG to. **Raised to 45 s.**
+
+Nothing else moves: it is one gameplay-authoritative CONFIG value, the room still disposes, and the
+dev-only `matchOverride.resultsMs` (used by every smoke at 3000 ms) is untouched.
+
+## Amendment 28 — THE MATCH LOG: kills get a TIME, as their own block (Eric ruling 2026-08-13)
+
+> *"I'd like to know at what game time I got the kills I got."*
+
+Eric chose a **separate MATCH LOG block** over stamping the existing `SHIPS YOU SANK` roll, and his
+chosen composition includes **his own death line** — so the log is the player's whole match, not only
+their kills:
+
+```
+  T+02:41   SANK SALT SHAKER
+  T+04:12   SANK IRON KETTLE
+  T+06:27   SUNK BY KRAKEN'S BANE
+```
+
+**TIME AFLOAT STAYS** — the three stat tiles remain `KILLS / PLACEMENT / TIME AFLOAT` as UX-DR27
+ratified and mockup F3 draws. Dropping it in favour of the log was offered and declined.
+
+**Zero wire, PROTOCOL_VERSION stays 34.** T+ is `serverNow − zoneStartT`, the same derivation the BR
+chrome bar has used since Story 3.3, and the client already learns the moment each of its own kills
+and its own death landed. The log is built from events the client already receives.
+
+**Inherited limitation, unchanged and NOT fixed here** (`deferred-work.md:211-212`): a kill scored
+with no line of sight yields no victim NAME, so it can contribute a stamped line but not a named one.
+The existing `SHIPS YOU SANK` roll has always had this shape; the log inherits it rather than
+introducing it.
+
+**LEFT UNDECIDED BY THE OWNER:** the mockup's `Boons Accrued` list and `Last Offer` cards. Eric:
+*"I don't know if I care about what boons I have selected at this point, i'll need to think on that."*
+Both are ratified in UX-DR27 and drawn in mockup F3, and both cost **zero wire** (`net.you` is never
+cleared on death, so `you.boons` and `you.offer` are still in hand when the modal opens —
+`roomBindings.ts:799-800`). They are therefore BUILT to the mockup and are a **pure subtraction** to
+cut on sight — which is the `deferred-work.md:860` agreement applied. Recorded as an open owner
+decision, not as a shipped ruling.
+
+## Amendment 29 — THE BANNER READS `SUNK`, and the identity line lands (Eric ruling 2026-08-13)
+
+> Chose `SUNK` / `9TH OF 14` over the shipped `ELIMINATED`.
+
+The modal's banner becomes mockup F3's composition: **`SUNK`** with **`9TH OF 14`** beneath it, plus
+the identity line **`<CALLSIGN> · <CLASS>`** with the callsign in the player's own hue. This retires
+the shipped `ELIMINATED` banner and the `ELIMINATED — PLACE #n` prose line
+(`main.ts:1305`, `results.ts:74-77`).
+
+It is also the ratified VOICE rather than a preference — `EXPERIENCE.md:52`: *"**Death register** is
+dry-naval: 'SUNK — 9TH OF 14'. Grim facts, no mockery, no exclamation points."* The victory and draw
+banners keep their existing copy and the phosphor/amber split is unchanged.
+
+Amendment 24 deleted the reveal stage that this copy was drawn on; this is where it lands instead.
+
+## Amendment 30 — NO INSTANT RE-QUEUE. EVER. (Eric ruling 2026-08-13)
+
+> *"I DO NOT WANT INSTANT REQUE. You MUST return to the home screen to requeue. MUST."*
+
+Stated in the strongest terms the ledger has recorded, in response to a copy question, and recorded
+here as a **standing constraint on every future story that touches the results screen or the return
+path** — not merely as this cycle's answer.
+
+**It is already structurally guaranteed, and the guarantee is now PINNED BY TEST rather than by
+construction alone.** The modal renders exactly two possible actions, SPECTATE and RETURN TO PORT
+(`ui/results.ts` `makeActions`); RETURN TO PORT runs `requestAdBreak()` → `room.leave()` →
+`location.reload()` (`app/returnToPort.ts:66-84`); and the reload lands on the pre-join home screen,
+which connects only on an explicit press. **There is no code path from the results modal into a new
+match.** Nothing in Story 5.3 threatens it — the story does not touch the modal's verbs at all
+(amendment 23) — but a test now asserts the action set so it cannot drift in later.
+
+**The consequence for this cycle's copy:** the mockup's button sub-line **`SET SAIL IS ONE PRESS
+AWAY`** is **DELETED**. Offered with two ways to keep it (rename home's button to `SET SAIL`, which
+DESIGN.md:243 already names as the amber register; or reword it to state the rule), and Eric took the
+subtraction. RETURN TO PORT ships as a bare button with its `⏎` key chip. **The home screen's `PLAY`
+button is therefore NOT renamed** — the divergence from DESIGN.md:243's "SET SAIL" register stays
+exactly as shipped, since the only thing that referenced it is now gone.
+
+## Amendment 31 — THE REVEAL FRAMES THE OCEAN, SO THE CENTRE MOVES TOO (orchestrator ruling 2026-08-13, forced by the review gate — **Eric has veto, this was not his call**)
+
+Five defects were found at Story 5.3's adversarial review gate, two of them user-visible on **every
+single match**. The one that needed a *decision* rather than a fix is recorded here as a ruling; the
+other four are recorded as the corrections they were.
+
+**THE RULING — the reveal centres on the map.** `beginReveal` set a zoom FACTOR and nothing else, so
+the camera pulled back *while still trailing your killer*. A killer even a few hundred units
+off-centre cropped a slice of the ocean straight off the screen — and a storm death, which has no
+killer at all, centred the reveal on an arbitrary surviving ship. **"The whole ocean" is a statement
+about the CENTRE as much as the zoom**, and no amendment had said so: amendment 25 ruled on the
+framing factor and the clamp exemption, and the centre simply fell between four separately-authored
+pieces with nobody owning it. Ruled: while the reveal is live it owns the camera centre and targets
+the map origin — which is the disc's centre by construction (`sim/map.ts` spans `[-radius, +radius]`
+on both axes). It eases on the same exponential the follow already uses, so the pull-back and the
+drift to centre are ONE motion, and it snaps at `motion: off` exactly as the zoom does (amendment 26).
+
+**A trap this created and the shape of its fix, because the obvious ordering is wrong:** free-pan
+must be tested BEFORE the reveal takes the camera. Taking the camera by hand is precisely what
+releases the reveal, so a WASD press has to reach `camera.pan` — the call that clears the target.
+Gating the reveal first makes the mode **unreleasable by keyboard**: the wheel still escapes it (its
+own listener calls `setZoomFactor`) but WASD never would.
+
+**The four corrections, each a defect rather than a decision:**
+
+1. **The winner rendered TWO of their own hull for the whole 45-second results period.** Un-hiding
+   the own hull at spectate entry was done unconditionally, but **an afloat hull reaches its own
+   client as an ordinary spectator CONTACT** (`signals.ts`'s spectator branch precedes the
+   self-exclusion), and everyone spectates at `phase === 'finished'` — the winner included. So the
+   winner drew a frozen predicted copy *and* a live interpolated one, visibly diverging. **The own
+   wreck is now drawn only when the local player genuinely sank**, which is exactly the case that is
+   absent from the contact set. Tested `=== false`, never `!alive`, because a missing `you` must read
+   as afloat here (main.ts's standing `alive ?? true` trap).
+2. **The own wreck's nameplate froze at a stale screen position.** Nameplates are SCREEN-space and
+   the own plate is placed only by `updateOwnPlate` inside `renderOwn` — which does not run while
+   spectating. The hull is world-space and stayed put on its own, so the plate drifted free of the
+   wreck as the reveal zoomed out, leaving a callsign floating over open water. It is now re-projected
+   every frame from the retained `net.you` pose, placed after the camera work exactly as `renderOwn`
+   orders it.
+3. **TIME AFLOAT read one second later than the `SUNK BY` stamp directly beneath it.** The tile
+   reached for `fmtRingClock` because its *shape* was right (unpadded `6:27`) and silently bought its
+   *direction* — the ring clock CEILS, because it counts down. Both values latch the same
+   millisecond, so they disagreed on every death not landing exactly on a second boundary. The module
+   had covered elapsed+padded and countdown+unpadded but not elapsed+unpadded; `fmtElapsedClock` is
+   that third corner. **The existing test could not see this — it used an exact-second value, where
+   ceil and floor agree** — so the regression pin deliberately uses a mid-second one.
+4. **Wheel-scrolling the results modal destroyed the reveal behind it.** The wheel listener is on
+   `window` with no modal gate, and this story made the modal tall enough that scrolling it is a
+   normal action — so every scroll tick also drove the spectate zoom, clearing the reveal target and
+   popping the backdrop to the clamp floor. Near-invisible before (an almost-opaque dim, and the zoom
+   stayed inside `[0.5, 1]`); against the 0.62 dim it read a scroll as a zoom and threw the framing
+   away. A wheel aimed at the modal is now not a camera intent.
+
+**What the review found CLEAN, recorded so it is not re-audited:** amendment 26's motion behaviour
+(including the snap at `off` and dt 0), amendment 25's untouched clamps, amendment 23's byte-identical
+verbs, amendment 30's action-set pin (real, not a tautology), and the `ownMatchTime` staleness class —
+stamps resolve at fold time and `sunkAtMs` latches first-wins, so a per-frame modal refresh cannot
+grow TIME AFLOAT. Nothing at CRITICAL severity; the perception boundary is untouched.

@@ -264,6 +264,75 @@ describe('ContactViews plate offset survives prune (no torpedoBoat pop)', () => 
   });
 });
 
+// UX-DR22 / Story 5.3 (the omniscient reveal): at spectate the server delivers
+// every afloat hull as an ordinary Contact (no observer bubble applies), so this
+// exercises the SAME drivePlate path every contact always uses — the reveal adds
+// no new plate logic, it just means every hull on the ocean reaches it in one
+// frame. What's pinned here is the property the reveal DEPENDS on: nothing in
+// that big a batch gets skipped, drones read "DRONE", humans read their callsign.
+describe('ContactViews — every revealed hull latches a plate in one frame (UX-DR22)', () => {
+  const contact = (id: string, cls: Contact['cls']): Contact => ({ id, x: 0, y: 0, heading: 0, speed: 0, cls });
+  const camera = { worldToScreen: (p: { x: number; y: number }) => p, zoom: 1 };
+
+  it('resolves a plate for every synced human AND every drone in a big reveal-shaped frame', () => {
+    const nameplates = new NameplateLayer(stubLayer());
+    const views = new ContactViews(stubLayer(), nameplates);
+    const store = new ContactStore();
+
+    const humans: Record<string, { name: string; hue: number }> = {
+      h1: { name: 'ace', hue: 0 },
+      h2: { name: 'boss', hue: 8 },
+      h3: { name: 'zed', hue: 17 },
+    };
+    const droneIds = ['d1', 'd2'];
+
+    store.pushFrame(0, [
+      ...Object.keys(humans).map((id) => contact(id, 'battleship')),
+      ...droneIds.map((id) => contact(id, 'droneSmall')),
+    ]);
+
+    const plates = { nameOf: (id: string) => humans[id]?.name ?? null, camera, pad: 8 };
+    const rosterIndex = (id: string): number | null => humans[id]?.hue ?? null;
+    views.render(store, 0, 0, 16, rosterIndex, plates);
+
+    // Nothing in the batch was skipped — every human AND every drone latched.
+    for (const id of [...Object.keys(humans), ...droneIds]) expect(nameplates.has(id)).toBe(true);
+
+    // Humans: uppercase callsign in the personal hue's text-safe variant.
+    for (const h of Object.values(humans)) {
+      const rec = textLog.find((t) => t.text === h.name.toUpperCase());
+      expect(rec).toBeDefined();
+      expect(rec!.style.fill).toBe(textSafe(PLAYER_HUES[h.hue]));
+    }
+
+    // Drones: the literal "DRONE" (never a roster/session id) in drone-outline grey.
+    const droneRecs = textLog.filter((t) => t.text === 'DRONE');
+    expect(droneRecs).toHaveLength(droneIds.length);
+    for (const r of droneRecs) expect(r.style.fill).toBe(C.droneOutline);
+  });
+
+  // The deliberate id-leak guard already pinned above (`resolvePlate — the latch
+  // gate`, "a human with an unsynced name OR hue does NOT resolve") carries into
+  // the reveal unchanged: the "every hull" property above is scoped to hulls WITH
+  // a resolved roster entry. An unsynced human is excluded from that set BY
+  // DESIGN — never falls back to its session id — so it must not gain a plate
+  // just because the reveal put many more contacts on screen at once.
+  it('a human whose name/hue never synced still resolves NO plate inside a large reveal frame', () => {
+    const nameplates = new NameplateLayer(stubLayer());
+    const views = new ContactViews(stubLayer(), nameplates);
+    const store = new ContactStore();
+
+    store.pushFrame(0, [contact('ace', 'battleship'), contact('ghost', 'torpedoBoat'), contact('d1', 'droneSmall')]);
+    const plates = { nameOf: (id: string) => (id === 'ace' ? 'ace' : null), camera, pad: 8 };
+    const rosterIndex = (id: string): number | null => (id === 'ace' ? 0 : null);
+    views.render(store, 0, 0, 16, rosterIndex, plates);
+
+    expect(nameplates.has('ace')).toBe(true); // synced human: plates
+    expect(nameplates.has('d1')).toBe(true); // drone: always resolvable
+    expect(nameplates.has('ghost')).toBe(false); // unsynced human: no plate, ever
+  });
+});
+
 describe('NameplateLayer — Pixi Text lifecycle state machine', () => {
   it('set() creates the Text once, then diff-before-assigns on text (color always writes)', () => {
     const layer = new NameplateLayer(stubLayer());

@@ -3,37 +3,66 @@
 // modal (personal score + placement + SPECTATE/RETURN TO PORT) and the game-end
 // modal (the same score card + the placement table + RETURN TO PORT). Both
 // action buttons are pinned by stable id — they are the player's only paths out.
+//
+// STORY 5.3 re-takes the CONTENT pins against mockup F3 (amendments 28/29/30):
+// the banner reads SUNK over `9TH OF 14`, an identity line lands under it, the
+// two label/value rows become three stat tiles, and the MATCH LOG arrives. The
+// VERB pins above are untouched by design (amendment 23) and one new pin —
+// "the action set is exactly SPECTATE + RETURN TO PORT" — makes amendment 30's
+// no-instant-re-queue guarantee a test rather than a construction.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import type { ResultsMsg, ResultsRow } from '@salvo/shared';
 import {
   closeResultsAsSpectate,
+  DEATH_BANNER,
   fmtDamage,
   hideResults,
+  matchLogRow,
+  offerHeading,
+  ordinalPlace,
   placementLine,
   resultsVisible,
-  scoreRows,
   scoreSignature,
   showResults,
   sortRows,
+  statTiles,
   sunkLines,
   updateResultsScore,
   winnerBanner,
+  type ResultsOwn,
   type ResultsView,
 } from '../ui/results.js';
-import type { PersonalScore } from '../score.js';
+import type { MatchLogEntry, PersonalScore } from '../score.js';
 import { sanitizeName, NAME_MAX } from '../ui/home.js';
+import { textSafe } from '../util/color.js';
+import { CLASS_DISPLAY_NAMES } from '../ui/classSelect.js';
+
+/** jsdom reports every colour back as `rgb(r, g, b)`, never as the hex it was
+ *  written with — so a colour pin compares against this, not against cssHex. */
+function rgbOf(v: number): string {
+  return `rgb(${(v >> 16) & 255}, ${(v >> 8) & 255}, ${v & 255})`;
+}
 
 function row(id: string, placement: number): ResultsRow {
   return { id, name: id.toUpperCase(), placement, kills: 0, damageDealt: 0 };
 }
 
 function score(over: Partial<PersonalScore> = {}): PersonalScore {
-  return { boons: 2, kills: 3, sunkContestants: ['RIVAL'], placement: 4, winner: false, ...over };
+  return { boons: 2, kills: 3, sunkContestants: ['RIVAL'], placement: 4, winner: false, matchLog: [], afloatMs: null, ...over };
 }
 
 function view(over: Partial<ResultsView> = {}): ResultsView {
   return { banner: 'ELIMINATED', victory: false, score: score(), rows: null, ownId: 'b', canSpectate: true, ...over };
+}
+
+function log(tMs: number, kind: 'sank' | 'sunkBy', name: string): MatchLogEntry {
+  return { tMs, kind, name };
+}
+
+/** An own hull with a build — the identity line + the two cut-able blocks. */
+function own(over: Partial<ResultsOwn> = {}): ResultsOwn {
+  return { name: 'TIN SPARROW', cls: 'torpedoBoat', hue: 0x00d0ff, boons: [], offer: [], pts: 0, ...over };
 }
 
 describe('sortRows', () => {
@@ -82,33 +111,96 @@ describe('fmtDamage', () => {
   });
 });
 
-describe('the personal-score copy (amendment 23)', () => {
+describe('the personal-score copy (amendment 23, re-taken by amendment 29)', () => {
   it('a winner is INDICATED as such instead of getting a placement number', () => {
     expect(placementLine(score({ winner: true, placement: null }))).toContain('WON');
     expect(placementLine(score({ winner: true, placement: null }))).not.toContain('#');
   });
 
-  it('an eliminated player reads their place', () => {
-    expect(placementLine(score({ placement: 4 }))).toBe('ELIMINATED — PLACE #4');
+  // PIN FLIPPED (amendment 29): the shipped `ELIMINATED — PLACE #4` prose line
+  // is retired for mockup F3's `9TH OF 14` register — EXPERIENCE.md:52's
+  // dry-naval death voice, which the deleted reveal stage used to carry.
+  it('an eliminated player reads their place as an ordinal of the field', () => {
+    expect(placementLine(score({ placement: 9 }), 14)).toBe('9TH OF 14');
+    expect(placementLine(score({ placement: 4 }), 14)).not.toContain('PLACE #');
   });
 
-  it('an underivable placement degrades to a neutral line, never a wrong number', () => {
-    expect(placementLine(score({ placement: null }))).toBe('ELIMINATED');
+  it('degrades to the bare ordinal rather than an `OF n` it cannot stand behind', () => {
+    expect(placementLine(score({ placement: 4 }), null)).toBe('4TH');
+    // A field smaller than the placement can only be a roster still settling.
+    expect(placementLine(score({ placement: 9 }), 3)).toBe('9TH');
   });
 
-  // PIN FLIPPED (Story 2.8): the 14 legacy upgrades died, so the row the player
-  // reads is BOONS FITTED — the same number they experienced as refit picks
-  // (spec 2.8 Design Notes, "score continuity").
-  it('reports boons fitted and the kill tally', () => {
-    expect(scoreRows(score({ boons: 5, kills: 3 }))).toEqual([
-      ['BOONS FITTED', '5'],
-      ['KILLS', '3'],
+  it('an underivable placement yields NO line — the banner already said SUNK', () => {
+    expect(placementLine(score({ placement: null }), 14)).toBe('');
+  });
+
+  it('ordinals handle the teens, which are the whole reason this is a function', () => {
+    expect([1, 2, 3, 4, 9, 11, 12, 13, 21, 22, 23].map(ordinalPlace)).toEqual([
+      '1ST', '2ND', '3RD', '4TH', '9TH', '11TH', '12TH', '13TH', '21ST', '22ND', '23RD',
     ]);
+  });
+
+  // PIN FLIPPED (Story 5.3): the two label/value rows (BOONS FITTED / KILLS)
+  // become mockup F3's three centered tiles — the set UX-DR27 ratified and
+  // amendment 28 explicitly kept ("TIME AFLOAT STAYS").
+  it('reports KILLS / PLACEMENT / TIME AFLOAT, the ratified tile set', () => {
+    expect(statTiles(score({ kills: 2, placement: 9, afloatMs: 387_000 }), 14)).toEqual([
+      { key: 'KILLS', value: '2', phosphor: true },
+      { key: 'PLACEMENT', value: '9', tail: '/14' },
+      { key: 'TIME AFLOAT', value: '6:27' },
+    ]);
+  });
+
+  // REGRESSION PIN (review finding): TIME AFLOAT used the RING clock, which has
+  // the right shape and the wrong direction — it CEILS, because it counts down.
+  // The tile latches the same millisecond as the MATCH LOG's `SUNK BY` stamp
+  // directly beneath it, so ceiling made the two read a second apart on every
+  // death that did not land exactly on a second boundary. The test above could
+  // not see it: 387_000 is a boundary, where ceil and floor agree.
+  it('FLOORS the elapsed span, agreeing with the match log stamp beside it', () => {
+    const t = 387_400; // mid-second: ceil would say 6:28, the log says T+06:27
+    expect(statTiles(score({ afloatMs: t }), 14)).toContainEqual({ key: 'TIME AFLOAT', value: '6:27' });
+    expect(matchLogRow({ tMs: t, kind: 'sunkBy', name: 'KRAKEN' }).stamp).toBe('T+06:27');
+    // 1ms in is still 0:00 — a clock counting UP shows the second that has passed.
+    expect(statTiles(score({ afloatMs: 1 }), 14)).toContainEqual({ key: 'TIME AFLOAT', value: '0:00' });
+  });
+
+  it('omits TIME AFLOAT when the match clock was never anchored (null, not 0)', () => {
+    expect(statTiles(score({ afloatMs: null }), 14).map((t) => t.key)).toEqual(['KILLS', 'PLACEMENT']);
+    // 0 is a legitimate value and must still render — it cannot double as the sentinel.
+    expect(statTiles(score({ afloatMs: 0 }), 14)).toContainEqual({ key: 'TIME AFLOAT', value: '0:00' });
+  });
+
+  it('a winner placed FIRST, and an underivable placement drops its tile', () => {
+    expect(statTiles(score({ winner: true, placement: null }), 14)).toContainEqual({ key: 'PLACEMENT', value: '1', tail: '/14' });
+    expect(statTiles(score({ placement: null }), 14).map((t) => t.key)).toEqual(['KILLS']);
   });
 
   it('the sunk roll lists contestants, or an explicit NONE (never a blank block)', () => {
     expect(sunkLines(score({ sunkContestants: ['A', 'B'] }))).toEqual(['· A', '· B']);
     expect(sunkLines(score({ sunkContestants: [] }))).toEqual(['— NONE —']);
+  });
+});
+
+// --- THE MATCH LOG (amendment 28) --------------------------------------------
+
+describe('matchLogRow — Eric\'s chosen composition, verbatim', () => {
+  it('stamps each line with the BR chrome bar\'s T+ clock', () => {
+    expect(matchLogRow(log(161_000, 'sank', 'SALT SHAKER'))).toEqual({ stamp: 'T+02:41', text: 'SANK SALT SHAKER' });
+    expect(matchLogRow(log(252_000, 'sank', 'IRON KETTLE'))).toEqual({ stamp: 'T+04:12', text: 'SANK IRON KETTLE' });
+    expect(matchLogRow(log(387_000, 'sunkBy', "KRAKEN'S BANE"))).toEqual({ stamp: 'T+06:27', text: "SUNK BY KRAKEN'S BANE" });
+  });
+
+  it('zero-pads the minutes so the stamps column stays a column', () => {
+    expect(matchLogRow(log(9_000, 'sank', 'X')).stamp).toBe('T+00:09');
+  });
+});
+
+describe('offerHeading', () => {
+  it('states the unspent bank plainly, singular and plural', () => {
+    expect(offerHeading(1)).toBe('LAST OFFER — 1 LEVEL UNSPENT');
+    expect(offerHeading(3)).toBe('LAST OFFER — 3 LEVELS UNSPENT');
   });
 });
 
@@ -122,15 +214,118 @@ describe('showResults — the elimination modal', () => {
   const spectateButton = (): HTMLButtonElement | null => document.querySelector('#results-spectate');
 
   it('renders the personal score, the placement, and BOTH actions while the match is live', () => {
-    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
+    showResults(view({ fieldSize: 14 }), { onSpectate: () => undefined, onReturn: () => undefined });
     const text = document.getElementById('results-overlay')?.textContent ?? '';
-    expect(text).toContain('ELIMINATED');
-    expect(text).toContain('PLACE #4');
-    expect(text).toContain('BOONS FITTED'); // Story 2.8: the legacy upgrade row's successor
+    expect(text).toContain(DEATH_BANNER); // amendment 29 — the death register
+    expect(text).not.toContain('ELIMINATED'); // ...which retires the shipped banner
+    expect(text).toContain('4TH OF 14');
+    expect(text).toContain('KILLS');
+    expect(text).toContain('SHIPS YOU SANK'); // epic-2 amendment 23 — kept by name
     expect(text).toContain('RIVAL');
     expect(spectateButton()?.textContent).toBe('SPECTATE');
     expect(returnButton()?.textContent).toBe('RETURN TO PORT');
     expect(resultsVisible()).toBe(true);
+  });
+
+  // AMENDMENT 30, in the strongest terms the ledger has recorded: *"I DO NOT
+  // WANT INSTANT REQUE. You MUST return to the home screen to requeue. MUST."*
+  // The guarantee has always been structural (there is no code path from this
+  // modal into a match); this pin is what stops a later story drifting one in.
+  it('THE ACTION SET IS EXACTLY SPECTATE + RETURN TO PORT — never a re-queue', () => {
+    showResults(view({ own: own(), fieldSize: 14 }), { onSpectate: () => undefined, onReturn: () => undefined });
+    const actions = [...document.querySelectorAll('#results-overlay button')];
+    expect(actions.map((b) => b.textContent)).toEqual(['SPECTATE', 'RETURN TO PORT']);
+    // Nothing that starts a match: no SET SAIL, no PLAY, no AGAIN, and not the
+    // mockup's `SET SAIL IS ONE PRESS AWAY` sub-line (deleted by amendment 30).
+    const text = document.getElementById('results-overlay')?.textContent ?? '';
+    for (const forbidden of ['SET SAIL', 'PLAY AGAIN', 'AGAIN', 'REQUEUE', 'RE-QUEUE', 'NEXT MATCH']) {
+      expect(text).not.toContain(forbidden);
+    }
+  });
+
+  it('at GAME END the action set is RETURN TO PORT alone, and only there does it wear the ⏎ chip', () => {
+    // Enter returns to port ONLY when the match is over (main.ts handleConfirm),
+    // so the key chip is game-end only: a chip on the elimination modal would
+    // promise a key that does nothing. Amendment 23 froze the key law; the
+    // affordance follows it rather than the other way round.
+    expect(returnButton()).toBeNull();
+    showResults(view({ canSpectate: true }), { onSpectate: () => undefined, onReturn: () => undefined });
+    expect(returnButton()?.textContent).toBe('RETURN TO PORT');
+    hideResults();
+    showResults(view({ rows: [row('a', 1), row('b', 2)], canSpectate: false }), {
+      onSpectate: () => undefined,
+      onReturn: () => undefined,
+    });
+    expect([...document.querySelectorAll('#results-overlay button')]).toHaveLength(1);
+    expect(returnButton()?.textContent).toBe('⏎RETURN TO PORT');
+  });
+
+  it('lands the identity line — callsign in the own hue, then the class', () => {
+    // A DARK hue on purpose: the callsign wears the WCAG-lifted variant the kill
+    // feed and the chrome bar use, so the rendered colour must differ from the
+    // raw personal hue (the mockup's own legend calls for exactly this).
+    const hue = 0x4b3073;
+    showResults(view({ own: own({ hue }) }), { onSpectate: () => undefined, onReturn: () => undefined });
+    const text = document.getElementById('results-overlay')?.textContent ?? '';
+    expect(text).toContain(`TIN SPARROW · ${CLASS_DISPLAY_NAMES.torpedoBoat}`);
+    const name = [...document.querySelectorAll<HTMLElement>('#results-overlay span')].find(
+      (s) => s.textContent === 'TIN SPARROW',
+    );
+    expect(name?.style.color).toBe(rgbOf(textSafe(hue)));
+    expect(textSafe(hue)).not.toBe(hue);
+    expect(name?.style.fontWeight).toBe('600');
+  });
+
+  it('omits the identity line and both build blocks when there is no own hull to describe', () => {
+    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
+    const text = document.getElementById('results-overlay')?.textContent ?? '';
+    expect(text).not.toContain('TIN SPARROW');
+    expect(text).not.toContain('BOONS ACCRUED');
+    expect(text).not.toContain('LAST OFFER');
+  });
+
+  // The two blocks amendment 28 records as an OPEN OWNER DECISION — built to the
+  // mockup, and a pure subtraction to cut on sight.
+  it('draws the accrued boons and the unspent last offer from the own build', () => {
+    showResults(
+      view({ own: own({ boons: ['gunDamage', 'gunDamage'], offer: ['shipHull'], pts: 1 }) }),
+      { onSpectate: () => undefined, onReturn: () => undefined },
+    );
+    const text = document.getElementById('results-overlay')?.textContent ?? '';
+    expect(text).toContain('BOONS ACCRUED');
+    expect(text).toContain('◆ HEAVY SHELLS Mk II'); // stacked copies COLLAPSE to the rung held
+    expect(text).toContain('LAST OFFER — 1 LEVEL UNSPENT');
+    expect(text).toContain('SHIP'); // the card's category tag
+    expect(text).toContain('REINFORCED HULL');
+  });
+
+  it('draws no LAST OFFER block when nothing is banked', () => {
+    showResults(view({ own: own({ boons: ['gunDamage'] }) }), { onSpectate: () => undefined, onReturn: () => undefined });
+    const text = document.getElementById('results-overlay')?.textContent ?? '';
+    expect(text).toContain('BOONS ACCRUED');
+    expect(text).not.toContain('LAST OFFER');
+  });
+
+  it('renders the MATCH LOG in order, and omits the whole block when it is empty', () => {
+    showResults(
+      view({
+        score: score({
+          matchLog: [log(161_000, 'sank', 'SALT SHAKER'), log(252_000, 'sank', 'IRON KETTLE'), log(387_000, 'sunkBy', 'KRAKENS BANE')],
+        }),
+      }),
+      { onSpectate: () => undefined, onReturn: () => undefined },
+    );
+    const text = document.getElementById('results-overlay')?.textContent ?? '';
+    expect(text).toContain('MATCH LOG');
+    expect(text).toContain('T+02:41');
+    expect(text).toContain('SANK SALT SHAKER');
+    expect(text).toContain('SUNK BY KRAKENS BANE');
+    expect(text.indexOf('T+02:41')).toBeLessThan(text.indexOf('T+04:12'));
+    expect(text.indexOf('T+04:12')).toBeLessThan(text.indexOf('T+06:27'));
+
+    hideResults();
+    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
+    expect(document.getElementById('results-overlay')?.textContent ?? '').not.toContain('MATCH LOG');
   });
 
   it('SPECTATE closes the modal and hands control to the spectate view', () => {
@@ -241,13 +436,41 @@ describe('updateResultsScore — an open elimination modal re-renders in place',
   });
 
   it('refreshes placement, kills and the sunk roll as the roster catches up', () => {
-    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
-    expect(text()).toContain('PLACE #4');
+    showResults(view({ fieldSize: 14 }), { onSpectate: () => undefined, onReturn: () => undefined });
+    expect(text()).toContain('4TH OF 14');
     // The roster applied the same-tick deaths and the mutual-kill credit.
     updateResultsScore(score({ placement: 2, kills: 4, sunkContestants: ['RIVAL', 'HORNET'] }));
-    expect(text()).toContain('PLACE #2');
-    expect(text()).not.toContain('PLACE #4');
+    expect(text()).toContain('2ND OF 14'); // the field is remembered across the refresh
+    expect(text()).not.toContain('4TH');
     expect(text()).toContain('HORNET');
+  });
+
+  // A kill scored during our own five-second sinking window (Story 5.2,
+  // amendment 11 — you go down SHOOTING) folds in AFTER the modal is up, so the
+  // log has to reach the screen through the in-place refresh. It must arrive
+  // exactly once, in order, and leave the section order alone.
+  it('a MATCH LOG line landing after the modal opened is appended once, in place', () => {
+    const first = [log(161_000, 'sank', 'SALT SHAKER'), log(387_000, 'sunkBy', 'KRAKENS BANE')];
+    showResults(view({ score: score({ matchLog: first }), own: own({ boons: ['gunDamage'] }) }), {
+      onSpectate: () => undefined,
+      onReturn: () => undefined,
+    });
+    const panel = document.getElementById('results-overlay')?.children[0];
+    const before = [...(panel?.children ?? [])].length;
+    updateResultsScore(score({ matchLog: [...first, log(390_000, 'sank', 'IRON KETTLE')] }));
+
+    const t = text();
+    expect(t.match(/SANK SALT SHAKER/g)).toHaveLength(1); // no duplicate rows
+    expect(t.match(/SUNK BY KRAKENS BANE/g)).toHaveLength(1);
+    expect(t).toContain('SANK IRON KETTLE');
+    // Order preserved — the new line lands after the old ones, not before them.
+    expect(t.indexOf('SALT SHAKER')).toBeLessThan(t.indexOf('KRAKENS BANE'));
+    expect(t.indexOf('KRAKENS BANE')).toBeLessThan(t.indexOf('IRON KETTLE'));
+    // And the panel's section order is untouched (the card is REPLACED in place,
+    // so BOONS ACCRUED stays below it rather than being shuffled above).
+    expect([...(panel?.children ?? [])].length).toBe(before);
+    expect(t.indexOf('MATCH LOG')).toBeLessThan(t.indexOf('SHIPS YOU SANK'));
+    expect(t.indexOf('SHIPS YOU SANK')).toBeLessThan(t.indexOf('BOONS ACCRUED'));
   });
 
   it('leaves the ACTIONS alone — the only paths out survive a refresh', () => {
