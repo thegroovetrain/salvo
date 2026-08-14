@@ -79,7 +79,7 @@ describe('xpRailLayout — the satellites live in the RESERVED GUTTER', () => {
     // (gutter + key chip + gap + slot + gap + label column).
     const hotbarRight = H.left + H.keyChip + H.keyGap + H.slot + H.labelGap + H.labelWidth;
     const cueBudget = hotbarRight - L.cue.x;
-    expect(cueBudget).toBeGreaterThan(cueLine(1).length * 11); // ample at 14px mono
+    expect(cueBudget).toBeGreaterThan(cueLine(1, true).length * 11); // ample at 14px mono
   });
 
   it('tracks the viewport (a taller screen moves the whole stack with it)', () => {
@@ -152,12 +152,27 @@ describe('tag / chip / cue copy — dual-coded, hidden at zero', () => {
   });
 
   it('the cue line appears WITH the chip and names the key + the action', () => {
-    expect(cueLine(0)).toBe('');
-    expect(cueLine(1)).toBe('LEVEL UP — TAB TO REFIT');
-    expect(cueLine(3)).toBe('LEVEL UP — TAB TO REFIT');
+    expect(cueLine(0, true)).toBe('');
+    expect(cueLine(1, true)).toBe('LEVEL UP — TAB TO REFIT');
+    expect(cueLine(3, true)).toBe('LEVEL UP — TAB TO REFIT');
     // Amendment 33's vocabulary: no "banked" wording, REFIT not UPGRADE.
-    expect(cueLine(1)).not.toContain('BANK');
-    expect(cueLine(1)).not.toContain('UPGRADE');
+    expect(cueLine(1, true)).not.toContain('BANK');
+    expect(cueLine(1, true)).not.toContain('UPGRADE');
+  });
+
+  // Both review models (Fable + Codex) flagged this independently at the cycle-80
+  // gate. Since the lazy-draw bugfix a level ALWAYS banks, so `pts > 0` with an
+  // EMPTY front offer is a legitimate wire state (a degenerate exhausted deck —
+  // `materializeOffer` stored no hand). `offerView` refuses to open the band on
+  // an empty offer, so an instruction to press TAB would be a promise the client
+  // cannot keep. The instruction is withheld; the CHIP still reports the bank,
+  // because the level really was earned.
+  it('withholds the TAB instruction when the bank cannot actually be refitted', () => {
+    expect(cueLine(1, false)).toBe('');
+    expect(cueLine(3, false)).toBe('');
+    // ...but the chip is unchanged: the level is banked and still says so.
+    expect(chipLabel(1)).toBe('▲1');
+    expect(chipLabel(3)).toBe('▲3');
   });
 });
 
@@ -266,7 +281,7 @@ describe('XpRail shell — a live frame, a bank, and death', () => {
   it('renders a live frame and hides again with the hull (death / spectate)', () => {
     const { rail } = build();
     expect(rail.visible).toBe(false); // nothing until a live own ship exists
-    rail.update({ lvl: 2, xp: 0.4, pts: 0 }, FLOOR.h, 10);
+    rail.update({ lvl: 2, xp: 0.4, pts: 0, refitable: true }, FLOOR.h, 10);
     expect(rail.visible).toBe(true);
     rail.hide();
     expect(rail.visible).toBe(false);
@@ -275,25 +290,25 @@ describe('XpRail shell — a live frame, a bank, and death', () => {
 
   it('drives the chip through hidden → breathing → static across frames', () => {
     const { rail } = build();
-    rail.update({ lvl: 0, xp: 0.1, pts: 0 }, FLOOR.h, 0);
+    rail.update({ lvl: 0, xp: 0.1, pts: 0, refitable: true }, FLOOR.h, 0);
     expect(rail.chipState.pts).toBe(0);
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 1); // banked
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, 1); // banked
     expect(rail.chipState).toEqual({ pts: 1, armedAt: 1 });
     expect(chipBreathing(rail.chipState, 1)).toBe(true);
-    rail.update({ lvl: 1, xp: 0.2, pts: 1 }, FLOOR.h, 1 + X.unspentSec + 1);
+    rail.update({ lvl: 1, xp: 0.2, pts: 1, refitable: true }, FLOOR.h, 1 + X.unspentSec + 1);
     expect(chipBreathing(rail.chipState, 1 + X.unspentSec + 1)).toBe(false);
     expect(rail.chipFillAlpha).toBe(X.chipAlpha); // decayed to a static chip
   });
 
   it('re-arms from the TAB signal, exactly once', () => {
     const { rail } = build();
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
-    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 30); // decayed
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, 0);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1, refitable: true }, FLOOR.h, 30); // decayed
     expect(chipBreathing(rail.chipState, 30)).toBe(false);
     rail.rearm();
-    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 30);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1, refitable: true }, FLOOR.h, 30);
     expect(rail.chipState.armedAt).toBe(30);
-    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 31); // the signal is consumed
+    rail.update({ lvl: 1, xp: 0.5, pts: 1, refitable: true }, FLOOR.h, 31); // the signal is consumed
     expect(rail.chipState.armedAt).toBe(30);
   });
 
@@ -303,13 +318,13 @@ describe('XpRail shell — a live frame, a bank, and death', () => {
   // window — an unintended FOURTH re-arm trigger, off a gap nobody saw.
   it('a TRANSIENT hide (pose gap) keeps the chip state: a decayed chip stays static', () => {
     const { rail } = build();
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
-    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 30); // decayed to static
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, 0);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1, refitable: true }, FLOOR.h, 30); // decayed to static
     expect(chipBreathing(rail.chipState, 30)).toBe(false);
     rail.hideTransient();
     expect(rail.visible).toBe(false);
     expect(rail.chipState).toEqual({ pts: 1, armedAt: 0 }); // state survives the gap
-    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 31); // the pose returns
+    rail.update({ lvl: 1, xp: 0.5, pts: 1, refitable: true }, FLOOR.h, 31); // the pose returns
     expect(rail.visible).toBe(true);
     expect(chipBreathing(rail.chipState, 31)).toBe(false); // still static — no re-arm
     expect(rail.chipFillAlpha).toBe(X.chipAlpha);
@@ -317,11 +332,11 @@ describe('XpRail shell — a live frame, a bank, and death', () => {
 
   it('a FULL hide still starts the next life cold — a re-shown bank re-arms (pinned)', () => {
     const { rail } = build();
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
-    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 30); // decayed
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, 0);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1, refitable: true }, FLOOR.h, 30); // decayed
     rail.hide();
     expect(rail.chipState).toEqual(XP_CHIP_IDLE);
-    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 31);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1, refitable: true }, FLOOR.h, 31);
     expect(rail.chipState).toEqual({ pts: 1, armedAt: 31 }); // fresh window
     expect(chipBreathing(rail.chipState, 31)).toBe(true);
   });
@@ -330,15 +345,16 @@ describe('XpRail shell — a live frame, a bank, and death', () => {
     const { rail } = build();
     settings.set({ motion: 'off' });
     const quarter = 1 / (4 * CHIP_PULSE_HZ);
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, quarter);
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, 0);
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, quarter);
     expect(rail.chipFillAlpha).toBe(X.chipAlpha);
   });
 
   it('survives the whole fill range and a level wrap without throwing', () => {
     const { rail } = build();
     expect(() => {
-      for (const xp of [0, 0.001, 0.5, 0.999, 0]) rail.update({ lvl: 1, xp, pts: 0 }, FLOOR.h, 1);
+      for (const xp of [0, 0.001, 0.5, 0.999, 0])
+        rail.update({ lvl: 1, xp, pts: 0, refitable: true }, FLOOR.h, 1);
     }).not.toThrow();
   });
 });
@@ -391,7 +407,7 @@ describe('XpRail — the freeze on the real instrument', () => {
 
   it('settles the chip at its dim keyframe while a higher tier is active', () => {
     const { rail } = build();
-    const view = { lvl: 1, xp: 0.5, pts: 1 };
+    const view = { lvl: 1, xp: 0.5, pts: 1, refitable: true };
     let ms = 0;
     // ~2s of frozen frames (server seconds and monotonic ms advance together).
     for (let i = 0; i < 125; i++) {
@@ -403,7 +419,7 @@ describe('XpRail — the freeze on the real instrument', () => {
 
   it('breathes again when every higher tier clears', () => {
     const { rail } = build();
-    const view = { lvl: 1, xp: 0.5, pts: 1 };
+    const view = { lvl: 1, xp: 0.5, pts: 1, refitable: true };
     let ms = 0;
     for (let i = 0; i < 125; i++) {
       ms += 16;
@@ -422,18 +438,18 @@ describe('XpRail — the freeze on the real instrument', () => {
   it('defaults to NOT frozen, so a caller from before Story 4.8 is unchanged', () => {
     const { rail } = build();
     const a = build().rail;
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
-    a.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0, false);
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, 0);
+    a.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, 0, false);
     const quarter = 1 / (4 * CHIP_PULSE_HZ);
-    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, quarter);
-    a.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, quarter, false);
+    rail.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, quarter);
+    a.update({ lvl: 1, xp: 0, pts: 1, refitable: true }, FLOOR.h, quarter, false);
     expect(rail.chipFillAlpha).toBeCloseTo(X.chipAlpha + X.pulseAmp, 9);
     expect(rail.chipFillAlpha).toBe(a.chipFillAlpha);
   });
 
   it('drops the freeze blend with the hull, but keeps it across a pose gap', () => {
     const { rail } = build();
-    const view = { lvl: 1, xp: 0.5, pts: 1 };
+    const view = { lvl: 1, xp: 0.5, pts: 1, refitable: true };
     let ms = 0;
     for (let i = 0; i < 125; i++) {
       ms += 16;

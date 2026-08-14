@@ -54,6 +54,16 @@ export interface XpView {
   lvl: number;
   xp: number;
   pts: number;
+  /**
+   * Whether the banked level can ACTUALLY be refitted right now — i.e. a front
+   * offer is materialized (`you.offer.length > 0`), the same predicate
+   * `offerView` uses to decide the band may open. Since the lazy-draw bugfix a
+   * level always banks, so `pts > 0` with an EMPTY offer is a legitimate state
+   * (a degenerate exhausted deck), and the cue line must not promise a TAB that
+   * opens nothing. The CHIP still shows the bank — the level is genuinely
+   * earned — but the instruction is withheld until it is actionable.
+   */
+  refitable: boolean;
 }
 
 /** A screen-space box (px). */
@@ -130,11 +140,13 @@ export function chipLabel(pts: number): string {
   return pts > 9 ? '▲+' : `▲${pts}`;
 }
 
-/** Pure: the cue line beside the chip ('' when nothing is banked). Draft copy
- *  under the standing rule (amendment 13); the vocabulary — LEVEL UP, REFIT,
- *  TAB — is amendment 33's. */
-export function cueLine(pts: number): string {
-  return pts > 0 ? 'LEVEL UP — TAB TO REFIT' : '';
+/** Pure: the cue line beside the chip ('' when nothing is banked, OR when the
+ *  bank cannot be acted on — see XpView.refitable; an instruction to press TAB
+ *  must never outlive TAB's ability to open the band). Draft copy under the
+ *  standing rule (amendment 13); the vocabulary — LEVEL UP, REFIT, TAB — is
+ *  amendment 33's. */
+export function cueLine(pts: number, refitable: boolean): string {
+  return pts > 0 && refitable ? 'LEVEL UP — TAB TO REFIT' : '';
 }
 
 /**
@@ -332,7 +344,7 @@ export class XpRail {
     this.advanceFreeze(freeze, nowMs);
     this.drawRail(L, xpFillFraction(view.xp));
     this.updateTag(L, view.lvl);
-    this.updateChip(L, view.pts, nowSec);
+    this.updateChip(L, view.pts, view.refitable, nowSec);
   }
 
   /** Ease the Tier-3 freeze blend one frame toward its target (the storm
@@ -374,9 +386,9 @@ export class XpRail {
 
   /** The banked-level chip + its cue line: hidden at zero, breathing for the
    *  first ~10s of an unspent level, static after that. */
-  private updateChip(L: XpRailLayout, pts: number, nowSec: number): void {
+  private updateChip(L: XpRailLayout, pts: number, refitable: boolean, nowSec: number): void {
     const label = chipLabel(pts);
-    const cue = cueLine(pts);
+    const cue = cueLine(pts, refitable);
     if (label !== this.lastChip) {
       this.chipText.text = label;
       this.lastChip = label;
