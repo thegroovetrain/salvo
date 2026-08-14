@@ -1177,3 +1177,49 @@ function of radius.
 
 Island count scales with disc area at fixed 2-3% coverage (~18 → ~24), and the height raster grows
 O(R²) to ~160 KB. Both fine; both measured rather than assumed.
+
+## Amendment 42 — YOU LEARN WHAT YOU SANK, AT THE MOMENT YOU SINK IT (Eric ruling 2026-08-14) — completes amendment 37, forced by amendment 38
+
+> *"I want to know the kills I get when I get them. Meaning I want to know I killed a Small Drone
+> if a Small Drone is killed by my mine. But it doesn't increment my kill count. It just grants XP.
+> It doesn't need to show up in my end-game kills record."*
+
+**This is amendment 37's feed/record split holding, plus the one thing it turned out not to
+deliver.** 37 ruled the transient feedback stays and the persistent tally empties; Eric has now
+confirmed all three of its NO columns unchanged in the same breath (no KILLS increment, no match
+log, no end-game record) while naming a case where the YES column silently failed.
+
+**The case, and why it is not a client bug.** With fleet hulls off the roster (amendment 38) the
+client's two drone-detection channels collapsed to one, and **you can sink a fleet ship you never
+saw**: a mine it sailed over, or a shell at 500 u — the gun reaches 660 u while truesight is 330 u,
+which is the same 2:1 asymmetry amendment 35 built the close-on-the-bearing rule around. For such a
+hull the client holds no name, no hull id and no roster row, so the kill feed could only say
+`UNKNOWN VESSEL`. **The server knows; nobody else can.** A client-side memo of hulls ever seen was
+built first and fixes the common Mine-Layer case honestly, but it cannot reach a hull that was never
+in the bubble at all.
+
+**Ruled — `SunkEvent.vcls?: HullId`, per-observer, credited killer only.** Stamped by the `sunk`
+row's `materialize()` exactly when `by === observerId`; omitted entirely for every other recipient,
+witnesses and spectators included. The feed names the SIZE — `SMALL DRONE` / `MEDIUM DRONE` /
+`LARGE DRONE` — **because the size IS the payout** (¼ / ⅓ / ½ level), which is the information the
+ruling is actually asking for.
+
+**No seventh perception exception, and the master invariant stays at exactly SIX.** It rides the
+existing `sunk` row and is gated STRICTLY NARROWER than the row itself: it reaches one client, who
+already earned the XP for that hull and already learned its tier from the amount. This is the
+`seen` pattern (per-observer, stamped at materialize) rather than the `bty` pattern
+(observer-independent), and the distinction is load-bearing — a `bty`-shaped implementation would
+publish the victim's class to every recipient of a public register line, which the register's
+identity-only ruling forbids.
+
+**Key order is load-bearing (msgpack): `k,id,by?,seen?,bty?,vcls?`**, appended last, never
+`undefined`.
+
+**Orchestrator note, flagged for Eric rather than decided silently:** `vcls` is stamped for EVERY
+victim, not only fleet hulls — a captain's class reaching their own killer is the same disclosure
+class (that killer sees the wreck and the feed already names them). Fleet-victims-only was the
+alternative. Uniformity was chosen; reversing it is a one-line narrowing.
+
+**Nameplates deliberately did NOT follow.** A fleet hull's plate still reads `DRONE` with no size.
+The ruling is about the moment of the kill, and widening plates was neither asked for nor put to
+Eric — the three sizes are already visually distinct at 85 / 100 / 115 u.

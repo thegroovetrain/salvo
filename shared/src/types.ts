@@ -863,9 +863,12 @@ export interface DamageEvent {
  * (a drone can never hold the throne), `'k'` may ride a drone wreck — but
  * that event reaches only the witness and the credited killer, both of whom
  * already know the leader's identity from the public ArenaState.bountyId.
- * Appended LAST; the key is omitted entirely when neither held it, never
- * `undefined`. Observer-INDEPENDENT (unlike the per-observer `seen`): every
- * recipient of the row gets the same value.
+ * The key is omitted entirely when neither held it, never `undefined`.
+ * Observer-INDEPENDENT (unlike the per-observer `seen`): every recipient of
+ * the row gets the same value.
+ *
+ * `vcls` (Story 5.6) is documented on the field itself and is appended after
+ * `bty`; the full load-bearing key order is k,id,by?,seen?,bty?,vcls?.
  */
 export interface SunkEvent {
   k: 'sunk';
@@ -873,6 +876,38 @@ export interface SunkEvent {
   by?: string;
   seen?: true;
   bty?: 'v' | 'k';
+  /**
+   * THE VICTIM'S HULL ID, delivered ONLY to the observer credited with the
+   * kill (Story 5.6, Eric ruling 2026-08-14, epic-5 amendment 42):
+   * *"I want to know the kills I get when I get them. Meaning I want to know
+   * I killed a Small Drone if a Small Drone is killed by my mine."*
+   *
+   * WHY THIS COULD NOT BE DONE CLIENT-SIDE, which is the whole reason a wire
+   * field exists: you can sink a fleet ship you never saw — a mine it sailed
+   * over, or a shell at 500u, since the gun reaches 660u and truesight is 330.
+   * With drones off the roster (amendment 38) the client then holds no name,
+   * no hull and no row for that id, and the feed could only say
+   * `UNKNOWN VESSEL`. The server knows; nobody else can.
+   *
+   * PER-OBSERVER, like `seen` and unlike `bty` — stamped by the sunk row's
+   * materialize() only when `by === observerId`. A bystander who witnesses the
+   * same sinking never receives it, so this discloses the victim's CLASS to
+   * exactly one client that already earned the XP for it and already learned
+   * the tier from the amount. It therefore adds NO perception exception: the
+   * master invariant stays at exactly SIX.
+   *
+   * Deliberately NOT the Public Register's business: the register is
+   * identity-only by ruling, and this key never rides a row the killer is not
+   * the recipient of. Appended LAST, key omitted entirely when absent (never
+   * `undefined` — msgpack encodes that). KEY ORDER IS LOAD-BEARING:
+   * k,id,by?,seen?,bty?,vcls?.
+   *
+   * It names the SIZE because the size is the payout (¼ / ⅓ / ½ level), and it
+   * changes nothing else: PvE kills still never increment the KILLS tally and
+   * still never reach the match log or the end-game record (amendment 37,
+   * re-confirmed by Eric in the same ruling).
+   */
+  vcls?: HullId;
 }
 
 /** A ship (re)spawned at a position. */
