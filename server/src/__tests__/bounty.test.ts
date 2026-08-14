@@ -399,7 +399,7 @@ describe('World — sinking the holder pays CONFIG.bounty.killLevels on top of t
     captainKill(w, 'a'); // a holds
     w.sinkShip('a', 'c');
     expect(c.level).toBe(CONFIG.xp.killLevels + CONFIG.bounty.killLevels); // 1 + 1 at shipped values
-    expect(c.offers).toHaveLength(CONFIG.xp.killLevels + CONFIG.bounty.killLevels);
+    expect(c.bankedLevels).toBe(CONFIG.xp.killLevels + CONFIG.bounty.killLevels);
     expect(c.xpMs).toBe(0); // whole levels — the fractional carry is untouched
   });
 

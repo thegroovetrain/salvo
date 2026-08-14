@@ -1,20 +1,20 @@
 // Deck-only fast mode (spec task: amendment 38's pity evidence at scale).
 //
 // A pure loop over the exported shared deck seam — buildDeck / drawOffer /
-// returnCards / consumeAcquisition / scrubAcquisitions on a mulberry32 stream —
-// with the three server-side behaviors the pure seam lacks replicated from
-// world.ts spendPoint/settleSpend (read before writing this):
+// consumeCard / returnCards / consumeAcquisition on a mulberry32 stream — with
+// the server-side behavior the pure seam lacks replicated from world.ts
+// spendPoint/settleSpend (read before writing this):
 //   1. doctrine-rival return-to-deck: fitting a card whose exclusiveWith rival
 //      is currently held removes ONE occurrence of the rival and returns its
-//      card to the deck (applyBoon swapOutRival + settleSpend returnCards);
-//   2. scrubbed-to-empty offer drop: after an acquisition pick, banked offers
-//      are scrubbed + refilled and any offer scrubbed to zero cards is REMOVED
-//      (consumeAcquisitionPick's offers.filter);
-//   3. banked-offer FIFO: offers bank in draw order and only the FRONT is ever
-//      spendable (spendPoint shifts the queue).
+//      card to the deck (applyBoon swapOutRival + settleSpend returnCards).
+// The lazy-draw bugfix retired the other two (the amendment-43 scrub and its
+// scrubbed-to-empty drop, and the banked-offer FIFO): a DRAW now takes nothing
+// out of the deck and only the FIT does, and only the front level ever holds a
+// hand — so depletion is unchanged at one card per fit, which is exactly what
+// this harness measured before.
 // Spends use the SAME deterministic policy as the scripted pilots
-// (pickSpendChoice) — one spend per level, immediately after the draw, so the
-// FIFO stays shallow exactly like a captain who refits as soon as TAB glows.
+// (pickSpendChoice) — one spend per level, immediately after the draw, exactly
+// like a captain who refits as soon as TAB glows.
 //
 // One "economy" = one class's deck played level-by-level until exhausted.
 // Classes round-robin per economy; `draws` is the TOTAL draw budget across
@@ -55,8 +55,8 @@ import {
   isAcquisitionDef,
   loadoutFor,
   mulberry32,
+  consumeCard,
   returnCards,
-  scrubAcquisitions,
   type BoonDef,
   type DeckState,
   type EquipmentId,
@@ -120,7 +120,6 @@ function carriedFor(cls: ShipClassId): EquipmentId[] {
 
 interface EconomyState {
   deck: DeckState;
-  offers: string[][];
   fitted: string[];
 }
 
@@ -133,13 +132,13 @@ interface EconomyStats {
   cappedLines: number;
 }
 
-/** Spend the FIFO front through the settleSpend-equivalent pure flow. */
-function spendFront(st: EconomyState, rng: Rng): string | null {
-  const front = st.offers.shift();
-  if (front === undefined || front.length === 0) return null;
+/** Spend the materialized front hand through the settleSpend-equivalent pure
+ *  flow: ONLY the chosen card leaves the deck (the other three never left). */
+function spendFront(st: EconomyState, front: readonly string[], rng: Rng): string | null {
+  if (front.length === 0) return null;
   const choice = pickSpendChoice(front, rng, st.fitted);
   const chosen = front[choice];
-  st.deck = returnCards(st.deck, front.filter((_, i) => i !== choice));
+  st.deck = consumeCard(st.deck, chosen);
   const def = BOON_CATALOG[chosen];
   // (1) doctrine-rival return-to-deck (applyBoon swapOutRival).
   if (def?.exclusiveWith !== undefined) {
@@ -152,13 +151,9 @@ function spendFront(st: EconomyState, rng: Rng): string | null {
   st.fitted.push(chosen);
   if (def !== undefined && isAcquisitionDef(def)) {
     const target = acquisitionTarget(def);
-    if (target !== null) {
-      st.deck = consumeAcquisition(st.deck, BOON_CATALOG, target);
-      const scrubbed = scrubAcquisitions(st.deck, BOON_CATALOG, st.offers, rng);
-      st.deck = scrubbed.deck;
-      // (2) scrubbed-to-empty offers are dropped (consumeAcquisitionPick).
-      st.offers = scrubbed.offers.filter((o) => o.length > 0);
-    }
+    // The next hand is drawn from the CLEANED deck — no banked offer can hold
+    // a now-dead acquisition card, so amendment 43's scrub is unreachable.
+    if (target !== null) st.deck = consumeAcquisition(st.deck, BOON_CATALOG, target);
   }
   return chosen;
 }
@@ -199,8 +194,7 @@ function playOneDraw(
   pityDraws[dry] += 1;
   if (r.offer.some((id) => BOON_CATALOG[id]?.rarity !== 'common')) pityHits[dry] += 1;
   if (stats.firstExclusiveOffered === null && hasExclusive(r.offer)) stats.firstExclusiveOffered = draw;
-  st.offers.push(r.offer); // (3) banked-offer FIFO
-  const picked = spendFront(st, rng);
+  const picked = spendFront(st, r.offer, rng);
   if (picked !== null && stats.firstExclusivePicked === null && hasExclusive([picked])) {
     stats.firstExclusivePicked = draw;
   }
@@ -215,7 +209,7 @@ function playEconomy(
   pityHits: number[],
   pityDraws: number[],
 ): EconomyStats {
-  const st: EconomyState = { deck: buildDeck(BOON_CATALOG, carriedFor(cls)), offers: [], fitted: [] };
+  const st: EconomyState = { deck: buildDeck(BOON_CATALOG, carriedFor(cls)), fitted: [] };
   const stats: EconomyStats = {
     draws: 0,
     emptied: false,

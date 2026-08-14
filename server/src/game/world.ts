@@ -29,6 +29,7 @@ import {
   buildDeck,
   burstVictims,
   consumeAcquisition,
+  consumeCard,
   drawOffer,
   DEFAULT_HORN_ID,
   effectiveStats,
@@ -54,7 +55,6 @@ import {
   resolveBoons,
   resolveShipPose,
   returnCards,
-  scrubAcquisitions,
   slowedKinematics,
   stepShell,
   stepShip,
@@ -351,8 +351,9 @@ export interface ShipRecord {
    * THE DECK (Story 2.8, amendment 38): this player's card multiset — the
    * universal lines + carried-equipment subdecks + absent-equipment
    * acquisitions (sim/deck.ts buildDeck over the FRESH loadout's fit). Every
-   * level's offer is DRAWN from it (grantPoint), unchosen/swapped-out cards
-   * RETURN to it (spendPoint), an acquisition pick purges + scrubs it.
+   * offer is DRAWN from it WITHOUT taking anything out (materializeOffer);
+   * exactly ONE card leaves when a pick is FITTED (settleSpend's consumeCard),
+   * a swapped-out doctrine rival RETURNS to it, an acquisition pick purges it.
    * SERVER-PRIVATE: never on the wire (the drawn offer ids are). Rebuilt by
    * redeployShip (fresh match = fresh deck over the fresh fit), PRESERVED by
    * respawn (waiting-phase deaths keep the build). Drones hold the frozen
@@ -369,14 +370,24 @@ export interface ShipRecord {
    */
   deckRng: Rng;
   /**
-   * FIFO queue of pre-drawn BOON offers, one per unspent banked level (Story
-   * 2.7). points = offers.length — this queue is the SINGLE SOURCE OF TRUTH for
-   * the level count (OwnShip.pts derives from it). Each offer is drawn once at
-   * earn-time (sim/deck.drawOffer against this ship's deck+stream) so reopening
-   * the refit window can't reroll; the front offer is the one surfaced on the
-   * wire. Wiped by redeployShip (a fresh match = fresh build).
+   * UNSPENT BANKED LEVELS (Story 2.7; the lazy-draw bugfix): a bare COUNT, the
+   * SINGLE SOURCE OF TRUTH for the level bank (OwnShip.pts mirrors it). Levels
+   * behind the front one carry NO cards — a level is drawn for only when it
+   * reaches the front (`offer` below), so banking can never drain the deck.
+   * Wiped by redeployShip (a fresh match = fresh build).
    */
-  offers: BoonOffer[];
+  bankedLevels: number;
+  /**
+   * THE FRONT OFFER — the one hand the player is about to pick from, or null
+   * (no banked level, or a degenerate empty draw). Materialized ONCE, from the
+   * deck at the moment it reaches the front (materializeOffer →
+   * sim/deck.drawOffer on this ship's deck+stream), then FROZEN until it is
+   * spent: reopening the refit window can never reroll it (FR19). Its cards
+   * are STILL IN THE DECK — only the fitted pick is ever consumed — so a
+   * passed-on line is drawable again on the very next level. This is the field
+   * OwnShip.offer surfaces. Dropped by redeployShip and by a heal spend.
+   */
+  offer: BoonOffer | null;
   /**
    * XP accumulator in INTEGER MILLISECONDS toward the next level (Story 2.6),
    * always in [0, CONFIG.xp.levelMs). Integer ms — never a float fraction — so
@@ -387,7 +398,7 @@ export interface ShipRecord {
    * credits). Damage adds nothing. Every threshold crossing is banked by
    * grantXp through the existing grantPoint. Wiped by redeployShip (fresh
    * match = fresh build), PRESERVED across a waiting-phase respawn — exactly
-   * like upgrades/offers/boons.
+   * like the level bank / front offer / boons.
    */
   xpMs: number;
   /** Levels COMPLETED (integer). Mirrored onto OwnShip.lvl (self-private);
@@ -1036,7 +1047,7 @@ export class World {
       // THE DECK (2.8): over the fresh fit; drones never get one (pinned).
       deck: isDrone ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
-      offers: [],
+      bankedLevels: 0, offer: null,
       xpMs: 0,
       level: 0,
       boons: [],
@@ -1157,14 +1168,15 @@ export class World {
     ship.state.y = p.y;
     ship.state.heading = Math.atan2(-p.y, -p.x);
     ship.state.speed = 0;
-    ship.offers = [];
+    ship.bankedLevels = 0;
+    ship.offer = null;
     // XP progress dies with the build (Story 2.6): the countdown→active
     // boundary is a fresh match, so nothing farmed in the ready room (a drone
     // kill's XP, or waiting-phase seconds) carries a head start into it.
     // respawn() below, waiting-phase only, PRESERVES both.
     ship.xpMs = 0;
     ship.level = 0;
-    // Boons are wiped WITH offers (Story 2.5): the match boundary means a
+    // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
     // fresh build — respawn() below, waiting-phase only, preserves.
     ship.boons = [];
     ship.boonDefs = NO_BOONS;
@@ -1416,21 +1428,40 @@ export class World {
   }
 
   /**
-   * Level reward (Story 2.8, THE DECK MODEL): DRAW one offer from this ship's
-   * own deck on its own persistent stream. A non-empty draw banks the offer
-   * (pts === offers.length stays the single source of truth) and queues the
-   * self-private `pt` event; an EMPTY draw (deck exhausted — pinned as
-   * unreachable within production match parameters) banks NOTHING and emits NO
-   * `pt`: the level still incremented (addXpMs already did), but an offer-less
-   * level must not advertise TAB-to-refit. Reopening the refit window can
-   * never reroll — spendPoint only ever consumes the queue front (FR19).
+   * Level reward (Story 2.8, THE DECK MODEL; the lazy-draw bugfix): bank the
+   * LEVEL — always, unconditionally — then materialize the front offer if this
+   * level is the one at the front. A level that lands BEHIND a materialized
+   * offer draws nothing at all: its hand is drawn when it reaches the front,
+   * which is exactly what stops a banked queue from draining the deck.
+   *
+   * The self-private `pt` event fires whenever there IS a front offer after
+   * materializing — i.e. on every level against a healthy deck. The one case
+   * that stays silent is a DEGENERATE EMPTY DRAW (deck yielded nothing): the
+   * level is still banked, but an offer-less level must not advertise
+   * TAB-to-refit (the ratified rule, preserved). Reopening the refit window can
+   * never reroll — the front offer is drawn once and frozen (FR19).
    */
   private grantPoint(killer: ShipRecord): void {
-    const { deck, offer } = drawOffer(killer.deck, killer.deckRng, this.boonCatalog);
-    killer.deck = deck;
-    if (offer.length === 0) return; // empty deck: level up, no offer, no toast
-    killer.offers.push(offer);
-    this.pending.push({ k: 'pt', id: killer.id });
+    killer.bankedLevels += 1;
+    this.materializeOffer(killer);
+    if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
+  }
+
+  /**
+   * Draw the FRONT offer — the single place a hand is ever drawn (the lazy-draw
+   * bugfix). Fires ONLY when a level is banked and no offer is materialized, so
+   * exactly one draw happens per level over that level's lifetime and
+   * `levelsSinceRare` (the pity escalation) still advances once per draw.
+   *
+   * DEGENERATE EMPTY DRAW: `offer` stays null and the bank stays put — the
+   * queue never deadlocks (spendPoint's HEAL_CHOICE is still spendable, a card
+   * pick is refused), and the next level simply retries the draw.
+   */
+  private materializeOffer(ship: ShipRecord): void {
+    if (ship.bankedLevels <= 0 || ship.offer !== null) return;
+    const { deck, offer } = drawOffer(ship.deck, ship.deckRng, this.boonCatalog);
+    ship.deck = deck; // NON-CONSUMING: only levelsSinceRare moved
+    if (offer.length > 0) ship.offer = offer;
   }
 
   /**
@@ -1566,7 +1597,7 @@ export class World {
   /**
    * Wire entry point for MSG.spend: consume ONE banked level. Validate-
    * everything like submitInput, fail-closed — unknown ship, empty bank, or a
-   * malformed choice returns false with the queue untouched. `choice` indexes
+   * malformed choice returns false with the bank and its hand untouched. `choice` indexes
    * the FRONT offer, bounded by that offer's ACTUAL length (4 against the
    * production catalog, so digit 4 is live — Story 2.7; a short offer from a
    * small injected catalog bounds itself). Levels ARE spendable while dead
@@ -1588,22 +1619,41 @@ export class World {
    */
   spendPoint(id: string, rawChoice: unknown): boolean {
     const ship = this.ships.get(id);
-    if (!ship || ship.offers.length === 0) return false;
+    if (!ship || ship.bankedLevels <= 0) return false;
     // THE REFIT IS CLOSED WHILE SINKING (Story 5.2, amendment 10 — "once
     // sinking, you're done"): card picks AND the HEAL_CHOICE spend are refused
-    // outright — a clean denial (false), never a throw; the bank and the queue
-    // stay untouched, so the banked level is still there for the next life.
+    // outright — a clean denial (false), never a throw; the bank and its
+    // front hand stay untouched, so the level is still there for the next life.
     // Deliberately NOT routed through sinkingActivationGate: the economy never
     // went near it, and this is the actual policy that gate's amendment names.
     // Note the asymmetry is three-state: alive spends, SUNK spends (builds
     // persist across waiting-phase respawns), sinking alone shops nothing.
     if (isSinking(ship.lifecycle)) return false;
     if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
-    const front = ship.offers[0];
-    if (rawChoice === HEAL_CHOICE) return this.spendHeal(ship, front);
-    if (rawChoice < 0 || rawChoice >= front.length) return false;
-    ship.offers.shift();
-    this.settleSpend(ship, front, rawChoice);
+    if (rawChoice === HEAL_CHOICE) return this.spendHeal(ship);
+    return this.spendCard(ship, rawChoice);
+  }
+
+  /**
+   * The CARD half of a spend, split from spendPoint (complexity budget). A card
+   * pick needs a MATERIALIZED front offer — a degenerate offer-less level has
+   * nothing to fit, so the pick is refused (the level stays banked and the heal
+   * strip stays live).
+   *
+   * THE ORDER HERE IS LOAD-BEARING (the lazy-draw bugfix): consume the LEVEL
+   * first (drop the offer, decrement the bank), then settle the fit (which
+   * takes the chosen card out of the deck, returns a swapped-out doctrine
+   * rival, and purges on an acquisition), and materialize the NEXT offer LAST —
+   * so the next hand is drawn from a fully cleaned deck: post-purge,
+   * post-return, minus exactly the one card just fitted.
+   */
+  private spendCard(ship: ShipRecord, choice: number): boolean {
+    const front = ship.offer;
+    if (front === null || choice < 0 || choice >= front.length) return false;
+    ship.offer = null;
+    ship.bankedLevels -= 1;
+    this.settleSpend(ship, front, choice);
+    this.materializeOffer(ship);
     return true;
   }
 
@@ -1622,72 +1672,69 @@ export class World {
    * whole spend first, amendment 10 — but the isAfloat guard here would refuse
    * it anyway: belt and braces on the "no hp comes back" rule.)
    *
-   * On success exactly ONE level is consumed and the ENTIRE front offer returns
-   * to the deck — unlike a card pick, which withholds the chosen card. No card
-   * leaves the deck, so a heal costs progression time and nothing else: the
-   * four cards you passed on can be drawn again.
+   * On success exactly ONE level is consumed and the front offer is DROPPED —
+   * unlike a card pick, which takes its chosen card out of the deck. The deck
+   * is not touched AT ALL (under the lazy-draw model nothing ever left it), so
+   * a heal costs progression time and nothing else: the cards you passed on are
+   * all still in the pool for the next hand. A card pick is the only thing that
+   * thins the deck. Requires only a BANKED LEVEL — a degenerate offer-less
+   * level can still be healed with.
    */
-  private spendHeal(ship: ShipRecord, front: BoonOffer): boolean {
+  private spendHeal(ship: ShipRecord): boolean {
     if (!isAfloat(ship.lifecycle) || ship.hp >= ship.stats.maxHp) return false;
-    ship.offers.shift();
-    ship.deck = returnCards(ship.deck, front);
+    ship.offer = null;
+    ship.bankedLevels -= 1;
     const dc = CONFIG.damageControl;
     ship.hp = Math.min(ship.hp + dc.instantHp, ship.stats.maxHp);
     // Pools ADD, the RATE never changes (the ratified anti-flask rule): a second
     // heal makes the drain run twice as LONG, never twice as fast.
     ship.repairHp += dc.regenHp;
     this.pending.push({ k: 'heal', id: ship.id });
+    this.materializeOffer(ship); // the NEXT banked level surfaces its hand now
     return true;
   }
 
-  /** The spend's application half: give back the unchosen cards, fit the pick
-   *  (returning a swapped-out doctrine rival to the deck), queue the
+  /** The spend's application half: take the CHOSEN card out of the deck, fit
+   *  the pick (returning a swapped-out doctrine rival to the deck), queue the
    *  self-private `bn`, and run the acquisition bookkeeping when the pick
    *  filled the R slot. Split from spendPoint (complexity budget). */
   private settleSpend(ship: ShipRecord, front: BoonOffer, choice: number): void {
     const boon = front[choice];
-    // THE DECK's give-back (Story 2.8): the 3 unchosen cards return to the
-    // pool; the chosen card is consumed (never returned) — the deck visibly
-    // thins over a match by exactly the cards fitted.
-    ship.deck = returnCards(ship.deck, front.filter((_, i) => i !== choice));
+    // THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
+    // leaves the pool. The unchosen cards need no give-back — they never left —
+    // so the deck thins over a match by exactly the cards FITTED, and a
+    // passed-on line is at full copies for the very next draw.
+    ship.deck = consumeCard(ship.deck, boon);
     const swappedOut = this.applyBoon(ship, boon);
     // Doctrine swap (amendment 44): the swapped-out rival's card returns to
     // the deck — doctrine can ping-pong across a match.
     if (swappedOut !== null) ship.deck = returnCards(ship.deck, [swappedOut]);
     this.pending.push({ k: 'bn', id: ship.id, boon });
-    // Acquisition pick (amendments 38/43): the R slot is PERMANENT — the
-    // acquired subdeck shuffles in, every remaining acquisition card purges,
-    // and banked offers scrub + refill deterministically on this same stream.
+    // Acquisition pick (amendment 38): the R slot is PERMANENT — the acquired
+    // subdeck shuffles in and every remaining acquisition card purges. The
+    // NEXT offer is materialized after this returns, so it is drawn from the
+    // already-cleaned deck (amendment 43's scrub has nothing left to do).
     const def = Object.hasOwn(this.boonCatalog, boon) ? this.boonCatalog[boon] : undefined;
     if (def !== undefined && isAcquisitionDef(def)) this.consumeAcquisitionPick(ship, def);
   }
 
   /**
-   * The acquisition-pick deck bookkeeping (Story 2.8, amendments 38/43), run
-   * AFTER applyBoon installed the equipment: shuffle the acquired equipment's
-   * subdeck into the pool + purge every remaining acquisition card
-   * (consumeAcquisition — the R slot can never fill again), then scrub the
-   * now-dead acquisition cards out of every still-BANKED offer, refilling each
-   * scrubbed offer back to size from the deck in offer order
-   * (scrubAcquisitions — deterministic on this ship's own stream, triggered
-   * only by this ship's own pick: NOT a reroll, FR19 untouched).
+   * The acquisition-pick deck bookkeeping (Story 2.8, amendment 38), run AFTER
+   * applyBoon installed the equipment: shuffle the acquired equipment's subdeck
+   * into the pool and purge every remaining acquisition card
+   * (consumeAcquisition — the R slot can never fill again).
    *
-   * SCRUBBED-TO-EMPTY OFFERS ARE REMOVED (Story 2.8 review, P5): a banked
-   * offer can be 100% acquisition cards, and an exhausted deck refills it with
-   * NOTHING. A zero-card offer still counted in `pts` (pts === offers.length)
-   * but spendPoint bounds `choice` by front.length — so a zero-card FRONT can
-   * never be consumed and the whole FIFO deadlocks forever. Dropping it MIRRORS
-   * the ratified empty-deck rule in grantPoint (an empty draw banks no offer:
-   * the level still happened, there is just nothing to fit) — pts falls with
-   * offers.length and the queue stays spendable.
+   * AMENDMENT 43's SCRUB IS RETIRED (the lazy-draw bugfix): it removed dead
+   * acquisition cards from other BANKED offers, and there are none — only the
+   * FRONT offer is ever materialized, and spendCard drops it before calling
+   * here, then materializes the next one from this already-purged deck. A stale
+   * acquisition card is unreachable by construction, which also retires the P5
+   * scrubbed-to-empty deadlock the old refill could produce.
    */
   private consumeAcquisitionPick(ship: ShipRecord, def: BoonDef): void {
     const fill = def.effects.find((e) => e.kind === 'slotFill');
     if (fill === undefined || fill.kind !== 'slotFill') return;
     ship.deck = consumeAcquisition(ship.deck, this.boonCatalog, fill.equipmentId);
-    const scrubbed = scrubAcquisitions(ship.deck, this.boonCatalog, ship.offers, ship.deckRng);
-    ship.deck = scrubbed.deck;
-    ship.offers = scrubbed.offers.filter((offer) => offer.length > 0);
   }
 
   /**
@@ -3285,9 +3332,9 @@ export class World {
     ship.state.speed = 0;
     // Respawn happens only in the waiting phase (active-phase death = spectate),
     // so the build PERSISTS: full EFFECTIVE hp + effective-size ammo pools.
-    // XP progress (xpMs/level) and banked offers persist with it — deliberately
-    // untouched here. (redeployShip, the match boundary, is where the whole
-    // build, XP included, gets wiped.)
+    // XP progress (xpMs/level) and the banked levels + front offer persist with
+    // it — deliberately untouched here. (redeployShip, the match boundary, is
+    // where the whole build, XP included, gets wiped.)
     ship.hp = ship.stats.maxHp;
     // The respawn `redeploy` edge (Story 5.1, amendment 3): `sunk -> alive`.
     // Production-unreachable in a live match (damageEnabled and respawnEnabled

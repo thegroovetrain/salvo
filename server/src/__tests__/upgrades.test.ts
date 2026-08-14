@@ -1,8 +1,10 @@
 // THE DECK ECONOMY (Story 2.8, amendment 38 — this suite replaced the legacy
 // upgrade-economy suite wholesale in the 2.8 strip). Server-side pins for the
 // per-player card deck behind every offer: deck composition per hull (drones
-// never get one), the draw→bank→spend→return cycle over the REAL production
-// BOON_CATALOG, the acquisition purge + banked-offer scrub (amendment 43),
+// never get one), the LAZY bank→materialize→fit cycle over the REAL production
+// BOON_CATALOG (a draw takes nothing; only the FIT thins the deck — the
+// anti-hoarding pin below is the regression this model exists for), the
+// acquisition purge (amendment 38),
 // free doctrine swaps with the rival's card returning to the deck (amendment
 // 44), heal-on-grant (shipHull — the ONLY heal path), top-up on raised caps
 // (amendment 41), the empty-deck no-bank rule (pinned unreachable in
@@ -73,9 +75,27 @@ function stack(w: World, ship: ShipRecord, boonId: string, count: number): void 
   for (let i = 0; i < count; i++) w.applyBoon(ship, boonId);
 }
 
-/** Bank `n` levels through the real XP seam (each banks one deck-drawn offer). */
+/** Bank `n` levels through the real XP seam (only the FRONT one draws a hand). */
 function bank(w: World, ship: ShipRecord, n: number): void {
   for (let i = 0; i < n; i++) w.grantXp(ship, 1);
+}
+
+/** The materialized front offer, defensively copied (fails loudly if none). */
+function front(ship: ShipRecord): string[] {
+  expect(ship.offer).not.toBeNull();
+  return [...ship.offer!];
+}
+
+/** Spend the front offer on the first card that is neither an ACQUISITION (which
+ *  purges + shuffles a subdeck in) nor a DOCTRINE (whose rival's card can come
+ *  BACK) — so the deck moves by exactly the one fitted card and a card-count
+ *  assertion means what it says. Returns the fitted id. */
+function spendPlainCard(w: World, ship: ShipRecord): string {
+  const hand = front(ship);
+  const i = hand.findIndex((id) => !isAcquisitionDef(BOON_CATALOG[id]) && BOON_CATALOG[id].exclusiveWith === undefined);
+  expect(i, `no plain card in ${hand.join(',')}`).toBeGreaterThanOrEqual(0);
+  expect(w.spendPoint(ship.id, i)).toBe(true);
+  return hand[i];
 }
 
 /** Occurrences of `id` in a deck's card multiset. */
@@ -145,7 +165,8 @@ describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', 
     // Even a direct XP grant banks nothing for a drone (the addXpMs guard).
     w.grantXp(d, 5);
     expect(d.level).toBe(0);
-    expect(d.offers).toEqual([]);
+    expect(d.bankedLevels).toBe(0);
+    expect(d.offer).toBeNull();
     expect(d.deck.cards).toEqual([]);
   });
 });
@@ -161,10 +182,10 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
     const deckBefore = a.deck.cards.length;
     w.sinkShip('b', 'a');
     w.step();
-    expect(a.offers).toHaveLength(1);
-    expect(a.offers[0]).toHaveLength(CONFIG.offer.size); // 4 lines from a healthy deck
-    expect(new Set(a.offers[0]).size).toBe(CONFIG.offer.size); // all DIFFERENT lines
-    expect(a.deck.cards).toHaveLength(deckBefore - CONFIG.offer.size); // drawn cards left the deck
+    expect(a.bankedLevels).toBe(1);
+    expect(front(a)).toHaveLength(CONFIG.offer.size); // 4 lines from a healthy deck
+    expect(new Set(front(a)).size).toBe(CONFIG.offer.size); // all DIFFERENT lines
+    expect(a.deck.cards).toHaveLength(deckBefore); // the DRAW takes nothing out
     expect(a.level).toBe(1);
     // Earning applies NOTHING: the build and cached stats are the zero-boon identity.
     expect(a.boons).toEqual([]);
@@ -181,7 +202,8 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
     w.step();
     w.sinkShip('b'); // by=undefined — the storm has no killer
     w.step();
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
+    expect(a.offer).toBeNull();
     expect(ptsOf(w.tickEvents)).toEqual([]);
   });
 
@@ -191,7 +213,8 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
     w.step();
     w.sinkShip('a', 'a');
     w.step();
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
+    expect(a.offer).toBeNull();
     expect(ptsOf(w.tickEvents)).toEqual([]);
   });
 
@@ -214,7 +237,7 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
     w.step();
     // TWO banked points since Story 4.6: the standard captain level plus
     // CONFIG.bounty.killLevels for sinking the holder — both to a corpse.
-    expect(a.offers).toHaveLength(2);
+    expect(a.bankedLevels).toBe(2);
     expect(a.level).toBe(2); // kill XP is NOT alive-gated (Story 2.6)
     expect(isAfloat(a.lifecycle)).toBe(false);
     expect(a.hp).toBe(0); // earning is inert — a corpse banks, nothing heals
@@ -225,12 +248,20 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
 
 describe('deck determinism — (mapSeed, join ordinal, draw sequence)', () => {
   it('same seed + same join order + same draws ⇒ identical offers', () => {
+    // Three levels now materialize ONE hand at a time, so the run has to SPEND
+    // to reach the second and third draws — which is exactly the sequence the
+    // determinism guarantee is about.
     const run = (): BoonOffer[] => {
       const w = bareWorld(42);
       const a = place(w, 'a', 0, 0);
       place(w, 'b', 100, 0);
       bank(w, a, 3);
-      return [...a.offers];
+      const seen: BoonOffer[] = [front(a)];
+      for (let i = 0; i < 2; i++) {
+        expect(w.spendPoint('a', 0)).toBe(true);
+        seen.push(front(a));
+      }
+      return seen;
     };
     expect(run()).toEqual(run());
   });
@@ -248,7 +279,7 @@ describe('deck determinism — (mapSeed, join ordinal, draw sequence)', () => {
     place(churn, 'c', 200, 0); // ...and a later join — ordinals elsewhere move on
     bank(churn, a2, 2);
 
-    expect(a2.offers).toEqual(a1.offers); // a's stream is its own
+    expect(a2.offer).toEqual(a1.offer); // a's stream is its own
   });
 
   it('redeployShip rebuilds the deck but NOT the stream: post-redeploy draws continue the same rng sequence', () => {
@@ -265,27 +296,28 @@ describe('deck determinism — (mapSeed, join ordinal, draw sequence)', () => {
     redeployed.resetForMatchStart(); // fresh deck, SAME stream position
     bank(redeployed, a2, 1);
 
-    expect(a2.offers).toEqual(a1.offers);
+    expect(a2.offer).toEqual(a1.offer);
   });
 });
 
 // ---------- the queue + spend cycle ------------------------------------------
 
-describe('offer queue — FIFO, front on the wire, reroll-proof', () => {
-  it('3 banked levels queue 3 offers; spend applies exactly the FRONT slot, then surfaces the next', () => {
+describe('level bank — lazy front offer, front on the wire, reroll-proof', () => {
+  it('3 banked levels bank 3 LEVELS and materialize ONE hand; a spend surfaces the next', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 3);
-    expect(a.offers).toHaveLength(3);
-    const [first, second] = [a.offers[0], a.offers[1]];
+    expect(a.bankedLevels).toBe(3);
+    const first = front(a);
     const pick = first[2];
     expect(w.spendPoint('a', 2)).toBe(true);
     expect(a.boons).toEqual([pick]);
-    expect(a.offers).toHaveLength(2);
-    expect(a.offers[0]).toEqual(second); // the next queued offer slides forward untouched
+    expect(a.bankedLevels).toBe(2);
+    const second = front(a); // a FRESH hand, drawn now that this level reached the front
+    expect(second).toHaveLength(CONFIG.offer.size);
     const f = buildFrame(w, 'a');
     expect(f.you!.pts).toBe(2);
-    expect(f.you!.offer).toEqual([...second]);
+    expect(f.you!.offer).toEqual(second);
   });
 
   it('the front offer is reroll-proof: identical across consecutive frames with no spend', () => {
@@ -296,23 +328,126 @@ describe('offer queue — FIFO, front on the wire, reroll-proof', () => {
     w.step();
     w.step();
     expect([...buildFrame(w, 'a').you!.offer]).toEqual(before);
-    expect(a.offers).toHaveLength(1);
+    expect(a.bankedLevels).toBe(1);
+    expect(front(a)).toEqual(before); // ...and the server-side hand is the frozen one
   });
 
-  it('spend RETURNS the unchosen cards to the deck; the chosen card is consumed', () => {
+  // THE ANTI-REGRESSION PIN (the lazy-draw bugfix). Under the old model each
+  // level DREW four cards out of the deck and only gave three back on a spend,
+  // so a player who banked levels drained their own deck: a 59-card TB hit zero
+  // by ~L15 and started banking 3-card, then 1-card, then zero-card levels. The
+  // whole point of the lazy model is that banking is FREE.
+  it('20 levels banked WITHOUT a single spend: every hand is full size and the deck never shrinks', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const buildSize = a.deck.cards.length;
+    expect(buildSize).toBe(59); // the TB build
+    const hands: string[][] = [];
+    for (let i = 0; i < 20; i++) {
+      bank(w, a, 1);
+      expect(a.bankedLevels).toBe(i + 1);
+      hands.push(front(a));
+      expect(a.deck.cards).toHaveLength(buildSize); // NOTHING left the deck
+    }
+    for (const hand of hands) {
+      expect(hand).toHaveLength(CONFIG.offer.size);
+      expect(new Set(hand).size).toBe(CONFIG.offer.size);
+    }
+    // ...and the whole queue is still spendable, 4 cards at a time, all the way
+    // down: 20 spends, 20 full hands, 20 cards fitted.
+    for (let i = 20; i > 0; i--) {
+      expect(front(a)).toHaveLength(CONFIG.offer.size);
+      spendPlainCard(w, a);
+      expect(a.bankedLevels).toBe(i - 1);
+    }
+    expect(a.boons).toHaveLength(20);
+    expect(a.deck.cards).toHaveLength(buildSize - 20); // exactly the 20 FITTED cards
+  });
+
+  it('a passed-on line stays at FULL copies and is drawable by the very next level', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 2);
+    const hand = front(a);
+    const passed = hand[1]; // fit slot 0, pass on the rest
+    const copiesBefore = copiesInDeck(a, passed);
+    expect(copiesBefore).toBe(BOON_CATALOG[passed].copies); // never left the deck at all
+    expect(w.spendPoint('a', 0)).toBe(true);
+    expect(copiesInDeck(a, passed)).toBe(copiesBefore); // ...and still hasn't
+    // It is eligible for the very next draw: hammer the stream from this state
+    // and it does come back up.
+    let seen = false;
+    for (let i = 0; i < 200 && !seen; i++) {
+      const twin = bareWorld(1000 + i);
+      const t = place(twin, 'a', 0, 0);
+      bank(twin, t, 1);
+      seen = front(t).includes(passed);
+    }
+    expect(seen, `${passed} never drawable again`).toBe(true);
+  });
+
+  it('spend consumes ONLY the chosen card; the unchosen never left the deck', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 1);
-    const offer = [...a.offers[0]];
+    const offer = front(a);
     const deckBefore = a.deck.cards.length;
     expect(w.spendPoint('a', 0)).toBe(true);
-    // 3 of the 4 drawn cards came back; the fitted card is gone for good.
-    expect(a.deck.cards).toHaveLength(deckBefore + offer.length - 1);
+    // Exactly ONE card left the pool — the fitted one.
+    expect(a.deck.cards).toHaveLength(deckBefore - 1);
     const chosen = offer[0];
     expect(copiesInDeck(a, chosen)).toBe(BOON_CATALOG[chosen].copies - 1); // one copy consumed
     for (const id of offer.slice(1)) {
       expect(copiesInDeck(a, id)).toBe(BOON_CATALOG[id].copies - boonStackCount(a.boons, id));
     }
+  });
+
+  it('N fits remove exactly N cards, however the levels are banked and spent', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const buildSize = a.deck.cards.length;
+    let fits = 0;
+    // Interleave: bank 3, spend 1, bank 1, spend 2, ... over many rounds.
+    for (let round = 0; round < 6; round++) {
+      bank(w, a, 3);
+      spendPlainCard(w, a);
+      fits += 1;
+      bank(w, a, 1);
+      spendPlainCard(w, a);
+      spendPlainCard(w, a);
+      fits += 2;
+      expect(a.deck.cards).toHaveLength(buildSize - fits);
+    }
+    expect(a.boons).toHaveLength(fits);
+  });
+
+  // R3: the pity escalation increments once per DRAW, so a level must never
+  // draw twice (nor pay for a level it never got a hand for). Against an
+  // all-common injected catalog levelsSinceRare never resets, so it counts
+  // draws exactly — and it must equal the number of levels that materialized.
+  it('exactly ONE draw per level across grant/spend/heal interleavings (levelsSinceRare counts them)', () => {
+    const line = (id: string) =>
+      ({ id, category: 'guns', rarity: 'common', copies: 9, effects: [{ kind: 'stat', path: 'gun.damage', add: 1 }] }) as const;
+    const allCommon: WorldOptions = {
+      boonCatalog: { c1: line('c1'), c2: line('c2'), c3: line('c3'), c4: line('c4'), c5: line('c5'), c6: line('c6') },
+    };
+    const w = bareWorld(3, allCommon);
+    const a = place(w, 'a', 0, 0);
+    let levels = 0;
+    const grant = (n: number): void => { bank(w, a, n); levels += n; };
+    grant(4); // one draw now, three deferred
+    expect(a.deck.levelsSinceRare).toBe(1);
+    expect(w.spendPoint('a', 0)).toBe(true); // consumes a level, draws the next
+    expect(a.deck.levelsSinceRare).toBe(2);
+    a.hp -= 40;
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true); // a heal draws the next too
+    expect(a.deck.levelsSinceRare).toBe(3);
+    grant(2); // both deferred behind the live hand
+    expect(a.deck.levelsSinceRare).toBe(3);
+    // Drain the bank: each spend materializes the next, until the last one.
+    while (a.bankedLevels > 0) expect(w.spendPoint('a', 0)).toBe(true);
+    expect(a.offer).toBeNull();
+    expect(a.deck.levelsSinceRare).toBe(levels); // one draw per level, no more, no fewer
   });
 });
 
@@ -329,15 +464,15 @@ describe('spendPoint — validation table', () => {
     const a = place(w, 'a', 0, 0);
     a.hp -= 40; // DAMAGE gone, so a -1 rejection can only be the SENTINEL check
     bank(w, a, 1);
-    const before = [...a.offers[0]];
+    const before = front(a);
     // -1 left this list on 2026-08-04: it is now HEAL_CHOICE, the one reserved
     // negative. EVERY other negative stays malformed — that is the whole point
     // of a reserved sentinel over "any negative means heal".
     for (const junk of [-2, -99, 4, 99, 1.5, NaN, Infinity, '0', 'heal', null, undefined, {}]) {
       expect(w.spendPoint('a', junk)).toBe(false);
     }
-    expect(a.offers).toHaveLength(1);
-    expect([...a.offers[0]]).toEqual(before);
+    expect(a.bankedLevels).toBe(1);
+    expect(front(a)).toEqual(before);
     expect(a.boons).toEqual([]);
     expect(a.repairHp).toBe(0); // no near-miss ever primed the pool
   });
@@ -347,7 +482,7 @@ describe('spendPoint — validation table', () => {
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
     bank(w, a, 1);
-    const pick = a.offers[0][1];
+    const pick = front(a)[1];
     expect(w.spendPoint('a', 1)).toBe(true);
     w.step();
     expect(a.boons).toEqual([pick]);
@@ -360,8 +495,8 @@ describe('spendPoint — validation table', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 1);
-    expect(a.offers[0]).toHaveLength(4);
-    const pick = a.offers[0][3];
+    expect(front(a)).toHaveLength(4);
+    const pick = front(a)[3];
     expect(w.spendPoint('a', 3)).toBe(true);
     expect(a.boons).toEqual([pick]);
   });
@@ -376,10 +511,11 @@ describe('spendPoint — validation table', () => {
     // spending resumes only once the hull founders. Cross the window first.
     w.step(CONFIG.ship.sinkingWindowMs);
     expect(isAfloat(a.lifecycle)).toBe(false);
-    const pick = a.offers[0][0];
+    const pick = front(a)[0];
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.boons).toEqual([pick]);
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
+    expect(a.offer).toBeNull();
   });
 });
 
@@ -405,24 +541,28 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
     expect(a.hp).toBe(hpBefore + DC.instantHp);
     expect(a.repairHp).toBe(DC.regenHp);
-    expect(a.offers).toHaveLength(0); // exactly one level consumed
+    expect(a.bankedLevels).toBe(0); // exactly one level consumed
+    expect(a.offer).toBeNull(); // ...and its hand is dropped, not stored
     w.step();
     expect(HEALS_OF(buildFrame(w, 'a').events)).toEqual([{ k: 'heal', id: 'a' }]);
     expect(HEALS_OF(buildFrame(w, 'b').events)).toEqual([]); // healer-private
   });
 
-  it('the WHOLE front offer returns to the deck — no card leaves it (unlike a card pick)', () => {
+  it('the deck is not touched AT ALL by a heal — no card leaves it (unlike a card pick)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 1);
+    bank(w, a, 2); // a second level so the next hand materializes off the same deck
     a.hp -= 50;
-    const offer = [...a.offers[0]];
-    const deckBefore = a.deck.cards.length;
+    const offer = front(a);
+    const deckBefore = [...a.deck.cards];
     const copiesBefore = offer.map((id) => copiesInDeck(a, id));
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.deck.cards).toHaveLength(deckBefore + offer.length); // +4, not +3
-    offer.forEach((id, i) => expect(copiesInDeck(a, id)).toBe(copiesBefore[i] + 1));
+    // Under the lazy model nothing ever left the pool, so a heal returns
+    // nothing and the multiset is BYTE-IDENTICAL — the offer is just dropped.
+    expect(a.deck.cards).toEqual(deckBefore);
+    offer.forEach((id, i) => expect(copiesInDeck(a, id)).toBe(copiesBefore[i]));
     expect(a.boons).toEqual([]); // nothing was fitted
+    expect(front(a)).toHaveLength(CONFIG.offer.size); // the next level's hand is up
   });
 
   it('the pool pays out exactly regenHp over regenMs at the FIXED rate, then stops', () => {
@@ -465,11 +605,11 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     const a = place(w, 'a', 0, 0);
     bank(w, a, 1);
     expect(a.hp).toBe(a.stats.maxHp);
-    const offerBefore = [...a.offers[0]];
+    const offerBefore = front(a);
     const deckBefore = a.deck.cards.length;
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
-    expect(a.offers).toHaveLength(1);
-    expect([...a.offers[0]]).toEqual(offerBefore); // the SAME hand, never rerolled
+    expect(a.bankedLevels).toBe(1);
+    expect(front(a)).toEqual(offerBefore); // the SAME hand, never rerolled
     expect(a.deck.cards).toHaveLength(deckBefore);
     expect(a.repairHp).toBe(0);
     w.step();
@@ -485,7 +625,7 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     w.sinkShip('a');
     expect(isAfloat(a.lifecycle)).toBe(false);
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
-    expect(a.offers).toHaveLength(1); // banked, unlike a CARD pick which is legal dead
+    expect(a.bankedLevels).toBe(1); // banked, unlike a CARD pick which is legal dead
     expect(a.repairHp).toBe(0);
     expect(a.hp).toBe(0);
   });
@@ -494,7 +634,7 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.hp -= 50; // damaged and alive — only the empty bank can refuse it
-    expect(a.offers).toHaveLength(0);
+    expect(a.bankedLevels).toBe(0);
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
     expect(w.spendPoint('ghost', HEAL_CHOICE)).toBe(false);
     expect(a.repairHp).toBe(0);
@@ -625,23 +765,23 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     bank(w, a, 3);
     expect(CONFIG.offer.size).toBe(4); // untouched by DAMAGE CONTROL
     for (const id of a.deck.cards) expect(id).not.toMatch(/heal|repair|damageControl/i);
-    for (const offer of a.offers) {
-      expect(offer).toHaveLength(4);
-      for (const id of offer) expect(Object.hasOwn(BOON_CATALOG, id)).toBe(true);
-    }
+    const hand = front(a);
+    expect(hand).toHaveLength(4);
+    for (const id of hand) expect(Object.hasOwn(BOON_CATALOG, id)).toBe(true);
     expect(buildFrame(w, 'a').you!.offer).toHaveLength(4); // the strip never rides `offer`
   });
 });
 
 // ---------- acquisitions -----------------------------------------------------
 
-describe('acquisitions — R fills once, purge + scrub (amendments 38/41/43)', () => {
-  /** A TB with a directed acquireMine offer at the queue front. */
-  function acquisitionBoard(extraOffers: string[][] = []): { w: World; a: ShipRecord } {
+describe('acquisitions — R fills once, purge (amendments 38/41)', () => {
+  /** A TB holding `extraLevels` more banked levels behind a directed
+   *  acquireMine front offer. */
+  function acquisitionBoard(extraLevels = 0): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.offers.push(['acquireMine', 'gunDamage', 'shipHull', 'intelSweep']);
-    for (const o of extraOffers) a.offers.push(o);
+    a.bankedLevels = 1 + extraLevels;
+    a.offer = ['acquireMine', 'gunDamage', 'shipHull', 'intelSweep'];
     return { w, a };
   }
 
@@ -665,66 +805,32 @@ describe('acquisitions — R fills once, purge + scrub (amendments 38/41/43)', (
     }
   });
 
-  it('banked offers SCRUB their dead acquisition cards and refill to size from the deck (amendment 43)', () => {
-    const { w, a } = acquisitionBoard([
-      ['acquireCannon', 'shipCooldown', 'shipSpeed', 'intelRadar'], // holds a now-dead acquisition
-      ['gunDamage', 'torpedoDamage', 'intelTruesight', 'boostMax'], // acquisition-free: untouched
-    ]);
-    const untouched = [...a.offers[2]];
-    expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.offers).toHaveLength(2);
-    const scrubbed = a.offers[0];
-    expect(scrubbed).toHaveLength(4); // refilled back to its prior size
-    expect([...scrubbed.slice(0, 3)]).toEqual(['shipCooldown', 'shipSpeed', 'intelRadar']); // kept cards keep identity + order
-    expect(isAcquisitionDef(BOON_CATALOG[scrubbed[3]])).toBe(false); // the refill can never be an acquisition
-    expect(scrubbed).not.toContain('acquireCannon');
-    expect([...a.offers[1]]).toEqual(untouched); // acquisition-free offers are byte-identical
+  // Amendment 43's SCRUB is RETIRED by the lazy-draw bugfix, and its two pins
+  // (the refill, and the P5 "scrubbed-to-zero offer deadlocks the FIFO" fix)
+  // with it: there is no second banked offer to hold a stale acquisition card,
+  // because the next hand is not drawn until the acquisition pick has already
+  // purged the deck. This is the pin that replaces both.
+  it('the NEXT offer is drawn from the CLEANED deck — a stale acquisition card is unreachable', () => {
+    const { w, a } = acquisitionBoard(60); // a deep bank behind the acquisition pick
+    expect(w.spendPoint('a', 0)).toBe(true); // fit acquireMine: purge + subdeck
+    expect(a.bankedLevels).toBe(60);
+    // Every subsequent hand, all the way down the bank, is acquisition-free —
+    // and the mine subdeck that just joined IS drawable.
+    let sawMineLine = false;
+    while (a.bankedLevels > 0) {
+      const hand = front(a);
+      for (const id of hand) expect(isAcquisitionDef(BOON_CATALOG[id]), id).toBe(false);
+      if (hand.some((id) => BOON_CATALOG[id].category === 'mines')) sawMineLine = true;
+      expect(w.spendPoint('a', 0)).toBe(true);
+    }
+    expect(sawMineLine).toBe(true);
   });
 
-  // Story 2.8 review, P5: a BANKED offer can be 100% acquisition cards, and an
-  // exhausted deck refills it with NOTHING. A zero-card offer still counted in
-  // pts (pts === offers.length) but spendPoint bounds `choice` by front.length
-  // — so a zero-card FRONT could never be consumed and the FIFO deadlocked
-  // forever. RULING: an offer scrubbed to zero cards is REMOVED entirely
-  // (mirroring grantPoint's empty-draw rule). Driven with a tiny injected
-  // catalog, the same way the empty-deck rule below is reached: production
-  // decks are far too fat for the state to arise in one match.
-  it('an offer scrubbed to ZERO cards is REMOVED — pts falls with it and the queue stays spendable', () => {
-    const twoAcquisitions: WorldOptions = {
-      boonCatalog: {
-        // Two acquisitions whose categories hold NO other lines, so nothing
-        // can refill a scrubbed offer once the pool is dry.
-        acqCannon: { id: 'acqCannon', category: 'cannon', rarity: 'rare', copies: 1, effects: [{ kind: 'slotFill', equipmentId: 'cannon' }] },
-        acqStar: { id: 'acqStar', category: 'starShells', rarity: 'rare', copies: 1, effects: [{ kind: 'slotFill', equipmentId: 'starShells' }] },
-        aLine: { id: 'aLine', category: 'guns', rarity: 'common', copies: 1, effects: [{ kind: 'stat', path: 'gun.damage', add: 1 }] },
-      },
-    };
-    const w = bareWorld(1, twoAcquisitions);
-    const a = place(w, 'a', 0, 0);
-    a.offers.push(['acqCannon']); // the FRONT: an acquisition pick (nothing to give back)
-    a.offers.push(['acqStar']); // BANKED and 100% acquisition — the scrub empties it
-    a.offers.push(['aLine']); // a real banked offer behind it
-    a.deck = { cards: [], levelsSinceRare: 0 }; // pool dry: the refill draws nothing
-    expect(buildFrame(w, 'a').you!.pts).toBe(3);
-
-    expect(w.spendPoint('a', 0)).toBe(true); // fit the acquisition
-    // The all-acquisition offer scrubbed to zero and is GONE (not a 0-card
-    // ghost); the real offer behind it survived intact.
-    expect(a.offers).toHaveLength(1);
-    expect([...a.offers[0]]).toEqual(['aLine']);
-    // pts === offers.length still holds, and the queue consumes to empty
-    // instead of deadlocking on an unspendable front.
-    expect(buildFrame(w, 'a').you!.pts).toBe(1);
-    expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.offers).toHaveLength(0);
-    expect(buildFrame(w, 'a').you!.pts).toBe(0);
-  });
-
-  it('the scrub refill is deterministic on the player’s own stream (twin worlds agree)', () => {
+  it('the post-acquisition draw is deterministic on the player’s own stream (twin worlds agree)', () => {
     const run = (): BoonOffer[] => {
-      const { w, a } = acquisitionBoard([['acquireCannon', 'shipCooldown', 'shipSpeed', 'intelRadar']]);
+      const { w, a } = acquisitionBoard(1);
       w.spendPoint('a', 0);
-      return [...a.offers];
+      return [front(a)];
     };
     expect(run()).toEqual(run());
   });
@@ -736,16 +842,17 @@ describe('doctrine swap — free replace, rival card returns, ping-pong (amendme
   it('fitting the rival removes ONE occurrence of the held doctrine and returns its card to the deck', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    // Take the homing card out of the deck the way a real draw would, then fit it.
-    a.offers.push(['torpedoHoming', 'gunDamage', 'shipHull', 'intelSweep']);
-    a.deck = { cards: a.deck.cards.filter((c) => c !== 'torpedoHoming'), levelsSinceRare: 0 };
+    // Direct the front hand at the homing card (a draw takes nothing out — the
+    // FIT does, so the deck loses the copy only when the spend lands).
+    a.bankedLevels = 1;
+    a.offer = ['torpedoHoming', 'gunDamage', 'shipHull', 'intelSweep'];
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.boons).toEqual(['torpedoHoming']);
     expect(a.stats.torpedo.mode).toBe('homing');
     expect(copiesInDeck(a, 'torpedoHoming')).toBe(0); // held — its only copy is out of the pool
     // Now the rival is drawn and picked: a free swap.
-    a.offers.push(['torpedoCommand', 'gunDamage', 'shipHull', 'intelSweep']);
-    a.deck = { cards: a.deck.cards.filter((c) => c !== 'torpedoCommand'), levelsSinceRare: 0 };
+    a.bankedLevels = 1;
+    a.offer = ['torpedoCommand', 'gunDamage', 'shipHull', 'intelSweep'];
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.boons).toEqual(['torpedoCommand']); // the homing id LEFT boons
     expect(a.stats.torpedo.mode).toBe('command');
@@ -831,11 +938,11 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
 
 // ---------- empty deck -------------------------------------------------------
 
-describe('empty deck — level increments, NO offer banks (pinned unreachable in production)', () => {
-  it('with a one-card injected catalog: the first level banks the last card, the second banks NOTHING and emits no pt', () => {
-    // Production decks are 69+ cards — a match can never exhaust one. The rule
-    // is still DEFINED: reach it with a tiny catalog (one universal line, one
-    // copy).
+describe('empty deck — level banks, NO offer materializes (pinned unreachable in production)', () => {
+  it('with a one-card injected catalog: the level materializes the last card, and only FITTING it empties the deck', () => {
+    // Production decks are 59+ cards and, since the lazy-draw bugfix, banking
+    // costs none of them — a match can never exhaust one. The rule is still
+    // DEFINED: reach it with a tiny catalog (one universal line, one copy).
     const tiny: WorldOptions = {
       boonCatalog: {
         lastShell: { id: 'lastShell', category: 'guns', rarity: 'common', copies: 1, effects: [{ kind: 'stat', path: 'gun.damage', add: 1 }] },
@@ -847,31 +954,54 @@ describe('empty deck — level increments, NO offer banks (pinned unreachable in
     w.grantXp(a, 1);
     w.step();
     expect(a.level).toBe(1);
-    expect(a.offers).toEqual([['lastShell']]); // a thin deck draws a short offer
-    expect(a.deck.cards).toEqual([]);
+    expect(front(a)).toEqual(['lastShell']); // a thin deck draws a short offer
+    expect(a.deck.cards).toEqual(['lastShell']); // ...and the draw took nothing
     expect(ptsOf(w.tickEvents)).toEqual([{ k: 'pt', id: 'a' }]);
-    // The deck is now EMPTY: the next level still increments but banks nothing
-    // — and must NOT advertise TAB-to-refit (no pt event).
+    // A second level materializes NOTHING new (the hand is already up) but is
+    // banked, and it emits pt: there IS something to spend.
     w.grantXp(a, 1);
     w.step();
     expect(a.level).toBe(2);
-    expect(a.offers).toHaveLength(1); // unchanged — nothing banked
+    expect(a.bankedLevels).toBe(2);
+    expect(front(a)).toEqual(['lastShell']);
+    expect(ptsOf(w.tickEvents)).toEqual([{ k: 'pt', id: 'a' }]);
+    // FITTING it is what empties the deck — and the level behind it now has
+    // nothing to draw: banked, offer-less, and NOT advertising TAB-to-refit.
+    expect(w.spendPoint('a', 0)).toBe(true);
+    expect(a.deck.cards).toEqual([]);
+    expect(a.bankedLevels).toBe(1);
+    expect(a.offer).toBeNull();
+    const f = buildFrame(w, 'a');
+    expect(f.you!.pts).toBe(1); // the level is still banked...
+    expect(f.you!.offer).toEqual([]); // ...with no hand behind it
+    // The offer-less level refuses a CARD pick and never deadlocks: it is still
+    // spendable as a heal, and a later level simply retries the draw.
+    expect(w.spendPoint('a', 0)).toBe(false);
+    a.hp -= 40;
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    expect(a.bankedLevels).toBe(0);
+    // ...and a fresh level against the empty deck emits NO pt (the ratified
+    // offer-less-level rule).
+    w.grantXp(a, 1);
+    w.step();
+    expect(a.bankedLevels).toBe(1);
+    expect(a.offer).toBeNull();
     expect(ptsOf(w.tickEvents)).toEqual([]);
-    expect(buildFrame(w, 'a').you!.pts).toBe(1); // pts === offers.length holds throughout
   });
 });
 
 // ---------- lifecycle --------------------------------------------------------
 
 describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
-  it('respawn (waiting phase) PRESERVES the build: boons, stats, effective hp + pools, deck, offers, XP', () => {
+  it('respawn (waiting phase) PRESERVES the build: boons, stats, effective hp + pools, deck, bank, XP', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'shipHull', 2);
     bank(w, a, 2);
     w.grantXp(a, 0.5); // partial progress toward the next level
     const deckBefore = [...a.deck.cards];
-    const offersBefore = a.offers.map((o) => [...o]);
+    const bankBefore = a.bankedLevels;
+    const offerBefore = front(a);
     const xpBefore = a.xpMs;
     w.sinkShip('a');
     // Story 5.2: the revive waits on the founder tick (window > respawn delay).
@@ -881,7 +1011,8 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp
     expect(a.deck.cards).toEqual(deckBefore);
-    expect(a.offers.map((o) => [...o])).toEqual(offersBefore);
+    expect(a.bankedLevels).toBe(bankBefore);
+    expect(front(a)).toEqual(offerBefore);
     expect(a.level).toBe(2);
     // Passive XP kept ticking through the respawn steps — never reset.
     expect(a.xpMs).toBeGreaterThanOrEqual(xpBefore);
@@ -891,13 +1022,15 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // Fit an acquisition so the live deck diverges hard from a fresh build.
-    a.offers.push(['acquireMine', 'gunDamage', 'shipHull', 'intelSweep']);
+    a.bankedLevels = 1;
+    a.offer = ['acquireMine', 'gunDamage', 'shipHull', 'intelSweep'];
     w.spendPoint('a', 0);
     bank(w, a, 2);
     expect(copiesInDeck(a, 'mineDamage')).toBeGreaterThan(0);
     w.resetForMatchStart();
     expect(a.boons).toEqual([]);
-    expect(a.offers).toEqual([]);
+    expect(a.bankedLevels).toBe(0);
+    expect(a.offer).toBeNull();
     expect(a.level).toBe(0);
     expect(a.xpMs).toBe(0);
     expect(a.stats).toEqual(effectiveStats(a.cls));
@@ -913,13 +1046,13 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
 // ---------- wire privacy -----------------------------------------------------
 
 describe('wire privacy — banked levels and the deck never leak', () => {
-  it('own frame: pts counts the queue, offer is the FRONT offer as resolvable BOON IDS; the DECK never rides the wire', () => {
+  it('own frame: pts counts the BANK, offer is the materialized FRONT hand as resolvable BOON IDS; the DECK never rides the wire', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 2);
     const f = buildFrame(w, 'a');
     expect(f.you!.pts).toBe(2);
-    expect(f.you!.offer).toEqual([...a.offers[0]]);
+    expect(f.you!.offer).toEqual(front(a));
     for (const id of f.you!.offer) expect(Object.hasOwn(BOON_CATALOG, id)).toBe(true);
     expect('deck' in f.you!).toBe(false);
     expect(JSON.stringify(f)).not.toContain('levelsSinceRare');

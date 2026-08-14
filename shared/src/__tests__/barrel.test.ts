@@ -41,12 +41,12 @@ import {
   boonStackCount,
   buildDeck,
   consumeAcquisition,
+  consumeCard,
   drawOffer,
   hookKinematics,
   isAcquisitionDef,
   resolveBoons,
   returnCards,
-  scrubAcquisitions,
   slotsWithBoons,
   validateBoonDef,
   validateCatalog,
@@ -345,9 +345,13 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE DECK MODEL engine + the offer/spend wire shape (Story 2.8)', () => {
-    for (const fn of [buildDeck, drawOffer, returnCards, consumeAcquisition, scrubAcquisitions]) {
+    for (const fn of [buildDeck, drawOffer, consumeCard, returnCards, consumeAcquisition]) {
       expect(typeof fn).toBe('function');
     }
+    // RETIRED by the lazy-draw bugfix (cycle 69/72 house style — no dead knob
+    // survives): only the FRONT offer is ever materialized, so there is no
+    // second banked offer to scrub stale acquisition cards out of.
+    expect((shared as Record<string, unknown>).scrubAcquisitions).toBeUndefined();
     // dial ratified 0.35 -> 0.7 by Eric from 2-10 batch-sim evidence (amendment 57)
     expect(CONFIG.deck).toEqual({ rareWeightBase: 1, rareWeightPerDryLevel: 0.7 });
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines

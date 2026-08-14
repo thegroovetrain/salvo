@@ -263,7 +263,7 @@ describe('World.applyBoon — two homes, nothing else', () => {
       hp: a.hp, lifecycle: a.lifecycle, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
       damageDealt: a.damageDealt, lastFireSeq: a.lastFireSeq, lastActSeq: a.lastActSeq,
       respawnAt: a.respawnAt, sweepAngle: a.sweepAngle,
-      offers: [...a.offers], state: { ...a.state },
+      bankedLevels: a.bankedLevels, offer: a.offer, state: { ...a.state },
     };
     w.applyBoon(a, 'ironPlating');
     w.applyBoon(a, 'bolterRack');
@@ -274,7 +274,7 @@ describe('World.applyBoon — two homes, nothing else', () => {
       hp: a.hp, lifecycle: a.lifecycle, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
       damageDealt: a.damageDealt, lastFireSeq: a.lastFireSeq, lastActSeq: a.lastActSeq,
       respawnAt: before.respawnAt, sweepAngle: before.sweepAngle,
-      offers: [...a.offers], state: before.state,
+      bankedLevels: a.bankedLevels, offer: a.offer, state: before.state,
     }).toEqual(before);
   });
 
@@ -407,7 +407,7 @@ describe('lifecycle — redeployShip wipes boons, respawn preserves the build', 
     expect(a.loadout[SLOT_EXTRA].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('redeployShip (the match boundary) WIPES boons with offers — fresh match, fresh build', () => {
+  it('redeployShip (the match boundary) WIPES boons with the level bank — fresh match, fresh build', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyBoon(a, 'ironPlating');
