@@ -156,10 +156,12 @@ function clamp01(v: number): number {
  * seconds) and then a snap.
  *
  * `sink === 1` returns the wreck look EXACTLY, byte for byte, which is what
- * makes the founder handover pop-free: `ContactViews.markSunk` at the deferred
- * founder beat is `setSink(1)`, i.e. the same terminal value the ramp has
- * already reached on its own. There is one wreck look and one function that
- * produces it.
+ * makes the founder handover pop-free: `ContactViews.markSunk` at the founder
+ * beat is `setSink(1)`, i.e. the same terminal value the ramp has already
+ * reached on its own. There is one wreck look and one function that produces
+ * it. Since amendment 32 that handover is ALL that founder is — the crimson
+ * plume fires at the killing blow instead — so this ramp is the only thing
+ * telling an onlooker the hull has finished going down.
  *
  * The settle is deliberately NOT motion-gated. The motion setting covers
  * "directional screen shake, camera motion effects, and pulse/flash intensity"

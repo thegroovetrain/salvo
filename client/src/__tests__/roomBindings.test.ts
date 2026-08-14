@@ -475,21 +475,22 @@ describe('bindRoom own sunk — the respawn ETA', () => {
 
   // --- OWN AND ENEMY WRECKS LAND ON THE SAME BEAT ---------------------------
 
-  it('OUR OWN sink plume waits for founder, and draws where the hull actually ended up', () => {
+  it('OUR OWN sink plume lands at the KILLING BLOW, where we were holed', () => {
     const { sink, state, spawnEffect } = setupEta(false);
-    sink.handler(sinkingFrame(1000, 0, 0, [{ k: 'sunk', id: 'me', by: 'rival', seen: true }]));
-    expect(spawnEffect).not.toHaveBeenCalled(); // we are still under way
+    sink.handler(sinkingFrame(1000, 12, -8, [{ k: 'sunk', id: 'me', by: 'rival', seen: true }]));
+    // Amendment 32: our own hull blows up where it took the fatal hit, on the
+    // tick it took it — the same beat our death groan already sounded on.
+    expect(spawnEffect).toHaveBeenCalledWith('sink', 12, -8);
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
     // Five seconds of sinking, sailed: the hull ends up well away from where it
-    // was holed. The founder frame is the spec frame the server sends when the
-    // window closes — it carries no `you`, so the last sinking pose is the one
-    // the plume takes (net.you is deliberately not replaced before the flush).
+    // was holed, and NOTHING further detonates out there. The founder frame is
+    // the spec frame the server sends when the window closes.
     sink.handler(sinkingFrame(1000 + CONFIG.ship.sinkingWindowMs - 50, 220, -40));
-    expect(spawnEffect).not.toHaveBeenCalled();
     sink.handler({
       t: 1000 + CONFIG.ship.sinkingWindowMs, tick: 2, ackSeq: 0, spec: true,
       contacts: [], mines: [], events: [],
     });
-    expect(spawnEffect).toHaveBeenCalledWith('sink', 220, -40);
+    expect(spawnEffect).toHaveBeenCalledTimes(1); // no second explosion at founder
     expect(state.spectating).toBe(true);
   });
 });
@@ -591,8 +592,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     // case, which still SOUNDS (unpanned, at the floor).
     contactPos: { x: number; y: number } | null = { x: 40, y: 50 },
   ) {
-    // MUTABLE, so the deferred-presentation suite can sail the hull on between
-    // sink-entry and founder and prove the plume follows it.
+    // MUTABLE, so the suite can sail the hull on between sink-entry and founder
+    // and prove the plume does NOT follow it — since amendment 32 the mark is
+    // struck where the hull was holed and stays there.
     let pos = contactPos;
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
@@ -675,42 +677,46 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(onSunkObserved).toHaveBeenCalledWith('victim', 'killer'); // score rides regardless
   });
 
-  // --- THE SPATIAL HALF WAITS FOR FOUNDER (Story 5.2 review fix) ------------
+  // --- THE PLUME MARKS THE KILLING BLOW (amendment 32, 2026-08-14) ----------
   //
   // The `sunk` event fires at SINK-ENTRY (amendment 11) on a hull that keeps
-  // steering and shooting for five more seconds (amendment 10). Drawing the
-  // wreck there meant an enemy watched a faded, visually-dead contact turn and
-  // torpedo them, with its death plume left up to ~110u astern of where it
-  // actually went down. Identity lands now; location lands at founder.
+  // steering and shooting for five more seconds (amendment 10). Amendment 18
+  // moved the WHOLE spatial presentation to founder for that reason, and Eric
+  // took the plume back out of it: *"There is a red explosion when the ship
+  // sinks all the way. Makes no sense?... Slowly fading to black is indication
+  // enough that it has sunk."* So the split is now WITHIN the spatial half —
+  // the crimson mark strikes where the hit landed, the persistent wreck LOOK
+  // still waits for the hull to actually go down.
 
-  it('a SEEN sunk prints the line NOW but draws NO wreck yet — the hull is still fighting', () => {
+  it('a SEEN sunk prints the line AND blows up NOW — but wears no wreck yet', () => {
     const { sink, spawnEffect, markSunk } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
     expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']); // identity, immediately
-    expect(spawnEffect).not.toHaveBeenCalled(); // ...and nothing spatial
-    expect(markSunk).not.toHaveBeenCalled();
+    expect(spawnEffect).toHaveBeenCalledWith('sink', 40, 50); // ...and the mark, immediately
+    expect(markSunk).not.toHaveBeenCalled(); // the hull is still fighting — no wreck look
   });
 
-  it('...holds it for the WHOLE window, to the last tick before the deadline', () => {
-    const { sink, spawnEffect, markSunk } = setupSunk();
+  it('...and the wreck look holds off for the WHOLE window, to the last tick', () => {
+    const { sink, markSunk } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
     sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs - 1));
-    expect(spawnEffect).not.toHaveBeenCalled();
     expect(markSunk).not.toHaveBeenCalled();
   });
 
-  it('...then draws BOTH at founder, at the hull\'s THEN-current position', () => {
+  it('...then latches the tint at founder, with NO second explosion out there', () => {
     const { sink, spawnEffect, markSunk, moveContact } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
-    // The doomed hull sails on through its window — this is the whole point.
+    // The doomed hull sails on through its window — up to ~110u from where it
+    // was holed. The mark does not travel with it, and founder adds nothing to
+    // the water: the settle arriving at the wreck look is the whole beat.
     moveContact({ x: 140, y: -60 });
     sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
-    // NOT (40,50): a plume at the sink-entry position is the defect.
-    expect(spawnEffect).toHaveBeenCalledWith('sink', 140, -60);
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
+    expect(spawnEffect).toHaveBeenCalledWith('sink', 40, 50); // NOT (140,-60)
     expect(markSunk).toHaveBeenCalledWith('victim');
   });
 
-  it('...exactly ONCE, however many frames follow', () => {
+  it('...exactly ONCE each, however many frames follow', () => {
     const { sink, spawnEffect, markSunk } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
     sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
@@ -721,6 +727,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
   });
 
   it('a replayed `sunk` for the same hull still yields ONE wreck', () => {
+    // The dedup guard runs BEFORE the spawn, which is the whole reason the
+    // plume lives in openWreckWindow rather than beside the cue: a replayed
+    // event must not detonate twice over a hull already going down.
     const { sink, spawnEffect } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
@@ -740,12 +749,12 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
 
   // --- THE SINKING BEAT IS NO LONGER SILENT (Story 5.2 fix, 2026-08-13) -----
   //
-  // Amendment 18 was right to move the WRECK to founder and wrong to leave the
-  // five seconds in between empty: sinking a hull looked like nothing happening
-  // followed by a delayed-death bug. The kill flash opens the beat at
-  // sink-entry and the settle walks the hull to the wreck across the window —
-  // both on the SAME `seen`-gated queue entry the plume rides, so the fog kill's
-  // silence is untouched.
+  // Amendment 18 was right to move the WRECK LOOK to founder and wrong to leave
+  // the five seconds in between empty: sinking a hull looked like nothing
+  // happening followed by a delayed-death bug. The kill flash opens the beat at
+  // sink-entry — alongside the plume, since amendment 32 — and the settle walks
+  // the hull to the wreck across the window. All three ride the SAME
+  // `seen`-gated queue entry, so the fog kill's silence is untouched.
 
   it('a SEEN sunk flashes the killed hull ONCE, on the sink-entry tick', () => {
     const { sink, sinkFlash } = setupSunk();
@@ -799,29 +808,32 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(markSunk).not.toHaveBeenCalled();
   });
 
-  it('a wreck whose contact aged out by founder draws no plume — but still tears down', () => {
+  it('a hull unplaceable at the killing blow draws no plume — but still tears down', () => {
     // Today's staleness rule, followed rather than replaced: an unresolvable
     // position simply draws nothing (sunkPosition returns null). No position is
-    // invented, and the view teardown does not depend on having one.
-    const { sink, spawnEffect, markSunk, moveContact } = setupSunk();
-    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    // invented, the settle still runs, and the teardown does not depend on
+    // having one. Rarer since amendment 32 — a hull is nearly always placeable
+    // on the tick it is holed — but the guard is the same guard.
+    const { sink, spawnEffect, markSunk, setSink, moveContact } = setupSunk();
     moveContact(null);
-    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
     expect(spawnEffect).not.toHaveBeenCalled();
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs / 2));
+    expect(setSink).toHaveBeenCalled(); // still enrolled in the beat
+    sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
     expect(markSunk).toHaveBeenCalledWith('victim');
   });
 
-  it('OUR OWN wreck lands on the same beat, and never calls markSunk on ourselves', () => {
-    // Own-death is the one case the client knows the deadline for outright
-    // (`you.sinkingUntil`), and it must not draw its plume on a different beat
-    // from every enemy's. The own position comes off `net.you`, which this
-    // spectating harness never receives — so the plume is simply skipped,
-    // exactly as an aged-out contact is.
+  it('OUR OWN sinking never calls markSunk on ourselves', () => {
+    // The own plume comes off `net.you` (asserted in the own-ship suite above),
+    // which this spectating harness never receives — so the plume is simply
+    // skipped here, exactly as an unplaceable contact is. What this pins is the
+    // teardown: we are not one of our own contacts, at any beat.
     const { sink, spawnEffect, markSunk } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'me', by: 'killer', seen: true }));
     expect(spawnEffect).not.toHaveBeenCalled();
     sink.handler(tickFrame(SUNK_T + CONFIG.ship.sinkingWindowMs));
-    expect(markSunk).not.toHaveBeenCalled(); // we are not one of our own contacts
+    expect(markSunk).not.toHaveBeenCalled();
   });
 
   it('an OWN fog kill still plays the kill tone and reaches onSunkObserved', () => {

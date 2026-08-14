@@ -5,19 +5,26 @@
 // clock estimate for our own hull), exactly as sim/sinkingWindow.ts takes them.
 //
 // WHAT THIS FIXES. Epic-5 amendment 18 moved the enemy-side wreck tint and the
-// crimson `sink` plume from sink-entry to FOUNDER, and it was right to: a hull
-// rendering "already dead" while it was still turning and shooting is the exact
-// misread the sinking window exists to prevent. But it left the five seconds
-// between the two beats with NO enemy-side feedback at all — you sank a drone,
-// the feed said so, and the hull sailed on looking perfectly healthy until it
-// snapped to a wreck. Eric, on playing it: *"there is no indication onscreen
-// they are down and sinking at all... it looks as though nothing happened and
-// its a delayed death bug."*
+// crimson `sink` plume from sink-entry to FOUNDER, and it was right about the
+// TINT: a hull rendering "already dead" while it was still turning and shooting
+// is the exact misread the sinking window exists to prevent. But it left the
+// five seconds between the two beats with NO enemy-side feedback at all — you
+// sank a drone, the feed said so, and the hull sailed on looking perfectly
+// healthy until it snapped to a wreck. Eric, on playing it: *"there is no
+// indication onscreen they are down and sinking at all... it looks as though
+// nothing happened and its a delayed death bug."*
 //
 // The answer is a CONTINUOUS interpolation across the window rather than a step
-// at either end: at t=0 the hull looks alive (amendment 18 preserved), at the
-// founder deadline it looks EXACTLY like the wreck the deferred plume lands on
-// (so the handover cannot pop), and every instant between is on the ramp.
+// at either end: at t=0 the hull looks alive (amendment 18's insight preserved),
+// at the founder deadline it looks EXACTLY like the wreck tint that latches
+// there (so the handover cannot pop), and every instant between is on the ramp.
+//
+// AND SINCE AMENDMENT 32 THIS RAMP IS THE WHOLE FOUNDER STORY. The plume moved
+// back to the killing blow, where it marks the hit rather than the resting
+// place, so nothing detonates at the far end of the window any more — Eric:
+// *"Slowly fading to black is indication enough that it has sunk."* This module
+// is what that sentence names. The math is unchanged; what changed is that it
+// no longer runs toward a second explosion, it runs toward the only thing left.
 //
 // LINEAR, NOT EASED, and the reasoning is borrowed verbatim rather than
 // reinvented: shared/src/sim/sinking.ts already argues it for the speed cap
