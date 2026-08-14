@@ -912,9 +912,20 @@ export const CLIENT_CONFIG = {
     /** Resting alpha while the lock is HELD (static — see the block header). */
     holdAlpha: 0.85,
     /** ms — the acquire beat: the bracket snaps in from `flashSpreadU` and pops
-     *  to full alpha. 300ms is EXPERIENCE.md's ratified same-source flash floor
-     *  (the same number `ship.sinkFlashMs` and `gunnery.hitCallToneFloorMs`
-     *  carry), so one acquire occupies exactly one floor slot. */
+     *  to full alpha. 300ms, NOT the hotbar's ≤80ms Activated-flash grammar
+     *  (review-gate fix, Story 5.6 follow-up): the hotbar pop is grammar for a UI
+     *  element the player is already looking at, but this flash marks a
+     *  WORLD-SPACE hull that may be anywhere in the sight bubble, including its
+     *  edge, and must survive being caught in peripheral vision — Eric's ruling
+     *  was *"very visually obvious"*. 300ms is long enough to catch peripherally
+     *  without crossing into a held state.
+     *
+     *  EXPERIENCE.md's 300ms same-source flash floor (the aggregate-budget rule
+     *  that repeated same-source flashes — e.g. hull hit flashes — must stay
+     *  ≥300ms apart) is a REPEAT-INTERVAL RATE LIMIT, a different quantity from
+     *  this DURATION, and governs this bracket too (an acquire cannot re-flash
+     *  faster than every 300ms) — but it is not why this number is 300. Do not
+     *  re-conflate the two. */
     flashMs: 300,
     /** World u the corners start OUTSIDE their resting position on acquire. */
     flashSpreadU: 14,

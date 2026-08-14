@@ -1296,8 +1296,14 @@ function handleSunkObserved(g: Game, victimId: string, killerId: string | null):
       // are resolved HERE, at fold time, because both are perishable: the T+
       // clock only means anything at the moment the sinking is observed, and a
       // killer who leaves the roster later would no longer resolve to a name.
+      // `feedName`, not `rosterNameOrNull` (review-gate fix, Story 5.6
+      // follow-up): a PvE fleet hull has no roster row, so the roster lookup
+      // alone always resolved null and the MATCH LOG printed "SUNK BY UNKNOWN
+      // VESSEL" for a designed, common outcome of this feature while the kill
+      // feed — already on `feedName` — correctly read "DRONE SANK <you>". Both
+      // surfaces must agree about the same event.
       tMs: ownMatchTime(g),
-      killerName: killerId === null ? null : rosterNameOrNull(g, killerId),
+      killerName: killerId === null ? null : feedName(g, killerId),
     },
     g.state.net.sessionId,
   );

@@ -950,6 +950,16 @@ roughly its spawn spread for the whole match — so the witness geometry tuned a
 9:00, not only at 1:00. Independent roving (today's `DroneController` behaviour) was offered and
 declined: the nine scatter within a minute and the spread dial stops meaning anything.
 
+**THE WITNESS SWEEP IS GLOBAL, NOT PER-FLEET — recorded because a reviewer already "found" the
+opposite and the next one will too.** The cross-model review gate flagged as a CONFIRMED defect that
+`propagateWitnesses` iterates every fleet hull in the world rather than only the victim's own fleet,
+reasoning from the existence of `fleetId` that fleets should be separate aggro networks. **That rule
+was never made.** Eric's sentence is *"all PvE ships who can see both you and the ship that was
+attacked"* — the gate is LINE OF SIGHT, and nothing else. `fleetId` exists to share a waypoint
+stream so the nine travel together; it carries no combat meaning whatsoever. Two fleets drifting
+close enough to see each other producing one larger fight is the rule working, not failing. **Do not
+"fix" this.**
+
 ## Amendment 35 — SELF-DEFENCE: the six behavioural rulings (Eric rulings 2026-08-14)
 
 1. **Sight is `CONFIG.vision.sight` (330 u) for all three sizes.** One number, already the 4/8 rung
@@ -1010,7 +1020,23 @@ and incomplete.
 (`world.ts:3330` — a teleport that skips it draws a bogus cross-map wake segment) and pushing the
 `spawn` event. The `spawn` row's visibility rides `pointSighted`, so a fleet spawning outside
 everyone's intel emits an event nobody receives — which is the desired behaviour, but **confirm the
-row rather than inherit it.**
+row rather than inherit it.** *(Landed note: a wave hull is a brand-new `ShipRecord` with a fresh
+ribbon, so on this path there is genuinely nothing to detach — the teleport hazard is structurally
+absent rather than handled. `respawn`/`redeployShip` still detach on theirs.)*
+
+**THE ANCHOR IS NOT ENOUGH, and the obvious fix is the wrong one (orchestrator ruling, forced by the
+review gate).** Constraining only the anchor leaves the nine hulls free to scatter `spreadU` (400 u)
+toward a captain, so a hull could materialize **660 − 400 = 260 u** away — *inside* the 330 u sight
+bubble, a visible pop-in, which is precisely what this amendment exists to prevent.
+
+Inflating the anchor's denied radius to `radarRange + spreadU` was costed and **rejected**: it takes
+the denied area per captain from ~1.37 M u² to ~3.53 M u², which at a full roster exceeds the whole
+24.6 M u² map — every wave would take the max-min fallback and the rule would stop meaning anything.
+
+**Ruled — constrain PER HULL, not per anchor.** After a hull scatters to `anchor + offset`, a
+position inside any captain's intel disc is re-rolled within bounded attempts, falling back to the
+anchor itself (clear by construction). **The formation deforms; the wave never fails.** The ring
+clamp still applies, so a nudged hull can never land in the storm.
 
 ## Amendment 37 — PvE KILLS COUNT NOWHERE (Eric ruling 2026-08-14) — SUPERSEDES epic-4 amendments 29-34 and epic-5 amendment 9 on this point
 
@@ -1199,10 +1225,20 @@ built first and fixes the common Mine-Layer case honestly, but it cannot reach a
 in the bubble at all.
 
 **Ruled — `SunkEvent.vcls?: HullId`, per-observer, credited killer only.** Stamped by the `sunk`
-row's `materialize()` exactly when `by === observerId`; omitted entirely for every other recipient,
-witnesses and spectators included. The feed names the SIZE — `SMALL DRONE` / `MEDIUM DRONE` /
-`LARGE DRONE` — **because the size IS the payout** (¼ / ⅓ / ½ level), which is the information the
-ruling is actually asking for.
+row's `materialize()` exactly when `by === observerId`; omitted entirely for every other recipient.
+The feed names the SIZE — `SMALL DRONE` / `MEDIUM DRONE` / `LARGE DRONE` — **because the size IS the
+payout** (¼ / ⅓ / ½ level), which is the information the ruling is actually asking for.
+
+> **CORRECTION OF RECORD (orchestrator, same day, forced by the review gate).** This clause first
+> read *"omitted entirely for every other recipient, **witnesses and spectators included**"*, and the
+> implementation followed it literally with a second gate, `mode === 'fogged'`. The cross-model
+> review split on it — one reviewer called the gate a defect, the other called it faithful to this
+> text — and **both were right, because the text was careless.** "Spectators included" was written to
+> mean *observers who are not the killer*; read absolutely it excludes a killer who happens to be
+> **dead**, and a mine you laid before you sank, tripped by a fleet ship while you spectate, is
+> exactly the kill Eric's sentence is about. The gate is now the single condition
+> `by === observerId`. A one-gate rule is also strictly harder to drift than a two-gate one, and the
+> per-observer `materialize()` still admits exactly one recipient, so nothing widens.
 
 **No seventh perception exception, and the master invariant stays at exactly SIX.** It rides the
 existing `sunk` row and is gated STRICTLY NARROWER than the row itself: it reaches one client, who

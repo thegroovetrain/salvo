@@ -455,15 +455,23 @@ describe('recordSunk — the MATCH LOG fold (chronological, de-duplicated, PvE O
     expect(personalScore(s, [], 1, false, 90_000).kills).toBe(1);
   });
 
-  it('STILL logs our own death when a PvE fleet hull is what sank us', () => {
+  it('STILL logs our own death when a PvE fleet hull is what sank us, NAMED (review-gate fix)', () => {
     // The victim test runs first, so the new drone clause can never eat the one
     // line the log exists to guarantee: the player's own end.
+    //
+    // killerName here is 'DRONE', not null: main.ts resolves the MATCH LOG's
+    // killer name through `feedName` (the same resolver the kill feed uses),
+    // which reads DRONE off the memo for a fleet hull rather than falling
+    // through the roster lookup to null. Before this fix the two surfaces
+    // disagreed — the kill feed read "DRONE SANK <you>" while the MATCH LOG
+    // read "SUNK BY UNKNOWN VESSEL" — for a designed, common outcome of the
+    // PvE fleet feature.
     const s = recordSunk(
       freshScore(),
-      obs({ victimId: OWN, victimIsDrone: true, killerId: 'd1', killerName: null, tMs: 77_000 }),
+      obs({ victimId: OWN, victimIsDrone: true, killerId: 'd1', killerName: 'DRONE', tMs: 77_000 }),
       OWN,
     );
-    expect(s.matchLog).toEqual([{ tMs: 77_000, kind: 'sunkBy', name: 'UNKNOWN VESSEL' }]);
+    expect(s.matchLog).toEqual([{ tMs: 77_000, kind: 'sunkBy', name: 'DRONE' }]);
     expect(s.sunkAtMs).toBe(77_000);
   });
 
