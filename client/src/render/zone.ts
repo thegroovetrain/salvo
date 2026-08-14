@@ -9,7 +9,12 @@
 //        • the live ring's SOLID storm-readout edge on top of it;
 //        • the revealed next ring as a DASHED storm-readout telegraph at ~50%
 //          alpha, landing with a brief motion-gated flash-then-settle at the
-//          reveal beat (amendment 17).
+//          reveal beat (amendment 17);
+//        • the SUDDEN-DEATH COLLAPSE POINT as an X in the same violet at the
+//          same telegraph alpha (Eric ruling 2026-08-14) — the final ring has
+//          no radius, so the dashed-circle grammar has nothing to draw; the
+//          mark takes the telegraph's place, claims the same reveal one-shot,
+//          and persists through the close and past full closure.
 //      SOLID-vs-DASHED is the non-color channel that separates the live boundary
 //      from the telegraph, so the pair never depends on hue to be told apart;
 //      both are violet, which is what retires the 3.1 phosphor-green "safe ring"
@@ -345,23 +350,56 @@ export interface ZoneVisibility {
   plane: boolean;
   /** The dashed next-ring telegraph. */
   telegraph: boolean;
+  /** The X mark on a COLLAPSE POINT — a ring with no radius (sudden death). */
+  mark: boolean;
+}
+
+/** Is this ring a POINT rather than a circle — the sudden-death collapse ring?
+ *  Written `!(r > 0)` so a NaN radius reads as degenerate too. */
+function isPointRing(ring: ZoneRing | null): boolean {
+  return ring !== null && !(ring.r > 0);
 }
 
 /**
  * Pure: the plane's visibility rules, all of them.
  *   • 'idle' draws nothing (pre-match / fail-safe);
- *   • a degenerate live ring (the r=0 sentinel) also draws nothing — a zero
- *     radius would otherwise cut no hole and paint the whole world storm;
- *   • the telegraph appears ONLY for a genuinely revealed next ring, so before
- *     the reveal beat there is nothing to draw and nothing to leak.
+ *   • the telegraph appears ONLY for a genuinely revealed next ring with a real
+ *     radius, so before the reveal beat there is nothing to draw and nothing to
+ *     leak, and a COLLAPSE ring never draws as a zero-radius "circle";
+ *   • the mark appears for a collapse point instead — the revealed next ring
+ *     while it is being closed onto, and the LIVE ring once the collapse has
+ *     completed and there is no next ring left to point at.
+ *
+ * THE PLANE NO LONGER REQUIRES `cur.r > 0` (sudden death, 2026-08-14). That
+ * clause was written when radius 0 could only mean "no data"; under the final
+ * collapse it would delete the entire storm plane at the exact instant the
+ * whole map BECOMES storm — the worst possible inversion. drawStorm() carries
+ * the degenerate case instead: no hole, no edge, just fill.
  */
 export function planeVisibility(
   state: ZoneDisplay,
   cur: ZoneRing,
   next: ZoneRing | null,
 ): ZoneVisibility {
-  const plane = state !== 'idle' && cur.r > 0;
-  return { plane, telegraph: plane && next !== null && next.r > 0 };
+  const plane = state !== 'idle';
+  return {
+    plane,
+    telegraph: plane && next !== null && next.r > 0,
+    mark: plane && (isPointRing(next) || isPointRing(cur)),
+  };
+}
+
+/**
+ * Pure: WHICH ring the X mark is drawn on this frame, or null for none — the
+ * revealed collapse ring while it is still the target, else the live ring once
+ * it has collapsed onto it. Both are the same point by construction (the
+ * collapse is concentric), so the mark never moves and its ringKey never
+ * changes — which is what lets it claim exactly ONE reveal flash and then
+ * persist through the close and past full closure.
+ */
+export function markRingOf(cur: ZoneRing, next: ZoneRing | null): ZoneRing | null {
+  if (isPointRing(next)) return next;
+  return isPointRing(cur) ? cur : null;
 }
 
 /** Draw a dashed circle into `g` as many arc subpaths; caller strokes. */
@@ -370,6 +408,24 @@ function dashedCircle(g: Graphics, r: number): void {
     g.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
     g.arc(0, 0, r, a0, a1);
   }
+}
+
+/**
+ * Draw the COLLAPSE MARK into `g` — an X of two diagonal arms crossing at the
+ * local origin (the graphic's POSITION carries the collapse point), `arm` world
+ * units from center to tip; caller strokes.
+ *
+ * An X rather than a zero-radius circle: a circle with no radius is not a mark,
+ * and the dashed-circle telegraph grammar has nothing to say about a POINT. It
+ * is the same storm-readout violet at the same telegraph alpha, so it reads as
+ * the same channel — "here is where the ring is going" — for a target that
+ * happens to have no radius.
+ */
+function drawPointMark(g: Graphics, arm: number): void {
+  g.moveTo(-arm, -arm);
+  g.lineTo(arm, arm);
+  g.moveTo(-arm, arm);
+  g.lineTo(arm, -arm);
 }
 
 /** Everything the zone plane needs for one frame. An object rather than a
@@ -417,6 +473,10 @@ export class Zone {
   private readonly storm = new Graphics();
   /** Dashed revealed-next-ring telegraph. */
   private readonly target = new Graphics();
+  /** The X on a COLLAPSE POINT — a sibling of `target`, never a mutation of the
+   *  dashed-circle path: the two grammars draw different things and a ring that
+   *  has a radius must never be able to render as a mark, or vice versa. */
+  private readonly mark = new Graphics();
   private readonly vignette: Sprite;
   private readonly reveal = new RevealOneShot();
   private lastR = -1;
@@ -424,6 +484,8 @@ export class Zone {
   private lastFillR = -1;
   private lastTargetR = -1;
   private lastTargetZoom = -1;
+  private lastMarkArm = -1;
+  private lastMarkZoom = -1;
   /** The eased Tier-1 hold blend (0 breathing → 1 held lit) + the frame clock
    *  it was last advanced on (-1 = never; the first frame eases by nothing). */
   private holdBlend = 0;
@@ -433,6 +495,8 @@ export class Zone {
     chartLayer.addChild(this.storm);
     chartLayer.addChild(this.target);
     this.target.visible = false;
+    chartLayer.addChild(this.mark);
+    this.mark.visible = false;
 
     this.vignette = new Sprite(bakeVignetteTexture());
     this.vignette.anchor.set(0.5);
@@ -451,6 +515,11 @@ export class Zone {
     const g = this.storm;
     g.clear();
     g.circle(0, 0, fillR).fill({ color: FILL_COLOR, alpha: Z.fillAlpha });
+    // A FULLY COLLAPSED ring (sudden death): there is no safe side to cut and no
+    // boundary to stroke — the plane is solid storm, which is the truth. Cutting
+    // a zero-radius hole is a no-op but stroking a zero-radius circle is a
+    // visible dot masquerading as a ring edge, so both are skipped together.
+    if (!(radius > 0)) return;
     g.circle(0, 0, radius).cut(); // the safe side is a hole in the storm, not a band
     g.circle(0, 0, radius).stroke({
       width: strokeWorldWidth(Z.edgePx, zoom),
@@ -496,6 +565,25 @@ export class Zone {
     this.target.alpha = Math.min(1, Z.telegraphAlpha + flash);
   }
 
+  /** The X on the collapse point — updateTarget's sibling, throttled the same
+   *  way. BOTH the arm length and the stroke width are screen-locked (divided
+   *  by the camera zoom exactly as every zone edge is), so the mark is the same
+   *  size on screen across the 0.5×–1.5× range instead of swelling into a giant
+   *  cross when you zoom out. The arm length is what the throttle keys on,
+   *  because it is the only part of the geometry that moves. */
+  private updateMark(ring: ZoneRing, zoom: number, flash: number): void {
+    const arm = strokeWorldWidth(Z.markArmPx, zoom);
+    if (needsRedraw(this.lastMarkArm, this.lastMarkZoom, arm, zoom)) {
+      this.mark.clear();
+      drawPointMark(this.mark, arm);
+      this.mark.stroke({ width: strokeWorldWidth(Z.markPx, zoom), color: EDGE_COLOR });
+      this.lastMarkArm = arm;
+      this.lastMarkZoom = zoom;
+    }
+    this.mark.position.set(ring.cx, ring.cy);
+    this.mark.alpha = Math.min(1, Z.telegraphAlpha + flash);
+  }
+
   /** Screen-space vignette: stretched to the viewport, alpha from the pure
    *  mappings (motion-scaled amplitude, EASED Tier-1 hold). The hold blend is
    *  advanced on the frame's monotonic clock — the same instant the denied
@@ -514,19 +602,29 @@ export class Zone {
     this.vignette.alpha = active ? vignetteHeld(f.inStorm, f.nowSec, amp, this.holdBlend) : 0;
   }
 
-  /** Update the zone visuals for this frame. */
+  /** Update the zone visuals for this frame.
+   *
+   *  The mark claims the SAME RevealOneShot the dashed telegraph does — the two
+   *  are the same channel (a next ring becoming public) drawn for a target with
+   *  and without a radius, and they are mutually exclusive by construction, so
+   *  one one-shot serves both. The collapse point's ringKey never changes
+   *  between the reveal beat, the close and full closure, so it flashes exactly
+   *  once and then simply stays on the water. */
   update(f: ZoneFrame): void {
     const vis = planeVisibility(f.state, f.cur, f.next);
+    const markRing = vis.mark ? markRingOf(f.cur, f.next) : null;
     this.storm.visible = vis.plane;
     this.target.visible = vis.telegraph;
+    this.mark.visible = markRing !== null;
     if (vis.plane) this.updateStorm(f);
     const flash = this.reveal.update(
-      vis.telegraph ? f.next : null,
+      vis.telegraph ? f.next : markRing,
       f.nowMs,
       motionScaled(Z.revealAmp, settings.current.motion),
       f.flash,
     );
     if (vis.telegraph && f.next) this.updateTarget(f.next, f.zoom, flash);
+    if (markRing !== null) this.updateMark(markRing, f.zoom, flash);
     this.updateVignette(f, vis.plane);
   }
 
@@ -536,5 +634,6 @@ export class Zone {
     if (tex !== Texture.EMPTY) tex.destroy(true);
     this.storm.destroy();
     this.target.destroy();
+    this.mark.destroy();
   }
 }

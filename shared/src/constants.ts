@@ -918,6 +918,26 @@ export const CONFIG = {
     ringSteps: [1 / 3, 2 / 3],
     offsetCap: 1.0, // ≤ this × (r_cur − r_next) next-ring center offset (structurally clamped 0..1)
     terminalSightFactor: 2, // × CONFIG.vision.sight — the endgame ring radius (660u at sight 330)
+    /**
+     * SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, authorizing the
+     * long-parked contingency he wrote on 2026-08-04: *"sudden death at 15
+     * minutes that fully closes the ring in until it is all storm at 16
+     * minutes"*, plus the new clause that the collapse point is MARKED at
+     * 14:00). It appends a FOURTH ring group to the same four-beat rhythm, so
+     * at the 60s beat above the beats land on Eric's clock exactly:
+     *   12:00 clear · 13:00 supply · 14:00 reveal (the X mark) · 15:00-16:00
+     *   the terminal ring shrinks CONCENTRICALLY onto its own center to r=0.
+     * Full closure moves 12:00 -> 16:00 (zoneClosedAtMs 720_000 -> 960_000) and
+     * the map is 100% storm from 16:00, which is what structurally ENDS a match
+     * that the geometric endgame bar (epic-3 amendment 24) could not.
+     *
+     * The collapse ring is CONCENTRIC with the terminal ring and carries no
+     * roll, no seed and no new wire field — it is synthesized identically on
+     * both sides (sim/zone.ts). stormDps is untouched: Eric ruled the GEOMETRY,
+     * not the damage curve. Turning this off restores the shipped three-group
+     * 12:00 timeline byte-for-byte.
+     */
+    suddenDeath: true,
     stormDps: 4, // hp/s — damage while outside the live ring, every phase
   },
 

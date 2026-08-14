@@ -67,6 +67,7 @@ import {
   pruneWake,
   wakeCapacity,
   rollZoneRings,
+  zoneCollapses,
   zoneGroups,
   zoneStateAt,
   isOutside,
@@ -979,6 +980,28 @@ export class World {
    */
   get zoneRevealedNextRing(): ZoneRing | null {
     return this.zoneTimelineState()?.next ?? null;
+  }
+
+  /**
+   * Has the ENDGAME RING been reached — i.e. is the timeline in its last act?
+   * True once the timeline is fully closed, and (under sudden death) from the
+   * moment the final COLLAPSE group goes live, because that group opens ON the
+   * terminal 660u ring: the endgame the Story 3.4 guarantee is about has
+   * arrived, and the four beats that follow are the collapse, not another
+   * geometric step.
+   *
+   * It exists so nothing re-derives that fact ad hoc. `zonePhase === 'closed'`
+   * used to BE the fact (the timeline ended on the terminal ring, so closure
+   * and endgame were the same instant); sudden death separates them by a full
+   * ring group, and the batch-sim endgame pilot — which is pacifist until the
+   * endgame and hunts after (epic-3 amendment 23) — would otherwise sit on its
+   * hands until 16:00 and stop measuring the thing it was built to measure.
+   */
+  get zoneEndgameReached(): boolean {
+    const state = this.zoneTimelineState();
+    if (state === null) return false;
+    if (state.phase === 'closed') return true;
+    return zoneCollapses(this.zoneCfg) && state.groupIndex === zoneGroups(this.zoneCfg) - 1;
   }
 
 

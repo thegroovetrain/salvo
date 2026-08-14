@@ -9,7 +9,7 @@
 // NEVER import ./main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, LIFECYCLE_ALIVE, SHIP_CLASS_IDS, angleDiff, sunkAt, zoneClosedAtMs, type HullId } from '@salvo/shared';
+import { CONFIG, LIFECYCLE_ALIVE, SHIP_CLASS_IDS, angleDiff, sunkAt, zoneEndgameAtMs, type HullId } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
@@ -367,12 +367,17 @@ describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
 describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
   /** Drive one pilot with a target parked in comfortable gun range while a
    *  FAST zone timeline runs underneath. Returns the fireSeq as of the last
-   *  PRE-closure tick, the final fireSeq, and how many closed ticks ran (so a
-   *  timeline that never actually closed can't pass as a green gate). */
+   *  tick BEFORE the endgame ring was reached, the final fireSeq, and how many
+   *  endgame ticks ran (so a timeline that never actually got there can't pass
+   *  as a green gate).
+   *
+   *  THE MARKER IS `world.zoneEndgameReached`, NOT `zonePhase === 'closed'`
+   *  (sudden death, 2026-08-14): those were the same instant until the collapse
+   *  group was appended, and the pilot's gate moved with the fact. */
   function fireGate(
     factory: (typeof PILOT_REGISTRY)['gunner'],
     ticks: number,
-  ): { preClosure: number; final: number; closedTicks: number } {
+  ): { preClosure: number; final: number; endgameTicks: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
     w.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
@@ -381,28 +386,28 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
     w.startZone();
     const pilot = factory('cap-1', 42);
     let preClosure = 0;
-    let closedTicks = 0;
+    let endgameTicks = 0;
     for (let t = 0; t < ticks; t += 1) {
       target.state.x = cap.state.x + 150; // keep the firing solution trivially held
       target.state.y = cap.state.y;
-      const closed = w.zonePhase === 'closed';
+      const reached = w.zoneEndgameReached;
       pilot.tick(w);
-      if (closed) closedTicks += 1;
+      if (reached) endgameTicks += 1;
       else preClosure = w.inputs.get('cap-1')?.fireSeq ?? 0;
       w.step();
     }
-    return { preClosure, final: w.inputs.get('cap-1')?.fireSeq ?? 0, closedTicks };
+    return { preClosure, final: w.inputs.get('cap-1')?.fireSeq ?? 0, endgameTicks };
   }
 
-  it('holds fire through the whole ring rhythm and opens up once the zone is CLOSED', () => {
+  it('holds fire through the whole ring rhythm and opens up once the ENDGAME RING is reached', () => {
     // stormDps 0 keeps the parked pair alive through the fast timeline; the
-    // gate under test is pure phase equality, never geometry (so no
+    // gate under test is a pure timeline fact, never geometry (so no
     // terminalSightFactor override is involved — see pilots.ts header).
     const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
     try {
       const endgame = fireGate(PILOT_REGISTRY.endgame, 200);
-      expect(endgame.closedTicks).toBeGreaterThan(0); // the timeline really closed
-      expect(endgame.preClosure).toBe(0); // pacifist right up to closure
+      expect(endgame.endgameTicks).toBeGreaterThan(0); // the timeline really got there
+      expect(endgame.preClosure).toBe(0); // pacifist right up to the endgame ring
       expect(endgame.final).toBeGreaterThan(0); // gunner after it
       // FAIL-PROOF / discriminating negative: the plain gunner is already
       // firing before closure under the identical setup, so the assertion
@@ -464,13 +469,13 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
     }
   });
 
-  it('steers exactly like the pacifist control pre-closure (spec I/O matrix row)', () => {
-    // Same (id, seed) and same fast-zone world evolution: pre-closure both
-    // hunt policies collapse to `() => false`, so the emitted input stream
-    // must be byte-identical up to the first tick where zonePhase flips to
-    // 'closed' — and must then diverge (endgame opens fire, pacifist never
-    // does), so the identity above is measuring the gate, not two silent
-    // pilots that happen to never fire.
+  it('steers exactly like the pacifist control before the endgame ring (spec I/O matrix row)', () => {
+    // Same (id, seed) and same fast-zone world evolution: before the endgame
+    // ring both hunt policies collapse to `() => false`, so the emitted input
+    // stream must be byte-identical up to the first tick where
+    // zoneEndgameReached flips true — and must then diverge (endgame opens
+    // fire, pacifist never does), so the identity above is measuring the gate,
+    // not two silent pilots that happen to never fire.
     const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
     try {
       const run = (factory: (typeof PILOT_REGISTRY)['gunner']): { lines: string[]; closedAt: number } => {
@@ -486,7 +491,7 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
         for (let t = 0; t < 200; t += 1) {
           target.state.x = cap.state.x + 150; // keep a firing solution trivially held once hunting starts
           target.state.y = cap.state.y;
-          if (closedAt === -1 && w.zonePhase === 'closed') closedAt = t;
+          if (closedAt === -1 && w.zoneEndgameReached) closedAt = t;
           pilot.tick(w);
           lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
           w.step();
@@ -495,8 +500,8 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
       };
       const endgame = run(PILOT_REGISTRY.endgame);
       const pacifist = run(PILOT_REGISTRY.pacifist);
-      expect(endgame.closedAt).toBeGreaterThan(0); // the timeline really closed within the window
-      expect(endgame.closedAt).toBe(pacifist.closedAt); // identical world evolution => identical phase-flip tick
+      expect(endgame.closedAt).toBeGreaterThan(0); // the endgame ring really arrived within the window
+      expect(endgame.closedAt).toBe(pacifist.closedAt); // identical world evolution => identical gate tick
       expect(endgame.lines.slice(0, endgame.closedAt)).toEqual(pacifist.lines.slice(0, endgame.closedAt));
       expect(endgame.lines.slice(endgame.closedAt)).not.toEqual(pacifist.lines.slice(endgame.closedAt));
     } finally {
@@ -755,7 +760,9 @@ describe('runner — winnerClass (Story 3.4 evidence field)', () => {
 });
 
 describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
-  const closureS = zoneClosedAtMs(CONFIG.zone) / 1000;
+  // The ENDGAME RING (12:00), not full closure (16:00) — sudden death separated
+  // the two, and this evidence line is about the Story 3.4 endgame.
+  const closureS = zoneEndgameAtMs(CONFIG.zone) / 1000;
   const sample = (over: Partial<MatchSample>): MatchSample => ({
     index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat',
     stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [], ...over,
@@ -776,7 +783,7 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
     expect(agg.pastClosureRate).toBe(0.5);
     expect(agg.winnerClass).toEqual({ torpedoBoat: 1, battleship: 1, none: 1 });
     const body = renderBatchReport('x', agg).join('\n');
-    expect(body).toContain('resolved past full closure: 50.0%');
+    expect(body).toContain('resolved past endgame ring: 50.0%');
     expect(body).toContain('winner class: battleship=1 none=1 torpedoBoat=1');
   });
 
@@ -789,7 +796,7 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
     expect(agg.pastClosureRate).toBe(0);
     const body = renderBatchReport('all-unresolved', agg).join('\n');
     expect(body).toContain('resolved match length s: n=0');
-    expect(body).toContain('resolved past full closure: n=0');
+    expect(body).toContain('resolved past endgame ring: n=0');
     expect(body).toContain('winner class: none=1');
   });
 });
