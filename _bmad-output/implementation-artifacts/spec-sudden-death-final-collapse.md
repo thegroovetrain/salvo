@@ -2,7 +2,7 @@
 title: 'Sudden Death — the final collapse'
 type: 'feature'
 created: '2026-08-14'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '3ff8004f47e14e7fa1556989907f6652c67c2faf'
 review_loop_iteration: 0
 followup_review_recommended: false
