@@ -407,8 +407,12 @@ describe('shared barrel', () => {
       'waves',
     ]);
     expect(CONFIG.fleet.composition).toEqual({ large: 2, medium: 3, small: 4 });
+    // 4/2/1 fleets (amendment 45 added the fourth first-wave fleet): the wave
+    // sizes are a RATIO of ~1 fleet per 5 captains held constant as the storm
+    // halves the field, so the 12/6/3 level totals are a consequence, not the
+    // input.
     expect(CONFIG.fleet.waves).toEqual([
-      { atMs: 60000, fleets: 3 },
+      { atMs: 60000, fleets: 4 },
       { atMs: 300000, fleets: 2 },
       { atMs: 540000, fleets: 1 },
     ]);

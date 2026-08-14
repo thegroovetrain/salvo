@@ -175,10 +175,25 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     }
   });
 
-  it('gun damage 6/8/10, flat 5s reload for every size (amendment 34)', () => {
-    expect(CONFIG.drones.small.gun).toEqual({ damage: 6, reloadMs: 5000 });
-    expect(CONFIG.drones.medium.gun).toEqual({ damage: 8, reloadMs: 5000 });
-    expect(CONFIG.drones.large.gun).toEqual({ damage: 10, reloadMs: 5000 });
+  it('gun damage 1/2/3, flat 5s reload for every size (amendment 45 cut it from 6/8/10)', () => {
+    expect(CONFIG.drones.small.gun).toEqual({ damage: 1, reloadMs: 5000 });
+    expect(CONFIG.drones.medium.gun).toEqual({ damage: 2, reloadMs: 5000 });
+    expect(CONFIG.drones.large.gun).toEqual({ damage: 3, reloadMs: 5000 });
+  });
+
+  it('a full nine-hull volley is 16 damage — attrition, not a kill threat (amendment 45)', () => {
+    // The number Eric was reacting to: at 6/8/10 a whole fleet firing at once
+    // was 68 damage per volley, 13.6 dps, and a 125hp Torpedo Boat died in
+    // 9.2 seconds. At 1/2/3 the same volley is 16, 3.2 dps, and the same hull
+    // lasts 39 seconds. Pinned so the ratio cannot drift back by accident.
+    const volley =
+      CONFIG.fleet.composition.small * CONFIG.drones.small.gun.damage +
+      CONFIG.fleet.composition.medium * CONFIG.drones.medium.gun.damage +
+      CONFIG.fleet.composition.large * CONFIG.drones.large.gun.damage;
+    expect(volley).toBe(16);
+    const dps = volley / (CONFIG.drones.small.gun.reloadMs / 1000);
+    const lightestClass = CONFIG.shipClasses.torpedoBoat.hp;
+    expect(Math.round(lightestClass / dps)).toBe(39); // seconds under FULL fleet aggro
   });
 
   it('speed ruling: every drone size now sits AT OR BELOW every player class (discharges epics.md:1090)', () => {

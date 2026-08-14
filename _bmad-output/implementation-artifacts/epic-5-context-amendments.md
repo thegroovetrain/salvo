@@ -1382,3 +1382,57 @@ is what makes the line land, and a single naming rule applied at one resolver is
 feed and the match log disagreeing about the same event — a defect the review gate had just caught
 in its cruder form (`DRONE` vs `UNKNOWN VESSEL`), and one that a log-only sizing change would have
 quietly reintroduced.
+
+## Amendment 45 — THE FLEET GUN IS ATTRITION, AND THE WAVES ARE A RATIO (Eric rulings 2026-08-14) — retunes amendments 33 and 34
+
+> *"Oops, they are too strong! Rescale to 1, 2, and 3 damage (small, medium, large). Also, lets spawn
+> 12 levels worth in the first go, then 6 levels, then 3. One more fleet in the first batch makes an
+> average of 5 combatants per fleet. Assuming each ring stage kills off roughly 50% of players, this
+> keeps the ~5player/PvEfleet ratio throughout the game."*
+
+**TWO changes, and the second one reframes what the wave numbers ARE.**
+
+### The gun: 6/8/10 → 1/2/3
+
+|  | before | after |
+|---|---|---|
+| full nine-hull volley | 68 damage | **16** |
+| dps under full fleet aggro | 13.6 | **3.2** |
+| time to kill a 125 hp Torpedo Boat | 9.2 s | **39 s** |
+
+A fleet is now **attrition, not a threat that resolves a fight on its own.** At the typical 2-4
+witnesses the 400 u spread produces (amendment 35), incoming fire is roughly **2-6 damage per
+volley** — a bleed you can ignore for a while, not a clock you must respect.
+
+**What this does NOT change, and it is the part worth watching:** clearing a whole fleet solo still
+costs ~43 gun hits ≈ 3.6 minutes, and aggro accumulates as you work through the hulls, so the
+integrated damage over a full clear is still on the order of a hull's health. The farm remains a
+commitment; what it stops being is *lethal in the moment*. The risk this ruling accepts is the
+opposite of the one it fixes — that at 1 damage the small hull's gun reads as **no threat at all**,
+which is a legibility question (why is it shooting?) rather than a balance one. Eye it on the water.
+
+### The waves: 3/2/1 → 4/2/1 fleets, and they are now a RATIO
+
+The level totals move 9/6/3 → **12/6/3**, and the cumulative match goes 54 hulls / 18 levels →
+**63 hulls / 21 levels**. But the ruling's reasoning is the durable part, so it is recorded as the
+rule rather than the numbers: **one fleet per ~5 captains, held constant as the storm thins the
+field** — 20 captains / 4 fleets at 1:00, ~10 / 2 at 5:00, ~5 / 1 at 9:00, on Eric's stated
+assumption that each ring stage takes roughly half the roster. **The level totals are the
+consequence of that ratio, not the input to it**, which is the opposite of how amendment 33 framed
+them, and anyone retuning waves should re-derive from the ratio.
+
+**Two consequences named rather than discovered later:**
+
+1. **PvE is now the largest single XP faucet on paper.** 21 levels exceeds the 19 levels of captain
+   kills a full 20-player lobby can produce. Amendment 33 explicitly justified 18 as *"a third
+   faucet rather than the dominant one"*, and that sentence no longer holds. It is contested and
+   costs ~3.6 min/fleet to collect, so realised income is far below 21 — but the ceiling moved and
+   the `pveKillsByClass` telemetry (amendment 44) is exactly what will show whether it matters.
+2. **The ~5:1 ratio is tuned for a FULL lobby.** Wave sizes stay FIXED rather than roster-scaled at
+   spawn time (amendment 33's ruling, unchanged), so a 6-captain match still gets 4 fleets at 1:00 —
+   a ~1.5:1 ratio, deliberately target-rich. If the 50%-per-stage attrition assumption proves wrong
+   in real matches, this is the knob that was reasoned from, and `pveKillsByClass` is the evidence.
+
+`PROTOCOL_VERSION` is **unchanged**: both values are server-side simulation constants. The client
+never computes a fleet hull's stats (`frames.ts` throws if a drone hull reaches `toOwnShip`) and
+never reads `CONFIG.fleet`, so a stale bundle cannot mis-render either number.
