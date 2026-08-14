@@ -152,6 +152,20 @@ describe('the personal-score copy (amendment 23, re-taken by amendment 29)', () 
     ]);
   });
 
+  // REGRESSION PIN (review finding): TIME AFLOAT used the RING clock, which has
+  // the right shape and the wrong direction — it CEILS, because it counts down.
+  // The tile latches the same millisecond as the MATCH LOG's `SUNK BY` stamp
+  // directly beneath it, so ceiling made the two read a second apart on every
+  // death that did not land exactly on a second boundary. The test above could
+  // not see it: 387_000 is a boundary, where ceil and floor agree.
+  it('FLOORS the elapsed span, agreeing with the match log stamp beside it', () => {
+    const t = 387_400; // mid-second: ceil would say 6:28, the log says T+06:27
+    expect(statTiles(score({ afloatMs: t }), 14)).toContainEqual({ key: 'TIME AFLOAT', value: '6:27' });
+    expect(matchLogRow({ tMs: t, kind: 'sunkBy', name: 'KRAKEN' }).stamp).toBe('T+06:27');
+    // 1ms in is still 0:00 — a clock counting UP shows the second that has passed.
+    expect(statTiles(score({ afloatMs: 1 }), 14)).toContainEqual({ key: 'TIME AFLOAT', value: '0:00' });
+  });
+
   it('omits TIME AFLOAT when the match clock was never anchored (null, not 0)', () => {
     expect(statTiles(score({ afloatMs: null }), 14).map((t) => t.key)).toEqual(['KILLS', 'PLACEMENT']);
     // 0 is a legitimate value and must still render — it cannot double as the sentinel.

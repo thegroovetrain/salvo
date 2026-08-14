@@ -1038,6 +1038,20 @@ function updateOwnColor(g: Game): void {
  * caller (renderOwn) runs this after camera.update so the projection matches the
  * hull; the plate hides whenever the hull hides (spectate / forceSnap gap).
  */
+/**
+ * THE OWN WRECK'S POSE while spectating, or null when there is no wreck to draw
+ * (never sank, or no `you` was ever received). `net.you` is deliberately never
+ * cleared on death — "the wreck's last pose survives the entire spectate
+ * period" — so the hull's final resting position is simply the last one the
+ * server sent. Mirrors `enterSpectateVisuals`'s `=== false` test so the two can
+ * never disagree about whether a wreck exists.
+ */
+function ownWreckPose(g: Game): RenderPose | null {
+  const you = g.state.net.you;
+  if (!you || you.alive !== false) return null;
+  return { x: you.x, y: you.y, heading: you.heading, speed: you.speed };
+}
+
 function updateOwnPlate(g: Game, pose: RenderPose): void {
   const id = g.state.net.sessionId;
   if (!g.ownPlated) {
@@ -3185,20 +3199,36 @@ function renderAlive(
  * amendment 22 — "a label is not a mark"), so a fade would dim every nameplate
  * on the water while leaving the hulls they label at full brightness.
  *
- * YOUR OWN WRECK STAYS ON SCREEN. It used to be hidden here along with its
- * nameplate, which was defensible when the reveal was a curtain nobody saw
- * through — but mockup F2/F3 draw the wreck marking the water where you went
- * down, with your callsign on it, and under amendment 24 the reveal is the
- * backdrop the results modal sits over. `net.you` is never cleared on death, so
- * the last pose is still in hand. The wreck's LOOK is already correct: amendment
- * 21's settle holds it at `ownSettleMax` with readable colour rather than
- * completing to the black-silhouette wreck tint.
+ * YOUR OWN WRECK STAYS ON SCREEN — BUT ONLY IF YOU ACTUALLY SANK. It used to be
+ * hidden here unconditionally, which was defensible when the reveal was a
+ * curtain nobody saw through; mockup F2/F3 draw the wreck marking the water
+ * where you went down, with your callsign on it, and under amendment 24 the
+ * reveal is the backdrop the results modal sits over. `net.you` is never
+ * cleared on death, so the last pose is still in hand, and the wreck's LOOK is
+ * already right: amendment 21's settle holds it at `ownSettleMax` with readable
+ * colour rather than completing to the black-silhouette wreck tint.
+ *
+ * THE WINNER IS THE CASE THAT MAKES THIS CONDITIONAL (review finding). Everyone
+ * spectates at `phase === 'finished'`, the winner included — and an AFLOAT hull
+ * reaches its own client as an ordinary spectator CONTACT (`signals.ts`'s
+ * spectator branch precedes the self-exclusion). So a winner who kept `ownView`
+ * visible would render TWO copies of their own ship: the frozen predicted one
+ * and the live interpolated one, visibly diverging for the whole results
+ * period. Only a hull that is genuinely gone is absent from the contact set and
+ * therefore needs drawing itself. `=== false` rather than `!alive` on purpose:
+ * a missing `you` must read as afloat here, never as a wreck (main.ts's
+ * standing `alive ?? true` trap).
  */
 function enterSpectateVisuals(g: Game): void {
   if (g.spectate.visualsSet) return;
   g.spectate.visualsSet = true;
+  const wrecked = g.state.net.you?.alive === false;
   g.fog.setVisible(false);
   g.radar.clearBlips();
+  if (!wrecked) {
+    g.ownView.gfx.visible = false;
+    g.nameplates.hide(g.state.net.sessionId);
+  }
   g.firing.hide();
   g.aimPreview.hide(); // nothing is aimed from a sunk hull
   g.hotbar.hide(); // the loadout surface dies with the hull (Story 2.2)
@@ -3232,12 +3262,47 @@ function enterSpectateVisuals(g: Game): void {
   g.denialDedup.clear();
 }
 
+/**
+ * THE REVEAL FRAMES THE OCEAN, WHICH MEANS THE CENTRE MOVES TOO (review
+ * finding). `beginReveal` sets a zoom FACTOR and nothing else, so on its own the
+ * camera pulled back while still trailing your killer — and a killer even a few
+ * hundred units off-centre cropped a slice of the map straight off the screen,
+ * which is not "the whole ocean" by any reading of the AC or mockup F2. The map
+ * disc is centred on the origin by construction (`sim/map.ts` spans
+ * [-radius, +radius] on both axes), so the reveal's centre target is (0, 0).
+ *
+ * It EASES on the same exponential the follow uses rather than snapping, so the
+ * pull-back and the drift to centre are one motion; at `motion: off` the camera
+ * arrives immediately, matching the zoom's own snap (amendment 26 — the setting
+ * costs the travel, never the framing). Releasing the reveal (any manual wheel
+ * or pan) hands the centre straight back to follow-your-killer.
+ */
+function updateRevealCamera(g: Game, frameDt: number): void {
+  // speed 0 is load-bearing, not filler: the camera's forward LEAD is derived
+  // from the followed target's speed, and any lead would push the map disc
+  // off-centre — the exact thing this function exists to prevent.
+  const center = { x: 0, y: 0, heading: 0, speed: 0 };
+  if (motionIntensity(settings.current.motion) <= 0) {
+    g.camera.snapTo(center);
+    return;
+  }
+  g.camera.update(frameDt, center);
+}
+
 /** Follow-your-killer by default; any WASD press hands the camera to free pan. */
 function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
   // Spectate pan reads the HELD WASD state (panAxes), not the driving axes():
   // its "throttle" is live W/S for up/down panning, not the (reset) telegraph order.
+  //
+  // FREE-PAN IS TESTED BEFORE THE REVEAL, NOT AFTER. Taking the camera by hand
+  // is exactly what releases the reveal (amendment 25), so a WASD press has to
+  // reach `camera.pan` — which is what clears the target. Gating the reveal
+  // first would have made the mode unreleasable by keyboard: the wheel would
+  // still escape it (its own listener calls setZoomFactor) but WASD never would.
   const axes = g.keyboard.panAxes();
   if (shouldEngageFreePan(axes)) g.spectate.freePan = true;
+  // Otherwise the reveal owns the camera while it is live — centre included.
+  if (!g.spectate.freePan && g.camera.revealing) return updateRevealCamera(g, frameDt);
   if (g.spectate.freePan) {
     const d = spectatePan(axes, frameDt, g.camera.zoomFactor);
     g.camera.pan(d.dx, d.dy);
@@ -3265,6 +3330,16 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // camera.ts, which stays pure math: `full` travels, `reduced` halves the
   // duration, `off` arrives on this frame at the identical framing.
   g.camera.tickZoom(frameDt * 1000, motionIntensity(settings.current.motion));
+  // THE WRECK'S PLATE MUST BE RE-PROJECTED EVERY FRAME (review finding).
+  // Nameplates are SCREEN-space (`plateRoot` is not camera-transformed), and the
+  // own plate is placed only by updateOwnPlate inside renderOwn — which does not
+  // run here. The wreck's HULL is world-space and stays put on its own, but a
+  // plate left unplaced would freeze at the pixels it occupied on the last alive
+  // frame and then drift free of the wreck as the reveal zooms out and the
+  // camera eases away — a callsign floating over open water. Placed AFTER the
+  // camera work, exactly as renderOwn orders it, so the projection matches.
+  const wreck = ownWreckPose(g);
+  if (wreck) updateOwnPlate(g, wreck);
   // A spectator is never IN the storm and owns no Tier-1 channel (no hull, no
   // fire control) — the plane renders, the vignette does not.
   updateZone(g, zv, false, false, now, nowMs);
@@ -3579,6 +3654,16 @@ function bindWheelZoom(game: Game): void {
   window.addEventListener(
     'wheel',
     (e: WheelEvent) => {
+      // A WHEEL AIMED AT THE RESULTS MODAL IS NOT A CAMERA INTENT (review
+      // finding). The modal is a scrollable panel and Story 5.3 made it taller
+      // — match log, boons, last offer — so scrolling it is now an ordinary
+      // action. This listener is on `window`, so every one of those ticks also
+      // drove the spectate zoom behind it, which CLEARS the reveal target and
+      // pops the backdrop from the whole-map framing to the clamp floor. It was
+      // near-invisible before (the dim was almost opaque and the zoom stayed
+      // inside [0.5, 1]); against the 0.62 dim it destroys the reveal by
+      // reading a scroll as a zoom.
+      if (resultsVisible()) return;
       if (game.state.spectating) {
         game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
         return;

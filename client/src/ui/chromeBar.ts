@@ -100,6 +100,24 @@ export function fmtRingClock(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+/**
+ * Pure: an ELAPSED span in the ring clock's unpadded `m:ss` shape (`6:27`) —
+ * the third corner this module needed and did not have, added for Story 5.3's
+ * TIME AFLOAT tile.
+ *
+ * THE TWO AXES ARE SHAPE AND DIRECTION, AND THEY ARE INDEPENDENT. `fmtBarClock`
+ * is elapsed+padded, `fmtRingClock` is countdown+unpadded, and a tile wanting
+ * elapsed+unpadded had neither. Reaching for `fmtRingClock` because its SHAPE
+ * was right silently bought its CEIL — which made TIME AFLOAT read one second
+ * later than the `SUNK BY` stamp printed directly beneath it from the same
+ * latched millisecond (found at the review gate). Elapsed floors, always:
+ * see elapsedSeconds.
+ */
+export function fmtElapsedClock(ms: number): string {
+  const total = elapsedSeconds(ms);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 /** The ring segment's copy plus the one bit that drives its color and pulse. */
 export interface RingReadout {
   /** The register string ('' only while the timeline is idle). */

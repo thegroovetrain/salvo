@@ -60,7 +60,7 @@ import type { MatchLogEntry, PersonalScore } from '../score.js';
 import { cssHex, cssRgba, textSafe } from '../util/color.js';
 import { boonEffectLine, boonName, boonCategoryLabel } from './boonCopy.js';
 import { CLASS_DISPLAY_NAMES } from './classSelect.js';
-import { fmtBarClock, fmtRingClock } from './chromeBar.js';
+import { fmtBarClock, fmtElapsedClock } from './chromeBar.js';
 
 const RESULTS_ID = 'results-overlay';
 /** Stable ids for the modal's actions — pinned by results.test.ts, so a future
@@ -195,7 +195,12 @@ export function statTiles(score: PersonalScore, fieldSize: number | null = null)
     const tail = fieldSize !== null && fieldSize >= place ? `/${fieldSize}` : undefined;
     tiles.push({ key: 'PLACEMENT', value: String(place), tail });
   }
-  if (score.afloatMs !== null) tiles.push({ key: 'TIME AFLOAT', value: fmtRingClock(score.afloatMs) });
+  // fmtElapsedClock, NOT fmtRingClock: the ring clock has the right SHAPE
+  // (unpadded `6:27`) and the wrong DIRECTION (it ceils, because it counts
+  // down). TIME AFLOAT is elapsed and latches at the same millisecond as the
+  // MATCH LOG's `SUNK BY` stamp below it, so ceiling here made the two disagree
+  // by a second on every non-boundary death (review finding).
+  if (score.afloatMs !== null) tiles.push({ key: 'TIME AFLOAT', value: fmtElapsedClock(score.afloatMs) });
   return tiles;
 }
 

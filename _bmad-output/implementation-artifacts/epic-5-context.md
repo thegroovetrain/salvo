@@ -122,3 +122,7 @@ Story 5.3 question gate (all Eric rulings 2026-08-13):
     the shipped `ELIMINATED` copy. This is EXPERIENCE.md's ratified death-register voice.
 30. **NO INSTANT RE-QUEUE. EVER.** — a standing constraint, now pinned by test. The mockup's
     `SET SAIL IS ONE PRESS AWAY` sub-line is deleted; home's `PLAY` button is NOT renamed.
+31. **The reveal frames the ocean, so the CENTRE moves too** (orchestrator ruling at the review gate,
+    Eric has veto) — it targets the map origin, not your killer. Plus four review corrections: the
+    winner's doubled own hull, the wreck's frozen nameplate, TIME AFLOAT ceiling against its own log
+    stamp, and a modal scroll destroying the reveal behind it.

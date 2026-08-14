@@ -2,10 +2,10 @@
 title: 'Story 5.3: Omniscient Reveal & Results'
 type: 'feature'
 created: '2026-08-13'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: '5ba1c7d600c204f497c15ebcd8f20ae8abe99b9d'
 final_revision: ''
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-5-context-amendments.md'

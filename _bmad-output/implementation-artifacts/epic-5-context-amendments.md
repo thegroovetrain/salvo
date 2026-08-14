@@ -781,3 +781,62 @@ DESIGN.md:243 already names as the amber register; or reword it to state the rul
 subtraction. RETURN TO PORT ships as a bare button with its `⏎` key chip. **The home screen's `PLAY`
 button is therefore NOT renamed** — the divergence from DESIGN.md:243's "SET SAIL" register stays
 exactly as shipped, since the only thing that referenced it is now gone.
+
+## Amendment 31 — THE REVEAL FRAMES THE OCEAN, SO THE CENTRE MOVES TOO (orchestrator ruling 2026-08-13, forced by the review gate — **Eric has veto, this was not his call**)
+
+Five defects were found at Story 5.3's adversarial review gate, two of them user-visible on **every
+single match**. The one that needed a *decision* rather than a fix is recorded here as a ruling; the
+other four are recorded as the corrections they were.
+
+**THE RULING — the reveal centres on the map.** `beginReveal` set a zoom FACTOR and nothing else, so
+the camera pulled back *while still trailing your killer*. A killer even a few hundred units
+off-centre cropped a slice of the ocean straight off the screen — and a storm death, which has no
+killer at all, centred the reveal on an arbitrary surviving ship. **"The whole ocean" is a statement
+about the CENTRE as much as the zoom**, and no amendment had said so: amendment 25 ruled on the
+framing factor and the clamp exemption, and the centre simply fell between four separately-authored
+pieces with nobody owning it. Ruled: while the reveal is live it owns the camera centre and targets
+the map origin — which is the disc's centre by construction (`sim/map.ts` spans `[-radius, +radius]`
+on both axes). It eases on the same exponential the follow already uses, so the pull-back and the
+drift to centre are ONE motion, and it snaps at `motion: off` exactly as the zoom does (amendment 26).
+
+**A trap this created and the shape of its fix, because the obvious ordering is wrong:** free-pan
+must be tested BEFORE the reveal takes the camera. Taking the camera by hand is precisely what
+releases the reveal, so a WASD press has to reach `camera.pan` — the call that clears the target.
+Gating the reveal first makes the mode **unreleasable by keyboard**: the wheel still escapes it (its
+own listener calls `setZoomFactor`) but WASD never would.
+
+**The four corrections, each a defect rather than a decision:**
+
+1. **The winner rendered TWO of their own hull for the whole 45-second results period.** Un-hiding
+   the own hull at spectate entry was done unconditionally, but **an afloat hull reaches its own
+   client as an ordinary spectator CONTACT** (`signals.ts`'s spectator branch precedes the
+   self-exclusion), and everyone spectates at `phase === 'finished'` — the winner included. So the
+   winner drew a frozen predicted copy *and* a live interpolated one, visibly diverging. **The own
+   wreck is now drawn only when the local player genuinely sank**, which is exactly the case that is
+   absent from the contact set. Tested `=== false`, never `!alive`, because a missing `you` must read
+   as afloat here (main.ts's standing `alive ?? true` trap).
+2. **The own wreck's nameplate froze at a stale screen position.** Nameplates are SCREEN-space and
+   the own plate is placed only by `updateOwnPlate` inside `renderOwn` — which does not run while
+   spectating. The hull is world-space and stayed put on its own, so the plate drifted free of the
+   wreck as the reveal zoomed out, leaving a callsign floating over open water. It is now re-projected
+   every frame from the retained `net.you` pose, placed after the camera work exactly as `renderOwn`
+   orders it.
+3. **TIME AFLOAT read one second later than the `SUNK BY` stamp directly beneath it.** The tile
+   reached for `fmtRingClock` because its *shape* was right (unpadded `6:27`) and silently bought its
+   *direction* — the ring clock CEILS, because it counts down. Both values latch the same
+   millisecond, so they disagreed on every death not landing exactly on a second boundary. The module
+   had covered elapsed+padded and countdown+unpadded but not elapsed+unpadded; `fmtElapsedClock` is
+   that third corner. **The existing test could not see this — it used an exact-second value, where
+   ceil and floor agree** — so the regression pin deliberately uses a mid-second one.
+4. **Wheel-scrolling the results modal destroyed the reveal behind it.** The wheel listener is on
+   `window` with no modal gate, and this story made the modal tall enough that scrolling it is a
+   normal action — so every scroll tick also drove the spectate zoom, clearing the reveal target and
+   popping the backdrop to the clamp floor. Near-invisible before (an almost-opaque dim, and the zoom
+   stayed inside `[0.5, 1]`); against the 0.62 dim it read a scroll as a zoom and threw the framing
+   away. A wheel aimed at the modal is now not a camera intent.
+
+**What the review found CLEAN, recorded so it is not re-audited:** amendment 26's motion behaviour
+(including the snap at `off` and dt 0), amendment 25's untouched clamps, amendment 23's byte-identical
+verbs, amendment 30's action-set pin (real, not a tautology), and the `ownMatchTime` staleness class —
+stamps resolve at fold time and `sunkAtMs` latches first-wins, so a per-frame modal refresh cannot
+grow TIME AFLOAT. Nothing at CRITICAL severity; the perception boundary is untouched.
