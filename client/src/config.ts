@@ -1097,6 +1097,21 @@ export const CLIENT_CONFIG = {
      */
     edgePx: 2,
     telegraphPx: 2,
+    /**
+     * THE COLLAPSE MARK (sudden death, Eric ruling 2026-08-14) — the X drawn at
+     * the point the final ring closes onto: `markPx` is the arm stroke width,
+     * `markArmPx` the half-length of each diagonal arm (so the X spans
+     * 2 × markArmPx on the diagonal). BOTH are screen px divided by the camera
+     * zoom at draw time, exactly like the edges above — a world-space arm length
+     * would swell into a giant cross at min zoom and vanish at max.
+     *
+     * The stroke matches `telegraphPx` because the mark IS the telegraph for a
+     * ring with no radius; the arm is sized to read as a deliberate mark at a
+     * glance without competing with a contact marker (the fog hole is 330u
+     * across at zoom 1, so a 24px X is a small, unmistakable cross on the water).
+     */
+    markPx: 2,
+    markArmPx: 12,
     /** Solid live-edge alpha — the brightest mark the zone plane paints. */
     edgeAlpha: 0.9,
     /** Dashed telegraph alpha (~50%): present and readable, subordinate to the

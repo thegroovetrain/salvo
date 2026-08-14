@@ -10,6 +10,7 @@ import {
   radarShadowK,
   rollZoneRings,
   zoneClosedAtMs,
+  zoneEndgameAtMs,
   zoneGroups,
   zoneLiveState,
   zoneRingRadii,
@@ -37,24 +38,56 @@ function ringsFor(seed: number, cfg: ZoneTimeline = CONFIG.zone, mapR: number = 
 const dist = (a: ZoneRing, b: ZoneRing): number => Math.hypot(a.cx - b.cx, a.cy - b.cy);
 
 describe('zone timeline shape — the ratified design targets', () => {
-  it('runs 3 ring groups of 4 beats and closes fully at 12:00', () => {
-    expect(zoneGroups(CONFIG.zone)).toBe(3);
-    expect(zoneClosedAtMs(CONFIG.zone)).toBe(720_000); // 12:00
+  it('runs 4 ring groups of 4 beats and closes fully at 16:00 (sudden death, Eric ruling 2026-08-14)', () => {
+    // THREE geometric groups (map → terminal, closing at 12:00) plus the
+    // appended COLLAPSE group: 12:00 clear, 13:00 supply, 14:00 the mark,
+    // 15:00-16:00 the terminal ring closing onto its own center.
+    expect(zoneGroups(CONFIG.zone)).toBe(4);
+    expect(zoneClosedAtMs(CONFIG.zone)).toBe(960_000); // 16:00
+    // The GEOMETRIC endgame is still reached at 12:00 — sudden death appended a
+    // group, it did not move one (this is what the Story 3.4 evidence and the
+    // batch-sim endgame pilot are gated on).
+    expect(zoneClosedAtMs({ ...CONFIG.zone, suddenDeath: false })).toBe(720_000); // 12:00
   });
 
-  it('terminal radius is DERIVED from CONFIG.vision.sight (never a literal)', () => {
+  it('zoneEndgameAtMs is the ENDGAME RING (12:00), separate from full closure once sudden death appends its group', () => {
+    // The Story 3.4 Endgame Guarantee is about the instant the terminal 660u
+    // ring goes live, which sudden death did NOT move. Keeping the two apart is
+    // what stops the batch-sim past-closure evidence line from scoring a
+    // healthy ~13:00 campaign as 0% past closure.
+    expect(zoneEndgameAtMs(CONFIG.zone)).toBe(720_000); // 12:00
+    expect(zoneClosedAtMs(CONFIG.zone)).toBe(960_000); // 16:00
+    expect(zoneEndgameAtMs(CONFIG.zone)).toBeLessThan(zoneClosedAtMs(CONFIG.zone));
+    // On a non-collapsing timeline the two are the SAME instant, which is why
+    // every pre-ruling caller could use either.
+    const off = { ...CONFIG.zone, suddenDeath: false };
+    expect(zoneEndgameAtMs(off)).toBe(zoneClosedAtMs(off));
+    // Fails closed on a degenerate beat exactly as zoneClosedAtMs does.
+    expect(zoneEndgameAtMs({ ...CONFIG.zone, beatMs: 0 })).toBe(0);
+  });
+
+  it('terminal radius is DERIVED from CONFIG.vision.sight (never a literal) — and sudden death does NOT move it', () => {
     expect(zoneTerminalRadius(CONFIG.zone)).toBe(CONFIG.zone.terminalSightFactor * CONFIG.vision.sight);
     expect(zoneTerminalRadius(CONFIG.zone)).toBe(2 * CONFIG.vision.sight);
+    // zoneTerminalRadius means the 660u ENDGAME ring, before and after the
+    // ruling: the collapse ring is appended past the clamp chain, never
+    // produced by it, so Story 3.4's constraint pins below are untouched.
+    expect(zoneTerminalRadius({ ...CONFIG.zone, suddenDeath: false })).toBe(zoneTerminalRadius(CONFIG.zone));
   });
 
-  it('intermediate radii step down geometrically (equal ratio steps map → terminal)', () => {
+  it('intermediate radii step down geometrically (equal ratio steps map → terminal), then collapse to 0', () => {
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);
-    expect(radii).toHaveLength(4); // ring 0 (full map) .. terminal
+    expect(radii).toHaveLength(5); // ring 0 (full map) .. terminal .. collapse
     expect(radii[0]).toBe(MAP_R);
     expect(radii[3]).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+    expect(radii[4]).toBe(0); // the collapse ring — EXACTLY zero, never a float
+    // The equal-ratio pin covers the GEOMETRIC prefix only: the collapse step is
+    // not a geometric shrink, it is the ring closing onto its own center.
     const ratio = radii[1] / radii[0];
     expect(radii[2] / radii[1]).toBeCloseTo(ratio, 9);
     expect(radii[3] / radii[2]).toBeCloseTo(ratio, 9);
+    // ...and that prefix is BYTE-IDENTICAL to the pre-ruling chain.
+    expect(radii.slice(0, 4)).toEqual(zoneRingRadii(MAP_R, { ...CONFIG.zone, suddenDeath: false }));
   });
 });
 
@@ -232,18 +265,36 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
 });
 
 describe('closing-rate criterion (amendment 7) — pinned over committed CONFIG', () => {
+  const battleshipMinute =
+    CONFIG.shipClasses.battleship.kinematics.maxSpeed * (CONFIG.zone.beatMs / 1000); // 2100u at the targets
+
   it('worst-case escape per close = (1 + offsetCap) × max Δr ≤ a battleship-minute, ≈80%', () => {
+    // The collapse step (660 → 0) is SMALLER than the largest geometric step
+    // (2400 → 1560.5), so appending it does not move maxDelta and the ratified
+    // band still binds the same close it always did.
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);
     let maxDelta = 0;
     for (let g = 1; g < radii.length; g += 1) maxDelta = Math.max(maxDelta, radii[g - 1] - radii[g]);
     const worstEscape = (1 + CONFIG.zone.offsetCap) * maxDelta;
-    const battleshipMinute =
-      CONFIG.shipClasses.battleship.kinematics.maxSpeed * (CONFIG.zone.beatMs / 1000); // 2100u at the targets
     expect(worstEscape).toBeLessThanOrEqual(battleshipMinute);
     // The ratified target band: ≈80% of a battleship-minute ("neither dilly nor dally").
     const fraction = worstEscape / battleshipMinute;
     expect(fraction).toBeGreaterThan(0.75);
     expect(fraction).toBeLessThan(0.85);
+  });
+
+  it('the COLLAPSE close is the gentlest of them all — it is concentric, so the escape is a bare radius', () => {
+    // A geometric close can move the center too, which is why the criterion
+    // carries the (1 + offsetCap) term. The collapse cannot: it closes onto its
+    // OWN center, so the worst case is a hull on the rim sailing to the middle
+    // — exactly the terminal radius, and nothing more.
+    const worstEscape = zoneTerminalRadius(CONFIG.zone); // 660u, rim → center
+    expect(worstEscape).toBeLessThan(battleshipMinute * 0.35);
+    // And it is genuinely the easiest close in the timeline to survive.
+    const radii = zoneRingRadii(MAP_R, CONFIG.zone);
+    for (let g = 1; g < radii.length - 1; g += 1) {
+      expect(worstEscape).toBeLessThanOrEqual((1 + CONFIG.zone.offsetCap) * (radii[g - 1] - radii[g]));
+    }
   });
 });
 
@@ -256,7 +307,24 @@ describe('rollZoneRings — containment + determinism (property, ∀ seeds)', ()
         expect(dist(rings[g - 1], rings[g]) + rings[g].r).toBeLessThanOrEqual(rings[g - 1].r + 1e-9);
       }
       expect(rings[0]).toEqual({ cx: 0, cy: 0, r: MAP_R }); // ring 0 is the full map
-      expect(rings[rings.length - 1].r).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+      // The ENDGAME ring is now second-to-last (the collapse ring is last), and
+      // the collapse ring is CONCENTRIC with it at radius exactly 0.
+      const endgame = rings[rings.length - 2];
+      const collapse = rings[rings.length - 1];
+      expect(endgame.r).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+      expect(collapse).toEqual({ cx: endgame.cx, cy: endgame.cy, r: 0 });
+    }
+  });
+
+  it('the collapse ring consumes NO seed material — the rolled prefix is byte-identical with the flag off', () => {
+    // Turning sudden death on must not be able to move a single existing ring:
+    // the collapse ring is appended concentric, never drawn from a stream.
+    const noCollapse: ZoneTimeline = { ...CONFIG.zone, suddenDeath: false };
+    for (let seed = 1; seed <= 50; seed += 1) {
+      const withCollapse = rollZoneRings(MAP_R, CONFIG.zone, seedsFor(seed));
+      const without = rollZoneRings(MAP_R, noCollapse, seedsFor(seed, noCollapse));
+      expect(withCollapse.slice(0, without.length)).toEqual(without);
+      expect(withCollapse).toHaveLength(without.length + 1);
     }
   });
 
@@ -401,7 +469,7 @@ describe('zoneLiveState — the schema-fed client shape agrees with the full set
       const g = full.groupIndex;
       // The schema mirror: current = ring g at the last boundary; next = ring
       // g+1 only from reveal (zeroed before — modeled as null here).
-      const revealedNext = full.next !== null || full.phase === 'closing' ? rings[g + 1] ?? null : null;
+      const revealedNext = full.next !== null ? rings[g + 1] ?? null : null;
       const live = zoneLiveState(START + ms, START, rings[g], revealedNext, CONFIG.zone);
       expect(live).toEqual(full);
     }
@@ -427,7 +495,10 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
   });
 
   it('zero groups (empty ringSteps) is a single map → terminal close', () => {
-    const cfg: ZoneTimeline = { ...CONFIG.zone, ringSteps: [] };
+    // suddenDeath OFF here on purpose: this pins what `ringSteps` alone decides
+    // (the geometric descent), and the appended collapse group is the subject of
+    // its own suite. With the flag on the same cfg is a 2-group timeline.
+    const cfg: ZoneTimeline = { ...CONFIG.zone, ringSteps: [], suddenDeath: false };
     expect(zoneGroups(cfg)).toBe(1);
     expect(zoneClosedAtMs(cfg)).toBe(ZONE_BEATS_PER_GROUP * BEAT);
     const radii = zoneRingRadii(MAP_R, cfg);
@@ -453,20 +524,189 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
   it('a map smaller than the terminal radius clamps every ring to the map', () => {
     const radii = zoneRingRadii(300, CONFIG.zone); // terminal 660 > map 300
     for (const r of radii) expect(r).toBeLessThanOrEqual(300);
-    expect(radii[radii.length - 1]).toBe(300);
+    expect(radii[radii.length - 2]).toBe(300); // the GEOMETRIC terminal, clamped to the map
+    expect(radii[radii.length - 1]).toBe(0); // ...then the collapse ring
   });
 
-  it('the terminal radius is FLOORED at 1u — a legal ring can never be r=0 (sentinel collision)', () => {
-    // A dev-only zoneOverride with terminalSightFactor 0 must not mint an r=0
-    // ring: the schema's zoneNextR === 0 means "unrevealed", and isOutside
-    // against r=0 marks the ring's own center as outside.
+  it('the GEOMETRIC terminal is still FLOORED at 1u — the collapse ring is the ONE legal r=0 ring', () => {
+    // THE SENTINEL RULE, re-derived under sudden death. `zoneNextR === 0` on the
+    // wire still means "unrevealed", so no ring that can ever be TRANSMITTED as
+    // revealed geometry may be r=0 — that is what the 1u floor protects, and a
+    // dev-only zoneOverride with terminalSightFactor 0 still cannot breach it.
+    // The collapse ring is the one exception, and it is legal precisely because
+    // it is NEVER read off the wire: both sides synthesize it (see
+    // effectiveNext / the wire-parity suite above), so the sentinel and it can
+    // never be confused.
     const cfg: ZoneTimeline = { ...CONFIG.zone, terminalSightFactor: 0 };
     const radii = zoneRingRadii(MAP_R, cfg);
-    expect(radii[radii.length - 1]).toBe(1);
-    for (const ring of rollZoneRings(MAP_R, cfg, seedsFor(9, cfg))) {
-      expect(ring.r).toBeGreaterThanOrEqual(1);
+    expect(radii[radii.length - 2]).toBe(1); // the geometric terminal: floored
+    expect(radii[radii.length - 1]).toBe(0); // the collapse ring: exactly zero
+    const rings = rollZoneRings(MAP_R, cfg, seedsFor(9, cfg));
+    for (const ring of rings.slice(0, -1)) expect(ring.r).toBeGreaterThanOrEqual(1);
+    // Every GEOMETRIC ring keeps a safe center; the collapse ring keeps none —
+    // which is the feature (at full collapse the whole map is storm).
+    expect(isOutside({ x: 0, y: 0 }, 0, 0, radii[radii.length - 2])).toBe(false);
+    expect(isOutside({ x: 0, y: 0 }, 0, 0, radii[radii.length - 1])).toBe(true);
+    // ...and with sudden death OFF the last ring is the floored one, as shipped.
+    const off = zoneRingRadii(MAP_R, { ...cfg, suddenDeath: false });
+    expect(off[off.length - 1]).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14). The fourth ring
+// group: 12:00 clear, 13:00 supply, 14:00 the mark, 15:00-16:00 the terminal
+// ring closing CONCENTRICALLY onto its own center, all storm from 16:00.
+// ---------------------------------------------------------------------------
+describe('sudden death — the collapse group', () => {
+  const rings = ringsFor(17);
+  const ENDGAME = rings[rings.length - 2]; // the 660u terminal ring
+  const COLLAPSE = rings[rings.length - 1]; // its center, radius 0
+  /** The final group's beats on Eric's clock, at the shipped 60s beat. */
+  const CLEAR = START + 720_000; // 12:00
+  const SUPPLY = START + 780_000; // 13:00
+  const MARK = START + 840_000; // 14:00 — the reveal beat
+  const CLOSE = START + 900_000; // 15:00 — the collapse begins
+  const DONE = START + 960_000; // 16:00 — all storm
+
+  it('lands its beats on Eric’s clock: 12:00 clear, 13:00 supply, 14:00 reveal, 15:00 closing, 16:00 closed', () => {
+    for (const [t, phase] of [[CLEAR, 'clear'], [SUPPLY, 'supply'], [MARK, 'reveal'], [CLOSE, 'closing']] as const) {
+      const s = zoneStateAt(t, START, rings);
+      expect(s.phase).toBe(phase);
+      expect(s.groupIndex).toBe(3);
     }
-    expect(isOutside({ x: 0, y: 0 }, 0, 0, radii[radii.length - 1])).toBe(false); // own center is safe
+    expect(zoneStateAt(DONE, START, rings).phase).toBe('closed');
+    expect(zoneStateAt(DONE - 1, START, rings).phase).toBe('closing');
+  });
+
+  it('marks the collapse point at the reveal beat: a next ring CONCENTRIC with the terminal, radius 0', () => {
+    expect(zoneStateAt(MARK - 1, START, rings).next).toBeNull(); // 13:59 — nothing yet
+    const s = zoneStateAt(MARK, START, rings);
+    expect(s.next).toEqual({ cx: ENDGAME.cx, cy: ENDGAME.cy, r: 0 });
+    expect(s.current).toEqual(ENDGAME); // the live ring still HOLDS through the mark
+  });
+
+  it('interpolates 660 → 0 with the center held EXACTLY fixed (concentric collapse, no drift)', () => {
+    for (const f of [0, 0.25, 0.5, 0.75, 0.999]) {
+      const s = zoneStateAt(CLOSE + f * BEAT, START, rings);
+      expect(s.phase).toBe('closing');
+      expect(s.current.cx).toBe(ENDGAME.cx); // BYTE-exact, not "close to"
+      expect(s.current.cy).toBe(ENDGAME.cy);
+      expect(s.current.r).toBeCloseTo(ENDGAME.r * (1 - f), 9);
+    }
+    expect(zoneStateAt(CLOSE + BEAT / 2, START, rings).current.r).toBeCloseTo(2 * CONFIG.vision.sight / 2, 9);
+  });
+
+  it('is CLOSED on a radius-0 ring forever after 16:00', () => {
+    for (const t of [DONE, DONE + 1, DONE + 10_000_000]) {
+      const s = zoneStateAt(t, START, rings);
+      expect(s.phase).toBe('closed');
+      expect(s.current).toEqual(COLLAPSE);
+      expect(s.current.r).toBe(0);
+      expect(s.next).toBeNull();
+      expect(s.closesInMs).toBe(0);
+    }
+  });
+
+  it('leaves NOWHERE safe once collapsed — every point on the map is outside, including the collapse point itself', () => {
+    const ring = zoneStateAt(DONE, START, rings).current;
+    const points = [
+      { x: ring.cx, y: ring.cy }, // the collapse point
+      { x: 0, y: 0 }, // the map origin
+      { x: MAP_R, y: 0 }, // the map rim
+      { x: ring.cx + 1, y: ring.cy }, // a metre off
+    ];
+    for (const p of points) expect(isOutside(p, ring.cx, ring.cy, ring.r)).toBe(true);
+  });
+
+  // THE WIRE-PARITY PROPERTY — the whole reason this ships with no schema
+  // change. A client fed by the room schema NEVER receives the collapse ring:
+  // `zoneNextR === 0` means "unrevealed", so its `next` is null through the
+  // entire final group. It must nonetheless derive geometry identical to the
+  // server's, which reaches the same ring through the rolled array.
+  it('a schema-fed client (next = null in the final group) derives the server’s ring EXACTLY, at every quarter-beat', () => {
+    for (let ms = 0; ms <= zoneClosedAtMs(CONFIG.zone) + 2 * BEAT; ms += BEAT / 4) {
+      const full = zoneStateAt(START + ms, START, rings);
+      const g = Math.min(full.groupIndex, rings.length - 1);
+      // The mirror EXACTLY as ArenaRoom writes it: cur = ring g at the last
+      // boundary (the collapse ring itself once closed), next = the revealed
+      // ring only when its radius is non-zero — the collapse ring is zeroed by
+      // the sentinel and therefore arrives as null.
+      const mirroredCur = full.phase === 'closed' ? rings[rings.length - 1] : rings[g];
+      // (`full.next !== null` alone IS the mirror's rule — syncZoneGeometry writes
+      // `zoneRevealedNextRing ?? ZERO_RING`, so no extra phase clause belongs here.)
+      const revealed = full.next !== null ? rings[g + 1] ?? null : null;
+      const wireNext = revealed !== null && revealed.r > 0 ? revealed : null;
+      expect(zoneLiveState(START + ms, START, mirroredCur, wireNext, CONFIG.zone)).toEqual(full);
+    }
+  });
+
+  it('and it agrees even in the STALE window, when the mirror still carries the 660u terminal past closure', () => {
+    // The promoting schema patch can land a tick or two after the local clock
+    // crosses 16:00. Holding the terminal ring there would render an open safe
+    // circle over a fully stormed map — closedState collapses it instead.
+    const stale = zoneLiveState(DONE + 10, START, ENDGAME, null, CONFIG.zone);
+    expect(stale.phase).toBe('closed');
+    expect(stale.current).toEqual(COLLAPSE);
+  });
+
+  it('synthesizes the collapse ring ONLY in the final group — an earlier stale null still holds ring g', () => {
+    const midClose = START + 3 * BEAT + BEAT / 2; // group 0's close, stale next
+    const s = zoneLiveState(midClose, START, rings[0], null, CONFIG.zone);
+    expect(s.phase).toBe('closing');
+    expect(s.current).toEqual(rings[0]); // held, NOT collapsed to a point
+    expect(s.next).toBeNull();
+  });
+
+  it('with the flag OFF the timeline is byte-identical to the pre-ruling one, at every quarter-beat', () => {
+    const off: ZoneTimeline = { ...CONFIG.zone, suddenDeath: false };
+    const offRings = rollZoneRings(MAP_R, off, seedsFor(17, off));
+    expect(offRings).toEqual(rings.slice(0, -1));
+    expect(zoneGroups(off)).toBe(3);
+    for (let ms = 0; ms <= 720_000 + 2 * BEAT; ms += BEAT / 4) {
+      const s = zoneStateAt(START + ms, START, offRings, off);
+      if (ms >= 720_000) {
+        expect(s.phase).toBe('closed');
+        expect(s.current).toEqual(offRings[offRings.length - 1]); // terminal HELD, r = 660
+        expect(s.current.r).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+      } else {
+        // Every pre-closure tick is the same state the collapsing timeline has.
+        expect(s).toEqual(zoneStateAt(START + ms, START, rings, CONFIG.zone));
+      }
+    }
+  });
+
+  it('fails CLOSED on a degenerate beat duration: closed immediately, PARKED on the terminal ring — a broken timeline must not collapse', () => {
+    // A timeline that never RAN does not get to end the match. Fail-closed here
+    // has always meant "the timeline is over, park on the terminal ring"; under
+    // sudden death, collapsing on this path instead would storm the whole map
+    // from zone start and bleed out every hull at once on a mistyped dev
+    // override — a far worse failure than the one the rule guards against.
+    for (const beatMs of [0, -1, NaN, Infinity]) {
+      const cfg: ZoneTimeline = { ...CONFIG.zone, beatMs };
+      const s = zoneLiveState(START + 1, START, ENDGAME, null, cfg);
+      expect(s.phase).toBe('closed');
+      expect(s.current).toEqual(ENDGAME);
+      expect(s.current.r).toBeGreaterThan(0);
+      // The ring centre is still SAFE, which is the whole point of parking.
+      expect(isOutside({ x: s.current.cx, y: s.current.cy }, s.current.cx, s.current.cy, s.current.r)).toBe(false);
+    }
+  });
+
+  it('an ALREADY-COLLAPSED current ring reads closed even if the clock still says closing (the schema-ahead staleness direction)', () => {
+    // zoneViewFrom guards the local-clock-ahead-of-schema direction. This is its
+    // mirror: the schema patches to closed (zoneCurR 0) while the client's
+    // server-clock estimate still sits in the last closing beat. Deriving a
+    // close FROM a ring with no radius would shrink 0 to 0 and report a live
+    // r=0 for the width of the clock error.
+    const collapsePoint = { cx: ENDGAME.cx, cy: ENDGAME.cy, r: 0 };
+    const stillClosing = START + zoneClosedAtMs(CONFIG.zone) - 10;
+    const s = zoneLiveState(stillClosing, START, collapsePoint, null, CONFIG.zone);
+    expect(s.phase).toBe('closed');
+    expect(s.current).toEqual(collapsePoint);
+    expect(s.closesInMs).toBe(0);
+    // And it is genuinely all-storm, not a 0-to-0 interpolation artifact.
+    expect(isOutside({ x: ENDGAME.cx, y: ENDGAME.cy }, s.current.cx, s.current.cy, s.current.r)).toBe(true);
   });
 });
 
@@ -486,5 +726,19 @@ describe('isOutside — center-aware, boundary INCLUSIVE-SAFE', () => {
     expect(isOutside({ x: 0, y: 0 }, 500, 0, 400)).toBe(true); // origin outside an offset ring
     expect(isOutside({ x: 500, y: 0 }, 500, 0, 400)).toBe(false);
     expect(isOutside({ x: 100, y: 0 }, 500, 0, 400)).toBe(false); // exactly on it — safe
+  });
+
+  it('a ring with NO RADIUS contains nothing — its own center included (the collapse ring)', () => {
+    // Boundary-inclusive would otherwise make the exact center "on the ring"
+    // and therefore safe, leaving one immortal pixel in a 100%-storm map.
+    expect(isOutside({ x: 0, y: 0 }, 0, 0, 0)).toBe(true);
+    expect(isOutside({ x: 300, y: 120 }, 300, 120, 0)).toBe(true);
+    expect(isOutside({ x: MAP_R, y: 0 }, 300, 120, 0)).toBe(true);
+  });
+
+  it('fails CLOSED on a degenerate radius (NaN/negative), never marking the whole map safe', () => {
+    for (const r of [NaN, -1, -Infinity]) {
+      expect(isOutside({ x: 0, y: 0 }, 0, 0, r)).toBe(true);
+    }
   });
 });

@@ -137,7 +137,17 @@ describe('shared barrel', () => {
     // spectate five seconds early. CONFIG.ship.sinkingWindowMs (5000, all
     // classes — amendment 13) rides the welcome config snapshot; new shared
     // sim/sinking.ts rides the barrel.
-    expect(PROTOCOL_VERSION).toBe(34);
+    // SUDDEN DEATH — THE FINAL COLLAPSE (PV 35, Eric ruling 2026-08-14): the
+    // storm timeline gains a FOURTH ring group whose ring is the terminal
+    // ring's own center at radius 0 (marked at 14:00, closing 15:00-16:00, all
+    // storm from 16:00). NO schema field, NO new event, NO perception change —
+    // the collapse ring rides the wire as the existing `zoneNextR === 0`
+    // unrevealed sentinel and both sides synthesize it. The bump is needed
+    // because the group count and total length change (zoneClosedAtMs 720_000 →
+    // 960_000): a stale client would derive the wrong rhythm from its own
+    // bundled CONFIG.zone and the same zoneStartT. (NOT because CONFIG gained a
+    // field: no client code reads `welcome.config` — see index.ts's PV 35 note.) and draw an open 660u safe circle over an all-storm map.
+    expect(PROTOCOL_VERSION).toBe(35);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
