@@ -33,6 +33,7 @@
 // what makes the ocean byte-identical across V8 and JavaScriptCore.
 // `shared/src/__tests__/heightField.test.ts` reads this file and enforces it.
 
+import { CONFIG } from '../constants.js';
 import { fbm, makeLayer, perlin, ridged } from './noise.js';
 
 // ============================================================================
@@ -183,7 +184,16 @@ export const TERRAIN_PARAMS: TerrainParams = {
   detailOctaves: 3,
   detailPersistence: 0.5,
   detailWeight: 0.11,
-  regionWavelength: 2400,
+  // The macro land-clustering term. UNLIKE every other wavelength here this
+  // one is a statement about the BOARD, not about a feature size: it is sized
+  // to span the map disc roughly once, so the field reads as one coherent
+  // gradient (this side of the ocean is islandier than that side) rather than
+  // as a repeating pattern. It therefore TRACKS THE MAP RADIUS — when Story
+  // 5.6 grew the board 2400 → 2800 (epic-5 amendment 42), leaving this at the
+  // old literal would have started repeating the region term across the map.
+  // Every other wavelength above is a real feature scale and deliberately does
+  // NOT scale with the board.
+  regionWavelength: CONFIG.map.baseRadius,
   regionOctaves: 2,
   regionWeight: 0.05,
 

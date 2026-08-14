@@ -30,7 +30,6 @@
 
 import {
   CONFIG,
-  REGATTA_NO_HUE,
   mulberry32,
   paintCoverage,
   type Contact,
@@ -43,6 +42,7 @@ import {
   type WelcomeMsg,
   type ZoneRing,
 } from '@salvo/shared';
+import { isDroneHull } from '../render/ships.js';
 
 /**
  * A string that exists NOWHERE ELSE in the codebase, emitted onto `window` by
@@ -182,6 +182,21 @@ const CONTACT_HULLS: readonly HullId[] = [
   'mineLayer',
 ];
 
+/**
+ * The staged hull id for scene slot `i` — ONE expression, read by both the hull
+ * builder and the roster builder, because Story 5.6 made them disagree at their
+ * peril: a PvE fleet hull holds NO roster row (amendment 39), so "which slots
+ * are drones" is now a fact both sides have to answer identically.
+ */
+export function sceneHullFor(i: number): HullId {
+  return CONTACT_HULLS[i % CONTACT_HULLS.length];
+}
+
+/** True for a scene slot that stages a PvE fleet hull rather than a captain. */
+export function sceneSlotIsDrone(i: number): boolean {
+  return i > 0 && isDroneHull(sceneHullFor(i));
+}
+
 /** The local captain's class. */
 export const OWN_CLASS: ShipClassId = 'battleship';
 
@@ -198,6 +213,9 @@ export interface SceneRosterRow {
 export interface SceneHull {
   id: string;
   cls: HullId;
+  /** Story 5.6: this hull has acquired the local captain, so its contact rows
+   *  carry the self-private `aggro` mark and it wears the bracket. */
+  aggro: boolean;
   /** Orbit centre offset from the own start point (u). */
   cx: number;
   cy: number;
@@ -231,19 +249,27 @@ function callsign(i: number): string {
 }
 
 /**
- * The roster: 20 rows (`CONFIG.map.playerCap`) — the local captain, a set of
- * rival captains, and drones wearing the `REGATTA_NO_HUE` sentinel so the
- * chrome bar's AFLOAT count exercises its captains-only rule. The kill leader
- * carries the highest kill count, which is the count `bountyId` agrees with.
+ * The roster: the local captain plus every RIVAL CAPTAIN slot — and NOTHING
+ * ELSE.
+ *
+ * STORY 5.6 (amendment 39): a PvE fleet hull is not a roster member, so the
+ * slots staging drone hulls contribute no row at all. The scene keeps its drone
+ * CONTACTS (the greyscale chevrons are part of what the readability gate has to
+ * show) while the roster shrinks around them, which is exactly the shape the
+ * arena now has — and it is what makes the chrome bar's AFLOAT count exercise
+ * its captains-only rule, since AFLOAT is now simply the roster's live rows.
+ *
+ * The kill leader carries the highest kill count, which is the count `bountyId`
+ * agrees with.
  */
 function buildRoster(count: number): SceneRosterRow[] {
   const rows: SceneRosterRow[] = [];
   for (let i = 0; i < count; i += 1) {
-    const drone = i > 0 && i % 5 === 0;
+    if (sceneSlotIsDrone(i)) continue;
     rows.push({
       id: hullId(i),
       name: callsign(i),
-      color: drone ? REGATTA_NO_HUE : i % 20,
+      color: i % 20,
       kills: i === BOUNTY_INDEX ? 6 : (i * 3) % 5,
       alive: true,
     });
@@ -266,7 +292,7 @@ function buildHull(i: number, rng: () => number, near: number): SceneHull {
   const bearing = rng() * Math.PI * 2;
   return {
     id: hullId(i),
-    cls: CONTACT_HULLS[i % CONTACT_HULLS.length],
+    cls: sceneHullFor(i),
     cx: Math.cos(bearing) * band,
     cy: Math.sin(bearing) * band,
     radiusU: 18 + rng() * 46,
@@ -274,6 +300,11 @@ function buildHull(i: number, rng: () => number, near: number): SceneHull {
     // ~1 lap per 12-30s at 20 Hz — visible motion, so every hull lays wake.
     rateRadPerTick: (0.008 + rng() * 0.012) * (rng() < 0.5 ? -1 : 1),
     far,
+    // Every NEAR fleet hull is hunting us, so the readability gate sees the
+    // aggro bracket stacked with every other channel rather than in isolation.
+    // A FAR one is not: at radar range you hold no hull view to hang a bracket
+    // on, which is the honest picture of what amendment 40 actually renders.
+    aggro: !far && sceneSlotIsDrone(i),
   };
 }
 
@@ -331,7 +362,12 @@ export function hullPose(h: SceneHull, world: SceneWorld, tick: number): Contact
   // wake trails astern — the wake ribbon is one of the channels under test.
   const heading = a + (h.rateRadPerTick >= 0 ? Math.PI / 2 : -Math.PI / 2);
   const speed = Math.abs(h.rateRadPerTick) * h.radiusU * (1000 / SCENE_TICK_MS);
-  return { id: h.id, x, y, heading, speed, cls: h.cls };
+  // THE AGGRO BRACKET is a channel the readability gate has to see stacked with
+  // everything else (Story 5.6, amendment 40), so every NEAR fleet hull in the
+  // scene is hunting us. `aggro` is self-private on the wire and this scene is
+  // always the local captain's own frame, so setting it here is exactly what a
+  // real server would send this observer.
+  return h.aggro ? { id: h.id, x, y, heading, speed, cls: h.cls, aggro: true } : { id: h.id, x, y, heading, speed, cls: h.cls };
 }
 
 /** The own hull's pose at `tick` — a slow wide turn, so it lays a wake too. */

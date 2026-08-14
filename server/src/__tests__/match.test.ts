@@ -37,7 +37,6 @@ function recorder(): Recorder {
     hooks: {
       lock: () => calls.push('lock'),
       unlock: () => calls.push('unlock'),
-      fillToCapacity: () => calls.push('fill'),
       broadcastResults: (m) => {
         calls.push('results');
         results.push(m);
@@ -236,7 +235,11 @@ describe('match — countdown', () => {
 
     activate(ctx);
 
-    expect(ctx.calls).toContain('fill'); // STEP 15 drone seam ran
+    // No 'fill' call to assert any more: amendment 41 deleted the drone-fill
+    // hook outright, so activation is field reset + storm anchor and nothing
+    // else. Nothing may have been added to the world at activation.
+    expect(ctx.calls).not.toContain('fill');
+    expect([...ctx.w.ships.keys()].every((id) => !id.startsWith('fleet-') && !id.startsWith('drone-'))).toBe(true);
     expect(ctx.w.shells.size).toBe(0);
     expect(ctx.w.mines.size).toBe(0);
     expect(ctx.w.zonePhase).not.toBe('idle'); // storm timeline anchored
@@ -627,7 +630,12 @@ describe('match — the results table is captains only', () => {
     expect(sum.rosterSize).toBe(5); // …but every hull in the telemetry
     const byClass = Object.values(sum.rosterByClass).reduce((n, v) => n + v, 0);
     expect(byClass).toBe(5);
-    expect(Object.values(sum.killsByClass).reduce((n, v) => n + v, 0)).toBe(2); // both drone + captain kills
+    // ONE kill, not two: the telemetry SHAPE did not move (amendment 38 is
+    // explicit that rosterSize/rosterByClass/killsByClass stay as they are),
+    // but the number it reads changed at its source — `ShipRecord.kills` now
+    // counts CAPTAIN victims only, so the drone sinking above pays XP and
+    // fires `sunk` while landing in no tally anywhere.
+    expect(Object.values(sum.killsByClass).reduce((n, v) => n + v, 0)).toBe(1);
   });
 });
 

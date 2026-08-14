@@ -865,6 +865,81 @@ export const CLIENT_CONFIG = {
     ownSettleMax: 0.3,
   },
 
+  /**
+   * THE AGGRO BRACKET (Story 5.6, epic-5 amendment 40) — the angular mark a PvE
+   * fleet ship wears once it has acquired YOU. *"I want it very visually obvious
+   * that a PvE ship has aggro'd you, and very visually obvious if it de-aggro's
+   * you, as well."*
+   *
+   * WHY THE CHANNEL IS SHAPE. Drones are locked greyscale (DESIGN.md:157,
+   * `drone-outline`/`drone-fill`) and DESIGN.md:162 keeps THREAT on the
+   * dual-coding floor even under the Variant-C identity waiver — so colour alone
+   * was never available. Presence/absence of a shape survives greyscale, the
+   * colourblind-assist palette and the drone palette simultaneously.
+   *
+   * WHY AMBER (`colors.amber`) AND NOT A NEW TOKEN. Amber is DESIGN.md:139's
+   * ratified *"selected / armed / action / WARNING"* register and is one of the
+   * four hue bands RESERVED from combatant hues (DESIGN.md:161), so the bracket
+   * can never be misread as a player's personal colour — which matters most
+   * here, since the thing it wraps is deliberately colourless. It is not the
+   * damage family (nothing has been damaged) and not `denied` (that is
+   * input-refusal chrome, explicitly *"never persistent chrome"*).
+   *
+   * WHY IT DOES NOT PULSE. DESIGN.md's attention rule — *"only the highest-tier
+   * active amber channel pulses — the rest hold steady"* — plus the argument
+   * epic-4 amendment 220 used to keep the kill-leader glow static: a pulse would
+   * claim a slice of the photosensitivity budget and would need Story 4.8
+   * attention-tier arbitration it has not been through.
+   *
+   * ONE GEOMETRY CHANNEL CARRIES BOTH TRANSITIONS. `spread` pushes each corner's
+   * two arms apart at the elbow: the acquire runs it DOWN to zero (the bracket
+   * closes onto the hull, with a brightness pop) and the release runs it UP (the
+   * bracket *"visibly breaks at the corners"* and fades). Same number, opposite
+   * directions, so the two beats can never drift apart.
+   */
+  aggro: {
+    /** Bracket half-size as a multiple of the hull's silhouette bounding radius.
+     *  >1 so the mark stands clear of the chevron it wraps rather than tracing
+     *  it — the bracket must read as a separate object at a glance. */
+    sizeFactor: 1.55,
+    /** Extra world-unit pad on top of `sizeFactor`, so the smallest fleet hull
+     *  still gets a bracket with visible air inside it. */
+    padU: 4,
+    /** Each corner arm's length as a fraction of the bracket half-size. Short
+     *  enough that the four corners never close into a square (a solid box is a
+     *  different shape and would read as a selection, not a lock). */
+    armFrac: 0.42,
+    /** Stroke width (world u) — the hull outline's own 1.5, so the mark sits in
+     *  the same linework family as the silhouette it wraps. */
+    widthU: 1.5,
+    /** Resting alpha while the lock is HELD (static — see the block header). */
+    holdAlpha: 0.85,
+    /** ms — the acquire beat: the bracket snaps in from `flashSpreadU` and pops
+     *  to full alpha. 300ms, NOT the hotbar's ≤80ms Activated-flash grammar
+     *  (review-gate fix, Story 5.6 follow-up): the hotbar pop is grammar for a UI
+     *  element the player is already looking at, but this flash marks a
+     *  WORLD-SPACE hull that may be anywhere in the sight bubble, including its
+     *  edge, and must survive being caught in peripheral vision — Eric's ruling
+     *  was *"very visually obvious"*. 300ms is long enough to catch peripherally
+     *  without crossing into a held state.
+     *
+     *  EXPERIENCE.md's 300ms same-source flash floor (the aggregate-budget rule
+     *  that repeated same-source flashes — e.g. hull hit flashes — must stay
+     *  ≥300ms apart) is a REPEAT-INTERVAL RATE LIMIT, a different quantity from
+     *  this DURATION, and governs this bracket too (an acquire cannot re-flash
+     *  faster than every 300ms) — but it is not why this number is 300. Do not
+     *  re-conflate the two. */
+    flashMs: 300,
+    /** World u the corners start OUTSIDE their resting position on acquire. */
+    flashSpreadU: 14,
+    /** ms — the release beat (*"breaks at the corners and fades (~400 ms)"*). */
+    breakMs: 400,
+    /** World u the corner arms tear apart by across the release. Larger than
+     *  `flashSpreadU` so the break is unmistakably the bigger motion of the
+     *  two — losing a lock must not read as acquiring one played backwards. */
+    breakSpreadU: 22,
+  },
+
   /** Truesight nameplates (Story 1.13) — screen-space callsign labels floated
    *  above each hull (render/nameplates.ts). The text renders at a constant
    *  screen size (hud-micro 9px) at any zoom; only this gap scales with zoom. */
@@ -1155,6 +1230,21 @@ export const CLIENT_CONFIG = {
      */
     edgePx: 2,
     telegraphPx: 2,
+    /**
+     * THE COLLAPSE MARK (sudden death, Eric ruling 2026-08-14) — the X drawn at
+     * the point the final ring closes onto: `markPx` is the arm stroke width,
+     * `markArmPx` the half-length of each diagonal arm (so the X spans
+     * 2 × markArmPx on the diagonal). BOTH are screen px divided by the camera
+     * zoom at draw time, exactly like the edges above — a world-space arm length
+     * would swell into a giant cross at min zoom and vanish at max.
+     *
+     * The stroke matches `telegraphPx` because the mark IS the telegraph for a
+     * ring with no radius; the arm is sized to read as a deliberate mark at a
+     * glance without competing with a contact marker (the fog hole is 330u
+     * across at zoom 1, so a 24px X is a small, unmistakable cross on the water).
+     */
+    markPx: 2,
+    markArmPx: 12,
     /** Solid live-edge alpha — the brightest mark the zone plane paints. */
     edgeAlpha: 0.9,
     /** Dashed telegraph alpha (~50%): present and readable, subordinate to the

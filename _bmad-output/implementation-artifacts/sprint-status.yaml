@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 82 (0.17.82), PV 34
+# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 84 (0.17.84), PV 36
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -94,7 +94,8 @@
 #   cycle 79 (0.17.79)  Story 5-3 the omniscient reveal & results — amendments 23-30; PV 34 (no wire change)
 #   cycle 80 (0.17.80)  the deck stops hoarding: lazy front-offer draw — epic-2 amendments 69-73; PV 34 (no wire change)
 #   cycle 81 (0.17.81)  the death plume moves to the killing blow — epic-5 amendment 32; PV 34 (client-only)
-#   cycle 82 (0.17.82)  the home scene: the menu backdrop becomes a real slice of the game — PV 34 (client-only)
+#   cycle 82 (0.17.82)  sudden death — the final collapse; epic-3 amendments 27-30; PV 34->35
+#   cycle 84 (0.17.84)  the home scene: the menu backdrop becomes a real slice of the game — PV 36 (client-only)
 
 generated: 2026-07-17
 last_updated: 2026-08-14
@@ -178,7 +179,7 @@ development_status:
   5-3-omniscient-reveal-results: done  # 2026-08-13 cycle 79 (0.17.79); PV 34; amendments 23-30; UX open question #25 closed
   5-4-fog-banks: backlog
   5-5-whirlpools: backlog
-  5-6-roving-pve-fleets: backlog
+  5-6-roving-pve-fleets: done  # 2026-08-14 cycle 83 (0.17.83); PV 35->36; amendments 33-44
   epic-5-retrospective: optional
 
   # epic-6: Honest Lobbies & Modes (GDD E5)
@@ -280,6 +281,10 @@ action_items:
     action: "THE STORM COMES OFF THE SCOPE — LANDED as cycle 72 (0.17.72); PV 32, client-only. The Story 4.10 storm wall is DELETED and amendment 128 retired with it, by PREFERENCE not defect. The storm still renders ON THE WATER exactly as before (Story 3.2's grammar untouched); it simply stops being a radar RETURN. Full record: the cycle-72 spec"
     owner: "ledger"
     status: done  # ONE thread left open and named in deferred-work.md — re-adding any storm return must re-derive amendment 128's AREA question from scratch rather than assuming the fixed-thickness wall is the safe default, because the wall WAS the compromise and the compromise is what Eric rejected
+  - epic: 3
+    action: "SUDDEN DEATH — THE FINAL COLLAPSE — LANDED as cycle 82 (0.17.82); PV 34->35. The parked SUDDEN DEATH contingency is BUILT under a new Eric ruling; epic-3 amendment 24's post-closure-shrink clause is superseded (the damage ramp is NOT). Full record: epic-3 amendments 27-30 + spec-sudden-death-final-collapse.md"
+    owner: "ledger"
+    status: done  # TWO threads open, both named in the cycle report — whether the collapse gets its own SUDDEN DEATH chrome-bar register (no new copy was invented), and NFR6's "~15:00" doc text now superseded by a ~17:00 worst-case ceiling (routed to the 7-5 doc batch)
   - epic: 4
     action: "Re-derive Story 5.4 (Fog Banks) radar interaction against the SHIPPED physical return model before specifying it — its AC ('radar may still paint me') was written for binary LOS blips; size against amendment 108 and cycle 72's rejection of area returns (epic-4 retro significant-discovery alert)"
     owner: "spec author (create-story 5-4)"

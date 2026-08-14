@@ -10,7 +10,7 @@
 // against the old literal). Promoting the tunables (Story 3.2) retires it.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, ZONE_BEATS_PER_GROUP, type ZoneRing } from '@salvo/shared';
+import { CONFIG, ZONE_BEATS_PER_GROUP, isOutside, type ZoneRing } from '@salvo/shared';
 import {
   EDGE_COLOR,
   FILL_COLOR,
@@ -20,6 +20,7 @@ import {
   easeHold,
   fillOuterRadius,
   type FillView,
+  markRingOf,
   needsRedraw,
   planeVisibility,
   revealFlashAlpha,
@@ -180,8 +181,18 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
   });
 
   it('FAIL-PROOF: 3440x720 at min zoom with a maxed radar stack', () => {
-    // The pre-fix constant bound (mapRadius x 7 = 16800u) fell ~760u short here,
-    // which paints an arc of un-tinted void along the outside of the fill.
+    // THE HISTORICAL DEMONSTRATION IS RETIRED, NOT THE TEST (Story 5.6,
+    // amendment 41). At mapRadius 2400 the pre-fix CONSTANT bound
+    // (mapRadius x 7 = 16800u) fell ~760u short of this configuration, and this
+    // case asserted that shortfall directly. At 2800 the constant scales to
+    // 19600u while the viewport term does not move at all, so the constant
+    // would now cover THIS case — the old assertion is simply false, and
+    // re-deriving a bigger constant to chase it would be re-introducing the bug
+    // the dynamic bound exists to prevent. What remains is the property that
+    // was always the point: the dynamic radius covers the honest worst case at
+    // the map's widest camera separation. That no constant can EVER cover it is
+    // proved by the far-panned-spectator case below, where free pan is
+    // unclamped and `needed` is unbounded.
     const v = view({
       screenW: 3440,
       screenH: 720,
@@ -192,7 +203,8 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
       camX: MAP_R,
       camY: 0,
     });
-    expect(needed(v)).toBeGreaterThan(MAP_R * Z.fillOuterFactor); // the old bound WAS short
+    // The camera sits a full map diameter from the ring and still sees past it.
+    expect(needed(v)).toBeGreaterThan(2 * MAP_R);
     expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
   });
 
@@ -241,40 +253,102 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
 
 describe('planeVisibility — the I/O matrix rows that decide what is drawn', () => {
   const next = RING(1561, 180, -90);
+  const COLLAPSE = RING(0, 300, 120); // the sudden-death final ring: a POINT
 
   it('pre-reveal (clear/supply, next=null): plane only, no telegraph anywhere', () => {
-    expect(planeVisibility('clear', RING(2400), null)).toEqual({ plane: true, telegraph: false });
-    expect(planeVisibility('supply', RING(2400), null)).toEqual({ plane: true, telegraph: false });
+    expect(planeVisibility('clear', RING(2400), null)).toEqual({ plane: true, telegraph: false, mark: false });
+    expect(planeVisibility('supply', RING(2400), null)).toEqual({ plane: true, telegraph: false, mark: false });
   });
 
   it('reveal + closing: plane AND telegraph', () => {
-    expect(planeVisibility('reveal', RING(2400), next)).toEqual({ plane: true, telegraph: true });
-    expect(planeVisibility('closing', RING(2000), next)).toEqual({ plane: true, telegraph: true });
+    expect(planeVisibility('reveal', RING(2400), next)).toEqual({ plane: true, telegraph: true, mark: false });
+    expect(planeVisibility('closing', RING(2000), next)).toEqual({ plane: true, telegraph: true, mark: false });
   });
 
   it('closed: terminal ring holds, no telegraph', () => {
     expect(planeVisibility('closed', RING(660, 300, 120), null)).toEqual({
       plane: true,
       telegraph: false,
+      mark: false,
     });
   });
 
   it('idle draws nothing at all', () => {
-    expect(planeVisibility('idle', RING(2400), next)).toEqual({ plane: false, telegraph: false });
+    expect(planeVisibility('idle', RING(2400), next)).toEqual({ plane: false, telegraph: false, mark: false });
   });
 
-  it('a degenerate r=0 sentinel draws nothing (never a hole-less world-wide fill)', () => {
-    expect(planeVisibility('closing', RING(0), next)).toEqual({ plane: false, telegraph: false });
-    expect(planeVisibility('reveal', RING(2400), RING(0, 10, 10))).toEqual({
+  // RETIRED (sudden death, 2026-08-14): "a degenerate r=0 sentinel draws
+  // nothing". That row was written when radius 0 could only mean "no data";
+  // under the final collapse it is a real ring and hiding the plane there would
+  // erase the storm at the exact instant the whole map becomes storm. What
+  // replaces it is below — the plane STAYS and the X mark takes the dashed
+  // telegraph's place, because a ring with no radius is a point, not a circle.
+  it('a COLLAPSE ring revealed: plane, the X mark, and NO dashed telegraph', () => {
+    expect(planeVisibility('reveal', RING(660, 300, 120), COLLAPSE)).toEqual({
       plane: true,
       telegraph: false,
+      mark: true,
     });
+    expect(planeVisibility('closing', RING(330, 300, 120), COLLAPSE)).toEqual({
+      plane: true,
+      telegraph: false,
+      mark: true,
+    });
+  });
+
+  it('a FULLY collapsed live ring still draws the plane (the whole map is storm) and keeps the mark', () => {
+    expect(planeVisibility('closed', COLLAPSE, null)).toEqual({
+      plane: true,
+      telegraph: false,
+      mark: true,
+    });
+    // FAIL-PROOF: the pre-ruling rule returned plane:false here, which would
+    // delete the storm from the screen at the worst possible moment.
+    expect(planeVisibility('closed', COLLAPSE, null).plane).toBe(true);
+  });
+
+  it('idle still draws nothing, mark included (the collapse point is not a pre-match cue)', () => {
+    expect(planeVisibility('idle', COLLAPSE, COLLAPSE)).toEqual({
+      plane: false,
+      telegraph: false,
+      mark: false,
+    });
+  });
+
+  it('markRingOf points at the revealed collapse ring, then at the live ring once it has landed on it', () => {
+    // Through the close the mark rides the revealed collapse ring...
+    expect(markRingOf(RING(330, 300, 120), COLLAPSE)).toBe(COLLAPSE);
+    // ...and after full closure there is no next ring, so it rides the live one.
+    expect(markRingOf(COLLAPSE, null)).toBe(COLLAPSE);
+    // An ordinary ring pair marks nothing at all.
+    expect(markRingOf(RING(2400), next)).toBeNull();
+    expect(markRingOf(RING(660, 300, 120), null)).toBeNull();
+    // The two rings are the same POINT by construction (the collapse is
+    // concentric), so the mark never moves and its identity never changes —
+    // which is what lets it claim exactly one reveal flash and then persist.
+    expect(ringKey(markRingOf(RING(330, 300, 120), COLLAPSE))).toBe(ringKey(markRingOf(COLLAPSE, null)));
   });
 });
 
 describe('needsRedraw — the throttle keyed on radius AND zoom', () => {
   it('always draws the first frame (never-drawn sentinel)', () => {
     expect(needsRedraw(-1, -1, 2400, 1)).toBe(true);
+  });
+
+  it('ALWAYS redraws when the ring collapses to nothing, however small the last step', () => {
+    // The collapse ends by pinning the radius at exactly 0, arriving from a
+    // last redraw somewhere inside the sub-unit epsilon. Without the degenerate
+    // -boundary clause the epsilon swallows that final step, drawStorm's whole
+    // radius-0 branch never runs, and the fully collapsed plane keeps a
+    // sub-unit hole with a ring edge stroked around the collapse point — a
+    // visible dot where the map is supposed to be solid storm.
+    expect(needsRedraw(Z.redrawEpsU / 2, 1, 0, 1)).toBe(true);
+    expect(needsRedraw(0.01, 1, 0, 1)).toBe(true);
+    // ...and in the other direction, so a re-anchored zone re-cuts its hole.
+    expect(needsRedraw(0, 1, Z.redrawEpsU / 2, 1)).toBe(true);
+    // A non-degenerate sub-epsilon step is still throttled (the clause is about
+    // a change of KIND, not a change of size).
+    expect(needsRedraw(0.6, 1, 0.9, 1)).toBe(false);
   });
 
   it('ignores sub-epsilon radius drift while closing (position-only updates)', () => {
@@ -619,18 +693,72 @@ describe('zoneViewFrom — the stale close-boundary guard (review FIX 1)', () =>
     expect(zv.next).toEqual(RING1);
   });
 
-  it('final closure with a stale pair holds the terminal ring (closed branch)', () => {
+  it('final closure with a stale pair collapses onto the terminal ring’s center (closed branch)', () => {
+    // RE-DERIVED for sudden death (2026-08-14): full closure is now 16:00, one
+    // group past the 660u endgame ring, and the closed state is the COLLAPSE
+    // ring — the terminal ring's own center at radius 0. Holding the 660u ring
+    // through the stale window would draw an open safe circle over a map that
+    // is entirely storm, which is precisely what closedState now prevents.
     const terminal = { cx: 300, cy: 120, r: 660 };
     const lastClose: ZonePlane = {
       ...staleSchema,
       zoneCurCx: RING1.cx, zoneCurCy: RING1.cy, zoneCurR: RING1.r,
       zoneNextCx: terminal.cx, zoneNextCy: terminal.cy, zoneNextR: terminal.r,
     };
-    const now = START + 3 * GROUP_MS + 10; // past full closure, patch not landed
+    const now = START + 4 * GROUP_MS + 10; // past full closure, patch not landed
     const zv = zoneViewFrom(lastClose, 2400, now);
     expect(zv.state).toBe('closed');
-    expect(zv.cur).toEqual(terminal);
+    expect(zv.cur).toEqual({ cx: terminal.cx, cy: terminal.cy, r: 0 });
     expect(zv.next).toBeNull();
+  });
+
+  it('decodes a genuinely COLLAPSED current ring verbatim — never the full map', () => {
+    // THE TRAP (pre-existing, written when radius 0 could only mean "no data"):
+    // `s.zoneCurR || mapRadius` turned the server's fully collapsed ring into a
+    // FULL-MAP SAFE ring — the exact inverse of the truth, at the one moment it
+    // matters most. The fallback is absence-gated now.
+    const collapsed: ZonePlane = {
+      zoneState: 'closed',
+      zoneStartT: START,
+      zoneCurCx: 300, zoneCurCy: 120, zoneCurR: 0,
+      zoneNextCx: 0, zoneNextCy: 0, zoneNextR: 0,
+    };
+    const zv = zoneViewFrom(collapsed, 2400, START + 4 * GROUP_MS + 10);
+    expect(zv.state).toBe('closed');
+    expect(zv.cur).toEqual({ cx: 300, cy: 120, r: 0 });
+    expect(zv.cur.r).not.toBe(2400); // FAIL-PROOF against the `||` fallback
+    // ...and nowhere on the map is safe from it.
+    expect(isOutside({ x: 300, y: 120 }, zv.cur.cx, zv.cur.cy, zv.cur.r)).toBe(true);
+    expect(isOutside({ x: 0, y: 0 }, zv.cur.cx, zv.cur.cy, zv.cur.r)).toBe(true);
+  });
+
+  it('still falls back to the full map when the schema simply has NO ring yet (absence, not zero)', () => {
+    const unsynced: ZonePlane = { zoneState: 'clear', zoneStartT: START };
+    expect(zoneViewFrom(unsynced, 2400, START + 10).cur).toEqual({ cx: 0, cy: 0, r: 2400 });
+  });
+
+  it('synthesizes the collapse ring from the wire sentinel through the whole final group', () => {
+    // The server mirrors the collapse ring as `zoneNextR === 0` (the unrevealed
+    // sentinel), so the client never RECEIVES it — in the final group it
+    // rebuilds it from the terminal ring it already holds. Center held fixed,
+    // radius interpolating to zero.
+    const terminal = { cx: 300, cy: 120, r: 660 };
+    const finalGroup: ZonePlane = {
+      zoneState: 'reveal',
+      zoneStartT: START,
+      zoneCurCx: terminal.cx, zoneCurCy: terminal.cy, zoneCurR: terminal.r,
+      zoneNextCx: terminal.cx, zoneNextCy: terminal.cy, zoneNextR: 0, // the sentinel
+    };
+    const mark = zoneViewFrom(finalGroup, 2400, START + 3 * GROUP_MS + 2 * BEAT + 10);
+    expect(mark.state).toBe('reveal');
+    expect(mark.next).toEqual({ cx: terminal.cx, cy: terminal.cy, r: 0 });
+    expect(mark.cur).toEqual(terminal); // the live ring HOLDS through the mark
+    const mid = zoneViewFrom(finalGroup, 2400, START + 3 * GROUP_MS + 3 * BEAT + BEAT / 2);
+    expect(mid.state).toBe('closing');
+    expect(mid.cur.cx).toBe(terminal.cx); // BYTE-exact: concentric, no drift
+    expect(mid.cur.cy).toBe(terminal.cy);
+    expect(mid.cur.r).toBeCloseTo(330, 9);
+    expect(mid.closesInMs).toBeCloseTo(BEAT / 2, 9);
   });
 
   it('a REAL clear beat (next zeroed by the server) is untouched by the guard', () => {

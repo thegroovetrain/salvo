@@ -61,6 +61,16 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // drawn with.
   bounty:
     'the YOU ARE THE KILL LEADER toast (ui/upgradeToast) + the persistent kill-leader register naming the holder in the chrome bar (ui/chromeBar, render/hud)',
+  // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 40) ----------------------
+  // The easiest twin in the table to name, because the ruling that created the
+  // cue created the visual FIRST and the audio second: the bracket is the whole
+  // signal, dual-coded by SHAPE precisely so it survives greyscale drones,
+  // colourblind assist and a muted player at the same time. The stings only
+  // tell you WHEN to look.
+  aggroLock:
+    'the amber bracket snapping closed around the fleet hull\'s chevron and holding, static, for as long as it has you (render/aggro, contacts)',
+  aggroRelease:
+    'the same bracket breaking apart at its corners and fading over ~400ms, leaving the chevron bare (render/aggro, contacts)',
   // --- THE SOUND MAP (Story 4.7, Eric ruling 2026-08-10) ----------------------
   // These six are the first cues in the table that are not about YOU, which
   // makes their twins unusually easy to name honestly: every one of them rides

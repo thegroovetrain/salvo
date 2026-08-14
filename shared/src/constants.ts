@@ -14,16 +14,31 @@ const SIGHT = 330;
 
 export const CONFIG = {
   /**
-   * Circular water map. radius = base * sqrt(playerCap / capRef). Story 3.1
-   * (epic-3 amendments 7/8) bumps the production board to the ratified DESIGN
-   * TARGETS: radius ≈ 2400u at fill ≈ 20 (mapRadius(20) = 2400), sized by the
-   * closing-rate criterion — the phased storm's worst-case escape per close
-   * lands ≈80% of a battleship-minute (pinned by shared zone tests). Exact
-   * values ride the 3.1 evidence checkpoint; Story 6.2 makes sizing
-   * roster-dynamic.
+   * Circular water map. radius = base * sqrt(playerCap / capRef).
+   *
+   * RADIUS 2400 → 2800 (Story 5.6, Eric ruling 2026-08-14, epic-5 amendment
+   * 42): *"lets scale the ring up a bit, I feel like the map is a little too
+   * small, so each stage doesn't force enough movement."* That sentence is TWO
+   * asks with two knobs, and the shipped closing-rate test proves it: it pins
+   * worst-case escape per close between 0.75 and 0.85 of a battleship-minute,
+   * which holds forced movement CONSTANT no matter how big the ocean gets. So
+   * a bigger map alone could never deliver the second half.
+   *
+   * Ruled: radius up, `zone.beatMs` and `zone.offsetCap` UNTOUCHED, and the
+   * ratified band re-ratified to ≈1.0. Because the terminal ring is derived
+   * from truesight and never moves, growing R grows max Δr against a fixed
+   * denominator — so worst-case escape goes 0.799 → 1.019 and the match still
+   * closes at 12:00. 1.019 means a battleship caught at the worst possible
+   * position runs the whole close beat at flank speed and JUST misses safety:
+   * it takes a bite of storm rather than dying. That is the forced movement.
+   *
+   * Headroom note for anyone retuning this: at `beatMs` 60000 the band caps
+   * baseRadius near 2480 and this value is deliberately past it, on the
+   * re-ratified band. Story 6.2 makes sizing roster-dynamic and will re-derive
+   * the band as a function of radius rather than as a literal.
    */
   map: {
-    baseRadius: 2400, // u — map radius tuned for capRef players
+    baseRadius: 2800, // u — map radius tuned for capRef players (2400 → 2800, amendment 42)
     capRef: 20, // players the base radius is scaled against
     playerCap: 20, // u — max clients per arena room
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
@@ -82,44 +97,71 @@ export const CONFIG = {
   },
 
   /**
-   * Drone envelopes — weaponless target drones in three sizes. NOT ship
-   * classes: never pickable, never upgradeable (they never earn points), never
-   * in SHIP_CLASS_IDS/sanitizeClassId. Same per-entry shape as a ship class
-   * (hull/hp/kinematics) so effectiveStats() accepts either. Kinematics are
-   * byte-for-byte the retired destroyer/cruiser/battleship prototype blocks;
-   * hulls are the legacy chevron trio scaled ~2.5× to board scale. Design
-   * targets, tunable.
+   * PvE FLEET envelopes in three sizes. NOT ship classes: never pickable,
+   * never upgradeable (they never earn points), never in
+   * SHIP_CLASS_IDS/sanitizeClassId. Same per-entry shape as a ship class
+   * (hull/hp/kinematics) so effectiveStats() accepts either. Hulls are the
+   * legacy chevron trio scaled ~2.5× to board scale.
+   *
+   * RETUNED WHOLESALE by Story 5.6 (Eric rulings 2026-08-14, epic-5 amendment
+   * 34). These were weaponless target drones on byte-for-byte the retired
+   * destroyer/cruiser/battleship prototype kinematics; they are now armed PvE
+   * fleet ships (see CONFIG.fleet).
+   *
+   * hp 80/100/120 → 60/75/90; maxSpeed 46/38/30 → 40/35/30.
+   *
+   * The speed change DISCHARGES the rescale epics.md:1090 has owed since Story
+   * 1.6 (2026-07-21): the small drone at 46 u/s was the FASTEST HULL AFLOAT,
+   * ahead of the Torpedo Boat's 45. At 40 it sits below every player class,
+   * medium at 35 ties the Battleship, and CONFIG.torpedo.speed (60) still
+   * outruns everything — the damageGuardrail pin holds.
+   *
+   * `reverseSpeed`/`accel`/`decel` scale PROPORTIONALLY with maxSpeed;
+   * `turnRate`/`steerageSpeed` deliberately DO NOT MOVE, so agility stays a
+   * size property rather than drifting with a speed retune. Reverse is now
+   * load-bearing rather than decorative — it is the tool the un-beaching
+   * manoeuvre uses (drones.ts), which is why it could not simply be left at
+   * the old block's value.
+   *
+   * The identity table in shared/src/__tests__/shipClasses.test.ts pins every
+   * number here; it updates deliberately with this block, never silently.
    */
   drones: {
     small: {
       hull: { length: 85, beam: 25 }, // u — legacy 34×10 chevron ×2.5
-      hp: 80, // hit points
+      hp: 60, // hit points — 4 captain gun hits (15 dmg) to sink
+      // The self-defence gun. Lives on the ENVELOPE rather than in
+      // CONFIG.fleet so effectiveStats() can apply it structurally, with no
+      // hull-id parameter threaded through the one derivation path.
+      gun: { damage: 6, reloadMs: 5000 },
       kinematics: {
-        maxSpeed: 46, // u/s — full-ahead (old destroyer block)
-        reverseSpeed: 14, // u/s — full-astern (magnitude)
-        accel: 11, // u/s^2 — throttling up
-        decel: 17, // u/s^2 — throttling down / braking
-        turnRate: 0.9, // rad/s — yaw rate at full rudder
-        steerageSpeed: 12, // u/s — speed at which rudder reaches full authority
+        maxSpeed: 40, // u/s — full-ahead (Eric ruling 2026-08-14; was 46, the fastest hull afloat)
+        reverseSpeed: 12, // u/s — full-astern (magnitude), scaled 14 × 40/46
+        accel: 9.5, // u/s^2 — throttling up, scaled 11 × 40/46
+        decel: 14.8, // u/s^2 — throttling down / braking, scaled 17 × 40/46
+        turnRate: 0.9, // rad/s — yaw rate at full rudder (UNCHANGED: agility is a size property)
+        steerageSpeed: 12, // u/s — speed at which rudder reaches full authority (UNCHANGED)
       },
     },
     medium: {
       hull: { length: 100, beam: 30 }, // u — legacy 40×12 chevron ×2.5
-      hp: 100, // hit points
+      hp: 75, // hit points — 5 captain gun hits to sink
+      gun: { damage: 8, reloadMs: 5000 },
       kinematics: {
-        maxSpeed: 38, // u/s — full-ahead (old cruiser block)
-        reverseSpeed: 12, // u/s — full-astern (magnitude)
-        accel: 9, // u/s^2 — throttling up
-        decel: 14, // u/s^2 — throttling down / braking
-        turnRate: 0.75, // rad/s — yaw rate at full rudder
-        steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
+        maxSpeed: 35, // u/s — full-ahead (Eric ruling 2026-08-14; was 38) — ties the Battleship
+        reverseSpeed: 11, // u/s — full-astern (magnitude), scaled 12 × 35/38
+        accel: 8.3, // u/s^2 — throttling up, scaled 9 × 35/38
+        decel: 12.9, // u/s^2 — throttling down / braking, scaled 14 × 35/38
+        turnRate: 0.75, // rad/s — yaw rate at full rudder (UNCHANGED)
+        steerageSpeed: 10, // u/s — speed at which rudder reaches full authority (UNCHANGED)
       },
     },
     large: {
       hull: { length: 115, beam: 35 }, // u — legacy 46×14 chevron ×2.5
-      hp: 120, // hit points
+      hp: 90, // hit points — 6 captain gun hits to sink
+      gun: { damage: 10, reloadMs: 5000 },
       kinematics: {
-        maxSpeed: 30, // u/s — full-ahead (old battleship block)
+        maxSpeed: 30, // u/s — full-ahead (Eric ruling 2026-08-14; unchanged, so the block below is too)
         reverseSpeed: 10, // u/s — full-astern (magnitude)
         accel: 7, // u/s^2 — throttling up
         decel: 11, // u/s^2 — throttling down / braking
@@ -127,6 +169,72 @@ export const CONFIG = {
         steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
       },
     },
+  },
+
+  /**
+   * ROVING PvE FLEETS (Story 5.6, Eric rulings 2026-08-14, epic-5 amendments
+   * 33/35/36/37). World content, never roster fill (FR34) — these hulls are
+   * not participants, hold no roster row, gate no win check, and their kills
+   * count nowhere (amendments 38/39).
+   *
+   * THE ECONOMY IS EXACT BY CONSTRUCTION, not by search. One fleet is
+   * 2 large + 3 medium + 4 small = 2(½) + 3(⅓) + 4(¼) = 1 + 1 + 1 = exactly
+   * 3.000 levels in 9 hulls, so every wave is a whole number of fleets and the
+   * AC's *"total XP value is exactly the number"* stops being a constraint to
+   * satisfy. `fleetLevels()` below asserts the identity against
+   * CONFIG.xp.droneTierLevels rather than trusting this comment.
+   *
+   * 3 + 2 + 1 fleets = 27 + 18 + 9 = 54 hulls and 18 levels across a match —
+   * BELOW the 19 levels of captain kills a full lobby offers, so this is a
+   * third faucet rather than the dominant one. Totals are FIXED, never
+   * roster-scaled: a thin lobby is deliberately a target-rich one.
+   */
+  fleet: {
+    /** Hulls per fleet by size — the exact-3-levels composition. */
+    composition: { large: 2, medium: 3, small: 4 },
+    /**
+     * Wave schedule, measured from ZONE START (the same anchor T+ uses).
+     * Deliberately literal rather than derived: Eric set these beats.
+     */
+    waves: [
+      { atMs: 60000, fleets: 3 }, // 1:00 — 9 levels
+      { atMs: 300000, fleets: 2 }, // 5:00 — 6 levels
+      { atMs: 540000, fleets: 1 }, // 9:00 — 3 levels
+    ],
+    /**
+     * u — radius the 9 hulls scatter over around their fleet anchor, and the
+     * radius the fleet holds as it roves. THIS NUMBER IS THE DIFFICULTY DIAL
+     * (amendment 35): a hit is witnessed by any fleet ship with LOS to both
+     * attacker and victim within sight (330u), so the spread sets how many
+     * guns answer. At ~150u all nine witness every hit and the witness rule
+     * stops meaning anything; at ~700u none do and "fleet" stops meaning
+     * anything. At 400 typical neighbour spacing lands near the sight edge, so
+     * ~2-4 answer and full aggro becomes a mistake rather than the default.
+     */
+    spreadU: 400,
+    /**
+     * u — 1σ scatter added to the LEAD-CORRECTED aim point, by size. Fleet
+     * ships solve the intercept (shell speed 500 u/s over ≤330u is a 0.66s
+     * flight, in which a 45 u/s Torpedo Boat moves 30u — TWICE the 15u burst
+     * radius, so no-lead misses nearly everything and perfect lead nearly
+     * never misses). Scatter is what makes size read as gunnery competence and
+     * makes "kill the large one first" a real decision.
+     */
+    aimScatterU: { small: 25, medium: 15, large: 8 },
+    /**
+     * ms — how long a fleet ship holds a target's last known bearing after
+     * losing line of sight. Instant forgetting (the literal reading of the
+     * brief) makes them jitter at every island edge as LOS flickers and turns
+     * any rock into a perfect off-switch.
+     */
+    memoryMs: 3000,
+    /**
+     * Ticks a pending wave may keep retrying for an anchor outside every
+     * captain's intel range before falling back to the plain max-min point.
+     * 200 ticks = 10s at the 20Hz sim rate. The wave ALWAYS arrives; it
+     * degrades visibly (and logs) rather than silently never spawning.
+     */
+    spawnRetryTicks: 200,
   },
 
   /** True ship globals shared by every class (no per-class variation). */
@@ -918,6 +1026,26 @@ export const CONFIG = {
     ringSteps: [1 / 3, 2 / 3],
     offsetCap: 1.0, // ≤ this × (r_cur − r_next) next-ring center offset (structurally clamped 0..1)
     terminalSightFactor: 2, // × CONFIG.vision.sight — the endgame ring radius (660u at sight 330)
+    /**
+     * SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, authorizing the
+     * long-parked contingency he wrote on 2026-08-04: *"sudden death at 15
+     * minutes that fully closes the ring in until it is all storm at 16
+     * minutes"*, plus the new clause that the collapse point is MARKED at
+     * 14:00). It appends a FOURTH ring group to the same four-beat rhythm, so
+     * at the 60s beat above the beats land on Eric's clock exactly:
+     *   12:00 clear · 13:00 supply · 14:00 reveal (the X mark) · 15:00-16:00
+     *   the terminal ring shrinks CONCENTRICALLY onto its own center to r=0.
+     * Full closure moves 12:00 -> 16:00 (zoneClosedAtMs 720_000 -> 960_000) and
+     * the map is 100% storm from 16:00, which is what structurally ENDS a match
+     * that the geometric endgame bar (epic-3 amendment 24) could not.
+     *
+     * The collapse ring is CONCENTRIC with the terminal ring and carries no
+     * roll, no seed and no new wire field — it is synthesized identically on
+     * both sides (sim/zone.ts). stormDps is untouched: Eric ruled the GEOMETRY,
+     * not the damage curve. Turning this off restores the shipped three-group
+     * 12:00 timeline byte-for-byte.
+     */
+    suddenDeath: true,
     stormDps: 4, // hp/s — damage while outside the live ring, every phase
   },
 
@@ -1003,6 +1131,15 @@ export interface Hull {
 export interface HullEnvelope {
   hull: Hull;
   hp: number;
+  /**
+   * OPTIONAL per-hull gun override (Story 5.6). Present only on PvE fleet
+   * envelopes, which carry a weaker gun than a captain's (6/8/10 vs 15).
+   * Applied inside `baseStats()` so `effectiveStats()` remains the single
+   * derivation path — no hull id is threaded through it and nothing mutates
+   * `ship.stats` after construction. Absent on every real ship class, which
+   * therefore keeps CONFIG.gun verbatim.
+   */
+  gun?: { damage: number; reloadMs: number };
   kinematics: {
     maxSpeed: number; // u/s
     reverseSpeed: number; // u/s (magnitude)
@@ -1058,6 +1195,55 @@ export function hullEnvelope(id: HullId): HullEnvelope {
     default:
       return CONFIG.shipClasses[id];
   }
+}
+
+/** The CONFIG.drones size key for a hull id, or null for a real ship class. */
+export function droneSizeOf(id: HullId): DroneSizeId | null {
+  switch (id) {
+    case 'droneSmall':
+      return 'small';
+    case 'droneMedium':
+      return 'medium';
+    case 'droneLarge':
+      return 'large';
+    default:
+      return null;
+  }
+}
+
+/** The drone hull id for a CONFIG.drones size key. */
+export function droneHullOf(size: DroneSizeId): DroneHullId {
+  if (size === 'small') return 'droneSmall';
+  if (size === 'medium') return 'droneMedium';
+  return 'droneLarge';
+}
+
+/**
+ * The 9 hull ids of ONE fleet, largest first — the spawn order, so a fleet
+ * that is truncated by an infeasible placement loses its cheapest hulls last.
+ */
+export function fleetHullIds(): DroneHullId[] {
+  const out: DroneHullId[] = [];
+  for (const size of ['large', 'medium', 'small'] as const) {
+    for (let i = 0; i < CONFIG.fleet.composition[size]; i += 1) out.push(droneHullOf(size));
+  }
+  return out;
+}
+
+/**
+ * Levels of XP one whole fleet is worth, computed from the composition and the
+ * shipped tier table rather than asserted. This is EXACTLY 3 by construction
+ * (2×½ + 3×⅓ + 4×¼), and the shared tests pin that — so a composition edit
+ * that breaks the exact-XP property fails the build instead of quietly paying
+ * a fraction.
+ */
+export function fleetLevels(): number {
+  const tiers = CONFIG.xp.droneTierLevels;
+  return (
+    CONFIG.fleet.composition.large * tiers.droneLarge +
+    CONFIG.fleet.composition.medium * tiers.droneMedium +
+    CONFIG.fleet.composition.small * tiers.droneSmall
+  );
 }
 
 /** Coerce arbitrary (wire/localStorage) input to a valid class id, default 'torpedoBoat'. */

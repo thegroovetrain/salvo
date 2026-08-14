@@ -183,8 +183,8 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('the radar lattice is pinned beside the protocol version', () => {
-  it('radarCellU is 9 at PROTOCOL_VERSION 34 — retune both together, deliberately (PV 33 → 34 was Story 5.2 adding the self-private OwnShip.sinkingUntil; the lattice itself did not move)', () => {
-    expect(PROTOCOL_VERSION).toBe(34);
+  it('radarCellU is 9 at PROTOCOL_VERSION 36 — retune both together, deliberately (34 → 35 was sudden death appending the storm timeline\'s collapse group; 35 → 36 was Story 5.6, the bigger ocean + the self-private Contact.aggro. The lattice itself moved for neither)', () => {
+    expect(PROTOCOL_VERSION).toBe(36);
     expect(CONFIG.vision.radarCellU).toBe(9);
     // The fuzz knobs are wire-authoritative for the same reason (they shape
     // the bits the server sends): pinned with the lattice.

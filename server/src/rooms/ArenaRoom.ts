@@ -10,7 +10,6 @@
 import { ClientState, CloseCode, ErrorCode, Room, ServerError, generateId, type Client } from 'colyseus';
 import {
   CONFIG,
-  DRONE_HULL_IDS,
   MSG,
   REGATTA_NO_HUE,
   isAfloat,
@@ -157,7 +156,6 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private match: Match | null = null;
   private accumulator = 0;
   private joinCounter = 0;
-  private droneCounter = 0;
   /**
    * The one-time end-of-match results broadcast, cached when it fires (finding
    * F2). At drop time core removes the client from `this.clients`, so a captain
@@ -225,8 +223,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /**
-   * The room's World: map sized for the match fill (mapRadius(fillTo) — 2400u
-   * at the 3.1 targets); zoneOverride (dev-only) reshapes the storm timeline
+   * The room's World: map sized for the PLAYER CAP (mapRadius(CONFIG.map.
+   * playerCap) — 2800u since Story 5.6's bigger ocean). It rode
+   * CONFIG.match.fillTo until amendment 41 deleted the fill: the constant
+   * meaning "how many drones to top up to" was also the constant meaning "how
+   * big is the ocean". Both are 20, so nothing observable moved.
+   * zoneOverride (dev-only) reshapes the storm timeline
    * for smokes/tests, undefined => shipped CONFIG.zone.
    *
    * zoneSeeds: per-room, PER-RING server-private nonces for the ring streams
@@ -250,7 +252,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
     // posture): track ids must never be derivable from the client-known
     // mapSeed.
-    return new World(seed, CONFIG.match.fillTo, zoneCfg, {
+    return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       radarGrammar: resolveRadarGrammar(process.env.HC_RADAR_GRAMMAR),
       radarIdentity: resolveRadarIdentity(process.env.HC_RADAR_IDENTITY),
@@ -404,13 +406,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return {
       lock: () => void this.lock(),
       unlock: () => void this.unlock(),
-      // Drone-fill seam (step 15): top the roster up to CONFIG.match.fillTo with
-      // weaponless target drones, each a real ship + PlayerMeta so kill feed,
-      // contacts, blips, and results rows all include them. (The match.activate
-      // line is NOT logged here: this hook fires at the START of the transition,
-      // and a throw later in activate() would leave stdout claiming an
-      // activation that never happened — see observeMatchActivation.)
-      fillToCapacity: () => this.fillToCapacity(),
+      // (The drone-fill hook is GONE — Story 5.6, amendment 41 deleted the
+      // match-start fill outright. PvE fleets are world content on their own
+      // wave clock inside the World, hold no PlayerMeta row, and never top up
+      // a roster.)
       broadcastResults: (msg: ResultsMsg) => {
         // Cache before broadcasting (finding F2): a captain in grace isn't in
         // this.clients, so onDrop's resume handler re-sends this to them.
@@ -424,33 +423,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     };
   }
 
-  /**
-   * Fill the empty slots with target drones at match activation. Each drone is
-   * an ordinary World ship (isDrone=true, driven by the DroneController via the
-   * normal input path) PLUS a public PlayerMeta, so it shows up everywhere a
-   * human does: roster, kill feed, contacts/blips, and the results table. Runs
-   * before resetForMatchStart, which redeploys drones to the spawn ring too.
-   */
-  private fillToCapacity(): void {
-    const need = CONFIG.match.fillTo - this.world.ships.size;
-    for (let i = 0; i < need; i++) {
-      this.droneCounter += 1;
-      const id = `drone-${this.droneCounter}`;
-      const name = `DRONE-${String(this.droneCounter).padStart(2, '0')}`;
-      // Round-robin the drone hulls (small/medium/large) so every drone
-      // envelope gets free visual coverage. Drones never take player classes.
-      const hullId = DRONE_HULL_IDS[i % DRONE_HULL_IDS.length];
-      this.world.addShip(id, name, true, hullId);
-      const meta = new PlayerMeta();
-      meta.id = id;
-      meta.name = name;
-      this.state.players.set(id, meta);
-    }
-  }
-
   /** The hue indices the roster currently holds (Story 1.12) — the `used` set for
-   *  assignHue. Skips the 255 sentinel, so drones and any not-yet-assigned entry
-   *  never reserve a wheel index. */
+   *  assignHue. Skips the 255 sentinel, which since Story 5.6 only ever marks a
+   *  not-yet-assigned entry: PvE fleet hulls hold no roster row at all
+   *  (amendment 39), so they never reach the wheel to be excluded from it. */
   private usedHues(): Set<number> {
     const used = new Set<number>();
     this.state.players.forEach((meta: PlayerMeta) => {
@@ -483,8 +459,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     meta.id = client.sessionId;
     meta.name = name;
     // Regatta Hoist (Story 1.12): assign a unique personal hue FCFS at join.
-    // `used` is every hue the roster already holds — drones carry the 255 sentinel
-    // and are excluded by construction, so they never occupy a wheel index.
+    // `used` is every hue the roster already holds. Since Story 5.6 the roster
+    // is CAPTAINS ONLY (amendment 39), so no sentinel entry can occupy a wheel
+    // index — fleet hulls never get a row at all.
     // `joinCounter` feeds ONLY assignHue's defensive exhaustion fallback (wheel
     // full → joinOrder % 20); at cap 20 the wheel always has a free hue first.
     meta.color = assignHue(this.usedHues(), sanitizeColorPref(options.colorPref), this.hueRng, this.joinCounter);

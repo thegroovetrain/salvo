@@ -30,10 +30,20 @@ export interface ZoneView {
 }
 
 /** The schema's revealed ring prefix: ring g as of the last boundary (always),
- *  and the revealed next ring — r === 0 means "unrevealed" (a real ring's
- *  radius is structurally >= 1u), matching the server's zeroed mirror. */
+ *  and the revealed next ring — r === 0 means "unrevealed" (a real REVEALED
+ *  ring's radius is structurally >= 1u), matching the server's zeroed mirror.
+ *  The sudden-death collapse ring therefore never arrives here: it is
+ *  synthesized by the shared zoneLiveState (see zone.ts's effectiveNext).
+ *
+ *  THE CURRENT RING'S FALLBACK IS ABSENCE-GATED, NEVER VALUE-GATED. It used to
+ *  read `s.zoneCurR || mapRadius`, which was correct only while radius 0 could
+ *  only mean "no data": once the timeline can genuinely CLOSE onto r=0, that
+ *  `||` decodes a fully collapsed ring as a FULL-MAP SAFE ring — the exact
+ *  inversion of the truth, at the one moment it matters most. `??` takes a
+ *  synced 0 verbatim and still covers the un-synced case; the idle/unanchored
+ *  case never reaches here at all (zoneViewFrom returns before it). */
 function schemaRings(s: ZonePlane, mapRadius: number): { cur: ZoneRing; next: ZoneRing | null } {
-  const cur: ZoneRing = { cx: s.zoneCurCx ?? 0, cy: s.zoneCurCy ?? 0, r: s.zoneCurR || mapRadius };
+  const cur: ZoneRing = { cx: s.zoneCurCx ?? 0, cy: s.zoneCurCy ?? 0, r: s.zoneCurR ?? mapRadius };
   const nextR = s.zoneNextR ?? 0;
   const next: ZoneRing | null = nextR > 0 ? { cx: s.zoneNextCx ?? 0, cy: s.zoneNextCy ?? 0, r: nextR } : null;
   return { cur, next };

@@ -97,11 +97,15 @@ export interface MatchOverride {
 /**
  * Room-create options. `zoneOverride` is a DEV TOOL for smokes/tests only — it
  * reshapes the phased storm timeline (beatMs / ringSteps / offsetCap /
- * terminalSightFactor — the ZoneTimeline structural subset; stormDps is
+ * terminalSightFactor / suddenDeath — the ZoneTimeline structural subset;
+ * stormDps is
  * deliberately NOT part of the shape: damage is never overridable) so closes
  * are observable in seconds. Matchmaking / the real client NEVER set it (the
  * client derives its ring phases from CONFIG.zone, so an override desyncs the
- * client's derived timeline). Gated by sanitizeRoomOptions same as
+ * client's derived timeline — and since cycle 82 note that omitting
+ * `suddenDeath` forks the GROUP COUNT rather than only the magnitudes, so the
+ * two sides disagree about how many groups exist, not merely how long they
+ * last; a headless smoke that asserts client-side phases must set the flag). Gated by sanitizeRoomOptions same as
  * matchOverride.
  */
 export interface RoomOptions extends JoinOptions {

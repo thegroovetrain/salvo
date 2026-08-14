@@ -16,6 +16,31 @@
 //                    from ring g to ring g+1 over the beat.
 // After the last group the timeline is CLOSED forever on the terminal ring.
 //
+// SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, superseding
+// epic-3 amendment 24's "no post-closure mechanic" for the collapse case).
+// With `suddenDeath` set, ONE MORE ring group is appended to the same four-beat
+// rhythm, so nothing about the rhythm, the readout grammar, the reveal one-shot
+// or the seed derivation is special-cased. At the shipped 60s beat it lands on
+// Eric's clock exactly: 12:00-13:00 clear, 13:00-14:00 supply, 14:00 REVEAL
+// (the collapse point is marked with an X), 15:00-16:00 CLOSING — the terminal
+// ring shrinks CONCENTRICALLY onto its own center, radius 660u -> 0. At 16:00
+// the whole map is storm and every hull afloat bleeds stormDps until one is
+// left. The collapse ring is:
+//   • CONCENTRIC with the terminal ring ("find the center of the final ring…
+//     close in on itself"), so it carries NO new information and is NEVER
+//     rolled: it consumes no seed material and no offset draw;
+//   • radius EXACTLY 0, appended AFTER zoneRingRadii's clamp chain — the 1u
+//     floor that protects the schema's `zoneNextR === 0` unrevealed sentinel
+//     still binds the GEOMETRIC terminal, and this is the one legal radius-0
+//     ring in the model;
+//   • SYNTHESIZED, not transmitted: because the wire says "r 0 = unrevealed",
+//     the client cannot read the collapse ring off the schema — it rebuilds it
+//     from the ring it already holds (collapseRingOf), and the server reaches
+//     the identical ring through the rolled array. Same geometry, two inputs —
+//     the effectiveStats() firewall pattern applied to the zone.
+// With the flag off (every dev-only zoneOverride, every smoke literal) the
+// timeline is byte-identical to the pre-ruling three-group one.
+//
 // RINGS are offset-center circles, rolled ONCE at zone start on a seeded
 // server-private stream (World owns the stream — amendment 10: mapSeed is
 // client-known, so nothing here may derive centers a client could precompute;
@@ -63,6 +88,15 @@ export interface ZoneTimeline {
   /** × CONFIG.vision.sight — the terminal (endgame) ring radius. The default 2
    *  is the ratified "two truesight diameters across" reading (amendment 4). */
   terminalSightFactor: number;
+  /**
+   * SUDDEN DEATH (Eric ruling 2026-08-14): append one more ring group whose
+   * ring is the terminal ring's own center at radius 0 — the final collapse
+   * (see the file header). Optional and DEFAULT-OFF at the type level so every
+   * existing dev-only `zoneOverride` literal and every headless smoke keeps the
+   * three-group timeline it was written against, unchanged. Only the shipped
+   * CONFIG.zone turns it on.
+   */
+  suddenDeath?: boolean;
 }
 
 /**
@@ -98,9 +132,34 @@ export interface ZoneState {
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(Math.max(v, 0), 1) : 0);
 
-/** Ring-group count implied by the timeline (fail-closed to 1). */
-export function zoneGroups(cfg: ZoneTimeline = CONFIG.zone): number {
+/**
+ * Does this timeline end in the SUDDEN-DEATH collapse group? THE one predicate
+ * every consumer asks (shared math, the World's endgame-reached fact, the
+ * renderer's mark) — never `cfg.suddenDeath` read raw, so an absent flag and an
+ * explicit `false` can never diverge.
+ */
+export function zoneCollapses(cfg: ZoneTimeline = CONFIG.zone): boolean {
+  return cfg.suddenDeath === true;
+}
+
+/** Ring groups from the GEOMETRIC descent alone (map → terminal), i.e. the
+ *  whole timeline before sudden death appends its collapse group. */
+function geometricGroups(cfg: ZoneTimeline): number {
   return (Array.isArray(cfg.ringSteps) ? cfg.ringSteps.length : 0) + 1;
+}
+
+/** Ring-group count implied by the timeline (fail-closed to 1), including the
+ *  appended sudden-death collapse group when the timeline collapses. */
+export function zoneGroups(cfg: ZoneTimeline = CONFIG.zone): number {
+  return geometricGroups(cfg) + (zoneCollapses(cfg) ? 1 : 0);
+}
+
+/** The collapse ring for `ring`: ITS OWN CENTER at radius 0. Concentric by
+ *  construction (Eric ruling 2026-08-14 — "close in on itself"), which is
+ *  exactly why it needs no roll, no seed and no wire field: both sides can
+ *  build it from the ring they already hold. */
+function collapseRingOf(ring: ZoneRing): ZoneRing {
+  return { cx: ring.cx, cy: ring.cy, r: 0 };
 }
 
 /** The beat duration, or null when degenerate (0/negative/NaN — fail-closed:
@@ -128,6 +187,23 @@ export function zoneClosedAtMs(cfg: ZoneTimeline = CONFIG.zone): number {
 }
 
 /**
+ * ms from zone start to the ENDGAME RING — the end of the last GEOMETRIC
+ * group's close beat, i.e. the instant the terminal 660u ring becomes the live
+ * ring (12:00 at the shipped defaults).
+ *
+ * Identical to zoneClosedAtMs on a non-collapsing timeline; under sudden death
+ * the two separate by one full ring group, and THIS is the one the Story 3.4
+ * Endgame Guarantee is about. The distinction is not cosmetic: the batch-sim's
+ * past-closure evidence rate asks "did this match run past the endgame ring",
+ * and measuring it against full closure instead would score a healthy campaign
+ * that concludes at ~13:00 as 0% past closure.
+ */
+export function zoneEndgameAtMs(cfg: ZoneTimeline = CONFIG.zone): number {
+  const beatMs = beatMsOf(cfg);
+  return beatMs === null ? 0 : geometricGroups(cfg) * ZONE_BEATS_PER_GROUP * beatMs;
+}
+
+/**
  * Ring radii ring-0 → terminal (length groups+1). Ring 0 is the full map;
  * intermediate rings follow the ringSteps exponents; the last is the terminal
  * radius. STRUCTURALLY monotone non-increasing and ≥ the terminal (each value
@@ -136,9 +212,15 @@ export function zoneClosedAtMs(cfg: ZoneTimeline = CONFIG.zone): number {
  * 1u structurally: a real ring's radius is always > 0, so the schema's
  * `zoneNextR === 0` unrevealed sentinel can never collide with a legal ring
  * even under a degenerate dev-only zoneOverride (terminalSightFactor 0).
+ *
+ * SUDDEN DEATH appends an exact 0 AFTER that whole clamp chain — deliberately
+ * outside it, so the 1u floor keeps protecting the GEOMETRIC terminal (the last
+ * ring that can ever ride the wire as revealed geometry) while the collapse
+ * ring, which is synthesized on both sides and never transmitted, is the one
+ * legal radius-0 ring in the model.
  */
 export function zoneRingRadii(mapRadius: number, cfg: ZoneTimeline = CONFIG.zone): number[] {
-  const groups = zoneGroups(cfg);
+  const groups = geometricGroups(cfg);
   const terminal = Math.max(1, Math.min(zoneTerminalRadius(cfg), mapRadius));
   const radii = [mapRadius];
   for (let g = 1; g < groups; g += 1) {
@@ -148,6 +230,7 @@ export function zoneRingRadii(mapRadius: number, cfg: ZoneTimeline = CONFIG.zone
     radii.push(Number.isFinite(r) ? Math.min(Math.max(r, terminal), prev) : prev);
   }
   radii.push(Math.min(terminal, radii[radii.length - 1]));
+  if (zoneCollapses(cfg)) radii.push(0);
   return radii;
 }
 
@@ -164,12 +247,18 @@ export function zoneRingRadii(mapRadius: number, cfg: ZoneTimeline = CONFIG.zone
  * CLOSED to a concentric ring (offset 0). Containment is structural: the
  * center offset is bounded by clamp01(offsetCap) × (r_prev − r_g), so every
  * next ring lies fully inside the current one for ANY seed values.
+ *
+ * THE SUDDEN-DEATH COLLAPSE RING IS NOT ROLLED. It is appended concentric with
+ * the geometric terminal and consumes NO seed and NO stream draw, so the whole
+ * rolled prefix is byte-identical to a non-collapsing timeline on the same
+ * seeds — turning the flag on cannot move a single existing ring.
  */
 export function rollZoneRings(mapRadius: number, cfg: ZoneTimeline, ringSeeds: readonly number[]): ZoneRing[] {
   const radii = zoneRingRadii(mapRadius, cfg);
   const cap = clamp01(cfg.offsetCap);
+  const rolled = zoneCollapses(cfg) ? radii.length - 1 : radii.length;
   const rings: ZoneRing[] = [{ cx: 0, cy: 0, r: radii[0] }];
-  for (let g = 1; g < radii.length; g += 1) {
+  for (let g = 1; g < rolled; g += 1) {
     const prev = rings[g - 1];
     const seed = ringSeeds[g - 1];
     const rng = seed === undefined ? null : mulberry32(seed >>> 0);
@@ -177,12 +266,56 @@ export function rollZoneRings(mapRadius: number, cfg: ZoneTimeline, ringSeeds: r
     const d = rng === null ? 0 : rng.next() * cap * Math.max(0, prev.r - radii[g]);
     rings.push({ cx: prev.cx + Math.cos(angle) * d, cy: prev.cy + Math.sin(angle) * d, r: radii[g] });
   }
+  if (zoneCollapses(cfg)) rings.push(collapseRingOf(rings[rings.length - 1]));
   return rings;
 }
 
-/** The closed terminal state (shared by both entry points below). */
-function closedState(groups: number, terminal: ZoneRing): ZoneState {
-  return { phase: 'closed', groupIndex: groups - 1, current: terminal, next: null, closesInMs: 0 };
+/**
+ * The closed terminal state (shared by both entry points below).
+ *
+ * Under sudden death the closed ring is the COLLAPSE ring — the terminal ring's
+ * own center at radius 0 — regardless of which ring the caller could hand in.
+ * That is what makes a schema-fed client agree with the server through the
+ * latency window at final closure: its mirror may still carry the 660u terminal
+ * as `zoneCur*` for a patch or two, and holding that would render an open safe
+ * circle in a map that is entirely storm.
+ *
+ * A TIMELINE THAT NEVER RAN DOES NOT COLLAPSE (`ran`). The degenerate-beat
+ * paths (beatMs 0/negative/NaN/Infinity) also land here, and this file's
+ * fail-closed contract has always meant "the timeline is over, park on the
+ * terminal ring" — NOT "kill everyone". Collapsing on that path would make a
+ * mistyped dev `zoneOverride` storm the entire map from zone start and bleed
+ * every hull out at once, which is a far worse failure than the one the
+ * fail-closed rule exists to prevent. Collapse only when a real timeline
+ * actually reached its end.
+ */
+function closedState(groups: number, terminal: ZoneRing, cfg: ZoneTimeline): ZoneState {
+  const ran = beatMsOf(cfg) !== null;
+  const current = zoneCollapses(cfg) && ran ? collapseRingOf(terminal) : terminal;
+  return { phase: 'closed', groupIndex: groups - 1, current, next: null, closesInMs: 0 };
+}
+
+/**
+ * The EFFECTIVE next ring for a group: the revealed one when there is one, and
+ * otherwise — in the FINAL group of a collapsing timeline — the synthesized
+ * concentric collapse ring.
+ *
+ * This is the whole client/server reconciliation in one function. The wire's
+ * `zoneNextR === 0` means "unrevealed", so the collapse ring can never arrive
+ * as revealed geometry; but in the final group there is exactly ONE thing the
+ * next ring can be, so the client rebuilds it instead of receiving it. The
+ * server passes it in from the rolled array and this returns it untouched —
+ * one derivation, identical geometry, no wire change.
+ */
+function effectiveNext(
+  current: ZoneRing,
+  next: ZoneRing | null,
+  group: number,
+  groups: number,
+  cfg: ZoneTimeline,
+): ZoneRing | null {
+  if (next !== null) return next;
+  return zoneCollapses(cfg) && group === groups - 1 ? collapseRingOf(current) : null;
 }
 
 /**
@@ -195,6 +328,12 @@ function closedState(groups: number, terminal: ZoneRing): ZoneState {
  *
  * Fail-closed: a degenerate beat duration reads as closed on `current`; a
  * closing beat with no `next` (stale schema at a boundary tick) holds ring g.
+ *
+ * SUDDEN DEATH: in the FINAL group of a collapsing timeline a null `next` is
+ * not a stale schema — it is the unrevealed sentinel standing in for the one
+ * ring it can only be — so `effectiveNext()` synthesizes the concentric
+ * collapse ring there instead of holding. Every other group holds exactly as
+ * before.
  */
 export function zoneLiveState(
   now: number,
@@ -205,27 +344,57 @@ export function zoneLiveState(
 ): ZoneState {
   const beatMs = beatMsOf(cfg);
   const groups = zoneGroups(cfg);
-  if (beatMs === null) return closedState(groups, next ?? current);
+  if (beatMs === null) return closedState(groups, next ?? current, cfg);
   const elapsed = Math.max(0, now - startT);
   const beat = Math.floor(elapsed / beatMs);
   const group = Math.floor(beat / ZONE_BEATS_PER_GROUP);
-  if (group >= groups) return closedState(groups, next ?? current);
+  if (group >= groups) return closedState(groups, next ?? current, cfg);
+  // AN ALREADY-COLLAPSED RING IS CLOSED, whatever the clock says. This is the
+  // OTHER staleness direction from zoneViewFrom's guard: there the local clock
+  // runs ahead of the schema, here the schema patches to closed (mirroring
+  // zoneCurR 0) while the client's server-clock estimate still reads the last
+  // closing beat. Deriving a close FROM a ring with no radius would shrink 0
+  // to 0 and hand back a live r=0 for the width of the clock error. The server
+  // never supplies a zero-radius `current` mid-close — its final group opens on
+  // the 660u terminal — so this only ever fires on a stale mirror.
+  if (zoneCollapses(cfg) && !(current.r > 0)) return closedState(groups, current, cfg);
   const beatInGroup = beat - group * ZONE_BEATS_PER_GROUP;
   const phase = BEAT_PHASES[beatInGroup];
   const groupEndMs = (group + 1) * ZONE_BEATS_PER_GROUP * beatMs;
+  const eff = effectiveNext(current, next, group, groups, cfg);
   if (phase !== 'closing') {
-    const revealed = phase === 'reveal' ? next : null;
+    const revealed = phase === 'reveal' ? eff : null;
     return { phase, groupIndex: group, current, next: revealed, closesInMs: groupEndMs - beatMs - elapsed };
   }
+  return closingState(elapsed, groupEndMs, beatMs, group, current, eff);
+}
+
+/**
+ * The CLOSING beat: ring g interpolated linearly (center AND radius) toward the
+ * effective next ring over the beat. Split out of zoneLiveState purely for the
+ * complexity budget — no behavior of its own.
+ *
+ * Fail-closed: a null `eff` is a stale schema at a group boundary (there is a
+ * closing beat but no ring to close onto), and holding ring g is the only safe
+ * answer — never interpolate toward nothing.
+ */
+function closingState(
+  elapsed: number,
+  groupEndMs: number,
+  beatMs: number,
+  group: number,
+  current: ZoneRing,
+  eff: ZoneRing | null,
+): ZoneState {
   const closesInMs = groupEndMs - elapsed;
-  if (next === null) return { phase, groupIndex: group, current, next: null, closesInMs };
+  if (eff === null) return { phase: 'closing', groupIndex: group, current, next: null, closesInMs };
   const f = (elapsed - (groupEndMs - beatMs)) / beatMs;
   const live: ZoneRing = {
-    cx: current.cx + (next.cx - current.cx) * f,
-    cy: current.cy + (next.cy - current.cy) * f,
-    r: current.r + (next.r - current.r) * f,
+    cx: current.cx + (eff.cx - current.cx) * f,
+    cy: current.cy + (eff.cy - current.cy) * f,
+    r: current.r + (eff.r - current.r) * f,
   };
-  return { phase, groupIndex: group, current: live, next, closesInMs };
+  return { phase: 'closing', groupIndex: group, current: live, next: eff, closesInMs };
 }
 
 /**
@@ -242,10 +411,10 @@ export function zoneStateAt(
   const beatMs = beatMsOf(cfg);
   const groups = zoneGroups(cfg);
   const last = rings[rings.length - 1];
-  if (beatMs === null) return closedState(groups, last);
+  if (beatMs === null) return closedState(groups, last, cfg);
   const elapsed = Math.max(0, now - startT);
   const group = Math.floor(elapsed / (ZONE_BEATS_PER_GROUP * beatMs));
-  if (group >= groups) return closedState(groups, last);
+  if (group >= groups) return closedState(groups, last, cfg);
   return zoneLiveState(now, startT, rings[group] ?? last, rings[group + 1] ?? null, cfg);
 }
 
@@ -254,8 +423,15 @@ export function zoneStateAt(
  * (rings are offset circles as of Story 3.1). Boundary is INCLUSIVE-SAFE: a
  * point exactly ON the ring is INSIDE (not outside), so storm damage requires
  * strictly dist² > r².
+ *
+ * A ring with NO RADIUS CONTAINS NOTHING: `r <= 0` is outside for every point,
+ * including the ring's own center. That is the sudden-death collapse ring's
+ * whole meaning (at full collapse the map is 100% storm and every hull afloat
+ * bleeds), and writing it as `!(r > 0)` also makes a NaN radius fail CLOSED
+ * rather than silently marking the entire map safe.
  */
 export function isOutside(pos: Vec2, cx: number, cy: number, r: number): boolean {
+  if (!(r > 0)) return true;
   const dx = pos.x - cx;
   const dy = pos.y - cy;
   return dx * dx + dy * dy > r * r;

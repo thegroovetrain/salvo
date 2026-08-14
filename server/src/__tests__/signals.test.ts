@@ -50,6 +50,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, decoys: w.decoys, me, wakes: w.wakeRibbons,
     radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
+    aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
 }
 
@@ -59,6 +60,7 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, decoys: w.decoys, me: undefined, wakes: w.wakeRibbons,
     radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
+    aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
 }
 

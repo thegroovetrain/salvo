@@ -64,6 +64,8 @@ const radarCtx = (w: World) => ({
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,
+  // Story 5.6: the aggro mark's input; the fh row reads none of it either.
+  aggroAt: (fleetShipId: string, observerId: string) => w.drones.isTargeting(fleetShipId, observerId),
 });
 
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */

@@ -101,7 +101,6 @@ describe('sink entry (amendments 1/11) — bookkeeping fires immediately, once',
     expect(a.hp).toBe(0);
     expect(a.deaths).toBe(1);
     expect(b.kills).toBe(1); // killer credited NOW, not at founder
-    expect(b.captainKills).toBe(1);
     expect(a.respawnAt).toBe(w.now + CONFIG.ship.respawnDelay); // armed at entry
   });
 
@@ -448,7 +447,6 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
   const hooks: MatchHooks = {
     lock: () => {},
     unlock: () => {},
-    fillToCapacity: () => {},
     broadcastResults: (msg) => results.push(msg),
     disconnect: () => {},
   };

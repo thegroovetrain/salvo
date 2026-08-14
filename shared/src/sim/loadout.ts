@@ -111,34 +111,35 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
 
 /** The two specials (slots 1–2) each hull id fits: torpedo + speedBoost for the
  *  Torpedo Boat (1.6), cannon + starShells for the Battleship (1.7), mine +
- *  decoyBuoy for the Mine Layer (1.8); every drone keeps the universal
- *  torpedo + mine (the interregnum fit, unchanged). */
-function specialsFor(hullId: HullId): [EquipmentId, EquipmentId] {
+ *  decoyBuoy for the Mine Layer (1.8).
+ *
+ *  PvE FLEET HULLS FIT NOTHING (Story 5.6, epic-5 amendment 34). They used to
+ *  fall through this function's catch-all and inherit the universal
+ *  torpedo + mine — so every drone afloat carried loaded tubes and a mine rack
+ *  it could never use, with both reload timers ticking every tick forever.
+ *  Eric's ruling is *"each has a gun to defend itself"*, singular, so the
+ *  specials are gone and the gun in slot 0 is the whole fit. */
+function specialsFor(hullId: HullId): [EquipmentId | null, EquipmentId | null] {
   if (hullId === 'torpedoBoat') return ['torpedo', 'speedBoost'];
   if (hullId === 'battleship') return ['cannon', 'starShells'];
   if (hullId === 'mineLayer') return ['mine', 'decoyBuoy'];
-  return ['torpedo', 'mine'];
+  return [null, null]; // PvE fleet hulls: gun only
 }
 
 /**
- * The loadout a given hull id spawns with (per-hull, Stories 1.6–1.8). The
+ * The loadout a given hull id spawns with (per-hull, Stories 1.6–1.8, 5.6). The
  * Torpedo Boat fits [gun, torpedo, speedBoost, empty]; the Battleship fits
  * [gun, cannon, starShells, empty]; the Mine Layer fits
- * [gun, mine, decoyBuoy, empty] (Story 1.8); every drone size keeps the
- * universal fit [gun, torpedo, mine, empty]. Fitted slots start with a full
+ * [gun, mine, decoyBuoy, empty] (Story 1.8); a PvE fleet hull fits
+ * [gun, empty, empty, empty] (Story 5.6). Fitted slots start with a full
  * pool and an idle reload timer — exactly matching server
  * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics.
  */
 export function loadoutFor(hullId: HullId, stats: EffectiveStats): LoadoutSlot[] {
-  const fittedSlot = (equipmentId: EquipmentId): LoadoutSlot => ({
-    equipmentId,
-    state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
-  });
+  const slot = (equipmentId: EquipmentId | null): LoadoutSlot =>
+    equipmentId === null
+      ? { equipmentId: null, state: null }
+      : { equipmentId, state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 } };
   const [slotOne, slotTwo] = specialsFor(hullId);
-  return [
-    fittedSlot('gun'),
-    fittedSlot(slotOne),
-    fittedSlot(slotTwo),
-    { equipmentId: null, state: null },
-  ];
+  return [slot('gun'), slot(slotOne), slot(slotTwo), slot(null)];
 }

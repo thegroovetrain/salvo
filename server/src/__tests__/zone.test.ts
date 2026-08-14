@@ -31,6 +31,18 @@ const paced = (offsetCap = 1): ZoneTimeline => ({
   terminalSightFactor: 2,
 });
 
+// The SUDDEN-DEATH timeline on the same tick-aligned rhythm: three geometric
+// groups plus the appended collapse group (16 beats, 320 ticks). Concentric
+// (offsetCap 0) so a test can position hulls by distance from the origin and
+// know exactly which side of every ring they are on.
+const collapsing = (): ZoneTimeline => ({
+  beatMs: BEAT_MS,
+  ringSteps: [1 / 3, 2 / 3],
+  offsetCap: 0,
+  terminalSightFactor: 2,
+  suddenDeath: true,
+});
+
 const TICKS_PER_BEAT = BEAT_MS / CONFIG.tick.simDtMs;
 
 /** Place a ship at distance `d` from center on a bearing clear of all islands. */
@@ -201,6 +213,132 @@ describe('zone phases — beat boundaries are tick-exact', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14), end to end
+// through the authoritative World: the appended group runs the same four-beat
+// rhythm, its ring is the terminal ring's own center at radius 0, and once it
+// has closed there is nowhere left to float.
+// ---------------------------------------------------------------------------
+describe('the collapse group — the whole map is storm at closure', () => {
+  const GROUP = 4 * TICKS_PER_BEAT;
+
+  function started(): World {
+    const w = new World(21, CONFIG.match.fillTo, collapsing());
+    w.startZone(0);
+    return w;
+  }
+
+  function stepTo(w: World, tick: number): void {
+    while (w.tick < tick) w.step();
+  }
+
+  it('runs a FOURTH group in the same rhythm, off the terminal ring', () => {
+    const w = started();
+    stepTo(w, 3 * GROUP + 1); // the collapse group's clear beat
+    expect(w.zonePhase).toBe('clear');
+    expect(w.zoneCurrentRing.r).toBeCloseTo(2 * CONFIG.vision.sight, 6); // 660u endgame ring
+    expect(w.zoneRevealedNextRing).toBeNull();
+    stepTo(w, 3 * GROUP + TICKS_PER_BEAT);
+    expect(w.zonePhase).toBe('supply');
+    expect(w.zoneRevealedNextRing).toBeNull();
+    stepTo(w, 3 * GROUP + 2 * TICKS_PER_BEAT);
+    expect(w.zonePhase).toBe('reveal');
+    // THE MARK: a next ring concentric with the terminal ring, radius exactly 0.
+    const cur = w.zoneCurrentRing;
+    expect(w.zoneRevealedNextRing).toEqual({ cx: cur.cx, cy: cur.cy, r: 0 });
+  });
+
+  it('closes CONCENTRICALLY — the center never drifts and the radius reaches exactly 0', () => {
+    const w = started();
+    stepTo(w, 3 * GROUP + 3 * TICKS_PER_BEAT); // close start
+    const endgame = { ...w.zoneCurrentRing };
+    expect(w.zonePhase).toBe('closing');
+    stepTo(w, 3 * GROUP + 3 * TICKS_PER_BEAT + TICKS_PER_BEAT / 2); // f = 0.5
+    const mid = w.zoneLiveRing;
+    expect(mid.cx).toBe(endgame.cx); // BYTE-exact, not "close to"
+    expect(mid.cy).toBe(endgame.cy);
+    expect(mid.r).toBeCloseTo(endgame.r / 2, 6);
+    stepTo(w, 4 * GROUP);
+    expect(w.zonePhase).toBe('closed');
+    expect(w.zoneLiveRing).toEqual({ cx: endgame.cx, cy: endgame.cy, r: 0 });
+    expect(w.zoneCurrentRing.r).toBe(0);
+  });
+
+  it('the endgame-reached fact fires at the COLLAPSE GROUP’s start, not at full closure', () => {
+    // The batch-sim endgame pilot hangs off this: the terminal 660u ring is
+    // reached when the collapse group opens (12:00 at production CONFIG), four
+    // beats before the timeline is closed.
+    const w = started();
+    stepTo(w, 3 * GROUP - 1);
+    expect(w.zoneEndgameReached).toBe(false); // still in the third geometric group
+    stepTo(w, 3 * GROUP);
+    expect(w.zoneEndgameReached).toBe(true);
+    stepTo(w, 4 * GROUP);
+    expect(w.zonePhase).toBe('closed');
+    expect(w.zoneEndgameReached).toBe(true);
+  });
+
+  it('bites EVERY afloat hull once collapsed — including one sitting on the collapse point itself', () => {
+    const w = new World(21, CONFIG.match.fillTo, collapsing());
+    const crew = [w.addShip('a', 'ALPHA'), w.addShip('b', 'BRAVO'), w.addShip('c', 'CHARLIE')];
+    w.startZone(0);
+    // Parked inside the terminal ring at three different radii — including one
+    // ON the collapse point (offsetCap 0 makes the rings concentric with the
+    // origin, so distance 0 IS the point the ring closes onto).
+    const terminal = 2 * CONFIG.vision.sight;
+    placeClear(w, 'a', 0);
+    placeClear(w, 'b', terminal * 0.5);
+    placeClear(w, 'c', terminal * 0.9);
+    stepTo(w, 3 * GROUP + 3 * TICKS_PER_BEAT); // the collapse close STARTS
+    expect(w.zonePhase).toBe('closing');
+    for (const rec of crew) expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // untouched by the descent
+    // Through the close the shrinking ring overtakes the outer two in turn —
+    // ordinary storm behavior, just aimed at a point. The hull ON the point is
+    // the one that matters here: it is safe until the very last instant.
+    const onPoint = crew[0];
+    stepTo(w, 4 * GROUP - 1); // the last CLOSING tick
+    expect(w.zonePhase).toBe('closing');
+    expect(onPoint.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    const before = crew.map((rec) => rec.hp);
+    stepTo(w, 4 * GROUP + 1);
+    expect(w.zonePhase).toBe('closed');
+    // NOWHERE IS SAFE: every afloat hull is outside the collapsed ring and
+    // every one of them took the tick, the hull on the collapse point included.
+    const perTick = CONFIG.zone.stormDps * (CONFIG.tick.simDtMs / 1000);
+    const ring = w.zoneLiveRing;
+    expect(ring.r).toBe(0);
+    crew.forEach((rec, i) => {
+      expect(isAfloat(rec.lifecycle)).toBe(true);
+      expect(isOutside(rec.state, ring.cx, ring.cy, ring.r)).toBe(true);
+      expect(rec.hp).toBeLessThanOrEqual(before[i] - perTick + 1e-9);
+    });
+  });
+
+  it('sinks a full-HP battleship — the geometry TERMINATES the match (no damage ramp needed)', () => {
+    // The Endgame Guarantee's teeth: the toughest hull in the game, alone in a
+    // fully collapsed storm, must go down. stormDps is untouched by this ruling
+    // (Eric ruled the geometry, not the damage curve) — 175 hp at 4 hp/s is
+    // ~44s, comfortably inside the ~45s the acceptance criterion allows.
+    const w = new World(22, CONFIG.match.fillTo, collapsing());
+    const rec = w.addShip('a', 'ALPHA', false, 'battleship');
+    w.startZone(0);
+    placeClear(w, 'a', 0); // on the collapse point: nothing survives there either
+    stepTo(w, 4 * GROUP - 1); // the last tick before the ring reaches r=0
+    expect(w.zonePhase).toBe('closing');
+    expect(rec.hp).toBe(CONFIG.shipClasses.battleship.hp); // full HP into the collapse
+    const sunkS = CONFIG.shipClasses.battleship.hp / CONFIG.zone.stormDps;
+    expect(sunkS).toBeLessThanOrEqual(45); // the ratified worst-case bound
+    const budgetTicks = Math.ceil((sunkS * 1000 + 1000) / CONFIG.tick.simDtMs);
+    let ticks = 0;
+    while (isAfloat(rec.lifecycle) && ticks < budgetTicks) {
+      w.step();
+      ticks += 1;
+    }
+    expect(isAfloat(rec.lifecycle)).toBe(false);
+    expect((ticks * CONFIG.tick.simDtMs) / 1000).toBeLessThanOrEqual(45);
+  });
+});
+
 describe('storm damage', () => {
   it('accumulates at stormDps granularity (4 HP/s => 0.2 per 50ms tick) outside', () => {
     const w = new World(3, CONFIG.match.fillTo, instant(1));
@@ -261,7 +399,11 @@ describe('storm damage', () => {
   it('deals NO damage to a ship inside the safe radius', () => {
     const w = new World(4, CONFIG.match.fillTo, instant(4)); // terminal 1320 > test position
     const rec = w.addShip('a', 'ALPHA');
-    placeClear(w, 'a', w.map.radius * 0.5); // 1200 — comfortably inside 1320
+    // 1200u — comfortably inside the 1320u terminal ring. An ABSOLUTE radius,
+    // not a fraction of the map: since Story 5.6 grew baseRadius to 2800 the
+    // old `radius * 0.5` (1400) sat OUTSIDE the terminal ring, which the
+    // terminal radius never tracks (it derives from truesight, not from R).
+    placeClear(w, 'a', 1200);
     w.startZone();
     for (let i = 0; i < 20; i++) w.step();
     const ring = w.zoneLiveRing;
