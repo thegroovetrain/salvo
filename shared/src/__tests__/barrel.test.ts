@@ -43,12 +43,12 @@ import {
   boonStackCount,
   buildDeck,
   consumeAcquisition,
+  consumeCard,
   drawOffer,
   hookKinematics,
   isAcquisitionDef,
   resolveBoons,
   returnCards,
-  scrubAcquisitions,
   slotsWithBoons,
   validateBoonDef,
   validateCatalog,
@@ -139,8 +139,8 @@ describe('shared barrel', () => {
     // spectate five seconds early. CONFIG.ship.sinkingWindowMs (5000, all
     // classes — amendment 13) rides the welcome config snapshot; new shared
     // sim/sinking.ts rides the barrel.
-    // ROVING PvE FLEETS + THE BIGGER OCEAN (PV 35, Story 5.6, Eric rulings
-    // 2026-08-14, amendments 32-41): TWO independent wire breaks. (a)
+    // ROVING PvE FLEETS + THE BIGGER OCEAN (PV 36, Story 5.6, Eric rulings
+    // 2026-08-14, amendments 33-44): TWO independent wire breaks. (a)
     // CONFIG.map.baseRadius 2400 -> 2800 — the same seed now builds a
     // different ocean (the cycle-59 precedent), and the client sanity-checks
     // welcome.mapRadius. (b) Contact gains an optional self-private trailing
@@ -151,7 +151,17 @@ describe('shared barrel', () => {
     // [gun, empty, empty, empty] (was the universal [gun, torpedo, mine,
     // empty]); drone envelopes retune (hp 60/75/90, maxSpeed 40/35/30); the
     // match-start drone fill is deleted (no more roster rows for drones).
-    expect(PROTOCOL_VERSION).toBe(35);
+    // SUDDEN DEATH — THE FINAL COLLAPSE (PV 35, Eric ruling 2026-08-14): the
+    // storm timeline gains a FOURTH ring group whose ring is the terminal
+    // ring's own center at radius 0 (marked at 14:00, closing 15:00-16:00, all
+    // storm from 16:00). NO schema field, NO new event, NO perception change —
+    // the collapse ring rides the wire as the existing `zoneNextR === 0`
+    // unrevealed sentinel and both sides synthesize it. The bump is needed
+    // because the group count and total length change (zoneClosedAtMs 720_000 →
+    // 960_000): a stale client would derive the wrong rhythm from its own
+    // bundled CONFIG.zone and the same zoneStartT. (NOT because CONFIG gained a
+    // field: no client code reads `welcome.config` — see index.ts's PV 35 note.) and draw an open 660u safe circle over an all-storm map.
+    expect(PROTOCOL_VERSION).toBe(36);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
@@ -359,9 +369,13 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE DECK MODEL engine + the offer/spend wire shape (Story 2.8)', () => {
-    for (const fn of [buildDeck, drawOffer, returnCards, consumeAcquisition, scrubAcquisitions]) {
+    for (const fn of [buildDeck, drawOffer, consumeCard, returnCards, consumeAcquisition]) {
       expect(typeof fn).toBe('function');
     }
+    // RETIRED by the lazy-draw bugfix (cycle 69/72 house style — no dead knob
+    // survives): only the FRONT offer is ever materialized, so there is no
+    // second banked offer to scrub stale acquisition cards out of.
+    expect((shared as Record<string, unknown>).scrubAcquisitions).toBeUndefined();
     // dial ratified 0.35 -> 0.7 by Eric from 2-10 batch-sim evidence (amendment 57)
     expect(CONFIG.deck).toEqual({ rareWeightBase: 1, rareWeightPerDryLevel: 0.7 });
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines

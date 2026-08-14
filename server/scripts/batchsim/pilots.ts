@@ -26,15 +26,22 @@
 // ENDGAME INSTRUMENT (Story 3.4, amendment 23): PILOT_REGISTRY.endgame is the
 // SAME gunner with the hunt policy expressed as a world PREDICATE instead of a
 // flag — pacifist behavior (steer the ring rhythm, never target, never fire)
-// until the zone timeline is fully closed, then gunner behavior inside the
-// terminal ring. WHY the gate is `zonePhase === 'closed'` and not the final
-// ring GROUP's start: gating at the group start lets these omniscient pilots
-// clear the field BEFORE 12:00, which is exactly the evidence the Endgame
-// Guarantee needs; gating at full closure makes every RESOLVED match
-// structurally conclude past 12:00 with the fight staged inside the terminal
-// ring — the Story 3.4 evidence instrument for "matches conclude past 12:00,
-// no stalemate loop" (the geometric bar of amendment 24; no forcing mechanic
-// is added anywhere). The gate is a pure phase equality: it consumes NO rng
+// until the endgame ring is REACHED, then gunner behavior inside the terminal
+// ring. WHY the gate is not the final ring GROUP's start: gating at a group
+// start lets these omniscient pilots clear the field BEFORE 12:00, which is
+// exactly the evidence the Endgame Guarantee needs; gating at the endgame ring
+// makes every RESOLVED match structurally conclude past 12:00 with the fight
+// staged inside the terminal ring — the Story 3.4 evidence instrument for
+// "matches conclude past 12:00, no stalemate loop" (the geometric bar of
+// amendment 24).
+//
+// THE GATE READS `world.zoneEndgameReached`, NOT `zonePhase === 'closed'`
+// (sudden death, 2026-08-14). Those were the same instant until the collapse
+// group was appended; now full closure is 16:00 and the terminal 660u ring is
+// reached at 12:00 exactly as before. Holding the old equality would leave the
+// instrument pacifist for four more minutes and it would be measuring the
+// collapse instead of the endgame it was built for. The World owns the fact so
+// it is derived once (see world.ts). The gate consumes NO rng
 // (determinism is untouched — the wander branch only draws when there is no
 // target, and the predicate itself never draws), and it never reads
 // world.zoneStartMs (0 while idle) or ring geometry (test overrides run
@@ -367,8 +374,10 @@ class GunnerPilot implements CaptainPilot {
     readonly id: string,
     seed: number,
     /** The hunt policy, evaluated per tick: `() => false` is the pacifist
-     *  control (never target, never fire); `(w) => w.zonePhase === 'closed'`
-     *  is the Story 3.4 endgame instrument. Never consumes rng. */
+     *  control (never target, never fire); `(w) => w.zoneEndgameReached` is the
+     *  Story 3.4 endgame instrument (NOT `zonePhase === 'closed'` — those were
+     *  the same instant until sudden death appended the collapse group, and the
+     *  phase equality now fires four minutes late). Never consumes rng. */
     private readonly hunt: HuntPolicy = () => true,
   ) {
     this.rng = mulberry32(seed);
@@ -379,7 +388,7 @@ class GunnerPilot implements CaptainPilot {
     if (!ship) return;
     // Spends are legal while dead (builds persist across waiting-phase deaths);
     // drain at most one banked level per tick through the REAL spend flow.
-    if (ship.offers.length > 0) world.spendPoint(this.id, pickSpendChoice(ship.offers[0], this.rng, ship.boons));
+    if (ship.offer !== null) world.spendPoint(this.id, pickSpendChoice(ship.offer, this.rng, ship.boons));
     if (!isAfloat(ship.lifecycle)) {
       // A respawn teleports the hull: carrying the pre-death pose forward would
       // read as a giant displacement (harmless) or, worse, keep a stale stuck
@@ -542,7 +551,7 @@ export const PILOT_REGISTRY: Record<string, PilotFactory> = {
   // hunt policy off — proves storm-forced pacing without lethality.
   pacifist: (id, seed) => new GunnerPilot(id, seed, () => false),
   // The endgame guarantee instrument (Story 3.4, amendment 23): pacifist until
-  // the timeline is fully CLOSED, gunner after — see the header for why the
-  // gate sits at closure rather than at the final ring group's start.
-  endgame: (id, seed) => new GunnerPilot(id, seed, (w) => w.zonePhase === 'closed'),
+  // the ENDGAME RING is reached, gunner after — see the header for why the gate
+  // is the World's own fact rather than a phase equality.
+  endgame: (id, seed) => new GunnerPilot(id, seed, (w) => w.zoneEndgameReached),
 };

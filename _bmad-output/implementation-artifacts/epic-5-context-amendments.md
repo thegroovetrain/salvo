@@ -841,7 +841,74 @@ verbs, amendment 30's action-set pin (real, not a tautology), and the `ownMatchT
 stamps resolve at fold time and `sunkAtMs` latches first-wins, so a per-frame modal refresh cannot
 grow TIME AFLOAT. Nothing at CRITICAL severity; the perception boundary is untouched.
 
-## Amendment 32 — THE FLEET IS A FIXED COMPOSITION AND AN EXACT ECONOMY (Eric rulings 2026-08-14)
+## Amendment 32 — THE PLUME MARKS THE KILLING BLOW, NOT THE RESTING PLACE (Eric ruling 2026-08-14) — reverses amendment 18's LOCATION clause for the plume alone
+
+> *"when a ship is destroyed, it changes to sinking status, and then 5s later it is sunk. There is a
+> red explosion when the ship sinks all the way. Makes no sense? Lets move that to the moment when the
+> ship is brought to 0 HP or less and begins sinking. Slowly fading to black is indication enough that
+> it has sunk."*
+
+**Amendment 18 moved two things together and only one of them belonged there.** It ruled IDENTITY at
+sink-entry, LOCATION at founder, and moved the `setDowned` wreck tint AND the crimson `sink` plume to
+the far end of the window. The tint half was right and stands: a hull rendering "already dead" while
+it is still turning and putting a torpedo into you is the exact misread the sinking window exists to
+prevent. **But that argument is about the hull's persistent LOOK, and the plume is not a look.** A
+0.9 s expanding ring is an EVENT MARK — it says *a hit landed here* — and the event it marks is the
+holing, which is true at sink-entry and only approximately true 110 u later. Nothing about a
+transient ring makes a still-fighting hull read as a wreck.
+
+**What moved:** `deps.effects.spawnEffect('sink', …)` leaves `presentWreck` (founder) for
+`openWreckWindow` (sink-entry). Nothing else.
+
+**What did NOT move, stated explicitly because this is the third ruling on one beat and the next
+agent will be reading all three at once:**
+
+- **Amendment 21 survives whole.** The kill flash still opens the beat at sink-entry; the settle
+  still walks the hull continuously from its alive look to exactly the wreck look; the own hull's
+  settle is still capped at `ownSettleMax`. Nothing about that ruling is reopened.
+- **The founder beat keeps the wreck tint.** `markSunk` still latches there, and `setSink(1)` is
+  still byte-for-byte `setDowned(true)`, so the handover remains pop-free BY CONSTRUCTION. With the
+  plume gone from that instant, this equality is now the ONLY thing standing between founder and a
+  visible pop — which is why its test survives with its rationale restated rather than retired.
+- **The `seen` gate is untouched and still ONE early return.** The plume spawn was put inside
+  `openWreckWindow`, after the gate and after the dedup guard, rather than beside the cue in
+  `handleSunk` — so "an unwitnessed sinking draws nothing anywhere" is still one line to read, and a
+  replayed `sunk` still cannot detonate twice over a hull already going down.
+- **The Public Register's line holds.** Identity is public, location is not. A fog kill still draws
+  no mark at a stale position, at ANY beat.
+- **No wire field, no server change, no shared change.** `PROTOCOL_VERSION` stays 34 and no
+  perception exception was added — the master invariant still has exactly SIX. Client presentation
+  only.
+
+**WHAT THIS CLOSES.** Amendment 18 ledgered its own consequence in writing: *"the death GROAN still
+sounds at sink-entry at the sink-entry position, so the cue and its plume are now ~5 s and up to
+110 u apart... If it reads badly, the cue is the thing to move, not the plume."* It read badly, and
+the owner moved the plume instead. They are one beat again — and the implementation resolves BOTH
+from a single `sunkPosition` read in `handleSunk`, which restores the property `sunkCue`'s own header
+has been claiming untruthfully since the split (*"`pos` is resolved by the caller and shared with the
+sink plume, so the cue and the mark can never disagree about where the wreck was"*).
+
+**THE OWN HULL MOVES TOO, and that was ruled rather than assumed.** Eric's sentence names *a ship*,
+not *an enemy*. Our own plume now fires where we were holed, on the tick our own death groan sounds,
+instead of at the end of a five-second coast. `markSunk` is still never called on ourselves (we are
+not one of our own contacts).
+
+**LEDGERED, NOT FIXED — the flash and the plume now share a tick.** Amendment 21's 300 ms kill flash
+and the crimson plume land on the same instant, on the same hull, in the same screen region: 2 of the
+ratified 3 `WorldFlashGate` onsets per region per second (NFR13 / EXPERIENCE.md:138). They do not
+degrade each other on their own, but they leave a region one onset from degrading in a ring-closure
+scrum, and the flash's argument for existing (*"the five seconds had no enemy-side feedback"*) is
+weaker now that a detonation opens the beat. **Whether the flash is still earned under a co-located
+plume is Eric's call, not the implementer's** — it is a ratified channel and was left exactly as
+shipped.
+
+**One consequence of the deletion worth knowing:** `presentWreck` no longer resolves a position at
+all, so amendment 18's *"the position is re-resolved HERE, never carried from sink-entry"* doctrine is
+gone with the code it governed. A tint hangs on the contact view, not on the water. The
+"unplaceable hull draws no plume" rule survives, moved to sink-entry, where it is far rarer (a hull is
+almost always placeable on the tick it is holed) but not unreachable.
+
+## Amendment 33 — THE FLEET IS A FIXED COMPOSITION AND AN EXACT ECONOMY (Eric rulings 2026-08-14)
 
 Story 5.6's AC left counts and composition as *"CONFIG design targets"* and the invocation's first
 pass named wave totals of 15 / 10 / 5 levels. **Both are superseded by a single ruling that makes
@@ -867,9 +934,9 @@ only composition rule the codebase had.
 hulls in wave one and 60-120 cumulative, against a 20-hull reference scenario, a measured 1.74 ms /
 2.5 ms client radar budget, and a 660 u terminal ring that could not physically hold them. At 18
 levels the story becomes buildable, and **the binding constraint turns out to be hulls
-*concurrently in sensor range*, not hulls afloat** — because fleets are clustered (amendment 34),
+*concurrently in sensor range*, not hulls afloat** — because fleets are clustered (amendment 35),
 the realistic worst case is one fleet plus contesting captains, ≈9 + 5, at or under today's measured
-worst case. The bigger ocean (amendment 41) is doing real work here. Server cost scales on hulls
+worst case. The bigger ocean (amendment 42) is doing real work here. Server cost scales on hulls
 afloat instead: ship rows go 400 → 1,480 per tick, pro-rating the two shipped adversarial
 measurements to ≈2.6 ms/tick against a 50 ms budget. **Comfortable, and it wants a measurement
 rather than an argument before ship.**
@@ -880,7 +947,7 @@ passive accrual. At 30 it was larger than both combined.
 
 **Totals are FIXED, not roster-scaled** (Eric ruling): the ocean carries the same fleets whether two
 captains showed up or twenty. A thin lobby is therefore a target-rich one, which is a deliberate
-consolation and the counterpart to deleting the drone fill (amendment 40). Story 6.2 is where
+consolation and the counterpart to deleting the drone fill (amendment 41). Story 6.2 is where
 roster-scaling lives if it is ever wanted.
 
 **The two directions of the fight, both computed and both intended:**
@@ -891,7 +958,7 @@ roster-scaling lives if it is ever wanted.
 - Aggroing all nine at once is 4×6 + 3×8 + 2×10 = **68 damage per volley**, 13.6 dps: a 125 hp
   Torpedo Boat dies in **9.2 seconds.**
 
-## Amendment 33 — THE FLEET ENVELOPE, AND THE RESCALE STORY 1.6 HAS OWED SINCE 2026-07-21 (Eric rulings 2026-08-14)
+## Amendment 34 — THE FLEET ENVELOPE, AND THE RESCALE STORY 1.6 HAS OWED SINCE 2026-07-21 (Eric rulings 2026-08-14)
 
 |  | small | medium | large |
 |---|---|---|---|
@@ -923,7 +990,7 @@ re-pointed at a real ship class.
 `ShellState.damage` is captured **at fire time** from `ship.stats.gun` (`guns.ts:141-152`) and read
 at hit time **from the shell**, never from CONFIG. No damage-path change is needed at all.
 
-## Amendment 34 — THE WITNESS RULE IS EVALUATED ONCE, AND THE SPREAD IS THE DIFFICULTY DIAL (Eric rulings 2026-08-14)
+## Amendment 35 — THE WITNESS RULE IS EVALUATED ONCE, AND THE SPREAD IS THE DIFFICULTY DIAL (Eric rulings 2026-08-14)
 
 *"All PvE ships who can see both you and the ship that was attacked and otherwise have no target
 will target you"* is evaluated **ONCE, at the instant of the hit.** A fleet ship that rounds an
@@ -935,7 +1002,7 @@ and the positioning skill evaporates with it. One-shot is bounded, cheaper, and 
 where the rest cannot see you* the core skill of the feature.
 
 **The fleet spawns spread over a ~400 u radius, and that number IS the difficulty.** A hit is
-witnessed by any fleet ship with LOS to both attacker and victim within 330 u (amendment 35), so
+witnessed by any fleet ship with LOS to both attacker and victim within 330 u (amendment 36), so
 spread sets how many guns answer:
 
 - **~150 u** — all nine inside each other's sight; touching any one aggros all nine, always. The
@@ -960,7 +1027,7 @@ stream so the nine travel together; it carries no combat meaning whatsoever. Two
 close enough to see each other producing one larger fight is the rule working, not failing. **Do not
 "fix" this.**
 
-## Amendment 35 — SELF-DEFENCE: the six behavioural rulings (Eric rulings 2026-08-14)
+## Amendment 36 — SELF-DEFENCE: the six behavioural rulings (Eric rulings 2026-08-14)
 
 1. **Sight is `CONFIG.vision.sight` (330 u) for all three sizes.** One number, already the 4/8 rung
    of the eighths ladder, already the radius the sim uses for "can this hull see that hull." A
@@ -990,7 +1057,7 @@ close enough to see each other producing one larger fight is the rule working, n
 someone else"*): re-acquisition happens only after the current target is lost. Third-party rescue is
 therefore a real play.
 
-## Amendment 36 — MID-MATCH WAVE SPAWNING IS A GENUINELY NEW EDGE (Eric ruling 2026-08-14)
+## Amendment 37 — MID-MATCH WAVE SPAWNING IS A GENUINELY NEW EDGE (Eric ruling 2026-08-14)
 
 **Nothing in the codebase spawns a ship mid-match today.** `addShip` runs at join, `redeployShip` at
 the countdown→active boundary, `respawn` in the waiting phase only (`respawnEnabled` and
@@ -1007,7 +1074,7 @@ smallest.
 **Ruled — a fleet gets an ANCHOR and spreads around it:**
 1. Sample anchors **inside the live ring**.
 2. Keep those outside **every** captain's intel disc.
-3. Spread the nine hulls over ~400 u around the anchor (amendment 34).
+3. Spread the nine hulls over ~400 u around the anchor (amendment 35).
 4. No anchor? **retry next tick, bounded.**
 5. Still none? take the farthest-from-anyone point anyway (the existing max-min score) **and log
    it.** The wave always arrives, and degrades visibly rather than silently.
@@ -1038,7 +1105,7 @@ position inside any captain's intel disc is re-rolled within bounded attempts, f
 anchor itself (clear by construction). **The formation deforms; the wave never fails.** The ring
 clamp still applies, so a nudged hull can never land in the storm.
 
-## Amendment 37 — PvE KILLS COUNT NOWHERE (Eric ruling 2026-08-14) — SUPERSEDES epic-4 amendments 29-34 and epic-5 amendment 9 on this point
+## Amendment 38 — PvE KILLS COUNT NOWHERE (Eric ruling 2026-08-14) — SUPERSEDES epic-4 amendments 29-34 and epic-5 amendment 9 on this point
 
 > *"i dont want PvE kills to show up as 'kills' in a player's killcount or as events in their
 > records."*
@@ -1069,12 +1136,12 @@ a ratified split and should be a deliberate, reviewed edit — not a silent coll
 NOT move**: `rosterSize`/`rosterByClass`/`killsByClass` are the operator's data (amendment 9), are
 computed from `Match.participants` rather than the schema roster, and are pinned by test.
 
-## Amendment 38 — FLEET SHIPS COME OFF THE ROSTER (Eric ruling 2026-08-14 — taken against the orchestrator's recommendation)
+## Amendment 39 — FLEET SHIPS COME OFF THE ROSTER (Eric ruling 2026-08-14 — taken against the orchestrator's recommendation)
 
 Every drone today carries a `PlayerMeta` row (`ArenaRoom.ts:444-448`) with the `REGATTA_NO_HUE`
 (255) sentinel, mirrored to every client each tick. At 54 fleet hulls that is 74 rows in a full
 lobby. **Ruled: fleet ships are not roster members**, which is FR34's *"never roster fill"* taken
-literally and is the natural consequence of amendment 37 — a hull whose kills count nowhere has
+literally and is the natural consequence of amendment 38 — a hull whose kills count nowhere has
 little left to mirror.
 
 **The cost is real and is named, because it was recommended against.** The client detects drones
@@ -1083,7 +1150,7 @@ drone hull id, and that 255 sentinel. Six client sites re-point onto `Contact.cl
 `rosterColor`, `isDroneId` (`main.ts:1139`), `isLiveRival` / `afloatCount` (`score.ts:117,163`), and
 the radar `hueFor` adapter (`main.ts:1941`).
 
-**The kill-feed line survives the roster's deletion** (amendment 37 requires it) but must source its
+**The kill-feed line survives the roster's deletion** (amendment 38 requires it) but must source its
 name and colour from the hull rather than the roster. The precedent already exists and is exact:
 `nameplates.ts:67`'s `resolvePlate` returns `{text: 'DRONE', color: droneOutline}` **before** any
 name or hue lookup. The feed follows it — a fleet sinking reads `DRONE`, never `DRONE-07`.
@@ -1091,7 +1158,7 @@ name or hue lookup. The feed follows it — a fleet sinking reads `DRONE`, never
 `n AFLOAT` gets simpler rather than harder: the roster becomes captains-only, so the count is the
 roster.
 
-## Amendment 39 — THE AGGRO BRACKET: threat is dual-coded by SHAPE, and blindness is not warned (Eric rulings 2026-08-14)
+## Amendment 40 — THE AGGRO BRACKET: threat is dual-coded by SHAPE, and blindness is not warned (Eric rulings 2026-08-14)
 
 > *"I want it very visually obvious that a PvE ship has aggro'd you, and very visually obvious if it
 > de-aggro's you, as well."*
@@ -1112,7 +1179,7 @@ Presence/absence of a shape survives greyscale, colourblind modes and the drone 
 simultaneously.
 
 **No warning for aggro you cannot see (ruled against the orchestrator's recommendation).** Because a
-sniped-but-blind fleet ship closes on the bearing (amendment 35), it can aggro from 500 u — beyond
+sniped-but-blind fleet ship closes on the bearing (amendment 36), it can aggro from 500 u — beyond
 *both* sight ranges — where a hull marker shows nothing. A bearing-less, count-less "ENGAGED" cue
 was offered on the Hit Call precedent (it confirms a consequence of your own shot without revealing
 a position) and **declined.** The accepted consequence, stated plainly: **sniping quietly spawns
@@ -1126,7 +1193,7 @@ per-contact flag — visible only to the targeted observer, on the `sinkingUntil
 **no seventh perception exception** — but it DOES break `spectator.test.ts`'s exact `Contact`
 key-set pin (amendment 19), which must be updated deliberately.
 
-## Amendment 40 — THE MATCH-START DRONE FILL IS DELETED OUTRIGHT (Eric ruling 2026-08-14 — taken against the orchestrator's recommendation)
+## Amendment 41 — THE MATCH-START DRONE FILL IS DELETED OUTRIGHT (Eric ruling 2026-08-14 — taken against the orchestrator's recommendation)
 
 > *"drones the spawn at the start of the game with players should be removed from the game entirely
 > in their present form."*
@@ -1154,7 +1221,7 @@ constant meaning *"how many drones to fill to"* is currently also the constant m
 the ocean."* With the fill deleted, `CONFIG.map.playerCap` is the honest source. Both are 20 today,
 so nothing observable moves.
 
-## Amendment 41 — THE OCEAN GROWS TO 2800, AND THE CLOSING-RATE BAND IS RE-RATIFIED (Eric ruling 2026-08-14)
+## Amendment 42 — THE OCEAN GROWS TO 2800, AND THE CLOSING-RATE BAND IS RE-RATIFIED (Eric ruling 2026-08-14)
 
 > *"lets scale the ring up a bit, I feel like the map is a little too small, so each stage doesn't
 > force enough movement."*
@@ -1204,21 +1271,21 @@ function of radius.
 Island count scales with disc area at fixed 2-3% coverage (~18 → ~24), and the height raster grows
 O(R²) to ~160 KB. Both fine; both measured rather than assumed.
 
-## Amendment 42 — YOU LEARN WHAT YOU SANK, AT THE MOMENT YOU SINK IT (Eric ruling 2026-08-14) — completes amendment 37, forced by amendment 38
+## Amendment 43 — YOU LEARN WHAT YOU SANK, AT THE MOMENT YOU SINK IT (Eric ruling 2026-08-14) — completes amendment 38, forced by amendment 39
 
 > *"I want to know the kills I get when I get them. Meaning I want to know I killed a Small Drone
 > if a Small Drone is killed by my mine. But it doesn't increment my kill count. It just grants XP.
 > It doesn't need to show up in my end-game kills record."*
 
-**This is amendment 37's feed/record split holding, plus the one thing it turned out not to
+**This is amendment 38's feed/record split holding, plus the one thing it turned out not to
 deliver.** 37 ruled the transient feedback stays and the persistent tally empties; Eric has now
 confirmed all three of its NO columns unchanged in the same breath (no KILLS increment, no match
 log, no end-game record) while naming a case where the YES column silently failed.
 
-**The case, and why it is not a client bug.** With fleet hulls off the roster (amendment 38) the
+**The case, and why it is not a client bug.** With fleet hulls off the roster (amendment 39) the
 client's two drone-detection channels collapsed to one, and **you can sink a fleet ship you never
 saw**: a mine it sailed over, or a shell at 500 u — the gun reaches 660 u while truesight is 330 u,
-which is the same 2:1 asymmetry amendment 35 built the close-on-the-bearing rule around. For such a
+which is the same 2:1 asymmetry amendment 36 built the close-on-the-bearing rule around. For such a
 hull the client holds no name, no hull id and no roster row, so the kill feed could only say
 `UNKNOWN VESSEL`. **The server knows; nobody else can.** A client-side memo of hulls ever seen was
 built first and fixes the common Mine-Layer case honestly, but it cannot reach a hull that was never
@@ -1260,17 +1327,17 @@ alternative. Uniformity was chosen; reversing it is a one-line narrowing.
 The ruling is about the moment of the kill, and widening plates was neither asked for nor put to
 Eric — the three sizes are already visually distinct at 85 / 100 / 115 u.
 
-## Amendment 43 — THE RECORD STAYS SHUT, BUT THE DATA STOPS BEING THROWN AWAY (Eric ruling 2026-08-14)
+## Amendment 44 — THE RECORD STAYS SHUT, BUT THE DATA STOPS BEING THROWN AWAY (Eric ruling 2026-08-14)
 
 > *"PvE fleet kills DO NOT show up in the match log. I don't care what time I killed each drone. But
 > we can keep this data anyway, maybe for server stats? I do want to start tracking every metric i
 > can eventually."*
 
-**The first half CONFIRMS amendment 37 rather than changing it** — PvE kills stay out of the KILLS
+**The first half CONFIRMS amendment 38 rather than changing it** — PvE kills stay out of the KILLS
 tally, the MATCH LOG and SHIPS YOU SANK, and the transient feedback (flash, settle, feed line, XP)
 stays. Nothing player-facing moves.
 
-**The second half closes a hole amendment 37 opened without noticing.** Because `creditKill` simply
+**The second half closes a hole amendment 38 opened without noticing.** Because `creditKill` simply
 stops incrementing on a drone victim, a PvE sinking left **no trace anywhere** — and
 `MatchEndSummary.killsByClass`, which sums `Participant.kills`, therefore silently lost every PvE
 kill in the match. Presentation and telemetry are different questions, and amendment 9 already
@@ -1287,7 +1354,7 @@ sharing `kills`' lifecycle (zeroed at `redeployShip`, preserved across a waiting
 so a per-size breakdown alone reconstructs exactly how much XP the PvE faucet paid out in a real
 match.
 
-**This partially replaces evidence amendment 40 destroyed.** Deleting the match-start fill took the
+**This partially replaces evidence amendment 41 destroyed.** Deleting the match-start fill took the
 drone-lobby batch-sim harness with it, and AR18 had committed to *"batch-simulate XP tick and
 kill-bonus outcomes with drone lobbies before human playtests."* Real matches now carry that signal
 themselves, from live play rather than from a synthetic lobby — which is better evidence than the

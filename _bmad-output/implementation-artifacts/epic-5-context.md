@@ -126,3 +126,11 @@ Story 5.3 question gate (all Eric rulings 2026-08-13):
     Eric has veto) — it targets the map origin, not your killer. Plus four review corrections: the
     winner's doubled own hull, the wreck's frozen nameplate, TIME AFLOAT ceiling against its own log
     stamp, and a modal scroll destroying the reveal behind it.
+
+Interstitial correction (Eric ruling 2026-08-14):
+
+32. **The plume marks the KILLING BLOW, not the resting place** — the crimson `sink` plume moves from
+    founder to sink-entry, reversing amendment 18's LOCATION clause for the plume alone (its wreck-tint
+    clause and all of amendment 21 stand). Founder keeps the tint latch the settle already arrived at;
+    *"slowly fading to black is indication enough that it has sunk."* Closes amendment 18's ledgered
+    groan-vs-plume separation — both now resolve from one `sunkPosition` read. Client-only, PV 34.

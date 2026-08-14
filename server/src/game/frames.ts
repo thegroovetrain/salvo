@@ -56,13 +56,14 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     cls: ship.hullId as ShipClassId,
     // (OwnShip.upg died with the legacy upgrade economy — Story 2.8's
     // wholesale strip. The client derives effective stats from (cls, boons).)
-    // Banked levels = the offer queue length (single source of truth). Only the
-    // FRONT offer is surfaced, as BOON IDS (Story 2.7; deck-drawn as of 2.8),
-    // defensively copied; the rest of the queue never leaves the server — and
-    // the DECK itself never leaves it at all. Self-private (own ship only),
-    // like boons.
-    pts: ship.offers.length,
-    offer: ship.offers.length > 0 ? [...ship.offers[0]] : [],
+    // Banked levels = the bare unspent-level count (single source of truth).
+    // Only the FRONT offer exists at all — materialized lazily server-side and
+    // surfaced here as BOON IDS (Story 2.7; deck-drawn as of 2.8), defensively
+    // copied; `[]` when no hand is materialized (no bank, or a degenerate empty
+    // draw — so pts can legitimately exceed 0 with an empty offer). The DECK
+    // never leaves the server at all. Self-private (own ship only), like boons.
+    pts: ship.bankedLevels,
+    offer: ship.offer !== null ? [...ship.offer] : [],
     // ms — active speed-boost window end (0 = inactive). OWNER-ONLY by
     // construction (Story 1.6): boostUntil rides `you` and NOTHING else — never
     // a Contact, blip, ballistic event, boom, or spectator payload. An enemy

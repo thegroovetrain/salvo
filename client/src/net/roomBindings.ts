@@ -353,18 +353,20 @@ interface BindState {
    */
   splashCues: ImpactDedup;
   /**
-   * THE DEFERRED WRECKS (Story 5.2 review fix) — witnessed sinkings whose
-   * SPATIAL presentation (the crimson plume, the downed contact tint) is
-   * waiting for the hull to actually go down, `at` being the server-clock
-   * founder deadline. See handleSunk / openWreckWindow / flushFoundered.
+   * THE HULLS MID-WINDOW — witnessed sinkings between the killing blow and
+   * founder, `at` being the server-clock founder deadline. It is the SETTLE's
+   * roster (`driveSettle` walks exactly this list each frame) and the queue the
+   * founder wreck tint is drained from (`flushFoundered`). See handleSunk /
+   * openWreckWindow / flushFoundered.
    *
-   * IT IS ALSO THE SETTLE'S ROSTER (this cycle): every id in here is a hull
-   * mid-window, so `driveSettle` walks exactly this list each frame. That is
-   * why the `seen` gate sits on the ENQUEUE and nowhere else — a hull that
-   * never entered the queue cannot flash, settle, or draw a plume.
+   * THE `seen` GATE SITS ON THE ENQUEUE AND NOWHERE ELSE, which is what makes
+   * "an unwitnessed sinking draws nothing" one line rather than four: a hull
+   * that never entered this queue cannot flash, cannot settle, cannot latch a
+   * wreck tint — and cannot draw a plume, since amendment 32 put that spawn on
+   * the same gated path even though it now fires immediately.
    *
    * A list, not a single pending id: a ring-closure scrum sinks several hulls
-   * within a second of each other and every one of them owes a plume.
+   * within a second of each other and every one of them owes a settle.
    */
   wrecks: { id: string; at: number }[];
 }
@@ -1423,44 +1425,57 @@ function sunkColors(e: SunkEvent, deps: RoomBindingDeps): (id: string) => number
  * `kill` tone, and the own-death branch stay UNCONDITIONAL: identity is
  * public, location is not.
  *
- * STORY 5.2 REVIEW FIX — THE SPATIAL HALF NOW WAITS FOR FOUNDER, and the split
- * is the Public Register's own line ("sinking is public knowledge, its LOCATION
- * is not") applied in TIME rather than in space. The `sunk` event fires at
- * sink-entry, unmoved (amendment 11), but the hull it names keeps steering,
- * boosting and shooting for five more seconds (amendment 10). Drawing the
- * crimson `sink` plume and the `setDowned` wreck tint on that event meant an
- * enemy watched a faded, visually-dead hull turn and torpedo them, with its own
- * death plume left up to ~110u astern of where it actually went down — the
- * exact reading this story exists to prevent. So:
- *   • IDENTITY, AT SINK-ENTRY, UNCHANGED — the kill-feed line, the roster/
- *     AFLOAT drop (schema, not ours), the score credit, the `sunk`/`kill` cue.
- *   • LOCATION/WRECK, AT FOUNDER — the plume and the wreck look.
- * The founder beat is DERIVED, never disclosed: an enemy's `sinkingUntil` is
- * self-private and correctly so, but the event's own arrival time plus the
- * SHARED `CONFIG.ship.sinkingWindowMs` name the same instant, so both sides
- * land on the same tick with no new wire field.
+ * THE THREE BEATS OF A SINKING, and which of them lands when (amendments 18,
+ * 21 and 32 together — read them as one grammar, because each corrected the one
+ * before it):
+ *   • AT THE KILLING BLOW — the kill-feed line, the roster/AFLOAT drop (schema,
+ *     not ours), the score credit, the `sunk`/`kill` cue, the KILL FLASH on the
+ *     hull, and the crimson `sink` PLUME.
+ *   • ACROSS THE WINDOW — the SETTLE (`driveSettle`), walking the hull
+ *     continuously from its alive look to exactly the wreck look.
+ *   • AT FOUNDER — the wreck tint alone (`markSunk`), which the settle has
+ *     already arrived at, so the handover is a continuation and not a step.
  *
- * ...AND THE FIVE SECONDS BETWEEN THEM ARE NO LONGER EMPTY (this cycle, Eric
- * ruling 2026-08-13). The amendment-18 split above was right about the wreck
- * and wrong about the silence: it left the whole window with zero enemy-side
- * feedback, so sinking a hull looked like nothing happening followed by a
- * delayed-death bug. `openWreckWindow` now also opens a KILL FLASH on the hull
- * at sink-entry and enrols it in the per-frame SETTLE (`driveSettle`), which
- * walks it continuously from its alive look to exactly the wreck look, arriving
- * as the plume lands. Nothing about the gating moves: both ride the same
- * `seen`-gated queue entry the plume does, so an unwitnessed sinking still
- * draws absolutely nothing anywhere.
+ * WHY THE PLUME MOVED BACK (Eric ruling 2026-08-14, amendment 32): *"There is a
+ * red explosion when the ship sinks all the way. Makes no sense? Lets move that
+ * to the moment when the ship is brought to 0 HP or less... Slowly fading to
+ * black is indication enough that it has sunk."* Amendment 18 had moved the
+ * plume to founder alongside the wreck tint, and it was right about the TINT: a
+ * hull rendering "already dead" while it still turns and torpedoes you is the
+ * exact misread the window exists to prevent. But that argument is about the
+ * hull's persistent LOOK, and a 0.9s expanding ring is not a look — it is an
+ * event mark, and the event it marks is the hit. The settle plus the founder
+ * tint carry the "it is going down" reading on their own.
+ *
+ * AND IT CLOSES AMENDMENT 18'S OWN LEDGERED DEFECT: the death groan has always
+ * sounded at sink-entry at the sink-entry position, so the cue and its plume
+ * were ~5s and up to 110u apart. They are one beat again, resolved from ONE
+ * `sunkPosition` read (see the call below).
+ *
+ * THE PUBLIC REGISTER (PV 23): a `sunk` may arrive for a wreck this observer
+ * never saw. Everything SPATIAL is gated on the server's per-observer `seen`
+ * stamp — a stale last-known contact position must never draw a sink plume for
+ * a kill we did not witness. The feed line, the score credit, the `kill` tone,
+ * and the own-death branch stay UNCONDITIONAL: identity is public, location is
+ * not. That gate did not move an inch this cycle; only the tick the plume rides
+ * did.
+ *
+ * The founder beat is still DERIVED, never disclosed: an enemy's `sinkingUntil`
+ * is self-private and correctly so, but the event's own arrival time plus the
+ * SHARED `CONFIG.ship.sinkingWindowMs` name the same instant, so both sides land
+ * on the same tick with no new wire field.
  */
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
-  // The wreck presentation, deadline-stamped, plus the kill flash that opens
-  // the beat. Still `seen`-gated, byte for byte: an unwitnessed sinking queues
-  // nothing, flashes nothing, settles nothing and can never draw a plume.
-  openWreckWindow(e, t, deps, s);
-  // RESOLVED ONCE, UP FRONT (review gate) — now for the CUE alone, since the
-  // plume it used to share this read with has moved to founder. Kept here
-  // rather than inside sunkCue so the "one read cannot drift from itself"
-  // property survives if a second sink-entry consumer is ever added back.
+  // RESOLVED ONCE, UP FRONT (review gate), and since amendment 32 it is once
+  // again shared by BOTH sink-entry consumers — the plume and the cue. That
+  // sharing is the point rather than a saving: the mark and the groan are two
+  // readings of one killing blow, and resolving them separately is exactly how
+  // they could come to disagree about where it landed.
   const pos = sunkPosition(e.id, deps);
+  // The sinking beat opens: the plume and the kill flash NOW, the wreck tint
+  // queued for founder. Still `seen`-gated, byte for byte: an unwitnessed
+  // sinking queues nothing, flashes nothing, settles nothing and never draws.
+  openWreckWindow(e, pos, t, deps, s);
   // feedNameRef: a roster miss renders the neutral UNKNOWN_VESSEL label,
   // never the raw session id — a global feed puts this line in front of
   // EVERY client. The VICTIM runs the wider four-step order (victimNameRef),
@@ -1512,9 +1527,11 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
       deps.resetPrime(); // and the primed skillshot reverts to the gun for the next life
     }
   }
-  // NOTE what is NOT here any more: the `markSunk` teardown. It was the other
-  // half of the sink-entry presentation and rides the deferred queue with the
-  // plume — see handleSunk's header and openWreckWindow.
+  // NOTE what is NOT here any more: the `markSunk` teardown. It is the one
+  // piece of the old sink-entry presentation that genuinely belongs at founder
+  // — a wreck LOOK on a hull still under way is the misread the window exists
+  // to prevent — so it rides the deferred queue. The plume came back (amendment
+  // 32); the tint did not. See handleSunk's header and openWreckWindow.
   //
   // The cue is resolved LAST and exactly once (see sunkCue) — after the feed
   // line, the score credit and the state resets, so the order the events were
@@ -1523,35 +1540,58 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState
 }
 
 /**
- * OPEN THE SINKING BEAT: the kill flash NOW, the wreck queued for FOUNDER, and
- * the settle in between (Story 5.2 review fix, extended this cycle).
+ * OPEN THE SINKING BEAT: the plume and the kill flash NOW, the wreck tint queued
+ * for FOUNDER, and the settle in between (Story 5.2 review fix, extended by
+ * amendment 21 and re-timed by amendment 32).
  *
- * `seen`-gated exactly as the plume it replaces was, and the gate now covers
- * all three: an unwitnessed sinking queues nothing, flashes nothing and settles
- * nothing, so the Public Register's fog kill still draws no mark at a stale
- * position. ONE gate, one place — the whole spatial presentation lives or dies
- * on this single `return`. The deadline is the event's own arrival `t` — the
- * FRAME's server time, the tick the server took the `sink` edge on — plus the
- * shared `CONFIG.ship.sinkingWindowMs`, which is the same arithmetic
- * `founderDeadline` does server-side, so the two land on the same tick without
- * the client ever being told an enemy's self-private `sinkingUntil`.
+ * ONE GATE, ONE PLACE — the whole spatial presentation lives or dies on this
+ * single `return`, and that is exactly why the plume belongs HERE rather than
+ * beside the cue in `handleSunk`: an unwitnessed sinking must queue nothing,
+ * flash nothing, settle nothing and draw nothing, and there is one line to read
+ * to know that it does. The Public Register's fog kill still leaves no mark at a
+ * stale position.
+ *
+ * The deadline is the event's own arrival `t` — the FRAME's server time, the
+ * tick the server took the `sink` edge on — plus the shared
+ * `CONFIG.ship.sinkingWindowMs`, which is the same arithmetic `founderDeadline`
+ * does server-side, so the two land on the same tick without the client ever
+ * being told an enemy's self-private `sinkingUntil`.
  *
  * DEDUPED BY ID, because `sunk` is idempotent-by-contract but the queue is not:
- * a replayed event would otherwise draw two plumes five seconds later — and,
- * since the dedup guards the flash too, fire a second confirmation bloom on a
- * hull already going down. One entry per hull per sinking; the id leaves the
- * queue when it fires.
+ * a replayed event would otherwise queue two wrecks — and, since the dedup now
+ * guards the flash AND the plume, fire a second confirmation bloom and a second
+ * detonation over a hull already going down. One entry per hull per sinking; the
+ * id leaves the queue at founder.
+ *
+ * `pos` is resolved by the caller and shared with the cue, so the mark and the
+ * groan can never disagree about where the hull was holed. It is nullable for
+ * one reason only — `sunkPosition` can fail to place a hull whose contact has
+ * aged out of the store — and that case draws no plume while leaving everything
+ * else on this path untouched, exactly as an unplaceable wreck always did.
  *
  * The flash goes to the CONTACT view, so it never fires for our own hull (we
  * are not one of our own contacts) — deliberately: the killer's confirmation is
  * on the hull they killed, and our own death already has its banner, its cue
- * and its own capped settle (main.ts renderOwn).
+ * and its own capped settle (main.ts renderOwn). The PLUME is not so narrowed:
+ * our own hull blows up where it was holed, which is the beat Eric ruled for
+ * every ship on the water, ours included.
  */
-function openWreckWindow(e: SunkEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
+function openWreckWindow(
+  e: SunkEvent,
+  pos: { x: number; y: number } | null,
+  t: number,
+  deps: RoomBindingDeps,
+  s: BindState,
+): void {
   if (!e.seen) return;
   if (s.wrecks.some((w) => w.id === e.id)) return;
   s.wrecks.push({ id: e.id, at: t + CONFIG.ship.sinkingWindowMs });
   deps.contactViews.sinkFlash(e.id);
+  // AFTER the dedup guard, never before it: `sunk` is idempotent by contract
+  // and a replayed event must not detonate a second time over a hull that is
+  // already going down. An unplaceable hull draws no plume and is otherwise
+  // unaffected — it still queues, still settles, still tears down at founder.
+  if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
 }
 
 /**
@@ -1582,8 +1622,10 @@ function driveSettle(t: number, deps: RoomBindingDeps, s: BindState): void {
  * SERVER-clock instant, and `f.t` is the only exact reading of that clock the
  * client ever gets (the same argument the tone floors and the mine arming dim
  * already make). The consequence is stated rather than hidden: if frames stop
- * arriving entirely, the plume never draws — which is the correct failure, as
- * a disconnected client should not be inventing wrecks.
+ * arriving entirely, the wreck tint never latches — which is the correct
+ * failure, as a disconnected client should not be inventing wrecks. Since
+ * amendment 32 the plume is no longer among the things a frame drought can
+ * swallow: it fired on the tick the hull was holed, off the event itself.
  */
 function flushFoundered(t: number, deps: RoomBindingDeps, s: BindState): void {
   let i = 0;
@@ -1598,22 +1640,23 @@ function flushFoundered(t: number, deps: RoomBindingDeps, s: BindState): void {
 }
 
 /**
- * The wreck itself: the crimson plume at the hull's THEN-current known
- * position, and the downed tint on the contact view.
+ * THE WRECK LOOK LATCHES, and since amendment 32 that is ALL that happens at
+ * founder — the crimson plume left this function for the killing blow, and the
+ * settle has spent the whole window arriving at exactly the tint latched here
+ * (`setSink(1)` IS `setDowned(true)`, render/ships.ts), so this is a
+ * continuation rather than a beat. Eric: *"Slowly fading to black is indication
+ * enough that it has sunk."*
  *
- * The position is re-resolved HERE, never carried from sink-entry — carrying it
- * is the defect this fix exists to close (a plume up to ~110u astern of where
- * the hull actually went down). `sunkPosition`'s existing staleness rules are
- * followed verbatim and no new position is invented: a contact that has aged
- * out of the store resolves null and simply draws nothing, exactly as an
- * unplaceable wreck already did on this path.
+ * NEEDS NO POSITION, which is why it takes none: a tint hangs on the contact
+ * view, not on the water. That deletes this path's old `sunkPosition` re-read
+ * along with the doctrine written around it — nothing here can now disagree
+ * with anything about where the hull was.
  *
  * `markSunk` is skipped for our own id for the shipped reason — we are not one
- * of our own contacts.
+ * of our own contacts. Our own hull's settle is capped and driven from
+ * main.ts renderOwn instead (`ownSettle`).
  */
 function presentWreck(id: string, deps: RoomBindingDeps): void {
-  const pos = sunkPosition(id, deps);
-  if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
   if (id !== deps.state.net.sessionId) deps.contactViews.markSunk(id);
 }
 

@@ -4,18 +4,26 @@
 // equipment's category lines) + ONE acquisition card per NOT-carried
 // acquirable equipment. Copies per catalog (`BoonDef.copies` — physical
 // scarcity IS the cap). Each level draws up to CONFIG.offer.size DIFFERENT
-// card LINES (weighted sampling without replacement at line level); drawn
-// copies leave the deck into the banked offer; unchosen cards return
-// (returnCards); the chosen card is simply never returned. Rare/exclusive
-// draw weight escalates with dry levels (CONFIG.deck — invisible soft pity),
-// resetting whenever any rare/exclusive lands in a draw.
+// card LINES (weighted sampling without replacement at line level).
 //
-// Acquisitions (amendments 38/41/43): when one is picked the server calls
+// THE DRAW DOES NOT TAKE CARDS OUT (the lazy-draw bugfix): drawOffer only
+// READS the pool — every drawn line stays in the deck, and exactly ONE card
+// leaves it when a card is FITTED (consumeCard). The old model removed all
+// four at draw time and gave three back on the spend, which meant a level
+// banked but not spent held four cards hostage indefinitely — at
+// CONFIG.xp.levelMs levels arrive on a wall clock, so a banked queue drained
+// its own deck until offers went short and then empty. Under the new model no
+// card can sit in an offer and in the deck at once (only the FRONT offer is
+// ever materialized, server-side), so `copies` stays the exact stack cap with
+// no scrub and no reroll. returnCards survives for the DOCTRINE SWAP-OUT only.
+// Rare/exclusive draw weight escalates with dry levels (CONFIG.deck —
+// invisible soft pity), resetting whenever any rare/exclusive lands in a draw.
+//
+// Acquisitions (amendments 38/41): when one is picked the server calls
 // consumeAcquisition (that equipment's subdeck joins the pool; EVERY remaining
-// acquisition card purges — the R slot is permanent) and scrubAcquisitions
-// (banked offers drop their now-dead acquisition cards and refill to prior
-// size with fresh distinct-line draws — deterministic, own-pick-triggered,
-// NOT a reroll).
+// acquisition card purges — the R slot is permanent). Amendment 43's
+// scrubAcquisitions is RETIRED: it existed to clean stale acquisition cards
+// out of OTHER banked offers, and under the lazy-draw model there are none.
 //
 // Determinism: every function is pure over (state, rng, catalog) — same
 // inputs, same outputs, zero I/O. The server drives it with a per-ship
@@ -132,7 +140,7 @@ function pickLine(
   return lines[lines.length - 1].id; // float-dust fallback: the last candidate
 }
 
-/** Remove ONE copy of each picked id from `cards`, preserving order. */
+/** Remove ONE copy of each named id from `cards`, preserving order. */
 function removeCopies(cards: readonly BoonId[], picked: readonly BoonId[]): BoonId[] {
   const toRemove = new Map<BoonId, number>();
   for (const id of picked) toRemove.set(id, (toRemove.get(id) ?? 0) + 1);
@@ -145,60 +153,70 @@ function removeCopies(cards: readonly BoonId[], picked: readonly BoonId[]): Boon
   return out;
 }
 
-/** Draw up to `want` DIFFERENT lines (weighted, without replacement at line
- *  level), excluding `excluded`. The shared core of drawOffer + the scrub
- *  refill. Never throws — a thin/empty pool draws fewer/zero. */
+/** Pick up to `want` DIFFERENT lines (weighted, without replacement at line
+ *  level). READ-ONLY over `cards` — nothing leaves the pool here. Never
+ *  throws: a thin/empty pool picks fewer/zero. */
 function drawLines(
   cards: readonly BoonId[],
   catalog: BoonCatalog,
   rng: Rng,
   want: number,
   levelsSinceRare: number,
-  excluded: ReadonlySet<BoonId>,
-): { picked: BoonId[]; cards: BoonId[] } {
+): BoonId[] {
   const counts = lineCounts(cards, catalog);
-  const taken = new Set<BoonId>(excluded);
+  const taken = new Set<BoonId>();
   const picked: BoonId[] = [];
   for (let i = 0; i < want; i += 1) {
     const id = pickLine(counts, catalog, rng, levelsSinceRare, taken);
     if (id === undefined) break;
     picked.push(id);
     taken.add(id); // DIFFERENT lines per draw (duplicate auto-redraw, structurally)
-    counts.set(id, (counts.get(id) ?? 1) - 1);
   }
-  return { picked, cards: removeCopies(cards, picked) };
+  return picked;
 }
 
 /**
  * Draw one level's offer: up to CONFIG.offer.size DIFFERENT card lines,
  * weighted at line level (weight = copiesInDeck × perCardWeight; common
  * per-card weight 1; rare/exclusive escalates with dry levels — CONFIG.deck).
- * Drawn copies leave the deck. levelsSinceRare resets to 0 when any rare/
- * exclusive is drawn, else increments. An empty (or thin) deck draws a short
- * or empty offer — NEVER throws (the server banks no offer for an empty draw).
+ *
+ * NON-CONSUMING: the drawn cards STAY in the pool — a draw is a read, and only
+ * a FIT takes a card out (consumeCard). The returned deck differs from the
+ * input in exactly one field: levelsSinceRare resets to 0 when any rare/
+ * exclusive is drawn, else increments (the pity escalation still advances once
+ * per draw). An empty (or thin) deck draws a short or empty offer — NEVER
+ * throws (the server materializes no offer for an empty draw).
  */
 export function drawOffer(
   deck: DeckState,
   rng: Rng,
   catalog: BoonCatalog = BOON_CATALOG,
 ): { deck: DeckState; offer: BoonId[] } {
-  const { picked, cards } = drawLines(
-    deck.cards,
-    catalog,
-    rng,
-    CONFIG.offer.size,
-    deck.levelsSinceRare,
-    new Set(),
-  );
+  const picked = drawLines(deck.cards, catalog, rng, CONFIG.offer.size, deck.levelsSinceRare);
   const drewRare = picked.some((id) => catalog[id] !== undefined && catalog[id].rarity !== 'common');
   return {
-    deck: { cards, levelsSinceRare: drewRare ? 0 : deck.levelsSinceRare + 1 },
+    deck: { cards: deck.cards, levelsSinceRare: drewRare ? 0 : deck.levelsSinceRare + 1 },
     offer: picked,
   };
 }
 
-/** Return unchosen (or doctrine-swapped-out) cards to the deck — the spend
- *  flow's give-back. Order-preserving append; levelsSinceRare untouched. */
+/**
+ * Remove exactly ONE copy of a line from the deck — the FIT. This is the only
+ * way a card leaves the pool in the normal economy (the draw no longer takes
+ * any), so the deck thins by exactly the number of upgrades fitted and
+ * `copies` stays the exact stack cap. An id with no copy left is a no-op (the
+ * same state reference back) — fail-closed, never throws. levelsSinceRare
+ * untouched: fitting is not a draw.
+ */
+export function consumeCard(deck: DeckState, id: BoonId): DeckState {
+  const cards = removeCopies(deck.cards, [id]);
+  if (cards.length === deck.cards.length) return deck;
+  return { cards, levelsSinceRare: deck.levelsSinceRare };
+}
+
+/** Return a doctrine-swapped-out card to the deck — the spend flow's
+ *  give-back. Order-preserving append; levelsSinceRare untouched. (Unchosen
+ *  offer cards no longer pass through here: they never left.) */
 export function returnCards(deck: DeckState, ids: readonly BoonId[]): DeckState {
   if (ids.length === 0) return deck;
   return { cards: [...deck.cards, ...ids], levelsSinceRare: deck.levelsSinceRare };
@@ -228,47 +246,7 @@ export function consumeAcquisition(deck: DeckState, catalog: BoonCatalog, acquir
   return { cards: [...kept, ...subdeck], levelsSinceRare: deck.levelsSinceRare };
 }
 
-/** Every acquisition line id present in a catalog (the scrub/refill excluder). */
-function acquisitionIds(catalog: BoonCatalog): Set<BoonId> {
-  const out = new Set<BoonId>();
-  for (const key of Object.keys(catalog)) {
-    const def = catalog[key];
-    if (def !== undefined && isAcquisitionDef(def)) out.add(key);
-  }
-  return out;
-}
-
-/**
- * The stale-card rule (amendment 43): after an acquisition pick, remove every
- * acquisition id from each BANKED offer (in offer order) and refill each
- * scrubbed offer back to its prior size with fresh distinct-line draws from
- * the deck (excluding the offer's remaining lines AND every acquisition line —
- * the R slot is already permanent). Deterministic on the same rng stream;
- * triggered only by the player's own pick, so FR19's never-reroll/never-expire
- * guarantees are untouched (kept cards keep their identity; levelsSinceRare is
- * NOT touched — a scrub refill is not a level draw). Call consumeAcquisition
- * first, then this, on the same deck stream.
- */
-export function scrubAcquisitions(
-  deck: DeckState,
-  catalog: BoonCatalog,
-  offers: readonly (readonly BoonId[])[],
-  rng: Rng,
-): { deck: DeckState; offers: BoonId[][] } {
-  const acqIds = acquisitionIds(catalog);
-  let cards: readonly BoonId[] = deck.cards;
-  const scrubbed: BoonId[][] = [];
-  for (const offer of offers) {
-    const kept = offer.filter((id) => !acqIds.has(id));
-    const deficit = offer.length - kept.length;
-    if (deficit === 0) {
-      scrubbed.push([...kept]);
-      continue;
-    }
-    const excluded = new Set<BoonId>([...kept, ...acqIds]);
-    const drawn = drawLines(cards, catalog, rng, deficit, deck.levelsSinceRare, excluded);
-    cards = drawn.cards;
-    scrubbed.push([...kept, ...drawn.picked]);
-  }
-  return { deck: { cards: [...cards], levelsSinceRare: deck.levelsSinceRare }, offers: scrubbed };
-}
+// scrubAcquisitions (amendment 43) was RETIRED by the lazy-draw bugfix: it
+// cleaned dead acquisition cards out of OTHER banked offers, and only the
+// FRONT offer is ever materialized now — there is no second offer to scrub, by
+// construction. The next offer is simply drawn from the already-purged deck.

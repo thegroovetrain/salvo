@@ -140,7 +140,7 @@ class CaptainTracker {
     for (let n = 0; n < BOON_N_MAX; n += 1) {
       if (this.boonTimesS[n] === null && ship.boons.length >= n + 1) this.boonTimesS[n] = tS;
     }
-    if (this.firstExclusiveOffered === null && ship.offers.some((o) => o.some(isExclusiveId))) {
+    if (this.firstExclusiveOffered === null && (ship.offer?.some(isExclusiveId) ?? false)) {
       this.firstExclusiveOffered = { s: tS, level: ship.level };
     }
     if (this.firstExclusiveFitted === null && ship.boons.some(isExclusiveId)) {

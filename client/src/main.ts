@@ -2557,7 +2557,10 @@ function updateXpRail(g: Game, alive: boolean, nowSec: number, freeze: boolean, 
     g.xpRail.hide();
     return;
   }
-  const view: XpView = { lvl: you.lvl, xp: you.xp, pts: you.pts };
+  // `refitable` mirrors offerView's own gate: a banked level whose front offer
+  // is empty (degenerate exhausted deck) cannot open the band, so the cue must
+  // not tell the player to press TAB (the chip still reports the bank).
+  const view: XpView = { lvl: you.lvl, xp: you.xp, pts: you.pts, refitable: you.offer.length > 0 };
   g.xpRail.update(view, hudHeight(g), nowSec, freeze, nowMs);
 }
 

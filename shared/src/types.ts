@@ -241,17 +241,18 @@ export interface OwnShip {
   /**
    * Banked LEVELS not yet spent (Story 2.6/2.8 — the economy is levels, earned
    * by passive XP, not kills; `lvl` is the running total earned, `pts` what is
-   * still unspent). Exactly the length of the server's banked-offer queue —
-   * pts === offers.length is the single source of truth, so a level that drew
-   * no offer (exhausted deck) banks nothing here either. Self-private by
+   * still unspent). The server's bare banked-level COUNT — every level banks
+   * here, including a degenerate one whose draw came up empty (which surfaces
+   * `offer: []` below). Self-private by
    * construction: it rides `you` ONLY, never a Contact or spectator payload.
    */
   pts: number;
   /**
-   * The FRONT queued offer, as BOON IDS (Story 2.8 — up to CONFIG.offer.size
+   * The FRONT offer, as BOON IDS (Story 2.8 — up to CONFIG.offer.size
    * DIFFERENT card lines drawn from this player's deck; sim/deck.ts). `[]`
-   * when pts is 0. Only the front offer is ever surfaced — the rest of the
-   * queue never leaves the server (and the DECK never leaves it at all).
+   * when pts is 0 (and, degenerately, when the deck drew nothing). Only the
+   * front level ever has a hand at all — levels behind it are a bare count
+   * server-side, and the DECK never leaves the server.
    * Self-private like `pts`: it rides `you` and NOTHING else. The client
    * resolves each id against the shared BOON_CATALOG and drops the WHOLE view
    * on an unresolvable id (row k must stay server slot k).

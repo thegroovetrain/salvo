@@ -200,9 +200,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 34→35 bump (PV 35: ROVING PvE FLEETS + THE BIGGER OCEAN — Story 5.6 grows map.baseRadius to 2800, so the SAME SEED now builds a different ocean, and adds the self-private Contact.aggro key; a stale client would sail a map the server does not have) is enforced at matchmake', () => {
-  it('rejects pv-34 and pv-33 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(35);
+describe('pv join gate — the 35→36 bump (PV 36: ROVING PvE FLEETS + THE BIGGER OCEAN — Story 5.6 grows map.baseRadius to 2800, so the SAME SEED now builds a different ocean, and adds the self-private Contact.aggro key; a stale client would sail a map the server does not have. PV 35 was sudden death, landed the same day and renumbered around on merge) is enforced at matchmake', () => {
+  it('rejects pv-35 and pv-34 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(36);
+    expect(protocolVersionError(35)).toMatch(/refresh/);
     expect(protocolVersionError(34)).toMatch(/refresh/);
     expect(protocolVersionError(33)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);

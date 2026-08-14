@@ -6,7 +6,7 @@
 // formatting. Wall-clock metadata NEVER enters this module (main.ts appends
 // the one `meta:` line outside the diffable body).
 
-import { CONFIG, zoneClosedAtMs } from '@salvo/shared';
+import { CONFIG, zoneEndgameAtMs } from '@salvo/shared';
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import { BOON_N_MAX, LEVEL_SAMPLE_MS, type BatchResult } from './runner.js';
 import type { DeckAggregate } from './deckSim.js';
@@ -33,10 +33,14 @@ export interface BatchAggregate {
    *  "how long does a match take to CONCLUDE" question gets its own summary.
    *  All-zeros (n=0) when nothing resolved; the renderer prints that as n=0. */
   resolvedDurationS: Summary;
-  /** Fraction of RESOLVED matches that concluded past full zone closure
-   *  (`durationS > zoneClosedAtMs / 1000`) — the Endgame Guarantee evidence
-   *  line. 0 when nothing resolved. */
-  pastClosureRate: number;
+  /** Fraction of RESOLVED matches that concluded past the ENDGAME RING
+   *  (`durationS > zoneEndgameAtMs / 1000`) — the Endgame Guarantee evidence
+   *  line. 0 when nothing resolved. Measured against the endgame ring rather
+   *  than full closure because sudden death (Eric ruling 2026-08-14) separates
+   *  the two by a whole ring group: against full closure a healthy campaign
+   *  concluding at ~13:00 would score 0% past closure, which is the opposite
+   *  of what this line evidences. Identical on a non-collapsing timeline. */
+  pastEndgameRate: number;
   /** Winning hull class per match ('none' = no winner, incl. every
    *  unresolved cap-out). Tallied over ALL matches. */
   winnerClass: Record<string, number>;
@@ -108,9 +112,9 @@ function sumByKey(records: readonly Record<string, number>[]): Record<string, nu
  *  run it describes). */
 function resolvedEvidence(
   matches: readonly { durationS: number; endedBy: string }[],
-): Pick<BatchAggregate, 'resolvedDurationS' | 'pastClosureRate'> {
+): Pick<BatchAggregate, 'resolvedDurationS' | 'pastEndgameRate'> {
   const resolved = matches.filter((m) => m.endedBy !== 'unresolved');
-  const closureS = zoneClosedAtMs(CONFIG.zone) / 1000;
+  const closureS = zoneEndgameAtMs(CONFIG.zone) / 1000;
   // durationS arrives rounded to 0.1s, so this classification has a ±50ms
   // band at exactly-closure; strict `>` keeps the claim conservative (a
   // borderline match counts as NOT past), and the endgame instrument
@@ -119,7 +123,7 @@ function resolvedEvidence(
   const past = resolved.filter((m) => m.durationS > closureS).length;
   return {
     resolvedDurationS: summarize(resolved.map((m) => m.durationS)),
-    pastClosureRate: resolved.length === 0 ? 0 : past / resolved.length,
+    pastEndgameRate: resolved.length === 0 ? 0 : past / resolved.length,
   };
 }
 
@@ -187,7 +191,7 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
   // Story 3.4: conclusions, separated from cap-outs (see BatchAggregate).
   const resolvedN = agg.resolvedDurationS.n;
   lines.push(`resolved match length s: ${resolvedN === 0 ? 'n=0' : fmtSummary(agg.resolvedDurationS)}`);
-  lines.push(`resolved past full closure: ${resolvedN === 0 ? 'n=0' : pct(agg.pastClosureRate)}`);
+  lines.push(`resolved past endgame ring: ${resolvedN === 0 ? 'n=0' : pct(agg.pastEndgameRate)}`);
   lines.push(`endedBy: ${countLine(agg.endedBy)}`);
   lines.push(`winner class: ${countLine(agg.winnerClass)}`);
   lines.push(`storm deaths: total=${agg.stormDeathsTotal} per-match[${fmtSummary(agg.stormDeaths)}]`);

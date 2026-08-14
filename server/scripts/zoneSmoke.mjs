@@ -17,6 +17,15 @@
 //   4. INSIDE ship (B): chases the LIVE ring center read off the schema
 //      (rings are OFFSET-center — the map origin is not the safe point) ->
 //      stays inside the safe ring -> takes ZERO storm damage.
+//   5. SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14): the FOURTH
+//      ring group runs the same four-beat rhythm off the terminal ring, and
+//      over a real socket the wire proves the design's central claim — the
+//      collapse ring is NEVER transmitted. zoneNext* stays ZEROED through the
+//      collapse group's reveal and close (it IS the unrevealed sentinel), the
+//      client re-synthesizes the ring from the terminal ring it already holds
+//      via the shared zoneLiveState, the center never drifts, and at closure
+//      the schema's zoneCurR is exactly 0 with B — safely on the ring center
+//      all match — finally taking storm damage like everyone else.
 // Then kills the server and frees the port.
 //
 // zoneOverride is a dev tool — matchmaking / the real client never set it (the
@@ -32,14 +41,23 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PORT = 2599; // never the dev server's 2567 — this smoke self-boots
 const endpoint = `ws://localhost:${PORT}`;
 // Compressed phased rhythm: 8s beats — reveal at 16s, first close at 24-32s,
-// full closure at 96s. offsetCap 0.3 keeps the rolled rings genuinely OFFSET
-// (the containment + follow-the-center assertions bite) while bounding the
-// first ring's center within ~250u of the origin so B's sail-in from the
-// spawn ring comfortably beats close 1. Terminal stays the production
+// the terminal ring reached at 96s. offsetCap 0.3 keeps the rolled rings
+// genuinely OFFSET (the containment + follow-the-center assertions bite) while
+// bounding the first ring's center within ~250u of the origin so B's sail-in
+// from the spawn ring comfortably beats close 1. Terminal stays the production
 // 2 x truesight (660u).
-const ZONE_OVERRIDE = { beatMs: 8000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0.3, terminalSightFactor: 2 };
+//
+// suddenDeath is ON so the smoke covers the SHIPPED shape: a fourth ring group
+// runs 96-128s (reveal at 112s, collapse close 120-128s, full closure at 128s).
+// It is the one dev-only override in the repo that sets the flag — every other
+// smoke and test literal leaves it absent, which is exactly the compatibility
+// property the ruling promised.
+const ZONE_OVERRIDE = { beatMs: 8000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0.3, terminalSightFactor: 2, suddenDeath: true };
 /** The four in-group beats, in wire order (zoneState values). */
 const BEAT_ORDER = ['clear', 'supply', 'reveal', 'closing'];
+/** 0-based index of the sudden-death COLLAPSE group (three geometric groups). */
+const COLLAPSE_GROUP = ZONE_OVERRIDE.ringSteps.length + 1;
+const GROUP_MS = 4 * ZONE_OVERRIDE.beatMs;
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -97,7 +115,7 @@ async function joinClient(name) {
   const client = new Client(endpoint);
   const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, zoneOverride: ZONE_OVERRIDE, matchOverride: { sandbox: true } });
   const ctx = {
-    name, room, welcome: null, you: null, seq: 0,
+    name, room, welcome: null, you: null, seq: 0, lastT: 0,
     goal: { mode: 'idle' },
     minHp: Infinity, sunkBy: 'UNSET', sunkSeen: false,
     outsideSamples: [], // {t, hp} while alive AND outside the CURRENT ring
@@ -110,10 +128,13 @@ async function joinClient(name) {
   return ctx;
 }
 
-/** The schema's current ring (ring g as of the last boundary), or null pre-sync. */
+/** The schema's current ring (ring g as of the last boundary), or null pre-sync.
+ *  ABSENCE-gated, not value-gated (sudden death): a fully collapsed ring is a
+ *  legal r=0 ring, and reading it as "no data" is the exact inversion the
+ *  client-side `|| mapRadius` bug was. */
 function curRing(ctx) {
   const s = ctx.room.state;
-  return s && typeof s.zoneCurR === 'number' && s.zoneCurR > 0
+  return s && typeof s.zoneCurR === 'number' && s.zoneState !== 'idle'
     ? { cx: s.zoneCurCx, cy: s.zoneCurCy, r: s.zoneCurR }
     : null;
 }
@@ -137,6 +158,7 @@ function liveRing(ctx, t) {
 }
 
 function onFrame(ctx, f) {
+  ctx.lastT = f.t; // the server-clock stamp the collapse watcher derives its group from
   if (f.you) {
     ctx.you = f.you;
     ctx.minHp = Math.min(ctx.minHp, f.you.hp);
@@ -304,6 +326,75 @@ async function main() {
     assert(b.outsideLiveFrames === 0, `inside ship B was outside the LIVE ring ${b.outsideLiveFrames} frame(s)`);
     const ringB = curRing(b);
     log.push(`inside: B held the ring center at full HP (cur r=${ringB.r.toFixed(0)}u, center ${Math.hypot(ringB.cx, ringB.cy).toFixed(0)}u off-origin)`);
+
+    // --- 5. SUDDEN DEATH: the final collapse ---------------------------------
+    // The claim under test is that the collapse ring's RADIUS never rides the
+    // wire: through the whole collapse group zoneNextR stays 0 — the unrevealed
+    // sentinel — and the client re-derives the ring from the terminal ring it
+    // already holds. Stated precisely, because "nothing new rides the wire" is
+    // too strong: at the collapse group's reveal beat syncZoneGeometry does
+    // write zoneNextCx/Cy, moving them from ZERO_RING's {0,0} to the terminal
+    // ring's centre, which is a schema patch that did not exist before. It
+    // discloses NOTHING — that centre is the current ring the client has been
+    // holding since 11:00 — and it adds no FIELD, which is what "no new schema
+    // field" means. The radius is the channel that would have collided with the
+    // sentinel, and it is the one asserted here.
+    let terminal = null; // the 660u ring the collapse group opens on
+    // RAW schema read, deliberately NOT through nextRing(): that decoder maps
+    // any r <= 0 to null, so asserting it stayed null would be vacuous for a
+    // ring whose radius is 0 by construction — it would test the decoder, not
+    // the wire.
+    //
+    // The assertion is keyed to the SERVER's own mirrored phase, not to a group
+    // index derived from the client's clock estimate. Sampling by derived group
+    // races the boundary: the client's stamp can cross into the collapse group
+    // while the server is still finishing the previous group's closing beat,
+    // where a 660u next ring is legitimately advertised.
+    //
+    // A REVEAL BEAT CARRYING A ZEROED NEXT IS THE DISTINGUISHING OBSERVATION.
+    // Every ordinary reveal beat advertises a real radius; only the collapse
+    // group's reveal has nothing to advertise, because its next ring IS the
+    // zero-radius sentinel and the client rebuilds it instead.
+    let zeroedReveals = 0; // reveal-beat frames whose zoneNextR was 0 (must be > 0)
+    let maxDrift = 0; // how far the derived live center wandered off it (must be 0)
+    let minLiveR = Infinity;
+    let hpAtCollapseClose = null;
+    let closedCurR = null;
+    const watchCollapse = () => {
+      const s = b.room.state;
+      if (!s || s.zoneState === 'idle' || !b.lastT) return;
+      if (Math.floor((b.lastT - s.zoneStartT) / GROUP_MS) < COLLAPSE_GROUP) return;
+      const cur = curRing(b);
+      if (terminal === null && cur !== null && s.zoneState === 'clear') terminal = { ...cur };
+      if (s.zoneState === 'reveal' && (s.zoneNextR ?? 0) === 0) zeroedReveals += 1;
+      const live = liveRing(b, b.lastT);
+      if (live !== null && terminal !== null) {
+        maxDrift = Math.max(maxDrift, Math.hypot(live.cx - terminal.cx, live.cy - terminal.cy));
+        if (s.zoneState === 'closing' || s.zoneState === 'closed') minLiveR = Math.min(minLiveR, live.r);
+      }
+      if (hpAtCollapseClose === null && s.zoneState === 'closing' && b.you) hpAtCollapseClose = b.you.hp;
+      if (closedCurR === null && s.zoneState === 'closed') closedCurR = s.zoneCurR;
+    };
+    await pilotUntil([a, b], () => { setGoals(); watchCollapse(); },
+      () => closedCurR !== null, 140000, 'the final collapse');
+
+    assert(terminal !== null, 'never observed the collapse group opening on the terminal ring');
+    assert(Math.abs(terminal.r - 2 * CONFIG.vision.sight) < 1e-3,
+      `the collapse group opened on r=${terminal.r} (expected the 660u terminal ring)`);
+    assert(zeroedReveals > 0,
+      'never observed a reveal beat with zoneNextR === 0 — the collapse ring must ride as the ZEROED sentinel');
+    assert(maxDrift < 1e-6, `the collapse drifted ${maxDrift.toFixed(3)}u off the terminal center (it must be CONCENTRIC)`);
+    assert(minLiveR < 1, `the derived live ring only reached r=${minLiveR.toFixed(1)} (it must close to 0)`);
+    assert(closedCurR === 0, `schema zoneCurR at full closure was ${closedCurR}, expected exactly 0`);
+    assert(hpAtCollapseClose === fullHp,
+      `B was already damaged (${hpAtCollapseClose} HP) when the collapse close began — it held the ring center all match`);
+    log.push(`collapse: group ${COLLAPSE_GROUP} opened on r=${terminal.r.toFixed(0)}u, next stayed zeroed, drift ${maxDrift.toExponential(1)}u, closed at zoneCurR=${closedCurR}`);
+
+    // ...and with nowhere left to float, even the ship that held the ring
+    // center all match takes the storm.
+    await pilotUntil([a, b], setGoals, () => b.minHp < fullHp, 15000, 'B bleeding in the fully collapsed storm');
+    assert(b.minHp < fullHp, 'B survived a 100% storm map');
+    log.push(`all storm: B (on the collapse point, untouched for the whole match) is down to ${b.minHp.toFixed(1)} HP`);
 
     console.log('ZONE SMOKE OK:', { room: a.room.roomId, seed: a.welcome.mapSeed, trace: log });
     await a.room.leave();

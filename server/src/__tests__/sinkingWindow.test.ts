@@ -275,19 +275,19 @@ describe('refit closed — "once sinking, you\'re done"', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.grantXp(a, 1); // bank one level
-    expect(a.offers).toHaveLength(1);
+    expect(a.bankedLevels).toBe(1);
     a.hp -= 50; // a heal would have something to restore
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(w.spendPoint('a', 0)).toBe(false); // card pick: clean denial
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false); // heal: clean denial
-    expect(a.offers).toHaveLength(1); // bank and queue untouched
+    expect(a.bankedLevels).toBe(1); // bank and queue untouched
     expect(a.boons).toEqual([]);
     expect(a.repairHp).toBe(0);
     // Once FOUNDERED, dead spending resumes (builds persist across respawns).
     w.step(WINDOW);
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.offers).toHaveLength(0);
+    expect(a.bankedLevels).toBe(0);
   });
 });
 
