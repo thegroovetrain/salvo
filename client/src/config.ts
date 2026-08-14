@@ -993,10 +993,16 @@ export const CLIENT_CONFIG = {
       fogAlpha: 0.38,
       /** Radial legibility scrim (void) over the whole scene, so DOM text stays
        *  readable: centre → mid → edge. Centre is a fraction of viewport height
-       *  (the ratified mock's `.scrim` is authored `at 50% 46%`). Lightened with
-       *  `sceneAlpha`: the measured contrast behind the home column had a large
-       *  margin over the legibility floor, and it was being spent on hiding the
-       *  scene rather than on reading the text. */
+       *  (the ratified mock's `.scrim` is authored `at 50% 46%`).
+       *
+       *  PROVENANCE OF THESE NUMBERS, stated exactly: they were tuned BY EYE
+       *  against screenshots captured at 1366x768 and 1920x1080, together with
+       *  `sceneAlpha` 0.82 and `fogAlpha` 0.38 — three darkening layers that
+       *  multiply, so none of them can be judged alone. No contrast ratio was
+       *  measured and there is no computed margin over a legibility floor; an
+       *  earlier version of this comment claimed one, and nothing in the cycle
+       *  supported it. Re-tune the same way (capture, look), or measure — but
+       *  do not cite a measurement that was never taken. */
       scrimCenterYFrac: 0.46,
       scrimInnerAlpha: 0.1,
       scrimMidAlpha: 0.26,

@@ -17,6 +17,13 @@
 // unit-tested rather than eyeballed. `render/ambient.ts` is the thin Pixi shell
 // that pumps these answers into the shipped renderers.
 //
+// "NO I/O" IS CHECKED AT THE IMPORT LIST, and exactly one import broke it in
+// review: `settings/store.ts` constructs its store — and therefore reads
+// `localStorage` — at MODULE SCOPE, so importing even a pure helper from it
+// (`motionIntensity`) dragged browser storage into this file's load and made
+// the header above a lie. Nothing here may import it; the shell resolves the
+// motion level and hands `advanceAmbient` the multiplier.
+//
 // THE WORLD BUILD IS SEEDED (`mulberry32`), so the picture is reproducible and a
 // screenshot is evidence about a scene anyone can rebuild. `Math.random` would
 // be legal here — the seeded-RNG law binds SIM code — but a menu you cannot
@@ -47,7 +54,6 @@ import {
   type ShipState,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { motionIntensity, type MotionLevel } from '../settings/store.js';
 
 const A = CLIENT_CONFIG.home.ambient;
 
@@ -114,6 +120,17 @@ export interface AmbientTick {
   /** Clamped frame time (ms) and its seconds twin. */
   dtMs: number;
   dtSec: number;
+  /**
+   * The MOTION-SCALED step (s) the hulls were actually integrated by — i.e.
+   * `dtSec × motion`, and 0 at `motion: off`.
+   *
+   * It is reported rather than recomputed by the shell because everything that
+   * must stop when travel stops has to stop by the SAME number: the camera ease
+   * (which otherwise keeps gliding after the fleet has frozen) and the wake
+   * speed a stopped hull reports (a stationary ship makes no foam, and the
+   * wake/chop model is speed-driven). One scaled dt, one answer.
+   */
+  travelSec: number;
   /** The scene clock after the advance. */
   nowMs: number;
   /** Beam heading before and after — the half-open crossing interval. */
@@ -334,29 +351,38 @@ function helm(h: AmbientHull, world: AmbientWorld, islands: readonly Island[], d
  *
  * THE MOTION SETTING IS HONOURED HERE, closing a gap the Story 1.14 ambient
  * carried from the day the setting shipped: it consulted `settings/store` in
- * exactly no place. `motionIntensity` scales the hulls' integration step —
- * `reduced` is half amplitude, `off` freezes travel outright, and the camera
- * follows the observer so its drift stops with them. What it does NOT touch is
- * the scene CLOCK or the BEAM: the sweep is the game's own radar and its
- * rotation is the information channel the picture exists to show, and the
- * standing law of the setting (settings/store.ts, *"off removes motion, never
- * information"*) is that an accessibility choice costs travel, never content.
- * Phosphor keeps decaying, returns keep arriving, the picture stays whole.
+ * exactly no place. `motion` scales the hulls' integration step — `reduced` is
+ * half amplitude, `off` freezes travel outright, and the camera follows the
+ * observer so its drift stops with them. What it does NOT touch is the scene
+ * CLOCK or the BEAM: the sweep is the game's own radar and its rotation is the
+ * information channel the picture exists to show, and the standing law of the
+ * setting (settings/store.ts, *"off removes motion, never information"*) is
+ * that an accessibility choice costs travel, never content. Phosphor keeps
+ * decaying, returns keep arriving, the picture stays whole.
+ *
+ * `motion` ARRIVES AS THE RESOLVED MULTIPLIER, NOT AS THE LEVEL, and that is a
+ * purity requirement rather than a convenience: `settings/store.ts` builds its
+ * store — and therefore touches `localStorage` — at MODULE SCOPE, so importing
+ * `motionIntensity` here to resolve the level would have made this file's own
+ * "no I/O" header false and dragged storage into every test of it. The shell
+ * already holds the live settings object; resolving the level is its job.
  */
 export function advanceAmbient(
   world: AmbientWorld,
   map: AmbientMapLike,
   rawDtMs: number,
-  motion: MotionLevel,
+  motion: number,
 ): AmbientTick {
   const dtMs = clampFrameMs(rawDtMs);
   const dtSec = dtMs / 1000;
   world.elapsedMs += dtMs;
-  const travel = dtSec * motionIntensity(motion);
-  if (travel > 0) for (const h of world.hulls) helm(h, world, map.islands, travel);
+  // Total over a hostile multiplier: the composer is pure, so a NaN reaching it
+  // must freeze the fleet rather than poison every hull pose irrecoverably.
+  const travelSec = Number.isFinite(motion) ? dtSec * Math.max(0, motion) : 0;
+  if (travelSec > 0) for (const h of world.hulls) helm(h, world, map.islands, travelSec);
   const prevSweep = world.sweepAngle;
   world.sweepAngle = sweepAngleAt(world.elapsedMs, world.stats.sweepPeriodMs);
-  return { dtMs, dtSec, nowMs: world.elapsedMs, prevSweep, sweep: world.sweepAngle };
+  return { dtMs, dtSec, travelSec, nowMs: world.elapsedMs, prevSweep, sweep: world.sweepAngle };
 }
 
 // --- what the observer perceives ---------------------------------------------

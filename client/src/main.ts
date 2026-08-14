@@ -3804,6 +3804,62 @@ async function startStagedScene(
   });
 }
 
+/**
+ * THE HOME SCENE's lifecycle (UX-DR25, rebuilt cycle 82): a real, seeded slice
+ * of the game's own ocean breathing behind the DOM home — the shipped map,
+ * radar, hulls, wake and fog, composed directly rather than imitated. It claims
+ * worldRoot, chartRoot and the fog sprite (all empty + identity-transformed
+ * pre-join) and animates off its OWN ticker callback — the game loop
+ * (`startLoop`) only spins up post-connect. Torn down the moment we deploy (see
+ * `startGame`), so the scene never fights the real world for the same roots.
+ *
+ * THE SCENE IS A BACKDROP AND IS THEREFORE SUBORDINATE TO THE MENU, in both
+ * failure and timing. `stop` exists from the first line (so every call site can
+ * hold it unconditionally) but the scene is CONSTRUCTED only when `start` is
+ * called — after `showHome` has returned — and then only on the next animation
+ * frame, for two independent reasons:
+ *   • a throw in the constructor — map generation, a WebGL texture bake, a lost
+ *     context — used to reject `main()` and leave the player staring at a blank
+ *     page with NO MENU AT ALL. A backdrop must never be able to cost someone
+ *     the PLAY button, so it is built inside a try/catch and a failure is logged
+ *     and forgotten;
+ *   • `generateMap` blocks the main thread for a measured 333ms steady-state /
+ *     526ms first call, and it was doing so AFTER the loader reported 100% and
+ *     BEFORE the menu existed — half a second of nothing on screen. Deferring
+ *     past the frame that paints the menu buys that back at no cost to the
+ *     picture, which nobody is looking at yet.
+ * The ordering fixes a third defect for free: `applyRenderSettings()` (which
+ * installs the colorblind palette) now runs BEFORE the scene resolves any hull
+ * colour, so a menu opened with the assist on is built in the right hues.
+ */
+function makeAmbient(stage: Stage): { start: () => void; stop: () => void } {
+  let ambient: AmbientScene | null = null;
+  // Latched, because the deferral opens a window `stop` can land in: a PLAY (or
+  // the dev staged-scene branch) between the schedule and the frame would
+  // otherwise be followed by a scene starting up behind the real world, with
+  // nothing left to tear it down.
+  let stopped = false;
+  const tick = (t: Ticker): void => ambient?.update(t.deltaMS);
+  return {
+    start: () =>
+      requestAnimationFrame(() => {
+        if (stopped || ambient !== null) return;
+        try {
+          ambient = new AmbientScene(stage);
+          stage.app.ticker.add(tick);
+        } catch (err) {
+          console.error('[home] ambient scene failed to start; the menu runs without it', err);
+        }
+      }),
+    stop: () => {
+      stopped = true;
+      stage.app.ticker.remove(tick);
+      ambient?.destroy();
+      ambient = null;
+    },
+  };
+}
+
 async function main(): Promise<void> {
   // Design tokens first: inject the --hc-* CSS custom properties + type registers
   // before any DOM chrome (the menu below) builds, so every overlay resolves its
@@ -3825,20 +3881,7 @@ async function main(): Promise<void> {
   const audio = new Audio();
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
 
-  // THE HOME SCENE (UX-DR25, rebuilt cycle 82): a real, seeded slice of the
-  // game's own ocean breathing behind the DOM home — the shipped map, radar,
-  // hulls, wake and fog, composed directly rather than imitated. It claims
-  // worldRoot, chartRoot and the fog sprite (all empty + identity-transformed
-  // pre-join) and animates off its OWN ticker callback — the game loop
-  // (startLoop) only spins up post-connect. Torn down the moment we deploy (see
-  // startGame), so the scene never fights the real world for the same roots.
-  const ambient = new AmbientScene(stage);
-  const ambientTick = (t: Ticker): void => ambient.update(t.deltaMS);
-  stage.app.ticker.add(ambientTick);
-  const stopAmbient = (): void => {
-    stage.app.ticker.remove(ambientTick);
-    ambient.destroy();
-  };
+  const { start: startAmbient, stop: stopAmbient } = makeAmbient(stage);
 
   // The settings overlay outlives the join: the home gear and home ESC open it
   // pre-connect, and the same instance is the in-match ESC surface.
@@ -3866,6 +3909,11 @@ async function main(): Promise<void> {
   // THE READABILITY GATE's staged worst-case scene (Story 4.8, amendment 242).
   // DEV ONLY, and dead-stripped from a production build (see startStagedScene).
   if (import.meta.env.DEV && stagedSceneRequested()) {
+    // This branch returns BEFORE `showHome`, so `startAmbient` is never reached
+    // and no scene is ever built — the staged scene gets `worldRoot` uncontested
+    // and skips half a second of map generation it would only have thrown away.
+    // The call stays because it is what LATCHES that: a safe no-op today, and
+    // the guard if a future edit moves the construction earlier again.
     stopAmbient(); // the staged scene owns worldRoot; the CIC ambient must not fight it
     await startStagedScene(stage, audio, portal, settingsOverlay);
     return; // no home, no connection — the staged scene is the whole page
@@ -3880,6 +3928,7 @@ async function main(): Promise<void> {
     () => settingsOverlay.toggle(),
   );
   homeRef = home;
+  startAmbient(); // the backdrop, once the menu the player came for is up
   // Client-side server-health probe → the status line (probing → ready/unreachable).
   void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
 }

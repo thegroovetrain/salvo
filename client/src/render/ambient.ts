@@ -34,17 +34,18 @@
 // draws nothing unless `onSweepSample` has been anchored at least once, and
 // nothing unless `own !== null`. Both are satisfied every frame below.
 //
-// TEARDOWN IS TOTAL. The scene owns `worldRoot`, `chartRoot` and the fog sprite
-// pre-join, and `stopAmbient()` is the ONLY path that runs before the real game
-// claims those same roots — so `destroy()` empties every layer it touched,
-// restores every alpha it set, drops the resize listener, and is a safe no-op the
-// second time.
+// TEARDOWN IS TOTAL, and "total" is meant literally. The scene owns `worldRoot`,
+// `chartRoot` and the fog sprite pre-join, and `stopAmbient()` is the ONLY path
+// that runs before the real game claims those same roots — so `destroy()` sweeps
+// EVERY stage layer (not a curated list), frees texture SOURCES and not just
+// textures, hands the blip layer's mask back to Radar, restores every alpha it
+// set, drops the resize listener, and is a safe no-op the second time.
 
-import { Container, FillGradient, Graphics } from 'pixi.js';
+import { Container, FillGradient, Graphics, Texture, type Sprite } from 'pixi.js';
 import { CONFIG, generateMap, paintCoverage, type GameMap } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
-import { settings } from '../settings/store.js';
+import { motionIntensity, settings } from '../settings/store.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Camera } from './camera.js';
 import { CONTACT_STALE_MS } from './contacts.js';
@@ -52,8 +53,8 @@ import { Effects } from './effects.js';
 import { Fog } from './fog.js';
 import { buildMap, type MapChart } from './map.js';
 import { Radar } from './radar.js';
-import { ShipView, contactStyle } from './ships.js';
-import { applyCamera, type LayerName, type Stage } from './stage.js';
+import { ShipView, contactStyle, hueRevision, type ShipStyle } from './ships.js';
+import { applyCamera, type Stage, type StageLayers } from './stage.js';
 import type { WakeHull } from './wake.js';
 import {
   advanceAmbient,
@@ -61,23 +62,83 @@ import {
   ambientContacts,
   ambientPaints,
   buildAmbientWorld,
+  type AmbientHull,
   type AmbientTick,
   type AmbientWorld,
 } from './ambientScene.js';
 
+/** The four fields a hull is drawn (and wakes) from — the common shape of a live
+ *  `ShipState` and an interpolated `Snapshot`. */
+interface DrawPose {
+  x: number;
+  y: number;
+  heading: number;
+  speed: number;
+}
+
 const A = CLIENT_CONFIG.home.ambient;
 const C = CLIENT_CONFIG.colors;
 
-/** Every stage layer this scene puts something into — the teardown list, kept as
- *  data so "the scene emptied what it filled" is one loop rather than a habit. */
-const TOUCHED_LAYERS: readonly LayerName[] = ['ocean', 'wake', 'map', 'blip', 'ship', 'sweep', 'vignette'];
-
-/** Empty a container and destroy what came out, textures included (every texture
- *  under these layers was baked by this scene: the fog composite, the sweep
- *  wedge, the near-range dim mask, the heatmap buffer). Pixi's own `destroy`
- *  early-returns on an already-destroyed node, so this is re-entrant. */
+/**
+ * Empty a container and destroy what came out.
+ *
+ * `textureSource: true` IS DELIBERATELY NOT PASSED, AND THAT IS A MEASURED
+ * RESULT, NOT AN OVERSIGHT. The cycle-82 review correctly observed that Pixi v8
+ * frees the `Texture` on `texture: true` but leaves the `TextureSource` (the GPU
+ * allocation) alive, and that the rest of this codebase passes both
+ * (`radar.ts:599-600`, `fog.ts:154`). Adding it here KILLED THE NEXT MATCH: the
+ * join renders the map and then throws
+ * `TypeError: Cannot read properties of null` out of `BindGroup.getResource`
+ * under `AlphaMaskPipe.execute` — a live match with terrain drawn, no HUD, no
+ * hull and a stopped loop. Reproduced on every join, and gone the moment the
+ * flag came off.
+ *
+ * The reason is ownership: those sources are NOT all this scene's to free. The
+ * layers it borrows are the same containers the real game builds into moments
+ * later, and a mask resource released here is looked up by the renderer after
+ * the new `Radar` has re-attached its own — the crash is in the MASK bind group,
+ * which is why it reads as a Pixi internal rather than as anything in this file.
+ * The `Texture.EMPTY` guard below is kept for the same class of reason
+ * (`radar.ts:1234` carries the identical warning): that texture is shared by
+ * every consumer in the process, and `Fog`'s sprite carries it until its first
+ * `rebake`.
+ *
+ * So the four full-size surfaces the scene bakes — fog composite, dim mask,
+ * heatmap buffer, sweep wedge — are released as `Texture`s and their sources are
+ * left to the GC. That is a real, ledgered cost, and it is strictly better than
+ * a menu that breaks the game it is advertising. Anyone re-attempting this must
+ * free each surface through ITS OWNER's teardown seam (as `radar.clearBlips()`
+ * already does for the heatmap) rather than by flag-sweeping borrowed layers —
+ * and must smoke a real join, because no unit test in this repo catches it.
+ *
+ * Pixi's `destroy` early-returns on an already-destroyed node, so this is
+ * re-entrant.
+ */
 function clearLayer(c: Container): void {
-  for (const child of c.removeChildren()) child.destroy({ children: true, texture: true });
+  for (const child of c.removeChildren()) {
+    const tex = (child as unknown as Partial<Sprite>).texture;
+    const owned = tex !== undefined && tex !== Texture.EMPTY;
+    child.destroy({ children: true, texture: owned, textureSource: false });
+  }
+}
+
+/**
+ * Empty EVERY stage layer plus the fog sprite — the teardown sweep, exported so
+ * the guarantee is testable without a WebGL context (the shell itself is
+ * visual-QA only, per the repo pattern).
+ *
+ * UNCONDITIONAL, never a curated "layers we touched" list. The list this
+ * replaces happened to be correct, but it was a hand-maintained duplicate of a
+ * fact only the renderers know: the scene composes `Radar`, `Effects`, `Fog`,
+ * `MapChart` and `ShipView`, and the day one of them starts writing an eighth
+ * layer the leftovers survive into the live match — the exact corruption this
+ * teardown exists to prevent, arriving silently. Emptying a container the scene
+ * never wrote costs one array length check. It takes `StageLayers` rather than a
+ * loose record precisely so "every layer" is the TYPE's answer, not this file's.
+ */
+export function clearAmbientLayers(layers: StageLayers, fogSprite: Container): void {
+  for (const layer of Object.values(layers)) clearLayer(layer);
+  clearLayer(fogSprite);
 }
 
 export class AmbientScene {
@@ -92,6 +153,14 @@ export class AmbientScene {
    *  sampled `interpDelayMs` in the past, exactly as the live client does. */
   private readonly contacts = new ContactStore();
   private readonly views = new Map<string, ShipView>();
+  /** Each hull's resolved style, held so the silhouette and its wake are drawn
+   *  from ONE value per frame (see `syncStyles`). */
+  private readonly styles = new Map<string, ShipStyle>();
+  /** The hue-table revision these styles were resolved at (`ships.ts`). */
+  private styleRev = hueRevision();
+  /** The ids inside truesight THIS FRAME — the visibility authority for the
+   *  drawn hulls (see `drawHulls`), refreshed by `feedContacts`. */
+  private readonly sightedIds = new Set<string>();
   private readonly scrim = new Graphics();
   /** This frame's wake sources — reused, never reallocated (render-loop rule). */
   private readonly wakes: WakeHull[] = [];
@@ -123,7 +192,9 @@ export class AmbientScene {
     this.fog = new Fog(stage.fogSprite);
     this.fog.setSightRange(stats.sightRange);
     for (const h of this.world.hulls) {
-      const view = new ShipView(contactStyle(h.cls, h.hue), h.cls);
+      const style = contactStyle(h.cls, h.hue);
+      this.styles.set(h.id, style);
+      const view = new ShipView(style, h.cls);
       stage.layers.ship.addChild(view.gfx);
       this.views.set(h.id, view);
     }
@@ -135,25 +206,46 @@ export class AmbientScene {
     stage.chartRoot.alpha = A.sceneAlpha;
     stage.fogSprite.alpha = A.fogAlpha;
     this.layout();
-    window.addEventListener('resize', this.onResize);
+    // THE RENDERER'S resize, NOT the window's. Pixi's `ResizePlugin` defers the
+    // real canvas/`app.screen` resize to a `requestAnimationFrame`, so a window
+    // listener fires while `app.screen` still reports the PREVIOUS size — the
+    // camera would be re-fitted and the fog re-baked one resize stale, and
+    // nothing would ever re-run at the new size. `bindResize` (main.ts) has
+    // always used the renderer event for exactly this reason.
+    stage.app.renderer.on('resize', this.onResize);
   }
 
-  /** Advance and draw one frame. `dtMs` arrives as raw `Ticker.deltaMS` with no
-   *  clamp of its own — the composer clamps it (see `MAX_FRAME_MS`). */
+  /**
+   * Advance and draw one frame. `dtMs` arrives as raw `Ticker.deltaMS` with no
+   * clamp of its own — the composer clamps it (see `MAX_FRAME_MS`).
+   *
+   * A ZERO / DEGENERATE dt SKIPS THE INTEGRATION AND NOTHING ELSE. An early
+   * return on `tick.dtMs === 0` also skipped `applyCamera`, so that frame drew
+   * world-unit content at the IDENTITY transform — a ~2400u map radius rendered
+   * 1:1 from the origin, i.e. the whole scene flung off-screen for a frame. The
+   * composer already declines to integrate a zero step (`clampFrameMs`), so the
+   * shell has nothing left to guard: the camera transform and the draw must
+   * happen on every frame the ticker delivers.
+   */
   update(dtMs: number): void {
     if (this.destroyed) return;
-    const tick = advanceAmbient(this.world, this.map, dtMs, settings.current.motion);
-    if (tick.dtMs === 0) return;
+    // The motion level is resolved HERE, not in the composer: `settings/store`
+    // touches localStorage at module scope and the composer is pure (see its
+    // header). `tick.travelSec` carries the scaled step back out.
+    const tick = advanceAmbient(this.world, this.map, dtMs, motionIntensity(settings.current.motion));
     const now = tick.nowMs;
     this.feedContacts(now);
     // The beam anchor. Without at least one of these the march never runs and
     // the scope stays black — silently.
     this.radar.onSweepSample(tick.sweep, now);
     this.paintReturns(tick, now);
-    this.camera.update(tick.dtSec, ambientCameraTarget(this.world));
+    // The camera eases on the MOTION-SCALED step, so `motion: off` stops the
+    // drift as well as the fleet (an unscaled dt kept gliding toward a target
+    // that never moved again — motion that outlived the setting that forbade it).
+    this.camera.update(tick.travelSec, ambientCameraTarget(this.world));
     applyCamera(this.camera, this.stage.worldRoot, this.stage.chartRoot);
     this.chart.update(this.camera.zoom);
-    this.drawHulls(now);
+    this.drawHulls(tick);
     this.effects.update(tick.dtSec, now, this.wakes);
     this.radar.render(this.world.observer.state, now, this.contacts, this.camera.worldView);
     const hole = this.camera.worldToScreen(this.world.observer.state);
@@ -164,12 +256,21 @@ export class AmbientScene {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    window.removeEventListener('resize', this.onResize);
+    this.stage.app.renderer.off('resize', this.onResize);
     this.radar.setWakeSources(null);
     this.effects.clearWake();
+    // THE MASK COMES OFF BEFORE THE SPRITE IS DESTROYED. `updateDimMask` parks
+    // the near-range dim sprite on `layers.blip.mask` every frame (amendment
+    // 181); clearing the layer destroys that sprite but would leave the live
+    // match rendering the SHARED blip layer masked by a destroyed node. Radar
+    // already owns the correct seam — `clearBlips` routes through `hideHeat`,
+    // which nulls it — so ask Radar rather than reaching in, then null it again
+    // defensively: teardown is the one path that must not depend on internals.
+    this.radar.clearBlips();
+    this.stage.layers.blip.mask = null;
     this.views.clear();
-    for (const name of TOUCHED_LAYERS) clearLayer(this.stage.layers[name]);
-    clearLayer(this.stage.fogSprite);
+    this.styles.clear();
+    clearAmbientLayers(this.stage.layers, this.stage.fogSprite);
     this.stage.worldRoot.alpha = 1;
     this.stage.chartRoot.alpha = 1;
     this.stage.fogSprite.alpha = 1;
@@ -183,13 +284,22 @@ export class AmbientScene {
    * `serverNow − interpDelayMs`, so for the first ~100ms of scene time there is
    * no history to sample and a near hull is simply not stamped yet; that is the
    * live client's own behaviour at join and needs no special case.
+   *
+   * The id set it records is THIS FRAME's truesight membership, and it is the
+   * authority `drawHulls` uses — see there for why the contact store cannot
+   * answer that question.
    */
   private feedContacts(now: number): void {
     const list = ambientContacts(this.world, this.map.islands);
+    this.sightedIds.clear();
+    for (const c of list) this.sightedIds.add(c.id);
     if (list.length > 0) this.contacts.pushFrame(now, list);
     // A hull that sails out of the bubble (or behind a coast) stops being fed;
-    // pruning it is what stops the scope synthesizing an echo from a frozen,
-    // extrapolated ghost pose.
+    // pruning it BOUNDS how long the scope can keep synthesizing an echo from a
+    // dead-reckoned pose — it does not prevent it, and the 400ms TTL is the
+    // live client's own number. What it is emphatically NOT is a visibility
+    // rule: the drawn hulls take theirs from `sightedIds` above, because
+    // `sampleAt` keeps answering (frozen) right up to the prune.
     this.contacts.prune(now, CONTACT_STALE_MS);
   }
 
@@ -218,22 +328,61 @@ export class AmbientScene {
   // --- drawing ----------------------------------------------------------------
 
   /**
+   * Re-resolve every hull's style if the hue tables were swapped under us.
+   *
+   * The colorblind assist is a TABLE SWAP at the `ships.ts` chokepoint and it
+   * bumps a revision precisely so latched consumers can notice; the settings
+   * overlay is reachable pre-join through the home gear, so this really does
+   * change while the menu is up. The scene latched its styles once at
+   * construction and then recomputed only the WAKE's colour per frame, so
+   * toggling the assist recoloured a hull's foam and not the hull. One resolve
+   * per hull per frame, shared by the silhouette and the wake, makes the two
+   * incapable of disagreeing.
+   */
+  private syncStyles(): void {
+    const rev = hueRevision();
+    if (rev === this.styleRev) return;
+    this.styleRev = rev;
+    for (const h of this.world.hulls) {
+      const style = contactStyle(h.cls, h.hue);
+      this.styles.set(h.id, style);
+      this.views.get(h.id)?.setColors(style.stroke, style.fill);
+    }
+  }
+
+  /**
    * Place every visible hull and collect this frame's wake sources.
    *
    * The observer draws at its LIVE pose (it is the local ship); every other hull
    * draws at its interp-delayed contact sample — the same time the radar's own
    * `shipStamp` and the live client's `wakeHulls` read — so the silhouette, its
-   * foam and its echo all agree about where it was. A hull with no sample (out
-   * of the bubble, or younger than the interp delay) is hidden: it exists on the
-   * scope as a return, and nowhere else.
+   * foam and its echo all agree about where it was.
+   *
+   * VISIBILITY IS THIS FRAME'S TRUESIGHT MEMBERSHIP, NOT "did `sampleAt` answer".
+   * That was the shipped bug and the mistake is easy to repeat: `sampleAt`
+   * returns null ONLY for an EMPTY buffer (net/snapshots.ts) — past the newest
+   * sample it dead-reckons for `MAX_EXTRAPOLATION_MS` and then FREEZES, and the
+   * store prunes on a 400ms TTL, so a rival sailing out of the bubble kept
+   * answering with a frozen pose. It went on drawing OUTSIDE the sight bubble —
+   * fully bright, because `ship` lives in `chartRoot`, above the fog — laying
+   * foam at a standstill, and popped out without a fade when the TTL finally
+   * bit. On the shipped seed rival-1 crosses the 330u boundary on every lap, so
+   * this was visible on any real menu dwell. Asking the perception predicate
+   * (range + the shipped island LOS) instead makes the silhouette and the fog
+   * agree by construction.
+   *
+   * A hull that IS sighted but has no sample yet (a buffer younger than the
+   * interp delay, the first ~100ms of scene time) is still hidden — that is the
+   * live client's own join behaviour and it resolves itself in three frames.
    */
-  private drawHulls(now: number): void {
+  private drawHulls(tick: AmbientTick): void {
+    this.syncStyles();
     this.wakes.length = 0;
-    const at = now - CLIENT_CONFIG.net.interpDelayMs;
+    const at = tick.nowMs - CLIENT_CONFIG.net.interpDelayMs;
     for (const h of this.world.hulls) {
       const view = this.views.get(h.id);
       if (view === undefined) continue;
-      const pose = h === this.world.observer ? h.state : (this.contacts.get(h.id)?.sampleAt(at) ?? null);
+      const pose = this.poseFor(h, at);
       view.gfx.visible = pose !== null;
       if (pose === null) continue;
       view.update(pose.x, pose.y, pose.heading);
@@ -242,11 +391,25 @@ export class AmbientScene {
         x: pose.x,
         y: pose.y,
         heading: pose.heading,
-        speed: pose.speed,
+        // A frozen fleet makes no foam: at `motion: off` the hulls are never
+        // integrated, so `state.speed` keeps reporting the ~19 u/s they were
+        // making when travel stopped and the (speed-driven) wake and chop model
+        // would draw a stationary ship's bow wave. `travelSec` is the one number
+        // that knows the fleet stopped.
+        speed: tick.travelSec > 0 ? pose.speed : 0,
         cls: h.cls,
-        color: contactStyle(h.cls, h.hue).stroke,
+        color: (this.styles.get(h.id) ?? contactStyle(h.cls, h.hue)).stroke,
       });
     }
+  }
+
+  /** This hull's draw pose, or null when it must not be drawn at all: the
+   *  observer is always at its live pose; anyone else must be inside truesight
+   *  THIS frame and have a sample to show. */
+  private poseFor(h: AmbientHull, at: number): DrawPose | null {
+    if (h === this.world.observer) return this.world.observer.state;
+    if (!this.sightedIds.has(h.id)) return null;
+    return this.contacts.get(h.id)?.sampleAt(at) ?? null;
   }
 
   // --- layout (viewport-size aware, re-run on resize) -------------------------
