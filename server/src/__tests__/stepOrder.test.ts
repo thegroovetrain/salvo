@@ -48,6 +48,12 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'advanceSweeps',
       'processRespawns',
       'tickXp',
+      // Story 5.6's PvE wave scheduler — the second deliberate insertion, and
+      // an APPEND rather than a splice: `dronesTick` keeps row 0 immediately
+      // before applyInputs (its position is load-bearing), and a hull spawned
+      // dead last enters the world at a clean tick boundary. See the row
+      // comment in world.ts.
+      'spawnFleetWaves',
     ]);
   });
 

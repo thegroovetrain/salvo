@@ -3,6 +3,30 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  36: ROVING PvE FLEETS + THE BIGGER OCEAN (Story 5.6, Eric rulings
+ *  2026-08-14, amendments 33-44). TWO independent wire breaks in one bump.
+ *  (a) THE MAP MOVED: CONFIG.map.baseRadius 2400 → 2800, so THE SAME SEED NOW
+ *  BUILDS A DIFFERENT OCEAN — the cycle-59 precedent exactly. Both sides
+ *  rebuild islands, the height raster and the pyramid from the seed, and the
+ *  client sanity-checks welcome.mapRadius, so a stale client would fail the
+ *  check or (worse) sail a different coastline than the server simulates.
+ *  TERRAIN_PARAMS.regionWavelength now tracks baseRadius for the same reason.
+ *  (b) CONTACT GAINS AN OPTIONAL SELF-PRIVATE TRAILING `aggro`: true only on
+ *  the contact rows of PvE fleet ships that have acquired THE RECEIVING
+ *  OBSERVER, omitted entirely otherwise (the sinkingUntil/slowedUntil
+ *  precedent). It is stripped for every other observer and for spectators, so
+ *  it discloses nothing spatially new — the observer already sees the hull —
+ *  and the master perception invariant keeps exactly SIX declared exceptions.
+ *  A stale client would simply never draw the aggro bracket.
+ *  Also riding this bump, none of it wire-shaped on its own: PvE fleet hulls
+ *  fit [gun, empty, empty, empty] instead of the universal
+ *  [gun, torpedo, mine, empty]; drone envelopes retune (hp 60/75/90, maxSpeed
+ *  40/35/30) and gain an optional envelope-level `gun` override; the
+ *  match-start drone fill is deleted, so drones no longer hold roster rows and
+ *  the client detects them from Contact.cls alone.
+ *  NOTE: this landed as PV 35 on its branch and was RENUMBERED to 36 on merge —
+ *  cycle 82's final collapse took 35 first. The two bumps are independent and
+ *  compose: the collapse adds a fourth ring group to a board this story grew.
  *  35: SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14) — the storm
  *  timeline gains a FOURTH ring group whose ring is the terminal ring's own
  *  center at radius 0: marked at 14:00, closing 15:00-16:00, all storm from
@@ -334,7 +358,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 35;
+export const PROTOCOL_VERSION = 36;
 
 // Tunables
 export * from './constants.js';

@@ -35,6 +35,7 @@ import {
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
+  fleetHullIds,
   generateMap,
   hasFoundered,
   hookKinematics,
@@ -118,11 +119,33 @@ import {
 } from './equipment/index.js';
 import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
-import { DroneController } from './drones.js';
-import { pickSpawn } from './spawn.js';
+import { FleetController, fleetSizeOf } from './drones.js';
+import {
+  insideIntelDisc,
+  islandClearance,
+  pickFleetAnchor,
+  pickSpawn,
+  SPAWN_ISLAND_CLEARANCE,
+  type FleetAnchor,
+  type IntelDisc,
+} from './spawn.js';
+import { logWarn } from '../log.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
 
 const TAU = Math.PI * 2;
+
+/** Floor on the fleet-anchor sampling radius as a fraction of the live ring —
+ *  the guard for the late game, where `ring.r - spreadU` would go negative. */
+const FLEET_ANCHOR_MIN_FRACTION = 0.35;
+/** Attempts to land one fleet hull's scatter offset in water AND outside every
+ *  captain's intel disc before giving up and stationing it on the anchor
+ *  itself (island-clear always, intel-clear whenever the anchor was not the
+ *  logged fallback — see fleetOffset). */
+const FLEET_OFFSET_TRIES = 12;
+/** The ShipRecord.name every fleet hull carries (Story 5.6, amendment 39):
+ *  fleet hulls hold no roster row, and every client surface resolves `DRONE`
+ *  off the hull id — so there is no numbered identity to mint. */
+const FLEET_SHIP_NAME = 'DRONE';
 
 /**
  * Resolve the raw HC_RADAR_GRAMMAR env value into a RadarGrammar (the radar
@@ -618,14 +641,41 @@ export interface ShipRecord {
    * loadout on spawn/respawn/redeploy.
    */
   loadout: LoadoutSlot[];
-  kills: number; // hulls this ship has sunk
   /**
-   * HUMAN-CAPTAIN victims only (Story 4.6, Eric ruling 2026-08-10) — the
-   * bounty throne's one ruler. `kills` above is UNTOUCHED and keeps counting
-   * drones: it still drives the roster tally, the KILLS chrome segment, and
-   * results. Zeroed beside `kills` at the match boundary (redeployShip).
+   * CAPTAIN hulls this ship has sunk — the roster/results KILLS column AND
+   * the bounty throne's one ruler, now the same number.
+   *
+   * Story 4.6 split this into `kills` (everything, drones included) and
+   * `captainKills` (the throne). Story 5.6 amendment 38 ruled PvE kills count
+   * NOWHERE — *"i dont want PvE kills to show up as 'kills' in a player's
+   * killcount or as events in their records"* — which made the two identical
+   * by construction, so the split is RETIRED in favour of this one field. A
+   * drone sinking still pays XP, still fires the `sunk` event and still gets
+   * its kill flash and feed line; it just never lands in a tally.
    */
-  captainKills: number;
+  kills: number;
+  /**
+   * PvE SINKINGS BY VICTIM HULL ID — OPERATOR TELEMETRY, NEVER ON THE WIRE
+   * (Story 5.6, epic-5 amendment 44, Eric ruling 2026-08-14: *"PvE fleet kills
+   * DO NOT show up in the match log. I don't care what time I killed each
+   * drone. But we can keep this data anyway, maybe for server stats?"*).
+   *
+   * Amendment 37's presentation ruling does not move an inch — a PvE kill
+   * still lands in NO tally, NO match log and NO end-game record. What changes
+   * is that it stops being thrown away: `kills` deliberately does not advance
+   * on a drone victim, so before this the sinking left no trace anywhere and
+   * `MatchEndSummary.killsByClass` silently lost the whole PvE faucet. This is
+   * amendment 9's principle — telemetry counts what presentation does not.
+   *
+   * Keyed by the VICTIM's drone hull id rather than totalled, because SIZE IS
+   * THE PAYOUT (¼ / ⅓ / ½ level, CONFIG.xp.droneTierLevels): the per-size
+   * counts alone reconstruct exactly how much XP the PvE economy paid out in a
+   * real match.
+   *
+   * Same lifecycle as `kills`: zeroed at redeployShip (the match boundary),
+   * preserved across a waiting-phase respawn.
+   */
+  pveKills: Record<string, number>;
   deaths: number; // times this ship has been sunk
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
 }
@@ -693,8 +743,18 @@ export class World {
    */
   private readonly orphanWakes: WakeRibbon[] = [];
   readonly inputs = new InputStore();
-  /** Drives drone hulls through the normal input path (see game/drones.ts). */
-  readonly drones: DroneController;
+  /** Drives PvE fleet hulls through the normal input path (game/drones.ts). */
+  readonly drones: FleetController;
+  /** How many rows of CONFIG.fleet.waves have already been enqueued. */
+  private wavesFired = 0;
+  /** Fleets owed but not yet placed — one entry per fleet, each carrying its
+   *  own retry count against CONFIG.fleet.spawnRetryTicks (amendment 37: the
+   *  wave ALWAYS arrives; it degrades visibly rather than never spawning). */
+  private pendingFleets: { retries: number }[] = [];
+  /** Monotonic fleet ordinal (the FleetController's shared-waypoint group). */
+  private fleetSeq = 0;
+  /** Monotonic fleet-hull ordinal — the ship id namespace `fleet-N`. */
+  private fleetHullSeq = 0;
   /** Which blip wire shape this room emits (amendment 63) — fixed at
    *  construction, announced in the welcome, threaded into every
    *  SignalContext. Default 'silhouette' = the shipped 4.2 behavior. */
@@ -742,11 +802,11 @@ export class World {
    * Re-evaluated by recomputeBounty() at exactly three seams — once per sink
    * (in sink order, AFTER the kill credit so the killer's fresh count
    * competes), on ship removal (so it never names an absent player), and on
-   * respawn (ready-room only: captainKills persists across the death, so a
+   * respawn (ready-room only: `kills` persists across the death, so a
    * returning captain may still clear the floor) — via the pure
    * strict-overtake rule in game/bounty.ts. Cleared at the match
    * boundary (resetForMatchStart), where redeployShip zeroes every hull's
-   * captainKills right beside it.
+   * `kills` right beside it.
    */
   bountyId = '';
 
@@ -843,7 +903,7 @@ export class World {
 
   constructor(
     seed: number,
-    playerCap: number = CONFIG.match.fillTo,
+    playerCap: number = CONFIG.map.playerCap,
     zoneCfg: ZoneTimeline = CONFIG.zone,
     opts: WorldOptions = {},
   ) {
@@ -862,8 +922,8 @@ export class World {
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
-    // Drone steering stream, decorrelated again from mapgen + spawn.
-    this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
+    // Fleet steering stream, decorrelated again from mapgen + spawn.
+    this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
   }
 
   /** The pseudonym map, read-only — for perception context threading and
@@ -1047,12 +1107,24 @@ export class World {
   }
 
   /** Spawn a new ship on the ring, max-distance from existing ships. Players
-   *  pass their picked ShipClassId; drones pass a drone hull id — the envelope
-   *  source (hullEnvelope) is the ONLY thing that differs between them.
-   *  `horn` is the sanitized foghorn variant from the join option (Story 4.5);
-   *  drones keep the default (they never honk — consumeHonk gates them). */
-  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID): ShipRecord {
-    const p = pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng);
+   *  pass their picked ShipClassId; fleet hulls pass a drone hull id — the
+   *  envelope source (hullEnvelope) is the ONLY thing that differs between
+   *  them. `horn` is the sanitized foghorn variant from the join option
+   *  (Story 4.5); fleet hulls keep the default (they never honk — consumeHonk
+   *  gates them).
+   *
+   *  `at` (Story 5.6) places the hull EXACTLY there instead of on the spawn
+   *  ring — the mid-match fleet-wave path (amendment 37), the first placement
+   *  in the codebase that is neither the ring nor a redeploy. Everything else
+   *  about the record is identical, including the `spawn` event (whose
+   *  `pointSighted` gate means a fleet arriving outside every captain's intel
+   *  emits an event nobody receives — the desired behaviour, confirmed at the
+   *  row rather than inherited). A brand-new record's wake ring is FRESH, so
+   *  the mandatory detachWake at a teleport has nothing to detach here — the
+   *  bogus cross-map segment it exists to prevent is structurally impossible
+   *  on this path. */
+  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at?: Vec2): ShipRecord {
+    const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng);
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
     // Per-hull loadout (Story 1.6): the class fit, or the universal drone fit.
@@ -1103,15 +1175,20 @@ export class World {
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
-      // captainKills (Story 4.6): the bounty ruler — captains only, beside
-      // the roster tally `kills`, which keeps counting drones.
-      kills: 0, captainKills: 0,
+      // ONE tally (Story 5.6, amendment 38): `kills` counts CAPTAIN victims
+      // only, so the Story 4.6 `captainKills` split is retired — the two
+      // became identical by construction the moment PvE kills stopped
+      // counting anywhere.
+      kills: 0,
+      pveKills: {}, // operator telemetry only (amendment 44) — never on the wire
       deaths: 0,
       damageDealt: 0,
     };
     this.ships.set(id, rec);
     this.pseudonymFor(id); // eager track id (R3) — see pseudonymFor / trackIds
-    if (isDrone) this.drones.add(id);
+    // NOT registered with the FleetController here (Story 5.6): a fleet hull's
+    // registration carries its fleet id and its constant formation station,
+    // which only the wave spawner knows. spawnFleet() is the ONE registrar.
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
     return rec;
   }
@@ -1165,8 +1242,8 @@ export class World {
     this.decoys.clear(); // practice-field buoys never lie into the real match (Story 1.8)
     this.pending = [];
     // The throne dies at the match boundary (Story 4.6): redeployShip below
-    // zeroes every hull's captainKills, so the vacated throne cannot be
-    // re-claimed until someone earns a fresh captain kill in the real match.
+    // zeroes every hull's `kills`, so the vacated throne cannot be re-claimed
+    // until someone earns a fresh captain kill in the real match.
     this.bountyId = '';
     const placed: Vec2[] = [];
     for (const ship of this.ships.values()) this.redeployShip(ship, placed);
@@ -1237,8 +1314,8 @@ export class World {
     ship.deck = ship.isDrone
       ? EMPTY_DECK
       : buildDeck(this.boonCatalog, World.carriedEquipment(ship.loadout));
-    ship.kills = 0;
-    ship.captainKills = 0; // the bounty ruler resets with the tally (Story 4.6)
+    ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
+    ship.pveKills = {}; // ...and its telemetry sibling (amendment 44), same boundary
     ship.deaths = 0;
     ship.damageDealt = 0;
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
@@ -1317,7 +1394,7 @@ export class World {
     if (bountyMark !== undefined) ev.bty = bountyMark;
     this.pending.push(ev);
     // Re-evaluate the throne AFTER the credit (Story 4.6): the killer's fresh
-    // captainKills competes in this very evaluation — one recompute per sink,
+    // kill count competes in this very evaluation — one recompute per sink,
     // in sink order, so simultaneous challengers resolve sequentially.
     this.recomputeBounty();
   }
@@ -1374,18 +1451,21 @@ export class World {
    * The kill-credit half of sinkShip (Story 4.6 extraction): tally + XP for
    * an attributed sink. A DEAD killer (mutual destruction) still gets both;
    * storm (`by` undefined) and self-kills credit nothing by construction.
-   * `captainKills` — the bounty ruler — advances ONLY on a human-captain
-   * victim (the Public Register's "drones are not combatants"), while `kills`
-   * keeps counting drones for the roster tally. Sinking the throne's holder
-   * pays `CONFIG.bounty.killLevels` ON TOP of the standard kill value,
-   * through the unchanged grantXp pipeline (fractional carry untouched).
+   * `kills` — the roster tally AND the bounty ruler, one field since Story
+   * 5.6 — advances ONLY on a CAPTAIN victim (amendment 38: a PvE kill counts
+   * nowhere, while its XP, its `sunk` event and its onscreen kill flash all
+   * still fire). A drone victim instead advances `pveKills` under its own hull
+   * id — the OPERATOR-ONLY sibling (amendment 44), which counts precisely what
+   * `kills` deliberately refuses to. Sinking the throne's holder pays
+   * `CONFIG.bounty.killLevels` ON TOP of the standard kill value, through the
+   * unchanged grantXp pipeline (fractional carry untouched).
    */
   private creditKill(victim: ShipRecord, by: string | undefined, victimHeldBounty: boolean): void {
     if (!by || by === victim.id) return;
     const killer = this.ships.get(by);
     if (!killer) return;
-    killer.kills += 1;
-    if (!victim.isDrone) killer.captainKills += 1;
+    if (victim.isDrone) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
+    else killer.kills += 1;
     const bonus = victimHeldBounty ? CONFIG.bounty.killLevels : 0;
     this.grantXp(killer, World.killXpLevels(victim) + bonus);
   }
@@ -1398,7 +1478,7 @@ export class World {
   private recomputeBounty(): void {
     const cands: BountyCandidate[] = [];
     for (const s of this.ships.values()) {
-      cands.push({ id: s.id, lifecycle: s.lifecycle, isDrone: s.isDrone, captainKills: s.captainKills });
+      cands.push({ id: s.id, lifecycle: s.lifecycle, isDrone: s.isDrone, kills: s.kills });
     }
     this.bountyId = nextBountyHolder(this.bountyId, cands);
   }
@@ -1429,7 +1509,7 @@ export class World {
    * The bank loop is a WHILE: one grant may cross several levels (a kill on
    * top of near-full progress, or a kill worth > 1 level), and each crossing
    * banks its own point + pre-rolled offer through the unchanged grantPoint.
-   * The remainder always carries — no XP is ever snapped away (amendment 32).
+   * The remainder always carries — no XP is ever snapped away (amendment 33).
    */
   grantXp(ship: ShipRecord, levels: number): void {
     if (!Number.isFinite(levels) || levels <= 0) return;
@@ -1784,8 +1864,10 @@ export class World {
    */
   static readonly STEP_ORDER: readonly StepRow[] = Object.freeze(
     ([
-    // Drones write their inputs through the same store humans use, so they are
-    // picked up by applyInputs exactly like any client this tick.
+    // PvE fleet hulls write their inputs through the same store humans use, so
+    // they are picked up by applyInputs exactly like any client this tick. The
+    // ROW NAME is unchanged across the Story 5.6 rewrite (the order-identity
+    // pin is on names, and the name still describes what the row does).
     { name: 'dronesTick', run: (w) => w.drones.tick() },
     { name: 'applyInputs', run: (w) => w.applyInputs() },
     { name: 'stepShips', run: (w, ctx) => w.stepShips(ctx.dt) },
@@ -1880,6 +1962,24 @@ export class World {
     // than trailing into the next one. Nothing downstream in the step reads XP,
     // so no other system's behavior can depend on where it sits.
     { name: 'tickXp', run: (w, ctx) => w.tickXp(ctx.dtMs) },
+    // PvE FLEET WAVES (Story 5.6, amendment 37) — DELIBERATE step-order
+    // position: dead LAST, after every row that touches a hull.
+    //
+    // The obvious slot is before `dronesTick`, so a hull spawning this tick
+    // gets its first input the same tick. It is the WRONG slot, twice over.
+    // First, `dronesTick`'s position is pinned and load-bearing — it must sit
+    // IMMEDIATELY before applyInputs, and inserting ahead of it is the one
+    // change the ordering rationale forbids. Second, every row between spawn
+    // and the tick's end would then see a hull that has not moved, has no
+    // wake sample and has never been collision-resolved; the storm row in
+    // particular would bite a hull placed one row earlier. Spawning last
+    // costs the fleet exactly one tick (50ms) of idling and buys a hull that
+    // enters the world at a clean tick boundary.
+    //
+    // It still publishes on THIS tick's frame: the event swap is the EPILOGUE
+    // (outside STEP_ORDER), so the `spawn` events queued here ride out
+    // immediately.
+    { name: 'spawnFleetWaves', run: (w) => w.spawnFleetWaves() },
     // Each ROW is frozen too, not just the container (review finding F2b):
     // Object.freeze on the array alone leaves `STEP_ORDER[i].run` writable, so
     // a shallow freeze would let a row be swapped out from under the identity
@@ -2227,6 +2327,169 @@ export class World {
     return hulls;
   }
 
+  /** True iff `id` names a PvE fleet hull (Story 5.6). The ONE predicate the
+   *  fleet-only rules key on — friendly-fire exclusion, the intel-disc
+   *  denial set, the roster/kill accounting — so "is this a fleet ship" has a
+   *  single answer and an absent record fails closed. */
+  isFleetHull(id: string): boolean {
+    return this.ships.get(id)?.isDrone === true;
+  }
+
+  // -------------------------------------------------------------------------
+  // PvE FLEET WAVES (Story 5.6, amendments 33/37)
+  // -------------------------------------------------------------------------
+
+  /**
+   * THE WAVE SCHEDULER. Fires CONFIG.fleet.waves off the ZONE START clock —
+   * the same anchor the chrome bar's T+ uses — while the match is live.
+   *
+   * The live gate is `zoneStartT !== null && damageEnabled`, byte-identical to
+   * applyStorm's: in a room `damageEnabled` is true exactly in the active
+   * phase, and a standalone World (unit tests, sandbox smokes) has to call
+   * startZone() before anything arrives. Nothing in the codebase spawned a
+   * ship mid-match before this (amendment 37).
+   */
+  private spawnFleetWaves(): void {
+    if (this.zoneStartT === null || !this.damageEnabled) return;
+    this.enqueueDueWaves(this.now - this.zoneStartT);
+    this.placePendingFleets();
+  }
+
+  /** Enqueue every wave whose beat has passed. A WHILE, not an equality test:
+   *  a slow/uneven tick must never step over a beat and delete its fleets. */
+  private enqueueDueWaves(elapsed: number): void {
+    const waves = CONFIG.fleet.waves;
+    while (this.wavesFired < waves.length && elapsed >= waves[this.wavesFired].atMs) {
+      for (let i = 0; i < waves[this.wavesFired].fleets; i += 1) this.pendingFleets.push({ retries: 0 });
+      this.wavesFired += 1;
+    }
+  }
+
+  /** Try to place every owed fleet this tick; those that cannot find an
+   *  anchor OUTSIDE every captain's intel disc wait for the next tick until
+   *  their retry budget runs out, then take the max-min point and LOG it. */
+  private placePendingFleets(): void {
+    if (this.pendingFleets.length === 0) return;
+    const waiting: { retries: number }[] = [];
+    for (const req of this.pendingFleets) {
+      const anchor = this.fleetAnchor();
+      if (anchor.fallback && req.retries < CONFIG.fleet.spawnRetryTicks) {
+        req.retries += 1;
+        waiting.push(req);
+        continue;
+      }
+      if (anchor.fallback) {
+        logWarn('fleet.spawnFallback', { tick: this.tick, retries: req.retries, x: Math.round(anchor.x), y: Math.round(anchor.y) });
+      }
+      this.spawnFleet(anchor);
+    }
+    this.pendingFleets = waiting;
+  }
+
+  /**
+   * One anchor request against the CURRENT field: inside the live ring, clear
+   * of land, outside EVERY captain's intel disc, farthest from everything
+   * already afloat (fleet hulls included, so successive fleets spread out).
+   *
+   * The disc radius is the captain's EFFECTIVE `stats.radarRange`, not the
+   * CONFIG base: a stacked intel build denies the area it actually sees.
+   * Sampling stops `spreadU` short of the ring edge so the nine hulls scatter
+   * into water rather than into the storm (floored well inside, since the
+   * terminal ring is only 660u across and the spread is 400u).
+   */
+  private fleetAnchor(): FleetAnchor {
+    const ring = this.zoneLiveRing;
+    const occupied: Vec2[] = [];
+    for (const s of this.ships.values()) {
+      if (isAfloat(s.lifecycle)) occupied.push({ x: s.state.x, y: s.state.y });
+    }
+    const max = Math.max(ring.r - CONFIG.fleet.spreadU, ring.r * FLEET_ANCHOR_MIN_FRACTION);
+    return pickFleetAnchor({ x: ring.cx, y: ring.cy }, max, this.map.islands, occupied, this.captainDiscs(), this.rng);
+  }
+
+  /** Every afloat CAPTAIN's intel disc, at their EFFECTIVE `stats.radarRange`
+   *  (a stacked intel build denies the area it actually sees). THE one
+   *  derivation of the denied region: the anchor and the per-hull scatter both
+   *  read it, so they can never disagree about where a fleet may appear. */
+  private captainDiscs(): IntelDisc[] {
+    const denied: IntelDisc[] = [];
+    for (const s of this.ships.values()) {
+      if (!isAfloat(s.lifecycle) || s.isDrone) continue;
+      denied.push({ x: s.state.x, y: s.state.y, r: s.stats.radarRange });
+    }
+    return denied;
+  }
+
+  /**
+   * Spawn ONE fleet: the exact composition (`fleetHullIds()` — 2 large, 3
+   * medium, 4 small = exactly 3.000 levels in 9 hulls, largest first) scattered
+   * around `anchor`. Each hull's scatter offset is ALSO its permanent
+   * formation station (FleetController.add), which is what keeps the fleet
+   * travelling together at the spread the witness rule was tuned against.
+   */
+  private spawnFleet(anchor: FleetAnchor): void {
+    this.fleetSeq += 1;
+    const fleetId = this.fleetSeq;
+    const denied = this.captainDiscs(); // read ONCE: fleet hulls deny nothing
+    for (const hullId of fleetHullIds()) {
+      const offset = this.fleetOffset(anchor, denied);
+      this.fleetHullSeq += 1;
+      const id = `fleet-${this.fleetHullSeq}`;
+      // The name is the HULL's name, not a numbered roster identity (amendment
+      // 39): fleet hulls hold no PlayerMeta row, and every client-side surface
+      // reads `DRONE` off Contact.cls. Never `DRONE-07`.
+      this.addShip(id, FLEET_SHIP_NAME, true, hullId, DEFAULT_HORN_ID, {
+        x: anchor.x + offset.x,
+        y: anchor.y + offset.y,
+      });
+      this.drones.add(id, fleetSizeOf(hullId), fleetId, offset);
+    }
+  }
+
+  /**
+   * One hull's scatter/station offset: uniform over a disc of
+   * `CONFIG.fleet.spreadU`, rejecting land through the SAME clearance the spawn
+   * ring demands (spawn.ts owns that math) AND rejecting any point inside a
+   * captain's intel disc.
+   *
+   * THE INTEL TEST IS PER HULL, NOT ON THE ANCHOR (review gate, Story 5.6).
+   * Amendment 36 constrains the ANCHOR to sit outside every captain's intel
+   * disc, but the nine hulls then scatter up to `spreadU` (400u) from it — so
+   * worst case a hull materialized 260u from a captain, INSIDE the 330u sight
+   * bubble: exactly the visible pop-in the amendment exists to prevent.
+   * Inflating the anchor's denied radius by `spreadU` instead was costed and
+   * REJECTED: it takes the denied area per captain from ~1.37M u² to ~3.53M u²,
+   * which at a full roster exceeds the map, so every wave would take the
+   * max-min fallback and the rule would stop meaning anything. The FORMATION
+   * deforms slightly instead — the wave never fails.
+   *
+   * The fallback ladder, in order: a land-clear-but-intel-dirty offset is only
+   * REMEMBERED (`landOnly`), never preferred. When the anchor itself cleared
+   * every disc (`fallback === false`) the anchor is intel-clear BY
+   * CONSTRUCTION and wins over it, so on the nominal path no hull can ever
+   * land in intel range. Only on the already-degraded fallback anchor (logged,
+   * ratified by amendment 37) does `landOnly` ship — there neither option is
+   * clear, and a spread fleet beats nine hulls stacked on one point.
+   *
+   * The ring clamp is untouched: offsets stay bounded by `spreadU`, which
+   * `fleetAnchor` already subtracts from the live ring radius, so a nudged
+   * hull still cannot land in the storm.
+   */
+  private fleetOffset(anchor: FleetAnchor, denied: readonly IntelDisc[]): Vec2 {
+    let landOnly: Vec2 | null = null;
+    for (let i = 0; i < FLEET_OFFSET_TRIES; i += 1) {
+      const a = this.rng.float(0, TAU);
+      const r = Math.sqrt(this.rng.next()) * CONFIG.fleet.spreadU; // sqrt => uniform
+      const off = { x: Math.cos(a) * r, y: Math.sin(a) * r };
+      const p = { x: anchor.x + off.x, y: anchor.y + off.y };
+      if (islandClearance(p, this.map.islands) <= SPAWN_ISLAND_CLEARANCE) continue;
+      if (!insideIntelDisc(p, denied)) return off;
+      landOnly ??= off;
+    }
+    if (!anchor.fallback) return { x: 0, y: 0 }; // the anchor cleared every disc
+    return landOnly ?? { x: 0, y: 0 };
+  }
+
   /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit).
    *  THE one spent-shell path: remove it from flight, drop every observer's
    *  seen-memory, resolve its outcome into events/damage. The D1 back-dated
@@ -2234,10 +2497,23 @@ export class World {
    *  every projectile funnels through here, one tick after spawn at the
    *  earliest, so all shell damage resolves in exactly one place. */
   private stepShells(dt: number, hulls: HullTarget[]): void {
+    let friendlyFree: HullTarget[] | undefined; // lazy, per-tick (see shellTargets)
     for (const [id, shell] of this.shells) {
+      // FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 36). The
+      // amendment names burstVictims, but the exclusion is applied one level
+      // UP — a fleet-owned shell simply does not see a friendly hull as a
+      // collision subject at all. Excluding only at the burst leaves a
+      // friendly hull INTERCEPTING the shell (contactDamage, and the shell
+      // stops dead), which is the same rule broken by a different path: nine
+      // hulls inside a 400u spread block each other's line constantly. One
+      // filtered snapshot per tick, built only when a fleet shell is in
+      // flight; captain shells keep the shared snapshot by reference.
+      const targets = this.isFleetHull(shell.ownerId)
+        ? (friendlyFree ??= hulls.filter((h) => !this.isFleetHull(h.id)))
+        : hulls;
       const outcome = stepShell(shell, {
         islands: this.map.islands,
-        hulls,
+        hulls: targets,
         now: this.now,
         dt,
         mapRadius: this.map.radius,
@@ -2251,14 +2527,14 @@ export class World {
       // An AP shell that pierced but is NOT spent keeps flying (Story 2.8):
       // its hits resolve now, the projectile stays in flight for next tick.
       if (outcome.kind === 'pierced' && !outcome.spent) {
-        this.resolveShell(shell, outcome, hulls);
+        this.resolveShell(shell, outcome, targets);
         continue;
       }
       this.shells.delete(id);
       this.forgetBallistic(id);
       // The spent fish's water outlives it (amendment 200) — detach, never drop.
       this.orphanTorpWake(id);
-      this.resolveShell(shell, outcome, hulls);
+      this.resolveShell(shell, outcome, targets);
     }
   }
 
@@ -2466,7 +2742,7 @@ export class World {
       // in this re-check rather than in the snapshot (amendment 5).
       if (!victim || !isAfloat(victim.lifecycle)) continue;
       resolved += 1;
-      this.hitShip(victim, damage, m.ownerId);
+      this.hitShip(victim, damage, m.ownerId, true); // MINE: no aggro (amendment 36)
       // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
       // assignment), never stack. Gated with damage (no fouling in the
       // damage-suppressed ready room).
@@ -2505,8 +2781,16 @@ export class World {
    * while damage is suppressed (waiting/countdown target practice, finished
    * freeze) impacts still boom but no hp is lost — this early return is the
    * single choke for shell, torpedo, and mine damage alike.
+   *
+   * `fromMine` is REQUIRED at every call site and threaded EXPLICITLY (Story
+   * 5.6, amendment 36): a mine hit gives a PvE fleet ship no bearing worth
+   * closing on — its layer may be dead or 2000u away — so it must cause no
+   * aggro, and the ordnance that caused a hit is knowable only here at the
+   * caller. Inferring it downstream (from `byId`'s distance, from the absence
+   * of a shell, from anything) would be a guess; a required parameter makes
+   * every future damage path state its own answer.
    */
-  private hitShip(victim: ShipRecord, amount: number, byId: string): void {
+  private hitShip(victim: ShipRecord, amount: number, byId: string, fromMine: boolean): void {
     if (!this.damageEnabled) return;
     // A SINKING HULL CANNOT BE FINISHED OFF (Story 5.2, amendment 12): damage
     // landing inside the window is a NO-OP — no hp, no dmg event, no re-sink,
@@ -2517,6 +2801,12 @@ export class World {
     // isAfloat per victim and aliveHulls() never offers a sinking silhouette
     // as a target; a directed caller is what this line actually stops).
     if (isSinking(victim.lifecycle)) return;
+    // THE AGGRO SEAM (Story 5.6): a fleet hull that takes damage acquires its
+    // attacker and runs the ONE-SHOT witness sweep. Fires BEFORE the hp is
+    // applied, so a hull sunk by this very hit still propagates the fight to
+    // the friends that saw it happen. onDamaged itself no-ops for a
+    // non-fleet victim, a mine hit, and a fleet-on-fleet hit.
+    this.drones.onDamaged(victim.id, byId, fromMine);
     victim.hp -= amount;
     this.creditDamage(byId, victim.id, amount);
     this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
@@ -2604,7 +2894,7 @@ export class World {
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
     // not a single click (the same-click salvo ledger is deleted).
-    this.hitShip(victim, shell.contactDamage, shell.ownerId);
+    this.hitShip(victim, shell.contactDamage, shell.ownerId, false);
   }
 
   /**
@@ -2643,7 +2933,7 @@ export class World {
       const id = terminal ? shell.id : `${shell.id}#p${h.order}`;
       this.pending.push({ k: 'boom', id, hit: h.victimId, x: h.x, y: h.y });
       const victim = this.ships.get(h.victimId);
-      if (victim && isAfloat(victim.lifecycle)) this.hitShip(victim, pierceDamage(shell.damage, h.order), shell.ownerId);
+      if (victim && isAfloat(victim.lifecycle)) this.hitShip(victim, pierceDamage(shell.damage, h.order), shell.ownerId, false);
     }
   }
 
@@ -2684,7 +2974,7 @@ export class World {
         const victim = this.ships.get(victimId);
         if (!victim || !isAfloat(victim.lifecycle)) continue;
         resolved += 1;
-        this.hitShip(victim, shell.damage, shell.ownerId);
+        this.hitShip(victim, shell.damage, shell.ownerId, false);
       }
     }
     // Story 4.3: exactly one of hc/sp per shell resolution — a burst that
@@ -3366,7 +3656,7 @@ export class World {
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
     // The throne is a THIRD recompute seam (Story 4.6 gap fix, beside sinkShip
-    // and removeShip): captainKills persists across the death (only
+    // and removeShip): `kills` persists across the death (only
     // redeployShip zeroes it), so a returning captain may still clear the
     // floor and reclaim or newly claim the throne. Ready-room only exposure —
     // in the active match phase the dead spectate instead of respawning.

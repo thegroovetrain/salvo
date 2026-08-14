@@ -20,10 +20,10 @@
 //   5. results broadcast at B's FOUNDER (amendment 4 — drones no longer gate
 //      the win, so there is no storm mop-up phase any more): winnerId=A, A
 //      placed 1st and the FIRST row, B placed 2nd, and the table is exactly
-//      those TWO CAPTAINS — no drone row at all, even though the roster shows a
-//      full fill still afloat (Eric ruling 2026-08-11: *"just don't show the
-//      drones in the match results"*, superseding amendment 8's survivors
-//      tier). A's kills >= 1 and damageDealt >= B's hull.
+//      those TWO CAPTAINS — and since Story 5.6 the ROSTER is captains-only
+//      too: the match-start fill is deleted outright (amendment 41) and a PvE
+//      fleet hull holds no PlayerMeta row (amendment 39). A's kills >= 1 and
+//      damageDealt >= B's hull.
 //   6. The room disconnects both clients ~resultsMs later (autoDispose).
 // Then kills its own server process group and verifies port 2599 is free.
 //
@@ -40,15 +40,23 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PORT = 2599;
 const endpoint = `ws://localhost:${PORT}`;
 // Countdown long enough for two ring-spawned ships to close to torpedo range
-// and prove damage suppression (with margin for missed passes — drone traffic
-// in the ready room can intercept a fish, and the flyby orbits at current
-// ship speeds mean each 12s reload gets roughly one shot per pass); results
-// short so the disposal is observable. joinWindowMs is a small REAL window
+// and prove damage suppression (with margin for missed passes — the flyby
+// orbits at current ship speeds mean each 12s reload gets roughly one shot per
+// pass); results short so the disposal is observable.
+//
+// 120000 -> 180000 (Story 5.6, amendment 42 — the ocean grew to R=2800). Two
+// captains spawn max-min apart on the spawn ring, so their separation is
+// 2 x 0.8R: 3840u before, 4480u now. At the Torpedo Boat's 45 u/s that is a
+// ~100s CLOSE before the first shot is even possible, and the 120s ready room
+// timed out with the fish still in the tube ("no torpedo struck B"). This is a
+// SMOKE-TUNING consequence of the map size, not a regression: nothing about
+// suppression, arcs or reloads moved. 180s restores the old ~35s of slack for
+// missed passes. joinWindowMs is a small REAL window
 // (unlike the other smokes' 0): step 1 proves the gathering phase over real
 // sockets — unlocked during the window, locked after it. 5s (not 2s) so the
 // post-join sleep(500) + CHARLIE's join round-trip can't eat the window on a
 // slow CI box and flake the same-room assertion.
-const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 5000 };
+const MATCH_OVERRIDE = { countdownMs: 180000, resultsMs: 3000, joinWindowMs: 5000 };
 // After B sinks (step 4), A is the last human. The phased timeline (Story 3.1)
 // gives the step-4 fight a comfortable storm-free window — beats park the first
 // close at 3 x beatMs, well past the typical converge+two-torpedo fight, so A
@@ -75,9 +83,8 @@ const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 500
 // on closure any more. beatMs still matters — the pre-close beats are what keep
 // the storm off the step-4 fight — so it stays exactly as tuned above.
 const ZONE_OVERRIDE = { beatMs: 45000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.04 };
-// Fire only from close, well-aimed range: a short lane keeps ready-room drones
-// from wandering into the shot and makes each fish near-certain on a head-on
-// target (fish + closing target ≈ 90 u/s over <4s).
+// Fire only from close, well-aimed range: a short lane makes each fish
+// near-certain on a head-on target (fish + closing target ≈ 90 u/s over <4s).
 const TORP_RANGE = 350; // u — click only inside this
 // rad — click when the target bears within this of the bow. The bow TUBE arc is
 // halfArc 30° (0.524 rad) and a torpedo launches straight at `aim` whenever aim
@@ -99,8 +106,9 @@ function assert(cond, msg) {
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-/** Fill-drone ids are minted as `drone-N` by ArenaRoom.fillToCapacity. */
-const isDrone = (id) => typeof id === 'string' && id.startsWith('drone-');
+/** Non-captain hull ids. `drone-N` was the deleted match-start fill
+ *  (amendment 41); `fleet-N` is the PvE wave namespace that replaced it. */
+const isDrone = (id) => typeof id === 'string' && (id.startsWith('drone-') || id.startsWith('fleet-'));
 
 // --- server lifecycle --------------------------------------------------------
 
@@ -383,14 +391,18 @@ function phase(ctx) {
   return ctx.room.state?.matchPhase ?? 'unknown';
 }
 
-/** Drones the ROSTER still reports afloat — the independent oracle for "the
- *  match finished with drones on the water", now that the results table drops
- *  drone rows entirely (Eric ruling 2026-08-11). The roster schema keeps
- *  mirroring every hull's `alive`, drones included. */
-function afloatDroneCount(ctx) {
-  let n = 0;
-  ctx.room.state.players.forEach((meta, id) => { if (isDrone(id) && meta.alive) n += 1; });
-  return n;
+/** Roster rows that are NOT one of the two captains — the independent oracle
+ *  for amendment 41/39 over a real socket: the match-start drone fill is
+ *  deleted outright and PvE fleet hulls hold no `PlayerMeta` row at all, so
+ *  the roster this smoke sees must be captains and nothing else. (This
+ *  replaces the pre-5.6 oracle, which asserted the opposite — that a fill of
+ *  drones was still sailing at the finish.) */
+function nonCaptainRosterRows(ctx, captainIds) {
+  const out = [];
+  ctx.room.state.players.forEach((_meta, id) => {
+    if (isDrone(id) || !captainIds.includes(id)) out.push(id);
+  });
+  return out;
 }
 
 async function runUntil(tick, done, timeoutMs, label) {
@@ -548,12 +560,13 @@ async function main() {
       seen.every((p, i) => p === i + 1),
       `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`,
     );
-    // The independent oracle: drones ARE on the water at the finish (amendment
-    // 4 — they no longer gate the win), they are just not in the table.
-    const afloatDrones = afloatDroneCount(a);
+    // The independent oracle (Story 5.6, amendments 39/41): the roster is
+    // CAPTAINS ONLY. No fill was ever created, and a PvE fleet hull holds no
+    // PlayerMeta row, so nothing but the two captains may appear here.
+    const strays = nonCaptainRosterRows(a, [a.room.sessionId, b.room.sessionId]);
     assert(
-      afloatDrones > 0,
-      'no drone was afloat at the finish — the match did not end with drones sailing (amendment 4)',
+      strays.length === 0,
+      `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendments 39/41)`,
     );
     for (let i = 1; i < res.rows.length; i++) {
       assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
@@ -563,7 +576,7 @@ async function main() {
     log.push(
       `results: winner=ALPHA (1st row, ${rowA.kills} kill, ${rowA.damageDealt}dmg); ` +
       `B (the only sink) placed ${rowB.placement} of ${res.rows.length} rows — both CAPTAINS, ` +
-      `dense 1..2; ${afloatDrones} drone(s) STILL AFLOAT on the roster and ZERO drone rows`,
+      `dense 1..2; roster is CAPTAINS ONLY (zero fleet/drone rows anywhere)`,
     );
 
     // --- 6. room disconnects after resultsMs ---------------------------------

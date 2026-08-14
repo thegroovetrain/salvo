@@ -41,14 +41,18 @@ export const SPAWN_ISLAND_CLEARANCE = MAX_HULL_RADIUS;
 
 /**
  * Signed clearance from `p` to the nearest island COASTLINE (negative =
- * ashore). `islandDistance` carries the mandatory bounding-circle broadphase
+ * ashore). EXPORTED (Story 5.6) so the fleet-wave spawner scatters its nine
+ * hulls against THE SAME clearance math the spawn ring uses — the one place
+ * "is this water deep enough for a hull" is answered.
+ *
+ * `islandDistance` carries the mandatory bounding-circle broadphase
  * itself: past `r + ISLAND_DIST_SLACK` (128u) it returns the cheap
  * conservative lower bound `dist - r` without touching an edge, and that slack
  * comfortably exceeds SPAWN_ISLAND_CLEARANCE (≈62.29u) so the bound is
  * decision-equivalent here. That matters: bestOnCircle runs this 256
  * candidates × 9 rings × every island.
  */
-function islandClearance(p: Vec2, islands: readonly Island[]): number {
+export function islandClearance(p: Vec2, islands: readonly Island[]): number {
   let min = Infinity;
   for (const isle of islands) {
     const gap = islandDistance(p, isle);
@@ -113,6 +117,97 @@ function fallbackSpawn(map: MapShape, occupied: readonly Vec2[], offset: number)
     if (p) return p;
   }
   return { x: 0, y: 0 }; // mapgen INNER_FRACTION guarantee — island-free by construction
+}
+
+// ---------------------------------------------------------------------------
+// FLEET ANCHORS (Story 5.6, amendment 37) — the SIBLING placement path.
+// ---------------------------------------------------------------------------
+
+/** Samples drawn per anchor request. One pass, one tick; the retry budget
+ *  (CONFIG.fleet.spawnRetryTicks) is what turns this into a real search. */
+const FLEET_ANCHOR_SAMPLES = 256;
+
+/** One captain's intel disc — the region a fleet anchor must avoid. */
+export interface IntelDisc {
+  x: number;
+  y: number;
+  /** The captain's EFFECTIVE radar range (stats.radarRange — boon-widened). */
+  r: number;
+}
+
+/** An anchor answer. `fallback` = no sampled point cleared every intel disc,
+ *  so this is the plain max-min point instead (the caller decides whether to
+ *  accept it now or retry next tick, and LOGS it when it does — the wave
+ *  always arrives, and degrades visibly rather than silently). */
+export interface FleetAnchor {
+  x: number;
+  y: number;
+  fallback: boolean;
+}
+
+/** Is `p` inside ANY captain's intel disc? EXPORTED (Story 5.6, review gate)
+ *  so the per-hull scatter rejects the same region the anchor does — one
+ *  predicate, one place, no second derivation of "already in someone's
+ *  intel". */
+export function insideIntelDisc(p: Vec2, discs: readonly IntelDisc[]): boolean {
+  for (const d of discs) {
+    const dx = p.x - d.x;
+    const dy = p.y - d.y;
+    if (dx * dx + dy * dy <= d.r * d.r) return true;
+  }
+  return false;
+}
+
+/**
+ * Pick a fleet anchor inside the live ring (Story 5.6, amendment 37).
+ *
+ * NOT a variant of pickSpawn: that places ONE hull on the spawn RING at match
+ * start with no hard constraint at all (`occupied` only scores). This is the
+ * first placement in the codebase with a HARD constraint — *outside EVERY
+ * captain's intel disc* — over a region (a disc about the live ring's centre,
+ * which is offset and shrinking) rather than a circle, and it must be able to
+ * report infeasibility rather than silently returning a bad point.
+ *
+ * Uniform over the disc (sqrt radius), island-clear at the SAME clearance the
+ * spawn ring demands, scored max-min against `occupied` exactly as pickSpawn
+ * scores. Two bests are tracked in ONE pass: the best point that clears every
+ * intel disc, and the best island-clear point regardless — the latter is the
+ * ratified fallback, returned with `fallback: true`.
+ */
+export function pickFleetAnchor(
+  center: Vec2,
+  maxRadius: number,
+  islands: readonly Island[],
+  occupied: readonly Vec2[],
+  denied: readonly IntelDisc[],
+  rng: Rng,
+): FleetAnchor {
+  let best: Vec2 | null = null;
+  let bestScore = -Infinity;
+  let alt: Vec2 | null = null;
+  let altScore = -Infinity;
+  for (let i = 0; i < FLEET_ANCHOR_SAMPLES; i++) {
+    const a = rng.float(0, TAU);
+    const r = Math.sqrt(rng.next()) * maxRadius; // sqrt => uniform over the disc
+    const p = { x: center.x + Math.cos(a) * r, y: center.y + Math.sin(a) * r };
+    if (islandClearance(p, islands) <= SPAWN_ISLAND_CLEARANCE) continue;
+    const score = minDistTo(p, occupied);
+    if (score > altScore) {
+      alt = p;
+      altScore = score;
+    }
+    if (insideIntelDisc(p, denied)) continue;
+    if (score > bestScore) {
+      best = p;
+      bestScore = score;
+    }
+  }
+  if (best) return { x: best.x, y: best.y, fallback: false };
+  // Nothing cleared the discs. The max-min point is the ratified degradation;
+  // a map whose every sample is ashore falls back to the ring centre (the
+  // pickWaypoint precedent — push-out is survivable, no placement is not).
+  if (alt) return { x: alt.x, y: alt.y, fallback: true };
+  return { x: center.x, y: center.y, fallback: true };
 }
 
 /**

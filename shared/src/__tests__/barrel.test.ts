@@ -4,6 +4,8 @@ import {
   PROTOCOL_VERSION,
   CONFIG,
   DRONE_HULL_IDS,
+  fleetHullIds,
+  fleetLevels,
   MSG,
   SLOT_COUNT,
   effectiveStats,
@@ -137,6 +139,18 @@ describe('shared barrel', () => {
     // spectate five seconds early. CONFIG.ship.sinkingWindowMs (5000, all
     // classes — amendment 13) rides the welcome config snapshot; new shared
     // sim/sinking.ts rides the barrel.
+    // ROVING PvE FLEETS + THE BIGGER OCEAN (PV 36, Story 5.6, Eric rulings
+    // 2026-08-14, amendments 33-44): TWO independent wire breaks. (a)
+    // CONFIG.map.baseRadius 2400 -> 2800 — the same seed now builds a
+    // different ocean (the cycle-59 precedent), and the client sanity-checks
+    // welcome.mapRadius. (b) Contact gains an optional self-private trailing
+    // `aggro`: true only on a PvE fleet hull's row for the observer it has
+    // acquired, omitted otherwise (the sinkingUntil precedent) — discloses
+    // nothing spatially new, master perception invariant stays at exactly SIX
+    // exceptions. Also riding this bump: fleet hulls fit
+    // [gun, empty, empty, empty] (was the universal [gun, torpedo, mine,
+    // empty]); drone envelopes retune (hp 60/75/90, maxSpeed 40/35/30); the
+    // match-start drone fill is deleted (no more roster rows for drones).
     // SUDDEN DEATH — THE FINAL COLLAPSE (PV 35, Eric ruling 2026-08-14): the
     // storm timeline gains a FOURTH ring group whose ring is the terminal
     // ring's own center at radius 0 (marked at 14:00, closing 15:00-16:00, all
@@ -147,7 +161,7 @@ describe('shared barrel', () => {
     // 960_000): a stale client would derive the wrong rhythm from its own
     // bundled CONFIG.zone and the same zoneStartT. (NOT because CONFIG gained a
     // field: no client code reads `welcome.config` — see index.ts's PV 35 note.) and draw an open 660u safe circle over an all-storm map.
-    expect(PROTOCOL_VERSION).toBe(35);
+    expect(PROTOCOL_VERSION).toBe(36);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
@@ -238,7 +252,7 @@ describe('shared barrel', () => {
     expect(typeof polygonMaxRadius).toBe('function');
     // The return-grammar echo-size primitive (radar realism cycle, PV 26).
     expect(typeof perpendicularExtent).toBe('function');
-    expect(CONFIG.drones.medium.hp).toBe(100);
+    expect(CONFIG.drones.medium.hp).toBe(75); // RETUNED 100 -> 75 (Story 5.6, amendment 34)
   });
 
   it('re-exports the loadout + kinematics-fold systems (boost AND the 2.8 slow)', () => {
@@ -367,5 +381,36 @@ describe('shared barrel', () => {
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines
     expect(MSG.spend).toBe('u');
     expect('upgradePoints' in CONFIG).toBe(false);
+  });
+
+  // Story 5.6 (Eric rulings 2026-08-14, epic-5 amendment 33): the fleet
+  // composition (2 large + 3 medium + 4 small) is EXACT-XP BY CONSTRUCTION —
+  // 2(1/2) + 3(1/3) + 4(1/4) = 1 + 1 + 1 = 3.000 levels, and that identity
+  // holds exactly in IEEE754 (verified — 1/3 and its ×3 cancel exactly). This
+  // pin is deliberately `.toBe(3)`, not `.toBeCloseTo`: the point is that a
+  // composition edit which breaks the exact-XP property (e.g. changing medium
+  // count without re-solving the tier fractions) must fail the build outright
+  // rather than quietly start paying a fractional level.
+  it('CONFIG.fleet block + the exact-XP identity (Story 5.6, amendment 33)', () => {
+    expect(fleetLevels()).toBe(3);
+    const hulls = fleetHullIds();
+    expect(hulls).toHaveLength(9);
+    expect(hulls.filter((id) => id === 'droneLarge')).toHaveLength(2);
+    expect(hulls.filter((id) => id === 'droneMedium')).toHaveLength(3);
+    expect(hulls.filter((id) => id === 'droneSmall')).toHaveLength(4);
+    expect(Object.keys(CONFIG.fleet).sort()).toEqual([
+      'aimScatterU',
+      'composition',
+      'memoryMs',
+      'spawnRetryTicks',
+      'spreadU',
+      'waves',
+    ]);
+    expect(CONFIG.fleet.composition).toEqual({ large: 2, medium: 3, small: 4 });
+    expect(CONFIG.fleet.waves).toEqual([
+      { atMs: 60000, fleets: 3 },
+      { atMs: 300000, fleets: 2 },
+      { atMs: 540000, fleets: 1 },
+    ]);
   });
 });

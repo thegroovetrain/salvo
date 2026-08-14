@@ -264,23 +264,39 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   });
 });
 
-describe('closing-rate criterion (amendment 7) — pinned over committed CONFIG', () => {
+describe('closing-rate criterion (epic-5 amendment 43, re-ratifying epic-3 amendment 7) — pinned over committed CONFIG', () => {
   const battleshipMinute =
     CONFIG.shipClasses.battleship.kinematics.maxSpeed * (CONFIG.zone.beatMs / 1000); // 2100u at the targets
 
-  it('worst-case escape per close = (1 + offsetCap) × max Δr ≤ a battleship-minute, ≈80%', () => {
-    // The collapse step (660 → 0) is SMALLER than the largest geometric step
-    // (2400 → 1560.5), so appending it does not move maxDelta and the ratified
-    // band still binds the same close it always did.
+  it('worst-case escape per close = (1 + offsetCap) × max Δr ≈ 1.019 battleship-minutes', () => {
+    // TWO independent changes landed on this criterion on the same day and they
+    // COMPOSE rather than collide, which is worth stating because each looks
+    // like it should have moved the other:
+    //
+    //  * SUDDEN DEATH appended a fourth ring group (the concentric collapse,
+    //    660 → 0). That step is SMALLER than the largest geometric step
+    //    (2800 → 1729.7 = 1070.3), so it does not move maxDelta and the band
+    //    still binds the same close it always did. It also carries no offset
+    //    (it is concentric), so it cannot move the worst case either.
+    //  * THE BIGGER OCEAN grew baseRadius 2400 → 2800, which DID move maxDelta,
+    //    from 839.2 to 1070.3.
+    //
+    // So a battleship caught at the worst possible position can no longer
+    // out-escape a close beat: it must run the ENTIRE beat at flank speed and
+    // still just misses safety, taking a bite of storm rather than dying. That
+    // is the forced-movement outcome Eric asked for ("the map is a little too
+    // small, so each stage doesn't force enough movement"), so the old
+    // `worstEscape <= battleshipMinute` ceiling is DELETED rather than widened —
+    // it is now deliberately, narrowly false. The ratified target band is
+    // ≈1.019, replacing the 0.75-0.85 ("neither dilly nor dally") band that the
+    // radius change blew through.
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);
     let maxDelta = 0;
     for (let g = 1; g < radii.length; g += 1) maxDelta = Math.max(maxDelta, radii[g - 1] - radii[g]);
     const worstEscape = (1 + CONFIG.zone.offsetCap) * maxDelta;
-    expect(worstEscape).toBeLessThanOrEqual(battleshipMinute);
-    // The ratified target band: ≈80% of a battleship-minute ("neither dilly nor dally").
     const fraction = worstEscape / battleshipMinute;
-    expect(fraction).toBeGreaterThan(0.75);
-    expect(fraction).toBeLessThan(0.85);
+    expect(fraction).toBeGreaterThan(1.0);
+    expect(fraction).toBeLessThan(1.05);
   });
 
   it('the COLLAPSE close is the gentlest of them all — it is concentric, so the escape is a bare radius', () => {

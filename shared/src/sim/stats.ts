@@ -200,13 +200,22 @@ function baseStats(cls: ShipClass): EffectiveStats {
     sightRange: CONFIG.vision.sight,
     cooldownScale: 1, // base: the global cooldown scale is a no-op until shipCooldown stacks
     gun: {
-      reloadMs: CONFIG.gun.reloadMs,
+      // A PvE fleet envelope carries its own weaker gun (Story 5.6, epic-5
+      // amendment 34): damage 6/8/10 by size against a captain's 15, on a flat
+      // 5s cooldown. Read from the ENVELOPE so effectiveStats() stays the one
+      // derivation path — no hull id parameter, no post-construction mutation
+      // of ship.stats. Every real ship class omits `cls.gun` and so keeps
+      // CONFIG.gun verbatim, byte-identical to before this story.
+      reloadMs: cls.gun?.reloadMs ?? CONFIG.gun.reloadMs,
       maxAmmo: CONFIG.gun.maxAmmo,
       // Gun range IS radar range (Eric ruling 2026-07-21) — derived, never
       // duplicated; re-derived from radarRange post-fold in clampStats/
-      // applyBoonStats regardless of this seed.
+      // applyBoonStats regardless of this seed. Fleet ships are NOT clamped
+      // shorter here: they only ever fire at an acquired target, and
+      // acquisition already requires sight (330u) plus LOS, so their effective
+      // reach is bounded by the AI rather than by a second range constant.
       rangeU: CONFIG.vision.radar,
-      damage: CONFIG.gun.damage,
+      damage: cls.gun?.damage ?? CONFIG.gun.damage,
       contactDamage: CONFIG.gun.contactDamage,
       burstRadius: CONFIG.gun.burstRadius,
       barrels: 1, // base single mount — the TWIN/TRIPLE MOUNT ladder adds

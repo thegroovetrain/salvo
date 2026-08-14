@@ -3,7 +3,8 @@
 // the pure strict-overtake rule (game/bounty.ts) row by row — including the
 // tests that FAIL if the strict `>` comparison is ever weakened to `>=`, in
 // BOTH the vacant and the held direction — and the World wiring: the
-// captainKills tally (captains only, `kills` untouched), the pre-sink read,
+// `kills` tally (CAPTAIN victims only since Story 5.6 retired the redundant
+// `captainKills` split — amendment 38), the pre-sink read,
 // the `bty` flag on the sunk emission, the bonus XP grant, the recompute
 // seams (per sink, on removal), and the match-boundary reset.
 //
@@ -55,8 +56,8 @@ function captainKill(w: World, killer: string): void {
 /** A candidate snapshot. `afloat` is a test-authoring convenience only — the
  *  rule itself reads the LIFECYCLE (Story 5.1, amendment 2), so the flag is
  *  converted here, at the fixture, and nowhere in the module under test. */
-function cand(id: string, captainKills: number, afloat = true, isDrone = false): BountyCandidate {
-  return { id, lifecycle: afloat ? LIFECYCLE_ALIVE : sunkAt(0), isDrone, captainKills };
+function cand(id: string, kills: number, afloat = true, isDrone = false): BountyCandidate {
+  return { id, lifecycle: afloat ? LIFECYCLE_ALIVE : sunkAt(0), isDrone, kills };
 }
 
 // ---------- the pure rule: nextBountyHolder ------------------------------------
@@ -123,7 +124,7 @@ describe('nextBountyHolder — the strict-overtake throne rule (pure)', () => {
   });
 
   it('a NaN candidate can never clear the floor or be crowned (fail-closed on non-finite input)', () => {
-    // `c.captainKills <= floor` is false for NaN, so an unguarded eligibility
+    // `c.kills <= floor` is false for NaN, so an unguarded eligibility
     // test lets a NaN candidate slip past the "strict overtake only" skip and
     // become the running `best` as the first eligible entry.
     expect(nextBountyHolder('', [cand('a', NaN), cand('b', 0)])).toBe('');
@@ -138,27 +139,32 @@ describe('nextBountyHolder — the strict-overtake throne rule (pure)', () => {
 
 // ---------- the World wiring ---------------------------------------------------
 
-describe('World — captainKills tally and throne recompute (per sink, in sink order)', () => {
+describe('World — kill tally and throne recompute (per sink, in sink order)', () => {
   it('vacant, first captain kill: the killer takes the throne', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     place(w, 'b', 100, 0);
     expect(w.bountyId).toBe('');
     w.sinkShip('b', 'a');
-    expect(a.captainKills).toBe(1);
+    expect(a.kills).toBe(1);
     expect(w.bountyId).toBe('a');
   });
 
-  it('a DRONE kill advances kills but NEVER captainKills or the throne', () => {
+  it('a PvE kill advances NOTHING — not the tally, not the throne (amendment 38)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     captainKill(w, 'a'); // a holds at 1
     const before = a.kills;
     const d = place(w, 'd', 200, 0, 'droneMedium', true);
+    const xpBefore = a.xpMs;
     w.sinkShip('d', 'a');
-    expect(a.kills).toBe(before + 1); // the roster tally keeps counting drones
-    expect(a.captainKills).toBe(1); // the bounty ruler does not
+    // Story 5.6 amendment 38 REVERSES the 4.6 clause that kept `kills`
+    // counting drones: a PvE kill now lands in no tally at all...
+    expect(a.kills).toBe(before);
     expect(w.bountyId).toBe('a');
+    // ...while its XP still pays, which is the whole point of the split.
+    expect(a.xpMs).toBeGreaterThan(xpBefore);
+    expect(d.id).toBe('d');
   });
 
   it('held, a challenger reaching EXACTLY the incumbent count does not transfer (world direction)', () => {
@@ -236,16 +242,16 @@ describe('World — captainKills tally and throne recompute (per sink, in sink o
     expect(w.bountyId).toBe('');
   });
 
-  it('match restart: captainKills zeroes per hull and the throne clears', () => {
+  it('match restart: kills zeroes per hull and the throne clears', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     place(w, 'b', 50, 50);
     captainKill(w, 'a');
     expect(w.bountyId).toBe('a');
-    expect(a.captainKills).toBe(1);
+    expect(a.kills).toBe(1);
     w.resetForMatchStart();
     expect(w.bountyId).toBe('');
-    for (const s of w.ships.values()) expect(s.captainKills).toBe(0);
+    for (const s of w.ships.values()) expect(s.kills).toBe(0);
   });
 });
 
@@ -263,7 +269,7 @@ describe('World — respawn() re-evaluates the throne (the ready-room-only third
     expect(w.bountyId).toBe('a');
     w.sinkShip('a', 'b'); // b's fresh count (1) ties c (1) -> vacates
     expect(w.bountyId).toBe('');
-    expect(a.captainKills).toBe(2); // persists across the death (only redeployShip zeroes it)
+    expect(a.kills).toBe(2); // persists across the death (only redeployShip zeroes it)
     stepThroughRespawn(w);
     expect(isAfloat(a.lifecycle)).toBe(true);
     // a (2) is the unique strict maximum among the alive captains (b=1, c=1) —
@@ -284,7 +290,7 @@ describe('World — respawn() re-evaluates the throne (the ready-room-only third
     expect(w.bountyId).toBe('b');
     w.sinkShip('b', 'c'); // c reaches 1; a (2) is the unique alive max -> a crowned
     expect(w.bountyId).toBe('a');
-    expect(b.captainKills).toBe(3); // persists across the death
+    expect(b.kills).toBe(3); // persists across the death
     stepThroughRespawn(w);
     expect(isAfloat(b.lifecycle)).toBe(true);
     // b (3) strictly exceeds the incumbent a (2) — the ratified transfer
