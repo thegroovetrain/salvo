@@ -393,3 +393,58 @@ describe('boarding freeze — every phase gate flips on the same tick', () => {
     expect(gates(ctx.w)).toEqual({ damage: false, xp: false, helm: true, weapons: true, radar: true });
   });
 });
+
+// --- no late arrivals (Eric ruling 2026-08-15, amendment 10) ------------------
+
+describe('a queue-formed cohort is sealed', () => {
+  /** As setup(), but recording every lock/unlock the match asks the room for. */
+  function sealedSetup(timings: Partial<MatchTimings>): { ctx: Ctx; calls: string[] } {
+    const calls: string[] = [];
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const hooks: MatchHooks = {
+      lock: () => calls.push('lock'),
+      unlock: () => calls.push('unlock'),
+      broadcastResults: () => {},
+      disconnect: () => calls.push('disconnect'),
+    };
+    const m = new Match(w, { ...BASE, boardingGraceMs: GRACE_MS, ...timings }, hooks);
+    return { ctx: { w, m }, calls };
+  }
+
+  it('never unlocks when a captain leaves during the countdown', () => {
+    // The cohort was fixed the instant the queue formed the room, so a dip below
+    // minHumans must NOT re-open the door for a stranger. ArenaRoom additionally
+    // locks the room from birth, which this unit cannot observe.
+    const { ctx, calls } = sealedSetup({ expectedCaptains: 2 });
+    join(ctx, 'a');
+    join(ctx, 'b');
+    expect(ctx.m.phase).toBe('countdown');
+    ctx.m.onPlayerLeave('b');
+    expect(ctx.m.phase).toBe('waiting');
+    // Locked once, NEVER unlocked — and collapsed rather than left to strand the
+    // survivor in a sealed room that can never reach minHumans again.
+    expect(calls).toEqual(['lock', 'disconnect']);
+  });
+
+  it('a larger cohort losing one captain is untouched — it still has enough', () => {
+    const { ctx, calls } = sealedSetup({ expectedCaptains: 3 });
+    join(ctx, 'a');
+    join(ctx, 'b');
+    join(ctx, 'c');
+    expect(ctx.m.phase).toBe('countdown');
+    ctx.m.onPlayerLeave('c');
+    expect(ctx.m.phase).toBe('countdown'); // 2 left, still >= minHumans
+    expect(calls).toEqual(['lock']); // no collapse, no unlock
+  });
+
+  it('the dev/sandbox ready room still unlocks, exactly as it always has', () => {
+    // The compatibility contract: no expectedCaptains means nothing moved.
+    const { ctx, calls } = sealedSetup({});
+    join(ctx, 'a');
+    join(ctx, 'b');
+    expect(ctx.m.phase).toBe('countdown');
+    ctx.m.onPlayerLeave('b');
+    expect(calls).toEqual(['lock', 'unlock']);
+  });
+});

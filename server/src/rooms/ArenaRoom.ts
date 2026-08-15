@@ -287,6 +287,20 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (!sanitized.matchOverride?.sandbox) {
       this.match = new Match(this.world, this.timings(sanitized), this.matchHooks());
     }
+    // A QUEUE-FORMED room is SEALED FROM BIRTH (Eric ruling 2026-08-15: "No more
+    // late arrivals"). expectedCaptains is set only by StandardQueueRoom, and it
+    // means the cohort was fixed at the instant the queue formed — so the room is
+    // locked here rather than at startCountdown, and Match never unlocks it again.
+    //
+    // Locking does NOT interfere with the seats the queue is about to reserve:
+    // _reserveSeat checks maxClients and never consults `locked`, and the join
+    // path consumes a reservation without testing it either. Verified against
+    // @colyseus/core 0.17.10.
+    //
+    // In production this is defence in depth — ArenaRoom.onAuth already refuses
+    // every direct join without HC_DEV_OPTIONS — but it makes the guarantee
+    // STRUCTURAL rather than a property of one door being shut.
+    if (sanitized.expectedCaptains !== undefined) void this.lock();
 
     this.state = new ArenaState();
     this.state.mapSeed = seed;

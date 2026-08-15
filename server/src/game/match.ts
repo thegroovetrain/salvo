@@ -393,7 +393,24 @@ export class Match {
       this.phase = 'waiting';
       this.countdownEndT = 0;
       this.applyPolicy();
-      this.hooks.unlock();
+      // A QUEUE-FORMED room is never unlocked (Eric ruling 2026-08-15: "No more
+      // late arrivals"). Its cohort was fixed the moment the queue formed it, so
+      // re-opening the door here would let a stranger join a lobby that had
+      // already closed. The dev/sandbox ready room keeps unlocking exactly as it
+      // always has.
+      if (!this.boardingRoom) {
+        this.hooks.unlock();
+      } else {
+        // ...but a SEALED room that has fallen below minHumans can never refill,
+        // so returning it to `waiting` would strand the survivor in a frozen
+        // ocean with no exit but a page reload. It is only reachable by a
+        // 2-captain lobby losing one during the countdown (any larger cohort
+        // still has `enough`). Collapse the room instead: the survivor lands
+        // home and can re-queue. UNRULED — the honest alternative is to start
+        // anyway with one captain, which needs the solo-termination rule Story
+        // 6-5 still owes.
+        this.hooks.disconnect();
+      }
     }
   }
 

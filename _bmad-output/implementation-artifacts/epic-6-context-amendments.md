@@ -169,3 +169,37 @@ loop rather than offering a degraded version of the new one.
 Ledgered for Story 6.5: when Solo vs AI ships, it becomes the honest answer to "I want to play right
 now on my own", and this escape can be reconsidered — but not deleted casually, because a bot lobby
 is not the same instrument as an empty ocean when what you are measuring is the feel of one hull.
+
+## Amendment 10 — The cohort is sealed at forming. No late arrivals, structurally.
+**Source:** Eric, 2026-08-15.
+> "The timer is now 2:00. Once that timer is up, (or the room is full) the match begins. No more late
+> arrivals. Everyone loads in, then the timer counts down from 10."
+
+Mostly a restatement of amendments 2/3/8, which shipped as described. The one clause that was only
+INCIDENTALLY true is **"no more late arrivals"**, and this amendment makes it structural.
+
+Before: a queue-formed arena was created unlocked and public, and locked only at `startCountdown()`.
+Nobody could actually reach it, because `ArenaRoom.onAuth` refuses every direct join without
+`HC_DEV_OPTIONS` — but the guarantee rested entirely on that one door being shut, and on `createRoom`
+always minting a fresh room rather than reusing one.
+
+Now, two changes:
+- **Sealed from birth.** `ArenaRoom` locks itself in `finishCreate` whenever `expectedCaptains` is
+  set (which only `StandardQueueRoom` sets). Verified against `@colyseus/core` 0.17.10 and then
+  re-verified live: `_reserveSeat` checks `maxClients` and never consults `locked`, and the join path
+  consumes a reservation without testing it either — the queue smoke still seats 19 captains into a
+  room that was locked before a single seat existed.
+- **Never unlocked.** `Match`'s `countdown && !enough` branch previously called `hooks.unlock()`,
+  which would have re-opened a lobby that had already closed. It is now skipped for queue-formed
+  rooms. The dev/sandbox ready room keeps unlocking exactly as it always has.
+
+**A consequence that needed its own decision, flagged as UNRULED.** Sealing the room means a cohort
+that falls below `minHumans` can never refill. That is reachable only by a **2-captain lobby losing
+one during the 0:10 countdown** — any larger cohort still has `enough` and is untouched. Left alone,
+the survivor would sit in a frozen ocean forever with no exit but a page reload, so the room now
+**collapses** (`hooks.disconnect()`) and the survivor lands home able to re-queue.
+
+That is the orchestrator's call, not Eric's, and it is deliberately the conservative one: the honest
+alternative is to **start the match anyway with a single captain**, which cannot be done until Story
+6-5 supplies the solo-termination rule amendment 4 created (a lone captain afloat has no defined way
+to win or lose). If that rule lands first, this collapse should be revisited.
