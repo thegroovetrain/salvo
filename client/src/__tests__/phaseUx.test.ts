@@ -93,8 +93,28 @@ describe('spectateBannerText — FINDING 4', () => {
     expect(spectateBannerText('finished', 'someone-else', 'me')).toBe('MATCH OVER — SPECTATING');
   });
 
-  it('shows MATCH OVER once finished with no determined winner (empty winnerId)', () => {
-    expect(spectateBannerText('finished', '', 'me')).toBe('MATCH OVER — SPECTATING');
+  // STORY 6.3 / epic-6 amendment 14 — REPLACES the shipped assertion that an
+  // empty winnerId read `MATCH OVER — SPECTATING`. That case is not "no
+  // determined winner"; it is a DRAW, latched at the wipe tick since Story 5.2
+  // (epic-5 amendment 14), and it read identically to watching somebody else
+  // win. The resolution is unchanged — only the read moves.
+  it('shows DRAW once finished with an empty winnerId — every remaining captain sank on one tick', () => {
+    expect(spectateBannerText('finished', '', 'me')).toBe('DRAW — SPECTATING');
+    expect(spectateBannerText('finished', '', 'me')).not.toBe('MATCH OVER — SPECTATING');
+  });
+
+  it('a draw is read FIRST — an empty session id can never turn it into a victory', () => {
+    // The same ordering rationale as results.ts winnerBanner: a torn-down room
+    // with no session id would otherwise match the empty winner exactly.
+    expect(spectateBannerText('finished', '', '')).toBe('DRAW — SPECTATING');
+  });
+
+  it('keeps the register grammar — uppercase, em-dash separated', () => {
+    for (const [phase, winner] of [['active', ''], ['finished', 'me'], ['finished', 'other'], ['finished', '']] as const) {
+      const line = spectateBannerText(phase, winner, 'me');
+      expect(line).toBe(line.toUpperCase());
+      expect(line).toContain(' — ');
+    }
   });
 });
 

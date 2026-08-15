@@ -14,8 +14,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import type { ResultsMsg, ResultsRow } from '@salvo/shared';
 import {
+  BANNER_HUES,
+  bannerOutcome,
   closeResultsAsSpectate,
   DEATH_BANNER,
+  DRAW_BANNER,
   fmtDamage,
   hideResults,
   matchLogRow,
@@ -33,6 +36,7 @@ import {
   type ResultsOwn,
   type ResultsView,
 } from '../ui/results.js';
+import { CLIENT_CONFIG } from '../config.js';
 import type { MatchLogEntry, PersonalScore } from '../score.js';
 import { sanitizeName, NAME_MAX } from '../ui/home.js';
 import { textSafe } from '../util/color.js';
@@ -101,6 +105,44 @@ describe('winnerBanner', () => {
     // empty (no session, a torn-down room) must read the match's outcome rather
     // than claim a victory nobody won.
     expect(winnerBanner({ winnerId: '', rows: [] }, '')).toBe('DRAW');
+  });
+});
+
+// --- STORY 6.3: A DRAW MUST NOT LOOK LIKE A LOSS (epic-6 amendment 14) --------
+//
+// The draw's RESOLUTION has been correct since Story 5.2 and `winnerBanner`
+// above has always returned DRAW for it. What shipped wrong was the READ: the
+// banner rendered in AMBER, byte-identical to a loss, so the one outcome a
+// player could not tell apart from losing was the one where nobody won.
+describe('bannerOutcome / BANNER_HUES — three outcomes, three hues', () => {
+  it('takes the draw from the DESIGN.md `info` token, distinct from both victory and defeat', () => {
+    expect(BANNER_HUES.draw).toBe(CLIENT_CONFIG.colors.info);
+    expect(BANNER_HUES.draw).toBe(0x38bdf8); // DESIGN.md `info` #38BDF8
+    expect(BANNER_HUES.victory).toBe(CLIENT_CONFIG.colors.phosphor);
+    expect(BANNER_HUES.defeat).toBe(CLIENT_CONFIG.colors.amber);
+    expect(new Set(Object.values(BANNER_HUES)).size).toBe(3); // no two outcomes share a hue
+  });
+
+  it('reads a game-end DRAW banner as a draw, and victory/defeat exactly as before', () => {
+    const rows = [row('a', 1), row('b', 1)];
+    expect(bannerOutcome(view({ banner: DRAW_BANNER, rows, canSpectate: false }))).toBe('draw');
+    expect(bannerOutcome(view({ banner: 'VICTORY', victory: true, rows, canSpectate: false }))).toBe('victory');
+    expect(bannerOutcome(view({ banner: 'WINNER: A', rows, canSpectate: false }))).toBe('defeat');
+  });
+
+  it('a draw is read FIRST — an empty own id can never turn it into a victory', () => {
+    // Mirrors winnerBanner's own ordering rationale: `personalScoreFromResults`
+    // sets `winner = msg.winnerId === ownId`, so a torn-down room with no
+    // session id makes `victory` true against a drawn match.
+    const drawn = view({ banner: DRAW_BANNER, victory: true, rows: [], ownId: '', canSpectate: false });
+    expect(bannerOutcome(drawn)).toBe('draw');
+  });
+
+  it('an ELIMINATION is never a draw, whatever copy the caller carried', () => {
+    // bannerText() owns the death register: `rows: null` always renders SUNK, so
+    // the caller's banner field is not even read. Amber, exactly as it ships.
+    expect(bannerOutcome(view({ banner: DRAW_BANNER }))).toBe('defeat');
+    expect(bannerOutcome(view())).toBe('defeat');
   });
 });
 
@@ -397,6 +439,41 @@ describe('showResults — the game-end modal', () => {
     expect(text).toContain('VICTORY');
     expect(text).toContain('YOU WON');
     expect(text).not.toContain('PLACE #');
+  });
+
+  // STORY 6.3 / amendment 14 — the hue on the actual rendered banner, not just
+  // on the pure helper. The banner is the panel's first child.
+  const bannerEl = (): HTMLElement | undefined =>
+    document.getElementById('results-overlay')?.children[0]?.children[0] as HTMLElement | undefined;
+
+  it('renders a DRAW in `info` — never the amber a LOSS wears', () => {
+    const drawn: ResultsMsg = { winnerId: '', rows: [row('a', 1), row('b', 1)] };
+    showResults(view({ banner: winnerBanner(drawn, 'b'), rows: drawn.rows, canSpectate: false }), {
+      onSpectate: () => undefined,
+      onReturn: () => undefined,
+    });
+    expect(bannerEl()?.textContent).toBe(DRAW_BANNER);
+    expect(bannerEl()?.style.color).toBe(rgbOf(CLIENT_CONFIG.colors.info));
+    expect(bannerEl()?.style.color).not.toBe(rgbOf(CLIENT_CONFIG.colors.amber));
+    expect(bannerEl()?.style.color).not.toBe(rgbOf(CLIENT_CONFIG.colors.phosphor));
+  });
+
+  it('leaves VICTORY phosphor and DEFEAT amber exactly as they ship', () => {
+    showResults(view({ banner: 'VICTORY', victory: true, rows: msg.rows, canSpectate: false }), {
+      onSpectate: () => undefined,
+      onReturn: () => undefined,
+    });
+    expect(bannerEl()?.style.color).toBe(rgbOf(CLIENT_CONFIG.colors.phosphor));
+    hideResults();
+    showResults(view({ banner: winnerBanner(msg, 'b'), rows: msg.rows, canSpectate: false }), {
+      onSpectate: () => undefined,
+      onReturn: () => undefined,
+    });
+    expect(bannerEl()?.style.color).toBe(rgbOf(CLIENT_CONFIG.colors.amber));
+    hideResults();
+    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined }); // elimination
+    expect(bannerEl()?.textContent).toBe(DEATH_BANNER);
+    expect(bannerEl()?.style.color).toBe(rgbOf(CLIENT_CONFIG.colors.amber));
   });
 });
 

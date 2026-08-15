@@ -4,7 +4,7 @@
 // fallback and swaps to its hue once the roster syncs).
 
 import { afterEach, describe, it, expect } from 'vitest';
-import { CONFIG, REGATTA_HUES, hullSilhouette } from '@salvo/shared';
+import { CONFIG, DRONE_HULL_IDS, HULL_IDS, REGATTA_HUES, SHIP_CLASS_IDS, hullSilhouette } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   PLAYER_HUES,
@@ -62,6 +62,49 @@ describe('contactStyle / isDroneHull — drones wear greys', () => {
     expect(isDroneHull('battleship')).toBe(false);
     expect(contactStyle('battleship', 0)).toEqual({ stroke: C.players.lemon, fill: C.playerFills.lemon });
     expect(contactStyle('torpedoBoat', null)).toEqual(FALLBACK_STYLE);
+  });
+});
+
+// --- STORY 6.3: THE CLIENT'S SECOND PREDICATE, PINNED -------------------------
+//
+// Epic-6 amendment 13. The server's non-combatant answer is a FIELD
+// (`ShipRecord`'s ship-role seam) and that field is not on the wire — zero
+// occurrences in `shared/` — so the client tests the HULL ID instead. Two
+// independent predicates exist by necessity, and `deferred-work.md` has warned
+// since Story 5.6 that they must be kept in step.
+//
+// These pins are what make "in step" enforceable. They are written against
+// shared's own id tables rather than a literal list, so the failure mode is the
+// one that matters: a hull id added SERVER-SIDE (a fourth drone size, a fourth
+// pickable class) without a matching edit here fails a test rather than
+// silently mis-classifying a ship on the water — a new drone hull would render
+// in a personal hue and count as a contestant kill; a new class mistakenly
+// admitted would lose its captain's hue to the greys.
+//
+// Story 6.4's AI captains do NOT move this: a bot carries a real class hull id,
+// so it is a participant that is not a fleet hull, and it renders like any
+// captain. That is exactly what the second pin below asserts.
+describe('isDroneHull — pinned against the shared hull-id tables (amendment 13)', () => {
+  it('admits EXACTLY the shared DRONE_HULL_IDS set, over every hull id that exists', () => {
+    // Not "the three ids I remember" — every id shared declares, partitioned by
+    // shared's own drone table. Adding an id to either table without teaching
+    // this predicate about it breaks here.
+    for (const id of HULL_IDS) {
+      expect(isDroneHull(id)).toBe(DRONE_HULL_IDS.includes(id as (typeof DRONE_HULL_IDS)[number]));
+    }
+    expect(HULL_IDS.filter((id) => isDroneHull(id))).toEqual([...DRONE_HULL_IDS]);
+    expect(DRONE_HULL_IDS).toHaveLength(3);
+  });
+
+  it('never admits a pickable ship class — the shape Story 6.4 relies on', () => {
+    // A bot captain will carry one of these ids, which is why bots need no
+    // change here: a participant that is not a fleet hull keeps its personal
+    // hue, its nameplate and its kill-feed line.
+    for (const id of SHIP_CLASS_IDS) {
+      expect(isDroneHull(id)).toBe(false);
+      expect(contactStyle(id, 8)).toEqual({ stroke: C.players.cyan, fill: C.playerFills.cyan });
+    }
+    expect(HULL_IDS).toHaveLength(SHIP_CLASS_IDS.length + DRONE_HULL_IDS.length);
   });
 });
 
