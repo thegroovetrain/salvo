@@ -93,6 +93,9 @@ starts a 10 s countdown and goes live.
 - [ ] `server/src/app.config.ts` -- define the `queue` room.
 - [ ] `client/src/net/connection.ts` -- two-stage connect, timeout split, cancel support.
 - [ ] `client/src/ui/home.ts` -- queue status + CANCEL.
+- [ ] `server/src/game/match.ts` -- BOARDING gate: hold until roster reaches `expectedCaptains` or the boarding grace elapses, then start the 0:10 countdown -- amendment 8.
+- [ ] `server/src/game/world.ts` + `server/src/game/match.ts` -- helm / weapons / radar gates derived from `phase === 'active'` on the same line as `damageEnabled` -- one derivation point, amendment 8.
+- [ ] `client/src/**` -- boarding presentation: no radar paint, locked helm + weapons read as locked (not as denied), countdown unchanged -- amendment 8.
 - [ ] `server/scripts/queueSmoke.mjs` + `matchSmoke.mjs` -- prove the flow over real sockets.
 
 **Acceptance Criteria:**
@@ -103,6 +106,10 @@ starts a 10 s countdown and goes live.
 - Given `HC_DEV_OPTIONS` unset, when a client calls `joinOrCreate('arena')`, then it is rejected.
 - Given a stale `pv`, when the client joins the queue, then it is rejected at the queue door.
 - Given a queued captain, when they press CANCEL, then they leave the queue and the home is usable again without a reload.
+- Given a formed match, when captains are seated, then every one of them sees their own start location on the map while the roster is still filling, and the 0:10 countdown does not begin until the roster reaches `expectedCaptains`.
+- Given one seated captain never loads, when the boarding grace elapses, then the countdown starts anyway and the match is not held hostage.
+- Given a captain in boarding or countdown, when they push the helm, fire, or look at the scope, then the ship does not move, nothing fires, and no radar returns paint — and this reads as LOCKED rather than as a denied action.
+- Given the match goes active, when the first live tick runs, then helm, weapons, radar, damage and XP all become live together.
 
 ## Spec Change Log
 
@@ -116,11 +123,24 @@ and is already tested (the "legacy immediate countdown+lock" override). The `gat
 in the state machine, unreachable in production but still covered by its own tests. Deleting it would
 touch `phase.ts`, `chromeBar.ts`, `score.ts` and `settings.ts` for no behavioural gain.
 
-**Why no `expectedCaptains` handshake.** All seats are reserved in one tick and clients consume
-within ~1 s; a client that takes longer than the 10 s countdown would have lost its reservation at
-15 s anyway (`DEFAULT_SEAT_RESERVATION_TIME`). Verified: a locked room still accepts a pre-reserved
-seat — the join path checks `_reservedSeats` and never tests `locked` — so the countdown's `lock()`
-does not strand a slow joiner.
+**Boarding (amendment 8 — REVERSES this spec's original ruling).** This section previously argued no
+`expectedCaptains` handshake was needed, because seats are reserved in one tick and a straggler's
+reservation expires at 15 s regardless. Eric overruled that: the gate is real.
+
+The arena is created with `expectedCaptains` (the forming group's size, clamped to
+`[minHumans, playerCap]`) and **holds in a BOARDING state** until the roster reaches it — then runs
+the 0:10 countdown. A boarding grace backstops it so one client that never loads cannot hold the
+lobby; it must exceed the 15 s `DEFAULT_SEAT_RESERVATION_TIME`, because a seat that has already
+expired will never be consumed.
+
+**Boarding is frozen, not a ready room.** Movement locked, weapons locked, radar off, from drop until
+`active`. That is a change of direction, not a trim: today `waiting`/`countdown` let a player drive
+freely and fire with damage merely suppressed. The locks hang off the single line in `match.ts` that
+already derives world gates from phase (`w.damageEnabled = this.phase === 'active'`, `xpEnabled`
+beside it), keeping one derivation point rather than scattering phase checks.
+
+Still true and still load-bearing: a locked room accepts a pre-reserved seat — the join path checks
+`_reservedSeats` and never tests `locked` — so the countdown's `lock()` cannot strand a slow joiner.
 
 **Why `static onAuth` is the right place to close the arena door.** `matchMaker.reserveSeatFor` calls
 `_reserveSeat` directly and never invokes `callOnAuth`. So `onAuth` now runs *only* on direct

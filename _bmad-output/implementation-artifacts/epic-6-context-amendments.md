@@ -107,3 +107,35 @@ into it. What the queue buys is that the late friend waits *in a visible pool* r
 an empty ocean — honesty, not convergence. The actual convergence lever is the **timer**, and
 amendment 2 moves it from 45 s to 2:10. The ledger entry should be read with this correction
 attached; any future spec claiming the queue itself solved the playtest complaint is overclaiming.
+
+## Amendment 8 — Boarding: everyone drops in frozen, and the countdown waits for the last loader.
+**Source:** Eric, 2026-08-14, correcting the Story 6.1 implementation mid-flight.
+> "At 2:00 wait with at least 2, or at full lobby capacity, the game should drop everyone into their
+> start location on the map, with movement/weapons locked and radar off. Once everyone is loaded, the
+> 10 second countdown begins. Then the game starts."
+
+This **reverses an orchestrator ruling**, recorded plainly: spec-6-1's Design Notes had argued there
+was no need for an "everyone loaded" handshake, on the grounds that seats are reserved in one tick,
+clients consume within about a second, and a straggler's reservation expires at 15 s anyway. Eric
+wants the gate to be real. It is now a requirement, not an optimisation.
+
+Three things this settles that the earlier design did not:
+
+1. **There is a BOARDING state between seating and countdown.** The arena holds after creation until
+   the roster reaches `expectedCaptains` (passed by the queue at `createRoom`, clamped to
+   `[minHumans, playerCap]`), then starts the 0:10 countdown. A boarding grace is still required as a
+   backstop so one client that never loads cannot hold the lobby forever — it must exceed the 15 s
+   `DEFAULT_SEAT_RESERVATION_TIME`, since a seat that has expired is never going to be consumed.
+2. **The pre-live state is FROZEN, not a ready room.** Movement locked, weapons locked, radar off,
+   from drop until `active`. This finishes what amendment 1 started: the sailable weapons-safe ready
+   room is gone in production, and what replaces it is not a smaller ready room but a held start
+   line. Note the direction of change — today's `waiting`/`countdown` phases let a player drive
+   freely and fire with damage merely suppressed; that is now the dev/sandbox door's behaviour only.
+3. **Players see their start location before the match starts.** Spawn placement is therefore
+   disclosed during boarding, which is a deliberate, ruled change: your position on the ring is known
+   to you before the gun.
+
+Implementation seam, for the record: `match.ts` already funnels phase-derived world gates through one
+place (`w.damageEnabled = this.phase === 'active'`, and `xpEnabled` beside it). The movement, weapon
+and radar locks hang off that same line rather than being scattered, which keeps a single derivation
+point in the `effectiveStats()` tradition.
