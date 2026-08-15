@@ -2,7 +2,7 @@
 title: 'Story 6.3 — The Participants-Only Win Check'
 type: 'feature'
 created: '2026-08-15'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: 'fa3cb48'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -86,6 +86,16 @@ warnings: [oversized]
 ## Spec Change Log
 
 - **2026-08-15 — amendment 18 supersedes amendment 15's re-entry clause (Eric).** Finding: the orchestrator surfaced that front-of-pool re-entry required either a client-asserted flag (a queue-jump exploit) or cross-room state D8 forbids assuming. Eric: *"That doesn't provide any player value. I'd rather go back to the home screen and automatically join the next queue."* Amended: the survivor lands home and the CLIENT auto-joins the next queue; `StandardQueueRoom` and `queue.ts` are not touched. Known-bad state avoided: shipping a claimable `requeued` join option that lets any client jump the queue. KEEP: the arena→client signal and `MatchHooks.requeue()` still exist — the client must tell a collapsed cohort apart from a normal match-end disconnect — so amendment 17's PV 36 → 37 stands.
+
+## Review Triage Log
+
+- **Pass 1 (2026-08-15) — cross-model gate: Fable adversarial + Codex, run in parallel on `fa3cb48..HEAD`.** Triage: intent_gap 0, bad_spec 0, **patch 4** (2 confirmed defects + 2 hardenings), **defer 3** (ledgered), reject 0.
+  - **patch/high — the fail-closed guard was not fail-closed** (`ArenaRoom.ts` requeue hook). `String(err)` inside the catch HANDLER throws on a non-`Error` value, so the exception escaped `notifyRosterChanged` and the unconditional `disconnect()` never ran — stranding the sealed room the guard exists to protect. Codex [P2]; **Fable asserted the opposite** ("the disconnect is unconditional after it"). Orchestrator confirmed by reading. Fixed + regression test proven to fail without it.
+  - **patch/high — the old room's bindings survived the in-place teardown** (`main.ts` / `roomBindings.ts`). `Game.disposers` never collected `bindRoom`, and this story deliberately added a 1000ms race on `room.leave()`, so an abandoned-but-live room could deliver late events into callbacks closed over a destroyed stage. Codex [P2]; Fable enumerated DOM/window/ticker listeners and missed the Room's own. Fixed with a real disposer verified against installed `@colyseus/sdk` 0.17.43. Surfaced a second-order hazard: the SDK's `EventEmitter.remove` corrupts the handler array on a double-remove, so disposer idempotence is load-bearing and is pinned.
+  - **patch/low ×2 — hardenings.** `enterPort` moved inside `requeueToPort`'s try (the one chain step with no terminal fallback); `hideBanner()` on every entry to port (a failed re-queue could sit under a stale RECONNECTING banner).
+  - **defer ×3 → `deferred-work.md`.** A sealed room whose second captain never boards has no escape (collapse fires only from `countdown`); the spectate banner has no hue channel at all so the draw is distinguished there by copy alone (pre-existing); and `isParticipant` is permanently `!isFleetHull`, so the seam's only divergence point is `isHuman` with exactly two readers — 6.4 audits two sites, not sixty.
+  - **Fable CONFIRMED, non-code, merge-blocking:** three spec task-list items (ledger correction + both tracker stamps) were undone. All completed in `e369491`.
+  - **Held under attack, no defects found:** the client teardown leak hunt, the ~62 predicate re-pointings, the double-join/double-teardown guards, the `WinTrigger` deletion, and the draw path. `queue.ts`/`StandardQueueRoom.ts` verified byte-identical (amendment 18). `RequeueMsg` carries no world state — the master perception invariant still has exactly six exceptions.
 
 ## Design Notes
 
