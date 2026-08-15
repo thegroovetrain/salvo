@@ -129,7 +129,7 @@ function bareWorld(seed = 1, opts: WorldOptions = OPTS): World {
 }
 
 function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;

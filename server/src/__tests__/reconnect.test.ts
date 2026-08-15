@@ -50,6 +50,7 @@ function setup(ids: string[]): Harness {
     lock: () => calls.push('lock'),
     unlock: () => calls.push('unlock'),
     broadcastResults: () => calls.push('results'),
+    requeue: () => calls.push('requeue'),
     disconnect: () => calls.push('disconnect'),
   };
   const m = new Match(w, TIMINGS, hooks);

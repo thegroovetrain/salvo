@@ -81,6 +81,7 @@ import {
   type WakeRibbon,
 } from '@salvo/shared';
 import type { Decoy, LitZone, ShipRecord } from './world.js';
+import { isParticipant } from './participants.js';
 import type { MineState } from './equipment/index.js';
 
 // ---------------------------------------------------------------------------
@@ -1304,9 +1305,11 @@ function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
  *     hull, or wreck position sighted / owned-zone-covered;
  *   • CREDITED TO YOU (sunkCreditedTo — the amendment 17 shooter-only
  *     principle): you learn that anything you sank went down, drone included;
- *   • THE VICTIM IS A COMBATANT (`!wreck.isDrone`): every human captain's
- *     sinking reaches every client. This is the single site a future
- *     PvE/combat-bot distinction changes.
+ *   • THE VICTIM IS A COMBATANT (`isParticipant(wreck)`): every captain's
+ *     sinking reaches every client. This is the single site the PvE/combat-bot
+ *     distinction runs through, and since Story 6.3 it reads the PARTICIPANT
+ *     seam — so a 6.4 AI captain's sinking is public, exactly as a human's is,
+ *     with no edit here.
  * ANTI-LEAK RATIONALE for the public clause: the PUBLIC payload is IDENTITY
  * ONLY ({k,id,by?} — no position, class, hue, damage, or weapon field). Story
  * 5.6's `vcls` does not weaken that: it is stamped for the CREDITED KILLER
@@ -1333,7 +1336,7 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
   visible(ctx, e) {
     if (sunkWitnessed(ctx, e) || sunkCreditedTo(ctx, e)) return true;
     const wreck = ctx.ships.get(e.id);
-    return wreck !== undefined && !wreck.isDrone; // the public register: combatants only
+    return wreck !== undefined && isParticipant(wreck); // the public register: combatants only
   },
   materialize(ctx, e) {
     // ALWAYS a fresh object (the burstSignal discipline): KEY ORDER IS

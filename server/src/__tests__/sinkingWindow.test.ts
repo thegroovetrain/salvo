@@ -47,7 +47,7 @@ function bareWorld(seed = 11): World {
 }
 
 function place(w: World, id: string, x: number, y: number, cls: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, cls);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -448,6 +448,7 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
     lock: () => {},
     unlock: () => {},
     broadcastResults: (msg) => results.push(msg),
+    requeue: () => {},
     disconnect: () => {},
   };
   const m = new Match(w, TIMINGS, hooks);
@@ -455,7 +456,7 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
     w.addShip(id, id.toUpperCase());
     m.notifyRosterChanged();
   }
-  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, true);
+  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet');
   for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
     w.step();
     m.update();

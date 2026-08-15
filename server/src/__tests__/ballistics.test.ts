@@ -9,8 +9,8 @@ import { hullClearOffset, makeBallistic, muzzleSpawn } from '../game/equipment/b
 describe('hullClearOffset', () => {
   it("is half the FIRER's class hull length plus the projectile/trigger radius", () => {
     const w = new World(1);
-    const boat = w.addShip('a', 'A', false, 'torpedoBoat');
-    const battleship = w.addShip('b', 'B', false, 'battleship');
+    const boat = w.addShip('a', 'A', 'captain', 'torpedoBoat');
+    const battleship = w.addShip('b', 'B', 'captain', 'battleship');
     expect(hullClearOffset(boat, 2)).toBe(CONFIG.shipClasses.torpedoBoat.hull.length / 2 + 2);
     expect(hullClearOffset(battleship, CONFIG.mine.triggerRadius)).toBe(
       CONFIG.shipClasses.battleship.hull.length / 2 + CONFIG.mine.triggerRadius,
@@ -110,7 +110,7 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
 
   it('spawns strictly outside the own silhouette, hugging the boundary, on every bearing', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A', false, 'battleship');
+    const ship = w.addShip('a', 'A', 'captain', 'battleship');
     ship.state = { x: 40, y: -25, heading: 0.7, speed: 0 };
     const poly = transformPolygon(hullSilhouette('battleship'), 40, -25, 0.7);
     for (let i = 0; i < 16; i++) {
@@ -124,7 +124,7 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
 
   it('a concave bearing (mineLayer transom notch, dead astern) spawns in the OPEN cavity, outside the hull', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A', false, 'mineLayer');
+    const ship = w.addShip('a', 'A', 'captain', 'mineLayer');
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const poly = transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0);
     const p = muzzleSpawn(ship, Math.PI, CLEAR); // straight astern, through the notch cavity

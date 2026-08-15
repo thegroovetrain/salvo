@@ -659,7 +659,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     const { w, a } = zoneWorld();
     // A DRONE wreck isolates the zone clause: a human wreck would be visible
     // via the public register regardless (PV 23), a drone only when witnessed.
-    const d = w.addShip('db', 'DRONE-01', true, 'droneSmall');
+    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall');
     d.state.x = 900;
     d.state.y = 0;
     w.sinkShip('db');
@@ -683,7 +683,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     // The sunk row's zone clause is probed with a DRONE wreck: a human wreck
     // is now visible everywhere via the public-register clause (PV 23 — see
     // the dedicated suite below), so only a drone still isolates the zone term.
-    const d = w.addShip('db', 'DRONE-01', true, 'droneSmall');
+    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall');
     d.state.x = 900;
     d.state.y = 0;
     w.sinkShip('db');
@@ -720,7 +720,7 @@ describe('SIGNAL_REGISTRY — sunk: the public register (PV 23, 4th declared exc
 
   /** A drone wreck teleported far outside every range, sunk by `by`. */
   function sinkDroneFar(w: World, by?: string): void {
-    const d = w.addShip('d1', 'DRONE-01', true, 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
     d.state.x = 2000;
     d.state.y = 0;
     w.sinkShip('d1', by);

@@ -59,6 +59,7 @@ import {
   type ResultsRow,
 } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
+import { isHuman, isParticipant, type ShipRole } from './participants.js';
 
 /**
  * BOARDING GRACE (Story 6.1, epic-6 amendment 8) — the backstop under the
@@ -124,6 +125,18 @@ export interface MatchHooks {
   // PvE fleets arrive on their own wave clock, in the World.)
   /** Broadcast the one-time end-of-match results message. */
   broadcastResults(msg: ResultsMsg): void;
+  /**
+   * Tell everyone still aboard to REJOIN THE QUEUE rather than land home
+   * (Story 6.3, epic-6 amendment 15). Fired exactly once, from the sealed-room
+   * collapse branch of notifyRosterChanged and nowhere else, IMMEDIATELY
+   * BEFORE disconnect() — the survivor of a 2-captain cohort that lost its
+   * partner was one captain short through nobody's fault, and making them pay
+   * a full menu trip plus another 2:00 wait for someone else's disconnect is
+   * the thing Eric ruled out. The signal is best-effort: if it cannot be
+   * delivered the disconnect below still lands, which is exactly today's
+   * behaviour.
+   */
+  requeue(): void;
   /** Gracefully disconnect every client (room disposes via autoDispose). */
   disconnect(): void;
 }
@@ -181,19 +194,34 @@ export function shouldAbortOnTickError(consecutiveFailures: number, tolerance: n
 /**
  * How a match ended (amendment 53) — the abandonment classification the balance
  * evidence needs, so a quit-out match isn't read as a fought-out one:
- *   lastHumanSunk — a terminal SINKING left 0 humans alive (mutual destruction
- *                   or the last human sinking to storm/combat; the winner is
- *                   resolved by latest-sunk placement).
- *   lastHumanLeft — the terminal event was a DEPARTURE that left 0 humans alive
- *                   (the quit-out path: onPlayerLeave → win check).
+ *   lastHumanSunk — NO captain was left standing: mutual destruction, or the
+ *                   last captain sinking to storm/combat, or the last captain
+ *                   quitting out (which is recorded as a sink-at-leave-time and
+ *                   is therefore indistinguishable here BY DESIGN — see below).
  *   fieldCleared  — the winner is alive with everything else gone.
+ *
+ * `'lastHumanLeft'` IS RETIRED (Story 6.3, epic-6 amendment 16). It was
+ * UNREACHABLE through any real socket session: ArenaRoom steps the world and
+ * the match synchronously, so a departure can never land between a sink and the
+ * next win check, and the only thing that ever produced it was a unit test
+ * driving sink-then-leave with no tick between. Removed under the project's
+ * standing "no dead knob survives" rule rather than kept as a category only a
+ * synthetic test can reach — and the trigger plumbing that fed it went with it
+ * (there is no WinTrigger any more; classifyEnd reads the latched winner alone).
+ *
  * Telemetry only: this rides the `match.end` log line, never the wire.
  */
-export type MatchEndCause = 'lastHumanSunk' | 'fieldCleared' | 'lastHumanLeft';
+export type MatchEndCause = 'lastHumanSunk' | 'fieldCleared';
 
-/** What drove the win check that finished the match — the post-step sink scan
- *  or a client departure. Classification input only (see classifyEnd). */
-type WinTrigger = 'sink' | 'leave';
+/**
+ * WHAT THE MATCH RESOLVED TO (Story 6.3, amendment 16) — the discriminator
+ * `winnerClass` alone cannot carry, because null means BOTH "a genuine draw"
+ * and "the winner lookup missed", so no consumer could ever count draws.
+ * Authoritative: derived from the LATCHED winner resolution that finish()
+ * consumed (`winnerId === ''` is amendment 14's same-tick wipe), never from a
+ * roster re-scan.
+ */
+export type MatchOutcome = 'winner' | 'draw';
 
 /**
  * SAFETY-NET margin over the sinking window for the hard finish deadline —
@@ -245,6 +273,14 @@ export interface MatchEndSummary {
    *  no-survivor default ('lastHumanSunk'); durationS 0 + winnerClass null are
    *  what mark a summary as not-yet-finished. */
   endedBy: MatchEndCause;
+  /**
+   * WINNER OR DRAW (amendment 16) — the explicit discriminator, so a genuine
+   * same-tick wipe is countable instead of hiding inside `winnerClass: null`.
+   * Reads 'winner' on an UNFINISHED summary, exactly as `endedBy` reads its own
+   * pre-finish default: `durationS === 0` is what marks a summary
+   * not-yet-finished, and this field never becomes that flag.
+   */
+  outcome: MatchOutcome;
 }
 
 /**
@@ -261,20 +297,28 @@ export interface MatchEndSummary {
  * five-second window changes nothing about who won (D4's "later sinker wins"
  * clause is dead — with a flat window, sink-entry order IS founder order).
  *
- * Drones are not captains, and drones are not combatants — the same position
- * the Public Register took for `sunk` (CONFIG.xp.droneTierLevels pays a
- * fraction of a level where a captain pays a full one) and Story 4.6's bounty
- * throne took for `captainKills`. Neither of those is touched here:
- * ShipRecord.kills still counts drones for the roster/results tally.
+ * Fleet hulls are not captains, and they are not combatants — the same
+ * position the Public Register took for `sunk` (CONFIG.xp.droneTierLevels pays
+ * a fraction of a level where a captain pays a full one) and Story 4.6's
+ * bounty throne took for `captainKills`. Neither of those is touched here:
+ * ShipRecord.kills still counts fleet hulls for the roster/results tally.
+ *
+ * THE SEAM (Story 6.3, amendment 13): the win side of the old `isDrone` flag
+ * reads `isParticipant` — "does this hull CONTEST the outcome" — so a Story
+ * 6.4 AI captain wins, places and holds the finish exactly as a human does,
+ * with no edit here. `isHuman` is a DIFFERENT question and gates a different
+ * thing (minHumans / countdown arming — see humanCount).
  */
 function isAfloatCaptain(s: ShipRecord): boolean {
-  return !s.isDrone && isAfloat(s.lifecycle);
+  return isParticipant(s) && isAfloat(s.lifecycle);
 }
 
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
 interface Participant {
   name: string;
-  isDrone: boolean;
+  /** The hull's ROLE at activation (Story 6.3 — was the `isDrone` boolean).
+   *  Read only through participants.ts's predicates. */
+  role: ShipRole;
   hullId: HullId;
   kills: number;
   /** Victim drone hull id -> PvE hulls this combatant sank (amendment 44).
@@ -333,7 +377,7 @@ export class Match {
   // The outcome is still decided at sink-entry (amendment 14 holds verbatim:
   // "sinking does not affect the outcome") — but the TRANSITION to 'finished'
   // now waits for every sinking CAPTAIN's window. The first checkWin() to
-  // find ≤1 afloat captain writes ALL FOUR fields exactly once; every later
+  // find ≤1 afloat captain writes ALL THREE fields exactly once; every later
   // check only asks "may we finish yet?". Latched, never re-derived: the
   // loser's revenge shot can sink the pending winner mid-window without
   // moving the result — that hull still wins, and the match then waits for
@@ -348,7 +392,6 @@ export class Match {
    *  the latest-sunk human, else '' (the amendment-14 draw). finish() uses
    *  this verbatim — the win determination is never re-run. */
   private latchedWinnerId = '';
-  private latchedTrigger: WinTrigger = 'sink';
   /** Hard finish deadline (server ms) — the safety net, not the mechanism.
    *  Re-armed to now + window + margin at the latch and again at every
    *  post-latch CAPTAIN sink (the revenge case extends the legitimate hold),
@@ -406,9 +449,14 @@ export class Match {
         // ocean with no exit but a page reload. It is only reachable by a
         // 2-captain lobby losing one during the countdown (any larger cohort
         // still has `enough`). Collapse the room instead: the survivor lands
-        // home and can re-queue. UNRULED — the honest alternative is to start
-        // anyway with one captain, which needs the solo-termination rule Story
-        // 6-5 still owes.
+        // home and can re-queue. RULED SINCE (epic-6 amendment 15): the
+        // survivor goes back to the QUEUE rather than home — Eric took a third
+        // option amendment 10 never offered. requeue() is the signal, and it
+        // fires IMMEDIATELY BEFORE the collapse it annotates; the disconnect is
+        // unchanged, so an undelivered signal is no worse than today. This does
+        // NOT revive "start anyway with one captain", which still needs the
+        // solo-termination rule Story 6-5 owes.
+        this.hooks.requeue();
         this.hooks.disconnect();
       }
     }
@@ -427,8 +475,7 @@ export class Match {
     }
     this.world.removeShip(id);
     this.notifyRosterChanged();
-    // 'leave': a finish that falls out of THIS check was driven by a departure.
-    if (this.phase === 'active') this.checkWin('leave');
+    if (this.phase === 'active') this.checkWin();
   }
 
   /**
@@ -486,7 +533,7 @@ export class Match {
     if (this.phase === 'countdown' && this.world.now >= this.countdownEndT) this.activate();
     if (this.phase === 'active') {
       this.consumeSinks();
-      this.checkWin('sink');
+      this.checkWin();
     }
     if (this.phase === 'finished') this.maybeDisconnect();
   }
@@ -531,7 +578,7 @@ export class Match {
     for (const s of this.world.ships.values()) {
       this.participants.set(s.id, {
         name: s.name,
-        isDrone: s.isDrone,
+        role: s.role,
         hullId: s.hullId,
         kills: 0,
         pveKills: {},
@@ -560,7 +607,7 @@ export class Match {
     if (aliveWinner && !this.participants.has(aliveWinner.id)) {
       this.participants.set(aliveWinner.id, {
         name: aliveWinner.name,
-        isDrone: aliveWinner.isDrone,
+        role: aliveWinner.role,
         hullId: aliveWinner.hullId,
         kills: aliveWinner.kills,
         pveKills: { ...aliveWinner.pveKills },
@@ -579,7 +626,7 @@ export class Match {
     // the hold (the revenge sink, a late-consumed leave-tick event) and could
     // move a result amendment 14 froze at sink-entry.
     this.winnerId = this.latchedWinnerId;
-    this.endedBy = this.classifyEnd(aliveWinner, this.latchedTrigger);
+    this.endedBy = this.classifyEnd(aliveWinner);
     this.computePlacements();
     this.phase = 'finished';
     this.finishedAt = this.world.now;
@@ -588,15 +635,18 @@ export class Match {
   }
 
   /**
-   * endedBy classification (amendment 53). A survivor means the field was
-   * cleared regardless of what tripped the check — in a 2-human room one
-   * departure leaves the other captain standing on an empty ocean, which is a
-   * victory, not an abandonment. With NO human alive the trigger names the
-   * cause: the last hull left the room, or the last hull went down.
+   * endedBy classification (amendment 53, collapsed by amendment 16). A
+   * survivor means the field was cleared regardless of what tripped the check —
+   * in a 2-captain room one departure leaves the other standing on an empty
+   * ocean, which is a victory, not an abandonment. With NO captain alive the
+   * cause is always 'lastHumanSunk': a mid-match departure is recorded as a
+   * SINK at leave time (onPlayerLeave → recordSink), so the last hull leaving
+   * and the last hull going down are the same event in the sink order, and the
+   * `'lastHumanLeft'` category that tried to tell them apart could only ever be
+   * produced by a synthetic test (see MatchEndCause).
    */
-  private classifyEnd(aliveWinner: ShipRecord | undefined, trigger: WinTrigger): MatchEndCause {
-    if (aliveWinner) return 'fieldCleared';
-    return trigger === 'leave' ? 'lastHumanLeft' : 'lastHumanSunk';
+  private classifyEnd(aliveWinner: ShipRecord | undefined): MatchEndCause {
+    return aliveWinner ? 'fieldCleared' : 'lastHumanSunk';
   }
 
   // --- per-phase bookkeeping ---------------------------------------------------
@@ -665,7 +715,7 @@ export class Match {
     // cover it. Bounded by construction — each captain sinks at most once, so
     // the deadline can move at most (captain count) times, each to a fixed
     // offset from a sink-entry stamp, never sliding with the clock.
-    if (this.outcomeLatched && !this.participants.get(id)!.isDrone) this.armFinishDeadline();
+    if (this.outcomeLatched && this.participantAt(id)) this.armFinishDeadline();
   }
 
   /**
@@ -725,8 +775,8 @@ export class Match {
    * phase === 'active'. The finishDeadline term is the bounded safety net —
    * see FINISH_DEADLINE_MARGIN_MS.
    */
-  private checkWin(trigger: WinTrigger): void {
-    if (!this.outcomeLatched && !this.latchOutcome(trigger)) return;
+  private checkWin(): void {
+    if (!this.outcomeLatched && !this.latchOutcome()) return;
     if (this.holdsForSinkingCaptain()) return;
     this.finish();
   }
@@ -734,7 +784,7 @@ export class Match {
   /** Decide + freeze the outcome. False while >1 captain is afloat (nothing
    *  to decide yet); true means the latch is written and the match WILL
    *  finish with exactly these values. */
-  private latchOutcome(trigger: WinTrigger): boolean {
+  private latchOutcome(): boolean {
     const captains = this.afloatCaptains();
     if (captains.length > 1) return false;
     this.outcomeLatched = true;
@@ -742,7 +792,6 @@ export class Match {
     // Zero afloat: resolve latest-sunk-human / the amendment-14 draw NOW, on
     // the exact sink order the shipped sink-tick finish would have read.
     this.latchedWinnerId = captains[0]?.id ?? this.mutualDestructionWinner() ?? '';
-    this.latchedTrigger = trigger;
     this.armFinishDeadline();
     return true;
   }
@@ -752,7 +801,7 @@ export class Match {
   private holdsForSinkingCaptain(): boolean {
     if (this.world.now >= this.finishDeadline) return false; // safety net
     for (const s of this.world.ships.values()) {
-      if (!s.isDrone && isSinking(s.lifecycle)) return true;
+      if (isParticipant(s) && isSinking(s.lifecycle)) return true;
     }
     return false;
   }
@@ -829,9 +878,9 @@ export class Match {
       // Skip any already-placed winner — the mutual-destruction winner, and
       // (since the amendment-17 reversal) a latched winner the loser's revenge
       // shot put into the sink order mid-hold: they placed 1st above, sunk or
-      // not. Also skip every drone — drones are not combatants, so they hold
-      // no placement and get no row.
-      if (this.placements.has(id) || this.participants.get(id)?.isDrone) continue;
+      // not. Also skip every NON-PARTICIPANT — a fleet hull is not a
+      // combatant, so it holds no placement and gets no row.
+      if (this.placements.has(id) || !this.participantAt(id)) continue;
       this.placements.set(id, next++);
     }
   }
@@ -846,7 +895,7 @@ export class Match {
   private resultsMsg(): ResultsMsg {
     const rows: ResultsRow[] = [];
     for (const [id, p] of this.participants) {
-      if (p.isDrone) continue;
+      if (!isParticipant(p)) continue;
       rows.push({
         id,
         name: p.name,
@@ -894,7 +943,20 @@ export class Match {
       pveKillsByClass,
       stormDeaths: this.stormDeaths,
       endedBy: this.endedBy,
+      outcome: this.outcomeOf(finished),
     };
+  }
+
+  /**
+   * The outcome discriminator (amendment 16). Reads the LATCHED resolution
+   * verbatim — finish() copies `latchedWinnerId` into `winnerId`, and '' is
+   * amendment 14's same-tick wipe. Gated on `finished` so an unfinished match
+   * (whose `winnerId` is '' because nothing has resolved yet) is never
+   * mis-reported as a drawn one.
+   */
+  private outcomeOf(finished: boolean): MatchOutcome {
+    if (!finished) return 'winner';
+    return this.winnerId === '' ? 'draw' : 'winner';
   }
 
   private snapshotStats(ship: ShipRecord): void {
@@ -905,10 +967,29 @@ export class Match {
     p.damageDealt = ship.damageDealt;
   }
 
+  /**
+   * PEOPLE, not participants (Story 6.3, amendment 13). This is the ONE count
+   * that gates `minHumans` — the gathering window, the countdown arm/cancel and
+   * the boarding gate all read it — so it must mean *real connected captains*.
+   * A Story 6.4 AI captain contests the match but MUST NEVER count here: FR34
+   * forbids bot-fill in Standard, and a lobby that "reached 2" on a bot would
+   * start a match nobody asked for.
+   */
   private humanCount(): number {
     let n = 0;
-    for (const s of this.world.ships.values()) if (!s.isDrone) n += 1;
+    for (const s of this.world.ships.values()) if (isHuman(s)) n += 1;
     return n;
+  }
+
+  /**
+   * Does the ACTIVATION SNAPSHOT for `id` contest the outcome? An id with no
+   * snapshot reads TRUE, preserving the shipped `!participants.get(id)?.isDrone`
+   * semantics to the byte — an unknown id was never treated as a fleet hull.
+   * The single lookup every sink-order walk goes through.
+   */
+  private participantAt(id: string): boolean {
+    const p = this.participants.get(id);
+    return p === undefined || isParticipant(p);
   }
 
   /** Every captain still afloat — the ONLY collector over the win predicate. */
@@ -922,7 +1003,7 @@ export class Match {
   private latestSunkHuman(): string | undefined {
     for (let i = this.sinkOrder.length - 1; i >= 0; i--) {
       const id = this.sinkOrder[i];
-      if (!this.participants.get(id)?.isDrone) return id;
+      if (this.participantAt(id)) return id;
     }
     return undefined;
   }
@@ -961,7 +1042,7 @@ export class Match {
     if (last === undefined) return undefined;
     const lastAt = this.sinkTimes.get(last);
     for (const [id, at] of this.sinkTimes) {
-      if (id !== last && at === lastAt && !this.participants.get(id)?.isDrone) return undefined;
+      if (id !== last && at === lastAt && this.participantAt(id)) return undefined;
     }
     return last;
   }

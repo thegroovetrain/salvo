@@ -35,6 +35,7 @@ const SUMMARY: MatchEndSummary = {
   pveKillsByClass: { droneSmall: 3 }, // operator-only (amendment 44) — keyed by VICTIM hull
   stormDeaths: 1,
   endedBy: 'fieldCleared',
+  outcome: 'winner', // amendment 16's discriminator rides the same spread
 };
 
 // --- console.log spy (the logger's only sink) ---------------------------------
