@@ -1071,9 +1071,25 @@ export const CONFIG = {
 
   /** Match lifecycle. */
   match: {
-    countdown: 15000, // ms — ready-room countdown once minHumans reached
-    joinWindow: 30000, // ms — room stays open/joinable after minHumans before the countdown arms (gathering phase; Eric ruling 2026-08-02)
+    // ms — countdown once the seated roster reaches minHumans. 15000 -> 10000
+    // (Story 6.1, Eric ruling 2026-08-14): the queue now owns the wait, so this
+    // is only the final "MATCH STARTING" beat, not a gathering window.
+    countdown: 10000,
+    // ms — 30000 -> 0 (Story 6.1). The arena's own gathering window is RETIRED in
+    // production: StandardQueueRoom holds captains for queueTimerMs instead. Zero
+    // routes notifyRosterChanged straight from waiting to startCountdown via the
+    // pre-existing immediate-countdown path. The gathering phase itself is left in
+    // the state machine (still reachable via matchOverride, still tested) rather
+    // than deleted — see spec-6-1 Design Notes.
+    joinWindow: 0,
     minHumans: 2, // humans required to start the countdown
+    // ms — how long StandardQueueRoom holds a pool once it has armed at minHumans
+    // before forming the match (Eric ruling 2026-08-14: "a 2:00 countdown, and then
+    // the game starts (with a 10 second countdown)"). Reaching CONFIG.map.playerCap
+    // forms the match immediately and ignores the remainder. The deadline is set ONCE
+    // at arm time and is never extended by later joins — that is what closes the
+    // leave/rejoin hostage-cycling vector the 30 s gathering window carried.
+    queueTimerMs: 120000,
     fillTo: 20, // total ships at start (drones fill the rest) — 3.1 design target (amendment 7)
     // s — results overlay before the room disposes. 10 -> 45 (Story 5.3, epic-5
     // amendment 27): the old ceiling predates there being anything to READ on

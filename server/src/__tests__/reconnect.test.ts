@@ -16,7 +16,7 @@
 //     simulated under its last stored input (only removeShip clears the input
 //     store) and still counts in the win check.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CONFIG, LIFECYCLE_ALIVE, MSG, PROTOCOL_VERSION, sunkAt, type ResultsMsg, type ShipLifecycle } from '@salvo/shared';
 import { CloseCode, ServerError, ErrorCode } from 'colyseus';
 import { World } from '../game/world.js';
@@ -131,7 +131,20 @@ describe('protocolVersionError', () => {
   });
 });
 
+// Story 6.1 closed the arena's PUBLIC door: static onAuth now also rejects any
+// direct joinOrCreate('arena') unless HC_DEV_OPTIONS=1. The pv-gate assertions
+// below are about the OTHER half of that method, so they run with the dev door
+// open; the closed-door matrix itself lives in queue.test.ts.
 describe('ArenaRoom static onAuth (pv gate)', () => {
+  const previous = process.env.HC_DEV_OPTIONS;
+  beforeEach(() => {
+    process.env.HC_DEV_OPTIONS = '1';
+  });
+  afterEach(() => {
+    if (previous === undefined) delete process.env.HC_DEV_OPTIONS;
+    else process.env.HC_DEV_OPTIONS = previous;
+  });
+
   it('resolves truthy for a matching pv', async () => {
     await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION })).resolves.toBe(true);
   });

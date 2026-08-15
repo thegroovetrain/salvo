@@ -65,8 +65,10 @@ export interface ActivationContext {
  *  presses are never silent; 'empty-slot' and 'dead' both come from the
  *  gate, never from a row, and never reach the wire: the gate refuses a dead
  *  ship ('dead') and an empty/out-of-range slot ('empty-slot') before any
- *  row is dispatched. */
-export type ActivationDenial = 'no-ammo' | 'out-of-arc' | 'blocked' | 'empty-slot' | 'dead';
+ *  row is dispatched. 'frozen' (Story 6.1, amendment 8) is the third of that
+ *  kind — the BOARDING weapons lock, refused at the same gate and equally
+ *  wire-silent. */
+export type ActivationDenial = 'no-ammo' | 'out-of-arc' | 'blocked' | 'empty-slot' | 'dead' | 'frozen';
 
 /** Outcome of one activation attempt. */
 export type ActivationResult = { ok: true } | { ok: false; reason: ActivationDenial };

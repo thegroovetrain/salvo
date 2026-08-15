@@ -778,6 +778,36 @@ export class World {
   /** False = sinkShip schedules NO respawn (active phase: death → spectate). */
   respawnEnabled = true;
   /**
+   * THE BOARDING FREEZE (Story 6.1, epic-6 amendment 8) — three gates, one
+   * derivation (Match.applyPolicy, beside damageEnabled/xpEnabled), driven ONLY
+   * in a queue-formed room's pre-active phases. Eric: *"drop everyone into
+   * their start location on the map, with movement/weapons locked and radar
+   * off."*
+   *
+   * false = the helm is dead: applyInputs zeroes the APPLIED throttle/rudder
+   * (never the stored message) so a boarding hull cannot move or turn, while
+   * aim, slot and every seq keep tracking — the HUD stays live rather than
+   * frozen-weird, and nothing about the input contract changes.
+   */
+  helmEnabled = true;
+  /**
+   * false = NOTHING activates: the sinking-activation gate — the one call path
+   * to Equipment.activate() — refuses every press before any row is dispatched.
+   * This is strictly stronger than the ready room's damageEnabled=false, where
+   * shells really fly and merely land harmlessly: during boarding the
+   * activation never happens at all, so no ordnance, no mine, no ability and no
+   * reveal exists to be seen. Reloads keep ticking (fireControl's per-slot tick
+   * is untouched) exactly as they do in every other phase.
+   */
+  weaponsEnabled = true;
+  /**
+   * false = the RADAR SENSOR is off: advanceSweeps does not turn the beam and
+   * perception emits no blip of any kind (ship, decoy counter-intel, or wake).
+   * TRUESIGHT IS NOT AFFECTED — contacts, mines, lit zones and every other
+   * channel behave normally, because "radar off" is one sensor, not blindness.
+   */
+  radarEnabled = true;
+  /**
    * False = the PASSIVE XP tick is suppressed (Story 2.6, amendment 34: XP
    * accrues only while the match phase is 'active' — the ready room banks
    * nothing). The damageEnabled sibling in every respect, including its
@@ -2071,7 +2101,8 @@ export class World {
   ): DenialReason | null {
     if (denial === 'out-of-arc' || denial === 'blocked') return denial;
     if (denial === 'no-ammo') return channel === 'weapon' ? 'cooling' : 'no-ammo';
-    return null; // 'dead' / 'empty-slot' — gate refusals stay server-internal
+    // 'dead' / 'empty-slot' / 'frozen' — gate refusals stay server-internal
+    return null;
   }
 
   /** Copy each client's latest stored input onto its ship (kinematics stay
@@ -2085,6 +2116,14 @@ export class World {
         ship.input = inp;
         ship.lastAckSeq = inp.seq;
       }
+      // THE HELM LOCK (Story 6.1, amendment 8) — here in the INPUT PATH rather
+      // than as a skip of this whole method or a branch inside stepShips: the
+      // ship still takes the client's aim, slot and press counters (so the HUD
+      // and every seq grammar keep tracking), it just steers a neutral helm.
+      // The stored message is NEVER mutated — the InputStore hands out the same
+      // object every tick until a newer one arrives, so zeroing it in place
+      // would silently erase the client's real throttle for good.
+      if (!this.helmEnabled) ship.input = { ...ship.input, throttle: 0, rudder: 0 };
     }
   }
 
@@ -3379,6 +3418,14 @@ export class World {
     slotIndex: number,
     fireT: number = this.now,
   ): ActivationResult {
+    // THE WEAPONS LOCK (Story 6.1, amendment 8) sits at the TOP of the one call
+    // path to Equipment.activate(), so a boarding room has no second seam to
+    // forget: weapons, abilities and mine drops alike are refused before any
+    // row is dispatched, before a pool is touched and before a reload is armed.
+    // 'frozen' never reaches the wire (wireDenialReason maps it to null, like
+    // the gate's other two refusals) — a locked helm and a dark HUD already say
+    // the start line is held; a denial klaxon per click would be noise.
+    if (!this.weaponsEnabled) return { ok: false, reason: 'frozen' };
     if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return { ok: false, reason: 'dead' };
     const slot = ship.loadout[slotIndex];
     if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
@@ -3569,6 +3616,14 @@ export class World {
    * leading edge of everything painted this tick.
    */
   private advanceSweeps(dtMs: number): void {
+    // THE RADAR LOCK, half one (Story 6.1, amendment 8): a boarding room's beam
+    // does not turn. prevSweepAngle therefore equals sweepAngle, and every
+    // paint gate is the half-open window [prev, angle) — so this alone already
+    // makes sweptThisTick() answer false for every bearing. Perception keeps
+    // its own explicit gate anyway (half two): "no blip reaches any client" is
+    // an anti-cheat statement and must not rest on an emergent zero-width-arc
+    // argument that a later sweep refactor could quietly invalidate.
+    if (!this.radarEnabled) return;
     for (const ship of this.ships.values()) {
       // Per-ship EFFECTIVE period (sweepSpeed upgrade) — an upgraded sweep
       // completes a revolution (and thus paints everything) proportionally faster.

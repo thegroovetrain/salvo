@@ -2,9 +2,20 @@
 // imports; ArenaRoom is a thin adapter that forwards join/leave/tick and
 // implements the side-effect hooks). Phases:
 //
-//   waiting   — ready room. Ships spawn/drive/aim/FIRE freely (including mine
-//               drops), but all damage is suppressed (World.damageEnabled=
-//               false; target practice). Respawn works.
+//   waiting   — TWO ROOMS WEAR THIS PHASE (Story 6.1, epic-6 amendment 8), and
+//               which one you are in is decided by MatchTimings.expectedCaptains:
+//                 · BOARDING (expectedCaptains set — every queue-formed
+//                   production room): the held start line. Everyone is on the
+//                   water at their spawn, but the helm is dead, nothing
+//                   activates and the radar is off (truesight is NOT — "radar
+//                   off" means the sensor, not blindness). The countdown does
+//                   not arm until the whole seated group is aboard, or until
+//                   the boarding grace expires with >= minHumans present.
+//                 · READY ROOM (no expectedCaptains — the dev/sandbox door):
+//                   the shipped behavior, unchanged to the byte. Ships
+//                   spawn/drive/aim/FIRE freely (including mine drops), but all
+//                   damage is suppressed (World.damageEnabled=false; target
+//                   practice). Respawn works.
 //   gathering — ≥ CONFIG.match.minHumans humans present; the room stays
 //               UNLOCKED for joinWindowMs (CONFIG.match.joinWindow) so more
 //               captains can pile into the same room. Same weapons-safe
@@ -49,6 +60,24 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 
+/**
+ * BOARDING GRACE (Story 6.1, epic-6 amendment 8) — the backstop under the
+ * "wait for the last loader" gate: `boardingGraceMs` after the FIRST captain
+ * seats, the countdown arms anyway provided minHumans are aboard, so one client
+ * that never finishes loading cannot hold a formed lobby forever.
+ *
+ * IT MUST EXCEED Colyseus's 15s DEFAULT_SEAT_RESERVATION_TIME. A reservation
+ * the matchmaker has already expired is never going to be consumed, so a
+ * shorter grace would give up on a captain who is still legitimately
+ * connecting, while a much longer one only stares at a seat that can no longer
+ * arrive. 20s = that reservation window plus a 5s connect margin.
+ *
+ * It lives HERE rather than in shared CONFIG deliberately: it is a SERVER
+ * lifecycle timing, not a simulation tunable — no client derives anything from
+ * it, and it never travels on the wire.
+ */
+export const BOARDING_GRACE_MS = 20_000;
+
 /** Countdown/results timing. Overridable per-room via the DEV-ONLY matchOverride. */
 export interface MatchTimings {
   countdownMs: number;
@@ -58,6 +87,21 @@ export interface MatchTimings {
   joinWindowMs: number;
   /** Humans required to start the countdown. DEV override; defaults to CONFIG. */
   minHumans?: number;
+  /**
+   * BOARDING (amendment 8): how many captains the QUEUE seated into this room
+   * (sanitizeExpectedCaptains clamps it to [minHumans, playerCap]). Set => the
+   * room holds, FROZEN, until they are all aboard (or the grace expires), then
+   * runs the countdown.
+   *
+   * UNDEFINED IS THE COMPATIBILITY CONTRACT: no expectedCaptains means the
+   * dev/sandbox door (direct joinOrCreate, every headless smoke, every unit
+   * test), whose waiting room behaves EXACTLY as it always has — sailable,
+   * weapons-hot, damage merely suppressed. Amendment 8 retires that grammar for
+   * production play only; it survives there and only there.
+   */
+  expectedCaptains?: number;
+  /** Boarding backstop (see BOARDING_GRACE_MS). Overridable for tests. */
+  boardingGraceMs?: number;
 }
 
 export function defaultTimings(): MatchTimings {
@@ -65,6 +109,7 @@ export function defaultTimings(): MatchTimings {
     countdownMs: CONFIG.match.countdown,
     resultsMs: CONFIG.match.resultsSeconds * 1000,
     joinWindowMs: CONFIG.match.joinWindow,
+    boardingGraceMs: BOARDING_GRACE_MS,
   };
 }
 
@@ -257,6 +302,11 @@ export class Match {
   /** Killer-less sinks (storm deaths) observed during the active phase. */
   private stormDeaths = 0;
 
+  /** Server ms the FIRST captain came aboard, null before — the boarding
+   *  grace's base (see markBoardingStart). Meaningless in a non-boarding room,
+   *  where it is written but never read. */
+  private boardingSince: number | null = null;
+
   /** Terminal cause, written once in finish(). The pre-finish value is derived
    *  from the same winner-resolution state a sunk-out finish reads (no alive
    *  survivor, no winnerId), never from a clock or the room. */
@@ -319,16 +369,21 @@ export class Match {
     return this.timings.minHumans ?? CONFIG.match.minHumans;
   }
 
+  /** A QUEUE-FORMED room — the only rooms amendment 8's boarding applies to.
+   *  Everything conditional on this is exactly what keeps the dev/sandbox door
+   *  byte-identical to the shipped ready room. */
+  private get boardingRoom(): boolean {
+    return this.timings.expectedCaptains !== undefined;
+  }
+
   /** Call after any join (and after onPlayerLeave): opens/cancels the
    *  gathering window and starts/cancels the countdown. Joins during
    *  gathering deliberately change nothing — the window timer never resets. */
   notifyRosterChanged(): void {
+    this.markBoardingStart();
     const enough = this.humanCount() >= this.minHumans;
     if (this.phase === 'waiting' && enough) {
-      // joinWindowMs <= 0 collapses synchronously to the legacy behavior:
-      // straight to countdown + lock (smokes/tests/batch-sim fast path).
-      if (this.timings.joinWindowMs > 0) this.openGathering();
-      else this.startCountdown();
+      this.armFromWaiting();
     } else if (this.phase === 'gathering' && !enough) {
       // Back to waiting WITHOUT unlock(): the gathering room was never locked.
       this.phase = 'waiting';
@@ -338,7 +393,24 @@ export class Match {
       this.phase = 'waiting';
       this.countdownEndT = 0;
       this.applyPolicy();
-      this.hooks.unlock();
+      // A QUEUE-FORMED room is never unlocked (Eric ruling 2026-08-15: "No more
+      // late arrivals"). Its cohort was fixed the moment the queue formed it, so
+      // re-opening the door here would let a stranger join a lobby that had
+      // already closed. The dev/sandbox ready room keeps unlocking exactly as it
+      // always has.
+      if (!this.boardingRoom) {
+        this.hooks.unlock();
+      } else {
+        // ...but a SEALED room that has fallen below minHumans can never refill,
+        // so returning it to `waiting` would strand the survivor in a frozen
+        // ocean with no exit but a page reload. It is only reachable by a
+        // 2-captain lobby losing one during the countdown (any larger cohort
+        // still has `enough`). Collapse the room instead: the survivor lands
+        // home and can re-queue. UNRULED — the honest alternative is to start
+        // anyway with one captain, which needs the solo-termination rule Story
+        // 6-5 still owes.
+        this.hooks.disconnect();
+      }
     }
   }
 
@@ -359,8 +431,51 @@ export class Match {
     if (this.phase === 'active') this.checkWin('leave');
   }
 
+  /**
+   * THE BOARDING GATE (amendment 8): may the countdown arm yet? True the
+   * instant every seated captain is aboard, and true again once the grace has
+   * run out — that second clause is the backstop, not the mechanism, and it
+   * still needs `enough` from notifyRosterChanged (a grace expiry below
+   * minHumans arms nothing; the room simply keeps waiting).
+   *
+   * Without expectedCaptains this is a constant `true`, which is precisely why
+   * the dev/sandbox path through notifyRosterChanged is unchanged.
+   */
+  private boardingReady(): boolean {
+    const expected = this.timings.expectedCaptains;
+    if (expected === undefined) return true;
+    if (this.humanCount() >= expected) return true;
+    return (
+      this.boardingSince !== null &&
+      this.world.now >= this.boardingSince + (this.timings.boardingGraceMs ?? BOARDING_GRACE_MS)
+    );
+  }
+
+  /** Stamp the boarding grace's base the first time ANY captain is aboard.
+   *  Written once and NEVER moved by a later join, leave or rejoin — the same
+   *  anti-hostage posture the queue's armedAtMs takes (amendment 3). Nullable
+   *  rather than 0-sentinelled because a room's clock legitimately reads 0 at
+   *  the tick the first captain seats. */
+  private markBoardingStart(): void {
+    if (this.boardingSince === null && this.humanCount() > 0) this.boardingSince = this.world.now;
+  }
+
+  /** waiting + minHumans: hold for boarding, else take the shipped arm path. */
+  private armFromWaiting(): void {
+    if (!this.boardingReady()) return; // BOARDING HOLD — the last loader isn't in yet
+    // joinWindowMs <= 0 collapses synchronously to the legacy behavior:
+    // straight to countdown + lock (smokes/tests/batch-sim fast path).
+    if (this.timings.joinWindowMs > 0) this.openGathering();
+    else this.startCountdown();
+  }
+
   /** Advance the state machine one tick. Call right after world.step(). */
   update(): void {
+    // THE BOARDING BACKSTOP'S CLOCK (amendment 8). boardingReady() turns true
+    // on its own timer with no roster event to announce it, so a waiting
+    // boarding room re-runs the one gate that arms. Confined to queue-formed
+    // rooms so a dev/sandbox room's update() is byte-identical.
+    if (this.phase === 'waiting' && this.boardingRoom) this.notifyRosterChanged();
     if (this.phase === 'gathering' && this.world.now >= this.countdownEndT) {
       this.startCountdown();
       // Return so 'countdown' is synced to clients for at least one tick even
@@ -486,15 +601,43 @@ export class Match {
 
   // --- per-phase bookkeeping ---------------------------------------------------
 
-  /** World combat policy per phase: the ready room is weapons-hot but harmless.
-   *  Story 2.6 adds the XP policy on the same seam (amendment 34): passive XP
-   *  accrues in the ACTIVE phase only — the ready room and the post-match
-   *  freeze bank nothing. Kill credit is deliberately not policy-gated. */
+  /**
+   * World policy per phase — THE single derivation point (the effectiveStats()
+   * tradition): every phase-derived gate is written on these few lines and
+   * nothing downstream re-asks what phase it is.
+   *
+   * Historic rows: the ready room is weapons-hot but harmless (damageEnabled),
+   * and Story 2.6 hung the XP policy on the same seam (amendment 34) — passive
+   * XP accrues in the ACTIVE phase only, so the ready room and the post-match
+   * freeze bank nothing. Kill credit is deliberately not policy-gated.
+   *
+   * THE BOARDING FREEZE (Story 6.1, amendment 8) joins them rather than
+   * scattering phase checks into the World: in a QUEUE-FORMED room the
+   * pre-active phases are a held start line, so the helm is dead, nothing
+   * activates and the radar sensor is off. TRUESIGHT AND CONTACTS ARE
+   * UNTOUCHED — "radar off" is the sweep, not blindness; a hull inside the
+   * sight bubble is still visible, and spawn placement is disclosed on purpose
+   * (amendment 8, point 3).
+   *
+   * All five gates therefore flip on the SAME tick activate() runs (pinned by
+   * test): damage, xp, helm, weapons and radar. And in a room with no
+   * expectedCaptains — the dev/sandbox door — `frozen` is constantly false, so
+   * this function's output is byte-identical to the shipped one.
+   */
   private applyPolicy(): void {
     const w = this.world;
-    w.damageEnabled = this.phase === 'active';
-    w.respawnEnabled = this.phase === 'waiting' || this.phase === 'gathering' || this.phase === 'countdown';
-    w.xpEnabled = this.phase === 'active';
+    const live = this.phase === 'active';
+    const preActive = this.phase === 'waiting' || this.phase === 'gathering' || this.phase === 'countdown';
+    w.damageEnabled = live;
+    w.respawnEnabled = preActive;
+    w.xpEnabled = live;
+    // Pre-active ONLY, never re-applied at 'finished': amendment 8 rules the
+    // pre-live state and says nothing about the results window, which keeps
+    // today's behavior (the survivor may sail; damage is already off).
+    const frozen = this.boardingRoom && preActive;
+    w.helmEnabled = !frozen;
+    w.weaponsEnabled = !frozen;
+    w.radarEnabled = !frozen;
   }
 
   /** Record this tick's sink events (every participant) into the sink order. */

@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   deploySubline,
   homeYieldStyle,
+  queueStatusLine,
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
@@ -43,6 +44,44 @@ describe('serverStatusLine — probe reducer', () => {
     expect(serverStatusLine('probing')).toEqual({ text: 'SERVER: CHECKING…', tone: 'tertiary' });
     expect(serverStatusLine('ready')).toEqual({ text: 'SERVER: READY', tone: 'tertiary' });
     expect(serverStatusLine('unreachable')).toEqual({ text: 'SERVER: UNREACHABLE', tone: 'denied' });
+  });
+});
+
+describe('queueStatusLine — Story 6.1 queue liveness copy', () => {
+  it('says plainly that it is waiting when the pool is UNARMED (no phantom countdown)', () => {
+    // startsInMs is null below `min`: there is no deadline, so a countdown here
+    // would be a number that cannot fire.
+    expect(queueStatusLine({ n: 1, min: 2, cap: 20, startsInMs: null })).toEqual({
+      text: 'QUEUED 1/2 · AWAITING A SECOND CAPTAIN',
+      tone: 'info',
+    });
+  });
+
+  it('counts down the armed deadline in m:ss', () => {
+    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: 120_000 }).text).toBe(
+      'QUEUED 2 CAPTAINS · DEPLOY IN 2:00',
+    );
+    expect(queueStatusLine({ n: 7, min: 2, cap: 20, startsInMs: 65_000 }).text).toBe(
+      'QUEUED 7 CAPTAINS · DEPLOY IN 1:05',
+    );
+  });
+
+  it('CEILS the countdown — never 0:00 while time remains (chrome-bar grammar)', () => {
+    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: 1 }).text).toContain('0:01');
+    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: 0 }).text).toContain('0:00');
+    // A negative/overshot deadline clamps rather than printing a negative clock.
+    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: -500 }).text).toContain('0:00');
+  });
+
+  it('FAILS SAFE to the waiting line when a server omits startsInMs entirely', () => {
+    const bogus = { n: 1, min: 2, cap: 20 } as unknown as Parameters<typeof queueStatusLine>[0];
+    expect(queueStatusLine(bogus).text).toContain('AWAITING A SECOND CAPTAIN');
+    expect(queueStatusLine(bogus).text).not.toContain('NaN');
+  });
+
+  it('carries NO mode selector and NO liveness panel copy (both are Story 6.6)', () => {
+    const armed = queueStatusLine({ n: 4, min: 2, cap: 20, startsInMs: 30_000 }).text;
+    expect(armed).not.toMatch(/SOLO|MODE|VS AI/);
   });
 });
 
@@ -471,5 +510,57 @@ describe('showHome — status-line states via the handle', () => {
     expect(playButton().style.opacity).toBe('0.4');
     handle.setBusy(false);
     expect(playButton().style.opacity).toBe('1');
+  });
+
+  it('a PLAY press mid-queue RE-ASSERTS the live line rather than stamping CONNECTING…', () => {
+    // Never-silence, without blanking the queue readout: the line only refreshes
+    // when the server pushes, so a fixed CONNECTING… would hide the countdown
+    // until the next push.
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const onDeploy = vi.fn();
+    const handle = showHome('0.0.0-test', onDeploy);
+    handle.setBusy(true);
+    handle.setStatus('QUEUED 2 CAPTAINS · DEPLOY IN 1:05', 'info');
+    playButton().click();
+    expect(onDeploy).not.toHaveBeenCalled(); // still busy — no second join
+    expect(home().textContent).toContain('QUEUED 2 CAPTAINS · DEPLOY IN 1:05');
+    expect(home().textContent).not.toContain('CONNECTING…');
+  });
+});
+
+describe('showHome — the queue CANCEL affordance (Story 6.1)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => home()?.remove());
+
+  function cancelEl(): HTMLElement {
+    return home().querySelector('[title="Leave the queue"]') as HTMLElement;
+  }
+
+  it('is hidden until setCancel hands it a canceller, and hidden again after', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    expect(cancelEl().style.display).toBe('none');
+    handle.setCancel(vi.fn());
+    expect(cancelEl().style.display).toBe('inline');
+    handle.setCancel(null);
+    expect(cancelEl().style.display).toBe('none');
+  });
+
+  it('runs the canceller on click and on Enter — no reload path involved', () => {
+    const cancel = vi.fn();
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setCancel(cancel);
+    cancelEl().click();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    cancelEl().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('a withdrawn canceller cannot be fired by a stale click', () => {
+    const cancel = vi.fn();
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setCancel(cancel);
+    handle.setCancel(null);
+    cancelEl().click();
+    expect(cancel).not.toHaveBeenCalled();
   });
 });

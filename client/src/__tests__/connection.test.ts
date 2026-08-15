@@ -12,39 +12,60 @@ interface FakeRoom {
   onError: (cb: (code: number, message?: string) => void) => void;
   onLeave: (cb: (code: number) => void) => void;
   leave: () => Promise<void>;
+  left: number;
   send: (type: string, msg: unknown) => void;
   sent: Array<{ type: string; msg: unknown }>;
   fire: (type: string, msg: unknown) => void;
+  fireError: (code: number, message?: string) => void;
   fireLeave: (code: number) => void;
   has: (type: string) => boolean;
 }
 
 function fakeRoom(): FakeRoom {
   const handlers = new Map<string, (msg: unknown) => void>();
+  const errorHandlers: Array<(code: number, message?: string) => void> = [];
   const leaveHandlers: Array<(code: number) => void> = [];
   const sent: Array<{ type: string; msg: unknown }> = [];
-  return {
-    // The SDK's shipping defaults — connect() is expected to (re)assert these.
+  const self: FakeRoom = {
+    // The SDK's shipping defaults — connect() is expected to (re)assert these on
+    // the ARENA room and to leave them untouched on the QUEUE room (Story 6.1).
     reconnection: { enabled: true, maxRetries: 15 },
     onMessage: (type, cb) => void handlers.set(type, cb),
-    onError: () => undefined,
+    onError: (cb) => void errorHandlers.push(cb),
     onLeave: (cb) => void leaveHandlers.push(cb),
-    leave: () => Promise.resolve(),
+    leave: () => {
+      self.left++;
+      return Promise.resolve();
+    },
+    left: 0,
     send: (type, msg) => void sent.push({ type, msg }),
     sent,
     fire: (type, msg) => handlers.get(type)?.(msg),
+    fireError: (code, message) => errorHandlers.forEach((cb) => cb(code, message)),
     fireLeave: (code) => leaveHandlers.forEach((cb) => cb(code)),
     has: (type) => handlers.has(type),
   };
+  return self;
 }
 
+// Story 6.1: connect() is now a TWO-STAGE join — `joinOrCreate('queue')`, wait
+// for the seat reservation, then `consumeSeatReservation` into the arena. The
+// two fakes are the two rooms.
+let queue: FakeRoom = fakeRoom();
 let room: FakeRoom = fakeRoom();
+let lastJoinRoomName: string | undefined;
 let lastJoinOpts: Record<string, unknown> | undefined;
+let lastReservation: unknown;
 
 vi.mock('@colyseus/sdk', () => ({
   Client: class {
-    joinOrCreate(_name: string, opts?: Record<string, unknown>): Promise<FakeRoom> {
+    joinOrCreate(name: string, opts?: Record<string, unknown>): Promise<FakeRoom> {
+      lastJoinRoomName = name;
       lastJoinOpts = opts;
+      return Promise.resolve(queue);
+    }
+    consumeSeatReservation(res: unknown): Promise<FakeRoom> {
+      lastReservation = res;
       return Promise.resolve(room);
     }
   },
@@ -54,11 +75,14 @@ import {
   connect,
   connectErrorStatus,
   ensureColorPref,
+  isQueueCancelled,
   loadColorPref,
   loadHornPref,
   HORN_PREF_KEY,
+  QueueError,
   RECONNECT_MAX_RETRIES,
   __resetSessionColorPrefForTests,
+  type ConnectHooks,
 } from '../net/connection';
 
 // Module-level state in connection.ts (`sessionColorPref`) would otherwise leak
@@ -68,6 +92,9 @@ import {
 // ever run. Reset before EVERY test so each one starts from a clean cache.
 beforeEach(() => {
   __resetSessionColorPrefForTests();
+  queue = fakeRoom();
+  room = fakeRoom();
+  lastReservation = undefined;
 });
 
 /**
@@ -88,9 +115,19 @@ function cumulativeBackoffMs(attempts: number): number {
 const GRACE_MS = 60_000; // CONFIG.net.reconnectGraceSeconds
 const DROP_SKEW_MS = 5_000; // server-side drop-detection slack
 
-/** Drive connect() to a resolved connection, firing the welcome it awaits. */
-async function connectAndWelcome(): Promise<Awaited<ReturnType<typeof connect>>> {
-  const pending = connect('tester');
+/** An ISeatReservation-shaped payload — the client only ever forwards it. */
+const SEAT = { room: { roomId: 'arena-1', processId: 'p1' }, sessionId: 'arena-session' };
+
+/** Drive connect() through the queue: wait for the seat handler, hand out the
+ *  reservation, then fire the ARENA welcome it awaits. */
+async function connectAndWelcome(
+  hooks: ConnectHooks = {},
+): Promise<Awaited<ReturnType<typeof connect>>> {
+  const pending = connect('tester', undefined, hooks);
+  await vi.waitFor(() => {
+    if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
+  });
+  queue.fire(MSG.seat, SEAT);
   await vi.waitFor(() => {
     if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
   });
@@ -98,9 +135,162 @@ async function connectAndWelcome(): Promise<Awaited<ReturnType<typeof connect>>>
   return pending;
 }
 
+describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
+  it('joins the QUEUE first and reaches the arena only by consuming the seat', async () => {
+    const conn = await connectAndWelcome();
+    expect(lastJoinRoomName).toBe('queue');
+    // The reservation is forwarded VERBATIM — the client never inspects it.
+    expect(lastReservation).toEqual(SEAT);
+    // And the Connection describes the ARENA room, so bindRoom/buildGame see
+    // exactly what they saw before the queue existed.
+    expect(conn.room).toBe(room);
+    // The queue socket is dropped once the seat is in hand: the reservation is
+    // held by the matchMaker, not the queue room.
+    expect(queue.left).toBeGreaterThanOrEqual(1);
+  });
+
+  it('does NOT resolve until the ARENA welcome lands (the home must stay up)', async () => {
+    let settled = false;
+    const pending = connect('tester').then(
+      () => void (settled = true),
+      () => void (settled = true),
+    );
+    await vi.waitFor(() => {
+      if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
+    });
+    queue.fire(MSG.seat, SEAT);
+    // Seated, but no welcome yet: startGame() hides the home and stops the
+    // ambient scene the instant this resolves, so resolving here would drop the
+    // player onto a black canvas.
+    await vi.waitFor(() => {
+      if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
+    });
+    expect(settled).toBe(false);
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    await pending;
+    expect(settled).toBe(true);
+  });
+
+  it('never times out the QUEUE wait — only the arena handshake has a deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const pending = connect('tester').then(
+        () => void (settled = true),
+        () => void (settled = true),
+      );
+      await vi.advanceTimersByTimeAsync(0); // let the queue join resolve
+      // Well past WELCOME_TIMEOUT_MS (5s) AND past CONFIG.match.queueTimerMs
+      // (2:00): a pooled captain waits, and an unarmed pool waits indefinitely.
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(settled).toBe(false);
+      queue.fire(MSG.seat, SEAT);
+      await vi.advanceTimersByTimeAsync(0);
+      room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+      await pending;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('forwards queue liveness to onQueue and withdraws CANCEL once seated', async () => {
+    const seen: unknown[] = [];
+    const cancels: Array<(() => void) | null> = [];
+    await connectAndWelcome({
+      onQueue: (q) => void seen.push(q),
+      onQueued: (c) => void cancels.push(c),
+    });
+    // (the status push has to be fired before the seat to be observed, so this
+    // test only asserts the hook wiring; the liveness copy is home.test.ts's)
+    expect(cancels).toHaveLength(2);
+    expect(typeof cancels[0]).toBe('function'); // handed the canceller when pooled
+    expect(cancels[1]).toBeNull(); // withdrawn the moment the wait ends
+    expect(seen).toEqual([]);
+  });
+
+  it('pushes every queueStatus through onQueue while pooled', async () => {
+    const seen: unknown[] = [];
+    const pending = connect('tester', undefined, { onQueue: (q) => void seen.push(q) });
+    await vi.waitFor(() => {
+      if (!queue.has(MSG.queueStatus)) throw new Error('queue handler not yet registered');
+    });
+    queue.fire(MSG.queueStatus, { n: 1, min: 2, cap: 20, startsInMs: null });
+    queue.fire(MSG.queueStatus, { n: 2, min: 2, cap: 20, startsInMs: 120_000 });
+    expect(seen).toEqual([
+      { n: 1, min: 2, cap: 20, startsInMs: null },
+      { n: 2, min: 2, cap: 20, startsInMs: 120_000 },
+    ]);
+    queue.fire(MSG.seat, SEAT);
+    await vi.waitFor(() => {
+      if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
+    });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    await pending;
+  });
+
+  it('CANCEL leaves the queue and rejects as CANCELLED, not as a failure', async () => {
+    let cancel: (() => void) | null = null;
+    const pending = connect('tester', undefined, {
+      onQueued: (c) => {
+        if (c) cancel = c;
+      },
+    });
+    await vi.waitFor(() => {
+      if (!cancel) throw new Error('canceller not yet handed out');
+    });
+    (cancel as unknown as () => void)();
+    await expect(pending).rejects.toThrow(QueueError);
+    // The room the player deliberately left must not be re-reported as a drop:
+    // the rejection is the CANCEL, and the copy stays quiet.
+    await pending.catch((err) => {
+      expect(isQueueCancelled(err)).toBe(true);
+      expect(connectErrorStatus(err)).toMatch(/CANCELLED/);
+    });
+    expect(queue.left).toBe(1);
+  });
+
+  it('does not mistake the cancel-driven onLeave for a dropped connection', async () => {
+    let cancel: (() => void) | null = null;
+    const pending = connect('tester', undefined, {
+      onQueued: (c) => {
+        if (c) cancel = c;
+      },
+    });
+    await vi.waitFor(() => {
+      if (!cancel) throw new Error('canceller not yet handed out');
+    });
+    (cancel as unknown as () => void)();
+    queue.fireLeave(4000); // the leave() the cancel itself caused
+    await pending.catch((err) => expect(isQueueCancelled(err)).toBe(true));
+  });
+
+  it('reports a queue drop as a QUEUE failure, never as ":2567 is down"', async () => {
+    const pending = connect('tester');
+    await vi.waitFor(() => {
+      if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
+    });
+    queue.fireLeave(1006);
+    await pending.catch((err) => {
+      expect(isQueueCancelled(err)).toBe(false);
+      // The queue join SUCCEEDED, so the server is demonstrably reachable.
+      expect(connectErrorStatus(err)).not.toMatch(/:2567/);
+      expect(connectErrorStatus(err)).toMatch(/QUEUE CLOSED/);
+    });
+  });
+
+  it('reports a queue room error the same way', async () => {
+    const pending = connect('tester');
+    await vi.waitFor(() => {
+      if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
+    });
+    queue.fireError(500, 'queue exploded');
+    await pending.catch((err) => expect(connectErrorStatus(err)).toMatch(/QUEUE CLOSED/));
+  });
+});
+
 describe('connect', () => {
   it('enables SDK auto-reconnection with a grace-spanning retry budget (story 0.2)', async () => {
-    room = fakeRoom();
     const conn = await connectAndWelcome();
     expect(conn.room.reconnection.enabled).toBe(true);
     expect(conn.room.reconnection.maxRetries).toBe(RECONNECT_MAX_RETRIES);
@@ -111,16 +301,18 @@ describe('connect', () => {
     expect(cumulativeBackoffMs(conn.room.reconnection.maxRetries)).toBeGreaterThanOrEqual(
       GRACE_MS + DROP_SKEW_MS,
     );
+    // Story 6.1: the ARENA room ONLY. On the queue room auto-reconnect would
+    // re-join a pool the player has already been handed off from (or cancelled
+    // out of), so the queue is left on the SDK's own defaults.
+    expect(queue.reconnection.maxRetries).toBe(15);
   });
 
   it('rides the current PROTOCOL_VERSION as `pv` in the join options', async () => {
-    room = fakeRoom();
     await connectAndWelcome();
     expect(lastJoinOpts?.pv).toBe(PROTOCOL_VERSION);
   });
 
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {
-    room = fakeRoom();
     await connectAndWelcome();
     // ALWAYS sent (loadHornPref never returns undefined) and re-sanitized
     // server-side in onJoin, exactly like `cls`. Exactly one horn ships and no
@@ -129,8 +321,11 @@ describe('connect', () => {
   });
 
   it('rejects immediately when the socket closes during the welcome handshake', async () => {
-    room = fakeRoom();
     const pending = connect('tester');
+    await vi.waitFor(() => {
+      if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
+    });
+    queue.fire(MSG.seat, SEAT);
     await vi.waitFor(() => {
       if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
     });
@@ -139,7 +334,6 @@ describe('connect', () => {
   });
 
   it('echoes the server ping nonce immediately (D1 RTT measurement)', async () => {
-    room = fakeRoom();
     await connectAndWelcome();
     // The ping handler is registered pre-welcome (alongside the frame handler).
     expect(room.has(MSG.ping)).toBe(true);
@@ -330,7 +524,6 @@ describe('ensureColorPref — session cache when localStorage.setItem throws (re
   });
 
   it("is the SAME index connect() forwards as `colorPref` in its join options", async () => {
-    room = fakeRoom();
     const idx = ensureColorPref();
     await connectAndWelcome();
     // Before the fix, connect() read loadColorPref() directly (undefined in this

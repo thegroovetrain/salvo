@@ -28,6 +28,20 @@
 // Then kills its own server process group and verifies port 2599 is free.
 //
 // matchOverride is a dev tool — the real client never sets it.
+//
+// SCOPE SINCE STORY 6.1 — THIS SMOKE COVERS THE DEV DOOR. A production client
+// never reaches the arena this way any more: it queues into StandardQueueRoom
+// and arrives on a seat reservation (see queueSmoke.mjs, which proves that
+// path). `joinOrCreate('arena')` now survives only behind HC_DEV_OPTIONS=1 —
+// ArenaRoom.static onAuth rejects it outright otherwise — which is exactly the
+// door every headless smoke here uses, so nothing below changed. Read the
+// step-1 assertions with that scope attached: the gathering window and the
+// "a locked room scatters a late joiner into a FRESH room" behaviour are still
+// literally true OF THE DEV DOOR, and are worth keeping for it, but in
+// production CONFIG.match.joinWindow is 0 and the queue owns the wait instead
+// (epic-6 amendments 1, 2 and 7 — the queue does not fix scattering by
+// existing; the 2:00 pool timer is the lever that does).
+//
 // Run: node server/scripts/matchSmoke.mjs
 import { spawn } from 'node:child_process';
 import net from 'node:net';

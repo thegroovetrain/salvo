@@ -17,7 +17,28 @@ export const MSG = {
   results: 'r',
   spend: 'u', // client->server: spend one banked point (see SpendMsg)
   ping: 'p', // server->client PingMsg / client->server PongMsg echo (RTT measurement)
+  // Story 6.1 — StandardQueueRoom channels. These ride the QUEUE room, never the
+  // arena, so they are additive to the arena wire contract and do not move
+  // PROTOCOL_VERSION. Version compatibility for queued players is enforced at the
+  // queue's own door instead (matchMaker seat reservation bypasses onAuth, so the
+  // arena's gate never runs for them).
+  queueStatus: 'q', // server->client QueueStatusMsg (liveness + countdown)
+  seat: 'seat', // server->client: an ISeatReservation to consume into the arena
 } as const;
+
+/**
+ * Queue liveness, pushed on every change (Story 6.1).
+ *
+ * `startsInMs` is null until the pool ARMS at `min` captains; once armed it is a
+ * hard deadline that later joins never extend. A pool below `min` therefore shows
+ * a truthful "waiting for captains" state rather than a countdown that cannot fire.
+ */
+export interface QueueStatusMsg {
+  n: number; // captains currently pooled
+  min: number; // captains required to arm (CONFIG.match.minHumans)
+  cap: number; // captains that trigger an immediate form (CONFIG.map.playerCap)
+  startsInMs: number | null; // ms until the match forms; null while unarmed
+}
 
 /**
  * Match lifecycle phase (public plane — mirrored on the schema as matchPhase).

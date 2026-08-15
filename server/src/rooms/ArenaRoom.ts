@@ -43,7 +43,6 @@ import {
   sanitizeName,
   sanitizeRoomOptions,
   type JoinOptions,
-  type MatchOverride,
   type RoomOptions,
   type SanitizedRoomOptions,
 } from './roomOptions.js';
@@ -62,6 +61,13 @@ const MAX_OUTSTANDING_PINGS = 16;
 const MODE = 'arena';
 /** The zeroed "unrevealed" next-ring mirror (r 0 = no reveal — see ArenaState). */
 const ZERO_RING = Object.freeze({ cx: 0, cy: 0, r: 0 });
+/**
+ * Rejection message for a direct `joinOrCreate('arena')` (Story 6.1). Every
+ * production captain arrives through StandardQueueRoom's seat reservation
+ * instead; the direct door is dev-only (HC_DEV_OPTIONS=1) so the headless
+ * smokes can keep driving an arena without a queue in front of it.
+ */
+export const ARENA_DIRECT_JOIN_ERROR = 'this room is not joinable directly — use the queue';
 
 /**
  * Render a thrown value into log fields WITHOUT ever throwing ourselves:
@@ -129,18 +135,31 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxMessagesPerSecond = CONFIG.net.maxMessagesPerSecond;
 
   /**
-   * PROTOCOL_VERSION join gate (story 0.2). Static onAuth runs at matchmake
-   * time — BEFORE room lookup, seat reservation, or any socket work (verified
-   * in @colyseus/core MatchMaker.joinOrCreate → callOnAuth) — so a stale
-   * bundle is rejected with a message the menu renders instead of failing
-   * later at schema decode. matchMaker.reconnect() never calls onAuth, so a
-   * mid-match resume is not re-gated (the reconnection token is the auth).
-   * The thrown ServerError surfaces to the SDK's joinOrCreate promise as a
-   * MatchMakeError carrying this exact message + code.
+   * The arena's DIRECT door (story 0.2's PROTOCOL_VERSION gate + Story 6.1's
+   * closure). Static onAuth runs at matchmake time — BEFORE room lookup, seat
+   * reservation, or any socket work (verified in @colyseus/core
+   * MatchMaker.joinOrCreate → callOnAuth) — so a stale bundle is rejected with
+   * a message the menu renders instead of failing later at schema decode.
+   * matchMaker.reconnect() never calls onAuth, so a mid-match resume is not
+   * re-gated (the reconnection token is the auth). The thrown ServerError
+   * surfaces to the SDK's joinOrCreate promise as a MatchMakeError carrying
+   * this exact message + code.
+   *
+   * Story 6.1 — this method now runs ONLY on a direct `joinOrCreate('arena')`.
+   * matchMaker.reserveSeatFor / reserveMultipleSeatsFor call the room's
+   * `_reserveSeat` directly and never invoke callOnAuth, so a queue-routed
+   * captain never reaches here at all. That asymmetry cuts both ways: the PV
+   * gate had to be re-implemented on StandardQueueRoom's door (or it would
+   * silently stop running for every real player), and closing this door costs
+   * queue traffic nothing. Only the smokes (HC_DEV_OPTIONS=1) still join an
+   * arena directly.
    */
   static async onAuth(_token: string, options?: JoinOptions): Promise<boolean> {
     const error = protocolVersionError(options?.pv);
     if (error) throw new ServerError(ErrorCode.AUTH_FAILED, error);
+    if (process.env.HC_DEV_OPTIONS !== '1') {
+      throw new ServerError(ErrorCode.AUTH_FAILED, ARENA_DIRECT_JOIN_ERROR);
+    }
     return true;
   }
 
@@ -266,8 +285,22 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // mapgen/spawn/upgrade/drone streams by a fresh mixing constant.
     this.hueRng = mulberry32((seed ^ 0xc2b2ae35) >>> 0);
     if (!sanitized.matchOverride?.sandbox) {
-      this.match = new Match(this.world, this.timings(sanitized.matchOverride), this.matchHooks());
+      this.match = new Match(this.world, this.timings(sanitized), this.matchHooks());
     }
+    // A QUEUE-FORMED room is SEALED FROM BIRTH (Eric ruling 2026-08-15: "No more
+    // late arrivals"). expectedCaptains is set only by StandardQueueRoom, and it
+    // means the cohort was fixed at the instant the queue formed — so the room is
+    // locked here rather than at startCountdown, and Match never unlocks it again.
+    //
+    // Locking does NOT interfere with the seats the queue is about to reserve:
+    // _reserveSeat checks maxClients and never consults `locked`, and the join
+    // path consumes a reservation without testing it either. Verified against
+    // @colyseus/core 0.17.10.
+    //
+    // In production this is defence in depth — ArenaRoom.onAuth already refuses
+    // every direct join without HC_DEV_OPTIONS — but it makes the guarantee
+    // STRUCTURAL rather than a property of one door being shut.
+    if (sanitized.expectedCaptains !== undefined) void this.lock();
 
     this.state = new ArenaState();
     this.state.mapSeed = seed;
@@ -391,13 +424,23 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.world.spendPoint(client.sessionId, (raw as { choice?: unknown } | null)?.choice);
   }
 
-  private timings(override: MatchOverride | undefined): MatchTimings {
+  /**
+   * The room's lifecycle timings. `expectedCaptains` is the ONE field that is
+   * not an override: it arrives from the QUEUE at createRoom (already clamped
+   * by sanitizeExpectedCaptains) and switches the room into amendment 8's
+   * boarding behavior. Absent — which is every direct joinOrCreate, every
+   * headless smoke and every test — the Match runs exactly as it shipped.
+   */
+  private timings(sanitized: SanitizedRoomOptions): MatchTimings {
+    const override = sanitized.matchOverride;
     const base = defaultTimings();
     return {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
       joinWindowMs: override?.joinWindowMs ?? base.joinWindowMs,
       minHumans: override?.minHumans,
+      expectedCaptains: sanitized.expectedCaptains,
+      boardingGraceMs: base.boardingGraceMs,
     };
   }
 

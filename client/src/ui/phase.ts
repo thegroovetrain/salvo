@@ -2,19 +2,44 @@
 // renderer polls the public schema (matchPhase/countdownEndT/roster size) and
 // feeds it through matchUx() every frame; the HUD diffs the strings.
 
-import { CONFIG } from '@salvo/shared';
-
 /** What the phase layer of the HUD shows this frame. */
 export interface MatchUx {
   /** Top-center status line ('' when the phase needs none). */
   topLine: string;
-  /** Small tag under the status line ('WEAPONS SAFE' in the ready room). */
+  /** Small tag under the status line ('ALL STATIONS LOCKED' at the start line,
+   *  'WEAPONS SAFE' in the dev/sandbox ready room). */
   tag: string;
   /** Big center countdown text ('' unless counting down). */
   countdown: string;
 }
 
 const NONE: MatchUx = { topLine: '', tag: '', countdown: '' };
+
+/**
+ * THE HELD START LINE (Story 6.1, epic-6 amendment 8, Eric ruling 2026-08-14):
+ * *"drop everyone into their start location on the map, with movement/weapons
+ * locked and radar off. Once everyone is loaded, the 10 second countdown
+ * begins."*
+ *
+ * True for every pre-live phase the QUEUE puts a captain through — `waiting`
+ * (boarding: seated at spawn, holding for the last loader) and `countdown` — so
+ * the client's helm, trigger and scope present the same locks the server is
+ * applying, from drop until `active`.
+ *
+ * `gathering` is deliberately NOT held: amendment 2 retired that phase from
+ * production (`joinWindow: 0`) and amendment 8 leaves the sailable weapons-safe
+ * ready room standing as *"the dev/sandbox door's behaviour only"* — that door
+ * is the one place it is still reachable.
+ *
+ * The client is a MIRROR here, never an authority: the server owns every lock
+ * (match.ts's phase-derived world gates), and this predicate exists so nothing
+ * on screen contradicts them — a helm that answered locally would rubber-band
+ * against the next frame, and a denied pulse would blame the player for a door
+ * the match itself is holding shut.
+ */
+export function heldAtStartLine(phase: string): boolean {
+  return phase === 'waiting' || phase === 'countdown';
+}
 
 /** Seconds (ceil, floored at 0) until a server-time deadline. */
 export function secondsUntil(deadlineT: number, serverNow: number): number {
@@ -32,9 +57,21 @@ export function matchUx(
   serverNow: number,
 ): MatchUx {
   if (phase === 'waiting') {
+    // BOARDING (Story 6.1, amendment 8). The old `AWAITING CAPTAINS n/2` copy
+    // described the retired ready room — a lobby filling up while you sailed
+    // around it. The queue owns the wait now, so by the time this line is on
+    // screen the roster is already formed and every captain is loading into a
+    // spawn slot: the honest report is who is aboard, not how many are still
+    // needed. NO DENOMINATOR, for the same reason the gathering branch below
+    // has none — `expectedCaptains` is the queue's number and never reaches the
+    // client, so any denominator here would be a guess.
+    //
+    // The tag names the LOCKS rather than the damage rule: at the start line
+    // the helm, the trigger and the scope are all held (heldAtStartLine), which
+    // is strictly more than the `WEAPONS SAFE` the ready room meant.
     return {
-      topLine: `AWAITING CAPTAINS ${humans}/${CONFIG.match.minHumans}`,
-      tag: 'WEAPONS SAFE',
+      topLine: `CAPTAINS BOARDING — ${humans} ABOARD`,
+      tag: 'ALL STATIONS LOCKED',
       countdown: '',
     };
   }
@@ -50,9 +87,14 @@ export function matchUx(
     };
   }
   if (phase === 'countdown') {
+    // MATCH STARTING + the big centre count are unchanged (the shipped
+    // countdown presentation). Only the TAG moves, and it has to: the countdown
+    // is held exactly as boarding is (heldAtStartLine covers both), so a tag
+    // that softened from LOCKED back to WEAPONS SAFE at the 0:10 mark would
+    // read as the moment the helm came back — the opposite of what happens.
     return {
       topLine: 'MATCH STARTING',
-      tag: 'WEAPONS SAFE',
+      tag: 'ALL STATIONS LOCKED',
       countdown: String(secondsUntil(countdownEndT, serverNow)),
     };
   }

@@ -27,6 +27,20 @@
 // server-time estimate is inside the last frame's window (`t < slowedUntil`),
 // which makes localTick and replayFrom agree by construction.
 //
+// THE HELD START LINE (Story 6.1, epic-6 amendment 8) IS NOT IMPLEMENTED HERE,
+// AND DELIBERATELY SO. The server neutralizes throttle/rudder before stepping a
+// boarding hull, so prediction has to agree or the player fights a rubber-band
+// on every tick of boarding — but the agreement is achieved UPSTREAM, at
+// main.ts's `helmAxes`, which zeroes the axes before the InputMsg is built.
+// Both consumers of that message — the wire and this predictor's local tick —
+// therefore see the same dead helm, and the pending ring a reconcile replays is
+// made of those same zeroed inputs, so replay is frozen for free. Re-deriving
+// the phase lock in here would put a second authority on one rule (the desync
+// class effectiveStats() exists to prevent) and would need a match-phase
+// dependency this module has deliberately never had: it knows kinematics, not
+// lifecycle. If a hull ever moves while boarding, the bug is at the sampler
+// seam — the two `localTick` call sites — never in this file.
+//
 // THE SINKING WINDOW (Story 5.2, amendments 10/13/16): the self-private
 // you.sinkingUntil folds in per tick through the SHARED applySinkingDecel —
 // the identical function world.ts calls, the applyGroundingDamp precedent — so

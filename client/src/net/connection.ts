@@ -1,9 +1,17 @@
-// Colyseus connection: joinOrCreate('arena'), welcome handshake, and the
-// deterministic map rebuild from welcome.mapSeed (islands never travel on the
-// wire). Frames are routed through a mutable sink so roomBindings can attach
-// after the welcome resolves without re-registering message handlers.
+// Colyseus connection: the two-stage join (Story 6.1 — queue then arena), the
+// welcome handshake, and the deterministic map rebuild from welcome.mapSeed
+// (islands never travel on the wire). Frames are routed through a mutable sink
+// so roomBindings can attach after the welcome resolves without re-registering
+// message handlers.
+//
+// STAGE 1 is `StandardQueueRoom` ('queue'): every waiting captain pools there
+// until the queue forms a match and hands out a seat reservation. STAGE 2 is the
+// arena, entered by consuming that reservation. `connect()` does NOT resolve
+// until the ARENA welcome lands — startGame() hides the home and stops the
+// ambient scene the instant it resolves, so an early resolve would drop the
+// player onto a black canvas for the whole (minutes-long) queue wait.
 
-import { Client, type Room } from '@colyseus/sdk';
+import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
   generateMap,
   MSG,
@@ -14,11 +22,21 @@ import {
   type HornId,
   type GameMap,
   type PingMsg,
+  type QueueStatusMsg,
   type RadarGrammar,
   type RadarIdentity,
   type WelcomeMsg,
 } from '@salvo/shared';
 
+/**
+ * Deadline for the ARENA welcome handshake ONLY.
+ *
+ * It deliberately does not cover the queue wait: a pooled captain legitimately
+ * waits `CONFIG.match.queueTimerMs` (2:00) — indefinitely, while the pool is
+ * still below `minHumans` — so applying this to stage 1 would fail every healthy
+ * queue and report it as a dead server. The player's exit from the queue is
+ * CANCEL, not a timeout.
+ */
 const WELCOME_TIMEOUT_MS = 5000;
 
 /** localStorage key for the persisted Regatta color preference — same
@@ -216,9 +234,10 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
   });
 }
 
-/** Join the arena and complete the welcome handshake. Throws on failure. */
-export async function connect(name?: string, cls?: string): Promise<Connection> {
-  const client = new Client(wsEndpoint());
+/** The join options. Sent at the QUEUE door now (Story 6.1) — matchMaker's seat
+ *  reservation bypasses `onAuth`, so the arena's gate never runs for a queued
+ *  player and the queue re-implements both the `pv` gate and the sanitizers. */
+function joinOptions(name?: string, cls?: string): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
   // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
@@ -237,7 +256,134 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   // even when localStorage.setItem throws (blocked/private/quota storage). The
   // server assigns FCFS and re-sanitizes regardless.
   opts.colorPref = ensureColorPref();
-  const room = await client.joinOrCreate('arena', opts);
+  return opts;
+}
+
+/**
+ * A failure (or deliberate exit) that happened AFTER the queue room was joined —
+ * so it is NOT a "can the client reach the server" problem and must not report
+ * as one. `cancelled` marks the player's own CANCEL, which is not a failure at
+ * all: the caller un-busies the home and stays in port, with no reload.
+ */
+export class QueueError extends Error {
+  readonly cancelled: boolean;
+  constructor(message: string, cancelled = false) {
+    super(message);
+    this.name = 'QueueError';
+    this.cancelled = cancelled;
+  }
+}
+
+/** Did `connect()` reject because the player pressed CANCEL? (Not a failure.) */
+export function isQueueCancelled(err: unknown): boolean {
+  return err instanceof QueueError && err.cancelled;
+}
+
+/**
+ * Callbacks the connect flow drives while the player is POOLED in the queue.
+ * Both are optional so the staged/dev callers can ignore the queue entirely.
+ *
+ * `onQueued` is handed the canceller the moment the queue is joined, and `null`
+ * the moment the wait ends by ANY route (seat, error, cancel) — so the home's
+ * CANCEL affordance is on screen exactly while cancelling is meaningful.
+ */
+export interface ConnectHooks {
+  onQueue?: (status: QueueStatusMsg) => void;
+  onQueued?: (cancel: (() => void) | null) => void;
+}
+
+/**
+ * Wait in the pool until the queue forms a match and reserves us a seat.
+ *
+ * No timeout, deliberately (see WELCOME_TIMEOUT_MS). The three exits are the
+ * seat, a room error, and the player's CANCEL — plus a socket close, which is a
+ * genuine failure UNLESS we are the ones who closed it: a cancel leaves the room,
+ * so its own onLeave must not be re-reported as a dropped connection.
+ */
+function waitForSeat(room: Room, hooks: ConnectHooks): Promise<SeatReservation> {
+  return new Promise((resolve, reject) => {
+    let cancelled = false;
+    room.onMessage(MSG.queueStatus, (msg: QueueStatusMsg) => hooks.onQueue?.(msg));
+    room.onMessage(MSG.seat, (res: SeatReservation) => resolve(res));
+    room.onError((code, message) => reject(new QueueError(`queue error ${code}: ${message ?? ''}`)));
+    room.onLeave((code) => {
+      if (cancelled) return;
+      reject(new QueueError(`queue closed (code ${code})`));
+    });
+    hooks.onQueued?.(() => {
+      cancelled = true;
+      reject(new QueueError('cancelled', true));
+    });
+  });
+}
+
+/**
+ * Queue up, then join the arena on the seat the queue reserves and complete the
+ * welcome handshake. Throws on failure — and on the player's CANCEL, which is
+ * distinguished by `isQueueCancelled(err)`.
+ */
+/** `?direct=1` in the URL — the dev-only queue bypass. See acquireArena. */
+function directArenaRequested(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('direct') === '1';
+  } catch {
+    return false; // no window/location (tests, SSR) — never bypass
+  }
+}
+
+/**
+ * Get the ARENA room: normally by queueing for a seat, but on a dev build with
+ * `?direct=1` by joining the arena straight.
+ *
+ * The escape exists because the queue needs CONFIG.match.minHumans (2) captains
+ * before it forms anything, so a lone developer would otherwise sit at 1/2
+ * forever with no ocean at all — the pre-6.1 solo ready room (sail around,
+ * weapons safe) was the fastest way to evaluate feel and this keeps it. A room
+ * entered this way is NOT the frozen start line: the server only boards rooms
+ * the queue created (they carry expectedCaptains), so a direct join behaves
+ * exactly as it did before Story 6.1.
+ *
+ * Two independent locks keep it out of production: `import.meta.env.DEV` strips
+ * the branch from the bundle (NFR17), and the server refuses the direct door
+ * unless HC_DEV_OPTIONS=1, which only `npm run dev` sets.
+ */
+async function acquireArena(
+  client: Client,
+  opts: Record<string, unknown>,
+  hooks: ConnectHooks,
+): Promise<Room> {
+  if (import.meta.env.DEV && directArenaRequested()) return await client.joinOrCreate('arena', opts);
+  // STAGE 1 — the queue. A matchmake failure here is a real "can't reach the
+  // server" failure and keeps the generic status copy; everything AFTER the join
+  // succeeds is a QueueError instead (see connectErrorStatus).
+  const queue = await client.joinOrCreate('queue', opts);
+  let reservation: SeatReservation;
+  try {
+    reservation = await waitForSeat(queue, hooks);
+  } catch (err) {
+    void queue.leave().catch(() => undefined);
+    throw err;
+  } finally {
+    hooks.onQueued?.(null); // cancelling is no longer meaningful, by any route
+  }
+  // The reservation is held by the matchMaker, not by the queue room, so
+  // dropping the queue socket here is safe — and it keeps the player from
+  // holding a second connection open for the whole match.
+  void queue.leave().catch(() => undefined);
+  // STAGE 2 — the arena, entered through the reservation.
+  return await client.consumeSeatReservation(reservation);
+}
+
+export async function connect(
+  name?: string,
+  cls?: string,
+  hooks: ConnectHooks = {},
+): Promise<Connection> {
+  const client = new Client(wsEndpoint());
+  const opts = joinOptions(name, cls);
+  // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
+  // ARENA room, so bindRoom/buildGame see exactly what they always did.
+  const room = await acquireArena(client, opts, hooks);
   // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection
   // token (all onMessage bindings survive), landing on onReconnect. The server
@@ -250,6 +396,9 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   //       retry is refused by the server and the SDK gives up in ~200ms, no loop;
   //   (2) exhaustion — against an unreachable server the retries run out across
   //       the whole grace span before giving up.
+  // Story 6.1: this is set on the ARENA room ONLY. On the queue room it would
+  // auto-rejoin a pool the player has already been handed off from (or has
+  // deliberately cancelled out of), so the queue keeps the SDK's own defaults.
   room.reconnection.enabled = true;
   room.reconnection.maxRetries = RECONNECT_MAX_RETRIES;
   const sink: FrameSink = { handler: () => undefined };
@@ -282,8 +431,16 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
  * The exact-phrase fallback covers only errors that carry no code (e.g. a
  * welcome timeout is a plain Error). Every other failure keeps the dev-friendly
  * "is the server running" hint rather than leaking a raw socket error.
+ *
+ * Story 6.1 adds the queue branch FIRST: once the queue room has been joined the
+ * server is demonstrably reachable, so a drop or error while pooled must stop
+ * reading as ":2567 is down". A CANCEL comes through the same door (it rejects
+ * `connect()`), and it is not a failure at all — the caller paints it quiet.
  */
 export function connectErrorStatus(err: unknown): string {
+  if (err instanceof QueueError) {
+    return err.cancelled ? 'QUEUE CANCELLED — STILL IN PORT' : 'QUEUE CLOSED — PLEASE TRY AGAIN';
+  }
   const code = (err as { code?: unknown } | null | undefined)?.code;
   const msg = err instanceof Error ? err.message : String(err ?? '');
   const isVersionGate = code === 525 || (code == null && /version mismatch/i.test(msg));
