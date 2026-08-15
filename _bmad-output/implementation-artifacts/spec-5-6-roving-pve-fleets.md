@@ -1,6 +1,6 @@
 ---
 title: 'Story 5.6: Roving PvE Fleets + the bigger ocean'
-status: 'ready-for-dev'
+status: 'done'  # 2026-08-14 cycle 83 (0.17.83), PV 35->36; frontmatter drift corrected at the epic-5 retro
 story: 5-6
 epic: 5
 warnings: [multiple-goals]
