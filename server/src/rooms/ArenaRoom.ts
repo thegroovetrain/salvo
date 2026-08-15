@@ -43,7 +43,6 @@ import {
   sanitizeName,
   sanitizeRoomOptions,
   type JoinOptions,
-  type MatchOverride,
   type RoomOptions,
   type SanitizedRoomOptions,
 } from './roomOptions.js';
@@ -286,7 +285,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // mapgen/spawn/upgrade/drone streams by a fresh mixing constant.
     this.hueRng = mulberry32((seed ^ 0xc2b2ae35) >>> 0);
     if (!sanitized.matchOverride?.sandbox) {
-      this.match = new Match(this.world, this.timings(sanitized.matchOverride), this.matchHooks());
+      this.match = new Match(this.world, this.timings(sanitized), this.matchHooks());
     }
 
     this.state = new ArenaState();
@@ -411,13 +410,23 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.world.spendPoint(client.sessionId, (raw as { choice?: unknown } | null)?.choice);
   }
 
-  private timings(override: MatchOverride | undefined): MatchTimings {
+  /**
+   * The room's lifecycle timings. `expectedCaptains` is the ONE field that is
+   * not an override: it arrives from the QUEUE at createRoom (already clamped
+   * by sanitizeExpectedCaptains) and switches the room into amendment 8's
+   * boarding behavior. Absent — which is every direct joinOrCreate, every
+   * headless smoke and every test — the Match runs exactly as it shipped.
+   */
+  private timings(sanitized: SanitizedRoomOptions): MatchTimings {
+    const override = sanitized.matchOverride;
     const base = defaultTimings();
     return {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
       joinWindowMs: override?.joinWindowMs ?? base.joinWindowMs,
       minHumans: override?.minHumans,
+      expectedCaptains: sanitized.expectedCaptains,
+      boardingGraceMs: base.boardingGraceMs,
     };
   }
 

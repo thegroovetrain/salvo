@@ -561,6 +561,47 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     press('KeyD');
     expect(kb.axes()).toEqual({ throttle: 0.25, rudder: 1 });
   });
+
+  it('slot keys are SUSPENDED by the non-modal combat lockout too (Story 6.1 start line)', () => {
+    const pressed: number[] = [];
+    let held = true;
+    kb = new KeyboardInput({
+      isCombatLocked: () => held,
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: (slot) => slot === 2,
+      onAbility: (slot) => pressed.push(slot),
+    });
+    kb.attach();
+    expect(press('KeyQ')).toBe(true); // still prevented (bound key)…
+    expect(press('KeyR')).toBe(true);
+    expect(kb.primedSlot).toBe(SLOT_GUN); // …but no prime
+    expect(pressed).toEqual([]); // …and no ability queue — nothing rides an input
+    expect(kb.pendingActivationCount).toBe(0);
+    held = false; // the match went live → keys live again
+    press('KeyQ');
+    expect(kb.primedSlot).toBe(1);
+  });
+
+  it('F SURVIVES the combat lockout — the horn is neither movement, weapons nor radar', () => {
+    // Epic-6 amendment 8 locks exactly three things and the foghorn is none of
+    // them, which is precisely why the start line got its own hook instead of
+    // riding isModalOpen (that one DOES suspend F — see the foghorn suite).
+    let honks = 0;
+    kb = new KeyboardInput({ onFoghorn: () => (honks += 1), isCombatLocked: () => true });
+    kb.attach();
+    press('KeyF');
+    expect(honks).toBe(1);
+  });
+
+  it('the helm keys are untouched by the combat lockout (main.ts owns the movement lock)', () => {
+    // The dead helm at the start line is helmAxes(), upstream of the wire AND
+    // the predictor — this adapter must not grow a second opinion about it.
+    kb = new KeyboardInput({ isCombatLocked: () => true });
+    kb.attach();
+    press('KeyW');
+    press('KeyD');
+    expect(kb.axes()).toEqual({ throttle: 0.25, rudder: 1 });
+  });
 });
 
 describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {

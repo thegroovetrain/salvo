@@ -322,13 +322,37 @@ function waitForSeat(room: Room, hooks: ConnectHooks): Promise<SeatReservation> 
  * welcome handshake. Throws on failure — and on the player's CANCEL, which is
  * distinguished by `isQueueCancelled(err)`.
  */
-export async function connect(
-  name?: string,
-  cls?: string,
-  hooks: ConnectHooks = {},
-): Promise<Connection> {
-  const client = new Client(wsEndpoint());
-  const opts = joinOptions(name, cls);
+/** `?direct=1` in the URL — the dev-only queue bypass. See acquireArena. */
+function directArenaRequested(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('direct') === '1';
+  } catch {
+    return false; // no window/location (tests, SSR) — never bypass
+  }
+}
+
+/**
+ * Get the ARENA room: normally by queueing for a seat, but on a dev build with
+ * `?direct=1` by joining the arena straight.
+ *
+ * The escape exists because the queue needs CONFIG.match.minHumans (2) captains
+ * before it forms anything, so a lone developer would otherwise sit at 1/2
+ * forever with no ocean at all — the pre-6.1 solo ready room (sail around,
+ * weapons safe) was the fastest way to evaluate feel and this keeps it. A room
+ * entered this way is NOT the frozen start line: the server only boards rooms
+ * the queue created (they carry expectedCaptains), so a direct join behaves
+ * exactly as it did before Story 6.1.
+ *
+ * Two independent locks keep it out of production: `import.meta.env.DEV` strips
+ * the branch from the bundle (NFR17), and the server refuses the direct door
+ * unless HC_DEV_OPTIONS=1, which only `npm run dev` sets.
+ */
+async function acquireArena(
+  client: Client,
+  opts: Record<string, unknown>,
+  hooks: ConnectHooks,
+): Promise<Room> {
+  if (import.meta.env.DEV && directArenaRequested()) return await client.joinOrCreate('arena', opts);
   // STAGE 1 — the queue. A matchmake failure here is a real "can't reach the
   // server" failure and keeps the generic status copy; everything AFTER the join
   // succeeds is a QueueError instead (see connectErrorStatus).
@@ -346,10 +370,20 @@ export async function connect(
   // dropping the queue socket here is safe — and it keeps the player from
   // holding a second connection open for the whole match.
   void queue.leave().catch(() => undefined);
-  // STAGE 2 — the arena, entered through the reservation. Everything below this
-  // line is the pre-6.1 flow byte for byte: `room` is the ARENA room, so
-  // bindRoom/buildGame see exactly what they always did.
-  const room = await client.consumeSeatReservation(reservation);
+  // STAGE 2 — the arena, entered through the reservation.
+  return await client.consumeSeatReservation(reservation);
+}
+
+export async function connect(
+  name?: string,
+  cls?: string,
+  hooks: ConnectHooks = {},
+): Promise<Connection> {
+  const client = new Client(wsEndpoint());
+  const opts = joinOptions(name, cls);
+  // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
+  // ARENA room, so bindRoom/buildGame see exactly what they always did.
+  const room = await acquireArena(client, opts, hooks);
   // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection
   // token (all onMessage bindings survive), landing on onReconnect. The server

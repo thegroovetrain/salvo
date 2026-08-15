@@ -256,6 +256,21 @@ export interface KeyboardHooks {
    *  pick cards; helm/zoom/M/P stay live. */
   isModalOpen?: () => boolean;
   /**
+   * Is a COMBAT LOCKOUT in force that is NOT a modal (Story 6.1, epic-6
+   * amendment 8: the held start line)? While true the slot keys — and the
+   * hotbar clicks routed through the same entry — are swallowed exactly as the
+   * refit modal swallows them: no weapon primes, no ability activates, and
+   * nothing rides an input.
+   *
+   * SEPARATE FROM `isModalOpen` FOR ONE REASON: THE FOGHORN. Eric's ruling
+   * names movement, weapons and radar, and the horn is none of the three, so a
+   * boarding captain may still sound it — while a captain reading refit cards
+   * still may not (that suspension is about not conning, not about a lock).
+   * Folding the start line into `isModalOpen` would have silently taken the
+   * horn with it.
+   */
+  isCombatLocked?: () => boolean;
+  /**
    * Is a FOCUSED OVERLAY up (Story 2.3: the settings overlay, the results
    * modal)? While true EVERY sim key is suppressed — helm included, unlike the
    * refit modal's partial lockout — and only ESC/Enter still route (they are how
@@ -461,6 +476,7 @@ export class KeyboardInput {
    */
   slotAction(slot: number): void {
     if (this.hooks.isModalOpen?.() === true) return;
+    if (this.hooks.isCombatLocked?.() === true) return; // held start line (Story 6.1)
     if (this.hooks.isSlotFitted?.(slot) !== true) return;
     if (this.hooks.isAbilitySlot?.(slot) === true) {
       this.activateAbility(slot);

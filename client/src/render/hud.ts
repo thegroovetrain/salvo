@@ -751,8 +751,9 @@ export class Hud {
   }
 
   /**
-   * Phase layer: waiting shows "AWAITING CAPTAINS n/2" + "WEAPONS SAFE";
-   * countdown adds the big center number; active/finished show nothing here.
+   * Phase layer: waiting shows "CAPTAINS BOARDING — n ABOARD" + "ALL STATIONS
+   * LOCKED" (Story 6.1's held start line); countdown keeps that tag and adds
+   * the big center number; active/finished show nothing here.
    */
   private drawMatch(match: MatchUx, screenW: number, screenH: number): void {
     if (match.topLine !== this.lastMatchLine) {

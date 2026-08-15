@@ -139,3 +139,33 @@ Implementation seam, for the record: `match.ts` already funnels phase-derived wo
 place (`w.damageEnabled = this.phase === 'active'`, and `xpEnabled` beside it). The movement, weapon
 and radar locks hang off that same line rather than being scattered, which keeps a single derivation
 point in the `effectiveStats()` tradition.
+
+## Amendment 9 — The queue costs solo playtesting, so a dev escape ships with it.
+**Source:** Orchestrator finding + ruling, 2026-08-14. Not yet reviewed by Eric.
+
+A consequence nobody asked about and the story would otherwise have shipped silently: **with the
+queue in front of the arena, one player can never start a match.** `minHumans` is 2 and emphatic,
+bot-fill is forbidden, and Solo vs AI is Story 6.5 — so a lone captain pools at 1/2 and waits
+forever. Before 6.1 that same captain got a sailable weapons-safe ready room and could evaluate
+handling, gunnery feel and the map on their own. That is Eric's primary playtest loop, and it would
+have disappeared without a line of warning.
+
+Worse, `npm run dev` did not set `HC_DEV_OPTIONS`, so the arena's newly-closed direct door was shut
+in local development too — leaving *no* way to reach an ocean solo from a browser.
+
+Two changes, both dev-only:
+- `server/package.json`'s `dev` script now sets `HC_DEV_OPTIONS=1`. Production (`start`) is
+  deliberately untouched, so the direct door stays closed where it matters.
+- `client/src/net/connection.ts` gains `?direct=1`, which skips the queue and joins the arena
+  straight. It is guarded by `import.meta.env.DEV` (NFR17's "nothing debug ships" — the branch is
+  stripped from the production bundle) **and** independently by the server's `HC_DEV_OPTIONS` check,
+  so it is two locks deep.
+
+A room entered this way is **not** the frozen start line. The server boards only rooms the queue
+created — boarding is keyed on `expectedCaptains`, which only the queue sets — so a direct join
+behaves exactly as the game did before Story 6.1. That is the point: the escape restores the old
+loop rather than offering a degraded version of the new one.
+
+Ledgered for Story 6.5: when Solo vs AI ships, it becomes the honest answer to "I want to play right
+now on my own", and this escape can be reconsidered — but not deleted casually, because a bot lobby
+is not the same instrument as an empty ocean when what you are measuring is the feel of one hull.

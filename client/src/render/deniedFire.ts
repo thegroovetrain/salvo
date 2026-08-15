@@ -8,12 +8,15 @@
 // spent most of its time on cooldown by design, which is void now that every
 // shot is a deliberate click.
 //
-// NOTE: the waiting/countdown "weapons safe" phase is NOT part of this
-// predicate. The server fires all weapons in those phases too (only damage is
-// suppressed — see World.damageEnabled), so denying fire there was cosmetic
-// fiction: shells visibly leave the tube while the UI red-pulsed "denied".
-// The HUD's separate "WEAPONS SAFE" tag (ui/phase.ts's matchUx) still
-// communicates the damage-suppression fact; it just isn't a fire-denial gate.
+// NOTE: match phase is NOT part of this predicate, and since Story 6.1 it
+// cannot be. The dev/sandbox ready room still fires all weapons (only damage is
+// suppressed — see World.damageEnabled), so denying fire there would be
+// cosmetic fiction: shells visibly leave the tube while the UI red-pulsed
+// "denied". And at the HELD START LINE (epic-6 amendment 8) the trigger is
+// genuinely shut — but that is emphatically NOT a denial: the click is
+// swallowed at the combat lockout (input/mouse.ts) before the counter moves, so
+// this predicate is never even reached. Locked is not denied; the player has
+// done nothing wrong, and nothing red may say otherwise.
 
 /** Inputs to the denied-click predicate, already resolved by the caller. */
 export interface DeniedParams {

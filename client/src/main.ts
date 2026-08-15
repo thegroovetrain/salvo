@@ -72,7 +72,7 @@ import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import type { ToneFloor } from './render/gunneryFeed.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
-import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
+import { KeyboardInput, slotHoldsAbility, type Axes, type KeyboardHooks } from './input/keyboard.js';
 import {
   UpgradeMenu,
   canLatchSpend,
@@ -107,7 +107,7 @@ import { showBanner, hideBanner } from './util/banner.js';
 import { queueStatusLine, showHome, type HomeHandle } from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
-import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
+import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
 import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
 import { fleetSizeName, pushKillLine, UNKNOWN_VESSEL } from './ui/killFeed.js';
@@ -227,7 +227,8 @@ interface Game {
    *  boundary (match start, return to port, reconnect). */
   score: ScoreState;
   /** The match phase the accumulator's epoch was last synced to (see
-   *  updateScoreEpoch — the ready room's sinkings are not match score). */
+   *  updateMatchEpoch — the ready room's sinkings are not match score, and the
+   *  → ACTIVE edge is also where the start line releases). */
   scorePhase: string;
   /** The bounty holder id this client has already ANNOUNCED (Story 4.6) — the
    *  fire-once-on-change latch behind the claim register and the self toast,
@@ -901,15 +902,64 @@ function matchUxFromRoom(g: Game, now: number): MatchUx {
 }
 
 /**
- * Reset the personal-score accumulator on the waiting/countdown → ACTIVE edge.
- * The weapons-safe ready room lets hulls sink and respawn freely; none of that
- * is match score, and a ready-room death is a respawn, never an elimination.
+ * THE HELD START LINE, this frame (Story 6.1, amendment 8) — read off the
+ * polled schema through the pure `heldAtStartLine`. One derivation, consumed by
+ * every surface the hold touches: the helm (helmAxes + the telegraph bell), the
+ * combat lockout (clicks and slot keys), the firing UX, the hotbar's dim, and
+ * the scope.
+ *
+ * FAIL-SAFE INTO THE HOLD. `matchPhase` defaults to `'waiting'` here exactly as
+ * it does at every other read of the plane, so the frames before the schema
+ * first syncs present as HELD rather than as a live helm — the direction that
+ * cannot contradict the server, since the server is what actually unlocks.
  */
-function updateScoreEpoch(g: Game): void {
+function atStartLine(g: Game | null): boolean {
+  return g !== null && heldAtStartLine(publicState(g).matchPhase ?? 'waiting');
+}
+
+/**
+ * THE HELM'S AXES, this frame — dead while held at the start line (amendment 8:
+ * *"movement... locked"*), the live telegraph order + rudder otherwise.
+ *
+ * ONE source for BOTH consumers, deliberately: the sampler (which feeds the
+ * wire AND the predictor's local tick) and the HUD's telegraph cluster. Zeroing
+ * only the wire would leave the predictor sailing a ship the server is holding
+ * still — reconcile-and-replay would then snap it back every frame — and
+ * zeroing only the sim would leave the ladder reporting an order the engine
+ * room never receives.
+ *
+ * The keyboard's own telegraph detent is NOT reached into here (it has no such
+ * seam, and inventing one would put a second lock on a second clock). Presses
+ * made against a dead helm simply accumulate unheard and are dropped whole by
+ * `resetOwnOrders` on the release edge — see updateMatchEpoch.
+ */
+function helmAxes(g: Game): Axes {
+  return atStartLine(g) ? HELD_AXES : g.keyboard.axes();
+}
+
+/** The dead-helm axes (frozen singleton — nothing mutates an Axes). */
+const HELD_AXES: Axes = { throttle: 0, rudder: 0 };
+
+/**
+ * Phase-edge housekeeping, run once per frame off the polled plane.
+ *
+ * SCORE: the personal-score accumulator resets on the → ACTIVE edge. The
+ * dev/sandbox ready room lets hulls sink and respawn freely; none of that is
+ * match score, and a ready-room death is a respawn, never an elimination.
+ *
+ * ORDERS: the same edge is where the start line RELEASES (amendment 8), so the
+ * hard-boundary reset runs there too — a captain who mashed W against the dead
+ * helm during boarding must not have those presses cash in as an engine order
+ * the instant the gun goes, having never seen them acknowledged on the ladder.
+ * Idempotent with the server's own spawn event, which calls the same function.
+ */
+function updateMatchEpoch(g: Game): void {
   const phase = publicState(g).matchPhase ?? 'waiting';
   if (phase === g.scorePhase) return;
   g.scorePhase = phase;
-  if (phase === 'active') g.score = freshScore();
+  if (phase !== 'active') return;
+  g.score = freshScore();
+  resetOwnOrders(g);
 }
 
 /** Roster name lookup (Story 1.13): the synced callsign or null — NEVER a
@@ -1646,8 +1696,9 @@ function setupViewport(
   // Inject the server-clock estimate so pointerdown can stamp an honest fire
   // time (D1). Lazy thunk: MouseInput is built before the clock exists, so it
   // resolves gRef.clock at click time, never captures it (serverNow() returns
-  // 0 pre-ready → the fireT "no claim" sentinel). `fireLocked` is the refit
-  // modal's full combat lockout; attach() takes the game canvas so ONLY
+  // 0 pre-ready → the fireT "no claim" sentinel). `fireLocked` is the full
+  // combat lockout — the refit modal, and (Story 6.1) the held start line;
+  // attach() takes the game canvas so ONLY
   // canvas-target pointerdowns ever fire (DOM chrome clicks never do) and the
   // canvas contextmenu is suppressed.
   // `onSlotPress` is the hotbar gate (Story 2.2): a canvas press over a slot is
@@ -1689,7 +1740,12 @@ function conningLive(g: Game | null): boolean {
   // A SINKING hull is still being conned (Story 5.2, amendment 16): the helm is
   // live all the way down — decayed by the ritardando, never cut — so the
   // telegraph bell rings and a W/S/A/D input still retires its coach mark.
-  return s !== undefined && helmInputCounts(s.spectating, conningNow(g));
+  //
+  // A HELD HULL IS NOT (Story 6.1, amendment 8), and this is the same rule read
+  // the other way: the bell reports an order the engine room ACCEPTED, so it
+  // must not ring against `helmAxes`'s dead helm, and a press nobody heard must
+  // not burn one of the three inputs that retire the W/S coach mark for good.
+  return s !== undefined && !atStartLine(g) && helmInputCounts(s.spectating, conningNow(g));
 }
 
 /**
@@ -1783,6 +1839,11 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     // the refit modal as ever, plus (Story 2.3) the settings overlay and the
     // results modal, which are focused overlays.
     isModalOpen: () => modalOpen(getG()),
+    // ...and the SLOT KEYS alone also suspend at the held start line (Story
+    // 6.1, amendment 8). Its own hook rather than a wider `isModalOpen`,
+    // because the FOGHORN must survive the lock: Eric named movement, weapons
+    // and radar, and the horn is none of the three.
+    isCombatLocked: () => combatLocked(getG()),
     // Focused-overlay rule (amendment 21 + the committed AC): while the settings
     // overlay or the results modal is up EVERY sim key is suppressed — helm
     // included, unlike the refit modal — and only ESC/Enter still route.
@@ -1806,6 +1867,32 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
 /** True while ANY surface that suspends slot keys/clicks is open. */
 function modalOpen(g: Game | null): boolean {
   return g !== null && (g.upgradeMenu.visible || overlayFocused(g));
+}
+
+/**
+ * THE FULL COMBAT LOCKOUT — the refit modal's shipped lockout, now ALSO the
+ * held start line (Story 6.1, amendment 8). While it holds, a canvas
+ * pointerdown counts no click (input/mouse.ts drops it before the counter ever
+ * moves) and the slot keys, the refit digits and F are swallowed at the
+ * keyboard chokepoint.
+ *
+ * REUSED RATHER THAN INVENTED, and the reuse is the point: this lockout is
+ * already specified as *"feedback-free by design"* — a swallowed press, never a
+ * denial. That is exactly what the start line needs (ruling: locked must read
+ * as LOCKED, not as DENIED), so a press against a held trigger produces no red
+ * pulse and no denial tone anywhere, because it never becomes a press at all.
+ *
+ * DROPPING THE CLICK AT THE COUNTER IS LOAD-BEARING, not just cosmetic:
+ * `InputMsg.fireSeq` is CUMULATIVE and the server consumes each new value as
+ * one shot request, so clicks banked against a locked trigger would otherwise
+ * cash in as a free shot on the frame the match went live.
+ *
+ * The helm is deliberately NOT part of it (the refit modal leaves helm/zoom/M/P
+ * live and so does this) — the start line's movement lock is `helmAxes`, which
+ * has to reach the PREDICTOR as well as the wire.
+ */
+function combatLocked(g: Game | null): boolean {
+  return modalOpen(g) || atStartLine(g);
 }
 
 /** True while a FOCUSED overlay (settings / results) owns the input. */
@@ -2064,7 +2151,7 @@ function buildGame(
   // pointerdown fire-time stamp (D1, resolved at click time), and the refit-modal lockout.
   // The mouse's fire lockout covers EVERY suspending surface (Story 2.3): the
   // refit modal as ever, plus the settings overlay and the results modal.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => modalOpen(gRef), (p) => handleHotbarPress(gRef, p));
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleHotbarPress(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
   const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
 
@@ -2525,7 +2612,7 @@ function renderOwn(
   bar.tier1 = attn.tier1;
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP rail breathes on it).
-  g.hud.update(pose, g.keyboard.axes(), status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
+  g.hud.update(pose, helmAxes(g), status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status, nowMs);
   // TIER 3: the bank chip freezes at its dim keyframe under ANY higher tier —
   // Tier 2 alone included, so a healthy hull sailing in the storm settles it
@@ -2592,8 +2679,9 @@ function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
 }
 
 /**
- * The hotbar renders while the player is CONNING a hull in-match (the
- * weapons-safe waiting room included, and — Story 5.2 — the whole sinking
+ * The hotbar renders while the player is CONNING a hull in-match (the held
+ * start line and the dev/sandbox ready room included — dimmed at the line, see
+ * `dim` below — and, Story 5.2, the whole sinking
  * window: amendment 10 keeps every fitted slot activatable all the way down, so
  * the surface those slots live on has to stay on screen). It dies with the hull
  * at FOUNDER (spectate / reveal) and on return to port. Called after
@@ -2612,7 +2700,13 @@ function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
     denied: hotbarDenied(g, status),
     deniedDegraded: hotbarDeniedDegraded(g, status),
     activated: g.activatedFlash,
-    dim: modalOpen(g), // any suspending surface: dim to 38%, keys AND clicks off
+    // Any suspending surface: dim to 38%, keys AND clicks off. Story 6.1 folds
+    // the held start line in through the same lockout the modal uses, so the
+    // fit stays legible at the line — you can read what you are sailing with —
+    // while reading unmistakably as not-yet-yours. Dim-not-grey is the shipped
+    // "this slot cannot act" register (hotbar amendment 16); no new one is
+    // invented, and no slot flashes DENIED, because no press gets through.
+    dim: combatLocked(g),
     motion: settings.current.motion, // gates the ACTIVATED/FIT pops + amplitudes
     // Story 2.9 — the build, felt on the slot: the accrued list + `◆n` marks
     // (server-authoritative `you.boons`, rendered verbatim), the ACTIVE ability
@@ -2721,7 +2815,14 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   // Story 5.2: the arc, the reticle and the aim preview survive the sinking
   // window — you cannot go down shooting without being able to aim. They tear
   // down at FOUNDER, which is where `conning` goes false.
-  if (!conning(status)) {
+  //
+  // ...and at the HELD START LINE (Story 6.1, amendment 8), through the SAME
+  // teardown rather than a locked-looking variant of the live one: nothing is
+  // aimed from a held trigger, so the honest presentation is the absence of the
+  // aiming surfaces, not a red one. Taking this branch also puts every denial
+  // channel structurally out of reach — `isClickDenied` is never evaluated, and
+  // a `serverDeniedClick` echo that raced the lock is cleared unpulsed below.
+  if (!conning(status) || atStartLine(g)) {
     g.firing.hide();
     g.aimPreview.hide();
     g.deniedFlash = false;
@@ -3253,7 +3354,22 @@ function renderAlive(
   // highlighted by radar anymore"*). The storm is still fully legible on the water
   // — updateZone below draws the solid live edge, the dashed telegraph and the
   // storm-side fill — it simply stops returning an echo.
-  g.radar.render(pose, now, g.contacts, g.camera.worldView);
+  // THE SCOPE IS OFF AT THE START LINE (Story 6.1, amendment 8: *"radar off"*),
+  // and it is turned off by passing NO OBSERVER — the exact call the spectate
+  // path already makes. One argument does all of it: the sweep wedge and the
+  // range rings hide, the beam march never runs (so no paint is ever created,
+  // from the wire or from truesight), and the heat surface is hidden AND
+  // blanked. An OFF scope, not an empty one — no wedge sweeping a clear screen.
+  //
+  // TRUESIGHT IS UNTOUCHED. "Radar off" is the radar SENSOR, not blindness: the
+  // fog hole, the contacts inside it and their nameplates all render exactly as
+  // they do live, so a neighbour on the start line is still visible.
+  //
+  // Resuming is clean for free — `updateSweep` drops `sliceFrom` whenever the
+  // sweep is hidden, so the first live frame marches from the current bearing
+  // instead of replaying a whole revolution of crossings at once.
+  if (atStartLine(g)) g.radar.render(null, now, null, null);
+  else g.radar.render(pose, now, g.contacts, g.camera.worldView);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -3559,7 +3675,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // in one 50ms window must ride successive inputs — consume before reading
       // actSeq/actSlot so this input carries the drained press (if any).
       g.keyboard.consumeActivation();
-      const input = g.sampler.sample(g.keyboard.axes(), {
+      const input = g.sampler.sample(helmAxes(g), {
         aim,
         fireSeq: g.mouse.clickCount,
         aimDist,
@@ -3584,7 +3700,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const now = g.clock.serverNow();
       const zv = zoneView(g, now);
       const mu = matchUxFromRoom(g, now);
-      updateScoreEpoch(g); // the ready room's sinkings are not match score
+      updateMatchEpoch(g); // score epoch + the start line's release edge
       updateBounty(g); // the throne's claim register + the self toast/tone (4.6)
       updateEliminationUx(g); // converge the placement, then open a deferred modal at founder
       updateMatchAudioCues(g, now);
@@ -3666,7 +3782,13 @@ function sendNeutralInput(g: Game): void {
   // refocus (mirrors the fireSeq gap-handling).
   g.keyboard.consumeActivation();
   const msg = g.sampler.sendNeutralNow(
-    g.keyboard.throttle,
+    // THE ONE INPUT PATH THAT DOES NOT GO THROUGH `helmAxes` (Story 6.1): this
+    // one deliberately PRESERVES the engine order across a tab hide, so it
+    // needs the same dead-helm answer stated again here rather than inherited.
+    // It feeds the predictor's pending ring as well as the wire, so a blur at
+    // the start line would otherwise have the local hull steam off while the
+    // server held it fast — the exact rubber-band the lock exists to prevent.
+    atStartLine(g) ? 0 : g.keyboard.throttle,
     g.mouse.clickCount,
     g.mouse.lastClickT,
     g.keyboard.actSeq, // a gap-press activates NOW, not on refocus (mirrors fireSeq)

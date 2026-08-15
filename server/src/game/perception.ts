@@ -373,12 +373,23 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   // never precede its own track's reveal in a frame) and before the blip
   // subsequence — a knowing extension of the sacred emission order.
   events.push(...torpedoUpdateScan(world, ctx));
-  blips.push(...decoyBlips(world, ctx));
-  events.push(...blips.sort(blipOrder));
-  // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
-  // — every historical kind keeps its exact position — sorted by wakeOrder
-  // (public payload only, never ribbon-store order; see the comparator).
-  events.push(...wakeScan(ctx).sort(wakeOrder));
+  // THE RADAR LOCK, half two (Story 6.1, amendment 8): with the sensor off,
+  // NO blip of any kind leaves this function — genuine ship paints, decoy
+  // counter-intel paints and wake segments alike. It gates all three at the one
+  // place they merge, rather than inside three rows, and it is deliberately
+  // REDUNDANT with the frozen sweep in World.advanceSweeps: an empty paint
+  // window already yields no blips today, but "nothing reaches the client" is
+  // an anti-cheat guarantee and belongs in the anti-cheat boundary, stated
+  // rather than derived. Everything else — contacts, mines, lit zones, decoy
+  // truth, every forwarded event — is UNTOUCHED: truesight is not radar.
+  if (world.radarEnabled) {
+    blips.push(...decoyBlips(world, ctx));
+    events.push(...blips.sort(blipOrder));
+    // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
+    // — every historical kind keeps its exact position — sorted by wakeOrder
+    // (public payload only, never ribbon-store order; see the comparator).
+    events.push(...wakeScan(ctx).sort(wakeOrder));
+  }
   return {
     contacts,
     events,

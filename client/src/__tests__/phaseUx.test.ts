@@ -2,17 +2,23 @@
 // own suite (killFeed.test.ts) when it grew colored segments (Story 1.12).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
-import { matchUx, secondsUntil, spectateBannerText } from '../ui/phase.js';
+import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText } from '../ui/phase.js';
 
 describe('matchUx — phase to HUD strings', () => {
-  it('waiting: AWAITING CAPTAINS n/min + WEAPONS SAFE, no countdown', () => {
+  it('waiting: CAPTAINS BOARDING — n ABOARD + ALL STATIONS LOCKED, no countdown', () => {
     expect(matchUx('waiting', 1, 0, 0)).toEqual({
-      topLine: `AWAITING CAPTAINS 1/${CONFIG.match.minHumans}`,
-      tag: 'WEAPONS SAFE',
+      topLine: 'CAPTAINS BOARDING — 1 ABOARD',
+      tag: 'ALL STATIONS LOCKED',
       countdown: '',
     });
-    expect(matchUx('waiting', 2, 0, 0).topLine).toBe(`AWAITING CAPTAINS 2/${CONFIG.match.minHumans}`);
+    expect(matchUx('waiting', 4, 0, 0).topLine).toBe('CAPTAINS BOARDING — 4 ABOARD');
+  });
+
+  it('waiting carries NO denominator: expectedCaptains is the queue\'s number and never reaches the client', () => {
+    // Story 6.1, amendment 8. The retired `AWAITING CAPTAINS n/2` copy promised
+    // a target the arena no longer holds — the roster is already formed when
+    // boarding starts, and the only honest figure is how many are aboard.
+    expect(matchUx('waiting', 7, 0, 0).topLine).not.toContain('/');
   });
 
   it('gathering: GATHERING CAPTAINS — n ABOARD + WEAPONS SAFE + big window seconds (draft copy)', () => {
@@ -29,8 +35,14 @@ describe('matchUx — phase to HUD strings', () => {
   it('countdown: big center seconds derived from countdownEndT and serverNow', () => {
     const ux = matchUx('countdown', 2, 15000, 3200);
     expect(ux.topLine).toBe('MATCH STARTING');
-    expect(ux.tag).toBe('WEAPONS SAFE');
     expect(ux.countdown).toBe('12'); // ceil((15000-3200)/1000)
+  });
+
+  it('the tag never softens across the boarding → countdown beat (both are held)', () => {
+    // A tag that read LOCKED at boarding and WEAPONS SAFE at 0:10 would say the
+    // helm came back at exactly the moment it did not (amendment 8).
+    expect(matchUx('countdown', 2, 15000, 3200).tag).toBe(matchUx('waiting', 2, 0, 0).tag);
+    expect(matchUx('countdown', 2, 15000, 3200).tag).toBe('ALL STATIONS LOCKED');
   });
 
   it('countdown never goes negative', () => {
@@ -41,6 +53,29 @@ describe('matchUx — phase to HUD strings', () => {
     for (const phase of ['active', 'finished', 'anything-else']) {
       expect(matchUx(phase, 3, 0, 0)).toEqual({ topLine: '', tag: '', countdown: '' });
     }
+  });
+});
+
+describe('heldAtStartLine — the pre-live lock (Story 6.1, amendment 8)', () => {
+  it('holds from drop until active: boarding AND the 0:10 countdown', () => {
+    expect(heldAtStartLine('waiting')).toBe(true);
+    expect(heldAtStartLine('countdown')).toBe(true);
+  });
+
+  it('releases at active and stays released for the results phase', () => {
+    expect(heldAtStartLine('active')).toBe(false);
+    expect(heldAtStartLine('finished')).toBe(false);
+  });
+
+  it('does NOT hold the dev/sandbox ready room (gathering keeps sailing)', () => {
+    // Amendment 2 retired `gathering` from production (joinWindow: 0) and
+    // amendment 8 left the sailable weapons-safe room standing there alone.
+    expect(heldAtStartLine('gathering')).toBe(false);
+  });
+
+  it('an unknown phase string never invents a hold', () => {
+    expect(heldAtStartLine('')).toBe(false);
+    expect(heldAtStartLine('anything-else')).toBe(false);
   });
 });
 
