@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, MSG } from '@salvo/shared';
 import {
   bindRoom,
   frameIsDeadOrSpectating,
@@ -2321,5 +2321,95 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
     sink.handler(victimFrame([], { ...sinkingYou(1000), x: 500, y: 0 }, { t: 1000 }));
     sink.handler(victimFrame([{ k: 'mz', x: 500, y: 0 }], null, { t: 2000 }));
     expect(ids(play)).toEqual(['gunReport']);
+  });
+});
+
+// --- Story 6.3: the cohort-collapse signal -----------------------------------
+//
+// `rq` is the ONE channel that tells a client its lobby is gone. The whole
+// reason it exists is that a socket close cannot say it: the normal end-of-match
+// disconnect closes the socket too, and that one must keep landing home and
+// WAITING for input. So these pin both directions — the signal routes, and
+// nothing else does.
+
+interface MsgRoom {
+  onMessage: (type: string, cb: (msg: unknown) => void) => void;
+  onError: (cb: (code: number, message?: string) => void) => void;
+  onLeave: (cb: (code: number) => void) => void;
+  onDrop: (cb: () => void) => void;
+  onReconnect: (cb: () => void) => void;
+  fire: (type: string, msg: unknown) => void;
+  fireLeave: (code: number) => void;
+}
+
+/** A fake room that actually delivers messages (the shared one drops them). */
+function msgRoom(): MsgRoom {
+  const handlers = new Map<string, (msg: unknown) => void>();
+  let leave: ((code: number) => void) | undefined;
+  return {
+    onMessage: (type, cb) => void handlers.set(type, cb),
+    onError: () => undefined,
+    onLeave: (cb) => void (leave = cb),
+    onDrop: () => undefined,
+    onReconnect: () => undefined,
+    fire: (type, msg) => handlers.get(type)?.(msg),
+    fireLeave: (code) => leave?.(code),
+  };
+}
+
+function setupSignals() {
+  const room = msgRoom();
+  const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const onRequeue = vi.fn();
+  const onRoomLeave = vi.fn();
+  const onResults = vi.fn();
+  const deps = {
+    state: { net: {}, matchOver: false },
+    onRequeue,
+    onRoomLeave,
+    onResults,
+  } as unknown as RoomBindingDeps;
+  bindRoom(conn, deps);
+  return { room, onRequeue, onRoomLeave, onResults };
+}
+
+describe('bindRoom — the requeue signal', () => {
+  it('routes `rq` to deps.onRequeue, once, carrying the reason verbatim', () => {
+    const { room, onRequeue } = setupSignals();
+    room.fire(MSG.requeue, { reason: 'cohortLost' });
+    expect(onRequeue).toHaveBeenCalledTimes(1);
+    expect(onRequeue).toHaveBeenCalledWith({ reason: 'cohortLost' });
+  });
+
+  // THE PIN THE WHOLE CHANNEL EXISTS FOR: the ordinary match end is
+  // results-then-disconnect, and NEITHER may auto-requeue anybody. Without a
+  // separate signal the client would have to guess from the socket close, and
+  // every finished match would fling the player into a new queue.
+  it('a normal match end — results, then the room disconnects — never requeues', () => {
+    const { room, onRequeue, onRoomLeave, onResults } = setupSignals();
+    room.fire(MSG.results, { winnerId: 'a', rows: [] });
+    room.fireLeave(1000);
+    expect(onResults).toHaveBeenCalledTimes(1);
+    expect(onRoomLeave).toHaveBeenCalledTimes(1);
+    expect(onRequeue).not.toHaveBeenCalled();
+  });
+
+  it('a bare disconnect with no signal in front of it never requeues either', () => {
+    const { room, onRequeue, onRoomLeave } = setupSignals();
+    room.fireLeave(4000);
+    expect(onRoomLeave).toHaveBeenCalledTimes(1);
+    expect(onRequeue).not.toHaveBeenCalled();
+  });
+
+  // The collapse's real shape on the wire: signal first, socket close a beat
+  // behind it. Both land, and both are delivered — the LATCH that turns them
+  // into exactly one join lives in app/requeue.ts, not here.
+  it('the collapse delivers both: the signal, then the disconnect behind it', () => {
+    const { room, onRequeue, onRoomLeave } = setupSignals();
+    room.fire(MSG.requeue, { reason: 'cohortLost' });
+    room.fireLeave(1000);
+    expect(onRequeue).toHaveBeenCalledTimes(1);
+    expect(onRoomLeave).toHaveBeenCalledTimes(1);
   });
 });

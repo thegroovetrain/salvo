@@ -20,10 +20,18 @@ export interface LoopCallbacks {
   render(alpha: number, frameDt: number): void;
 }
 
-/** Start driving `cb` from the app ticker. The ticker auto-starts on init. */
-export function startLoop(app: Application, cb: LoopCallbacks): void {
+/**
+ * Start driving `cb` from the app ticker. The ticker auto-starts on init.
+ *
+ * Returns a DISPOSER that detaches the callback. Story 6.3 needs it: the
+ * auto-requeue tears the arena session down IN PLACE (no page reload), and the
+ * loop has to stop the instant the collapse signal lands — a sim tick after the
+ * room has been left would sample input and `send` into a dead socket. Callers
+ * that live for the page's lifetime may ignore it.
+ */
+export function startLoop(app: Application, cb: LoopCallbacks): () => void {
   let accumulator = 0;
-  app.ticker.add((ticker: Ticker) => {
+  const tick = (ticker: Ticker): void => {
     let frameDt = ticker.deltaMS / 1000;
     if (frameDt > MAX_FRAME_DT) frameDt = MAX_FRAME_DT;
     accumulator += frameDt;
@@ -32,5 +40,7 @@ export function startLoop(app: Application, cb: LoopCallbacks): void {
       accumulator -= SIM_DT;
     }
     cb.render(accumulator / SIM_DT, frameDt);
-  });
+  };
+  app.ticker.add(tick);
+  return () => app.ticker.remove(tick);
 }

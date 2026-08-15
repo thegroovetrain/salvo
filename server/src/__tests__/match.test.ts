@@ -497,6 +497,17 @@ describe('match — finished phase', () => {
     expect(ctx.calls.filter((c) => c === 'disconnect')).toHaveLength(1); // fired once
   });
 
+  // Story 6.3: the requeue signal is the COLLAPSE's, and only the collapse's. A
+  // finished match disconnects too — that is the whole ambiguity the channel
+  // exists to resolve — and a client that received `rq` here would be flung
+  // straight back into a queue instead of reading its own results.
+  it('the ordinary post-results disconnect signals no requeue', () => {
+    const ctx = finished();
+    step(ctx, Math.ceil(TIMINGS.resultsMs / DT) + 1);
+    expect(ctx.calls).toContain('disconnect');
+    expect(ctx.calls).not.toContain('requeue');
+  });
+
   it('never starts a new match in the same room', () => {
     const ctx = finished();
     ctx.w.addShip('d', 'D');

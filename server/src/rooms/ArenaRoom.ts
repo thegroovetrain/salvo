@@ -17,6 +17,7 @@ import {
   sanitizeClassId,
   sanitizeHornId,
   zoneGroups,
+  type RequeueMsg,
   type ResultsMsg,
   type Rng,
   type WelcomeMsg,
@@ -462,6 +463,20 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         // where match.end telemetry is emitted (story 0.3).
         this.emitMatchEnd();
       },
+      // Story 6.3 (epic-6 amendments 15/17/18): the cohort-collapse signal, fired
+      // by Match immediately BEFORE the disconnect it annotates. BEST-EFFORT AND
+      // NEVER LOAD-BEARING — the broadcast is wrapped because the disconnect that
+      // follows it is unconditional, and a transport failure here must not throw
+      // out of notifyRosterChanged and strand a room that can never refill. An
+      // undelivered signal costs the survivor a PLAY press and nothing else.
+      requeue: () => {
+        const msg: RequeueMsg = { reason: 'cohortLost' };
+        try {
+          this.broadcast(MSG.requeue, msg);
+        } catch (err) {
+          this.log.warn('room.requeueBroadcastFailed', { error: String(err) });
+        }
+      },
       disconnect: () => void this.disconnect(),
     };
   }
@@ -491,7 +506,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
     const horn = sanitizeHornId(options.horn);
 
-    this.world.addShip(client.sessionId, name, false, classId, horn);
+    // A joining CLIENT is always a captain (Story 6.3's role seam, amendment
+    // 13): the socket is the proof. Fleet hulls are world content spawned by
+    // World itself and never reach this door; Story 6.4's AI captains will not
+    // either.
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the

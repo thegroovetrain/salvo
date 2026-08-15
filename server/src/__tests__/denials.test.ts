@@ -200,12 +200,12 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 35→36 bump (PV 36: ROVING PvE FLEETS + THE BIGGER OCEAN — Story 5.6 grows map.baseRadius to 2800, so the SAME SEED now builds a different ocean, and adds the self-private Contact.aggro key; a stale client would sail a map the server does not have. PV 35 was sudden death, landed the same day and renumbered around on merge) is enforced at matchmake', () => {
-  it('rejects pv-35 and pv-34 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(36);
+describe('pv join gate — the 36→37 bump (PV 37: THE REQUEUE SIGNAL RIDES THE ARENA — Story 6.3 adds the server->client MSG.requeue channel to the ARENA room, so a collapsed cohort can be told apart from an ordinary match-end disconnect. Story 6.1 held the constant at 36 because its channels rode the QUEUE room only; this one does not) is enforced at matchmake', () => {
+  it('rejects pv-36 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(37);
+    expect(protocolVersionError(36)).toMatch(/refresh/);
     expect(protocolVersionError(35)).toMatch(/refresh/);
     expect(protocolVersionError(34)).toMatch(/refresh/);
-    expect(protocolVersionError(33)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

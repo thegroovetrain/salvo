@@ -28,6 +28,7 @@ import {
   type MuzzleEvent,
   type OwnShip,
   type PointEvent,
+  type RequeueMsg,
   type ResultsMsg,
   type ShipClassId,
   type SpawnEvent,
@@ -283,6 +284,17 @@ export interface RoomBindingDeps {
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
   onResults: (msg: ResultsMsg) => void;
+  /**
+   * The arena's cohort-collapse signal (Story 6.3, `rq`): this lobby is gone
+   * and will never refill, so go home and queue again WITHOUT a PLAY press.
+   *
+   * It exists precisely because `onRoomLeave` cannot tell this apart from the
+   * ordinary end-of-match disconnect, which must keep landing home and waiting
+   * for input. The signal always arrives BEFORE the socket closes behind it, so
+   * the handler on the other side is latched (app/requeue.ts) — both routes
+   * reach the door, only the first may start a join.
+   */
+  onRequeue: (msg: RequeueMsg) => void;
   /** The room connection ended (any reason). */
   onRoomLeave: (code: number) => void;
   /**
@@ -432,6 +444,12 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
   conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
     deps.state.matchOver = true;
     deps.onResults(msg);
+  });
+  // Story 6.3: the cohort collapsed. Delegated verbatim — main.ts owns the
+  // teardown, the copy and the latch; net's job is only to carry the reason.
+  conn.room.onMessage(MSG.requeue, (msg: RequeueMsg) => {
+    console.warn('[net] lobby disbanded — requeuing', msg?.reason);
+    deps.onRequeue(msg);
   });
   conn.room.onError((code, message) => {
     console.error('[net] room error', code, message);
