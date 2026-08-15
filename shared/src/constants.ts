@@ -34,8 +34,24 @@ export const CONFIG = {
    *
    * Headroom note for anyone retuning this: at `beatMs` 60000 the band caps
    * baseRadius near 2480 and this value is deliberately past it, on the
-   * re-ratified band. Story 6.2 makes sizing roster-dynamic and will re-derive
-   * the band as a function of radius rather than as a literal.
+   * re-ratified band.
+   *
+   * THE RADIUS IS FIXED AND ALWAYS HAS BEEN (Eric ruling 2026-08-15, epic-6
+   * amendment 11). Story 6.2 (Roster-Scaled Oceans) proposed sizing the map
+   * from the roster and was CANCELLED: *"We won't be scaling the map size."*
+   * The formula below is therefore dormant by construction — `capRef` equals
+   * `playerCap` and `ArenaRoom` builds its World with that constant, so the
+   * square root is always √1 and `mapRadius()` has only ever returned
+   * `baseRadius`. That was equally true at 900u (capRef 6) and at 2400u: a
+   * lobby that filled to 20 always got the same ocean a lobby of 2 got.
+   *
+   * The machinery is KEPT deliberately rather than deleted — it costs nothing,
+   * `WelcomeMsg.playerCap` already ships at PV 36, and the unhomed TEAMS scope
+   * would reopen sizing in the OPPOSITE direction (up to 60 hulls wants a
+   * bigger ocean, not a smaller one). Feeding this a real roster is a
+   * one-argument change at `ArenaRoom`'s `new World(...)`; do not do it without
+   * a fresh ruling, and read amendment 11 first — at cap 2 the map would be
+   * 885u, where the fixed 660u endgame ring is already 56% of the water.
    */
   map: {
     baseRadius: 2800, // u — map radius tuned for capRef players (2400 → 2800, amendment 42)

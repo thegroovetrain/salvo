@@ -1,14 +1,36 @@
 ---
-status: blocked
-blocking_condition: 'design rulings required before implementation (4 questions)'
+status: done
+outcome: cancelled
 story: '6.2 — Roster-Scaled Oceans'
 epic: 6
 date: '2026-08-15'
 base_commit: f738b06
 branch: worktree-dev-auto-6-2-roster-oceans
+ruling: 'Eric 2026-08-15 — the map will not scale with the roster; story cancelled. epic-6 amendments 11-12'
 ---
 
 # Story 6.2 — Roster-Scaled Oceans: question gate
+
+> ## RESOLVED — Story 6.2 is CANCELLED (Eric, 2026-08-15)
+>
+> > *"Yeah, we can close this. We won't be scaling the map size."*
+>
+> The ocean stays a fixed 2800u-radius disc at every roster. **No code shipped** — no simulation,
+> render, wire or CONFIG value moved, and `PROTOCOL_VERSION` stays 36. This cycle consumed no version
+> number; it is a question gate plus its closeout.
+>
+> **Q1 answered: don't build it.** Q2 (captains vs combatants) and Q3 (ring clock) fall away with it.
+>
+> **Q4 answered "not yet, and probably never":** the absolute PvE wave table is left exactly as it
+> ships. Eric's reaction — *"The Ratio is assuming there are 20 captains, sure. If there aren't, then
+> they will have a lot more to hunt, wont they? The ocean would be really empty without them at 2800u
+> and 2 players. FFS, now I don't know the right answer here at all."* — is recorded verbatim as epic-6
+> amendment 12 along with the reasoning that the contradiction is probably verbal rather than real
+> (amendment 45's ratio language was justifying a 20-captain XP budget, not stating a law). It is
+> ledgered as an open playtest question, and **epic-5 amendment 45's text was deliberately NOT edited**,
+> since a change signal authorises only what it rules on.
+>
+> Everything below is the gate as written before the ruling, retained as the evidence record.
 
 Eric's invocation: *"6-2. im not sure this is relevant anymore, the ocean is as big as its gonna be.
 either way, surface questions before implementation."*

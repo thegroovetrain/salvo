@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-15  # epic-6 OPEN; 6-1 landed cycle 88 (0.17.88), PV 36, amendments 1-9
+# last_updated: 2026-08-15  # epic-6 OPEN; 6-1 landed cycle 88 (0.17.88), PV 36, amendments 1-9; 6-2 CANCELLED (amendments 11-12)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -45,6 +45,10 @@
 #   - deferred: Deliberately postponed by an owner ruling — NOT cut, NOT available for pickup.
 #     The story number stays reserved and the story may be revived by a later explicit ruling.
 #     Every deferred story must name its ruling record in a trailing comment.
+#   - cancelled: CUT by an owner ruling — the behaviour will not be built. Distinct from 'deferred':
+#     nothing is waiting for a better moment. The story number stays retired (never reused), and
+#     reviving it needs a fresh ruling, not a scheduling decision. Must name its ruling record in a
+#     trailing comment. (First use: 6-2, Eric 2026-08-15.)
 #
 # Retrospective Status:
 #   - optional: Can be completed but not required
@@ -101,7 +105,7 @@
 #   cycle 87 (0.17.87)  home tagline: random nautical pun pool replaces the fixed line — epic-5 amendment 46; PV unchanged at 36 (client-only)
 
 generated: 2026-07-17
-last_updated: 2026-08-14
+last_updated: 2026-08-15
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -188,7 +192,7 @@ development_status:
   # epic-6: Honest Lobbies & Modes (GDD E5)
   epic-6: in-progress
   6-1-queue-based-lobbies: done  # 2026-08-15 cycle 88 (0.17.88); PV 36; amendments 1-9
-  6-2-roster-scaled-oceans: backlog
+  6-2-roster-scaled-oceans: cancelled  # 2026-08-15 Eric ruling; amendments 11-12; bmad-dev-auto-result-6-2-roster-oceans-questions.md
   # SCOPE ADDED 2026-08-04 (amendment 31): drones must not gate the win, but dropping the
   # aliveDroneCount() guard outright makes a solo match finish the instant it activates —
   # so 6-3 must solve solo-mode termination as part of this work. See amendment 23.
@@ -359,4 +363,12 @@ action_items:
   - epic: 5
     action: "BATCH the nine small Eric calls in one sitting: kill flash under a co-located plume; boons/last-offer on the results modal; sudden-death tiebreak + heal-during-collapse + chrome register; tickSmoke during sinking; SunkEvent.vcls uniformity; one-hit-kill guardrail scope; degradeAlphaFactor; foghorn intel-truesight fork; 1.5x zoom chrome collision. Each is a sentence; most have their evidence already captured"
     owner: "Eric (ruling batch)"
+    status: open
+  - epic: 6
+    action: "PvE wave table is ABSOLUTE (36 hulls at 1:00 at every roster) while epic-5 amendment 45's rationale says 'a RATIO, one fleet per ~5 captains' — a live contradiction in shipped code, found at the 6-2 gate, NOT map-related. Recommended default is CHANGE NOTHING (the table fills a 2800u ocean for a thin lobby; the ratio language was justifying a 20-captain XP budget). Needs eyes on the water, not analysis: does a 2-captain 2800u ocean feel empty, does PvE out-threaten PvP there, does small-lobby leveling run away. Full reasoning: epic-6 amendment 12"
+    owner: "Eric (playtest checkpoint)"
+    status: open
+  - epic: 6
+    action: "spec-6-1-queue-based-lobbies.md frontmatter still reads status 'ready-for-dev' though the story merged as cycle 88 (PR #146); its Spec Change Log, Review Triage Log and Verification sections are empty. Closeout gap surfaced at the 6-2 gate, flagged rather than edited"
+    owner: "spec closeout"
     status: open

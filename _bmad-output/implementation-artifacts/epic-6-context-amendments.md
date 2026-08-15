@@ -203,3 +203,88 @@ That is the orchestrator's call, not Eric's, and it is deliberately the conserva
 alternative is to **start the match anyway with a single captain**, which cannot be done until Story
 6-5 supplies the solo-termination rule amendment 4 created (a lone captain afloat has no defined way
 to win or lose). If that rule lands first, this collapse should be revisited.
+
+## Amendment 11 — The ocean does not scale. Story 6.2 is closed won't-do, and FR27's map clause with it.
+**Source:** Eric, 2026-08-15, at the Story 6.2 question gate.
+> "Yeah, we can close this. We won't be scaling the map size."
+
+Story 6.2 (Roster-Scaled Oceans) asked the map to size itself from the roster at countdown. **It is
+cancelled.** The ocean stays a fixed 2800u-radius disc at every roster, as set by epic-5 amendment 42.
+
+**The finding that produced the ruling, recorded because it is counter-intuitive and will otherwise
+be re-derived:** the roster-scaling machinery is fully plumbed and has never once done anything.
+`mapRadius(cap) = baseRadius * sqrt(cap / capRef)` exists in CONFIG, `WelcomeMsg.playerCap` is on the
+wire, and the client already rebuilds from it — but `ArenaRoom` builds its World at room creation
+with the constant `CONFIG.map.playerCap`, and `capRef` equals `playerCap`, so the square root is
+always √1 and the function has always returned exactly `baseRadius`. That was true at 900u (capRef 6),
+at 2400u and at 2800u. **A lobby that filled to 20 always got the same ocean a lobby of 2 got.**
+
+Story 6.1 did not change this, but it did make the roster *knowable* at creation time for the first
+time (`expectedCaptains`, sealed at forming by amendment 10), which is why 6.2 became buildable as a
+one-argument change at `ArenaRoom.ts`'s `new World(...)` call. Eric declined it.
+
+**Measured evidence behind the decline** (rosters 2-20, three seeds; full table in
+`bmad-dev-auto-result-6-2-roster-oceans-questions.md`). Generation is valid at every size and land
+coverage holds at ~2.5% throughout, so nothing was blocking it technically. What moved was the game:
+at cap 2 the map would be 885u, where the FIXED 660u endgame ring is already 56% of the water at 0:00
+(vs 5.6% at cap 20) and radar reaches 75% of the map radius (vs 24%) — the storm stops being a pacing
+instrument and Epic 4's whole sensor calibration, which is anchored to a 2800u ocean, loses its
+premise.
+
+**Two consequences that must not be lost:**
+
+1. **FR27's map clause closes as won't-do.** Its other half — spawns outer-ring, max-min mutual
+   distance, island-clear — already ships and was verified during this gate: even-spacing chord on
+   the spawn ring is 701u at cap 20 and 1417u at cap 2, above radar range (660u) at every size.
+2. **The dormant machinery is deliberately KEPT, not deleted.** `mapRadius()`, `capRef`, the
+   `generateMap(seed, playerCap)` parameter and `WelcomeMsg.playerCap` all stay. They cost nothing,
+   the wire field is already shipped at PV 36, and the TEAMS work (see below) may yet need the ocean
+   to size on hulls — in which case the input changes and the curve is already there. Deleting them
+   would be the expensive-to-reverse direction.
+
+**What this orphans, re-homed rather than dropped:** `deferred-work.md`'s teams entry recorded Eric's
+*"~20 teams of 1-3 players, with enough room that all teams can spawn with a buffer"* ruling and
+named Story 6.2 as the owner of roster-dynamic sizing. With 6.2 cancelled that pointer is dangling.
+Teams remain unhomed Epic-6-era scope; if they land, the sizing question reopens **in the opposite
+direction** (up to 60 hulls wants a bigger ocean, not a smaller one), and this amendment is the
+reason the curve was left in place for it.
+
+## Amendment 12 — UNRULED: the PvE wave table is absolute, and that may be correct.
+**Source:** Orchestrator finding at the 6.2 gate + Eric thinking aloud, 2026-08-15. **Not ruled.**
+
+Surfaced during the 6.2 investigation and explicitly left open. `CONFIG.fleet.waves` is absolute —
+4 / 2 / 1 fleets at 1:00 / 5:00 / 9:00, so **36 PvE hulls arrive at 1:00 whether the match has 2
+captains or 20** (18.0 hulls per captain at cap 2, 1.8 at cap 20). Epic-5 amendment 45's stated
+rationale reads *"The wave sizes are a RATIO, not a budget: one fleet per ~5 captains"*, which the
+shipped table does not satisfy at any roster below 20.
+
+**This is a live gap in shipped code today and has nothing to do with map sizing** — it was found
+here only because both questions are about density.
+
+Eric's reaction, verbatim and left standing:
+> "The Ratio is assuming there are 20 captains, sure. If there aren't, then they will have a lot more
+> to hunt, wont they? The ocean would be *really* empty without them at 2800u and 2 players. FFS, now
+> I don't know the right answer here at all."
+
+**The orchestrator's read, offered as reasoning and NOT as a ruling:** the contradiction is probably
+verbal rather than real. Amendment 45's ratio language was justifying a total XP budget (21 levels
+across a match) at the 20-captain design point; it was never a law meant to hold at every roster. The
+one number is doing two jobs — *how much XP exists* and *how full the water feels* — and Eric's
+instinct catches the second one, which the ratio phrasing would destroy.
+
+What genuinely changes at low rosters is **leveling speed**, not fairness: two captains have ~18
+hulls of largely uncontested XP each instead of 1.8 contested ones, so small matches become
+high-boon. That is **symmetric** between the captains, so it is a flavour difference rather than an
+imbalance, and a small lobby resolving into a fast boon-heavy slugfest is arguably the right shape.
+
+**Recommended default: change nothing.** The shipped table is the measured, evidenced state; every
+alternative is a change with no evidence behind it. The real hazard is the WORDING — "it's a RATIO,
+not a budget" reads as a requirement the table violates, so a future agent will eventually "fix" the
+table to match a rationale that was never a requirement. **Amendment 45's text was deliberately left
+unedited** (a change signal authorises only what it rules on, and Eric ruled on the map, not on
+this); this entry exists so the next reader finds the reasoning before the temptation.
+
+Answering it properly needs two different instruments: the batch-sim harness can measure whether
+small-lobby leveling runs away, but "does a 2-captain 2800u ocean feel empty, and does the PvE
+out-threaten the PvP down there" needs eyes on the water. Ledgered to the standing playtest
+checkpoint rather than guessed at.
