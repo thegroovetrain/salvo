@@ -17,6 +17,7 @@ import {
   sanitizeClassId,
   sanitizeHornId,
   zoneGroups,
+  type RequeueMsg,
   type ResultsMsg,
   type Rng,
   type WelcomeMsg,
@@ -462,6 +463,34 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         // where match.end telemetry is emitted (story 0.3).
         this.emitMatchEnd();
       },
+      // Story 6.3 (epic-6 amendments 15/17/18): the cohort-collapse signal, fired
+      // by Match immediately BEFORE the disconnect it annotates. BEST-EFFORT AND
+      // NEVER LOAD-BEARING — the broadcast is wrapped because the disconnect that
+      // follows it is unconditional, and a transport failure here must not throw
+      // out of notifyRosterChanged and strand a room that can never refill. An
+      // undelivered signal costs the survivor a PLAY press and nothing else.
+      requeue: () => {
+        const msg: RequeueMsg = { reason: 'cohortLost' };
+        try {
+          this.broadcast(MSG.requeue, msg);
+        } catch (err) {
+          // THE HANDLER MUST BE TOTAL TOO (review gate). A guard whose CATCH
+          // can throw is not a guard: `String(err)` itself throws for a
+          // prototype-less or hostile value (`throw Object.create(null)`), and
+          // so can a broken logger — either would escape notifyRosterChanged
+          // ahead of the unconditional disconnect() and strand a sealed room
+          // that can never refill, which is the ONE failure this wrapper
+          // exists to prevent. `describeError` is the shipped total renderer
+          // (see its docstring — the tick-error containment needs the same
+          // property); the inner catch covers the log CALL, and is empty
+          // because there is by then nothing left that can safely speak.
+          try {
+            this.log.warn('room.requeueBroadcastFailed', describeError(err));
+          } catch {
+            /* diagnostics are best-effort; the disconnect behind us is not */
+          }
+        }
+      },
       disconnect: () => void this.disconnect(),
     };
   }
@@ -491,7 +520,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
     const horn = sanitizeHornId(options.horn);
 
-    this.world.addShip(client.sessionId, name, false, classId, horn);
+    // A joining CLIENT is always a captain (Story 6.3's role seam, amendment
+    // 13): the socket is the proof. Fleet hulls are world content spawned by
+    // World itself and never reach this door; Story 6.4's AI captains will not
+    // either.
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the

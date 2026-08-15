@@ -380,7 +380,7 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
         return;
       }
       const witnessed = sighted(w, me, wreck.state);
-      if (wreck.isDrone) expect(witnessed || e.by === me.id).toBe(true);
+      if (wreck.role === 'fleet') expect(witnessed || e.by === me.id).toBe(true);
       if (e.seen !== undefined) {
         expect(e.seen).toBe(true);
         expect(witnessed).toBe(true);

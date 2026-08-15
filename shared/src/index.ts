@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  37: THE REQUEUE SIGNAL RIDES THE ARENA (Story 6.3, epic-6 amendments
+ *  15/17/18). New server->client channel MSG.requeue ('rq') carrying
+ *  RequeueMsg { reason: 'cohortLost' }: a queue-formed room that falls below
+ *  CONFIG.match.minHumans during the countdown can never refill (the cohort is
+ *  sealed at forming), so it collapses — and the survivor must be able to tell
+ *  that apart from a normal match-end disconnect, which returns home and waits
+ *  for input. Story 6.1 held this constant at 36 because MSG.queueStatus/seat
+ *  ride the QUEUE room only (amendment 6); this one rides the ARENA, so that
+ *  reasoning does not cover it and the version moves. Cheap and safe by
+ *  construction: protocolVersionError rejects a mismatched `pv` at the queue's
+ *  door (amendment 5), so a stale client is turned away with a clear message
+ *  rather than half-joining a contract it cannot read. Also riding this bump,
+ *  neither of them wire-shaped: ShipRecord grows an explicit ship ROLE seam
+ *  (captain | fleet) in place of the overloaded isDrone boolean, and
+ *  ResultsMsg.winnerId === '' is documented as the genuine DRAW it has been
+ *  since Story 5.2 rather than a can't-happen fallback.
  *  36: ROVING PvE FLEETS + THE BIGGER OCEAN (Story 5.6, Eric rulings
  *  2026-08-14, amendments 33-44). TWO independent wire breaks in one bump.
  *  (a) THE MAP MOVED: CONFIG.map.baseRadius 2400 → 2800, so THE SAME SEED NOW
@@ -358,7 +374,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 36;
+export const PROTOCOL_VERSION = 37;
 
 // Tunables
 export * from './constants.js';

@@ -320,7 +320,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
     // (Eric ruled the geometry, not the damage curve) — 175 hp at 4 hp/s is
     // ~44s, comfortably inside the ~45s the acceptance criterion allows.
     const w = new World(22, CONFIG.match.fillTo, collapsing());
-    const rec = w.addShip('a', 'ALPHA', false, 'battleship');
+    const rec = w.addShip('a', 'ALPHA', 'captain', 'battleship');
     w.startZone(0);
     placeClear(w, 'a', 0); // on the collapse point: nothing survives there either
     stepTo(w, 4 * GROUP - 1); // the last tick before the ring reaches r=0

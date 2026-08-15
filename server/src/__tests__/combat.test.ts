@@ -54,7 +54,7 @@ const gunInput = (aim: number, aimDist = 1000, fireSeq = 1, seq = 1, fireT = 0) 
 function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
   const w = new World(seed);
   w.map.islands.length = 0;
-  const a = w.addShip('a', 'A', false, hullId);
+  const a = w.addShip('a', 'A', 'captain', hullId);
   a.state = { x: 0, y: 0, heading: 0, speed: 0 };
   return { w, a };
 }

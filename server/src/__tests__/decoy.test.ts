@@ -42,7 +42,7 @@ function bareWorld(seed = 31, opts: WorldOptions = {}): World {
 
 /** Add a ship of `hull` and pin it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: Parameters<World['addShip']>[3] = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }

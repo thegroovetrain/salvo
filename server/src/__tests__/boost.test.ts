@@ -30,7 +30,7 @@ function bareWorld(seed = 21): World {
 
 /** Add a ship at the origin at a known heading (speed 0). */
 function place(w: World, id: string, hull: ShipClassId = 'torpedoBoat', heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }
@@ -220,7 +220,7 @@ describe('death/respawn state reset (Story 1.6)', () => {
 describe('drones never activate an ability', () => {
   it('a drone stays un-boosted across many ticks (its actSeq is always 0)', () => {
     const w = bareWorld();
-    const d = w.addShip('d', 'D', true, 'droneSmall');
+    const d = w.addShip('d', 'D', 'fleet', 'droneSmall');
     d.state = { x: 0, y: 0, heading: 0, speed: 0 };
     for (let i = 0; i < 30; i++) w.step();
     expect(d.boostUntil).toBe(0);

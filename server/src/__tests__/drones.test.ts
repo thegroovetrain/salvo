@@ -39,6 +39,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
+import { isFleetHull } from '../game/participants.js';
 import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -62,13 +63,13 @@ function bareWorld(seed = 1, zone: ZoneTimeline = CONFIG.zone): World {
  * anchor; the wave tests below drive the real scheduler instead.
  */
 function fleetShip(w: World, id: string, size: DroneSizeId, x: number, y: number, fleetId = 1): ShipRecord {
-  const rec = w.addShip(id, 'DRONE', true, droneHullOf(size), DEFAULT_HORN_ID, { x, y });
+  const rec = w.addShip(id, 'DRONE', 'fleet', droneHullOf(size), DEFAULT_HORN_ID, { x, y });
   w.drones.add(id, size, fleetId, { x: 0, y: 0 });
   return rec;
 }
 
 function captain(w: World, id: string, x = 0, y = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, 'torpedoBoat', DEFAULT_HORN_ID, { x, y });
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, { x, y });
   return rec;
 }
 
@@ -78,7 +79,7 @@ function centerDist(s: ShipRecord): number {
 
 /** Every fleet hull currently in the world. */
 function fleetHulls(w: World): ShipRecord[] {
-  return [...w.ships.values()].filter((s) => s.isDrone);
+  return [...w.ships.values()].filter((s) => isFleetHull(s));
 }
 
 describe('fleet hulls — inputs are the only interface', () => {
@@ -804,6 +805,7 @@ function inertHooks(calls: string[], results: unknown[]): MatchHooks {
     lock: () => calls.push('lock'),
     unlock: () => calls.push('unlock'),
     broadcastResults: (msg) => results.push(msg),
+    requeue: () => calls.push('requeue'),
     disconnect: () => calls.push('disconnect'),
   };
 }

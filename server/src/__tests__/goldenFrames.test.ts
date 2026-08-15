@@ -211,7 +211,7 @@ function bareWorld(seed: number): World {
  *  the torpedoBoat every pre-1.7 scenario was built on; scnStarShell places a
  *  battleship (the star-shell carrier); the 1.8 scenarios place a mineLayer. */
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;

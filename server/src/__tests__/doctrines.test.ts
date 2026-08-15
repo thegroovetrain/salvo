@@ -21,7 +21,7 @@ function bareWorld(seed = 3): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }

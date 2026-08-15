@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, MSG } from '@salvo/shared';
 import {
   bindRoom,
   frameIsDeadOrSpectating,
@@ -2321,5 +2321,260 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
     sink.handler(victimFrame([], { ...sinkingYou(1000), x: 500, y: 0 }, { t: 1000 }));
     sink.handler(victimFrame([{ k: 'mz', x: 500, y: 0 }], null, { t: 2000 }));
     expect(ids(play)).toEqual(['gunReport']);
+  });
+});
+
+// --- Story 6.3: the cohort-collapse signal -----------------------------------
+//
+// `rq` is the ONE channel that tells a client its lobby is gone. The whole
+// reason it exists is that a socket close cannot say it: the normal end-of-match
+// disconnect closes the socket too, and that one must keep landing home and
+// WAITING for input. So these pin both directions — the signal routes, and
+// nothing else does.
+
+/**
+ * A Colyseus 0.17 room SIGNAL, faithfully: callable to register, with its own
+ * `remove` for unregistration. VERIFIED against the installed
+ * @colyseus/sdk 0.17.43 (`build/core/signal.mjs` — `createSignal` hangs
+ * `remove`/`once`/`clear` off the register function), not assumed.
+ */
+interface SignalFake<C> {
+  (cb: C): void;
+  remove: (cb: C) => void;
+  handlers: C[];
+}
+
+function signalFake<C>(): SignalFake<C> {
+  const handlers: C[] = [];
+  const reg = ((cb: C) => void handlers.push(cb)) as SignalFake<C>;
+  reg.handlers = handlers;
+  reg.remove = (cb: C) => {
+    const i = handlers.indexOf(cb);
+    if (i >= 0) handlers.splice(i, 1);
+  };
+  return reg;
+}
+
+interface MsgRoom {
+  onMessage: (type: string, cb: (msg: unknown) => void) => () => void;
+  onError: SignalFake<(code: number, message?: string) => void>;
+  onLeave: SignalFake<(code: number) => void>;
+  onDrop: SignalFake<() => void>;
+  onReconnect: SignalFake<() => void>;
+  fire: (type: string, msg: unknown) => void;
+  fireLeave: (code: number) => void;
+  fireDrop: () => void;
+  /** How many callbacks the room is still holding, across every channel. */
+  liveHandlers: () => number;
+}
+
+/**
+ * A fake room that actually delivers messages (the shared one drops them) —
+ * and, since the Story 6.3 review gate, one that models the SDK's REMOVAL
+ * surface too: `onMessage` hands back the unbind function 0.17.43 really
+ * returns, and the four signals expose `remove`. Without that the disposal
+ * tests below would only ever exercise the latch.
+ */
+function msgRoom(): MsgRoom {
+  const handlers = new Map<string, Set<(msg: unknown) => void>>();
+  const onError = signalFake<(code: number, message?: string) => void>();
+  const onLeave = signalFake<(code: number) => void>();
+  const onDrop = signalFake<() => void>();
+  const onReconnect = signalFake<() => void>();
+  const signals = [onError, onLeave, onDrop, onReconnect];
+  return {
+    onMessage: (type, cb) => {
+      const set = handlers.get(type) ?? new Set<(msg: unknown) => void>();
+      set.add(cb);
+      handlers.set(type, set);
+      return () => void set.delete(cb);
+    },
+    onError,
+    onLeave,
+    onDrop,
+    onReconnect,
+    fire: (type, msg) => {
+      for (const cb of [...(handlers.get(type) ?? [])]) cb(msg);
+    },
+    fireLeave: (code) => {
+      for (const cb of [...onLeave.handlers]) cb(code);
+    },
+    fireDrop: () => {
+      for (const cb of [...onDrop.handlers]) cb();
+    },
+    liveHandlers: () =>
+      [...handlers.values()].reduce((n, set) => n + set.size, 0) +
+      signals.reduce((n, sig) => n + sig.handlers.length, 0),
+  };
+}
+
+function setupSignals() {
+  const room = msgRoom();
+  const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const onRequeue = vi.fn();
+  const onRoomLeave = vi.fn();
+  const onResults = vi.fn();
+  const onDrop = vi.fn();
+  const addSample = vi.fn();
+  const deps = {
+    // The frame surface, so the SINK can be exercised alongside the messages
+    // (it is a binding too — a mutable field rather than a registration).
+    state: { net: { you: null, tick: 0, ackSeq: 0 }, spectating: false, phase: '', respawnEta: null, mode: 'interp', matchOver: false },
+    clock: { addSample },
+    ownBuffer: { clear: vi.fn(), push: vi.fn() },
+    predictor: { forceSnap: vi.fn(), onServerState: vi.fn() },
+    radar: { onSweepSample: vi.fn() },
+    contacts: { pushFrame: vi.fn() },
+    mines: { sync: vi.fn() },
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
+    litZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    onOwnStats: vi.fn(),
+    onOwnSpawn: vi.fn(),
+    audio: { play: vi.fn(), playHorn: vi.fn() },
+    colors: vi.fn(() => null),
+    ordnanceHue: vi.fn(() => 0),
+    onRequeue,
+    onRoomLeave,
+    onResults,
+    onDrop,
+  } as unknown as RoomBindingDeps;
+  const unbind = bindRoom(conn, deps);
+  return { room, sink, unbind, onRequeue, onRoomLeave, onResults, onDrop, addSample };
+}
+
+describe('bindRoom — the requeue signal', () => {
+  it('routes `rq` to deps.onRequeue, once, carrying the reason verbatim', () => {
+    const { room, onRequeue } = setupSignals();
+    room.fire(MSG.requeue, { reason: 'cohortLost' });
+    expect(onRequeue).toHaveBeenCalledTimes(1);
+    expect(onRequeue).toHaveBeenCalledWith({ reason: 'cohortLost' });
+  });
+
+  // THE PIN THE WHOLE CHANNEL EXISTS FOR: the ordinary match end is
+  // results-then-disconnect, and NEITHER may auto-requeue anybody. Without a
+  // separate signal the client would have to guess from the socket close, and
+  // every finished match would fling the player into a new queue.
+  it('a normal match end — results, then the room disconnects — never requeues', () => {
+    const { room, onRequeue, onRoomLeave, onResults } = setupSignals();
+    room.fire(MSG.results, { winnerId: 'a', rows: [] });
+    room.fireLeave(1000);
+    expect(onResults).toHaveBeenCalledTimes(1);
+    expect(onRoomLeave).toHaveBeenCalledTimes(1);
+    expect(onRequeue).not.toHaveBeenCalled();
+  });
+
+  it('a bare disconnect with no signal in front of it never requeues either', () => {
+    const { room, onRequeue, onRoomLeave } = setupSignals();
+    room.fireLeave(4000);
+    expect(onRoomLeave).toHaveBeenCalledTimes(1);
+    expect(onRequeue).not.toHaveBeenCalled();
+  });
+
+  // The collapse's real shape on the wire: signal first, socket close a beat
+  // behind it. Both land, and both are delivered — the LATCH that turns them
+  // into exactly one join lives in app/requeue.ts, not here.
+  it('the collapse delivers both: the signal, then the disconnect behind it', () => {
+    const { room, onRequeue, onRoomLeave } = setupSignals();
+    room.fire(MSG.requeue, { reason: 'cohortLost' });
+    room.fireLeave(1000);
+    expect(onRequeue).toHaveBeenCalledTimes(1);
+    expect(onRoomLeave).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Story 6.3 review gate: the bindings are a DISPOSER -----------------------
+//
+// THE RACE IS DELIBERATE, so the abandoned room is not hypothetical. The
+// requeue chain races `room.leave()` against a 1000ms timeout, so a hung leave
+// has the client tear down the Pixi app and rebuild the home screen WHILE THE
+// OLD ROOM IS STILL LIVE AND CONNECTED. Every callback bindRoom registers is
+// closed over that destroyed game and stage: a late results/sunk/frame/leave
+// would paint match chrome (results modal, banners, kill feed) over the fresh
+// port, and it compounds across repeated collapses.
+//
+// So bindRoom hands back a disposer, main.ts pushes it onto `Game.disposers`,
+// and `endSession()` — which already drains them synchronously — tears the
+// bindings down with everything else.
+
+describe('bindRoom — the disposer', () => {
+  it('after disposal, nothing the old room delivers reaches the handlers', () => {
+    const { room, sink, unbind, onRequeue, onRoomLeave, onResults, onDrop, addSample } = setupSignals();
+
+    // Control: every channel is live BEFORE the disposer runs.
+    room.fire(MSG.results, { winnerId: 'a', rows: [] });
+    room.fire(MSG.requeue, { reason: 'cohortLost' });
+    room.fireDrop();
+    sink.handler(ownFrame(0, 0));
+    expect(onResults).toHaveBeenCalledTimes(1);
+    expect(onRequeue).toHaveBeenCalledTimes(1);
+    expect(onDrop).toHaveBeenCalledTimes(1);
+    expect(addSample).toHaveBeenCalledTimes(1);
+
+    unbind();
+
+    // ...and dead after it. This is the whole defect: the abandoned room keeps
+    // delivering, and its callbacks must have become nobody's business.
+    room.fire(MSG.results, { winnerId: 'b', rows: [] });
+    room.fire(MSG.requeue, { reason: 'cohortLost' });
+    room.fireLeave(1000);
+    room.fireDrop();
+    sink.handler(ownFrame(10, 10));
+    expect(onResults).toHaveBeenCalledTimes(1);
+    expect(onRequeue).toHaveBeenCalledTimes(1);
+    expect(onDrop).toHaveBeenCalledTimes(1);
+    expect(addSample).toHaveBeenCalledTimes(1);
+    expect(onRoomLeave).not.toHaveBeenCalled();
+  });
+
+  it('really UNREGISTERS through the SDK rather than only latching', () => {
+    // The latch alone would leave every callback attached to a room that keeps
+    // firing them forever. 0.17.43 can undo all of it (onMessage returns an
+    // unbind fn; the signals expose remove), so the room must end up empty.
+    const { room, unbind } = setupSignals();
+    expect(room.liveHandlers()).toBeGreaterThan(0);
+    unbind();
+    expect(room.liveHandlers()).toBe(0);
+  });
+
+  it('is idempotent — a second call removes nothing else and never throws', () => {
+    // Not tidiness: the SDK's own EventEmitter.remove() CORRUPTS its list when
+    // handed a callback it no longer holds (indexOf -1 -> it pops the LAST
+    // handler, i.e. somebody else's). A disposer that ran twice could tear
+    // down a NEW binding's listener on the same emitter.
+    const { room, unbind } = setupSignals();
+    unbind();
+    const other = () => undefined;
+    room.onLeave(other);
+    expect(() => unbind()).not.toThrow();
+    expect(room.onLeave.handlers).toEqual([other]);
+  });
+
+  it('the LATCH covers a registration that hands back no way to undo it', () => {
+    // Defence in depth for a lenient/future SDK shape: a room whose onMessage
+    // returns nothing and whose signals carry no `remove`. The handler is
+    // still attached — and must still be inert.
+    const handlers = new Map<string, (msg: unknown) => void>();
+    const room = {
+      onMessage: (type: string, cb: (msg: unknown) => void) => void handlers.set(type, cb),
+      onError: () => undefined,
+      onLeave: () => undefined,
+      onDrop: () => undefined,
+      onReconnect: () => undefined,
+    };
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const onRequeue = vi.fn();
+    const deps = { state: { net: {}, matchOver: false }, onRequeue } as unknown as RoomBindingDeps;
+
+    const unbind = bindRoom(conn, deps);
+    handlers.get(MSG.requeue)?.({ reason: 'cohortLost' });
+    expect(onRequeue).toHaveBeenCalledTimes(1);
+
+    unbind();
+    handlers.get(MSG.requeue)?.({ reason: 'cohortLost' });
+    expect(onRequeue).toHaveBeenCalledTimes(1); // still attached, now inert
   });
 });

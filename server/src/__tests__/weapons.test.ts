@@ -234,7 +234,7 @@ describe('mines — per-player cap despawns the oldest', () => {
 describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
   it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
@@ -261,7 +261,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
    *  theirs at the origin. */
   function minefield(): { w: World; o: ShipRecord } {
     const w = bareWorld(11);
-    const o = w.addShip('o', 'O', false, 'mineLayer');
+    const o = w.addShip('o', 'O', 'captain', 'mineLayer');
     o.state = { x: 600, y: 600, heading: 0, speed: 0 }; // far from the blast
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     return { w, o };
@@ -300,7 +300,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const { w } = minefield();
     const b = w.addShip('b', 'B'); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
-    const dr = w.addShip('dr', 'DR', true, 'droneSmall'); // drone inside the blast
+    const dr = w.addShip('dr', 'DR', 'fleet', 'droneSmall'); // drone inside the blast
     dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
     const hpBefore = dr.stats.maxHp;
     w.step();
@@ -368,7 +368,7 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
    *  INSIDE the mine's 48u blast — any damage b takes is the MINE's. */
   function board(): { w: World; a: ShipRecord; b: ShipRecord } {
     const w = bareWorld(13);
-    const a = w.addShip('a', 'A', false, 'mineLayer');
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B');
     b.state = { x: 300, y: 45, heading: 0, speed: 0 };
@@ -443,7 +443,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('one CLICK places exactly one mine (fireSeq — Story 2.8 aimed weapon), even applied past the drop cooldown; a second click places another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     // Under hold-to-fire this input would re-place every reload; a click must not.
@@ -457,7 +457,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('a PRESS (actSeq) on the ML mine slot is inert — mines JOINED the fire-control channel (Story 2.8 flip of the 1.8 pin)', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', false, 'mineLayer');
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML, hornSeq: 0 });
     w.step();

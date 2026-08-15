@@ -154,7 +154,7 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
 
   it('a drone never honks — the press is consumed and dropped', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE-01', true, 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
     // Out-run the drone controller's own per-tick submit (mind.seq counts up
     // from 1): a seq-10 forged press wins latest, the controller's input reads
     // stale — this is exactly the shape a hijacked drone channel would take.
@@ -214,7 +214,7 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     expect(a.horn).toBe(DEFAULT_HORN_ID);
-    const b = w.addShip('b', 'B', false, 'torpedoBoat', 'standard');
+    const b = w.addShip('b', 'B', 'captain', 'torpedoBoat', 'standard');
     expect(b.horn).toBe('standard');
   });
 });

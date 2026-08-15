@@ -26,6 +26,7 @@
 // in a live match but must still be exact.
 
 import { CONFIG, isAfloat, type ShipLifecycle } from '@salvo/shared';
+import { isParticipant, type ShipRole } from './participants.js';
 
 /** One ship's view into the throne rule — a plain snapshot, never a live
  *  ShipRecord (the module stays pure and trivially unit-testable). */
@@ -35,10 +36,12 @@ export interface BountyCandidate {
    *  amendment 2): the snapshot carries the one representation forward so the
    *  throne rule reads it through isAfloat() exactly as the sim does. */
   lifecycle: ShipLifecycle;
-  /** Drones can neither hold the throne nor count toward it — guarded here
-   *  as well as at the increment site (defense in depth: a future combat-bot
-   *  path that mis-credits a drone still cannot crown one). */
-  isDrone: boolean;
+  /** What the candidate IS (Story 6.3, amendment 13 — was the `isDrone`
+   *  boolean). The throne is a PARTICIPANT rule: a fleet hull can neither hold
+   *  it nor count toward it — guarded here as well as at the increment site
+   *  (defense in depth: a path that mis-credits a fleet hull still cannot crown
+   *  one) — while a 6.4 AI captain is a combatant and CAN hold it. */
+  role: ShipRole;
   /** CAPTAIN victims only. ONE field since Story 5.6 (amendment 38 emptied
    *  `kills` of PvE sinkings, which made the 4.6 `captainKills` split
    *  identical by construction and therefore redundant). */
@@ -57,7 +60,7 @@ export interface BountyCandidate {
  * held throne stays held and a vacant one stays vacant.
  */
 export function nextBountyHolder(current: string, cands: readonly BountyCandidate[]): string {
-  const held = cands.find((c) => c.id === current && isAfloat(c.lifecycle) && !c.isDrone);
+  const held = cands.find((c) => c.id === current && isAfloat(c.lifecycle) && isParticipant(c));
   // FAIL-CLOSED on a non-finite incumbent count (defense in depth — unreachable
   // today, `kills` is only ever 0-initialized and `+= 1`, same posture
   // as `addXpMs` in world.ts): an unguarded NaN floor fails every `<=` skip
@@ -71,12 +74,12 @@ export function nextBountyHolder(current: string, cands: readonly BountyCandidat
   return held ? current : '';
 }
 
-/** An alive non-drone challenger (the incumbent never challenges itself) with
+/** An alive PARTICIPANT challenger (the incumbent never challenges itself) with
  *  a FINITE count — fail-closed defense in depth: an unguarded NaN passes
  *  every `<= floor` skip below (NaN comparisons are always false), which
  *  would let a corrupt candidate become the running `best` and be crowned. */
 function eligible(c: BountyCandidate, current: string): boolean {
-  return isAfloat(c.lifecycle) && !c.isDrone && c.id !== current && Number.isFinite(c.kills);
+  return isAfloat(c.lifecycle) && isParticipant(c) && c.id !== current && Number.isFinite(c.kills);
 }
 
 /**

@@ -89,6 +89,7 @@ import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
+import { makeRequeue } from './app/requeue.js';
 import {
   connect,
   connectErrorStatus,
@@ -100,11 +101,18 @@ import {
 } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
-import { bindRoom } from './net/roomBindings.js';
+import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
-import { queueStatusLine, showHome, type HomeHandle } from './ui/home.js';
+import {
+  loadSavedClass,
+  queueStatusLine,
+  requeueStatusLine,
+  showHome,
+  type HomeHandle,
+  type StatusLine,
+} from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
@@ -271,11 +279,29 @@ interface Game {
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */
   spectate: { freePan: boolean; visualsSet: boolean };
-  /** A reload back to the menu is already scheduled/underway. */
+  /** A trip back to the menu is already scheduled/underway (a reload, or Story
+   *  6.3's in-place teardown). Either way this session is over: it is what stops
+   *  the socket close behind an exit from starting a second one. */
   returning: boolean;
   /** THE return-to-port chain (app/returnToPort.ts), latched + always settling
    *  to a reload. Shared by the results button and results-phase Enter/ESC. */
   returnToPort: () => void;
+  /**
+   * THE AUTO-REQUEUE CHAIN (app/requeue.ts, Story 6.3) — latched, and always
+   * settling to the home screen plus a fresh queue join with NO PLAY press.
+   * Driven by the arena's `rq` signal and by nothing else: an ordinary
+   * match-end disconnect still goes home and waits for input.
+   */
+  requeue: () => void;
+  /**
+   * Everything this session attached OUTSIDE the Pixi app and must detach when
+   * it ends: the loop's ticker callback, the visibility/blur listeners and the
+   * wheel-zoom listener. Story 6.3's auto-requeue tears the session down in
+   * place (no page reload, so nothing is swept away for free), and a stale
+   * listener here would drive a dead room — `sendNeutralInput` alone would
+   * `send` into a socket we have already left.
+   */
+  disposers: Array<() => void>;
   /**
    * True while the SDK is auto-reconnecting the same room (between onDrop and
    * onReconnect / onRoomLeave). The persistent RECONNECTING banner owns the
@@ -1649,9 +1675,75 @@ function returnToPort(g: Game): void {
   g.returnToPort();
 }
 
+/**
+ * The arena's cohort-collapse signal reached us (Story 6.3): go home and queue
+ * again, with no PLAY press and no page reload.
+ *
+ * The `returning` guard is the outer half of the double-join defence — if the
+ * player has already left (abandon, return-to-port, a drop that gave up) that
+ * exit owns the teardown and this one must not start a second. The inner half
+ * is the chain's own latch, which covers the ordinary case: the signal, then
+ * the socket close a beat behind it.
+ */
+function requeueAfterCollapse(g: Game): void {
+  if (g.returning) return;
+  g.requeue();
+}
+
+/**
+ * THE AUTO-REQUEUE (Story 6.3, epic-6 amendment 18): the arena told us this
+ * lobby is gone and can never refill.
+ *
+ * Same late-binding shape as `makeGameReturnToPort` and the same latch, but a
+ * different terminal action — `enterPort` instead of `reload`, because the AC
+ * is explicit that the survivor gets no page reload. `onStart` is the whole
+ * synchronous teardown of the arena session: everything attached outside the
+ * Pixi app has to go NOW, while we still hold the references, and before the
+ * leave that follows can be re-read as a dropped connection.
+ */
+function makeGameRequeue(getG: () => Game | null): () => void {
+  return makeRequeue({
+    leaveRoom: () => getG()?.room.leave() ?? Promise.resolve(),
+    enterPort: () => void requeueToPort(),
+    onStart: () => {
+      const g = getG();
+      if (!g) return;
+      g.returning = true; // handleRoomLeave: this exit is already owned
+      endSession(g);
+    },
+  });
+}
+
+/**
+ * Detach everything the live session attached OUTSIDE the Pixi app, and drop
+ * the DOM chrome a match owns.
+ *
+ * Ordinarily the page reload does all of this for free; the auto-requeue is the
+ * one exit that has no reload behind it, so each piece is named here. The input
+ * chokepoints and the loop go FIRST — a sim tick or a keypress landing after
+ * `room.leave()` would send into a socket that is gone.
+ */
+function endSession(g: Game): void {
+  cancelZoomFogRebake(g);
+  g.keyboard.detach();
+  g.mouse.detach();
+  for (const dispose of g.disposers) {
+    try {
+      dispose();
+    } catch (err) {
+      console.warn('[app] session teardown step failed', err);
+    }
+  }
+  g.disposers.length = 0;
+  hideResults(); // an elimination modal must not survive the teardown
+  hideBanner();
+  g.upgradeMenu.hide();
+  g.settingsOverlay.close();
+}
+
 /** The room connection ended (server disposal, network death, or own leave). */
 function handleRoomLeave(g: Game): void {
-  if (g.returning) return; // we initiated it; reload is already on its way
+  if (g.returning) return; // we initiated it; the exit is already on its way
   g.returning = true;
   g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
   cancelZoomFogRebake(g); // same teardown hygiene as returnToPort
@@ -2231,6 +2323,7 @@ function buildGame(
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
+    requeue: makeGameRequeue(() => gRef), disposers: [],
     shake: new ShakeDriver(),
     flashBudget,
     deniedPulse: new DeniedPulse(), deniedFlash: false, deniedDegraded: false,
@@ -2268,7 +2361,13 @@ function buildGame(
   g.radar.setWakeSources(g.effects.wakeSources, g.islands);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
-  bindGameRoom(g, conn);
+  // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
+  // requeue chain races `room.leave()` against a 1000ms timeout, so a hung
+  // leave leaves the OLD room live and connected while the Pixi app is torn
+  // down and the home rebuilt. Without this, a late results/sunk/frame/leave
+  // would still reach handlers closed over the destroyed game and paint match
+  // chrome over the fresh port. Registered here, at the moment it is created.
+  g.disposers.push(bindGameRoom(g, conn));
   return g;
 }
 
@@ -2383,9 +2482,10 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
   };
 }
 
-/** Wire the room's messages into the game (frames, results, disconnects). */
-function bindGameRoom(g: Game, conn: Connection): void {
-  bindRoom(conn, {
+/** Wire the room's messages into the game (frames, results, disconnects), and
+ *  hand back the disposer that unwires them (see bindRoom's docstring). */
+function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
+  return bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
     // Story 4.5: the SPECTATOR foghorn path's vantage point. A spectator's honk
@@ -2464,6 +2564,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
       // grace restarts (see CLIENT_CONFIG.results.keyGraceMs).
       showMatchResults(g, msg);
     },
+    // Story 6.3: the cohort collapsed during the countdown. The chain is
+    // LATCHED, which is the whole double-join guard: this signal is always
+    // followed by the room disconnecting us, so `onRoomLeave` fires a beat
+    // later and finds `g.returning` already set. Exactly one join starts.
+    onRequeue: () => requeueAfterCollapse(g),
     onRoomLeave: () => handleRoomLeave(g),
     // Minimal reconnect UX (story 0.2): a persistent RECONNECTING banner while
     // the SDK retries the same room, cleared the moment it resumes. Richer UX
@@ -3750,9 +3855,9 @@ const FOG_REBAKE_DEBOUNCE_MS = 150;
  * trailing edge of a resize burst (~150ms of quiet) to avoid hitching while
  * the user drags the window edge.
  */
-function bindResize(stage: Stage, game: Game): void {
+function bindResize(stage: Stage, game: Game): () => void {
   let fogRebakeTimer: ReturnType<typeof setTimeout> | null = null;
-  stage.app.renderer.on('resize', (width: number, height: number) => {
+  const onResize = (width: number, height: number): void => {
     game.camera.setViewport(width, height);
     if (fogRebakeTimer !== null) clearTimeout(fogRebakeTimer);
     fogRebakeTimer = setTimeout(() => {
@@ -3760,7 +3865,17 @@ function bindResize(stage: Stage, game: Game): void {
       // Zoom derives from the viewport, so resize covers the fog's rebake-on-zoom too.
       game.fog.rebake(width, height, game.camera.zoom);
     }, FOG_REBAKE_DEBOUNCE_MS);
-  });
+  };
+  stage.app.renderer.on('resize', onResize);
+  // The listener itself dies with the renderer, but THE PENDING RE-BAKE DOES
+  // NOT: a resize inside the debounce window before Story 6.3's in-place
+  // teardown would fire this timer against a fog and camera that no longer
+  // exist. The reload every other exit ends in swept that up for free.
+  return () => {
+    stage.app.renderer.off('resize', onResize);
+    if (fogRebakeTimer !== null) clearTimeout(fogRebakeTimer);
+    fogRebakeTimer = null;
+  };
 }
 
 /**
@@ -3797,12 +3912,21 @@ function sendNeutralInput(g: Game): void {
   if (g.state.mode === 'predict') g.predictor.localTick(msg, g.clock.serverNow());
 }
 
-/** Neutralize input the moment the tab is hidden or the window loses focus. */
-function bindVisibility(game: Game): void {
-  document.addEventListener('visibilitychange', () => {
+/** Neutralize input the moment the tab is hidden or the window loses focus.
+ *  Returns a disposer (Story 6.3): these listeners `send` on the room, so an
+ *  in-place teardown that left them attached would post input into a socket the
+ *  session has already left. */
+function bindVisibility(game: Game): () => void {
+  const onHidden = (): void => {
     if (document.hidden) sendNeutralInput(game);
-  });
-  window.addEventListener('blur', () => sendNeutralInput(game));
+  };
+  const onBlur = (): void => sendNeutralInput(game);
+  document.addEventListener('visibilitychange', onHidden);
+  window.addEventListener('blur', onBlur);
+  return () => {
+    document.removeEventListener('visibilitychange', onHidden);
+    window.removeEventListener('blur', onBlur);
+  };
 }
 
 // --- camera zoom (Story 2.1, Eric ruling 2026-07-24) --------------------------
@@ -3864,29 +3988,30 @@ function cancelZoomFogRebake(g: Game): void {
  * zoom-out (wheel-only, clamped [0.5x, 1x] — render/spectate.ts wheelZoom,
  * byte-identical behavior); while ALIVE it drives the smooth user zoom
  * (clamped [0.5x, 1.5x] — Story 2.1).
+ *
+ * Returns a disposer for the same reason bindVisibility does: it holds a camera
+ * that an in-place teardown destroys under it.
  */
-function bindWheelZoom(game: Game): void {
-  window.addEventListener(
-    'wheel',
-    (e: WheelEvent) => {
-      // A WHEEL AIMED AT THE RESULTS MODAL IS NOT A CAMERA INTENT (review
-      // finding). The modal is a scrollable panel and Story 5.3 made it taller
-      // — match log, boons, last offer — so scrolling it is now an ordinary
-      // action. This listener is on `window`, so every one of those ticks also
-      // drove the spectate zoom behind it, which CLEARS the reveal target and
-      // pops the backdrop from the whole-map framing to the clamp floor. It was
-      // near-invisible before (the dim was almost opaque and the zoom stayed
-      // inside [0.5, 1]); against the 0.62 dim it destroys the reveal by
-      // reading a scroll as a zoom.
-      if (resultsVisible()) return;
-      if (game.state.spectating) {
-        game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
-        return;
-      }
-      applyUserZoom(game, game.camera.userZoom - e.deltaY * CLIENT_CONFIG.zoom.wheelRate);
-    },
-    { passive: true },
-  );
+function bindWheelZoom(game: Game): () => void {
+  const onWheel = (e: WheelEvent): void => {
+    // A WHEEL AIMED AT THE RESULTS MODAL IS NOT A CAMERA INTENT (review
+    // finding). The modal is a scrollable panel and Story 5.3 made it taller
+    // — match log, boons, last offer — so scrolling it is now an ordinary
+    // action. This listener is on `window`, so every one of those ticks also
+    // drove the spectate zoom behind it, which CLEARS the reveal target and
+    // pops the backdrop from the whole-map framing to the clamp floor. It was
+    // near-invisible before (the dim was almost opaque and the zoom stayed
+    // inside [0.5, 1]); against the 0.62 dim it destroys the reveal by
+    // reading a scroll as a zoom.
+    if (resultsVisible()) return;
+    if (game.state.spectating) {
+      game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
+      return;
+    }
+    applyUserZoom(game, game.camera.userZoom - e.deltaY * CLIENT_CONFIG.zoom.wheelRate);
+  };
+  window.addEventListener('wheel', onWheel, { passive: true });
+  return () => window.removeEventListener('wheel', onWheel);
 }
 
 // --- bootstrap ---------------------------------------------------------------------
@@ -3937,18 +4062,191 @@ function toggleMute(game: Game): void {
   if (!game.reconnecting) showBanner(game.audio.muted ? 'MUTED' : 'UNMUTED', { autoHideMs: 1200 });
 }
 
+/**
+ * THE SHELL — everything that outlives a single arena session: the Pixi stage,
+ * the audio engine, the portal adapter, the settings overlay and the build
+ * version.
+ *
+ * It exists because Story 6.3 gave the client a second way back to port that is
+ * NOT a page reload (the auto-requeue), so "the stuff a reload used to rebuild"
+ * had to become a value something can hold. `stage` is `let`-shaped for exactly
+ * that reason: the in-place teardown destroys the Pixi app and mounts a fresh
+ * one, and every late-bound reader (the settings overlay's viewport width, the
+ * next `enterPort`) must see the new one.
+ */
+interface Shell {
+  stage: Stage;
+  audio: Audio;
+  portal: PortalAdapter;
+  settingsOverlay: SettingsOverlay;
+  version: string;
+}
+
+/** The shell, once boot has built it. Null only before `main()` gets there. */
+let shellRef: Shell | null = null;
+
+/** The live home screen, or null once we deploy — the settings overlay yields
+ *  the home while it is open, and must reach whichever home is current. */
+let homeRef: HomeHandle | null = null;
+
+/**
+ * The identity the player last deployed with (callsign + hull). The auto-requeue
+ * joins the next queue with EXACTLY these — not with whatever localStorage holds
+ * — so a survivor sails the same ship they were about to sail, and a name typed
+ * for one match carries into its replacement.
+ */
+let lastDeploy: { name: string; cls: ShipClassId } | null = null;
+
+/**
+ * ms — how long the collapse register keeps the home's ONE status line before
+ * the live queue liveness takes it over.
+ *
+ * It needs a dwell because the home has a single register and the queue pushes
+ * its first liveness line the moment we are pooled — without this the reason a
+ * player is suddenly back at the menu would flash past in under a frame's worth
+ * of reading. Long enough to read a short line, short enough that the honest
+ * `QUEUED n/2` state is never withheld for meaningfully long.
+ */
+const REQUEUE_STATUS_HOLD_MS = 2500;
+
+/**
+ * The home's status line, with a one-shot OPENING register that outranks the
+ * queue's liveness for `holdMs`.
+ *
+ * The held line is never simply dropped: the last suppressed liveness line is
+ * repainted when the hold expires, so a pool that never changes again (the
+ * common case for a lone captain — an unarmed pool only pushes on a count
+ * change) still ends up showing the truthful count rather than freezing on the
+ * reason we came back. `cancel()` exists for the same reason: once the connect
+ * flow has settled, a late repaint would land on top of copy that supersedes it
+ * (a cancel line, or the ocean itself).
+ */
+function makeStatusHold(
+  home: HomeHandle,
+  holdMs: number,
+): { paint: (line: StatusLine) => void; cancel: () => void } {
+  const until = holdMs > 0 ? Date.now() + holdMs : 0;
+  let pending: StatusLine | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = (): void => {
+    timer = null;
+    if (pending) home.setStatus(pending.text, pending.tone);
+    pending = null;
+  };
+  return {
+    paint: (line) => {
+      const left = until - Date.now();
+      if (left <= 0) {
+        home.setStatus(line.text, line.tone);
+        return;
+      }
+      pending = line;
+      if (timer === null) timer = setTimeout(flush, left);
+    },
+    cancel: () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      pending = null;
+    },
+  };
+}
+
+/**
+ * Tear the arena session's Pixi app down and hand the shell back to port,
+ * queueing again automatically (Story 6.3, amendment 18). NO PAGE RELOAD.
+ *
+ * The whole Pixi application goes rather than each layer: one `destroy` takes
+ * the renderer (and its resize listener), the ticker and every sprite the match
+ * built, which is strictly safer than clearing twenty-odd layer containers by
+ * hand and hoping the list stays current. Everything attached OUTSIDE the app
+ * was already dropped synchronously by `endSession` at signal time.
+ *
+ * A failure here is terminal for the session, so it falls back to the reload
+ * that every other exit uses — the player still gets home.
+ */
+async function requeueToPort(): Promise<void> {
+  const shell = shellRef;
+  if (!shell) return;
+  gameRef = null;
+  try {
+    shell.stage.app.destroy({ removeView: true }, { children: true, texture: true });
+    shell.stage = await createStage();
+    document.getElementById('app')?.replaceChildren(shell.stage.app.canvas);
+    // Re-seed the DOM chrome's UI scale off the new viewport, exactly as boot
+    // does — the in-match value was last written by applyUiScale, and only the
+    // game loop refreshes it.
+    setUiScaleVar(scaleFactor(effectiveScale(settings.current, shell.stage.app.screen.width)));
+    // THE HANDOFF IS INSIDE THE TRY (review gate). This is the last step of the
+    // requeue chain and the only one with nothing behind it: a throw out of
+    // enterPort/showHome would reject a `void`-ed promise, leaving the player
+    // staring at a blank canvas with no home, no ambient and no error. The
+    // fallback below is the same one every earlier step already has.
+    enterPort(shell, true);
+  } catch (err) {
+    console.error('[app] in-place requeue failed; falling back to a reload', err);
+    location.reload();
+  }
+}
+
+/**
+ * Show the home screen over a fresh stage and start the ambient scene behind it.
+ * `autoQueue` is the Story 6.3 path: the home appears with the collapse register
+ * on its status line and the queue join starts immediately, with no PLAY press.
+ * Every other route into port is `false` and waits for the player, exactly as it
+ * always has.
+ */
+function enterPort(shell: Shell, autoQueue: boolean): void {
+  // NO MATCH BANNER SURVIVES THE DOOR (review gate). The RECONNECTING… banner
+  // is PERSISTENT — it is cleared only by a successful resume (startGame's
+  // hideBanner, which on the auto-requeue path is minutes away behind a queue
+  // wait, and never arrives at all if the re-queue fails). A drop landing
+  // between the `rq` signal and the new join would otherwise leave it painted
+  // over the fresh home screen. Clearing it HERE makes that structurally
+  // impossible for every route into port, not just the one that noticed.
+  hideBanner();
+  const { start: startAmbient, stop: stopAmbient } = makeAmbient(shell.stage);
+  const home = showHome(
+    shell.version,
+    (name, cls) => {
+      shell.audio.resume(); // must happen inside the PLAY click's user-gesture handler
+      void startGame(shell, home, stopAmbient, name, cls);
+    },
+    () => shell.settingsOverlay.toggle(),
+  );
+  homeRef = home;
+  startAmbient(); // the backdrop, once the menu the player came for is up
+  if (autoQueue) {
+    // No audio.resume() here: there is no user gesture to ride, and none is
+    // needed — the context was resumed by the PLAY that started the collapsed
+    // match and has been running ever since.
+    const opening = requeueStatusLine();
+    home.setStatus(opening.text, opening.tone);
+    // The fallback can only be reached if a collapse somehow preceded any
+    // deploy, which the lifecycle does not allow; it takes the saved hull rather
+    // than inventing one.
+    const { name, cls } = lastDeploy ?? { name: '', cls: loadSavedClass() };
+    void startGame(shell, home, stopAmbient, name, cls, REQUEUE_STATUS_HOLD_MS);
+    return;
+  }
+  // Client-side server-health probe → the status line (probing → ready/unreachable).
+  void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
+}
+
 async function startGame(
-  stage: Stage,
+  shell: Shell,
   home: HomeHandle,
   stopAmbient: () => void,
   name: string,
   cls: ShipClassId,
-  audio: Audio,
-  portal: PortalAdapter,
-  settingsOverlay: SettingsOverlay,
+  statusHoldMs = 0,
 ): Promise<void> {
+  lastDeploy = { name, cls }; // what the auto-requeue re-deploys with
   home.setBusy(true);
-  home.setStatus('CONNECTING…', 'info');
+  // An auto-requeue arrives with its own opening register already painted (the
+  // reason we are here), and holds it for a beat — so it does NOT get replaced
+  // by CONNECTING…, which says less and is over in a moment.
+  const hold = makeStatusHold(home, statusHoldMs);
+  if (statusHoldMs <= 0) home.setStatus('CONNECTING…', 'info');
   let conn: Connection;
   try {
     // Story 6.1: `connect()` now queues first and only resolves once the ARENA
@@ -3956,21 +4254,20 @@ async function startGame(
     // for the whole pooled wait. The two hooks are that wait's entire surface:
     // the liveness line, and the CANCEL that leaves the queue without a reload.
     conn = await connect(name || undefined, cls, {
-      onQueue: (q) => {
-        const line = queueStatusLine(q);
-        home.setStatus(line.text, line.tone);
-      },
+      onQueue: (q) => hold.paint(queueStatusLine(q)),
       onQueued: (cancel) => home.setCancel(cancel),
     });
   } catch (err) {
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
     // (tertiary, not denied) and never reaches the console.
+    hold.cancel(); // nothing may repaint over the failure/cancel line
     const cancelled = isQueueCancelled(err);
     if (!cancelled) console.error('[net] connection failed', err);
     home.setStatus(connectErrorStatus(err), cancelled ? 'tertiary' : 'denied');
     home.setBusy(false);
     return; // the ambient keeps breathing behind the still-live home
   }
+  hold.cancel(); // we are aboard; the home is about to go
   home.hide();
   stopAmbient(); // tear down the pre-join CIC scene now that we're joining
   hideBanner();
@@ -3979,15 +4276,19 @@ async function startGame(
   // The chart layer is built inside buildGame — it needs the camera's zoom.
   const map = mapFromWelcome(conn.welcome);
 
-  const game = buildGame(stage, conn, map, audio, cls, portal, settingsOverlay);
+  const { stage } = shell;
+  const game = buildGame(stage, conn, map, shell.audio, cls, shell.portal, shell.settingsOverlay);
   gameRef = game; // the settings overlay's late-bound view of the live match
-  bindResize(stage, game);
-  bindVisibility(game);
+  // Everything that outlives a frame is collected here and dropped by
+  // endSession(): the reload behind every OTHER exit swept these up for free,
+  // and Story 6.3's in-place teardown has no reload behind it.
+  game.disposers.push(bindResize(stage, game));
+  game.disposers.push(bindVisibility(game));
   // P (netcode debug) and M (mute) ride the keyboard chokepoint now — the old
   // ad-hoc window keydown listener is gone (Story 2.1 single-chokepoint rule).
-  bindWheelZoom(game);
+  game.disposers.push(bindWheelZoom(game));
 
-  startLoop(stage.app, makeCallbacks(game));
+  game.disposers.push(startLoop(stage.app, makeCallbacks(game)));
 }
 
 /**
@@ -4117,24 +4418,26 @@ async function main(): Promise<void> {
   const audio = new Audio();
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
 
-  const { start: startAmbient, stop: stopAmbient } = makeAmbient(stage);
-
-  // The settings overlay outlives the join: the home gear and home ESC open it
-  // pre-connect, and the same instance is the in-match ESC surface.
+  // The settings overlay outlives the join — and, since Story 6.3, it outlives
+  // the STAGE too: the home gear and home ESC open it pre-connect, the same
+  // instance is the in-match ESC surface, and the auto-requeue's in-place
+  // teardown swaps the Pixi app underneath it. Hence `viewportWidth` reads the
+  // stage through `shellRef` rather than capturing one.
   //
   // `onVisibility` is how the PRE-JOIN entry point works at all: the ratified z
   // register puts this overlay (1050) UNDER the fullscreen home (1100), so the
   // home has to yield — stop painting, stop hit-testing — for as long as the
   // overlay is up, whichever way it was opened or closed (gear, home ESC, the
   // panel's own CLOSE button, a confirmed RESET). See ui/home.ts homeYieldStyle.
-  let homeRef: HomeHandle | null = null;
   const settingsOverlay = new SettingsOverlay({
     store: settings,
     inMatch: inLiveMatch,
     onAbandon: abandonMatch,
-    viewportWidth: () => stage.app.screen.width,
+    viewportWidth: () => shellRef?.stage.app.screen.width ?? 0,
     onVisibility: (visible) => homeRef?.setYielded(visible),
   });
+  const shell: Shell = { stage, audio, portal, settingsOverlay, version };
+  shellRef = shell;
   // Live effect: every stored setting is applied at boot and re-applied on every
   // change, so a reload restores exactly what the player left (the AC's
   // "takes effect live, persists across reload").
@@ -4145,28 +4448,14 @@ async function main(): Promise<void> {
   // THE READABILITY GATE's staged worst-case scene (Story 4.8, amendment 242).
   // DEV ONLY, and dead-stripped from a production build (see startStagedScene).
   if (import.meta.env.DEV && stagedSceneRequested()) {
-    // This branch returns BEFORE `showHome`, so `startAmbient` is never reached
-    // and no scene is ever built — the staged scene gets `worldRoot` uncontested
-    // and skips half a second of map generation it would only have thrown away.
-    // The call stays because it is what LATCHES that: a safe no-op today, and
-    // the guard if a future edit moves the construction earlier again.
-    stopAmbient(); // the staged scene owns worldRoot; the CIC ambient must not fight it
+    // This branch returns BEFORE `enterPort`, which is where the ambient scene
+    // is now built at all — so the staged scene gets `worldRoot` uncontested and
+    // skips half a second of map generation it would only have thrown away.
     await startStagedScene(stage, audio, portal, settingsOverlay);
     return; // no home, no connection — the staged scene is the whole page
   }
 
-  const home = showHome(
-    version,
-    (name, cls) => {
-      audio.resume(); // must happen inside the PLAY click's user-gesture handler
-      void startGame(stage, home, stopAmbient, name, cls, audio, portal, settingsOverlay);
-    },
-    () => settingsOverlay.toggle(),
-  );
-  homeRef = home;
-  startAmbient(); // the backdrop, once the menu the player came for is up
-  // Client-side server-health probe → the status line (probing → ready/unreachable).
-  void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
+  enterPort(shell, false); // the ordinary door: the home waits for PLAY
 }
 
 main().catch((err) => {
