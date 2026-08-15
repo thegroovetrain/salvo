@@ -18,7 +18,7 @@ Epic 6 (GDD E5) delivers two real, honest match modes on the 0.17 substrate: Sta
 
 ## Requirements & Constraints
 
-- Standard BR arms at 2 human captains, fill-or-timer (CONFIG design target), capped at 20; zero bot-fill — roving PvE fleets are world content, never roster fill. Pure quick play: no skill matching, parties, or ranked. Arena logic never forks on mode; mode is entirely a queue choice, and no code path may assume same-process room co-residency.
+- Standard BR arms at 2 human captains, fill-or-timer, capped at 20; zero bot-fill — roving PvE fleets are world content, never roster fill. Pure quick play: no skill matching, parties, or ranked. Arena logic never forks on mode; mode is entirely a queue choice, and no code path may assume same-process room co-residency. **The timer is no longer a design target — amendment 2 sets it: 2:00 in the queue, then a 0:10 countdown in the arena, with a full lobby skipping straight to the countdown.**
 - Solo vs AI fills the lobby to cap with AI combatants (reference: 1 human + 19 bots) who pick classes and personal colors like players; PvE fleets, storm, economy, and win check run identically to Standard — the arena never knows the mode.
 - Map size scales from the actual roster at countdown (scaling curve = CONFIG design target) — no ghost oceans. Spawns stay outer-ring, max-min mutual distance, island-clear at every roster size (2–20); both sides rebuild the identical map from the seed. The phased storm ring timeline scales coherently with map radius down to the same Endgame Guarantee diameter (2× truesight).
 - Win = last match participant afloat, counting participants only: human captains (Standard) or human + AI combatants (Solo vs AI). PvE fleet ships are never participants — can never win, never need destroying. Covers last-human-among-drones, all-participants-sinking, and same-tick draw.
@@ -42,7 +42,7 @@ Epic 6 (GDD E5) delivers two real, honest match modes on the 0.17 substrate: Sta
 
 - Home mode pick: Solo and Solo vs AI both offered minimally (chrome grows only when more modes exist); Primary Button sub-line always states shown mode + class; pick persists in localStorage.
 - Menu must surface queue liveness (player counts / wait honesty) and steer toward Solo vs AI when Standard is empty (dead-queue mitigation) — flagged as an open UX-design item, not a finished spec.
-- Waiting room shows "AWAITING CAPTAINS n/2" + "WEAPONS SAFE" truthfully, full live HUD already visible; weapons fire but damage is suppressed (not a denied state). Fill-or-timer state must be visible. Countdown reads "MATCH STARTING" + big center count.
+- **SUPERSEDED IN PART by amendment 1 — read that first.** The sailable weapons-safe waiting room ("AWAITING CAPTAINS n/2" + "WEAPONS SAFE", full live HUD, weapons fire with damage suppressed) is **no longer the standard-play waiting experience**: Eric ruled the queue replaces it, so captains now wait in the queue before any ocean exists. That grammar survives only for the dev/sandbox door. What still binds: fill-or-timer state must be visible and the room never lies about why it is waiting; the arena countdown still reads "MATCH STARTING" with a big center count.
 - Reconnection: dropping client shows a "RECONNECTING" banner with auto-reconnect attempts; success returns seamlessly to the live HUD. Failed reconnect (match over/sunk) routes to results or home with a plain explanation — never a dead screen.
 
 ## Cross-Story Dependencies
@@ -53,3 +53,30 @@ Epic 6 (GDD E5) delivers two real, honest match modes on the 0.17 substrate: Sta
 - Story 6.5 (Solo vs AI) depends on 6.1, 6.2, 6.3, and 6.4 landing first — it's the integration story proving the arena never forks on mode.
 - Story 6.6 extends the home page from Story 1.14; Story 6.7 builds on Story 0.2's reconnection mechanics.
 - AR12's batch-sim harness is shared infrastructure with Epic 2 (economy tuning) and Epic 4/NFR3 (latency harness).
+
+## Ratified Amendments (durable — survives recompiles)
+
+The authority for these is `epic-6-context-amendments.md`, not this file. This section is a pointer
+list; read the amendments file for the full text, sources and rationale. On any conflict between an
+amendment and the planning-artifact-derived content above, **the amendment wins**.
+
+- **A1 (Eric, 2026-08-14)** — the queue REPLACES the in-game weapons-safe ready room for standard
+  play. Taken against the orchestrator's recommendation to keep it.
+- **A2 (Eric, 2026-08-14)** — 2:00 queue timer, then a 0:10 arena countdown; a full lobby (cap 20)
+  skips straight to the countdown. `queueTimerMs` 120000 (new), `countdown` 15000→10000,
+  `joinWindow` 30000→0. Retires the arena's gathering phase in production and settles the
+  full-room early-arm question the join-window spec deferred to Epic 6.
+- **A3 (Eric, 2026-08-14)** — the 2:00 clock arms at the SECOND captain and is a hard deadline that
+  no later join, leave or rejoin ever extends. Resolves the hostage-cycling entry at
+  `deferred-work.md:319`.
+- **A4 (Eric, 2026-08-14)** — a lone captain waits indefinitely and the queue reports it honestly
+  (no countdown that cannot fire). Known cost until Story 6.5 ships Solo vs AI.
+- **A5 (orchestrator, verified against @colyseus/core 0.17.10)** — seat reservation never calls
+  `onAuth`, so the `PROTOCOL_VERSION` gate and the Story 0.3 JOINING-deadline guard both move to the
+  queue's door; `ArenaRoom.onAuth` consequently becomes the right place to close the arena's public
+  door behind `HC_DEV_OPTIONS`.
+- **A6 (orchestrator)** — `PROTOCOL_VERSION` stays 36; the arena wire contract is untouched and the
+  new channels ride the queue room only.
+- **A7 (orchestrator)** — corrects `deferred-work.md:365`: the lobby-convergence complaint was caused
+  by the 45 s hard deadline, not by room topology. A queue does not fix it by existing; the timer is
+  the lever.
