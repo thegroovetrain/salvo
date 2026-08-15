@@ -224,7 +224,7 @@ FR23: Epic 2 — Hold-Space refit window, server-authoritative spend
 FR24: Epic 3 — Phased storm (3×4 min ring groups, minute rhythm)
 FR25: Epic 3 — Endgame Guarantee ring (2 truesight diameters)
 FR26: Epic 5 — Procedural circular ocean, deterministic from seed
-FR27: Epic 6 — Roster-scaled map size at countdown; spawn ring rules
+FR27: Epic 6 — Roster-scaled map size at countdown [CANCELLED 2026-08-15, Eric ruling — the ocean stays fixed at 2800u; epic-6 amendment 11]; spawn ring rules [shipped]
 FR28: Epic 5 — Fog banks
 FR29: Epic 5 — Hemisphered whirlpools
 FR30: Epic 5 — Roving PvE drone fleets, three tiers
@@ -1109,7 +1109,17 @@ So that a "player" in my match is always a person.
 **And** arena logic never forks on mode — the mode is entirely a queue choice
 **And** no code path assumes same-process room co-residency (D8 holds through the queue layer).
 
-### Story 6.2: Roster-Scaled Oceans
+### Story 6.2: Roster-Scaled Oceans — CANCELLED 2026-08-15
+
+> **CANCELLED by Eric ruling, 2026-08-15** — *"We won't be scaling the map size."* The ocean stays a
+> fixed 2800u-radius disc at every roster. FR27's map-size clause closes as won't-do; its spawn-ring
+> clause already ships and was verified at the gate (spawn separation stays above radar range at every
+> roster size 2-20). The story number is retired, not available for pickup, and reviving it needs a
+> fresh ruling. **Note for anyone reading the AC below:** the roster-scaling machinery it describes is
+> already fully plumbed and has never done anything — `mapRadius(cap)` is always evaluated at
+> `cap == capRef`, so it has only ever returned `baseRadius`. Full record with the measured evidence:
+> `epic-6-context-amendments.md` amendments 11-12, and
+> `bmad-dev-auto-result-6-2-roster-oceans-questions.md`.
 
 As a captain in a 4-player match,
 I want an ocean sized for 4 — not for the 20 who never came,
