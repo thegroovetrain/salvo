@@ -89,14 +89,22 @@ import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
-import { connect, connectErrorStatus, mapFromWelcome, probeServer, radarModes, type Connection } from './net/connection.js';
+import {
+  connect,
+  connectErrorStatus,
+  isQueueCancelled,
+  mapFromWelcome,
+  probeServer,
+  radarModes,
+  type Connection,
+} from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
-import { showHome, type HomeHandle } from './ui/home.js';
+import { queueStatusLine, showHome, type HomeHandle } from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
@@ -3821,10 +3829,23 @@ async function startGame(
   home.setStatus('CONNECTING…', 'info');
   let conn: Connection;
   try {
-    conn = await connect(name || undefined, cls);
+    // Story 6.1: `connect()` now queues first and only resolves once the ARENA
+    // welcome lands, so the home stays up (and the ambient keeps breathing)
+    // for the whole pooled wait. The two hooks are that wait's entire surface:
+    // the liveness line, and the CANCEL that leaves the queue without a reload.
+    conn = await connect(name || undefined, cls, {
+      onQueue: (q) => {
+        const line = queueStatusLine(q);
+        home.setStatus(line.text, line.tone);
+      },
+      onQueued: (cancel) => home.setCancel(cancel),
+    });
   } catch (err) {
-    console.error('[net] connection failed', err);
-    home.setStatus(connectErrorStatus(err), 'denied');
+    // A CANCEL rejects through the same door but is NOT a failure: it is quiet
+    // (tertiary, not denied) and never reaches the console.
+    const cancelled = isQueueCancelled(err);
+    if (!cancelled) console.error('[net] connection failed', err);
+    home.setStatus(connectErrorStatus(err), cancelled ? 'tertiary' : 'denied');
     home.setBusy(false);
     return; // the ambient keeps breathing behind the still-live home
   }

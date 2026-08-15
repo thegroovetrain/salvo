@@ -62,6 +62,13 @@ const MAX_OUTSTANDING_PINGS = 16;
 const MODE = 'arena';
 /** The zeroed "unrevealed" next-ring mirror (r 0 = no reveal — see ArenaState). */
 const ZERO_RING = Object.freeze({ cx: 0, cy: 0, r: 0 });
+/**
+ * Rejection message for a direct `joinOrCreate('arena')` (Story 6.1). Every
+ * production captain arrives through StandardQueueRoom's seat reservation
+ * instead; the direct door is dev-only (HC_DEV_OPTIONS=1) so the headless
+ * smokes can keep driving an arena without a queue in front of it.
+ */
+export const ARENA_DIRECT_JOIN_ERROR = 'this room is not joinable directly — use the queue';
 
 /**
  * Render a thrown value into log fields WITHOUT ever throwing ourselves:
@@ -129,18 +136,31 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxMessagesPerSecond = CONFIG.net.maxMessagesPerSecond;
 
   /**
-   * PROTOCOL_VERSION join gate (story 0.2). Static onAuth runs at matchmake
-   * time — BEFORE room lookup, seat reservation, or any socket work (verified
-   * in @colyseus/core MatchMaker.joinOrCreate → callOnAuth) — so a stale
-   * bundle is rejected with a message the menu renders instead of failing
-   * later at schema decode. matchMaker.reconnect() never calls onAuth, so a
-   * mid-match resume is not re-gated (the reconnection token is the auth).
-   * The thrown ServerError surfaces to the SDK's joinOrCreate promise as a
-   * MatchMakeError carrying this exact message + code.
+   * The arena's DIRECT door (story 0.2's PROTOCOL_VERSION gate + Story 6.1's
+   * closure). Static onAuth runs at matchmake time — BEFORE room lookup, seat
+   * reservation, or any socket work (verified in @colyseus/core
+   * MatchMaker.joinOrCreate → callOnAuth) — so a stale bundle is rejected with
+   * a message the menu renders instead of failing later at schema decode.
+   * matchMaker.reconnect() never calls onAuth, so a mid-match resume is not
+   * re-gated (the reconnection token is the auth). The thrown ServerError
+   * surfaces to the SDK's joinOrCreate promise as a MatchMakeError carrying
+   * this exact message + code.
+   *
+   * Story 6.1 — this method now runs ONLY on a direct `joinOrCreate('arena')`.
+   * matchMaker.reserveSeatFor / reserveMultipleSeatsFor call the room's
+   * `_reserveSeat` directly and never invoke callOnAuth, so a queue-routed
+   * captain never reaches here at all. That asymmetry cuts both ways: the PV
+   * gate had to be re-implemented on StandardQueueRoom's door (or it would
+   * silently stop running for every real player), and closing this door costs
+   * queue traffic nothing. Only the smokes (HC_DEV_OPTIONS=1) still join an
+   * arena directly.
    */
   static async onAuth(_token: string, options?: JoinOptions): Promise<boolean> {
     const error = protocolVersionError(options?.pv);
     if (error) throw new ServerError(ErrorCode.AUTH_FAILED, error);
+    if (process.env.HC_DEV_OPTIONS !== '1') {
+      throw new ServerError(ErrorCode.AUTH_FAILED, ARENA_DIRECT_JOIN_ERROR);
+    }
     return true;
   }
 

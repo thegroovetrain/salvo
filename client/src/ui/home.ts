@@ -25,7 +25,7 @@
 // All colors/typography via CLIENT_CONFIG tokens (var(--hc-*) + registerCss;
 // cssHex for the personal hues, which have no --hc-* var).
 
-import { sanitizeClassId, type ShipClassId } from '@salvo/shared';
+import { sanitizeClassId, type QueueStatusMsg, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
@@ -139,6 +139,36 @@ export function serverStatusLine(state: ProbeState): StatusLine {
   return { text: 'SERVER: CHECKING…', tone: 'tertiary' };
 }
 
+/** m:ss with the seconds CEILED — the chrome bar's countdown grammar (Story 3.3).
+ *  A countdown reads the time REMAINING, so it must not show 0:00 while there is
+ *  still a fraction of a second of it left. */
+function countdownMmSs(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Queue liveness copy (Story 6.1) — the ONLY queue surface the home carries.
+ *
+ * An unarmed pool (below `min`) has NO deadline: `startsInMs` is null and the
+ * wait is genuinely open-ended, so the line says so plainly rather than render a
+ * countdown that cannot fire. The armed line is the hard deadline the queue set
+ * once at arm time and never extends. `min` is 2 today, which is why the unarmed
+ * copy can name the second captain concretely.
+ *
+ * A non-conforming server that omits `startsInMs` entirely resolves to the
+ * unarmed line rather than counting down from NaN — fail-safe, never fail-open,
+ * the same posture radarModes() takes on the welcome.
+ *
+ * The mode selector and the richer liveness register are Story 6.6's, not this.
+ */
+export function queueStatusLine(q: QueueStatusMsg): StatusLine {
+  if (typeof q.startsInMs !== 'number') {
+    return { text: `QUEUED ${q.n}/${q.min} · AWAITING A SECOND CAPTAIN`, tone: 'info' };
+  }
+  return { text: `QUEUED ${q.n} CAPTAINS · DEPLOY IN ${countdownMmSs(q.startsInMs)}`, tone: 'info' };
+}
+
 function toneColor(tone: StatusTone): string {
   if (tone === 'info') return 'var(--hc-info)';
   if (tone === 'denied') return 'var(--hc-denied)';
@@ -156,6 +186,13 @@ export interface HomeHandle {
   setServerProbe(state: ProbeState): void;
   /** Disable/enable PLAY while a join is in flight. */
   setBusy(busy: boolean): void;
+  /**
+   * Show/hide the CANCEL affordance (Story 6.1). Passed a canceller while the
+   * player is POOLED in the queue, `null` the moment that stops being meaningful.
+   * Without it the only exit from a connected state is a page reload, and a
+   * queue wait is legitimately minutes long.
+   */
+  setCancel(onCancel: (() => void) | null): void;
   /** YIELD the whole home surface while the settings overlay is open (see
    *  `homeYieldStyle`). Idempotent; restored with `false`. */
   setYielded(yielded: boolean): void;
@@ -332,7 +369,11 @@ function makePlayButton(onPlay: () => void): { root: HTMLButtonElement; sub: HTM
   return { root, sub };
 }
 
-function makeUnderplay(statusEl: HTMLElement, onHowTo: () => void): HTMLElement {
+function makeUnderplay(
+  statusEl: HTMLElement,
+  cancelEl: HTMLElement,
+  onHowTo: () => void,
+): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;align-items:center;gap:26px;margin-top:16px';
   const howto = document.createElement('span');
@@ -341,8 +382,30 @@ function makeUnderplay(statusEl: HTMLElement, onHowTo: () => void): HTMLElement 
     `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
     'text-underline-offset:4px;cursor:pointer';
   howto.addEventListener('click', onHowTo);
-  row.append(howto, statusEl);
+  row.append(howto, statusEl, cancelEl);
   return row;
+}
+
+/** The queue's CANCEL affordance — HOW TO PLAY's grammar in the DENIED register,
+ *  hidden until `setCancel()` hands it a canceller. It sits in the underplay row
+ *  rather than beside PLAY so the port's rigid column keeps its measured height
+ *  (amendment 47, the container-fit law). */
+function makeCancel(onClick: () => void): HTMLElement {
+  const el = document.createElement('span');
+  el.textContent = 'CANCEL';
+  el.setAttribute('role', 'button');
+  el.setAttribute('title', 'Leave the queue');
+  el.tabIndex = 0;
+  el.style.cssText =
+    `${registerCss('hudMicro')};color:var(--hc-denied);letter-spacing:0.14em;text-decoration:underline;` +
+    'text-underline-offset:4px;cursor:pointer;display:none';
+  el.addEventListener('click', onClick);
+  el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    onClick();
+  });
+  return el;
 }
 
 function makeStatusEl(): HTMLElement {
@@ -376,6 +439,10 @@ interface Home {
   input: HTMLInputElement;
   hoist: ColorHoist;
   statusEl: HTMLElement;
+  /** The CANCEL affordance (Story 6.1) — shown only while `cancel` is set. */
+  cancelEl: HTMLElement;
+  /** Leave the queue, set by setCancel() while the player is pooled. */
+  cancel: (() => void) | null;
   chip: ChipEls;
   playSub: HTMLElement;
   playBtn: HTMLButtonElement;
@@ -393,11 +460,14 @@ interface Home {
   /** True once the connect flow has written the status line (CONNECTING / error):
    *  a late server-probe resolution must NOT overwrite it (status state machine). */
   statusLocked: boolean;
+  /** The line currently painted — what a mid-flight PLAY press re-asserts. */
+  lastStatus: StatusLine | null;
   /** Teardown for subscriptions/listeners created at mount (run by hide()). */
   disposers: Array<() => void>;
 }
 
 function paintStatus(h: Home, text: string, tone: StatusTone): void {
+  h.lastStatus = { text, tone };
   h.statusEl.textContent = text;
   h.statusEl.style.color = toneColor(tone);
 }
@@ -457,8 +527,11 @@ function setClass(h: Home, cls: ShipClassId): void {
 }
 
 function deploy(h: Home): void {
-  // Never-silence: a press mid-connect re-asserts CONNECTING… rather than dying.
-  if (h.busy) return paintStatus(h, NOTE_CONNECTING, 'info');
+  // Never-silence: a press mid-connect re-asserts the LIVE status line rather
+  // than dying. It re-asserts what is ALREADY painted (not a fixed CONNECTING…)
+  // because Story 6.1's queue readout only refreshes when the server pushes —
+  // stamping CONNECTING… over it would blank the countdown until the next push.
+  if (h.busy) return paintStatus(h, ...statusTuple(h.lastStatus ?? { text: NOTE_CONNECTING, tone: 'info' }));
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
@@ -512,7 +585,7 @@ function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: Ke
     makeCallsignRow(h.input),
     h.chip.root,
     playBtn,
-    makeUnderplay(h.statusEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
+    makeUnderplay(h.statusEl, h.cancelEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
   );
   h.overlay.append(makeWordmark(version), console_, makeGear(() => h.onSettings()));
   h.input.addEventListener('keydown', (e) => {
@@ -578,6 +651,7 @@ export function showHome(
 
   const input = makeNameField();
   const statusEl = makeStatusEl();
+  const cancelEl = makeCancel(() => h.cancel?.());
   const play = makePlayButton(() => onPlay(h));
   const chip = makeChip(() => openLayer(h));
 
@@ -586,6 +660,8 @@ export function showHome(
     input,
     hoist: new ColorHoist(),
     statusEl,
+    cancelEl,
+    cancel: null,
     chip,
     playSub: play.sub,
     playBtn: play.root,
@@ -597,6 +673,7 @@ export function showHome(
     inputFocused: false,
     layer: null,
     statusLocked: false,
+    lastStatus: null,
     disposers: [],
   };
 
@@ -622,6 +699,10 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
       h.busy = busy;
       h.playBtn.style.opacity = busy ? '0.4' : '1';
       h.playBtn.style.cursor = busy ? 'default' : 'pointer';
+    },
+    setCancel: (onCancel) => {
+      h.cancel = onCancel;
+      h.cancelEl.style.display = onCancel ? 'inline' : 'none';
     },
     setYielded: (yielded) => {
       const style = homeYieldStyle(yielded);

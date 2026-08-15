@@ -5,7 +5,7 @@
 // options — see sanitizeRoomOptions for why they must never reach a
 // production room ungated).
 
-import { PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
 
 /**
  * Callsign cap, in CODE POINTS. Mirrors the client's display/entry cap
@@ -120,12 +120,25 @@ export interface RoomOptions extends JoinOptions {
    * seed). Production clients can never pin a map.
    */
   mapSeed?: number;
+  /**
+   * How many captains the QUEUE reserved seats for when it created this arena
+   * (Story 6.1, Eric ruling 2026-08-14). The arena boards the whole group with
+   * movement/weapons locked and radar off, and holds the 10 s countdown until
+   * every expected captain has actually loaded in — so it must know the size of
+   * the group it is waiting for. NOT a dev-gated override (the queue sets it on
+   * every production room create) but ALWAYS clamped: see
+   * sanitizeExpectedCaptains.
+   */
+  expectedCaptains?: number;
 }
 
 export interface SanitizedRoomOptions {
   matchOverride?: MatchOverride;
   zoneOverride?: ZoneTimeline;
   mapSeed?: number;
+  /** Clamped group size from the queue; undefined = no boarding expectation
+   *  (a directly-created dev/smoke arena). */
+  expectedCaptains?: number;
 }
 
 export interface SanitizeResult {
@@ -144,12 +157,18 @@ export interface SanitizeResult {
  * server logs.
  */
 export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): SanitizeResult {
+  // NOT dev-gated: the queue sets expectedCaptains on every production arena it
+  // creates, so stripping it without HC_DEV_OPTIONS would delete the boarding
+  // expectation in exactly the deployment that needs it. Safety comes from the
+  // clamp instead (sanitizeExpectedCaptains), not from the dev gate.
+  const expectedCaptains = sanitizeExpectedCaptains(options.expectedCaptains);
   if (devEnabled) {
     return {
       sanitized: {
         matchOverride: options.matchOverride,
         zoneOverride: options.zoneOverride,
         mapSeed: sanitizeMapSeed(options.mapSeed),
+        expectedCaptains,
       },
       rejectedKeys: [],
     };
@@ -158,7 +177,20 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   if (options.matchOverride !== undefined) rejectedKeys.push('matchOverride');
   if (options.zoneOverride !== undefined) rejectedKeys.push('zoneOverride');
   if (options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
-  return { sanitized: {}, rejectedKeys };
+  return { sanitized: { expectedCaptains }, rejectedKeys };
+}
+
+/**
+ * Clamp a queue-supplied boarding group size into [CONFIG.match.minHumans,
+ * CONFIG.map.playerCap] — the only band a formed standard group can occupy.
+ * Anything non-integer / non-finite / absent becomes undefined (no boarding
+ * expectation) rather than a number, so a garbage value can never be read as
+ * "wait for 0 captains" or "wait for 10000 captains" and stall the countdown
+ * forever. Pure + unit-testable like every other sanitizer here.
+ */
+export function sanitizeExpectedCaptains(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isInteger(v)) return undefined;
+  return Math.min(Math.max(v, CONFIG.match.minHumans), CONFIG.map.playerCap);
 }
 
 /** Valid pinned map seed: a non-negative integer; anything else is stripped

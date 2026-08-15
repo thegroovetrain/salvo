@@ -6,6 +6,7 @@ import { monitor } from '@colyseus/monitor';
 import { playground } from '@colyseus/playground';
 import express, { type Request, type Response } from 'express';
 import { ArenaRoom } from './rooms/ArenaRoom.js';
+import { StandardQueueRoom } from './rooms/StandardQueueRoom.js';
 import { metricsRoutes } from './metrics.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,12 @@ export default config({
   routes: metricsRoutes,
 
   initializeGameServer: (gameServer) => {
+    // 'queue' is the ONLY door a production client knocks on (Story 6.1): it
+    // pools captains and reserves them a seat in an arena it creates through
+    // the matchmaker. 'arena' stays defined because that is what the queue
+    // creates — but its own public door is closed in ArenaRoom.static onAuth
+    // unless HC_DEV_OPTIONS=1 (smokes still join it directly).
+    gameServer.define('queue', StandardQueueRoom);
     gameServer.define('arena', ArenaRoom);
   },
 
