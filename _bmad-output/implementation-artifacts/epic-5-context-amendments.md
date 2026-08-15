@@ -1516,6 +1516,50 @@ the implementer's, and may not be reworded, reordered, or extended without a new
 candidates were offered and **EXCLUDED** — `WHAT A LOAD OF SHIP` and `LET'S GET SHIPFACED` — named
 here so a future contributor does not re-propose them.
 
-**Length pin:** the pool carries a ≤28-character length cap protecting amendment 47's container-fit
-law (the rigid ~668px port column) — the longest approved entry is 27 characters against the old
-line's 23, so the slot gets slightly wider but not taller.
+**Length pin:** the pool carries a ≤28-character length cap protecting **epic-2** amendment 47's
+container-fit law (the rigid ~668px port column) — the longest approved entry is 27 characters
+against the old line's 23, so the slot gets slightly wider but not taller. *(The `epic-2` qualifier
+was added when epic-5 amendment 47 below was written, so the cross-reference cannot be misread as a
+same-file one. Nothing else in this amendment changed.)*
+
+## Amendment 47 — STORIES 5.4 AND 5.5 ARE DEFERRED; THE SYSTEMS LAYER IS DECLARED COMPLETE (Eric ruling 2026-08-14)
+
+> *"epic 5. 5-4 and 5-5 are deferred, i think other things are more important in order to get the
+> beta ready. i have enough systems. retro time."*
+
+**Story 5.4 (Fog Banks) and Story 5.5 (Whirlpools) are DEFERRED, not cancelled.** Their numbers stay
+reserved and either may be revived by a later explicit ruling, exactly as Story 4.1 (The Listening
+Ring) was deferred by epic-4 amendment 1. `sprint-status.yaml` carries both at status `deferred`
+citing this amendment. **Epic 5 closes at 4 of 6 stories** (5-1, 5-2, 5-3, 5-6).
+
+**This is a PHASE ruling, not only a scope one.** *"I have enough systems"* ends the mechanics arc
+that has run since Epic 1. The work in front of the project is no longer new simulation behaviour;
+it is whatever stands between the shipped build and a beta a stranger can play. Anyone proposing a
+new mechanic from here needs a fresh ruling, and *"it was in the epic plan"* is no longer sufficient
+grounds — this amendment is what that plan is measured against.
+
+**What the two stories were carrying, recorded so a revival starts from the real state rather than
+from the epics.md text:**
+
+- **5.4 arrives with a MANDATORY re-derivation still owed.** Epic 4's retrospective raised it as that
+  epic's single significant-discovery alert: the AC's *"radar may still paint me"* was written when
+  radar was a binary LOS-gated blip, and Epic 4 replaced that with a physical return model (one
+  reflectivity × falloff curve, height-aware shadows, server-rasterized hulls, a wake clutter
+  corridor, a display-time near-range mask). There is **no fog term** in that model, epic-4
+  amendment 108 already ruled that *"fog and rain are their own epic-scale feature"*, and cycle 72 is
+  the governing precedent against AREA returns — a 1/d² area material *"would own half the scope
+  late-match and bury every contact in it."* **A fog bank is an area material.** Whoever revives 5.4
+  must re-derive that question with Eric before specifying it; the constraint survives this deferral
+  intact.
+- **5.5 arrives with an untested interaction and an open UX question.** UX open question #23 (the
+  on-water feel treatment) was never designed. And wake is server-owned world state derived from
+  pose, so a hull carried and rotated by a current should lay a curved wake for free — but **torpedo
+  wake under a current has never been exercised.**
+
+**What the deferral does NOT release.** Story 6.2 (Roster-Scaled Oceans) has an acceptance criterion
+naming fog banks and whirlpool placements among the things both sides must rebuild deterministically
+from the seed at any roster size. With neither feature built, that clause is **vacuous rather than
+satisfied**, and 6.2 must not be read as having discharged it.
+
+**Epic 5 is marked `done` on this ruling** — four landed stories plus two owner-deferred ones, which
+is the same shape epic 4 closed in (11 landed, 4-1 deferred).

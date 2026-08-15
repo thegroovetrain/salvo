@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-14  # epic-5 OPEN; last cycle 87 (0.17.87), PV 36
+# last_updated: 2026-08-14  # epic-5 DONE (4/6; 5-4 + 5-5 deferred, amendment 47); retro landed; last cycle 87 (0.17.87), PV 36; epic-6 next
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -176,14 +176,14 @@ development_status:
   epic-4-retrospective: done  # 2026-08-11 epic-4-retro-2026-08-11.md; unattended run; 1 significant-discovery alert (Story 5.4 radar re-derivation)
 
   # epic-5: The Living Ocean (GDD E4)
-  epic-5: in-progress
+  epic-5: done  # 4/6 stories landed cycles 76-83; 5-4 + 5-5 deferred by Eric ruling (amendment 47), numbers reserved. See the interstitial cycle index above for non-story cycles in this epic
   5-1-lifecycle-state-machine-step-order-registry: done  # 2026-08-11 cycle 76 (0.17.76); PV 33; amendments 1-7; drones stop gating the win (amendment 4)
   5-2-the-sinking-window: done  # 2026-08-12 cycle 77 (0.17.77); PV 33->34; amendments 10-19; AR7 sinking-activation TBD closed
   5-3-omniscient-reveal-results: done  # 2026-08-13 cycle 79 (0.17.79); PV 34; amendments 23-30; UX open question #25 closed
-  5-4-fog-banks: backlog
-  5-5-whirlpools: backlog
+  5-4-fog-banks: deferred  # 2026-08-14 Eric ruling; amendment 47; radar re-derivation still owed before it may be specified
+  5-5-whirlpools: deferred  # 2026-08-14 Eric ruling; amendment 47; UX open question #23 still unresolved
   5-6-roving-pve-fleets: done  # 2026-08-14 cycle 83 (0.17.83); PV 35->36; amendments 33-44
-  epic-5-retrospective: optional
+  epic-5-retrospective: done  # 2026-08-14 epic-5-retro-2026-08-14.md; unattended run; 1 significant-discovery alert (Epic 6 inherits the AR18 harness Epic 5 deleted)
 
   # epic-6: Honest Lobbies & Modes (GDD E5)
   epic-6: backlog
@@ -231,7 +231,7 @@ action_items:
   - epic: 3
     action: "Sudden-death full-close at ~15:00 is a PARKED Eric-gated contingency (would supersede amendment 24's geometric bar) — never built absent a new explicit ruling; revisit only on live-play evidence of non-concluding matches (Eric, epic-3 retro)"
     owner: "ledger (Eric-gated)"
-    status: open
+    status: done  # UN-PARKED and BUILT 2026-08-14 cycle 82 (0.17.82) on a new Eric ruling; PV 34->35; epic-3 amendments 27-30; pacifist control now resolves 12/12 at p50 16:27
   - epic: 3
     action: "Live-playtest lobby-convergence friction (~10 players, hard to reach one room, 2026-08-02) recorded as evidence for queue-based lobbies"
     owner: "spec author (create-story 6-1)"
@@ -295,7 +295,7 @@ action_items:
   - epic: 4
     action: "Re-derive Story 5.4 (Fog Banks) radar interaction against the SHIPPED physical return model before specifying it — its AC ('radar may still paint me') was written for binary LOS blips; size against amendment 108 and cycle 72's rejection of area returns (epic-4 retro significant-discovery alert)"
     owner: "spec author (create-story 5-4)"
-    status: open
+    status: done  # HELD — never violated; 5-4 was never specified and is now DEFERRED (epic-5 amendment 47), which restates the constraint verbatim for any revival
   - epic: 4
     action: "Ratify or retune CLIENT_CONFIG.flashBudget.degradeAlphaFactor (0.35) against the readability-gate close-up captures — ships stamped implementer draft (epic-4 retro action 2)"
     owner: "Eric (looking pass)"
@@ -327,4 +327,36 @@ action_items:
   - epic: 4
     action: "NFR1 whole-frame verdict vs 16.6ms on real hardware — never obtained this epic (headless rAF throttling; dev build invalid basis), now carrying a full epic of render growth (return heatmap, shadows, wakes, chop, flash budget)"
     owner: "Story 7-1 (Chromebook perf pass)"
+    status: open  # 2026-08-14: now carrying TWO epics of growth — epic-5 added a 2800u ocean, up to 63 fleet hulls, and a whole-disc reveal chart, all unmeasured. A cheap early read is worth taking before 7-1
+  - epic: 5
+    action: "STORIES 5.4 (Fog Banks) + 5.5 (Whirlpools) DEFERRED, numbers reserved — and the systems layer is declared complete ('i have enough systems'). A new mechanic from here needs a fresh ruling; 'it was in the epic plan' is no longer sufficient grounds. Full record: epic-5 amendment 47"
+    owner: "ledger (Eric-gated)"
+    status: open
+  - epic: 5
+    action: "Run a full-roster MULTIPLAYER PLAYTEST carrying the accumulated checkpoint — now THREE epics of eye-dependent claims plus epic-5's entire visual layer (reveal framing + motion:off snap, sinking settle/kill flash/plume, aggro bracket at bubble edge, fleet spacing, 2800u ocean feel, and the two-human sinking-window duel the feature was designed for). Highest-value action available"
+    owner: "Eric + captains"
+    status: open
+  - epic: 5
+    action: "Decide the BETA PATH — whether Epic 6 runs in plan order or is resequenced around the 'there is always a game' spine (6-1 -> 6-4 -> 6-5 -> 6-6, 6-3 folded in, 6-2/6-7 after). This is what 'get the beta ready' cashes out to and only Eric can rule it"
+    owner: "Eric (ruling)"
+    status: open
+  - epic: 5
+    action: "Story 6-4 must REBUILD the AR18 batch-sim capability that amendment 41 deleted with the drone fill — its own AC ('bot quality is measured, not felt') has no implementation behind it, and Story 7-6's release gate depends on loadTest.mjs by name. Add to 6-4 scope at create-story time"
+    owner: "spec author (create-story 6-4)"
+    status: open
+  - epic: 5
+    action: "Story 6-5 must arrive with its SOLO TERMINATION RULE — amendment 4 left a human-versus-drones match with no defined end, and minHumans=2 is the only thing hiding it. 6-5 is now beta-critical, so this must not surface as a review finding"
+    owner: "spec author (create-story 6-5)"
+    status: open
+  - epic: 5
+    action: "Story 6-2 must replace amendment 42's hard-coded baseRadius 2800 with a curve and RE-DERIVE the closing-rate band as a function of radius (the pinned 0.75-0.85 band was re-ratified to 1.019); also re-check heightField.ts regionWavelength, a fixed 2400u literal that now repeats across the disc"
+    owner: "spec author (create-story 6-2)"
+    status: open
+  - epic: 5
+    action: "Re-put epic-5 amendment 46(c) on a CORRECTED premise — the win condition is now stated nowhere a new player can read it (HOW TO PLAY is the FIELD MANUAL stub, the results banner is winner-only). Either restore a home line or make Story 7-4 a beta gate"
+    owner: "Eric (ruling)"
+    status: open
+  - epic: 5
+    action: "BATCH the nine small Eric calls in one sitting: kill flash under a co-located plume; boons/last-offer on the results modal; sudden-death tiebreak + heal-during-collapse + chrome register; tickSmoke during sinking; SunkEvent.vcls uniformity; one-hit-kill guardrail scope; degradeAlphaFactor; foghorn intel-truesight fork; 1.5x zoom chrome collision. Each is a sentence; most have their evidence already captured"
+    owner: "Eric (ruling batch)"
     status: open
