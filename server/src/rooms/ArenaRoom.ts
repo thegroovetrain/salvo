@@ -474,7 +474,21 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         try {
           this.broadcast(MSG.requeue, msg);
         } catch (err) {
-          this.log.warn('room.requeueBroadcastFailed', { error: String(err) });
+          // THE HANDLER MUST BE TOTAL TOO (review gate). A guard whose CATCH
+          // can throw is not a guard: `String(err)` itself throws for a
+          // prototype-less or hostile value (`throw Object.create(null)`), and
+          // so can a broken logger — either would escape notifyRosterChanged
+          // ahead of the unconditional disconnect() and strand a sealed room
+          // that can never refill, which is the ONE failure this wrapper
+          // exists to prevent. `describeError` is the shipped total renderer
+          // (see its docstring — the tick-error containment needs the same
+          // property); the inner catch covers the log CALL, and is empty
+          // because there is by then nothing left that can safely speak.
+          try {
+            this.log.warn('room.requeueBroadcastFailed', describeError(err));
+          } catch {
+            /* diagnostics are best-effort; the disconnect behind us is not */
+          }
         }
       },
       disconnect: () => void this.disconnect(),

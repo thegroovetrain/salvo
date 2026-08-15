@@ -101,7 +101,7 @@ import {
 } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
-import { bindRoom } from './net/roomBindings.js';
+import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
@@ -2361,7 +2361,13 @@ function buildGame(
   g.radar.setWakeSources(g.effects.wakeSources, g.islands);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
-  bindGameRoom(g, conn);
+  // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
+  // requeue chain races `room.leave()` against a 1000ms timeout, so a hung
+  // leave leaves the OLD room live and connected while the Pixi app is torn
+  // down and the home rebuilt. Without this, a late results/sunk/frame/leave
+  // would still reach handlers closed over the destroyed game and paint match
+  // chrome over the fresh port. Registered here, at the moment it is created.
+  g.disposers.push(bindGameRoom(g, conn));
   return g;
 }
 
@@ -2476,9 +2482,10 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
   };
 }
 
-/** Wire the room's messages into the game (frames, results, disconnects). */
-function bindGameRoom(g: Game, conn: Connection): void {
-  bindRoom(conn, {
+/** Wire the room's messages into the game (frames, results, disconnects), and
+ *  hand back the disposer that unwires them (see bindRoom's docstring). */
+function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
+  return bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
     // Story 4.5: the SPECTATOR foghorn path's vantage point. A spectator's honk
@@ -4169,12 +4176,16 @@ async function requeueToPort(): Promise<void> {
     // does — the in-match value was last written by applyUiScale, and only the
     // game loop refreshes it.
     setUiScaleVar(scaleFactor(effectiveScale(settings.current, shell.stage.app.screen.width)));
+    // THE HANDOFF IS INSIDE THE TRY (review gate). This is the last step of the
+    // requeue chain and the only one with nothing behind it: a throw out of
+    // enterPort/showHome would reject a `void`-ed promise, leaving the player
+    // staring at a blank canvas with no home, no ambient and no error. The
+    // fallback below is the same one every earlier step already has.
+    enterPort(shell, true);
   } catch (err) {
-    console.error('[app] in-place teardown failed; falling back to a reload', err);
+    console.error('[app] in-place requeue failed; falling back to a reload', err);
     location.reload();
-    return;
   }
-  enterPort(shell, true);
 }
 
 /**
@@ -4185,6 +4196,14 @@ async function requeueToPort(): Promise<void> {
  * always has.
  */
 function enterPort(shell: Shell, autoQueue: boolean): void {
+  // NO MATCH BANNER SURVIVES THE DOOR (review gate). The RECONNECTING… banner
+  // is PERSISTENT — it is cleared only by a successful resume (startGame's
+  // hideBanner, which on the auto-requeue path is minutes away behind a queue
+  // wait, and never arrives at all if the re-queue fails). A drop landing
+  // between the `rq` signal and the new join would otherwise leave it painted
+  // over the fresh home screen. Clearing it HERE makes that structurally
+  // impossible for every route into port, not just the one that noticed.
+  hideBanner();
   const { start: startAmbient, stop: stopAmbient } = makeAmbient(shell.stage);
   const home = showHome(
     shell.version,
