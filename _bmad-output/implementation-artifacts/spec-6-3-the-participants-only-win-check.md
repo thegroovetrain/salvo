@@ -36,7 +36,7 @@ warnings: [oversized]
 | Same-tick wipe of every remaining captain | 2 captains sink on one tick | `winnerId: ''`; both captains placed 1..2; `match.end` outcome reads `draw` | No error expected |
 | Same-tick wipe with fleet hulls still afloat | 2 captains sink, fleet hulls afloat | Identical to above — fleet hulls never inherit the win | No error expected |
 | Draw reaches the client | `ResultsMsg.winnerId === ''` | Results banner reads DRAW in the `info` token; spectate banner reads a draw case, not `MATCH OVER` | Empty rows still yield DRAW, never `UNKNOWN` |
-| Sealed 2-captain cohort loses one in countdown | queue-formed room, `expectedCaptains: 2`, one leaves | Survivor is signalled to re-queue and rejoins the queue pool at the FRONT; room disposes | If the requeue signal cannot be delivered, the survivor still disconnects (no worse than today) |
+| Sealed 2-captain cohort loses one in countdown | queue-formed room, `expectedCaptains: 2`, one leaves | Survivor is signalled, returns to the HOME SCREEN, and the client joins the next queue automatically without a PLAY press (amendment 18) | If the signal cannot be delivered, the survivor still lands home and simply waits for input — no worse than today |
 | Fleet hull sinks mid-match | fleet hull reaches 0 hp | Never triggers a win check outcome, never holds the finish, never appears in results | No error expected |
 | Dev/sandbox direct join | no `expectedCaptains` | Ready-room behaviour byte-identical; no requeue path taken | No error expected |
 
@@ -67,9 +67,9 @@ warnings: [oversized]
 - [ ] `server/src/game/{bounty,signals,drones}.ts` -- re-point each `isDrone` read at whichever of the two predicates it actually means -- ends the conflation
 - [ ] `server/src/game/match.ts` -- add an outcome discriminator to `MatchEndSummary`; delete `lastHumanLeft` from `MatchEndCause` and its classifier branch -- amendment 16
 - [ ] `server/src/game/match.ts` + `server/src/rooms/ArenaRoom.ts` -- replace the collapse branch's bare `disconnect()` with a requeue signal then disconnect -- amendment 15
-- [ ] `server/src/rooms/StandardQueueRoom.ts` -- accept a returning survivor at the FRONT of the pool -- amendment 15
 - [ ] `shared/src/types.ts` + `shared/src/index.ts` -- add the requeue channel; correct `ResultsMsg`'s stale draw doc comment; PV 36 → 37 -- amendment 17
-- [ ] `client/src/net/connection.ts` -- on requeue, re-enter the queue without a page reload -- amendment 15
+- [ ] `client/src/net/connection.ts` + home/menu flow -- on the requeue signal, return home and join the next queue automatically -- amendment 18
+- [ ] `server/src/rooms/StandardQueueRoom.ts` -- NOT TOUCHED (amendment 18 deleted the pool re-entry; recorded so its absence reads as deliberate)
 - [ ] `client/src/ui/results.ts` + `client/src/ui/phase.ts` -- render DRAW in `CLIENT_CONFIG.colors.info`; add the spectate draw case -- amendment 14
 - [ ] `client/src/render/ships.ts` -- pin the client's `isDroneHull` against the server seam with a test so the two cannot drift -- amendment 13
 - [ ] tests -- cover every I/O Matrix row; update the ~30 existing `isDrone` test sites; delete the synthetic `lastHumanLeft` case
@@ -79,9 +79,13 @@ warnings: [oversized]
 **Acceptance Criteria:**
 - Given a match with one afloat captain and any number of afloat fleet hulls, when the win check runs, then that captain wins and no fleet hull appears in placements or results.
 - Given every remaining captain sinks on the same tick, when the outcome latches, then `winnerId` is `''`, `match.end` reports the draw explicitly, and the client renders DRAW in the `info` token on both the results and spectate surfaces.
-- Given a queue-formed 2-captain room whose second captain leaves during the countdown, when the room collapses, then the survivor re-enters the queue pool at the front without a page reload.
+- Given a queue-formed 2-captain room whose second captain leaves during the countdown, when the room collapses, then the survivor lands on the home screen and the client joins the next queue automatically, with no PLAY press and no page reload.
 - Given the dev/sandbox direct-join door, when a match runs, then boarding, the ready room, and the win check behave exactly as they do today.
 - Given the whole suite, when `npm run check` runs, then lint, type-check, and all tests pass with no complexity violations.
+
+## Spec Change Log
+
+- **2026-08-15 — amendment 18 supersedes amendment 15's re-entry clause (Eric).** Finding: the orchestrator surfaced that front-of-pool re-entry required either a client-asserted flag (a queue-jump exploit) or cross-room state D8 forbids assuming. Eric: *"That doesn't provide any player value. I'd rather go back to the home screen and automatically join the next queue."* Amended: the survivor lands home and the CLIENT auto-joins the next queue; `StandardQueueRoom` and `queue.ts` are not touched. Known-bad state avoided: shipping a claimable `requeued` join option that lets any client jump the queue. KEEP: the arena→client signal and `MatchHooks.requeue()` still exist — the client must tell a collapsed cohort apart from a normal match-end disconnect — so amendment 17's PV 36 → 37 stands.
 
 ## Design Notes
 
@@ -89,7 +93,7 @@ warnings: [oversized]
 
 **The two predicates are not complements.** "Fleet hull" is about economy/presentation (XP tier, kill-feed suppression, bounty exclusion, greyscale nameplates, fleet aggro). "Participant" is about the match outcome (win check, placements, results rows, the sinking hold). Today `fleet ⇔ non-participant`; after 6.4 a bot is a participant that is not a captain. Each existing `isDrone` read must be re-pointed at what it *meant*, not mechanically renamed.
 
-**The requeue limit, stated rather than glossed** (amendment 15): `armedAtMs` is a cohort property that forming deliberately clears, so a returning survivor cannot inherit a running 2:00 deadline — that would reopen the hostage-cycling vector amendment 3 closed. What they get is re-entry without a menu trip and front-of-pool position. If the pool is empty (the common case) they wait for a second captain like any lone captain.
+**Why the survivor goes home rather than back into the pool** (amendment 18, superseding 15): front-of-pool needed either a client-asserted flag (a trivial queue-jump exploit) or cross-room state that D8 forbids assuming — and was worth almost nothing anyway, since this path is only reachable from a 2-captain lobby, so the pool is nearly always empty. Eric's replacement keeps the player-facing promise (no menu trip paid for someone else's disconnect) and drops the mechanism that could not be secured. `StandardQueueRoom` and `queue.ts` are therefore byte-identical. The 2:00 clock still restarts: `armedAtMs` is a cohort property that forming deliberately clears (amendment 3's hostage-cycling fix), and no ruling ever promised otherwise.
 
 **Draw hue.** `CLIENT_CONFIG.colors.info` (`#38BDF8`) — DESIGN.md's "informational/waiting states (kept semantic)". Phosphor means victory and amber means warning/loss, so neither can carry a draw.
 

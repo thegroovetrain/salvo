@@ -383,3 +383,40 @@ the version moves.
 The bump is cheap and safe by construction: `protocolVersionError` in `roomOptions.ts` rejects a
 mismatched `pv` at the door, and amendment 5 moved that gate to the queue, so a stale client is
 turned away with a clear message rather than half-joining a contract it cannot read.
+
+## Amendment 18 — The stranded survivor goes HOME and re-queues automatically. Supersedes amendment 15's re-entry clause.
+**Source:** Eric, 2026-08-15, on the orchestrator surfacing the front-of-pool security problem.
+> "That doesn't provide any player value. I'd rather go back to the home screen and automatically
+> join the next queue."
+
+Amendment 15 ruled that a survivor of a collapsed cohort returns to the QUEUE rather than home, with
+FRONT-of-pool position. Building it safely turned out to be the whole difficulty, and the orchestrator
+surfaced it rather than quietly shipping the exploitable version:
+
+- a client-asserted `requeued: true` join option is a **trivial queue-jump** — any client can claim it;
+- a server-issued token needs state shared between `ArenaRoom` and `StandardQueueRoom`, which **D8
+  forbids assuming** (no same-process room co-residency), re-affirmed by amendment 5.
+
+Which left front-of-pool worth almost nothing anyway: this path is only reachable from a 2-captain
+lobby, so the pool being returned to is nearly always EMPTY and there is nothing to be in front of.
+Eric's response is the correct simplification, not a concession.
+
+**Ruled:** the survivor returns to the HOME SCREEN — the shipped teardown, unchanged — and the CLIENT
+then joins the next queue automatically, without the player pressing PLAY. The player-facing promise
+of amendment 15 ("you do not pay for someone else's disconnect with a menu trip") is kept; the
+mechanism that could not be secured is dropped.
+
+**What this deletes from the plan:** `StandardQueueRoom` is not touched at all — no pool re-entry, no
+front-insertion, no privileged position of any kind, so there is no new exploit surface to reason
+about and the queue's arm/form policy in `queue.ts` is byte-identical.
+
+**What survives from amendment 15:** the arena must still SIGNAL this case, because the client has to
+tell a collapsed cohort apart from a normal match-end disconnect (which correctly returns to a home
+screen that then waits for input). So `MatchHooks.requeue()` and the arena→client channel stay, and
+amendment 17's `PROTOCOL_VERSION` 36 → 37 stands. The signal's MEANING changes from "re-enter the
+queue in place" to "go home and start a fresh queue join".
+
+**Unchanged and worth restating:** the 2:00 clock still restarts, because `armedAtMs` is a cohort
+property that forming deliberately clears (amendment 3's hostage-cycling fix). No ruling has ever
+promised otherwise. And this still does NOT revive "start the match anyway with one captain" — a solo
+standard match has no termination rule until Story 6-5.
