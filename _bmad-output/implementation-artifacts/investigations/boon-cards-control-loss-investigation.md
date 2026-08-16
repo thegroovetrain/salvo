@@ -15,6 +15,8 @@
 3. **What's needed next.** Land the two one-line containment fixes now — they are independent of diagnosis and convert
    every current *and future* frame-path exception from "game over" into "one dropped frame", while making the next
    occurrence self-report. Then profile a 5-stack `intelRadar` build. See Reproduction Plan.
+4. **Eric ruled 2026-08-16: the ladder scales** — Intel Range pushes every rung out, gated on the observer. This
+   unblocks the merge and makes Finding 2 structurally impossible. Sweep and card-economics questions remain open.
 
 ## Case Info
 
@@ -22,7 +24,7 @@
 | ---------------- | ------------------------------------------------------------------------------------------ |
 | Ticket           | N/A (Eric verbal report)                                                                   |
 | Date opened      | 2026-08-16                                                                                 |
-| Status           | Active — amplifier Confirmed, trigger Open                                                 |
+| Status           | Active — amplifiers Confirmed, trigger Open; Eric ruling 2026-08-16 recorded (ladder scales) |
 | System           | Hullcracker RT prototype, branch `main` @ `31859bc`, v0.17.88, PROTOCOL_VERSION 35          |
 | Evidence sources | Source (shared/server/client), `npm run check` (exit 0), runtime probe of all 36 boon cards |
 
@@ -105,9 +107,10 @@ already directly visible — they become informationally redundant for that play
 (495u → 412.5u), which **halved the break point from 4 stacks to 2**. That is precisely "fundamentally broken after
 the 8th ladder change."
 
-The flatness is deliberate and load-bearing, not an oversight — `signals.ts:1546-1550` states smoke reach must be
-identical for every observer or the plume would carry per-observer build/state information. **This directly
-constrains Eric's proposed fix — see Open Question 1.**
+The flatness was deliberate, not an oversight — `signals.ts:1546-1550` states smoke reach must be identical for every
+observer or the plume would carry per-observer build/state information. **Superseded by the Eric ruling 2026-08-16
+below: the rung now scales.** That ruling also makes this finding structurally unreachable — see
+"The merge makes Finding 2 structurally impossible".
 
 ### Finding 3: `intelTruesight` is worth far less than `intelRadar` (the asymmetry driving the merge)
 
@@ -400,7 +403,12 @@ BASE radar range rather than the boon-widened value.
 **2. The Intel Range merge (Eric's ruling).** Fold `intelTruesight` + `intelRadar` into one `intelRange` line driving
 `radarRange`, with `sightRange` becoming a **derived** field re-pinned in `clampStats` exactly as `gun.rangeU` already
 is — same firewall pattern, one derivation path, no new machinery. Removing `sightRange` from `BOON_STAT_PATHS` makes
-it structurally underivable elsewhere. **This needs an Eric ruling first — see Open Question 1.**
+it structurally underivable elsewhere.
+
+**Eric ruled 2026-08-16: the ladder scales — every rung derives from Intel Range, gated on the OBSERVER.** See the
+ruling section below for the implementation surface (two server gates, two client consumers, the oracles, a PV bump)
+and for why the merge also makes Finding 2 structurally impossible. Two sub-questions (sweep, card economics) remain
+open.
 
 **3. Catalog defects.** `cannonBlast`/`cannonAp` interaction (Finding 4); `mineDamage` fold order (Finding 5);
 `mineTrigger` clamp (Finding 6). Each is a design call, not a mechanical fix.
@@ -425,16 +433,80 @@ Not yet reproduced. Proposed:
 Step 4 is worth doing first — it is a two-line experiment that either confirms or refutes Finding 1's practical
 consequence in under a minute.
 
-## Open Questions for Eric
+## Eric ruling 2026-08-16: THE LADDER SCALES
 
-1. **The merge collides with a ratified perception rule.** Under "the rest deriving from the 8ths", the 5/8
-   muzzle-flash/wounded-smoke rung would scale with the buyer's Intel Range. But `signals.ts:1546-1550` deliberately
-   holds that halo flat *for every observer*, because a per-observer reach would leak build/state information through
-   the plume. Which gives way — does the 5/8 rung stay flat (so the eighths derivation is partial under boons), or does
-   it scale (accepting the disclosure)? This needs your call before implementation.
-2. **What happens to sweep?** `intelSweep` is the third intel line. Does it stay independent, or fold in too?
-3. **Card economics.** Merging two commons (×5 each) into one line removes 5 physical cards from the intel subdeck.
-   Should the merged line be ×5, or ×10 to preserve intel's draw weight?
+> *"It scales. Intel range means your detection range on all levels gets further."*
+
+**Open Question 1 is RESOLVED.** The 5/8 muzzle-flash / wounded-smoke rung scales with the observer's Intel Range,
+along with every other rung. This supersedes the flat-halo clause at `server/src/game/signals.ts:1546-1550`.
+
+### This removes the odd one out — it does not create an exception
+
+Every *consumed* rung of the eighths ladder is **already observer-scaled**. Verified:
+
+| rung | consumer | scaling |
+| ---- | -------- | ------- |
+| 3/8 detect | `sightOf(me, now) * CONFIG.vision.detectFactor` (`signals.ts:276`) | observer-scaled |
+| 4/8 sight | `sightOf(me, now)` → `me.stats.sightRange` (`signals.ts:222-225`) | observer-scaled |
+| **5/8 muzzle/smoke** | `CONFIG.vision.muzzleFlash` (`signals.ts:1533`, `:1570`) | **FLAT — the only one** |
+| 7/8 farRadar | *(deliberately unconsumed)* | n/a |
+| 8/8 radar | `me.stats.radarRange` (`signals.ts:912`) | observer-scaled |
+
+So the ruling makes 5/8 consistent with 3/8, 4/8 and 8/8, rather than carving out a new exception.
+
+### The merge makes Finding 2 structurally impossible
+
+This is the important structural consequence. Today `sightRange` and `radarRange` move via **two independent cards**,
+which is precisely *why* sight can overrun the flat 5/8 rung at two stacks (Finding 2). Under one merged Intel Range
+line every rung is a fixed fraction of one number:
+
+```
+detect = 0.375 R   sight = 0.5 R   muzzle/smoke = 0.625 R   farRadar = 0.875 R   radar = R
+```
+
+The ordering `detect < sight < muzzleFlash < farRadar < radar` then holds **at every Intel Range level by
+construction** — it is no longer an invariant that can be violated, it is arithmetic. The Story 4.3 masking coupling
+(the flash must cover the D1 back-dated shell spawn, i.e. `muzzle > sight`) likewise holds automatically, since
+0.625 > 0.5 at every level. **The merge is not just a buff to truesight; it is the structural fix for Finding 2.**
+
+### On the rationale being superseded — observer-scaled vs subject-scaled
+
+`signals.ts:1546-1550` argues the halo must be flat "or the plume would carry per-observer build/state information".
+That rationale **holds for SUBJECT-scaling and not for OBSERVER-scaling**, and the distinction is what makes this
+ruling safe to implement:
+
+- **Subject-scaled** (the *smoking ship's* build sets the reach) would genuinely leak: the plume's visible radius would
+  encode the victim's Intel Range to everyone watching. **Do not build it this way.**
+- **Observer-scaled** (the *watcher's* Intel Range sets how far they see) leaks nothing new. The observer already knows
+  their own build; no identity rides either row (`mz` is a bare `{k,x,y}`, `sm` is `{k,x,y,tier}`); and it is the same
+  shape truesight, detect and radar have always had.
+
+Implement the gate on **the observer's** Intel Range. Recommend the superseded comment be rewritten to say exactly
+this, so the next reader does not re-derive the flat rule from a rationale that was guarding a different hazard.
+
+### Implementation surface (small)
+
+- **Server:** `signals.ts:1533` and `:1570` change from `CONFIG.vision.muzzleFlash` to the observer's scaled 5/8 value.
+  These are the only two gates.
+- **Oracles:** the independently-reimplemented perception oracles must scale identically — 4 references in
+  `server/src/__tests__/signals.test.ts`, 1 (a comment) in `server/src/__tests__/perception.test.ts`.
+- **Ladder pins:** 6 references in `shared/src/__tests__/zone.test.ts` — these pin the *base* derivations and should
+  survive, but must be re-read as base-level pins now that runtime values scale.
+- **Client:** `render/smoke.ts` (puff culling) and `render/radarDim.ts` (the amendment-181 near-range dim mask) both key
+  off the 5/8 rung and must be fed the scaled value. Note `config.ts:2769` already expresses it as a **ratio**
+  (`muzzleFlash / sight` = 1.25), so that one is scale-invariant and needs no change — a good sign the ratio form is
+  the right shape for the rest.
+- **PROTOCOL_VERSION** must bump: catalog content is wire contract, and the intel lines are changing.
+
+## Still Open for Eric
+
+1. **What happens to sweep?** `intelSweep` (+3 RPM/card, capped at 30) is the third intel line. Does it fold into
+   Intel Range too, or stay its own card? It is a *rate*, not a *range*, so "detection range on all levels" arguably
+   does not cover it — but that leaves intel with two lines rather than one.
+2. **Card economics.** Merging two commons (×5 each) into one line removes 5 physical cards from the intel subdeck,
+   which lowers how often intel appears in offers. Should the merged line be ×5, or ×10 to preserve intel's draw
+   weight? (Note ×10 also doubles the reachable top end, which at ×1.15/card would be a very large radar range — the
+   step size probably wants revisiting alongside this.)
 
 ## Side Findings
 
