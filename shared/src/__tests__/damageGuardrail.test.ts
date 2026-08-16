@@ -191,9 +191,14 @@ describe('mine blast geometry guardrail', () => {
     expect(CONFIG.mine.damage).toBe(55);
   });
 
-  it('max-stacked trigger can never outgrow the blast (the effectiveStats clamp holds)', () => {
-    const s = stacked('mineTrigger');
-    expect(s.mine.triggerRadius).toBeLessThanOrEqual(s.mine.blastRadius);
+  // The guardrail SURVIVES the ruling that retired the clamp enforcing it
+  // (Eric 2026-08-16): the trip ring is now a fixed FRACTION of the blast, so
+  // "never outgrows the blast" holds by construction at every stack rather than
+  // by a ceiling that used to eat most of the 5th trigger card.
+  it('max-stacked trip ring can never outgrow the blast (now by derivation, not a clamp)', () => {
+    const s = stacked('mineBlast');
+    expect(s.mine.triggerRadius).toBeLessThan(s.mine.blastRadius);
+    expect(CONFIG.mine.triggerFactor).toBeLessThan(1); // what makes it structural
   });
 });
 

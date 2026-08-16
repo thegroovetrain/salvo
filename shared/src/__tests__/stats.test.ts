@@ -243,10 +243,22 @@ describe('effectiveStats — doctrine mode folds', () => {
     expect(changed).toEqual(['cannon.mode']);
   });
 
-  it('minePropFouling sets the mode AND trades damage down (its bundled stat effect)', () => {
+  // The ×0.6 damage trade was DELETED (Eric ruling 2026-08-16). The doctrine is
+  // now a pure behaviour change, and — the reason it mattered — it was the only
+  // MULTIPLICATIVE writer of `mine.damage` against `mineDamage`'s ADDITIVE one,
+  // so the folded result used to depend on PICK ORDER.
+  it('minePropFouling sets the mode and does NOT touch damage', () => {
     const s = effectiveStats(BASE, stack('minePropFouling', 1));
     expect(s.mine.mode).toBe('propFouling');
-    expect(s.mine.damage).toBeCloseTo(CONFIG.mine.damage * 0.6, 9);
+    expect(s.mine.damage).toBe(CONFIG.mine.damage);
+  });
+
+  it('mine damage is PICK-ORDER INDEPENDENT now that nothing multiplies it', () => {
+    const foulFirst = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineDamage', 'mineDamage', 'mineDamage', 'mineDamage', 'mineDamage']));
+    const damageFirst = effectiveStats(BASE, resolveBoons(['mineDamage', 'mineDamage', 'mineDamage', 'mineDamage', 'mineDamage', 'minePropFouling']));
+    expect(foulFirst.mine.damage).toBe(damageFirst.mine.damage);
+    // Both are the plain additive ladder — no 53-vs-45 split any more.
+    expect(foulFirst.mine.damage).toBe(CONFIG.mine.damage + 5 * 4);
   });
 
   it('stat stacks apply under either doctrine (amendment 44): swap keeps the ladders', () => {
@@ -285,14 +297,23 @@ describe('effectiveStats — defensive clamps', () => {
     expect(over.sweepPeriodMs).toBe(2000);
   });
 
-  it('mine.triggerRadius is clamped to blastRadius (fuze stacks past casing stacks)', () => {
-    // 5 trigger stacks alone: 32 × 1.1^5 ≈ 51.5 > blast 48 → clamped to 48.
-    const s = effectiveStats(BASE, stack('mineTrigger', 5));
-    expect(s.mine.triggerRadius).toBe(s.mine.blastRadius);
-    // With blast stacks too, the trigger may grow up to the (bigger) blast.
-    const both = effectiveStats(BASE, resolveBoons(['mineTrigger', 'mineTrigger', 'mineTrigger', 'mineTrigger', 'mineTrigger', 'mineBlast', 'mineBlast']));
-    expect(both.mine.triggerRadius).toBeLessThanOrEqual(both.mine.blastRadius);
-    expect(both.mine.triggerRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
+  // DERIVED, NOT CLAMPED (Eric ruling 2026-08-16). The old
+  // `min(trigger, blastRadius)` clamp is retired: it kept the invariant, but by
+  // silently eating ~75% of the 5th trigger card whenever no blast card was
+  // held. A fixed fraction of the ceiling can never cross the ceiling.
+  it('mine.triggerRadius is DERIVED from blastRadius at every stack, and one card moves both', () => {
+    const base = effectiveStats(BASE, []);
+    // Byte-identical to the old base: 48 × 2/3 = 32 exactly.
+    expect(base.mine.triggerRadius).toBe(CONFIG.mine.triggerRadius);
+    for (let n = 0; n <= 5; n++) {
+      const s = effectiveStats(BASE, stack('mineBlast', n));
+      expect(s.mine.triggerRadius).toBeCloseTo(s.mine.blastRadius * CONFIG.mine.triggerFactor, 9);
+      expect(s.mine.triggerRadius).toBeLessThan(s.mine.blastRadius); // the invariant, now structural
+    }
+    // ONE card grows BOTH rings — the whole point of the merge.
+    const five = effectiveStats(BASE, stack('mineBlast', 5));
+    expect(five.mine.blastRadius).toBeGreaterThan(base.mine.blastRadius);
+    expect(five.mine.triggerRadius).toBeGreaterThan(base.mine.triggerRadius);
   });
 
   it('gun.barrels is clamped to 1..3 integer (untyped over/under-stack data)', () => {

@@ -42,8 +42,8 @@ const CATALOG: readonly BoonDef[] = Object.values(BOON_CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 describe('fit-check — catalog sanity (the walk covers something real)', () => {
-  it('the catalog has every id keyed to itself and at least the ratified 34 lines', () => {
-    expect(CATALOG.length).toBeGreaterThanOrEqual(34);
+  it('the catalog has every id keyed to itself and at least the ratified 33 lines', () => {
+    expect(CATALOG.length).toBeGreaterThanOrEqual(33);
     for (const [key, def] of Object.entries(BOON_CATALOG)) expect(def.id).toBe(key);
   });
 });

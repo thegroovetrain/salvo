@@ -792,7 +792,19 @@ export const CONFIG = {
     // server's activation check both read it, so the leash moves in one place.
     placeRange: 150,
     armDelay: 3000, // ms — before it can trigger
-    triggerRadius: 32, // u — detonation proximity (enemy pass-over trips it)
+    // u — detonation proximity (enemy pass-over trips it). THE BASE-STATS RUNG:
+    // at runtime this is DERIVED from the effective blast radius via
+    // `triggerFactor` below (Eric ruling 2026-08-16), never read directly, so a
+    // blast-widening boon carries the trip ring out with it.
+    triggerRadius: 32,
+    // The runtime scale the trip ring is derived at: `trigger = blast ×
+    // triggerFactor`. It is the SAME ratio as the two base constants above and
+    // below by construction (32 / 48 = 2/3), pinned in tests exactly as
+    // `detect === sight * detectFactor` is — never edit one without the other.
+    // Deriving rather than clamping is what retired the old
+    // `min(trigger, blastRadius)` clamp: the trip ring can no longer be eaten by
+    // a ceiling, because it is now a fixed fraction of that ceiling.
+    triggerFactor: 2 / 3,
     // u — full damage to every non-owner hull within it; > triggerRadius by
     // design (the trip is the detection ring; the blast reaches farther).
     blastRadius: 48,

@@ -134,8 +134,8 @@ describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', 
     ['torpedoBoat', 32 + 12 + 5 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
     // BS: cannon 7 + starShells 12 + acquisitions (torpedo/mine/decoy/boost) 4 = 55.
     ['battleship', 32 + 7 + 12 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
-    // ML: mine 22 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 63.
-    ['mineLayer', 32 + 22 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
+    // ML: mine 17 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 58.
+    ['mineLayer', 32 + 17 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
   ];
 
   for (const [hull, total, acquisitions] of CASES) {

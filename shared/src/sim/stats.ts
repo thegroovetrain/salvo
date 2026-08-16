@@ -259,7 +259,15 @@ function clampStats(stats: EffectiveStats): void {
   // applyBoonStats holds the sibling copy. At zero boons this is byte-identical
   // to the old CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*2.
   stats.sightRange = stats.radarRange / 2;
-  stats.mine.triggerRadius = Math.min(stats.mine.triggerRadius, stats.mine.blastRadius);
+  // THE TRIP RING IS A FIXED FRACTION OF THE BLAST (Eric ruling 2026-08-16) —
+  // derived, not clamped. This REPLACES the old
+  // `min(triggerRadius, blastRadius)` clamp: that clamp existed to stop the trip
+  // ring outgrowing the blast, but it did so by silently eating most of the 5th
+  // trigger card whenever no blast card was held. A fraction of the ceiling can
+  // never cross the ceiling, so the invariant now holds by construction and the
+  // clamp has nothing left to do. At zero boons this is byte-identical to the
+  // old base: 48 × 2/3 = 32 exactly.
+  stats.mine.triggerRadius = stats.mine.blastRadius * CONFIG.mine.triggerFactor;
   stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment —
   // the sibling of the rangeU re-derivations above. Additive folding

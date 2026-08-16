@@ -446,7 +446,10 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
 
   it('a BOON-STACKED trigger ring still cannot pre-empt acquisition', () => {
     const { w, o } = creepBoard();
-    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineTrigger'); // max stack
+    // BLAST CASING now grows the trip ring too (the fuze line merged into it,
+    // Eric ruling 2026-08-16). The widest reachable ring is unchanged: it was
+    // 32 x 1.1^5 = 51.54u, and is now (48 x 1.1^5) x 2/3 = 51.54u.
+    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineBlast'); // max stack
     const trigger = o.stats.mine.triggerRadius;
     expect(trigger).toBeGreaterThan(CONFIG.mine.triggerRadius); // the ring really grew
     // The invariant the fix has to hold: acquisition reach outranges the widest
@@ -588,7 +591,7 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
   });
 });
 
-describe('PROP-FOULING MINES (minePropFouling) — reduced damage + the slow debuff', () => {
+describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full damage', () => {
   function foulBoard(): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
@@ -599,11 +602,15 @@ describe('PROP-FOULING MINES (minePropFouling) — reduced damage + the slow deb
     return { w, o, b };
   }
 
-  it('the blast deals the REDUCED effective damage (×0.6 catalog trade) and stamps slowedUntil (refresh, never stack)', () => {
+  // THE ×0.6 TRADE IS GONE (Eric ruling 2026-08-16): PROP-FOULING no longer pays
+  // damage for the slow, so the blast lands FULL damage and the doctrine is a
+  // pure behaviour change. Also retires the pick-order dependency this multiplier
+  // created against `mineDamage`'s additive ladder.
+  it('the blast deals FULL damage (the ×0.6 trade is retired) and stamps slowedUntil (refresh, never stack)', () => {
     const { w, o, b } = foulBoard();
     w.step();
-    expect(o.stats.mine.damage).toBeCloseTo(CONFIG.mine.damage * 0.6, 9);
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.mine.damage * 0.6, 6);
+    expect(o.stats.mine.damage).toBe(CONFIG.mine.damage);
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.mine.damage, 6);
     expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
     const firstUntil = b.slowedUntil;
     // A second fouling blast REFRESHES the window (plain re-stamp, no stacking).

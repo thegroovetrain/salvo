@@ -693,3 +693,50 @@ untuned here because it follows from the deletion rather than from a separate de
 `mine.damage` and the fold is list-ordered), `mineTrigger`'s 5th card is ~75% eaten by the
 `triggerRadius ≤ blastRadius` clamp when no `mineBlast` is held, and at most 1 of 6 acquisition
 cards can ever fire (one extra slot; `consumeAcquisition` purges the rest).
+
+## Amendment 24 — The mine rack stops punishing its own doctrine, and the trip ring rides the blast.
+
+**Eric ruling 2026-08-16:** *"remove damage decrease for the fouling mines. tie the trigger radius to
+the blast radius, combine the cards, so picking it up increases both."*
+
+Three changes to the mines category, closing two of the three dead-card findings the boon-cards
+investigation left open. Catalog 34 → 33 lines; the mine subdeck 22 → 17; a Mine Layer's deck 63 →
+58. `PROTOCOL_VERSION` 39 → 40.
+
+**1. PROP-FOULING no longer pays damage for the slow.** The `stat('mine.damage', { mult: 0.6 })`
+bundled onto `minePropFouling` is DELETED; the doctrine is now a pure behaviour change. Beyond the
+balance intent, this retires a real defect: that multiplier was the ONLY multiplicative writer of
+`mine.damage`, against `mineDamage`'s ADDITIVE ladder, and `applyBoonStats` folds in list order — so
+the same cards produced **different damage depending on pick order** (fouling-then-five-damage =
+55×0.6+20 = 53 hp; damage-then-fouling = (55+20)×0.6 = 45 hp). With no multiplier left, one effect
+writes the path and order cannot matter. Verified: both orders now yield 75.
+
+**2. The trip ring is DERIVED from the blast radius.** `mine.triggerRadius` = `blastRadius ×
+CONFIG.mine.triggerFactor` (2/3), re-pinned post-fold in BOTH `clampStats` and `applyBoonStats`
+exactly as `sightRange` and the three `rangeU` paths are, and REMOVED from `BOON_STAT_PATHS`. The old
+`min(triggerRadius, blastRadius)` clamp is RETIRED — it held the invariant, but by silently eating
+~75% of the 5th trigger card whenever no blast card was held (32 → 51.54 clamped to 48, so the last
+card bought 1.1u instead of 4.7u). **A fixed fraction of the ceiling can never cross the ceiling**,
+so the invariant is now structural. Base is byte-identical: 48 × 2/3 = 32 exactly.
+
+**3. The two ring cards merge.** `mineTrigger` (MAGNETIC → COMBINATION FUZE) is DELETED and
+`mineBlast` (BLAST CASING Mk I–V, ×5, ×1.1 blast) now grows both rings by construction. The card's
+note carries it — *"The trip ring widens with it."* — rather than making the player infer it.
+
+**COPY NOTE, flagged rather than decided:** the surviving ladder is BLAST CASING Mk I–V verbatim,
+because it is the ladder attached to the stat that survived. The five FUZE names retire unused. This
+was NOT put to Eric the way the Intel Range ladder was; a blend was possible and was not taken,
+because inventing or re-mixing ratified card copy without a ruling is the thing the naming law
+forbids. Re-mixing it later is a one-line change.
+
+**Balance consequences named, none tuned:**
+- PROP-FOULING is now a PURE UPGRADE — the slow with no cost — where it used to be a side-grade
+  against SELF-PROPELLED. Both exclusives are now pure adds, so they remain side-grades to EACH
+  OTHER, but the choice to take a doctrine at all is now strictly correct.
+- Max reachable trip ring is UNCHANGED at 51.54u: it was 32 × 1.1⁵ and is now (48 × 1.1⁵) × 2/3.
+  The `creepAcquireRange > trigger + longestHull/2` guardrail therefore holds at the same numbers.
+- The mine subdeck loses 5 cards (22 → 17), so a Mine Layer sees mine cards less often and reaches
+  its doctrine choice sooner — the same shape of pacing shift amendment 23 recorded for the cannon.
+
+**ONE DEAD-CARD FINDING REMAINS UNRULED:** at most 1 of 6 acquisition cards can ever fire (there is
+one extra slot, and `consumeAcquisition` purges every remaining acquisition once one is fitted).

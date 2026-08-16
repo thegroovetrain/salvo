@@ -200,10 +200,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 38→39 bump (PV 39: FRAGMENTATION CASING is DELETED — cannonBlast leaves the catalog, and catalog content IS wire contract, so a stale bundle would offer a card the server no longer knows) is enforced at matchmake', () => {
-  it('rejects pv-38 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(39);
-    expect(protocolVersionError(38)).toMatch(/refresh/);
+describe('pv join gate — the 39→40 bump (PV 40: THE MINE RING CARDS MERGE — mineTrigger leaves the catalog and the trip ring becomes a fixed fraction of the blast, so a stale bundle would offer a card the server no longer knows) is enforced at matchmake', () => {
+  it('rejects pv-39 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(40);
+    expect(protocolVersionError(39)).toMatch(/refresh/);
     expect(protocolVersionError(35)).toMatch(/refresh/);
     expect(protocolVersionError(34)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
