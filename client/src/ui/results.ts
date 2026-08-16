@@ -655,7 +655,7 @@ function makeBoons(own: ResultsOwn): HTMLElement | null {
  *  offer death expired, category over name. Drawn only with a banked level AND
  *  a front offer to show: `pts === offer.length` is the server's own invariant,
  *  but both are checked because either alone would draw an empty row. */
-function makeOffer(own: ResultsOwn): HTMLElement | null {
+export function makeOffer(own: ResultsOwn): HTMLElement | null {
   if (own.pts <= 0 || own.offer.length === 0) return null;
   const block = document.createElement('div');
   block.appendChild(makeSectionHead(offerHeading(own.pts)));

@@ -246,7 +246,15 @@ export function healReadout(): string {
  * as the HUD's HP rail and the cards' preview diffs already do it. Nothing here
  * re-derives, hardcodes, or reads a class table ad hoc.
  */
-function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number {
+function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number | null {
+  // FAIL-OPEN on the class table (cycle 91), null = "cannot judge". An
+  // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
+  // on `cls.kinematics`, from a render path, which until this cycle meant a
+  // permanent freeze. Null rather than a number because the ONE caller asks
+  // "is the hull already full?" — and answering a fabricated "yes" would deny a
+  // player a heal they need, which is strictly worse than offering a redundant
+  // one. So an unknown hull leaves the rail armed.
+  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return null;
   return effectiveStats(CONFIG.shipClasses[you.cls], resolveBoons(you.boons)).maxHp;
 }
 
@@ -262,7 +270,8 @@ function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number {
 export function healView(you: OwnShip | null | undefined, locked: boolean): HealView {
   const copy = { label: HEAL_LABEL, readout: healReadout() };
   if (!you || !you.alive) return { ...copy, state: 'inert', status: HEAL_STATUS_SUNK };
-  if (you.hp >= ownMaxHp(you)) return { ...copy, state: 'inert', status: HEAL_STATUS_FULL };
+  const maxHp = ownMaxHp(you); // null = unresolvable hull; never claim FULL on a guess
+  if (maxHp !== null && you.hp >= maxHp) return { ...copy, state: 'inert', status: HEAL_STATUS_FULL };
   if (locked) return { ...copy, state: 'inert', status: '' };
   return { ...copy, state: 'armed', status: '' };
 }

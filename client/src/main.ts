@@ -87,7 +87,7 @@ import { abilityPressDenied, hornPressVerdict, shouldConsumePrime } from './sim/
 import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
-import { startLoop, type LoopCallbacks } from './app/loop.js';
+import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
 import { makeRequeue } from './app/requeue.js';
 import {
@@ -2411,6 +2411,16 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * config in place and lets the next reconcile replay pending inputs under it.
  */
 function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): void {
+  // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
+  // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
+  // unresolvable `cls` survivable, because this function threw first. Worse, it
+  // assigned `g.ownClass` BEFORE the throw, poisoning it for the rest of the
+  // match: `wakeHulls` and `computeAimPreview` both feed it to `hullEnvelope`,
+  // whose `.hull` read then threw on EVERY render frame — a permanently frozen
+  // picture with input still being sampled, which is most of the symptom this
+  // cycle exists to remove. Returning before the first assignment keeps the
+  // previously-applied build in place and leaves every consumer coherent.
+  if (!Object.hasOwn(CONFIG.shipClasses, cls)) return;
   const classChanged = cls !== g.ownClass;
   const prev = g.ownStats;
   g.ownClass = cls;
@@ -3838,6 +3848,24 @@ function makeCallbacks(g: Game): LoopCallbacks {
   };
 }
 
+/**
+ * A frame-path callback threw and app/loop.ts contained it. The loop cannot see
+ * game state by design, so THIS is where the useful part of the report comes
+ * from: the fitted boon list at the moment of the throw is exactly the evidence
+ * the boon-cards investigation named as its highest-value missing gap and could
+ * not obtain — a report carrying it names the offending card outright instead
+ * of leaving the next reader to guess. The loop rate-limits us to one call per
+ * distinct failure signature, so this is cheap even when a throw repeats.
+ */
+function reportFrameFailure(g: Game, err: unknown, phase: LoopPhase): void {
+  const you = g.state.net.you;
+  console.error(
+    `[app] frame ${phase} threw — the loop contained it`,
+    { cls: you?.cls ?? null, boons: you?.boons ?? [], spectating: g.state.spectating },
+    err,
+  );
+}
+
 /** Trailing-edge debounce (ms) for the fog re-bake during drag-resizing. */
 const FOG_REBAKE_DEBOUNCE_MS = 150;
 
@@ -4288,7 +4316,7 @@ async function startGame(
   // ad-hoc window keydown listener is gone (Story 2.1 single-chokepoint rule).
   game.disposers.push(bindWheelZoom(game));
 
-  game.disposers.push(startLoop(stage.app, makeCallbacks(game)));
+  game.disposers.push(startLoop(stage.app, { ...makeCallbacks(game), onError: (e, p) => reportFrameFailure(game, e, p) }));
 }
 
 /**
