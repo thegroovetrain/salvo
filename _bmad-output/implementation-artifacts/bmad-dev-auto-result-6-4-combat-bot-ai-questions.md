@@ -11,6 +11,45 @@ cycle: 95
 
 # Story 6-4 — Combat-Bot AI: question gate
 
+> ## ERIC'S RULINGS — 2026-08-16 (first pass)
+>
+> **A1 — no playable path this cycle.** *"no, just the AI itself. 6-5 will implement solo vs ai
+> mode."* The dev-gated `bots: N` room option is DECLINED. 6-4 ships the brain, the `'bot'` role and
+> the evaluation harness; the bot spawn path is consumed by the batch-sim harness and unit tests
+> only, and 6-5 wires it to a room. Verification is therefore **entirely** the harness — which makes
+> A2's bot-vs-bot leg load-bearing rather than optional.
+>
+> **B3 — no targeting preference.** *"No preference at all, they should attack the best target,
+> whatever that means to that bot."* Target selection is pure utility scoring, per-bot and
+> per-profile. The human is a contact like any other.
+>
+> **C1 — TB: hit-and-run, and dogfights against its own kind.** *"TB is very much a hit-run ship,
+> though a lot of TB vs TB duels end up being like dogfights, with either trying to get behind the
+> other."* This is a positional requirement, not just an aggression setting: a TB bot must seek the
+> rear quarter of a peer. Note the emergent geometry — the torpedo's bow ±30° arc means being behind
+> an enemy denies their best weapon while keeping yours available, and the mine's astern ±60° arc
+> means the same manoeuvre against a Mine Layer is dangerous.
+>
+> **C2 — BS: survivability is the plan.** *"BS has a lot of HP and so tries to maximize that
+> survivability."* The 175 hp hull is a resource to be spent and preserved, not just a bigger buffer.
+>
+> **C3 — ML: the fleet-clearing economy engine.** *"ML is amazing at clearing drone fleets, and can
+> gain a level lead by taking advantage of this."* Confirms B1 implicitly: bots DO farm PvE fleets,
+> and for the ML that farm is a deliberate tempo strategy, not idle behaviour.
+>
+> **D1 — class-doctrine weights, adopted.** *"Sure."* First-pass weights derived by the
+> orchestrator and placed in CONFIG as a tuning panel.
+>
+> **E1/E2 — NOT a difficulty ladder. PRIORITY PROFILES.** *"Each ship should just get 2-3 different
+> 'priority profiles' based on whatever. I have no idea what different levels of difficulty look like
+> right now, I imagine this is going to take some tweaking, so lets just get one 'difficulty' split
+> across profiles working as best we can."*
+>
+> This is a design answer that **replaces** the question as asked. Variety comes from personality,
+> not from skill tiers: every bot plays at one honest competence level, and 2-3 profiles per class
+> decide what it *wants*. Consequence: the difficulty knobs (aim scatter, reaction latency) are tuned
+> to a single level and are expected to be retuned by eye later.
+
 Eric's invocation: *"6-4... Combat bot AI! This is going to be a fun one! The bots need to at least
 \*appear\* to know how to play, and on top of that they have to play their ship class intelligently
 and use upgrade points intelligently. You should surface absolutely all questions you may have prior
