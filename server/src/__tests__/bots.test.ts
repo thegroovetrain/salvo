@@ -176,7 +176,14 @@ describe('the observe cadence — staggered round-robin, at most once per bot pe
 });
 
 describe('input emission — the same validated path a human uses, same-tick consumption', () => {
-  it('neutral input flows every tick and is consumed the tick it is written', () => {
+  // WAVE-3 PIN UPDATE (deliberate): this test asserted the wave-1 NEUTRAL
+  // decision (throttle 0, rudder 0, speed 0 forever). Wave 3 plugged the real
+  // brain, so a bot with nothing in sight now makes for the live ring centre
+  // — the I/O contract's "no contacts" row. What is pinned here is the
+  // PLUMBING, which did not move: one strictly-increasing input per tick,
+  // consumed the same tick, with the three fields a bot may never touch.
+  // Behaviour lives in botTactics.test.ts.
+  it('driven input flows every tick and is consumed the tick it is written', () => {
     const { w, ids } = botWorld(41, 3);
     w.step();
     for (const id of ids) {
@@ -184,9 +191,8 @@ describe('input emission — the same validated path a human uses, same-tick con
       // botsTick sits immediately before applyInputs: the very first tick's
       // input is already acked — never a 50ms-stale echo.
       expect(rec.lastAckSeq).toBe(1);
-      expect(rec.input.throttle).toBe(0);
-      expect(rec.input.rudder).toBe(0);
-      expect(rec.input.fireSeq).toBe(0);
+      expect(rec.input.throttle).toBeGreaterThan(0); // the helm is live
+      expect(rec.input.fireSeq).toBe(0); // nothing in sight on tick one
       expect(rec.input.hornSeq).toBe(0); // bots never honk (B5)
       expect(rec.input.fireT).toBe(0); // server-driven shooters never back-date
     }
@@ -194,9 +200,10 @@ describe('input emission — the same validated path a human uses, same-tick con
     for (const id of ids) {
       const rec = w.ships.get(id)!;
       expect(rec.lastAckSeq).toBe(10); // strictly-increasing seq, one per tick
-      expect(rec.state.speed).toBe(0); // wave 1 is neutral: throttle 0 holds
+      expect(rec.state.speed).toBeGreaterThan(0); // and it is making way
+      expect(rec.input.hornSeq).toBe(0);
+      expect(rec.input.fireT).toBe(0);
     }
-    expect(w.shells.size).toBe(0); // wave 1 never fires
   });
 
   it('THE BOARDING FREEZE: helm disabled → no observe, neutral input, fireSeq frozen', () => {

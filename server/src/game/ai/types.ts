@@ -16,7 +16,7 @@
 //    the port type, so nothing in ai/ can reach world internals without a
 //    visible, reviewable widening of this interface.
 
-import type { GameMap, Rng, ShipClassId, ZoneRing, CONFIG } from '@salvo/shared';
+import type { GameMap, HullId, Rng, ShipClassId, ZoneRing, CONFIG } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 import type { ShipRecord } from '../world.js';
 
@@ -81,8 +81,16 @@ export interface BotWorldPort {
  * no id/class/heading/speed, so every field beyond position is nullable and
  * the brain must not crash on either grammar.
  *
- * TODO(wave-2 ai/utility.ts): populated from each observe() view; target
- * scoring reads these, never the view's raw arrays directly.
+ * Populated by ai/utility.ts from each observe() view; target scoring and
+ * wave-3 tactics read these, never the view's raw arrays directly.
+ *
+ * THE LAST FOUR FIELDS WERE PROMOTED IN WAVE 3 (wave 2 asked for it in its
+ * report). ai/utility.ts carried them on a `BotTrack extends RememberedContact`
+ * and normalized every read through an `asTrack()` fallback, because a plain
+ * wave-1 entry written by another wave would have been missing them. They are
+ * part of one track record, not a second one: promoting them here makes
+ * `BotTrack` a pure alias, deletes the fallback, and removes the only way the
+ * two shapes could ever disagree.
  */
 export interface RememberedContact {
   /** Roster/track id, or null (identity-free return-grammar blip). */
@@ -97,6 +105,20 @@ export interface RememberedContact {
   seenAt: number;
   /** True while backed by a live truesight Contact (vs a decaying blip). */
   live: boolean;
+  /** Hull class if the grammar disclosed one, else null (return blips are
+   *  identity-free by ruling). Drives the rear-quarter mine-layer exception
+   *  in wave-3 tactics and the participant-vs-fleet split below. */
+  cls: HullId | null;
+  /** True when the disclosed class is a PvE fleet hull rather than a
+   *  participant. Unknown class = false (assume a captain: the safer read). */
+  fleet: boolean;
+  /** Server ms this track was FIRST acquired — the reaction gate's input.
+   *  Survives every refresh; a forgotten-then-reacquired track starts over,
+   *  which is correct (you did lose the plot). */
+  firstSeenAt: number;
+  /** Self-private Hit Calls that landed on this track — the ONLY damage
+   *  estimate a bot can legitimately have (no hp, no severity, ever). */
+  hits: number;
 }
 
 /**

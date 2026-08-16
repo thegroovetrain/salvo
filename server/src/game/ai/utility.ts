@@ -42,14 +42,13 @@
 //    scoring will return it. Keeping it here (and not sprinkled through
 //    tactics) is what makes retuning difficulty a one-number edit.
 //
-// A NOTE ON `BotTrack` FOR WAVE 3: wave 1's `RememberedContact` carries no
-// hull class, no acquisition time and no hit history, and the reaction gate
-// plus profile scoring need all three. `BotTrack` EXTENDS it with exactly
-// those three fields and is what this module writes into `mind.contacts`
-// (assignable, so the wave-1 type is untouched); every read goes through
-// `asTrack()`, which normalizes a foreign/plain entry rather than casting one.
-// Promoting the three fields onto `RememberedContact` itself would be a clean
-// follow-up — see the wave-2 report.
+// A NOTE ON `BotTrack`: wave 2 shipped it as `extends RememberedContact` with
+// the four fields wave 1's type lacked (class, fleet-ness, acquisition time,
+// hit history) and normalized every read through an `asTrack()` fallback,
+// because a plain wave-1 entry written elsewhere would be missing them. WAVE 3
+// PROMOTED THOSE FOUR FIELDS onto `RememberedContact` itself, so `BotTrack` is
+// now a pure alias and the fallback is gone: there is exactly one track shape
+// and no way for two of them to disagree.
 
 import {
   CONFIG,
@@ -68,25 +67,12 @@ import type { BotMind, RememberedContact } from './types.js';
 import { engagementBand, type BotProfile } from './profiles.js';
 
 /**
- * A remembered contact PLUS the three things scoring needs and wave 1's
- * `RememberedContact` does not carry. Assignable to `RememberedContact`, so
- * `mind.contacts` keeps its declared type.
+ * ONE PLOTTED TRACK. An alias of `RememberedContact` since wave 3 promoted
+ * class / fleet-ness / acquisition time / hit history onto it: the name is
+ * kept because it is what scoring and tactics speak, and because a future
+ * scoring-only field would land here rather than on the driver's type.
  */
-export interface BotTrack extends RememberedContact {
-  /** Hull class if the grammar disclosed one, else null (return blips are
-   *  identity-free by ruling). */
-  cls: HullId | null;
-  /** True when the disclosed class is a PvE fleet hull rather than a
-   *  participant. Unknown class = false (assume a captain: the safer read). */
-  fleet: boolean;
-  /** Server ms this track was FIRST acquired — the reaction gate's input.
-   *  Survives every refresh; a forgotten-then-reacquired track starts over,
-   *  which is correct (you did lose the plot). */
-  firstSeenAt: number;
-  /** Self-private Hit Calls that landed on this track — the ONLY damage
-   *  estimate a bot can legitimately have (no hp, no severity, ever). */
-  hits: number;
-}
+export type BotTrack = RememberedContact;
 
 /** The bot's own fall-of-shot feedback for this tick, handed to wave-3
  *  tactics. Both channels are self-private rows the shooter is entitled to. */
@@ -153,15 +139,6 @@ function isFleetHullId(cls: HullId): boolean {
   return !(SHIP_CLASS_IDS as readonly string[]).includes(cls);
 }
 
-/** Normalize a stored entry to a BotTrack — this module's entries pass
- *  through unchanged; anything else (a plain RememberedContact written by
- *  another wave) is upgraded conservatively rather than cast. */
-function asTrack(c: RememberedContact): BotTrack {
-  const t = c as Partial<BotTrack> & RememberedContact;
-  if (typeof t.firstSeenAt === 'number' && typeof t.hits === 'number') return t as BotTrack;
-  return { ...c, cls: null, fleet: false, firstSeenAt: c.seenAt, hits: 0 };
-}
-
 /** The one sighting shape every fold path funnels through. */
 interface Sighting {
   id: string | null;
@@ -182,8 +159,7 @@ function freshBase(now: number): Pick<BotTrack, 'id' | 'cls' | 'fleet' | 'firstS
 /** Write (or refresh) one track. Position/pose come from the sighting;
  *  acquisition time, hit history and any previously-disclosed class survive. */
 function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, live: boolean): void {
-  const prev = tracks.get(key);
-  const base = prev === undefined ? freshBase(now) : asTrack(prev);
+  const base = tracks.get(key) ?? freshBase(now);
   const cls = s.cls ?? base.cls;
   const track: BotTrack = {
     id: s.id ?? base.id,
@@ -270,9 +246,8 @@ function foldBlip(tracks: TrackMap, e: BlipEvent, now: number): void {
  *  which is exactly what the shooter is entitled to conclude. */
 function foldHitCall(tracks: TrackMap, x: number, y: number, now: number): void {
   const key = nearestKey(tracks, x, y, HIT_ASSOC_U, false) ?? foldAnonymous(tracks, x, y, now);
-  const prev = tracks.get(key);
-  if (prev === undefined) return;
-  const t = asTrack(prev);
+  const t = tracks.get(key);
+  if (t === undefined) return;
   // A LIVE track has better position data than the burst point; a stale one
   // does not, so the impact point becomes its new plot.
   const hit: BotTrack = { ...t, hits: t.hits + 1, seenAt: now, x: t.live ? t.x : x, y: t.live ? t.y : y };
@@ -330,11 +305,9 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number): Gunn
   return fb;
 }
 
-/** Every remembered track, normalized. Insertion-ordered (deterministic). */
+/** Every remembered track. Insertion-ordered (deterministic). */
 export function tracksOf(mind: BotMind): BotTrack[] {
-  const out: BotTrack[] = [];
-  for (const t of mind.contacts.values()) out.push(asTrack(t));
-  return out;
+  return [...mind.contacts.values()];
 }
 
 /**

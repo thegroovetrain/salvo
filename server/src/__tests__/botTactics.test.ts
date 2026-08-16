@@ -1,0 +1,494 @@
+// COMBAT-BOT TACTICS — wave-3 coverage (Story 6.4): what a bot DOES.
+//
+// Two harnesses, deliberately:
+//
+//   * THE FAKE PORT. Most of these are single-decision assertions, and a bot's
+//     decision is a pure function of (its own ShipRecord, its mind, the port).
+//     A hand-built `BotWorldPort` lets a test put the storm ring where it
+//     wants it, freeze the clock, and hand the brain a contact plot with
+//     exactly the grammar under test — none of which is reachable by stepping
+//     a real World. The ShipRecord itself is REAL (built through World.addShip)
+//     so hull envelopes, effective stats and loadout pools are the shipped
+//     ones, never a stub that could drift.
+//
+//   * A REAL WORLD, END TO END. The last block steps a genuine World full of
+//     bots for half a match-minute and measures what happened on the water.
+//     It is the first proof the whole stack works together — wave 1's cadence,
+//     wave 2's scoring and wave 3's hands — and it is the test that would
+//     catch a bot that decides beautifully and sails into a rock.
+
+import { describe, it, expect } from 'vitest';
+import {
+  CONFIG,
+  angleDiff,
+  inArc,
+  islandDistance,
+  mulberry32,
+  nearestCoastPoint,
+  sectorArcFor,
+  wrapAngle,
+  type HullId,
+  type ShipClassId,
+} from '@salvo/shared';
+import { World, type ShipRecord } from '../game/world.js';
+import { COMBAT_BRAIN, approachPoint } from '../game/ai/tactics.js';
+import { profileOf } from '../game/ai/profiles.js';
+import type { BotMind, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
+
+const BOW_SECTOR = sectorArcFor('torpedo');
+const REAR_SECTOR = sectorArcFor('mine');
+
+/** A mutable stand-in for the narrow world port: the clock and the live ring
+ *  are what a steering test needs to control, and neither is settable on a
+ *  real World. Everything spatial still comes from a REAL generated map. */
+interface FakePort extends BotWorldPort {
+  now: number;
+  zoneLiveRing: { cx: number; cy: number; r: number };
+}
+
+function fakePort(w: World, ring?: { cx: number; cy: number; r: number }): FakePort {
+  return {
+    now: 100000,
+    map: w.map,
+    // Default: a ring so large nothing is ever outside it, so a test that is
+    // not about the storm never accidentally gets ring-escape steering.
+    zoneLiveRing: ring ?? { cx: 0, cy: 0, r: w.map.radius * 4 },
+    helmEnabled: true,
+    ships: { get: (id: string) => w.ships.get(id) },
+    submitInput: () => true,
+    spendPoint: () => true,
+  };
+}
+
+function mkMind(hullId: ShipClassId, profile: BotProfileId, seed = 7): BotMind {
+  return {
+    rng: mulberry32(seed),
+    seq: 0,
+    fireSeq: 0,
+    actSeq: 0,
+    hullId,
+    profile,
+    phase: 0,
+    view: null,
+    viewAt: -1,
+    contacts: new Map(),
+    stuckMs: 0,
+    unbeachUntil: 0,
+  };
+}
+
+/** A bot hull placed exactly where the test wants it, pointed where it wants.
+ *  Islands are cleared so placement is never fought by the spawn lattice or
+ *  the collision push-out (the island-specific tests clear nothing). */
+function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0): ShipRecord {
+  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y });
+  rec.state.x = x;
+  rec.state.y = y;
+  rec.state.heading = heading;
+  rec.state.speed = rec.stats.kinematics.maxSpeed * 0.5;
+  return rec;
+}
+
+/** A plotted track, defaulted to something the reaction gate will pass. */
+function track(now: number, over: Partial<RememberedContact> = {}): RememberedContact {
+  return {
+    id: 'tgt',
+    x: 0,
+    y: 0,
+    heading: 0,
+    speed: 0,
+    seenAt: now,
+    live: true,
+    cls: 'torpedoBoat' as HullId,
+    fleet: false,
+    firstSeenAt: now - CONFIG.bots.reactionMs * 4,
+    hits: 0,
+    ...over,
+  };
+}
+
+function plot(mind: BotMind, t: RememberedContact): void {
+  mind.contacts.set(t.id ?? `a:${t.x}:${t.y}`, t);
+}
+
+/** The loadout slot fitting an equipment id (the tests name weapons, not
+ *  indices — a refit that moved a slot must not silently pass). */
+function slotOf(rec: ShipRecord, id: string): number {
+  return rec.loadout.findIndex((s) => s.equipmentId === id);
+}
+
+/** The first point on a coarse polar lattice with `clearance` of open water
+ *  around it — the end-to-end test's staging area, found rather than assumed
+ *  so a mapgen retune cannot quietly move land into the arena. */
+function stagingPoint(w: World, clearance: number): { x: number; y: number } {
+  for (let r = 0; r < w.map.radius * 0.6; r += 150) {
+    for (let k = 0; k < 16; k += 1) {
+      const a = (k / 16) * Math.PI * 2;
+      const p = { x: Math.cos(a) * r, y: Math.sin(a) * r };
+      if (w.map.islands.every((isle) => islandDistance(p, isle) > clearance)) return p;
+    }
+  }
+  throw new Error('no open staging area on this map — the test cannot run honestly');
+}
+
+/** A world whose ocean is empty water — placement, steering and firing tests
+ *  are about the bot, not about mapgen. */
+function openWorld(seed: number, cap = 8): World {
+  const w = new World(seed, cap);
+  w.map.islands.length = 0;
+  return w;
+}
+
+describe('steering — the priority order is the policy', () => {
+  it('RING ESCAPE outranks target pursuit: outside the ring, the helm turns for its centre', () => {
+    const w = openWorld(101);
+    // The ring sits to the WEST; the target sits to the EAST. A bot pointed
+    // north must choose one of two opposite rudders, so the assertion cannot
+    // be satisfied by accident.
+    const port = fakePort(w, { cx: -600, cy: 0, r: 200 });
+    const rec = mkBot(w, 'battleship', 0, 0, Math.PI / 2); // bow due north
+    const mind = mkMind('battleship', 'bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0 }));
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.throttle).toBe(1); // full ahead: the storm does not miss
+    // Port rudder (positive = counter-clockwise) swings a north-facing bow to
+    // the west; the target would have demanded the opposite.
+    expect(d.rudder).toBeGreaterThan(0);
+    // And the same bot INSIDE a ring that contains it turns the other way.
+    const inside = fakePort(w);
+    const d2 = COMBAT_BRAIN.decide(rec, mind, inside);
+    expect(d2.rudder).toBeLessThan(0);
+  });
+
+  it('with nothing in sight a bot patrols toward the live ring centre', () => {
+    const w = openWorld(102);
+    const port = fakePort(w, { cx: 0, cy: -500, r: 4000 }); // centre due south
+    const rec = mkBot(w, 'mineLayer', 0, 0, Math.PI / 2); // bow due north
+    const d = COMBAT_BRAIN.decide(rec, mkMind('mineLayer', 'forager'), port);
+    expect(d.throttle).toBeGreaterThan(0);
+    expect(Math.abs(d.rudder)).toBe(1); // hard over: 180 degrees to turn
+    expect(d.fireSlot).toBeNull();
+  });
+
+  it('UN-BEACHING: going nowhere arms astern within stuckMs, and lets go once way is made', () => {
+    const w = openWorld(103);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('battleship', 'bulwark');
+    rec.state.speed = 0; // pinned: the grounding damp caps a beached hull low
+    let armedAtMs: number | null = null;
+    for (let i = 0; i < 200 && armedAtMs === null; i += 1) {
+      const d = COMBAT_BRAIN.decide(rec, mind, port);
+      if (d.throttle < 0) armedAtMs = i * CONFIG.tick.simDtMs;
+      port.now += CONFIG.tick.simDtMs;
+    }
+    expect(armedAtMs).not.toBeNull();
+    expect(armedAtMs!).toBeLessThanOrEqual(CONFIG.bots.stuckMs);
+    // It holds astern for the manoeuvre rather than chattering tick to tick.
+    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
+    // Way made -> the trip resets and the helm goes ahead again on the spot.
+    rec.state.speed = rec.stats.kinematics.maxSpeed;
+    port.now = mind.unbeachUntil + 1;
+    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeGreaterThan(0);
+    expect(mind.stuckMs).toBe(0);
+  });
+
+  it('a coastline dead ahead biases the rudder away from the NEAREST COAST POINT', () => {
+    const w = new World(104, 8); // islands intact: this test is about them
+    const isle = w.map.islands[0];
+    expect(isle).toBeDefined();
+    // Stand 60u off the island's real COASTLINE (not its bounding circle —
+    // that is the whole point of the ported bias) and point straight at it.
+    const probe = { x: isle.x - isle.r - 200, y: isle.y };
+    const coast = nearestCoastPoint(probe, isle);
+    const brg = Math.atan2(coast.y - probe.y, coast.x - probe.x);
+    const x = coast.x - Math.cos(brg) * 60;
+    const y = coast.y - Math.sin(brg) * 60;
+    const rec = mkBot(w, 'torpedoBoat', x, y, brg);
+    // The ring centre is placed dead ahead too, so the posture bearing
+    // contributes exactly zero rudder and the coastline probe is the only
+    // thing that can move it.
+    const port = fakePort(w, { cx: x + Math.cos(brg) * 2000, cy: y + Math.sin(brg) * 2000, r: 6000 });
+    const d = COMBAT_BRAIN.decide(rec, mkMind('torpedoBoat', 'raider'), port);
+    expect(Math.abs(d.rudder)).toBeGreaterThan(0);
+  });
+
+  it('THE REAR-QUARTER DOGFIGHT (C1): a duelist steers behind a peer, but never behind a Mine Layer', () => {
+    const now = 100000;
+    const duelist = profileOf('duelist');
+    // A peer running due east: its rear quarter is WEST of it.
+    const peer = track(now, { x: 300, y: 0, heading: 0, speed: 45, cls: 'torpedoBoat' as HullId });
+    const behind = approachPoint(duelist, peer);
+    expect(behind.x).toBeLessThan(peer.x);
+    expect(Math.hypot(behind.x - peer.x, behind.y - peer.y)).toBeGreaterThan(0);
+    // A MINE LAYER is the exception — tailing one sails up its astern mine
+    // sector, so the duelist goes for the hull itself.
+    const layer = track(now, { x: 300, y: 0, heading: 0, speed: 30, cls: 'mineLayer' as HullId });
+    expect(approachPoint(duelist, layer)).toEqual({ x: layer.x, y: layer.y });
+    // And an identity-free plot has no course to get behind.
+    const anon = track(now, { id: null, x: 300, y: 0, heading: null, speed: null, cls: null });
+    expect(approachPoint(duelist, anon)).toEqual({ x: anon.x, y: anon.y });
+    // No other profile takes the rear quarter at all.
+    expect(approachPoint(profileOf('raider'), peer)).toEqual({ x: peer.x, y: peer.y });
+  });
+
+  it('a visible ENEMY mine ahead biases the rudder; the bot\'s own never does', () => {
+    const w = openWorld(105);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'mineLayer', 0, 0, 0); // bow due east
+    const mind = mkMind('mineLayer', 'trapper');
+    // Ring centre dead ahead so the posture bearing contributes nothing.
+    port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
+    const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], decoys: [] };
+    mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
+    const dodged = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], decoys: [] };
+    const own = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(own.rudder).toBe(0); // an owner never trips its own rack
+  });
+});
+
+describe('weapons — every shot is a LEGAL shot', () => {
+  it('THE TORPEDO ARC IS TESTED FIRST: a target astern never advances the tube', () => {
+    const w = openWorld(201);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due east
+    const tube = slotOf(rec, 'torpedo');
+    // Dead ahead, inside credible range: the tube fires.
+    const ahead = mkMind('torpedoBoat', 'duelist');
+    plot(ahead, track(port.now, { x: 150, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, ahead, port).fireSlot).toBe(tube);
+    // Dead ASTERN, same range: the bow sector refuses, and the bot falls
+    // through to the 360-degree gun rather than burning a click on nothing.
+    const astern = mkMind('torpedoBoat', 'duelist');
+    plot(astern, track(port.now, { x: -150, y: 0, speed: 0 }));
+    const d = COMBAT_BRAIN.decide(rec, astern, port);
+    expect(d.fireSlot).not.toBe(tube);
+    expect(d.fireSlot).toBe(slotOf(rec, 'gun'));
+    // Whatever it fired, the commanded bearing is inside that weapon's arc.
+    expect(inArc(d.aim, wrapAngle(rec.state.heading + BOW_SECTOR.offset), BOW_SECTOR.halfArc)).toBe(false);
+  });
+
+  it('the tube is held beyond credible intercept range', () => {
+    const w = openWorld(202);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    const mind = mkMind('torpedoBoat', 'raider');
+    plot(mind, track(port.now, { x: 600, y: 0, speed: 0 })); // in the bow arc, far
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'gun'));
+  });
+
+  it('MINE LEGALITY: dropped inside the astern sector, inside placeRange, and never on blocked water', () => {
+    const w = openWorld(203);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'mineLayer', 0, 0, 1.1); // an off-axis heading on purpose
+    const rack = slotOf(rec, 'mine');
+    const mind = mkMind('mineLayer', 'trapper');
+    rec.hp = rec.stats.maxHp * 0.1; // hurt -> disengaging -> laying its field
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.fireSlot).toBe(rack);
+    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
+    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
+    expect(d.aimDist).toBeLessThanOrEqual(CONFIG.mine.placeRange);
+    expect(d.aimDist).toBeGreaterThan(0);
+    // BLOCKED WATER: pushed against the rim with the rack pointed off the map,
+    // the drop is refused outright — no click is spent placing a mine in air.
+    const rim = mkBot(w, 'mineLayer', -(w.map.radius - 20), 0, Math.PI); // bow west, rack east
+    rim.hp = rim.stats.maxHp * 0.1;
+    rim.state.x = w.map.radius - 20;
+    const blocked = COMBAT_BRAIN.decide(rim, mkMind('mineLayer', 'trapper'), port);
+    expect(blocked.fireSlot).not.toBe(rack);
+  });
+
+  it('STAR SHELLS AS A SENSOR (C2): siege lights a stale plot it has lost', () => {
+    const w = openWorld(204);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const flares = slotOf(rec, 'starShells');
+    const mind = mkMind('battleship', 'siege');
+    // Lost 3s ago, out past our own truesight bubble, inside flare reach.
+    plot(mind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3000 }));
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.fireSlot).toBe(flares);
+    expect(d.aimDist).toBeCloseTo(500, 0); // aimed at the LAST KNOWN position
+    // A LIVE contact needs no flare — that one gets shot at instead.
+    const live = mkMind('battleship', 'siege');
+    plot(live, track(port.now, { x: 500, y: 0, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, live, port).fireSlot).not.toBe(flares);
+    // And `bulwark` never fires them at all (usesStarShells: false).
+    const bulwark = mkMind('battleship', 'bulwark');
+    plot(bulwark, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3000 }));
+    expect(COMBAT_BRAIN.decide(rec, bulwark, port).fireSlot).not.toBe(flares);
+  });
+
+  it('a `return`-grammar plot is AIMED AT, never led — and no long-reload weapon is spent on it', () => {
+    const w = openWorld(205);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const at = { x: 0, y: 250 }; // due north, so a lead solution swings the bearing
+    const direct = Math.atan2(at.y, at.x);
+    // Identity-free: position only. The aim sits on the true bearing, within
+    // the aim scatter alone.
+    const anon = mkMind('battleship', 'bulwark');
+    plot(anon, track(port.now, { id: null, ...at, heading: null, speed: null, cls: null }));
+    const blind = COMBAT_BRAIN.decide(rec, anon, port);
+    expect(Math.abs(angleDiff(direct, blind.aim))).toBeLessThan(0.05);
+    // The SAME hull with a disclosed course is led — materially off the
+    // direct bearing, which is what proves the branch above is real.
+    const led = mkMind('battleship', 'bulwark');
+    plot(led, track(port.now, { ...at, heading: 0, speed: 45 }));
+    expect(Math.abs(angleDiff(direct, COMBAT_BRAIN.decide(rec, led, port).aim))).toBeGreaterThan(0.05);
+    // A 45-second cannon reload is not spent on a plot that cannot be led.
+    expect(blind.fireSlot).toBe(slotOf(rec, 'gun'));
+    expect(COMBAT_BRAIN.decide(rec, led, port).fireSlot).toBe(slotOf(rec, 'cannon'));
+    // Nor is a torpedo.
+    const tb = mkBot(w, 'torpedoBoat', 0, 0, Math.PI / 2);
+    const tbMind = mkMind('torpedoBoat', 'duelist');
+    plot(tbMind, track(port.now, { id: null, x: 0, y: 150, heading: null, speed: null, cls: null }));
+    expect(COMBAT_BRAIN.decide(tb, tbMind, port).fireSlot).toBe(slotOf(tb, 'gun'));
+  });
+
+  it('never fires an EMPTY pool — the reloading gun holds fire with a perfect target', () => {
+    const w = openWorld(206);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('battleship', 'bulwark');
+    plot(mind, track(port.now, { x: 200, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'gun'));
+    // Drain every pool: nothing is fireable, so nothing is requested.
+    for (const slot of rec.loadout) if (slot.state) slot.state = { n: 0, reloadMsLeft: 4000 };
+    const dry = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(dry.fireSlot).toBeNull();
+    expect(dry.aimDist).toBe(0);
+    expect(dry.throttle).toBeGreaterThan(0); // it still sails
+  });
+
+  it('a target beyond the weapon\'s reach is not shot at', () => {
+    const w = openWorld(207);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('battleship', 'bulwark');
+    // Inside the scoring horizon (1.25R) but outside gun/cannon range (R).
+    plot(mind, track(port.now, { x: rec.stats.gun.rangeU + 100, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
+  });
+
+  it('abilities ride the act channel: a raider boosts out, a trapper drops a decoy', () => {
+    const w = openWorld(208);
+    const port = fakePort(w);
+    const tb = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    tb.hp = tb.stats.maxHp * 0.1; // below raider's 0.5 -> disengage
+    const raider = mkMind('torpedoBoat', 'raider');
+    plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'speedBoost'));
+    const ml = mkBot(w, 'mineLayer', 0, 0, 0);
+    ml.hp = ml.stats.maxHp * 0.1;
+    const trapper = mkMind('mineLayer', 'trapper');
+    plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'decoyBuoy'));
+    // Healthy: no ability spent.
+    const healthy = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
+  });
+
+  it('the frozen boarding room is not the brain\'s business — but a bot with no view still sails', () => {
+    const w = openWorld(209);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'mineLayer', 0, 0, 0);
+    const mind = mkMind('mineLayer', 'forager'); // view null, contacts empty
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.fireSlot).toBeNull();
+    expect(d.actSlot).toBeNull();
+    expect(d.spendChoice).toBeNull();
+    expect(Number.isFinite(d.aim)).toBe(true);
+    expect(d.throttle).toBeGreaterThan(0);
+  });
+});
+
+describe('END TO END — a real World full of bots, stepped for half a match-minute', () => {
+  it('they move, acquire, fire, take damage, and do not beach', () => {
+    const w = new World(3101, 8); // ISLANDS INTACT: beaching is the point
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i += 1) ids.push(w.addBot().id);
+    // Gather them into open water so they meet inside the 30s window rather
+    // than spending it crossing the spawn ring. The staging area is chosen by
+    // the SAME island predicate the sim uses, so a mapgen retune moves the
+    // arena instead of silently turning this into a beaching test.
+    const ring = 300;
+    const hub = stagingPoint(w, ring + 80);
+    ids.forEach((id, i) => {
+      const a = (i / ids.length) * Math.PI * 2;
+      const rec = w.ships.get(id)!;
+      rec.state.x = hub.x + Math.cos(a) * ring;
+      rec.state.y = hub.y + Math.sin(a) * ring;
+      rec.state.heading = wrapAngle(a + Math.PI); // pointed at each other
+      rec.prevPose = { ...rec.state };
+    });
+
+    const start = ids.map((id) => ({ ...w.ships.get(id)!.state }));
+    let shellsSeen = 0;
+    let landTicks = 0;
+    let botTicks = 0;
+    let hurtSeen = 0;
+    const TICKS = 600; // 30 s
+    for (let t = 0; t < TICKS; t += 1) {
+      w.step();
+      shellsSeen = Math.max(shellsSeen, w.shells.size);
+      for (const id of ids) {
+        const rec = w.ships.get(id);
+        if (!rec) continue;
+        botTicks += 1;
+        // Damage is sampled DURING the run, never read off the final state: a
+        // waiting-phase respawn restores hp, so a last-tick reading could show
+        // a full hull that has been shot to pieces twice.
+        if (rec.hp < rec.stats.maxHp) hurtSeen += 1;
+        for (const isle of w.map.islands) {
+          if (islandDistance(rec.state, isle) <= 0) {
+            landTicks += 1;
+            break;
+          }
+        }
+      }
+    }
+
+    // MOVED: every hull is somewhere else, and under way.
+    ids.forEach((id, i) => {
+      const rec = w.ships.get(id)!;
+      expect(Math.hypot(rec.state.x - start[i].x, rec.state.y - start[i].y)).toBeGreaterThan(100);
+    });
+    // ACQUIRED + FIRED: clicks were requested and ordnance reached the water.
+    const fired = ids.filter((id) => w.ships.get(id)!.input.fireSeq > 0);
+    expect(fired.length).toBeGreaterThan(0);
+    expect(shellsSeen).toBeGreaterThan(0);
+    // CONNECTED: somebody took damage, which needs aim, lead and range all
+    // right at once — this is the assertion a broken lead solve fails.
+    expect(hurtSeen).toBeGreaterThan(0);
+    // DID NOT BEACH: the spec's own bar is under 1% of bot-ticks in land
+    // contact. A permanently beached bot would blow straight past it.
+    expect(landTicks / botTicks).toBeLessThan(0.01);
+    // AND THE PLUMBING HELD: bots never honk, never back-date a shot.
+    for (const id of ids) {
+      const rec = w.ships.get(id)!;
+      expect(rec.input.hornSeq).toBe(0);
+      expect(rec.input.fireT).toBe(0);
+    }
+  });
+
+  it('is deterministic per world seed — same seed, same water', () => {
+    const run = (): string => {
+      const w = new World(3102, 8);
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i += 1) ids.push(w.addBot().id);
+      for (let t = 0; t < 200; t += 1) w.step();
+      return ids
+        .map((id) => {
+          const s = w.ships.get(id)!;
+          return `${s.state.x.toFixed(4)}:${s.state.y.toFixed(4)}:${s.input.fireSeq}`;
+        })
+        .join('|');
+    };
+    expect(run()).toBe(run());
+  });
+});

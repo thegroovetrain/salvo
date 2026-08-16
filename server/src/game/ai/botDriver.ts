@@ -16,10 +16,11 @@
 //
 //   HANDS — one sanitized-shape InputMsg per live bot per tick through
 //   World.submitInput (full sanitizeInput, `fireT: 0`, no privileged path),
-//   exactly as the fleet AI and every human client write intent. Wave 1
-//   emits NEUTRAL input (throttle 0, rudder 0, no fire) with correct seq
-//   bookkeeping; wave-2 tactics plug in behind the BotBrain seam without
-//   touching the cadence, the port, the state lifecycle or the emission.
+//   exactly as the fleet AI and every human client write intent. The DECISION
+//   behind that input comes from the pluggable BotBrain: wave 1 shipped a
+//   neutral stand-in, wave 3 plugged ai/tactics.ts COMBAT_BRAIN behind the
+//   same seam without touching the cadence, the port, the state lifecycle or
+//   the emission — the frozen-helm path still bypasses the brain entirely.
 //
 // THE ONE EXCEPTION to "the driver only ever sees BotWorldPort": observe()'s
 // signature takes the real World, so the constructor keeps a SECOND reference
@@ -32,6 +33,7 @@
 import { CONFIG, SHIP_CLASS_IDS, isAfloat, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
 import { observe } from '../perception.js';
 import type { ShipRecord, World } from '../world.js';
+import { COMBAT_BRAIN } from './tactics.js';
 import type { BotBrain, BotDecision, BotMind, BotProfileId, BotWorldPort } from './types.js';
 
 /**
@@ -49,14 +51,23 @@ export function botPhase(id: string, cadenceTicks: number): number {
   return h % cadenceTicks;
 }
 
-/** The wave-1 stand-in brain: dead helm, guns quiet, nothing spent.
- *  TODO(wave-2 ai/tactics.ts): replace with the real profile-driven brain
- *  (utility.ts targeting, profiles.ts priorities, spending.ts boon policy). */
-const NEUTRAL_BRAIN: BotBrain = {
-  decide(): BotDecision {
-    return { throttle: 0, rudder: 0, aim: 0, aimDist: 0, fireSlot: null, actSlot: null, spendChoice: null };
-  },
-};
+/**
+ * THE FROZEN-HELM DECISION — a dead helm, quiet guns, nothing spent. This was
+ * wave 1's stand-in for the whole brain; wave 3 plugged the real one
+ * (ai/tactics.ts COMBAT_BRAIN) and kept this for the ONE seat it still owns:
+ * the boarding freeze, where the room is pre-active and there is nothing
+ * legitimate to decide. Keeping it as a decision rather than a brain is the
+ * point — the freeze must not run tactics at all, not even to discard them.
+ */
+const FROZEN_DECISION: BotDecision = Object.freeze({
+  throttle: 0,
+  rudder: 0,
+  aim: 0,
+  aimDist: 0,
+  fireSlot: null,
+  actSlot: null,
+  spendChoice: null,
+});
 
 /**
  * Drives every enrolled bot through the normal input path. Owned by World
@@ -88,8 +99,8 @@ export class BotController {
   private readonly callsignOrder: readonly string[];
   private callsignsDrawn = 0;
   private enrollCounter = 0;
-  /** The pluggable brain — NEUTRAL in wave 1. TODO(wave-2 ai/tactics.ts). */
-  private readonly brain: BotBrain = NEUTRAL_BRAIN;
+  /** The pluggable brain — the real profile-driven tactics since wave 3. */
+  private readonly brain: BotBrain = COMBAT_BRAIN;
 
   constructor(world: World, seed: number) {
     this.port = world;
@@ -194,7 +205,7 @@ export class BotController {
       // THE BOARDING FREEZE: no observe (radar is off and the room is
       // pre-active — there is nothing legitimate to learn), neutral input so
       // the seq stream stays warm, fireSeq untouched by construction.
-      this.submit(id, mind, NEUTRAL_BRAIN.decide(ship, mind, this.port));
+      this.submit(id, mind, FROZEN_DECISION);
       return;
     }
     if ((this.tickCount + mind.phase) % this.cadenceTicks === 0) {
