@@ -12,14 +12,19 @@
 // would never clear — converting a freeze into a HUNG TAB, strictly worse.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import type { Application } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
 import { startLoop, type LoopCallbacks } from '../app/loop.js';
 
 const SIM_DT_MS = CONFIG.tick.simDtMs;
 
 /** A minimal stand-in for the one Pixi surface `startLoop` touches. Returns a
- *  `step(deltaMS)` that drives whatever the loop registered. */
-function fakeApp(): { app: never; step: (deltaMS: number) => void; listeners: number } {
+ *  `step(deltaMS)` that drives whatever the loop registered.
+ *
+ *  Typed `Application` rather than `never` (review gate): an `as never` app
+ *  makes `startLoop`'s first parameter unchecked, so any future change to which
+ *  Pixi surfaces the loop touches would compile silently against this fake. */
+function fakeApp(): { app: Application; step: (deltaMS: number) => void; listeners: number } {
   const fns: ((t: { deltaMS: number }) => void)[] = [];
   const ticker = {
     add: (fn: (t: { deltaMS: number }) => void) => fns.push(fn),
@@ -29,7 +34,7 @@ function fakeApp(): { app: never; step: (deltaMS: number) => void; listeners: nu
     },
   };
   const handle = {
-    app: { ticker } as unknown as never,
+    app: { ticker } as unknown as Application,
     step: (deltaMS: number) => {
       for (const fn of [...fns]) fn({ deltaMS });
     },
@@ -85,26 +90,40 @@ describe('loop containment — a throwing frame costs one frame, never the sessi
     expect(renders).toBe(1);
   });
 
-  it('survives a throwing render and keeps the sim stepping', () => {
+  it('survives a throwing render, keeps the sim stepping, and RESUMES rendering', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { app, step } = fakeApp();
     let ticks = 0;
+    let renders = 0;
+    let renderShouldThrow = true;
     startLoop(app, {
       simTick: () => {
         ticks += 1;
       },
       render: () => {
-        throw new Error('render boom');
+        renders += 1;
+        if (renderShouldThrow) throw new Error('render boom');
       },
     });
     step(SIM_DT_MS);
+    renderShouldThrow = false;
     step(SIM_DT_MS);
     expect(ticks).toBe(2);
+    // "Rendering resumes" was asserted NOWHERE before the acceptance audit —
+    // the old test counted sim ticks only. Count the render calls, and prove
+    // the second one completed rather than merely being attempted.
+    expect(renders).toBe(2);
   });
 
-  // THE HANG GUARD. One frame carrying 4 sim steps' worth of time must run
-  // EXACTLY 4 ticks even when every one of them throws. If the decrement moved
-  // back below the call this asserts nothing — it never returns.
+  // One frame carrying 4 sim steps' worth of time must still run its ticks when
+  // every one of them throws, and must terminate.
+  //
+  // HONESTY NOTE (review gate): an earlier version of this comment claimed the
+  // test would hang if the decrement moved back below the guarded call. That is
+  // FALSE — `guard` catches, so a trailing decrement still runs. This test pins
+  // that containment does not COST ticks, not the ordering. `>= 4` rather than
+  // `=== 4` because the accumulator carries float dust that a simDtMs retune
+  // could push either side of the boundary.
   it('drains the accumulator when EVERY tick throws (no infinite loop)', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { app, step } = fakeApp();
@@ -117,7 +136,7 @@ describe('loop containment — a throwing frame costs one frame, never the sessi
       render: () => undefined,
     });
     step(SIM_DT_MS * 4);
-    expect(ticks).toBe(4);
+    expect(ticks).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -186,7 +205,9 @@ describe('loop containment — reporting is bounded and delegated', () => {
     expect(spy).toHaveBeenCalledTimes(1); // degraded to the fallback
   });
 
-  it('caps distinct reports so a per-frame-varying failure cannot spam', () => {
+  // EXACT, not `<=` (review gate): a `<=` bound also passes when reporting is
+  // broken entirely and onError is never called at all.
+  it('caps distinct reports at 8 per phase so a varying failure cannot spam', () => {
     const onError = vi.fn();
     const { app, step } = fakeApp();
     let n = 0;
@@ -199,7 +220,78 @@ describe('loop containment — reporting is bounded and delegated', () => {
       onError,
     });
     for (let i = 0; i < 50; i++) step(SIM_DT_MS);
-    expect(onError.mock.calls.length).toBeLessThanOrEqual(8);
+    expect(onError).toHaveBeenCalledTimes(8);
+  });
+
+  // The cap is PER PHASE: a saturated simTick must not silence the FIRST render
+  // failure, which under a global cap it did.
+  it('a saturated simTick phase does not silence the first render failure', () => {
+    const onError = vi.fn();
+    const { app, step } = fakeApp();
+    let n = 0;
+    let renderShouldThrow = false;
+    startLoop(app, {
+      simTick: () => {
+        n += 1;
+        throw new Error(`unique ${n}`);
+      },
+      render: () => {
+        if (renderShouldThrow) throw new Error('the render failure that matters');
+      },
+      onError,
+    });
+    for (let i = 0; i < 30; i++) step(SIM_DT_MS); // saturate simTick
+    onError.mockClear();
+    renderShouldThrow = true;
+    step(SIM_DT_MS);
+    const phases = onError.mock.calls.map((c) => c[1]);
+    expect(phases).toContain('render');
+  });
+
+  // The reporter runs inside guard's CATCH — anything it throws escapes and
+  // kills the ticker, re-arming the original bug from inside the containment.
+  it('survives thrown values that are hostile to inspection', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const hostile: unknown[] = [
+      Object.create(null), // String(err) throws: no toPrimitive
+      new Proxy({}, { getPrototypeOf: () => { throw new Error('nope'); } }), // instanceof throws
+    ];
+    for (const value of hostile) {
+      const { app, step } = fakeApp();
+      let ticks = 0;
+      startLoop(app, {
+        simTick: () => {
+          ticks += 1;
+          if (ticks === 1) throw value;
+        },
+        render: () => undefined,
+      });
+      expect(() => step(SIM_DT_MS)).not.toThrow();
+      step(SIM_DT_MS);
+      expect(ticks).toBe(2); // the loop outlived it
+    }
+  });
+
+  it('survives an onError defined as a throwing getter', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { app, step } = fakeApp();
+    let ticks = 0;
+    const cb = {
+      simTick: () => {
+        ticks += 1;
+        if (ticks === 1) throw new Error('boom');
+      },
+      render: () => undefined,
+    };
+    Object.defineProperty(cb, 'onError', {
+      get() {
+        throw new Error('hostile getter');
+      },
+    });
+    startLoop(app, cb as LoopCallbacks);
+    expect(() => step(SIM_DT_MS)).not.toThrow();
+    step(SIM_DT_MS);
+    expect(ticks).toBe(2);
   });
 });
 

@@ -47,14 +47,18 @@ function setup(onOwnStats: () => void): {
   sink: { handler: (f: unknown) => void };
   state: { net: { you: unknown } };
   pushFrame: ReturnType<typeof vi.fn>;
+  onServerState: ReturnType<typeof vi.fn>;
 } {
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room: fakeRoom(), welcome: {}, sink } as unknown as Connection;
+  // mode 'predict' so the reconcile call is actually reached — it is gated on
+  // this, and an 'interp' harness would make the onServerState assertion vacuous.
   const state = {
     net: { you: null as unknown, sessionId: 'me', tick: 0, ackSeq: 0 },
-    spectating: false, phase: '', respawnEta: null, killerId: null, mode: 'interp',
+    spectating: false, phase: '', respawnEta: null, killerId: null, mode: 'predict',
   };
   const pushFrame = vi.fn();
+  const onServerState = vi.fn();
   const deps = {
     state,
     clock: { addSample: vi.fn() },
@@ -70,7 +74,7 @@ function setup(onOwnStats: () => void): {
     colors: () => null,
     ordnanceHue: () => 0,
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
-    predictor: { onServerState: vi.fn() },
+    predictor: { onServerState },
     radar: { onSweepSample: vi.fn() },
     onOwnStats,
     onOwnSpawn: vi.fn(),
@@ -79,7 +83,7 @@ function setup(onOwnStats: () => void): {
     respawnArmed: () => true,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, state: state as unknown as { net: { you: unknown } }, pushFrame };
+  return { sink, state: state as unknown as { net: { you: unknown } }, pushFrame, onServerState };
 }
 
 describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
@@ -108,6 +112,20 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
     expect(onOwnStats).toHaveBeenCalledTimes(1);
   });
 
+  // Asserts `predictor.onServerState` BY NAME (acceptance audit): the AC names
+  // that call specifically, and the original test asserted only the sibling
+  // `contacts.pushFrame` further down the same path.
+  it('resumes reconciliation — predictor.onServerState runs on frames after the throw', () => {
+    const onOwnStats = vi.fn(() => {
+      throw new Error('applyOwnStats blew up');
+    });
+    const { sink, onServerState } = setup(onOwnStats);
+    expect(() => sink.handler(frameWith(1, ['gunDamage']))).toThrow();
+    expect(onServerState).not.toHaveBeenCalled(); // frame 1 died below the throw
+    sink.handler(frameWith(2, ['gunDamage']));
+    expect(onServerState).toHaveBeenCalledTimes(1);
+  });
+
   it('still fans the rest of the frame out on frames after the throw', () => {
     const onOwnStats = vi.fn(() => {
       throw new Error('applyOwnStats blew up');
@@ -116,9 +134,11 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
     expect(() => sink.handler(frameWith(1, ['gunDamage']))).toThrow();
     sink.handler(frameWith(2, ['gunDamage']));
     sink.handler(frameWith(3, ['gunDamage']));
-    // Contacts (and with them reconcile, the sweep anchor and events) resume the
-    // moment the callback stops re-firing.
-    expect(pushFrame.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // EXACTLY 2 (review gate): the throwing frame 1 must NOT reach pushFrame —
+    // it is below the throw — and frames 2 and 3 must both get there. A `>= 2`
+    // bound would also pass if frame 1 leaked through, which is the opposite of
+    // what this asserts. Under the old ordering this was 0.
+    expect(pushFrame).toHaveBeenCalledTimes(2);
   });
 
   it('fires again when the boon list genuinely changes', () => {

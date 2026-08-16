@@ -301,8 +301,10 @@ export function boonDescription(def: BoonDef, you: BoonPreviewShip): string {
   if (!Object.hasOwn(STAT_LINES, def.id)) return '';
   const line = STAT_LINES[def.id];
   const head = statSentence(def.id, line, you);
-  // An empty head means statSentence could not resolve the hull; print nothing
-  // at all rather than a note dangling after a leading space.
+  // An empty head means statSentence could not resolve the hull — the ONLY way
+  // it returns '' (every other path returns a template with a label and two
+  // numbers). Print nothing at all rather than a note dangling after a leading
+  // space. Fail-proven: reverting this line fails two tests in refitFailOpen.
   if (head === '') return '';
   return line.note ? `${head} ${line.note}` : head;
 }

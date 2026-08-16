@@ -2411,6 +2411,16 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * config in place and lets the next reconcile replay pending inputs under it.
  */
 function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): void {
+  // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 90 review gate).
+  // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
+  // unresolvable `cls` survivable, because this function threw first. Worse, it
+  // assigned `g.ownClass` BEFORE the throw, poisoning it for the rest of the
+  // match: `wakeHulls` and `computeAimPreview` both feed it to `hullEnvelope`,
+  // whose `.hull` read then threw on EVERY render frame — a permanently frozen
+  // picture with input still being sampled, which is most of the symptom this
+  // cycle exists to remove. Returning before the first assignment keeps the
+  // previously-applied build in place and leaves every consumer coherent.
+  if (!Object.hasOwn(CONFIG.shipClasses, cls)) return;
   const classChanged = cls !== g.ownClass;
   const prev = g.ownStats;
   g.ownClass = cls;

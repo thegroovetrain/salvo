@@ -2,7 +2,7 @@
 title: 'Client frame-loop containment'
 type: 'bugfix'
 created: '2026-08-16'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: 'cb4bdba369eca298e99f15e369d2da52d104f227'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/investigations/boon-cards-control-loss-investigation.md'
@@ -73,7 +73,7 @@ context:
 - [x] `CLAUDE.md` -- corrected the stale `PROTOCOL_VERSION` figure 33 → 37. The number only
 
 **Acceptance Criteria:**
-- Given a client whose `simTick` throws on every frame, when the game runs for several seconds, then the ticker is still alive, the ship still responds to input, and the number of logged errors is bounded rather than one per frame.
+- Given a client whose `simTick` throws on every frame, when the game runs for several seconds, then the ticker is still alive, rendering continues, the accumulator still drains, and the number of logged errors is bounded rather than one per frame. **This AC deliberately does NOT claim input keeps flowing** — input sampling lives inside `simTick`, so a throw upstream of it still costs the helm. Containment stops the SESSION dying; it cannot restore a code path the throw pre-empts. See the Spec Change Log.
 - Given a client whose `render` throws once, when the next frame arrives, then rendering resumes and no simulation state was lost.
 - Given a frame in which `onOwnStats` throws, when the following frame arrives, then it does not throw again for the same cause and `predictor.onServerState` runs normally.
 - Given an `OwnShip` carrying a ship class or boon id absent from the catalog, when the refit band and results modal render, then neither throws and neither invents a substitute value.
@@ -81,6 +81,22 @@ context:
 - Given `npm run check`, when run at completion, then lint, type-check and all tests pass with no skipped suites.
 
 ## Spec Change Log
+
+### 2026-08-16 — review gate, iteration 1 (bad_spec: AC1 over-claimed)
+
+**Triggering finding.** Both the blind hunter and the acceptance auditor independently found that AC1's clause *"the ship still responds to input"* is false for the dominant case. Input sampling lives INSIDE `simTick`; a throw upstream of it means no `InputMsg` is sent, so the helm stays dead whether or not the loop survives. The auditor graded it UNVERIFIABLE and noted no test could honestly pin it.
+
+**What was amended.** AC1 now claims only what containment actually delivers — live ticker, continued rendering, drained accumulator, bounded logging — and states explicitly that input flow is NOT restored when the throw pre-empts sampling.
+
+**Known-bad state avoided.** A future reader treating AC1 as discharged would conclude the reported symptom ("players lose the ability to control their ships") is FIXED. It is not. The cycle makes the failure survivable and observable; the trigger is still unidentified. Mis-reading this AC is the single most likely way that gets forgotten.
+
+**Deviation from the loopback procedure, stated plainly.** step-04 prescribes revert-and-re-derive for `bad_spec`. That was NOT done here, deliberately: the amendment corrects a CLAIM ABOUT the code, not a requirement, so re-deriving would reproduce byte-identical code while discarding the review-gate fixes landed alongside it. No code changed as a consequence of this amendment.
+
+**KEEP instructions (must survive any future re-derivation).**
+- The whole body of `report()` stays inside try/catch, not just the hook call — it runs inside `guard`'s catch, so anything it throws re-arms the original bug from inside the containment. `reportKey` is fallible by nature (`String(err)`, `err.message`, even `instanceof` on a hostile Proxy).
+- `applyOwnStats` must return BEFORE its first mutation on an unresolvable `cls`. Assigning `g.ownClass` and then throwing poisons it for the match, and `hullEnvelope` consumers then throw every render frame.
+- The decrement-before-`simTick` ordering stays, but must NOT be re-described as preventing a hang — `guard` catches, so a trailing decrement would run. That claim was wrong and was corrected at this gate.
+- `ownMaxHp` returns `null`, never a number, so an unknown hull can never be reported FULL.
 
 ## Design Notes
 
