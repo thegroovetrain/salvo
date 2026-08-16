@@ -118,10 +118,10 @@ describe('strokeWorldWidth — the SCREEN-LOCKED stroke (zoom invariance)', () =
 
 describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
   const MAP_R = CONFIG.map.baseRadius;
-  /** The true maximum effective radar range: intelRadar is a x5-copy 1.15
+  /** The true maximum effective radar range: intelRange is a x5-copy 1.15
    *  multiplier (shared/sim/boons.ts), and the camera fits 2 x radar on the
    *  SHORT axis — a bigger radar is a WIDER view, so it widens the fill's job. */
-  const MAX_RADAR = CONFIG.vision.radar * Math.pow(1.15, 5);
+  const MAX_RADAR = CONFIG.vision.radar * Math.pow(1.15, 4);
 
   const view = (o: Partial<FillView> = {}): FillView => ({
     cur: { cx: 0, cy: 0 },

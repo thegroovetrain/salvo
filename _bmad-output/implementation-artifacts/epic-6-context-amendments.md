@@ -578,3 +578,76 @@ paint arc `[prev, sweep)` is zero-width on the first tick and nothing paints fro
 
 **`PROTOCOL_VERSION` stays 37 for all three of amendments 19-21** — no wire shape moves. Placement,
 sweep phase and the candidate lattice are all server-authoritative internals.
+
+## Amendment 22 — THE INTEL RANGE MERGE. One card drives the whole eighths ladder, and the ladder ordering becomes arithmetic.
+
+**Eric rulings 2026-08-16.** `intelTruesight` and `intelRadar` are RETIRED and replaced by ONE
+`intelRange` line (category `intel`, common, **4 copies**, ×1.15 radar range per card). Truesight
+stops being independently purchasable: `EffectiveStats.sightRange` becomes a DERIVED field,
+`radarRange / 2`, re-pinned post-fold in `sim/stats.ts` `clampStats` and in `sim/boons.ts`
+`applyBoonStats` exactly as the three `rangeU` paths already were, and `'sightRange'` LEAVES
+`BOON_STAT_PATHS` so nothing can address it again without failing to type-check.
+
+**Why the merge, and why it is a fix rather than a buff.** The two intel lines moved
+`sightRange` and `radarRange` INDEPENDENTLY, and the 5/8 muzzle-flash / wounded-smoke rung was a
+FLAT constant at 412.5u. Two stacks of `intelTruesight` put a player's own sight bubble at
+330 × 1.12² = 414.0u — PAST that rung — so both signal rows fired entirely inside the bubble where
+the hull was already visible, and went informationally dead for their owner. Story 4.9 had moved
+that rung 6/8 → 5/8 (495u → 412.5u), which halved the break point from 4 stacks to 2. With every
+rung a fixed fraction of ONE number — detect 0.375R, sight 0.5R, muzzle/smoke 0.625R, farRadar
+0.875R, radar R — the ordering `detect < sight < muzzleFlash < farRadar < radar` now holds at EVERY
+stack level **by arithmetic rather than by invariant**. It is no longer a property that can be
+violated. Measured across all five stack levels: HOLDS at each; zero boons is byte-identical to the
+pre-merge base, because `CONFIG.vision.radar` IS `SIGHT * 2`.
+
+**THE LADDER SCALES — and this supersedes epic-4 amendments 15/42/119 on the flat-halo clause.**
+Eric: *"It scales. Intel range means your detection range on all levels gets further."* The `mz` and
+`sm` gates in `game/signals.ts` now call ONE resolver, `muzzleFlashReach(me)`, returning
+`me.stats.radarRange * CONFIG.vision.muzzleFlashFactor` (0.625). This REMOVES THE ODD ONE OUT rather
+than creating an exception: 3/8 detect (`sightOf × detectFactor`), 4/8 sight (`sightOf`) and 8/8
+radar (`me.stats.radarRange`) were ALREADY observer-scaled; 5/8 was the only consumed rung that was
+not.
+
+**Anchored on radar range, NEVER on `sightOf` — this is load-bearing.** Both produce the same
+number once sight is radarRange/2, but `sightOf` is the sole place dazzle enters perception, so a
+radar-anchored rung keeps *"a flash is a light source, not an illuminated object — dazzle does not
+change how far it carries"* true BY CONSTRUCTION rather than by care. Same argument amendment 122
+made when the foghorn moved onto intel range.
+
+**The superseded anti-leak rationale, and why it does not apply.** `signals.ts` argued the halo must
+be flat *"or the plume would carry per-observer build/state information."* That holds for
+SUBJECT-scaling — a plume whose radius encoded the SMOKING ship's build would broadcast it — and NOT
+for OBSERVER-scaling: the watcher already knows their own build, and neither row carries identity
+(`mz` is a bare `{k,x,y}`, `sm` a bare `{k,x,y,tier}`). The master perception invariant still has
+exactly SIX declared exceptions; none was added.
+
+**×4 copies is also a PERFORMANCE ruling.** Eric: *"Make it 4 copies, its powerful."* Client radar
+render cost is purely quadratic in `radarRange` across the whole reachable range — the `minRayRad`
+clamp does not engage below 2000u — so the copy cap IS the cost cap: ×4 tops the worst frame at
+×3.06 rather than the ×4.05 a 5-copy line would have. Top of ladder: radar 1154.3, detect 432.9,
+sight 577.2, muzzle/smoke 721.5, farRadar 1010.1.
+
+**`intelSweep` STAYS A SEPARATE LINE** (Eric: *"no, its a separate line"*) — it is a rate, not a
+range. The `intel` category therefore ends with two lines and 9 physical cards, down from three and
+15. That is a smaller nerf than it reads: the lost weight is almost entirely the deleted
+`intelTruesight` line, and the USEFUL intel draw is near unchanged (`intelRange` at 4/53 ≈ 7.5% per
+slot against `intelRadar`'s old 5/59 ≈ 8.5%).
+
+**Amendment 122's "knowing trade" is RETIRED** — hearing widening with `intelRadar` rather than
+`intelTruesight` was a fork that no longer exists, because there is only one intel line to buy. The
+foghorn's band anchor is unchanged; what disappeared is the choice it used to cost you.
+
+**Card copy** (Eric rulings): the ladder blends both retired ladders, alternating optics and antenna
+because the merged card widens the whole sensor suite — `IMPROVED OPTICS` → `HIGH-GAIN ANTENNA` →
+`DIRECTOR TOWER` → `CAVITY MAGNETRON`, every name existing ratified copy, none invented. The sight
+rider is disclosed through the NOTE line rather than a second number row (the pattern already
+ratified for gun/cannon/star reach): *"Sight, gun, cannon and star shells reach with it."*
+
+**`PROTOCOL_VERSION` 37 → 38.** Boon ids ride the wire and the client resolves them fail-closed, so
+retiring two ids and adding one is a wire-contract break; the PV join gate is the only thing stopping
+a stale bundle from silently dropping a card it cannot resolve.
+
+**One trap for the next agent:** the `mz`/`sm` verifiers in `server/src/__tests__/perception.test.ts`
+are DELIBERATELY independent reimplementations and do not inherit the production resolver. They were
+re-derived BY HAND as `me.stats.radarRange * 0.625`, separately in each verifier, per that file's
+own rule. Do not refactor them to share a helper or to import `muzzleFlashReach`.

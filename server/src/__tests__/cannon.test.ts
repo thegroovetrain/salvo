@@ -81,10 +81,10 @@ describe('cannon — server loadout + shell construction', () => {
     expect(bb.stats.cannon.rangeU).toBe(CONFIG.vision.radar);
   });
 
-  it('FLIPPED PIN (was the wave-2 discrepancy pin): intelRadar grows gun/cannon/starShells rangeU too — range = radar range, Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
+  it('FLIPPED PIN (was the wave-2 discrepancy pin): intelRange grows gun/cannon/starShells rangeU too — range = radar range, Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    w.applyBoon(bb, 'intelRadar');
+    w.applyBoon(bb, 'intelRange');
     const grown = CONFIG.vision.radar * 1.15;
     expect(bb.stats.radarRange).toBeCloseTo(grown, 9);
     expect(bb.stats.gun.rangeU).toBeCloseTo(grown, 9);

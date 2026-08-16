@@ -655,7 +655,7 @@ describe('the ◆n accrued mark compresses the build into the row', () => {
   });
 
   it('folds the shipwide lines into the GUN slot only (the ship card)', () => {
-    const boons = ['intelRadar', 'shipHull', 'shipCooldown'];
+    const boons = ['intelRange', 'shipHull', 'shipCooldown'];
     const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
     expect(rows[0].boonCount).toBe(3);
     expect(rows[1].boonCount).toBe(0);

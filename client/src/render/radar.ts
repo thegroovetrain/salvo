@@ -1206,7 +1206,7 @@ export class Radar {
    * Re-bake the ramp if the observer's bubble has moved (this cycle).
    *
    * THE RAMP IS ANCHORED TO TRUESIGHT, AND TRUESIGHT IS NOT A CONSTANT: a dazzle
-   * burst cuts it by the ratified factor and an `intelTruesight` boon widens it,
+   * burst cuts it by the ratified factor and an `intelRange` boon widens it,
    * so a mask baked once at the base radius would quiet the wrong water for the
    * rest of the match. It reads `sightHoleU` — `fogHoleRadiusU`, i.e. the exact
    * number the fog hole is baked at and the server's `sightOf` gates contacts

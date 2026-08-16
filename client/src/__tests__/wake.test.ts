@@ -641,7 +641,7 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
   });
 
   // P6 — THE SIGHT RADIUS IS PART OF THE KEY. Dazzle onset/end and an
-  // `intelTruesight` grant all move `sightHoleU` with nothing else changing:
+  // `intelRange` grant all move `sightHoleU` with nothing else changing:
   // same observer, same segment set, same clock. Without it in the key, a
   // stationary observer double-painted (or blanked) the sight-delta band for up
   // to a full rebuild interval. It is checked AHEAD of the rate floor because a

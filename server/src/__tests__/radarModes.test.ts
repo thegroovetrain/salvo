@@ -205,7 +205,7 @@ describe('return grammar — THE SERVER RASTERIZES THE HULL: a coverage footprin
     b.hp = b.stats.maxHp * 0.1;
     w.applyBoon(b, 'shipHull');
     w.applyBoon(b, 'gunDamage');
-    w.applyBoon(b, 'intelRadar');
+    w.applyBoon(b, 'intelRange');
     windowAround(a, 0);
     const after = returnBlipsOf(buildFrame(w, 'a'))[0];
     expect(maskOf(after)).toEqual(maskOf(before));

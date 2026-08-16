@@ -107,7 +107,7 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 // Per-observer EFFECTIVE ranges, recomputed here from the raw fitted-boon id
 // list (deliberately NOT via me.stats / effectiveStats — the reimplementation
 // rule). The ladder factors are the CATALOG's authored steps written out as
-// literals (intelTruesight ×1.12/card, intelRadar ×1.15/card); the DAZZLE
+// literals (intelRange ×1.15/card, truesight derived as half of it); the DAZZLE
 // factor (Story 2.8) scales the OBSERVER's own sight while its dazzledUntil
 // mark is live — mirrored independently from signals.sightOf.
 function stacksOf(me: ShipRecord, boonId: string): number {
@@ -116,13 +116,19 @@ function stacksOf(me: ShipRecord, boonId: string): number {
   return n;
 }
 
+// THE INTEL RANGE MERGE (Eric rulings 2026-08-16): `intelTruesight` and
+// `intelRadar` are gone, and truesight is now the 4/8 rung of ONE number.
+// Re-derived here INDEPENDENTLY, as literals, per this file's reimplementation
+// rule: sight is half of intel range, and dazzle still scales sight ONLY —
+// intel range itself is never dazzle-scaled, which is what keeps the 5/8
+// muzzle/smoke halo un-dazzled by construction.
 function effSight(me: ShipRecord, now: number): number {
-  const base = SIGHT * 1.12 ** stacksOf(me, 'intelTruesight');
+  const base = effRadar(me) / 2;
   return now < me.dazzledUntil ? base * CONFIG.starShells.dazzleSightFactor : base;
 }
 
 function effRadar(me: ShipRecord): number {
-  return RADAR * 1.15 ** stacksOf(me, 'intelRadar');
+  return RADAR * 1.15 ** stacksOf(me, 'intelRange');
 }
 
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
@@ -2706,36 +2712,41 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   },
   mz: (w, me, e) => {
     // MUZZLE FLASH (amendments 15/19/20; halo MOVED to 5/8 by Story 4.9,
-    // amendment 119): the halo is the CONSTANT SIGHT * 1.25 — independently
-    // re-derived here as a literal (a 1.5 here between 412.5u and 495u would
-    // make this bound silently non-tight — the exact defect Story 4.9's wave
-    // 1 found), deliberately NOT the observer's dazzle-scaled or boon-widened
-    // sight and with NO owned-zone term — plus island LOS (islands block
-    // every sensor at all ranges). The exact key set is the identity oracle:
-    // {k,x,y} carries no shooter id, hue, class, weapon, or heading for ANY
-    // observer.
+    // amendment 119). THE HALO IS NOW OBSERVER-SCALED (Eric ruling 2026-08-16:
+    // *"It scales. Intel range means your detection range on all levels gets
+    // further."*) — 5/8 of THIS observer's intel range, independently re-derived
+    // here as a bare 0.625 literal against `me.stats.radarRange` rather than by
+    // importing the production resolver, per this file's reimplementation rule.
+    // ANCHORED ON RADAR RANGE, NOT SIGHT: that is what keeps it un-dazzled, so a
+    // dazzled observer's flash reach must NOT shrink. Still no owned-zone term,
+    // plus island LOS (islands block every sensor at all ranges). The exact key
+    // set is the identity oracle: {k,x,y} carries no shooter id, hue, class,
+    // weapon, or heading for ANY observer.
     const ev = e as { k: 'mz'; x: number; y: number };
     expect(Object.keys(ev).sort()).toEqual(['k', 'x', 'y']);
-    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.25);
+    expect(dist(me.state, ev)).toBeLessThanOrEqual(me.stats.radarRange * 0.625);
     expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
   },
   sm: (w, me, e) => {
     // WOUNDED SMOKE (Story 4.4, amendments 40-50; reach MOVED with the
     // muzzle-flash halo to 5/8 by Story 4.9, amendment 119 — the amendment 42
     // one-constant coupling doing its job) — the FIFTH declared exception.
-    // The halo is the CONSTANT SIGHT * 1.25, independently re-derived here as
-    // a literal (deliberately NOT shared with the mz verifier above, per the
-    // header's reimplementation rule) — never the observer's dazzle-scaled or
-    // boon-widened sight, and with NO owned-zone term — plus island LOS
-    // (islands block every sensor at all ranges). The exact key set IS the
-    // identity oracle: {k,x,y,tier} carries no ship id, hue, class, hp, or
-    // fraction for ANY observer — the smoking captain and spectators included
-    // — and `tier` is the two-value enum, never a number an hp could be
-    // recovered from.
+    // The reach is now 5/8 of THIS observer's intel range (Eric ruling
+    // 2026-08-16), independently re-derived here as a bare 0.625 literal against
+    // `me.stats.radarRange` and deliberately NOT shared with the mz verifier
+    // above, per the header's reimplementation rule. The old flat-halo rationale
+    // — that a per-observer reach would leak build state through the plume —
+    // holds for SUBJECT-scaling and not for OBSERVER-scaling: the watcher
+    // already knows their own build, and this row still carries no identity.
+    // Anchored on radar range, so a dazzle must NOT shrink it. No owned-zone
+    // term; island LOS applies. The exact key set IS the identity oracle:
+    // {k,x,y,tier} carries no ship id, hue, class, hp, or fraction for ANY
+    // observer — the smoking captain and spectators included — and `tier` is the
+    // two-value enum, never a number an hp could be recovered from.
     const ev = e as { k: 'sm'; x: number; y: number; tier: number };
     expect(Object.keys(ev).sort()).toEqual(['k', 'tier', 'x', 'y']);
     expect([1, 2]).toContain(ev.tier);
-    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.25);
+    expect(dist(me.state, ev)).toBeLessThanOrEqual(me.stats.radarRange * 0.625);
     expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
   },
   fh: (w, me, e) => {
@@ -2846,8 +2857,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // the CHECKS recompute ranges independently from the raw id list
         // (effSight/effRadar).
         const intel: string[] = [];
-        for (let n = rng.int(0, 2); n > 0; n--) intel.push('intelTruesight');
-        for (let n = rng.int(0, 2); n > 0; n--) intel.push('intelRadar');
+        // ONE intel line since the merge — it drives radar AND truesight, so the
+        // fuzz no longer varies them independently (it never could have produced
+        // the pre-merge ladder overrun anyway; that is what merging fixed).
+        for (let n = rng.int(0, 4); n > 0; n--) intel.push('intelRange'); // 4 copies is the cap
         for (let n = rng.int(0, 5); n > 0; n--) intel.push('intelSweep'); // toward the rpm cap
         rec.boons = intel;
         rec.boonDefs = resolveBoons(intel);

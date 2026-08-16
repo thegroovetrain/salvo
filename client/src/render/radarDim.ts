@@ -24,7 +24,7 @@
 //     anything further out would mute returns in water where nothing else sees.
 // The ratio between them (1.25) is what this module actually carries, because the
 // mask is OBSERVER-SCALED: sight is not a constant (a dazzle burst shrinks it,
-// an `intelTruesight` boon widens it), so the ramp is expressed against the
+// an `intelRange` boon widens it), so the ramp is expressed against the
 // observer's EFFECTIVE truesight and rides the bubble the player actually has.
 // Radar.sightHoleU — i.e. `fogHoleRadiusU`, the same number the fog hole is baked
 // at and the same one the server's `sightOf` gates contacts with — is the sole

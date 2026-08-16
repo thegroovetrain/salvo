@@ -1246,7 +1246,7 @@ export const CLIENT_CONFIG = {
      *
      * No CONSTANT factor can bound that: the camera fits 2 × radar range on the
      * SHORT axis, so a short-wide viewport at the widest user zoom with a maxed
-     * radar stack (intelRadar ×5 = 1.15⁵) already needs ~17.8k u on a 3440×720
+     * radar stack (intelRange ×4 = 1.15⁴) already needs ~17.8k u on a 3440×720
      * screen (this factor gives 16.8k), and spectate free-pan is UNCLAMPED — the
      * camera can travel arbitrarily far from any ring. So the renderer computes
      * `needed` per frame and draws max(this floor, needed), bucketed up by
@@ -2761,7 +2761,7 @@ export const CLIENT_CONFIG = {
         /** Flat `minScale` at and inside this multiple of the observer's
          *  EFFECTIVE truesight — 1.0, i.e. the whole sight bubble (the ladder's
          *  4/8 rung). A MULTIPLE and not a radius, because a dazzle burst shrinks
-         *  the bubble and an `intelTruesight` boon widens it. */
+         *  the bubble and an `intelRange` boon widens it. */
         innerFactor: 1,
         /** Full painted opacity from this multiple of effective truesight out:
          *  the 5/8 rung expressed against the 4/8 one (= 1.25), so it stays a

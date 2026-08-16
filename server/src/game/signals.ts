@@ -267,7 +267,7 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], now: 
  * spawns — stays on truesight, byte-identical (SHELLS DO NOT MOVE: a shell is
  * in the air; a torpedo is a wake just under the surface and a mine sits in
  * the water). Observer-scaled exactly as sight is (amendment 121): a
- * star-shell dazzle halves it, an intelTruesight boon widens it, and island
+ * star-shell dazzle halves it, an intelRange boon widens it, and island
  * LOS applies unchanged — sensor upgrades buy REACH here like everywhere
  * else optical.
  */
@@ -276,6 +276,34 @@ function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[], now:
   const dy = p.y - me.state.y;
   const detect = sightOf(me, now) * CONFIG.vision.detectFactor;
   return dx * dx + dy * dy <= detect * detect && losClear(me.state, p, islands);
+}
+
+/**
+ * THE 5/8 RUNG, OBSERVER-SCALED (Eric ruling 2026-08-16: *"It scales. Intel
+ * range means your detection range on all levels gets further."*). THE one
+ * resolver — both the `mz` and `sm` rows call it, because a second hand-rolled
+ * copy of a sight tier is exactly the desync class this file exists to prevent.
+ *
+ * Anchored on `me.stats.radarRange`, NEVER on `sightOf`. That is what keeps the
+ * ratified reading — *a flash is a light source, not an illuminated object, so
+ * dazzle does not change how far it carries* — true BY CONSTRUCTION: `sightOf`
+ * is the sole dazzle entry point in perception, so a radar-anchored rung cannot
+ * acquire dazzle scaling through a later refactor. Same argument amendment 122
+ * made when the foghorn moved onto intel range.
+ *
+ * THIS SUPERSEDES the flat-halo clause on both rows below, and with it epic-4
+ * amendments 15/42/119. The anti-leak rationale that clause carried holds for
+ * SUBJECT-scaling (a plume whose radius encoded the SMOKING ship's build would
+ * broadcast it) and not for OBSERVER-scaling: the watcher already knows their
+ * own build, and neither row carries any identity (`mz` is a bare {k,x,y}, `sm`
+ * a bare {k,x,y,tier}).
+ *
+ * Fail-closed on a degenerate range, mirroring `hornBandFor`'s guard.
+ */
+function muzzleFlashReach(me: ShipRecord): number {
+  const intel = me.stats.radarRange;
+  if (!Number.isFinite(intel) || intel <= 0) return 0;
+  return intel * CONFIG.vision.muzzleFlashFactor;
 }
 
 /**
@@ -1530,7 +1558,7 @@ const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
     const me = ctx.me;
     const dx = e.x - me.state.x;
     const dy = e.y - me.state.y;
-    const halo = CONFIG.vision.muzzleFlash;
+    const halo = muzzleFlashReach(me); // observer-scaled 5/8 rung (Eric ruling 2026-08-16)
     return dx * dx + dy * dy <= halo * halo && losClear(me.state, e, ctx.islands);
   },
   materialize(_ctx, e) {
@@ -1567,7 +1595,7 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
     const me = ctx.me;
     const dx = e.x - me.state.x;
     const dy = e.y - me.state.y;
-    const halo = CONFIG.vision.muzzleFlash;
+    const halo = muzzleFlashReach(me); // observer-scaled 5/8 rung (Eric ruling 2026-08-16)
     return dx * dx + dy * dy <= halo * halo && losClear(me.state, e, ctx.islands);
   },
   materialize(_ctx, e) {
@@ -1602,8 +1630,11 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * dazzle-scaled, so the old tier bounds were not monotone by construction.
  * Anchoring every band on intel range — which dazzle never touches — makes
  * "dazzle cannot deafen" true BY CONSTRUCTION; there is nothing left to
- * clamp. The knowing trade: hearing now widens with `intelRadar` rather than
- * `intelTruesight`.
+ * clamp. Amendment 122's "knowing trade" — hearing widening with `intelRadar`
+ * rather than `intelTruesight` — is RETIRED as of the Intel Range merge (Eric
+ * rulings 2026-08-16): there is only ONE intel line now, so there is no longer
+ * a choice between buying reach and buying hearing. The band anchor is
+ * unchanged; what disappeared is the fork it used to cost you.
  *
  * THE PLATEAU FLOOR — `Math.max(band, 4)` ON THE RAW BAND, BEFORE THE MUFFLE
  * (review fix, anti-cheat). Bands 1-4 are INDISTINGUISHABLE in every honest
@@ -1611,7 +1642,7 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * chevron weight is the identical {22, 3, 0.95} for all four (…chevron.bands).
  * Sending WHICH of bands 1-4 a honker sits in would hand a MODIFIED client two
  * extra bits of range resolution — an 82.5u annulus rather than the 330u
- * plateau, and worst for a DAZZLED or intelRadar-boosted listener who can
+ * plateau, and worst for a DAZZLED or intelRange-boosted listener who can
  * receive a low band for a hull they cannot see — with NO honest consumer at
  * all. That is precisely the disclosure amendment 51 bounds (BEARING AND VOLUME
  * TIER ONLY, no position, no correlation handle). So the wire carries the band
