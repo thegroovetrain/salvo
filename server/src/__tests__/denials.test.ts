@@ -200,10 +200,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 37→38 bump (PV 38: THE INTEL RANGE MERGE — intelTruesight and intelRadar retire in favour of one intelRange line, and boon ids ride the wire, so a stale bundle would silently drop the card it cannot resolve) is enforced at matchmake', () => {
-  it('rejects pv-37 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(38);
-    expect(protocolVersionError(37)).toMatch(/refresh/);
+describe('pv join gate — the 38→39 bump (PV 39: FRAGMENTATION CASING is DELETED — cannonBlast leaves the catalog, and catalog content IS wire contract, so a stale bundle would offer a card the server no longer knows) is enforced at matchmake', () => {
+  it('rejects pv-38 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(39);
+    expect(protocolVersionError(38)).toMatch(/refresh/);
     expect(protocolVersionError(35)).toMatch(/refresh/);
     expect(protocolVersionError(34)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);

@@ -651,3 +651,45 @@ a stale bundle from silently dropping a card it cannot resolve.
 are DELIBERATELY independent reimplementations and do not inherit the production resolver. They were
 re-derived BY HAND as `me.stats.radarRange * 0.625`, separately in each verifier, per that file's
 own rule. Do not refactor them to share a helper or to import `muzzleFlashReach`.
+
+## Amendment 23 — FRAGMENTATION CASING is deleted. A card that can be a total no-op is not a balance problem, it is a broken card.
+
+**Eric ruling 2026-08-16:** *"Remove the cannon blast radius card altogether."*
+
+`cannonBlast` (FRAGMENTATION CASING Mk I–V, cannon, common ×5, ×1.1 `cannon.burstRadius` per card)
+leaves the catalog entirely. Catalog 35 → 34 lines; the cannon subdeck 12 → 7 cards; a battleship's
+deck 60 → 55. `PROTOCOL_VERSION` 38 → 39, because catalog content IS wire contract.
+
+**Why it had to go rather than be tuned.** ARMOR-PIERCING SHELLS hardcodes `burstRadius: 0` — an AP
+shell pierces instead of bursting. So for any build holding the AP doctrine, FRAGMENTATION CASING
+multiplied zero by 1.1 and did **nothing at all**, five times over. A player on AP could be offered
+it, spend a banked level on it, and fit up to five copies for literally no effect, with no
+disclosure on the card, in the offer, or anywhere else. The boon-cards investigation confirmed it as
+the most egregious of the four dead-card findings.
+
+**Deleted rather than gated, deliberately.** The alternatives were a deck-time exclusion (drop the
+line from the pool once AP is held) or a burst floor under AP. The first adds conditional deck
+composition for a card nobody was choosing on purpose; the second changes how the AP doctrine plays
+— AP's whole identity is *"the cannon stops bursting"* — in order to rescue a card whose only job
+was to scale a number AP sets to zero. Removing the line costs the cannon subdeck one common and
+costs the player nothing they were actually getting.
+
+**What did NOT change.** `cannon.burstRadius` is untouched as a STAT: the cannon still bursts at its
+`CONFIG.cannon.burstRadius` base of 30u under every non-AP doctrine, and still does not burst under
+AP. No damage, blast, reload or doctrine number moved. The path stays on `BOON_STAT_PATHS` with no
+card behind it, which is the established shape rather than an oversight — `gun.burstRadius`,
+`gun.contactDamage` and `cannon.contactDamage` are all whitelisted-but-unwritten already, and the
+seven `<equipment>.reloadMs` paths have been since the 2026-08-04 global-cooldown ruling. A future
+cannon-blast card can therefore land without touching the whitelist.
+
+**Consequence worth naming:** the cannon subdeck is now the THINNEST equipment subdeck at 7 cards
+(5 commons + 2 exclusives), against torpedoes 12, starShells 12 and mines 22. A battleship pilot
+will see cannon cards less often than before, and the two exclusives are now 2/7 of that subdeck
+rather than 2/12 — so the doctrine choice arrives sooner on average. That is a real pacing change,
+untuned here because it follows from the deletion rather than from a separate decision.
+
+**THREE DEAD-CARD FINDINGS REMAIN UNRULED** from the same investigation: `mineDamage` ×
+`minePropFouling` is PICK-ORDER dependent (53 vs 45 hp for identical cards, because both write
+`mine.damage` and the fold is list-ordered), `mineTrigger`'s 5th card is ~75% eaten by the
+`triggerRadius ≤ blastRadius` clamp when no `mineBlast` is held, and at most 1 of 6 acquisition
+cards can ever fire (one extra slot; `consumeAcquisition` purges the rest).

@@ -289,8 +289,20 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // the one-hit-kill law forbids. The flatter curve is deliberate — the base
   // number is the ratified one, so the step gives.
   cannonDamage: { id: 'cannonDamage', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.damage', { add: 2 })] },
-  // FRAGMENTATION CASING Mk I–V: ×1.1 burst radius per card.
-  cannonBlast: { id: 'cannonBlast', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.burstRadius', { mult: 1.1 })] },
+  // FRAGMENTATION CASING is GONE (Eric ruling 2026-08-16: *"Remove the cannon
+  // blast radius card altogether."*). It was a TOTAL no-op for any build holding
+  // ARMOR-PIERCING SHELLS, because AP hardcodes `burstRadius: 0` — so a player
+  // on the AP doctrine could be offered, pay a level for, and fit up to FIVE
+  // copies of a card that did literally nothing, with no disclosure anywhere.
+  // Deleted rather than gated: making it conditional would have needed either a
+  // deck-time exclusion or a burst floor under AP, both of which change how the
+  // doctrine plays for a card nobody was choosing on purpose.
+  //
+  // `cannon.burstRadius` STAYS on BOON_STAT_PATHS with no card behind it, which
+  // is the established shape — `gun.burstRadius`, `gun.contactDamage` and
+  // `cannon.contactDamage` are all whitelisted-but-unwritten already. The stat
+  // itself is untouched: the cannon still bursts at its CONFIG base, and still
+  // does not burst under AP.
   // PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS (exclusive pair).
   cannonArcing: { id: 'cannonArcing', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonAp', effects: [doctrine('cannon', 'arcing')] },
   cannonAp: { id: 'cannonAp', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonArcing', effects: [doctrine('cannon', 'ap')] },
