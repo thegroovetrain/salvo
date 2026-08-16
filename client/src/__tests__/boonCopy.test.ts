@@ -64,8 +64,8 @@ describe('ladder coverage — every catalog line, every stack position', () => {
     expect(boonName('mineTrigger', 4)).toBe('COMBINATION FUZE');
     expect(boonName('mineMax', 4)).toBe('CONVERTED HOLD');
     expect(boonName('torpedoSpeed', 3)).toBe('PURE OXYGEN DRIVE');
-    expect(boonName('intelRadar', 4)).toBe('CAVITY MAGNETRON');
-    expect(boonName('intelTruesight', 4)).toBe('MASTHEAD POST');
+    expect(boonName('intelRange', 4)).toBe('CAVITY MAGNETRON');
+    expect(boonName('intelRange', 3)).toBe('CAVITY MAGNETRON'); // top rung of the merged 4-copy ladder
     expect(boonName('shipSpeed', 4)).toBe('FLANK SPEED TRIALS');
     expect(boonName('shipHull', 4)).toBe('ARMORED CITADEL');
     expect(boonName('boostMax', 4)).toBe('EMERGENCY POWER');
@@ -154,7 +154,7 @@ describe('rules text — the contract, with live values', () => {
     // count to headline, so it prints the scale itself, reading downward.
     expect(boonDescription(BOON_CATALOG.shipCooldown, TB)).toContain('All cooldowns: 100% → 90%.');
     expect(boonDescription(BOON_CATALOG.shipHull, TB)).toContain('Repairs the hull it adds.');
-    expect(boonDescription(BOON_CATALOG.intelRadar, TB)).toContain('Gun, cannon and star shells reach with it.');
+    expect(boonDescription(BOON_CATALOG.intelRange, TB)).toContain('Sight, gun, cannon and star shells reach with it.');
     expect(boonDescription(BOON_CATALOG.mineTrigger, TB)).toContain('Never wider than the blast.');
   });
 

@@ -76,7 +76,11 @@ const OMNI_BOON: BoonDef = {
   rarity: 'common',
   copies: 1,
   effects: [
-    { kind: 'stat', path: 'sightRange', mult: 1.25 },
+    // `radarRange`, not `sightRange`: truesight became DERIVED at the Intel
+    // Range merge and left BOON_STAT_PATHS, so a sight-addressing def no longer
+    // type-checks. Widening radar here still exercises a stat effect AND now
+    // proves the derivation reaches sightRange through applyBoon (asserted below).
+    { kind: 'stat', path: 'radarRange', mult: 1.25 },
     { kind: 'slotFill', equipmentId: 'decoyBuoy' },
     { kind: 'slotReplace', from: 'speedBoost', to: 'starShells' },
     { kind: 'behavior', hookId: 'surge', params: { bonus: 20 } },
@@ -287,7 +291,10 @@ describe('World.applyBoon — two homes, nothing else', () => {
     w.applyBoon(a, 'omni');
     // Home 1 — stats: exactly the effectiveStats fold (sight boon included).
     expect(a.stats).toEqual(effectiveStats(a.cls, [OMNI_BOON]));
-    expect(a.stats.sightRange).toBeCloseTo(CONFIG.vision.sight * 1.25, 9);
+    expect(a.stats.radarRange).toBeCloseTo(CONFIG.vision.radar * 1.25, 9);
+    // The whole point of the merge: truesight is the 4/8 rung, so it MOVED with
+    // radar through the one derivation rather than needing its own card.
+    expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 2, 9);
     // Home 2 — slots: the fill AND the replace landed in the one structure.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'starShells', 'decoyBuoy']);
     expect(a.loadout[2].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });

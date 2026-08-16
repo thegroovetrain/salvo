@@ -178,14 +178,14 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(stats, 'mine')).toBeLessThan(stats.gun.rangeU);
   });
 
-  it('PIN FLIPPED: an intelRadar stack grows the gun, cannon AND star shells together', () => {
+  it('PIN FLIPPED: an intelRange stack grows the gun, cannon AND star shells together', () => {
     // Story 2.8 (brainstorm 2026-07-30): all three gun-family ranges are DERIVED
     // from the folded radarRange — Intel is a stealth offense category. The old
     // "an upgraded gun out-ranges the cannon" quirk died with the gunRange
     // upgrade; the mine's placement reach is deliberately NOT part of it.
     const intel = effectiveStats(
       CONFIG.shipClasses.battleship,
-      resolveBoons(['intelRadar', 'intelRadar', 'intelRadar'], BOON_CATALOG),
+      resolveBoons(['intelRange', 'intelRange', 'intelRange'], BOON_CATALOG),
     );
     expect(weaponRangeU(intel, 'gun')).toBeGreaterThan(CONFIG.vision.radar);
     expect(weaponRangeU(intel, 'cannon')).toBe(weaponRangeU(intel, 'gun'));

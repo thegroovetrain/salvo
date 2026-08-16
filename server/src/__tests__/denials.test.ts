@@ -200,10 +200,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 36→37 bump (PV 37: THE REQUEUE SIGNAL RIDES THE ARENA — Story 6.3 adds the server->client MSG.requeue channel to the ARENA room, so a collapsed cohort can be told apart from an ordinary match-end disconnect. Story 6.1 held the constant at 36 because its channels rode the QUEUE room only; this one does not) is enforced at matchmake', () => {
-  it('rejects pv-36 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(37);
-    expect(protocolVersionError(36)).toMatch(/refresh/);
+describe('pv join gate — the 37→38 bump (PV 38: THE INTEL RANGE MERGE — intelTruesight and intelRadar retire in favour of one intelRange line, and boon ids ride the wire, so a stale bundle would silently drop the card it cannot resolve) is enforced at matchmake', () => {
+  it('rejects pv-37 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(38);
+    expect(protocolVersionError(37)).toMatch(/refresh/);
     expect(protocolVersionError(35)).toMatch(/refresh/);
     expect(protocolVersionError(34)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);

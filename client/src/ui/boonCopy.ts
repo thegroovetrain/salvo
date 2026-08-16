@@ -79,8 +79,11 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   // --- DECOY BUOY ----------------------------------------------------------
   decoyDuration: ['EXTENDED BATTERY Mk I', 'EXTENDED BATTERY Mk II', 'EXTENDED BATTERY Mk III', 'EXTENDED BATTERY Mk IV', 'EXTENDED BATTERY Mk V'],
   // --- INTEL ---------------------------------------------------------------
-  intelTruesight: ['IMPROVED OPTICS', 'SPOTTING SCOPES', 'RANGEFINDER ARRAY', 'DIRECTOR TOWER', 'MASTHEAD POST'],
-  intelRadar: ['IMPROVED RECEIVER', 'HIGH-GAIN ANTENNA', 'EXTENDED MAST', 'CENTIMETRIC SET', 'CAVITY MAGNETRON'],
+  // INTEL RANGE (Eric ruling 2026-08-16) — one four-rung ladder replacing the
+  // two five-rung ones. Drawn from BOTH retired ladders, alternating optics and
+  // antenna, because the merged card widens the whole sensor suite rather than
+  // one instrument: every name here is existing ratified copy, none is invented.
+  intelRange: ['IMPROVED OPTICS', 'HIGH-GAIN ANTENNA', 'DIRECTOR TOWER', 'CAVITY MAGNETRON'],
   intelSweep: ['UPRATED SWEEP MOTOR Mk I', 'UPRATED SWEEP MOTOR Mk II', 'UPRATED SWEEP MOTOR Mk III', 'UPRATED SWEEP MOTOR Mk IV', 'UPRATED SWEEP MOTOR Mk V'],
   // --- SHIP ----------------------------------------------------------------
   shipSpeed: ['HULL SCRAPING', 'NEW SCREWS', 'ENGINE REFIT', 'GEARED TURBINES', 'FLANK SPEED TRIALS'],
@@ -199,13 +202,14 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },
   starRadius: { label: 'Lit zone radius', read: (s) => s.starShells.litRadius },
   decoyDuration: { label: 'Buoy lifetime', read: (s) => s.decoyBuoy.durationMs, fmt: secs },
-  intelTruesight: { label: 'True sight', read: (s) => s.sightRange },
-  intelRadar: {
+  intelRange: {
     label: 'Radar range',
     read: (s) => s.radarRange,
-    // The brainstorm's emergence flag, printed honestly: Intel is a stealth
-    // offense category — gun, cannon and star-shell reach ride radar range.
-    note: 'Gun, cannon and star shells reach with it.',
+    // The riders ride the NOTE rather than a second number row (Eric ruling
+    // 2026-08-16), which is the pattern already ratified for gun/cannon/star
+    // reach. `Sight` leads the list deliberately: truesight is now derived from
+    // this card, and it is the half a player would otherwise never see move.
+    note: 'Sight, gun, cannon and star shells reach with it.',
   },
   intelSweep: { label: 'Radar sweep', read: (s) => s.sweepRpm, fmt: (v) => `${num(v)} RPM` },
   shipSpeed: { label: 'Top speed', read: (s) => s.kinematics.maxSpeed },

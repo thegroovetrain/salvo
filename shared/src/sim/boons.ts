@@ -96,7 +96,11 @@ export const BOON_STAT_PATHS = [
   'maxHp',
   'radarRange',
   'sweepRpm',
-  'sightRange',
+  // `sightRange` is DELIBERATELY ABSENT (Eric ruling 2026-08-16). It became a
+  // DERIVED field — radarRange/2, re-pinned post-fold in sim/stats.ts clampStats
+  // and in applyBoonStats below, exactly as the three rangeU paths are. Removing
+  // it from this whitelist is what makes it structurally underivable anywhere
+  // else: a future card that tried to address it would not type-check.
   // The ONE global cooldown lever (Eric ruling 2026-08-04): a top-level base-1
   // scalar multiplied into EVERY equipment reloadMs post-fold (sim/stats.ts
   // clampStats). `shipCooldown` drives it with add: -0.1 so stacking is
@@ -335,13 +339,29 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // EXTENDED BATTERY Mk I–V: ×1.1 lifetime per card.
   decoyDuration: { id: 'decoyDuration', category: 'decoyBuoy', rarity: 'common', copies: 5, effects: [stat('decoyBuoy.durationMs', { mult: 1.1 })] },
   // --- intel (universal) ---------------------------------------------------
-  // IMPROVED OPTICS → MASTHEAD POST: ×1.12 truesight per card.
-  intelTruesight: { id: 'intelTruesight', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sightRange', { mult: 1.12 })] },
-  // IMPROVED RECEIVER → CAVITY MAGNETRON: ×1.15 radar per card — ALSO grows
-  // gun/cannon/starShells rangeU (derived from radarRange, sim/stats.ts) and
-  // command-det reach (reads radarRange directly): Intel is a stealth
-  // offense category (brainstorm 2026-07-30).
-  intelRadar: { id: 'intelRadar', category: 'intel', rarity: 'common', copies: 5, effects: [stat('radarRange', { mult: 1.15 })] },
+  // INTEL RANGE — the merged line (Eric rulings 2026-08-16). `intelTruesight`
+  // and `intelRadar` are GONE; ONE card now drives the whole eighths ladder.
+  //
+  // WHY THE MERGE, in one line: sightRange and radarRange used to move on two
+  // INDEPENDENT cards, which is exactly why a 2-stack truesight build overran
+  // the flat 5/8 muzzle/smoke rung (330 × 1.12² = 414.0 against 412.5). With
+  // every rung a fixed fraction of ONE number — detect 0.375R, sight 0.5R,
+  // muzzle/smoke 0.625R, farRadar 0.875R, radar R — the ladder ordering
+  // `detect < sight < muzzleFlash < farRadar < radar` holds at EVERY stack level
+  // by ARITHMETIC rather than by invariant. It cannot be violated any more.
+  //
+  // ×4 COPIES, not 5 (Eric: *"Make it 4 copies, its powerful."*). That is also a
+  // PERFORMANCE ruling: client radar render cost is purely quadratic in
+  // radarRange across the whole reachable range (the minRayRad clamp does not
+  // engage below 2000u), so the copy cap IS the cost cap — ×4 tops the worst
+  // frame at ×3.06 rather than ×4.05. Top of ladder: radar 1154.3, detect 432.9,
+  // sight 577.2, muzzle/smoke 721.5, farRadar 1010.1.
+  //
+  // It drives `radarRange` alone; `sightRange` is DERIVED from it (sim/stats.ts)
+  // and is no longer stat-addressable at all. gun/cannon/starShells rangeU and
+  // command-det reach ride radarRange as they always have — Intel remains a
+  // stealth offense category (brainstorm 2026-07-30).
+  intelRange: { id: 'intelRange', category: 'intel', rarity: 'common', copies: 4, effects: [stat('radarRange', { mult: 1.15 })] },
   // UPRATED SWEEP MOTOR Mk I–V: +3 RPM/card (15 → 30 at the ratified cap).
   intelSweep: { id: 'intelSweep', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sweepRpm', { add: 3 })] },
   // --- ship (universal) ----------------------------------------------------
@@ -533,6 +553,13 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   stats.gun.rangeU = stats.radarRange;
   stats.cannon.rangeU = stats.radarRange;
   stats.starShells.rangeU = stats.radarRange;
+  // THE EIGHTHS LADDER IS ONE NUMBER NOW (Eric ruling 2026-08-16): truesight is
+  // the 4/8 rung of intel range, so it is DERIVED here exactly as the three
+  // rangeU paths above are, and for the same reason — `sightRange` left
+  // BOON_STAT_PATHS, so an `intelRange` fold anywhere in the list would
+  // otherwise leave it stale. Re-pinned again in sim/stats.ts clampStats (the
+  // firewall's unconditional output pass); these two are the only sites.
+  stats.sightRange = stats.radarRange / 2;
 }
 
 // ---------------------------------------------------------------------------

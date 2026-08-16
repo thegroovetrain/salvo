@@ -350,6 +350,17 @@ export const CONFIG = {
     // can never drift apart. Never edit one without the other.
     detectFactor: 0.75,
     sight: SIGHT, // u — 4/8: true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
+    // THE RUNTIME SCALE FOR THE 5/8 RUNG (Eric ruling 2026-08-16: *"It scales.
+    // Intel range means your detection range on all levels gets further."*).
+    // 0.625 = 5/8, and note it is a factor of `radarRange`, NOT of sight the way
+    // `detectFactor` above is. That difference is deliberate and load-bearing:
+    // `sightOf` is the ONLY place the dazzle factor enters perception, so
+    // anchoring this rung on radar range makes "a flash is a light source —
+    // dazzle does not shrink it" true BY CONSTRUCTION rather than by care. It is
+    // the same argument amendment 122 made when the foghorn moved onto intel
+    // range. Both numbers still describe the same circle, because `sightRange`
+    // is now DERIVED as radarRange/2 (sim/stats.ts).
+    muzzleFlashFactor: 0.625,
     // u — 5/8: muzzle-flash carry (Story 4.3, amendment 15; MOVED from 6/8 to
     // 5/8 by Story 4.9, Eric ruling 2026-08-06, amendment 119: *"5/8 for
     // muzzle/smoke"* — 495u → 412.5u). DERIVED: 1.25 × base truesight, exactly

@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-16  # epic-6 OPEN; cycle 90 (0.17.90) match-start fixes, amendments 19-21; interstitial cycle 91 (0.17.91) client frame-loop containment, PV unchanged at 37
+# last_updated: 2026-08-16  # epic-6 OPEN; interstitial cycle 92 (0.17.92) THE INTEL RANGE MERGE, epic-6 amendment 22, PV 37->38
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -104,7 +104,8 @@
 #   cycle 86 (0.17.86)  the home scene is a different ocean every load (Eric ask); off-scope defect fixed + 20-seed sweep — PV 36 (client-only)
 #   cycle 87 (0.17.87)  home tagline: random nautical pun pool replaces the fixed line — epic-5 amendment 46; PV unchanged at 36 (client-only)
 #   cycle 90 (0.17.90)  the held start line + shared spawn lattice + sweep anchored to heading — epic-6 amendments 19-21; PV unchanged at 37
-#   cycle 91 (0.17.91)  client frame-loop containment: a throw costs one frame, not the session — PV unchanged at 37 (client-only); Intel Range merge deferred
+#   cycle 91 (0.17.91)  client frame-loop containment: a throw costs one frame, not the session — PV unchanged at 37 (client-only)
+#   cycle 92 (0.17.92)  THE INTEL RANGE MERGE: intelTruesight + intelRadar -> one intelRange line (x4), truesight DERIVED, the 5/8 rung observer-scaled — epic-6 amendment 22; PV 37->38
 
 generated: 2026-07-17
 last_updated: 2026-08-16

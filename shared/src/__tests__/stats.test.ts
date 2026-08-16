@@ -134,18 +134,43 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
 
 describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', () => {
   it('N repeats of a mult line compound: base × mult^N', () => {
-    const s3 = effectiveStats(BASE, stack('intelRadar', 3));
+    const s3 = effectiveStats(BASE, stack('intelRange', 3));
     expect(s3.radarRange).toBeCloseTo(CONFIG.vision.radar * 1.15 ** 3, 9);
   });
 
-  it('intelRadar stacks ALSO grow gun/cannon/starShells rangeU — Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
-    const s5 = effectiveStats(BASE, stack('intelRadar', 5));
-    const grown = CONFIG.vision.radar * 1.15 ** 5;
-    expect(s5.radarRange).toBeCloseTo(grown, 9);
-    expect(s5.gun.rangeU).toBe(s5.radarRange);
-    expect(s5.cannon.rangeU).toBe(s5.radarRange);
-    expect(s5.starShells.rangeU).toBe(s5.radarRange);
-    expect(s5.gun.rangeU).toBeCloseTo(grown, 9);
+  it('intelRange stacks ALSO grow gun/cannon/starShells rangeU — Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
+    const s4 = effectiveStats(BASE, stack('intelRange', 4)); // 4 copies since the merge, not 5
+    const grown = CONFIG.vision.radar * 1.15 ** 4;
+    expect(s4.radarRange).toBeCloseTo(grown, 9);
+    expect(s4.gun.rangeU).toBe(s4.radarRange);
+    expect(s4.cannon.rangeU).toBe(s4.radarRange);
+    expect(s4.starShells.rangeU).toBe(s4.radarRange);
+    expect(s4.gun.rangeU).toBeCloseTo(grown, 9);
+  });
+
+  // THE MERGE'S WHOLE POINT (Eric rulings 2026-08-16). Truesight is the 4/8 rung
+  // of intel range: it is DERIVED, not stat-addressable, so ONE card moves the
+  // whole ladder and the ordering holds by arithmetic at every stack level.
+  it('intelRange drives truesight too — sightRange is DERIVED as radarRange/2 at every stack', () => {
+    for (let n = 0; n <= 4; n++) {
+      const s = effectiveStats(BASE, stack('intelRange', n));
+      expect(s.sightRange).toBeCloseTo(s.radarRange / 2, 9);
+    }
+    // Zero boons is byte-identical to the pre-merge base, because radar IS SIGHT*2.
+    expect(effectiveStats(BASE, []).sightRange).toBe(CONFIG.vision.sight);
+  });
+
+  it('the eighths ladder ordering now holds by ARITHMETIC at every stack level', () => {
+    for (let n = 0; n <= 4; n++) {
+      const s = effectiveStats(BASE, stack('intelRange', n));
+      const detect = s.sightRange * CONFIG.vision.detectFactor;
+      const muzzle = s.radarRange * CONFIG.vision.muzzleFlashFactor;
+      const farRadar = s.radarRange * 0.875;
+      expect(detect).toBeLessThan(s.sightRange);
+      expect(s.sightRange).toBeLessThan(muzzle);
+      expect(muzzle).toBeLessThan(farRadar);
+      expect(farRadar).toBeLessThan(s.radarRange);
+    }
   });
 
   it('N repeats of an add line stack linearly (shipHull +20/card)', () => {

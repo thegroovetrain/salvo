@@ -67,7 +67,7 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
 /**
  * The effective range (u) at which an AIMED weapon's shot lands / clamps. The
  * gun family reads its OWN stats block — and as of Story 2.8 all three ride the
- * folded radarRange (Intel is a stealth offense category), so an intelRadar
+ * folded radarRange (Intel is a stealth offense category), so an intelRange
  * stack grows every one of them together. The MINE reads the ratified
  * CONFIG.mine.placeRange: its placement reach is a fixed short leash, NOT radar
  * range, and no boon moves it.

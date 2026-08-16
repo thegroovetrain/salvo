@@ -69,16 +69,16 @@ const common = (id: string, copies = 5): BoonDef => ({
 });
 
 describe('buildDeck — composition per hull loadout', () => {
-  it('Torpedo Boat: universal (guns 8, intel 15, ship 15) + torpedo 12 + boost 5 + 4 acquisitions = 59', () => {
+  it('Torpedo Boat: universal (guns 8, intel 9, ship 15) + torpedo 12 + boost 5 + 4 acquisitions = 53', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
     expect(categoryCount(deck.cards, 'guns')).toBe(8); // 5+2+1 (the gunReload line died 2026-08-04)
-    expect(categoryCount(deck.cards, 'intel')).toBe(15); // 5+5+5
+    expect(categoryCount(deck.cards, 'intel')).toBe(9); // 4 intelRange + 5 intelSweep (was 5+5+5 before the merge)
     expect(categoryCount(deck.cards, 'ship')).toBe(15); // 5+5+5 (shipCooldown joined, widened to ×5)
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(12); // 5+4+1+1+1
     expect(categoryCount(deck.cards, 'speedBoost')).toBe(5); // 5
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireCannon', 'acquireDecoy', 'acquireMine', 'acquireStarShells']);
-    expect(deck.cards).toHaveLength(59);
+    expect(deck.cards).toHaveLength(53);
     expect(deck.levelsSinceRare).toBe(0);
   });
 
@@ -89,7 +89,7 @@ describe('buildDeck — composition per hull loadout', () => {
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(0);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireDecoy', 'acquireMine', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 15 + 15 + 12 + 12 + 4); // 66
+    expect(deck.cards).toHaveLength(8 + 9 + 15 + 12 + 12 + 4); // 60
   });
 
   it('Mine Layer: mines + decoyBuoy subdecks; torpedo/cannon/star/boost acquisitions', () => {
@@ -98,7 +98,7 @@ describe('buildDeck — composition per hull loadout', () => {
     expect(categoryCount(deck.cards, 'decoyBuoy')).toBe(5);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireCannon', 'acquireStarShells', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 15 + 15 + 22 + 5 + 4); // 69
+    expect(deck.cards).toHaveLength(8 + 9 + 15 + 22 + 5 + 4); // 63
   });
 
   it('the 7 deleted reload lines are in NO hull deck; ship contributes 15 (Eric rulings 2026-08-04)', () => {

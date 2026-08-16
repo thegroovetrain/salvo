@@ -130,12 +130,12 @@ describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', 
   // `shipCooldown` line — 5 copies, `ship` category — replaced them, so every
   // subdeck thinned by its 5 reload copies and `ship` grew by 5.)
   const CASES: [ShipClassId, number, string[]][] = [
-    // TB: torpedo 12 + boost 5 + acquisitions (mine/cannon/star/decoy) 4 = 59.
-    ['torpedoBoat', 38 + 12 + 5 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
-    // BS: cannon 12 + starShells 12 + acquisitions (torpedo/mine/decoy/boost) 4 = 66.
-    ['battleship', 38 + 12 + 12 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
-    // ML: mine 22 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 69.
-    ['mineLayer', 38 + 22 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
+    // TB: torpedo 12 + boost 5 + acquisitions (mine/cannon/star/decoy) 4 = 53.
+    ['torpedoBoat', 32 + 12 + 5 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
+    // BS: cannon 12 + starShells 12 + acquisitions (torpedo/mine/decoy/boost) 4 = 60.
+    ['battleship', 32 + 12 + 12 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
+    // ML: mine 22 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 63.
+    ['mineLayer', 32 + 22 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
   ];
 
   for (const [hull, total, acquisitions] of CASES) {
@@ -347,7 +347,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const buildSize = a.deck.cards.length;
-    expect(buildSize).toBe(59); // the TB build
+    expect(buildSize).toBe(53); // the TB build
     const hands: string[][] = [];
     for (let i = 0; i < 20; i++) {
       bank(w, a, 1);
@@ -1045,7 +1045,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     // absent-equipment acquisitions back.
     expect(copiesInDeck(a, 'mineDamage')).toBe(0);
     expect(copiesInDeck(a, 'acquireMine')).toBe(1);
-    expect(a.deck.cards).toHaveLength(59); // the TB composition (suite above)
+    expect(a.deck.cards).toHaveLength(53); // the TB composition (suite above)
   });
 });
 
@@ -1084,15 +1084,21 @@ describe('wire privacy — banked levels and the deck never leak', () => {
 
 // ---------- per-observer vision boons (the intel ladder consumers) -----------
 
-describe('per-observer sight (intelTruesight)', () => {
-  const target = SIGHT + 20; // between base sight and one-stack sight (330×1.12)
+// ONE CARD, THE WHOLE LADDER (Eric rulings 2026-08-16). `intelTruesight` and
+// `intelRadar` merged into `intelRange`, so what used to be two describes is one:
+// a single stack must widen truesight, the detect rung, radar AND the 5/8
+// muzzle/smoke halo together. The distances below are unchanged from the split
+// era because one stack of the merged line still lands between the same bounds:
+// sight 330 -> 379.5 (radarRange/2), detect 247.5 -> 284.6, radar 660 -> 759.
+describe('per-observer intel range (intelRange)', () => {
+  const target = SIGHT + 20; // between base sight and one-stack sight (759/2 = 379.5)
 
   it('a sight-booned observer sees a CONTACT at a distance a base observer does not', () => {
     const w = bareWorld();
     const up = place(w, 'up', 0, 0);
     const base = place(w, 'base', 0, 0);
     place(w, 't', target, 0);
-    stack(w, up, 'intelTruesight', 1);
+    stack(w, up, 'intelRange', 1);
     expect(buildFrame(w, 'up').contacts.map((c) => c.id)).toContain('t');
     expect(buildFrame(w, 'base').contacts.map((c) => c.id)).not.toContain('t');
   });
@@ -1102,7 +1108,7 @@ describe('per-observer sight (intelTruesight)', () => {
     const up = place(w, 'up', 0, 0);
     const base = place(w, 'base', 0, 0);
     place(w, 'shooter', target + 200, 0);
-    stack(w, up, 'intelTruesight', 1);
+    stack(w, up, 'intelRange', 1);
     w.shells.set('s1', {
       id: 's1', ownerId: 'shooter', x: target, y: 0, vx: -100, vy: 0, distLeft: 500,
       bornAt: 0, kind: 'shell', damage: 5, hitRadius: 2,
@@ -1120,25 +1126,43 @@ describe('per-observer sight (intelTruesight)', () => {
     const w = bareWorld();
     const up = place(w, 'up', 0, 0);
     place(w, 'base', 0, 0);
-    stack(w, up, 'intelTruesight', 1);
+    stack(w, up, 'intelRange', 1);
     w.mines.set('m1', { id: 'm1', ownerId: 'x', x: mineAt, y: 0, armedAt: 0 });
     expect(buildFrame(w, 'up').mines.map((m) => m.id)).toEqual(['m1']);
     expect(buildFrame(w, 'base').mines).toEqual([]);
   });
-});
 
-describe('per-observer radar (intelRadar)', () => {
   it('paints a blip in the widened annulus that a base observer cannot reach', () => {
-    const target = RADAR + 40; // between base radar and one-stack radar (660×1.15)
+    const far = RADAR + 40; // between base radar and one-stack radar (660×1.15 = 759)
     const w = bareWorld();
     const up = place(w, 'up', 0, 0);
     const base = place(w, 'base', 0, 0);
-    place(w, 'target', target, 0);
-    stack(w, up, 'intelRadar', 1);
+    place(w, 'target', far, 0);
+    stack(w, up, 'intelRange', 1);
     windowAround(up, 0);
     windowAround(base, 0);
     expect(blipsOf(buildFrame(w, 'up')).map((e) => e.id)).toEqual(['target']);
     expect(blipsOf(buildFrame(w, 'base'))).toEqual([]);
+  });
+
+  // THE RUNG THAT USED TO BE FLAT (Eric ruling 2026-08-16). Before the merge the
+  // muzzle/smoke halo was a CONSTANT 412.5u for everyone, so no boon moved it —
+  // and a 2-stack truesight build overran it entirely. Now it is 5/8 of the
+  // observer's own intel range.
+  it('widens the 5/8 muzzle-flash and wounded-smoke halo, which no boon used to move', () => {
+    const at = SIGHT * 1.25 + 20; // 432.5: past the BASE halo, inside 759×0.625 = 474.4
+    const w = bareWorld();
+    const up = place(w, 'up', 0, 0);
+    place(w, 'base', 0, 0);
+    stack(w, up, 'intelRange', 1);
+    // Push straight onto the world's outbound buffer — the same seam the step
+    // uses; private only to production callers.
+    const queue = (w as unknown as { events: unknown[] }).events;
+    queue.push({ k: 'mz', x: at, y: 0 });
+    queue.push({ k: 'sm', x: at, y: 0, tier: 1 });
+    const upKinds = buildFrame(w, 'up').events.filter((e) => e.k === 'mz' || e.k === 'sm').map((e) => e.k).sort();
+    expect(upKinds).toEqual(['mz', 'sm']);
+    expect(buildFrame(w, 'base').events.filter((e) => e.k === 'mz' || e.k === 'sm')).toEqual([]);
   });
 });
 

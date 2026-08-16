@@ -47,11 +47,11 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
   // NAMED EXPLICITLY, not discovered by `find` (review gate): the original
   // version searched the catalog and got `gunDamage`, which carries NO note —
   // so `line.note ? … : head` already produced '' and the test passed with the
-  // production guard reverted. `intelRadar` DOES carry a standing note, so
+  // production guard reverted. `intelRange` DOES carry a standing note, so
   // without the guard this returns " Gun, cannon and star shells reach with it."
   // with a leading space. That is the regression this pins.
   it('does not leave a note dangling when the numbers cannot be computed', () => {
-    const noted = BOON_CATALOG['intelRadar'];
+    const noted = BOON_CATALOG['intelRange'];
     expect(noted).toBeDefined();
     // The control: on a real hull the line prints BOTH a number and its note.
     const good = boonDescription(noted, KNOWN as never);

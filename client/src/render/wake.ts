@@ -426,7 +426,7 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  *
  *  • THE SIGHT RADIUS (`sightU`) — the complement's own boundary. It is a STEP
  *    function of two discrete inputs (`fogHoleRadiusU(sightRange, dazzled)`),
- *    so a dazzle onset/end or an `intelTruesight` grant moves it by a large
+ *    so a dazzle onset/end or an `intelRange` grant moves it by a large
  *    fraction all at once and nothing else in this list notices. It was
  *    missing from the key (cycle-69 review gate, P6), which left a stationary
  *    observer double-painting or blanking the sight-delta band for up to a

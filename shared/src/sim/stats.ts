@@ -253,6 +253,12 @@ function clampStats(stats: EffectiveStats): void {
   stats.gun.rangeU = stats.radarRange;
   stats.cannon.rangeU = stats.radarRange;
   stats.starShells.rangeU = stats.radarRange;
+  // TRUESIGHT IS THE 4/8 RUNG OF INTEL RANGE (Eric ruling 2026-08-16) — derived,
+  // never stat-addressable. `sightRange` left BOON_STAT_PATHS with the two intel
+  // cards it used to have, so this is the firewall's authoritative answer and
+  // applyBoonStats holds the sibling copy. At zero boons this is byte-identical
+  // to the old CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*2.
+  stats.sightRange = stats.radarRange / 2;
   stats.mine.triggerRadius = Math.min(stats.mine.triggerRadius, stats.mine.blastRadius);
   stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment —

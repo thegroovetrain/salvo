@@ -112,8 +112,7 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   starIncendiary: { rarity: 'exclusive', copies: 1 },
   starDazzle: { rarity: 'exclusive', copies: 1 },
   decoyDuration: { rarity: 'common', copies: 5 },
-  intelTruesight: { rarity: 'common', copies: 5 },
-  intelRadar: { rarity: 'common', copies: 5 },
+  intelRange: { rarity: 'common', copies: 4 },
   intelSweep: { rarity: 'common', copies: 5 },
   shipSpeed: { rarity: 'common', copies: 5 },
   shipHull: { rarity: 'common', copies: 5 },
@@ -127,9 +126,9 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
 };
 
 describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => {
-  it('ships exactly the 36 card lines of the scarcity table', () => {
+  it('ships exactly the 35 card lines of the scarcity table', () => {
     expect(Object.keys(BOON_CATALOG).sort()).toEqual(Object.keys(SCARCITY).sort());
-    expect(ALL_DEFS).toHaveLength(36);
+    expect(ALL_DEFS).toHaveLength(35); // 36 -> 35: the two intel lines merged into intelRange (Eric 2026-08-16)
   });
 
   it('spans exactly the 9 categories', () => {
