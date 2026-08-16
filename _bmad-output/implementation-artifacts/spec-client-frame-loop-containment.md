@@ -2,7 +2,7 @@
 title: 'Client frame-loop containment'
 type: 'bugfix'
 created: '2026-08-16'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'cb4bdba369eca298e99f15e369d2da52d104f227'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/investigations/boon-cards-control-loss-investigation.md'
@@ -120,4 +120,58 @@ A throw currently escapes the whole loop, so the ordering is harmless. The momen
 - `npm run build` -- expected: clean build in shared → client → server order
 
 **Manual checks:**
-- Temporarily throw from inside `simTick`, load the client, and confirm the ship still answers the helm and the console shows a bounded error count. Revert the deliberate throw before committing.
+- Temporarily throw from inside `simTick`, load the client, and confirm the picture keeps updating and the console shows a bounded error count. Note the helm will NOT recover if the throw sits upstream of input sampling — see AC1. Revert the deliberate throw before committing.
+
+## Suggested Review Order
+
+**The containment itself**
+
+- Start here: why a single throw used to end the session, and what now bounds it.
+  [`loop.ts:122`](../../client/src/app/loop.ts#L122)
+
+- The reporter runs inside `guard`'s catch, so its whole body must be contained.
+  [`loop.ts:86`](../../client/src/app/loop.ts#L86)
+
+- Every read of a thrown value is fallible — the reason `report` needs a try.
+  [`loop.ts:69`](../../client/src/app/loop.ts#L69)
+
+- Read the correction: this ordering is defensive, NOT the hang guard I claimed.
+  [`loop.ts:130`](../../client/src/app/loop.ts#L130)
+
+**The diagnostic seam (how the next occurrence names its own trigger)**
+
+- The optional hook — the loop cannot see game state, so the caller supplies it.
+  [`loop.ts:49`](../../client/src/app/loop.ts#L49)
+
+- Attaches the fitted boon list: the evidence the investigation could not get.
+  [`main.ts:3860`](../../client/src/main.ts#L3860)
+
+- Wired with `Object.assign`-style spread at the one composition root.
+  [`main.ts:4319`](../../client/src/main.ts#L4319)
+
+**The self-latching frame handler**
+
+- Predicate, then mirror, then fan-out — stops one throw repeating forever.
+  [`roomBindings.ts:669`](../../client/src/net/roomBindings.ts#L669)
+
+**Fail-open on the class table (highest-risk: the review gate found this incomplete)**
+
+- THE primary site. Returns before any mutation; poisoning `ownClass` was fatal.
+  [`main.ts:2423`](../../client/src/main.ts#L2423)
+
+- Card text goes silent rather than half-printing on an unresolvable hull.
+  [`boonCopy.ts:283`](../../client/src/ui/boonCopy.ts#L283)
+
+- Returns null, never a number, so an unknown hull is never reported FULL.
+  [`upgradeMenu.ts:257`](../../client/src/ui/upgradeMenu.ts#L257)
+
+**Tests**
+
+- Containment, bounded reporting, hostile thrown values, and the 6.3 disposer.
+  [`loopContainment.test.ts:1`](../../client/src/__tests__/loopContainment.test.ts#L1)
+
+- Fail-proven: 3 of 4 fail against the old ordering.
+  [`frameOrdering.test.ts:1`](../../client/src/__tests__/frameOrdering.test.ts#L1)
+
+- Fail-proven after the gate found the original assertions vacuous.
+  [`refitFailOpen.test.ts:1`](../../client/src/__tests__/refitFailOpen.test.ts#L1)
