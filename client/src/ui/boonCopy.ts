@@ -273,7 +273,7 @@ export interface BoonPreviewShip {
  * ceiling honestly prints "30 RPM → 30 RPM".
  */
 function statSentence(id: string, line: StatLine, you: BoonPreviewShip): string {
-  // FAIL-OPEN on the class table (cycle 90). This runs EVERY FRAME while the
+  // FAIL-OPEN on the class table (cycle 91). This runs EVERY FRAME while the
   // refit band is open, i.e. exactly while the player is picking a card, and an
   // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
   // on `cls.kinematics` — inside the ticker callback, which until this cycle

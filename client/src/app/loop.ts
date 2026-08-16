@@ -3,7 +3,7 @@
 // (matches the server tick + future client prediction); rendering interpolates
 // between the last two sim states by the leftover-accumulator alpha.
 //
-// FAULT CONTAINMENT (cycle 90) — this file is the client's only equivalent of
+// FAULT CONTAINMENT (cycle 91) — this file is the client's only equivalent of
 // the server's story-0.3 tick-error containment (ArenaRoom.runStep), and until
 // this cycle it had none. Pixi 8's ticker clears `_requestId` BEFORE calling
 // `update()` and only re-requests the frame AFTER it returns
@@ -74,7 +74,7 @@ function reportKey(err: unknown, phase: LoopPhase): string {
 /**
  * Rate-limited one-shot report per distinct (phase, message) signature.
  *
- * THE WHOLE BODY IS CONTAINED, not just the hook call (cycle 90 review gate).
+ * THE WHOLE BODY IS CONTAINED, not just the hook call (cycle 91 review gate).
  * `report` runs inside `guard`'s CATCH block, so anything that throws in here
  * escapes `guard`, escapes the while-loop, escapes `tick`, and kills the ticker
  * — re-arming the exact bug this module exists to prevent, from inside the

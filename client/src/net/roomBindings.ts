@@ -657,7 +657,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // Trust the server's class + fitted boons over any local guess: on the
     // first frame (or any change to either) recompute the effective stats and
     // swap every consumer (predictor/HUD/radar/camera/fog) to match.
-    // ORDER IS LOAD-BEARING (cycle 90): evaluate the predicate against the OLD
+    // ORDER IS LOAD-BEARING (cycle 91): evaluate the predicate against the OLD
     // mirror, advance the mirror, and only THEN fan out. The mirror used to be
     // advanced after the callback, so a throw inside applyOwnStats left
     // `net.you` stale — the very next frame compared the same new boon list

@@ -67,9 +67,9 @@ context:
 - [x] `client/src/net/roomBindings.ts` -- evaluate `ownStatsChanged(f.you, net.you)` into a local, assign `net.you = f.you`, then call `deps.onOwnStats` -- verified safe: `applyOwnStats` takes `cls`/`boons` as arguments and never reads `state.net.you`
 - [x] `client/src/ui/boonCopy.ts`, `client/src/ui/upgradeMenu.ts` -- `Object.hasOwn`-gate the lookups, failing open. NOTE: `client/src/ui/results.ts` ALREADY carried its guard (`if (def === undefined) continue`); the spec's claim came from a stale read of the main checkout, so no change was needed there
 - [x] `client/src/__tests__/` -- coverage added in three files: `loopContainment.test.ts` (10), `frameOrdering.test.ts` (4, fail-proven against the old ordering), `refitFailOpen.test.ts` (6)
-- [x] `VERSION`, root `package.json`, `package-lock.json` -- 0.17.90. NOTE: the spec said 0.17.88 → 0.17.89, but cycle 89 was already taken by Story 6-3 on origin/main, so this cycle is 90
+- [x] `VERSION`, root `package.json`, `package-lock.json` -- 0.17.91. NOTE: renumbered TWICE. The spec said 0.17.88 → 0.17.89, but cycle 89 was taken by Story 6-3 on origin/main; this cycle was then authored as 90 and PR #150 (match-start fixes) took that too while it was in review. This is the recurring rebase-renumbering tax the epic-5 retro ledgered
 - [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `# last_updated` comment + `last_updated:` key + ONE line at the end of the INTERSTITIAL CYCLE INDEX. No `development_status` entry
-- [x] `_bmad-output/gds-workflow-status.yaml` -- `last_updated` updated; `next_expected` rewritten with cycle 90 at the head and the prior entry rotated verbatim into a new `superseded_next_expected_6`
+- [x] `_bmad-output/gds-workflow-status.yaml` -- `last_updated` updated; `next_expected` rewritten with cycle 91 at the head and the prior entry rotated verbatim into a new `superseded_next_expected_6`
 - [x] `CLAUDE.md` -- corrected the stale `PROTOCOL_VERSION` figure 33 → 37. The number only
 
 **Acceptance Criteria:**

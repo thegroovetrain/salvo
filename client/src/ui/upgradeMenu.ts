@@ -247,7 +247,7 @@ export function healReadout(): string {
  * re-derives, hardcodes, or reads a class table ad hoc.
  */
 function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number | null {
-  // FAIL-OPEN on the class table (cycle 90), null = "cannot judge". An
+  // FAIL-OPEN on the class table (cycle 91), null = "cannot judge". An
   // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
   // on `cls.kinematics`, from a render path, which until this cycle meant a
   // permanent freeze. Null rather than a number because the ONE caller asks

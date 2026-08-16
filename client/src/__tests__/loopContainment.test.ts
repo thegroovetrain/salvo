@@ -1,4 +1,4 @@
-// FRAME-LOOP CONTAINMENT (cycle 90) — the client's equivalent of the server's
+// FRAME-LOOP CONTAINMENT (cycle 91) — the client's equivalent of the server's
 // story-0.3 tick-error containment. Until this cycle `app/loop.ts` ran both
 // per-frame callbacks bare, and Pixi 8's ticker clears `_requestId` BEFORE
 // calling update() and only re-requests the frame AFTER it returns — so one
@@ -6,10 +6,13 @@
 // and the server sails your hull on its last engine order while the picture
 // freezes. That is the failure the boon-cards investigation traced.
 //
-// The trap these tests exist to pin: the accumulator decrement MUST happen
-// before `simTick`. A guard placed around the call while the decrement stayed
-// after it would never decrement on a throwing tick, so `accumulator >= SIM_DT`
-// would never clear — converting a freeze into a HUNG TAB, strictly worse.
+// CORRECTED AT THE REVIEW GATE: an earlier version of this header claimed the
+// accumulator decrement MUST precede `simTick` or the loop would hang. It would
+// not — `guard` catches, so a trailing decrement runs exactly as before. The
+// ordering is kept as defence against anything escaping `guard`, but it is not
+// a law and these tests do not pin it. What they DO pin: containment costs no
+// ticks, reporting stays bounded, hostile thrown values cannot re-arm the bug
+// from inside the reporter, and the Story 6.3 disposer still detaches.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Application } from 'pixi.js';

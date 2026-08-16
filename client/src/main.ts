@@ -2411,7 +2411,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * config in place and lets the next reconcile replay pending inputs under it.
  */
 function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): void {
-  // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 90 review gate).
+  // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
   // assigned `g.ownClass` BEFORE the throw, poisoning it for the rest of the

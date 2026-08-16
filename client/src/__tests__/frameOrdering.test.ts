@@ -1,4 +1,4 @@
-// THE FRAME HANDLER'S SELF-LATCHING SEAM (cycle 90) — sibling of the loop
+// THE FRAME HANDLER'S SELF-LATCHING SEAM (cycle 91) — sibling of the loop
 // containment in loopContainment.test.ts.
 //
 // applyFrame used to call `deps.onOwnStats(...)` and only THEN advance the

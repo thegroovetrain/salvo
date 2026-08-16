@@ -1,4 +1,4 @@
-// FAIL-OPEN ON THE CLASS TABLE (cycle 90). Two lookups on the boon-pick render
+// FAIL-OPEN ON THE CLASS TABLE (cycle 91). Two lookups on the boon-pick render
 // path indexed `CONFIG.shipClasses` with no `Object.hasOwn` gate, while every
 // other catalog/registry lookup in the engine has one. Both run EVERY FRAME
 // while the refit band is open — i.e. exactly while the player is choosing a
