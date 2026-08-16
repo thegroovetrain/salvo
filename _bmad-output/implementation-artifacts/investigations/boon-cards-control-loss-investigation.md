@@ -8,12 +8,13 @@
    per-frame path is an unrecoverable total freeze in which the server keeps sailing your hull on its last engine
    order. **Confirmed separately:** Eric's `intelTruesight` suspicion is correct, and four other cards are dead,
    clamped, or order-dependent.
-2. **Where the case stands.** The *amplifier* is Confirmed and is arguably the highest-value fix. The specific
-   boon-triggered *trigger* is not yet isolated: every single-point crash theory I tested independently was refuted
-   (the client is defensively coded throughout), and the full 4309-test suite passes green.
-3. **What's needed next.** One browser session with a console open, picking the suspect cards, is worth more than
-   further static analysis — see the Reproduction Plan. Independently, wrap `startLoop` in try/catch regardless of
-   trigger: it converts every future frame-path exception from "game over" into "one dropped frame".
+2. **Where the case stands.** Two *structural* freeze seams are Confirmed and are one-line fixes each (no try/catch in
+   the loop; a self-latching statement order in the frame handler). One *plausible non-crash* cause of the exact
+   symptom is Confirmed as a mechanism: `intelRadar` multiplies per-frame radar cost by ~4. The remaining unknown is
+   which specific exception fires, if any; the suite is green (4309 tests), so it lives in browser-only code.
+3. **What's needed next.** Land the two one-line containment fixes now — they are independent of diagnosis and convert
+   every current *and future* frame-path exception from "game over" into "one dropped frame", while making the next
+   occurrence self-report. Then profile a 5-stack `intelRadar` build. See Reproduction Plan.
 
 ## Case Info
 
@@ -162,7 +163,41 @@ no desync), but a real balance defect and invisible to the player.
 cards enter the deck; the moment one is fitted, `consumeAcquisition` purges every remaining one. This appears to be
 working as designed, but it means the "6 acquisition cards" in the catalog are structurally a "choose 1 of 4".
 
-### Finding 8: The stats firewall itself is clean
+### Finding 8: A second, SELF-LATCHING freeze seam in the frame handler
+
+**Evidence:** `client/src/net/roomBindings.ts:499-500`
+
+**Detail:** The order is wrong:
+
+```ts
+if (ownStatsChanged(f.you, net.you)) deps.onOwnStats(f.you.cls, f.you.boons);
+net.you = f.you;                              // AFTER the call
+```
+
+If `applyOwnStats` throws, `net.you` is never advanced — so on the next frame `ownStatsChanged` compares the new boon
+list against the **same stale** previous one, returns `true`, and throws again. **Forever.** And every frame, everything
+below line 499 is skipped: `predictor.onServerState` (no reconcile, no input ack — the 64-slot pending ring never
+drains), `radar.onSweepSample`, `contacts.pushFrame`, `mines/litZones/decoys.sync`, `routeVictimTells`, `routeDenials`,
+`handleEvents`.
+
+This is a genuine ordering defect **independent of any trigger**, and it is a one-line fix (swap the two lines). It
+turns a single transient exception into a permanent one.
+
+### Finding 9: The only ungated throw site on the boon-pick render path
+
+**Evidence:** `client/src/ui/boonCopy.ts:276`; `client/src/ui/upgradeMenu.ts:250`
+
+**Detail:** `const spec = CONFIG.shipClasses[you.cls];` — no `Object.hasOwn` guard. If `you.cls` is not an own property,
+`spec` is `undefined` and `effectiveStats` → `baseStats(cls)` → `cls.kinematics` (`shared/src/sim/stats.ts:195`) throws
+`TypeError`. Both sites run **inside `render()` every frame while the refit band is open** — i.e. exactly during
+boon-picking, inside the ticker callback Finding 1 shows is fatal.
+
+Notable by contrast: every other catalog/registry lookup in this engine is deliberately `Object.hasOwn`-gated
+(`shared/src/sim/boons.ts:408`, `:442`; `shared/src/sim/hooks.ts:105`). These two are the exceptions. Unreachable
+while client and server share a PROTOCOL_VERSION, so the **trigger is Hypothesized** — but the **shape is Confirmed**,
+and a version-skew reachability would present exactly as intermittent, "only some players".
+
+### Finding 10: The stats firewall itself is clean
 
 **Evidence:** runtime probe of all 36 cards at max stack; `shared/src/sim/boons.ts:494`
 
@@ -253,10 +288,31 @@ lives in the caller, not the access. `client/src/ui/results.ts:665` is similarly
 
 ### Hypothesis 11: Frame-rate collapse from radar march cost at high `intelRadar`
 
-**Status:** **Open** · **Theory:** March cost scales with `radarRange`; at ×2.01 range the per-frame radar cost roughly
-doubles against a budget already measured at 1.74ms of 2.5ms. Severe stutter reads as unresponsiveness.
-**Would confirm:** a profile at 5× `intelRadar` showing frame time past ~16ms. **Would refute:** measured frame time
-staying within budget. **Note:** degradation, not a freeze — would not by itself explain a hard "crash".
+**Status:** **Confirmed as a mechanism; Hypothesized as the reported symptom.**
+
+**Theory (revised — the scaling is QUADRATIC, not linear as first estimated):**
+
+- `rayStep` = `clamp(raySpacingU / radarRange, 0.003, 0.02)` (`client/src/render/radarMarch.ts:355-357`) ⇒ **rays per
+  slice ∝ radarRange**.
+- samples per ray = `radarRange / step` ⇒ **samples ∝ radarRange**.
+- ⇒ **cells per slice ∝ radarRange²**.
+- The live slice count is deliberately **range-invariant** — `maxSlices()` (`client/src/render/radar.ts:245-248`) is
+  computed purely from `sliceRad` and `persistSweeps`, with no `radarRange` term (verified directly).
+- ⇒ at 5× `intelRadar` (×2.011 range) the march walks **×4.04 cells every frame**.
+- **Compounded:** `camera.ts:302-305` sets `baseZoom = shortAxis / (2 * radarRange)`, so the camera zooms out
+  proportionally; `fitHeat` sizes the heat grid off the camera rect (`radar.ts:1416-1420`), so `cols × rows` also grows
+  ×4.04 → `quantizeInto` walks 4× the pixels and `heat.source.update()` re-uploads a 4× larger texture **every frame**.
+
+`radarHeatmap.ts:418-421` puts the **base** case at ~350k cells. The clamp at `minRayRad = 0.003` bounds the blow-up at
+roughly ×4 rather than letting it run away. Tellingly, `radarMarch.ts:350` — the file's own comment — already names the
+"~2.01x base" case, so the range-sensitivity was understood at authoring time; the compounding with the camera zoom
+appears not to have been.
+
+With `MAX_FRAME_DT = 0.25` clamping the accumulator (`app/loop.ts:10`), the sim falls behind wall-clock and the helm
+genuinely feels dead. **This is a slideshow, not a hard freeze** — but it matches "certain upgrades" precisely (only
+the `intelRadar` line) and players describe both as "crashed".
+
+**Would confirm:** a profile at 5× `intelRadar` showing frame time past ~16ms.
 
 ### Hypothesis 12: The trigger is a Pixi/WebGL call that throws on a boon-derived value
 
@@ -276,10 +332,23 @@ a repro that freezes with a clean console.
 
 | Element       | Detail                                                                                              |
 | ------------- | --------------------------------------------------------------------------------------------------- |
-| Error origin  | **Not yet isolated.** Amplifier at `client/src/app/loop.ts:24-36`                                     |
-| Trigger       | Picking certain boons; specific card(s) unidentified                                                  |
+| Error origin  | **Not yet isolated.** Amplifiers at `client/src/app/loop.ts:24-36` and `net/roomBindings.ts:499-500`  |
+| Trigger       | Picking certain boons; `intelRadar` is the strongest single candidate (performance, not exception)    |
 | Condition     | Any exception on the per-frame path ⇒ Pixi ticker stops re-requesting frames ⇒ permanent freeze       |
-| Related files | `app/loop.ts`, `main.ts` (`applyOwnStats`), `ui/upgradeMenu.ts`, `ui/boonCopy.ts`, `render/hotbar.ts` |
+| Related files | `app/loop.ts`, `net/roomBindings.ts`, `main.ts` (`applyOwnStats`), `ui/boonCopy.ts`, `render/radarMarch.ts`, `render/camera.ts` |
+
+### Ranked candidates for "loses control of the ship"
+
+| # | Candidate | Status | Why it fits |
+| - | --------- | ------ | ----------- |
+| 1 | No error containment in the loop (`app/loop.ts:25-36` + `Ticker.mjs:123-128`) | **Confirmed** | Any throw permanently kills the rAF chain → no input ever sent again *and* the picture freezes. The amplifier: turns any cosmetic bug into exactly this report. |
+| 2 | `onOwnStats` called before `net.you = f.you` (`roomBindings.ts:499-500`) | **Confirmed** (defect) | Self-latching: throws every frame forever, skipping reconcile/contacts/events on each. |
+| 3 | `intelRadar` ⇒ O(radarRange²) radar render | **Confirmed mechanism**, Hypothesized symptom | ×4.04 per-frame cost at 5 stacks. Frame collapse + `MAX_FRAME_DT` clamp = dead helm. Matches "certain upgrades" exactly. |
+| 4 | Ungated `CONFIG.shipClasses[you.cls]` (`boonCopy.ts:276`, `upgradeMenu.ts:250`) | Hypothesized trigger, **Confirmed shape** | Only ungated throw on the per-frame boon-pick path; feeds #1. Version-skew reachable ⇒ would look intermittent. |
+| 5 | NaN kinematics | **Ruled out** | Positivity gate `boons.ts:494` + `clampStats`. |
+| 6 | Unbounded loop | **Ruled out** | Every marching loop has a constant positive step or explicit guard. |
+| 7 | Oversized texture throw | **Ruled out** | No surface sized from a boon-scaled range near a GPU limit. |
+| 8 | Hotbar/ammo out-of-bounds | **Ruled out** | `SLOT_COUNT`-fixed everywhere; equipment maps are exhaustive literals. |
 
 ## Conclusion
 
@@ -287,13 +356,23 @@ a repro that freezes with a clean console.
 specific crash trigger.
 
 Confirmed: (a) the client frame loop has no fault containment and Pixi 8 permanently stops the ticker on a throw, so
-any frame-path exception is an unrecoverable freeze matching the reported symptom exactly; (b) `intelTruesight` is
-overrun by the flat muzzle/smoke rung from two stacks and is worth far less than `intelRadar` — Eric's premise holds
-and his merge is well-motivated; (c) `cannonBlast` is dead under `cannonAp`; (d) `mineDamage` is pick-order dependent;
-(e) `mineTrigger`'s last card is mostly clamped away; (f) acquisitions are structurally 1-of-4.
+any frame-path exception is an unrecoverable freeze matching the reported symptom exactly — and because our listener
+runs at `UPDATE_PRIORITY.NORMAL` while Pixi's renderer sits at `LOW`, the throw pre-empts the renderer and the picture
+freezes on the last painted frame; (b) a second, self-latching seam at `roomBindings.ts:499-500` makes any such throw
+repeat every frame forever while skipping reconcile, contacts and events; (c) `intelRadar` multiplies per-frame radar
+cost by ~4 through two compounding paths, a Confirmed mechanism for a dead-feeling helm with no exception required;
+(d) `intelTruesight` is overrun by the flat muzzle/smoke rung from two stacks and is worth far less than `intelRadar` —
+Eric's premise holds and his merge is well-motivated; (e) `cannonBlast` is dead under `cannonAp`; (f) `mineDamage` is
+pick-order dependent; (g) `mineTrigger`'s last card is mostly clamped away; (h) acquisitions are structurally 1-of-4.
 
-Not established: which boon throws. Every single-point theory I could test statically was refuted — this client is
-defensively written — and the whole suite is green, which is itself evidence the trigger lives in browser-only code.
+Not established: which boon throws, or whether an exception is involved at all. Every single-point crash theory was
+refuted except one ungated lookup shape (Finding 9), and the whole suite is green — which is itself evidence that if
+there is a throw, it lives in browser-only code. The performance path (c) may be the whole story on its own.
+
+**One caution for whoever picks this up:** there is a real possibility that (c) is the actual player-reported bug and
+(a)/(b) are latent hazards that have never fired. Do not treat landing (a)+(b) as proof the report is fixed — they
+make the failure *observable and survivable*, which is what closes the diagnostic gap. Confirm against a real repro
+before declaring it resolved.
 
 ## Recommended Next Steps
 
@@ -301,10 +380,22 @@ defensively written — and the whole suite is green, which is itself evidence t
 
 Three independent mechanisms; they do not need to ship together.
 
-**1. Containment (do this regardless of trigger).** Wrap the `startLoop` body in try/catch. Log once and continue, or
-degrade to a safe render. This converts every current *and future* frame-path exception from "game over" into "one
-dropped frame". Given Finding 1, this is the single highest-value change in the report and is independent of
-diagnosis. Consider the same for `results.ts:665` / `hotbar.ts:778` hardening.
+**1. Containment — two one-line fixes, both independent of the trigger. Highest value in this report.**
+
+- **`client/src/app/loop.ts:30-34`** — wrap the `simTick`/`render` calls in try/catch; log once with the boon list,
+  hull class and stack. This converts every current *and future* frame-path exception from "game over" into "one
+  dropped frame", **and makes the next occurrence self-report**, which is also the cheapest route to the trigger.
+- **`client/src/net/roomBindings.ts:499-500`** — swap the two statements so `net.you = f.you` lands *before*
+  `onOwnStats`. Removes the self-latching repeat (Finding 8).
+- Optionally harden the three ungated lookups: `ui/boonCopy.ts:276`, `ui/upgradeMenu.ts:250` (Finding 9), and
+  `ui/results.ts:665` / `render/hotbar.ts:778` (Hypothesis 9) — every sibling lookup in the engine is already
+  `Object.hasOwn`-gated, so this is consistency, not new policy.
+
+**1b. Performance (`intelRadar`).** Hypothesis 11 is Confirmed as a mechanism and is the best *non-crash* explanation
+of the exact wording "lose the ability to control their ships". Worth profiling before assuming an exception exists at
+all. Note this interacts with fix (2): merging the intel lines means *every* Intel Range purchase now moves
+`radarRange`, so the ×4 cost curve would be hit **more often**, not less. Consider capping march resolution against
+BASE radar range rather than the boon-widened value.
 
 **2. The Intel Range merge (Eric's ruling).** Fold `intelTruesight` + `intelRadar` into one `intelRange` line driving
 `radarRange`, with `sightRange` becoming a **derived** field re-pinned in `clampStats` exactly as `gun.rangeU` already
@@ -353,5 +444,17 @@ consequence in under a minute.
   (`client/src/ui/boonCopy.ts:211`) — the player is under-told what they bought.
 - `torpedoSpeed` is honored by the sim but the client's wake ribbon provisioning for *other* players still uses
   `CONFIG.torpedo.speed` — cosmetic only.
-- No production error tracking was found in the client. Given Finding 1, client exceptions in production are currently
-  invisible.
+- No production error tracking was found in the client, and no `window.addEventListener('error')` /
+  `onunhandledrejection` in the boot path. Given Finding 1, a fatal client exception is currently **silent to the
+  player and invisible to us** — console only. This is why the report arrived as a player complaint rather than a
+  stack trace.
+- **A dead ticker can be revived by accident.** `ticker.add`/`remove` routes to `_startIfPossible` → `_requestIfNeeded`
+  (`Ticker.mjs:141-144`), and `makeAmbient` (`client/src/main.ts:4074-4090`) does add/remove on the same ticker. If
+  some players report the game un-freezing on its own, this is the mechanism — and it would make the bug look
+  maddeningly intermittent.
+- Our loop listener registers at `UPDATE_PRIORITY.NORMAL` while Pixi's own `renderer.render` sits at `LOW`
+  (`node_modules/pixi.js/lib/app/TickerPlugin.js:30`). Higher priority runs first, so a throw in our callback
+  pre-empts the renderer entirely — hence a frozen picture rather than a live world with a stuck ship.
+- `visionChanged` (`main.ts:2298-2304`) omits `sweepRpm`, but `sweepPeriodMs = 60000 / sweepRpm` is 1:1, so
+  `intelSweep` is covered. Noted only because the three-field hand-written compare is fragile: any future consumer
+  added below that early return which reads a fourth stat would go silently stale.
