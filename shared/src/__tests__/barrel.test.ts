@@ -266,7 +266,7 @@ describe('shared barrel', () => {
     expect(typeof polygonMaxRadius).toBe('function');
     // The return-grammar echo-size primitive (radar realism cycle, PV 26).
     expect(typeof perpendicularExtent).toBe('function');
-    expect(CONFIG.drones.medium.hp).toBe(75); // RETUNED 100 -> 75 (Story 5.6, amendment 34)
+    expect(CONFIG.drones.medium.hp).toBe(60); // RETUNED 100 -> 75 -> 60 (epic-6 amendment 24)
   });
 
   it('re-exports the loadout + kinematics-fold systems (boost AND the 2.8 slow)', () => {
@@ -397,21 +397,46 @@ describe('shared barrel', () => {
     expect('upgradePoints' in CONFIG).toBe(false);
   });
 
-  // Story 5.6 (Eric rulings 2026-08-14, epic-5 amendment 33): the fleet
-  // composition (2 large + 3 medium + 4 small) is EXACT-XP BY CONSTRUCTION —
-  // 2(1/2) + 3(1/3) + 4(1/4) = 1 + 1 + 1 = 3.000 levels, and that identity
-  // holds exactly in IEEE754 (verified — 1/3 and its ×3 cancel exactly). This
-  // pin is deliberately `.toBe(3)`, not `.toBeCloseTo`: the point is that a
-  // composition edit which breaks the exact-XP property (e.g. changing medium
-  // count without re-solving the tier fractions) must fail the build outright
-  // rather than quietly start paying a fractional level.
-  it('CONFIG.fleet block + the exact-XP identity (Story 5.6, amendment 33)', () => {
-    expect(fleetLevels()).toBe(3);
+  // NO HARDCODED XP TOTAL (Eric ruling 2026-08-16, epic-6 amendment 24: *"XP
+  // is calculated from fleet comp. No need to hardcode any amount of xp into
+  // the contract."*).
+  //
+  // Amendment 33's `expect(fleetLevels()).toBe(3)` is RETIRED, and it had gone
+  // vacuous on its own terms. It existed because droneMedium paid 1/3 — a
+  // NON-DYADIC rational — so a composition edit could quietly start paying
+  // float dust. The current tiers are 1/4, 1/2, 3/4: all dyadic, so EVERY
+  // integer composition is exactly representable and no total can carry dust.
+  //
+  // So the invariant moves up a level and is pinned where it can still bite:
+  // the TIERS must stay exactly representable. A future tier that is not a
+  // power-of-two fraction (1/3, 1/5, 0.1) reintroduces the exact hazard 33 was
+  // written against, and THIS test is what fails.
+  it('CONFIG.fleet block + the tier-exactness invariant (amendment 24 retires the total pin)', () => {
+    for (const tier of Object.values(CONFIG.xp.droneTierLevels)) {
+      // Dyadic <=> some power-of-two multiple is a whole number. 2^10 is far
+      // past any plausible tier denominator and keeps the check cheap.
+      expect(Number.isInteger(tier * 1024)).toBe(true);
+    }
+    // ...and therefore the derived total is exact, whatever it happens to be.
+    expect(Number.isInteger(fleetLevels() * 1024)).toBe(true);
+    expect(fleetLevels()).toBeGreaterThan(0);
+
     const hulls = fleetHullIds();
-    expect(hulls).toHaveLength(9);
-    expect(hulls.filter((id) => id === 'droneLarge')).toHaveLength(2);
-    expect(hulls.filter((id) => id === 'droneMedium')).toHaveLength(3);
-    expect(hulls.filter((id) => id === 'droneSmall')).toHaveLength(4);
+    expect(hulls).toHaveLength(6); // the SIX-hull spawn unit (amendment 24)
+    expect(hulls.filter((id) => id === 'droneLarge')).toHaveLength(1);
+    expect(hulls.filter((id) => id === 'droneMedium')).toHaveLength(2);
+    expect(hulls.filter((id) => id === 'droneSmall')).toHaveLength(3);
+    // fleetHullIds() is the SPAWN ORDER and is largest-first by contract, so
+    // the biggest hull always gets the first (least-constrained) scatter slot.
+    expect(hulls).toEqual([
+      'droneLarge',
+      'droneMedium',
+      'droneMedium',
+      'droneSmall',
+      'droneSmall',
+      'droneSmall',
+    ]);
+
     expect(Object.keys(CONFIG.fleet).sort()).toEqual([
       'aimScatterU',
       'composition',
@@ -420,15 +445,16 @@ describe('shared barrel', () => {
       'spreadU',
       'waves',
     ]);
-    expect(CONFIG.fleet.composition).toEqual({ large: 2, medium: 3, small: 4 });
-    // 4/2/1 fleets (amendment 45 added the fourth first-wave fleet): the wave
-    // sizes are a RATIO of ~1 fleet per 5 captains held constant as the storm
-    // halves the field, so the 12/6/3 level totals are a consequence, not the
-    // input.
+    expect(CONFIG.fleet.composition).toEqual({ large: 1, medium: 2, small: 3 });
+    expect(CONFIG.fleet.spreadU).toBe(500); // 400 -> 500 (amendment 24)
+    // 8/4/2 GROUPS. The wave sizes are a RATIO — one twelve-hull fleet (i.e.
+    // TWO of these groups) per ~5 captains, held constant as the storm halves
+    // the field — so level totals are a consequence, never the input. Counts
+    // doubled from 4/2/1 when the spawn unit halved to six hulls.
     expect(CONFIG.fleet.waves).toEqual([
-      { atMs: 60000, fleets: 4 },
-      { atMs: 300000, fleets: 2 },
-      { atMs: 540000, fleets: 1 },
+      { atMs: 60000, fleets: 8 },
+      { atMs: 300000, fleets: 4 },
+      { atMs: 540000, fleets: 2 },
     ]);
   });
 });

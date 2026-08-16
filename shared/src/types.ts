@@ -956,7 +956,7 @@ export interface SunkEvent {
    * `undefined` — msgpack encodes that). KEY ORDER IS LOAD-BEARING:
    * k,id,by?,seen?,bty?,vcls?.
    *
-   * It names the SIZE because the size is the payout (¼ / ⅓ / ½ level), and it
+   * It names the SIZE because the size is the payout (¼ / ½ / ¾ level), and it
    * changes nothing else: PvE kills still never increment the KILLS tally and
    * still never reach the match log or the end-game record (amendment 38,
    * re-confirmed by Eric in the same ruling).

@@ -124,7 +124,19 @@ export const CONFIG = {
    * destroyer/cruiser/battleship prototype kinematics; they are now armed PvE
    * fleet ships (see CONFIG.fleet).
    *
-   * hp 80/100/120 → 60/75/90; maxSpeed 46/38/30 → 40/35/30.
+   * hp 80/100/120 → 60/75/90 → 45/60/75; maxSpeed 46/38/30 → 40/35/30.
+   *
+   * RETUNED AGAIN by cycle 94 (Eric rulings 2026-08-16, epic-6 amendment 24).
+   * hp 60/75/90 → 45/60/75 and gun damage 1/2/3 → a FLAT 1 on every size.
+   *
+   * THE FLAT GUN IS A DERIVATION, NOT A FLATTENING — do not "restore" the
+   * per-size table. Eric specified the damage a hull deals back over its own
+   * lifetime as 3/4/5. The drone reload (5000ms) EQUALS the captain gun reload,
+   * so volleys-back is exactly shots-to-kill, and the new hp ladder makes that
+   * 3/4/5 shots (15/20/25s at the base 15-damage gun). Damage 1 on every size
+   * therefore satisfies a per-size damage spec exactly; a per-size damage table
+   * would double-count the size scaling hp already carries. Size reads through
+   * hp, payout, speed, aim scatter, and how long the hull lives to keep firing.
    *
    * The speed change DISCHARGES the rescale epics.md:1090 has owed since Story
    * 1.6 (2026-07-21): the small drone at 46 u/s was the FASTEST HULL AFLOAT,
@@ -145,15 +157,17 @@ export const CONFIG = {
   drones: {
     small: {
       hull: { length: 85, beam: 25 }, // u — legacy 34×10 chevron ×2.5
-      hp: 60, // hit points — 4 captain gun hits (15 dmg) to sink
+      hp: 45, // hit points — 3 captain gun hits (15 dmg) to sink, 15s
       // The self-defence gun. Lives on the ENVELOPE rather than in
       // CONFIG.fleet so effectiveStats() can apply it structurally, with no
       // hull-id parameter threaded through the one derivation path.
       //
       // DAMAGE CUT 6/8/10 → 1/2/3 (Eric ruling 2026-08-14, amendment 45:
-      // *"Oops, they are too strong!"*). A full nine-hull volley falls 68 → 16
-      // damage, so full fleet aggro goes from killing a 125hp Torpedo Boat in
-      // 9.2s to 39s. These are ATTRITION now, not a threat that resolves a
+      // *"Oops, they are too strong!"*), then FLATTENED TO 1 across all three
+      // sizes (cycle 94, epic-6 amendment 24) — see the block docstring for why
+      // that still satisfies a per-size damage spec. A full six-hull group
+      // volley is 6 damage, 1.2 dps: a 125hp Torpedo Boat lasts ~104s under
+      // full group aggro. These are ATTRITION, not a threat that resolves a
       // fight on its own — see amendment 45 for what that does and does not
       // change about the farm.
       gun: { damage: 1, reloadMs: 5000 },
@@ -168,8 +182,8 @@ export const CONFIG = {
     },
     medium: {
       hull: { length: 100, beam: 30 }, // u — legacy 40×12 chevron ×2.5
-      hp: 75, // hit points — 5 captain gun hits to sink
-      gun: { damage: 2, reloadMs: 5000 }, // 8 → 2 (amendment 45)
+      hp: 60, // hit points — 4 captain gun hits to sink, 20s
+      gun: { damage: 1, reloadMs: 5000 }, // 8 → 2 (amendment 45) → 1 (amendment 24)
       kinematics: {
         maxSpeed: 35, // u/s — full-ahead (Eric ruling 2026-08-14; was 38) — ties the Battleship
         reverseSpeed: 11, // u/s — full-astern (magnitude), scaled 12 × 35/38
@@ -181,8 +195,8 @@ export const CONFIG = {
     },
     large: {
       hull: { length: 115, beam: 35 }, // u — legacy 46×14 chevron ×2.5
-      hp: 90, // hit points — 6 captain gun hits to sink
-      gun: { damage: 3, reloadMs: 5000 }, // 10 → 3 (amendment 45)
+      hp: 75, // hit points — 5 captain gun hits to sink, 25s
+      gun: { damage: 1, reloadMs: 5000 }, // 10 → 3 (amendment 45) → 1 (amendment 24)
       kinematics: {
         maxSpeed: 30, // u/s — full-ahead (Eric ruling 2026-08-14; unchanged, so the block below is too)
         reverseSpeed: 10, // u/s — full-astern (magnitude)
@@ -200,54 +214,87 @@ export const CONFIG = {
    * not participants, hold no roster row, gate no win check, and their kills
    * count nowhere (amendments 38/39).
    *
-   * THE ECONOMY IS EXACT BY CONSTRUCTION, not by search. One fleet is
-   * 2 large + 3 medium + 4 small = 2(½) + 3(⅓) + 4(¼) = 1 + 1 + 1 = exactly
-   * 3.000 levels in 9 hulls, so every wave is a whole number of fleets and the
-   * AC's *"total XP value is exactly the number"* stops being a constraint to
-   * satisfy. `fleetLevels()` below asserts the identity against
-   * CONFIG.xp.droneTierLevels rather than trusting this comment.
+   * A "fleet" HERE IS THE SIX-HULL SPAWN UNIT (Eric ruling 2026-08-16, epic-6
+   * amendment 24: *"keep 'fleet' = 6 hulls"*). Eric derives these numbers from
+   * a twelve-hull fleet split into two halves; THAT TWELVE-HULL FLEET DOES NOT
+   * EXIST IN CODE and must not be reintroduced as a constant. A rename of this
+   * unit to `squadron` was offered and declined.
    *
-   * 4 + 2 + 1 fleets = 36 + 18 + 9 = 63 hulls and 21 levels across a match
-   * (amendment 45 added the fourth first-wave fleet). That is now slightly
-   * ABOVE the 19 levels of captain kills a full lobby offers, so PvE is the
-   * largest single faucet on paper — but only if it is all farmed, which costs
-   * ~3.6 minutes per fleet, and it is CONTESTED rather than granted.
+   * XP IS DERIVED, NEVER DECLARED. `fleetLevels()` below computes it from
+   * `composition` × `CONFIG.xp.droneTierLevels` and nothing anywhere hardcodes
+   * a level total — Eric ruling 2026-08-16: *"no need to hardcode any amount of
+   * xp into the contract."* Amendment 33's `fleetLevels() === 3` pin is RETIRED
+   * and had gone vacuous on its own terms: it existed because droneMedium paid
+   * ⅓ (non-dyadic), so a composition edit could quietly start paying float
+   * dust. At ¼ / ½ / ¾ every tier is a dyadic rational, so EVERY integer
+   * composition is exact. The surviving invariant is that the TIERS are exactly
+   * representable — pinned in barrel.test.ts, never a particular total.
    *
-   * The wave sizes are a RATIO, not a budget: one fleet per ~5 captains, held
-   * constant as the storm halves the field. Totals stay FIXED rather than
-   * roster-scaled at spawn time — a thin lobby is deliberately a target-rich
-   * one — so the ~5:1 ratio is tuned for a FULL lobby and a short-handed match
-   * gets proportionally more prey.
+   * 8 + 4 + 2 groups = 48 + 24 + 12 = 84 hulls across a match. That is ~1.8× the
+   * 19 levels of captain kills a full 20-captain lobby offers, so PvE is
+   * comfortably the largest single faucet ON PAPER — but only if it is all
+   * farmed, which costs ~1.8 minutes per group, and it is CONTESTED rather than
+   * granted. `MatchEndSummary.pveKillsByClass` (amendment 44) is the evidence
+   * that settles whether the ceiling matters; re-derive from it, not from here.
+   *
+   * The wave sizes are a RATIO, not a budget: one TWELVE-HULL fleet (i.e. two
+   * of these groups) per ~5 captains, held constant as the storm halves the
+   * field. Totals stay FIXED rather than roster-scaled at spawn time — a thin
+   * lobby is deliberately a target-rich one — so the ~5:1 ratio is tuned for a
+   * FULL lobby and a short-handed match gets proportionally more prey.
    */
   fleet: {
-    /** Hulls per fleet by size — the exact-3-levels composition. */
-    composition: { large: 2, medium: 3, small: 4 },
+    /**
+     * Hulls per group by size. Six hulls: the half-fleet Eric ruled is the
+     * spawn unit. Its XP value is DERIVED by fleetLevels(); do not restate it.
+     */
+    composition: { large: 1, medium: 2, small: 3 },
     /**
      * Wave schedule, measured from ZONE START (the same anchor T+ uses).
      * Deliberately literal rather than derived: Eric set these beats.
      */
     waves: [
-      // FLEETS PER WAVE ARE SIZED TO THE LIVE ROSTER, not to a level budget
-      // (Eric ruling 2026-08-14, amendment 45). One fleet per ~5 captains,
-      // held CONSTANT as the storm thins the field: 20 captains / 4 fleets at
-      // 1:00, then ~10 / 2 at 5:00, then ~5 / 1 at 9:00, on the assumption
-      // that each ring stage takes roughly half the field. The level totals
-      // (12 / 6 / 3) are the CONSEQUENCE of that ratio, not the input to it.
-      { atMs: 60000, fleets: 4 }, // 1:00 — 12 levels (was 3 fleets / 9 levels)
-      { atMs: 300000, fleets: 2 }, // 5:00 — 6 levels
-      { atMs: 540000, fleets: 1 }, // 9:00 — 3 levels
+      // GROUPS PER WAVE ARE SIZED TO THE LIVE ROSTER, not to a level budget
+      // (Eric ruling 2026-08-14, amendment 45; counts doubled 2026-08-16,
+      // amendment 24, when the spawn unit halved to six hulls). One TWELVE-HULL
+      // fleet — i.e. TWO of these groups — per ~5 captains, held CONSTANT as
+      // the storm thins the field: 20 captains / 4 fleets at 1:00, then ~10 / 2
+      // at 5:00, then ~5 / 1 at 9:00, on the assumption that each ring stage
+      // takes roughly half the field. Level totals are the CONSEQUENCE of that
+      // ratio, not the input to it — re-derive from the ratio, never from a
+      // remembered total.
+      //
+      // The two halves of a fleet are FULLY INDEPENDENT anchors (amendment 24);
+      // pickFleetAnchor's max-min score already spreads them. Do not pair them.
+      { atMs: 60000, fleets: 8 }, // 1:00 — 48 hulls (was 4 groups of 9)
+      { atMs: 300000, fleets: 4 }, // 5:00 — 24 hulls
+      { atMs: 540000, fleets: 2 }, // 9:00 — 12 hulls
     ],
     /**
-     * u — radius the 9 hulls scatter over around their fleet anchor, and the
-     * radius the fleet holds as it roves. THIS NUMBER IS THE DIFFICULTY DIAL
+     * u — radius the 6 hulls scatter over around their group anchor, and the
+     * radius the group holds as it roves. THIS NUMBER IS THE DIFFICULTY DIAL
      * (amendment 35): a hit is witnessed by any fleet ship with LOS to both
      * attacker and victim within sight (330u), so the spread sets how many
-     * guns answer. At ~150u all nine witness every hit and the witness rule
+     * guns answer. At ~150u all of them witness every hit and the witness rule
      * stops meaning anything; at ~700u none do and "fleet" stops meaning
-     * anything. At 400 typical neighbour spacing lands near the sight edge, so
-     * ~2-4 answer and full aggro becomes a mistake rather than the default.
+     * anything.
+     *
+     * 400 → 500 (Eric ruling 2026-08-16, amendment 24: *"give their fleets a
+     * bit of a larger surface area"*). Two effects compose — the group is now
+     * SIX hulls rather than nine AND the radius is wider — so hull density
+     * falls to ~43% of the shipped figure and typical witnesses per hit go
+     * ~2-4 → ~1-3. 600 was offered and NOT taken: amendment 35's ~700u bound is
+     * where the composition stops meaning anything on the water.
+     *
+     * NOTE the discoverability fix is the GROUP COUNT (8 in wave one, not 4),
+     * not this radius. This is the "larger surface area" half of the ask.
+     *
+     * Raising this DOES NOT keep hulls out of the storm on its own — see
+     * fleetOffset in server/src/game/world.ts, which now tests live-ring
+     * containment explicitly rather than relying on the old arithmetic
+     * coincidence between this value and FLEET_ANCHOR_MIN_FRACTION.
      */
-    spreadU: 400,
+    spreadU: 500,
     /**
      * u — 1σ scatter added to the LEAD-CORRECTED aim point, by size. Fleet
      * ships solve the intercept (shell speed 500 u/s over ≤330u is a 0.66s
@@ -992,16 +1039,22 @@ export const CONFIG = {
    * no damage-XP path in the sim — dealing damage is not progression.
    *
    * `droneTierLevels` is keyed by DRONE HULL ID (the victim's `cls`), and IS
-   * the PvE fleet-tier hook the later fleets epic reuses verbatim: ¼ / ⅓ / ½
+   * the PvE fleet-tier hook the later fleets epic reuses verbatim: ¼ / ½ / ¾
    * of a level by hull size.
    */
   xp: {
     levelMs: 60000, // ms of match time per level (passive tick ≈ 1 level/minute)
     killLevels: 1, // levels' worth of XP for sinking a human captain
+    // RAISED 2026-08-16 (Eric ruling, epic-6 amendment 24): ¼ / ⅓ / ½ → ¼ / ½ / ¾.
+    // Every tier is now a DYADIC rational, so any integer fleet composition is
+    // exactly representable — which is why fleetLevels()'s old exact-total pin
+    // could be retired rather than re-fitted. Keep it that way: a future tier
+    // that is not a power-of-two fraction reintroduces the float-dust hazard
+    // amendment 33 was written against.
     droneTierLevels: {
       droneSmall: 0.25, // ¼ level
-      droneMedium: 1 / 3, // ⅓ level
-      droneLarge: 0.5, // ½ level
+      droneMedium: 0.5, // ½ level
+      droneLarge: 0.75, // ¾ level
     },
   },
 
@@ -1294,11 +1347,18 @@ export function fleetHullIds(): DroneHullId[] {
 }
 
 /**
- * Levels of XP one whole fleet is worth, computed from the composition and the
- * shipped tier table rather than asserted. This is EXACTLY 3 by construction
- * (2×½ + 3×⅓ + 4×¼), and the shared tests pin that — so a composition edit
- * that breaks the exact-XP property fails the build instead of quietly paying
- * a fraction.
+ * Levels of XP one whole group is worth, COMPUTED from the composition and the
+ * shipped tier table — never declared. Eric ruling 2026-08-16 (epic-6 amendment
+ * 24): *"XP is calculated from fleet comp. No need to hardcode any amount of xp
+ * into the contract."* Nothing in CONFIG, the wire types, or any test may
+ * assert a particular level total.
+ *
+ * Amendment 33's `fleetLevels() === 3` pin is RETIRED and had gone vacuous on
+ * its own terms. It existed because droneMedium paid ⅓ — a non-dyadic rational
+ * — so a composition edit could quietly start paying float dust. At the current
+ * ¼ / ½ / ¾ tiers every tier is a dyadic rational, so EVERY integer composition
+ * is exactly representable. The surviving invariant is that the TIERS are
+ * exact, which barrel.test.ts pins directly.
  */
 export function fleetLevels(): number {
   const tiers = CONFIG.xp.droneTierLevels;

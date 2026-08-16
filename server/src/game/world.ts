@@ -146,7 +146,10 @@ import {
 const TAU = Math.PI * 2;
 
 /** Floor on the fleet-anchor sampling radius as a fraction of the live ring —
- *  the guard for the late game, where `ring.r - spreadU` would go negative. */
+ *  the guard for the late game, where `ring.r - spreadU` would go negative.
+ *  NOTE this floor can push the anchor close enough to the rim that a hull
+ *  scattering `spreadU` would land in the storm; `fleetOffset` tests ring
+ *  containment per hull for exactly that reason (epic-6 amendment 24). */
 const FLEET_ANCHOR_MIN_FRACTION = 0.35;
 /** Attempts to land one fleet hull's scatter offset in water AND outside every
  *  captain's intel disc before giving up and stationing it on the anchor
@@ -687,7 +690,7 @@ export interface ShipRecord {
    * amendment 9's principle — telemetry counts what presentation does not.
    *
    * Keyed by the VICTIM's drone hull id rather than totalled, because SIZE IS
-   * THE PAYOUT (¼ / ⅓ / ½ level, CONFIG.xp.droneTierLevels): the per-size
+   * THE PAYOUT (¼ / ½ / ¾ level, CONFIG.xp.droneTierLevels): the per-size
    * counts alone reconstruct exactly how much XP the PvE economy paid out in a
    * real match.
    *
@@ -1626,7 +1629,7 @@ export class World {
   /**
    * Levels' worth of XP a kill on `victim` pays (Story 2.6, amendment 31): a
    * human captain is the full `CONFIG.xp.killLevels`; a drone pays its SIZE
-   * TIER (¼ / ⅓ / ½), read off the victim's existing hull id — the PvE tier
+   * TIER (¼ / ½ / ¾), read off the victim's existing hull id — the PvE tier
    * fractions' first real consumer, with no new drone state. An unknown hull
    * id pays nothing (fail-closed).
    */
@@ -1639,8 +1642,8 @@ export class World {
   /**
    * THE one XP entry point (Story 2.6): add `levels` worth of XP to a ship and
    * bank every threshold it crosses. Integer ms throughout — a kill's value is
-   * rounded ONCE here, so a ⅓-level drone kill is a fixed 20000ms and three of
-   * them are exactly one level.
+   * rounded ONCE here. Every tier is a dyadic fraction of the 60000ms level, so
+   * each rounds exactly: ¼ = 15000ms, ½ = 30000ms, ¾ = 45000ms.
    *
    * DRONES NEVER ACCRUE (the ratified bugfix): the guard sits in the credit
    * path itself, so no caller — passive tick, kill credit, or a future one —
@@ -2547,9 +2550,11 @@ export class World {
    *
    * The disc radius is the captain's EFFECTIVE `stats.radarRange`, not the
    * CONFIG base: a stacked intel build denies the area it actually sees.
-   * Sampling stops `spreadU` short of the ring edge so the nine hulls scatter
-   * into water rather than into the storm (floored well inside, since the
-   * terminal ring is only 660u across and the spread is 400u).
+   * Sampling stops `spreadU` short of the ring edge so the six hulls scatter
+   * into water rather than into the storm — but that is now a BEST EFFORT that
+   * `FLEET_ANCHOR_MIN_FRACTION` can override on a small ring. The hard
+   * guarantee lives in `fleetOffset`, which tests live-ring containment per
+   * hull; see its docblock for why the old two-constant arithmetic was retired.
    */
   private fleetAnchor(): FleetAnchor {
     const ring = this.zoneLiveRing;
@@ -2580,18 +2585,21 @@ export class World {
   }
 
   /**
-   * Spawn ONE fleet: the exact composition (`fleetHullIds()` — 2 large, 3
-   * medium, 4 small = exactly 3.000 levels in 9 hulls, largest first) scattered
-   * around `anchor`. Each hull's scatter offset is ALSO its permanent
-   * formation station (FleetController.add), which is what keeps the fleet
-   * travelling together at the spread the witness rule was tuned against.
+   * Spawn ONE group: the exact composition (`fleetHullIds()` — 1 large, 2
+   * medium, 3 small in SIX hulls, largest first) scattered around `anchor`. Its
+   * XP value is DERIVED by `fleetLevels()` and is deliberately not restated
+   * here (epic-6 amendment 24 — no hardcoded level totals). Each hull's scatter
+   * offset is ALSO its permanent formation station (FleetController.add), which
+   * is what keeps the group travelling together at the spread the witness rule
+   * was tuned against.
    */
   private spawnFleet(anchor: FleetAnchor): void {
     this.fleetSeq += 1;
     const fleetId = this.fleetSeq;
     const denied = this.captainDiscs(); // read ONCE: fleet hulls deny nothing
+    const ring = this.zoneLiveRing; // read ONCE: the storm-containment bound
     for (const hullId of fleetHullIds()) {
-      const offset = this.fleetOffset(anchor, denied);
+      const offset = this.fleetOffset(anchor, denied, ring);
       this.fleetHullSeq += 1;
       const id = `fleet-${this.fleetHullSeq}`;
       // The name is the HULL's name, not a numbered roster identity (amendment
@@ -2630,11 +2638,23 @@ export class World {
    * ratified by amendment 37) does `landOnly` ship — there neither option is
    * clear, and a spread fleet beats nine hulls stacked on one point.
    *
-   * The ring clamp is untouched: offsets stay bounded by `spreadU`, which
-   * `fleetAnchor` already subtracts from the live ring radius, so a nudged
-   * hull still cannot land in the storm.
+   * THE RING CLAMP IS NOW AN EXPLICIT TEST, NOT AN ARITHMETIC COINCIDENCE
+   * (cycle 94, epic-6 amendment 24). This docblock used to claim offsets stayed
+   * inside the storm ring because `fleetAnchor` subtracts `spreadU` from the
+   * ring radius. That only held while `spreadU` was small relative to the
+   * FLEET_ANCHOR_MIN_FRACTION floor: the floor bites whenever
+   * `ring.r < spreadU / (1 - FLEET_ANCHOR_MIN_FRACTION)` — below 615u at the
+   * old spreadU 400, below 769u at the current 500 — and at the 660u terminal
+   * ring it permits an anchor at 231u scattering 500u, i.e. 731u from centre:
+   * OUTSIDE the ring, in the storm. Two unrelated constants were holding a
+   * safety property between them, so the property is now asserted directly.
+   *
+   * The ring test runs BEFORE `landOnly` is recorded, so the degraded fallback
+   * offset is island-clear AND ring-clear too. The final `{0,0}` fallback is
+   * the anchor itself, which `fleetAnchor` samples inside the ring by
+   * construction.
    */
-  private fleetOffset(anchor: FleetAnchor, denied: readonly IntelDisc[]): Vec2 {
+  private fleetOffset(anchor: FleetAnchor, denied: readonly IntelDisc[], ring: ZoneRing): Vec2 {
     let landOnly: Vec2 | null = null;
     for (let i = 0; i < FLEET_OFFSET_TRIES; i += 1) {
       const a = this.rng.float(0, TAU);
@@ -2642,6 +2662,7 @@ export class World {
       const off = { x: Math.cos(a) * r, y: Math.sin(a) * r };
       const p = { x: anchor.x + off.x, y: anchor.y + off.y };
       if (islandClearance(p, this.map.islands) <= SPAWN_ISLAND_CLEARANCE) continue;
+      if (isOutside(p, ring.cx, ring.cy, ring.r)) continue; // never spawn into the storm
       if (!insideIntelDisc(p, denied)) return off;
       landOnly ??= off;
     }

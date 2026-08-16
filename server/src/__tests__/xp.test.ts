@@ -163,7 +163,7 @@ describe('kill XP — value by victim, fraction always carried', () => {
     expect(a.xpMs).toBe(Math.round(XP.levelMs * 0.4)); // the 0.4 carried, unscathed
   });
 
-  it('a DRONE victim pays its size tier — ¼ / ⅓ / ½ — and only banks on a crossing', () => {
+  it('a DRONE victim pays its size tier — ¼ / ½ / ¾ — and only banks on a crossing', () => {
     const cases: [HullId, number][] = [
       ['droneSmall', XP.droneTierLevels.droneSmall],
       ['droneMedium', XP.droneTierLevels.droneMedium],
@@ -180,16 +180,34 @@ describe('kill XP — value by victim, fraction always carried', () => {
     }
   });
 
-  it('three MEDIUM drones (⅓ each) bank exactly one level with nothing left over', () => {
+  it('two MEDIUM drones (½ each) bank exactly one level with nothing left over', () => {
+    // RETIERED ⅓ -> ½ (epic-6 amendment 24), so the "sums to a whole level with
+    // no remainder" case is now TWO mediums rather than three. Every tier is a
+    // dyadic fraction of the 60000ms level, so each rounds exactly (½ = 30000)
+    // and the sum carries no dust — which is the property this pins.
     const w = bareWorld();
     const a = place(w, 'a');
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       const d = place(w, `d${i}`, 200 + i, 0, 'droneMedium', true);
       w.sinkShip(d.id, 'a');
     }
     expect(a.level).toBe(1);
     expect(a.bankedLevels).toBe(1);
-    expect(a.xpMs).toBe(0); // round(60000/3) × 3 === 60000 exactly
+    expect(a.xpMs).toBe(0); // 30000 × 2 === 60000 exactly
+  });
+
+  it('four LARGE drones (¾ each) bank exactly three levels with nothing left over', () => {
+    // The ¾ tier is new in amendment 24 and is the one most likely to carry a
+    // remainder, so it gets its own exactness case.
+    const w = bareWorld();
+    const a = place(w, 'a');
+    for (let i = 0; i < 4; i++) {
+      const d = place(w, `d${i}`, 200 + i, 0, 'droneLarge', true);
+      w.sinkShip(d.id, 'a');
+    }
+    expect(a.level).toBe(3);
+    expect(a.bankedLevels).toBe(3);
+    expect(a.xpMs).toBe(0); // 45000 × 4 === 180000 === 3 levels exactly
   });
 
   it('four SMALL drones (¼ each) bank exactly one level', () => {

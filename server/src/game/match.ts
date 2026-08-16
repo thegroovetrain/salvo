@@ -259,7 +259,7 @@ export interface MatchEndSummary {
    * reaches no tally, no match log and no end-game record (amendment 38), and
    * `killsByClass` above therefore counts none of them.
    *
-   * Per SIZE rather than a bare total, because size IS the payout (¼ / ⅓ / ½
+   * Per SIZE rather than a bare total, because size IS the payout (¼ / ½ / ¾
    * level, CONFIG.xp.droneTierLevels): these three counts alone reconstruct
    * exactly how much XP the PvE faucet paid out in a real match. That
    * PARTIALLY REPLACES the evidence stream amendment 41 removed when it

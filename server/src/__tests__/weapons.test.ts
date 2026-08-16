@@ -297,14 +297,34 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   });
 
   it('DRONES are valid blast victims (enemies AND drones — no special-casing)', () => {
+    // A LARGE drone (75hp) survives the 55-damage mine, so this still measures
+    // that the FULL damage lands rather than only that the hull died. The small
+    // hull is one-shot at its new 45hp and is covered by the case below.
     const { w } = minefield();
     const b = w.addShip('b', 'B'); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
-    const dr = w.addShip('dr', 'DR', 'fleet', 'droneSmall'); // drone inside the blast
+    const dr = w.addShip('dr', 'DR', 'fleet', 'droneLarge'); // drone inside the blast
     dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
     const hpBefore = dr.stats.maxHp;
     w.step();
-    expect(dr.hp).toBeCloseTo(hpBefore - CONFIG.mine.damage, 5); // full 45 (drone may drift a hair pre-blast)
+    expect(dr.hp).toBeCloseTo(hpBefore - CONFIG.mine.damage, 5); // full damage (drone may drift a hair pre-blast)
+  });
+
+  it('a BASE mine one-shots a small drone — the Mine Layer fleet-farm (Eric ruling 2026-08-16)', () => {
+    // *"if you wanna spend mines to clear drones, do it. My players actually
+    // found that the minelayer is a fleet-killing machine, and it being able to
+    // aggro and mine pve ships can secure it an XP bonus to rely on in fights."*
+    // At the old 60hp small drone the base mine (55) fell just short and only a
+    // STACKED mine cleared it; at 45 it clears at base. Ratified, not incidental.
+    expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp);
+    const { w } = minefield();
+    const b = w.addShip('b', 'B'); // human trips it
+    b.state = { x: 0, y: 10, heading: 0, speed: 0 };
+    const dr = w.addShip('dr', 'DR', 'fleet', 'droneSmall');
+    dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
+    w.step();
+    expect(dr.hp).toBeLessThanOrEqual(0);
+    expect(dr.lifecycle.kind).not.toBe('alive');
   });
 
   it('mineBlastVictims: silhouette-in-radius membership, owner excluded (the shared burstVictims rule)', () => {

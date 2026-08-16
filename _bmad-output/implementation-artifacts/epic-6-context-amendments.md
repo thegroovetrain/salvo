@@ -693,3 +693,164 @@ untuned here because it follows from the deletion rather than from a separate de
 `mine.damage` and the fold is list-ordered), `mineTrigger`'s 5th card is ~75% eaten by the
 `triggerRadius ≤ blastRadius` clamp when no `mineBlast` is held, and at most 1 of 6 acquisition
 cards can ever fire (one extra slot; `consumeAcquisition` purges the rest).
+
+## Amendment 24 — THE PvE FLEET REBALANCE: softer hulls, richer payout, twice as many groups, wider spread (Eric rulings 2026-08-16) — retunes epic-5 amendments 33/34/35/45
+
+Interstitial cycle 94 (0.17.94). Story 5.6's fleets sailed and two things were wrong at once, and
+only one of them was a number. **They were hard to FIND** — *"finding them on a big map can be a
+pain! even with 7 players, which is the most i've had in a game at one time"* — and their envelope
+did not line up with the attrition role amendment 45 had just given them.
+
+### The envelope: 45/60/75 hp, and the gun goes FLAT
+
+|  | small | medium | large |
+|---|---|---|---|
+| hp | **45** *(was 60)* | **60** *(was 75)* | **75** *(was 90)* |
+| gun damage | **1** | **1** *(was 2)* | **1** *(was 3)* |
+| kill value | ¼ | **½** *(was ⅓)* | **¾** *(was ½)* |
+| captain shots to sink (base gun, 15) | **3** | **4** | **5** |
+| TTK at the 5 s reload | **15 s** | **20 s** | **25 s** |
+| damage it deals back over that window | **3** | **4** | **5** |
+| maxSpeed / turnRate / hull dims | unchanged | | |
+
+**THE FLAT GUN IS A DERIVATION, NOT A FLATTENING.** Eric specified the return damage as 3/4/5. The
+drone reload (5000 ms) equals the captain gun reload, so volleys-back is exactly shots-to-kill —
+3/4/5 by construction. **Damage 1 on every size therefore SATISFIES a per-size damage spec**, and a
+per-size damage table would have double-counted the size scaling that hp already carries. The next
+agent should not read `damage: 1` three times as a lost distinction; size reads through hp, payout,
+speed and aim scatter, and now through how long the hull survives to keep shooting.
+
+**The exchange rate — the number amendment 45 ruled must stay in view — improves on every size:**
+
+| | damage taken | levels to repair (÷50) | levels earned | net |
+|---|---|---|---|---|
+| small | 3 | 0.06 | 0.25 | **+0.19** |
+| medium | 4 | 0.08 | 0.50 | **+0.42** |
+| large | 5 | 0.10 | 0.75 | **+0.65** |
+
+`damageGuardrail.test.ts` passes UNCHANGED, and its counter-pin (*"the old 6/8/10 gun fails this
+same test on every size"*) is still non-vacuous at the new hp — 0.36 > 0.25, 0.64 > 0.50, 1.00 >
+0.75. The pin was written against a 60 hp small hull and still bites at 45.
+
+### The spawn unit halves, the wave counts double
+
+**`CONFIG.fleet.composition` becomes `{large: 1, medium: 2, small: 3}` — SIX hulls** — and the waves
+go **4/2/1 → 8/4/2 groups**. Eric derived this as a 12-hull fleet (2L/4M/6S, worth 5 levels) split
+into two halves; **the 12-hull fleet is a derivation path and does NOT exist in code.** *"Keep
+'fleet' = 6 hulls."* A rename to `squadron` was offered and declined.
+
+| wave | groups | hulls | levels |
+|---|---|---|---|
+| 1:00 | **8** | 48 | 20 |
+| 5:00 | **4** | 24 | 10 |
+| 9:00 | **2** | 12 | 5 |
+| total | **14** | **84** *(was 63)* | **35** *(was 21)* |
+
+**Amendment 45's ~5:1 captains-per-fleet ratio is PRESERVED, not abandoned** — 4/2/1 twelve-hull
+fleets is still the shape; each is simply spawned as two independent six-hull groups. Anyone
+retuning waves should still re-derive from the ratio, exactly as 45 instructs.
+
+**THE HALVES ARE FULLY INDEPENDENT ANCHORS (Eric ruling).** Modelling them as a related pair, spawned
+a fixed distance apart, was offered and declined. `pickFleetAnchor` already scores every candidate by
+max-min distance from everything afloat *including fleet hulls*, so eight anchors spread themselves —
+*"spread these fleets from each other"* is what the shipped picker already does, and the pairing would
+have needed a new constant, a second placement path, and a real risk of the two wings landing inside
+each other's 330 u sight and re-forming a twelve-hull witness network.
+
+### `spreadU` 400 → 500
+
+Amendment 35 calls this THE difficulty dial. Two effects compose here and they push the same way:
+the group is now **6 hulls, not 9**, and the radius is wider — so hull density per unit area falls to
+**~43% of shipped**, and typical witnesses per hit go ~2-4 → **~1-3**. Amendment 35's stated bound
+(*"~700 u — 0-1 witness; 'fleet' stops meaning anything"*) is respected with margin; 600 u was
+offered and not taken for that reason.
+
+**The discoverability fix is the GROUP COUNT, not the radius.** Eight scattered contacts in wave one
+against four is the change that answers *"finding them can be a pain"*; the wider spread is the
+"larger surface area" half of the same sentence.
+
+### THE RING-CONTAINMENT CORRECTION (orchestrator, forced by the spreadU ruling — **Eric has veto, this was not his call**)
+
+`fleetAnchor` samples anchors at `max(ring.r − spreadU, ring.r × FLEET_ANCHOR_MIN_FRACTION)` and the
+shipped docblock claims this *"stops `spreadU` short of the ring edge so the hulls scatter into water
+rather than into the storm (floored well inside, since the terminal ring is only 660 u across and the
+spread is 400 u)."* **That guarantee was arithmetic coincidence between two unrelated constants, and
+raising `spreadU` breaks it.** The floor (0.35) bites whenever `ring.r < spreadU / 0.65` — below
+615 u at spreadU 400, below **769 u at 500** — and at the 660 u terminal ring it permits an anchor at
+231 u scattering 500 u, i.e. **731 u from centre: outside the ring, in the storm.**
+
+**Not reachable in production today** (the 9:00 wave fires against a ~1068 u ring and the retry budget
+caps a pending wave at 10 s), so this is a latent trap rather than a live bug — but a compressed
+`zoneOverride` in a smoke reaches it, and the docblock's stated reasoning is now false.
+
+**Ruled: the guarantee becomes EXPLICIT.** `fleetOffset` gains a live-ring containment test beside its
+existing island-clearance and intel-disc rejections, on the same reject-and-re-roll ladder, falling
+back to the anchor itself (ring-clear by construction). The constants stop being load-bearing on each
+other. Raising `FLEET_ANCHOR_MIN_FRACTION` instead was rejected: it would squeeze the last wave's two
+groups into a 160 u-radius disc and stack them.
+
+### NO HARDCODED XP TOTAL IN THE CONTRACT (Eric ruling)
+
+> *"just say XP is calculated from fleet comp. No need to 'hardcode' any amount of xp into the
+> contract."*
+
+**Amendment 33's `expect(fleetLevels()).toBe(3)` pin is RETIRED, and it had already gone vacuous on
+its own terms.** That pin existed because `droneMedium` paid **⅓** — a non-dyadic rational — so a
+composition edit could quietly start paying float dust. With the tiers now **¼ / ½ / ¾, every tier is
+a dyadic rational, and therefore EVERY integer composition is exact.** The invariant moves up one
+level: pin that the TIERS are exactly representable and that `fleetLevels()` carries no dust, never
+that it equals a particular number. `fleetLevels()` remains the single derivation from
+`composition × droneTierLevels`.
+
+### THE MINE LAYER IS A FLEET-KILLING MACHINE, AND THAT IS THE POINT (Eric ruling 2026-08-16)
+
+> *"if you wanna spend mines to clear drones, do it. My players actually found that the minelayer is a
+> fleet-killing machine, and it being able to aggro and mine pve ships can secure it an XP bonus to
+> rely on in fights."*
+
+Dropping the small hull to 45 hp puts it **under the base mine's 55 damage**, so a base mine now
+one-shots it. At 60 hp the mine fell four short and only a STACKED `mineDamage` build cleared the
+bar — `damageGuardrail.test.ts` pinned that gap explicitly.
+
+**This was surfaced to Eric as a consequence and he ruled it a FEATURE.** It is now pinned as a
+ratified buff rather than an accepted cost: the Mine Layer's fleet-farm works out of the box instead
+of requiring a card first, which is a real and deliberate widening of that hull's early game.
+
+**The one weapon that must never cross this line is the GUN**, and it does not (15 < 45). The whole
+3/4/5-shot ladder is written against the gun, so a one-shot there would collapse the envelope rather
+than reward a build. Every heavier weapon — cannon 65, torpedo 70, mine 55 — now clears the small
+hull at base.
+
+**AMENDMENT 36 CLAUSE 3 IS UNTOUCHED: a mine hit still does not aggro its victim.** Eric's sentence
+*"being able to aggro and mine pve ships"* describes the PLAYSTYLE — pull aggro with the gun, lead
+the hulls over a field — not a reversal of the mine-aggro rule. That rule exists because a mine's
+layer may be dead or 2000u away, and chasing it produces a hull wandering off after a ghost. Read
+this as confirmation the rule is working, not as permission to widen it.
+
+### Named consequences, ledgered rather than mitigated
+
+1. **The PvE faucet grows 21 → 35 levels — put to Eric explicitly and confirmed.** That is ~1.8× the
+   19 levels of captain kills a full 20-captain lobby can produce. Amendment 45 already flagged 21 as
+   past that line and this widens it deliberately. It is contested and costs ~1.8 min per group to
+   collect, so realised income sits far below 35 — and `pveKillsByClass` (amendment 44) is the
+   evidence that will settle whether it matters. **This is the number to re-derive from if the
+   economy reads wrong in playtest.**
+2. **Per-group threat drops again.** A 6-hull group volleys **6 damage (1.2 dps)** against the shipped
+   9-hull group's 16 (3.2 dps): a 125 hp Torpedo Boat now survives **~104 s** under full group aggro,
+   up from 39 s. Amendment 45 answered the "reads as no threat" objection structurally — *"the fleets
+   stick together as fleets, they are a danger, and the players fighting over them amplify that"* —
+   but that argument was made about NINE hulls. It is weaker at six and is recorded as the open risk
+   of this cycle.
+3. **Groups sit closer together on average.** Eight anchors on one ocean are necessarily nearer each
+   other than four were, so two groups drifting into mutual LOS is now more likely. Per amendment 35
+   that is **the witness rule working, not failing** — the sweep is global by ruling and must not be
+   "fixed" to be per-fleet.
+4. **Server cost:** hulls afloat 63 → 84 (+33%), pro-rating amendment 33's figures to ≈3.3 ms/tick
+   against the 50 ms budget. **Client radar load per group FALLS** (6 hulls in sensor range, not 9),
+   so the client sits strictly below its shipped 1.74 ms / 2.5 ms measurement.
+
+`PROTOCOL_VERSION` is **unchanged at 39**, on the amendment-45 precedent: every value here is a
+server-side simulation constant. The whole of `CONFIG` does ride `WelcomeMsg.config`
+(`GameConfig = typeof CONFIG`), but the client never computes a fleet hull's stats (`frames.ts`
+throws if a drone hull reaches `toOwnShip`), never reads `CONFIG.fleet`, and never derives a drone's
+XP payout — it is told what it earned. No wire SHAPE moves.

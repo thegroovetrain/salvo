@@ -73,40 +73,49 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
     // (3 pips) and BS 175 (4 pips).
     expect(Math.min(...classHps)).toBe(125);
     expect(Math.min(...classHps)).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-    // Drones (60/75/90 — Story 5.6, amendment 34, was 80/100/120) are ALL
-    // lighter than every pickable class hull. Unlike before this story, that
-    // no longer makes the small drone "the lightest hull on the water" for
-    // GUARDRAIL purposes — fleet hulls are PvE fodder now (amendment 33) and
-    // are deliberately NOT protected by the one-hit-kill law. minHullHp is
-    // therefore the CLASS floor (125), not the drone floor (60).
+    // Drones (45/60/75 — epic-6 amendment 24; 80/100/120 -> 60/75/90 -> here)
+    // are ALL lighter than every pickable class hull. That does NOT make the
+    // small drone "the lightest hull on the water" for GUARDRAIL purposes —
+    // fleet hulls are PvE fodder (amendment 33) and are deliberately NOT
+    // protected by the one-hit-kill law. minHullHp is therefore the CLASS
+    // floor (125), not the drone floor (45).
     for (const droneHp of droneHps) {
       for (const classHp of classHps) {
         expect(droneHp).toBeLessThan(classHp);
       }
     }
     expect(minHullHp).toBe(125);
-    expect(minDroneHp).toBe(60);
+    expect(minDroneHp).toBe(45);
     expect(minDroneHp).toBe(CONFIG.drones.small.hp);
   });
 });
 
-describe('the small drone (60hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 34)', () => {
-  it('the size-appropriate weapon (the fleet-clearing gun, amendment 33) still cannot one-shot even the smallest drone', () => {
-    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 15 < 60
+describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 34; epic-6 amendment 24)', () => {
+  it('the GUN — the fleet-clearing weapon — still cannot one-shot even the smallest drone', () => {
+    // This is the one that must hold: the gun is the weapon the TTK ladder is
+    // written against (3/4/5 shots = 15/20/25s), so a one-shot here would
+    // collapse the whole envelope rather than reward a build.
+    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 15 < 45
   });
 
-  it('heavier PLAYER weapons can now one-shot a small drone at BASE, and it is an accepted, foreseeable consequence — not a bug', () => {
-    // Amendment 33 cut small-drone hp 80 -> 60 without touching the
-    // player-combat damage ladders (unrelated systems). Cannon and torpedo
-    // already clear 60 at their unboosted base; mine does not at base but
-    // does once stacked. This is documented rather than silently allowed to
-    // drift: fleet hulls are farmable content (amendment 33's "farming
-    // roughly doubles your rate"), so a well-built captain one-shotting
-    // fodder is the intended feel, not a regression of player fairness.
-    expect(CONFIG.cannon.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 65 >= 60
-    expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 70 >= 60
-    expect(CONFIG.mine.damage).toBeLessThan(CONFIG.drones.small.hp); // 55 < 60, base mine still doesn't
-    expect(stacked('mineDamage').mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 75 >= 60, stacked mine does
+  it('EVERY heavier player weapon one-shots a small drone at BASE — INTENDED, and the Mine Layer case is the point', () => {
+    // Eric ruling 2026-08-16: *"if you wanna spend mines to clear drones, do
+    // it. My players actually found that the minelayer is a fleet-killing
+    // machine, and it being able to aggro and mine pve ships can secure it an
+    // XP bonus to rely on in fights."*
+    //
+    // At 60hp the base mine (55) fell just short and only a STACKED mine
+    // cleared the bar. At 45 it clears at base, so the Mine Layer's fleet-
+    // farming play works out of the box instead of needing a card first. That
+    // is a RATIFIED buff, not an accepted cost — do not "restore" the gap.
+    //
+    // Note this does NOT touch amendment 36 clause 3: a mine hit still does
+    // not aggro its victim. The Mine Layer pulls aggro with its GUN and leads
+    // hulls over the field, which is that rule working as designed.
+    expect(CONFIG.cannon.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 65 >= 45
+    expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 70 >= 45
+    expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 55 >= 45 — the ruling
+    expect(stacked('mineDamage').mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 75 >= 45
   });
 });
 
