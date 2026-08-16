@@ -84,12 +84,12 @@ describe('buildDeck — composition per hull loadout', () => {
 
   it('Battleship: cannon + starShells subdecks; torpedo/mine/decoy/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.battleship);
-    expect(categoryCount(deck.cards, 'cannon')).toBe(12); // 5+5+1+1
+    expect(categoryCount(deck.cards, 'cannon')).toBe(7); // 5 damage + 2 exclusives (FRAGMENTATION CASING deleted, Eric 2026-08-16)
     expect(categoryCount(deck.cards, 'starShells')).toBe(12); // 5+5+1+1
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(0);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireDecoy', 'acquireMine', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 9 + 15 + 12 + 12 + 4); // 60
+    expect(deck.cards).toHaveLength(8 + 9 + 15 + 7 + 12 + 4); // 55
   });
 
   it('Mine Layer: mines + decoyBuoy subdecks; torpedo/cannon/star/boost acquisitions', () => {
@@ -300,7 +300,7 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
     const after = consumeAcquisition(start, BOON_CATALOG, 'cannon');
     expect(after.cards).not.toContain('acquireCannon');
     expect(after.cards).not.toContain('acquireMine');
-    expect(categoryCount(after.cards, 'cannon')).toBe(12); // 5+5 commons + 2 exclusives
+    expect(categoryCount(after.cards, 'cannon')).toBe(7); // 5 commons + 2 exclusives (FRAGMENTATION CASING deleted)
   });
 });
 

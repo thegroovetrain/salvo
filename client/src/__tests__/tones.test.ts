@@ -206,7 +206,7 @@ describe('the FIT family (Story 2.9) — one two-note template, three tier weigh
   it('every catalog line maps to a fit cue with a real spec (no silent boon)', () => {
     const silent = Object.values(BOON_CATALOG).filter((def) => TONES[fitTone(def.rarity)] === undefined);
     expect(silent).toEqual([]);
-    expect(Object.keys(BOON_CATALOG).length).toBeGreaterThanOrEqual(35);
+    expect(Object.keys(BOON_CATALOG).length).toBeGreaterThanOrEqual(34);
   });
 });
 

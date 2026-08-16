@@ -175,7 +175,7 @@ describe('shared barrel', () => {
     // `intelTruesight`/`intelRadar` in favour of `intelRange` is a wire-contract
     // break — the PV join gate is the only thing that stops a stale bundle
     // silently dropping the card.
-    expect(PROTOCOL_VERSION).toBe(38);
+    expect(PROTOCOL_VERSION).toBe(39);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
@@ -356,7 +356,7 @@ describe('shared barrel', () => {
   });
 
   it('re-exports the boon effect engine + Catalog v1 (Stories 2.5/2.8)', () => {
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(35); // 42 - 7 reload lines + shipCooldown (Eric 2026-08-04); 36 -> 35 at the Intel Range merge (Eric 2026-08-16)
+    expect(Object.keys(BOON_CATALOG)).toHaveLength(34); // 42 - 7 reload lines + shipCooldown; 36 -> 35 at the Intel Range merge; 35 -> 34 deleting cannonBlast (Eric 2026-08-16)
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);

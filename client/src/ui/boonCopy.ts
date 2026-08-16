@@ -53,7 +53,6 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   gunTurret: ['AFT TURRET'],
   // --- CANNON --------------------------------------------------------------
   cannonDamage: ['HEAVY CHARGE Mk I', 'HEAVY CHARGE Mk II', 'HEAVY CHARGE Mk III', 'HEAVY CHARGE Mk IV', 'HEAVY CHARGE Mk V'],
-  cannonBlast: ['FRAGMENTATION CASING Mk I', 'FRAGMENTATION CASING Mk II', 'FRAGMENTATION CASING Mk III', 'FRAGMENTATION CASING Mk IV', 'FRAGMENTATION CASING Mk V'],
   cannonArcing: ['PLUNGING FIRE'],
   cannonAp: ['ARMOR-PIERCING SHELLS'],
   // --- TORPEDOES -----------------------------------------------------------
@@ -190,7 +189,6 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   gunBarrel: { label: 'Shells per shot', read: (s) => s.gun.barrels, note: 'Every shell bursts at its own point.' },
   gunTurret: { label: 'Gun rounds ready', read: (s) => s.gun.maxAmmo },
   cannonDamage: { label: 'Cannon damage', read: (s) => s.cannon.damage },
-  cannonBlast: { label: 'Cannon blast radius', read: (s) => s.cannon.burstRadius },
   torpedoDamage: { label: 'Torpedo damage', read: (s) => s.torpedo.damage },
   torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },
   torpedoTube: { label: 'Torpedoes loaded', read: (s) => s.torpedo.maxAmmo },

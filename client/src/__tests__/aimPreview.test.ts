@@ -138,11 +138,19 @@ describe('island clipping — and the PLUNGING FIRE exemption', () => {
     expect(m.bursts[0].blocked).toBe(false);
   });
 
+  // No CARD moves a cannon burst radius any more — FRAGMENTATION CASING was
+  // deleted (Eric ruling 2026-08-16) because it was a total no-op under AP. The
+  // claim under test was never about that card though: it is that the preview
+  // reads the EFFECTIVE stats it is handed rather than reaching for CONFIG. So
+  // hand it a stats object whose burst differs from CONFIG and assert it follows
+  // — which tests the claim more directly than routing through a boon did.
   it('burst radii come from EFFECTIVE stats, never raw CONFIG', () => {
-    const boosted = stats('cannonBlast', 'cannonBlast');
+    const base = stats();
+    const boosted = { ...base, cannon: { ...base.cannon, burstRadius: base.cannon.burstRadius * 2 } };
     expect(boosted.cannon.burstRadius).toBeGreaterThan(CONFIG.cannon.burstRadius);
     const m = computeAimPreview(input({ id: 'cannon', stats: boosted }));
     expect(m.bursts[0].r).toBe(boosted.cannon.burstRadius);
+    expect(m.bursts[0].r).not.toBe(CONFIG.cannon.burstRadius);
   });
 
   it('clipAtIslands reports a clean path untouched', () => {
@@ -337,7 +345,7 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
 
 describe('ownBurstRadius — our own blast, never anybody else’s', () => {
   it('sizes an own gun/cannon burst off our effective stats', () => {
-    const s = stats('cannonBlast');
+    const s = stats();
     expect(ownBurstRadius(s, 'gun')).toBe(s.gun.burstRadius);
     expect(ownBurstRadius(s, 'cannon')).toBe(s.cannon.burstRadius);
   });
