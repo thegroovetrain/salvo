@@ -108,8 +108,19 @@ export function matchUx(
  * reliable "you didn't sink" signal (works for both an outright survivor and
  * the posthumous mutual-destruction winner). Dead-in-active (phase not yet
  * 'finished') always reads as a plain sinking.
+ *
+ * THE DRAW CASE (Story 6.3, epic-6 amendment 14). A finished match with an
+ * EMPTY `winnerId` is a draw — every remaining captain sank on the same tick
+ * (Story 5.2, epic-5 amendment 14) — and it shipped reading `MATCH OVER —
+ * SPECTATING`, identical to watching somebody else win. It is tested FIRST, for
+ * the same reason `results.ts` winnerBanner tests it first: a session id that is
+ * somehow also empty (no session, a torn-down room) would otherwise match the
+ * empty winner and claim a victory nobody won. The pre-`finished` guard above
+ * is what makes the empty read unambiguous here — `winnerId` is `''` for the
+ * whole match until the outcome latches.
  */
 export function spectateBannerText(phase: string, winnerId: string, sessionId: string): string {
   if (phase !== 'finished') return 'SUNK — SPECTATING';
+  if (winnerId === '') return 'DRAW — SPECTATING';
   return winnerId === sessionId ? 'VICTORY — AWAITING RESULTS' : 'MATCH OVER — SPECTATING';
 }

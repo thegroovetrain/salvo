@@ -22,7 +22,7 @@ import { CONFIG, LIFECYCLE_ALIVE, MSG, mulberry32, type ResultsMsg, type Rng, ty
 import { ClientState, CloseCode } from 'colyseus';
 import { World } from '../game/world.js';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
-import type { MatchEndSummary } from '../game/match.js';
+import { Match, type MatchEndSummary, type MatchHooks, type MatchTimings } from '../game/match.js';
 
 const SIM_DT = CONFIG.tick.simDtMs;
 
@@ -35,6 +35,7 @@ const SUMMARY: MatchEndSummary = {
   pveKillsByClass: { droneSmall: 3 }, // operator-only (amendment 44) — keyed by VICTIM hull
   stormDeaths: 1,
   endedBy: 'fieldCleared',
+  outcome: 'winner', // amendment 16's discriminator rides the same spread
 };
 
 // --- console.log spy (the logger's only sink) ---------------------------------
@@ -80,7 +81,7 @@ interface OpsRoom {
   disconnect: ReturnType<typeof vi.fn>;
   broadcast: ReturnType<typeof vi.fn>;
   update(dtMs: number): void;
-  matchHooks(): { broadcastResults(msg: ResultsMsg): void };
+  matchHooks(): MatchHooks;
   onDispose(): void;
 }
 
@@ -598,6 +599,91 @@ describe('metrics feeds', () => {
     expect(() => room.onCreate({})).toThrow('create-failed');
     expect(metrics.unregister).toHaveBeenCalledTimes(1);
     expect(room.metrics).toBeNull();
+  });
+});
+
+// --- the cohort-collapse requeue hook (Story 6.3, amendments 15/17/18) ----------
+//
+// `Match.notifyRosterChanged()` fires hooks.requeue() IMMEDIATELY BEFORE an
+// UNCONDITIONAL hooks.disconnect(). The signal is best-effort; the disconnect
+// is not. So the requeue hook is TOTAL — nothing inside it may propagate — and
+// a guard whose CATCH can throw is not a guard: the exception escapes
+// notifyRosterChanged, disconnect() never runs, and a sealed room that can
+// never refill is stranded forever with a captain in it.
+//
+// The adversary is a thrown value that DEFEATS STRINGIFICATION, which is not
+// exotic: `String(Object.create(null))` throws `TypeError: Cannot convert
+// object to primitive value`. This is the same hazard `describeError` was
+// written for on the tick-error path, reached here through the real collapse.
+
+/** Match timings for a SEALED 2-captain cohort (boarding.test.ts's shape). */
+const SEALED: MatchTimings = {
+  countdownMs: 100,
+  resultsMs: 200,
+  joinWindowMs: 0,
+  expectedCaptains: 2,
+  boardingGraceMs: 1000,
+};
+
+/** opsRoom() with core's real lock/unlock stubbed out — they reach into the
+ *  matchmaker driver a bare room never had (the reconnect.test.ts injection
+ *  pattern; disconnect is already stubbed the same way). */
+function collapseRoom(): OpsRoom & { log: { warn: () => void } } {
+  const room = opsRoom() as unknown as OpsRoom & { lock: unknown; unlock: unknown; log: { warn: () => void } };
+  room.lock = vi.fn(() => Promise.resolve());
+  room.unlock = vi.fn(() => Promise.resolve());
+  return room;
+}
+
+/** The real collapse: a 2-captain sealed lobby loses one during the countdown,
+ *  driven through the ROOM's own hooks (never a stand-in). */
+function driveCollapse(hooks: MatchHooks): void {
+  const w = new World(1);
+  w.map.islands.length = 0;
+  const m = new Match(w, SEALED, hooks);
+  for (const id of ['a', 'b']) {
+    w.addShip(id, id.toUpperCase());
+    m.notifyRosterChanged();
+  }
+  expect(m.phase).toBe('countdown');
+  m.onPlayerLeave('b');
+}
+
+describe('the collapse requeue hook is total', () => {
+  it('a broadcast throwing an UNSTRINGIFIABLE value still lets the collapse disconnect', () => {
+    const room = collapseRoom();
+    room.broadcast = vi.fn(() => {
+      // No prototype ⇒ no toString, no Symbol.toPrimitive: String() THROWS.
+      throw Object.create(null) as unknown;
+    });
+
+    expect(() => driveCollapse(room.matchHooks())).not.toThrow();
+
+    // THE ASSERTION THE DEFECT FAILS: the room is torn down anyway.
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+    // ...and the diagnostic is still emitted, degraded rather than dropped.
+    const warns = lines('warn room.requeueBroadcastFailed');
+    expect(warns).toHaveLength(1);
+    expect(fieldsOf(warns[0]).error).toBe('unstringifiable');
+  });
+
+  it('a throwing LOGGER cannot escape the hook either', () => {
+    const room = collapseRoom();
+    room.broadcast = vi.fn(() => {
+      throw new Error('transport gone');
+    });
+    room.log = { warn: () => { throw new Error('logger gone'); } };
+
+    expect(() => driveCollapse(room.matchHooks())).not.toThrow();
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('the ordinary collapse is unchanged: signal broadcast, then disconnect', () => {
+    const room = collapseRoom();
+    driveCollapse(room.matchHooks());
+    expect(room.broadcast).toHaveBeenCalledWith(MSG.requeue, { reason: 'cohortLost' });
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+    expect(lines('warn room.requeueBroadcastFailed')).toHaveLength(0);
   });
 });
 

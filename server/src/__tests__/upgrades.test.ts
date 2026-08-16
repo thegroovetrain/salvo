@@ -50,7 +50,7 @@ function bareWorld(seed = 1, opts?: WorldOptions): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -166,7 +166,7 @@ describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', 
 
   it('DRONES get NO deck and never draw (the frozen empty identity)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', true, 'droneSmall');
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall');
     expect(d.deck.cards).toEqual([]);
     // Even a direct XP grant banks nothing for a drone (the addXpMs guard).
     w.grantXp(d, 5);

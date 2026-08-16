@@ -169,6 +169,23 @@ export function queueStatusLine(q: QueueStatusMsg): StatusLine {
   return { text: `QUEUED ${q.n} CAPTAINS · DEPLOY IN ${countdownMmSs(q.startsInMs)}`, tone: 'info' };
 }
 
+/**
+ * Why the player is suddenly back in port with a queue join already running
+ * (Story 6.3, epic-6 amendment 18): the cohort they were about to sail with
+ * fell below the minimum during the countdown, and a queue-formed lobby is
+ * sealed, so it cannot refill.
+ *
+ * It reads as the queue's own sibling — same register grammar, same `info`
+ * tone, one line — because that is what it is: the reason attached to a wait
+ * that has already begun. It states the LOBBY's fate and the client's response
+ * and stops there. It does not name the captain who left, does not call it an
+ * error, and does not apologise: nobody did anything wrong, and the honest
+ * `QUEUED n/2` liveness takes this line over a beat later anyway.
+ */
+export function requeueStatusLine(): StatusLine {
+  return { text: 'LOBBY DISBANDED — SEARCHING FOR A NEW MATCH', tone: 'info' };
+}
+
 function toneColor(tone: StatusTone): string {
   if (tone === 'info') return 'var(--hc-info)';
   if (tone === 'denied') return 'var(--hc-denied)';

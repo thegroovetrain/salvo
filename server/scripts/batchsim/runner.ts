@@ -31,6 +31,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
+import { isFleetHull } from '../../src/game/participants.js';
 import { PILOT_REGISTRY, type CaptainPilot, type PilotFactory } from './pilots.js';
 import { mixSeed, tally } from './stats.js';
 
@@ -194,8 +195,8 @@ export class MatchCollector {
   private recordKill(world: World, by: string, victimId: string): void {
     const killer = world.ships.get(by);
     const victim = world.ships.get(victimId);
-    if (!killer || killer.isDrone || !victim) return;
-    const tier = victim.isDrone ? victim.hullId : 'captain';
+    if (!killer || isFleetHull(killer) || !victim) return;
+    const tier = isFleetHull(victim) ? victim.hullId : 'captain';
     this.killsByVictimTier[tier] = (this.killsByVictimTier[tier] ?? 0) + 1;
   }
 
@@ -228,6 +229,9 @@ function harnessHooks(): MatchHooks {
     lock: () => {},
     unlock: () => {},
     broadcastResults: () => {},
+    // The amendment-15 requeue signal: inert here — the harness has no queue
+    // to return anyone to, and it never drives the sealed-collapse branch.
+    requeue: () => {},
     disconnect: () => {},
   };
 }
@@ -269,7 +273,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   for (let i = 0; i < spec.captains; i += 1) {
     const id = `cap-${i + 1}`;
     captainIds.push(id);
-    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, false, SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]);
+    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]);
     pilots.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
   }
   match.notifyRosterChanged();

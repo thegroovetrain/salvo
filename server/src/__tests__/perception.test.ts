@@ -724,7 +724,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the killer
     place(w, 'c', 0, 800); // an uninvolved, out-of-sight bystander
-    const d = w.addShip('d1', 'DRONE-01', true, 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
     d.state.x = 500; // far outside everyone's sight
     d.state.y = 0;
     w.sinkShip('d1', 'a');
@@ -742,7 +742,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
   it('a WITNESSED drone sinking arrives with seen: true (today\'s rule, unchanged)', () => {
     const w = bareWorld();
     place(w, 'c', 0, 0); // a witness who did not fire the shot
-    const d = w.addShip('d1', 'DRONE-01', true, 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
     d.state.x = 100; // inside c's sight bubble
     d.state.y = 0;
     w.sinkShip('d1', 'a');
@@ -808,7 +808,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     // of whom already know the leader's identity from the public
     // ArenaState.bountyId, and `by` is already on the line. The out-of-sight
     // bystander gets NOTHING: drone sinkings are not public.
-    const d = w.addShip('d', 'D', true); // a drone, in the leader's sight
+    const d = w.addShip('d', 'D', 'fleet'); // a drone, in the leader's sight
     d.state.x = 200;
     d.state.y = 0;
     d.state.speed = 0;
@@ -1266,7 +1266,7 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
 describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 40)', () => {
   /** Register a PvE fleet hull at an exact pose (the wave spawner's own seam). */
   function fleet(w: World, id: string, x: number, y: number): ShipRecord {
-    const rec = w.addShip(id, 'DRONE', true, 'droneMedium', undefined, { x, y });
+    const rec = w.addShip(id, 'DRONE', 'fleet', 'droneMedium', undefined, { x, y });
     rec.state.speed = 0;
     w.drones.add(id, 'medium', 1, { x: 0, y: 0 });
     return rec;
@@ -1298,7 +1298,7 @@ describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 40)
     const theirs = contactOf(w, 'bystander', 'f');
     expect('aggro' in theirs).toBe(false); // OMITTED, not false
     expect(Object.keys(theirs)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls']);
-    expect(f.isDrone).toBe(true);
+    expect(f.role).toBe('fleet');
   });
 
   it('a SPECTATOR never receives it, even for the hull that was hunting them', () => {
@@ -1326,7 +1326,7 @@ describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 40)
     // is structurally false: only fleet hulls have minds.
     expect(w.drones.isTargeting('b', 'a')).toBe(false);
     expect('aggro' in contactOf(w, 'a', 'b')).toBe(false);
-    expect(a.isDrone).toBe(false);
+    expect(a.role).toBe('captain');
   });
 
   it('the mark CLEARS the moment the hull loses its target (memory expiry)', () => {
@@ -1365,7 +1365,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     // 2000u away — far outside sight (330u) and outside radar (660u) alike.
     // This is precisely the disclosure the client cannot reconstruct: no
     // roster row, no contact, no blip, and the wreck was never rendered.
-    const victim = w.addShip('f', 'DRONE', true, 'droneSmall', undefined, { x: 2000, y: 0 });
+    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 });
     expect(sighted(w, killer, victim.state)).toBe(false);
     w.sinkShip('f', 'killer');
     w.step();
@@ -1380,7 +1380,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     const w = bareWorld();
     place(w, 'killer', 0, 0);
     const bystander = place(w, 'bystander', 100, 0);
-    const victim = w.addShip('f', 'DRONE', true, 'droneLarge', undefined, { x: 150, y: 0 });
+    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 });
     expect(sighted(w, bystander, victim.state)).toBe(true); // genuinely watched it go down
     w.sinkShip('f', 'killer');
     w.step();
@@ -1403,7 +1403,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     const w = bareWorld();
     const watcher = place(w, 'watcher', 100, 0);
     place(w, 'killer', 0, 0);
-    w.addShip('f', 'DRONE', true, 'droneMedium', undefined, { x: 150, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 150, y: 0 });
     spectateOut(w, 'watcher', 'killer');
     expect(isAfloat(watcher.lifecycle)).toBe(false);
     w.sinkShip('f', 'killer'); // someone ELSE's kill, while they watch
@@ -1425,7 +1425,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     const killer = place(w, 'killer', 0, 0);
     place(w, 'watcher', 100, 0);
     // 2000u away: never sighted, and now the killer has no hull to see with.
-    w.addShip('f', 'DRONE', true, 'droneMedium', undefined, { x: 2000, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 });
     spectateOut(w, 'killer', 'watcher');
     expect(isAfloat(killer.lifecycle)).toBe(false);
     w.sinkShip('f', 'killer'); // the trap springs posthumously
@@ -1459,7 +1459,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
   it('a STORM death (no killer) carries it to nobody', () => {
     const w = bareWorld();
     place(w, 'watcher', 0, 0);
-    w.addShip('f', 'DRONE', true, 'droneSmall', undefined, { x: 150, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
     w.sinkShip('f'); // unattributed
     w.step();
     const rows = sunkRows(w, 'watcher');
@@ -1748,7 +1748,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
  * the wire and (worse) make "no mark" and "mark says no" two different states.
  */
 function verifyAggro(w: World, me: ShipRecord, c: Contact, target: ShipRecord): void {
-  const hunted = target.isDrone && w.drones.targetOf(target.id) === me.id;
+  const hunted = target.role === 'fleet' && w.drones.targetOf(target.id) === me.id;
   if (hunted) {
     expect(c.aggro).toBe(true);
   } else {
@@ -2270,7 +2270,7 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
 // license to render spatially, so a wrongly-stamped flag IS a location leak.
 // INDEPENDENCE SCOPE: the claim above is honest only for the GEOMETRY terms —
 // `sighted`/`zoneCovers` are this file's own reimplementations. The drone
-// discrimination reads the same production `wreck.isDrone` field the row
+// discrimination reads the same production `wreck.role` field the row
 // reads, and the credited clause is the same trivial `by === me` equality, so
 // a hull mis-flagged at construction (e.g. a future combat bot built through
 // the drone path) would put the row and this oracle in agreement on the same
@@ -2288,7 +2288,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   // biconditional against the two clauses it is allowed to depend on — the
   // observer is the CREDITED KILLER, and the wreck record still exists — so
   // any leak to a bystander or to a witness who did not fire fails here.
-  // Deliberately NOT keyed on `wreck.isDrone`: the rule is uniform across
+  // Deliberately NOT keyed on the wreck's ROLE: the rule is uniform across
   // every victim, and a fleet-only stamping would fail this. And deliberately
   // NOT keyed on the VIEW MODE either (orchestrator ruling, review gate): a
   // spectator who IS the credited killer must get it, and the directed suite
@@ -2324,7 +2324,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   if ('bty' in ev) {
     expect(['v', 'k']).toContain(ev.bty);
     const flaggedWreck = w.ships.get(ev.id);
-    if (ev.bty === 'v' && flaggedWreck !== undefined) expect(flaggedWreck.isDrone).toBe(false);
+    if (ev.bty === 'v' && flaggedWreck !== undefined) expect(flaggedWreck.role).not.toBe('fleet');
   }
   if (src !== undefined) {
     expect('bty' in ev).toBe(src.bty !== undefined); // present iff the world emitted it
@@ -2343,7 +2343,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   }
   const witnessed = sighted(w, me, wreck.state) || zoneCovers(w, me, wreck.state);
   // A drone sinking is NEVER public: witnessed, or this observer's own kill.
-  if (wreck.isDrone) expect(witnessed || ev.by === me.id).toBe(true);
+  if (wreck.role === 'fleet') expect(witnessed || ev.by === me.id).toBe(true);
   // In EVERY case: `seen` present ⇒ the sight-or-owned-zone condition holds.
   if (ev.seen !== undefined) {
     expect(ev.seen).toBe(true); // never emitted as false

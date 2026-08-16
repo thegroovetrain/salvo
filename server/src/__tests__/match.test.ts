@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { isAfloat, CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
+import { isFleetHull } from '../game/participants.js';
 
 const DT = CONFIG.tick.simDtMs;
 // Ticks in one full sinking window. Since the amendment-17 REVERSAL (Eric veto
@@ -41,6 +42,7 @@ function recorder(): Recorder {
         calls.push('results');
         results.push(m);
       },
+      requeue: () => calls.push('requeue'),
       disconnect: () => calls.push('disconnect'),
     },
   };
@@ -61,7 +63,7 @@ function setup(ids: string[], hull: ShipClassId = 'torpedoBoat', timings = TIMIN
   const rec = recorder();
   const m = new Match(w, timings, rec.hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase(), false, hull);
+    w.addShip(id, id.toUpperCase(), 'captain', hull);
     m.notifyRosterChanged();
   }
   return { w, m, ...rec };
@@ -495,6 +497,17 @@ describe('match — finished phase', () => {
     expect(ctx.calls.filter((c) => c === 'disconnect')).toHaveLength(1); // fired once
   });
 
+  // Story 6.3: the requeue signal is the COLLAPSE's, and only the collapse's. A
+  // finished match disconnects too — that is the whole ambiguity the channel
+  // exists to resolve — and a client that received `rq` here would be flung
+  // straight back into a queue instead of reading its own results.
+  it('the ordinary post-results disconnect signals no requeue', () => {
+    const ctx = finished();
+    step(ctx, Math.ceil(TIMINGS.resultsMs / DT) + 1);
+    expect(ctx.calls).toContain('disconnect');
+    expect(ctx.calls).not.toContain('requeue');
+  });
+
   it('never starts a new match in the same room', () => {
     const ctx = finished();
     ctx.w.addShip('d', 'D');
@@ -528,7 +541,7 @@ describe('match — the results table is captains only', () => {
    *  AFTER the captains, so activation roster order is captains then drones. */
   function withDrones(captains: string[], drones: number): Ctx {
     const ctx = setup(captains);
-    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, true);
+    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, 'fleet');
     activate(ctx);
     return ctx;
   }
@@ -541,7 +554,7 @@ describe('match — the results table is captains only', () => {
   // read [drone-1 0, drone-2 0, drone-3 0, a 1, b 2].
   it('no results row is a DRONE, none is left at placement 0, and the winner is the FIRST row', () => {
     const ctx = withDrones(['a', 'b'], 3);
-    expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(3);
+    expect([...ctx.w.ships.values()].filter((s) => isFleetHull(s) && isAfloat(s.lifecycle))).toHaveLength(3);
     ctx.w.sinkShip('b', 'a');
     step(ctx, SINK_TICKS + 1); // b's window runs out first (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
@@ -611,7 +624,7 @@ describe('match — the results table is captains only', () => {
     step(ctx, SINK_TICKS + 1); // both windows hold the transition (amendment 17 reversed)
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe(''); // drones can't claim it and neither captain may
-    expect([...ctx.w.ships.values()].filter((s) => s.isDrone && isAfloat(s.lifecycle))).toHaveLength(2);
+    expect([...ctx.w.ships.values()].filter((s) => isFleetHull(s) && isAfloat(s.lifecycle))).toHaveLength(2);
     expect(ctx.results[0].rows.map((r) => [r.id, r.placement])).toEqual([
       ['b', 1],
       ['a', 2],
@@ -636,6 +649,78 @@ describe('match — the results table is captains only', () => {
     // counts CAPTAIN victims only, so the drone sinking above pays XP and
     // fires `sunk` while landing in no tally anywhere.
     expect(Object.values(sum.killsByClass).reduce((n, v) => n + v, 0)).toBe(1);
+  });
+});
+
+// --- THE PARTICIPANTS-ONLY WIN CHECK (Story 6.3, epic-6 amendment 13) --------
+//
+// The win check has counted captains only since 5-1 (amendment 4); what 6.3
+// changes is WHICH QUESTION it asks — `isParticipant` ("does this hull contest
+// the outcome") instead of the overloaded `isDrone`. The rows below are the
+// story's I/O matrix, and they are behaviour-identical to the shipped game by
+// construction (the two predicates are coextensive until 6.4 lands bots). They
+// exist so that when a THIRD role arrives, the sites that must follow it —
+// win/hold/placements/results — are pinned, and the sites that must NOT
+// (minHumans) are pinned too.
+describe('match — the win check counts PARTICIPANTS, the countdown counts HUMANS', () => {
+  /** Captains + `fleet` PvE hulls in the water, activated. */
+  function withFleet(captains: string[], fleet: number): Ctx {
+    const ctx = setup(captains);
+    for (let i = 1; i <= fleet; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall');
+    activate(ctx);
+    return ctx;
+  }
+
+  it('a lone captain with fleet hulls in the water never arms the countdown', () => {
+    // minHumans is a PEOPLE count (isHuman). Nine fleet hulls are nine hulls
+    // and zero captains, so the room stays in its ready room — the property
+    // FR34 turns into a hard rule for bots in 6.4.
+    const ctx = setup(['a']);
+    for (let i = 1; i <= 9; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall');
+    ctx.m.notifyRosterChanged();
+    step(ctx, 20);
+    expect(ctx.m.phase).toBe('waiting');
+    expect(ctx.calls).toHaveLength(0); // never locked, never counted down
+  });
+
+  it('the LAST captain among live fleet hulls wins, and no fleet hull places or rows', () => {
+    const ctx = withFleet(['a', 'b'], 4);
+    ctx.w.sinkShip('b', 'a');
+    step(ctx, SINK_TICKS + 1);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('a');
+    const afloatFleet = [...ctx.w.ships.values()].filter((s) => isFleetHull(s) && isAfloat(s.lifecycle));
+    expect(afloatFleet).toHaveLength(4); // the ocean is still full of them
+    for (const s of afloatFleet) expect(ctx.m.placements.has(s.id)).toBe(false);
+    expect(ctx.results[0].rows.map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('a same-tick wipe with NO fleet hull in the water is still a DRAW', () => {
+    // The empty-ocean twin of the drones-afloat case above: the draw comes from
+    // the SINK STAMPS, never from who else is floating.
+    const ctx = withFleet(['a', 'b'], 0);
+    ctx.w.sinkShip('a', 'b');
+    ctx.w.sinkShip('b', 'a');
+    step(ctx, SINK_TICKS + 1);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('');
+    expect(ctx.m.endSummary().outcome).toBe('draw');
+    expect(ctx.results[0].rows.map((r) => [r.id, r.placement])).toEqual([
+      ['b', 1],
+      ['a', 2],
+    ]);
+  });
+
+  it('sinking EVERY fleet hull never finishes a match two captains are still fighting', () => {
+    const ctx = withFleet(['a', 'b'], 5);
+    for (let i = 1; i <= 5; i++) {
+      ctx.w.sinkShip(`fleet-${i}`, 'a');
+      step(ctx);
+    }
+    step(ctx, SINK_TICKS + 2); // well past every fleet window
+    expect(ctx.m.phase).toBe('active'); // no latch, no finish, no results
+    expect(ctx.results).toHaveLength(0);
+    expect(ctx.m.winnerId).toBe('');
   });
 });
 

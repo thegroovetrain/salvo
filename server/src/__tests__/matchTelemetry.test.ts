@@ -26,6 +26,7 @@ function noopHooks(): MatchHooks {
     lock: () => {},
     unlock: () => {},
     broadcastResults: () => {},
+    requeue: () => {},
     disconnect: () => {},
   };
 }
@@ -65,14 +66,19 @@ describe('Match.endSummary — pre-activation safety', () => {
       // Pre-finish default (amendment 53): the no-survivor winner-resolution
       // state. durationS 0 + winnerClass null are the not-yet-finished tell.
       endedBy: 'lastHumanSunk',
+      // ...and the outcome discriminator (amendment 16) reads 'winner' on an
+      // unfinished summary rather than inventing a third "unfinished" state:
+      // durationS is what marks a summary not-yet-finished, and a draw must
+      // mean a REAL same-tick wipe wherever it appears.
+      outcome: 'winner',
     });
   });
 
   it('duration stays 0 mid-match (activated but not finished)', () => {
     const ctx = build();
-    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', false, 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
     ctx.m.notifyRosterChanged();
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
@@ -89,11 +95,11 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     // Two humans of distinct classes (arm the countdown) + one drone (fills a
     // slot; drones never count toward humanCount so this can't start/hold it).
     // The drone takes a DRONE hull id — telemetry buckets it under that id.
-    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', false, 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('d1', 'D1', true, 'droneLarge');
+    ctx.w.addShip('d1', 'D1', 'fleet', 'droneLarge');
     ctx.m.notifyRosterChanged();
     // Activate (2 ticks: now 0 -> 100 == countdownEndT).
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
@@ -137,9 +143,9 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
 describe('Match.endSummary — the PvE column (amendment 44)', () => {
   it('counts drone sinkings per VICTIM size, and leaves killsByClass untouched', () => {
     const ctx = build();
-    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', false, 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
     ctx.m.notifyRosterChanged();
     for (const [id, hull] of [
       ['d1', 'droneSmall'],
@@ -147,7 +153,7 @@ describe('Match.endSummary — the PvE column (amendment 44)', () => {
       ['d3', 'droneMedium'],
       ['d4', 'droneLarge'],
     ] as const) {
-      ctx.w.addShip(id, id.toUpperCase(), true, hull);
+      ctx.w.addShip(id, id.toUpperCase(), 'fleet', hull);
       ctx.m.notifyRosterChanged();
     }
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
@@ -175,11 +181,11 @@ describe('Match.endSummary — endedBy classification', () => {
    *  keeps it live — but they still prove a finish can happen with hulls afloat. */
   function activated(drones: number): Ctx {
     const ctx = build();
-    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', false, 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
     ctx.m.notifyRosterChanged();
-    for (let i = 0; i < drones; i++) ctx.w.addShip(`d${i}`, `D${i}`, true, 'droneLarge');
+    for (let i = 0; i < drones; i++) ctx.w.addShip(`d${i}`, `D${i}`, 'fleet', 'droneLarge');
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
     return ctx;
@@ -193,6 +199,7 @@ describe('Match.endSummary — endedBy classification', () => {
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a');
     expect(ctx.m.endSummary().endedBy).toBe('fieldCleared');
+    expect(ctx.m.endSummary().outcome).toBe('winner');
   });
 
   it('lastHumanSunk: a terminal sinking leaves 0 humans alive (storm case)', () => {
@@ -210,6 +217,10 @@ describe('Match.endSummary — endedBy classification', () => {
     expect(s.stormDeaths).toBe(2);
     expect(s.endedBy).toBe('lastHumanSunk');
     expect(s.winnerClass).toBeNull(); // no winner, no winner class
+    // THE DISCRIMINATOR (amendment 16): winnerClass null is ambiguous — it also
+    // reads null when the winner lookup misses — so the draw needs its own,
+    // authoritative field. This is the case that makes it countable.
+    expect(s.outcome).toBe('draw');
   });
 
   it('lastHumanSunk: mutual destruction in combat classifies as sunk, not cleared', () => {
@@ -221,26 +232,14 @@ describe('Match.endSummary — endedBy classification', () => {
     expect(ctx.m.endSummary().endedBy).toBe('lastHumanSunk');
   });
 
-  it('lastHumanLeft: the last afloat human quits out mid-match', () => {
-    const ctx = activated(1);
-    // Amendment 4: drones no longer hold the match open, so the win check now
-    // latches on 'a' the moment it runs with 'b' down. The DEPARTURE therefore
-    // has to arrive before that check — the leave is what leaves 0 captains
-    // afloat, which is exactly what 'lastHumanLeft' classifies. (No step()
-    // between the sink and the leave; a step would run checkWin('sink') first.)
-    ctx.w.sinkShip('b', 'a');
-    ctx.m.onPlayerLeave('a');
-    // b — still in the water, mid-window — holds the transition open even
-    // though the OUTCOME latched at the leave (amendment 17 reversed): the
-    // sinking captain's five seconds are honored whoever else quits.
-    expect(ctx.m.phase).toBe('active');
-    step(ctx, SINK_TICKS + 1);
-    expect(ctx.m.phase).toBe('finished');
-    expect(ctx.m.winnerId).toBe('a'); // latest-sunk (sunk-at-leave-time), frozen at the latch
-    expect(ctx.m.endSummary().endedBy).toBe('lastHumanLeft');
-  });
+  // ('lastHumanLeft' had a case here — the last afloat captain quitting out on
+  //  the exact tick another sank, with no step() between. Story 6.3, epic-6
+  //  amendment 16 DELETED the category: ArenaRoom steps the world and the match
+  //  synchronously, so that gap does not exist over a real socket, and the case
+  //  could only ever be produced by driving Match directly. The test went with
+  //  it rather than being adapted — no dead knob, no synthetic-only coverage.)
 
-  it('a departure that leaves a survivor standing is fieldCleared, not lastHumanLeft', () => {
+  it('a departure that leaves a survivor standing is fieldCleared', () => {
     const ctx = activated(0);
     ctx.m.onPlayerLeave('b'); // 'a' is left alone on an empty ocean
     expect(ctx.m.phase).toBe('finished');

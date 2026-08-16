@@ -39,6 +39,12 @@
 //   • `SHIPS YOU SANK` STAYS (epic-2 amendment 23 ratified that roll by name;
 //     the mockup predates it). The MATCH LOG is additive, not a replacement.
 //
+// STORY 6.3 (epic-6 amendment 14) — THE DRAW GETS ITS OWN READ. 5.3's
+// "the phosphor/amber split is unchanged" clause above is SUPERSEDED on its
+// draw half only: a two-way split cannot render three outcomes, so the banner
+// hue now comes from BANNER_HUES keyed by bannerOutcome() and a draw wears
+// `info`. Victory (phosphor) and defeat (amber) are byte-identical to 5.3.
+//
 // sortRows() / fmtDamage() / winnerBanner() / bannerText() / placementLine() /
 // statTiles() / matchLogRow() and the section copy are pure and unit-tested; the
 // rest is a thin DOM adapter.
@@ -127,10 +133,60 @@ export function isMatchEnd(view: ResultsView): boolean {
  * an elimination always reads `SUNK`, whatever copy the caller carried. A
  * game-end view keeps its own headline (VICTORY / WINNER: NAME / DRAW), which
  * amendment 29 leaves untouched — *"the victory and draw banners keep their
- * existing copy and the phosphor/amber split is unchanged."*
+ * existing copy"*. (Its "…and the phosphor/amber split is unchanged" clause is
+ * superseded by Story 6.3 — see BANNER_HUES. The COPY is still unchanged; only
+ * the draw's colour moved.)
  */
 export function bannerText(view: ResultsView): string {
   return isMatchEnd(view) ? view.banner : DEATH_BANNER;
+}
+
+/**
+ * The three readings the banner can carry. A DISCRIMINATOR, never a pair of
+ * booleans: `isVictory` alone could not express a draw, and adding an `isDraw`
+ * beside it would admit an impossible fourth state (both true).
+ */
+export type BannerOutcome = 'victory' | 'draw' | 'defeat';
+
+/**
+ * The banner hue per outcome — DESIGN.md tokens, resolved HERE rather than at
+ * the call site (Story 6.3, amendment 14).
+ *
+ * THE DRAW IS THE WHOLE POINT. A same-tick mutual kill has been a genuine
+ * outcome since Story 5.2 (`winnerId: ''`, epic-5 amendment 14) but has always
+ * rendered in AMBER — byte-identical to a loss, so the one outcome a player
+ * could not tell apart from losing was the one where nobody won. Neither
+ * shipped hue can carry it: DESIGN.md gives `amber` the "selected / armed /
+ * action / warning" role and `phosphor` the ready/victory role, so the draw
+ * takes the `info` token — DESIGN.md's *"informational/waiting states (kept
+ * semantic)"* — the one whose role is reporting a state rather than valuing it.
+ * (The hex lives in config.ts, the single token source; naming it here would
+ * trip the tokens.test.ts colour-literal guard, which is the point of it.)
+ */
+export const BANNER_HUES: Readonly<Record<BannerOutcome, number>> = {
+  victory: CLIENT_CONFIG.colors.phosphor,
+  draw: CLIENT_CONFIG.colors.info,
+  defeat: CLIENT_CONFIG.colors.amber,
+};
+
+/**
+ * Pure: which of the three readings this view's banner wears.
+ *
+ * The draw is tested FIRST, for the same reason `winnerBanner` tests it first:
+ * an own id that is somehow also empty (no session, a torn-down room) makes
+ * `view.victory` true against a `winnerId` of `''`, and a drawn match must never
+ * render as somebody's victory.
+ *
+ * DERIVED FROM THE RENDERED BANNER, not from a new view field, and that is
+ * deliberate: `ResultsView.victory` is filled by main.ts, and the draw is
+ * already unambiguous in the copy the same call site computed with
+ * `winnerBanner()`. One derivation, no second field for a caller to forget.
+ * `bannerText` (not `view.banner`) is the input so an ELIMINATION — whose
+ * caller-supplied banner is ignored entirely — can never be read as a draw.
+ */
+export function bannerOutcome(view: ResultsView): BannerOutcome {
+  if (bannerText(view) === DRAW_BANNER) return 'draw';
+  return view.victory ? 'victory' : 'defeat';
 }
 
 /** Pure: `1` → `1ST`, `9` → `9TH`, `11` → `11TH`, `22` → `22ND`. The teens are
@@ -417,10 +473,10 @@ export function closeResultsAsSpectate(): void {
 /** Mockup F3 `.res-banner .b1` — 40px/600/.3em in the outcome's colour with its
  *  own glow. `text-indent` compensates the tracking so a tracked centered line
  *  is actually centered (the home page's PLAY button set that precedent). */
-function makeBanner(text: string, isVictory: boolean): HTMLElement {
+function makeBanner(text: string, outcome: BannerOutcome): HTMLElement {
   const el = document.createElement('div');
   el.textContent = text;
-  const hue = isVictory ? CLIENT_CONFIG.colors.phosphor : CLIENT_CONFIG.colors.amber;
+  const hue = BANNER_HUES[outcome];
   el.style.cssText = [
     'font:600 40px var(--hc-font-mono)',
     'letter-spacing:.3em',
@@ -780,7 +836,7 @@ export function showResults(view: ResultsView, h: ResultsHandlers): void {
   const fieldSize = fieldSizeOf(view);
   const placement = makePlacement(view.score, fieldSize);
   const card = makeScoreCard(view.score, fieldSize);
-  panel.append(makeBanner(bannerText(view), view.victory), placement);
+  panel.append(makeBanner(bannerText(view), bannerOutcome(view)), placement);
   if (view.own != null) panel.appendChild(makeIdentity(view.own));
   panel.appendChild(card);
   // The two cut-able build blocks (amendment 28's open owner decision).

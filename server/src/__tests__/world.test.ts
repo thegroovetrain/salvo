@@ -37,7 +37,7 @@ describe('World clock + lifecycle', () => {
     const rec = w.addShip('a', 'ALPHA');
     expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(isAfloat(rec.lifecycle)).toBe(true);
-    expect(rec.isDrone).toBe(false);
+    expect(rec.role).toBe('captain');
     expect(w.ships.size).toBe(1);
     w.removeShip('a');
     expect(w.ships.size).toBe(0);
@@ -51,7 +51,7 @@ describe('World clock + lifecycle', () => {
 
   it('addShip applies the requested class (id, cached cls, and hp)', () => {
     const w = new World(1);
-    const bb = w.addShip('b', 'BRAVO', false, 'battleship');
+    const bb = w.addShip('b', 'BRAVO', 'captain', 'battleship');
     expect(bb.hullId).toBe('battleship');
     expect(bb.cls).toBe(CONFIG.shipClasses.battleship);
     expect(bb.hp).toBe(CONFIG.shipClasses.battleship.hp);
@@ -59,7 +59,7 @@ describe('World clock + lifecycle', () => {
 
   it('addShip resolves a drone hull id to its CONFIG.drones envelope', () => {
     const w = new World(1);
-    const d = w.addShip('d1', 'DRONE-01', true, 'droneMedium');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium');
     expect(d.hullId).toBe('droneMedium');
     expect(d.cls).toBe(CONFIG.drones.medium);
     // effectiveStats accepts the drone envelope: hp/kinematics flow through.
@@ -72,8 +72,8 @@ describe('World clock + lifecycle', () => {
 describe('World step — per-class kinematics', () => {
   it('a torpedo boat out-accelerates a battleship under full throttle', () => {
     const w = new World(1);
-    const dd = w.addShip('dd', 'DD', false, 'torpedoBoat');
-    const bb = w.addShip('bb', 'BB', false, 'battleship');
+    const dd = w.addShip('dd', 'DD', 'captain', 'torpedoBoat');
+    const bb = w.addShip('bb', 'BB', 'captain', 'battleship');
     // Same fresh pose so only kinematics differ.
     dd.state = { x: 0, y: 0, heading: 0, speed: 0 };
     bb.state = { x: 0, y: 0, heading: 0, speed: 0 };

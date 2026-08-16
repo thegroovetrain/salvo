@@ -1,7 +1,7 @@
 // PvE FLEET CONTROLLER (Story 5.6 — rewritten from the weaponless target-drone
 // controller it replaces).
 //
-// A fleet ship is an ORDINARY ship (World.addShip with isDrone=true); it has no
+// A fleet ship is an ORDINARY ship (World.addShip with role='fleet'); it has no
 // client. The FleetController is its "hands": every sim tick it builds a
 // sanitized-shape InputMsg per live hull and submits it through the EXACT same
 // World.submitInput / InputStore path a human uses — which is still the design
@@ -17,7 +17,7 @@
 //   * `actSeq: 0` / `actSlot: 0` — still constant. Fleet ships fit no ability
 //     (loadout.ts gives them [gun, empty, empty, empty]), so they can never
 //     activate one. Structural, not policy.
-//   * `hornSeq: 0` — still constant; World's !isDrone gate backstops it.
+//   * `hornSeq: 0` — still constant; World's fleet-hull gate backstops it.
 //   * `fireSeq` — NOW ADVANCES, but only through `wantsShot()`, which is the
 //     single place in this file that can pull a trigger. It requires an
 //     acquired target, live line of sight, and a loaded gun. There is no other
@@ -77,6 +77,7 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { shipSees } from './signals.js';
+import { isFleetHull } from './participants.js';
 import type { ShipRecord, World } from './world.js';
 
 const TAU = Math.PI * 2;
@@ -236,7 +237,7 @@ export class FleetController {
     const attacker = this.world.ships.get(byId);
     const mind = this.minds.get(victimId);
     if (!victim || !attacker || !mind) return;
-    if (attacker.isDrone) return; // fleet ships never aggro each other
+    if (isFleetHull(attacker)) return; // fleet ships never aggro each other
     if (mind.targetId === null || mind.targetId === attacker.id) this.acquire(victimId, attacker);
     this.propagateWitnesses(victim, attacker);
   }

@@ -91,7 +91,7 @@ describe('world — wounded smoke band arithmetic (exclusive lower bounds, the h
 
   it('drones smoke identically to captains (amendment 47)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE-01', true, 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
     d.state.x = 0;
     d.state.y = 0;
     d.hp = d.stats.maxHp * 0.3;

@@ -161,7 +161,16 @@ describe('shared barrel', () => {
     // 960_000): a stale client would derive the wrong rhythm from its own
     // bundled CONFIG.zone and the same zoneStartT. (NOT because CONFIG gained a
     // field: no client code reads `welcome.config` — see index.ts's PV 35 note.) and draw an open 660u safe circle over an all-storm map.
-    expect(PROTOCOL_VERSION).toBe(36);
+    // THE REQUEUE SIGNAL RIDES THE ARENA (PV 37, Story 6.3, epic-6 amendments
+    // 15/17/18): new server->client channel MSG.requeue ('rq') carrying
+    // RequeueMsg { reason: 'cohortLost' } — a queue-formed room that falls below
+    // minHumans during the countdown is sealed and can never refill, so it
+    // collapses, and the survivor must be able to tell that apart from a normal
+    // match-end disconnect (which returns home and WAITS for input). Story 6.1
+    // held the constant at 36 because MSG.queueStatus/seat ride the QUEUE room
+    // only (amendment 6); this one rides the ARENA, so that reasoning does not
+    // cover it.
+    expect(PROTOCOL_VERSION).toBe(37);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no

@@ -28,6 +28,7 @@ import {
   type MuzzleEvent,
   type OwnShip,
   type PointEvent,
+  type RequeueMsg,
   type ResultsMsg,
   type ShipClassId,
   type SpawnEvent,
@@ -283,6 +284,17 @@ export interface RoomBindingDeps {
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
   onResults: (msg: ResultsMsg) => void;
+  /**
+   * The arena's cohort-collapse signal (Story 6.3, `rq`): this lobby is gone
+   * and will never refill, so go home and queue again WITHOUT a PLAY press.
+   *
+   * It exists precisely because `onRoomLeave` cannot tell this apart from the
+   * ordinary end-of-match disconnect, which must keep landing home and waiting
+   * for input. The signal always arrives BEFORE the socket closes behind it, so
+   * the handler on the other side is latched (app/requeue.ts) — both routes
+   * reach the door, only the first may start a join.
+   */
+  onRequeue: (msg: RequeueMsg) => void;
   /** The room connection ended (any reason). */
   onRoomLeave: (code: number) => void;
   /**
@@ -415,9 +427,112 @@ function worldToneFloors(): Record<WorldFloorId, ToneFloor> {
   };
 }
 
-/** Attach frame/results/error/leave handling to a completed connection. */
-export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
-  const s: BindState = {
+/**
+ * Undo everything one `bindRoom` call attached to one Room — see bindRoom.
+ * Idempotent: calling it twice is a no-op, which is not mere tidiness (the
+ * SDK's own `EventEmitter.remove` corrupts its handler list when handed a
+ * callback it no longer holds — `indexOf` returns -1 and it pops the LAST
+ * handler instead, i.e. somebody else's).
+ */
+export type RoomUnbind = () => void;
+
+/**
+ * A Colyseus 0.17 room SIGNAL (`onLeave`/`onError`/`onDrop`/`onReconnect`):
+ * callable to register, with its own `remove` for unregistration. Structural
+ * rather than imported so the shape this module actually depends on is stated
+ * here, and so a test double can satisfy it.
+ */
+interface RoomSignal<Cb> {
+  (cb: Cb): unknown;
+  remove: (cb: Cb) => void;
+}
+
+/**
+ * Collect an SDK-returned unbind function, if we got one.
+ *
+ * `room.onMessage(type, cb)` returns `() => void` in @colyseus/sdk 0.17.43 —
+ * verified in `build/Room.d.ts`, not assumed from docs. The typeof guard is
+ * for the future/test-double case where it does not: a binding we cannot undo
+ * through the SDK is still covered by the latch (see bindRoom).
+ */
+function collectUnbind(undo: RoomUnbind[], off: unknown): void {
+  if (typeof off === 'function') undo.push(off as RoomUnbind);
+}
+
+/**
+ * THE LATCH (see bindRoom): wraps a handler so a disposed binding's callbacks
+ * are inert — the fallback for anything the SDK cannot unregister, and for a
+ * callback already in flight when the disposer runs.
+ */
+type Gate = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A) => void;
+
+/** Register on a room signal and collect its `remove` as the undo step. */
+function bindSignal<Cb>(sig: RoomSignal<Cb>, cb: Cb, undo: RoomUnbind[]): void {
+  sig(cb);
+  const remove: unknown = sig.remove;
+  if (typeof remove === 'function') undo.push(() => (remove as (c: Cb) => void)(cb));
+}
+
+/**
+ * Attach frame/results/error/leave handling to a completed connection, and
+ * return the disposer that DETACHES ALL OF IT.
+ *
+ * THE DISPOSER IS NOT OPTIONAL HOUSEKEEPING (Story 6.3 review gate). The
+ * auto-requeue races `room.leave()` against a 1000ms timeout, so when a leave
+ * hangs the client tears the Pixi app down and rebuilds the home screen WHILE
+ * THE OLD ROOM IS STILL LIVE AND CONNECTED. Every callback below closes over a
+ * destroyed game and stage; a late `results`/`sunk`/frame/`onLeave` arriving
+ * afterwards would paint match chrome (the results modal, banners, kill feed)
+ * over the freshly-rebuilt port — and it compounds across repeated collapses.
+ * main.ts pushes this onto `Game.disposers`, which `endSession()` drains.
+ *
+ * TWO MECHANISMS, DELIBERATELY BOTH. Every registration here IS genuinely
+ * unregisterable through the SDK (`onMessage` returns an unbind function; the
+ * four signals expose `remove`), so the handlers are really detached. The
+ * `live` LATCH on top of that is defence in depth for the one case the SDK
+ * cannot reach: a callback already in flight, or a future/lenient registration
+ * that hands back no undo. A no-op is the correct behaviour for both — this
+ * binding's whole world is gone.
+ */
+export function bindRoom(conn: Connection, deps: RoomBindingDeps): RoomUnbind {
+  const s = freshBindState();
+  const undo: RoomUnbind[] = [];
+  const latch = { live: true };
+  const gate: Gate =
+    (fn) =>
+    (...a): void => {
+      if (latch.live) fn(...a);
+    };
+
+  conn.sink.handler = gate((f: FrameMsg) => handleFrame(f, deps, s));
+  // The sink is a mutable field, not a registration: restore the no-op the
+  // connection was built with (connection.ts) rather than leave ours in place.
+  undo.push(() => {
+    conn.sink.handler = () => undefined;
+  });
+  bindMessages(conn, deps, gate, undo);
+  bindRoomSignals(conn, deps, s, gate, undo);
+
+  return () => {
+    if (!latch.live) return; // idempotent — see RoomUnbind (the SDK's remove() is not)
+    latch.live = false;
+    for (const off of undo) {
+      try {
+        off();
+      } catch (err) {
+        // One failed unregistration must never abandon the rest: this runs
+        // inside endSession's teardown, and the bindings still attached are
+        // exactly the ones that would paint over the new home screen.
+        console.warn('[net] room unbind step failed', err);
+      }
+    }
+    undo.length = 0;
+  };
+}
+
+/** The frame-to-frame memory a fresh binding starts with (see BindState). */
+function freshBindState(): BindState {
+  return {
     pendingSnap: false,
     slowed: false,
     dazzled: false,
@@ -428,48 +543,94 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
     splashCues: new ImpactDedup(),
     wrecks: [],
   };
-  conn.sink.handler = (f) => handleFrame(f, deps, s);
-  conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
-    deps.state.matchOver = true;
-    deps.onResults(msg);
-  });
-  conn.room.onError((code, message) => {
-    console.error('[net] room error', code, message);
-  });
-  conn.room.onLeave((code) => {
-    console.warn('[net] left room', code);
-    deps.onRoomLeave(code);
-  });
-  // Story 0.2: same-Room auto-reconnect signals. onDrop fires on an abnormal
-  // close while the SDK retries the same room (token-authenticated, listeners
-  // intact); onReconnect fires when a retry re-establishes the room.
-  conn.room.onDrop(() => {
-    console.warn('[net] connection dropped — auto-reconnecting');
-    // ACCEPTED LIMITATION (0.2): prediction keeps sampling + applying local
-    // input through the outage. The SDK buffers only the last 10 sends and the
-    // server holds the LAST RECEIVED input, so the on-screen ship diverges under
-    // un-acked steering until the resume forceSnap corrects it. The richer
-    // freeze/flag UX (visibly park the hull, disable controls) is Epic 6.7.
-    deps.onDrop();
-  });
-  conn.room.onReconnect(() => {
-    console.info('[net] reconnected — resuming ship');
-    // We missed frames during the gap and the ship kept sailing server-side.
-    // Mirror handleSpawn FULLY: drop the stale own-ship interp history, re-init
-    // prediction (forceSnap clears the pending-input ring), and arm the camera
-    // snap for the first resumed frame — after up to 60s pilotless the hull can
-    // be far from where local prediction left it, so without the snap the player
-    // gets a cross-map camera chase. onOwnSpawn fires in handleFrame once the
-    // authoritative pose (you.x/you.y) actually arrives.
-    deps.ownBuffer.clear();
-    deps.predictor.forceSnap();
-    s.pendingSnap = true;
-    // The prime is client-only UX and does NOT survive the gap: revert to the
-    // gun exactly as the sunk path does, so the first click back never fires a
-    // stale torpedo/mine the player forgot they had primed.
-    deps.resetPrime();
-    deps.onReconnect();
-  });
+}
+
+/** The two server→client MESSAGE channels. */
+function bindMessages(conn: Connection, deps: RoomBindingDeps, gate: Gate, undo: RoomUnbind[]): void {
+  collectUnbind(
+    undo,
+    conn.room.onMessage(
+      MSG.results,
+      gate((msg: ResultsMsg) => {
+        deps.state.matchOver = true;
+        deps.onResults(msg);
+      }),
+    ),
+  );
+  // Story 6.3: the cohort collapsed. Delegated verbatim — main.ts owns the
+  // teardown, the copy and the latch; net's job is only to carry the reason.
+  collectUnbind(
+    undo,
+    conn.room.onMessage(
+      MSG.requeue,
+      gate((msg: RequeueMsg) => {
+        console.warn('[net] lobby disbanded — requeuing', msg?.reason);
+        deps.onRequeue(msg);
+      }),
+    ),
+  );
+}
+
+/** The four room SIGNALS: error/leave, plus Story 0.2's same-Room drop/resume
+ *  pair. onDrop fires on an abnormal close while the SDK retries the same room
+ *  (token-authenticated, listeners intact); onReconnect when a retry lands. */
+function bindRoomSignals(
+  conn: Connection,
+  deps: RoomBindingDeps,
+  s: BindState,
+  gate: Gate,
+  undo: RoomUnbind[],
+): void {
+  bindSignal(
+    conn.room.onError,
+    gate((code: number, message?: string) => {
+      console.error('[net] room error', code, message);
+    }),
+    undo,
+  );
+  bindSignal(
+    conn.room.onLeave,
+    gate((code: number) => {
+      console.warn('[net] left room', code);
+      deps.onRoomLeave(code);
+    }),
+    undo,
+  );
+  bindSignal(
+    conn.room.onDrop,
+    gate(() => {
+      console.warn('[net] connection dropped — auto-reconnecting');
+      // ACCEPTED LIMITATION (0.2): prediction keeps sampling + applying local
+      // input through the outage. The SDK buffers only the last 10 sends and the
+      // server holds the LAST RECEIVED input, so the on-screen ship diverges under
+      // un-acked steering until the resume forceSnap corrects it. The richer
+      // freeze/flag UX (visibly park the hull, disable controls) is Epic 6.7.
+      deps.onDrop();
+    }),
+    undo,
+  );
+  bindSignal(
+    conn.room.onReconnect,
+    gate(() => {
+      console.info('[net] reconnected — resuming ship');
+      // We missed frames during the gap and the ship kept sailing server-side.
+      // Mirror handleSpawn FULLY: drop the stale own-ship interp history, re-init
+      // prediction (forceSnap clears the pending-input ring), and arm the camera
+      // snap for the first resumed frame — after up to 60s pilotless the hull can
+      // be far from where local prediction left it, so without the snap the player
+      // gets a cross-map camera chase. onOwnSpawn fires in handleFrame once the
+      // authoritative pose (you.x/you.y) actually arrives.
+      deps.ownBuffer.clear();
+      deps.predictor.forceSnap();
+      s.pendingSnap = true;
+      // The prime is client-only UX and does NOT survive the gap: revert to the
+      // gun exactly as the sunk path does, so the first click back never fires a
+      // stale torpedo/mine the player forgot they had primed.
+      deps.resetPrime();
+      deps.onReconnect();
+    }),
+    undo,
+  );
 }
 
 function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {

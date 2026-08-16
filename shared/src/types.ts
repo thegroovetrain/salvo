@@ -24,7 +24,39 @@ export const MSG = {
   // arena's gate never runs for them).
   queueStatus: 'q', // server->client QueueStatusMsg (liveness + countdown)
   seat: 'seat', // server->client: an ISeatReservation to consume into the arena
+  // Story 6.3 — the cohort-collapse signal. UNLIKE the two queue channels above
+  // this one rides the ARENA room, so amendment 6's "the arena wire contract is
+  // untouched" reasoning does not cover it and PROTOCOL_VERSION moves with it
+  // (epic-6 amendment 17).
+  requeue: 'rq', // server->client RequeueMsg (go home, then queue again)
 } as const;
+
+/**
+ * Server -> client "go home and start a fresh queue join" ("rq"), broadcast on
+ * the ARENA room immediately before the room disconnects everyone aboard
+ * (Story 6.3, epic-6 amendments 15/18).
+ *
+ * It exists for exactly one reason: the client must be able to tell a COLLAPSED
+ * COHORT apart from a normal match-end disconnect, which correctly returns to a
+ * home screen that then WAITS FOR INPUT. Only this case re-queues on its own.
+ *
+ * `reason` is a machine-readable discriminator, never a copy string — the
+ * client owns the wording (register grammar), and Story 6.7's richer
+ * reconnection UX extends this union rather than inventing a second channel.
+ *
+ * 'cohortLost' — a queue-formed room fell below CONFIG.match.minHumans during
+ * the countdown. The cohort is SEALED at forming (amendment 10) so it can never
+ * refill; the survivor is sent home and the client re-queues automatically,
+ * with no privileged position in the pool (amendment 18 deleted front-of-pool
+ * re-entry outright — the returning survivor is an ordinary new arrival).
+ *
+ * BEST-EFFORT BY CONSTRUCTION: the disconnect that follows is unconditional and
+ * is never gated on this broadcast, so an undelivered signal costs the survivor
+ * a PLAY press and nothing else — exactly the pre-6.3 behaviour.
+ */
+export interface RequeueMsg {
+  reason: 'cohortLost';
+}
 
 /**
  * Queue liveness, pushed on every change (Story 6.1).
@@ -1143,9 +1175,15 @@ export interface ResultsRow {
 
 /**
  * Server -> client end-of-match results ("r"), broadcast exactly once when the
- * match finishes. `winnerId` is '' only if no participant could be determined
- * (mutual destruction resolves to the LATEST-sunk human, so in practice it is
- * always set). Rows are sorted by placement ascending.
+ * match finishes. Rows are sorted by placement ascending.
+ *
+ * `winnerId` is '' when the match ended with NO WINNER — a genuine DRAW. Since
+ * Story 5.2's amendment 14 that is a real, reachable outcome and not a
+ * can't-happen fallback: mutual destruction resolves to the LATEST-sunk
+ * participant, but when the last captains standing share one sink-entry stamp
+ * they went down together, no "later sinker" exists, and nobody wins. The
+ * client must therefore render '' as DRAW (Story 6.3, amendment 14) rather than
+ * as an unknown or a loss.
  */
 export interface ResultsMsg {
   winnerId: string;

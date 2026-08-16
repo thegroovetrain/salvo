@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-16  # epic-6 OPEN; 6-1 landed cycle 88 (0.17.88), PV 36, amendments 1-9; 6-2 CANCELLED (amendments 11-12); cycle 89 (0.17.89) match-start fixes, amendments 13-15
+# last_updated: 2026-08-16  # epic-6 OPEN; 6-3 landed cycle 89 (0.17.89), PV 37, amendments 13-18; cycle 90 (0.17.90) match-start fixes, amendments 19-21
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -103,7 +103,7 @@
 #   cycle 85 (0.17.85)  PvE fleet rebalance: gun 6/8/10 -> 1/2/3, waves 3/2/1 -> 4/2/1 fleets — epic-5 amendment 45; PV 36 (server-side constants)
 #   cycle 86 (0.17.86)  the home scene is a different ocean every load (Eric ask); off-scope defect fixed + 20-seed sweep — PV 36 (client-only)
 #   cycle 87 (0.17.87)  home tagline: random nautical pun pool replaces the fixed line — epic-5 amendment 46; PV unchanged at 36 (client-only)
-#   cycle 89 (0.17.89)  the held start line + shared spawn lattice + sweep anchored to heading — epic-6 amendments 13-15; PV unchanged at 36
+#   cycle 90 (0.17.90)  the held start line + shared spawn lattice + sweep anchored to heading — epic-6 amendments 19-21; PV unchanged at 37
 
 generated: 2026-07-17
 last_updated: 2026-08-15
@@ -194,10 +194,9 @@ development_status:
   epic-6: in-progress
   6-1-queue-based-lobbies: done  # 2026-08-15 cycle 88 (0.17.88); PV 36; amendments 1-9
   6-2-roster-scaled-oceans: cancelled  # 2026-08-15 Eric ruling; amendments 11-12; bmad-dev-auto-result-6-2-roster-oceans-questions.md
-  # SCOPE ADDED 2026-08-04 (amendment 31): drones must not gate the win, but dropping the
-  # aliveDroneCount() guard outright makes a solo match finish the instant it activates —
-  # so 6-3 must solve solo-mode termination as part of this work. See amendment 23.
-  6-3-the-participants-only-win-check: backlog
+  # The 2026-08-04 scope note here (drones gate the win; 6-3 owes solo termination) was
+  # OVERTAKEN: 5-1 removed the gate and moved solo termination to 6-5. See deferred-work.md.
+  6-3-the-participants-only-win-check: done  # 2026-08-15 cycle 89 (0.17.89); PV 36->37; amendments 13-18
   6-4-combat-bot-ai: backlog
   6-5-solo-vs-ai-mode: backlog
   6-6-mode-select-queue-liveness: backlog

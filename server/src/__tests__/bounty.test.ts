@@ -37,7 +37,7 @@ function bareWorld(seed = 7): World {
 }
 
 function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'torpedoBoat', drone = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), drone, hull);
+  const rec = w.addShip(id, id.toUpperCase(), drone ? 'fleet' : 'captain', hull);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.speed = 0;
@@ -56,8 +56,8 @@ function captainKill(w: World, killer: string): void {
 /** A candidate snapshot. `afloat` is a test-authoring convenience only — the
  *  rule itself reads the LIFECYCLE (Story 5.1, amendment 2), so the flag is
  *  converted here, at the fixture, and nowhere in the module under test. */
-function cand(id: string, kills: number, afloat = true, isDrone = false): BountyCandidate {
-  return { id, lifecycle: afloat ? LIFECYCLE_ALIVE : sunkAt(0), isDrone, kills };
+function cand(id: string, kills: number, afloat = true, fleet = false): BountyCandidate {
+  return { id, lifecycle: afloat ? LIFECYCLE_ALIVE : sunkAt(0), role: fleet ? 'fleet' : 'captain', kills };
 }
 
 // ---------- the pure rule: nextBountyHolder ------------------------------------

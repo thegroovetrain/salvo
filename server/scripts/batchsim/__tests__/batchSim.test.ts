@@ -209,8 +209,8 @@ describe('pilots — determinism', () => {
   /** Drive one gunner against a drone target; serialize its accepted inputs. */
   function inputStream(worldSeed: number, pilotSeed: number, ticks: number, withTarget: boolean): string {
     const w = new World(worldSeed, CONFIG.match.fillTo);
-    w.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
-    if (withTarget) w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+    if (withTarget) w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
     const pilot = PILOT_REGISTRY.gunner('cap-1', pilotSeed);
     const lines: string[] = [];
     for (let t = 0; t < ticks; t += 1) {
@@ -337,8 +337,8 @@ describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
     const fireSeqAfter = (factory: (typeof PILOT_REGISTRY)['gunner'], ticks: number): number => {
       const w = new World(7, CONFIG.match.fillTo);
       w.map.islands.length = 0;
-      w.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
-      const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+      w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+      const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
       const cap = w.ships.get('cap-1')!;
       // Park a live target right inside comfortable gun range.
       target.state.x = cap.state.x + 150;
@@ -359,7 +359,7 @@ describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
   it('is deterministic per seed like every pilot', () => {
     const run = (): string => {
       const w = new World(9, CONFIG.match.fillTo);
-      w.addShip('cap-1', 'CAP-01', false, 'battleship');
+      w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
       const pilot = PILOT_REGISTRY.pacifist('cap-1', 5);
       const lines: string[] = [];
       for (let t = 0; t < 150; t += 1) {
@@ -389,8 +389,8 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
   ): { preClosure: number; final: number; endgameTicks: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
-    const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
     const cap = w.ships.get('cap-1')!;
     w.startZone();
     const pilot = factory('cap-1', 42);
@@ -435,8 +435,8 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
     try {
       const run = (worldSeed: number): string => {
         const w = new World(worldSeed, CONFIG.match.fillTo);
-        w.addShip('cap-1', 'CAP-01', false, 'battleship');
-        w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
+        w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
         w.startZone(); // the stream spans BOTH sides of the hunt gate
         const pilot = PILOT_REGISTRY.endgame('cap-1', 5);
         const lines: string[] = [];
@@ -459,8 +459,8 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
     try {
       const run = (pilotSeed: number): string => {
         const w = new World(9, CONFIG.match.fillTo);
-        w.addShip('cap-1', 'CAP-01', false, 'battleship');
-        w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
+        w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
         w.startZone();
         const pilot = PILOT_REGISTRY.endgame('cap-1', pilotSeed);
         const lines: string[] = [];
@@ -490,8 +490,8 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
       const run = (factory: (typeof PILOT_REGISTRY)['gunner']): { lines: string[]; closedAt: number } => {
         const w = new World(9, CONFIG.match.fillTo);
         w.map.islands.length = 0;
-        w.addShip('cap-1', 'CAP-01', false, 'battleship');
-        const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
+        const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
         const cap = w.ships.get('cap-1')!;
         w.startZone();
         const pilot = factory('cap-1', 5);
@@ -536,7 +536,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
   ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', false, opts.hull ?? 'battleship'); // slowest hull by default
+    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? 'battleship'); // slowest hull by default
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     if (opts.islandOffsetRad !== undefined) {
@@ -631,7 +631,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // read the rudder the pilot answers with.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', false, 'battleship');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
@@ -681,7 +681,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', false, 'battleship');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
@@ -844,9 +844,9 @@ describe('runner — at-cap classification keeps a real conclusion (review FIX 5
     // without the finished-guard, capSample routes to unresolvedSample and
     // this reads endedBy 'unresolved' with a cap-measured duration.
     const world = new World(21, 4);
-    const hooks = { lock: () => {}, unlock: () => {}, fillToCapacity: () => {}, broadcastResults: () => {}, disconnect: () => {} };
+    const hooks = { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, requeue: () => {}, disconnect: () => {} };
     const match = new Match(world, { countdownMs: 100, resultsMs: 1000, joinWindowMs: 0, minHumans: 1 }, hooks);
-    world.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
+    world.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
     match.notifyRosterChanged();
     for (let t = 0; t < 100 && match.phase !== 'finished'; t += 1) {
       world.step();

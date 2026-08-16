@@ -110,7 +110,36 @@ export function contactStyle(hullId: HullId, index: number | null): ShipStyle {
   return isDroneHull(hullId) ? DRONE_STYLE : hullStyle(index);
 }
 
-/** True for the three drone hull ids (which never carry a personal hue). */
+/**
+ * True for the three drone hull ids (which never carry a personal hue).
+ *
+ * WHY THIS IS HULL-ID-BASED, AND NOT A FLAG (Story 6.3, epic-6 amendment 13).
+ * The server's answer is a field — `ShipRecord.isDrone` / the ship-role seam —
+ * and that field is NOT on the wire: there are zero occurrences of it in
+ * `shared/`, by design (an explicit "this one is a bot" bit would be a
+ * perception widening the frame chokepoint has never granted). What the client
+ * holds is `Contact.cls`, a `HullId`, so the hull id IS the client's only
+ * evidence and this predicate is the client's SECOND, independent
+ * non-combatant test. `deferred-work.md` has carried the warning since Story
+ * 5.6: two predicates exist by necessity and must be kept in step.
+ *
+ * THE INVARIANT THAT KEEPS THEM ALIGNED: a hull id is a drone hull id **iff**
+ * it is in shared's `DRONE_HULL_IDS`. PvE fleet hulls spawn on those three ids
+ * and nothing else does — a captain, human or AI, carries a real class hull id
+ * (`torpedoBoat` / `battleship` / `mineLayer`), which is precisely why Story
+ * 6.4's bot captains do not move this function: a bot is a participant that is
+ * not a fleet hull, and it will render in a personal hue like any captain.
+ *
+ * This predicate answers "is this a PvE FLEET HULL" — presentation and economy
+ * (greyscale style, nameplate, kill-feed suppression). It is NOT the
+ * participant test; the client never runs one, because the match outcome is
+ * decided server-side and arrives as `ResultsMsg`.
+ *
+ * `ships.test.ts` PINS the set against `DRONE_HULL_IDS` / `HULL_IDS` so a hull
+ * id added server-side fails a test rather than silently mis-classifying a ship
+ * (a new drone hull would render in a personal hue and count as a contestant; a
+ * new class listed as a drone would lose its hue).
+ */
 export function isDroneHull(hullId: HullId): boolean {
   return hullId === 'droneSmall' || hullId === 'droneMedium' || hullId === 'droneLarge';
 }

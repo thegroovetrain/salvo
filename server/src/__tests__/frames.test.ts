@@ -93,7 +93,7 @@ describe('buildFrame — shape and clock', () => {
     // OwnShip.cls is a ShipClassId by construction; a drone hull id reaching
     // toOwnShip means a drone was mis-routed to a client frame — fail loud.
     const w = makeWorld();
-    w.addShip('drone1', 'DRONE', true, 'droneMedium');
+    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium');
     expect(() => buildFrame(w, 'drone1')).toThrow(/drone hull id/);
   });
 
@@ -147,7 +147,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
 
   it('drone contacts carry their DRONE hull id on the wire (Contact.cls: HullId)', () => {
     const w = makeWorld();
-    const d = w.addShip('d1', 'DRONE-01', true, 'droneMedium');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium');
     d.state.x = 0;
     d.state.y = 120; // inside a's sight bubble
     d.state.heading = 0;

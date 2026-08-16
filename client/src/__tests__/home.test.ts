@@ -13,6 +13,7 @@ import {
   deploySubline,
   homeYieldStyle,
   queueStatusLine,
+  requeueStatusLine,
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
@@ -82,6 +83,28 @@ describe('queueStatusLine — Story 6.1 queue liveness copy', () => {
   it('carries NO mode selector and NO liveness panel copy (both are Story 6.6)', () => {
     const armed = queueStatusLine({ n: 4, min: 2, cap: 20, startsInMs: 30_000 }).text;
     expect(armed).not.toMatch(/SOLO|MODE|VS AI/);
+  });
+});
+
+describe('requeueStatusLine — Story 6.3 collapse copy', () => {
+  it('is the queue register grammar: uppercase, one line, info tone', () => {
+    const line = requeueStatusLine();
+    expect(line.tone).toBe('info'); // a wait, not a failure — never `denied`
+    expect(line.text).toBe(line.text.toUpperCase());
+    expect(line.text).not.toContain('\n');
+  });
+
+  it('says what happened AND that a search is already under way', () => {
+    const { text } = requeueStatusLine();
+    expect(text).toMatch(/DISBANDED/);
+    expect(text).toMatch(/SEARCHING/);
+  });
+
+  // The honesty clause (R7): nobody did anything wrong, so the line must not
+  // read as a fault, an error, or an accusation aimed at the captain who left.
+  it('blames nobody and reports no error', () => {
+    const { text } = requeueStatusLine();
+    expect(text).not.toMatch(/ERROR|FAIL|SORRY|LOST CONNECTION|DISCONNECT|ABANDON|QUIT|LEFT/);
   });
 });
 

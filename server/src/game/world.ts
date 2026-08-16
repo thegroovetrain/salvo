@@ -131,6 +131,17 @@ import {
 } from './spawn.js';
 import { logWarn } from '../log.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
+// The ship-role seam (Story 6.3). ALIASED on import purely to keep them
+// distinct from World's own `isFleetHull(id)` method, which answers the same
+// question from an id (and fails closed on an absent record) rather than from
+// a record — the method is expressed in terms of `roleIsFleetHull` below, so
+// there is still exactly ONE definition.
+import {
+  isFleetHull as roleIsFleetHull,
+  isHuman as roleIsHuman,
+  isParticipant as roleIsParticipant,
+  type ShipRole,
+} from './participants.js';
 
 const TAU = Math.PI * 2;
 
@@ -322,7 +333,15 @@ export interface Decoy {
 export interface ShipRecord {
   id: string;
   name: string;
-  isDrone: boolean;
+  /**
+   * WHAT THIS HULL IS (Story 6.3, amendment 13) — the replacement for the
+   * shipped `isDrone` boolean, which conflated three different questions
+   * ("is it a person", "does it contest the outcome", "is it world content").
+   * Read it ONLY through game/participants.ts's predicates — isHuman /
+   * isParticipant / isFleetHull — never by comparing the string ad hoc. Story
+   * 6.4 adds `'bot'` to the union and every consumer follows for free.
+   */
+  role: ShipRole;
   /**
    * Hull identity (fixed for the ship's whole life): a player's picked
    * ShipClassId, or a drone's drone hull id. THE key into hullSilhouette()/
@@ -1183,7 +1202,7 @@ export class World {
    *  the mandatory detachWake at a teleport has nothing to detach here — the
    *  bogus cross-map segment it exists to prevent is structurally impossible
    *  on this path. */
-  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at?: Vec2): ShipRecord {
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at?: Vec2): ShipRecord {
     const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase);
     const heading = Math.atan2(-p.y, -p.x);
     const cls = hullEnvelope(hullId);
@@ -1193,7 +1212,7 @@ export class World {
     const rec: ShipRecord = {
       id,
       name,
-      isDrone,
+      role,
       hullId,
       cls,
       hullPoly: [],
@@ -1211,8 +1230,10 @@ export class World {
       // nothing on the hull's first tick.
       // (Wake ring provisioned from the TRUE attainable top speed — Story 4.12.)
       wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading),
-      // THE DECK (2.8): over the fresh fit; drones never get one (pinned).
-      deck: isDrone ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
+      // THE DECK (2.8): over the fresh fit; fleet hulls never get one (pinned).
+      // ECONOMY, so it keys on the FLEET reading — an AI captain (6.4) is a
+      // participant that plays the game, and gets a deck like any other.
+      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
       xpMs: 0, level: 0,
@@ -1424,7 +1445,7 @@ export class World {
     // fresh deck — but the deck STREAM is deliberately NOT reseeded (ship.
     // deckRng persists), so a player's whole-session draw sequence stays a pure
     // function of (mapSeed, join ordinal, draw count). Drones keep EMPTY_DECK.
-    ship.deck = ship.isDrone
+    ship.deck = roleIsFleetHull(ship)
       ? EMPTY_DECK
       : buildDeck(this.boonCatalog, World.carriedEquipment(ship.loadout));
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
@@ -1581,7 +1602,9 @@ export class World {
     if (!by || by === victim.id) return;
     const killer = this.ships.get(by);
     if (!killer) return;
-    if (victim.isDrone) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
+    // The PvE TALLY keys on the fleet reading (economy): `pveKills` counts
+    // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
+    if (roleIsFleetHull(victim)) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
     else killer.kills += 1;
     const bonus = victimHeldBounty ? CONFIG.bounty.killLevels : 0;
     this.grantXp(killer, World.killXpLevels(victim) + bonus);
@@ -1595,7 +1618,7 @@ export class World {
   private recomputeBounty(): void {
     const cands: BountyCandidate[] = [];
     for (const s of this.ships.values()) {
-      cands.push({ id: s.id, lifecycle: s.lifecycle, isDrone: s.isDrone, kills: s.kills });
+      cands.push({ id: s.id, lifecycle: s.lifecycle, role: s.role, kills: s.kills });
     }
     this.bountyId = nextBountyHolder(this.bountyId, cands);
   }
@@ -1608,7 +1631,7 @@ export class World {
    * id pays nothing (fail-closed).
    */
   private static killXpLevels(victim: ShipRecord): number {
-    if (!victim.isDrone) return CONFIG.xp.killLevels;
+    if (!roleIsFleetHull(victim)) return CONFIG.xp.killLevels;
     const tiers: Partial<Record<HullId, number>> = CONFIG.xp.droneTierLevels;
     return tiers[victim.hullId] ?? 0;
   }
@@ -1638,7 +1661,7 @@ export class World {
    *  non-finite input — a plain `<= 0` is false for NaN (which would poison
    *  `xpMs` forever) and for Infinity (which would spin the bank loop). */
   private addXpMs(ship: ShipRecord, ms: number): void {
-    if (ship.isDrone || !Number.isFinite(ms) || ms <= 0) return;
+    if (roleIsFleetHull(ship) || !Number.isFinite(ms) || ms <= 0) return;
     ship.xpMs += ms;
     while (ship.xpMs >= CONFIG.xp.levelMs) {
       ship.xpMs -= CONFIG.xp.levelMs;
@@ -2162,9 +2185,13 @@ export class World {
    * round is reloading — with the shared ammo machine an empty weapon pool
    * always has its reload running) and 'no-ammo' on the ABILITY channel (no
    * charge). The gate's 'dead'/'empty-slot' refusals never reach the wire
-   * (client-predictable / honest-client-unreachable). Drones have no client,
-   * so their denials are never queued. `seq` is the press identity the
-   * client dedups on (fireSeq for clicks, actSeq for ability presses).
+   * (client-predictable / honest-client-unreachable). A denial is a
+   * SELF-PRIVATE wire message, so it is queued for a REAL CONNECTED CAPTAIN
+   * only — the one site keyed on isHuman rather than on the fleet/participant
+   * split, because what it needs is a socket at the other end, not a stake in
+   * the outcome (a 6.4 AI captain drives itself and has nobody to tell).
+   * `seq` is the press identity the client dedups on (fireSeq for clicks,
+   * actSeq for ability presses).
    */
   private queueDenial(
     ship: ShipRecord,
@@ -2173,7 +2200,7 @@ export class World {
     denial: ActivationDenial,
     channel: 'weapon' | 'ability',
   ): void {
-    if (ship.isDrone) return;
+    if (!roleIsHuman(ship)) return;
     const reason = World.wireDenialReason(denial, channel);
     if (reason === null) return;
     const queue = this.pendingDenials.get(ship.id) ?? [];
@@ -2458,7 +2485,8 @@ export class World {
    *  denial set, the roster/kill accounting — so "is this a fleet ship" has a
    *  single answer and an absent record fails closed. */
   isFleetHull(id: string): boolean {
-    return this.ships.get(id)?.isDrone === true;
+    const s = this.ships.get(id);
+    return s !== undefined && roleIsFleetHull(s);
   }
 
   // -------------------------------------------------------------------------
@@ -2533,14 +2561,19 @@ export class World {
     return pickFleetAnchor({ x: ring.cx, y: ring.cy }, max, this.map.islands, occupied, this.captainDiscs(), this.rng);
   }
 
-  /** Every afloat CAPTAIN's intel disc, at their EFFECTIVE `stats.radarRange`
+  /** Every afloat PARTICIPANT's intel disc, at their EFFECTIVE `stats.radarRange`
    *  (a stacked intel build denies the area it actually sees). THE one
    *  derivation of the denied region: the anchor and the per-hull scatter both
-   *  read it, so they can never disagree about where a fleet may appear. */
+   *  read it, so they can never disagree about where a fleet may appear.
+   *
+   *  KEYED ON THE PARTICIPANT READING (Story 6.3): the rule is "a hull that
+   *  contests the match denies intel around itself" — a fleet may not
+   *  materialize inside anyone's scope. A 6.4 AI captain has a scope and must
+   *  deny like any other combatant; only fleet hulls deny nothing. */
   private captainDiscs(): IntelDisc[] {
     const denied: IntelDisc[] = [];
     for (const s of this.ships.values()) {
-      if (!isAfloat(s.lifecycle) || s.isDrone) continue;
+      if (!isAfloat(s.lifecycle) || !roleIsParticipant(s)) continue;
       denied.push({ x: s.state.x, y: s.state.y, r: s.stats.radarRange });
     }
     return denied;
@@ -2564,7 +2597,7 @@ export class World {
       // The name is the HULL's name, not a numbered roster identity (amendment
       // 39): fleet hulls hold no PlayerMeta row, and every client-side surface
       // reads `DRONE` off Contact.cls. Never `DRONE-07`.
-      this.addShip(id, FLEET_SHIP_NAME, true, hullId, DEFAULT_HORN_ID, {
+      this.addShip(id, FLEET_SHIP_NAME, 'fleet', hullId, DEFAULT_HORN_ID, {
         x: anchor.x + offset.x,
         y: anchor.y + offset.y,
       });
@@ -3473,7 +3506,10 @@ export class World {
     // Afloat OR SINKING (Story 5.2, amendment 10 — "Weapons and equipment
     // only. And foghorn."): the horn is named alongside the slots, so a
     // sinking captain keeps the last word.
-    if (!pressed || (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || ship.isDrone || this.now < ship.nextHonkAt) return;
+    // Fleet hulls never honk (they emit hornSeq 0 forever; this is the
+    // backstop). ECONOMY/CONTENT reading, not the participant one — a hull
+    // driven through the input pipeline may legitimately sound its horn.
+    if (!pressed || (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || roleIsFleetHull(ship) || this.now < ship.nextHonkAt) return;
     ship.nextHonkAt = this.now + CONFIG.foghorn.cooldownMs;
     this.pending.push({ k: 'fh', h: ship.horn, x: ship.state.x, y: ship.state.y, id: ship.id });
   }

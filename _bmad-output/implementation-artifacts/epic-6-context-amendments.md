@@ -289,7 +289,139 @@ small-lobby leveling runs away, but "does a 2-captain 2800u ocean feel empty, an
 out-threaten the PvP down there" needs eyes on the water. Ledgered to the standing playtest
 checkpoint rather than guessed at.
 
-## Amendment 13 — The start line IS the start line. Boarding placement is the match spawn.
+## Amendment 13 — The participant seam is built NOW, ahead of its consumer.
+**Source:** Eric, 2026-08-15, Story 6.3 question gate. **Overrules the orchestrator's recommendation.**
+
+The gate reported honestly that Story 6.3 was ~80% already satisfied: the captains-only win check
+landed in 5-1 (amendment 4), the sinking/latch semantics in 5-2 (amendment 20), the PvE exclusion in
+5-6, and all three of the AC's named tests already exist and pass. The orchestrator recommended
+**gap-close and mark done**, deferring the "AI combatants are participants" half to 6-4/6-5 on the
+grounds that designing a predicate with no consumer is designing blind.
+
+**Eric chose to build the full seam now.** Recorded as an override, not as agreement.
+
+What that means concretely: `ShipRecord.isDrone` today does TWO jobs — it means *"this is a PvE fleet
+hull"* (economy tier, kill-feed suppression, bounty exclusion, fleet aggro, nameplate greyscale) and
+it means *"this is not a participant"* (win check, placements, results rows, the sinking hold). Those
+are the same set today and stop being the same set the moment Story 6.4 lands AI captains, who are
+participants and are not fleet hulls. The seam splits the two readings so that 6.4 changes ONE
+definition rather than auditing sixty call sites under time pressure.
+
+`isDrone` is NOT on the wire — zero occurrences in `shared/` — so this is entirely a server/client
+internal refactor and costs no protocol movement of its own.
+
+**The client's second predicate moves in step.** `deferred-work.md` has carried *"a non-combatant
+predicate now exists in two places, by necessity, and they must be kept in step"* since Story 5.6;
+the client tests hull id (`isDroneHull`) because it has no flag to read. That stays true — a bot
+captain will carry a real class hull id — but the seam is pinned by a test so the two cannot drift
+silently.
+
+## Amendment 14 — A draw gets its own read.
+**Source:** Eric, 2026-08-15, Story 6.3 question gate.
+
+A same-tick mutual kill has been a genuine outcome since Story 5.2 (`winnerId: ''`, epic-5
+amendment 14), but it has never LOOKED like one: `makeBanner` renders the DRAW banner in amber, the
+same hue a loss wears, and `spectateBannerText` has no draw case at all — a drawn match reads
+`MATCH OVER — SPECTATING`, identical to watching someone else win.
+
+Ruled: the draw is rendered distinctly from both victory and defeat, and the spectate banner gains a
+draw case. It is the one match outcome a player currently cannot tell apart from losing.
+
+Presentation only; the draw's RESOLUTION (latched at the wipe tick, `mutualDestructionWinner()`) is
+untouched. The hue comes from `DESIGN.md`, not invented at the call site.
+
+## Amendment 15 — A stranded survivor returns to the QUEUE, not home.
+**Source:** Eric, 2026-08-15, Story 6.3 question gate. **A third option, not previously offered.**
+
+Amendment 10 left this UNRULED and shipped the conservative call: a sealed 2-captain cohort that
+loses one during the 0:10 countdown can never refill, so the room collapses (`hooks.disconnect()`)
+and the survivor lands home. Amendment 10 named exactly two futures — keep the collapse, or start
+the match anyway with one captain (which needs the solo-termination rule Story 6-5 still owes).
+
+**Eric took neither.** The survivor is returned to the queue rather than dumped home: they were
+one captain short through no fault of their own, and sending them back to the menu makes them pay
+the full 2:00 wait again for someone else's disconnect.
+
+**The honest limit of this, recorded rather than glossed:** `armedAtMs` is a COHORT property that
+forming deliberately clears (see `queue.ts`'s `QueueState.armedAtMs` — a deadline later joins could
+extend is the hostage-cycling vector amendment 3 closed). A returning survivor therefore cannot
+inherit a running deadline; what they get is re-entry without a page reload and FRONT-of-pool
+position, so they seat first when the next cohort forms. If the pool they return to is empty — the
+common case, since this is only reachable from a 2-captain lobby — they wait for a second captain
+exactly as any lone captain does (amendment 4). The 2:00 clock genuinely does restart; the menu trip
+does not.
+
+This does NOT revive the "start anyway with one captain" option: a solo standard match still has no
+termination rule, and `queue.ts` still refuses to form one.
+
+## Amendment 16 — `match.end` gains an outcome discriminator; `lastHumanLeft` is retired.
+**Source:** Eric, 2026-08-15, Story 6.3 question gate.
+
+Two telemetry defects, both surfaced at the gate, both ruled fixed:
+
+1. **A draw is indistinguishable from an unfinished match.** `MatchEndSummary.winnerClass` is `null`
+   for a genuine draw AND `null` whenever the winner lookup misses, so no consumer can count draws.
+   An explicit outcome field lands beside it.
+2. **`endedBy: 'lastHumanLeft'` is unreachable through any real socket session** and has been since
+   the drone-gate removal — `ArenaRoom` steps the world and the match synchronously, so a departure
+   can never land between a sink and the next win check. It survives only because a unit test drives
+   sink-then-leave with no tick between. It is REMOVED, under the project's standing "no dead knob
+   survives" rule (the same rule that deleted grey NO-DATA in cycle 69 and the storm radar return in
+   cycle 72), rather than kept as a category only a synthetic test can produce.
+
+Telemetry only — `MatchEndSummary` rides the `match.end` log line and never the wire.
+
+## Amendment 17 — `PROTOCOL_VERSION` 36 → 37: the requeue signal rides the ARENA.
+**Source:** Orchestrator, 2026-08-15. Not an Eric ruling.
+
+Amendment 15 needs the arena to tell a stranded survivor *"go back to the queue"* rather than merely
+dropping them, and that is a new server→client channel on the ARENA room. Amendment 6's reasoning for
+holding PV at 36 through Story 6.1 was explicit and narrow — the queue's channels *"ride the queue
+room only"*, leaving the arena wire contract untouched. That reasoning does not cover this one, so
+the version moves.
+
+The bump is cheap and safe by construction: `protocolVersionError` in `roomOptions.ts` rejects a
+mismatched `pv` at the door, and amendment 5 moved that gate to the queue, so a stale client is
+turned away with a clear message rather than half-joining a contract it cannot read.
+
+## Amendment 18 — The stranded survivor goes HOME and re-queues automatically. Supersedes amendment 15's re-entry clause.
+**Source:** Eric, 2026-08-15, on the orchestrator surfacing the front-of-pool security problem.
+> "That doesn't provide any player value. I'd rather go back to the home screen and automatically
+> join the next queue."
+
+Amendment 15 ruled that a survivor of a collapsed cohort returns to the QUEUE rather than home, with
+FRONT-of-pool position. Building it safely turned out to be the whole difficulty, and the orchestrator
+surfaced it rather than quietly shipping the exploitable version:
+
+- a client-asserted `requeued: true` join option is a **trivial queue-jump** — any client can claim it;
+- a server-issued token needs state shared between `ArenaRoom` and `StandardQueueRoom`, which **D8
+  forbids assuming** (no same-process room co-residency), re-affirmed by amendment 5.
+
+Which left front-of-pool worth almost nothing anyway: this path is only reachable from a 2-captain
+lobby, so the pool being returned to is nearly always EMPTY and there is nothing to be in front of.
+Eric's response is the correct simplification, not a concession.
+
+**Ruled:** the survivor returns to the HOME SCREEN — the shipped teardown, unchanged — and the CLIENT
+then joins the next queue automatically, without the player pressing PLAY. The player-facing promise
+of amendment 15 ("you do not pay for someone else's disconnect with a menu trip") is kept; the
+mechanism that could not be secured is dropped.
+
+**What this deletes from the plan:** `StandardQueueRoom` is not touched at all — no pool re-entry, no
+front-insertion, no privileged position of any kind, so there is no new exploit surface to reason
+about and the queue's arm/form policy in `queue.ts` is byte-identical.
+
+**What survives from amendment 15:** the arena must still SIGNAL this case, because the client has to
+tell a collapsed cohort apart from a normal match-end disconnect (which correctly returns to a home
+screen that then waits for input). So `MatchHooks.requeue()` and the arena→client channel stay, and
+amendment 17's `PROTOCOL_VERSION` 36 → 37 stands. The signal's MEANING changes from "re-enter the
+queue in place" to "go home and start a fresh queue join".
+
+**Unchanged and worth restating:** the 2:00 clock still restarts, because `armedAtMs` is a cohort
+property that forming deliberately clears (amendment 3's hostage-cycling fix). No ruling has ever
+promised otherwise. And this still does NOT revive "start the match anyway with one captain" — a solo
+standard match has no termination rule until Story 6-5.
+
+## Amendment 19 — The start line IS the start line. Boarding placement is the match spawn.
 **Source:** Eric, 2026-08-16, reporting the defect.
 > "After the countdown, it jumps them to a new random start location. I would like for it to place
 > them into the game in the spot they will spawn in from the beginning, instead."
@@ -343,10 +475,10 @@ horn is none of the three"*) and carries a bearing plus a recognizable horn vari
 was free while spawns were thrown away; with permanent spawns a honk gives away a real starting
 bearing. Eric: *"Is anyone even close enough to hear it? Who the hell cares?"* Accepted. Note for the
 record that the **audio is not panned** (`playHorn` takes gain only) but the **direction is drawn** —
-a fading screen-edge chevron in `render/foghorn.ts`. Post-amendment-14 the minimum separation is 700.8u,
+a fading screen-edge chevron in `render/foghorn.ts`. Post-amendment-20 the minimum separation is 700.8u,
 which is *outside* the 660u horn range, so this leak largely closes as a side effect.
 
-## Amendment 14 — Twenty slots for twenty captains. Even spacing by construction.
+## Amendment 20 — Twenty slots for twenty captains. Even spacing by construction.
 **Source:** Eric, 2026-08-16.
 > "there is no reason to have 32 potential start slots in a game meant for 20 players."
 
@@ -410,7 +542,7 @@ any spacing. Rough sizing: tight clusters (~100u apart) need map radius ~3024u (
 800u inter-team separation needs ~3195u (+14%). Amendment 11 left `mapRadius()`, `capRef` and
 `WelcomeMsg.playerCap` in place for exactly this, and this is the amendment that cashes that bet.
 
-## Amendment 15 — Your radar sweep starts at your heading.
+## Amendment 21 — Your radar sweep starts at your heading.
 **Source:** Eric, 2026-08-16, amending the orchestrator's proposal.
 > "2 is a good idea, but it might be better if instead your radar sweep starts at the same heading you
 > start?"
@@ -438,11 +570,11 @@ which is strictly better than randomizing, since a random phase hands some playe
 others a bad one every match.
 
 **Accepted cost:** it is deterministic, so a player doing the math knows when a neighbour's beam will
-sweep them. Judged not binding, since amendment 14 already makes positions derivable at cap 20.
+sweep them. Judged not binding, since amendment 20 already makes positions derivable at cap 20.
 
 Applied at every placement edge so there is ONE rule, not three (`addShip`, `redeployShip`, and
 `respawn` where it re-places). `prevSweepAngle` must be set EQUAL to `sweepAngle` so the half-open
 paint arc `[prev, sweep)` is zero-width on the first tick and nothing paints from the seam.
 
-**`PROTOCOL_VERSION` stays 36 for all three of amendments 13-15** — no wire shape moves. Placement,
+**`PROTOCOL_VERSION` stays 37 for all three of amendments 19-21** — no wire shape moves. Placement,
 sweep phase and the candidate lattice are all server-authoritative internals.

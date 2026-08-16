@@ -30,7 +30,7 @@ const BASE: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 }
 const GRACE_MS = 1000;
 
 function noopHooks(): MatchHooks {
-  return { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, disconnect: () => {} };
+  return { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, requeue: () => {}, disconnect: () => {} };
 }
 
 interface Ctx {
@@ -544,6 +544,7 @@ describe('a queue-formed cohort is sealed', () => {
       lock: () => calls.push('lock'),
       unlock: () => calls.push('unlock'),
       broadcastResults: () => {},
+      requeue: () => calls.push('requeue'),
       disconnect: () => calls.push('disconnect'),
     };
     const m = new Match(w, { ...BASE, boardingGraceMs: GRACE_MS, ...timings }, hooks);
@@ -562,7 +563,23 @@ describe('a queue-formed cohort is sealed', () => {
     expect(ctx.m.phase).toBe('waiting');
     // Locked once, NEVER unlocked — and collapsed rather than left to strand the
     // survivor in a sealed room that can never reach minHumans again.
-    expect(calls).toEqual(['lock', 'disconnect']);
+    //
+    // THE REQUEUE SIGNAL RIDES IN FRONT OF THE COLLAPSE (Story 6.3, epic-6
+    // amendment 15): the survivor goes back to the QUEUE rather than home, so
+    // they do not pay a menu trip for someone else's disconnect. ORDER IS
+    // LOAD-BEARING and pinned here — the room must be told where to send them
+    // before it is told to send them away.
+    expect(calls).toEqual(['lock', 'requeue', 'disconnect']);
+  });
+
+  it('a larger cohort losing one captain never requeues anyone', () => {
+    // The signal is confined to the ONE branch that collapses a sealed room.
+    const { ctx, calls } = sealedSetup({ expectedCaptains: 4 });
+    for (const id of ['a', 'b', 'c', 'd']) join(ctx, id);
+    expect(ctx.m.phase).toBe('countdown');
+    ctx.m.onPlayerLeave('d');
+    expect(calls).not.toContain('requeue');
+    expect(calls).not.toContain('disconnect');
   });
 
   it('a larger cohort losing one captain is untouched — it still has enough', () => {
@@ -577,7 +594,9 @@ describe('a queue-formed cohort is sealed', () => {
   });
 
   it('the dev/sandbox ready room still unlocks, exactly as it always has', () => {
-    // The compatibility contract: no expectedCaptains means nothing moved.
+    // The compatibility contract: no expectedCaptains means nothing moved —
+    // including the amendment-15 requeue, which is a QUEUE-formed-room signal
+    // and must never reach the dev/sandbox door (there is no pool to return to).
     const { ctx, calls } = sealedSetup({});
     join(ctx, 'a');
     join(ctx, 'b');
