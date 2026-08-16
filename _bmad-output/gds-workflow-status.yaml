@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-08-15'  # EPIC 6 OPEN. Story 6-3 (The Participants-Only Win Check) landed cycle 89 (0.17.89), PV 36->37, epic-6 amendments 13-18. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
+last_updated: '2026-08-16'  # EPIC 6 OPEN. Story 6-3 (The Participants-Only Win Check) landed cycle 89 (0.17.89), PV 36->37, epic-6 amendments 13-18. Cycle 90 (0.17.90) match-start fixes: held start line + shared spawn lattice + sweep anchored to heading, epic-6 amendments 19-21, PV unchanged at 37. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle

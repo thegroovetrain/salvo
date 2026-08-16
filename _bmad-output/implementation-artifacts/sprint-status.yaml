@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-15  # epic-6 OPEN; 6-3 landed cycle 89 (0.17.89), PV 37, amendments 13-18
+# last_updated: 2026-08-16  # epic-6 OPEN; 6-3 landed cycle 89 (0.17.89), PV 37, amendments 13-18; cycle 90 (0.17.90) match-start fixes, amendments 19-21
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -103,6 +103,7 @@
 #   cycle 85 (0.17.85)  PvE fleet rebalance: gun 6/8/10 -> 1/2/3, waves 3/2/1 -> 4/2/1 fleets — epic-5 amendment 45; PV 36 (server-side constants)
 #   cycle 86 (0.17.86)  the home scene is a different ocean every load (Eric ask); off-scope defect fixed + 20-seed sweep — PV 36 (client-only)
 #   cycle 87 (0.17.87)  home tagline: random nautical pun pool replaces the fixed line — epic-5 amendment 46; PV unchanged at 36 (client-only)
+#   cycle 90 (0.17.90)  the held start line + shared spawn lattice + sweep anchored to heading — epic-6 amendments 19-21; PV unchanged at 37
 
 generated: 2026-07-17
 last_updated: 2026-08-15
@@ -370,4 +371,8 @@ action_items:
   - epic: 6
     action: "spec-6-1-queue-based-lobbies.md frontmatter still reads status 'ready-for-dev' though the story merged as cycle 88 (PR #146); its Spec Change Log, Review Triage Log and Verification sections are empty. Closeout gap surfaced at the 6-2 gate, flagged rather than edited"
     owner: "spec closeout"
+    status: open
+  - epic: 6
+    action: "THE SPAWN RING IS SATURATED at cap 20 (703.7u of arc per captain against a 660u radar requirement), so cycle 89's even spacing is forced and spawn positions are therefore DERIVABLE; and duo/trio queues do not fit at any spacing (teammates in mutual LOS eat the inter-team gap to ~370u). Both want a bigger ocean — the reopening amendment 11 left the mapRadius() curve in place for. Full reasoning + sizing: epic-6 amendment 14"
+    owner: "Eric (ruling — map size, gated on teams)"
     status: open

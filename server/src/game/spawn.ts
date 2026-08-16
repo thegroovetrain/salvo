@@ -3,13 +3,14 @@
 // the candidate farthest from every existing ship wins (max-min-distance).
 // Mapgen keeps island edges at least SPAWN_MARGIN (64u) off the ring; the
 // per-hull clearance here is the LARGEST hull bounding radius (≈62.29u for the
-// battleship, whose stern corners reach past length/2). With 32 candidates on
-// the ring a valid one normally remains; when none do (a pathological map) the
-// VALIDATED fallback sweeps a finer ring, then smaller circles toward the map
-// center — which mapgen keeps island-free (INNER_FRACTION) — so the returned
-// point is ALWAYS island-clear, never a best-effort overlapping one.
+// battleship, whose stern corners reach past length/2). With one candidate per
+// player slot a valid one normally remains; when none do (a pathological map)
+// the VALIDATED fallback sweeps a finer ring, then smaller circles toward the
+// map center — which mapgen keeps island-free (INNER_FRACTION) — so the
+// returned point is ALWAYS island-clear, never a best-effort overlapping one.
 
 import {
+  CONFIG,
   HULL_IDS,
   dist,
   hullSilhouette,
@@ -23,8 +24,31 @@ import {
 
 const TAU = Math.PI * 2;
 
-/** Evenly spaced candidate points sampled on the spawn ring. */
-export const SPAWN_CANDIDATES = 32;
+/**
+ * Evenly spaced candidate points sampled on the spawn ring — ONE PER PLAYER
+ * SLOT (Eric ruling 2026-08-16: *"no reason to have 32 potential start slots in
+ * a game meant for 20 players"*). DERIVED, never a literal: the count IS
+ * `CONFIG.map.playerCap`, so the lattice a full lobby is drawn from has exactly
+ * as many slots as there are captains to fill it.
+ *
+ * The lattice's even spacing is 2·spawnRing·sin(π/playerCap) = 700.8u, clear of
+ * the 660u radar range, where the retired literal 32 gave 439u — INSIDE radar,
+ * so two captains could start the match already painting each other. That
+ * inequality is pinned as a constraint test in spawn.test.ts so retuning the
+ * cap, the map radius, the spawn fraction or radar range fails the build.
+ *
+ * THE COUNT IS ONLY HALF OF IT — the phase is the other half, and both are
+ * required. `pickSpawn` used to re-roll its `offset` on EVERY call, so each
+ * hull came off its own independently rotated lattice and a full lobby never
+ * shared one; the count alone moved measured min pairwise separation from
+ * 359-475u (32 candidates) to only 352-483u (20), inside radar on every one of
+ * 60 seeds either way. The `phase` parameter below is what closes that: World
+ * draws ONE lattice phase per match and passes it at all three placement edges,
+ * which is what actually delivers Eric's ruled outcome — *"No participants
+ * should start so close to each other that they can see each other, let alone
+ * radar scan each other."*
+ */
+export const SPAWN_CANDIDATES = CONFIG.map.playerCap;
 
 /** Finer deterministic ring sweep for the validated fallback. */
 const FALLBACK_CANDIDATES = 256;
@@ -213,17 +237,42 @@ export function pickFleetAnchor(
 /**
  * Pick a spawn point on the map's spawn ring: not inside (or hugging) any
  * island, maximizing the minimum distance to `occupied` ship positions.
- * With no occupied ships the phase offset makes the pick uniformly random.
+ * With no occupied ships the phase offset makes the pick uniformly random —
+ * per CALL without a shared phase, per MATCH with one (under a shared lattice
+ * the first hull always takes the same slot, and it is the lattice's rotation
+ * that carries the randomness; relative geometry is therefore fixed by
+ * placement order, which is what makes the first two hulls exactly antipodal).
  * A validated finer sweep covers the pathological map (see fallbackSpawn).
+ *
+ * `phase` (Eric ruling 2026-08-16) rotates the candidate lattice. OMIT IT and
+ * the behavior is exactly what shipped — one fresh `rng.float(0, TAU)` drawn
+ * per call, i.e. a lattice rotated independently for every hull. PASS IT and
+ * every caller sharing that value draws from ONE lattice, which is what makes a
+ * full lobby land on distinct, evenly spaced slots instead of wherever each
+ * hull's private lattice happened to fall. `World` owns the shared value; the
+ * optional form keeps the several direct test callers untouched. Note the
+ * `??`: a supplied phase short-circuits the draw, so a shared lattice consumes
+ * NO rng — the phase cannot drift with the number of hulls placed.
  */
-export function pickSpawn(map: MapShape, occupied: readonly Vec2[], rng: Rng): Vec2 {
-  const offset = rng.float(0, TAU);
+export function pickSpawn(map: MapShape, occupied: readonly Vec2[], rng: Rng, phase?: number): Vec2 {
+  const offset = phase ?? rng.float(0, TAU);
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
   for (let i = 0; i < SPAWN_CANDIDATES; i++) {
     const p = ringPoint(map, offset + (i * TAU) / SPAWN_CANDIDATES);
     if (!clearOfIslands(p, map.islands)) continue;
     const score = minDistTo(p, occupied);
+    // AN OCCUPIED SLOT IS NOT A FREE SLOT. Without this a shared lattice can
+    // STACK hulls: once every island-clear candidate is taken, the max-min
+    // score of a taken one is 0 — still greater than the -Infinity seed — so
+    // the next hull would be placed exactly on top of an existing one, and
+    // resolveShipPose treats the spawn pose as valid by induction, so an
+    // overlapping spawn poisons every subsequent tick. Skipping instead leaves
+    // `best` null and hands the case to the validated fallback ladder, which is
+    // already the "no coarse candidate works" path. Inert on the per-call phase
+    // (an exact 0 needs a continuous-random coincidence), so the shipped
+    // behavior does not move.
+    if (score <= 0) continue;
     if (score > bestScore) {
       best = p;
       bestScore = score;

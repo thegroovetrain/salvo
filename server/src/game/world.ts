@@ -950,6 +950,33 @@ export class World {
    *  production defaults to the empty shared BOON_CATALOG). */
   private readonly boonCatalog: BoonCatalog;
 
+  /**
+   * THE MATCH'S ONE SPAWN LATTICE (Eric ruling 2026-08-16). Every placement
+   * edge — addShip, redeployShip, respawn — passes this to pickSpawn, so all
+   * hulls come off a SINGLE rotated ring of `SPAWN_CANDIDATES` slots instead of
+   * each drawing its own. That is what delivers the ruled outcome (*"No
+   * participants should start so close to each other that they can see each
+   * other, let alone radar scan each other"*): a full lobby fills distinct
+   * slots at the lattice's even 700.8u, against 660u of radar. Per-hull phases
+   * measured 352-483u — inside radar on every seed.
+   *
+   * ITS OWN DECORRELATED STREAM, not a draw off `this.rng`, for two reasons:
+   * the phase must not shift with HOW MANY hulls get placed (a draw off the
+   * shared spawn stream would reorder every later fleet-anchor sample), and one
+   * value read once wants a stream it cannot desynchronize from. 0xb5297a4d is
+   * unused by any other stream here (spawn 0x9e3779b9, pseudonym 0x1b873593,
+   * fleet 0x85ebca6b, deck 0x165667b1).
+   *
+   * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
+   * the client-known map seed — but so does `this.rng` itself, so spawn
+   * placement has ALWAYS been reconstructible by a client willing to replay the
+   * stream. A shared lattice makes the reconstruction easier (no join order to
+   * model), not newly possible. If spawn placement should ever be genuinely
+   * non-derivable, the fix is a server-private nonce for the WHOLE spawn stream
+   * — the zone-ring precedent — not for this one draw.
+   */
+  private readonly spawnPhase: number;
+
   constructor(
     seed: number,
     playerCap: number = CONFIG.map.playerCap,
@@ -962,6 +989,9 @@ export class World {
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
+    // The match's one spawn-lattice phase — see the field's doc for why it gets
+    // its own stream rather than a draw off this.rng.
+    this.spawnPhase = mulberry32((seed ^ 0xb5297a4d) >>> 0).float(0, Math.PI * 2);
     this.zoneCfg = zoneCfg;
     this.zoneSeeds = opts.zoneSeeds;
     // Radar realism cycle (amendment 63): both modes default to the shipped
@@ -1173,7 +1203,8 @@ export class World {
    *  bogus cross-map segment it exists to prevent is structurally impossible
    *  on this path. */
   addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at?: Vec2): ShipRecord {
-    const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng);
+    const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase);
+    const heading = Math.atan2(-p.y, -p.x);
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
     // Per-hull loadout (Story 1.6): the class fit, or the universal drone fit.
@@ -1186,21 +1217,31 @@ export class World {
       cls,
       hullPoly: [],
       prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 },
-      // Wake ring provisioned from the TRUE attainable top speed (Story 4.12).
-      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: 0, prevSweepAngle: 0,
+      // THE SWEEP STARTS AT THE HULL'S HEADING (Eric ruling 2026-08-16), at
+      // EVERY placement edge — here, redeployShip and respawn — so there is one
+      // rule and not three. Constructing every hull at 0 phase-LOCKED the whole
+      // fleet: a boarding room freezes the sweep (advanceSweeps early-returns
+      // while `radarEnabled` is false), so every captain's beam unfroze at
+      // exactly 0 on the same tick and stayed in lockstep for the match, handing
+      // a systematic, position-determined first-detection advantage. Anchoring
+      // to the spawn heading decorrelates it from the placement itself.
+      // prevSweepAngle MUST EQUAL sweepAngle: this tick's paint window is the
+      // half-open arc [prev, sweep), so an equal pair is zero-width and paints
+      // nothing on the hull's first tick.
+      // (Wake ring provisioned from the TRUE attainable top speed — Story 4.12.)
+      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading),
       // THE DECK (2.8): over the fresh fit; fleet hulls never get one (pinned).
       // ECONOMY, so it keys on the FLEET reading — an AI captain (6.4) is a
       // participant that plays the game, and gets a deck like any other.
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
-      xpMs: 0,
-      level: 0,
+      xpMs: 0, level: 0,
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
       stats,
-      state: { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x), speed: 0 },
+      state: { x: p.x, y: p.y, heading, speed: 0 },
       hp: stats.maxHp,
       // CONSTRUCTION, not a transition (Story 5.1): a record that does not yet
       // exist has no state to move FROM, so it is initialized to the shared
@@ -1285,8 +1326,14 @@ export class World {
    * with full hp and full ammo pools. Inputs are kept (players keep driving
    * through the transition); each ship emits a spawn event so clients snap
    * their camera/prediction to the teleport. Roster/welcome state is untouched.
+   *
+   * `holdStartLine` (Eric ruling 2026-08-16) is the QUEUE-FORMED room's answer
+   * and defaults FALSE so the dev/sandbox ready room — where captains really
+   * sail, fire and drain pools for the whole waiting phase, and the re-roll is
+   * what returns them to the ring — stays byte-identical. See redeployShip for
+   * exactly which three mutations the hold skips and why nothing else moves.
    */
-  resetForMatchStart(): void {
+  resetForMatchStart(holdStartLine = false): void {
     this.shells.clear();
     this.mines.clear();
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
@@ -1297,7 +1344,7 @@ export class World {
     // until someone earns a fresh captain kill in the real match.
     this.bountyId = '';
     const placed: Vec2[] = [];
-    for (const ship of this.ships.values()) this.redeployShip(ship, placed);
+    for (const ship of this.ships.values()) this.redeployShip(ship, placed, holdStartLine);
     // Practice-field WATER never leaks into the real match either (Story 4.12
     // — the mines/zones/buoys rule): redeployShip just detached every hull's
     // practice ribbon into the orphan store, and the shells.clear() above
@@ -1311,14 +1358,50 @@ export class World {
    *  THE BUILD IS WIPED: a redeploy is the countdown→active match boundary, and
    *  a fresh match means a fresh build — anything farmed in the practice-room
    *  waiting phase (drone kills) must not carry a head start into the real
-   *  match. (respawn() below, waiting-phase only, PRESERVES the build.) */
-  private redeployShip(ship: ShipRecord, placed: Vec2[]): void {
-    const p = pickSpawn(this.map, placed, this.rng);
-    placed.push(p);
-    ship.state.x = p.x;
-    ship.state.y = p.y;
-    ship.state.heading = Math.atan2(-p.y, -p.x);
-    ship.state.speed = 0;
+   *  match. (respawn() below, waiting-phase only, PRESERVES the build.)
+   *
+   *  `holdStartLine` (Eric ruling 2026-08-16) — a QUEUE-FORMED (boarding) room
+   *  places its captains on the ring at addShip during boarding and SHOWS them
+   *  that spot, so re-rolling it here teleported every one of them at the gun
+   *  (measured 20/20 displaced, median ~2140u) in direct violation of Story
+   *  6-1's AC and epic-6 amendment 8 point 3. Under the hold, EXACTLY THREE
+   *  mutations are skipped and EVERY other line below still runs:
+   *    • the placement itself — no pickSpawn call at all, so no RNG draw and no
+   *      write to state.x/y/heading/speed (the boarding freeze already pins
+   *      speed at 0, and the sweep is already anchored to this heading);
+   *    • detachWake — there is no teleport, so the bogus cross-map chained
+   *      segment it exists to prevent is structurally impossible;
+   *    • the `spawn` event — a no-move spawn calls the client's
+   *      predictor.forceSnap(), which blanks the own hull/nameplate/hotbar for
+   *      ~1-3 frames at the exact moment the gun goes. Dropping it is safe:
+   *      client updateMatchEpoch already fires resetOwnOrders on the `-> active`
+   *      phase edge and documents itself as idempotent with the server's event.
+   *
+   *  ACCEPTED CONSEQUENCE: skipping N pickSpawn draws advances the shared world
+   *  `rng` differently, so a given seed lands its later PvE fleet-wave anchors
+   *  elsewhere. Nothing pins seed-stable fleet placement, and the batch-sim
+   *  harness passes no expectedCaptains so it keeps the old path entirely. */
+  private redeployShip(ship: ShipRecord, placed: Vec2[], holdStartLine = false): void {
+    if (holdStartLine) {
+      // The held hull still counts as OCCUPIED. It was placed by addShip off
+      // the same shared lattice, so its position IS a lattice slot — feeding it
+      // to `placed` is what stops a mixed call (some held, some re-rolled) from
+      // handing that exact slot to another hull. Today the flag is all-or-
+      // nothing, so this is inert; it is correct rather than load-bearing, and
+      // costs one push.
+      placed.push({ x: ship.state.x, y: ship.state.y });
+    } else {
+      const p = pickSpawn(this.map, placed, this.rng, this.spawnPhase);
+      placed.push(p);
+      ship.state.x = p.x;
+      ship.state.y = p.y;
+      ship.state.heading = Math.atan2(-p.y, -p.x);
+      ship.state.speed = 0;
+      // The sweep re-anchors to the NEW heading at this placement edge (Eric
+      // ruling 2026-08-16) — see addShip for the rule and why prev must equal it.
+      ship.sweepAngle = wrapPositive(ship.state.heading);
+      ship.prevSweepAngle = ship.sweepAngle;
+    }
     ship.bankedLevels = 0;
     ship.offer = null;
     // XP progress dies with the build (Story 2.6): the countdown→active
@@ -1372,9 +1455,13 @@ export class World {
     // The redeploy TELEPORTS the hull (Story 4.12): detach the old ribbon —
     // a kept one would chain a bogus segment across the map — and start
     // fresh, provisioned from the just-reset base stats. (resetForMatchStart
-    // wipes the detached practice water right after this loop.)
+    // wipes the detached practice water right after this loop.) BOTH lines are
+    // skipped under the hold: nothing moved, so there is no bogus segment to
+    // prevent and no snap for the client to take. detachWake stays HERE, below
+    // the stats reset, because the fresh ribbon is provisioned from ship.stats.
+    if (holdStartLine) return;
     this.detachWake(ship);
-    this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
+    this.pending.push({ k: 'spawn', id: ship.id, x: ship.state.x, y: ship.state.y });
   }
 
   /**
@@ -3729,11 +3816,17 @@ export class World {
     const occupied = [...this.ships.values()]
       .filter((s) => s.id !== ship.id && isAfloat(s.lifecycle))
       .map((s) => ({ x: s.state.x, y: s.state.y }));
-    const p = pickSpawn(this.map, occupied, this.rng);
+    const p = pickSpawn(this.map, occupied, this.rng, this.spawnPhase);
     ship.state.x = p.x;
     ship.state.y = p.y;
     ship.state.heading = Math.atan2(-p.y, -p.x);
     ship.state.speed = 0;
+    // The THIRD placement edge re-anchors the sweep to the new heading too (Eric
+    // ruling 2026-08-16) — one rule at addShip / redeployShip / respawn alike.
+    // prev MUST equal it: [prev, sweep) is half-open, so an equal pair paints
+    // nothing on the fresh life's first tick.
+    ship.sweepAngle = wrapPositive(ship.state.heading);
+    ship.prevSweepAngle = ship.sweepAngle;
     // Respawn happens only in the waiting phase (active-phase death = spectate),
     // so the build PERSISTS: full EFFECTIVE hp + effective-size ammo pools.
     // XP progress (xpMs/level) and the banked levels + front offer persist with

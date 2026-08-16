@@ -216,6 +216,16 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: 't
   rec.state.y = y;
   rec.state.heading = heading;
   rec.state.speed = 0;
+  // PARK THE BEAM AT 0 EXPLICITLY. addShip anchors a fresh sweep to the hull's
+  // SPAWN-RING heading (Eric ruling 2026-08-16), which this fixture then throws
+  // away by teleporting the hull to a scripted pose — so an un-parked beam would
+  // sit at an angle derived from a discarded placement, and every scenario's
+  // paint window would move whenever mapgen or the spawn-candidate count did.
+  // The battery already scripts the beam by hand wherever a beam is load-bearing
+  // (see scnBlip / scnRadarWake); this makes the DEFAULT explicit rather than
+  // inherited, and is what keeps the committed golden bytes byte-identical.
+  rec.sweepAngle = 0;
+  rec.prevSweepAngle = 0;
   return rec;
 }
 

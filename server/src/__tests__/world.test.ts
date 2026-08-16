@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, hullSilhouette, polygonMaxRadius, transformPolygon } from '@salvo/shared';
+import { isAfloat, CONFIG, hullSilhouette, polygonMaxRadius, transformPolygon, wrapPositive } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const SIM_DT = CONFIG.tick.simDtMs;
@@ -191,10 +191,16 @@ describe('World step — sweep + respawn', () => {
     const w = new World(6);
     const rec = w.addShip('a', 'ALPHA');
     const ticksPerRev = Math.round(60000 / CONFIG.vision.sweepRpm / SIM_DT);
+    // The RATE is the property, and it is now asserted as a DELTA from wherever
+    // the beam started: a fresh hull's sweep is anchored to its spawn heading
+    // (Eric ruling 2026-08-16), so an absolute 0 was only ever true by the old
+    // construction. Reading the start makes the same statement independent of
+    // where mapgen dropped this hull.
+    const start = rec.sweepAngle;
     stepN(w, ticksPerRev);
-    expect(rec.sweepAngle).toBeCloseTo(0, 6); // full 2*pi wrap back to start
+    expect(rec.sweepAngle).toBeCloseTo(start, 6); // full 2*pi wrap back to start
     stepN(w, ticksPerRev / 2);
-    expect(rec.sweepAngle).toBeCloseTo(Math.PI, 6);
+    expect(rec.sweepAngle).toBeCloseTo(wrapPositive(start + Math.PI), 6);
   });
 
   it('sinkShip kills, schedules respawn, and step revives after the delay', () => {
