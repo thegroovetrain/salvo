@@ -80,3 +80,15 @@ amendment and the planning-artifact-derived content above, **the amendment wins*
 - **A7 (orchestrator)** — corrects `deferred-work.md:365`: the lobby-convergence complaint was caused
   by the 45 s hard deadline, not by room topology. A queue does not fix it by existing; the timer is
   the lever.
+- **A13 (Eric, 2026-08-16)** — the boarding placement IS the match spawn; the countdown→active
+  re-roll (measured: 20/20 captains, median ~2140u) is a defect against A8 point 3 and Story 6-1's
+  own AC. Gated to queue-formed rooms; the dev/sandbox re-roll is untouched.
+- **A14 (Eric, 2026-08-16)** — `SPAWN_CANDIDATES` derives from `CONFIG.map.playerCap` AND the lattice
+  phase is drawn once per World: 20 hulls in 32 per-call-rotated lattices put a pair inside the 660u
+  radar range in 100% of full lobbies. BOTH halves are required — the count alone measurably changes
+  nothing. Even spacing at 700.8u, but only a ~6% margin, and the ring is saturated at cap 20, so
+  teams reopen the map-size question A11 left the curve in place for.
+- **A15 (Eric, 2026-08-16)** — a hull's radar sweep starts at its HEADING. Story 6-1's radar freeze
+  had phase-locked every captain's sweep at 0, making first-detection a function of world position.
+  Chosen over randomizing: it does not equalize timing, it makes the formation rotationally
+  symmetric.

@@ -512,9 +512,16 @@ export class Match {
   }
 
   /** Countdown end → active. Field reset, THEN the storm anchors — which is
-   *  also the PvE wave clock's zero (Story 5.6: waves fire off zone start). */
+   *  also the PvE wave clock's zero (Story 5.6: waves fire off zone start).
+   *
+   *  A QUEUE-FORMED room HOLDS THE START LINE (Eric ruling 2026-08-16): its
+   *  captains were placed on the ring at boarding and have been looking at that
+   *  spot ever since (epic-6 amendment 8 point 3), so the reset must not re-roll
+   *  it out from under them. The dev/sandbox ready room passes false and keeps
+   *  the shipped re-roll, which is load-bearing there — captains really sail
+   *  away and fire during its waiting phase. */
   private activate(): void {
-    this.world.resetForMatchStart();
+    this.world.resetForMatchStart(this.boardingRoom);
     this.world.startZone(this.world.now);
     this.phase = 'active';
     this.countdownEndT = 0;

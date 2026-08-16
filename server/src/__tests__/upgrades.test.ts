@@ -55,6 +55,12 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: Sh
   rec.state.y = y;
   rec.state.heading = heading;
   rec.state.speed = 0;
+  // PARK THE BEAM AT 0 — a teleporting fixture must script the beam too, now
+  // that addShip anchors a fresh sweep to the hull's SPAWN-RING heading (Eric
+  // ruling 2026-08-16) and this helper discards that placement. windowAround
+  // already does it wherever a window is load-bearing; this is the default.
+  rec.sweepAngle = 0;
+  rec.prevSweepAngle = 0;
   return rec;
 }
 

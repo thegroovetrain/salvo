@@ -288,3 +288,161 @@ Answering it properly needs two different instruments: the batch-sim harness can
 small-lobby leveling runs away, but "does a 2-captain 2800u ocean feel empty, and does the PvE
 out-threaten the PvP down there" needs eyes on the water. Ledgered to the standing playtest
 checkpoint rather than guessed at.
+
+## Amendment 13 — The start line IS the start line. Boarding placement is the match spawn.
+**Source:** Eric, 2026-08-16, reporting the defect.
+> "After the countdown, it jumps them to a new random start location. I would like for it to place
+> them into the game in the spot they will spawn in from the beginning, instead."
+
+**A defect, not a design change** — it makes true what amendment 8 point 3 and Story 6-1's own AC
+(`spec-6-1-queue-based-lobbies.md:109`, *"every one of them sees their own start location on the map
+while the roster is still filling"*) already said. Boarding disclosed **a** location, which was then
+discarded. The 6-1 spec's Design Notes never mention `resetForMatchStart`; boarding was built on top
+of a pre-existing teleport nobody noticed was still in the activate path. Nothing was ever decided in
+favour of the re-roll — it was inherited.
+
+**Measured before the fix** (20 headless captains, real queue path, production timings): 20 of 20
+displaced at countdown→active. Median **~2140u**, six near-antipodal at **~4470u — 160% of the 2800u
+map radius**. Heading was re-derived too. Radius stayed 2240.00u before and after: hulls were moved
+*along* the spawn ring, not off it.
+
+`Match.activate()` → `World.resetForMatchStart()` → `redeployShip()` opens with
+`pickSpawn(this.map, placed, this.rng)` against an **empty** `placed` list, so the re-roll was
+entirely independent of where anyone stood.
+
+**Gated to queue-formed rooms** (`expectedCaptains !== undefined`), Eric declining to rule on the fork
+(*"I do not give a shit"*) and the orchestrator taking its own recommendation. The dev/sandbox
+direct-join door keeps its re-roll because it is genuinely load-bearing there: that room is the old
+sailable, weapons-hot ready room where captains really drive, really fire and really drain pools.
+Confirming fact: **no test anywhere constructs a boarding room and asserts position or spawn-event
+count at activation**, so the gated change breaks zero tests, while an ungated one breaks six
+ready-room assertions headed by `match.test.ts:253`.
+
+**Three rulings inside the fix, recorded because each is silently re-breakable:**
+1. **No no-move spawn event.** Emitting one whose position equals the current position calls the
+   client's `predictor.forceSnap()`, leaving `ownPose` null until the next server frame — during which
+   `client/src/main.ts:3319` hides the own hull, nameplate, hotbar and xpRail. That is a visible blink
+   at the exact moment the gun goes. Dropping it is safe because `updateMatchEpoch`
+   (`client/src/main.ts:956`) already fires `resetOwnOrders(g)` on the `→ active` phase edge, and its
+   doc comment states it is *"Idempotent with the server's own spawn event, which calls the same
+   function."* **Zero client changes were needed.**
+2. **The RNG-stream shift is accepted.** Skipping N `pickSpawn` draws advances the shared world `rng`
+   differently, moving subsequent PvE fleet-wave anchors for a given seed. Nothing pins seed-stable
+   fleet placement, and the batch-sim harness runs with no `expectedCaptains` so it keeps the old path.
+3. **The rest of `resetForMatchStart` still runs.** Of `redeployShip`'s 31 mutations, all but three are
+   provable no-ops in a frozen boarding room; only placement is gated.
+
+**A trap for whoever touches the regression test:** the schema `matchPhase` patch lands a frame LATE,
+so the frame carrying the teleport is still labelled `countdown` on the client. A naive "last
+pre-active vs first active" comparison reports **0.00u** and falsely refutes the bug. Assert on the raw
+position discontinuity.
+
+**Ledgered, not fixed (Eric's call):** the foghorn is deliberately live on the frozen start line
+(`client/src/input/keyboard.ts:264-270` — *"Eric's ruling names movement, weapons and radar, and the
+horn is none of the three"*) and carries a bearing plus a recognizable horn variant out to 660u. That
+was free while spawns were thrown away; with permanent spawns a honk gives away a real starting
+bearing. Eric: *"Is anyone even close enough to hear it? Who the hell cares?"* Accepted. Note for the
+record that the **audio is not panned** (`playHorn` takes gain only) but the **direction is drawn** —
+a fading screen-edge chevron in `render/foghorn.ts`. Post-amendment-14 the minimum separation is 700.8u,
+which is *outside* the 660u horn range, so this leak largely closes as a side effect.
+
+## Amendment 14 — Twenty slots for twenty captains. Even spacing by construction.
+**Source:** Eric, 2026-08-16.
+> "there is no reason to have 32 potential start slots in a game meant for 20 players."
+
+`SPAWN_CANDIDATES` was the literal **32** (`server/src/game/spawn.ts:27`). Placing 20 hulls into 32
+fixed, evenly-spaced ring slots forces adjacent pairs **by pigeonhole** — not by bad luck. Adjacent
+candidates are **439u** apart on the 2240u ring, which is inside the **660u** radar range and outside
+the 330u truesight bubble. **So at every full lobby, several pairs started able to radar-paint each
+other while unable to see each other.** Eric's bar, stated at the same gate: *"No participants should
+start so close to each other that they can see each other, let alone radar scan each other."*
+
+Deriving the candidate count from `CONFIG.map.playerCap` is **half** the fix, and the orchestrator
+initially claimed it was the whole fix. **It is not, and the reason is the single most re-derivable
+trap in this amendment.**
+
+**THE COUNT ALONE DOES NOTHING, BECAUSE THE LATTICE WAS NEVER SHARED.** `pickSpawn` drew its phase
+`offset` **fresh on every call** (`spawn.ts:220`), so each hull came off its own independently rotated
+lattice and the 20 hulls of a full lobby never sat on one. The orchestrator's "20 captains fill all 20
+evenly-spaced slots" reasoning silently assumed a shared lattice that did not exist. Refuted by
+measurement before it shipped (60 seeds, 20 hulls, minimum pairwise separation):
+
+| candidates | phase offset | min | median | max | seeds with a pair inside radar |
+|---|---|---|---|---|---|
+| 32 | per-call (**was shipped**) | 359u | 416u | 475u | **100%** |
+| 20 | per-call (count change alone) | 352u | 415u | 483u | **100%** |
+| 32 | per-world | 439.1u | 439.1u | 439.1u | 100% |
+| 20 | **per-world (shipped)** | **700.8u** | 700.8u | 700.8u | **0%** |
+
+So the fix is **both** halves: candidates = `playerCap` **and** the lattice phase drawn **once per
+World** and passed to all three placement edges (`addShip`, `redeployShip`, `respawn`). Read the table
+before touching either: changing one without the other returns the game to 100% of full lobbies
+starting with a pair inside radar range. With both, a full lobby fills every candidate and spacing is
+even by construction at `2 · 2240 · sin(π/20)` = **700.8u**. Partial rosters still spread properly
+because max-min picks the far candidate first, so no slot-assignment machinery, join-order bookkeeping
+or cohort-size plumbing was needed — **Eric's one-line reading still beat the orchestrator's proposed
+even-spacing-slot scheme**, it just needed the shared phase under it.
+
+The per-world phase was taken as delivering a ruling Eric had already made (*"No participants should
+start so close to each other that they can see each other, let alone radar scan each other"*) rather
+than as a new design decision — recorded plainly so the authority is traceable.
+
+**The margin is only ~6% and that is the fragile part.** 700.8u against 660u is 40.8u of slack, and it
+moves if ANY of the player cap, map radius, `spawnFraction` or radar range is retuned. Pinned with a
+build-failing constraint test in the eighths-ladder idiom (`2·spawnRing·sin(π/playerCap) > radar`) so a
+future retune fails the build instead of silently re-creating the bug.
+
+**The consequence that cannot be fixed on this ocean, ledgered rather than hidden.** The ring
+circumference is 14,074u, so 20 captains get 703.7u of arc each against a 660u requirement: **the ring
+is saturated.** Any arrangement satisfying "nobody starts in radar range" at cap 20 is therefore
+necessarily near-evenly spaced, and even spacing is **exactly derivable** — a player knows the ring
+radius (the client rebuilds the map from the seed), the captain count (the chrome bar) and their own
+position, so they can compute all 19 other spawns. **On a 2800u ocean, "nobody starts in radar range"
+and "spawns are not predictable" are close to mutually exclusive.** Buying real jitter freedom needs a
+bigger ring, not a better algorithm. Note this was *already* substantially true at 32 slots (only 32
+possible positions existed); even spacing makes it exact rather than introducing the class.
+
+**TEAMS REOPEN THIS, in the direction amendment 11 predicted.** Eric, same gate: *"the problem will
+compound when I add duo/trio queues... teams would start in LOS of each other, but they still need to
+be out of range entirely of other teams."* Teammates in mutual LOS must sit within 330u of each other,
+which eats the inter-team gap down to ~370u — inside radar. Twenty trios do not fit on today's ring at
+any spacing. Rough sizing: tight clusters (~100u apart) need map radius ~3024u (+8%); a comfortable
+800u inter-team separation needs ~3195u (+14%). Amendment 11 left `mapRadius()`, `capRef` and
+`WelcomeMsg.playerCap` in place for exactly this, and this is the amendment that cashes that bet.
+
+## Amendment 15 — Your radar sweep starts at your heading.
+**Source:** Eric, 2026-08-16, amending the orchestrator's proposal.
+> "2 is a good idea, but it might be better if instead your radar sweep starts at the same heading you
+> start?"
+
+**The bug Eric found by intuition** (*"whoever is below and to the left has a big advantage... due to
+how radar scans work for all players"*), confirmed in code: every ship is constructed with
+`sweepAngle: 0` (`world.ts:1171`), and `world.ts:3626` refuses to advance the sweep while
+`radarEnabled` is false — which is the **entire boarding freeze**. So all captains' sweeps sit locked
+at 0 through boarding and all begin rotating from exactly 0 on the same tick, at the same 15rpm,
+staying phase-locked for the whole match. For any pair, one paints the other exactly half a revolution
+(**2s** of a 4s sweep) before the other, decided purely by relative bearing — i.e. purely by world
+position. **Story 6-1's radar freeze created this**; before it, captains joined at different wall-clock
+times and their sweeps were naturally out of phase.
+
+The orchestrator proposed randomizing the initial phase. **Eric's alternative is better and was
+adopted.** Worked geometry, recorded because the result is counter-intuitive: sweep-at-heading does
+**NOT** equalize detection timing. Two adjacent captains at cap 20 — the counter-clockwise neighbour
+paints first after 81° (~0.9s), the other after 279° (~3.1s), still a ~2.2s edge.
+
+**What changes is the symmetry, and that is the whole point.** Under absolute-zero starts the edge is
+decided by absolute world position, so one captain can beat their neighbours on *both* sides. Under
+sweep-at-heading the formation is rotationally symmetric: **every captain gets the early look at one
+neighbour and the late look at the other, identically.** Fair by structure rather than fair by luck —
+which is strictly better than randomizing, since a random phase hands some players a good draw and
+others a bad one every match.
+
+**Accepted cost:** it is deterministic, so a player doing the math knows when a neighbour's beam will
+sweep them. Judged not binding, since amendment 14 already makes positions derivable at cap 20.
+
+Applied at every placement edge so there is ONE rule, not three (`addShip`, `redeployShip`, and
+`respawn` where it re-places). `prevSweepAngle` must be set EQUAL to `sweepAngle` so the half-open
+paint arc `[prev, sweep)` is zero-width on the first tick and nothing paints from the seam.
+
+**`PROTOCOL_VERSION` stays 36 for all three of amendments 13-15** — no wire shape moves. Placement,
+sweep phase and the candidate lattice are all server-authoritative internals.

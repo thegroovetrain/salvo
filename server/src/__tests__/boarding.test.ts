@@ -17,7 +17,7 @@
 // suite asserts that directly rather than leaving it to the other 1,180 tests.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type MatchPhase } from '@salvo/shared';
+import { CONFIG, type MatchPhase, type SpawnEvent } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { BOARDING_GRACE_MS, Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { buildFrame } from '../game/frames.js';
@@ -212,7 +212,14 @@ describe('boarding freeze — movement locked', () => {
     expect(a.state.speed).toBe(0);
     expect(a.state.x).toBe(pose.x);
     expect(a.state.y).toBe(pose.y);
-    expect(a.state.heading).toBe(pose.heading);
+    // Heading is BIT-EXACT-ish, not bit-exact, and the culprit is neither the
+    // helm lock nor the placement: stepShip runs every tick regardless and ends
+    // with `wrapAngle(heading + 0)`, whose `((a+π) % τ + τ) % τ − π` round-trip
+    // is not the identity in floating point for every input. It costs at most a
+    // ULP, once, on the first tick. Pre-existing and placement-dependent — this
+    // assertion was `toBe` only because the old spawn geometry happened to land
+    // on headings that survived the round-trip.
+    expect(a.state.heading).toBeCloseTo(pose.heading, 12);
   });
 
   it('aim and the input ack still track — the HUD is live, only the helm is dead', () => {
@@ -391,6 +398,137 @@ describe('boarding freeze — every phase gate flips on the same tick', () => {
     // Amendment 8 rules the PRE-live state and says nothing about results:
     // damage/xp freeze as they always have, the survivor may still sail.
     expect(gates(ctx.w)).toEqual({ damage: false, xp: false, helm: true, weapons: true, radar: true });
+  });
+});
+
+// --- the held start line (Eric ruling 2026-08-16) ----------------------------
+//
+// A boarding captain is placed on the spawn ring at addShip and LOOKS AT THAT
+// SPOT for the whole boarding + countdown (Story 6-1 AC; epic-6 amendment 8
+// point 3). resetForMatchStart used to re-roll every hull at the gun anyway —
+// measured 20/20 captains displaced, median ~2140u, six of them near-antipodal.
+// The hold is gated on the QUEUE-FORMED room alone, so the dev/sandbox ready
+// room (where captains really sail and fire, and the re-roll is load-bearing)
+// stays byte-identical: the last case here is that regression guard, and
+// match.test.ts's ready-room pin is its canonical sibling, untouched.
+
+/** Every hull's pose, snapshotted for an across-the-transition comparison. */
+function poses(ctx: Ctx): Map<string, { x: number; y: number; heading: number }> {
+  const out = new Map<string, { x: number; y: number; heading: number }>();
+  for (const s of ctx.w.ships.values()) out.set(s.id, { x: s.state.x, y: s.state.y, heading: s.state.heading });
+  return out;
+}
+
+/** Step to 'active', then ONE more step so the activation's queued events are
+ *  published. resetForMatchStart runs inside Match.update() — i.e. AFTER the
+ *  tick's event swap — so anything it queues lands in the NEXT tick's window.
+ *  Returns that window's spawn events. */
+function activateAndDrainSpawns(ctx: Ctx): SpawnEvent[] {
+  for (let i = 0; i < 200 && ctx.m.phase !== 'active'; i++) step(ctx);
+  expect(ctx.m.phase).toBe('active');
+  step(ctx);
+  return ctx.w.tickEvents.filter((e): e is SpawnEvent => e.k === 'spawn');
+}
+
+describe('the held start line — a boarding captain starts where they boarded', () => {
+  it('every captain keeps their exact x, y and heading across countdown -> active', () => {
+    const ctx = setup({ expectedCaptains: 2 });
+    join(ctx, 'a');
+    join(ctx, 'b');
+    // The pose each captain has been staring at since they dropped in.
+    const boarded = poses(ctx);
+    activateAndDrainSpawns(ctx);
+    for (const [id, was] of boarded) {
+      const now = ctx.w.ships.get(id)!.state;
+      // POSITION IS BIT-IDENTICAL, not merely close: the hold skips the write
+      // entirely, so these are the same doubles. A "moved less than X" form
+      // would have passed at the 439u this defect was producing.
+      expect(now.x).toBe(was.x);
+      expect(now.y).toBe(was.y);
+      // Heading gets a ULP of tolerance for stepShip's wrapAngle round-trip
+      // (see the movement-locked test above) — nothing to do with the hold,
+      // which never writes heading at all.
+      expect(now.heading).toBeCloseTo(was.heading, 12);
+    }
+  });
+
+  it('emits NO spawn event at activation — a no-move snap would blink the HUD', () => {
+    // A spawn event whose position equals the current position still calls the
+    // client's predictor.forceSnap(), blanking the own hull/nameplate/hotbar for
+    // ~1-3 frames at the exact moment the gun goes. The client's own
+    // updateMatchEpoch already resets engine orders on the `-> active` edge and
+    // documents itself as idempotent with this event, so dropping it is free.
+    const ctx = setup({ expectedCaptains: 2 });
+    join(ctx, 'a');
+    join(ctx, 'b');
+    expect(activateAndDrainSpawns(ctx)).toEqual([]);
+  });
+
+  it('still runs the whole rest of the reset — only the placement is held', () => {
+    const ctx = setup({ expectedCaptains: 2 });
+    join(ctx, 'a');
+    join(ctx, 'b');
+    const a = ctx.w.ships.get('a')!;
+    // Damage/spend the hull mid-boarding so a skipped reset would be visible.
+    a.hp = 3;
+    a.loadout[0]!.state!.n = 0;
+    a.loadout[0]!.state!.reloadMsLeft = 4321;
+    a.bankedLevels = 7;
+    a.xpMs = 99_999;
+    a.level = 4;
+    activateAndDrainSpawns(ctx);
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(a.loadout[0]!.state!.n).toBe(a.stats.gun.maxAmmo);
+    expect(a.loadout[0]!.state!.reloadMsLeft).toBe(0);
+    expect(a.bankedLevels).toBe(0);
+    expect(a.level).toBe(0);
+    // xpMs was wiped to 0 and has since accrued the ONE post-activation tick
+    // this helper steps to publish the event window (xpEnabled is live now).
+    expect(a.xpMs).toBe(DT);
+  });
+
+  it('the dev/sandbox room STILL re-rolls placement and STILL emits spawn', () => {
+    // The gate's regression guard, asserted the way that room actually works:
+    // it is sailable and weapons-hot for its whole waiting phase, so captains
+    // are somewhere else entirely by the time the countdown ends, and the
+    // re-roll is precisely what RETURNS THEM TO THE RING. (Asserting merely
+    // "the position changed" would be wrong here now that one shared lattice
+    // exists — a hull that never left its slot can legitimately be handed the
+    // same slot back.)
+    // A long countdown so there is room to sail before activation fires (BASE's
+    // 100ms would activate two ticks after the second join).
+    const ctx = setup({ countdownMs: 5000 });
+    join(ctx, 'a');
+    join(ctx, 'b');
+    for (let i = 1; i <= 60; i++) {
+      helmOrder(ctx, 'a', i);
+      helmOrder(ctx, 'b', i);
+      step(ctx);
+    }
+    // Both captains have sailed off the spawn ring...
+    for (const s of ctx.w.ships.values()) {
+      expect(Math.abs(Math.hypot(s.state.x, s.state.y) - ctx.w.map.spawnRing)).toBeGreaterThan(1);
+    }
+    const sailed = poses(ctx);
+    const spawns = activateAndDrainSpawns(ctx);
+    // ...the redeploy put every one of them back on it, and announced it.
+    expect(spawns.map((e) => e.id).sort()).toEqual(['a', 'b']);
+    for (const [id, was] of sailed) {
+      const now = ctx.w.ships.get(id)!.state;
+      // Within a unit of the ring, not ON it to six places: the redeploy zeroes
+      // speed but the helm is live again in 'active', and the one extra tick
+      // this helper steps to publish the event window lets the still-standing
+      // full-ahead order accelerate the hull ~0.03u off the ring.
+      expect(Math.abs(Math.hypot(now.x, now.y) - ctx.w.map.spawnRing)).toBeLessThan(1);
+      expect({ x: now.x, y: now.y }).not.toEqual({ x: was.x, y: was.y });
+    }
+    // ...and each event reports the hull's true post-redeploy point: exactly on
+    // the ring, and where that hull now is (bar the same one tick of travel).
+    for (const e of spawns) {
+      const s = ctx.w.ships.get(e.id)!.state;
+      expect(Math.hypot(e.x, e.y)).toBeCloseTo(ctx.w.map.spawnRing, 6);
+      expect(Math.hypot(e.x - s.x, e.y - s.y)).toBeLessThan(1);
+    }
   });
 });
 

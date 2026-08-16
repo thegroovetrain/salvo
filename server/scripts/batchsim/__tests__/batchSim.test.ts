@@ -228,7 +228,17 @@ describe('pilots — determinism', () => {
   it('the pin discriminates: a different world seed changes the stream', () => {
     // Fail-proof for the identity test above — a serializer that ignored the
     // inputs (or a constant stream) would make this assertion fail.
-    expect(inputStream(7, 42, 120, true)).not.toBe(inputStream(8, 42, 120, true));
+    //
+    // 120 -> 400 TICKS (Eric ruling 2026-08-16, the shared spawn lattice). Two
+    // hulls now come off ONE per-match lattice, so the first two are placed on
+    // exactly opposite slots at exactly 4480u for EVERY seed: the two worlds
+    // start as pure rotations of each other. A gunner cannot see a target that
+    // far off, so for the first ~120 ticks its inputs are driven by the pilot
+    // rng alone and are genuinely identical across world seeds. The seed still
+    // discriminates — through the islands and the absolute rotation the hulls
+    // wander into — it just needs enough ticks to feed back. Same assertion,
+    // longer sample.
+    expect(inputStream(7, 42, 400, true)).not.toBe(inputStream(8, 42, 400, true));
   });
 
   it('the pilot rng stream matters: wander differs by pilot seed (no target)', () => {

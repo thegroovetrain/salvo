@@ -298,6 +298,14 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
   rec.state.y = y;
   rec.state.heading = heading;
   rec.state.speed = 0;
+  // PARK THE BEAM AT 0. addShip anchors a fresh sweep to the hull's SPAWN-RING
+  // heading (Eric ruling 2026-08-16); this helper then discards that placement
+  // by teleporting the hull, so an un-parked beam would start at an angle
+  // derived from geometry no test here scripts. A teleporting fixture must
+  // script the beam too — windowAround does it explicitly wherever a window is
+  // load-bearing; this is the same rule applied to the default.
+  rec.sweepAngle = 0;
+  rec.prevSweepAngle = 0;
   return rec;
 }
 

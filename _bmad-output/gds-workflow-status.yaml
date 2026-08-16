@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-08-15'  # EPIC 6 OPEN. Story 6-1 (Queue-Based Lobbies) landed cycle 88 (0.17.88), PV 36, epic-6 amendments 1-9. Story 6-2 (Roster-Scaled Oceans) CANCELLED by Eric ruling, epic-6 amendments 11-12 — no code shipped. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
+last_updated: '2026-08-16'  # EPIC 6 OPEN. Story 6-1 (Queue-Based Lobbies) landed cycle 88 (0.17.88), PV 36, epic-6 amendments 1-9. Story 6-2 (Roster-Scaled Oceans) CANCELLED by Eric ruling, epic-6 amendments 11-12 — no code shipped. Cycle 89 (0.17.89) match-start fixes: held start line + shared spawn lattice + sweep anchored to heading, epic-6 amendments 13-15, PV unchanged at 36. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle

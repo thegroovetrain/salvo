@@ -1,11 +1,21 @@
 ---
-status: blocked
-blocking_condition: Eric question gate — 2 questions before implementation
-cycle: 89 (proposed)
+status: done
+cycle: 89
 epic: 6
 story: 6-1 follow-up (defect)
 date: 2026-08-16
+amendments: epic-6 A13, A14, A15
 ---
+
+> **RESOLVED 2026-08-16.** Both questions were ruled and the work shipped in the same cycle. Eric
+> declined the Q1 fork (*"I do not give a shit"*) so the orchestrator's recommendation stands — the fix
+> is gated to queue-formed rooms. Q2's foghorn leak was accepted (*"Who the hell cares?"*), and
+> amendment 14's 700.8u separation puts captains outside the 660u horn range anyway, so it largely
+> closes as a side effect. Eric then opened a LARGER issue at the same gate — spawn spacing and the
+> radar-sweep rotation advantage — which became amendments 14 and 15. **One claim in §4 of this
+> document was refuted before shipping: deriving the candidate count from `playerCap` does NOT on its
+> own produce even spacing, because `pickSpawn` re-rolled its phase per call. See amendment 14 for the
+> measured table.** Authoritative record: `epic-6-context-amendments.md` A13-A15.
 
 # Boarding Spawn In Place — Question Gate
 
@@ -187,6 +197,27 @@ option that changes nothing.
 
 ## Auto Run Result
 
-Status: blocked
-Blocking condition: awaiting Eric's ruling on Q1 (gate the fix to queue-formed rooms) and Q2 (the
-foghorn bearing-leak on a now-permanent start line). Implementation is otherwise fully specified.
+Status: done
+
+Both questions ruled by Eric on 2026-08-16 and implemented in the same cycle, plus two further Eric
+rulings raised at the same gate. Shipped:
+
+- **A13 — the held start line.** Queue-formed rooms preserve the boarding pose at activate; no
+  re-roll, no `spawn` event, no `detachWake`. Dev/sandbox door byte-identical.
+- **A14 — the shared spawn lattice.** `SPAWN_CANDIDATES` derives from `CONFIG.map.playerCap`, AND the
+  lattice phase is drawn once per World and passed at all three placement edges. Minimum pairwise
+  separation at a full lobby moves from **352-483u (inside 660u radar on 60 of 60 seeds)** to a flat
+  **700.8u on 0 of 60**.
+- **A15 — the sweep starts at the hull's heading**, at all three placement edges, replacing the
+  phase-locked `sweepAngle: 0` that Story 6-1's radar freeze had turned into a systematic,
+  position-determined first-detection advantage.
+
+Verification: `npm run check` exit 0 — shared 33 files / 743 tests, **server 49 files / 1219 tests**
+(+12), client 84 files / 2606 tests. `npm run lint` 2 problems / 0 errors / 2 warnings, the
+pre-existing baseline in untouched client files. `queueSmoke.mjs` and `matchSmoke.mjs` both OK, the
+latter confirming the dev door still redeploys to the ring. `PROTOCOL_VERSION` unchanged at 36.
+
+Open, ledgered rather than fixed: the ring is **saturated** at cap 20 (703.7u of arc each against a
+660u requirement), so spawn positions are necessarily near-evenly spaced and therefore derivable, and
+**duo/trio queues do not fit at any spacing** — both need a bigger ocean, which is the reopening
+epic-6 amendment 11 left the `mapRadius()` curve in place for.
