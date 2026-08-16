@@ -128,10 +128,18 @@ describe('SHIP_CLASS_IDS / HULL_IDS', () => {
 });
 
 describe('drone envelope table (Story 5.6, amendment 34 — retuned off the retired destroyer/cruiser/battleship blocks)', () => {
-  it('hp 60/75/90, chevron dims 85×25 / 100×30 / 115×35 (hull dims unchanged)', () => {
-    expect(CONFIG.drones.small.hp).toBe(60);
-    expect(CONFIG.drones.medium.hp).toBe(75);
-    expect(CONFIG.drones.large.hp).toBe(90);
+  it('hp 45/60/75, chevron dims 85×25 / 100×30 / 115×35 (hull dims unchanged)', () => {
+    // RETUNED 60/75/90 -> 45/60/75 (Eric ruling 2026-08-16, epic-6 amendment
+    // 24). The ladder is now exactly 3/4/5 hits from the base 15-damage gun,
+    // which at its 5s reload is the ruled 15/20/25s time-to-kill. HULL DIMS DO
+    // NOT MOVE: size still reads on the water at 85/100/115u.
+    expect(CONFIG.drones.small.hp).toBe(45);
+    expect(CONFIG.drones.medium.hp).toBe(60);
+    expect(CONFIG.drones.large.hp).toBe(75);
+    for (const [size, shots] of [['small', 3], ['medium', 4], ['large', 5]] as const) {
+      expect(CONFIG.drones[size].hp / CONFIG.gun.damage).toBe(shots);
+      expect((shots * CONFIG.gun.reloadMs) / 1000).toBe(shots * 5); // 15 / 20 / 25s
+    }
     expect(CONFIG.drones.small.hull).toEqual({ length: 85, beam: 25 });
     expect(CONFIG.drones.medium.hull).toEqual({ length: 100, beam: 30 });
     expect(CONFIG.drones.large.hull).toEqual({ length: 115, beam: 35 });
@@ -175,25 +183,48 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     }
   });
 
-  it('gun damage 1/2/3, flat 5s reload for every size (amendment 45 cut it from 6/8/10)', () => {
-    expect(CONFIG.drones.small.gun).toEqual({ damage: 1, reloadMs: 5000 });
-    expect(CONFIG.drones.medium.gun).toEqual({ damage: 2, reloadMs: 5000 });
-    expect(CONFIG.drones.large.gun).toEqual({ damage: 3, reloadMs: 5000 });
+  it('gun damage is a FLAT 1 on every size, flat 5s reload (6/8/10 -> 1/2/3 -> 1/1/1)', () => {
+    // THE FLAT GUN IS A DERIVATION, NOT A FLATTENING (epic-6 amendment 24).
+    // Eric specified the damage a hull deals back OVER ITS OWN LIFETIME as
+    // 3/4/5. Because the drone reload equals the captain gun reload,
+    // volleys-back == shots-to-kill == 3/4/5 — so damage 1 on every size
+    // satisfies a per-size damage spec exactly, and a per-size damage table
+    // would double-count the scaling hp already carries. Do not "restore" it.
+    for (const size of DRONE_SIZE_IDS) {
+      expect(CONFIG.drones[size].gun).toEqual({ damage: 1, reloadMs: 5000 });
+    }
+    const lifetimeDamage = (size: (typeof DRONE_SIZE_IDS)[number]) =>
+      Math.floor(
+        ((CONFIG.drones[size].hp / CONFIG.gun.damage) * CONFIG.gun.reloadMs) /
+          CONFIG.drones[size].gun!.reloadMs,
+      ) * CONFIG.drones[size].gun!.damage;
+    expect(lifetimeDamage('small')).toBe(3);
+    expect(lifetimeDamage('medium')).toBe(4);
+    expect(lifetimeDamage('large')).toBe(5);
   });
 
-  it('a full nine-hull volley is 16 damage — attrition, not a kill threat (amendment 45)', () => {
-    // The number Eric was reacting to: at 6/8/10 a whole fleet firing at once
-    // was 68 damage per volley, 13.6 dps, and a 125hp Torpedo Boat died in
-    // 9.2 seconds. At 1/2/3 the same volley is 16, 3.2 dps, and the same hull
-    // lasts 39 seconds. Pinned so the ratio cannot drift back by accident.
+  it('a full GROUP volley is attrition, not a kill threat — the PROPERTY, not a literal', () => {
+    // The number Eric was reacting to at 6/8/10: a whole fleet firing at once
+    // was 68 damage per volley, 13.6 dps, and a 125hp Torpedo Boat died in 9.2
+    // seconds. Amendment 45 cut that to 1/2/3; amendment 24 halved the group to
+    // six hulls and flattened the gun, taking it further still.
+    //
+    // PINNED AS A PROPERTY rather than as 16/39: the group size and the damage
+    // are both live CONFIG now, and a literal here would have to be re-solved
+    // on every composition tweak — which is exactly the churn that lets a pin
+    // get "fixed" to match a regression. What must never drift is the ROLE:
+    // a captain caught by a whole group has minutes, not seconds.
     const volley =
-      CONFIG.fleet.composition.small * CONFIG.drones.small.gun.damage +
-      CONFIG.fleet.composition.medium * CONFIG.drones.medium.gun.damage +
-      CONFIG.fleet.composition.large * CONFIG.drones.large.gun.damage;
-    expect(volley).toBe(16);
-    const dps = volley / (CONFIG.drones.small.gun.reloadMs / 1000);
+      CONFIG.fleet.composition.small * CONFIG.drones.small.gun!.damage +
+      CONFIG.fleet.composition.medium * CONFIG.drones.medium.gun!.damage +
+      CONFIG.fleet.composition.large * CONFIG.drones.large.gun!.damage;
+    const dps = volley / (CONFIG.drones.small.gun!.reloadMs / 1000);
     const lightestClass = CONFIG.shipClasses.torpedoBoat.hp;
-    expect(Math.round(lightestClass / dps)).toBe(39); // seconds under FULL fleet aggro
+    const secondsToKill = lightestClass / dps;
+    expect(secondsToKill).toBeGreaterThan(60); // attrition: over a minute, not a burst
+    // And a single hull must never be the threat on its own — that is what
+    // "the fleet is the danger, not the shot" means (amendment 45).
+    expect(CONFIG.drones.large.gun!.damage * 20).toBeLessThan(lightestClass);
   });
 
   it('speed ruling: every drone size now sits AT OR BELOW every player class (discharges epics.md:1090)', () => {
