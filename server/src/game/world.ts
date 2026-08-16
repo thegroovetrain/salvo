@@ -120,6 +120,7 @@ import {
 import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
+import { BotController } from './ai/botDriver.js';
 import {
   insideIntelDisc,
   islandClearance,
@@ -767,6 +768,14 @@ export class World {
   readonly inputs = new InputStore();
   /** Drives PvE fleet hulls through the normal input path (game/drones.ts). */
   readonly drones: FleetController;
+  /** Drives combat-bot AI captains through the normal input path (Story 6.4,
+   *  game/ai/botDriver.ts) — perception-gated, unlike the omniscient fleet
+   *  mind. Nothing in production constructs a bot this cycle (harness + tests
+   *  only; Story 6-5 wires the mode). */
+  readonly bots: BotController;
+  /** Monotonic bot ordinal — the ship id namespace `bot-N` (never collides
+   *  with Colyseus session ids, `fleet-N`, or `trk-` pseudonyms). */
+  private botSeq = 0;
   /** How many rows of CONFIG.fleet.waves have already been enqueued. */
   private wavesFired = 0;
   /** Fleets owed but not yet placed — one entry per fleet, each carrying its
@@ -1006,6 +1015,10 @@ export class World {
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
     // Fleet steering stream, decorrelated again from mapgen + spawn.
     this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
+    // Bot decision stream (Story 6.4), decorrelated from every other stream
+    // here (0xc2b2ae35 is unused by any of them — see the spawnPhase doc for
+    // the roster of constants in use).
+    this.bots = new BotController(this, (seed ^ 0xc2b2ae35) >>> 0);
   }
 
   /** The pseudonym map, read-only — for perception context threading and
@@ -1289,6 +1302,26 @@ export class World {
   }
 
   /**
+   * Spawn one COMBAT BOT (Story 6.4): an AI captain — `role: 'bot'`, a real
+   * ship class, a nautical callsign, a priority profile — enrolled with the
+   * BotController (which rolls class/profile/callsign off its own seeded
+   * stream) and then placed through the EXACT addShip path a human uses:
+   * the shared spawn lattice (no `at` argument — bots never teleport in),
+   * a real deck (a bot is a participant, not a fleet hull), a roster-ready
+   * record. Ids are namespaced `bot-N`, structurally distinct from Colyseus
+   * session ids, `fleet-N` hulls and `trk-` pseudonyms.
+   *
+   * NOTHING IN PRODUCTION CALLS THIS in cycle 95 (Eric ruling A1: harness +
+   * tests only); Story 6-5 wires the Solo-vs-AI mode to it.
+   */
+  addBot(): ShipRecord {
+    this.botSeq += 1;
+    const id = `bot-${this.botSeq}`;
+    const { name, hullId } = this.bots.enroll(id);
+    return this.addShip(id, name, 'bot', hullId);
+  }
+
+  /**
    * This ship's private deck stream (Story 2.8): mulberry32 over the map seed
    * XOR a fresh golden constant (the mapgen/spawn/upgrade/drone stream idiom —
    * 0x165667b1 is unused by any other stream) XOR the join ordinal scrambled by
@@ -1316,6 +1349,7 @@ export class World {
     this.ships.delete(id);
     this.inputs.remove(id);
     this.drones.remove(id);
+    this.bots.remove(id);
     // The throne never names an absent player (Story 4.6): re-evaluate now —
     // a departed holder vacates, and re-claiming needs a fresh strict unique
     // maximum among the alive captains still in the room.
@@ -2012,6 +2046,14 @@ export class World {
     // ROW NAME is unchanged across the Story 5.6 rewrite (the order-identity
     // pin is on names, and the name still describes what the row does).
     { name: 'dronesTick', run: (w) => w.drones.tick() },
+    // Combat bots (Story 6.4) write their inputs through the very same store,
+    // for the very same reason: an AI input row must sit ahead of applyInputs
+    // in the SAME tick, or every bot steers on a 50ms-stale command. Beside
+    // dronesTick, immediately before applyInputs — the sanctioned position
+    // the spawnFleetWaves rationale below names; the two AI rows are order-
+    // independent of each other (disjoint hull sets, both write-only into the
+    // input store), but nothing may sit between this pair and applyInputs.
+    { name: 'botsTick', run: (w) => w.bots.tick() },
     { name: 'applyInputs', run: (w) => w.applyInputs() },
     { name: 'stepShips', run: (w, ctx) => w.stepShips(ctx.dt) },
     { name: 'resolveCollisions', run: (w) => w.resolveCollisions() },
@@ -2110,9 +2152,10 @@ export class World {
     //
     // The obvious slot is before `dronesTick`, so a hull spawning this tick
     // gets its first input the same tick. It is the WRONG slot, twice over.
-    // First, `dronesTick`'s position is pinned and load-bearing — it must sit
-    // IMMEDIATELY before applyInputs, and inserting ahead of it is the one
-    // change the ordering rationale forbids. Second, every row between spawn
+    // First, the AI input rows' position is pinned and load-bearing — the
+    // dronesTick/botsTick pair must sit IMMEDIATELY before applyInputs, and
+    // inserting ahead of them is the one change the ordering rationale
+    // forbids. Second, every row between spawn
     // and the tick's end would then see a hull that has not moved, has no
     // wake sample and has never been collision-resolved; the storm row in
     // particular would bite a hull placed one row earlier. Spawning last

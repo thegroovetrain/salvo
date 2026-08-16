@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { World } from '../game/world.js';
 import { isFleetHull, isHuman, isParticipant, type ShipRole } from '../game/participants.js';
 
-const ROLES: ShipRole[] = ['captain', 'fleet'];
+const ROLES: ShipRole[] = ['captain', 'fleet', 'bot'];
 
 describe('participants — the three readings', () => {
   it('a captain is a human, a participant, and not fleet content', () => {
@@ -36,13 +36,12 @@ describe('participants — the three readings', () => {
   });
 
   it('THE SEAM: participant is the NEGATION of fleet, never "=== captain"', () => {
-    // The property, stated so it survives a role the union does not carry yet:
-    // a hypothetical THIRD role must land on the participant side and OUTSIDE
-    // both `isHuman` and `isFleetHull`. Story 6.4's 'bot' is exactly that hull,
-    // and this is the assertion that fails if someone rewrites isParticipant as
-    // a positive captain test. (Cast because 'bot' is deliberately NOT in the
-    // union yet — a branch with no producer is dead code.)
-    const bot = { role: 'bot' as unknown as ShipRole };
+    // Story 6.4 landed 'bot' — the once-hypothetical THIRD role is now real,
+    // and it lands on the participant side and OUTSIDE both `isHuman` and
+    // `isFleetHull` with no edit to any predicate, exactly as the seam
+    // promised. This is the assertion that fails if someone rewrites
+    // isParticipant as a positive captain test.
+    const bot = { role: 'bot' as const };
     expect(isParticipant(bot)).toBe(true);
     expect(isFleetHull(bot)).toBe(false);
     expect(isHuman(bot)).toBe(false); // FR34: a bot may never satisfy minHumans
@@ -55,11 +54,14 @@ describe('participants — the seam is what World actually stamps', () => {
     w.map.islands.length = 0;
     const cap = w.addShip('a', 'A');
     const fleet = w.addShip('f', 'FLEET', 'fleet', 'droneSmall');
+    const bot = w.addBot(); // Story 6.4: the third role, stamped for real
     expect(cap.role).toBe('captain');
     expect(fleet.role).toBe('fleet');
+    expect(bot.role).toBe('bot');
     // The id-keyed method and the record-keyed predicate are ONE definition.
     expect(w.isFleetHull('a')).toBe(isFleetHull(cap));
     expect(w.isFleetHull('f')).toBe(isFleetHull(fleet));
+    expect(w.isFleetHull(bot.id)).toBe(isFleetHull(bot));
     expect(w.isFleetHull('nobody')).toBe(false); // absent record fails closed
   });
 });

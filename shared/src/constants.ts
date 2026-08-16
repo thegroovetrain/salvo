@@ -320,6 +320,124 @@ export const CONFIG = {
     spawnRetryTicks: 200,
   },
 
+  /**
+   * COMBAT BOTS (Story 6.4, Eric rulings 2026-08-16) — AI CAPTAINS, `role:
+   * 'bot'`: participants that contest the match outcome (unlike fleet hulls)
+   * and never count as humans (FR34: a bot can never arm a countdown). Their
+   * ONLY world knowledge is `perception.observe()` and their only output is a
+   * validated InputMsg — structurally unable to cheat. Every bot-facing
+   * tunable lives HERE, per the CONFIG-is-truth rule; the brain itself is
+   * server/src/game/ai/.
+   *
+   * NOT a difficulty ladder (Eric ruling E1/E2): every bot plays at ONE honest
+   * competence level, expressed through exactly two knobs — aim scatter and
+   * reaction latency — both expected to be retuned by eye later. Variety comes
+   * from per-class PRIORITY PROFILES (2 per class, assigned at spawn off the
+   * seeded RNG), which decide what a bot WANTS, never how well it shoots.
+   */
+  bots: {
+    /**
+     * ms — how often each bot rebuilds its world view via perception.observe().
+     * Bots observe on a staggered round-robin (at most ONE observe per bot per
+     * tick, phase-offset by id hash so calls spread across ticks): 19 bots at
+     * 250ms is ~3.8 observes/tick against the 20/tick a full human lobby
+     * already costs. The staleness this buys (up to 5 ticks) is deliberately
+     * part of the handicap — comparable to a human's reaction time (E3).
+     */
+    observeCadenceMs: 250,
+    /**
+     * ms — reaction latency: a contact must persist this long in the bot's
+     * view before the bot acts on it (fires at it, turns to engage). The
+     * second of the two difficulty knobs (E2) — scatter blunts marksmanship,
+     * this blunts reflexes. Consumed by wave-2 tactics; tuned to "competent
+     * but beatable", retune by eye.
+     */
+    reactionMs: 400,
+    /**
+     * u — 1σ-style uniform-disc scatter on the lead-corrected aim point at
+     * `aimScatterRefU` range, scaling linearly with actual range (the fleet
+     * AI's aimScatterU precedent, 8-25u by hull size — a captain-grade bot is
+     * tighter than the best fleet hull, per the E2 ruling: ~6u at 250u).
+     */
+    aimScatterU: 6,
+    /** u — the reference range aimScatterU is quoted at (scatter scales as
+     *  range / aimScatterRefU, so long shots wander proportionally more). */
+    aimScatterRefU: 250,
+    /**
+     * Fraction of max hp below which a bot DISENGAGES — breaks off the fight
+     * and opens range (B2: retreat is real; fighting to the death reads as
+     * robotic). Class tactics decide HOW (boost out, mine astern, trade while
+     * backing); this only sets WHEN.
+     */
+    disengageHpFrac: 0.35,
+    /**
+     * Fraction of max hp below which a banked level is spent on DAMAGE CONTROL
+     * (HEAL_CHOICE) instead of a card (D2). Above it, bots always build.
+     */
+    healHpFrac: 0.5,
+    /**
+     * ms — how long a bot trusts a stale contact's last-known pose (a radar
+     * blip with no live contact decays as low-confidence memory). Longer than
+     * the fleet AI's 3000ms memoryMs — a captain plots a track; a fleet hull
+     * merely holds a bearing — and shorter than the client's 12s phosphor,
+     * because chasing minute-old paint reads as clairvoyance in reverse.
+     */
+    contactMemoryMs: 8000,
+    /**
+     * ms of commanding ahead while going nowhere before the un-beach manoeuvre
+     * arms (the fleet AI's stuck-trip precedent at 1200ms; bots get a little
+     * more patience because the grounding damp caps a beached hull well above
+     * zero and a captain-grade brain should be reversing off, not oscillating).
+     * The I/O contract: a grounded bot clears the coastline within this window.
+     */
+    stuckMs: 1500,
+    /**
+     * The 2 priority profiles per class (Eric ruling E1: *"Each ship should
+     * just get 2-3 different 'priority profiles'"*) — assigned per-bot at
+     * spawn off the seeded RNG. Profiles decide what a bot WANTS, never its
+     * competence: TB raider = isolated/damaged targets, torpedo opener, boost
+     * out; TB duelist = rear-quarter turn-fights vs peers; BS bulwark =
+     * attrition on HP; BS siege = standoff cannon + star shells; ML forager =
+     * fleet clearing for the level lead; ML trapper = mines astern while
+     * withdrawing. Behaviour tables live in server ai/profiles.ts — only the
+     * ID VOCABULARY is data, so it lives here.
+     */
+    profiles: {
+      torpedoBoat: ['raider', 'duelist'],
+      battleship: ['bulwark', 'siege'],
+      mineLayer: ['forager', 'trapper'],
+    } as const,
+    /**
+     * CLASS-DOCTRINE boon weights (Eric ruling D1: *"Sure"* — first-pass
+     * weights derived by the orchestrator, placed in CONFIG as a tuning
+     * panel, like the height-field knobs). Keyed by boon CATEGORY per class,
+     * covering exactly the categories that class's deck can draw (the three
+     * universals — intel/ship/guns — plus its carried equipment's). A bot
+     * picks the highest-weighted offered card, rarity as tiebreak (wave-2
+     * ai/spending.ts). Higher = wanted more; the absolute scale is arbitrary.
+     */
+    boonWeights: {
+      torpedoBoat: { ship: 3, torpedoes: 3, intel: 2, guns: 1.5, speedBoost: 1 },
+      battleship: { cannon: 3, ship: 3, guns: 2, starShells: 1.5, intel: 1 },
+      mineLayer: { mines: 3, intel: 2.5, ship: 1.5, guns: 1.5, decoyBuoy: 1 },
+    },
+    /**
+     * The callsign pool (Eric ruling E5(a)): nautical names drawn without
+     * repeat, so the kill feed reads `HALYARD sank BILGE RAT` rather than
+     * `BOT-07`. ~30 names — comfortably above the 19-bot worst case; a pool
+     * exhausted anyway (tests) reuses names with a numeric suffix. Edit
+     * freely: nothing keys on the strings.
+     */
+    callsigns: [
+      'HALYARD', 'FATHOM', 'SQUALL', 'CORSAIR', 'MAELSTROM',
+      'KEELHAUL', 'BILGE RAT', 'JETSAM', 'FLOTSAM', 'LEEWARD',
+      'WINDWARD', 'MAINSTAY', 'CAPSTAN', 'SCUPPER', 'BOWSPRIT',
+      'MIZZEN', 'GUNWALE', 'MONSOON', 'RIPTIDE', 'UNDERTOW',
+      'SPINDRIFT', 'TRADEWIND', 'DOLDRUM', 'SEXTANT', 'ASTROLABE',
+      'CROWSNEST', 'MOONRAKER', 'BINNACLE', 'DEADLIGHT', 'LODESTAR',
+    ],
+  },
+
   /** True ship globals shared by every class (no per-class variation). */
   ship: {
     respawnDelay: 3000, // ms — delay before respawn (prototype)

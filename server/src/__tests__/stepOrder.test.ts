@@ -25,6 +25,11 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
   it('pins the exact row sequence by name', () => {
     expect(World.STEP_ORDER.map((row) => row.name)).toEqual([
       'dronesTick',
+      // Story 6.4's combat-bot driver — the third deliberate insertion: the
+      // AI input rows (dronesTick + botsTick) sit IMMEDIATELY before
+      // applyInputs so bot input written this tick is consumed this tick,
+      // exactly as fleet input is. See the row comment in world.ts.
+      'botsTick',
       'applyInputs',
       'stepShips',
       'resolveCollisions',
