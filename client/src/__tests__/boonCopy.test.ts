@@ -61,7 +61,7 @@ describe('ladder coverage — every catalog line, every stack position', () => {
     expect(boonName('gunTurret')).toBe('AFT TURRET');
     expect(boonName('mineDamage', 0)).toBe('TNT FILLER');
     expect(boonName('mineDamage', 4)).toBe('RDX FILLER');
-    expect(boonName('mineTrigger', 4)).toBe('COMBINATION FUZE');
+    expect(boonName('mineBlast', 4)).toBe('BLAST CASING Mk V');
     expect(boonName('mineMax', 4)).toBe('CONVERTED HOLD');
     expect(boonName('torpedoSpeed', 3)).toBe('PURE OXYGEN DRIVE');
     expect(boonName('intelRange', 4)).toBe('CAVITY MAGNETRON');
@@ -155,7 +155,7 @@ describe('rules text — the contract, with live values', () => {
     expect(boonDescription(BOON_CATALOG.shipCooldown, TB)).toContain('All cooldowns: 100% → 90%.');
     expect(boonDescription(BOON_CATALOG.shipHull, TB)).toContain('Repairs the hull it adds.');
     expect(boonDescription(BOON_CATALOG.intelRange, TB)).toContain('Sight, gun, cannon and star shells reach with it.');
-    expect(boonDescription(BOON_CATALOG.mineTrigger, TB)).toContain('Never wider than the blast.');
+    expect(boonDescription(BOON_CATALOG.mineBlast, TB)).toContain('The trip ring widens with it.');
   });
 
   it('doctrine cards spell out the behavior change; acquisitions say what they fit', () => {

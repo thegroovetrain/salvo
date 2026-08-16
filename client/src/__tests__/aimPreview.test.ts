@@ -235,7 +235,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
 
 describe('mine placement — both rings at the drop point', () => {
   it('previews blast + trigger at the clicked point, off EFFECTIVE stats', () => {
-    const s = stats('mineBlast', 'mineTrigger');
+    const s = stats('mineBlast', 'mineBlast');
     const m = computeAimPreview(input({ id: 'mine', stats: s, aim: Math.PI, aimDist: 60 }));
     expect(m.place).not.toBeNull();
     expect(m.place!.x).toBeCloseTo(-60, 6);
