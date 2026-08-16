@@ -17,7 +17,7 @@
 //     stream) is deterministic per world seed and collision-free.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { BOON_CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { botPhase } from '../game/ai/botDriver.js';
 import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
@@ -59,18 +59,27 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
     expect(new Set(CONFIG.bots.callsigns).size).toBe(CONFIG.bots.callsigns.length);
   });
 
-  it('boonWeights cover every class over that class\'s drawable categories', () => {
-    // Universal categories (intel/ship/guns) + the class arsenal's own —
-    // the weight table must speak the deck's vocabulary or spending.ts
-    // (wave 2) scores offered cards at weight-undefined.
-    expect(Object.keys(CONFIG.bots.boonWeights).sort()).toEqual([...SHIP_CLASS_IDS].sort());
-    for (const cls of SHIP_CLASS_IDS) {
-      const w = CONFIG.bots.boonWeights[cls] as Record<string, number>;
-      for (const cat of ['intel', 'ship', 'guns']) expect(w[cat]).toBeGreaterThan(0);
+  it('boonWeights are keyed by PROFILE and speak every profile\'s drawable categories', () => {
+    // WAVE-2 RESTRUCTURE (deliberate pin update): this table was keyed by
+    // CLASS with a flat category map. It is now keyed by PRIORITY PROFILE
+    // with `{ cat, lines }` — a class-keyed table cannot express what the E1
+    // ruling asks for, namely that two battleships of different profiles want
+    // different cards (siege buys star shells, bulwark buys hull). The
+    // per-line overrides address REAL boon ids so a renamed catalog line
+    // fails loudly here rather than silently scoring at the category base.
+    const profileIds = SHIP_CLASS_IDS.flatMap((cls) => [...CONFIG.bots.profiles[cls]]);
+    expect(Object.keys(CONFIG.bots.boonWeights).sort()).toEqual([...profileIds].sort());
+    for (const id of profileIds) {
+      const t = CONFIG.bots.boonWeights[id] as { cat: Record<string, number>; lines: Record<string, number> };
+      // Universal categories (intel/ship/guns) — every deck draws them, so
+      // an unlisted one would score at spending.ts's unlisted default.
+      for (const cat of ['intel', 'ship', 'guns']) expect(t.cat[cat]).toBeGreaterThan(0);
+      for (const line of Object.keys(t.lines)) expect(Object.hasOwn(BOON_CATALOG, line)).toBe(true);
     }
-    expect((CONFIG.bots.boonWeights.torpedoBoat as Record<string, number>).torpedoes).toBeGreaterThan(0);
-    expect((CONFIG.bots.boonWeights.battleship as Record<string, number>).cannon).toBeGreaterThan(0);
-    expect((CONFIG.bots.boonWeights.mineLayer as Record<string, number>).mines).toBeGreaterThan(0);
+    // The class arsenal's own category leads its profiles' tables.
+    expect((CONFIG.bots.boonWeights.raider.cat as Record<string, number>).torpedoes).toBeGreaterThan(0);
+    expect((CONFIG.bots.boonWeights.siege.cat as Record<string, number>).cannon).toBeGreaterThan(0);
+    expect((CONFIG.bots.boonWeights.trapper.cat as Record<string, number>).mines).toBeGreaterThan(0);
   });
 });
 

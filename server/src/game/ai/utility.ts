@@ -1,0 +1,431 @@
+// COMBAT-BOT UTILITY SCORING (Story 6.4, wave 2) — the world model and the
+// choice of target and posture, over THE PERCEPTION VIEW AND NOTHING ELSE.
+//
+// This module never sees a world collection. Its whole input is one
+// `PerceptionView` (the fogged output of perception.observe(), captured by the
+// driver at most once per bot per tick) folded into per-bot contact memory,
+// plus the bot's own pose/hp/stats which the driver reads off its OWN
+// ShipRecord. Nothing here can know something a human client in the same seat
+// would not have been sent.
+//
+// FOUR THINGS THIS FILE OWNS:
+//
+// 1. CONTACT MEMORY. `mind.contacts` is a track store, not a snapshot: a live
+//    truesight `Contact` refreshes a track at full confidence, a radar blip
+//    refreshes it as a decaying low-confidence one, and anything unrefreshed
+//    for CONFIG.bots.contactMemoryMs is forgotten. A bot therefore plots a
+//    track across observe gaps instead of forgetting the world between
+//    cadence ticks.
+//
+// 2. BOTH BLIP GRAMMARS (the room picks one for the whole match, so a bot
+//    must work under either). `SilhouetteBlipEvent` carries id/cls/heading/
+//    speed and folds like a stale contact. `ReturnBlipEvent` carries ONLY a
+//    world-anchored cell rect and a packed coverage mask — no id, no class,
+//    no heading, no speed — so the position is DERIVED as the centroid of the
+//    lit cells and the track is stored identity-free (`id: null`, `heading:
+//    null`, `speed: null`), associated to an existing anonymous track by
+//    proximity the way a real plotting table associates returns to a track.
+//
+// 3. THE BOT'S OWN GUNNERY FEEDBACK. `sp` (fall-of-shot splash) and `hc` (Hit
+//    Call) are SELF-PRIVATE rows the shooter is entitled to — they are how a
+//    human brackets fire and learns a fog shot connected — so a bot uses them
+//    exactly as a human does: a Hit Call reinforces the track it landed on
+//    (refreshing it and raising the damage estimate), and a splash is handed
+//    back to wave-3 tactics as the fall-of-shot correction. NOTHING ELSE is
+//    read from the event stream beyond blips and `sunk` (which merely retires
+//    a dead track); no event the bot is not entitled to is consulted, because
+//    the view it is handed contains none.
+//
+// 4. THE REACTION GATE, IN ONE PLACE. `isActionable()` is the sole consumer of
+//    CONFIG.bots.reactionMs — one of the two competence knobs (E2). A track
+//    must have persisted `reactionMs` since first acquisition before any
+//    scoring will return it. Keeping it here (and not sprinkled through
+//    tactics) is what makes retuning difficulty a one-number edit.
+//
+// A NOTE ON `BotTrack` FOR WAVE 3: wave 1's `RememberedContact` carries no
+// hull class, no acquisition time and no hit history, and the reaction gate
+// plus profile scoring need all three. `BotTrack` EXTENDS it with exactly
+// those three fields and is what this module writes into `mind.contacts`
+// (assignable, so the wave-1 type is untouched); every read goes through
+// `asTrack()`, which normalizes a foreign/plain entry rather than casting one.
+// Promoting the three fields onto `RememberedContact` itself would be a clean
+// follow-up — see the wave-2 report.
+
+import {
+  CONFIG,
+  SHIP_CLASS_IDS,
+  isOutside,
+  type BlipEvent,
+  type Contact,
+  type EffectiveStats,
+  type GameEvent,
+  type HullId,
+  type ReturnBlipEvent,
+  type ZoneRing,
+} from '@salvo/shared';
+import type { PerceptionView } from '../perception.js';
+import type { BotMind, RememberedContact } from './types.js';
+import { engagementBand, type BotProfile } from './profiles.js';
+
+/**
+ * A remembered contact PLUS the three things scoring needs and wave 1's
+ * `RememberedContact` does not carry. Assignable to `RememberedContact`, so
+ * `mind.contacts` keeps its declared type.
+ */
+export interface BotTrack extends RememberedContact {
+  /** Hull class if the grammar disclosed one, else null (return blips are
+   *  identity-free by ruling). */
+  cls: HullId | null;
+  /** True when the disclosed class is a PvE fleet hull rather than a
+   *  participant. Unknown class = false (assume a captain: the safer read). */
+  fleet: boolean;
+  /** Server ms this track was FIRST acquired — the reaction gate's input.
+   *  Survives every refresh; a forgotten-then-reacquired track starts over,
+   *  which is correct (you did lose the plot). */
+  firstSeenAt: number;
+  /** Self-private Hit Calls that landed on this track — the ONLY damage
+   *  estimate a bot can legitimately have (no hp, no severity, ever). */
+  hits: number;
+}
+
+/** The bot's own fall-of-shot feedback for this tick, handed to wave-3
+ *  tactics. Both channels are self-private rows the shooter is entitled to. */
+export interface GunneryFeedback {
+  /** The true impact point of the bot's own most recent MISS this tick, or
+   *  null. This is what makes bracket-and-walk fire possible in fog. */
+  splash: { x: number; y: number } | null;
+  /** How many of the bot's own ordnance resolutions CONNECTED this tick
+   *  (severity-free by ruling — a count, never an amount). */
+  hits: number;
+}
+
+/** Posture is the one-word answer to "what am I doing this tick"; wave-3
+ *  tactics turns it into throttle, rudder and trigger. */
+export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'farm' | 'ringRun';
+
+/** Everything scoring needs about the bot ITSELF — built by the driver from
+ *  the bot's own ShipRecord and the narrow port. Deliberately a plain value:
+ *  this module imports nothing from world.ts, not even a type. */
+export interface BotSituation {
+  now: number;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  stats: EffectiveStats;
+  profile: BotProfile;
+  /** The LIVE storm ring — ring escape overrides everything else. */
+  ring: ZoneRing;
+}
+
+/** u — association radius for an identity-free return-grammar paint. Six
+ *  lattice cells: a hull makes ~11u between observes at full ahead, the
+ *  lattice itself quantizes to 9u and the mask is deliberately fuzzed, so
+ *  this is a few steps of slop and no more. Beyond it, a paint is a NEW
+ *  track — which is honest: nothing on the wire linked them. */
+const ANON_ASSOC_U = CONFIG.vision.radarCellU * 6;
+
+/** u — how near a Hit Call must land to be credited to a track. The cannon's
+ *  30u burst is the widest gun-family blast, so twice it covers "that was the
+ *  thing I was shooting at" without crediting a hull a map away. */
+const HIT_ASSOC_U = CONFIG.cannon.burstRadius * 2;
+
+/** Hit Calls that read as "crippled" (the damage term saturates here). A
+ *  severity-free count is all the wire gives; three connections is a real
+ *  beating for every hull in the game. */
+const HITS_FOR_CRIPPLED = 3;
+
+/** Fraction of intel range beyond which a track is not worth scoring at all.
+ *  Slightly over 1 so a track that drifted just past radar range is still
+ *  chaseable rather than snapping to worthless. */
+const TARGET_HORIZON_FACTOR = 1.25;
+
+/** Confidence floor for the oldest still-remembered track — a minute-old plot
+ *  is worth something, just not much. */
+const STALE_FLOOR = 0.15;
+
+/** u — radius that decides whether a track is ALONE. Half of base truesight:
+ *  two hulls this close are supporting each other. */
+const ISOLATION_U = CONFIG.vision.sight * 0.5;
+
+/** A hull id that is PvE fleet content rather than a participant. */
+function isFleetHullId(cls: HullId): boolean {
+  return !(SHIP_CLASS_IDS as readonly string[]).includes(cls);
+}
+
+/** Normalize a stored entry to a BotTrack — this module's entries pass
+ *  through unchanged; anything else (a plain RememberedContact written by
+ *  another wave) is upgraded conservatively rather than cast. */
+function asTrack(c: RememberedContact): BotTrack {
+  const t = c as Partial<BotTrack> & RememberedContact;
+  if (typeof t.firstSeenAt === 'number' && typeof t.hits === 'number') return t as BotTrack;
+  return { ...c, cls: null, fleet: false, firstSeenAt: c.seenAt, hits: 0 };
+}
+
+/** The one sighting shape every fold path funnels through. */
+interface Sighting {
+  id: string | null;
+  x: number;
+  y: number;
+  heading: number | null;
+  speed: number | null;
+  cls: HullId | null;
+}
+
+type TrackMap = Map<string, RememberedContact>;
+
+/** A brand-new track's carried-over half (no history to preserve). */
+function freshBase(now: number): Pick<BotTrack, 'id' | 'cls' | 'fleet' | 'firstSeenAt' | 'hits'> {
+  return { id: null, cls: null, fleet: false, firstSeenAt: now, hits: 0 };
+}
+
+/** Write (or refresh) one track. Position/pose come from the sighting;
+ *  acquisition time, hit history and any previously-disclosed class survive. */
+function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, live: boolean): void {
+  const prev = tracks.get(key);
+  const base = prev === undefined ? freshBase(now) : asTrack(prev);
+  const cls = s.cls ?? base.cls;
+  const track: BotTrack = {
+    id: s.id ?? base.id,
+    x: s.x,
+    y: s.y,
+    heading: s.heading,
+    speed: s.speed,
+    seenAt: now,
+    live,
+    cls,
+    fleet: cls === null ? base.fleet : isFleetHullId(cls),
+    firstSeenAt: base.firstSeenAt,
+    hits: base.hits,
+  };
+  tracks.set(key, track);
+}
+
+/** Nearest track key within `maxU` of a point, or null. `anonOnly` restricts
+ *  the search to identity-free tracks (return-grammar association). Ties keep
+ *  the earliest insertion — Map order, so the fold stays deterministic. */
+function nearestKey(tracks: TrackMap, x: number, y: number, maxU: number, anonOnly: boolean): string | null {
+  let best: string | null = null;
+  let bestD2 = maxU * maxU;
+  for (const [key, t] of tracks) {
+    if (anonOnly && t.id !== null) continue;
+    const dx = t.x - x;
+    const dy = t.y - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD2) {
+      bestD2 = d2;
+      best = key;
+    }
+  }
+  return best;
+}
+
+/** A deterministic key for a brand-new identity-free track (position-derived,
+ *  never a counter — two worlds stepping the same seed must agree). */
+function anonKey(x: number, y: number): string {
+  return `a:${Math.round(x)}:${Math.round(y)}`;
+}
+
+/** Fold an identity-free position (a return-grammar paint, or a Hit Call in
+ *  empty water) into the nearest anonymous track, or open a new one. */
+function foldAnonymous(tracks: TrackMap, x: number, y: number, now: number): string {
+  const key = nearestKey(tracks, x, y, ANON_ASSOC_U, true) ?? anonKey(x, y);
+  writeTrack(tracks, key, { id: null, x, y, heading: null, speed: null, cls: null }, now, false);
+  return key;
+}
+
+/** Centroid of a return blip's LIT cells in world units, or null for an empty
+ *  mask. `gx`/`gy` are absolute lattice indices, so a cell's centre is
+ *  `(index + 0.5) * radarCellU` — the only geometry the grammar discloses. */
+function returnBlipCenter(e: ReturnBlipEvent): { x: number; y: number } | null {
+  const cell = CONFIG.vision.radarCellU;
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  for (let row = 0; row < e.h; row += 1) {
+    for (let col = 0; col < e.w; col += 1) {
+      const bit = row * e.w + col;
+      const word = e.bits[bit >> 5] ?? 0;
+      if ((word & (1 << (bit & 31))) === 0) continue;
+      sx += (e.gx + col + 0.5) * cell;
+      sy += (e.gy + row + 0.5) * cell;
+      n += 1;
+    }
+  }
+  return n === 0 ? null : { x: sx / n, y: sy / n };
+}
+
+/** Fold one radar paint, under EITHER grammar. */
+function foldBlip(tracks: TrackMap, e: BlipEvent, now: number): void {
+  if ('id' in e) {
+    writeTrack(tracks, e.id, { id: e.id, x: e.x, y: e.y, heading: e.heading, speed: e.speed, cls: e.cls }, now, false);
+    return;
+  }
+  const c = returnBlipCenter(e);
+  if (c !== null) foldAnonymous(tracks, c.x, c.y, now);
+}
+
+/** Fold the bot's own Hit Call: something of ours connected HERE. Credits the
+ *  nearest track (refreshing it — a connection proves presence) or opens one,
+ *  which is exactly what the shooter is entitled to conclude. */
+function foldHitCall(tracks: TrackMap, x: number, y: number, now: number): void {
+  const key = nearestKey(tracks, x, y, HIT_ASSOC_U, false) ?? foldAnonymous(tracks, x, y, now);
+  const prev = tracks.get(key);
+  if (prev === undefined) return;
+  const t = asTrack(prev);
+  // A LIVE track has better position data than the burst point; a stale one
+  // does not, so the impact point becomes its new plot.
+  const hit: BotTrack = { ...t, hits: t.hits + 1, seenAt: now, x: t.live ? t.x : x, y: t.live ? t.y : y };
+  tracks.set(key, hit);
+}
+
+/** Fold one live truesight contact at full confidence. */
+function foldContact(tracks: TrackMap, c: Contact, now: number): void {
+  writeTrack(tracks, c.id, { id: c.id, x: c.x, y: c.y, heading: c.heading, speed: c.speed, cls: c.cls }, now, true);
+}
+
+/** Route one event to its fold. Everything not named here is deliberately
+ *  ignored — a bot reads only what it is entitled to and only what it uses. */
+function foldEvent(tracks: TrackMap, e: GameEvent, now: number, fb: GunneryFeedback): void {
+  if (e.k === 'blip') {
+    foldBlip(tracks, e, now);
+    return;
+  }
+  if (e.k === 'hc') {
+    foldHitCall(tracks, e.x, e.y, now);
+    fb.hits += 1;
+    return;
+  }
+  if (e.k === 'sp') {
+    fb.splash = { x: e.x, y: e.y };
+    return;
+  }
+  if (e.k === 'sunk') tracks.delete(e.id);
+}
+
+/** Forget every track unrefreshed for longer than the memory window. */
+function prune(tracks: TrackMap, now: number): void {
+  for (const [key, t] of tracks) {
+    if (now - t.seenAt > CONFIG.bots.contactMemoryMs) tracks.delete(key);
+  }
+}
+
+/**
+ * Fold one perception view into the bot's contact memory and hand back this
+ * tick's gunnery feedback. THE only writer of `mind.contacts`.
+ *
+ * ORDER IS LOAD-BEARING: events (blips, Hit Calls) fold FIRST and live
+ * truesight contacts fold LAST, so a hull that is both painted and sighted
+ * this tick ends up stored LIVE. The reverse order would let a same-tick
+ * radar paint demote a sighted hull to a stale plot — the sensors disagree
+ * about confidence, never about existence, and truesight always wins.
+ * Deterministic: no rng, no clock read (`now` is passed in).
+ */
+export function foldView(mind: BotMind, view: PerceptionView, now: number): GunneryFeedback {
+  const tracks = mind.contacts;
+  const fb: GunneryFeedback = { splash: null, hits: 0 };
+  for (const e of view.events) foldEvent(tracks, e, now, fb);
+  for (const c of view.contacts) foldContact(tracks, c, now);
+  prune(tracks, now);
+  return fb;
+}
+
+/** Every remembered track, normalized. Insertion-ordered (deterministic). */
+export function tracksOf(mind: BotMind): BotTrack[] {
+  const out: BotTrack[] = [];
+  for (const t of mind.contacts.values()) out.push(asTrack(t));
+  return out;
+}
+
+/**
+ * THE REACTION GATE — the single consumer of CONFIG.bots.reactionMs (E2's
+ * second competence knob). A track the bot has only just acquired is not yet
+ * something it may act on; it must have persisted this long since first
+ * acquisition. Retuning difficulty is this one number.
+ */
+export function isActionable(t: BotTrack, now: number): boolean {
+  return now - t.firstSeenAt >= CONFIG.bots.reactionMs;
+}
+
+/** Confidence in a track's plot: 1 while live, decaying to a floor as its
+ *  last refresh ages out toward the memory horizon. */
+function freshness(t: BotTrack, now: number): number {
+  if (t.live) return 1;
+  const age = (now - t.seenAt) / CONFIG.bots.contactMemoryMs;
+  return Math.max(STALE_FLOOR, 1 - age);
+}
+
+/** 0..1 estimated damage, from self-private Hit Calls alone. */
+function damageEstimate(t: BotTrack): number {
+  return Math.min(1, t.hits / HITS_FOR_CRIPPLED);
+}
+
+/** 0..1 isolation: 1 when nothing else is tracked nearby, falling off as
+ *  company arrives. */
+function isolation(t: BotTrack, neighbours: readonly BotTrack[]): number {
+  let n = 0;
+  for (const o of neighbours) {
+    if (o === t) continue;
+    if (Math.hypot(o.x - t.x, o.y - t.y) <= ISOLATION_U) n += 1;
+  }
+  return 1 / (1 + n);
+}
+
+/**
+ * Profile-weighted desirability of one track, 0 = not worth pursuing. The
+ * five terms are exactly the ones the profiles speak in: WHAT it is
+ * (participant vs fleet hull — never human vs bot, ruling B3), HOW CLOSE it
+ * is, HOW SURE we are of the plot, HOW HURT we believe it is (self-private
+ * Hit Calls only) and HOW ALONE it is.
+ */
+export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
+  const horizon = sit.stats.radarRange * TARGET_HORIZON_FACTOR;
+  const d = Math.hypot(t.x - sit.x, t.y - sit.y);
+  if (d > horizon) return 0;
+  const w = sit.profile.targetWeights;
+  const kind = t.fleet ? w.fleet : w.captain;
+  const prox = 1 - d / horizon;
+  const dmg = 1 + w.damaged * damageEstimate(t);
+  const iso = 1 + w.isolated * isolation(t, neighbours);
+  return kind * prox * freshness(t, sit.now) * dmg * iso;
+}
+
+/** The best actionable track by profile-weighted score, or null. Strict `>`
+ *  keeps the earliest-acquired track on a tie (deterministic). */
+export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null {
+  const all = tracksOf(mind);
+  let best: BotTrack | null = null;
+  let bestScore = 0;
+  for (const t of all) {
+    if (!isActionable(t, sit.now)) continue;
+    const s = scoreTrack(t, sit, all);
+    if (s > bestScore) {
+      bestScore = s;
+      best = t;
+    }
+  }
+  return best;
+}
+
+/**
+ * What the bot is doing this tick. The order of these clauses IS the policy:
+ *
+ *   1. RING ESCAPE DOMINATES EVERYTHING. Outside the live storm ring nothing
+ *      else is worth deciding — the storm does not miss.
+ *   2. Then survival: below the profile's disengage fraction, break off.
+ *   3. Then, with nothing actionable to chase, reposition (wave-3 tactics
+ *      patrols toward the ring centre).
+ *   4. `farm` distinguishes clearing world content from fighting a captain —
+ *      it is the posture `forager` lives in, and any profile takes it when
+ *      its own weights say a fleet hull is the better prize.
+ *   5. Otherwise it is band geometry: inside the band engage, outside pursue.
+ */
+export function choosePosture(sit: BotSituation, target: BotTrack | null): BotPosture {
+  if (isOutside({ x: sit.x, y: sit.y }, sit.ring.cx, sit.ring.cy, sit.ring.r)) return 'ringRun';
+  if (sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac) return 'disengage';
+  if (target === null) return 'reposition';
+  const w = sit.profile.targetWeights;
+  if (target.fleet && w.fleet >= w.captain) return 'farm';
+  const band = engagementBand(sit.profile, sit.stats);
+  return Math.hypot(target.x - sit.x, target.y - sit.y) <= band.max ? 'engage' : 'pursue';
+}

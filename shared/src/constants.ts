@@ -408,18 +408,76 @@ export const CONFIG = {
       mineLayer: ['forager', 'trapper'],
     } as const,
     /**
-     * CLASS-DOCTRINE boon weights (Eric ruling D1: *"Sure"* — first-pass
-     * weights derived by the orchestrator, placed in CONFIG as a tuning
-     * panel, like the height-field knobs). Keyed by boon CATEGORY per class,
-     * covering exactly the categories that class's deck can draw (the three
-     * universals — intel/ship/guns — plus its carried equipment's). A bot
-     * picks the highest-weighted offered card, rarity as tiebreak (wave-2
-     * ai/spending.ts). Higher = wanted more; the absolute scale is arbitrary.
+     * PER-PROFILE boon weights (Eric ruling D1: *"Sure"* — first-pass weights
+     * derived by the orchestrator, placed in CONFIG as a tuning panel, like
+     * the height-field knobs). Keyed by PRIORITY PROFILE, not by class: two
+     * bots of the same hull sailing different profiles want DIFFERENT cards,
+     * which is the whole point of the E1 ruling — a class-keyed table cannot
+     * express "the standoff battleship buys star shells and the attrition
+     * battleship buys hull".
+     *
+     * Two levels, resolved by wave-2 ai/spending.ts as `lines[id] ?? cat[def
+     * .category] ?? default`:
+     *   `cat`   — the base weight for every card of a boon CATEGORY, covering
+     *             exactly the categories that profile's deck can draw (the
+     *             three universals — intel/ship/guns — plus its carried
+     *             equipment's).
+     *   `lines` — per-BOON-LINE overrides (real ids from sim/boons.ts) for the
+     *             handful of cards a profile wants more or less than its
+     *             category base. Everything unnamed falls through to `cat`.
+     * A bot picks the highest-weighted offered card, rarity as tiebreak.
+     * Higher = wanted more; the absolute scale is arbitrary.
+     *
+     * THE `minePropFouling` SPLIT IS RULED REASONING, NOT A TYPO. It is the
+     * one card the two Mine Layer profiles disagree about, and the mechanism
+     * is arithmetic: a base mine does 55 damage and the small PvE fleet hull
+     * has 45 hp, so a base mine ONE-SHOTS a fleet hull. PROP-FOULING MINES
+     * multiply mine damage by 0.6 → 33, which BREAKS that one-shot — and
+     * one-shotting fleet hulls is exactly what `forager` lives on (C3: clear
+     * fleet groups for a level lead), so forager weights it 0.4, well under
+     * every other card it can be offered. `trapper` wants the very same card
+     * at 2.0, because the fouling slow drags a victim INTO its minefield,
+     * which is what trapper lives on. Same card, opposite value, real
+     * mechanical reason.
      */
     boonWeights: {
-      torpedoBoat: { ship: 3, torpedoes: 3, intel: 2, guns: 1.5, speedBoost: 1 },
-      battleship: { cannon: 3, ship: 3, guns: 2, starShells: 1.5, intel: 1 },
-      mineLayer: { mines: 3, intel: 2.5, ship: 1.5, guns: 1.5, decoyBuoy: 1 },
+      // TB raider — torpedo opener at credible range, then boost out. Buys
+      // tubes/homing/speed to make the one opener count, and hull last.
+      raider: {
+        cat: { torpedoes: 2.2, ship: 2.0, guns: 1.5, speedBoost: 1.8, intel: 1.5 },
+        lines: { torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2 },
+      },
+      // TB duelist — rear-quarter turn-fight, guns through the 30s torpedo
+      // reload. Guns and the global cooldown lever come first.
+      duelist: {
+        cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, speedBoost: 1.6, intel: 1.3 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0 },
+      },
+      // BS bulwark — attrition. Trades on hp, so hull is the top line of any
+      // profile's table.
+      bulwark: {
+        cat: { ship: 2.4, guns: 2.0, cannon: 2.0, starShells: 1.0, intel: 1.0 },
+        lines: { shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6 },
+      },
+      // BS siege — standoff, cannon-led, star shells to resolve stale
+      // contacts into live sight (C2). Intel range IS its reach: gun, cannon
+      // and star-shell rangeU all ride radarRange.
+      siege: {
+        cat: { cannon: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
+        lines: { cannonDamage: 2.8, intelRange: 2.4, starRadius: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
+      },
+      // ML forager — clears PvE fleet groups for the level lead (C3). Guns
+      // and rate of fire do that work; see the propFouling note above.
+      forager: {
+        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, decoyBuoy: 1.0 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineDamage: 2.0, minePropFouling: 0.4 },
+      },
+      // ML trapper — mines astern while withdrawing, decoy to break locks,
+      // fights near its own field.
+      trapper: {
+        cat: { mines: 2.6, decoyBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
+        lines: { mineMax: 2.8, mineDamage: 2.4, mineBlast: 2.4, minePropFouling: 2.0, shipCooldown: 2.2 },
+      },
     },
     /**
      * The callsign pool (Eric ruling E5(a)): nautical names drawn without
