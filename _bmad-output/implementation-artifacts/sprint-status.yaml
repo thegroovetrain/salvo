@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-16  # epic-6 OPEN; interstitial cycle 93 (0.17.93) FRAGMENTATION CASING deleted, epic-6 amendment 23, PV 38->39
+# last_updated: 2026-08-16  # epic-6 OPEN; interstitial cycle 94 (0.17.94) PvE FLEET REBALANCE, epic-6 amendment 24, PV unchanged at 39
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -107,6 +107,7 @@
 #   cycle 91 (0.17.91)  client frame-loop containment: a throw costs one frame, not the session — PV unchanged at 37 (client-only)
 #   cycle 92 (0.17.92)  THE INTEL RANGE MERGE: intelTruesight + intelRadar -> one intelRange line (x4), truesight DERIVED, the 5/8 rung observer-scaled — epic-6 amendment 22; PV 37->38
 #   cycle 93 (0.17.93)  FRAGMENTATION CASING deleted: cannonBlast was a TOTAL no-op under ARMOR-PIERCING — epic-6 amendment 23; PV 38->39
+#   cycle 94 (0.17.94)  PvE FLEET REBALANCE: hp 45/60/75, flat 1 damage, tiers 1/4-1/2-3/4, 6-hull groups at 8/4/2, spreadU 400->500 — epic-6 amendment 24; PV unchanged at 39
 
 generated: 2026-07-17
 last_updated: 2026-08-16

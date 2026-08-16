@@ -39,7 +39,7 @@ export const UNKNOWN_VESSEL = 'UNKNOWN VESSEL';
  *
  * ERIC'S RULING (2026-08-14): *"I want to know the kills I get when I get them.
  * Meaning I want to know I killed a Small Drone if a Small Drone is killed by my
- * mine."* THE SIZE IS THE POINT, because **the size IS the payout** — ¼ / ⅓ / ½
+ * mine."* THE SIZE IS THE POINT, because **the size IS the payout** — ¼ / ½ / ¾
  * of a level — so a line that said only `DRONE` would omit the one fact the
  * moment is actually about.
  *

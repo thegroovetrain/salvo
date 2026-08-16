@@ -7,8 +7,10 @@
 //     the retired controller's "fireSeq can never advance" guarantee is
 //     replaced by explicit coverage of WHEN it may advance and when it may not
 //     (no target => never; acquired but blind => never);
-//   * WAVES: timing off the ZONE clock, exact composition (2 large + 3 medium
-//     + 4 small = 9 hulls, exactly 3.000 levels), and the anchor rule —
+//   * WAVES: timing off the ZONE clock, exact composition (1 large + 2 medium
+//     + 3 small = the 6-hull spawn group; its XP value is DERIVED by
+//     fleetLevels() and is deliberately never asserted as a literal — epic-6
+//     amendment 24), and the anchor rule —
 //     outside every captain's intel disc, retried, then a LOGGED max-min
 //     fallback so the wave always arrives (amendment 37);
 //   * SELF-DEFENCE: a hit acquires the attacker, the witness sweep is
@@ -493,7 +495,7 @@ function armWaveClock(w: World, atMs: number): void {
 }
 
 describe('fleet waves — timing and exact composition (amendment 33)', () => {
-  it('nothing spawns before the first beat, and the first wave is exactly 3 fleets', () => {
+  it('nothing spawns before the first beat, and the first wave lands every group at once', () => {
     const w = bareWorld(17);
     w.startZone();
     const firstBeat = CONFIG.fleet.waves[0].atMs;
@@ -505,7 +507,7 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
     expect(fleetHulls(w)).toHaveLength(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
   });
 
-  it('each fleet is 2 large + 3 medium + 4 small, and one fleet is exactly 3.000 levels', () => {
+  it('each group is 1 large + 2 medium + 3 small, and its XP value is DERIVED, never declared', () => {
     const w = bareWorld(17);
     armWaveClock(w, CONFIG.fleet.waves[0].atMs);
     w.step();
@@ -515,13 +517,22 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
     const byHull = new Map<string, number>();
     for (const s of hulls) byHull.set(s.hullId, (byHull.get(s.hullId) ?? 0) + 1);
     const fleets = CONFIG.fleet.waves[0].fleets;
-    expect(byHull.get('droneLarge')).toBe(2 * fleets);
-    expect(byHull.get('droneMedium')).toBe(3 * fleets);
-    expect(byHull.get('droneSmall')).toBe(4 * fleets);
-    expect(fleetLevels()).toBe(3);
+    // Counts come from CONFIG.fleet.composition, so a composition retune moves
+    // the expectation with the config rather than needing a literal re-solve.
+    expect(byHull.get('droneLarge')).toBe(CONFIG.fleet.composition.large * fleets);
+    expect(byHull.get('droneMedium')).toBe(CONFIG.fleet.composition.medium * fleets);
+    expect(byHull.get('droneSmall')).toBe(CONFIG.fleet.composition.small * fleets);
+    // NO HARDCODED TOTAL (Eric ruling 2026-08-16, epic-6 amendment 24). What is
+    // pinned is that the payout is the SUM OF THE PARTS — i.e. that
+    // fleetLevels() really does read the composition rather than a constant.
+    const byParts =
+      CONFIG.fleet.composition.large * CONFIG.xp.droneTierLevels.droneLarge +
+      CONFIG.fleet.composition.medium * CONFIG.xp.droneTierLevels.droneMedium +
+      CONFIG.fleet.composition.small * CONFIG.xp.droneTierLevels.droneSmall;
+    expect(fleetLevels()).toBe(byParts);
   });
 
-  it('the whole schedule lands 63 hulls and 21 levels, wave by wave (amendment 45: 4/2/1 fleets)', () => {
+  it('the whole schedule lands every wave cumulatively (amendment 24: 8/4/2 groups of six)', () => {
     const w = bareWorld(19);
     w.startZone();
     const perFleet = fleetHullIds().length;
@@ -532,9 +543,15 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
       expected += wave.fleets * perFleet;
       expect(fleetHulls(w)).toHaveLength(expected);
     }
-    expect(expected).toBe(63);
+    // Cumulative hull count is DERIVED from the schedule, never a literal —
+    // the wave sizes are a ratio (~1 twelve-hull fleet per 5 captains) and the
+    // totals are their consequence (epic-6 amendment 24).
     const totalFleets = CONFIG.fleet.waves.reduce((n, wv) => n + wv.fleets, 0);
-    expect(totalFleets * fleetLevels()).toBe(21);
+    expect(expected).toBe(totalFleets * perFleet);
+    // The match payout is likewise derived; assert it is exact, not that it
+    // equals any particular number.
+    expect(Number.isInteger(totalFleets * fleetLevels() * 1024)).toBe(true);
+    expect(totalFleets * fleetLevels()).toBeGreaterThan(0);
   });
 
   it('a wave fires only while the match is live (zone anchored AND damage enabled)', () => {
@@ -579,12 +596,12 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
     }
   });
 
-  it('the nine hulls of one fleet spawn within the ratified spread of their anchor', () => {
+  it('the six hulls of one group spawn within the ratified spread of their anchor', () => {
     const w = bareWorld(29);
     armWaveClock(w, CONFIG.fleet.waves[2].atMs); // the 9:00 beat...
     w.step();
     // ...and arming the clock at 9:00 means every earlier beat is already due,
-    // so all six fleets land together. Group by fleet through the shared
+    // so every group lands together. Group by fleet through the shared
     // waypoint the controller gives each one (one more tick, since a hull
     // spawned at the end of a tick has not run its controller yet).
     w.step();
@@ -628,6 +645,45 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
       }
     }
     const ring = w.zoneLiveRing;
+    for (const s of hulls) {
+      expect(Math.hypot(s.state.x - ring.cx, s.state.y - ring.cy)).toBeLessThanOrEqual(ring.r);
+    }
+  });
+
+  // REGRESSION, epic-6 amendment 24. Ring containment used to be an ARITHMETIC
+  // COINCIDENCE between two unrelated constants: fleetAnchor samples within
+  // `max(ring.r - spreadU, ring.r * FLEET_ANCHOR_MIN_FRACTION)`, and the second
+  // term wins whenever `ring.r < spreadU / (1 - 0.35)` — below 615u at the old
+  // spreadU 400, below 769u at the current 500. At the 660u terminal ring that
+  // permits an anchor at 231u scattering a full 500u, i.e. 731u from centre:
+  // OUTSIDE the ring, in the storm. `fleetOffset` now tests containment per
+  // hull, so the property holds for ANY spreadU rather than by luck.
+  //
+  // Arming at full closure also makes every wave due at once, so this lands the
+  // whole match's hull count into the smallest ring the timeline ever has —
+  // the hardest placement case that exists.
+  it('NO hull lands in the storm, even when the ring is small enough that the anchor floor governs', () => {
+    const smallRing: ZoneTimeline = {
+      beatMs: 60000,
+      ringSteps: [1 / 3, 2 / 3],
+      offsetCap: 1.0,
+      terminalSightFactor: 2, // terminal ring = 2 × sight = 660u
+    };
+    const w = bareWorld(41, smallRing);
+    // Full closure for a three-group timeline: every wave beat has passed, so
+    // all of them land together into the terminal ring.
+    armWaveClock(w, smallRing.beatMs * 4 * (smallRing.ringSteps.length + 1));
+    w.step();
+
+    const ring = w.zoneLiveRing;
+    // Guard the guard: this test is only meaningful while the floor actually
+    // governs. If the ring ever grows past spreadU/(1-fraction) this stops
+    // exercising the bug and must be re-tuned rather than silently passing.
+    expect(ring.r).toBeLessThan(CONFIG.fleet.spreadU / 0.65);
+
+    const hulls = fleetHulls(w);
+    const totalFleets = CONFIG.fleet.waves.reduce((n, wv) => n + wv.fleets, 0);
+    expect(hulls).toHaveLength(totalFleets * fleetHullIds().length);
     for (const s of hulls) {
       expect(Math.hypot(s.state.x - ring.cx, s.state.y - ring.cy)).toBeLessThanOrEqual(ring.r);
     }

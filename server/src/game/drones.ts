@@ -52,7 +52,7 @@
 //      nowhere, back off astern for a moment and turn out;
 //   3. a target           -> steer at its last known position;
 //   4. otherwise          -> the FLEET's shared waypoint plus this hull's own
-//      constant formation offset, so the nine travel together and hold roughly
+//      constant formation offset, so the six travel together and hold roughly
 //      the spread they spawned with (which is what keeps the witness rule
 //      meaningful at 9:00 and not only at 1:00).
 // Island avoidance and the map-edge bias are summed onto the rudder on top of
@@ -137,7 +137,7 @@ interface FleetMind {
   unbeachUntil: number;
 }
 
-/** Per-fleet shared state: one waypoint stream for all nine hulls. */
+/** Per-group shared state: one waypoint stream for all six hulls. */
 interface Fleet {
   rng: Rng;
   waypoint: Vec2 | null;

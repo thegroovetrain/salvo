@@ -1053,7 +1053,7 @@ function isDroneId(g: Game, id: string): boolean {
  * a drone, I DO want to see that in the end-game report... You SHOULD be
  * embarrassed"* — and, in the same ruling, *"SUNK BY SMALL DRONE is both
  * funnier and strictly more informative"* than plain `DRONE`, since the size
- * IS the payout, ¼/⅓/½ of a level).
+ * IS the payout, ¼/½/¾ of a level).
  *
  * A fleet hull sizes itself off the SAME ever-seen memo `isDroneId` reads —
  * `SMALL DRONE` / `MEDIUM DRONE` / `LARGE DRONE` via `fleetSizeName`; plain
