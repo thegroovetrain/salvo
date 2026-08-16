@@ -2,7 +2,8 @@
 title: 'Client frame-loop containment'
 type: 'bugfix'
 created: '2026-08-16'
-status: 'draft'
+status: 'in-progress'
+baseline_commit: 'cb4bdba369eca298e99f15e369d2da52d104f227'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/investigations/boon-cards-control-loss-investigation.md'
 ---
@@ -60,16 +61,16 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/src/app/loop.ts` -- move `accumulator -= SIM_DT` above the `cb.simTick` call, then guard both `cb.simTick` and `cb.render` so a throw is caught, reported and survived; add an optional `onError(err, phase)` to `LoopCallbacks` -- decrementing first is what prevents a throwing tick spinning forever; the hook exists so the caller can attach context the loop cannot see
-- [ ] `client/src/app/loop.ts` -- rate-limit the fallback report (log each distinct error once, with a hard cap on distinct entries) using the house `console.error('[loop] …', err)` form -- an unbounded per-frame log is its own outage
-- [ ] `client/src/main.ts` -- implement `onError` at the `startLoop` call site, logging the phase plus own hull class and fitted boon ids -- this is the diagnostic that names the still-unidentified trigger on its next occurrence
-- [ ] `client/src/net/roomBindings.ts` -- evaluate `ownStatsChanged(f.you, net.you)` into a local, assign `net.you = f.you`, then call `deps.onOwnStats` -- verified safe: `applyOwnStats` takes `cls`/`boons` as arguments and never reads `state.net.you`
-- [ ] `client/src/ui/boonCopy.ts`, `client/src/ui/upgradeMenu.ts`, `client/src/ui/results.ts` -- `Object.hasOwn`-gate the three lookups, failing open -- every sibling lookup in the engine is already gated; these three are the exceptions, and two of them run per-frame during boon picking
-- [ ] `client/src/__tests__/` -- add coverage for the I/O matrix: a throwing `simTick` leaves the loop alive and the accumulator drained; a persistently throwing tick does not spin and does not spam; a throwing `onOwnStats` does not re-fire on the next frame; each fail-open guard returns neutral output for an unknown id
-- [ ] `VERSION`, root `package.json` -- 0.17.88 → 0.17.89
-- [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- update the `# last_updated` comment and `last_updated:` key, and add ONE line at the end of the INTERSTITIAL CYCLE INDEX. No `development_status` entry -- this is an interstitial cycle, not a story
-- [ ] `_bmad-output/gds-workflow-status.yaml` -- update `last_updated` and rotate/rewrite `next_expected`
-- [ ] `CLAUDE.md` -- correct the stale `PROTOCOL_VERSION` figure to 37 (`shared/src/index.ts:377`). The NUMBER ONLY -- no other Key Decisions edit; this ships no gameplay change
+- [x] `client/src/app/loop.ts` -- move `accumulator -= SIM_DT` above the `cb.simTick` call, then guard both `cb.simTick` and `cb.render` so a throw is caught, reported and survived; add an optional `onError(err, phase)` to `LoopCallbacks` -- decrementing first is what prevents a throwing tick spinning forever; the hook exists so the caller can attach context the loop cannot see
+- [x] `client/src/app/loop.ts` -- rate-limit the fallback report (log each distinct error once, with a hard cap on distinct entries) using the house `console.error('[loop] …', err)` form -- an unbounded per-frame log is its own outage
+- [x] `client/src/main.ts` -- implement `onError` at the `startLoop` call site, logging the phase plus own hull class and fitted boon ids -- this is the diagnostic that names the still-unidentified trigger on its next occurrence
+- [x] `client/src/net/roomBindings.ts` -- evaluate `ownStatsChanged(f.you, net.you)` into a local, assign `net.you = f.you`, then call `deps.onOwnStats` -- verified safe: `applyOwnStats` takes `cls`/`boons` as arguments and never reads `state.net.you`
+- [x] `client/src/ui/boonCopy.ts`, `client/src/ui/upgradeMenu.ts` -- `Object.hasOwn`-gate the lookups, failing open. NOTE: `client/src/ui/results.ts` ALREADY carried its guard (`if (def === undefined) continue`); the spec's claim came from a stale read of the main checkout, so no change was needed there
+- [x] `client/src/__tests__/` -- coverage added in three files: `loopContainment.test.ts` (10), `frameOrdering.test.ts` (4, fail-proven against the old ordering), `refitFailOpen.test.ts` (6)
+- [x] `VERSION`, root `package.json`, `package-lock.json` -- 0.17.90. NOTE: the spec said 0.17.88 → 0.17.89, but cycle 89 was already taken by Story 6-3 on origin/main, so this cycle is 90
+- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `# last_updated` comment + `last_updated:` key + ONE line at the end of the INTERSTITIAL CYCLE INDEX. No `development_status` entry
+- [x] `_bmad-output/gds-workflow-status.yaml` -- `last_updated` updated; `next_expected` rewritten with cycle 90 at the head and the prior entry rotated verbatim into a new `superseded_next_expected_6`
+- [x] `CLAUDE.md` -- corrected the stale `PROTOCOL_VERSION` figure 33 → 37. The number only
 
 **Acceptance Criteria:**
 - Given a client whose `simTick` throws on every frame, when the game runs for several seconds, then the ticker is still alive, the ship still responds to input, and the number of logged errors is bounded rather than one per frame.

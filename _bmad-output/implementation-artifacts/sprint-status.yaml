@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-15  # epic-6 OPEN; 6-3 landed cycle 89 (0.17.89), PV 37, amendments 13-18
+# last_updated: 2026-08-16  # epic-6 OPEN; interstitial cycle 90 (0.17.90) client frame-loop containment, PV unchanged at 37
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -103,9 +103,10 @@
 #   cycle 85 (0.17.85)  PvE fleet rebalance: gun 6/8/10 -> 1/2/3, waves 3/2/1 -> 4/2/1 fleets — epic-5 amendment 45; PV 36 (server-side constants)
 #   cycle 86 (0.17.86)  the home scene is a different ocean every load (Eric ask); off-scope defect fixed + 20-seed sweep — PV 36 (client-only)
 #   cycle 87 (0.17.87)  home tagline: random nautical pun pool replaces the fixed line — epic-5 amendment 46; PV unchanged at 36 (client-only)
+#   cycle 90 (0.17.90)  client frame-loop containment: a throw costs one frame, not the session — PV unchanged at 37 (client-only); Intel Range merge deferred
 
 generated: 2026-07-17
-last_updated: 2026-08-15
+last_updated: 2026-08-16
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system

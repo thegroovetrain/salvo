@@ -273,6 +273,14 @@ export interface BoonPreviewShip {
  * ceiling honestly prints "30 RPM → 30 RPM".
  */
 function statSentence(id: string, line: StatLine, you: BoonPreviewShip): string {
+  // FAIL-OPEN on the class table (cycle 90). This runs EVERY FRAME while the
+  // refit band is open, i.e. exactly while the player is picking a card, and an
+  // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
+  // on `cls.kinematics` — inside the ticker callback, which until this cycle
+  // meant a permanent freeze. Every other catalog/registry lookup in the engine
+  // is already `Object.hasOwn`-gated; this was one of the exceptions. Returning
+  // '' prints no numbers rather than inventing a hull we cannot identify.
+  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return '';
   const spec = CONFIG.shipClasses[you.cls];
   const before = effectiveStats(spec, resolveBoons(you.boons));
   const after = effectiveStats(spec, resolveBoons([...you.boons, id]));
@@ -293,6 +301,9 @@ export function boonDescription(def: BoonDef, you: BoonPreviewShip): string {
   if (!Object.hasOwn(STAT_LINES, def.id)) return '';
   const line = STAT_LINES[def.id];
   const head = statSentence(def.id, line, you);
+  // An empty head means statSentence could not resolve the hull; print nothing
+  // at all rather than a note dangling after a leading space.
+  if (head === '') return '';
   return line.note ? `${head} ${line.note}` : head;
 }
 

@@ -657,8 +657,18 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // Trust the server's class + fitted boons over any local guess: on the
     // first frame (or any change to either) recompute the effective stats and
     // swap every consumer (predictor/HUD/radar/camera/fog) to match.
-    if (ownStatsChanged(f.you, net.you)) deps.onOwnStats(f.you.cls, f.you.boons);
+    // ORDER IS LOAD-BEARING (cycle 90): evaluate the predicate against the OLD
+    // mirror, advance the mirror, and only THEN fan out. The mirror used to be
+    // advanced after the callback, so a throw inside applyOwnStats left
+    // `net.you` stale — the very next frame compared the same new boon list
+    // against the same old one, re-fired, and threw again, FOREVER, skipping
+    // everything below (reconcile, contacts, events) on every one of those
+    // frames. Advancing first makes a throw cost one frame instead of the
+    // session. Safe because applyOwnStats takes cls/boons as arguments and
+    // never reads state.net.you.
+    const statsChanged = ownStatsChanged(f.you, net.you);
     net.you = f.you;
+    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.boons);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
