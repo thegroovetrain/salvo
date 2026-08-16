@@ -15,8 +15,10 @@
 3. **What's needed next.** Land the two one-line containment fixes now — they are independent of diagnosis and convert
    every current *and future* frame-path exception from "game over" into "one dropped frame", while making the next
    occurrence self-report. Then profile a 5-stack `intelRadar` build. See Reproduction Plan.
-4. **Eric ruled 2026-08-16: the ladder scales** — Intel Range pushes every rung out, gated on the observer. This
-   unblocks the merge and makes Finding 2 structurally impossible. Sweep and card-economics questions remain open.
+4. **Eric ruled 2026-08-16 — the merge is fully specified and unblocked.** The ladder *scales*: Intel Range pushes
+   every rung out, gated on the **observer**. `intelSweep` stays a separate line. The merged `intelRange` line ships at
+   **×4 copies**. This makes Finding 2 structurally impossible *and* caps the Hypothesis 11 radar cost at ×3.06 rather
+   than ×4.05. No open design questions remain on the merge.
 
 ## Case Info
 
@@ -306,10 +308,16 @@ lives in the caller, not the access. `client/src/ui/results.ts:665` is similarly
   proportionally; `fitHeat` sizes the heat grid off the camera rect (`radar.ts:1416-1420`), so `cols × rows` also grows
   ×4.04 → `quantizeInto` walks 4× the pixels and `heat.source.update()` re-uploads a 4× larger texture **every frame**.
 
-`radarHeatmap.ts:418-421` puts the **base** case at ~350k cells. The clamp at `minRayRad = 0.003` bounds the blow-up at
-roughly ×4 rather than letting it run away. Tellingly, `radarMarch.ts:350` — the file's own comment — already names the
-"~2.01x base" case, so the range-sensitivity was understood at authoring time; the compounding with the camera zoom
-appears not to have been.
+`radarHeatmap.ts:418-421` puts the **base** case at ~350k cells. Tellingly, `radarMarch.ts:350` — the file's own
+comment — already names the "~2.01x base" case, so the range-sensitivity was understood at authoring time; the
+compounding with the camera zoom appears not to have been.
+
+> **Correction (2026-08-16).** An earlier revision of this case file said the `minRayRad = 0.003` clamp "bounds the
+> blow-up at roughly ×4". **That was wrong.** With `raySpacingU = 6` (`client/src/config.ts:2242`), the clamp engages
+> only above `6 / 0.003` = **2000u** of radar range, which no reachable stack gets near (5 copies tops out at 1327.5u,
+> `rayStep` 0.00452). The scaling is therefore **purely quadratic across the whole reachable range**, and the only
+> thing bounding it is the copy cap on the card. That makes the copy count a *performance* lever, not just a balance
+> one — see the 4-copy ruling below.
 
 With `MAX_FRAME_DT = 0.25` clamping the accumulator (`app/loop.ts:10`), the sim falls behind wall-clock and the helm
 genuinely feels dead. **This is a slideshow, not a hard freeze** — but it matches "certain upgrades" precisely (only
@@ -498,18 +506,64 @@ this, so the next reader does not re-derive the flat rule from a rationale that 
   the right shape for the rest.
 - **PROTOCOL_VERSION** must bump: catalog content is wire contract, and the intel lines are changing.
 
-## Still Open for Eric
+## Eric rulings 2026-08-16 (continued): sweep stays separate, Intel Range is ×4
 
-1. **What happens to sweep?** `intelSweep` (+3 RPM/card, capped at 30) is the third intel line. Does it fold into
-   Intel Range too, or stay its own card? It is a *rate*, not a *range*, so "detection range on all levels" arguably
-   does not cover it — but that leaves intel with two lines rather than one.
-2. **Card economics.** Merging two commons (×5 each) into one line removes 5 physical cards from the intel subdeck,
-   which lowers how often intel appears in offers. Should the merged line be ×5, or ×10 to preserve intel's draw
-   weight? (Note ×10 also doubles the reachable top end, which at ×1.15/card would be a very large radar range — the
-   step size probably wants revisiting alongside this.)
+> *"1) no, its a separate line. | 2) Make it 4 copies, its powerful."*
+
+**`intelSweep` does NOT fold in.** It stays its own card line. Consistent with the range/rate distinction — sweep is a
+revolution rate, not a detection radius, and "detection range on all levels" does not reach it. The `intel` category
+therefore ends with **two** lines: `intelRange` (×4) and `intelSweep` (×5).
+
+**The merged line ships at 4 copies, not 5.** Eric's stated reason: it is powerful. The resulting ladder, with every
+rung a fixed fraction of Intel Range (×1.15/card, the step carried over from `intelRadar` and still an
+implementer-drafted handwave the 2.10 tuning pass may move):
+
+| stacks | radar (8/8) | detect (3/8) | sight (4/8) | muzzle/smoke (5/8) | farRadar (7/8) | radar render cost |
+| ------ | ----------- | ------------ | ----------- | ------------------ | -------------- | ----------------- |
+| 0      | 660.0       | 247.5        | 330.0       | 412.5              | 577.5          | ×1.00             |
+| 1      | 759.0       | 284.6        | 379.5       | 474.4              | 664.1          | ×1.32             |
+| 2      | 872.8       | 327.3        | 436.4       | 545.5              | 763.7          | ×1.75             |
+| 3      | 1003.8      | 376.4        | 501.9       | 627.4              | 878.3          | ×2.31             |
+| 4      | **1154.3**  | **432.9**    | **577.2**   | **721.5**          | **1010.1**     | **×3.06**         |
+
+### The 4-copy ruling is also a performance ruling
+
+Because the radar cost is purely quadratic across the whole reachable range (see the correction above), the copy cap
+*is* the cost cap. Dropping the top stack from 5 to 4:
+
+- worst-case radar render cost falls from **×4.05 → ×3.06** — about a **24% cut** in the worst frame.
+- top radar range falls 1327.5u → 1154.3u.
+
+So the balance instinct and the performance need point the same way here. Hypothesis 11 remains worth profiling, but
+at a meaningfully lower ceiling than the current `intelRadar` ×5 allows.
+
+### Deck economics of the ruling
+
+Draw weight is **proportional to remaining copies** — `weight = copiesInDeck × perCardWeight`
+(`shared/src/sim/deck.ts:180`, `pickLine` at `:129`). So the intel pool shrinks:
+
+- **Before:** `intelTruesight` ×5 + `intelRadar` ×5 + `intelSweep` ×5 = **15** physical intel cards.
+- **After:** `intelRange` ×4 + `intelSweep` ×5 = **9**.
+- On a Torpedo Boat deck that moves intel's share of the pool from ~25% (15/59) to ~17% (9/53).
+
+**This is less of a nerf than it looks, and is arguably correct.** The lost weight is almost entirely the deleted
+`intelTruesight` line — the card Finding 3 shows was barely worth taking. The *useful* intel draw is close to
+unchanged: `intelRange` at 4/53 ≈ 7.5% per draw slot against `intelRadar`'s old 5/59 ≈ 8.5%. The player sees a
+worthwhile intel card at roughly the same rate and no longer burns offers on the weak one. If it proves too thin in
+play, the lever is the copy count — but note that raising it also raises the radar-cost ceiling quadratically.
 
 ## Side Findings
 
+- **`CONFIG.offer`'s comment asserts a property the code no longer enforces.** `shared/src/constants.ts:999-1006` says
+  the offer is *"4 boons from 4 DISTINCT categories, UX-DR14 / FR19"*, and the inline comment on `size: 4` repeats
+  *"each from a distinct BOON_CATALOG category"*. **The deck engine does not do this.** `pickLine`
+  (`shared/src/sim/deck.ts:126`) excludes only by **line id** (`excluded.has(id)`), never by category — Story 2.8's
+  deck model replaced the category-first roll wholesale, as `shared/src/sim/offers.ts:1-8` states outright (*"its
+  catalog-insertion-order category machinery died"*). The comment was left behind. Two consequences worth naming: the
+  next implementer will trust it, and it becomes more visible after this merge — with `intel` down to two lines, an
+  offer containing **both** `intelRange` and `intelSweep` is now materially more likely, which under the stale comment
+  would read as a bug. Worth either fixing the comment or deciding categories *should* be distinct — that is a design
+  call, not a cleanup.
 - The seven `<equipment>.reloadMs` whitelist entries in `BOON_STAT_PATHS` have **zero** catalog cards — deliberate per
   the 2026-08-04 global-cooldown ruling, retained so a future per-weapon card composes before `cooldownScale`.
 - `shipSpeed` moves both `maxSpeed` and `reverseSpeed`, but the card copy headlines only `maxSpeed`
