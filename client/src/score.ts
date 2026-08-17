@@ -304,8 +304,11 @@ export function isLiveRival(meta: RosterEntry, ownId: string): boolean {
  * captains-only, so the count is the roster"*). DRONES ARE NOT COMBATANTS still
  * holds — a fleet kill pays a fraction of a level where a captain pays a full
  * one, PvE sinkings never reach the public register, and the results table lists
- * humans only — but the exclusion is now STRUCTURAL: fleet hulls have no
- * `PlayerMeta` row to exclude. The LOCAL PLAYER is still counted, which is the
+ * participants only — but the exclusion is now STRUCTURAL: fleet hulls have no
+ * `PlayerMeta` row to exclude. Story 6-5: "captain" here means PARTICIPANT, not
+ * human. An AI captain carries a roster row and is counted, because it contests
+ * the match, holds a placement and can win it; only `isHuman` (server-side,
+ * gating minHumans) still means a person. The LOCAL PLAYER is still counted, which is the
  * surviving half of the old asymmetry with `isLiveRival`: placement ranks the
  * OTHER contestants, while AFLOAT includes your own hull because you are on the
  * water too.
@@ -332,7 +335,7 @@ export interface RosterScan {
   forEach(fn: (meta: RosterEntry) => void): void;
 }
 
-/** Pure: captains still afloat — humans only, the local player included (see
+/** Pure: captains still afloat — participants (human OR AI), the local player included (see
  *  isAfloatHull's doctrine note). Walks the roster in place — no intermediate
  *  array, because this runs every rendered frame. */
 export function afloatCount(roster: RosterScan): number {

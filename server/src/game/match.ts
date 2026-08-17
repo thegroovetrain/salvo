@@ -90,7 +90,9 @@ export interface MatchTimings {
   minHumans?: number;
   /**
    * BOARDING (amendment 8): how many captains the QUEUE seated into this room
-   * (sanitizeExpectedCaptains clamps it to [minHumans, playerCap]). Set => the
+   * (sanitizeExpectedCaptains clamps it to [1, playerCap] — the floor was
+   * CONFIG.match.minHumans until Story 6-5, which needed 1 to be expressible
+   * so a Solo vs AI room could exist at all). Set => the
    * room holds, FROZEN, until they are all aboard (or the grace expires), then
    * runs the countdown.
    *
@@ -454,8 +456,11 @@ export class Match {
         // option amendment 10 never offered. requeue() is the signal, and it
         // fires IMMEDIATELY BEFORE the collapse it annotates; the disconnect is
         // unchanged, so an undelivered signal is no worse than today. This does
-        // NOT revive "start anyway with one captain", which still needs the
-        // solo-termination rule Story 6-5 owes.
+        // NOT revive "start anyway with one captain" for STANDARD play: Story
+        // 6-5 discharged the termination question only for a roster that holds
+        // AI captains (they are participants, so last-participant-afloat just
+        // works). A lone human among PvE fleet hulls still has no defined end,
+        // and queue.ts still refuses to form one.
         this.hooks.requeue();
         this.hooks.disconnect();
       }

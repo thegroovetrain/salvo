@@ -1011,3 +1011,145 @@ restored.
 **The general lesson, recorded because it will recur:** a capability boundary enforced by *what the
 code currently does* is not a boundary. The test is whether the next one-line edit could cross it.
 Here the answer was yes in four places, and the fix cost one indirection.
+
+## Amendment 29 — SOLO VS AI: the door is a CREATE, not a queue — and the termination debt is DISCHARGED rather than paid (Eric rulings 2026-08-17, Story 6-5)
+
+Cycle 97 (0.17.97). Story 6-5 wires Story 6-4's combat bots to a room.
+
+### THE TERMINATION DEBT WAS ALREADY DISCHARGED BY THE PARTICIPANT SEAM
+
+`deferred-work.md` flags this three times (`:876`, `:1028`) and `match.ts`'s `checkWin` docstring a
+fourth: *"Story 6-5 must arrive with its SOLO TERMINATION RULE… do not let it arrive as a review
+finding."* **No new rule was needed, and none was invented.** `isParticipant` is `role !== 'fleet'`,
+so a bot counts in `afloatCaptains()`; `latchOutcome()` opens `if (captains.length > 1) return false`,
+so a 1-human + 19-bot roster simply runs; `latchedWinner = captains[0]` **may be a bot**, and the
+results modal names it. The sinking hold generalises for free (`holdsForSinkingCaptain` tests
+`isParticipant`). Sudden death guarantees structural termination regardless.
+
+**The undefined case is a DIFFERENT one and this story does not open it:** 1 human + only PvE fleet
+hulls, still pinned as correct by `drones.test.ts:911` and still refused by `queue.ts`. The ledger's
+framing conflated *"solo match"* with *"solo human"*. Amendment 13's seam — built ahead of its
+consumer, over the orchestrator's objection — is what paid this off, vindicated a second time after
+amendment 26 recorded the first.
+
+### NO QUEUE. THE ARENA IS CREATED DIRECTLY.
+
+The orchestrator's first design was a second queue room plus a base-class extraction from
+`StandardQueueRoom`, reasoning from *"mode is a queue choice; the arena never learns the mode."*
+**Eric rejected it flatly:** *"WHAT second queue room? … There's no need even for a queue for a game
+that makes me play against 19 bots!"* He was right, and the reason is worth recording: a solo queue
+has nothing to pool. It forms on the first joiner, so every mechanism it inherited — arm, deadline,
+cohort, status register — was ceremony around a set of one.
+
+The shipped door is `client.create('arena', { solo: true })`. **`create` is load-bearing and must
+never become `joinOrCreate`**: it always mints a fresh room, which is the entire safety argument.
+`ArenaRoom.static onAuth` admits `solo === true` after the PV gate (which still runs first); non-solo
+direct joins are still refused without `HC_DEV_OPTIONS`.
+
+**Verified TWICE at the review gate against `@colyseus/core` 0.17.44 — by an adversarial Fable pass
+and independently by Codex — because `onAuth` cannot tell a create from a join:** `joinOrCreate` calls
+`findOneRoomAvailable` with `{locked: false, private: false}`, and every production arena locks INSIDE
+`onCreate` (queue-formed rooms carry `expectedCaptains >= 2`, a solo room derives 1, both reach
+`void this.lock()`). The listing is persisted to the driver only *after* `onCreate` returns, so
+**there is no unlocked window in which a room is queryable.** `joinOrCreate` therefore always falls
+through to creating the asker their own room; `join` gets `MATCHMAKE_INVALID_CRITERIA`; `joinById`
+throws on `locked` before `onAuth` runs. A Standard room can never grow bots (the queue authors its
+own `createRoom` options); a solo room can never take a second seat.
+
+**"The arena never knows the mode" survives, correctly read.** The rule's purpose is that GAME LOGIC
+never forks — storm, economy, PvE, perception and the win check are byte-identical. Roster composition
+is a parameter, the same category as `expectedCaptains`. `ArenaRoom` is the only file that knows the
+word.
+
+### WHAT HAD TO BE BUILT (all of it in the room layer)
+
+1. **Bots need `PlayerMeta` rows.** `syncRoster()` walks `state.players`, populated only by `onJoin`.
+   Without rows a solo player reads **`1 AFLOAT` for the whole match**, 19 **amber-hollow** nameless
+   hulls (the roster-miss fallback — and amber is the reserved ACTION register DESIGN.md forbids as a
+   combatant hue), `UNKNOWN VESSEL SUNK BY UNKNOWN VESSEL` wall to wall, and a death banner latched at
+   **`1ST OF 1`** after dying 14th. The results table, built server-side from `isParticipant`, was
+   already correct — so the modal would have shown 20 combatants while the chrome bar said 1.
+2. **`sanitizeExpectedCaptains`'s floor moves `CONFIG.match.minHumans` → 1.** A solo room was not
+   expressible: `1` silently became `2`, after which the room boarded, froze, and waited forever with
+   no error. The queue structurally cannot pass < 2, so nothing else moves.
+3. **Bots must exist before `activate()`.** `activate()` snapshots participants and `checkWin()` runs
+   in the SAME `update()`, so a one-tick-late fleet latches an **instant human victory** — and
+   `drones.test.ts:911` pins that insta-finish as correct, so no existing test would have caught it.
+   Built in `finishCreate` before `setSimulationInterval`. The pin was proven to discriminate:
+   removing `buildBotFleet()` fails 12 of 29 solo tests.
+4. **The hue wheel is exactly 20 and 1 + 19 consumes it exactly.** Bots are built before the human
+   joins, so if a bot holds the human's `colorPref` the two **swap**. `REGATTA_NO_HUE` (255) is the
+   drone-grey sentinel and never lands on a bot.
+5. **Balanced class spread** (6/6/7, shuffled per room) replaces the uniform roll — 19 bots could
+   otherwise come out nine battleships, and Solo vs AI is *"the live tutorial"*. `addBot()` with no
+   argument stays byte-identical for the batch-sim, and `enroll` rolls-and-discards so stream
+   positions do not shift.
+6. **A bot sharing the player's callsign is redrawn** (the pool never checked against human names).
+
+`PROTOCOL_VERSION` **stays 40** — `solo` is a matchmaking join option, not a wire type; `shared/` is
+untouched. Amendment 9's `?direct=1` dev escape is KEPT unchanged: a bot lobby is not the same
+instrument as an empty ocean when what you are measuring is the feel of one hull.
+
+### THE RESIDUAL, RECORDED RATHER THAN HIDDEN — **UNRULED**
+
+An unauthenticated `POST /matchmake/create/arena` now mints a full 20-hull simulating room with **no
+websocket and no rate limit** (~15s seat-reservation lifetime, then auto-dispose — bounded, no
+permanent leak). Codex separately observed that a solo player dropping with a reconnectable code holds
+the whole 20-ship sim for the 60s `reconnectGraceSeconds` with zero humans connected, which stacks
+with the above. **Adjudicated: the reconnect hold is NOT waste and must not be removed** — in solo it
+preserves the player's OWN match, which is exactly Story 0.2's promise. The real exposure is the
+create path, and before this story no unauthenticated request could mint a simulating room at all
+because the queue needed two live sockets. Inherent to any queue-free solo door; a cheap cap (per-IP
+create throttle or a global concurrent-solo-room ceiling) is ledgered for a hardening pass.
+
+## Amendment 30 — `n AFLOAT` counts PARTICIPANTS, not humans. Supersedes the epic-4 wording.
+
+The Public Register (epic-4, cycle 45) ruled *"`n AFLOAT` now counts CAPTAINS ONLY"*, superseding
+epic-3 amendment 19's all-hulls count. That wording was written when the only alternative to a human
+was a PvE drone, and it reads as *humans only* — which is now wrong.
+
+**Ruled: AFLOAT counts every PARTICIPANT — human or AI captain — the local player included. Fleet
+hulls are still never counted.** An AI captain holds a roster row precisely because it contests the
+match, takes a placement and can win it, so excluding it would make the register lie in exactly the
+mode where the number matters most. The drone exclusion stays STRUCTURAL rather than tested: fleet
+hulls have no `PlayerMeta` row to exclude.
+
+Nothing about Standard play moves — a Standard roster contains no bots, so every count is
+byte-identical **by construction**, not by a branch. The doctrine notes in `score.ts` and
+`chromeBar.ts` were corrected in the same edit; `isHuman` (server-side, gating `minHumans`) still
+means a person and did not move.
+
+## Amendment 31 — The home screen is a MODE ROW, and the Primary Button loses its sub-line (Eric rulings 2026-08-17)
+
+> *"I want the current 'PLAY' button to say 'SOLO' and nothing else. It doesn't need to say 'Deploy as
+> [ship class]'."* … *"I want SOLO VS AI centered in a row BELOW that button. The current PLAY button
+> will be in-line with DUO and TRIO modes, once those are out. All three are above SOLO VS AI."*
+
+`PLAY` becomes `SOLO` and its sub-line is DELETED, taking the new button's with it. Both buttons are
+now bare mono uppercase mode labels. **This RETIRES the `home.test.ts` sub-line pin and OVERRIDES
+`EXPERIENCE.md:67`** (*"sub-line always states what will happen"*) — the Class Chip sits directly
+above and already names the hull, so the sub-line restated a control the player is looking at.
+Retired rather than bent onto new copy, per the standing no-dead-knob rule.
+
+The top row is built as a real row container because Eric named its future occupants: DUO and TRIO
+drop in as siblings with no rewrite. `deferred-work.md:140` — *"Mode selector control (Solo · Solo vs
+AI) deliberately NOT built… the actual selector arrives with Epic 6"* — is **discharged in its 6-5
+half**; the full selector, queue-liveness counts and localStorage mode persistence remain Story 6.6.
+
+**Layout consequence, which is why the ruling also solved a problem:** adding a second 86px button to
+a ~668px column already guarded by `containerFit.test.ts` (it once overflowed a 768px viewport) had
+put the stack at ~766px — 2px inside the floor. Deleting the sub-lines lets the button box hug its
+label at 64px, landing the column at **~722px, 46px of headroom.**
+
+**`lastDeploy` gains an in-memory mode** so a cohort-collapse requeue re-enters the mode last chosen
+(*"Lobby collapse should return to whatever the last mode the player/group had queued for"*). Eric
+asked *"why would the lobby collapse in solo vs ai anyway?"* — **it cannot**: the collapse needs a
+sealed 2-captain cohort losing one during the 0:10 countdown, and a solo room has no cohort. The field
+earns its keep for DUO/TRIO.
+
+**UNRULED and shipped as a PROPOSAL:** the secondary treatment. `DESIGN.md` defines exactly ONE button
+(*"outline + glow, never filled slab"*) and has no secondary spec, no pair spacing and no dominance
+rule. `SOLO` keeps amber + glow; `SOLO VS AI` is the same box UNLIT in phosphor, taking the only
+two-action precedent in the repo (`results.ts` — *"the secondary is the same shape unlit, which is
+what keeps it the non-dominant action"*), which is a modal rather than the home screen. Eric has seen
+a screenshot; the lit/unlit split is a one-line change.

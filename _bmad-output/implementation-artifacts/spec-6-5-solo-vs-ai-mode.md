@@ -2,7 +2,7 @@
 title: 'Story 6-5 — Solo vs AI Mode'
 type: 'feature'
 created: '2026-08-17'
-status: 'draft'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -127,6 +127,28 @@ placements and the win check are byte-identical to Standard.
 - Given the last participant afloat is a bot, then the match ends and the results modal names it.
 - Given a non-solo direct arena join without `HC_DEV_OPTIONS`, then it is still refused.
 - Given `npm run check`, then lint, type-check and all tests pass.
+
+## Review Triage Log
+
+**Pass 1 (cycle 97): 2 reviewers — 1 Fable adversarial + 1 Codex cross-model. Both returned
+`build-on-it`; no fix-first code defect.**
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4 — comment rot in `match.ts` ×2 (the `[minHumans, playerCap]` clamp doc, and the collapse
+  comment still saying 6-5 "owes" the termination rule), plus the AFLOAT doctrine notes in
+  `score.ts` / `chromeBar.ts` still worded "humans only" (all low, fixed by the orchestrator)
+- defer: 1 — the unauthenticated create-rate residual, ledgered as an UNRULED hardening item
+- reject: 1 — Codex's "the reconnect hold is pure waste in solo". Adjudicated against: in solo that
+  hold preserves the PLAYER'S OWN match, which is Story 0.2's promise. The cost is real but the
+  remedy is a create-rate cap, not removing a player's resume path.
+
+**Cross-model agreement:** both reviewers independently CLEARED the orchestrator's seeded top
+suspicion (that `onAuth` admitting `solo === true` opens a room hijack, since it cannot tell a
+`create` from a `join`), each by its own trace of `@colyseus/core` 0.17.44 rather than by agreeing
+with the other. Codex alone found the reconnect-hold cost; Fable alone found the unauthenticated
+create amplification — neither corroborated the other's, so both are recorded as single-model
+findings rather than confirmed-tier.
 
 ## Design Notes
 
