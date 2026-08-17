@@ -28,14 +28,16 @@ in-process.
 
 ## The quality bar
 
-| Bar | Target | Leg A | Verdict |
-|---|---|---|---|
-| Matches resolving before the 16:00 collapse | > 95 % | **100.0 %** | **PASS** |
-| Mean per-match max single-bot kill share | ≤ 40 % | **27.7 %** | **PASS** |
-| Bots scoring ≥ 1 participant kill | ≥ 60 % | **45.3 %** | **FAIL** |
-| Storm deaths as a share of all bot deaths | 5–20 % | **2.7 %** | **FAIL** |
-| Afloat bot-ticks in land contact | < 1 % | **1.0 %** | **PASS** (borderline) |
-| Banked levels spent before death | > 90 % | **99.8 %** | **PASS** |
+| Bar | Target | Leg A (seed 7) | Leg B (seed 4141) | Verdict |
+|---|---|---|---|---|
+| Matches resolving before the 16:00 collapse | > 95 % | **100.0 %** | **100.0 %** | **PASS** |
+| Mean per-match max single-bot kill share | ≤ 40 % | **27.7 %** | **25.8 %** | **PASS** |
+| Bots scoring ≥ 1 participant kill | ≥ 60 % | **45.3 %** | **46.3 %** | **FAIL** |
+| Storm deaths as a share of all bot deaths | 5–20 % | **2.7 %** | **3.2 %** | **FAIL** |
+| Afloat bot-ticks in land contact | < 1 % | **1.0 %** | **0.8 %** | **PASS** |
+| Banked levels spent before death | > 90 % | **99.8 %** | **99.8 %** | **PASS** |
+
+**The two legs agree on every bar**, including both failures, so neither is a seed artifact.
 
 **These six bars are the ORCHESTRATOR'S, not Eric's.** They were proposed at the question gate
 (section F1) and taken under the "take your recommendations" latitude. Two of them turn out to be
@@ -140,8 +142,12 @@ Land contact across those three states: **10.3 % → 8.0 % → 1.0 %**, longest 
   (hull silhouette within 1 u of a coastline) that over-counts by construction. It is the same proxy
   used for every leg, so the 10.3 → 1.0 trend is like-for-like, but the absolute figure is
   pessimistic and the bar is effectively met at the noise floor rather than cleared.
-- **Single-seed profile rankings are indicative, not settled.** Leg B is a cross-seed check on the
-  aggregate bars; a balance decision on `raider` or `forager` deserves its own campaign.
+- **The profile RANK ORDER reproduces across both seeds** (bulwark > duelist > siege > trapper ≈
+  forager > raider, with `raider` last on kills, level and win rate in both — 1.2 % and **0.0 %**
+  wins). That makes the imbalance a real property of the shipped weights rather than a seed artifact.
+  It does NOT tell you the right fix: whether `raider` wants a shorter torpedo commitment, a
+  different engagement band, or simply more gun weighting is a balance question with several
+  plausible answers, and it deserves its own campaign per candidate.
 - **`--bots 0` and `--bots N` runs are not seed-comparable.** `addBot` places through `pickSpawn`,
   which draws from the shared world RNG, so bot count shifts later PvE fleet-wave anchors for the
   same seed — exactly the class of RNG-stream shift epic-6 amendment 19 ledgered for captains.
