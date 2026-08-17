@@ -4118,12 +4118,31 @@ let shellRef: Shell | null = null;
 let homeRef: HomeHandle | null = null;
 
 /**
- * The identity the player last deployed with (callsign + hull). The auto-requeue
- * joins the next queue with EXACTLY these — not with whatever localStorage holds
- * — so a survivor sails the same ship they were about to sail, and a name typed
- * for one match carries into its replacement.
+ * The MODE a deploy went out through (Story 6.5). `standard` is the queue;
+ * `soloVsAi` is the queue-free `create('arena', {solo:true})` door. It is an
+ * IDENTIFIER rather than a boolean so DUO/TRIO slot in beside it without
+ * reshaping `lastDeploy` (Eric: the mode row is built for those).
  */
-let lastDeploy: { name: string; cls: ShipClassId } | null = null;
+type DeployMode = 'standard' | 'soloVsAi';
+
+/**
+ * The identity the player last deployed with (callsign + hull + MODE). The
+ * auto-requeue joins the next queue with EXACTLY these — not with whatever
+ * localStorage holds — so a survivor sails the same ship they were about to
+ * sail, and a name typed for one match carries into its replacement.
+ *
+ * The mode is here on Eric's ruling (2026-08-17): *"Lobby collapse should
+ * return to whatever the last mode the player/group had queued for."* It is
+ * SESSION state only — nothing is written to localStorage, and `hullcracker.mode`
+ * stays Story 6.6's.
+ *
+ * WORTH KNOWING, because it reads like dead code: the collapse path CANNOT fire
+ * in Solo vs AI. `rq` only reaches a sealed queue-formed cohort that drops below
+ * `minHumans` during its countdown; a solo room has no cohort, and if its one
+ * human leaves the room simply disposes. The field earns its keep for DUO/TRIO,
+ * where a collapse is real and re-queueing into Standard would be wrong.
+ */
+let lastDeploy: { name: string; cls: ShipClassId; mode: DeployMode } | null = null;
 
 /**
  * ms — how long the collapse register keeps the home's ONE status line before
@@ -4240,6 +4259,11 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
       void startGame(shell, home, stopAmbient, name, cls);
     },
     () => shell.settingsOverlay.toggle(),
+    // SOLO VS AI (Story 6.5): same deploy identity, queue-free door.
+    (name, cls) => {
+      shell.audio.resume(); // same user-gesture rule as the SOLO primary
+      void startGame(shell, home, stopAmbient, name, cls, 0, 'soloVsAi');
+    },
   );
   homeRef = home;
   startAmbient(); // the backdrop, once the menu the player came for is up
@@ -4251,9 +4275,16 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     home.setStatus(opening.text, opening.tone);
     // The fallback can only be reached if a collapse somehow preceded any
     // deploy, which the lifecycle does not allow; it takes the saved hull rather
-    // than inventing one.
-    const { name, cls } = lastDeploy ?? { name: '', cls: loadSavedClass() };
-    void startGame(shell, home, stopAmbient, name, cls, REQUEUE_STATUS_HOLD_MS);
+    // than inventing one — and the queue, which is the only door a collapse can
+    // arrive from today.
+    const { name, cls, mode } = lastDeploy ?? {
+      name: '',
+      cls: loadSavedClass(),
+      mode: 'standard' as DeployMode,
+    };
+    // Eric ruling 2026-08-17: re-enter the mode the player last chose, not
+    // always Standard. (Unreachable for `soloVsAi` — see `lastDeploy`.)
+    void startGame(shell, home, stopAmbient, name, cls, REQUEUE_STATUS_HOLD_MS, mode);
     return;
   }
   // Client-side server-health probe → the status line (probing → ready/unreachable).
@@ -4267,8 +4298,10 @@ async function startGame(
   name: string,
   cls: ShipClassId,
   statusHoldMs = 0,
+  mode: DeployMode = 'standard',
 ): Promise<void> {
-  lastDeploy = { name, cls }; // what the auto-requeue re-deploys with
+  const solo = mode === 'soloVsAi';
+  lastDeploy = { name, cls, mode }; // what the auto-requeue re-deploys with
   home.setBusy(true);
   // An auto-requeue arrives with its own opening register already painted (the
   // reason we are here), and holds it for a beat — so it does NOT get replaced
@@ -4281,10 +4314,21 @@ async function startGame(
     // welcome lands, so the home stays up (and the ambient keeps breathing)
     // for the whole pooled wait. The two hooks are that wait's entire surface:
     // the liveness line, and the CANCEL that leaves the queue without a reload.
-    conn = await connect(name || undefined, cls, {
-      onQueue: (q) => hold.paint(queueStatusLine(q)),
-      onQueued: (cancel) => home.setCancel(cancel),
-    });
+    // Story 6.5: a SOLO VS AI deploy never enters the pool, so it is handed NO
+    // queue hooks at all — there is no liveness line to paint and nothing to
+    // cancel out of. Belt and braces with `connect(..., solo)`, which never
+    // joins the queue room in the first place.
+    conn = await connect(
+      name || undefined,
+      cls,
+      solo
+        ? {}
+        : {
+            onQueue: (q) => hold.paint(queueStatusLine(q)),
+            onQueued: (cancel) => home.setCancel(cancel),
+          },
+      solo,
+    );
   } catch (err) {
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
     // (tertiary, not denied) and never reaches the console.
