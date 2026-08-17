@@ -67,7 +67,11 @@ export interface BotTargetWeights {
 
 /** One priority profile — the tunable surface ai/utility.ts (targeting +
  *  posture), ai/spending.ts (boons) and wave-3 ai/tactics.ts (steering +
- *  weapons) read. Everything here is WANT, never SKILL. */
+ *  weapons) read. Everything here is WANT, never SKILL — and every field
+ *  here HAS a consumer: the review gate deleted an unconsumed `aggression`
+ *  dial (its doc claimed throttle/marginality scaling that was never built)
+ *  rather than invent behaviour for it late in the cycle; re-adding it means
+ *  building its consumer in the same change. */
 export interface BotProfile {
   id: BotProfileId;
   /** The hull this profile is only ever assigned to (CONFIG.bots.profiles). */
@@ -76,10 +80,6 @@ export interface BotProfile {
    *  resolve with engagementBand(), never read raw. */
   bandMinFrac: number;
   bandMaxFrac: number;
-  /** 0..1 willingness to press a fight it is already in. Wave-3 tactics scale
-   *  closing throttle and shot-taking marginality with it; it is NOT accuracy
-   *  and NOT reaction time (those are the two competence knobs). */
-  aggression: number;
   targetWeights: BotTargetWeights;
   /** hp fraction below which this profile breaks off. Defaults to
    *  CONFIG.bots.disengageHpFrac; overridden where the profile's identity
@@ -118,7 +118,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // that stays close is in the fight it is trying to avoid.
     bandMinFrac: 0.3,
     bandMaxFrac: 0.55,
-    aggression: 0.6,
     // Isolation and damage dominate: a raider picks off stragglers.
     targetWeights: { captain: 1.0, fleet: 0.8, damaged: 1.6, isolated: 1.8 },
     disengageHpFrac: 0.5, // leaves EARLY — a hit torpedo boat is a dead one
@@ -135,7 +134,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // rudder and gun cooldown, which is exactly where this profile wins.
     bandMinFrac: 0.08,
     bandMaxFrac: 0.3,
-    aggression: 0.85,
     // Wants a PEER, and does not care whether it is hurt or alone.
     targetWeights: { captain: 1.4, fleet: 0.6, damaged: 0.9, isolated: 0.5 },
     disengageHpFrac: 0.3,
@@ -151,7 +149,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // Holds ground at gun-trade range and refuses to be kited out of it.
     bandMinFrac: 0.15,
     bandMaxFrac: 0.4,
-    aggression: 0.75,
     targetWeights: { captain: 1.2, fleet: 0.9, damaged: 1.0, isolated: 0.4 },
     disengageHpFrac: 0.22, // trades far longer than any other profile
     healHpFrac: 0.6, // and tops off sooner, because HP IS its plan
@@ -168,7 +165,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // not. Star shells are what make a contact out there shootable.
     bandMinFrac: 0.55,
     bandMaxFrac: 0.95,
-    aggression: 0.55,
     targetWeights: { captain: 1.2, fleet: 0.8, damaged: 1.1, isolated: 0.6 },
     disengageHpFrac: 0.4,
     healHpFrac: DEFAULT_HEAL,
@@ -182,7 +178,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     hullId: 'mineLayer',
     bandMinFrac: 0.2,
     bandMaxFrac: 0.45,
-    aggression: 0.5,
     // THE ONLY profile that would rather shoot world content than a captain
     // (C3: clear fleet groups for the level lead, avoid captains early).
     targetWeights: { captain: 0.5, fleet: 2.0, damaged: 0.8, isolated: 0.6 },
@@ -200,7 +195,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // ±60° arc only pays off with something following you.
     bandMinFrac: 0.12,
     bandMaxFrac: 0.35,
-    aggression: 0.6,
     targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 0.8 },
     disengageHpFrac: DEFAULT_DISENGAGE,
     healHpFrac: DEFAULT_HEAL,

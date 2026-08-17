@@ -274,10 +274,13 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     // therefore models the FUTURE solo-vs-AI shape (Epic 6) / this dev seam,
     // NOT a lobby that ships today — a real solo captain never leaves the
     // weapons-safe ready room. Read 1vN rows as forward-looking, not current.
-    // SINCE AMENDMENT 4 a `--captains 1` run is also DEGENERATE: drones no
-    // longer gate the win, so the lone captain wins on the activation tick and
-    // the sample carries no combat at all. Story 6-5 owes the termination rule
-    // that makes 1vN meaningful again; until then, batch evidence needs >= 2.
+    // SINCE AMENDMENT 4 a `--captains 1 --bots 0` run is DEGENERATE: drones
+    // no longer gate the win, so the lone captain wins on the activation tick
+    // and the sample carries no combat at all. A `--captains 1 --bots N` run
+    // is NOT (Story 6.4): bots are participants, so the match runs and the
+    // fighting is real — that IS the solo-vs-AI shape. Story 6-5 still owes
+    // the ratified termination rule; until then, PILOT-vs-PILOT batch
+    // evidence needs >= 2 captains or >= 1 bot in the lobby.
     //
     // A BOT-ONLY LOBBY NEEDS ZERO (wave 4). `humanCount()` counts role
     // 'captain' ONLY — by design, FR34 — so a `--captains 0 --bots N` run would

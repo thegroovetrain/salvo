@@ -121,6 +121,8 @@ import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
 import { BotController } from './ai/botDriver.js';
+import type { BotTickEntry } from './ai/types.js';
+import { observe } from './perception.js';
 import {
   insideIntelDisc,
   islandClearance,
@@ -789,8 +791,11 @@ export class World {
   readonly drones: FleetController;
   /** Drives combat-bot AI captains through the normal input path (Story 6.4,
    *  game/ai/botDriver.ts) — perception-gated, unlike the omniscient fleet
-   *  mind. Nothing in production constructs a bot this cycle (harness + tests
-   *  only; Story 6-5 wires the mode). */
+   *  mind. The controller never sees this World: it gets the narrow port at
+   *  construction and a per-tick BotTickEntry array (each bot's own record +
+   *  a bound observe() thunk — see botEntries()), so ai/ is structurally
+   *  incapable of reaching world internals. Nothing in production constructs
+   *  a bot this cycle (harness + tests only; Story 6-5 wires the mode). */
   readonly bots: BotController;
   /** Monotonic bot ordinal — the ship id namespace `bot-N` (never collides
    *  with Colyseus session ids, `fleet-N`, or `trk-` pseudonyms). */
@@ -1302,8 +1307,10 @@ export class World {
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
-      // ONE tally (Story 5.6, amendment 38): `kills` counts CAPTAIN victims
-      // only, so the Story 4.6 `captainKills` split is retired — the two
+      // ONE tally (Story 5.6, amendment 38): `kills` counts PARTICIPANT
+      // victims only — human captains AND, since Story 6.4 (Eric ruling B3:
+      // bots are ordinary combatants), AI-captain bots; never PvE fleet
+      // hulls. The Story 4.6 `captainKills` split stays retired — the two
       // became identical by construction the moment PvE kills stopped
       // counting anywhere.
       kills: 0,
@@ -1338,6 +1345,34 @@ export class World {
     const id = `bot-${this.botSeq}`;
     const { name, hullId } = this.bots.enroll(id);
     return this.addShip(id, name, 'bot', hullId);
+  }
+
+  /**
+   * THE BOT PERCEPTION INJECTION (review-gate hardening): one entry per
+   * `role: 'bot'` ship, built fresh each tick for the `botsTick` row. Each
+   * entry carries the bot's OWN record (ai/ types it as the structural
+   * BotSelf and can address no other ship) and an observe() thunk BOUND to
+   * that bot's id — so the fogged view is handed in and ai/ never holds a
+   * World, never chooses an observer, and cannot value-import perception.js
+   * at all (the lint boundary makes it type-only there, which is what keeps
+   * observeSpectator — the unfogged view — structurally out of reach).
+   * The driver calls each thunk exactly once per live tick: the honest human
+   * client contract (a frame per tick), never a sampled subset — radar blips
+   * and the self-private gunnery rows live for one tick only, and a sampling
+   * cadence aliases against the sweep period (the review-gate blocker).
+   */
+  private botEntries(): BotTickEntry[] {
+    const out: BotTickEntry[] = [];
+    for (const ship of this.ships.values()) {
+      if (ship.role !== 'bot') continue;
+      out.push({
+        id: ship.id,
+        afloat: isAfloat(ship.lifecycle),
+        self: ship,
+        observe: () => observe(this, ship.id),
+      });
+    }
+    return out;
   }
 
   /**
@@ -1650,11 +1685,14 @@ export class World {
    * an attributed sink. A DEAD killer (mutual destruction) still gets both;
    * storm (`by` undefined) and self-kills credit nothing by construction.
    * `kills` — the roster tally AND the bounty ruler, one field since Story
-   * 5.6 — advances ONLY on a CAPTAIN victim (amendment 38: a PvE kill counts
-   * nowhere, while its XP, its `sunk` event and its onscreen kill flash all
-   * still fire). A drone victim instead advances `pveKills` under its own hull
-   * id — the OPERATOR-ONLY sibling (amendment 44), which counts precisely what
-   * `kills` deliberately refuses to. Sinking the throne's holder pays
+   * 5.6 — advances ONLY on a PARTICIPANT victim: a human captain or, since
+   * Story 6.4 (Eric ruling B3: bots are ordinary combatants — a bot victim
+   * counts into `kills`, pays the full captain killLevels, and can move the
+   * bounty throne), an AI-captain bot. A PvE fleet kill counts nowhere here
+   * (amendment 38 — while its XP, its `sunk` event and its onscreen kill
+   * flash all still fire); it instead advances `pveKills` under its own hull
+   * id — the OPERATOR-ONLY sibling (amendment 44), which counts precisely
+   * what `kills` deliberately refuses to. Sinking the throne's holder pays
    * `CONFIG.bounty.killLevels` ON TOP of the standard kill value, through the
    * unchanged grantXp pipeline (fractional carry untouched).
    */
@@ -2076,7 +2114,10 @@ export class World {
     // the spawnFleetWaves rationale below names; the two AI rows are order-
     // independent of each other (disjoint hull sets, both write-only into the
     // input store), but nothing may sit between this pair and applyInputs.
-    { name: 'botsTick', run: (w) => w.bots.tick() },
+    // World hands the controller its per-tick entries (own record + bound
+    // observe thunk per bot — see botEntries()); the controller holds no
+    // World reference of its own.
+    { name: 'botsTick', run: (w) => w.bots.tick(w.botEntries()) },
     { name: 'applyInputs', run: (w) => w.applyInputs() },
     { name: 'stepShips', run: (w, ctx) => w.stepShips(ctx.dt) },
     { name: 'resolveCollisions', run: (w) => w.resolveCollisions() },

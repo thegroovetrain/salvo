@@ -1,19 +1,22 @@
 // THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) — the held-throne rule over
-// captain-only kills. Pure logic, ZERO Colyseus imports (the spawn.ts /
+// PARTICIPANT kills. Pure logic, ZERO Colyseus imports (the spawn.ts /
 // drones.ts posture): World feeds it a candidate snapshot and mirrors the
 // answer; ArenaRoom publishes the one scalar. The server owns the answer even
 // though the roster's public kill counts would let a client derive it — two
 // independent derivations of one rule is exactly the desync class
 // effectiveStats() exists to prevent, and the XP bonus must be authoritative.
 //
-// The rule, in full (all four clauses ratified 2026-08-10):
+// The rule, in full (all four clauses ratified 2026-08-10; the second widened
+// by Story 6.4's B3 ruling):
 //   • STRICT OVERTAKE ONLY — a tie never transfers the throne, in either
-//     direction: a vacant throne stays vacant while the top captain-kill
+//     direction: a vacant throne stays vacant while the top participant-kill
 //     count is shared, and a held throne stays with the incumbent until
 //     another alive captain STRICTLY exceeds their count. Tied challengers
 //     above the incumbent transfer to nobody (no unique maximum).
-//   • CAPTAIN KILLS ONLY — drone sinkings advance nobody (the Public
-//     Register's "drones are not combatants" position).
+//   • PARTICIPANT KILLS ONLY — PvE fleet sinkings advance nobody (the Public
+//     Register's "drones are not combatants" position), but a Story 6.4
+//     AI-captain bot IS a combatant (Eric ruling B3): sinking one advances
+//     your count toward the throne exactly as a human victim does.
 //   • MINIMUM `CONFIG.bounty.minCaptainKills` — a zero-kill field has no
 //     bounty.
 //   • THE HOLDER MUST BE ALIVE — a sunk (or absent) holder vacates the
@@ -42,7 +45,8 @@ export interface BountyCandidate {
    *  (defense in depth: a path that mis-credits a fleet hull still cannot crown
    *  one) — while a 6.4 AI captain is a combatant and CAN hold it. */
   role: ShipRole;
-  /** CAPTAIN victims only. ONE field since Story 5.6 (amendment 38 emptied
+  /** PARTICIPANT victims only — human captains and 6.4 AI-captain bots,
+   *  never PvE fleet hulls. ONE field since Story 5.6 (amendment 38 emptied
    *  `kills` of PvE sinkings, which made the 4.6 `captainKills` split
    *  identical by construction and therefore redundant). */
   kills: number;

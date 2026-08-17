@@ -337,14 +337,22 @@ export const CONFIG = {
    */
   bots: {
     /**
-     * ms — how often each bot rebuilds its world view via perception.observe().
-     * Bots observe on a staggered round-robin (at most ONE observe per bot per
-     * tick, phase-offset by id hash so calls spread across ticks): 19 bots at
-     * 250ms is ~3.8 observes/tick against the 20/tick a full human lobby
-     * already costs. The staleness this buys (up to 5 ticks) is deliberately
-     * part of the handicap — comparable to a human's reaction time (E3).
+     * ms — how often each bot DELIBERATES: reselects its target, re-chooses
+     * its posture, and considers a boon spend. This is a DECISION cadence,
+     * never a perception one: every live bot calls perception.observe() and
+     * folds the view EVERY tick (exactly once — the human client contract, a
+     * frame per tick at 20Hz), because radar blips and the self-private
+     * gunnery rows live for exactly one tick and an observe round-robin
+     * RESONATES with the sweep (at 15 rpm a revolution is 80 ticks, 80 ≡ 0
+     * mod 5, so a fixed bearing paints on the same tick-phase forever and a
+     * bot whose slot missed it was PERMANENTLY radar-blind to that target —
+     * the review-gate blocker that retired the old observe cadence).
+     * Steering and firing are still emitted every tick; only deliberation is
+     * staggered (phase-offset by id hash so 19 bots spread the scoring work
+     * across ticks). The handicap lives in reactionMs and aimScatterU, never
+     * in dropped perception.
      */
-    observeCadenceMs: 250,
+    decisionCadenceMs: 250,
     /**
      * ms — reaction latency: a contact must persist this long in the bot's
      * view before the bot acts on it (fires at it, turns to engage). The

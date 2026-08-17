@@ -3,13 +3,23 @@
 // goes, which weapon (if any) fires, and where it is aimed.
 //
 // This is the `BotBrain` the driver plugs in place of wave 1's neutral
-// stand-in. Its whole world model is `mind.view` + `mind.contacts` (the fogged
-// perception the driver captured on this bot's own cadence slot) plus the
-// bot's OWN ShipRecord — its pose, hp, stats, loadout pools and economy, which
-// is exactly the `OwnShip` a human client is sent. It reads NO world
-// collection: the port hands it the clock, the map (islands + radius, which
-// every client rebuilds from the seed) and the live storm ring, and nothing
-// else. `world.js` is a TYPE-ONLY import here, lint-enforced.
+// stand-in. Its whole world model is `mind.view` + `mind.contacts` (the
+// fogged perception the driver captures for this bot every live tick) plus
+// the bot's OWN record (`BotSelf` — its pose, hp, stats, loadout pools and
+// economy, which is exactly the `OwnShip` a human client is sent). It reads
+// NO world collection: the port hands it the clock, the map (islands +
+// radius, which every client rebuilds from the seed) and the live storm
+// ring, and nothing else. `world.js` is not imported here AT ALL — not even
+// as a type — and the eslint boundary bans it for the whole directory.
+//
+// DELIBERATION RUNS ON THE DECISION CADENCE, THE HANDS RUN EVERY TICK
+// (review-gate FIX 1): decide() is called every tick, but target reselection,
+// posture choice and boon spends only happen when the driver passes
+// `deliberate: true` (this bot's CONFIG.bots.decisionCadenceMs stagger slot).
+// Between deliberations the cached target KEY is re-resolved against the
+// live track store — so steering and firing follow the freshest plot — and
+// the safety layers (ring escape, the un-beach machine, avoidance) are
+// re-evaluated every tick regardless of the cached posture.
 //
 // THE MATHS ARE PORTED FROM drones.ts, THE MODULE IS NOT (spec: "port the
 // maths, not the module"). The 3-iteration fixed-point lead solve, the
@@ -31,7 +41,7 @@
 //   2. UN-BEACHING, in THREE STAGES (arm on sustained contact, back off under
 //      a captured rudder, then hold the exit heading) — see updateManoeuvre.
 //      The contact is read off the simulation's own bit
-//      (ShipRecord.landContact), never inferred from speed, because grounding
+//      (BotSelf.landContact), never inferred from speed, because grounding
 //      here is a speed CAP and a beached hull still makes 8.75-11.25 u/s. A
 //      permanently beached bot is the single most visible failure this story
 //      can ship (the fleet AI shipped exactly that once), so this outranks
@@ -74,15 +84,14 @@ import {
   type Rng,
   type Vec2,
 } from '@salvo/shared';
-import type { ShipRecord } from '../world.js';
-import type { BotBrain, BotDecision, BotMind, BotWorldPort } from './types.js';
+import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
 import {
   choosePosture,
   foldView,
   isActionable,
-  selectTarget,
+  selectTargetKey,
   tracksOf,
   type BotPosture,
   type BotSituation,
@@ -155,13 +164,14 @@ function clampUnit(v: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// THE SELF-READ — the bot's own ShipRecord folded into the two plain values
-// wave 2's pure modules speak. Nothing below this line touches a ShipRecord
-// field that a human client is not sent about its own hull.
+// THE SELF-READ — the bot's own record (BotSelf, the structural view world.ts
+// hands in) folded into the two plain values wave 2's pure modules speak.
+// BotSelf is BY CONSTRUCTION only fields a human client is sent about its own
+// hull, so nothing below this line can touch anything else.
 // ---------------------------------------------------------------------------
 
 /** Everything targeting/posture needs about the bot itself. */
-export function situationOf(self: ShipRecord, mind: BotMind, port: BotWorldPort): BotSituation {
+export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): BotSituation {
   return {
     now: port.now,
     x: self.state.x,
@@ -175,7 +185,7 @@ export function situationOf(self: ShipRecord, mind: BotMind, port: BotWorldPort)
 }
 
 /** Everything the boon policy needs about the bot's own economy. */
-export function spendStateOf(self: ShipRecord): BotSpendState {
+export function spendStateOf(self: BotSelf): BotSpendState {
   return {
     bankedLevels: self.bankedLevels,
     offer: self.offer,
@@ -186,7 +196,7 @@ export function spendStateOf(self: ShipRecord): BotSpendState {
 }
 
 /** The loadout slot fitting `id`, or -1. */
-function slotOf(self: ShipRecord, id: EquipmentId): number {
+function slotOf(self: BotSelf, id: EquipmentId): number {
   for (let i = 0; i < self.loadout.length; i += 1) {
     if (self.loadout[i].equipmentId === id) return i;
   }
@@ -202,7 +212,7 @@ function slotOf(self: ShipRecord, id: EquipmentId): number {
  * while the first round is still rebuilding — refusing would idle the rack for
  * 15s and neuter the whole `trapper` profile.
  */
-function readySlot(self: ShipRecord, id: EquipmentId): number {
+function readySlot(self: BotSelf, id: EquipmentId): number {
   const i = slotOf(self, id);
   if (i < 0) return -1;
   const state = self.loadout[i].state;
@@ -259,7 +269,7 @@ function aimPoint(mind: BotMind, sit: BotSituation, t: BotTrack, speed: number):
 
 /** A gun-family shot (gun / cannon): 360°, clamped range, no arc to miss. */
 function burstShot(
-  self: ShipRecord,
+  self: BotSelf,
   mind: BotMind,
   sit: BotSituation,
   t: BotTrack,
@@ -276,7 +286,7 @@ function burstShot(
 
 /** The gun — every bot's default weapon and the only one a fleet-clearing
  *  `forager` needs (3/4/5 rounds clear a fleet hull by size). */
-function gunShot(self: ShipRecord, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
+function gunShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   return burstShot(self, mind, sit, t, 'gun', sit.stats.gun.rangeU);
 }
 
@@ -285,7 +295,7 @@ function gunShot(self: ShipRecord, mind: BotMind, sit: BotSituation, t: BotTrack
  * contact with a disclosed course, so the lead solution is real. An unled
  * ghost gets the gun instead.
  */
-function cannonShot(self: ShipRecord, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
+function cannonShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   if (!t.live || t.heading === null) return null;
   return burstShot(self, mind, sit, t, 'cannon', sit.stats.cannon.rangeU);
 }
@@ -297,7 +307,7 @@ function cannonShot(self: ShipRecord, mind: BotMind, sit: BotSituation, t: BotTr
  * broken. Contact-only in standard/homing mode (aimDist is ignored), and only
  * inside the range where a 60 u/s fish can credibly intercept.
  */
-function torpedoShot(self: ShipRecord, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
+function torpedoShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   const slot = readySlot(self, 'torpedo');
   if (slot < 0) return null;
   if (t.heading === null) return null; // a return-grammar plot cannot be led
@@ -340,7 +350,7 @@ export function wantsMine(
  * click dropping a mine on a rock.
  */
 function mineShot(
-  self: ShipRecord,
+  self: BotSelf,
   sit: BotSituation,
   port: BotWorldPort,
   t: BotTrack | null,
@@ -387,7 +397,7 @@ function flareTarget(mind: BotMind, sit: BotSituation): BotTrack | null {
  * solution — the flare lights an AREA, which is exactly why it works on the
  * unled plots nothing else here will shoot at.
  */
-function flareShot(self: ShipRecord, mind: BotMind, sit: BotSituation): Shot | null {
+function flareShot(self: BotSelf, mind: BotMind, sit: BotSituation): Shot | null {
   if (!sit.profile.usesStarShells) return null;
   const slot = readySlot(self, 'starShells');
   if (slot < 0) return null;
@@ -405,7 +415,7 @@ function flareShot(self: ShipRecord, mind: BotMind, sit: BotSituation): Shot | n
  * rather than a pile of conditions.
  */
 function chooseShot(
-  self: ShipRecord,
+  self: BotSelf,
   mind: BotMind,
   port: BotWorldPort,
   sit: BotSituation,
@@ -429,7 +439,7 @@ function chooseShot(
  * decoy that breaks a `trapper`'s lock, both spent on the way OUT. Abilities
  * ride the actSeq channel, so this composes with a shot in the same tick.
  */
-function chooseAct(self: ShipRecord, sit: BotSituation, posture: BotPosture): number | null {
+function chooseAct(self: BotSelf, sit: BotSituation, posture: BotPosture): number | null {
   if (posture !== 'disengage') return null;
   if (sit.profile.usesBoost) {
     const boost = readySlot(self, 'speedBoost');
@@ -467,7 +477,7 @@ type Manoeuvre = 'none' | 'astern' | 'hold';
  * NEGATION to get the same bow swing. `+1` is the fixed fallback when no coast
  * is in reach at all, never a random pick.
  */
-function asternRudder(self: ShipRecord, port: BotWorldPort): number {
+function asternRudder(self: BotSelf, port: BotWorldPort): number {
   const { x, y, heading } = self.state;
   const fx = Math.cos(heading);
   const fy = Math.sin(heading);
@@ -487,7 +497,7 @@ function asternRudder(self: ShipRecord, port: BotWorldPort): number {
 /** Fold this tick's land contact into the arming dwell, and report whether it
  *  has now tripped. Any tick out of contact resets it, so only water the hull
  *  is genuinely pressing into can arm the manoeuvre. */
-function tripped(self: ShipRecord, mind: BotMind): boolean {
+function tripped(self: BotSelf, mind: BotMind): boolean {
   if (!self.landContact) {
     mind.stuckMs = 0;
     return false;
@@ -496,12 +506,28 @@ function tripped(self: ShipRecord, mind: BotMind): boolean {
   return mind.stuckMs >= CONFIG.bots.stuckMs;
 }
 
-/** Stage 1: full astern, under a rudder captured now so it cannot flap. */
-function beginBurst(self: ShipRecord, mind: BotMind, port: BotWorldPort): void {
+/**
+ * Stage 1: full astern, under a rudder captured now so it cannot flap.
+ *
+ * A RETRY SWINGS THE OTHER WAY. `mind.unbeach` surviving with `holdUntil === 0`
+ * means the previous burst ended STILL AGROUND (see endBurst), i.e. this hull
+ * is in a pocket that one exit direction could not solve — a cove, a concave
+ * headland, land astern. Repeating the same rudder there repeats the same
+ * failure, so consecutive attempts alternate. It is the harness pilot's
+ * disclosed KNOWN RESIDUAL ("a second blocker astern can zero the burst's
+ * progress and re-arm with the SAME geometry") answered rather than inherited.
+ */
+function beginBurst(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
+  const prev = mind.unbeach;
+  // `holdUntil === 0` is precisely "the last burst ended still aground". A
+  // state carrying a real hold came off a SUCCESSFUL burst — a hull that got
+  // clear and then grounded again somewhere else deserves a freshly probed
+  // coast, not the inverse of a rudder that worked.
+  const failed = prev?.holdUntil === 0 ? prev : null;
   mind.stuckMs = 0;
   mind.unbeachUntil = port.now + CONFIG.bots.unbeachAsternMaxMs;
   mind.unbeach = {
-    rudder: asternRudder(self, port),
+    rudder: failed ? -failed.rudder : asternRudder(self, port),
     fromX: self.state.x,
     fromY: self.state.y,
     holdUntil: 0,
@@ -518,17 +544,26 @@ function beginBurst(self: ShipRecord, mind: BotMind, port: BotWorldPort): void {
  * commands full astern throughout and no hull can carry more than ~4.25u
  * forward after that order (see CONFIG.bots.unbeachClearU).
  */
-function burstCleared(self: ShipRecord, mind: BotMind): boolean {
+function burstCleared(self: BotSelf, mind: BotMind): boolean {
   const u = mind.unbeach;
   if (u === undefined || u === null) return true;
   if (self.landContact) return false;
   return Math.hypot(self.state.x - u.fromX, self.state.y - u.fromY) >= CONFIG.bots.unbeachClearU;
 }
 
-/** Stage 2: commit to the heading the burst finished on. */
-function beginHold(self: ShipRecord, mind: BotMind, now: number): void {
+/**
+ * End the burst — into stage 2 if it worked, into a RETRY if it did not.
+ *
+ * A hull still touching land when its burst ceilings has no exit heading to
+ * commit to: holding one would spend `unbeachHoldMs` driving AHEAD into the
+ * rock it just failed to leave. So the hold is skipped, the state survives as
+ * the "that direction failed" marker beginBurst alternates off, and the dwell
+ * re-arms a fresh burst after one `stuckMs`.
+ */
+function endBurst(self: BotSelf, mind: BotMind, now: number): void {
   mind.unbeachUntil = 0;
   if (mind.unbeach === undefined || mind.unbeach === null) return;
+  if (self.landContact) return; // wedged: retry, do not hold
   mind.unbeach.holdUntil = now + CONFIG.bots.unbeachHoldMs;
   mind.unbeach.holdHeading = self.state.heading;
 }
@@ -538,7 +573,7 @@ function beginHold(self: ShipRecord, mind: BotMind, now: number): void {
  * one number could not do both jobs:
  *
  *   ARM   — `CONFIG.bots.stuckMs` of SUSTAINED land contact, off the
- *           simulation's own bit (`ShipRecord.landContact`), never a speed
+ *           simulation's own bit (`BotSelf.landContact`), never a speed
  *           guess: grounding is a directional speed CAP, so a dead-on beached
  *           hull still holds `islandSpeedMult x maxSpeed` (11.25/10.00/8.75
  *           u/s by class) and no "am I going nowhere" threshold can separate
@@ -557,31 +592,42 @@ function beginHold(self: ShipRecord, mind: BotMind, now: number): void {
  *           cleanly, re-seeks a bearing that still runs through the same
  *           island and drives straight back in — the metronome, which is why
  *           fixing only the arming half DOUBLED land-contact episodes.
+ *           SKIPPED ENTIRELY when the burst ends still aground (endBurst):
+ *           there is no exit heading to commit to, and the next attempt
+ *           alternates its exit direction instead (beginBurst). That pocket
+ *           case is what the first campaign of this cycle left behind — a
+ *           single 218s pin on a Battleship, 12% of ALL land contact measured
+ *           across 1000 bot-matches, in one hull.
  *
  * The dwell keeps accumulating THROUGH the hold, deliberately: a committed
  * exit heading that happens to run onto another rock must be able to re-arm.
  * It does not accumulate during the burst — that stage already owns the rock.
  *
- * A DEATH MID-MANOEUVRE SELF-HEALS, and it is worth saying why rather than
- * leaving it to be rediscovered: the driver goes silent on a non-afloat hull
- * without clearing this state, so a bot can respawn mid-burst. The respawn
- * TELEPORTS it, which satisfies burstCleared's displacement test outright, so
- * the stale burst releases on the bot's first live tick instead of backing a
- * fresh hull off a rock that is no longer there.
+ * A DEATH MID-MANOEUVRE NEVER SURVIVES THE LIFE (review-gate fix): the
+ * driver releases the whole un-beach state — burst clock, dwell, failed-exit
+ * marker and any exit-heading hold — alongside the view when the hull goes
+ * non-afloat (BotController.releasePerLifeState). The shipped code relied on
+ * the respawn TELEPORT tripping burstCleared's displacement test, which did
+ * release the stale burst but released it INTO a 3s hold pointed at wherever
+ * the bot happened to die; a respawn now starts with a clean helm.
  */
-function updateManoeuvre(self: ShipRecord, mind: BotMind, port: BotWorldPort): Manoeuvre {
+function updateManoeuvre(self: BotSelf, mind: BotMind, port: BotWorldPort): Manoeuvre {
   const now = port.now;
   if (mind.unbeachUntil > 0) {
     if (now < mind.unbeachUntil && !burstCleared(self, mind)) return 'astern';
-    beginHold(self, mind, now);
+    endBurst(self, mind, now);
   }
   if (tripped(self, mind)) {
     beginBurst(self, mind, port);
     return 'astern';
   }
   const u = mind.unbeach;
-  if (u !== undefined && u !== null && now < u.holdUntil) return 'hold';
-  mind.unbeach = null;
+  if (u === undefined || u === null) return 'none';
+  if (now < u.holdUntil) return 'hold';
+  // A finished hold is spent. A `holdUntil === 0` state is the failed-exit
+  // marker beginBurst alternates off, so it is kept exactly as long as the
+  // hull is still touching the thing it failed to leave.
+  if (u.holdUntil > 0 || !self.landContact) mind.unbeach = null;
   return 'none';
 }
 
@@ -605,7 +651,7 @@ export function approachPoint(profile: BotProfile, t: BotTrack): Vec2 {
 /** Band-holding geometry: close when outside the band, open when inside its
  *  floor, and hold a beam-on orbit while in it (which is what keeps a bot at
  *  its profile's fighting range instead of ramming through it). */
-function bandBearing(self: ShipRecord, sit: BotSituation, t: BotTrack): number {
+function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
   const aim = approachPoint(sit.profile, t);
   const brg = bearing(self.state, aim);
   const d = Math.hypot(aim.x - sit.x, aim.y - sit.y);
@@ -618,14 +664,14 @@ function bandBearing(self: ShipRecord, sit: BotSituation, t: BotTrack): number {
 
 /** With nothing to chase, make for the live ring centre — the one place on the
  *  water that is always still there in ten minutes. */
-function patrolBearing(self: ShipRecord, sit: BotSituation): number {
+function patrolBearing(self: BotSelf, sit: BotSituation): number {
   return bearing(self.state, { x: sit.ring.cx, y: sit.ring.cy });
 }
 
 /** The bearing the helm wants, applying the priority order in the header. The
  *  astern stage never asks: it steers on its captured rudder (see helmFor). */
 function desiredBearing(
-  self: ShipRecord,
+  self: BotSelf,
   mind: BotMind,
   sit: BotSituation,
   target: BotTrack | null,
@@ -676,7 +722,7 @@ function islandBias(isle: Island, x: number, y: number, fx: number, fy: number):
 }
 
 /** Summed coastline bias over every island. */
-function avoidIslands(self: ShipRecord, port: BotWorldPort): number {
+function avoidIslands(self: BotSelf, port: BotWorldPort): number {
   const { x, y, heading } = self.state;
   const fx = Math.cos(heading);
   const fy = Math.sin(heading);
@@ -692,7 +738,7 @@ function avoidIslands(self: ShipRecord, port: BotWorldPort): number {
  * `mines`, which already carries the 3/8 detect gate: a bot avoids exactly the
  * mines a human in its seat would have been shown.
  */
-function avoidMines(self: ShipRecord, mind: BotMind): number {
+function avoidMines(self: BotSelf, mind: BotMind): number {
   if (mind.view === null) return 0;
   const { x, y, heading } = self.state;
   const fx = Math.cos(heading);
@@ -706,7 +752,7 @@ function avoidMines(self: ShipRecord, mind: BotMind): number {
 }
 
 /** Near the map edge, steer back toward the middle. */
-function boundaryBias(self: ShipRecord, port: BotWorldPort): number {
+function boundaryBias(self: BotSelf, port: BotWorldPort): number {
   const pos = self.state;
   if (Math.hypot(pos.x, pos.y) < port.map.radius - BOUNDARY_MARGIN) return 0;
   return clampUnit(angleDiff(pos.heading, bearing(pos, { x: 0, y: 0 }))) * AVOID_STRENGTH;
@@ -742,7 +788,7 @@ function boundaryBias(self: ShipRecord, port: BotWorldPort): number {
  * ahead steering, so avoidance stays live through it exactly as usual.
  */
 function helmFor(
-  self: ShipRecord,
+  self: BotSelf,
   mind: BotMind,
   port: BotWorldPort,
   sit: BotSituation,
@@ -765,33 +811,55 @@ function helmFor(
 // ---------------------------------------------------------------------------
 
 /**
- * Fold a FRESH view into contact memory. The driver observes on this bot's own
- * cadence slot and stamps `viewAt`; decide() runs every tick, so the equality
- * test is what makes the fold exactly-once per observe rather than five times
- * per view (which would re-run the memory prune and re-count Hit Calls).
+ * Fold a FRESH view into contact memory. The driver observes every live tick
+ * and stamps `viewAt`, so under the driver the fold runs every tick — but the
+ * equality test still earns its keep: a test (or a frozen tick) that hands
+ * the brain a view it did NOT capture this tick must not re-run the memory
+ * prune or re-credit Hit Calls against it.
  */
 function ingest(mind: BotMind, port: BotWorldPort): void {
   if (mind.view !== null && mind.viewAt === port.now) foldView(mind, mind.view, port.now);
 }
 
+/**
+ * THE DELIBERATION — the decision-cadence work: reselect the target (cached
+ * as its track KEY so every later tick re-resolves the freshest plot) and
+ * re-choose the posture. The one writer of both cached fields.
+ */
+function deliberateNow(mind: BotMind, sit: BotSituation): void {
+  mind.targetKey = selectTargetKey(mind, sit);
+  mind.posture = choosePosture(sit, resolveTarget(mind));
+}
+
+/** The cached target key resolved against the LIVE track store — a pruned or
+ *  sunk key yields no target until the next deliberation re-picks. */
+function resolveTarget(mind: BotMind): BotTrack | null {
+  return mind.targetKey === null ? null : mind.contacts.get(mind.targetKey) ?? null;
+}
+
 /** Where the bot points when it is not shooting — at its target if it has one,
  *  else straight ahead. Aim is only consumed by a firing/priming tick, but a
  *  coherent value keeps the input stream honest. */
-function idleAim(self: ShipRecord, target: BotTrack | null): number {
+function idleAim(self: BotSelf, target: BotTrack | null): number {
   return target === null ? self.state.heading : bearing(self.state, target);
 }
 
 /**
- * THE COMBAT BRAIN. One tick: fold what was seen, pick a target and a posture
- * (wave 2), then turn both into a helm order, at most one shot, at most one
- * ability press and at most one banked-level spend.
+ * THE COMBAT BRAIN. Every tick: fold what was seen, then turn the cached
+ * deliberation into a helm order, at most one shot and at most one ability
+ * press. On a `deliberate` tick (the decision cadence — defaulted true so a
+ * single-decision test IS a deliberation) it first reselects target and
+ * posture, and only then may it also spend a banked level. Steering safety
+ * (ring escape, un-beaching, avoidance) lives in helmFor and runs every tick
+ * regardless of the cached posture.
  */
 export const COMBAT_BRAIN: BotBrain = {
-  decide(self: ShipRecord, mind: BotMind, port: BotWorldPort): BotDecision {
+  decide(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
     ingest(mind, port);
     const sit = situationOf(self, mind, port);
-    const target = selectTarget(mind, sit);
-    const posture = choosePosture(sit, target);
+    if (deliberate) deliberateNow(mind, sit);
+    const target = resolveTarget(mind);
+    const posture = mind.posture;
     const helm = helmFor(self, mind, port, sit, target, posture);
     const shot = chooseShot(self, mind, port, sit, target, posture);
     return {
@@ -801,7 +869,7 @@ export const COMBAT_BRAIN: BotBrain = {
       aimDist: shot === null ? 0 : shot.aimDist,
       fireSlot: shot === null ? null : shot.slot,
       actSlot: chooseAct(self, sit, posture),
-      spendChoice: chooseSpend(sit.profile, spendStateOf(self)),
+      spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self)) : null,
     };
   },
 };

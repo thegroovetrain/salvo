@@ -1,31 +1,37 @@
-// COMBAT-BOT DRIVER — wave-1 coverage (Story 6.4): the perception cadence,
-// the narrow port, the per-bot state lifecycle and the neutral input
-// emission. Wave 2 owns behaviour (targeting, steering, firing, spending);
-// nothing here asserts what a bot WANTS — only that the chokepoint plumbing
-// is right:
-//   * observe() is called AT MOST ONCE per bot per tick, on a staggered
-//     round-robin averaging one call per bot per observeCadenceMs — the pin
-//     that makes observe()'s observer-state mutation (seenBallistics/
-//     torpDirs) the bot's own exactly-once reveal memory rather than a
-//     hazard;
+// COMBAT-BOT DRIVER — wave-1 coverage (Story 6.4): perception, the narrow
+// port, the per-bot state lifecycle and the neutral input emission. Wave 2
+// owns behaviour (targeting, steering, firing, spending); nothing here
+// asserts what a bot WANTS — only that the chokepoint plumbing is right:
+//   * observe() is called EXACTLY ONCE per live bot per tick, EVERY tick —
+//     the exactly-once-and-always pin (review-gate FIX 1: one-tick signals
+//     alias against the sweep period under any sampling cadence, so a bot's
+//     perception is never a sampled subset). The exactly-once half is what
+//     makes observe()'s observer-state mutation (seenBallistics/torpDirs)
+//     the bot's own exactly-once reveal memory rather than a hazard; only
+//     DELIBERATION runs on the CONFIG.bots.decisionCadenceMs stagger;
 //   * bot input rides the SAME validated store humans use and is consumed
 //     the SAME tick (botsTick sits immediately before applyInputs);
 //   * the frozen boarding room no-ops the brain (no observe, neutral input,
 //     fireSeq never advances);
-//   * a non-afloat bot goes silent and releases its view state;
+//   * a non-afloat bot goes silent and releases its per-life state;
 //   * enrollment (class / profile / callsign off the decorrelated seeded
-//     stream) is deterministic per world seed and collision-free.
+//     stream) is deterministic per world seed and collision-free;
+//   * ai/'s import surface cannot regrow the doors the review gate removed
+//     (world.js, a value import of perception.js, observeSpectator).
 
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { BOON_CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { botPhase } from '../game/ai/botDriver.js';
 import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
 
-/** The observe round-robin window in ticks — recomputed here independently
- *  (250ms / 50ms = 5) so a CONFIG retune fails loudly instead of silently
- *  rescaling every expectation below. */
-const CADENCE_TICKS = Math.max(1, Math.round(CONFIG.bots.observeCadenceMs / CONFIG.tick.simDtMs));
+/** The DELIBERATION round-robin window in ticks — recomputed here
+ *  independently (250ms / 50ms = 5) so a CONFIG retune fails loudly instead
+ *  of silently rescaling every expectation below. */
+const CADENCE_TICKS = Math.max(1, Math.round(CONFIG.bots.decisionCadenceMs / CONFIG.tick.simDtMs));
 
 function botWorld(seed: number, bots: number): { w: World; ids: string[] } {
   const w = new World(seed);
@@ -43,9 +49,9 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'boonWeights',
       'callsigns',
       'contactMemoryMs',
+      'decisionCadenceMs',
       'disengageHpFrac',
       'healHpFrac',
-      'observeCadenceMs',
       'profiles',
       'reactionMs',
       'stuckMs',
@@ -172,45 +178,124 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
   });
 });
 
-describe('the observe cadence — staggered round-robin, at most once per bot per tick', () => {
-  it('per-tick observe counts equal the id-hash phase histogram: spread, never bunched', () => {
+describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)', () => {
+  // THE PIN THE REVIEW GATE REWROTE. Wave 1 observed 1 tick in 5 on a
+  // stagger, and both adversarial reviewers independently proved that loses
+  // SIGNAL, not freshness: blips and hc/sp/sunk live for one tick, and every
+  // reachable sweep rate has a revolution ≡ 0 (mod 5) — 15 rpm = 80 ticks,
+  // 30 rpm = 40, 20 rpm = 60 — so a fixed bearing painted on one tick-phase
+  // forever and a bot whose hashed slot missed it was PERMANENTLY blind to
+  // it (measured: 30 paints over 2400 ticks, 0 caught). Perception is now
+  // per-tick — the human client contract — and only DELIBERATION is
+  // cadence-gated.
+  it('observesLastTick equals the live-bot count on every single tick', () => {
     const BOTS = 19;
     const TICKS = 50;
-    const { w, ids } = botWorld(31, BOTS);
-    // The independent expectation: a bot with phase p observes exactly when
-    // (controllerTick + p) % CADENCE_TICKS === 0. botPhase is exported pure
-    // so the test computes the histogram without touching driver internals.
-    const phases = ids.map((id) => botPhase(id, CADENCE_TICKS));
-    const perTick: number[] = [];
+    const { w } = botWorld(31, BOTS);
+    let total = 0;
     for (let t = 1; t <= TICKS; t += 1) {
       w.step();
-      perTick.push(w.bots.observesLastTick);
-      const expected = phases.filter((p) => (t + p) % CADENCE_TICKS === 0).length;
-      expect(w.bots.observesLastTick).toBe(expected);
+      expect(w.bots.observesLastTick).toBe(BOTS); // once and ALWAYS, per bot
+      total += w.bots.observesLastTick;
     }
-    // On average one observe per bot per cadence window: 19 bots × 10 windows.
-    const total = perTick.reduce((a, b) => a + b, 0);
-    expect(total).toBe(BOTS * (TICKS / CADENCE_TICKS));
-    // The stagger is real: no tick carries the whole roster (bunching), and
-    // every tick carries someone (all phase buckets are populated at 19 ids).
-    expect(Math.max(...perTick)).toBeLessThan(BOTS);
-    expect(Math.min(...perTick)).toBeGreaterThan(0);
-    // At most once per bot per tick, by counting: a double-observe would
-    // push some tick above its own phase-bucket size, already asserted equal.
+    // ...and never more than once per bot per tick, by counting.
+    expect(total).toBe(BOTS * TICKS);
   });
 
-  it('each bot observes exactly once per cadence window, timestamped at capture', () => {
+  it('every bot\'s view is timestamped at THIS tick, every tick', () => {
     const { w, ids } = botWorld(32, 4);
-    // After one full window every bot has observed exactly once (viewAt set),
-    // and the stamp advances by exactly one window thereafter.
-    for (let t = 0; t < CADENCE_TICKS; t += 1) w.step();
-    const first = ids.map((id) => w.bots.viewAtOf(id));
-    for (const at of first) expect(at).toBeGreaterThan(0);
-    for (let t = 0; t < CADENCE_TICKS; t += 1) w.step();
-    const second = ids.map((id) => w.bots.viewAtOf(id));
-    second.forEach((at, i) => {
-      expect(at - first[i]).toBe(CADENCE_TICKS * CONFIG.tick.simDtMs);
-    });
+    for (let t = 0; t < CADENCE_TICKS * 2; t += 1) {
+      w.step();
+      for (const id of ids) expect(w.bots.viewAtOf(id)).toBe(w.now);
+    }
+  });
+
+  it('the DELIBERATION stagger spreads bots across the cadence window', () => {
+    // botPhase is exported pure so this histogram needs no driver internals:
+    // with bot-1..bot-19 at cadence 5 every slot is populated and none holds
+    // the whole roster — scoring work is spread, never bunched.
+    const phases = Array.from({ length: 19 }, (_, i) => botPhase(`bot-${i + 1}`, CADENCE_TICKS));
+    const buckets = Array.from({ length: CADENCE_TICKS }, (_, s) => phases.filter((p) => p === s).length);
+    expect(buckets.reduce((a, b) => a + b, 0)).toBe(19);
+    expect(Math.max(...buckets)).toBeLessThan(19);
+    expect(Math.min(...buckets)).toBeGreaterThan(0);
+    for (const p of phases) expect(p).toBeGreaterThanOrEqual(0);
+    for (const p of phases) expect(p).toBeLessThan(CADENCE_TICKS);
+  });
+
+  // THE RESONANCE REGRESSION (review-gate FIX 1) — fails on the wave-1
+  // observe cadence, passes on per-tick perception. A stationary hull sits in
+  // the bot's radar annulus (500u: past truesight 330, inside radar 660) on
+  // open water; at the base 15 rpm the sweep paints its bearing once per 80
+  // ticks, always on the same tick-phase (80 ≡ 0 mod 5). bot-1's hashed slot
+  // is 2 and — measured before the fix — NO bearing's paint phase lands on
+  // it at this seed (successive 45° bearings are 10 ticks of sweep apart,
+  // 10 ≡ 0 mod 5, so all bearings share one phase): the old driver held a
+  // track for 0 of 2000 measured ticks. Per-tick observation must hold one
+  // essentially continuously (contactMemoryMs 8000 far exceeds the 4s
+  // revolution).
+  it('a stationary hull in the radar annulus is TRACKED despite sweep aliasing', () => {
+    const w = new World(61, 8);
+    w.map.islands.length = 0; // open water: LOS/shadow can never gate the paint
+    const bot = w.addBot();
+    expect(bot.id).toBe('bot-1');
+    const tx = 500;
+    const ty = 0;
+    const tgt = w.addShip('victim', 'TARGET', 'captain', 'battleship', undefined, { x: tx, y: ty });
+    let measured = 0;
+    let tracked = 0;
+    for (let t = 0; t < 2400; t += 1) {
+      // Hold the geometry: the drill is about perception, not pilotage. The
+      // bot's pools are drained so it never sinks the subject, and both hulls
+      // are re-pinned after each step.
+      for (const s of bot.loadout) if (s.state) s.state.n = 0;
+      w.step();
+      bot.state.x = 0;
+      bot.state.y = 0;
+      bot.state.heading = 0;
+      bot.state.speed = 0;
+      tgt.state.x = tx;
+      tgt.state.y = ty;
+      tgt.state.speed = 0;
+      if (t < 400) continue; // warm-up: several full revolutions first
+      measured += 1;
+      if (w.bots.trackCountOf(bot.id) > 0) tracked += 1;
+    }
+    // The old cadence measured 0 here. Demand a held track, not a lucky one.
+    expect(tracked / measured).toBeGreaterThan(0.9);
+  });
+});
+
+describe('the ai/ boundary — the removed doors stay removed (review-gate FIX 2)', () => {
+  const AI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'game', 'ai');
+
+  /** Source text of every ai/ module, keyed by filename. */
+  const aiSources = (): Array<[string, string]> =>
+    readdirSync(AI_DIR)
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => [f, readFileSync(join(AI_DIR, f), 'utf8')]);
+
+  it('ai/ never mentions observeSpectator, and never imports world.js at all', () => {
+    for (const [file, src] of aiSources()) {
+      // The unfogged omniscient view: one value import would be a total
+      // wallhack no runtime guard would catch. It may not even be NAMED.
+      expect(src.includes('observeSpectator'), `${file} mentions observeSpectator`).toBe(false);
+      // world.js is banned outright (types included) — the driver gets its
+      // per-bot record and observe thunk injected by world.ts.
+      expect(/from\s+['"][^'"]*world\.js['"]/.test(src), `${file} imports world.js`).toBe(false);
+    }
+  });
+
+  it('ai/\'s import surface from perception.js is type-only (no value import)', () => {
+    // The eslint boundary enforces this too (allowTypeImports on
+    // perception.js); this pin makes the same line fail the TEST run, so a
+    // lint-config regression cannot silently reopen the door.
+    for (const [file, src] of aiSources()) {
+      const imports = src.match(/^import[^;]*from\s+['"][^'"]*perception\.js['"];/gms) ?? [];
+      for (const stmt of imports) {
+        expect(stmt.startsWith('import type'), `${file} value-imports perception.js: ${stmt}`).toBe(true);
+      }
+    }
   });
 });
 

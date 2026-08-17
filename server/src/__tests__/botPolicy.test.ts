@@ -54,12 +54,13 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
     seq: 0,
     fireSeq: 0,
     actSeq: 0,
-    hullId: BOT_PROFILES[profile].hullId,
     profile,
     phase: 0,
     view: null,
     viewAt: -1,
     contacts: new Map(),
+    targetKey: null,
+    posture: 'reposition',
     stuckMs: 0,
     unbeachUntil: 0,
   };
@@ -234,21 +235,22 @@ describe('ai/utility — the fold works under either radar grammar', () => {
 
 // --- the bot's own gunnery feedback -----------------------------------------
 
-describe('ai/utility — self-private gunnery feedback (sp / hc)', () => {
+describe('ai/utility — self-private Hit Calls (hc)', () => {
   it('a Hit Call reinforces the track it landed on (and refreshes it)', () => {
     const m = mind();
     foldView(m, view({ contacts: [contact('e1', 200, 0)] }), 1000);
-    const fb = foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 205, y: 3 }] }), 1500);
+    foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 205, y: 3 }] }), 1500);
     const t = onlyTrack(m);
     expect(t.hits).toBe(1);
     expect(t.seenAt).toBe(1500);
-    expect(fb.hits).toBe(1);
   });
 
-  it('a splash is handed back as the fall-of-shot correction, not a contact', () => {
+  it('a splash (sp) is deliberately IGNORED — the dead feedback channel was deleted', () => {
+    // The review gate removed wave 2's unconsumed `splash` return (no tactics
+    // ever read it; bracket-and-walk fire is LEDGERED in deferred-work.md,
+    // not built). A splash event must fold nothing and disclose nothing.
     const m = mind();
-    const fb = foldView(m, view({ events: [{ k: 'sp', id: 'me', x: 400, y: -20 }] }), 1000);
-    expect(fb.splash).toEqual({ x: 400, y: -20 });
+    foldView(m, view({ events: [{ k: 'sp', id: 'me', x: 400, y: -20 }] }), 1000);
     expect(tracksOf(m).length).toBe(0); // a MISS discloses nothing about anyone
   });
 

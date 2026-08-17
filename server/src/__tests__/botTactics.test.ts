@@ -56,24 +56,24 @@ function fakePort(w: World, ring?: { cx: number; cy: number; r: number }): FakeP
     // not about the storm never accidentally gets ring-escape steering.
     zoneLiveRing: ring ?? { cx: 0, cy: 0, r: w.map.radius * 4 },
     helmEnabled: true,
-    ships: { get: (id: string) => w.ships.get(id) },
     submitInput: () => true,
     spendPoint: () => true,
   };
 }
 
-function mkMind(hullId: ShipClassId, profile: BotProfileId, seed = 7): BotMind {
+function mkMind(profile: BotProfileId, seed = 7): BotMind {
   return {
     rng: mulberry32(seed),
     seq: 0,
     fireSeq: 0,
     actSeq: 0,
-    hullId,
     profile,
     phase: 0,
     view: null,
     viewAt: -1,
     contacts: new Map(),
+    targetKey: null,
+    posture: 'reposition',
     stuckMs: 0,
     unbeachUntil: 0,
   };
@@ -191,7 +191,7 @@ describe('steering — the priority order is the policy', () => {
     // be satisfied by accident.
     const port = fakePort(w, { cx: -600, cy: 0, r: 200 });
     const rec = mkBot(w, 'battleship', 0, 0, Math.PI / 2); // bow due north
-    const mind = mkMind('battleship', 'bulwark');
+    const mind = mkMind('bulwark');
     plot(mind, track(port.now, { x: 400, y: 0 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.throttle).toBe(1); // full ahead: the storm does not miss
@@ -208,7 +208,7 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(102);
     const port = fakePort(w, { cx: 0, cy: -500, r: 4000 }); // centre due south
     const rec = mkBot(w, 'mineLayer', 0, 0, Math.PI / 2); // bow due north
-    const d = COMBAT_BRAIN.decide(rec, mkMind('mineLayer', 'forager'), port);
+    const d = COMBAT_BRAIN.decide(rec, mkMind('forager'), port);
     expect(d.throttle).toBeGreaterThan(0);
     expect(Math.abs(d.rudder)).toBe(1); // hard over: 180 degrees to turn
     expect(d.fireSlot).toBeNull();
@@ -227,7 +227,7 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(103);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
-    const mind = mkMind('battleship', 'bulwark');
+    const mind = mkMind('bulwark');
     // Aground and pressing — and STILL MAKING WAY at the grounding cap, which
     // is exactly the state the old speed trip could not see.
     rec.landContact = true;
@@ -263,7 +263,7 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(106);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
-    const mind = mkMind('battleship', 'bulwark');
+    const mind = mkMind('bulwark');
     rec.landContact = true;
     for (let i = 0; i <= CONFIG.bots.stuckMs / CONFIG.tick.simDtMs; i += 1) {
       COMBAT_BRAIN.decide(rec, mind, port);
@@ -286,7 +286,7 @@ describe('steering — the priority order is the policy', () => {
 
     // ...and the CEILING is the backstop: a hull the water will not release
     // stops backing when unbeachAsternMaxMs is up, whatever the condition says.
-    const stuck = mkMind('battleship', 'bulwark');
+    const stuck = mkMind('bulwark');
     rec.landContact = true;
     rec.state.x = 0;
     let asternMs = 0; // the FIRST unbroken burst: a hull this pinned re-arms
@@ -312,7 +312,7 @@ describe('steering — the priority order is the policy', () => {
     // the hold lets go — the assertion cannot pass by the bot simply idling.
     const port = fakePort(w, { cx: -4000, cy: 0, r: 9000 });
     const rec = mkBot(w, 'mineLayer', 0, 0, 0); // bow due east
-    const mind = mkMind('mineLayer', 'forager');
+    const mind = mkMind('forager');
     rec.landContact = true;
     for (let i = 0; i <= CONFIG.bots.stuckMs / CONFIG.tick.simDtMs; i += 1) {
       COMBAT_BRAIN.decide(rec, mind, port);
@@ -343,6 +343,78 @@ describe('steering — the priority order is the policy', () => {
     expect(mind.unbeach).toBeNull();
   });
 
+  // THE POCKET. A hull still touching land when its burst ceilings has no exit
+  // heading worth committing to — holding one spends unbeachHoldMs driving
+  // AHEAD into the rock it just failed to leave — and repeating the same exit
+  // direction repeats the same failure. This is the case that survived the
+  // first campaign of this cycle: ONE battleship pinned for 218s, which was
+  // 12% of all land contact measured across 1000 bot-matches. It is also the
+  // fleet pilot's own disclosed KNOWN RESIDUAL ("a second blocker astern can
+  // zero the burst's progress and re-arm with the SAME geometry"), answered
+  // here rather than inherited.
+  it('A BURST THAT ENDS STILL AGROUND skips the hold and swings the other way', () => {
+    const w = openWorld(110);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    rec.landContact = true; // wedged: nothing the manoeuvre does will clear it
+
+    const rudders: number[] = [];
+    const gaps: number[] = [];
+    let lastAsternAt = 0;
+    let wasAstern = false;
+    for (let i = 0; i < 400; i += 1) {
+      const astern = COMBAT_BRAIN.decide(rec, mind, port).throttle < 0;
+      if (astern && !wasAstern) {
+        rudders.push(mind.unbeach!.rudder);
+        if (lastAsternAt > 0) gaps.push(port.now - lastAsternAt);
+      }
+      if (astern) lastAsternAt = port.now;
+      // NEVER a hold while aground — the hold exists to commit an exit line in
+      // clear water, and there is no clear water here.
+      expect(mind.unbeach?.holdUntil ?? 0).toBe(0);
+      wasAstern = astern;
+      port.now += CONFIG.tick.simDtMs;
+    }
+
+    expect(rudders.length).toBeGreaterThanOrEqual(3); // it keeps trying
+    for (let i = 1; i < rudders.length; i += 1) expect(rudders[i]).toBe(-rudders[i - 1]);
+    // ...and the gap between attempts is ONE arming dwell, not a dwell plus a
+    // pointless hold: the wedge costs 1.5s of ahead per try, never 4.5s.
+    for (const gap of gaps) expect(gap).toBeLessThanOrEqual(CONFIG.bots.stuckMs + CONFIG.tick.simDtMs);
+  });
+
+  // ...but ONLY a failed exit alternates. A hull that got clear and grounded
+  // again somewhere else deserves a freshly probed coast, not the inverse of a
+  // rudder that WORKED. (Written because the first draft keyed the retry on
+  // "there is previous state" rather than on "the previous burst failed", and
+  // therefore flipped after every success too.)
+  it('a SUCCESSFUL exit does not flip the next attempt', () => {
+    const w = openWorld(111); // no islands: the astern rudder is the fallback
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    const arm = (): number => {
+      rec.landContact = true;
+      for (let i = 0; i < 200; i += 1) {
+        const d = COMBAT_BRAIN.decide(rec, mind, port);
+        port.now += CONFIG.tick.simDtMs;
+        if (d.throttle < 0) return mind.unbeach!.rudder;
+      }
+      throw new Error('never armed');
+    };
+    const first = arm();
+    // Clear it properly: off the rock, real sternway -> the burst releases
+    // into a hold, which is what marks the attempt as having WORKED.
+    rec.landContact = false;
+    rec.state.x = CONFIG.bots.unbeachClearU * 2;
+    port.now += CONFIG.tick.simDtMs;
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.unbeach!.holdUntil).toBeGreaterThan(0);
+    // Aground again while the hold is still running.
+    expect(arm()).toBe(first);
+  });
+
   // THE STORM STILL OUTRANKS EVERYTHING, hold included — the header's priority
   // order is the policy, and a committed exit heading must not sail a hull to
   // its death in the ring.
@@ -350,7 +422,7 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(108);
     const port = fakePort(w, { cx: -4000, cy: 0, r: 200 }); // far outside it
     const rec = mkBot(w, 'battleship', 0, 0, 0); // bow due east, ring due west
-    const mind = mkMind('battleship', 'bulwark');
+    const mind = mkMind('bulwark');
     mind.unbeach = { rudder: 1, fromX: 0, fromY: 0, holdUntil: port.now + 10000, holdHeading: 0 };
     expect(Math.abs(COMBAT_BRAIN.decide(rec, mind, port).rudder)).toBe(1);
   });
@@ -362,7 +434,7 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(105);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
-    const mind = mkMind('battleship', 'bulwark');
+    const mind = mkMind('bulwark');
     rec.state.speed = 0.5; // barely moving, and not touching a thing
     rec.landContact = false;
     for (let i = 0; i < 400; i += 1) {
@@ -387,7 +459,7 @@ describe('steering — the priority order is the policy', () => {
     // contributes exactly zero rudder and the coastline probe is the only
     // thing that can move it.
     const port = fakePort(w, { cx: x + Math.cos(brg) * 2000, cy: y + Math.sin(brg) * 2000, r: 6000 });
-    const d = COMBAT_BRAIN.decide(rec, mkMind('torpedoBoat', 'raider'), port);
+    const d = COMBAT_BRAIN.decide(rec, mkMind('raider'), port);
     expect(Math.abs(d.rudder)).toBeGreaterThan(0);
   });
 
@@ -415,7 +487,7 @@ describe('steering — the priority order is the policy', () => {
       cy: y + Math.sin(toCoast) * 3000,
       r: 9000,
     });
-    const d = COMBAT_BRAIN.decide(rec, mkMind('torpedoBoat', 'raider'), port);
+    const d = COMBAT_BRAIN.decide(rec, mkMind('raider'), port);
     // Land to port -> the helm must go STARBOARD. The plain sum answered
     // +0.2 (port, into the rock); the weighted composition answers ~-0.6.
     expect(d.rudder).toBeLessThan(-0.4);
@@ -444,7 +516,7 @@ describe('steering — the priority order is the policy', () => {
     const w = openWorld(105);
     const port = fakePort(w);
     const rec = mkBot(w, 'mineLayer', 0, 0, 0); // bow due east
-    const mind = mkMind('mineLayer', 'trapper');
+    const mind = mkMind('trapper');
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
@@ -465,12 +537,12 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due east
     const tube = slotOf(rec, 'torpedo');
     // Dead ahead, inside credible range: the tube fires.
-    const ahead = mkMind('torpedoBoat', 'duelist');
+    const ahead = mkMind('duelist');
     plot(ahead, track(port.now, { x: 150, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, ahead, port).fireSlot).toBe(tube);
     // Dead ASTERN, same range: the bow sector refuses, and the bot falls
     // through to the 360-degree gun rather than burning a click on nothing.
-    const astern = mkMind('torpedoBoat', 'duelist');
+    const astern = mkMind('duelist');
     plot(astern, track(port.now, { x: -150, y: 0, speed: 0 }));
     const d = COMBAT_BRAIN.decide(rec, astern, port);
     expect(d.fireSlot).not.toBe(tube);
@@ -483,7 +555,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(202);
     const port = fakePort(w);
     const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
-    const mind = mkMind('torpedoBoat', 'raider');
+    const mind = mkMind('raider');
     plot(mind, track(port.now, { x: 600, y: 0, speed: 0 })); // in the bow arc, far
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'gun'));
   });
@@ -493,7 +565,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const port = fakePort(w);
     const rec = mkBot(w, 'mineLayer', 0, 0, 1.1); // an off-axis heading on purpose
     const rack = slotOf(rec, 'mine');
-    const mind = mkMind('mineLayer', 'trapper');
+    const mind = mkMind('trapper');
     rec.hp = rec.stats.maxHp * 0.1; // hurt -> disengaging -> laying its field
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(rack);
@@ -506,7 +578,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const rim = mkBot(w, 'mineLayer', -(w.map.radius - 20), 0, Math.PI); // bow west, rack east
     rim.hp = rim.stats.maxHp * 0.1;
     rim.state.x = w.map.radius - 20;
-    const blocked = COMBAT_BRAIN.decide(rim, mkMind('mineLayer', 'trapper'), port);
+    const blocked = COMBAT_BRAIN.decide(rim, mkMind('trapper'), port);
     expect(blocked.fireSlot).not.toBe(rack);
   });
 
@@ -515,18 +587,18 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const flares = slotOf(rec, 'starShells');
-    const mind = mkMind('battleship', 'siege');
+    const mind = mkMind('siege');
     // Lost 3s ago, out past our own truesight bubble, inside flare reach.
     plot(mind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3000 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(flares);
     expect(d.aimDist).toBeCloseTo(500, 0); // aimed at the LAST KNOWN position
     // A LIVE contact needs no flare — that one gets shot at instead.
-    const live = mkMind('battleship', 'siege');
+    const live = mkMind('siege');
     plot(live, track(port.now, { x: 500, y: 0, live: true }));
     expect(COMBAT_BRAIN.decide(rec, live, port).fireSlot).not.toBe(flares);
     // And `bulwark` never fires them at all (usesStarShells: false).
-    const bulwark = mkMind('battleship', 'bulwark');
+    const bulwark = mkMind('bulwark');
     plot(bulwark, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3000 }));
     expect(COMBAT_BRAIN.decide(rec, bulwark, port).fireSlot).not.toBe(flares);
   });
@@ -539,13 +611,13 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const direct = Math.atan2(at.y, at.x);
     // Identity-free: position only. The aim sits on the true bearing, within
     // the aim scatter alone.
-    const anon = mkMind('battleship', 'bulwark');
+    const anon = mkMind('bulwark');
     plot(anon, track(port.now, { id: null, ...at, heading: null, speed: null, cls: null }));
     const blind = COMBAT_BRAIN.decide(rec, anon, port);
     expect(Math.abs(angleDiff(direct, blind.aim))).toBeLessThan(0.05);
     // The SAME hull with a disclosed course is led — materially off the
     // direct bearing, which is what proves the branch above is real.
-    const led = mkMind('battleship', 'bulwark');
+    const led = mkMind('bulwark');
     plot(led, track(port.now, { ...at, heading: 0, speed: 45 }));
     expect(Math.abs(angleDiff(direct, COMBAT_BRAIN.decide(rec, led, port).aim))).toBeGreaterThan(0.05);
     // A 45-second cannon reload is not spent on a plot that cannot be led.
@@ -553,7 +625,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(COMBAT_BRAIN.decide(rec, led, port).fireSlot).toBe(slotOf(rec, 'cannon'));
     // Nor is a torpedo.
     const tb = mkBot(w, 'torpedoBoat', 0, 0, Math.PI / 2);
-    const tbMind = mkMind('torpedoBoat', 'duelist');
+    const tbMind = mkMind('duelist');
     plot(tbMind, track(port.now, { id: null, x: 0, y: 150, heading: null, speed: null, cls: null }));
     expect(COMBAT_BRAIN.decide(tb, tbMind, port).fireSlot).toBe(slotOf(tb, 'gun'));
   });
@@ -562,7 +634,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(206);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
-    const mind = mkMind('battleship', 'bulwark');
+    const mind = mkMind('bulwark');
     plot(mind, track(port.now, { x: 200, y: 0, speed: 0, heading: null }));
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'gun'));
     // Drain every pool: nothing is fireable, so nothing is requested.
@@ -577,7 +649,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(207);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
-    const mind = mkMind('battleship', 'bulwark');
+    const mind = mkMind('bulwark');
     // Inside the scoring horizon (1.25R) but outside gun/cannon range (R).
     plot(mind, track(port.now, { x: rec.stats.gun.rangeU + 100, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
@@ -588,12 +660,12 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const port = fakePort(w);
     const tb = mkBot(w, 'torpedoBoat', 0, 0, 0);
     tb.hp = tb.stats.maxHp * 0.1; // below raider's 0.5 -> disengage
-    const raider = mkMind('torpedoBoat', 'raider');
+    const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'speedBoost'));
     const ml = mkBot(w, 'mineLayer', 0, 0, 0);
     ml.hp = ml.stats.maxHp * 0.1;
-    const trapper = mkMind('mineLayer', 'trapper');
+    const trapper = mkMind('trapper');
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'decoyBuoy'));
     // Healthy: no ability spent.
@@ -605,7 +677,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(209);
     const port = fakePort(w);
     const rec = mkBot(w, 'mineLayer', 0, 0, 0);
-    const mind = mkMind('mineLayer', 'forager'); // view null, contacts empty
+    const mind = mkMind('forager'); // view null, contacts empty
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBeNull();
     expect(d.actSlot).toBeNull();

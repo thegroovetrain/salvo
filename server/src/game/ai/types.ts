@@ -1,24 +1,42 @@
-// COMBAT-BOT AI — the type seam (Story 6.4, wave 1).
+// COMBAT-BOT AI — the type seam (Story 6.4, wave 1; hardened at the review
+// gate).
 //
 // Everything the ai/ module and its wave-2 siblings (profiles.ts, utility.ts,
 // tactics.ts, spending.ts) build against lives here. Two contracts matter:
 //
 // 1. THE PERCEPTION BOUNDARY. A bot's world knowledge comes EXCLUSIVELY from
-//    `perception.observe(world, botId)` — at most once per bot per tick —
-//    plus a SELF-READ of its own ShipRecord (its own hp/ammo/reload/boons/
-//    offer: the bot's OwnShip equivalent). Never a world collection. The
-//    lint boundary in eslint.config.js makes `world.js` a type-only import
-//    for this whole directory, so the structure is enforced, not advisory.
+//    the fogged perception view World hands the driver as a bound per-bot
+//    observe thunk (BotTickEntry.observe — called exactly once per live bot
+//    per tick), plus a SELF-READ of its own hull (BotSelf below: its own
+//    hp/ammo/reload/boons/offer — the bot's OwnShip equivalent). Never a
+//    world collection, and never a lookup by id: ai/ is handed exactly its
+//    own record and its own view, so it is STRUCTURALLY incapable of
+//    addressing any other ship. The lint boundary in eslint.config.js bans
+//    `world.js` outright (type imports included) and makes `perception.js`
+//    type-only for this whole directory, so the structure is enforced, not
+//    advisory — the UNFOGGED spectator view exported beside observe() cannot
+//    even be imported here without failing the lint AND the import-surface
+//    pin test in bots.test.ts (which refuses the very token anywhere in ai/).
 //
 // 2. THE NARROW WORLD PORT (`BotWorldPort` below). The driver's only handle
-//    on the World for state reads and intent writes. World passes ITSELF —
-//    it satisfies the interface structurally — but the driver stores it AS
-//    the port type, so nothing in ai/ can reach world internals without a
-//    visible, reviewable widening of this interface.
+//    on the world for clock/map/ring reads and intent writes. World passes
+//    ITSELF — it satisfies the interface structurally — but the driver stores
+//    it AS the port type, and the port deliberately exposes NO ship store of
+//    any kind, so nothing in ai/ can reach world internals without a visible,
+//    reviewable widening of this interface.
 
-import type { GameMap, HullId, Rng, ShipClassId, ZoneRing, CONFIG } from '@salvo/shared';
+import type {
+  GameMap,
+  HullId,
+  Rng,
+  ZoneRing,
+  CONFIG,
+  BoonOffer,
+  EffectiveStats,
+  LoadoutSlot,
+  ShipState,
+} from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
-import type { ShipRecord } from '../world.js';
 
 /**
  * The six priority profiles (Eric ruling E1, 2026-08-16) — derived from
@@ -30,26 +48,59 @@ export type BotProfileId =
   (typeof CONFIG.bots.profiles)[keyof typeof CONFIG.bots.profiles][number];
 
 /**
- * SELF-READ ONLY: the one lookup the driver may make against the world's ship
- * store — its OWN record by id. Structurally satisfied by Map<string,
- * ShipRecord>, but typed to expose `.get` alone: no size, no iteration, no
- * scan. Reading ANOTHER ship's record through this would be a perception
- * bypass; the boundary tests stub the world collections to prove the brain
- * never notices.
+ * THE SELF-READ, AS A STRUCTURAL VIEW: everything the brain may know about its
+ * OWN hull, and nothing else. World's ShipRecord satisfies this structurally
+ * (world.ts hands the record itself in each tick's BotTickEntry), but ai/
+ * speaks only this type — every field here is one a human client is sent
+ * about its own ship (pose, hp, effective stats, loadout pools, economy) plus
+ * the simulation's own grounding bit (which the owner's client can equally
+ * derive from its collision feedback). Defined here from shared types alone
+ * so ai/ needs no world.js import, type or value.
  */
-export interface BotSelfReader {
-  get(id: string): ShipRecord | undefined;
+export interface BotSelf {
+  readonly state: ShipState;
+  readonly hp: number;
+  readonly stats: EffectiveStats;
+  readonly loadout: readonly LoadoutSlot[];
+  /** The sim's own "this hull is pressing into LAND" bit (map-edge press is
+   *  deliberately NOT contact — cycle 59). The un-beach trip reads this,
+   *  never a speed guess. */
+  readonly landContact: boolean;
+  readonly bankedLevels: number;
+  readonly offer: BoonOffer | null;
+  readonly boons: readonly string[];
 }
 
 /**
- * THE NARROW WORLD PORT — everything the bot driver needs from World, and
- * nothing else. World satisfies this structurally and passes itself
- * (world.ts constructs BotController beside FleetController); the driver
- * only ever stores it as this type.
+ * ONE BOT'S TICK ENTRY — built by world.ts every tick and handed to
+ * BotController.tick(). The observe thunk is BOUND to this bot's id by
+ * world.ts, so ai/ can capture a fogged view without ever holding a World or
+ * choosing an observer: the injection is what makes the perception boundary
+ * structural rather than disciplinary.
+ */
+export interface BotTickEntry {
+  readonly id: string;
+  /** isAfloat(lifecycle), computed by world.ts — a non-afloat bot goes
+   *  silent and releases its per-life state. */
+  readonly afloat: boolean;
+  /** The bot's own record (see BotSelf). */
+  readonly self: BotSelf;
+  /** This bot's fogged perception view for THIS tick — perception.observe()
+   *  bound to this bot's id by world.ts. Called exactly once per live bot per
+   *  tick by the driver (observe() mutates per-observer reveal memory, so the
+   *  call count is a pinned invariant, not a nicety). */
+  observe(): PerceptionView;
+}
+
+/**
+ * THE NARROW WORLD PORT — everything the bot driver needs from World beyond
+ * its per-tick entries, and nothing else. World satisfies this structurally
+ * and passes itself (world.ts constructs BotController beside
+ * FleetController); the driver only ever stores it as this type.
  *
- * Deliberately absent: `ships` as an iterable, `shells`, `mines`, `decoys`,
- * `litZones`, events, other observers — all of that reaches a bot ONLY
- * through perception.observe()'s fogged view.
+ * Deliberately absent: ANY ship store (a bot's own record arrives in its
+ * BotTickEntry; everything else reaches it only through the fogged view),
+ * `shells`, `mines`, `decoys`, `litZones`, events, other observers.
  */
 export interface BotWorldPort {
   /** ms since world creation — the one server clock. */
@@ -61,18 +112,21 @@ export interface BotWorldPort {
   /** THE BOARDING FREEZE (Story 6.1): false = the helm is dead. The brain
    *  no-ops — no observe, neutral input, fireSeq never advances. */
   readonly helmEnabled: boolean;
-  /** Self-read of the bot's own ShipRecord (see BotSelfReader). */
-  readonly ships: BotSelfReader;
   /** THE ONE INTENT PATH: a complete InputMsg through the same validated
    *  store a human uses (full sanitizeInput, `fireT: 0`, no privileged
    *  setter). Returns false when the message was dropped. */
   submitInput(id: string, raw: unknown): boolean;
   /** THE ONE ECONOMY PATH: consume a banked level through the public spend
    *  entry point (a card index, or HEAL_CHOICE). At most one call per bot
-   *  per tick; false is non-fatal. TODO(wave-2 ai/spending.ts): the doctrine-
-   *  weighted pick policy + the healHpFrac rule drive this. */
+   *  per tick; false is non-fatal. Driven by ai/spending.ts's doctrine-
+   *  weighted pick policy + the healHpFrac rule. */
   spendPoint(id: string, rawChoice: unknown): boolean;
 }
+
+/** Posture is the one-word answer to "what am I doing this tick"; wave-3
+ *  tactics turns it into throttle, rudder and trigger. Chosen on the DECISION
+ *  cadence and cached on the mind between deliberations. */
+export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'farm' | 'ringRun';
 
 /**
  * A remembered contact — the decayed form of a live Contact or a radar blip
@@ -132,24 +186,33 @@ export interface BotMind {
   rng: Rng;
   /** Monotonic input seq (InputStore requires strictly increasing). */
   seq: number;
-  /** Monotonic click counter — wave 1 never advances it (no fire); wave-2
-   *  tactics advance it exactly when a shot is taken (the fleet precedent). */
+  /** Monotonic click counter — advanced exactly when a shot is taken. */
   fireSeq: number;
-  /** Monotonic ability-activation counter — wave 1 never advances it. */
+  /** Monotonic ability-activation counter. */
   actSeq: number;
-  /** The class hull this bot sails (fixed at enroll). */
-  hullId: ShipClassId;
   /** The priority profile assigned at enroll off the seeded RNG. */
   profile: BotProfileId;
-  /** Observe-stagger slot in [0, cadenceTicks) — botPhase(id, cadenceTicks). */
+  /** Deliberation-stagger slot in [0, cadenceTicks) — botPhase(id,
+   *  cadenceTicks). Staggers DECISION work, never perception. */
   phase: number;
   /** The latest perception view, or null before the first observe (and
-   *  after lifecycle release). THE bot's whole world model. */
+   *  after lifecycle release). THE bot's whole world model — refreshed every
+   *  live tick since the review-gate cadence fix. */
   view: PerceptionView | null;
   /** Server ms `view` was captured at; -1 = never observed. */
   viewAt: number;
-  /** Contact memory across observe gaps. TODO(wave-2 ai/utility.ts). */
+  /** Contact memory across grammar gaps (ai/utility.ts is the only writer). */
   contacts: Map<string, RememberedContact>;
+  /** THE DELIBERATED TARGET: the `contacts` key of the track chosen on the
+   *  last decision tick, or null. Re-resolved against the live track store
+   *  every tick (so steering/firing follow the track's freshest plot between
+   *  deliberations); a pruned/sunk key resolves to no target until the next
+   *  decision tick. */
+  targetKey: string | null;
+  /** THE DELIBERATED POSTURE, cached between decision ticks. Safety-critical
+   *  steering never waits on it: ring escape and the un-beach manoeuvre are
+   *  re-evaluated every tick inside tactics regardless of this value. */
+  posture: BotPosture;
   /** ms of SUSTAINED LAND CONTACT accumulated toward arming the un-beach
    *  manoeuvre (CONFIG.bots.stuckMs). Reset by any tick out of contact. */
   stuckMs: number;
@@ -206,26 +269,31 @@ export interface BotDecision {
   /** u — aim-point distance along the bearing (gun burst point). */
   aimDist: number;
   /** Loadout slot to fire this tick, or null to hold fire. A non-null value
-   *  advances the mind's fireSeq exactly once. TODO(wave-2 ai/tactics.ts). */
+   *  advances the mind's fireSeq exactly once. */
   fireSlot: number | null;
   /** Loadout slot to activate (ability press), or null. A non-null value
-   *  advances the mind's actSeq exactly once. TODO(wave-2 ai/tactics.ts). */
+   *  advances the mind's actSeq exactly once. */
   actSlot: number | null;
   /** Spend a banked level: an offer index, HEAL_CHOICE, or null for no spend.
-   *  TODO(wave-2 ai/spending.ts). */
+   *  Only ever non-null on a deliberation tick (the decision cadence). */
   spendChoice: number | null;
 }
 
 /**
- * THE BRAIN SEAM — wave 2 implements this (ai/tactics.ts composing
- * ai/utility.ts target/posture scoring, ai/profiles.ts priority tables and
- * ai/spending.ts boon policy); wave 1 plugs a neutral stand-in. The driver
- * calls decide() at most once per bot per tick, AFTER any due observe, with:
- *   - `self`: the bot's own ShipRecord (the sanctioned self-read),
- *   - `mind`: its per-bot state (including the latest view),
- *   - `port`: the narrow world port (clock, map, live ring — NEVER used by a
- *     conforming brain to read other ships; that is what `mind.view` is for).
+ * THE BRAIN SEAM — ai/tactics.ts implements this (composing ai/utility.ts
+ * target/posture scoring, ai/profiles.ts priority tables and ai/spending.ts
+ * boon policy). The driver calls decide() exactly once per live bot per tick,
+ * AFTER the tick's observe, with:
+ *   - `self`: the bot's own record (the sanctioned self-read — see BotSelf),
+ *   - `mind`: its per-bot state (including the fresh view),
+ *   - `port`: the narrow world port (clock, map, live ring),
+ *   - `deliberate`: true on this bot's decision-cadence tick — the ONLY tick
+ *     the brain may reselect its target, re-choose its posture or spend.
+ *     Steering, avoidance, the un-beach machine and the trigger run every
+ *     tick regardless (a bot that only steered every 5th tick would drive
+ *     like a drunk). Defaults true so a single-decision test IS a
+ *     deliberation.
  */
 export interface BotBrain {
-  decide(self: ShipRecord, mind: BotMind, port: BotWorldPort): BotDecision;
+  decide(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate?: boolean): BotDecision;
 }

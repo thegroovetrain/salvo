@@ -2,11 +2,11 @@
 // choice of target and posture, over THE PERCEPTION VIEW AND NOTHING ELSE.
 //
 // This module never sees a world collection. Its whole input is one
-// `PerceptionView` (the fogged output of perception.observe(), captured by the
-// driver at most once per bot per tick) folded into per-bot contact memory,
-// plus the bot's own pose/hp/stats which the driver reads off its OWN
-// ShipRecord. Nothing here can know something a human client in the same seat
-// would not have been sent.
+// `PerceptionView` (the fogged view world.ts hands the driver as a bound
+// per-bot observe thunk, captured exactly once per live bot per tick) folded
+// into per-bot contact memory, plus the bot's own pose/hp/stats which arrive
+// on its OWN record (the BotSelf self-read). Nothing here can know something
+// a human client in the same seat would not have been sent.
 //
 // FOUR THINGS THIS FILE OWNS:
 //
@@ -14,8 +14,8 @@
 //    truesight `Contact` refreshes a track at full confidence, a radar blip
 //    refreshes it as a decaying low-confidence one, and anything unrefreshed
 //    for CONFIG.bots.contactMemoryMs is forgotten. A bot therefore plots a
-//    track across observe gaps instead of forgetting the world between
-//    cadence ticks.
+//    track across sensor gaps (a radar paint lands once per sweep
+//    revolution) instead of forgetting the world between paints.
 //
 // 2. BOTH BLIP GRAMMARS (the room picks one for the whole match, so a bot
 //    must work under either). `SilhouetteBlipEvent` carries id/cls/heading/
@@ -26,14 +26,17 @@
 //    null`, `speed: null`), associated to an existing anonymous track by
 //    proximity the way a real plotting table associates returns to a track.
 //
-// 3. THE BOT'S OWN GUNNERY FEEDBACK. `sp` (fall-of-shot splash) and `hc` (Hit
-//    Call) are SELF-PRIVATE rows the shooter is entitled to — they are how a
-//    human brackets fire and learns a fog shot connected — so a bot uses them
-//    exactly as a human does: a Hit Call reinforces the track it landed on
-//    (refreshing it and raising the damage estimate), and a splash is handed
-//    back to wave-3 tactics as the fall-of-shot correction. NOTHING ELSE is
-//    read from the event stream beyond blips and `sunk` (which merely retires
-//    a dead track); no event the bot is not entitled to is consulted, because
+// 3. THE BOT'S OWN HIT CALLS. `hc` (Hit Call) is a SELF-PRIVATE row the
+//    shooter is entitled to — it is how a human learns a fog shot connected —
+//    so a bot uses it exactly as a human does: a Hit Call reinforces the
+//    track it landed on (refreshing it and raising the damage estimate).
+//    The `sp` fall-of-shot splash is DELIBERATELY NOT read: wave 2 captured
+//    it as a "bracket-and-walk" feedback channel that no tactics ever
+//    consumed, and the review gate deleted the dead knob rather than invent
+//    a correction loop late in the cycle (a bracket-and-walk behaviour is
+//    LEDGERED in deferred-work.md, not smuggled in). NOTHING ELSE is read
+//    from the event stream beyond blips and `sunk` (which merely retires a
+//    dead track); no event the bot is not entitled to is consulted, because
 //    the view it is handed contains none.
 //
 // 4. THE REACTION GATE, IN ONE PLACE. `isActionable()` is the sole consumer of
@@ -63,8 +66,13 @@ import {
   type ZoneRing,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
-import type { BotMind, RememberedContact } from './types.js';
+import type { BotMind, BotPosture, RememberedContact } from './types.js';
 import { engagementBand, type BotProfile } from './profiles.js';
+
+/** Re-exported from types.ts (moved there so BotMind can cache the
+ *  deliberated posture without an import cycle); tactics and tests keep
+ *  importing it from here. */
+export type { BotPosture } from './types.js';
 
 /**
  * ONE PLOTTED TRACK. An alias of `RememberedContact` since wave 3 promoted
@@ -74,20 +82,6 @@ import { engagementBand, type BotProfile } from './profiles.js';
  */
 export type BotTrack = RememberedContact;
 
-/** The bot's own fall-of-shot feedback for this tick, handed to wave-3
- *  tactics. Both channels are self-private rows the shooter is entitled to. */
-export interface GunneryFeedback {
-  /** The true impact point of the bot's own most recent MISS this tick, or
-   *  null. This is what makes bracket-and-walk fire possible in fog. */
-  splash: { x: number; y: number } | null;
-  /** How many of the bot's own ordnance resolutions CONNECTED this tick
-   *  (severity-free by ruling — a count, never an amount). */
-  hits: number;
-}
-
-/** Posture is the one-word answer to "what am I doing this tick"; wave-3
- *  tactics turns it into throttle, rudder and trigger. */
-export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'farm' | 'ringRun';
 
 /** Everything scoring needs about the bot ITSELF — built by the driver from
  *  the bot's own ShipRecord and the narrow port. Deliberately a plain value:
@@ -259,20 +253,17 @@ function foldContact(tracks: TrackMap, c: Contact, now: number): void {
   writeTrack(tracks, c.id, { id: c.id, x: c.x, y: c.y, heading: c.heading, speed: c.speed, cls: c.cls }, now, true);
 }
 
-/** Route one event to its fold. Everything not named here is deliberately
- *  ignored — a bot reads only what it is entitled to and only what it uses. */
-function foldEvent(tracks: TrackMap, e: GameEvent, now: number, fb: GunneryFeedback): void {
+/** Route one event to its fold. Everything not named here — the `sp` splash
+ *  included, since the review gate deleted its dead feedback channel — is
+ *  deliberately ignored: a bot reads only what it is entitled to and only
+ *  what it uses. */
+function foldEvent(tracks: TrackMap, e: GameEvent, now: number): void {
   if (e.k === 'blip') {
     foldBlip(tracks, e, now);
     return;
   }
   if (e.k === 'hc') {
     foldHitCall(tracks, e.x, e.y, now);
-    fb.hits += 1;
-    return;
-  }
-  if (e.k === 'sp') {
-    fb.splash = { x: e.x, y: e.y };
     return;
   }
   if (e.k === 'sunk') tracks.delete(e.id);
@@ -286,8 +277,9 @@ function prune(tracks: TrackMap, now: number): void {
 }
 
 /**
- * Fold one perception view into the bot's contact memory and hand back this
- * tick's gunnery feedback. THE only writer of `mind.contacts`.
+ * Fold one perception view into the bot's contact memory. THE only writer of
+ * `mind.contacts`. Runs once per captured view — which, since the
+ * review-gate cadence fix, is once per live tick.
  *
  * ORDER IS LOAD-BEARING: events (blips, Hit Calls) fold FIRST and live
  * truesight contacts fold LAST, so a hull that is both painted and sighted
@@ -296,13 +288,11 @@ function prune(tracks: TrackMap, now: number): void {
  * about confidence, never about existence, and truesight always wins.
  * Deterministic: no rng, no clock read (`now` is passed in).
  */
-export function foldView(mind: BotMind, view: PerceptionView, now: number): GunneryFeedback {
+export function foldView(mind: BotMind, view: PerceptionView, now: number): void {
   const tracks = mind.contacts;
-  const fb: GunneryFeedback = { splash: null, hits: 0 };
-  for (const e of view.events) foldEvent(tracks, e, now, fb);
+  for (const e of view.events) foldEvent(tracks, e, now);
   for (const c of view.contacts) foldContact(tracks, c, now);
   prune(tracks, now);
-  return fb;
 }
 
 /** Every remembered track. Insertion-ordered (deterministic). */
@@ -363,21 +353,32 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
   return kind * prox * freshness(t, sit.now) * dmg * iso;
 }
 
-/** The best actionable track by profile-weighted score, or null. Strict `>`
- *  keeps the earliest-acquired track on a tie (deterministic). */
-export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null {
+/**
+ * The `mind.contacts` KEY of the best actionable track by profile-weighted
+ * score, or null. Strict `>` keeps the earliest-acquired track on a tie
+ * (deterministic). Returning the KEY rather than the track is what lets the
+ * driver's decision cadence cache the choice on the mind and re-resolve it
+ * against the freshest plot every tick between deliberations.
+ */
+export function selectTargetKey(mind: BotMind, sit: BotSituation): string | null {
   const all = tracksOf(mind);
-  let best: BotTrack | null = null;
+  let best: string | null = null;
   let bestScore = 0;
-  for (const t of all) {
+  for (const [key, t] of mind.contacts) {
     if (!isActionable(t, sit.now)) continue;
     const s = scoreTrack(t, sit, all);
     if (s > bestScore) {
       bestScore = s;
-      best = t;
+      best = key;
     }
   }
   return best;
+}
+
+/** The best actionable track itself (selectTargetKey resolved), or null. */
+export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null {
+  const key = selectTargetKey(mind, sit);
+  return key === null ? null : mind.contacts.get(key) ?? null;
 }
 
 /**

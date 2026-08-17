@@ -1,7 +1,10 @@
 // Per-observer visibility — the fog-of-war core and the anti-cheat boundary.
 // One pure pass per observer computes everything that observer may know this
-// tick; frames.ts is the only caller, so nothing spatial can leave the server
-// without going through observe(). The invariant is unit-tested property-style
+// tick. observe() has exactly two callers — frames.ts (per-client frames)
+// and world.ts's per-bot observe thunks (Story 6.4: combat bots see through
+// the same fog as any client) — so nothing spatial can leave the server, to
+// a socket or to an AI brain, without going through observe(). The invariant
+// is unit-tested property-style
 // in __tests__/perception.test.ts: no contact or event in any frame may
 // reference anything outside sight ∪ (this-tick radar paints) — beyond the
 // DECLARED per-row exceptions (self-directed events, owner-authored points,
@@ -401,8 +404,10 @@ function view(world: World, ctx: SignalContext): PerceptionView {
 
 /**
  * Build the full per-observer view for this tick. The ONLY producer of FOGGED
- * frame contacts/events (frames.ts is its only caller). A viewer with no ship
- * sees nothing — fail-closed.
+ * contacts/events, with exactly two callers: frames.ts (per-client frame
+ * construction) and world.ts's botEntries() (Story 6.4 — each combat bot's
+ * bound observe thunk, one call per live bot per tick). A viewer with no
+ * ship sees nothing — fail-closed.
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);

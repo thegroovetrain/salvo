@@ -1,46 +1,49 @@
-// COMBAT-BOT CONTROLLER (Story 6.4, wave 1) — the driver for `role: 'bot'`
-// ships, and THE PERCEPTION CHOKEPOINT of the whole ai/ module.
+// COMBAT-BOT CONTROLLER (Story 6.4) — the driver for `role: 'bot'` ships.
 //
 // A bot is an ORDINARY ship (World.addBot → addShip with role='bot'); it has
 // no client. This controller is its hands and its eyes:
 //
-//   EYES — `perception.observe(world, botId)`, called AT MOST ONCE per bot
-//   per tick and on average every CONFIG.bots.observeCadenceMs, on a
-//   round-robin staggered by id hash (botPhase) so 19 bots spread ~4
-//   observes across each 5-tick window instead of bunching 19 on one tick.
+//   EYES — the fogged perception view world.ts hands in as a bound per-bot
+//   observe thunk (BotTickEntry.observe), called EXACTLY ONCE per live bot
+//   per tick and folded into the mind every tick. This is the honest human
+//   client contract — a frame per tick at 20Hz — and it is a REVIEW-GATE
+//   CORRECTION of wave 1's observe round-robin: radar blips and the
+//   self-private gunnery rows live for exactly one tick, and a 1-in-5
+//   observe cadence RESONATES with the sweep (80 ticks/revolution at 15 rpm,
+//   80 ≡ 0 mod 5), leaving a bot PERMANENTLY radar-blind to any bearing
+//   whose paint phase missed its slot. The handicap lives in the DECISION
+//   cadence and CONFIG.bots.reactionMs, never in dropped perception.
 //   observe()'s observer-state mutation (`seenBallistics`/`torpDirs`) is
-//   CORRECT here, not a hazard: one call per cadence tick is precisely the
-//   human client contract, and the mutation becomes the bot's own
-//   exactly-once ballistic reveal memory. That is why "at most one call per
-//   bot per tick" is a pinned invariant, not a performance nicety.
+//   CORRECT here, not a hazard: one call per tick is precisely the human
+//   client contract, and the mutation becomes the bot's own exactly-once
+//   ballistic reveal memory. That is why "exactly one call per live bot per
+//   tick" is a pinned invariant, not a performance nicety.
 //
 //   HANDS — one sanitized-shape InputMsg per live bot per tick through
-//   World.submitInput (full sanitizeInput, `fireT: 0`, no privileged path),
-//   exactly as the fleet AI and every human client write intent. The DECISION
-//   behind that input comes from the pluggable BotBrain: wave 1 shipped a
-//   neutral stand-in, wave 3 plugged ai/tactics.ts COMBAT_BRAIN behind the
-//   same seam without touching the cadence, the port, the state lifecycle or
-//   the emission — the frozen-helm path still bypasses the brain entirely.
+//   port.submitInput (full sanitizeInput, `fireT: 0`, no privileged path),
+//   exactly as the fleet AI and every human client write intent. Steering
+//   and firing are therefore emitted EVERY tick; only DELIBERATION (target
+//   reselection, posture, boon spends) is gated, on this bot's
+//   decision-cadence slot (CONFIG.bots.decisionCadenceMs, staggered by id
+//   hash so 19 bots spread the scoring work across ticks instead of
+//   bunching it). The frozen-helm path still bypasses the brain entirely.
 //
-// THE ONE EXCEPTION to "the driver only ever sees BotWorldPort": observe()'s
-// signature takes the real World, so the constructor keeps a SECOND reference
-// to the same object under the World type — `perceptionHost` — dereferenced
-// at exactly one call site (the observe call) and nowhere else. Every state
-// read and intent write goes through `port`. The lint boundary keeps World a
-// type-only import for this directory, so the host reference cannot grow new
-// uses without a reviewable widening of the port.
+// THE DRIVER HOLDS NO WORLD — not even as a type. Its whole handle on the
+// simulation is the narrow BotWorldPort (clock, map, live ring, the two
+// intent paths) plus the per-tick BotTickEntry array world.ts builds for it
+// (each bot's own record and its bound observe thunk). ai/ is structurally
+// incapable of addressing any ship but its own; the eslint boundary bans
+// world.js outright and makes perception.js type-only for this directory.
 
-import { CONFIG, SHIP_CLASS_IDS, isAfloat, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
-import { observe } from '../perception.js';
-import type { ShipRecord, World } from '../world.js';
+import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
 import { COMBAT_BRAIN } from './tactics.js';
-import type { BotBrain, BotDecision, BotMind, BotProfileId, BotWorldPort } from './types.js';
+import type { BotBrain, BotDecision, BotMind, BotProfileId, BotTickEntry, BotWorldPort } from './types.js';
 
 /**
- * The observe-stagger slot for a bot id: FNV-1a over the id, mod the cadence
- * window. Pure and exported so the stagger test can compute the expected
- * per-tick histogram independently. With `bot-1`..`bot-19` at cadence 5 the
- * buckets measure [6,3,4,2,4] — spread, never bunched.
+ * The deliberation-stagger slot for a bot id: FNV-1a over the id, mod the
+ * cadence window. Pure and exported so the stagger test can compute the
+ * expected per-tick histogram independently. With `bot-1`..`bot-19` at
+ * cadence 5 the buckets measure [6,3,4,2,4] — spread, never bunched.
  */
 export function botPhase(id: string, cadenceTicks: number): number {
   let h = 0x811c9dc5;
@@ -72,27 +75,25 @@ const FROZEN_DECISION: BotDecision = Object.freeze({
 /**
  * Drives every enrolled bot through the normal input path. Owned by World
  * (constructed beside FleetController on its own decorrelated seed); still
- * zero Colyseus. World calls tick() once per step at the `botsTick` row,
- * immediately before applyInputs, so bot input is consumed the same tick.
+ * zero Colyseus. World calls tick() once per step at the `botsTick` row —
+ * immediately before applyInputs, so bot input is consumed the same tick —
+ * handing in the per-bot entries it built for this tick.
  */
 export class BotController {
   private readonly minds = new Map<string, BotMind>();
-  /** The narrow port — the ONLY view the driver reads world state through. */
+  /** The narrow port — the ONLY world handle the driver holds (see header). */
   private readonly port: BotWorldPort;
-  /** Held SOLELY for perception.observe()'s World-typed parameter — the one
-   *  sanctioned dereference. See the file header. */
-  private readonly perceptionHost: World;
   /** The controller's own decision stream (enroll rolls: class, profile,
    *  callsign order) — decorrelated from every other world stream. */
   private readonly rng: Rng;
   private readonly seed: number;
-  /** The observe round-robin window, in ticks (250ms / 50ms = 5). */
+  /** The deliberation round-robin window, in ticks (250ms / 50ms = 5). */
   private readonly cadenceTicks: number;
   /** Controller-local tick counter driving the stagger (self-contained —
    *  the port deliberately exposes no tick number). */
   private tickCount = 0;
-  /** observe() calls made during the most recent tick() — the stagger
-   *  test's per-tick instrument. */
+  /** observe() calls made during the most recent tick() — the
+   *  exactly-once-and-always pin's per-tick instrument. */
   private observesLastTickCount = 0;
   /** Callsign draw order: a Fisher-Yates shuffle of the CONFIG pool, fixed at
    *  construction; draws walk it without repeat, suffixing on wrap. */
@@ -102,12 +103,11 @@ export class BotController {
   /** The pluggable brain — the real profile-driven tactics since wave 3. */
   private readonly brain: BotBrain = COMBAT_BRAIN;
 
-  constructor(world: World, seed: number) {
-    this.port = world;
-    this.perceptionHost = world;
+  constructor(port: BotWorldPort, seed: number) {
+    this.port = port;
     this.seed = seed >>> 0;
     this.rng = mulberry32(this.seed);
-    this.cadenceTicks = Math.max(1, Math.round(CONFIG.bots.observeCadenceMs / CONFIG.tick.simDtMs));
+    this.cadenceTicks = Math.max(1, Math.round(CONFIG.bots.decisionCadenceMs / CONFIG.tick.simDtMs));
     this.callsignOrder = shuffled(CONFIG.bots.callsigns, this.rng);
   }
 
@@ -117,12 +117,13 @@ export class BotController {
   }
 
   /** observe() calls made during the most recent tick() (testing/inspection
-   *  only — the stagger pin's per-tick reading). */
+   *  only — the exactly-once-and-always pin's per-tick reading). */
   get observesLastTick(): number {
     return this.observesLastTickCount;
   }
 
-  /** A bot's stagger slot (testing/inspection only). -1 = unknown id. */
+  /** A bot's deliberation-stagger slot (testing/inspection only). -1 =
+   *  unknown id. */
   phaseOf(id: string): number {
     return this.minds.get(id)?.phase ?? -1;
   }
@@ -135,6 +136,12 @@ export class BotController {
   /** A bot's assigned priority profile (testing/inspection only). */
   profileOf(id: string): BotProfileId | null {
     return this.minds.get(id)?.profile ?? null;
+  }
+
+  /** Remembered contact-track count for a bot (testing/inspection only —
+   *  the perception-regression suite's instrument). -1 = unknown id. */
+  trackCountOf(id: string): number {
+    return this.minds.get(id)?.contacts.size ?? -1;
   }
 
   /**
@@ -153,12 +160,13 @@ export class BotController {
       seq: 0,
       fireSeq: 0,
       actSeq: 0,
-      hullId,
       profile,
       phase: botPhase(id, this.cadenceTicks),
       view: null,
       viewAt: -1,
       contacts: new Map(),
+      targetKey: null,
+      posture: 'reposition',
       stuckMs: 0,
       unbeachUntil: 0,
     });
@@ -171,51 +179,66 @@ export class BotController {
   }
 
   /**
-   * One controller step (the `botsTick` STEP_ORDER row). Per live bot:
-   * observe if due this tick (at most once), then submit exactly one input.
-   * A frozen helm (boarding room) skips observe and emits neutral input
-   * without ever advancing fireSeq; a non-afloat hull releases its view
-   * state and emits nothing (sinking/sunk row of the I/O contract).
+   * One controller step (the `botsTick` STEP_ORDER row), over the per-bot
+   * entries world.ts built for this tick. Per live bot: observe (exactly
+   * once), then submit exactly one input. A frozen helm (boarding room)
+   * skips observe and emits neutral input without ever advancing fireSeq; a
+   * non-afloat hull releases its per-life brain state and emits nothing
+   * (sinking/sunk row of the I/O contract).
    */
-  tick(): void {
+  tick(entries: readonly BotTickEntry[]): void {
     this.tickCount += 1;
     this.observesLastTickCount = 0;
-    for (const [id, mind] of this.minds) {
-      const ship = this.port.ships.get(id);
-      if (!ship) {
-        this.minds.delete(id);
+    for (const e of entries) {
+      const mind = this.minds.get(e.id);
+      if (mind === undefined) continue;
+      if (!e.afloat) {
+        this.releasePerLifeState(mind);
         continue;
       }
-      if (!isAfloat(ship.lifecycle)) {
-        // Sinking/sunk: the brain releases its perception state and goes
-        // silent — no input at all through the whole window (the fleet
-        // controller's dead-hull idiom, plus the view release the spec pins).
-        mind.view = null;
-        mind.viewAt = -1;
-        mind.contacts.clear();
-        continue;
-      }
-      this.driveBot(id, mind, ship);
+      this.driveBot(e, mind);
     }
   }
 
-  /** Observe-if-due + decide + emit for one live bot. */
-  private driveBot(id: string, mind: BotMind, ship: ShipRecord): void {
+  /**
+   * Sinking/sunk: the brain releases EVERYTHING that belongs to the life
+   * that just ended — its view, its plot, its deliberated target/posture,
+   * and the un-beach manoeuvre's timers. The manoeuvre release is the
+   * review-gate fix for the respawn quirk: without it a bot that died
+   * mid-burst respawned into a stale 3s exit-heading hold pointed at
+   * wherever it happened to die (the old "self-heal" only released the
+   * BURST, via the teleport tripping the displacement test, and released it
+   * INTO the hold). A respawn now starts with a clean helm.
+   */
+  private releasePerLifeState(mind: BotMind): void {
+    mind.view = null;
+    mind.viewAt = -1;
+    mind.contacts.clear();
+    mind.targetKey = null;
+    mind.posture = 'reposition';
+    mind.stuckMs = 0;
+    mind.unbeachUntil = 0;
+    mind.unbeach = null;
+  }
+
+  /** Observe + decide + emit for one live bot. */
+  private driveBot(e: BotTickEntry, mind: BotMind): void {
     if (!this.port.helmEnabled) {
       // THE BOARDING FREEZE: no observe (radar is off and the room is
       // pre-active — there is nothing legitimate to learn), neutral input so
       // the seq stream stays warm, fireSeq untouched by construction.
-      this.submit(id, mind, FROZEN_DECISION);
+      this.submit(e.id, mind, FROZEN_DECISION);
       return;
     }
-    if ((this.tickCount + mind.phase) % this.cadenceTicks === 0) {
-      // THE ONE PERCEPTION CALL in the entire ai/ module — at most once per
-      // bot per tick, on the bot's own stagger slot.
-      mind.view = observe(this.perceptionHost, id);
-      mind.viewAt = this.port.now;
-      this.observesLastTickCount += 1;
-    }
-    this.submit(id, mind, this.brain.decide(ship, mind, this.port));
+    // THE ONE PERCEPTION CALL in the entire ai/ module — exactly once per
+    // live bot per tick, EVERY tick (the exactly-once-and-always pin).
+    mind.view = e.observe();
+    mind.viewAt = this.port.now;
+    this.observesLastTickCount += 1;
+    // Deliberation (target reselection, posture, spends) runs on this bot's
+    // own stagger slot; steering and firing are emitted every tick.
+    const deliberate = (this.tickCount + mind.phase) % this.cadenceTicks === 0;
+    this.submit(e.id, mind, this.brain.decide(e.self, mind, this.port, deliberate));
   }
 
   /** Fold a decision into one validated InputMsg (and at most one spend). */
