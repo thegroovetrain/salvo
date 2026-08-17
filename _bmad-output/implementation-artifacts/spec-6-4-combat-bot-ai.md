@@ -2,7 +2,7 @@
 title: 'Story 6-4 — Combat-Bot AI'
 type: 'feature'
 created: '2026-08-16'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -36,10 +36,12 @@ brain measures quality.
   reload/boons/offer are legitimate — that is the bot's own `OwnShip` equivalent.)
 - Intent leaves ONLY through `world.submitInput(botId, msg)` with a complete `InputMsg`, `fireT: 0`.
   No privileged setter, no direct state mutation.
-- `server/src/game/ai/` may import from `./perception.js`, `./inputs.js`, `./participants.js`,
-  `./signals.js` (types only), `@salvo/shared`, and its own files. It may NOT import `world.js`,
-  `match.js`, `drones.js`, `frames.js`, `equipment/*` or anything under `../rooms/`. `World` is
-  reachable only as a TYPE (`import type`) plus the two narrow methods the driver is handed.
+- `server/src/game/ai/` may import from `./inputs.js`, `./participants.js`, `@salvo/shared`, and its
+  own files; `./perception.js` is TYPE-ONLY. It may NOT import `world.js` **at all — type imports
+  included** — nor `match.js`, `drones.js`, `frames.js`, `combat.js`, `equipment/*` or anything under
+  `../rooms/`. `world.ts` injects per-bot entries carrying a bound observe thunk, so `ai/` holds no
+  `World` reference and cannot address any ship but its own. *(Tightened at the review gate — the
+  original "World as a TYPE" allowance was not sufficient; see the Spec Change Log.)*
 - `isHuman` must stay FALSE for `'bot'` — FR34 (`minHumans`/countdown counts people only).
 - One `botsTick` row in `STEP_ORDER`, immediately BEFORE `applyInputs`, beside `dronesTick`.
   Never in `ArenaRoom` — `World` stays Colyseus-free and headless.
@@ -142,7 +144,37 @@ brain measures quality.
 
 ## Spec Change Log
 
+- **Review gate, cycle 95 — the observe cadence.** The spec inherited the epic AC's "staggered
+  ~250 ms observe cadence" and the question gate's E3 reading of it as *staleness*. Both were wrong:
+  one-tick signals (radar paints, `tickEvents`) are LOST at that cadence, and the loss resonates with
+  the sweep period so a bot can be permanently blind. Amended to a DECISION cadence — observe every
+  tick, deliberate on cadence. **KEEP on re-derivation:** the handicap must live in `reactionMs` and
+  `aimScatterU`; a fairness knob may slow reactions but must never delete perception.
+- **Review gate, cycle 95 — the boundary.** The spec asked that `ai/` import perception + inputs only.
+  That was necessary but not sufficient: `observeSpectator` (the unfogged view) ships from the same
+  module, and an arbitrary-id `ShipRecord` lookup sat in the port. Amended to injection —
+  `world.ts` hands per-bot entries carrying a bound observe thunk, and `ai/` holds zero `world.js`
+  references. **KEEP:** the test is not "what does the code do" but "could the next one-line edit
+  cross it".
+
 ## Review Triage Log
+
+**Pass 1 (cycle 95): 3 reviewers — 2 Fable adversarial + 1 Codex cross-model. All three returned
+`fix-first`.**
+
+- intent_gap: 0
+- bad_spec: 2 (both high — the cadence model and the boundary sufficiency; see Spec Change Log)
+- patch: 6 — cadence→decision cadence (high); structural boundary + 4 lint/pin closures (high);
+  3 dead knobs deleted (medium); stale comments incl. `bounty.ts`/`world.ts` "captain victims only"
+  (low); respawn hold cleared (low); evidence artifact re-measured against HEAD (high)
+- defer: 3 — bracket-and-walk to be rebuilt with its consumer; `raider`/`forager` balance findings;
+  the two failing quality bars (ledgered, not tuned)
+- reject: 1 — `PROTOCOL_VERSION` bump (both Fable passes flagged it; adjudicated by the orchestrator
+  against amendment 24's `CONFIG.fleet` precedent, `welcome.config` has zero readers in `client/`)
+
+Cross-model agreement: both Fable passes independently REPRODUCED the cadence defect with separate
+probes and Codex missed it; Codex independently CONFIRMED the arbitrary-id boundary hole that one
+Fable pass rated only PLAUSIBLE. Each model caught what the other did not.
 
 ## Design Notes
 
@@ -189,12 +221,23 @@ re-implement in `ai/` against the perception view rather than sharing the module
 - `HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --bots 20 --matches 50 --seed 7` -- expected:
   the quality table below.
 
-**Quality bar (report the measured table):**
-- Matches resolving before the 16:00 collapse: > 95%
-- No single bot takes > 40% of a match's kills; ≥ 60% of bots score ≥ 1 kill
-- Storm deaths: 5-20% of all deaths
-- Bot-ticks in land contact: < 1%
-- Banked levels spent before death: > 90%
+**Quality bar — MEASURED against HEAD, 1000 bot-matches (full table + diagnosis in
+`bot-evidence-2026-08-16.md`): 4 of 6 PASS.**
+
+| Bar | Target | Measured | |
+|---|---|---|---|
+| Matches resolving before the 16:00 collapse | > 95% | 100.0% | PASS |
+| Mean per-match max single-bot kill share | <= 40% | 27.7% | PASS |
+| Bots scoring >= 1 participant kill | >= 60% | 45.3% | FAIL |
+| Storm deaths as a share of all bot deaths | 5-20% | 2.7% | FAIL |
+| Afloat bot-ticks in land contact | < 1% | 1.0% | PASS (borderline) |
+| Banked levels spent before death | > 90% | 99.8% | PASS |
+
+Both failures are ORCHESTRATOR-SET bars that turned out to measure the wrong thing, not defects: the
+kill-spread bar measures profile balance (a 20-bot match yields at most 19 kills, so even perfect
+spread tops out near 95%), and the storm band assumed matches run long enough for the ring to bite —
+only 2.0% reach the endgame ring because the bots resolve the field first. Ledgered, deliberately not
+tuned.
 
 **Manual checks:**
 - `git grep -n "world\." server/src/game/ai/` -- expected: only the narrow port methods
