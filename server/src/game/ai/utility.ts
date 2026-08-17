@@ -57,12 +57,15 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   isOutside,
+  islandBlocksSegment,
   type BlipEvent,
   type Contact,
   type EffectiveStats,
   type GameEvent,
   type HullId,
+  type Island,
   type ReturnBlipEvent,
+  type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
@@ -96,6 +99,31 @@ export interface BotSituation {
   profile: BotProfile;
   /** The LIVE storm ring — ring escape overrides everything else. */
   ring: ZoneRing;
+  /** The map's coastlines — `port.map.islands`, which every client rebuilds
+   *  from the seed, so this discloses nothing. Read for exactly one question:
+   *  IS THERE A LINE OF FIRE (see lineBlocked). Steering reads the port's copy
+   *  directly; scoring and the trigger read it from here. */
+  islands: readonly Island[];
+}
+
+/**
+ * IS THE STRAIGHT LINE FROM `a` TO `b` STOPPED BY LAND?
+ *
+ * The bot's line-of-fire test, and it is the SIM'S OWN PRIMITIVE
+ * (`islandBlocksSegment` — bounding-circle broadphase, `core` early-out, then
+ * the exact coastline walk), which is what `stepShell` resolves flight against
+ * and what `clipAtIslands` draws the human's aim preview with. One question,
+ * one answer, three consumers.
+ *
+ * NOTHING IS DISCLOSED: the map is public (both sides rebuild it from
+ * `welcome.mapSeed`) and ai/tactics.ts already iterates `port.map.islands`
+ * every tick for coastline avoidance.
+ */
+export function lineBlocked(a: Vec2, b: Vec2, islands: readonly Island[]): boolean {
+  for (const isle of islands) {
+    if (islandBlocksSegment(a, b, isle)) return true;
+  }
+  return false;
 }
 
 /** u — association radius for an identity-free return-grammar paint. Six
@@ -127,6 +155,32 @@ const STALE_FLOOR = 0.15;
 /** u — radius that decides whether a track is ALONE. Half of base truesight:
  *  two hulls this close are supporting each other. */
 const ISOLATION_U = CONFIG.vision.sight * 0.5;
+
+/**
+ * Score multiplier for a track with LAND IN THE WAY — a plot the trigger will
+ * refuse to shoot at (see ai/tactics.ts). Without it the terrain check alone
+ * would only stop the wasted ordnance, not the stuck ENGAGEMENT: a bot would
+ * hold fire and go on circling the headland, which is the half of Eric's
+ * report ("focus fire on some drones it cannot possibly hit") that reads as
+ * broken even with the guns silent.
+ *
+ * A PENALTY AND NOT A VETO, deliberately. Zeroing a blocked track would make a
+ * bot forget a hull it is about to sail past a headland and re-acquire, and
+ * would leave it with NO target at all in cluttered coastal water — patrolling
+ * for the ring centre while an enemy sits 200u away behind a rock.
+ *
+ * THE NUMBER IS SET BY THE WORST MEASURED CASE, not by feel. `forager` is the
+ * profile the defect lived on (15.7% of its shells into terrain) precisely
+ * because its `targetWeights.fleet` of 2.0 parks it on drone groups in
+ * cluttered coastal water, against a `captain` weight of 0.5. Anything above
+ * 0.25 leaves that fight unchanged — 2.0 x 0.35 = 0.70 still beats 0.50 — so
+ * the penalty has to bite harder than a third to move the one case it was
+ * written for. At 0.2 the blocked drones score 0.40 against the reachable
+ * captain's 0.50 and the bot takes the shot it can actually make, while a
+ * blocked track that is the ONLY thing on the water still scores well clear of
+ * zero, still wins the slot, and still gets pursued.
+ */
+const BLOCKED_LINE_SCORE = 0.2;
 
 /** A hull id that is PvE fleet content rather than a participant. */
 function isFleetHullId(cls: HullId): boolean {
@@ -269,6 +323,29 @@ function foldEvent(tracks: TrackMap, e: GameEvent, now: number): void {
   if (e.k === 'sunk') tracks.delete(e.id);
 }
 
+/**
+ * DROP EVERY TRACK OUT OF TRUESIGHT, before this view is folded.
+ *
+ * `live` is documented as "backed by a LIVE truesight Contact", and until this
+ * existed it was not: `writeTrack` set it at refresh time and NOTHING EVER
+ * CLEARED IT, so a hull sighted once and then lost stayed flagged live for the
+ * whole 8s memory window (observed at ageMs 6950). Three consumers read it as
+ * "visible now" and were all wrong for it — `cannonShot`'s live gate spent a
+ * 50s reload on a plot that had gone dark, `freshness()` returned a full 1.0
+ * for a seven-second-old position so scoring never decayed it, and
+ * `flareTarget` would never light a plot that went stale while flagged.
+ *
+ * Clearing here rather than testing `seenAt === now` at each read is the
+ * narrower fix: `seenAt` is refreshed by radar paints and Hit Calls too, so
+ * "refreshed this tick" is a WIDER predicate than "sighted this tick" and
+ * reading it as the latter would have let the cannon fire at a same-tick blip.
+ * The fold's own order does the rest — `foldContact` runs last and re-raises
+ * the flag for everything genuinely in the bubble (see foldView).
+ */
+function dropTruesight(tracks: TrackMap): void {
+  for (const t of tracks.values()) t.live = false;
+}
+
 /** Forget every track unrefreshed for longer than the memory window. */
 function prune(tracks: TrackMap, now: number): void {
   for (const [key, t] of tracks) {
@@ -281,15 +358,17 @@ function prune(tracks: TrackMap, now: number): void {
  * `mind.contacts`. Runs once per captured view — which, since the
  * review-gate cadence fix, is once per live tick.
  *
- * ORDER IS LOAD-BEARING: events (blips, Hit Calls) fold FIRST and live
- * truesight contacts fold LAST, so a hull that is both painted and sighted
- * this tick ends up stored LIVE. The reverse order would let a same-tick
- * radar paint demote a sighted hull to a stale plot — the sensors disagree
- * about confidence, never about existence, and truesight always wins.
+ * ORDER IS LOAD-BEARING: `live` is DROPPED on every track first (see
+ * dropTruesight), then events (blips, Hit Calls) fold, then live truesight
+ * contacts fold LAST — so a hull that is both painted and sighted this tick
+ * ends up stored LIVE. The reverse order would let a same-tick radar paint
+ * demote a sighted hull to a stale plot — the sensors disagree about
+ * confidence, never about existence, and truesight always wins.
  * Deterministic: no rng, no clock read (`now` is passed in).
  */
 export function foldView(mind: BotMind, view: PerceptionView, now: number): void {
   const tracks = mind.contacts;
+  dropTruesight(tracks);
   for (const e of view.events) foldEvent(tracks, e, now);
   for (const c of view.contacts) foldContact(tracks, c, now);
   prune(tracks, now);
@@ -339,7 +418,9 @@ function isolation(t: BotTrack, neighbours: readonly BotTrack[]): number {
  * five terms are exactly the ones the profiles speak in: WHAT it is
  * (participant vs fleet hull — never human vs bot, ruling B3), HOW CLOSE it
  * is, HOW SURE we are of the plot, HOW HURT we believe it is (self-private
- * Hit Calls only) and HOW ALONE it is.
+ * Hit Calls only) and HOW ALONE it is — times a SIXTH term that is not about
+ * the track at all but about the water between: a target with a coastline in
+ * the way cannot be shot at (see BLOCKED_LINE_SCORE).
  */
 export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
   const horizon = sit.stats.radarRange * TARGET_HORIZON_FACTOR;
@@ -350,7 +431,8 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
   const prox = 1 - d / horizon;
   const dmg = 1 + w.damaged * damageEstimate(t);
   const iso = 1 + w.isolated * isolation(t, neighbours);
-  return kind * prox * freshness(t, sit.now) * dmg * iso;
+  const reach = lineBlocked({ x: sit.x, y: sit.y }, t, sit.islands) ? BLOCKED_LINE_SCORE : 1;
+  return kind * prox * freshness(t, sit.now) * dmg * iso * reach;
 }
 
 /**
@@ -389,15 +471,24 @@ export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null 
  *   2. Then survival: below the profile's disengage fraction, break off.
  *   3. Then, with nothing actionable to chase, reposition (wave-3 tactics
  *      patrols toward the ring centre).
- *   4. `farm` distinguishes clearing world content from fighting a captain —
+ *   4. NO LINE OF FIRE -> `pursue`, whatever the band geometry says. This is
+ *      the posture half of the terrain fix: `engage`/`farm` hold the band and
+ *      orbit beam-on at cruise, which against a target behind a headland is
+ *      exactly the circling-and-never-shooting Eric watched. `pursue` steers
+ *      AT the target at full ahead, and the coastline-avoidance term in
+ *      tactics.ts's helm then rounds the obstruction rather than driving into
+ *      it — so the bot opens the angle instead of parking on a dead bearing.
+ *      No new posture is invented; the existing one is simply the right one.
+ *   5. `farm` distinguishes clearing world content from fighting a captain —
  *      it is the posture `forager` lives in, and any profile takes it when
  *      its own weights say a fleet hull is the better prize.
- *   5. Otherwise it is band geometry: inside the band engage, outside pursue.
+ *   6. Otherwise it is band geometry: inside the band engage, outside pursue.
  */
 export function choosePosture(sit: BotSituation, target: BotTrack | null): BotPosture {
   if (isOutside({ x: sit.x, y: sit.y }, sit.ring.cx, sit.ring.cy, sit.ring.r)) return 'ringRun';
   if (sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac) return 'disengage';
   if (target === null) return 'reposition';
+  if (lineBlocked({ x: sit.x, y: sit.y }, target, sit.islands)) return 'pursue';
   const w = sit.profile.targetWeights;
   if (target.fleet && w.fleet >= w.captain) return 'farm';
   const band = engagementBand(sit.profile, sit.stats);

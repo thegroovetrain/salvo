@@ -64,10 +64,15 @@
 // ONE WEAPON PER TICK, and legality is checked in the EQUIPMENT ROWS' OWN
 // ORDER so a shot is never silently eaten: the torpedo's bow arc is tested
 // FIRST (an arc miss consumes nothing but also fires nothing), the mine's
-// astern sector + placeRange + blockedWater before a drop, the gun family's
-// only denial being an empty pool. `fireSlot` is null unless every check for
-// that weapon passed, so the driver's fireSeq advances exactly when a legal
-// shot was requested.
+// astern sector + placeRange + blockedWater before a drop. `fireSlot` is null
+// unless every check for that weapon passed, so the driver's fireSeq advances
+// exactly when a legal shot was requested.
+//
+// AND EVERY FLAT-TRAJECTORY SHOT IS CHECKED AGAINST THE COASTLINE (see
+// shotReaches). The mine always had this — `blockedWater` is why the rack
+// behaves — and the gun family and the tube never did, which is the whole of
+// the "focus-firing drones through an island" defect. PLUNGING FIRE is the one
+// exemption, because it is the one round that overflies terrain.
 
 import {
   CONFIG,
@@ -91,6 +96,7 @@ import {
   choosePosture,
   foldView,
   isActionable,
+  lineBlocked,
   selectTargetKey,
   tracksOf,
   type BotPosture,
@@ -181,6 +187,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     stats: self.stats,
     profile: profileOf(mind.profile),
     ring: port.zoneLiveRing,
+    islands: port.map.islands,
   };
 }
 
@@ -267,37 +274,77 @@ function aimPoint(mind: BotMind, sit: BotSituation, t: BotTrack, speed: number):
 // null. Every one of them re-checks the equipment row's own gate.
 // ---------------------------------------------------------------------------
 
-/** A gun-family shot (gun / cannon): 360°, clamped range, no arc to miss. */
+/**
+ * THE TERRAIN CHECK — can this projectile actually REACH the point it is aimed
+ * at, or does the coastline stop it first?
+ *
+ * THIS IS AN OMISSION BEING CLOSED, NOT A NEW RULE. Every other shooter in the
+ * game already gets this answer: `stepShell` stops a non-arcing shell dead at
+ * the first coastline it meets, and the HUMAN is told so before he pulls the
+ * trigger — `client/src/render/aimPreview.ts` runs `clipAtIslands()` on every
+ * gun aim and dims the burst circle when the shot will not arrive. The bot was
+ * the only shooter never told, and it never self-corrected because the radar
+ * gate paints OVER partially-shadowing terrain (Story 4.11 `visibilityTo`)
+ * while the shell is stopped by the polygon at any height — so it re-acquired
+ * the same unreachable plot once per sweep revolution, indefinitely.
+ *
+ * IT IS A PHYSICS QUESTION, NOT A VISIBILITY ONE. "Can this shot arrive?" is
+ * deliberately NOT "should I shoot at something I cannot see": firing into fog
+ * is a ratified feature (FR16 — the self-private `sp` splash exists precisely
+ * so bracket-and-walk fire works), and a `return`-grammar plot stays a legal
+ * target here exactly as it always was.
+ *
+ * THE ORIGIN IS THE HULL CENTRE, not the silhouette muzzle the sim spawns
+ * from: `BotSelf` carries no hull class (by design — it is the self-read a
+ * human client gets), so `muzzleSpawn` is unreachable from ai/. The centre is
+ * the strictly LONGER segment, so the check can only ever be conservative, and
+ * the extra span is inside the bot's own hull.
+ */
+function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
+  return !lineBlocked(self.state, p, sit.islands);
+}
+
+/**
+ * A gun-family shot (gun / cannon): 360°, clamped range, no arc to miss — and
+ * a coastline that must not be in the way. `arcing` is the PLUNGING FIRE
+ * exemption: that doctrine overflies terrain and hulls alike (`stepShell`
+ * skips en-route collision entirely for it), so gating it would delete the
+ * card's whole point.
+ */
 function burstShot(
   self: BotSelf,
   mind: BotMind,
   sit: BotSituation,
   t: BotTrack,
   id: 'gun' | 'cannon',
-  rangeU: number,
+  spec: { rangeU: number; arcing: boolean },
 ): Shot | null {
   const slot = readySlot(self, id);
   if (slot < 0) return null;
   const p = aimPoint(mind, sit, t, CONFIG[id].shellSpeed);
   const d = Math.hypot(p.x - sit.x, p.y - sit.y);
-  if (d > rangeU) return null;
+  if (d > spec.rangeU) return null;
+  if (!spec.arcing && !shotReaches(self, sit, p)) return null;
   return { aim: bearing(self.state, p), aimDist: d, slot };
 }
 
 /** The gun — every bot's default weapon and the only one a fleet-clearing
- *  `forager` needs (3/4/5 rounds clear a fleet hull by size). */
+ *  `forager` needs (3/4/5 rounds clear a fleet hull by size). It has no
+ *  doctrine that arcs, so terrain always stops it. */
 function gunShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
-  return burstShot(self, mind, sit, t, 'gun', sit.stats.gun.rangeU);
+  return burstShot(self, mind, sit, t, 'gun', { rangeU: sit.stats.gun.rangeU, arcing: false });
 }
 
 /**
  * The cannon (Battleship). Held for a plot worth 45 seconds of reload: a LIVE
  * contact with a disclosed course, so the lead solution is real. An unled
- * ghost gets the gun instead.
+ * ghost gets the gun instead. PLUNGING FIRE is the one shot in the game that
+ * may be taken through a headland.
  */
 function cannonShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   if (!t.live || t.heading === null) return null;
-  return burstShot(self, mind, sit, t, 'cannon', sit.stats.cannon.rangeU);
+  const arcing = sit.stats.cannon.mode === 'arcing';
+  return burstShot(self, mind, sit, t, 'cannon', { rangeU: sit.stats.cannon.rangeU, arcing });
 }
 
 /**
@@ -305,7 +352,10 @@ function cannonShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack
  * equipment row tests it — an arc miss consumes nothing, but it also launches
  * nothing, so a bot that requested one would burn a click for free and look
  * broken. Contact-only in standard/homing mode (aimDist is ignored), and only
- * inside the range where a 60 u/s fish can credibly intercept.
+ * inside the range where a 60 u/s fish can credibly intercept. A fish runs on
+ * the surface and no doctrine arcs it, so the coastline stops it exactly as it
+ * stops a shell — and at a 50s reload, launching one into a rock is the
+ * single most expensive way a Torpedo Boat can waste a tick.
  */
 function torpedoShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   const slot = readySlot(self, 'torpedo');
@@ -317,6 +367,7 @@ function torpedoShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrac
   const aim = bearing(self.state, p);
   const center = wrapAngle(self.state.heading + BOW_SECTOR.offset);
   if (!inArc(aim, center, BOW_SECTOR.halfArc)) return null; // ARC FIRST
+  if (!shotReaches(self, sit, p)) return null;
   return { aim, aimDist: d, slot };
 }
 

@@ -30,8 +30,10 @@ import {
   SHIP_CLASS_IDS,
   wrapAngle,
   type HullId,
+  type Island,
   type ShipClassId,
 } from '@salvo/shared';
+import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { COMBAT_BRAIN, approachPoint } from '../game/ai/tactics.js';
 import { profileOf } from '../game/ai/profiles.js';
@@ -180,6 +182,22 @@ function botOfClass(w: World, cls: ShipClassId): ShipRecord {
 function openWorld(seed: number, cap = 8): World {
   const w = new World(seed, cap);
   w.map.islands.length = 0;
+  return w;
+}
+
+/**
+ * An otherwise-empty ocean with ONE coastline exactly where the test wants it.
+ *
+ * THE FIRE TESTS ABOVE ALL RUN ON `openWorld`, and that is why the terrain
+ * defect could ship: every one of them deleted the islands before asking what
+ * the bot shoots at, so "does a coastline deny this shot" was a question the
+ * suite structurally could not ask. The island-free harnesses are KEPT — they
+ * are the right tool for arcs, pools, ranges and abilities — and these run
+ * alongside them.
+ */
+function islandWorld(seed: number, isle: Island): World {
+  const w = openWorld(seed);
+  w.map.islands.push(isle);
   return w;
 }
 
@@ -673,6 +691,20 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
   });
 
+  it('the CANNON is not spent on a plot that has gone dark (the `live` gate is a real gate)', () => {
+    // F2: `live` now means SIGHTED THIS TICK. A plot with a disclosed course
+    // that is no longer in the bubble is a gun target, never a 50s reload.
+    const w = openWorld(210);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const seen = mkMind('bulwark');
+    plot(seen, track(port.now, { x: 400, y: 0, heading: 0, speed: 20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, seen, port).fireSlot).toBe(slotOf(rec, 'cannon'));
+    const lost = mkMind('bulwark');
+    plot(lost, track(port.now, { x: 400, y: 0, heading: 0, speed: 20, live: false }));
+    expect(COMBAT_BRAIN.decide(rec, lost, port).fireSlot).toBe(slotOf(rec, 'gun'));
+  });
+
   it('the frozen boarding room is not the brain\'s business — but a bot with no view still sails', () => {
     const w = openWorld(209);
     const port = fakePort(w);
@@ -684,6 +716,100 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(d.spendChoice).toBeNull();
     expect(Number.isFinite(d.aim)).toBe(true);
     expect(d.throttle).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TERRAIN IS A DENIAL — the defect Eric watched ("a minelayer focus-firing on
+// drones it cannot possibly hit due to an island being in the way") and the
+// structural reason the shipped suite could not see it: EVERY fire test above
+// runs on an ocean with the islands deleted. These run with the coastline in.
+// ---------------------------------------------------------------------------
+
+describe('weapons — a shot that cannot ARRIVE is not requested', () => {
+  it('a COASTLINE BETWEEN gun and target refuses the shot; the same shot over clear water fires', () => {
+    // A 60u rock at (200,0), the target at (400,0): every scattered burst
+    // point is within ~10u of the plot, so the flight line crosses it.
+    const w = islandWorld(301, circleIsland(200, 0, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0, speed: 0, heading: null }));
+    const denied = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(denied.fireSlot).toBeNull();
+    expect(denied.aimDist).toBe(0);
+    expect(denied.throttle).toBeGreaterThan(0); // it still sails — this denies a SHOT, not a bot
+
+    // THE OVER-BLOCKING CONTROL: identical geometry, rock removed, gun fires.
+    const clear = openWorld(301);
+    const clearPort = fakePort(clear);
+    const rec2 = mkBot(clear, 'battleship', 0, 0, 0);
+    const mind2 = mkMind('bulwark');
+    plot(mind2, track(clearPort.now, { x: 400, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec2, mind2, clearPort).fireSlot).toBe(slotOf(rec2, 'gun'));
+  });
+
+  it('a coastline BESIDE the flight line denies nothing — only a line THROUGH land does', () => {
+    // The same rock moved abeam. A bot that stopped shooting whenever an
+    // island was anywhere nearby would be a worse bug than the one being fixed.
+    const w = islandWorld(302, circleIsland(200, 200, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'gun'));
+  });
+
+  it('PLUNGING FIRE IS EXEMPT: an arcing cannon still shoots over the headland', () => {
+    // stepShell skips en-route collision entirely for an arcing shell, so
+    // gating it would delete the doctrine's whole point.
+    const w = islandWorld(303, circleIsland(200, 0, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0, heading: 0, speed: 20 }));
+    // Standard doctrine: the rock denies the cannon AND the gun behind it.
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
+    rec.stats.cannon.mode = 'arcing';
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'cannon'));
+  });
+
+  it('the TUBE is never launched into a rock', () => {
+    const w = islandWorld(304, circleIsland(80, 0, 30));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due east
+    const mind = mkMind('duelist');
+    plot(mind, track(port.now, { x: 160, y: 0, speed: 0 }));
+    // Dead ahead, in the bow arc, inside credible range — and behind land.
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
+
+    const clear = openWorld(304);
+    const clearPort = fakePort(clear);
+    const rec2 = mkBot(clear, 'torpedoBoat', 0, 0, 0);
+    const mind2 = mkMind('duelist');
+    plot(mind2, track(clearPort.now, { x: 160, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec2, mind2, clearPort).fireSlot).toBe(slotOf(rec2, 'torpedo'));
+  });
+
+  it('THE STUCK ENGAGEMENT IS BROKEN TOO: a blocked target is pursued, not orbited', () => {
+    // F3. Holding fire alone would leave the bot circling the island forever,
+    // which is what Eric actually SAW. `pursue` steers at the target at full
+    // ahead and the coastline-avoidance term rounds the obstruction.
+    const w = islandWorld(305, circleIsland(150, 0, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'mineLayer', 0, 0, 0);
+    const mind = mkMind('forager');
+    plot(mind, track(port.now, { x: 300, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true }));
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.posture).toBe('pursue');
+    // The same fleet target on open water is FARMED from the band instead.
+    const clear = openWorld(305);
+    const clearPort = fakePort(clear);
+    const rec2 = mkBot(clear, 'mineLayer', 0, 0, 0);
+    const mind2 = mkMind('forager');
+    plot(mind2, track(clearPort.now, { x: 300, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true }));
+    COMBAT_BRAIN.decide(rec2, mind2, clearPort);
+    expect(mind2.posture).toBe('farm');
   });
 });
 

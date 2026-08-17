@@ -157,7 +157,13 @@ export interface RememberedContact {
   speed: number | null;
   /** Server ms this contact was last seen/painted. */
   seenAt: number;
-  /** True while backed by a live truesight Contact (vs a decaying blip). */
+  /** True iff a live truesight `Contact` for this track was in the MOST
+   *  RECENTLY FOLDED view — i.e. "I can see it right now", not "the last thing
+   *  that refreshed it was truesight". `foldView` drops the flag on every
+   *  track before folding and `foldContact` re-raises it, so it survives
+   *  exactly one tick without a sighting. It shipped as a write-only flag
+   *  nothing ever cleared, which made a plot last seen seven seconds ago read
+   *  as visible to the cannon gate, to `freshness()` and to `flareTarget()`. */
   live: boolean;
   /** Hull class if the grammar disclosed one, else null (return blips are
    *  identity-free by ruling). Drives the rear-quarter mine-layer exception

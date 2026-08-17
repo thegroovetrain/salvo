@@ -31,6 +31,7 @@ import {
   type HullId,
   type ZoneRing,
 } from '@salvo/shared';
+import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
 import type { BotMind, BotProfileId } from '../game/ai/types.js';
 import { BOT_PROFILES, engagementBand, profileOf } from '../game/ai/profiles.js';
@@ -93,6 +94,8 @@ function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'battleship'): 
 
 const WIDE_RING: ZoneRing = { cx: 0, cy: 0, r: 100000 };
 
+/** Open water unless a test names terrain — `islands: []` is the explicit
+ *  statement of intent, exactly as `openWorld()` is in botTactics.test.ts. */
 function situation(over: Partial<BotSituation> = {}): BotSituation {
   const profile = over.profile ?? profileOf('duelist');
   return {
@@ -104,6 +107,7 @@ function situation(over: Partial<BotSituation> = {}): BotSituation {
     stats: over.stats ?? stats(profile.hullId),
     profile,
     ring: WIDE_RING,
+    islands: [],
     ...over,
   };
 }
@@ -230,6 +234,115 @@ describe('ai/utility — the fold works under either radar grammar', () => {
     foldView(m, view({ contacts: [contact('e2', 50, 0)] }), 5000);
     foldView(m, view({ events: [{ k: 'sunk', id: 'e2' }] }), 5050);
     expect(tracksOf(m).length).toBe(0);
+  });
+});
+
+// --- `live` means SIGHTED NOW ------------------------------------------------
+
+describe('ai/utility — `live` is a truesight claim, not a write-only flag', () => {
+  it('is DROPPED by the first fold that carries no truesight contact for the track', () => {
+    // It shipped as a flag `writeTrack` set and nothing ever cleared, so a
+    // hull sighted once read as visible for the whole 8s memory window
+    // (observed at ageMs 6950). The PLOT survives; only the claim to see it
+    // right now is dropped.
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 120, 0)] }), 1000);
+    expect(onlyTrack(m).live).toBe(true);
+    foldView(m, view(), 1050);
+    const t = onlyTrack(m);
+    expect(t.live).toBe(false);
+    expect(t.seenAt).toBe(1000);
+    expect({ x: t.x, y: t.y }).toEqual({ x: 120, y: 0 });
+  });
+
+  it('a radar paint refreshes a track without ever making it live, and so does a Hit Call', () => {
+    // This is why the fix is "clear the flag" and not "read seenAt === now":
+    // `seenAt` is refreshed by every sensor, so that predicate would have let
+    // the cannon spend its reload on a same-tick blip.
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 300, 40)] }), 1000);
+    foldView(m, view({ events: [silhouetteBlip('e1', 320, 40, 1400)] }), 1500);
+    expect(onlyTrack(m).live).toBe(false);
+    expect(onlyTrack(m).seenAt).toBe(1500);
+    foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 320, y: 40 }] }), 2000);
+    expect(onlyTrack(m).live).toBe(false);
+    expect(onlyTrack(m).seenAt).toBe(2000);
+  });
+
+  it('a re-sighting raises it again — one tick out of the bubble is not amnesia', () => {
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 120, 0)] }), 1000);
+    foldView(m, view(), 1050);
+    foldView(m, view({ contacts: [contact('e1', 130, 0)] }), 1100);
+    expect(onlyTrack(m).live).toBe(true);
+  });
+
+  it('so freshness DECAYS a lost plot — the flag used to pin its score at a flat 1.0', () => {
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 300, 0)] }), 1000);
+    const fresh = scoreTrack(onlyTrack(m), situation({ now: 1000 }), tracksOf(m));
+    foldView(m, view(), 5000); // four seconds with nothing sighted
+    const stale = scoreTrack(onlyTrack(m), situation({ now: 5000 }), tracksOf(m));
+    expect(stale).toBeLessThan(fresh);
+  });
+});
+
+// --- a blocked line of fire has a consequence --------------------------------
+
+describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
+  /** A hand-built plot (these cases are about geometry, not about the fold). */
+  function plotTrack(over: Partial<BotTrack> = {}): BotTrack {
+    return {
+      id: 't',
+      x: 0,
+      y: 0,
+      heading: 0,
+      speed: 0,
+      seenAt: 10000,
+      live: true,
+      cls: 'battleship' as HullId,
+      fleet: false,
+      firstSeenAt: 0,
+      hits: 0,
+      ...over,
+    };
+  }
+
+  const ROCK = circleIsland(200, 0, 60);
+
+  it('de-scores a track with a coastline in the way', () => {
+    const t = plotTrack({ x: 400, y: 0 });
+    const open = scoreTrack(t, situation(), [t]);
+    const behind = scoreTrack(t, situation({ islands: [ROCK] }), [t]);
+    expect(behind).toBeGreaterThan(0); // a PENALTY, never a veto
+    expect(behind).toBeLessThan(open);
+  });
+
+  it('a clear-line target takes the slot from a blocked one — including a forager\'s fleet prize', () => {
+    // The measured worst case: `forager` weights fleet 2.0 against captain
+    // 0.5, which is what parked a Mine Layer on a drone group behind a rock.
+    const m = mind('forager');
+    m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, fleet: true, cls: 'droneSmall' as HullId }));
+    m.contacts.set('openWater', plotTrack({ id: 'openWater', x: 0, y: 400 }));
+    const sit = situation({ profile: profileOf('forager'), stats: stats('mineLayer'), islands: [ROCK] });
+    expect(selectTarget(m, sit)?.id).toBe('openWater');
+    // With the rock gone the fleet weight wins, exactly as it always did.
+    expect(selectTarget(m, situation({ profile: profileOf('forager'), stats: stats('mineLayer') }))?.id).toBe('behindRock');
+  });
+
+  it('forces PURSUE over the band postures, so the bot opens the angle', () => {
+    const band = engagementBand(profileOf('duelist'), stats('torpedoBoat'));
+    const t = plotTrack({ x: Math.min(400, band.max * 0.5), y: 0 });
+    const sit = () => situation({ profile: profileOf('duelist'), stats: stats('torpedoBoat') });
+    expect(choosePosture(sit(), t)).toBe('engage'); // in-band, clear water
+    expect(choosePosture({ ...sit(), islands: [circleIsland(t.x * 0.5, 0, 40)] }, t)).toBe('pursue');
+  });
+
+  it('does not outrank the storm or a broken hull — the priority order is unchanged', () => {
+    const t = plotTrack({ x: 400, y: 0 });
+    const blocked = situation({ islands: [ROCK] });
+    expect(choosePosture({ ...blocked, ring: { cx: 5000, cy: 0, r: 100 } }, t)).toBe('ringRun');
+    expect(choosePosture({ ...blocked, hp: 1, maxHp: 100 }, t)).toBe('disengage');
   });
 });
 
