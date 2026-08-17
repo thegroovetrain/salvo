@@ -31,9 +31,11 @@
 // rasterization detail. The last suite drops the stub and pins the real function.
 
 import { describe, it, expect, vi } from 'vitest';
-import { Container, Texture, TextureSource } from 'pixi.js';
+import { CanvasSource, Container, Texture, TextureSource } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
 import { Radar } from '../render/radar.js';
+// Re-exported through the mock's `...actual` spread, so this is the real constant.
+import { DIM_MASK_TEXTURE_SIZE } from '../render/textures.js';
 
 const bakes = vi.hoisted(() => ({ into: [] as Array<Texture | null | undefined> }));
 
@@ -97,9 +99,31 @@ describe('a dim-mask rebake never destroys the bound TextureSource', () => {
     destroyed.mockRestore();
   });
 
+  it('does NOT rebake every frame on a non-finite bubble', () => {
+    // The failure this guards is one the fix itself created. `NaN === dimBakedAtU`
+    // is false forever, so without the finiteness check a NaN bubble would redraw
+    // and re-upload the full 1024² surface on EVERY frame, silently, for the rest
+    // of the match. The old destroying code crashed on the first such frame, which
+    // is why nothing needed to guard it before. `radarDim` already treats a
+    // non-finite bubble as reachable (both `dimRadii` and `dimScaleAt` guard it).
+    const radar = radarFor();
+    radar.render(OWN, 100, null, null);
+    const baseline = bakes.into.length;
+
+    radar.setRanges(Number.NaN, Number.NaN, 6000);
+    for (let t = 200; t <= 600; t += 100) radar.render(OWN, t, null, null);
+
+    expect(bakes.into, 'a NaN bubble holds the last good radius, it does not churn')
+      .toHaveLength(baseline);
+  });
+
   it('mints on construction and only there — the first bake gets no `into`', () => {
     const radar = radarFor();
-    expect(bakes.into, 'exactly one bake, with nothing to reuse').toEqual([undefined]);
+    expect(bakes.into, 'exactly one bake').toHaveLength(1);
+    // Nullish rather than `undefined` exactly: passing an explicit null is the same
+    // call to the implementation (`if (into != null)`), so pinning which one would
+    // be pinning style, not behaviour.
+    expect(bakes.into[0] ?? null, 'and it had nothing to reuse').toBeNull();
 
     radar.render(OWN, 100, null, null);
     expect(bakes.into, 'a steady frame costs one float compare').toHaveLength(1);
@@ -107,53 +131,137 @@ describe('a dim-mask rebake never destroys the bound TextureSource', () => {
 });
 
 describe('bakeDimMaskTexture itself: redraw in place, or mint', () => {
-  // The real function, unstubbed. It cannot rasterize under jsdom, so the canvas
-  // is faked — which is enough, because what is under test is the LIFETIME branch
-  // (reuse vs. mint), not the gradient.
+  // The real function, unstubbed. jsdom cannot rasterize, so the CANVAS is faked —
+  // but the texture and source around it are REAL Pixi objects wherever the branch
+  // under test reads them, because "our texture exposes its canvas at
+  // `source.resource`" is exactly the assumption that, if wrong, would make the
+  // whole fix inert while leaving every test green.
   const actual = async (): Promise<typeof import('../render/textures.js')> =>
     vi.importActual<typeof import('../render/textures.js')>('../render/textures.js');
 
-  const fakeCanvasTexture = (): { tex: Texture; update: ReturnType<typeof vi.fn>; fills: number } => {
-    const rec = { fills: 0 };
+  const SIZE = DIM_MASK_TEXTURE_SIZE;
+
+  /** A 2d-context stand-in that records what the draw actually did. */
+  const recordingCanvas = (size = SIZE): { canvas: unknown; rect: number[] | null; rectStyle: string } => {
+    const rec = { rect: null as number[] | null, rectStyle: '' };
     const ctx = {
-      fillStyle: '',
-      fillRect: (): void => { rec.fills += 1; },
+      fillStyle: '' as string | object,
+      globalAlpha: 0.5,
+      globalCompositeOperation: 'destination-out',
+      setTransform: (): void => {},
+      fillRect: (x: number, y: number, w: number, h: number): void => {
+        rec.rect = [x, y, w, h];
+        rec.rectStyle = String(ctx.fillStyle);
+      },
       createRadialGradient: (): { addColorStop: () => void } => ({ addColorStop: (): void => {} }),
       beginPath: (): void => {},
       arc: (): void => {},
       fill: (): void => {},
     };
-    const update = vi.fn();
-    const tex = {
-      destroyed: false,
-      source: { destroyed: false, resource: { getContext: (): unknown => ctx }, update },
-    } as unknown as Texture;
-    return { tex, update, get fills() { return rec.fills; } };
+    const canvas = { width: size, height: size, getContext: (): unknown => ctx };
+    return { canvas, get rect() { return rec.rect; }, get rectStyle() { return rec.rectStyle; } };
   };
 
-  it('redraws a live canvas-backed texture and re-uploads it, returning the SAME object', async () => {
+  it('redraws a REAL Pixi canvas-backed texture in place and re-uploads it', async () => {
     const { bakeDimMaskTexture } = await actual();
-    const held = fakeCanvasTexture();
+    const { canvas } = recordingCanvas();
+    // A real CanvasSource and a real Texture: this is the test that proves the
+    // reuse branch engages against Pixi's actual object shape rather than against
+    // a hand-made object built to satisfy our own guard.
+    const source = new CanvasSource({ resource: canvas as HTMLCanvasElement, width: SIZE, height: SIZE });
+    const tex = new Texture({ source });
+    const update = vi.spyOn(source, 'update');
 
-    expect(bakeDimMaskTexture(SIGHT, held.tex), 'same object back').toBe(held.tex);
-    expect(held.fills, 'the ramp was actually redrawn').toBeGreaterThan(0);
-    expect(held.update, 'and re-uploaded exactly once').toHaveBeenCalledTimes(1);
+    expect(bakeDimMaskTexture(SIGHT, tex), 'the same Texture object comes back').toBe(tex);
+    expect(update, 're-uploaded exactly once').toHaveBeenCalledTimes(1);
+    expect(source.destroyed, 'and nothing was destroyed').toBe(false);
   });
 
-  it('never draws into or updates a source that is not one of our canvases', async () => {
+  it('opens the redraw with an OPAQUE FULL-CANVAS fill, so a shrinking ramp leaves no ghost', async () => {
     const { bakeDimMaskTexture } = await actual();
-    const update = vi.fn();
-    // `Texture.EMPTY`'s shape: a real source with no canvas behind it. Every
-    // headless caller holds it, and drawing into it would take down every other
-    // consumer of the shared singleton.
-    const emptyLike = {
-      destroyed: false,
-      source: { destroyed: false, resource: null, update },
-    } as unknown as Texture;
+    const rec = recordingCanvas();
+    const source = new CanvasSource({ resource: rec.canvas as HTMLCanvasElement, width: SIZE, height: SIZE });
+    bakeDimMaskTexture(SIGHT, new Texture({ source }));
 
-    // It falls through to the mint path, which jsdom cannot complete — that throw
-    // IS the evidence it refused to reuse. The assertion that matters is below it.
-    expect(() => bakeDimMaskTexture(SIGHT, emptyLike)).toThrow();
-    expect(update, 'a non-canvas source is never updated').not.toHaveBeenCalled();
+    // In-place redraw has no clear — correctness rests entirely on this fill
+    // covering the whole surface at full alpha. Under the old mint-per-rebake code
+    // a partial fill was harmless (fresh canvas); now it would composite the new
+    // ramp OVER the old one, and a shrinking radius would keep a ghost of the
+    // larger bubble the player no longer has.
+    expect(rec.rect, 'covers the entire canvas').toEqual([0, 0, SIZE, SIZE]);
+    expect(rec.rectStyle, 'at alpha 1').toMatch(/(,\s*1\)|rgb\()/);
+  });
+
+  it('resets the compositing state it depends on, since the context is now reused', async () => {
+    const { bakeDimMaskTexture } = await actual();
+    const rec = recordingCanvas();
+    const ctx = (rec.canvas as { getContext: () => Record<string, unknown> }).getContext();
+    const source = new CanvasSource({ resource: rec.canvas as HTMLCanvasElement, width: SIZE, height: SIZE });
+    bakeDimMaskTexture(SIGHT, new Texture({ source }));
+
+    // Seeded hostile above (0.5 / 'destination-out'): a reused context carries the
+    // previous draw's state, and 'destination-out' would ERASE the mask instead of
+    // drawing it.
+    expect(ctx.globalAlpha).toBe(1);
+    expect(ctx.globalCompositeOperation).toBe('source-over');
+  });
+
+  describe('refuses to reuse anything that is not ours, and mints instead', () => {
+    // Every refusal falls through to the mint path, which jsdom cannot complete.
+    // The throw is NOT the evidence — it is an environment artifact that would
+    // invert on a host with a real 2d context. The evidence is the observable:
+    // the input was neither updated nor handed back.
+    const expectRefused = (
+      bake: typeof import('../render/textures.js').bakeDimMaskTexture,
+      input: Texture,
+      update: { mock?: unknown } | ReturnType<typeof vi.fn>,
+    ): void => {
+      let returned: Texture | null = null;
+      try {
+        returned = bake(SIGHT, input);
+      } catch {
+        returned = null; // mint path; no 2d context under jsdom
+      }
+      expect(returned, 'never handed back as if it had been redrawn').not.toBe(input);
+      expect(update, 'never re-uploaded').not.toHaveBeenCalled();
+    };
+
+    it('the shared Texture.EMPTY singleton', async () => {
+      const { bakeDimMaskTexture } = await actual();
+      const update = vi.spyOn(Texture.EMPTY.source, 'update');
+      expectRefused(bakeDimMaskTexture, Texture.EMPTY, update);
+      expect(Texture.EMPTY.source.destroyed, 'the singleton survives').toBe(false);
+      update.mockRestore();
+    });
+
+    it('a canvas that is not our size — every other bake in textures.ts is canvas-backed too', async () => {
+      const { bakeDimMaskTexture } = await actual();
+      const { canvas } = recordingCanvas(SIZE / 2);
+      const source = new CanvasSource({
+        resource: canvas as HTMLCanvasElement, width: SIZE / 2, height: SIZE / 2,
+      });
+      const update = vi.spyOn(source, 'update');
+      expectRefused(bakeDimMaskTexture, new Texture({ source }), update);
+    });
+
+    it('a destroyed Texture whose source is still alive', async () => {
+      const { bakeDimMaskTexture } = await actual();
+      const { canvas } = recordingCanvas();
+      const source = new CanvasSource({ resource: canvas as HTMLCanvasElement, width: SIZE, height: SIZE });
+      const update = vi.spyOn(source, 'update');
+      const tex = new Texture({ source });
+      tex.destroy(false); // Pixi leaves `_source` live on a texture-only destroy
+      expectRefused(bakeDimMaskTexture, tex, update);
+    });
+
+    it('a live Texture whose SOURCE has been destroyed', async () => {
+      const { bakeDimMaskTexture } = await actual();
+      const { canvas } = recordingCanvas();
+      const source = new CanvasSource({ resource: canvas as HTMLCanvasElement, width: SIZE, height: SIZE });
+      const tex = new Texture({ source });
+      source.destroy();
+      const update = vi.spyOn(source, 'update');
+      expectRefused(bakeDimMaskTexture, tex, update);
+    });
   });
 });
