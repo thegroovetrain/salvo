@@ -1,0 +1,166 @@
+# Bot evidence — Combat-Bot AI (Story 6-4, cycle 96, 0.17.96)
+
+**Measured against the merged HEAD** — after the review gate's two blocker fixes AND after merging
+cycle 95's mine-card rulings. Two earlier drafts of this file measured code that no longer exists; see
+"Corrections of record" at the bottom, which is the most important section here for anyone re-reading
+the numbers later.
+
+Instrument: the batch-sim harness's **bot lobby mode** (`--bots N`), built this cycle. Shipped CONFIG
+throughout — **no `--set` overrides, no zone override, no tuning of any kind.**
+
+```
+# Leg C — THE AUTHORITATIVE RUN, after merging cycle 95's mine-card rulings
+HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 20 --matches 50 --seed 7 --quiet
+
+# Legs A and B — the same command pre-merge, on two seeds (the cross-seed check)
+HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 20 --matches 50 --seed 7 --quiet
+HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 20 --matches 50 --seed 4141 --quiet
+```
+
+Sample size: **1000 bot-matches per leg** (20 bots × 50 matches), 3000 in total. Wall clock ~15 min
+per leg in-process.
+
+**Why `--captains 0` is the headline.** The spec writes the command as `--bots 20 --matches 50`, and
+`--captains` defaults to **3** — those three are the omniscient `gunner` pilots, which read
+`world.ships` directly and are not bots. Their kills would land in the same water and contaminate a
+"bot-vs-bot" reading, so the headline pins captains to zero.
+
+---
+
+## The quality bar
+
+| Bar | Target | Leg C — **SHIPPED** (seed 7) | Leg A (seed 7) | Leg B (seed 4141) | Verdict |
+|---|---|---|---|---|---|
+| Matches resolving before the 16:00 collapse | > 95 % | **100.0 %** | 100.0 % | 100.0 % | **PASS** |
+| Mean per-match max single-bot kill share | ≤ 40 % | **27.2 %** | 27.7 % | 25.8 % | **PASS** |
+| Bots scoring ≥ 1 participant kill | ≥ 60 % | **45.8 %** | 45.3 % | 46.3 % | **FAIL** |
+| Storm deaths as a share of all bot deaths | 5–20 % | **3.3 %** | 2.7 % | 3.2 % | **FAIL** |
+| Afloat bot-ticks in land contact | < 1 % | **0.9 %** | 1.0 % | 0.8 % | **PASS** |
+| Banked levels spent before death | > 90 % | **99.9 %** | 99.8 % | 99.8 % | **PASS** |
+
+**Leg C is the authoritative run** — measured after merging cycle 95's mine-card rulings (amendment
+25), i.e. against the code that actually ships. Legs A and B predate that merge and are retained
+because they are the cross-seed check: **all three legs agree on every bar, including both
+failures**, so neither failure is a seed artifact and the mine ruling did not move them.
+
+**What the mine ruling DID move:** mine layer wins **4 → 8 of 50**, and `forager` gained ground
+(0.45 → 0.48 kills, level 3.17 → 3.47) — consistent with prop-fouling becoming a pure add and the
+trip ring now riding the blast card. The Mine Layer is still the weakest class, but by less.
+
+**These six bars are the ORCHESTRATOR'S, not Eric's.** They were proposed at the question gate
+(section F1) and taken under the "take your recommendations" latitude. Two of them turn out to be
+questionable as written — see the diagnosis below. A failing bar here is a finding, not a defect.
+
+Headline totals (Leg C, the shipped run): 50/50 matches `fieldCleared`; match length mean 444.5 s,
+median 448.7 s, max 752.9 s; **914 bot-vs-bot kills and 2,931 PvE fleet kills**; 950 deaths = 914 by
+participant + 5 by PvE fleet + 31 by storm; 4,296 levels earned with **5 still banked at death across
+1000 bot-matches**; 2.0 % of matches reach the endgame ring.
+
+---
+
+## By profile — the story's core design claim
+
+| profile | n | kills | pve | kill % | alive % | life s | lvl | boons | shots | dmg/shot | land % | maxRun s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| bulwark | 164 | **1.82** | 4.10 | 70.7 % | **12.2 %** | 205.2 | **6.62** | 3.65 | 40.0 | 15.50 | 1.5 % | 5.8 |
+| duelist | 162 | 1.34 | 3.03 | 60.5 % | 6.8 % | 147.2 | 4.62 | 2.72 | 29.2 | **16.09** | 0.6 % | 3.7 |
+| siege | 177 | 0.99 | 3.58 | 54.2 % | 6.2 % | 200.3 | 5.35 | 3.27 | **45.8** | 12.04 | 1.4 % | 8.7 |
+| trapper | 178 | 0.51 | 2.55 | 32.6 % | 0.6 % | 140.2 | 3.21 | 1.62 | 30.9 | 10.38 | **0.2 %** | 3.3 |
+| forager | 155 | 0.48 | 3.07 | 31.6 % | 4.5 % | 144.2 | 3.47 | 1.86 | 29.9 | 11.21 | 0.7 % | 4.7 |
+| raider | 164 | **0.35** | 1.24 | 25.0 % | **0.0 %** | 127.0 | **2.48** | 1.02 | 20.8 | 11.75 | 0.3 % | 3.5 |
+
+By class (wins of 50): battleship **31**, torpedoBoat 11, mineLayer **8**.
+
+**The profiles do play differently, and the differences are legible.** `siege` fires the most shots
+at the worst damage-per-shot (standoff, as designed); `duelist` matches `bulwark`'s marksmanship on
+70 % of the shots; `trapper` spends the least time near land. That part of the design works.
+
+**Two of Eric's C-rulings are NOT borne out by the numbers, and this survived the grounding fix.**
+Both were visible before the fix and are unchanged after it, so neither is an artifact of the defect:
+
+1. **`raider` is the weakest profile in the game** — 0.35 kills, 25.0 % survival, **0.0 % win rate**
+   (zero wins in 50 matches), and the lowest level reached (2.48). The C1 hit-and-run torpedo opener is not landing: a 30 s
+   reload against a 4 s flight time and a manoeuvring target is a poor trade, and the profile spends
+   its cheapest weapon time disengaging.
+2. **`forager` does NOT out-level the field off PvE fleets** — the C3 claim. It takes 3.07 PvE kills
+   and reaches level 3.47, while `bulwark` takes **4.10** and reaches **6.62**. The battleship is
+   out-farming the mine layer at the mine layer's own job, because it survives ~65 s longer per life
+   and the gun is what actually clears fleet hulls.
+
+**Nothing was tuned in response.** Adjusting profile weights or engagement bands to move these
+numbers is a balance decision reserved to Eric, and doing it in the same cycle that produced the
+measurement would destroy the measurement's value. This is the evidence for that conversation.
+
+---
+
+## The two failing bars, diagnosed
+
+**Bots scoring ≥ 1 kill — 45.8 % vs a 60 % bar.** Structurally tight: a 20-bot match yields at most
+19 participant kills, so even a perfectly even distribution tops out near 95 %, and any concentration
+pulls it down fast. The measured concentration is real and is the same finding as the profile table —
+`bulwark`/`duelist`/`siege` take 0.99–1.82 kills each while `raider`/`forager`/`trapper` take
+0.35–0.51. **The bar is measuring profile balance, not bot competence**, which is not what it was
+written to measure. Recommend re-deriving it (or replacing it with a per-profile floor) rather than
+tuning bots to satisfy it.
+
+**Storm deaths — 3.3 % vs a 5–20 % band.** Bots are lethal to each other: 914 of 950 deaths are
+participant kills, and only **2.0 %** of matches reach the endgame ring at all, at a 449 s median.
+The band assumed matches would routinely run long enough for the ring to bite; they do not, because
+the bots resolve the field first. Ring escape IS exercised (the ring-escape path
+is unit-pinned as dominating all other steering). **This reads as decisive matches, not ring
+blindness** — arguably the bar is wrong rather than the bots. (31 storm deaths, so the path is live.)
+
+---
+
+## Corrections of record — read this before trusting any older bot number
+
+Four measurements in this project's history of Story 6-4 are now superseded, and each was wrong for
+a reason worth keeping:
+
+1. **"0.00 % land contact" (wave 3's end-to-end test) was an artifact.** Its covering test hand-set
+   `speed = 0` to simulate grounding, under a comment asserting the grounding damp "caps a beached
+   hull low." It caps it **high** — `maxSpeed × 0.25` = 8.75–11.25 u/s, 3–4× above the 3 u/s stuck
+   trip, so the entire un-beach path was unreachable dead code. Real figure at the time: **10.3 %**,
+   with a longest unbroken contact run of **552.6 s** — longer than a median match.
+2. **The first version of this file measured deleted code.** It documented the `STUCK_SPEED` dead-code
+   narrative and asserted `landContact` was "never stored" — both false at HEAD. The review gate
+   called this a blocker, correctly: four of six bars had no evidence against the code that would
+   ship.
+3. **Every bot number taken before the cadence fix understates radar-driven behaviour.** Until the
+   review gate, bots observed 1 tick in 5 and radar blips live for exactly one tick, so ~80 % of
+   paints were dropped — and it **resonated** (15 rpm = 80 ticks, 80 ≡ 0 mod 5), so a bot could be
+   *permanently* blind to a hull a human saw every 4 s. Measured: 30 paints vs **0**. `siege`'s
+   standoff band and its stale-track star-shell flare were running on truesight contacts almost
+   entirely.
+
+Land contact across those three states: **10.3 % → 8.0 % → 1.0 %**, longest unbroken run
+**552.6 s → 272.2 s → 8.7 s**.
+
+---
+
+## What this does NOT prove
+
+- **No human has played against these bots.** This is a headless in-process simulation with no human
+  in the loop; the project's standing convention is that harness numbers are lower bounds and that
+  no eye-on-the-water claim is ever made from a sim. Whether a bot *reads* as a competent captain —
+  the story's actual ask, *"appear to know how to play"* — is unmeasured and unmeasurable here.
+- **Nothing in production constructs a bot** (Eric ruling A1), so none of this has been exercised
+  through a real room, a real socket, or the client. Story 6-5 is the first time any of it is
+  player-facing.
+- **Land contact 1.0 % against a `< 1 %` bar is borderline**, and the metric is a geometric proxy
+  (hull silhouette within 1 u of a coastline) that over-counts by construction. It is the same proxy
+  used for every leg, so the 10.3 → 1.0 trend is like-for-like, but the absolute figure is
+  pessimistic and the bar is effectively met at the noise floor rather than cleared.
+- **The profile RANK ORDER reproduces across both seeds** (bulwark > duelist > siege > trapper ≈
+  forager > raider, with `raider` last on kills, level and win rate in all three, and **0.0 % wins** in two of them). That makes the imbalance a real property of the shipped weights rather than a seed artifact.
+  It does NOT tell you the right fix: whether `raider` wants a shorter torpedo commitment, a
+  different engagement band, or simply more gun weighting is a balance question with several
+  plausible answers, and it deserves its own campaign per candidate.
+- **`--bots 0` and `--bots N` runs are not seed-comparable.** `addBot` places through `pickSpawn`,
+  which draws from the shared world RNG, so bot count shifts later PvE fleet-wave anchors for the
+  same seed — exactly the class of RNG-stream shift epic-6 amendment 19 ledgered for captains.
+  Captains consume identically, so a bot lobby *is* comparable to a captain lobby of the same size.
+4. **Every bot number taken before the cycle-95 merge predates the mine-card rulings.** Amendment 25
+   deleted `minePropFouling`'s ×0.6 damage multiplier and merged `mineTrigger` into `mineBlast`,
+   which changes what a Mine Layer bot is buying. Re-measured: the six bars did not move, but mine
+   layer wins went **4 → 8 of 50**. Legs A and B are retained only as the cross-seed check.

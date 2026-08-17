@@ -901,3 +901,113 @@ forbids. Re-mixing it later is a one-line change.
 
 **ONE DEAD-CARD FINDING REMAINS UNRULED:** at most 1 of 6 acquisition cards can ever fire (there is
 one extra slot, and `consumeAcquisition` purges every remaining acquisition once one is fitted).
+## Amendment 26 — COMBAT BOTS: the 6-3 seam pays off, and a bot is an ordinary combatant (Eric rulings 2026-08-16, Story 6-4 question gate)
+
+Cycle 96 (0.17.96). Eric's rulings at the gate, verbatim where they decide something:
+
+**A1 — no playable path this cycle.** *"no, just the AI itself. 6-5 will implement solo vs ai mode."*
+The dev-gated `bots: N` room option was offered and DECLINED. 6-4 ships the brain, the `'bot'` role
+and the evaluation harness; **nothing in production constructs a bot** — `World.addBot` has no caller
+under `server/src` outside `world.ts` itself, verified at the review gate. Story 6-5 wires it to a
+room. The consequence, accepted deliberately: **the batch-sim harness is the ENTIRE verification
+instrument for this story**, which is why the review gate treated stale evidence as a blocker.
+
+**B3 — no targeting preference.** *"No preference at all, they should attack the best target,
+whatever that means to that bot."* Target selection is pure profile-weighted utility. The human is a
+contact like any other, so the arena never forks on mode in the AI either.
+
+**C1/C2/C3 — the classes play their arsenals.** *"TB is very much a hit-run ship, though a lot of TB
+vs TB duels end up being like dogfights, with either trying to get behind the other."* / *"BS has a
+lot of HP and so tries to maximize that survivability."* / *"ML is amazing at clearing drone fleets,
+and can gain a level lead by taking advantage of this."*
+
+**E1/E2 — PRIORITY PROFILES, NOT A DIFFICULTY LADDER.** *"Each ship should just get 2-3 different
+'priority profiles' based on whatever. I have no idea what different levels of difficulty look like
+right now, I imagine this is going to take some tweaking, so lets just get one 'difficulty' split
+across profiles working as best we can."* This REPLACED the question as asked. Variety comes from
+personality at ONE competence level: `raider`/`duelist` (TB), `bulwark`/`siege` (BS),
+`forager`/`trapper` (ML). The two competence knobs (`aimScatterU`, `reactionMs`) are tuned to a
+single level and are expected to be retuned by eye.
+
+**THE 6-3 SEAM PAID OFF EXACTLY AS AMENDMENT 13 PROMISED.** Adding `'bot'` to `ShipRole` left all
+three predicate bodies **byte-identical** — `isParticipant` (`!== 'fleet'`) makes a bot contest the
+match, `isHuman` (`=== 'captain'`) keeps it out of `minHumans` (FR34 safe by construction), and
+`isFleetHull` excludes it from the PvE economy. Roster row, personal hue, class silhouette, spawn
+lattice slot, XP accrual, boon deck, kill feed and bounty eligibility all came free, with **zero
+client changes and zero schema movement**. Eric's override of the orchestrator's "defer it"
+recommendation is vindicated in the record.
+
+**A bot victim is an ORDINARY COMBATANT.** A bot counts into `kills`, pays the full captain
+`killLevels`, and can move the bounty throne. This follows from B3 rather than being a separate
+decision; the shipped comments in `world.ts` and `bounty.ts` still said "captain victims only" and
+were corrected to say **participant**. Behaviour was already right; only the prose was stale.
+
+**`PROTOCOL_VERSION` STAYS 40 — adjudicated against two reviewers.** Both review passes flagged that
+`CONFIG.bots` rides `WelcomeMsg.config` (`GameConfig = typeof CONFIG`) and cited cycle 82, which
+bumped 34→35 for `CONFIG.zone`. **The governing precedent is amendment 24 (which held PV at 39 on this exact reasoning):**
+`CONFIG.fleet` is server-only simulation constants that ride the same welcome payload and held PV,
+because no wire SHAPE the client READS moves. Verified directly: **`welcome.config` has zero readers
+in `client/`.** `CONFIG.bots` is the same category. The distinguishing rule, stated here so it is not
+re-derived a third time: **a CONFIG block bumps PV when the CLIENT READS IT, not merely because it
+rides the welcome.**
+
+## Amendment 27 — THE OBSERVE CADENCE LOSES SIGNAL, NOT FRESHNESS — and it can blind a bot forever (review-gate finding, cycle 96)
+
+**This corrects the Story 6.4 acceptance criterion's own model, and the E3 ruling taken on it.** The
+AC specifies bots *"observe at a staggered ~250 ms cadence (round-robin across ticks) — a fairness
+knob"*, and the question gate priced that as *"a bot's world model is up to 5 ticks stale, comparable
+to a human's reaction time, which is a nice accident."* **Staleness is not what the cadence cost.**
+
+Two of `observe()`'s outputs exist for exactly ONE tick. Radar blips are gated on
+`sweptThisTick` — the beam window `[prevSweepAngle, sweepAngle)`, so a bearing is painted on exactly
+one tick per revolution — and `world.tickEvents` is swapped in the step epilogue, so `hc`, `sp` and
+`sunk` are readable at exactly one `botsTick`. A bot observing 1 tick in 5 therefore caught **~20%**
+of both streams.
+
+**And it RESONATED, which is the part nobody predicted.** At `sweepRpm 15` a revolution is exactly
+**80 ticks**, and 80 ≡ 0 (mod 5) — so a fixed bearing paints on the SAME tick-phase every revolution.
+If that phase was not the bot's hashed slot, the target was **permanently radar-invisible to that
+bot**. Both boonable sweep rates alias identically (30 rpm = 40 ticks, 20 rpm = 60 ticks). Measured
+by two reviewers independently, with separate probes: a per-tick observer received **30 paints** over
+2400 ticks where the bot's cadence slots received **0**. A `siege` battleship — whose entire design
+is standing off in the radar band — could be blind to a hull a human in the same seat saw every 4
+seconds.
+
+**RULED: the cadence is a DECISION cadence.** `observeCadenceMs` → **`decisionCadenceMs`**. Bots
+observe and fold **every tick**; the stagger now gates only deliberation (target reselection, posture,
+boon spend). **Steering and firing are emitted every tick** — a bot that steered on 1 tick in 5 would
+drive drunk. The handicap lives entirely in `reactionMs` and `aimScatterU`, which is where a handicap
+belongs: **a fairness knob may slow a bot's REACTIONS; it may never delete its PERCEPTION**, because
+deleted perception is not difficulty, it is a lottery on sweep geometry.
+
+**The cost bound the AC set is still met, exactly.** Observes/tick = live bots + connected clients ≤
+room cap, so a 20-bot lobby pays the same 20 `observe()` calls per tick a full 20-human lobby already
+pays in frames. Measured: **1.07-1.36 ms/tick mean, 5.61 ms worst single tick**, against the 50 ms
+budget.
+
+## Amendment 28 — THE ANTI-CHEAT BOUNDARY IS STRUCTURAL, NOT DISCIPLINARY (review-gate finding, cycle 96)
+
+The story's central claim is that a combat bot is *structurally* unable to cheat. At the review gate
+it was true in FACT but not in STRUCTURE, and three reviewers found the gap from two directions:
+
+- `BotSelfReader.get(id)` took an **arbitrary id** and returned a full `ShipRecord`. Every call site
+  was traced: exactly one, passing the bot's own id — **no live wallhack** — but one lint-clean line
+  inside `ai/` could have read an enemy's true hp, reload, boons and offer.
+- The driver held a real `World` (`perceptionHost`) solely for `observe()`'s signature.
+- **`observeSpectator` — the UNFOGGED OMNISCIENT view — is exported from the same module `ai/` had to
+  value-import for `observe`.** `observeSpectator(this.perceptionHost, id)` was a one-line total
+  wallhack that no lint rule, test or runtime guard would have caught.
+- `import { fireGun } from '../combat.js'` PASSED the lint, because `combat.ts` is
+  `export * from './equipment/guns.js'` — a sanctioned bypass of the `equipment/*` ban.
+
+**RULED: remove the doors.** `world.ts` now builds per-tick `BotTickEntry` records (`{id, afloat,
+self, observe}`) where `observe` is a **thunk bound to that bot's id**, and hands them to the
+controller. `ai/` consequently contains **ZERO `world.js` references, type or value**, holds no ship
+collection, and cannot address any ship but its own. ESLint bans `world.js` outright (type imports
+included), makes `perception.js` **type-only**, and closes the `combat.js` bypass; a pin test refuses
+the literal token `observeSpectator` anywhere under `ai/`. Each rule was proven to bite before being
+restored.
+
+**The general lesson, recorded because it will recur:** a capability boundary enforced by *what the
+code currently does* is not a boundary. The test is whether the next one-line edit could cross it.
+Here the answer was yes in four places, and the fix cost one indirection.

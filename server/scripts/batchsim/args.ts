@@ -17,6 +17,9 @@ export interface CliOptions {
   matches: number;
   seed: number;
   captains: number;
+  /** COMBAT BOTS in the lobby (Story 6.4). Bots have no pilot — they drive
+   *  themselves from World's botsTick row — so this is purely a lobby size. */
+  bots: number;
   /** Captain pilot policy name (PILOT_REGISTRY key); default 'gunner'. */
   pilot: string;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
@@ -34,7 +37,12 @@ export interface CliOptions {
 export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [options]
   --matches N        matches per run (default 100)
   --seed S           run seed (default 1)
-  --captains C       scripted captains (default 3; classes round-robin)
+  --captains C       scripted captains (default 3; classes round-robin).
+                     0 is legal ONLY with --bots (a bot-only lobby)
+  --bots N           combat bots (Story 6.4 AI captains; default 0). Bots roll
+                     their own class/profile/callsign and drive themselves;
+                     --pilot does not apply to them. A bot-only lobby drops
+                     minHumans to 0 so the match can actually start
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
                      xp.*, deck.*, offer.size, match.fillTo, map.baseRadius,
                      zone.* (phased shape: beatMs, ringSteps.N, offsetCap,
@@ -56,6 +64,7 @@ function defaults(): CliOptions {
     matches: 100,
     seed: 1,
     captains: 3,
+    bots: 0,
     pilot: 'gunner',
     set: {},
     sweeps: [],
@@ -125,7 +134,8 @@ type ValueHandler = (opts: CliOptions, value: string) => void;
 const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--matches': (o, v) => void (o.matches = parseCount(v, '--matches', 1)),
   '--seed': (o, v) => void (o.seed = toUint32Seed(parseCount(v, '--seed', 0))),
-  '--captains': (o, v) => void (o.captains = parseCount(v, '--captains', 1)),
+  '--captains': (o, v) => void (o.captains = parseCount(v, '--captains', 0)),
+  '--bots': (o, v) => void (o.bots = parseCount(v, '--bots', 0)),
   '--draws': (o, v) => void (o.draws = parseCount(v, '--draws', 1)),
   // Validated against the real registry at parse time so a typo fails fast
   // with the legal names instead of silently running the default pilot.
@@ -166,6 +176,13 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     if (value === undefined) throw new UsageError(`${flag} needs a value\n${USAGE}`);
     handler(opts, value);
     i += 1;
+  }
+  // An EMPTY LOBBY is a run key that can never produce evidence: with no
+  // captains and no bots the match activates on its first tick against nothing
+  // and every row reads zero. Caught here rather than in the runner so the
+  // failure is a usage error (exit 2) instead of a structural one.
+  if (!opts.deckOnly && opts.captains + opts.bots === 0) {
+    throw new UsageError('--captains 0 needs --bots N: a lobby needs at least one participant');
   }
   return opts;
 }

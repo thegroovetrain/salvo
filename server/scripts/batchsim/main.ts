@@ -24,6 +24,7 @@ import {
   renderDeckReport,
   type BatchAggregate,
 } from './report.js';
+import { buildBotAggregate, renderBotReport } from './botReport.js';
 
 function overridesLine(set: Record<string, number>): string {
   const keys = Object.keys(set).sort();
@@ -32,7 +33,11 @@ function overridesLine(set: Record<string, number>): string {
 
 function headerLines(opts: CliOptions): string[] {
   const mode = opts.deckOnly ? `deck-only draws=${opts.draws}` : `batch matches=${opts.matches}`;
-  const roster = opts.deckOnly ? '' : ` captains=${opts.captains} pilot=${opts.pilot}`;
+  // BOTS JOIN THE RUN KEY (Story 6.4): a bot lobby is a different roster, so
+  // the deterministic body's own header must say so. Only printed when there
+  // are bots, so every captain-only run key is byte-unchanged.
+  const bots = opts.bots > 0 ? ` bots=${opts.bots}` : '';
+  const roster = opts.deckOnly ? '' : ` captains=${opts.captains}${bots} pilot=${opts.pilot}`;
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
     `run key: seed=${opts.seed} mode=${mode}${roster} overrides=${overridesLine(opts.set)} sweeps=${opts.sweeps.length}`,
@@ -44,7 +49,7 @@ function headerLines(opts: CliOptions): string[] {
 interface ModeOutput {
   body: string[];
   exitCode: number;
-  variants: { label: string; overrides: Record<string, number>; aggregate: unknown }[];
+  variants: { label: string; overrides: Record<string, number>; aggregate: unknown; bots?: unknown }[];
 }
 
 function batchMode(opts: CliOptions): ModeOutput {
@@ -60,6 +65,7 @@ function batchMode(opts: CliOptions): ModeOutput {
           seed: opts.seed,
           matches: opts.matches,
           captains: opts.captains,
+          bots: opts.bots,
           pilot: PILOT_REGISTRY[opts.pilot],
         },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
@@ -67,7 +73,12 @@ function batchMode(opts: CliOptions): ModeOutput {
       const agg = buildAggregate(result, opts.captains);
       rendered.push({ label: variant.label, agg });
       body.push(...renderBatchReport(variant.label, agg), ...failureLines(result), '');
-      out.variants.push({ label: variant.label, overrides: variant.set, aggregate: agg });
+      // THE BOT QUALITY TABLE — the whole verification instrument for a story
+      // that ships no playable path (Eric ruling A1). Appended only when the
+      // lobby actually has bots in it.
+      const botAgg = opts.bots > 0 ? buildBotAggregate(result, opts.bots) : null;
+      if (botAgg !== null) body.push(...renderBotReport(variant.label, botAgg), '');
+      out.variants.push({ label: variant.label, overrides: variant.set, aggregate: agg, bots: botAgg });
     } finally {
       restore();
     }

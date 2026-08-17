@@ -120,6 +120,9 @@ import {
 import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
+import { BotController } from './ai/botDriver.js';
+import type { BotTickEntry } from './ai/types.js';
+import { observe } from './perception.js';
 import {
   insideIntelDisc,
   islandClearance,
@@ -367,6 +370,25 @@ export interface ShipRecord {
    * read by resolveCollisions in the same tick; never on the wire.
    */
   prevPose: ShipState;
+  /**
+   * IS THIS HULL TOUCHING LAND RIGHT NOW — the authoritative answer, written
+   * every tick by resolveCollisions from `resolveShipPose().contact`, which is
+   * TRUE FOR LAND ONLY (a map-boundary press is deliberately not contact —
+   * cycle 59 grounding ruling). Previously computed and thrown away inline.
+   *
+   * WHY IT IS STORED (Story 6.4 defect fix). Grounding is a SPEED CAP, not a
+   * stop: `applyGroundingDamp` holds a dead-on grounded hull at
+   * `islandSpeedMult x maxSpeed` — 8.75-11.25 u/s by class — so ANY "am I
+   * going nowhere" speed heuristic is guessing at a fact the simulation
+   * already knows exactly, and the bot brain's original 3 u/s trip sat 3-4x
+   * BELOW every grounded hull's floor, making its whole un-beach path
+   * unreachable. The AI now reads this bit instead.
+   *
+   * SERVER-ONLY, never on the wire (no PROTOCOL_VERSION movement): a bot reads
+   * it off its OWN ShipRecord, which is a self-read exactly like hp or ammo,
+   * not perception of the world. False for any hull not on the water.
+   */
+  landContact: boolean;
   /**
    * THE WAKE RIBBON this hull is CURRENTLY laying (Story 4.12, amendments
    * 194/200/205): the shared ring buffer of pose samples the per-observer
@@ -767,6 +789,17 @@ export class World {
   readonly inputs = new InputStore();
   /** Drives PvE fleet hulls through the normal input path (game/drones.ts). */
   readonly drones: FleetController;
+  /** Drives combat-bot AI captains through the normal input path (Story 6.4,
+   *  game/ai/botDriver.ts) — perception-gated, unlike the omniscient fleet
+   *  mind. The controller never sees this World: it gets the narrow port at
+   *  construction and a per-tick BotTickEntry array (each bot's own record +
+   *  a bound observe() thunk — see botEntries()), so ai/ is structurally
+   *  incapable of reaching world internals. Nothing in production constructs
+   *  a bot this cycle (harness + tests only; Story 6-5 wires the mode). */
+  readonly bots: BotController;
+  /** Monotonic bot ordinal — the ship id namespace `bot-N` (never collides
+   *  with Colyseus session ids, `fleet-N`, or `trk-` pseudonyms). */
+  private botSeq = 0;
   /** How many rows of CONFIG.fleet.waves have already been enqueued. */
   private wavesFired = 0;
   /** Fleets owed but not yet placed — one entry per fleet, each carrying its
@@ -1006,6 +1039,10 @@ export class World {
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
     // Fleet steering stream, decorrelated again from mapgen + spawn.
     this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
+    // Bot decision stream (Story 6.4), decorrelated from every other stream
+    // here (0xc2b2ae35 is unused by any of them — see the spawnPhase doc for
+    // the roster of constants in use).
+    this.bots = new BotController(this, (seed ^ 0xc2b2ae35) >>> 0);
   }
 
   /** The pseudonym map, read-only — for perception context threading and
@@ -1219,7 +1256,7 @@ export class World {
       hullId,
       cls,
       hullPoly: [],
-      prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 },
+      prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 }, landContact: false,
       // THE SWEEP STARTS AT THE HULL'S HEADING (Eric ruling 2026-08-16), at
       // EVERY placement edge — here, redeployShip and respawn — so there is one
       // rule and not three. Constructing every hull at 0 phase-LOCKED the whole
@@ -1270,8 +1307,10 @@ export class World {
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
-      // ONE tally (Story 5.6, amendment 38): `kills` counts CAPTAIN victims
-      // only, so the Story 4.6 `captainKills` split is retired — the two
+      // ONE tally (Story 5.6, amendment 38): `kills` counts PARTICIPANT
+      // victims only — human captains AND, since Story 6.4 (Eric ruling B3:
+      // bots are ordinary combatants), AI-captain bots; never PvE fleet
+      // hulls. The Story 4.6 `captainKills` split stays retired — the two
       // became identical by construction the moment PvE kills stopped
       // counting anywhere.
       kills: 0,
@@ -1286,6 +1325,54 @@ export class World {
     // which only the wave spawner knows. spawnFleet() is the ONE registrar.
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
     return rec;
+  }
+
+  /**
+   * Spawn one COMBAT BOT (Story 6.4): an AI captain — `role: 'bot'`, a real
+   * ship class, a nautical callsign, a priority profile — enrolled with the
+   * BotController (which rolls class/profile/callsign off its own seeded
+   * stream) and then placed through the EXACT addShip path a human uses:
+   * the shared spawn lattice (no `at` argument — bots never teleport in),
+   * a real deck (a bot is a participant, not a fleet hull), a roster-ready
+   * record. Ids are namespaced `bot-N`, structurally distinct from Colyseus
+   * session ids, `fleet-N` hulls and `trk-` pseudonyms.
+   *
+   * NOTHING IN PRODUCTION CALLS THIS in cycle 95 (Eric ruling A1: harness +
+   * tests only); Story 6-5 wires the Solo-vs-AI mode to it.
+   */
+  addBot(): ShipRecord {
+    this.botSeq += 1;
+    const id = `bot-${this.botSeq}`;
+    const { name, hullId } = this.bots.enroll(id);
+    return this.addShip(id, name, 'bot', hullId);
+  }
+
+  /**
+   * THE BOT PERCEPTION INJECTION (review-gate hardening): one entry per
+   * `role: 'bot'` ship, built fresh each tick for the `botsTick` row. Each
+   * entry carries the bot's OWN record (ai/ types it as the structural
+   * BotSelf and can address no other ship) and an observe() thunk BOUND to
+   * that bot's id — so the fogged view is handed in and ai/ never holds a
+   * World, never chooses an observer, and cannot value-import perception.js
+   * at all (the lint boundary makes it type-only there, which is what keeps
+   * observeSpectator — the unfogged view — structurally out of reach).
+   * The driver calls each thunk exactly once per live tick: the honest human
+   * client contract (a frame per tick), never a sampled subset — radar blips
+   * and the self-private gunnery rows live for one tick only, and a sampling
+   * cadence aliases against the sweep period (the review-gate blocker).
+   */
+  private botEntries(): BotTickEntry[] {
+    const out: BotTickEntry[] = [];
+    for (const ship of this.ships.values()) {
+      if (ship.role !== 'bot') continue;
+      out.push({
+        id: ship.id,
+        afloat: isAfloat(ship.lifecycle),
+        self: ship,
+        observe: () => observe(this, ship.id),
+      });
+    }
+    return out;
   }
 
   /**
@@ -1316,6 +1403,7 @@ export class World {
     this.ships.delete(id);
     this.inputs.remove(id);
     this.drones.remove(id);
+    this.bots.remove(id);
     // The throne never names an absent player (Story 4.6): re-evaluate now —
     // a departed holder vacates, and re-claiming needs a fresh strict unique
     // maximum among the alive captains still in the room.
@@ -1425,6 +1513,10 @@ export class World {
     // reset at the countdown->active boundary).
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
+    // ...nor a stale grounding read: the placement is island-clear by
+    // construction, and a carried-over `true` would arm an un-beach reverse on
+    // a hull sitting in open water at the start line.
+    ship.landContact = false;
     // A fresh life never inherits an open boost window — nor a slow or dazzle.
     ship.boostUntil = 0;
     // ...nor a DAMAGE CONTROL pool: hp is already full here, so a surviving
@@ -1593,11 +1685,14 @@ export class World {
    * an attributed sink. A DEAD killer (mutual destruction) still gets both;
    * storm (`by` undefined) and self-kills credit nothing by construction.
    * `kills` — the roster tally AND the bounty ruler, one field since Story
-   * 5.6 — advances ONLY on a CAPTAIN victim (amendment 38: a PvE kill counts
-   * nowhere, while its XP, its `sunk` event and its onscreen kill flash all
-   * still fire). A drone victim instead advances `pveKills` under its own hull
-   * id — the OPERATOR-ONLY sibling (amendment 44), which counts precisely what
-   * `kills` deliberately refuses to. Sinking the throne's holder pays
+   * 5.6 — advances ONLY on a PARTICIPANT victim: a human captain or, since
+   * Story 6.4 (Eric ruling B3: bots are ordinary combatants — a bot victim
+   * counts into `kills`, pays the full captain killLevels, and can move the
+   * bounty throne), an AI-captain bot. A PvE fleet kill counts nowhere here
+   * (amendment 38 — while its XP, its `sunk` event and its onscreen kill
+   * flash all still fire); it instead advances `pveKills` under its own hull
+   * id — the OPERATOR-ONLY sibling (amendment 44), which counts precisely
+   * what `kills` deliberately refuses to. Sinking the throne's holder pays
    * `CONFIG.bounty.killLevels` ON TOP of the standard kill value, through the
    * unchanged grantXp pipeline (fractional carry untouched).
    */
@@ -2012,6 +2107,17 @@ export class World {
     // ROW NAME is unchanged across the Story 5.6 rewrite (the order-identity
     // pin is on names, and the name still describes what the row does).
     { name: 'dronesTick', run: (w) => w.drones.tick() },
+    // Combat bots (Story 6.4) write their inputs through the very same store,
+    // for the very same reason: an AI input row must sit ahead of applyInputs
+    // in the SAME tick, or every bot steers on a 50ms-stale command. Beside
+    // dronesTick, immediately before applyInputs — the sanctioned position
+    // the spawnFleetWaves rationale below names; the two AI rows are order-
+    // independent of each other (disjoint hull sets, both write-only into the
+    // input store), but nothing may sit between this pair and applyInputs.
+    // World hands the controller its per-tick entries (own record + bound
+    // observe thunk per bot — see botEntries()); the controller holds no
+    // World reference of its own.
+    { name: 'botsTick', run: (w) => w.bots.tick(w.botEntries()) },
     { name: 'applyInputs', run: (w) => w.applyInputs() },
     { name: 'stepShips', run: (w, ctx) => w.stepShips(ctx.dt) },
     { name: 'resolveCollisions', run: (w) => w.resolveCollisions() },
@@ -2110,9 +2216,10 @@ export class World {
     //
     // The obvious slot is before `dronesTick`, so a hull spawning this tick
     // gets its first input the same tick. It is the WRONG slot, twice over.
-    // First, `dronesTick`'s position is pinned and load-bearing — it must sit
-    // IMMEDIATELY before applyInputs, and inserting ahead of it is the one
-    // change the ordering rationale forbids. Second, every row between spawn
+    // First, the AI input rows' position is pinned and load-bearing — the
+    // dronesTick/botsTick pair must sit IMMEDIATELY before applyInputs, and
+    // inserting ahead of them is the one change the ordering rationale
+    // forbids. Second, every row between spawn
     // and the tick's end would then see a hull that has not moved, has no
     // wake sample and has never been collision-resolved; the storm row in
     // particular would bite a hull placed one row earlier. Spawning last
@@ -2306,13 +2413,22 @@ export class World {
    * number the predictor passes — so the two sides stay byte-identical.
    * hullPoly doubles as the transform scratch (aliveHulls rewrites it for this
    * tick's ballistic/mine tests).
+   *
+   * The result's LAND-ONLY `contact` flag is also STORED on the record
+   * (ShipRecord.landContact) rather than consumed and dropped: it is the
+   * simulation's exact answer to "is this hull aground", and the bot brain's
+   * un-beach trip reads it off its own record instead of guessing from speed
+   * (which cannot work — the damp is a cap, not a stop).
    */
   private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
       // Story 5.2 motion seam 2 of 3 (amendment 15): a SINKING hull still
       // pushes out of islands and off the map edge — it moved this tick, so
       // its pose must resolve, or the window would let it coast into land.
-      if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) continue;
+      if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) {
+        ship.landContact = false; // off the water: never aground
+        continue;
+      }
       const res = resolveShipPose(
         ship.prevPose,
         ship.state,
@@ -2321,6 +2437,7 @@ export class World {
         hullSilhouette(ship.hullId),
         ship.hullPoly,
       );
+      ship.landContact = res.contact;
       applyGroundingDamp(ship.state, res, ship.stats.kinematics.maxSpeed);
     }
   }
@@ -3873,6 +3990,9 @@ export class World {
     ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
+    // ...nor a stale grounding read (the redeployShip rule): the respawn
+    // placement is island-clear, so the hull is not aground.
+    ship.landContact = false;
     // A fresh life never inherits a stale smoke timer (Story 4.4): without
     // this, a hull that puffed just before sinking would owe the remainder of
     // the old interval on its next life.

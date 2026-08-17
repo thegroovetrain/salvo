@@ -320,6 +320,263 @@ export const CONFIG = {
     spawnRetryTicks: 200,
   },
 
+  /**
+   * COMBAT BOTS (Story 6.4, Eric rulings 2026-08-16) — AI CAPTAINS, `role:
+   * 'bot'`: participants that contest the match outcome (unlike fleet hulls)
+   * and never count as humans (FR34: a bot can never arm a countdown). Their
+   * ONLY world knowledge is `perception.observe()` and their only output is a
+   * validated InputMsg — structurally unable to cheat. Every bot-facing
+   * tunable lives HERE, per the CONFIG-is-truth rule; the brain itself is
+   * server/src/game/ai/.
+   *
+   * NOT a difficulty ladder (Eric ruling E1/E2): every bot plays at ONE honest
+   * competence level, expressed through exactly two knobs — aim scatter and
+   * reaction latency — both expected to be retuned by eye later. Variety comes
+   * from per-class PRIORITY PROFILES (2 per class, assigned at spawn off the
+   * seeded RNG), which decide what a bot WANTS, never how well it shoots.
+   */
+  bots: {
+    /**
+     * ms — how often each bot DELIBERATES: reselects its target, re-chooses
+     * its posture, and considers a boon spend. This is a DECISION cadence,
+     * never a perception one: every live bot calls perception.observe() and
+     * folds the view EVERY tick (exactly once — the human client contract, a
+     * frame per tick at 20Hz), because radar blips and the self-private
+     * gunnery rows live for exactly one tick and an observe round-robin
+     * RESONATES with the sweep (at 15 rpm a revolution is 80 ticks, 80 ≡ 0
+     * mod 5, so a fixed bearing paints on the same tick-phase forever and a
+     * bot whose slot missed it was PERMANENTLY radar-blind to that target —
+     * the review-gate blocker that retired the old observe cadence).
+     * Steering and firing are still emitted every tick; only deliberation is
+     * staggered (phase-offset by id hash so 19 bots spread the scoring work
+     * across ticks). The handicap lives in reactionMs and aimScatterU, never
+     * in dropped perception.
+     */
+    decisionCadenceMs: 250,
+    /**
+     * ms — reaction latency: a contact must persist this long in the bot's
+     * view before the bot acts on it (fires at it, turns to engage). The
+     * second of the two difficulty knobs (E2) — scatter blunts marksmanship,
+     * this blunts reflexes. Consumed by wave-2 tactics; tuned to "competent
+     * but beatable", retune by eye.
+     */
+    reactionMs: 400,
+    /**
+     * u — 1σ-style uniform-disc scatter on the lead-corrected aim point at
+     * `aimScatterRefU` range, scaling linearly with actual range (the fleet
+     * AI's aimScatterU precedent, 8-25u by hull size — a captain-grade bot is
+     * tighter than the best fleet hull, per the E2 ruling: ~6u at 250u).
+     */
+    aimScatterU: 6,
+    /** u — the reference range aimScatterU is quoted at (scatter scales as
+     *  range / aimScatterRefU, so long shots wander proportionally more). */
+    aimScatterRefU: 250,
+    /**
+     * Fraction of max hp below which a bot DISENGAGES — breaks off the fight
+     * and opens range (B2: retreat is real; fighting to the death reads as
+     * robotic). Class tactics decide HOW (boost out, mine astern, trade while
+     * backing); this only sets WHEN.
+     */
+    disengageHpFrac: 0.35,
+    /**
+     * Fraction of max hp below which a banked level is spent on DAMAGE CONTROL
+     * (HEAL_CHOICE) instead of a card (D2). Above it, bots always build.
+     */
+    healHpFrac: 0.5,
+    /**
+     * ms — how long a bot trusts a stale contact's last-known pose (a radar
+     * blip with no live contact decays as low-confidence memory). Longer than
+     * the fleet AI's 3000ms memoryMs — a captain plots a track; a fleet hull
+     * merely holds a bearing — and shorter than the client's 12s phosphor,
+     * because chasing minute-old paint reads as clairvoyance in reverse.
+     */
+    contactMemoryMs: 8000,
+    /**
+     * THE UN-BEACH MANOEUVRE, IN FOUR NUMBERS. It ran on ONE (`stuckMs`, doing
+     * double duty as the arming dwell AND the astern burst length) until the
+     * measurement below; the split is what makes it work on the slowest hull.
+     *
+     * ms of SUSTAINED LAND CONTACT (ShipRecord.landContact, never a speed
+     * guess) before the un-beach manoeuvre ARMS — the fleet AI's stuck-trip
+     * precedent at 1200ms, with a little more patience because the grounding
+     * damp caps a beached hull well above zero and a captain-grade brain
+     * should be reversing off, not oscillating. It doubles as the graze
+     * debounce: a brush that resolves inside this window never commands
+     * astern. THIS IS NO LONGER THE BURST LENGTH (see unbeachAsternMaxMs).
+     */
+    stuckMs: 1500,
+    /**
+     * ms — the CEILING on the full-astern burst. The burst normally ends
+     * EARLIER, on its condition (land contact cleared AND unbeachClearU of
+     * sternway made good), which is what makes it right on all three hulls
+     * instead of only the nimble one; this is the backstop for a hull the
+     * water will not release.
+     *
+     * DERIVED FROM THE WORST HULL, the Battleship, which is why the old
+     * single-constant 1500ms burst failed: a bot arms while STILL MAKING WAY
+     * at the grounding cap (islandSpeedMult x maxSpeed = 8.75 u/s), so a full-
+     * astern order first has to kill that way at `decel` — 8.75/9 = 0.97s of
+     * still travelling FORWARD — and only then build sternway at `accel`
+     * (0 -> 9 u/s in 1.8s, covering 8.1u). Measured net displacement over one
+     * 1500ms burst was torpedoBoat -1.76u, mineLayer -0.06u, battleship
+     * +3.21u: the heaviest hull ended its "escape" DEEPER IN THE ROCK, and
+     * the per-class worst land-contact runs (10.1s / 13.0s / 272.2s) ordered
+     * exactly the same way. The Battleship needs 0.97 + 1.8 + (15 - 8.1)/9 =
+     * 3.54s to meet the clearance condition; 4000ms leaves ~13% for the
+     * resolver's shove and the head-on damp. The other two hulls meet it in
+     * ~2.3s and never reach this ceiling.
+     */
+    unbeachAsternMaxMs: 4000,
+    /**
+     * u — sternway made good (straight-line displacement from where the burst
+     * armed) before the burst may end. The fleet pilot's proven figure: its
+     * 2.5s burst backs ~15u down the track the hull sailed in on, and 250
+     * campaign matches took zero cap-outs on it.
+     *
+     * Paired with "land contact has cleared", and the pairing is what makes
+     * plain displacement a safe stand-in for sternway: the most ground any of
+     * the three hulls can make FORWARD after a full-astern order is
+     * v^2/(2 x decel) = 4.25u (battleship), 3.5u (torpedoBoat), 3.3u
+     * (mineLayer) — all far under 15u — so this threshold cannot be tripped
+     * by the forward half of the burst.
+     */
+    unbeachClearU: 15,
+    /**
+     * ms — THE EXIT-HEADING GRACE HOLD, the manoeuvre's third stage and the
+     * cure for the metronome: without it a bot backs off cleanly, instantly
+     * re-seeks a target bearing that still runs through the same island, and
+     * drives straight back in (land-contact EPISODES per bot-match roughly
+     * doubled, ~2 -> ~5, when the arming half was fixed and this was not).
+     * Target-seek is suppressed for this long and the helm simply holds the
+     * heading the hull left the burst on; avoidance stays live.
+     *
+     * Longer than the worst-case astern -> ahead turnaround, which is the
+     * floor it must clear: a Battleship at -9 u/s brakes to 0 at `decel` in
+     * 1.0s and only reaches its `steerageSpeed` (8 u/s — full rudder
+     * authority) 1.6s after that, so 2.6s of the hold is spent merely getting
+     * way back on and ~0.4s is committed forward running. The light hulls,
+     * which turn around in 1.8-1.9s, get over a second of it. The fleet
+     * pilot's own grace is the same 3s, and its 250-match campaign took zero
+     * cap-outs on it.
+     */
+    unbeachHoldMs: 3000,
+    /**
+     * The 2 priority profiles per class (Eric ruling E1: *"Each ship should
+     * just get 2-3 different 'priority profiles'"*) — assigned per-bot at
+     * spawn off the seeded RNG. Profiles decide what a bot WANTS, never its
+     * competence: TB raider = isolated/damaged targets, torpedo opener, boost
+     * out; TB duelist = rear-quarter turn-fights vs peers; BS bulwark =
+     * attrition on HP; BS siege = standoff cannon + star shells; ML forager =
+     * fleet clearing for the level lead; ML trapper = mines astern while
+     * withdrawing. Behaviour tables live in server ai/profiles.ts — only the
+     * ID VOCABULARY is data, so it lives here.
+     */
+    profiles: {
+      torpedoBoat: ['raider', 'duelist'],
+      battleship: ['bulwark', 'siege'],
+      mineLayer: ['forager', 'trapper'],
+    } as const,
+    /**
+     * PER-PROFILE boon weights (Eric ruling D1: *"Sure"* — first-pass weights
+     * derived by the orchestrator, placed in CONFIG as a tuning panel, like
+     * the height-field knobs). Keyed by PRIORITY PROFILE, not by class: two
+     * bots of the same hull sailing different profiles want DIFFERENT cards,
+     * which is the whole point of the E1 ruling — a class-keyed table cannot
+     * express "the standoff battleship buys star shells and the attrition
+     * battleship buys hull".
+     *
+     * Two levels, resolved by wave-2 ai/spending.ts as `lines[id] ?? cat[def
+     * .category] ?? default`:
+     *   `cat`   — the base weight for every card of a boon CATEGORY, covering
+     *             exactly the categories that profile's deck can draw (the
+     *             three universals — intel/ship/guns — plus its carried
+     *             equipment's).
+     *   `lines` — per-BOON-LINE overrides (real ids from sim/boons.ts) for the
+     *             handful of cards a profile wants more or less than its
+     *             category base. Everything unnamed falls through to `cat`.
+     * A bot picks the highest-weighted offered card, rarity as tiebreak.
+     * Higher = wanted more; the absolute scale is arbitrary.
+     *
+     * THE MINE-LAYER DOCTRINE SPLIT, AND A CORRECTION OF RECORD. These weights
+     * were first written against the PRE-cycle-95 mine rack, where
+     * `minePropFouling` carried `mult: 0.6` on `mine.damage`. That mattered
+     * arithmetically: a base mine does 55 and a small PvE fleet hull has 45 hp,
+     * so a base mine ONE-SHOTS a fleet hull while a fouling mine (33) does not
+     * — and one-shotting fleet hulls is what `forager` lives on (C3). So
+     * forager weighted the card 0.4 and trapper 2.0, a genuine same-card
+     * disagreement.
+     *
+     * AMENDMENT 25 DELETED THAT MULTIPLIER (Eric: *"remove damage decrease for
+     * the fouling mines"*), so the penalty forager was avoiding no longer
+     * exists and prop-fouling is now a PURE ADD. Forager's 0.4 is therefore
+     * retired rather than defended — keeping it would have been a bot avoiding
+     * a card for a reason the game no longer contains, which is exactly the
+     * stale-rationale trap this comment block exists to prevent.
+     *
+     * What survives is a WEAKER, still-real split: `trapper` keeps 2.0 because
+     * the fouling slow drags a victim INTO its minefield, which is its whole
+     * plan; `forager` merely has no special use for a slow (a fleet hull dies
+     * to one mine either way) and prefers SELF-PROPELLED, whose mine closes on
+     * a target by itself and so farms without re-positioning. Both doctrines
+     * are now pure adds and side-grades to each other, so neither profile
+     * refuses one — they just rank them differently.
+     */
+    boonWeights: {
+      // TB raider — torpedo opener at credible range, then boost out. Buys
+      // tubes/homing/speed to make the one opener count, and hull last.
+      raider: {
+        cat: { torpedoes: 2.2, ship: 2.0, guns: 1.5, speedBoost: 1.8, intel: 1.5 },
+        lines: { torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2 },
+      },
+      // TB duelist — rear-quarter turn-fight, guns through the 30s torpedo
+      // reload. Guns and the global cooldown lever come first.
+      duelist: {
+        cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, speedBoost: 1.6, intel: 1.3 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0 },
+      },
+      // BS bulwark — attrition. Trades on hp, so hull is the top line of any
+      // profile's table.
+      bulwark: {
+        cat: { ship: 2.4, guns: 2.0, cannon: 2.0, starShells: 1.0, intel: 1.0 },
+        lines: { shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6 },
+      },
+      // BS siege — standoff, cannon-led, star shells to resolve stale
+      // contacts into live sight (C2). Intel range IS its reach: gun, cannon
+      // and star-shell rangeU all ride radarRange.
+      siege: {
+        cat: { cannon: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
+        lines: { cannonDamage: 2.8, intelRange: 2.4, starRadius: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
+      },
+      // ML forager — clears PvE fleet groups for the level lead (C3). Guns
+      // and rate of fire do that work; see the propFouling note above.
+      forager: {
+        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, decoyBuoy: 1.0 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineDamage: 2.0, mineSelfPropelled: 2.4, minePropFouling: 1.2 },
+      },
+      // ML trapper — mines astern while withdrawing, decoy to break locks,
+      // fights near its own field.
+      trapper: {
+        cat: { mines: 2.6, decoyBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
+        lines: { mineMax: 2.8, mineDamage: 2.4, mineBlast: 2.4, minePropFouling: 3.0, mineSelfPropelled: 2.2, shipCooldown: 2.2 },
+      },
+    },
+    /**
+     * The callsign pool (Eric ruling E5(a)): nautical names drawn without
+     * repeat, so the kill feed reads `HALYARD sank BILGE RAT` rather than
+     * `BOT-07`. ~30 names — comfortably above the 19-bot worst case; a pool
+     * exhausted anyway (tests) reuses names with a numeric suffix. Edit
+     * freely: nothing keys on the strings.
+     */
+    callsigns: [
+      'HALYARD', 'FATHOM', 'SQUALL', 'CORSAIR', 'MAELSTROM',
+      'KEELHAUL', 'BILGE RAT', 'JETSAM', 'FLOTSAM', 'LEEWARD',
+      'WINDWARD', 'MAINSTAY', 'CAPSTAN', 'SCUPPER', 'BOWSPRIT',
+      'MIZZEN', 'GUNWALE', 'MONSOON', 'RIPTIDE', 'UNDERTOW',
+      'SPINDRIFT', 'TRADEWIND', 'DOLDRUM', 'SEXTANT', 'ASTROLABE',
+      'CROWSNEST', 'MOONRAKER', 'BINNACLE', 'DEADLIGHT', 'LODESTAR',
+    ],
+  },
+
   /** True ship globals shared by every class (no per-class variation). */
   ship: {
     respawnDelay: 3000, // ms — delay before respawn (prototype)

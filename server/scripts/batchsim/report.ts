@@ -196,6 +196,16 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
   lines.push(`winner class: ${countLine(agg.winnerClass)}`);
   lines.push(`storm deaths: total=${agg.stormDeathsTotal} per-match[${fmtSummary(agg.stormDeaths)}]`);
   lines.push(`captain kills by victim tier: ${countLine(agg.killsByVictimTier)}`);
+  // A BOT-ONLY LOBBY has no captain rows at all, and printing 20 lines of
+  // all-zero economy summaries under a bot campaign would read as evidence
+  // about bots. Suppressed entirely; every captain run is byte-unchanged.
+  if (agg.captainsPerMatch > 0) lines.push(...captainEconomyLines(agg));
+  return lines;
+}
+
+/** The per-captain economy block — see renderBatchReport's suppression note. */
+function captainEconomyLines(agg: BatchAggregate): string[] {
+  const lines: string[] = [];
   lines.push(`kills per captain: ${fmtSummary(agg.killsPerCaptain)}`);
   lines.push(`deaths per captain: ${fmtSummary(agg.deathsPerCaptain)}`);
   lines.push(`final level per captain: ${fmtSummary(agg.finalLevel)}`);

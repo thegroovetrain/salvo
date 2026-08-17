@@ -17,19 +17,18 @@
 //                   the boon deck, kill-feed suppression, fleet aggro,
 //                   greyscale nameplates.
 //
-// They stop being the same set the moment Story 6.4 lands AI CAPTAINS, who are
-// participants and are not fleet hulls. The seam is built AHEAD of that
+// They stopped being the same set the moment Story 6.4 landed AI CAPTAINS, who
+// are participants and are not fleet hulls. The seam was built AHEAD of that
 // consumer, on Eric's override of the orchestrator's recommendation to defer
-// it (amendment 13): the value is that the readings are separated BEFORE they
-// diverge, so 6.4 changes one definition rather than auditing sixty sites.
+// it (amendment 13): the value is that the readings were separated BEFORE they
+// diverged, so 6.4 changed one definition rather than auditing sixty sites.
 //
-// HOW 6.4 EXTENDS THIS, in full: add `'bot'` to `ShipRole` and every predicate
-// below is already correct — a bot is not a fleet hull, IS a participant, and
+// HOW 6.4 EXTENDED THIS, in full: `'bot'` joined `ShipRole` and every predicate
+// below was already correct — a bot is not a fleet hull, IS a participant, and
 // is NOT a human. That is why `isParticipant` is written as `!== 'fleet'`
 // rather than `=== 'captain'`; the negative form is the whole point of the
-// module. `'bot'` is deliberately NOT in the union yet: a branch with no
-// producer is dead code, and the project's standing rule is that no dead knob
-// survives.
+// module. Exactly as designed, adding the role changed NOTHING else in this
+// file — the union widened and all three predicate bodies stand byte-identical.
 //
 // ZERO IMPORTS FROM world.ts — deliberately. The predicates take a minimal
 // structural parameter (`RoleBearing`), not `ShipRecord`, so world.ts, match.ts,
@@ -38,11 +37,10 @@
 
 /**
  * What a hull IS, structurally. `'captain'` is a human player's ship;
- * `'fleet'` is a PvE fleet hull. Story 6.4 adds `'bot'` here — an AI CAPTAIN,
- * which is a participant and is not a fleet hull — and nothing else in this
- * file changes.
+ * `'fleet'` is a PvE fleet hull; `'bot'` (Story 6.4) is an AI CAPTAIN —
+ * a participant that is not a fleet hull and never a human.
  */
-export type ShipRole = 'captain' | 'fleet';
+export type ShipRole = 'captain' | 'fleet' | 'bot';
 
 /** The minimal shape every predicate below reads. */
 export interface RoleBearing {
