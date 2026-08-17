@@ -150,12 +150,42 @@ export interface BotMind {
   viewAt: number;
   /** Contact memory across observe gaps. TODO(wave-2 ai/utility.ts). */
   contacts: Map<string, RememberedContact>;
-  /** ms of commanding ahead while going nowhere (un-beach trip accumulator,
-   *  CONFIG.bots.stuckMs). TODO(wave-2 ai/tactics.ts). */
+  /** ms of SUSTAINED LAND CONTACT accumulated toward arming the un-beach
+   *  manoeuvre (CONFIG.bots.stuckMs). Reset by any tick out of contact. */
   stuckMs: number;
-  /** Server ms until which the un-beach manoeuvre runs (0 = not armed).
-   *  TODO(wave-2 ai/tactics.ts). */
+  /** Server ms the full-astern burst may run to AT MOST — its CEILING
+   *  (CONFIG.bots.unbeachAsternMaxMs), 0 when not backing off. The burst
+   *  normally ends earlier, on the clearance condition in ai/tactics.ts. */
   unbeachUntil: number;
+  /** The rest of the un-beach manoeuvre's live state (see UnbeachState).
+   *  ABSENT/null = sailing normally, which is exactly the state an enrolled
+   *  mind starts in — the field is optional so enrollment stays the plain
+   *  literal it is in botDriver.ts and this state can never be half-built. */
+  unbeach?: UnbeachState | null;
+}
+
+/**
+ * THE UN-BEACH MANOEUVRE'S LIVE STATE — one object rather than four loose
+ * BotMind fields, because it is one two-stage machine: a full-astern BURST
+ * with a captured rudder, then an EXIT-HEADING GRACE HOLD that commits to
+ * whatever heading the burst finished on. `BotMind.unbeachUntil` is stage
+ * one's clock (it is the field that predates the split); everything stage one
+ * captured, plus the whole of stage two, lives here.
+ */
+export interface UnbeachState {
+  /** The rudder held for the WHOLE burst, captured ONCE as it arms so the bow
+   *  swings away from the blocking coast instead of flapping tick to tick.
+   *  Already sign-corrected for sternway (see ai/tactics.ts asternRudder). */
+  rudder: number;
+  /** Where the hull stood when the burst armed — the datum the "has it made
+   *  real sternway yet" test measures against (CONFIG.bots.unbeachClearU). */
+  fromX: number;
+  fromY: number;
+  /** Server ms the exit-heading hold runs until, and the heading it commits
+   *  to. Both 0 while the burst is still running: the hold is armed by the
+   *  burst's last tick, which is the first moment an exit heading exists. */
+  holdUntil: number;
+  holdHeading: number;
 }
 
 /**

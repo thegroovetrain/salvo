@@ -20,20 +20,30 @@
 //
 // STEERING PRIORITY — highest first, and the order is the policy:
 //   1. RING ESCAPE. Outside the live ring, steer to its centre at full ahead.
-//      It outranks the un-beach manoeuvre deliberately: the storm does not
-//      miss, and a hull aground in the storm must at least be pointed the
-//      right way when it comes off.
-//   2. UN-BEACHING. SUSTAINED LAND CONTACT for CONFIG.bots.stuckMs arms an
-//      astern manoeuvre — read off the simulation's own contact bit
+//      It outranks everything a hull under way can do — including the un-beach
+//      manoeuvre's exit-heading HOLD, which yields to it: the storm does not
+//      miss. The one thing it does NOT outrank is the astern BURST, and that
+//      is a correction rather than a demotion: the burst commands astern, so
+//      "steer the bow at the ring centre" moved a backing hull AWAY from the
+//      ring while it was at it. A hull aground cannot escape a storm by
+//      steering; getting off the rock IS the escape, and the ring governs
+//      again the instant the burst releases (~<= 4s later, and pinned).
+//   2. UN-BEACHING, in THREE STAGES (arm on sustained contact, back off under
+//      a captured rudder, then hold the exit heading) — see updateManoeuvre.
+//      The contact is read off the simulation's own bit
 //      (ShipRecord.landContact), never inferred from speed, because grounding
-//      here is a speed CAP and a beached hull still makes 8.75-11.25 u/s (see
-//      updateStuck). A permanently beached bot is the single most visible
-//      failure this story can ship (the fleet AI shipped exactly that once),
-//      so this outranks every combat consideration below it.
+//      here is a speed CAP and a beached hull still makes 8.75-11.25 u/s. A
+//      permanently beached bot is the single most visible failure this story
+//      can ship (the fleet AI shipped exactly that once), so this outranks
+//      every combat consideration below it.
 //   3. POSTURE. engage / pursue / disengage / farm / reposition, per profile.
-//   4. AVOIDANCE, summed onto the rudder rather than replacing it: coastlines,
-//      the map edge, and MINES THE BOT CAN SEE. A bot sinking itself on a mine
-//      it was looking at reads as broken, so the mine bias is not optional.
+//   4. AVOIDANCE — coastlines, the map edge, and MINES THE BOT CAN SEE (a bot
+//      sinking itself on a mine it was looking at reads as broken, so the mine
+//      bias is not optional). It does not replace the posture bearing, but it
+//      does TAKE THE HELM IN PROPORTION TO ITS OWN PRESSURE rather than merely
+//      nudging a saturated track term: see helmFor for the measurement that
+//      forced that, and for why it is the same defect as the un-beach one seen
+//      one step earlier.
 //
 // THE REAR-QUARTER DOGFIGHT (Eric ruling C1) is geometry, not flavour: the
 // torpedo's bow ±30° arc means a hull sitting behind a Torpedo Boat denies its
@@ -104,6 +114,9 @@ const MINE_LOOKAHEAD = CONFIG.mine.triggerRadius * 3;
 const CRUISE_THROTTLE = 0.6;
 /** Astern throttle while un-beaching. */
 const UNBEACH_THROTTLE = -1;
+/** The astern rudder when no coastline is in reach to turn away from — a FIXED
+ *  sign, never an rng pick, so a bow-on beaching still rotates its exit. */
+const UNBEACH_FALLBACK_RUDDER = 1;
 /** Fixed-point iterations for the intercept solve (converges well inside 3). */
 const LEAD_ITERATIONS = 3;
 /** u — how far astern of a peer a `duelist` steers for. Just outside the
@@ -433,45 +446,143 @@ function chooseAct(self: ShipRecord, sit: BotSituation, posture: BotPosture): nu
 // STEERING
 // ---------------------------------------------------------------------------
 
+/** Which stage of the un-beach manoeuvre is driving the helm this tick. */
+type Manoeuvre = 'none' | 'astern' | 'hold';
+
 /**
- * Track SUSTAINED LAND CONTACT and arm the astern manoeuvre. Returns true
- * while un-beaching.
+ * The rudder to hold through an astern burst, chosen ONCE as it arms so the
+ * BOW swings AWAY from the coast that is blocking it. Nearest coastline wins
+ * (first-in-array on ties — deterministic, and rng-free), with the mandatory
+ * bounding-circle broadphase before any polygon is visited.
  *
- * IT READS THE SIMULATION'S OWN CONTACT BIT, NOT A SPEED HEURISTIC. Grounding
- * in this game is a directional speed CAP, never a stop (cycle 59): a dead-on
- * grounded hull still holds `islandSpeedMult x maxSpeed` — 11.25 / 10.00 /
- * 8.75 u/s by class — so ANY "am I going nowhere" threshold low enough to mean
- * beached is below a number a beached hull never goes below, and any threshold
- * above it fires on every slow turn in open water. This function's first
- * shipped form tripped under 3 u/s and was therefore unreachable dead code: a
- * bot could grind a coastline for minutes. `ShipRecord.landContact` is the
- * resolver's exact answer (`resolveShipPose().contact`, LAND ONLY — a
- * map-boundary press is deliberately not contact), stored by
- * World.resolveCollisions. Reading it off the bot's OWN record is a self-read
- * like hp or ammo, not perception of the world.
+ * Unlike `islandBias` this does NOT apply a forward half-disc filter: a hull
+ * that has just been shoved by the resolver can have the rock it is pinned
+ * against anywhere around it, and turning away from the nearest land is right
+ * in every one of those cases.
  *
- * It is ONE TICK STALE by construction — botsTick sits ahead of
- * resolveCollisions in STEP_ORDER so every AI input reaches applyInputs in the
- * same tick — which is 50ms against a 1500ms trip and cannot matter.
- *
- * The trip and the manoeuvre still share ONE number, `CONFIG.bots.stuckMs`:
- * sustained contact for that window arms the reverse, which then holds for the
- * same window, so a grounded bot is reversing within one and clear within two.
- * The window doubles as the graze debounce — a brush that resolves inside it
- * never commands astern, and only water the hull is genuinely pressing into
- * reports contact tick after tick.
+ * SIGN NOTE — this is a REVERSE rudder. stepShip scales rudder authority by
+ * `speed / steerageSpeed` with a SIGNED speed, so a given rudder yaws the hull
+ * the opposite way when making sternway. The forward-sense "turn away" rudder
+ * is `cross > 0 ? -1 : +1` (islandBias's idiom); backing, we command its
+ * NEGATION to get the same bow swing. `+1` is the fixed fallback when no coast
+ * is in reach at all, never a random pick.
  */
-function updateStuck(self: ShipRecord, mind: BotMind, now: number): boolean {
-  if (now < mind.unbeachUntil) return true;
+function asternRudder(self: ShipRecord, port: BotWorldPort): number {
+  const { x, y, heading } = self.state;
+  const fx = Math.cos(heading);
+  const fy = Math.sin(heading);
+  let cross: number | null = null;
+  let bestD = ISLAND_LOOKAHEAD;
+  for (const isle of port.map.islands) {
+    if (Math.hypot(isle.x - x, isle.y - y) > ISLAND_LOOKAHEAD + isle.r) continue;
+    const coast = nearestCoastPoint({ x, y }, isle);
+    if (coast.dist >= bestD) continue;
+    bestD = coast.dist;
+    cross = fx * (coast.y - y) - fy * (coast.x - x);
+  }
+  if (cross === null) return UNBEACH_FALLBACK_RUDDER;
+  return cross > 0 ? 1 : -1;
+}
+
+/** Fold this tick's land contact into the arming dwell, and report whether it
+ *  has now tripped. Any tick out of contact resets it, so only water the hull
+ *  is genuinely pressing into can arm the manoeuvre. */
+function tripped(self: ShipRecord, mind: BotMind): boolean {
   if (!self.landContact) {
     mind.stuckMs = 0;
     return false;
   }
   mind.stuckMs += CONFIG.tick.simDtMs;
-  if (mind.stuckMs < CONFIG.bots.stuckMs) return false;
+  return mind.stuckMs >= CONFIG.bots.stuckMs;
+}
+
+/** Stage 1: full astern, under a rudder captured now so it cannot flap. */
+function beginBurst(self: ShipRecord, mind: BotMind, port: BotWorldPort): void {
   mind.stuckMs = 0;
-  mind.unbeachUntil = now + CONFIG.bots.stuckMs;
-  return true;
+  mind.unbeachUntil = port.now + CONFIG.bots.unbeachAsternMaxMs;
+  mind.unbeach = {
+    rudder: asternRudder(self, port),
+    fromX: self.state.x,
+    fromY: self.state.y,
+    holdUntil: 0,
+    holdHeading: 0,
+  };
+}
+
+/**
+ * HAS THE BURST DONE ITS JOB? Both halves are required: the hull is off the
+ * rock AND it has made `unbeachClearU` of ground away from where it stuck. The
+ * second half is what stops the burst ending the instant the resolver lets go,
+ * which would put the helm ahead again with the bow still against the coast.
+ * Plain displacement is a safe stand-in for sternway here because the burst
+ * commands full astern throughout and no hull can carry more than ~4.25u
+ * forward after that order (see CONFIG.bots.unbeachClearU).
+ */
+function burstCleared(self: ShipRecord, mind: BotMind): boolean {
+  const u = mind.unbeach;
+  if (u === undefined || u === null) return true;
+  if (self.landContact) return false;
+  return Math.hypot(self.state.x - u.fromX, self.state.y - u.fromY) >= CONFIG.bots.unbeachClearU;
+}
+
+/** Stage 2: commit to the heading the burst finished on. */
+function beginHold(self: ShipRecord, mind: BotMind, now: number): void {
+  mind.unbeachUntil = 0;
+  if (mind.unbeach === undefined || mind.unbeach === null) return;
+  mind.unbeach.holdUntil = now + CONFIG.bots.unbeachHoldMs;
+  mind.unbeach.holdHeading = self.state.heading;
+}
+
+/**
+ * THE UN-BEACH STATE MACHINE. Three stages, and the middle two exist because
+ * one number could not do both jobs:
+ *
+ *   ARM   — `CONFIG.bots.stuckMs` of SUSTAINED land contact, off the
+ *           simulation's own bit (`ShipRecord.landContact`), never a speed
+ *           guess: grounding is a directional speed CAP, so a dead-on beached
+ *           hull still holds `islandSpeedMult x maxSpeed` (11.25/10.00/8.75
+ *           u/s by class) and no "am I going nowhere" threshold can separate
+ *           that from a slow turn in open water. The bit is ONE TICK STALE by
+ *           construction (botsTick sits ahead of resolveCollisions in
+ *           STEP_ORDER), which is 50ms against a 1500ms dwell.
+ *   ASTERN — full astern until the hull is CLEAR and has made real sternway
+ *           (burstCleared), with `unbeachAsternMaxMs` as a ceiling. It ran for
+ *           `stuckMs` — 1500ms — before this split, which is less sternway
+ *           than a Battleship's own forward way takes to kill: its measured
+ *           net displacement over one such burst was +3.21u, i.e. DEEPER IN
+ *           THE ROCK, and it was the one hull the first grounding fix did not
+ *           help (272.2s worst run against 10-13s for the other two).
+ *   HOLD  — `unbeachHoldMs` committed to the exit heading, target-seek
+ *           suppressed (avoidance stays live). Without it a bot reverses off
+ *           cleanly, re-seeks a bearing that still runs through the same
+ *           island and drives straight back in — the metronome, which is why
+ *           fixing only the arming half DOUBLED land-contact episodes.
+ *
+ * The dwell keeps accumulating THROUGH the hold, deliberately: a committed
+ * exit heading that happens to run onto another rock must be able to re-arm.
+ * It does not accumulate during the burst — that stage already owns the rock.
+ *
+ * A DEATH MID-MANOEUVRE SELF-HEALS, and it is worth saying why rather than
+ * leaving it to be rediscovered: the driver goes silent on a non-afloat hull
+ * without clearing this state, so a bot can respawn mid-burst. The respawn
+ * TELEPORTS it, which satisfies burstCleared's displacement test outright, so
+ * the stale burst releases on the bot's first live tick instead of backing a
+ * fresh hull off a rock that is no longer there.
+ */
+function updateManoeuvre(self: ShipRecord, mind: BotMind, port: BotWorldPort): Manoeuvre {
+  const now = port.now;
+  if (mind.unbeachUntil > 0) {
+    if (now < mind.unbeachUntil && !burstCleared(self, mind)) return 'astern';
+    beginHold(self, mind, now);
+  }
+  if (tripped(self, mind)) {
+    beginBurst(self, mind, port);
+    return 'astern';
+  }
+  const u = mind.unbeach;
+  if (u !== undefined && u !== null && now < u.holdUntil) return 'hold';
+  mind.unbeach = null;
+  return 'none';
 }
 
 /** Should a `duelist` take the rear quarter of this target? Only with a
@@ -511,28 +622,28 @@ function patrolBearing(self: ShipRecord, sit: BotSituation): number {
   return bearing(self.state, { x: sit.ring.cx, y: sit.ring.cy });
 }
 
-/** The bearing the helm wants, applying the priority order in the header. */
+/** The bearing the helm wants, applying the priority order in the header. The
+ *  astern stage never asks: it steers on its captured rudder (see helmFor). */
 function desiredBearing(
   self: ShipRecord,
+  mind: BotMind,
   sit: BotSituation,
   target: BotTrack | null,
   posture: BotPosture,
-  unbeaching: boolean,
+  holding: boolean,
 ): number {
   const pos = self.state;
   const ring = sit.ring;
   if (isOutside(pos, ring.cx, ring.cy, ring.r)) return bearing(pos, { x: ring.cx, y: ring.cy });
-  if (unbeaching) return wrapAngle(pos.heading + Math.PI);
+  if (holding) return mind.unbeach?.holdHeading ?? pos.heading;
   if (target === null || posture === 'reposition') return patrolBearing(self, sit);
   if (posture === 'disengage') return wrapAngle(bearing(pos, target) + Math.PI);
   if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target));
   return bandBearing(self, sit, target);
 }
 
-/** Full ahead everywhere except holding a band (station-keeping) and backing
- *  off a coastline. */
-function throttleFor(posture: BotPosture, unbeaching: boolean): number {
-  if (unbeaching) return UNBEACH_THROTTLE;
+/** Full ahead everywhere except holding a band (station-keeping). */
+function throttleFor(posture: BotPosture): number {
   return posture === 'engage' || posture === 'farm' ? CRUISE_THROTTLE : 1;
 }
 
@@ -601,8 +712,35 @@ function boundaryBias(self: ShipRecord, port: BotWorldPort): number {
   return clampUnit(angleDiff(pos.heading, bearing(pos, { x: 0, y: 0 }))) * AVOID_STRENGTH;
 }
 
-/** Throttle + rudder for this tick: the posture bearing, plus every avoidance
- *  term summed onto the rudder (never replacing it). */
+/**
+ * Throttle + rudder for this tick: the posture bearing, with every avoidance
+ * term composed onto the rudder.
+ *
+ * AVOIDANCE YIELDS THE HELM IN PROPORTION TO ITS OWN PRESSURE, and this is a
+ * fix, not a taste. The shipped composition was a plain sum, `track + avoid`,
+ * over a track term that SATURATES at ±1: a bearing running straight through a
+ * coastline pinned track at +1 against a single island term of −0.8, netting
+ * +0.2 — a turn TOWARD the land the probe had just found. Even at equilibrium
+ * the sum only bought a 0.4/2 = 22.9° offset from a bearing aimed at rock,
+ * which on most approach geometries is not a miss. Weighting the track term by
+ * the avoidance headroom (`1 − |avoid|`) makes one active island term claim
+ * 80% of the helm and two claim all of it, so the bot rounds the obstacle and
+ * resumes its bearing when the coast leaves the probe's forward half-disc,
+ * instead of grinding along it. Measured over the 60s bow-on beaching drill
+ * (per class × 4 map seeds, mean ticks in land contact): 41.6% before this
+ * cycle → 25.4% with the three-stage manoeuvre alone → 8.0% with this. It
+ * changes NO target selection, no engagement band and no profile table — the
+ * bot still wants exactly what it wanted; it just cannot insist through a
+ * headland.
+ *
+ * THE ASTERN STAGE TAKES NO AVOIDANCE AT ALL, and the reason is the same sign
+ * inversion asternRudder documents: every avoidance term here is a FORWARD-
+ * sense bias (steer so the bow swings away), but rudder authority is scaled by
+ * a SIGNED speed, so while making sternway those terms yaw the hull the wrong
+ * way — they would fight the very turn the burst captured its rudder to make.
+ * Backing therefore steers on the captured rudder ALONE. The hold is ordinary
+ * ahead steering, so avoidance stays live through it exactly as usual.
+ */
 function helmFor(
   self: ShipRecord,
   mind: BotMind,
@@ -611,11 +749,15 @@ function helmFor(
   target: BotTrack | null,
   posture: BotPosture,
 ): Helm {
-  const unbeaching = updateStuck(self, mind, port.now);
-  const want = desiredBearing(self, sit, target, posture, unbeaching);
+  const stage = updateManoeuvre(self, mind, port);
+  if (stage === 'astern') {
+    return { throttle: UNBEACH_THROTTLE, rudder: mind.unbeach?.rudder ?? UNBEACH_FALLBACK_RUDDER };
+  }
+  const want = desiredBearing(self, mind, sit, target, posture, stage === 'hold');
   const track = clampUnit(angleDiff(self.state.heading, want) * RUDDER_GAIN);
   const avoid = avoidIslands(self, port) + avoidMines(self, mind) + boundaryBias(self, port);
-  return { throttle: throttleFor(posture, unbeaching), rudder: clampUnit(track + avoid) };
+  const helmLeft = Math.max(0, 1 - Math.abs(avoid));
+  return { throttle: throttleFor(posture), rudder: clampUnit(track * helmLeft + avoid) };
 }
 
 // ---------------------------------------------------------------------------

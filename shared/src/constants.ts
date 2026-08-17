@@ -384,13 +384,74 @@ export const CONFIG = {
      */
     contactMemoryMs: 8000,
     /**
-     * ms of commanding ahead while going nowhere before the un-beach manoeuvre
-     * arms (the fleet AI's stuck-trip precedent at 1200ms; bots get a little
-     * more patience because the grounding damp caps a beached hull well above
-     * zero and a captain-grade brain should be reversing off, not oscillating).
-     * The I/O contract: a grounded bot clears the coastline within this window.
+     * THE UN-BEACH MANOEUVRE, IN FOUR NUMBERS. It ran on ONE (`stuckMs`, doing
+     * double duty as the arming dwell AND the astern burst length) until the
+     * measurement below; the split is what makes it work on the slowest hull.
+     *
+     * ms of SUSTAINED LAND CONTACT (ShipRecord.landContact, never a speed
+     * guess) before the un-beach manoeuvre ARMS — the fleet AI's stuck-trip
+     * precedent at 1200ms, with a little more patience because the grounding
+     * damp caps a beached hull well above zero and a captain-grade brain
+     * should be reversing off, not oscillating. It doubles as the graze
+     * debounce: a brush that resolves inside this window never commands
+     * astern. THIS IS NO LONGER THE BURST LENGTH (see unbeachAsternMaxMs).
      */
     stuckMs: 1500,
+    /**
+     * ms — the CEILING on the full-astern burst. The burst normally ends
+     * EARLIER, on its condition (land contact cleared AND unbeachClearU of
+     * sternway made good), which is what makes it right on all three hulls
+     * instead of only the nimble one; this is the backstop for a hull the
+     * water will not release.
+     *
+     * DERIVED FROM THE WORST HULL, the Battleship, which is why the old
+     * single-constant 1500ms burst failed: a bot arms while STILL MAKING WAY
+     * at the grounding cap (islandSpeedMult x maxSpeed = 8.75 u/s), so a full-
+     * astern order first has to kill that way at `decel` — 8.75/9 = 0.97s of
+     * still travelling FORWARD — and only then build sternway at `accel`
+     * (0 -> 9 u/s in 1.8s, covering 8.1u). Measured net displacement over one
+     * 1500ms burst was torpedoBoat -1.76u, mineLayer -0.06u, battleship
+     * +3.21u: the heaviest hull ended its "escape" DEEPER IN THE ROCK, and
+     * the per-class worst land-contact runs (10.1s / 13.0s / 272.2s) ordered
+     * exactly the same way. The Battleship needs 0.97 + 1.8 + (15 - 8.1)/9 =
+     * 3.54s to meet the clearance condition; 4000ms leaves ~13% for the
+     * resolver's shove and the head-on damp. The other two hulls meet it in
+     * ~2.3s and never reach this ceiling.
+     */
+    unbeachAsternMaxMs: 4000,
+    /**
+     * u — sternway made good (straight-line displacement from where the burst
+     * armed) before the burst may end. The fleet pilot's proven figure: its
+     * 2.5s burst backs ~15u down the track the hull sailed in on, and 250
+     * campaign matches took zero cap-outs on it.
+     *
+     * Paired with "land contact has cleared", and the pairing is what makes
+     * plain displacement a safe stand-in for sternway: the most ground any of
+     * the three hulls can make FORWARD after a full-astern order is
+     * v^2/(2 x decel) = 4.25u (battleship), 3.5u (torpedoBoat), 3.3u
+     * (mineLayer) — all far under 15u — so this threshold cannot be tripped
+     * by the forward half of the burst.
+     */
+    unbeachClearU: 15,
+    /**
+     * ms — THE EXIT-HEADING GRACE HOLD, the manoeuvre's third stage and the
+     * cure for the metronome: without it a bot backs off cleanly, instantly
+     * re-seeks a target bearing that still runs through the same island, and
+     * drives straight back in (land-contact EPISODES per bot-match roughly
+     * doubled, ~2 -> ~5, when the arming half was fixed and this was not).
+     * Target-seek is suppressed for this long and the helm simply holds the
+     * heading the hull left the burst on; avoidance stays live.
+     *
+     * Longer than the worst-case astern -> ahead turnaround, which is the
+     * floor it must clear: a Battleship at -9 u/s brakes to 0 at `decel` in
+     * 1.0s and only reaches its `steerageSpeed` (8 u/s — full rudder
+     * authority) 1.6s after that, so 2.6s of the hold is spent merely getting
+     * way back on and ~0.4s is committed forward running. The light hulls,
+     * which turn around in 1.8-1.9s, get over a second of it. The fleet
+     * pilot's own grace is the same 3s, and its 250-match campaign took zero
+     * cap-outs on it.
+     */
+    unbeachHoldMs: 3000,
     /**
      * The 2 priority profiles per class (Eric ruling E1: *"Each ship should
      * just get 2-3 different 'priority profiles'"*) — assigned per-bot at

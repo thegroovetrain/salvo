@@ -49,7 +49,46 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'profiles',
       'reactionMs',
       'stuckMs',
+      'unbeachAsternMaxMs',
+      'unbeachClearU',
+      'unbeachHoldMs',
     ]);
+  });
+
+  // THE UN-BEACH MANOEUVRE'S FOUR NUMBERS, and the relations between them that
+  // make it a manoeuvre rather than three unrelated knobs. It ran on ONE
+  // (`stuckMs`, arming dwell AND burst length at once), which is why the
+  // heaviest hull never got off: 1500ms of full astern is shorter than the
+  // 0.97s a Battleship spends killing its forward way at the grounding cap,
+  // so its measured net displacement over one burst was +3.21u — deeper in.
+  it('the un-beach constants clear the BATTLESHIP\'s own reverse kinematics', () => {
+    const bs = CONFIG.shipClasses.battleship.kinematics;
+    // Re-derived here from the hull's kinematics, independently of the
+    // comment in constants.ts: kill the forward way the grounding cap leaves
+    // on (decel), then build sternway (accel) far enough to satisfy the
+    // clearance condition. A kinematics retune that outran the ceiling would
+    // silently re-ship the defect.
+    const killWayS = (bs.maxSpeed * CONFIG.ship.islandSpeedMult) / bs.decel;
+    const toFullAsternS = bs.reverseSpeed / bs.accel;
+    const runUpU = 0.5 * bs.accel * toFullAsternS * toFullAsternS;
+    expect(runUpU).toBeLessThan(CONFIG.bots.unbeachClearU); // else the sums below are the wrong shape
+    const clearS = killWayS + toFullAsternS + (CONFIG.bots.unbeachClearU - runUpU) / bs.reverseSpeed;
+    expect(clearS * 1000).toBeLessThanOrEqual(CONFIG.bots.unbeachAsternMaxMs);
+    // The old single-constant burst could NOT do it — the whole defect in one
+    // assertion.
+    expect(clearS * 1000).toBeGreaterThan(CONFIG.bots.stuckMs);
+    // The hold must outlast the astern -> ahead turnaround, or the exit
+    // heading is abandoned before the hull has any way on to hold it with.
+    const turnaroundS = bs.reverseSpeed / bs.decel + bs.steerageSpeed / bs.accel;
+    expect(turnaroundS * 1000).toBeLessThan(CONFIG.bots.unbeachHoldMs);
+    // And no hull can satisfy the clearance condition by carrying FORWARD
+    // after the astern order — the reason plain displacement is a safe
+    // stand-in for sternway made good.
+    for (const cls of SHIP_CLASS_IDS) {
+      const k = CONFIG.shipClasses[cls].kinematics;
+      const cap = k.maxSpeed * CONFIG.ship.islandSpeedMult;
+      expect((cap * cap) / (2 * k.decel)).toBeLessThan(CONFIG.bots.unbeachClearU);
+    }
   });
 
   it('profiles: 2 per class, every class covered; callsigns: ~30, unique', () => {

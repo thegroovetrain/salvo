@@ -27,6 +27,7 @@ import {
   mulberry32,
   nearestCoastPoint,
   sectorArcFor,
+  SHIP_CLASS_IDS,
   wrapAngle,
   type HullId,
   type ShipClassId,
@@ -154,6 +155,26 @@ function seawardBerth(w: World): { x: number; y: number; heading: number } {
   throw new Error('no seaward coast found — the test cannot ground anything honestly');
 }
 
+/**
+ * A live bot OF A NAMED CLASS. `World.addBot()` rolls its hull off the
+ * controller's own stream and there is no seam to force one (deliberately —
+ * enrollment is the controller's business), so the drill enrolls until the
+ * roll lands and then discharges the rejects through the real removeShip path.
+ * A class-blind drill cannot test the hull the defect actually lived on.
+ */
+function botOfClass(w: World, cls: ShipClassId): ShipRecord {
+  const rejects: string[] = [];
+  for (let i = 0; i < 200; i += 1) {
+    const rec = w.addBot();
+    if (rec.hullId === cls) {
+      for (const id of rejects) w.removeShip(id);
+      return rec;
+    }
+    rejects.push(rec.id);
+  }
+  throw new Error(`no ${cls} enrolled in 200 rolls — the test cannot run honestly`);
+}
+
 /** A world whose ocean is empty water — placement, steering and firing tests
  *  are about the bot, not about mapgen. */
 function openWorld(seed: number, cap = 8): World {
@@ -224,9 +245,114 @@ describe('steering — the priority order is the policy', () => {
     expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
     // Clear of the rock -> the trip resets and the helm goes ahead again.
     rec.landContact = false;
+    rec.state.x = CONFIG.bots.unbeachClearU * 2; // and it made real sternway
     port.now = mind.unbeachUntil + 1;
     expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeGreaterThan(0);
     expect(mind.stuckMs).toBe(0);
+  });
+
+  // STAGE 2 IS A CONDITION, NOT A TIMER — and the condition is why the first
+  // grounding fix left the Battleship where it found it. `stuckMs` used to be
+  // both the arming dwell AND the burst length: 1500ms of full astern from the
+  // grounding cap is 0.97s of a heavy hull still travelling FORWARD (kill the
+  // way at `decel`) plus 0.53s of building sternway at `accel`, i.e. +3.21u of
+  // measured NET DISPLACEMENT — deeper into the rock than it started. The
+  // burst now ends on "clear of land AND unbeachClearU of ground made", with
+  // the duration as a ceiling, so the hull that needs longer gets longer.
+  it('THE BURST ENDS ON ITS CONDITION: clear water alone does not end it, sternway does', () => {
+    const w = openWorld(106);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('battleship', 'bulwark');
+    rec.landContact = true;
+    for (let i = 0; i <= CONFIG.bots.stuckMs / CONFIG.tick.simDtMs; i += 1) {
+      COMBAT_BRAIN.decide(rec, mind, port);
+      port.now += CONFIG.tick.simDtMs;
+    }
+    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
+
+    // The resolver lets go, but the hull has barely moved: STILL BACKING. This
+    // is the exact tick the old fixed-timer form would have handed back to the
+    // helm with the bow still against the coast.
+    rec.landContact = false;
+    rec.state.x = CONFIG.bots.unbeachClearU - 1;
+    port.now += CONFIG.tick.simDtMs;
+    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
+
+    // One more unit of sternway clears the condition and the burst releases.
+    rec.state.x = CONFIG.bots.unbeachClearU + 1;
+    port.now += CONFIG.tick.simDtMs;
+    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeGreaterThan(0);
+
+    // ...and the CEILING is the backstop: a hull the water will not release
+    // stops backing when unbeachAsternMaxMs is up, whatever the condition says.
+    const stuck = mkMind('battleship', 'bulwark');
+    rec.landContact = true;
+    rec.state.x = 0;
+    let asternMs = 0; // the FIRST unbroken burst: a hull this pinned re-arms
+    for (let i = 0; i < 400; i += 1) {
+      const backing = COMBAT_BRAIN.decide(rec, stuck, port).throttle < 0;
+      port.now += CONFIG.tick.simDtMs;
+      if (backing) asternMs += CONFIG.tick.simDtMs;
+      else if (asternMs > 0) break;
+    }
+    expect(asternMs).toBeGreaterThan(CONFIG.bots.stuckMs); // longer than the old burst
+    expect(asternMs).toBeLessThanOrEqual(CONFIG.bots.unbeachAsternMaxMs);
+  });
+
+  // STAGE 3 — THE METRONOME CURE. Without it a bot backs off cleanly, re-seeks
+  // a bearing that still runs through the same island and drives straight back
+  // in; land-contact EPISODES per bot-match roughly DOUBLED (~2 -> ~5) when the
+  // arming half was fixed on its own. The hold is the fleet pilot's third
+  // stage, ported: commit to the heading the burst left on, target-seek
+  // suppressed, for CONFIG.bots.unbeachHoldMs.
+  it('THE EXIT-HEADING GRACE HOLD suppresses target-seek, then hands the helm back', () => {
+    const w = openWorld(107);
+    // Ring centre due WEST, so patrol-seek would demand a hard turn the moment
+    // the hold lets go — the assertion cannot pass by the bot simply idling.
+    const port = fakePort(w, { cx: -4000, cy: 0, r: 9000 });
+    const rec = mkBot(w, 'mineLayer', 0, 0, 0); // bow due east
+    const mind = mkMind('mineLayer', 'forager');
+    rec.landContact = true;
+    for (let i = 0; i <= CONFIG.bots.stuckMs / CONFIG.tick.simDtMs; i += 1) {
+      COMBAT_BRAIN.decide(rec, mind, port);
+      port.now += CONFIG.tick.simDtMs;
+    }
+    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0); // backing
+
+    // Off the rock with real sternway: the burst releases into the hold, and
+    // the exit heading is whatever the hull is pointing at right now.
+    rec.landContact = false;
+    rec.state.x = CONFIG.bots.unbeachClearU * 2;
+    rec.state.heading = Math.PI / 2; // bow due north
+    port.now += CONFIG.tick.simDtMs;
+    const held = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(held.throttle).toBeGreaterThan(0);
+    // Dead on the committed heading -> no rudder. Patrol-seek would have
+    // demanded hard over for the ring centre astern-to-port.
+    expect(Math.abs(held.rudder)).toBeLessThan(0.01);
+    const holdUntil = mind.unbeach!.holdUntil;
+    expect(holdUntil - port.now).toBeCloseTo(CONFIG.bots.unbeachHoldMs, 0);
+
+    // Still committed one tick before the hold expires...
+    port.now = holdUntil - CONFIG.tick.simDtMs;
+    expect(Math.abs(COMBAT_BRAIN.decide(rec, mind, port).rudder)).toBeLessThan(0.01);
+    // ...and seeking again the moment it does.
+    port.now = holdUntil;
+    expect(Math.abs(COMBAT_BRAIN.decide(rec, mind, port).rudder)).toBe(1);
+    expect(mind.unbeach).toBeNull();
+  });
+
+  // THE STORM STILL OUTRANKS EVERYTHING, hold included — the header's priority
+  // order is the policy, and a committed exit heading must not sail a hull to
+  // its death in the ring.
+  it('RING ESCAPE outranks the exit-heading hold', () => {
+    const w = openWorld(108);
+    const port = fakePort(w, { cx: -4000, cy: 0, r: 200 }); // far outside it
+    const rec = mkBot(w, 'battleship', 0, 0, 0); // bow due east, ring due west
+    const mind = mkMind('battleship', 'bulwark');
+    mind.unbeach = { rudder: 1, fromX: 0, fromY: 0, holdUntil: port.now + 10000, holdHeading: 0 };
+    expect(Math.abs(COMBAT_BRAIN.decide(rec, mind, port).rudder)).toBe(1);
   });
 
   // A hull with plenty of way on but NO land under it must never reverse: the
@@ -263,6 +389,36 @@ describe('steering — the priority order is the policy', () => {
     const port = fakePort(w, { cx: x + Math.cos(brg) * 2000, cy: y + Math.sin(brg) * 2000, r: 6000 });
     const d = COMBAT_BRAIN.decide(rec, mkMind('torpedoBoat', 'raider'), port);
     expect(Math.abs(d.rudder)).toBeGreaterThan(0);
+  });
+
+  // AVOIDANCE MUST BE ABLE TO WIN. The shipped composition was a plain sum
+  // over a track term that SATURATES at ±1, so a bearing running through a
+  // coastline netted +1 − 0.8 = +0.2: a turn TOWARD the rock the probe had
+  // just found. The geometry below is built so the two terms are in open
+  // opposition and the old arithmetic is the wrong answer by SIGN, not by
+  // degree — the strongest form this assertion can take.
+  it('a wanted bearing that runs THROUGH a coastline never nets a turn toward it', () => {
+    const w = new World(109, 8); // islands intact
+    const isle = [...w.map.islands].sort((a, b) => b.r - a.r)[0];
+    const probe = { x: isle.x - isle.r - 200, y: isle.y };
+    const coast = nearestCoastPoint(probe, isle);
+    const toCoast = Math.atan2(coast.y - probe.y, coast.x - probe.x);
+    // Stand 60u off the coast and point 0.6 rad to STARBOARD of it, so the
+    // land lies to port and steering onto the wanted bearing means turning
+    // into it. RUDDER_GAIN (2) saturates the track term at that error.
+    const x = coast.x - Math.cos(toCoast) * 60;
+    const y = coast.y - Math.sin(toCoast) * 60;
+    const rec = mkBot(w, 'torpedoBoat', x, y, wrapAngle(toCoast - 0.6));
+    // Ring centre straight through the island: patrol-seek wants `toCoast`.
+    const port = fakePort(w, {
+      cx: x + Math.cos(toCoast) * 3000,
+      cy: y + Math.sin(toCoast) * 3000,
+      r: 9000,
+    });
+    const d = COMBAT_BRAIN.decide(rec, mkMind('torpedoBoat', 'raider'), port);
+    // Land to port -> the helm must go STARBOARD. The plain sum answered
+    // +0.2 (port, into the rock); the weighted composition answers ~-0.6.
+    expect(d.rudder).toBeLessThan(-0.4);
   });
 
   it('THE REAR-QUARTER DOGFIGHT (C1): a duelist steers behind a peer, but never behind a Mine Layer', () => {
@@ -591,16 +747,29 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
   // speed trip (the hull grounds and holds the grounding cap, 3-4x above the
   // trip, so the manoeuvre never arms) and passes against the contact bit.
   //
-  // WHAT IT DELIBERATELY DOES NOT ASSERT, because the fix does not deliver it:
-  // the bot reverses off and then, still wanting a bearing that runs through
-  // the same island, drives back in — measured 54% of ticks in contact across
-  // this window (against 96.4% one-unbroken-run before the fix). That residual
-  // is the fleet-pilot un-beach V2's third stage, the EXIT-HEADING GRACE HOLD
-  // (batchsim/pilots.ts), which this brain never ported: it needs a held
-  // heading on BotMind, so it is a separate change, not a knob.
-  it('a bot driven bow-on into a coastline UN-BEACHES ITSELF, and no run is unbounded', () => {
-    const w = new World(3103, 8); // ISLANDS INTACT: this test is the beaching
-    const rec = w.ships.get(w.addBot().id)!;
+  // IT NOW RUNS PER HULL CLASS, because the hull is what the second half of
+  // the defect was about. The first grounding fix (the contact bit) rescued
+  // the two light hulls and left the BATTLESHIP where it found it: 1500ms of
+  // full astern is less than the 0.97s a heavy hull spends merely killing its
+  // forward way, so its "escape" ended +3.21u DEEPER in the rock, and the
+  // campaign's worst unbroken run stayed at 272.2s against 10.1s/13.0s for the
+  // torpedo boat and the mine layer. A regression test that takes whatever
+  // class the enroll roll hands it could not see that, so it asks for each.
+  //
+  // MEASURED over this 60s drill, per class, across the four map seeds it
+  //   runs (ticks in land contact, min-max over the twelve runs):
+  //   contact bit only (before this cycle):  5.1-67.8%, mean 41.6%, worst
+  //     unbroken run 5.4s (battleship, seed 3103), 3-26 episodes;
+  //   + the three-stage manoeuvre:          15.2-36.4%, mean 25.4%, worst
+  //     unbroken run 3.9s;
+  //   + avoidance taking the helm (shipped): 0.1-29.4%, mean  8.0%, worst
+  //     unbroken run 2.9s, and eight of the twelve runs under 10%.
+  // The worst-run bar below is the MECHANISM'S OWN CONTRACT rather than a
+  // measured number: arm within one dwell of touching, and back off for at
+  // most one burst ceiling.
+  const beachDrill = (seed: number, cls: ShipClassId) => {
+    const w = new World(seed, 8); // ISLANDS INTACT: this test is the beaching
+    const rec = botOfClass(w, cls);
     const berth = seawardBerth(w);
     rec.state.x = berth.x;
     rec.state.y = berth.y;
@@ -609,7 +778,8 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
     rec.prevPose = { ...rec.state };
     rec.landContact = false;
 
-    const TICKS = 1200; // 60 s — four times the whole un-beach contract
+    const TICKS = 1200; // 60 s — many times over the whole un-beach contract
+    let ticks = 0;
     let contactTicks = 0;
     let episodes = 0;
     let run = 0;
@@ -617,6 +787,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
     for (let t = 0; t < TICKS; t += 1) {
       w.step();
       if (!isAfloat(rec.lifecycle)) break; // sunk by a fleet hull: stop reading
+      ticks += 1;
       if (rec.landContact) {
         contactTicks += 1;
         if (run === 0) episodes += 1;
@@ -626,20 +797,41 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
         run = 0;
       }
     }
+    return { ticks, contactTicks, episodes, worstRunMs: worstRun * CONFIG.tick.simDtMs };
+  };
 
-    // IT REALLY GROUNDED — otherwise the rest of this proves nothing.
-    expect(contactTicks).toBeGreaterThan(0);
-    // AND IT REALLY GOT OFF, EVERY TIME. This is the assertion the defect
-    // fails: against the retired speed trip the hull grounds on the first few
-    // seconds and NEVER leaves — one unbroken 57.8 s run over this same 60 s
-    // window (96.4% of ticks in contact). The bound is the trip window plus
-    // the manoeuvre window, doubled: arm within one CONFIG.bots.stuckMs of
-    // touching, clear within the next, with slack for a heavy hull's shove.
-    expect(worstRun * CONFIG.tick.simDtMs).toBeLessThanOrEqual(CONFIG.bots.stuckMs * 4);
-    // ...repeatedly and under its own power, which is what separates "it
-    // un-beaches" from "it happened to drift clear once".
-    expect(episodes).toBeGreaterThan(3);
-  });
+  const DRILL_SEEDS = [3103, 3105, 3107, 3109];
+
+  for (const cls of SHIP_CLASS_IDS) {
+    it(`a ${cls} driven bow-on into a coastline UN-BEACHES ITSELF, and no run is unbounded`, () => {
+      const runs = DRILL_SEEDS.map((seed) => beachDrill(seed, cls));
+      let contactTicks = 0;
+      let ticks = 0;
+      for (const d of runs) {
+        // IT REALLY GROUNDED — otherwise the rest of this proves nothing.
+        expect(d.contactTicks).toBeGreaterThan(0);
+        // AND IT REALLY GOT OFF, EVERY TIME, WITHIN THE MANOEUVRE'S OWN
+        // BUDGET: one arming dwell to notice, one astern burst to leave.
+        // Against the retired speed trip the hull grounded in the first few
+        // seconds and NEVER left — one unbroken 57.8s run over this same 60s
+        // window (96.4% of ticks in contact); against the contact bit alone a
+        // battleship still held a 5.4s run here (67.8% of ticks).
+        expect(d.worstRunMs).toBeLessThanOrEqual(CONFIG.bots.stuckMs + CONFIG.bots.unbeachAsternMaxMs);
+        contactTicks += d.contactTicks;
+        ticks += d.ticks;
+      }
+      // ...repeatedly and under its own power on the hardest seed, which is
+      // what separates "it un-beaches" from "it happened to drift clear once".
+      expect(Math.max(...runs.map((d) => d.episodes))).toBeGreaterThan(3);
+      // AND THE METRONOME IS BROKEN — the assertion the exit-heading hold and
+      // the avoidance weighting buy, and the one the previous fix explicitly
+      // could not make. Measured per class over these four seeds: torpedo boat
+      // 5.0%, battleship 13.2%, mine layer 6.2% (worst single run 29.4%,
+      // battleship on seed 3107 — this drill is deliberately hostile: the
+      // patrol bearing runs THROUGH the island the hull is parked against).
+      expect(contactTicks / ticks).toBeLessThan(0.2);
+    });
+  }
 
   it('is deterministic per world seed — same seed, same water', () => {
     const run = (): string => {
