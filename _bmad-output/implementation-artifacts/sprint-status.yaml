@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-16  # epic-6 OPEN; interstitial cycle 95 (0.17.95) mine-card rulings, epic-6 amendment 25, PV 39->40
+# last_updated: 2026-08-17  # epic-6 OPEN; Story 6-5 SOLO VS AI landed cycle 97 (0.17.97), epic-6 amendments 29-31, PV unchanged at 40
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -111,7 +111,7 @@
 #   cycle 95 (0.17.95)  mines: fouling damage penalty removed (kills the pick-order bug), trip ring DERIVED from blast, the two ring cards merged — epic-6 amendment 25; PV 39->40
 
 generated: 2026-07-17
-last_updated: 2026-08-16
+last_updated: 2026-08-17
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -203,7 +203,7 @@ development_status:
   # OVERTAKEN: 5-1 removed the gate and moved solo termination to 6-5. See deferred-work.md.
   6-3-the-participants-only-win-check: done  # 2026-08-15 cycle 89 (0.17.89); PV 36->37; amendments 13-18
   6-4-combat-bot-ai: done  # 2026-08-17 cycle 96 (0.17.96); PV 40; amendments 26-28; bot-evidence-2026-08-16.md
-  6-5-solo-vs-ai-mode: backlog
+  6-5-solo-vs-ai-mode: done  # 2026-08-17 cycle 97 (0.17.97); PV 40; amendments 29-31; queue-free create door, 1 human + 19 AI captains
   6-6-mode-select-queue-liveness: backlog
   6-7-reconnection-ux: backlog
   epic-6-retrospective: optional

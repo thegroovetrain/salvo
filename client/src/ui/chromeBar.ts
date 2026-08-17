@@ -11,9 +11,12 @@
 //
 // THE THREE RATIFIED RULES THIS MODULE ENCODES
 //
-//  • AFLOAT counts CAPTAINS — humans only, the local player included (the
-//    public-register cycle, superseding amendment 19's all-hulls count: drones
-//    are not combatants). The rule and its doctrine note live in score.ts
+//  • AFLOAT counts CAPTAINS — every PARTICIPANT, the local player included
+//    (the public-register cycle, superseding amendment 19's all-hulls count:
+//    drones are not combatants). Story 6-5 widened "captains" from humans to
+//    participants: an AI captain holds a roster row and is counted, because it
+//    contests the match exactly as a human does. Fleet hulls never are. The
+//    rule and its doctrine note live in score.ts
 //    (isAfloatHull), beside the rival count it remains half-asymmetric with.
 //  • THE RING READOUT IS A CONTINUOUS COUNTDOWN (amendment 26, superseding
 //    amendment 20's reveal-beat announcement): every pre-close beat — clear,
@@ -193,8 +196,9 @@ export interface ChromeBarView {
    *  whole pre-live ready room (waiting/gathering/countdown), where the match
    *  phase lines own top-center. */
   visible: boolean;
-  /** Captains still afloat — humans only, the local player included (the
-   *  public-register cycle; drones are excluded — score.ts isAfloatHull). */
+  /** Captains still afloat — every participant (human OR AI), the local player
+   *  included (the public-register cycle; drones are excluded — score.ts
+   *  isAfloatHull). */
   afloat: number;
   /** Own kills, the server-authoritative public roster tally — EVERY hull the
    *  server credited, DRONES INCLUDED (the same number the results modal

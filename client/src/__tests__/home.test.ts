@@ -10,7 +10,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  deploySubline,
   homeYieldStyle,
   queueStatusLine,
   requeueStatusLine,
@@ -29,16 +28,13 @@ import { cssHex } from '../util/color.js';
 
 // --- pure reducers -----------------------------------------------------------
 
-describe('deploySubline', () => {
-  it('prompts a choice when no class is chosen', () => {
-    expect(deploySubline(null)).toBe('SELECT A CLASS TO DEPLOY');
-  });
-  it('names the chosen class · SOLO (no mode selector — Epic 6)', () => {
-    expect(deploySubline('torpedoBoat')).toBe('DEPLOY AS TORPEDO BOAT · SOLO');
-    expect(deploySubline('battleship')).toBe('DEPLOY AS BATTLESHIP · SOLO');
-    expect(deploySubline('mineLayer')).toBe('DEPLOY AS MINE LAYER · SOLO');
-  });
-});
+// RETIRED (Eric ruling 2026-08-17): the `deploySubline` block — "prompts a
+// choice when no class is chosen" and "names the chosen class · SOLO" — is gone
+// with the behaviour it pinned. The deploy buttons carry NO sub-line at all now
+// ("I want the current 'PLAY' button to say 'SOLO' and nothing else"), so the
+// reducer was deleted rather than reworded, and its tests are retired rather
+// than bent onto new copy. The Story 6.5 `soloSubline` block went the same way,
+// same ruling, same reason.
 
 describe('serverStatusLine — probe reducer', () => {
   it('probing / ready are quiet, unreachable is denied', () => {
@@ -114,8 +110,16 @@ function home(): HTMLElement {
   return document.getElementById('main-menu') as HTMLElement;
 }
 
+/** The MODE ROW's primary. Selected by TITLE, not by label text: the label is
+ *  `SOLO` since Eric's 2026-08-17 ruling, which `SOLO VS AI` also contains. */
 function playButton(): HTMLButtonElement {
-  return [...home().querySelectorAll('button')].find((b) => b.textContent?.includes('PLAY')) as HTMLButtonElement;
+  return home().querySelector('[title="Deploy alone against other captains"]') as HTMLButtonElement;
+}
+
+function soloButton(): HTMLButtonElement {
+  return home().querySelector(
+    '[title="Deploy alone against a field of AI captains"]',
+  ) as HTMLButtonElement;
 }
 
 function nameInput(): HTMLInputElement {
@@ -153,13 +157,18 @@ describe('showHome — first-run vs returning routing', () => {
     document.getElementById('hc-class-select')?.remove();
   });
 
-  it('first run: chip prompts SELECT CLASS, sub-line prompts, PLAY opens the layer (no deploy)', () => {
+  // RE-TAKEN (Eric ruling 2026-08-17): the sub-line's "SELECT A CLASS TO DEPLOY"
+  // prompt is RETIRED with the sub-line itself — the chip's own SELECT CLASS /
+  // CHOOSE A HULL prompt is now the only first-run signal, and the routing it
+  // guards (SOLO opens the bay instead of deploying) is unchanged.
+  it('first run: the chip prompts SELECT CLASS and SOLO opens the layer (no deploy)', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     const text = home().textContent ?? '';
     expect(text).toContain('SELECT CLASS');
-    expect(text).toContain('SELECT A CLASS TO DEPLOY');
+    expect(text).toContain('CHOOSE A HULL');
     expect(text).not.toContain('CLICK TO OPEN THE CLASS BAY'); // slimmed away with the sub-line
+    expect(text).not.toContain('DEPLOY AS'); // no sub-line survives anywhere
     playButton().click();
     expect(onDeploy).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).not.toBeNull(); // layer opened
@@ -167,7 +176,7 @@ describe('showHome — first-run vs returning routing', () => {
 
   // RE-TAKEN pin (was "chip shows the class + loadout"): the chip is SLIM now —
   // silhouette, role tag, class name, CHANGE CLASS. No loadout sub-line.
-  it('returning: chip shows the class with NO loadout sub-line, PLAY connects immediately', () => {
+  it('returning: chip shows the class with NO loadout sub-line, SOLO connects immediately', () => {
     localStorage.setItem('hullcracker.class', 'battleship');
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
@@ -177,7 +186,9 @@ describe('showHome — first-run vs returning routing', () => {
     expect(text).toContain('CHANGE CLASS');
     expect(text).not.toContain('STD GUN'); // the retired loadout sub-line
     expect(text).not.toContain('LONG-RANGE CANNON');
-    expect(text).toContain('DEPLOY AS BATTLESHIP · SOLO');
+    // The chip is the ONLY place the hull is named now (Eric ruling 2026-08-17):
+    // the button's "DEPLOY AS BATTLESHIP · SOLO" sub-line was restating it.
+    expect(text).not.toContain('DEPLOY AS BATTLESHIP');
     playButton().click();
     expect(onDeploy).toHaveBeenCalledWith('', 'battleship'); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
@@ -203,7 +214,7 @@ describe('showHome — first-run vs returning routing', () => {
     expect(divider.style.minWidth).toBe('0px');
   });
 
-  it('first-run PLAY → layer → pick updates the chip + sub-line without deploying', () => {
+  it('first-run SOLO → layer → pick updates the chip without deploying', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     playButton().click(); // opens the layer (TB pre-highlighted)
@@ -211,9 +222,173 @@ describe('showHome — first-run vs returning routing', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); // pick it
     expect(onDeploy).not.toHaveBeenCalled();
     const text = home().textContent ?? '';
-    expect(text).toContain('BATTLESHIP');
-    expect(text).toContain('DEPLOY AS BATTLESHIP · SOLO');
+    expect(text).toContain('BATTLESHIP'); // the chip, which is now the only place it shows
+    expect(text).not.toContain('SELECT CLASS'); // ...and the first-run prompt is gone
     expect(localStorage.getItem('hullcracker.class')).toBe('battleship'); // persisted
+  });
+});
+
+// Story 6.5 — the port's SECOND door, on the row below the MODE ROW (Eric
+// ruling 2026-08-17). DESIGN.md defines exactly one button (Primary: amber
+// outline + glow) and has NO secondary spec, so these pins take the treatment
+// the story ships: the results modal's two-action precedent ("the secondary is
+// the same shape UNLIT"), phosphor rather than amber, and no ⏎ chip (Enter is
+// bound to the SOLO primary only — the chip is a truthfulness rule).
+describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+  });
+
+  it('renders TWO bare mode buttons: SOLO in the mode row, SOLO VS AI below', () => {
+    localStorage.setItem('hullcracker.class', 'torpedoBoat');
+    showHome('0.0.0-test', vi.fn());
+    expect(soloButton()).not.toBeNull();
+    expect(soloButton().textContent).toBe('SOLO VS AI');
+    expect(playButton().textContent).toBe('SOLO'); // was PLAY, Eric ruling 2026-08-17
+    // Neither carries a sub-line — the Class Chip above already names the hull.
+    expect(soloButton().children.length).toBe(1);
+    expect(playButton().children.length).toBe(1);
+  });
+
+  it('is on its OWN row, below the mode row that will hold DUO and TRIO', () => {
+    showHome('0.0.0-test', vi.fn());
+    const modeRow = playButton().parentElement as HTMLElement;
+    // Row 1 is a real flex ROW today with one button in it, so DUO/TRIO drop in
+    // as siblings with no rewrite (Eric: "in-line with DUO and TRIO modes").
+    expect(modeRow.style.flexDirection).toBe('row');
+    expect(modeRow.style.justifyContent).toBe('center');
+    expect(modeRow.style.flexWrap).toBe('wrap'); // never past the container edge
+    expect([...modeRow.children]).toContain(playButton());
+    expect([...modeRow.children]).not.toContain(soloButton());
+    // Row 2 is the solo door, centered under it — a sibling of the row, not in it.
+    const stack = modeRow.parentElement as HTMLElement;
+    expect(stack.style.flexDirection).toBe('column');
+    expect(stack.style.alignItems).toBe('center');
+    expect([...stack.children]).toEqual([modeRow, soloButton()]);
+  });
+
+  it('sits AFTER the mode row in the DOM, so Tab reaches it in reading order', () => {
+    showHome('0.0.0-test', vi.fn());
+    const buttons = [...home().querySelectorAll('button')];
+    expect(buttons.indexOf(soloButton())).toBe(buttons.indexOf(playButton()) + 1);
+    // A real <button>: focusable and Enter/Space-activatable by the platform, so
+    // it needs no role/tabindex shim — and it must never be taken OUT of tab
+    // order by one.
+    expect(soloButton().tagName).toBe('BUTTON');
+    expect(soloButton().tabIndex).toBeGreaterThanOrEqual(0);
+    expect(soloButton().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('is the UNLIT secondary: phosphor outline, NO amber, NO glow', () => {
+    showHome('0.0.0-test', vi.fn());
+    expect(soloButton().style.borderColor).toBe('var(--hc-phosphor)');
+    expect(soloButton().style.borderWidth).toBe('1px'); // outline, never a filled slab
+    expect(soloButton().style.boxShadow).toBe(''); // the glow is the primary's alone
+    // Amber is the ACTION register and DESIGN.md forbids it as decoration; it
+    // must not appear anywhere on this control.
+    expect(soloButton().getAttribute('style')).not.toContain('amber');
+    const label = soloButton().firstElementChild as HTMLElement;
+    expect(label.style.color).toBe('var(--hc-phosphor)');
+    expect(label.style.letterSpacing).toBe('0.34em'); // mono uppercase, letter-spaced
+    expect(label.textContent).toBe((label.textContent ?? '').toUpperCase());
+  });
+
+  it('the SOLO primary keeps the lit amber register beside it', () => {
+    showHome('0.0.0-test', vi.fn());
+    expect(playButton().style.borderColor).toBe('var(--hc-amber)');
+    expect(playButton().style.boxShadow).not.toBe(''); // the primary's glow
+    expect((playButton().firstElementChild as HTMLElement).style.color).toBe('var(--hc-amber)');
+    // Both boxes are the same shape — the ONLY difference is lit vs unlit.
+    expect(playButton().style.height).toBe(soloButton().style.height);
+    expect(playButton().style.width).toBe(soloButton().style.width);
+  });
+
+  it('carries NO ⏎ chip — Enter is bound to the SOLO primary only', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    showHome('0.0.0-test', vi.fn());
+    expect(soloButton().textContent).not.toContain('⏎');
+    expect(playButton().textContent).not.toContain('⏎');
+  });
+
+  it('Enter in the callsign field still runs the SOLO primary, never the solo-vs-AI door', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const onDeploy = vi.fn();
+    const onSolo = vi.fn();
+    showHome('0.0.0-test', onDeploy, vi.fn(), onSolo);
+    const input = nameInput();
+    input.focus();
+    pressOn(input, 'Enter');
+    expect(onDeploy).toHaveBeenCalledTimes(1);
+    expect(onSolo).not.toHaveBeenCalled();
+  });
+
+  it('a click deploys through the SOLO door with the same callsign + class', () => {
+    localStorage.setItem('hullcracker.class', 'mineLayer');
+    const onDeploy = vi.fn();
+    const onSolo = vi.fn();
+    showHome('0.0.0-test', onDeploy, vi.fn(), onSolo);
+    nameInput().value = 'skipper';
+    soloButton().click();
+    expect(onSolo).toHaveBeenCalledWith('skipper', 'mineLayer');
+    expect(onDeploy).not.toHaveBeenCalled(); // the two doors never cross
+    expect(localStorage.getItem('hullcracker.name')).toBe('skipper'); // callsign persisted
+  });
+
+  it('first run: the solo button opens the class bay instead of deploying', () => {
+    const onSolo = vi.fn();
+    showHome('0.0.0-test', vi.fn(), vi.fn(), onSolo);
+    soloButton().click();
+    expect(onSolo).not.toHaveBeenCalled();
+    expect(document.getElementById('hc-class-select')).not.toBeNull();
+  });
+
+  // RE-TAKEN (Eric ruling 2026-08-17): was "a class pick updates BOTH sub-lines".
+  // There are no sub-lines now, so the pin becomes the inverse — a class pick
+  // must leave the button labels ALONE, since they are mode labels, not context.
+  it('a class pick in the bay leaves both button labels untouched', () => {
+    showHome('0.0.0-test', vi.fn());
+    playButton().click(); // first-run: opens the bay
+    press('2'); // battleship
+    press('Enter');
+    expect(playButton().textContent).toBe('SOLO');
+    expect(soloButton().textContent).toBe('SOLO VS AI');
+    expect(home().textContent).toContain('BATTLESHIP'); // ...the chip took the pick
+  });
+
+  it('setBusy dims BOTH doors, and a busy solo press cannot start a second join', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const onSolo = vi.fn();
+    const handle = showHome('0.0.0-test', vi.fn(), vi.fn(), onSolo);
+    handle.setBusy(true);
+    expect(soloButton().style.opacity).toBe('0.4');
+    expect(playButton().style.opacity).toBe('0.4');
+    soloButton().click();
+    expect(onSolo).not.toHaveBeenCalled();
+    handle.setBusy(false);
+    expect(soloButton().style.opacity).toBe('1');
+  });
+
+  // R4 (no lie on screen): the solo path never enters the pool, so the queue's
+  // waiting register must never appear on it — not before, not during, not after.
+  it('never renders the queue-wait copy on the solo path', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const handle = showHome('0.0.0-test', vi.fn(), vi.fn(), vi.fn());
+    soloButton().click();
+    handle.setBusy(true);
+    handle.setStatus('CONNECTING…', 'info');
+    expect(home().textContent).toContain('CONNECTING…');
+    expect(home().textContent).not.toContain('AWAITING A SECOND CAPTAIN');
+    expect(home().textContent).not.toContain('QUEUED');
+  });
+
+  it('the solo button is never personal-tinted (it is a system register, like PLAY)', () => {
+    localStorage.setItem('hullcracker.color', '8');
+    showHome('0.0.0-test', vi.fn());
+    const hue = normColor(cssHex(PLAYER_HUES[8]));
+    expect(soloButton().style.borderColor).not.toBe(hue);
+    expect(nameInput().style.borderColor).toBe(hue); // ...but the callsign still is
   });
 });
 
@@ -323,11 +498,11 @@ describe('showHome — the color picker is GONE from home (it lives in the class
     expect(nameInput().style.borderColor).toBe(hue);
   });
 
-  // The PLAY button's amber chrome lives in a `border:1px solid var(--hc-amber)`
-  // blob that jsdom's cssstyle voids wholesale (the documented CSSOM-blob
-  // hazard), so it can't be read back. What IS pinnable: the accent repaint
-  // never writes a personal hue onto it, while the chip/callsign both get one.
-  it('PLAY is never personal-tinted — the amber action register stays amber', () => {
+  // The accent repaint must never write a personal hue onto a deploy button,
+  // while the chip/callsign both get one. (The amber outline itself is readable
+  // now that the border is assigned as separate properties rather than inside a
+  // `border:1px solid var(--x)` blob, which jsdom's cssstyle voids wholesale.)
+  it('the SOLO primary is never personal-tinted — the amber action register stays amber', () => {
     localStorage.setItem('hullcracker.color', '8');
     showHome('0.0.0-test', vi.fn());
     const hue = normColor(cssHex(PLAYER_HUES[8]));
@@ -361,14 +536,13 @@ describe('showHome — CONFIRM SELECTION saves the class WITHOUT deploying', () 
   it('click: class persisted, bay closes back to port, NO connection attempted', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
-    playButton().click(); // first-run PLAY opens the bay (TB pre-highlighted)
+    playButton().click(); // first-run SOLO opens the bay (TB pre-highlighted)
     press('3'); // highlight mineLayer
     confirmButton().click();
     expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
-    expect(onDeploy).not.toHaveBeenCalled(); // PLAY is the ONLY deploy path
+    expect(onDeploy).not.toHaveBeenCalled(); // the buttons are the ONLY deploy path
     expect(document.getElementById('hc-class-select')).toBeNull();
-    expect(home().textContent).toContain('MINE LAYER');
-    expect(home().textContent).toContain('DEPLOY AS MINE LAYER · SOLO');
+    expect(home().textContent).toContain('MINE LAYER'); // the chip took the pick
   });
 
   it('Enter in the bay confirms the same way (no deploy)', () => {

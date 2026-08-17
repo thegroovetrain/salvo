@@ -2,7 +2,10 @@
 // over the live ambient CIC Pixi scene (render/ambient.ts), styled per DESIGN.md
 // and the ratified mock (home-class-picker-1.html): wordmark, callsign, a
 // slim current-class Class Chip that OPENS the class-select layer
-// (ui/classSelect.ts), one dominant amber OUTLINE+GLOW PLAY button, an inert
+// (ui/classSelect.ts), a MODE ROW carrying the dominant amber OUTLINE+GLOW SOLO
+// button (DUO/TRIO join it in-line later) with the UNLIT phosphor SOLO VS AI
+// door centered on the row below (Story 6.5 — the port's two doors; Eric ruling
+// 2026-08-17 relabelled PLAY → SOLO and deleted both sub-lines), an inert
 // How-to-Play link + server status line, and the settings gear — which as of
 // Story 2.3 opens the REAL settings overlay (ui/settings.ts), as does ESC with
 // the class bay closed. The overlay is TRANSPARENT so the ambient scene
@@ -15,12 +18,13 @@
 // (via `repaintAccent`, subscribed ONCE at mount to the hoist's onChange — not
 // resubscribed per pick — so a hue chosen in the bay repaints the port behind
 // it; the subscription is released by hide()'s disposers). Amber stays the
-// ACTION register (PLAY only) and phosphor stays the system/status register —
-// neither is ever personalized.
+// ACTION register (the SOLO primary only) and phosphor stays the system/status
+// register — neither is ever personalized.
 //
-// First-run (no stored class): the chip shows a SELECT CLASS prompt and PLAY/
-// Enter OPENS the layer instead of connecting — no default class is ever pushed.
-// A returning player (stored class) deploys straight from PLAY. The callsign
+// First-run (no stored class): the chip shows a SELECT CLASS prompt and either
+// deploy button (or Enter) OPENS the layer instead of connecting — no default
+// class is ever pushed. A returning player (stored class) deploys straight from
+// the button they press. The callsign
 // persists in localStorage; sanitizeName/load-save helpers are pure + tested.
 // All colors/typography via CLIENT_CONFIG tokens (var(--hc-*) + registerCss;
 // cssHex for the personal hues, which have no --hc-* var).
@@ -119,10 +123,15 @@ function saveClass(cls: ShipClassId): void {
 
 // --- pure copy + status reducers (tested) ------------------------------------
 
-/** PLAY sub-line copy: prompt when no class chosen, else DEPLOY AS <CLASS> · SOLO. */
-export function deploySubline(cls: ShipClassId | null): string {
-  return cls === null ? 'SELECT A CLASS TO DEPLOY' : `DEPLOY AS ${CLASS_DISPLAY_NAMES[cls]} · SOLO`;
-}
+// THE DEPLOY BUTTONS CARRY NO SUB-LINE (Eric ruling 2026-08-17, Story 6.5).
+// `deploySubline()` ("DEPLOY AS <CLASS> · SOLO") is DELETED, not reworded:
+// *"I want the current 'PLAY' button to say 'SOLO' and nothing else. It doesn't
+// need to say 'Deploy as [ship class]'."* The Class Chip sits directly above
+// and already answers which hull you sail, so the sub-line was restating its
+// neighbour. SOLO VS AI drops its own sub-line for symmetry — both buttons are
+// bare MODE labels now. This knowingly supersedes EXPERIENCE.md:67 ("sub-line
+// always states what will happen") on the home screen; it is Eric's call,
+// recorded as an epic-6 amendment.
 
 export type ProbeState = 'probing' | 'ready' | 'unreachable';
 export type StatusTone = 'info' | 'denied' | 'tertiary';
@@ -201,7 +210,7 @@ export interface HomeHandle {
   setStatus(text: string, tone?: StatusTone): void;
   /** Server-probe status line (probing → ready / unreachable). */
   setServerProbe(state: ProbeState): void;
-  /** Disable/enable PLAY while a join is in flight. */
+  /** Disable/enable BOTH deploy doors (PLAY + SOLO VS AI) while a join is in flight. */
   setBusy(busy: boolean): void;
   /**
    * Show/hide the CANCEL affordance (Story 6.1). Passed a canceller while the
@@ -369,21 +378,140 @@ function makeChip(onOpen: () => void): ChipEls {
   return { root, sil, role, name };
 }
 
-function makePlayButton(onPlay: () => void): { root: HTMLButtonElement; sub: HTMLElement } {
+/**
+ * The button BOX both deploy doors share — the ratified Primary Button geometry
+ * with the accent left to the caller: panel-deep bed, 1px outline (never a
+ * filled slab), {rounded.md} 8px, one mono uppercase letter-spaced label.
+ *
+ * HEIGHT IS 64px, DOWN FROM THE SHIPPED 86px. That is a consequence of Eric's
+ * 2026-08-17 sub-line deletion rather than a separate styling decision: the
+ * 86px box was sized to hold a label AND a sub-line, and a fixed-height box does
+ * not shrink when its second line goes away — it just carries dead air, and it
+ * carries it twice now that there are two buttons. Hugging the label is also
+ * what keeps the port column inside the 768px floor viewport (amendment 47).
+ *
+ * The outline is assigned as SEPARATE properties rather than inside the cssText
+ * blob: a `border:1px solid var(--x)` shorthand is rejected by the test
+ * environment's CSSOM parser, which silently voids the ENTIRE declaration list
+ * (measured, not assumed — that is why the shipped PLAY button's own geometry
+ * has never been assertable).
+ */
+function makeModeButton(label: string, accent: string, title: string): HTMLButtonElement {
   const root = document.createElement('button');
   root.type = 'button';
+  root.setAttribute('title', title);
   root.style.cssText =
-    'margin-top:26px;width:480px;max-width:calc(100vw - 48px);height:86px;background:var(--hc-panel-deep);' +
-    'border:1px solid var(--hc-amber);border-radius:8px;display:flex;flex-direction:column;align-items:center;' +
-    `justify-content:center;cursor:pointer;box-shadow:0 0 44px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.28)}`;
+    'width:480px;max-width:calc(100vw - 48px);height:64px;background:var(--hc-panel-deep);' +
+    'border-radius:8px;display:flex;flex-direction:column;align-items:center;' +
+    'justify-content:center;cursor:pointer';
+  root.style.borderWidth = '1px';
+  root.style.borderStyle = 'solid';
+  root.style.borderColor = accent;
   const big = document.createElement('span');
-  big.textContent = 'PLAY';
-  big.style.cssText = 'font:800 34px var(--hc-font-mono);letter-spacing:0.34em;text-indent:0.34em;color:var(--hc-amber)';
-  const sub = document.createElement('span');
-  sub.style.cssText = `${registerCss('hudMicro')};color:var(--hc-amber);letter-spacing:0.2em;margin-top:3px;opacity:0.72`;
-  root.append(big, sub);
+  big.textContent = label;
+  big.style.cssText =
+    `font:800 34px var(--hc-font-mono);letter-spacing:0.34em;text-indent:0.34em;color:${accent}`;
+  root.appendChild(big);
+  return root;
+}
+
+/**
+ * SOLO — the primary, and now a MODE label rather than the generic action
+ * (Eric ruling 2026-08-17: *"I want the current 'PLAY' button to say 'SOLO' and
+ * nothing else"*). It keeps the ratified Primary Button register: amber outline
+ * + glow, never a filled slab ({components.button-primary}, DESIGN.md:244).
+ *
+ * It lives in the MODE ROW, which is built to hold DUO and TRIO beside it later
+ * — Eric: *"The current PLAY button will be in-line with DUO and TRIO modes,
+ * once those are out."*
+ */
+function makePlayButton(onPlay: () => void): HTMLButtonElement {
+  const root = makeModeButton('SOLO', 'var(--hc-amber)', 'Deploy alone against other captains');
+  root.style.boxShadow = `0 0 44px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.28)}`;
   root.addEventListener('click', onPlay);
-  return { root, sub };
+  return root;
+}
+
+/**
+ * SOLO VS AI (Story 6.5) — the port's SECOND action.
+ *
+ * DESIGN.md defines exactly ONE button ({components.button-primary}, :244:
+ * amber outline + glow, *never a filled slab*, mono uppercase letter-spaced
+ * label, sub-line for context) and has NO secondary-button spec, no button-pair
+ * spacing and no dominance rule for two home actions. So this obeys every rule
+ * that IS written — same 8px {rounded.md} control radius, same mono uppercase
+ * letter-spaced label at the same size, same panel-deep bed with a 1px outline
+ * (never a filled slab) — and takes its NON-DOMINANCE from the only two-action
+ * precedent in the repo, the results modal (`ui/results.ts` makeAction): *"the
+ * secondary (SPECTATE) is the same shape UNLIT, which is what keeps it the
+ * non-dominant action"* — `--hc-phosphor` outline, no glow, against the
+ * primary's amber + bloom.
+ *
+ * That keeps the two registers honest: amber is the ACTION register and DESIGN.md
+ * forbids it as a combatant hue and as decoration, so a second amber button would
+ * either split the action register or make neither read as the dominant one;
+ * phosphor is the system register the whole port already speaks in. It stays the
+ * unlit one even now that SOLO reads as a mode rather than as "the action":
+ * SOLO is the default door, and the mode row is where the modes live.
+ *
+ * NO `⏎` CHIP, deliberately: Enter is bound to the callsign field and runs SOLO
+ * only (EXPERIENCE.md:124), and `results.ts` makes the chip a TRUTHFULNESS rule —
+ * it may appear only where Enter really does that thing. This is a plain
+ * <button>, so Tab reaches it and Enter/Space activate it natively once focused;
+ * it is inserted AFTER the mode row so tab order matches reading order.
+ *
+ * THE STYLING OF THIS BUTTON IS A PROPOSAL, NOT A RATIFIED DECISION.
+ */
+function makeSoloButton(onSolo: () => void): HTMLButtonElement {
+  const root = makeModeButton(
+    'SOLO VS AI',
+    'var(--hc-phosphor)',
+    'Deploy alone against a field of AI captains',
+  );
+  root.addEventListener('click', onSolo);
+  return root;
+}
+
+/**
+ * ROW 1 — the MODE ROW (Eric ruling 2026-08-17): *"The current PLAY button will
+ * be in-line with DUO and TRIO modes, once those are out. All three are above
+ * SOLO VS AI."*
+ *
+ * It is a real row TODAY, holding one button, so DUO/TRIO drop in as extra
+ * children with no rewrite. It WRAPS rather than overflowing: three 480px
+ * buttons cannot sit side by side on the 1366px floor viewport, so when the
+ * siblings arrive they will either be narrowed here or fall onto a second line
+ * — never past the container edge (amendment 47, the container-fit law).
+ */
+function makeModeRow(...buttons: HTMLElement[]): HTMLElement {
+  const row = document.createElement('div');
+  row.style.cssText =
+    'display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:center;' +
+    'gap:14px;max-width:100%';
+  row.append(...buttons);
+  return row;
+}
+
+/**
+ * The deploy console: ROW 1 (the mode row) over ROW 2 (SOLO VS AI, centered),
+ * as one stack — amendment 47, the container-fit law.
+ *
+ * The port column is a rigid run of hard px margins that does not ride the HUD
+ * ui-scale, so a second button is real height. Accounting against the measured
+ * ~668px shipped column: the primary's box goes 86px → 64px (−22) and the
+ * second row adds 64px on a 12px gap (+76), for a net +54 → **~722px, inside
+ * the 768px floor** with ~46px to spare. The 12px gap (rather than the
+ * console's 22px) is what buys the last of that headroom, and the overlay's
+ * safe-center scroll (ui/fit.ts) still backstops anything shorter.
+ *
+ * The stack carries the primary's old `margin-top:26px`, so the chip→buttons
+ * spacing is unchanged: 22px console gap + 26px = the same 48px as shipped.
+ */
+function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement): HTMLElement {
+  const stack = document.createElement('div');
+  stack.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:26px';
+  stack.append(modeRow, soloBtn);
+  return stack;
 }
 
 function makeUnderplay(
@@ -461,9 +589,14 @@ interface Home {
   /** Leave the queue, set by setCancel() while the player is pooled. */
   cancel: (() => void) | null;
   chip: ChipEls;
-  playSub: HTMLElement;
+  /** SOLO — the mode row's primary (no sub-line: Eric ruling 2026-08-17). */
   playBtn: HTMLButtonElement;
+  /** SOLO VS AI (Story 6.5) — the port's second door, one row below. */
+  soloBtn: HTMLButtonElement;
   onDeploy: (name: string, cls: ShipClassId) => void;
+  /** Deploy into a solo-vs-AI match. Same (name, cls) contract as onDeploy —
+   *  the mode is the DOOR, not a field on the identity. */
+  onSolo: (name: string, cls: ShipClassId) => void;
   /** Open/toggle the settings overlay (gear + home ESC — Story 2.3). */
   onSettings: () => void;
   currentClass: ShipClassId | null;
@@ -532,18 +665,19 @@ function repaintAccent(h: Home): void {
   paintCallsign(h);
 }
 
-function updateSubline(h: Home): void {
-  h.playSub.textContent = deploySubline(h.currentClass);
-}
-
+/** A class pick repaints the CHIP and nothing else — the deploy buttons carry
+ *  bare mode labels now, so there is no second place for the hull to be named
+ *  (and no second place for it to go stale). */
 function setClass(h: Home, cls: ShipClassId): void {
   h.currentClass = cls;
   saveClass(cls);
   repaintChip(h);
-  updateSubline(h);
 }
 
-function deploy(h: Home): void {
+/** Commit the typed callsign and hand it to ONE deploy door (`go`). Both home
+ *  actions share this body — the class, the callsign and the never-silence rule
+ *  are identical; only the door differs. */
+function deploy(h: Home, go: (name: string, cls: ShipClassId) => void): void {
   // Never-silence: a press mid-connect re-asserts the LIVE status line rather
   // than dying. It re-asserts what is ALREADY painted (not a fixed CONNECTING…)
   // because Story 6.1's queue readout only refreshes when the server pushes —
@@ -552,12 +686,20 @@ function deploy(h: Home): void {
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
-  h.onDeploy(name, h.currentClass);
+  go(name, h.currentClass);
 }
 
 function onPlay(h: Home): void {
   if (h.currentClass === null) return openLayer(h);
-  deploy(h);
+  deploy(h, h.onDeploy);
+}
+
+/** SOLO VS AI takes the SAME first-run routing as PLAY: with no class stored
+ *  there is nothing to deploy, so the press opens the class bay rather than
+ *  pushing a default hull the player never chose. */
+function onSolo(h: Home): void {
+  if (h.currentClass === null) return openLayer(h);
+  deploy(h, h.onSolo);
 }
 
 /** Refocus the callsign field after any layer exit, so Enter=PLAY lives again —
@@ -594,14 +736,21 @@ function openLayer(h: Home): void {
 
 /** Assemble the overlay children, wire events + initial paint; returns the ESC
  *  handler (so `hide()` can detach it). Split out to keep showHome lean. */
-function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: KeyboardEvent) => void {
+function mountHome(
+  h: Home,
+  playBtn: HTMLButtonElement,
+  soloBtn: HTMLButtonElement,
+  version: string,
+): (e: KeyboardEvent) => void {
   const console_ = document.createElement('div');
   console_.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:22px';
   // NO hoist row here: the color picker lives only in the class bay footer now.
   console_.append(
     makeCallsignRow(h.input),
     h.chip.root,
-    playBtn,
+    // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
+    // (SOLO VS AI, centered) — Eric ruling 2026-08-17.
+    makeDeployStack(makeModeRow(playBtn), soloBtn),
     makeUnderplay(h.statusEl, h.cancelEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
   );
   h.overlay.append(makeWordmark(version), console_, makeGear(() => h.onSettings()));
@@ -623,7 +772,6 @@ function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: Ke
   });
   h.disposers.push(h.hoist.onChange(() => repaintAccent(h)));
   repaintAccent(h);
-  updateSubline(h);
   paintStatus(h, ...statusTuple(serverStatusLine('probing')));
   return bindHomeKeys(h);
 }
@@ -651,14 +799,18 @@ function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
 /**
  * Show the pre-join home. `onDeploy(name, cls)` fires ONLY from PLAY with a
  * chosen class — the class bay never deploys (CONFIRM SELECTION saves and comes
- * back to port). First-run PLAY opens the layer instead of connecting.
+ * back to port). First-run SOLO opens the layer instead of connecting.
  * `onSettings()` is the gear + home-ESC settings toggle (Story 2.3).
+ * `onSoloDeploy(name, cls)` is Story 6.5's SOLO VS AI door — same contract,
+ * different route (no queue). It defaults to the standard deploy so a caller
+ * that predates the second button still behaves.
  * Returns the handle main.ts drives for status/busy/hide.
  */
 export function showHome(
   version: string,
   onDeploy: (name: string, cls: ShipClassId) => void,
   onSettings: () => void = () => undefined,
+  onSoloDeploy: (name: string, cls: ShipClassId) => void = onDeploy,
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
   const overlay = document.createElement('div');
@@ -670,6 +822,7 @@ export function showHome(
   const statusEl = makeStatusEl();
   const cancelEl = makeCancel(() => h.cancel?.());
   const play = makePlayButton(() => onPlay(h));
+  const solo = makeSoloButton(() => onSolo(h));
   const chip = makeChip(() => openLayer(h));
 
   const h: Home = {
@@ -680,9 +833,10 @@ export function showHome(
     cancelEl,
     cancel: null,
     chip,
-    playSub: play.sub,
-    playBtn: play.root,
+    playBtn: play,
+    soloBtn: solo,
     onDeploy,
+    onSolo: onSoloDeploy,
     onSettings,
     currentClass: loadSavedClassOrNull(),
     layerOpen: false,
@@ -694,7 +848,7 @@ export function showHome(
     disposers: [],
   };
 
-  const keyHandler = mountHome(h, play.root, version);
+  const keyHandler = mountHome(h, play, solo, version);
   document.body.appendChild(overlay);
   input.focus();
   return makeHandle(h, keyHandler);
@@ -714,8 +868,12 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
     },
     setBusy: (busy) => {
       h.busy = busy;
-      h.playBtn.style.opacity = busy ? '0.4' : '1';
-      h.playBtn.style.cursor = busy ? 'default' : 'pointer';
+      // BOTH doors dim: a join in flight blocks either deploy (see `deploy`), so
+      // leaving SOLO VS AI lit would promise an action the home will refuse.
+      for (const btn of [h.playBtn, h.soloBtn]) {
+        btn.style.opacity = busy ? '0.4' : '1';
+        btn.style.cursor = busy ? 'default' : 'pointer';
+      }
     },
     setCancel: (onCancel) => {
       h.cancel = onCancel;

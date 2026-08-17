@@ -96,6 +96,7 @@ import {
   type Rng,
   type ShellOutcome,
   type ShellState,
+  type ShipClassId,
   type ShipLifecycle,
   type ShipState,
   type StarShellsMode,
@@ -1337,14 +1338,37 @@ export class World {
    * record. Ids are namespaced `bot-N`, structurally distinct from Colyseus
    * session ids, `fleet-N` hulls and `trk-` pseudonyms.
    *
-   * NOTHING IN PRODUCTION CALLS THIS in cycle 95 (Eric ruling A1: harness +
-   * tests only); Story 6-5 wires the Solo-vs-AI mode to it.
+   * `hull` (Story 6.5) OVERRIDES the controller's own class roll so a caller
+   * that builds a whole field at once can deal it a balanced spread instead of
+   * nineteen independent uniform draws (which land lopsided often enough that
+   * "nine battleships" is an ordinary result). It is a plain parameter, not a
+   * mode: the room decides the mix, the World just places the hull. Omitted —
+   * which is the batch-sim harness and every existing test — the roll is
+   * exactly the shipped one, off the same stream position (see enroll).
    */
-  addBot(): ShipRecord {
+  addBot(hull?: ShipClassId): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
-    const { name, hullId } = this.bots.enroll(id);
+    const { name, hullId } = this.bots.enroll(id, hull);
     return this.addShip(id, name, 'bot', hullId);
+  }
+
+  /**
+   * Redraw a bot's CALLSIGN from the controller's remaining pool (Story 6.5),
+   * returning the new name (null for an unknown id or a non-bot hull). The one
+   * caller is the room resolving a collision with a human captain's chosen
+   * callsign — the bot pool is drawn without repeat among bots but has never
+   * been checked against a player's name, and two identical names in one kill
+   * feed is a confusing feed. Renaming only: the hull, the mind, the profile,
+   * the deck and every timer are untouched, and nothing about the brain moves.
+   */
+  renameBot(id: string): string | null {
+    const rec = this.ships.get(id);
+    if (!rec || rec.role !== 'bot') return null;
+    const next = this.bots.redrawCallsign(id);
+    if (next === '') return null; // unknown to the controller — leave the name be
+    rec.name = next;
+    return next;
   }
 
   /**

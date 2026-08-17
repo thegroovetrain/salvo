@@ -10,6 +10,10 @@
 // until the ARENA welcome lands — startGame() hides the home and stops the
 // ambient scene the instant it resolves, so an early resolve would drop the
 // player onto a black canvas for the whole (minutes-long) queue wait.
+//
+// SOLO VS AI (Story 6.5) skips stage 1 entirely — there is no pool to wait in
+// when the match forms on its only joiner — and calls `client.create('arena')`
+// for a fresh, private, locked room. See `createSoloArena`.
 
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
@@ -332,6 +336,28 @@ function directArenaRequested(): boolean {
 }
 
 /**
+ * SOLO VS AI (Story 6.5) — the queue-free door.
+ *
+ * `create()`, NEVER `joinOrCreate()`: create always mints a FRESH room, so a
+ * solo request can never land in another captain's match, and the room the
+ * server hands back is private and locked at birth. That is the whole security
+ * argument for letting `solo` ride on client-supplied join options — the only
+ * thing it can buy a hostile client is its own 20-hull room.
+ *
+ * There is nothing to queue for and nothing to wait on: a solo match forms on
+ * the first (only) joiner, so this binds NO `MSG.queueStatus`, hands out NO
+ * canceller, and never touches the `ConnectHooks` — which is what keeps
+ * `QUEUED n/min · AWAITING A SECOND CAPTAIN` structurally unreachable on this
+ * path rather than merely unlikely. The player goes CONNECTING… → the ocean.
+ *
+ * The `pv` protocol gate still runs: `create()` goes through the matchMaker's
+ * `callOnAuth`, exactly as `joinOrCreate` does.
+ */
+async function createSoloArena(client: Client, opts: Record<string, unknown>): Promise<Room> {
+  return await client.create('arena', { ...opts, solo: true });
+}
+
+/**
  * Get the ARENA room: normally by queueing for a seat, but on a dev build with
  * `?direct=1` by joining the arena straight.
  *
@@ -351,7 +377,9 @@ async function acquireArena(
   client: Client,
   opts: Record<string, unknown>,
   hooks: ConnectHooks,
+  solo: boolean,
 ): Promise<Room> {
+  if (solo) return await createSoloArena(client, opts);
   if (import.meta.env.DEV && directArenaRequested()) return await client.joinOrCreate('arena', opts);
   // STAGE 1 — the queue. A matchmake failure here is a real "can't reach the
   // server" failure and keeps the generic status copy; everything AFTER the join
@@ -374,16 +402,22 @@ async function acquireArena(
   return await client.consumeSeatReservation(reservation);
 }
 
+/**
+ * `solo: true` (Story 6.5) takes the queue-free door — see `createSoloArena`.
+ * Everything after the room is acquired is identical for both modes: the same
+ * arena room, the same welcome handshake, the same reconnect policy.
+ */
 export async function connect(
   name?: string,
   cls?: string,
   hooks: ConnectHooks = {},
+  solo = false,
 ): Promise<Connection> {
   const client = new Client(wsEndpoint());
   const opts = joinOptions(name, cls);
   // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
   // ARENA room, so bindRoom/buildGame see exactly what they always did.
-  const room = await acquireArena(client, opts, hooks);
+  const room = await acquireArena(client, opts, hooks, solo);
   // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection
   // token (all onMessage bindings survive), landing on onReconnect. The server

@@ -53,6 +53,18 @@ export interface JoinOptions {
    * resume is never re-gated.
    */
   pv?: number;
+  /**
+   * SOLO VS AI (Story 6.5): the client asks for a private match against AI
+   * captains. It arrives on `client.create('arena', { solo: true, ... })` —
+   * `create()` always mints a FRESH room, so a solo asker gets a private,
+   * immediately-locked room of its own and can never inject bots into anyone
+   * else's match. That is the whole security argument for letting a
+   * client-supplied flag through ungated: the only thing it can do is spawn the
+   * asker's own 20-hull room, which is exactly what a legitimate solo player
+   * costs. NOT dev-gated (like `cls`/`colorPref`), but coerced STRICTLY: see
+   * sanitizeSolo — only the boolean `true` counts.
+   */
+  solo?: boolean;
 }
 
 /**
@@ -139,6 +151,9 @@ export interface SanitizedRoomOptions {
   /** Clamped group size from the queue; undefined = no boarding expectation
    *  (a directly-created dev/smoke arena). */
   expectedCaptains?: number;
+  /** Solo vs AI (Story 6.5): true, or ABSENT — never false. The room fills the
+   *  roster to CONFIG.map.playerCap with bots and runs a 1-captain cohort. */
+  solo?: true;
 }
 
 export interface SanitizeResult {
@@ -162,6 +177,10 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   // expectation in exactly the deployment that needs it. Safety comes from the
   // clamp instead (sanitizeExpectedCaptains), not from the dev gate.
   const expectedCaptains = sanitizeExpectedCaptains(options.expectedCaptains);
+  // NOT dev-gated either (Story 6.5) — a production client sets it on the solo
+  // door. Safety is structural rather than environmental: the flag only ever
+  // reaches a room the asker just created for itself (see JoinOptions.solo).
+  const solo = sanitizeSolo(options.solo);
   if (devEnabled) {
     return {
       sanitized: {
@@ -169,6 +188,7 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
         zoneOverride: options.zoneOverride,
         mapSeed: sanitizeMapSeed(options.mapSeed),
         expectedCaptains,
+        solo,
       },
       rejectedKeys: [],
     };
@@ -177,20 +197,41 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   if (options.matchOverride !== undefined) rejectedKeys.push('matchOverride');
   if (options.zoneOverride !== undefined) rejectedKeys.push('zoneOverride');
   if (options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
-  return { sanitized: { expectedCaptains }, rejectedKeys };
+  return { sanitized: { expectedCaptains, solo }, rejectedKeys };
 }
 
 /**
- * Clamp a queue-supplied boarding group size into [CONFIG.match.minHumans,
- * CONFIG.map.playerCap] — the only band a formed standard group can occupy.
- * Anything non-integer / non-finite / absent becomes undefined (no boarding
- * expectation) rather than a number, so a garbage value can never be read as
- * "wait for 0 captains" or "wait for 10000 captains" and stall the countdown
- * forever. Pure + unit-testable like every other sanitizer here.
+ * Sanitize the Solo vs AI flag (Story 6.5). STRICT: only the boolean `true`
+ * opts a room in — a truthy string, 1, or an object is NOT a request for a bot
+ * lobby, it is a malformed or probing client, and it falls to undefined (the
+ * ordinary arena). Returning `true | undefined` rather than a boolean keeps the
+ * "absent means no" shape every other sanitizer here uses, so no caller can
+ * read a `false` as a deliberate opt-out. Pure + unit-testable; never
+ * dev-gated (see sanitizeRoomOptions).
+ */
+export function sanitizeSolo(v: unknown): true | undefined {
+  return v === true ? true : undefined;
+}
+
+/**
+ * Clamp a caller-supplied boarding group size into [1, CONFIG.map.playerCap] —
+ * the band a formed cohort can occupy. Anything non-integer / non-finite /
+ * absent becomes undefined (no boarding expectation) rather than a number, so a
+ * garbage value can never be read as "wait for 0 captains" or "wait for 10000
+ * captains" and stall the countdown forever. Pure + unit-testable like every
+ * other sanitizer here.
+ *
+ * THE FLOOR IS 1, NOT CONFIG.match.minHumans (Story 6.5). It clamped against
+ * the CONFIG constant — never against the room's EFFECTIVE minHumans — so a
+ * one-captain cohort silently became a two-captain one, and a Solo vs AI room
+ * was unconstructible: it would board, burn the boarding grace, and then wait
+ * forever for a second human who is never coming. A solo room must be
+ * expressible. The ceiling is unchanged, and this widens nothing else: the
+ * value is still only a COUNT the boarding gate waits for.
  */
 export function sanitizeExpectedCaptains(v: unknown): number | undefined {
   if (typeof v !== 'number' || !Number.isInteger(v)) return undefined;
-  return Math.min(Math.max(v, CONFIG.match.minHumans), CONFIG.map.playerCap);
+  return Math.min(Math.max(v, 1), CONFIG.map.playerCap);
 }
 
 /** Valid pinned map seed: a non-negative integer; anything else is stripped

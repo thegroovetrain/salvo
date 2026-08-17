@@ -12,6 +12,7 @@ import {
   CONFIG,
   MSG,
   REGATTA_NO_HUE,
+  SHIP_CLASS_IDS,
   isAfloat,
   mulberry32,
   sanitizeClassId,
@@ -20,6 +21,7 @@ import {
   type RequeueMsg,
   type ResultsMsg,
   type Rng,
+  type ShipClassId,
   type WelcomeMsg,
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
@@ -69,6 +71,14 @@ const ZERO_RING = Object.freeze({ cx: 0, cy: 0, r: 0 });
  * smokes can keep driving an arena without a queue in front of it.
  */
 export const ARENA_DIRECT_JOIN_ERROR = 'this room is not joinable directly — use the queue';
+/**
+ * Bounded redraws when a joining captain's callsign collides with a bot's
+ * (Story 6.5). One is normally enough — the pool is drawn without repeat — so
+ * this only covers the unlucky case where the NEXT name also matches the
+ * player. Bounded rather than looped-until-clear: a name search must never be
+ * able to spin on a pathological pool.
+ */
+const CALLSIGN_REDRAWS = 4;
 
 /**
  * Render a thrown value into log fields WITHOUT ever throwing ourselves:
@@ -158,6 +168,21 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   static async onAuth(_token: string, options?: JoinOptions): Promise<boolean> {
     const error = protocolVersionError(options?.pv);
     if (error) throw new ServerError(ErrorCode.AUTH_FAILED, error);
+    // THE SOLO DOOR (Story 6.5). The PV gate above still runs FIRST and is
+    // unchanged — a stale bundle is refused here whichever door it knocks on.
+    //
+    // Why a client-supplied flag may open this one: the solo client calls
+    // `client.create('arena', {solo:true})`, and create() ALWAYS mints a fresh
+    // room, so the asker gets a private room of its own. Every production arena
+    // — queue-formed or solo — is LOCKED AT BIRTH (see finishCreate), and
+    // @colyseus/core refuses a locked room to both of the doors that could
+    // reach an existing one (joinById throws "room is locked"; joinOrCreate's
+    // driver query filters `locked: false`). So the only thing `solo:true` can
+    // buy a hostile client is its own 20-hull room — the same cost as any
+    // legitimate solo player — and never a seat, or a bot, in someone else's
+    // match. Everything else about this door is untouched: a non-solo direct
+    // join is still refused unless the process opted in with HC_DEV_OPTIONS=1.
+    if (options?.solo === true) return true;
     if (process.env.HC_DEV_OPTIONS !== '1') {
       throw new ServerError(ErrorCode.AUTH_FAILED, ARENA_DIRECT_JOIN_ERROR);
     }
@@ -281,7 +306,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /** The post-operability remainder of room creation (see onCreate's guard). */
-  private finishCreate(sanitized: SanitizedRoomOptions, seed: number): void {
+  private finishCreate(input: SanitizedRoomOptions, seed: number): void {
+    // SOLO VS AI (Story 6.5): a one-captain cohort. Both fields are DERIVED
+    // here rather than taken from matchOverride — that is the dev-gated door,
+    // and this is a production mode. expectedCaptains 1 is what makes the
+    // boarding gate arm on the single human's join (and, below, what locks the
+    // room at birth); minHumans 1 is what lets the countdown arm at all.
+    const sanitized: SanitizedRoomOptions = input.solo ? { ...input, expectedCaptains: 1 } : input;
     // Regatta hue stream (Story 1.12): one mulberry32 per room, decorrelated from
     // mapgen/spawn/upgrade/drone streams by a fresh mixing constant.
     this.hueRng = mulberry32((seed ^ 0xc2b2ae35) >>> 0);
@@ -309,6 +340,15 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Idle full-map ring until the match activates and anchors the storm
     // timeline (center 0,0 is the schema default; next stays zeroed/unrevealed).
     this.state.zoneCurR = this.world.map.radius;
+
+    // THE BOTS MUST BE IN THE WATER BEFORE THE FIRST TICK (Story 6.5). Not a
+    // preference — a correctness requirement: Match.activate() snapshots its
+    // participants from world.ships and checkWin() runs in that SAME update(),
+    // so a roster holding only the human latches an instant victory, and any
+    // bot arriving after that snapshot sinks unrecorded (recordSink refuses ids
+    // outside it). Building here — before setSimulationInterval below — is what
+    // makes "before activate" structural rather than a race.
+    if (sanitized.solo) this.buildBotFleet();
 
     this.onMessage(MSG.input, (client: Client, raw: unknown) => this.onInputMessage(client, raw));
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => this.onSpendMessage(client, raw));
@@ -439,7 +479,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
       joinWindowMs: override?.joinWindowMs ?? base.joinWindowMs,
-      minHumans: override?.minHumans,
+      // ONE human is the whole cohort in a Solo vs AI room (Story 6.5), so the
+      // countdown must arm at one. minHumans is a PEOPLE count and stays one:
+      // the nineteen bots are participants, never humans, and never advance it.
+      // A dev matchOverride still wins, so no smoke's timings moved.
+      minHumans: override?.minHumans ?? (sanitized.solo ? 1 : undefined),
       expectedCaptains: sanitized.expectedCaptains,
       boardingGraceMs: base.boardingGraceMs,
     };
@@ -507,6 +551,122 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return used;
   }
 
+  /**
+   * FILL THE ROSTER WITH AI CAPTAINS (Story 6.5) — the whole server side of
+   * Solo vs AI. `CONFIG.map.playerCap - 1` bots, so the ocean holds a full
+   * lobby with the one human: the count is DERIVED from the cap rather than
+   * being a new constant, which keeps it in step with the spawn lattice (also
+   * exactly playerCap candidates) and with the map radius, which is sized off
+   * the same number.
+   *
+   * A BOT GETS A ROSTER ROW, and that is the point of the story. `syncRoster()`
+   * walks `state.players`, and every identity surface downstream of it —
+   * `n AFLOAT`, the death banner's placement, hull colour, nameplates, the kill
+   * feed, the kill-leader register — reads that map. Without a row the player
+   * meets nineteen amber-hollow, plateless UNKNOWN VESSELs while the chrome bar
+   * insists `1 AFLOAT`. With one, every surface works unmodified.
+   */
+  private buildBotFleet(): void {
+    const order = this.shuffledClasses();
+    const count = CONFIG.map.playerCap - 1;
+    for (let i = 0; i < count; i += 1) {
+      const rec = this.world.addBot(order[i % order.length]);
+      const meta = new PlayerMeta();
+      meta.id = rec.id;
+      meta.name = rec.name;
+      // A REAL REGATTA HUE, never REGATTA_NO_HUE (255): that sentinel is the
+      // drone-grey mark, and an AI captain wearing it renders as PvE content.
+      // The wheel is exactly 20 and 19 bots + 1 human consume it precisely.
+      meta.color = assignHue(this.usedHues(), undefined, this.hueRng, i + 1);
+      this.state.players.set(rec.id, meta);
+    }
+    this.log.info('room.botFleet', { bots: count });
+  }
+
+  /**
+   * The class-dealing order for a bot fleet: the three hulls, shuffled ONCE per
+   * room off the room's seeded stream. Dealt round-robin (6/6/7 across 19) this
+   * fields all three silhouettes in every solo match — which matters because
+   * this mode is most players' first match, and nineteen independent uniform
+   * draws land lopsided often enough that a field of nine battleships is an
+   * ordinary result. The shuffle is what keeps the same class from always
+   * taking the odd seat, and it is seeded (never Math.random) like every other
+   * roll the room makes.
+   */
+  private shuffledClasses(): ShipClassId[] {
+    const out = [...SHIP_CLASS_IDS];
+    for (let i = out.length - 1; i > 0; i -= 1) {
+      const j = this.hueRng.int(0, i);
+      const tmp = out[i];
+      out[i] = out[j];
+      out[j] = tmp;
+    }
+    return out;
+  }
+
+  /**
+   * A joining captain's personal hue, with the BOT SWAP (Story 6.5).
+   *
+   * The ordinary FCFS rule (assignHue) is unchanged and still decides
+   * everything: a free preference is granted verbatim, a contested one falls to
+   * the nearest free hue, no preference draws a random free one. What is new is
+   * the case that only exists in a bot lobby — the fleet was hued before the
+   * player arrived, so an AI captain may already be flying the colour the
+   * player chose. A bot has no preference to defend, so the two SWAP: the
+   * player keeps their choice and the bot takes the hue the player would
+   * otherwise have flown. The wheel stays a bijection (exactly 20 hues, 20
+   * hulls) and no third party is disturbed — a hue held by a HUMAN is never
+   * taken, so the FCFS contest between two players is byte-identical.
+   */
+  private resolveJoinerHue(pref: number | undefined): number {
+    const hue = assignHue(this.usedHues(), pref, this.hueRng, this.joinCounter);
+    if (pref === undefined || hue === pref) return hue;
+    const holder = this.botMetaWithHue(pref);
+    if (!holder) return hue; // a human holds it — FCFS stands
+    holder.color = hue;
+    return pref;
+  }
+
+  /** The roster row of a BOT flying `hue`, or null (a human's row is never
+   *  returned — see resolveJoinerHue). */
+  private botMetaWithHue(hue: number): PlayerMeta | null {
+    let found: PlayerMeta | null = null;
+    this.state.players.forEach((meta: PlayerMeta, id: string) => {
+      if (found !== null || meta.color !== hue) return;
+      if (this.world.ships.get(id)?.role === 'bot') found = meta;
+    });
+    return found;
+  }
+
+  /**
+   * Redraw any BOT whose callsign matches the joining captain's (Story 6.5),
+   * case-insensitively. The redraw walks the controller's without-repeat order,
+   * so it lands on a name nothing else is flying; the bounded retry covers the
+   * degenerate case where the very next name also matches the player. The bot's
+   * hull, mind, profile and deck are untouched — this is a name and nothing
+   * else, and the roster row is re-pointed at the new one.
+   */
+  private resolveCallsignCollision(name: string): void {
+    const key = name.toUpperCase();
+    const id = this.botIdNamed(key);
+    if (id === null) return;
+    for (let i = 0; i < CALLSIGN_REDRAWS; i += 1) {
+      const next = this.world.renameBot(id);
+      if (next === null || next.toUpperCase() !== key) break;
+    }
+    const meta = this.state.players.get(id);
+    const rec = this.world.ships.get(id);
+    if (meta && rec) meta.name = rec.name;
+  }
+
+  /** The id of a bot flying `upper` (an already-uppercased callsign), or null. */
+  private botIdNamed(upper: string): string | null {
+    for (const s of this.world.ships.values()) {
+      if (s.role === 'bot' && s.name.toUpperCase() === upper) return s.id;
+    }
+    return null;
+  }
+
   onJoin(client: Client, options: JoinOptions = {}): void {
     this.joinCounter += 1;
     // SECURITY (Story 2.3, deferred-work 127/130): options.name arrives verbatim
@@ -519,6 +679,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // option, never a dev override — and handed straight to the ship record.
     // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
     const horn = sanitizeHornId(options.horn);
+    // A bot fleet was drawn BEFORE this captain arrived (Story 6.5), so its
+    // callsigns were picked without knowing the player's. A shared name would
+    // print two identical hulls in one kill feed with no way to tell them
+    // apart — redraw the bot, never the player.
+    this.resolveCallsignCollision(name);
 
     // A joining CLIENT is always a captain (Story 6.3's role seam, amendment
     // 13): the socket is the proof. Fleet hulls are world content spawned by
@@ -540,7 +705,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // index — fleet hulls never get a row at all.
     // `joinCounter` feeds ONLY assignHue's defensive exhaustion fallback (wheel
     // full → joinOrder % 20); at cap 20 the wheel always has a free hue first.
-    meta.color = assignHue(this.usedHues(), sanitizeColorPref(options.colorPref), this.hueRng, this.joinCounter);
+    meta.color = this.resolveJoinerHue(sanitizeColorPref(options.colorPref));
     this.state.players.set(client.sessionId, meta);
 
     const welcome: WelcomeMsg = {

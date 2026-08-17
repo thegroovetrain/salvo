@@ -56,6 +56,11 @@ let room: FakeRoom = fakeRoom();
 let lastJoinRoomName: string | undefined;
 let lastJoinOpts: Record<string, unknown> | undefined;
 let lastReservation: unknown;
+// Story 6.5: the SOLO VS AI door calls `create()`, which is a DIFFERENT SDK
+// method from `joinOrCreate()` — create always mints a fresh room, which is
+// what makes the solo request unable to land in another captain's match.
+let lastCreateRoomName: string | undefined;
+let lastCreateOpts: Record<string, unknown> | undefined;
 
 vi.mock('@colyseus/sdk', () => ({
   Client: class {
@@ -63,6 +68,11 @@ vi.mock('@colyseus/sdk', () => ({
       lastJoinRoomName = name;
       lastJoinOpts = opts;
       return Promise.resolve(queue);
+    }
+    create(name: string, opts?: Record<string, unknown>): Promise<FakeRoom> {
+      lastCreateRoomName = name;
+      lastCreateOpts = opts;
+      return Promise.resolve(room);
     }
     consumeSeatReservation(res: unknown): Promise<FakeRoom> {
       lastReservation = res;
@@ -95,6 +105,10 @@ beforeEach(() => {
   queue = fakeRoom();
   room = fakeRoom();
   lastReservation = undefined;
+  lastJoinRoomName = undefined;
+  lastJoinOpts = undefined;
+  lastCreateRoomName = undefined;
+  lastCreateOpts = undefined;
 });
 
 /**
@@ -286,6 +300,67 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
     });
     queue.fireError(500, 'queue exploded');
     await pending.catch((err) => expect(connectErrorStatus(err)).toMatch(/QUEUE CLOSED/));
+  });
+});
+
+describe('connect — the SOLO VS AI door (Story 6.5)', () => {
+  /** Drive the solo path: no queue, no seat — straight to the arena welcome. */
+  async function connectSolo(
+    hooks: ConnectHooks = {},
+  ): Promise<Awaited<ReturnType<typeof connect>>> {
+    const pending = connect('tester', 'battleship', hooks, true);
+    await vi.waitFor(() => {
+      if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
+    });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 20 });
+    return pending;
+  }
+
+  it('CREATES a fresh arena — never joinOrCreate, and never the queue room', async () => {
+    const conn = await connectSolo();
+    expect(lastCreateRoomName).toBe('arena');
+    expect(lastCreateOpts?.solo).toBe(true);
+    // `create()` is the whole safety argument: it always mints a NEW room, so a
+    // solo request can never land in another captain's match. joinOrCreate
+    // could, which is why this asserts the method and not just the room name.
+    expect(lastJoinRoomName).toBeUndefined();
+    expect(conn.room).toBe(room);
+    expect(queue.left).toBe(0); // the pool was never entered at all
+  });
+
+  it('still rides the PROTOCOL_VERSION gate and the full identity options', async () => {
+    await connectSolo();
+    expect(lastCreateOpts?.pv).toBe(PROTOCOL_VERSION);
+    expect(lastCreateOpts?.cls).toBe('battleship');
+    expect(lastCreateOpts?.name).toBe('tester');
+    expect(lastCreateOpts?.horn).toBe(DEFAULT_HORN_ID);
+    expect(typeof lastCreateOpts?.colorPref).toBe('number');
+  });
+
+  it('binds NO queue channel and hands out NO canceller — there is nothing to wait for', async () => {
+    const seen: unknown[] = [];
+    const cancels: Array<(() => void) | null> = [];
+    await connectSolo({ onQueue: (q) => void seen.push(q), onQueued: (c) => void cancels.push(c) });
+    // R4 (no lie on screen): `QUEUED n/min · AWAITING A SECOND CAPTAIN` is
+    // painted from onQueue, so a solo deploy that never binds the channel makes
+    // that line structurally unreachable rather than merely unlikely.
+    expect(room.has(MSG.queueStatus)).toBe(false);
+    expect(room.has(MSG.seat)).toBe(false);
+    expect(seen).toEqual([]);
+    expect(cancels).toEqual([]);
+  });
+
+  it('sets the same arena reconnect policy as a queued join', async () => {
+    const conn = await connectSolo();
+    expect(conn.room.reconnection.enabled).toBe(true);
+    expect(conn.room.reconnection.maxRetries).toBe(RECONNECT_MAX_RETRIES);
+  });
+
+  it('leaves the PLAY path on the queue, byte for byte', async () => {
+    await connectAndWelcome();
+    expect(lastJoinRoomName).toBe('queue');
+    expect(lastCreateRoomName).toBeUndefined(); // create() is the solo door only
+    expect(lastJoinOpts?.solo).toBeUndefined(); // and `solo` never rides a queue join
   });
 });
 

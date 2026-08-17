@@ -149,10 +149,19 @@ export class BotController {
    * controller's seeded stream, create its mind (stagger phase from the id
    * hash), and hand back what World.addBot needs for addShip. The mind's own
    * rng is decorrelated per enrollment (the FleetController idiom).
+   *
+   * `hull` (Story 6.5) lets the CALLER pick the class — a caller building a
+   * whole field at once deals a balanced spread rather than nineteen
+   * independent uniform draws. The roll still HAPPENS and is then discarded, so
+   * the stream position of every subsequent draw (profile, callsign) is
+   * identical whether or not a class was supplied: an enrollment count is the
+   * only thing that advances the stream, never the caller's choice. NO
+   * behaviour change — a bot's brain does not know where its class came from.
    */
-  enroll(id: string): { name: string; hullId: ShipClassId } {
+  enroll(id: string, hull?: ShipClassId): { name: string; hullId: ShipClassId } {
     this.enrollCounter += 1;
-    const hullId = this.rng.pick(SHIP_CLASS_IDS);
+    const rolled = this.rng.pick(SHIP_CLASS_IDS);
+    const hullId = hull ?? rolled;
     const profile = this.rng.pick(CONFIG.bots.profiles[hullId]);
     const name = this.drawCallsign();
     this.minds.set(id, {
@@ -176,6 +185,17 @@ export class BotController {
   /** Forget a bot (called by World.removeShip). */
   remove(id: string): void {
     this.minds.delete(id);
+  }
+
+  /**
+   * Draw a REPLACEMENT callsign for an already-enrolled bot (Story 6.5) — the
+   * next name off the same without-repeat order, so a redraw can never collide
+   * with a name already flying. Pure naming: the mind, its profile, its stagger
+   * phase and every scrap of brain state are untouched (the id is taken only to
+   * refuse an unknown one). World.renameBot is the one caller.
+   */
+  redrawCallsign(id: string): string {
+    return this.minds.has(id) ? this.drawCallsign() : '';
   }
 
   /**
