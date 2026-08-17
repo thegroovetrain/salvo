@@ -90,6 +90,7 @@ import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
 import { makeRequeue } from './app/requeue.js';
+import { claimSessionForDeploy, releaseSessionLock } from './app/sessionLock.js';
 import {
   connect,
   connectErrorStatus,
@@ -1645,6 +1646,11 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       const g = getG();
       if (!g) return;
       g.returning = true; // handleRoomLeave: the reload is already on its way
+      // THE SINGLE-SESSION LOCK is released HERE rather than left to the reload:
+      // the ad break the chain awaits can legitimately run for tens of seconds,
+      // and the port is free the moment this session ends, not whenever the page
+      // finishes tearing itself down.
+      releaseSessionLock();
       cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
       // Defensive: today the chain always ends in location.reload(), which
       // wipes every plume for free — but a plume is drawn at a hull's TRUE
@@ -1746,6 +1752,7 @@ function handleRoomLeave(g: Game): void {
   if (g.returning) return; // we initiated it; the exit is already on its way
   g.returning = true;
   g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
+  releaseSessionLock(); // the session is over — free the port before the delayed reload
   cancelZoomFogRebake(g); // same teardown hygiene as returnToPort
   if (g.state.matchOver) {
     // Expected: the server disconnects resultsSeconds after the finish.
@@ -4291,6 +4298,27 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
 }
 
+/**
+ * THE SINGLE-SESSION LOCK (app/sessionLock.ts, Eric ruling 2026-08-17) — one
+ * match per browser at a time.
+ *
+ * Claimed HERE, at deploy, rather than at page load: a second tab merely sitting
+ * on the home screen is harmless, and only an actual connection attempt is worth
+ * refusing. A refusal paints the home's own status line (the existing register —
+ * no alert, no dead button, no silent no-op) and un-busies both doors, so the
+ * tab stays fully usable: press SOLO again once the other tab finishes and it
+ * deploys, with no reload.
+ *
+ * It is a NO-OP on the auto-requeue path — this tab already holds the lock —
+ * and it FAILS OPEN on any machinery failure, so it can never be the reason a
+ * player cannot start a game.
+ */
+async function claimPortForDeploy(home: HomeHandle): Promise<boolean> {
+  if (await claimSessionForDeploy(home)) return true;
+  home.setBusy(false); // the ambient keeps breathing behind the still-live home
+  return false;
+}
+
 async function startGame(
   shell: Shell,
   home: HomeHandle,
@@ -4301,8 +4329,9 @@ async function startGame(
   mode: DeployMode = 'standard',
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
-  lastDeploy = { name, cls, mode }; // what the auto-requeue re-deploys with
   home.setBusy(true);
+  if (!(await claimPortForDeploy(home))) return; // another tab is already at sea
+  lastDeploy = { name, cls, mode }; // what the auto-requeue re-deploys with
   // An auto-requeue arrives with its own opening register already painted (the
   // reason we are here), and holds it for a beat — so it does NOT get replaced
   // by CONNECTING…, which says less and is over in a moment.
@@ -4333,6 +4362,10 @@ async function startGame(
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
     // (tertiary, not denied) and never reaches the console.
     hold.cancel(); // nothing may repaint over the failure/cancel line
+    // The session never started, so the port is free again — a failed or
+    // cancelled connect must not hold the single-session lock against the next
+    // press (or against another tab) for the life of the page.
+    releaseSessionLock();
     const cancelled = isQueueCancelled(err);
     if (!cancelled) console.error('[net] connection failed', err);
     home.setStatus(connectErrorStatus(err), cancelled ? 'tertiary' : 'denied');
