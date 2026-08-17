@@ -51,6 +51,7 @@ placements and the win check are byte-identical to Standard.
 - No queue room, no `SoloVsAiQueueRoom`, no base-class extraction from `StandardQueueRoom`, no
   `app.config.ts` change. `StandardQueueRoom` and `queue.ts` are UNTOUCHED.
 - No mode-selector control, no queue-liveness counts, no localStorage mode persistence — Story 6.6.
+  (In-memory mode on `lastDeploy` IS in scope — Eric 2026-08-17, see Design Notes.)
 - No replay button on the results modal (Eric amendment 30, MUST-level, pinned in `results.test.ts`).
 - Do not change `?direct=1` or the `HC_DEV_OPTIONS` dev door (epic-6 amendment 9 stands).
 - Do not modify `server/src/game/ai/**` behaviour or its ESLint import boundary.
@@ -87,8 +88,9 @@ placements and the win check are byte-identical to Standard.
   the field; default behaviour unchanged.
 - `server/src/game/ai/botDriver.ts` -- `enroll(id, hullId?)` honours a supplied class; a
   `renameBot(id)` redraw for the callsign collision. NO behaviour change to the brain.
-- `client/src/ui/home.ts` -- second button `SOLO VS AI` below PLAY, unlit phosphor, with its own
-  sub-line; must never render `AWAITING A SECOND CAPTAIN` for solo.
+- `client/src/ui/home.ts` -- PLAY is relabelled `SOLO` and LOSES its sub-line (Eric 2026-08-17); a
+  centered `SOLO VS AI` button sits in a row BELOW a mode row built to hold DUO/TRIO later. Must never
+  render `AWAITING A SECOND CAPTAIN` for solo.
 - `client/src/net/connection.ts` -- `connect()` takes a solo flag; solo skips the queue entirely and
   calls `client.create('arena', {...opts, solo:true})`.
 - `client/src/main.ts` -- wire the second button through `startGame`/`lastDeploy`.
@@ -153,6 +155,23 @@ the drone-grey sentinel and must never be left on a bot.
 **`n AFLOAT` now counts participants.** Giving bots roster rows makes `afloatCount` return 20. Epic-4
 worded this "captains only" when the only alternative was PvE drones; AI captains are participants,
 so counting them is the consistent reading. Record as an epic-6 amendment.
+
+**The home screen is a MODE ROW plus a solo-vs-AI row (Eric rulings, 2026-08-17).** PLAY becomes
+`SOLO` and loses its sub-line — *"I want the current PLAY button to say SOLO and nothing else. It
+doesn't need to say Deploy as [ship class]."* The Class Chip directly above already shows the hull, so
+the sub-line was redundant. `SOLO VS AI` is centered in a row BELOW. The top row is built as a real
+row container because *"the current PLAY button will be in-line with DUO and TRIO modes, once those
+are out. All three are above SOLO VS AI."* **This retires the `home.test.ts:36` sub-line pin and
+overrides EXPERIENCE.md:67's "sub-line always states what will happen"** — recorded as an amendment,
+not worked around. Dropping both sub-lines also resolves the column-height pressure that adding a
+second button created.
+
+**Auto-requeue remembers the mode (Eric, 2026-08-17)** — *"Lobby collapse should return to whatever
+the last mode the player/group had queued for."* An in-memory mode on `lastDeploy`; no localStorage
+(that stays 6.6). **The collapse path is UNREACHABLE in Solo vs AI** — Eric asked *"why would the
+lobby collapse in solo vs ai anyway?"* and the answer is that it cannot: the collapse fires only for a
+sealed 2-captain cohort losing one during the 0:10 countdown, and a solo room has no cohort. The field
+exists for DUO/TRIO.
 
 **The termination rule (the debt the ledger flagged three times).** No new rule is needed and none is
 invented: `isParticipant` is `role !== 'fleet'`, so bots count in `afloatCaptains()`, a 1+19 roster

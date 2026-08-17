@@ -314,10 +314,19 @@ describe('sanitizeExpectedCaptains', () => {
     for (const n of [MIN, 3, CAP - 1, CAP]) expect(sanitizeExpectedCaptains(n)).toBe(n);
   });
 
-  it('clamps a forged value into [minHumans, playerCap]', () => {
-    expect(sanitizeExpectedCaptains(0)).toBe(MIN);
-    expect(sanitizeExpectedCaptains(-99)).toBe(MIN);
+  // THE FLOOR MOVED minHumans -> 1 (Story 6.5): clamping to the CONFIG
+  // constant made `1` silently become `2`, which is exactly the value a Solo
+  // vs AI room must be able to express. The ceiling did not move.
+  it('clamps a forged value into [1, playerCap]', () => {
+    expect(sanitizeExpectedCaptains(0)).toBe(1);
+    expect(sanitizeExpectedCaptains(-99)).toBe(1);
     expect(sanitizeExpectedCaptains(10_000)).toBe(CAP);
+  });
+
+  it('passes a ONE-captain cohort through unpromoted (the solo room, Story 6.5)', () => {
+    expect(MIN).toBeGreaterThan(1); // the clamp used to round this away
+    expect(sanitizeExpectedCaptains(1)).toBe(1);
+    expect(sanitizeRoomOptions({ expectedCaptains: 1 }, false).sanitized.expectedCaptains).toBe(1);
   });
 
   it('rejects non-integers and non-numbers outright (no boarding expectation)', () => {

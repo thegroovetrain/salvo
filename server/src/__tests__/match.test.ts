@@ -724,6 +724,93 @@ describe('match — the win check counts PARTICIPANTS, the countdown counts HUMA
   });
 });
 
+// --- MATCH + AI CAPTAINS (Story 6.5) ----------------------------------------
+//
+// The suite above notes that `isParticipant` and `isFleetHull` were
+// "coextensive until 6.4 lands bots" — bots landed, and until now NOTHING
+// constructed a Match with one in it. That is the gap this block closes, and it
+// is the load-bearing coverage for Solo vs AI: the mode ships no new lifecycle
+// rule, so the whole termination argument is that the PARTICIPANT rule already
+// covers an AI captain. Untested, that argument is a claim.
+//
+// The `minHumans: 1` timings here are exactly what the solo room derives (see
+// rooms/ArenaRoom.finishCreate) — a one-captain cohort. minHumans is still a
+// PEOPLE count: the last case pins that nineteen bots arm nothing on their own.
+describe('match — AI CAPTAINS are participants (Story 6.5: 1 human + a bot fleet)', () => {
+  const SOLO = { ...TIMINGS, minHumans: 1, expectedCaptains: 1 };
+
+  /** A solo-shaped cohort: `bots` AI captains in the water FIRST (the room
+   *  builds them at create, before any tick), then the one human. */
+  function solo(bots: number, timings = SOLO): Ctx {
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, timings, rec.hooks);
+    for (let i = 0; i < bots; i++) w.addBot();
+    w.addShip('alice', 'ALICE');
+    m.notifyRosterChanged();
+    return { w, m, ...rec };
+  }
+
+  it('nineteen bots and one captain: the countdown arms and the match RUNS', () => {
+    const ctx = solo(19);
+    expect(ctx.m.phase).toBe('countdown'); // one human IS the whole cohort
+    activate(ctx);
+    step(ctx, 20);
+    // The thing that must NOT happen: `captains.length > 1` sees twenty
+    // participants, so nothing latches and no results fire.
+    expect(ctx.m.phase).toBe('active');
+    expect(ctx.m.winnerId).toBe('');
+    expect(ctx.results).toHaveLength(0);
+    expect(ctx.w.ships.size).toBe(20);
+  });
+
+  it('a BOT wins — winnerId is the bot’s id and the results table names it', () => {
+    const ctx = solo(1);
+    activate(ctx);
+    const bot = ctx.w.ships.get('bot-1')!;
+    ctx.w.sinkShip('alice', 'bot-1');
+    step(ctx, SINK_TICKS + 1); // the human's window holds the finish
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('bot-1');
+    const rows = ctx.results[0].rows;
+    expect(rows.map((r) => [r.id, r.placement])).toEqual([
+      ['bot-1', 1],
+      ['alice', 2],
+    ]);
+    expect(rows[0].name).toBe(bot.name); // its real callsign, not a drone label
+    expect(ctx.m.endSummary().outcome).toBe('winner'); // a real winner, not a draw
+  });
+
+  it('a sinking BOT holds the finish for its full window, exactly as a captain does', () => {
+    const ctx = solo(1);
+    activate(ctx);
+    ctx.w.sinkShip('bot-1', 'alice');
+    step(ctx, 1);
+    expect(ctx.m.phase).toBe('active'); // held: a participant is still going down
+    expect(ctx.results).toHaveLength(0);
+    step(ctx, SINK_TICKS);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('alice');
+    expect(ctx.m.placements.get('bot-1')).toBe(2); // it placed, like any participant
+  });
+
+  it('bots are not people: a fleet of them with NO human arms nothing', () => {
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, SOLO, rec.hooks);
+    for (let i = 0; i < 19; i++) w.addBot();
+    m.notifyRosterChanged();
+    for (let i = 0; i < 20; i++) {
+      w.step();
+      m.update();
+    }
+    expect(m.phase).toBe('waiting');
+    expect(rec.calls).toHaveLength(0); // never locked, never counted down
+  });
+});
+
 describe('world storm damage respects the damage policy flag', () => {
   it('bleeds no hp while damage is suppressed, even outside the zone', () => {
     // Fast zone: fully closed on a tiny concentric terminal within a few ticks.
