@@ -2,7 +2,7 @@
 title: 'The dim mask stops killing the renderer'
 type: 'bugfix'
 created: '2026-08-17'
-status: 'in-review'
+status: 'done'
 baseline_commit: '7a733b4a7a7f35e3f0fe25efaee599aecfc01f3a'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/investigations/radar-dim-mask-render-freeze-investigation.md'
@@ -176,3 +176,40 @@ Memory: one 1024² source per `Radar` for its lifetime. Steady state is UNCHANGE
 
 **Manual checks (if no CLI):**
 - With the dev server already running (never start it — curl `:5173` first), join a match, fit an `intelRange` boon, and confirm the scope keeps animating with a clean console. The dim ramp must look unchanged: quiet across the sight bubble, full strength at the 5/8 rung.
+
+## Suggested Review Order
+
+**The crash and its fix**
+
+- Start here: the destroy that killed the renderer is gone, and the comment says why it may never come back.
+  [`radar.ts:1243`](../../client/src/render/radar.ts#L1243)
+
+- The whole fix in one signature — hand the live texture back instead of minting and destroying.
+  [`textures.ts:286`](../../client/src/render/textures.ts#L286)
+
+**Ownership: what may be redrawn into**
+
+- The guard that decides "is this texture ours" — identity, liveness, canvas-ness, and SIZE.
+  [`textures.ts:243`](../../client/src/render/textures.ts#L243)
+
+- Structural canvas test, because the bake mints either an OffscreenCanvas or an HTMLCanvasElement.
+  [`textures.ts:233`](../../client/src/render/textures.ts#L233)
+
+**Reuse hazards the review gate surfaced**
+
+- A reused context is no longer virgin: compositing state is reset before drawing.
+  [`textures.ts:198`](../../client/src/render/textures.ts#L198)
+
+- The non-finite latch guard — a per-frame re-upload the fix itself would otherwise have introduced.
+  [`radar.ts:1243`](../../client/src/render/radar.ts#L1243)
+
+**Tests**
+
+- Radar-level: the bound source survives a boon and a dazzle flip, and is never destroyed.
+  [`dimMaskLifetime.test.ts:65`](../../client/src/__tests__/dimMaskLifetime.test.ts#L65)
+
+- The reuse branch against REAL Pixi objects — the pin that stops the fix being silently inert.
+  [`dimMaskLifetime.test.ts:133`](../../client/src/__tests__/dimMaskLifetime.test.ts#L133)
+
+- Every "not ours" input: the EMPTY singleton, wrong size, destroyed texture, destroyed source.
+  [`dimMaskLifetime.test.ts:209`](../../client/src/__tests__/dimMaskLifetime.test.ts#L209)
