@@ -201,7 +201,7 @@ development_status:
   # The 2026-08-04 scope note here (drones gate the win; 6-3 owes solo termination) was
   # OVERTAKEN: 5-1 removed the gate and moved solo termination to 6-5. See deferred-work.md.
   6-3-the-participants-only-win-check: done  # 2026-08-15 cycle 89 (0.17.89); PV 36->37; amendments 13-18
-  6-4-combat-bot-ai: backlog
+  6-4-combat-bot-ai: done  # 2026-08-16 cycle 95 (0.17.95); PV 39; amendments 25-27; bot-evidence-2026-08-16.md
   6-5-solo-vs-ai-mode: backlog
   6-6-mode-select-queue-liveness: backlog
   6-7-reconnection-ux: backlog
@@ -351,6 +351,7 @@ action_items:
   - epic: 5
     action: "Story 6-4 must REBUILD the AR18 batch-sim capability that amendment 41 deleted with the drone fill — its own AC ('bot quality is measured, not felt') has no implementation behind it, and Story 7-6's release gate depends on loadTest.mjs by name. Add to 6-4 scope at create-story time"
     owner: "spec author (create-story 6-4)"
+    status: partially-done  # 2026-08-16 cycle 95: bot-vs-bot evaluation leg BUILT (--bots N lobby, six-bar quality table, per-profile/per-class breakdowns, bot-evidence-2026-08-16.md). The LOAD-TEST leg (loadTest.mjs) is deliberately NOT built here — a socket-spike test against a deployed tier is a different instrument; it stays with Story 7-6.
     status: open
   - epic: 5
     action: "Story 6-5 must arrive with its SOLO TERMINATION RULE — amendment 4 left a human-versus-drones match with no defined end, and minHumans=2 is the only thing hiding it. 6-5 is now beta-critical, so this must not surface as a review finding"
