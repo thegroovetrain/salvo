@@ -22,6 +22,7 @@ import {
   CONFIG,
   angleDiff,
   inArc,
+  isAfloat,
   islandDistance,
   mulberry32,
   nearestCoastPoint,
@@ -131,6 +132,28 @@ function stagingPoint(w: World, clearance: number): { x: number; y: number } {
   throw new Error('no open staging area on this map — the test cannot run honestly');
 }
 
+/**
+ * A berth just seaward of the OUTWARD face of the map's biggest island, with a
+ * heading pointing straight into it (which is also straight back toward the
+ * map centre — see the un-beach regression test for why that matters). Found
+ * by walking the outward ray for the coastline rather than assumed, so a
+ * mapgen retune moves the berth instead of quietly ungrounding the test.
+ */
+function seawardBerth(w: World): { x: number; y: number; heading: number } {
+  const isle = [...w.map.islands].sort((a, b) => b.r - a.r)[0];
+  const out = Math.atan2(isle.y, isle.x); // away from the map centre
+  const dx = Math.cos(out);
+  const dy = Math.sin(out);
+  for (let t = 0; t <= isle.r * 1.5; t += 2) {
+    const p = { x: isle.x + dx * t, y: isle.y + dy * t };
+    if (islandDistance(p, isle) > 0) {
+      // 40u clear of the coast, bow pointed at it.
+      return { x: p.x + dx * 40, y: p.y + dy * 40, heading: wrapAngle(out + Math.PI) };
+    }
+  }
+  throw new Error('no seaward coast found — the test cannot ground anything honestly');
+}
+
 /** A world whose ocean is empty water — placement, steering and firing tests
  *  are about the bot, not about mapgen. */
 function openWorld(seed: number, cap = 8): World {
@@ -170,12 +193,25 @@ describe('steering — the priority order is the policy', () => {
     expect(d.fireSlot).toBeNull();
   });
 
-  it('UN-BEACHING: going nowhere arms astern within stuckMs, and lets go once way is made', () => {
+  // THE TRIP IS THE SIMULATION'S CONTACT BIT, NOT A SPEED GUESS. The shipped
+  // form of this test hand-set `rec.state.speed = 0` under the comment "the
+  // grounding damp caps a beached hull low". It caps it HIGH: grounding is a
+  // directional speed CAP (cycle 59), so a dead-on grounded hull still holds
+  // islandSpeedMult x maxSpeed — 8.75 u/s for a battleship — against a 3 u/s
+  // trip. The test proved the manoeuvre WORKS when armed; it could never prove
+  // the manoeuvre can ARM, and it did not: the whole un-beach path was
+  // unreachable. The setup below therefore drives the record's real
+  // `landContact` flag, and the end-to-end block grounds a hull FOR REAL.
+  it('UN-BEACHING: sustained LAND CONTACT arms astern within stuckMs, and lets go once clear', () => {
     const w = openWorld(103);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const mind = mkMind('battleship', 'bulwark');
-    rec.state.speed = 0; // pinned: the grounding damp caps a beached hull low
+    // Aground and pressing — and STILL MAKING WAY at the grounding cap, which
+    // is exactly the state the old speed trip could not see.
+    rec.landContact = true;
+    rec.state.speed = rec.stats.kinematics.maxSpeed * CONFIG.ship.islandSpeedMult;
+    expect(rec.state.speed).toBeGreaterThan(3); // the retired STUCK_SPEED trip
     let armedAtMs: number | null = null;
     for (let i = 0; i < 200 && armedAtMs === null; i += 1) {
       const d = COMBAT_BRAIN.decide(rec, mind, port);
@@ -186,11 +222,27 @@ describe('steering — the priority order is the policy', () => {
     expect(armedAtMs!).toBeLessThanOrEqual(CONFIG.bots.stuckMs);
     // It holds astern for the manoeuvre rather than chattering tick to tick.
     expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
-    // Way made -> the trip resets and the helm goes ahead again on the spot.
-    rec.state.speed = rec.stats.kinematics.maxSpeed;
+    // Clear of the rock -> the trip resets and the helm goes ahead again.
+    rec.landContact = false;
     port.now = mind.unbeachUntil + 1;
     expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeGreaterThan(0);
     expect(mind.stuckMs).toBe(0);
+  });
+
+  // A hull with plenty of way on but NO land under it must never reverse: the
+  // guard against replacing the broken speed trip with a differently broken
+  // one (a raised STUCK_SPEED would fire on every slow turn in open water).
+  it('a slow bot in OPEN WATER never arms the manoeuvre, however long it dawdles', () => {
+    const w = openWorld(105);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('battleship', 'bulwark');
+    rec.state.speed = 0.5; // barely moving, and not touching a thing
+    rec.landContact = false;
+    for (let i = 0; i < 400; i += 1) {
+      expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeGreaterThan(0);
+      port.now += CONFIG.tick.simDtMs;
+    }
   });
 
   it('a coastline dead ahead biases the rudder away from the NEAREST COAST POINT', () => {
@@ -474,6 +526,119 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
       expect(rec.input.hornSeq).toBe(0);
       expect(rec.input.fireT).toBe(0);
     }
+  });
+
+  // THE SIGNAL ITSELF, pinned before the behaviour that reads it: the bot
+  // brain's un-beach trip is only as honest as ShipRecord.landContact, and
+  // that flag means LAND, never "something stopped me" — a map-boundary press
+  // is deliberately not contact (cycle 59 grounding ruling), which is exactly
+  // the distinction a speed heuristic cannot make.
+  it('ShipRecord.landContact is written every tick, and the MAP EDGE is not land', () => {
+    const w = new World(3104, 8);
+    const rec = w.ships.get(w.addBot().id)!;
+    const berth = seawardBerth(w);
+
+    // Open water, well clear of everything: no contact, ever.
+    const clear = stagingPoint(w, 400);
+    rec.state.x = clear.x;
+    rec.state.y = clear.y;
+    rec.prevPose = { ...rec.state };
+    w.step();
+    expect(rec.landContact).toBe(false);
+
+    // Driven onto the coast: contact, from the resolver, not from a threshold.
+    rec.state.x = berth.x;
+    rec.state.y = berth.y;
+    rec.state.heading = berth.heading;
+    rec.state.speed = 0;
+    rec.prevPose = { ...rec.state };
+    let grounded = false;
+    let fastestAground = 0;
+    for (let t = 0; t < 60; t += 1) {
+      w.step();
+      if (!rec.landContact) continue;
+      grounded = true;
+      fastestAground = Math.max(fastestAground, Math.abs(rec.state.speed));
+    }
+    expect(grounded).toBe(true);
+    // ...and a hull aground is still MAKING WAY — the grounding damp is a cap
+    // (islandSpeedMult x maxSpeed), never a stop, which is the whole reason a
+    // speed trip could not see this state and this flag can.
+    expect(fastestAground).toBeGreaterThan(3);
+
+    // Hard against the map edge, driving straight out: pinned, but NOT aground.
+    const r = w.map.radius;
+    rec.state.x = r - 2;
+    rec.state.y = 0;
+    rec.state.heading = 0;
+    rec.state.speed = rec.stats.kinematics.maxSpeed;
+    rec.prevPose = { ...rec.state };
+    for (let t = 0; t < 20; t += 1) {
+      w.step();
+      expect(rec.landContact).toBe(false);
+    }
+  });
+
+  // THE REGRESSION TEST FOR THE UN-BEACH DEFECT. Nothing here is hand-set: the
+  // hull is placed in open water pointing at a coastline and driven into it by
+  // its own brain, and every gram of the grounding is resolveCollisions'.
+  //
+  // The seaward face of the island is chosen DELIBERATELY: with nothing in
+  // sight the brain patrols for the live ring centre, which sits on the far
+  // side of that island, so the helm commands ahead into the rock tick after
+  // tick for as long as the bot is left to it. Only the un-beach manoeuvre can
+  // break that loop — which is why this test FAILS against the shipped 3 u/s
+  // speed trip (the hull grounds and holds the grounding cap, 3-4x above the
+  // trip, so the manoeuvre never arms) and passes against the contact bit.
+  //
+  // WHAT IT DELIBERATELY DOES NOT ASSERT, because the fix does not deliver it:
+  // the bot reverses off and then, still wanting a bearing that runs through
+  // the same island, drives back in — measured 54% of ticks in contact across
+  // this window (against 96.4% one-unbroken-run before the fix). That residual
+  // is the fleet-pilot un-beach V2's third stage, the EXIT-HEADING GRACE HOLD
+  // (batchsim/pilots.ts), which this brain never ported: it needs a held
+  // heading on BotMind, so it is a separate change, not a knob.
+  it('a bot driven bow-on into a coastline UN-BEACHES ITSELF, and no run is unbounded', () => {
+    const w = new World(3103, 8); // ISLANDS INTACT: this test is the beaching
+    const rec = w.ships.get(w.addBot().id)!;
+    const berth = seawardBerth(w);
+    rec.state.x = berth.x;
+    rec.state.y = berth.y;
+    rec.state.heading = berth.heading;
+    rec.state.speed = 0;
+    rec.prevPose = { ...rec.state };
+    rec.landContact = false;
+
+    const TICKS = 1200; // 60 s — four times the whole un-beach contract
+    let contactTicks = 0;
+    let episodes = 0;
+    let run = 0;
+    let worstRun = 0;
+    for (let t = 0; t < TICKS; t += 1) {
+      w.step();
+      if (!isAfloat(rec.lifecycle)) break; // sunk by a fleet hull: stop reading
+      if (rec.landContact) {
+        contactTicks += 1;
+        if (run === 0) episodes += 1;
+        run += 1;
+        worstRun = Math.max(worstRun, run);
+      } else {
+        run = 0;
+      }
+    }
+
+    // IT REALLY GROUNDED — otherwise the rest of this proves nothing.
+    expect(contactTicks).toBeGreaterThan(0);
+    // AND IT REALLY GOT OFF, EVERY TIME. This is the assertion the defect
+    // fails: against the retired speed trip the hull grounds on the first few
+    // seconds and NEVER leaves — one unbroken 57.8 s run over this same 60 s
+    // window (96.4% of ticks in contact). The bound is the trip window plus
+    // the manoeuvre window, doubled: arm within one CONFIG.bots.stuckMs of
+    // touching, clear within the next, with slack for a heavy hull's shove.
+    expect(worstRun * CONFIG.tick.simDtMs).toBeLessThanOrEqual(CONFIG.bots.stuckMs * 4);
+    // ...repeatedly and under its own power, which is what separates "it
+    // un-beaches" from "it happened to drift clear once".
+    expect(episodes).toBeGreaterThan(3);
   });
 
   it('is deterministic per world seed — same seed, same water', () => {

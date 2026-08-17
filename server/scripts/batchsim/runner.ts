@@ -33,6 +33,7 @@ import { World, type ShipRecord } from '../../src/game/world.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
 import { isFleetHull } from '../../src/game/participants.js';
 import { PILOT_REGISTRY, type CaptainPilot, type PilotFactory } from './pilots.js';
+import { BotCollector, type BotSample } from './botMetrics.js';
 import { mixSeed, tally } from './stats.js';
 
 /** ms of sim time each level-curve sample bucket spans. */
@@ -53,6 +54,13 @@ export interface RunSpec {
   seed: number;
   matches: number;
   captains: number;
+  /**
+   * COMBAT BOTS in the lobby (Story 6.4, wave 4). Deliberately NOT a pilot:
+   * bots drive themselves from World's `botsTick` STEP_ORDER row, so the lobby
+   * only has to CONSTRUCT them (world.addBot()) and the per-tick pilot loop
+   * stays empty for them. Default 0 => every existing run key is byte-identical.
+   */
+  bots?: number;
   /** Pilot factory; defaults to the v1 gunner (PILOT_REGISTRY.gunner). */
   pilot?: PilotFactory;
 }
@@ -110,6 +118,11 @@ export interface MatchSample {
    *  empty; it exists so a leave-capable pilot cannot crash the batch, and so
    *  the exclusion is REPORTED rather than silent. */
   departedCaptains: string[];
+  /** One row per COMBAT BOT in the lobby (Story 6.4, wave 4). OPTIONAL for the
+   *  same reason `departedCaptains` is read defensively in report.ts: sample
+   *  literals predating the field exist in the harness's own tests, and a bots=0
+   *  run has nothing to say here. Read it as `?? []`. */
+  bots?: BotSample[];
 }
 
 export interface BatchResult {
@@ -242,7 +255,8 @@ function harnessHooks(): MatchHooks {
  *  structural impossibility of a match that never even ACTIVATED in budget. */
 export function runMatch(index: number, spec: RunSpec): MatchSample {
   const matchSeed = mixSeed(spec.seed, index);
-  const playerCap = Math.max(CONFIG.map.playerCap, spec.captains);
+  const botCount = spec.bots ?? 0;
+  const playerCap = Math.max(CONFIG.map.playerCap, spec.captains + botCount);
   // zoneSeeds: production rooms roll independent per-ring nonces (amendment
   // 10); the harness instead derives one per ring from the match seed on its
   // own ordinal band so ring rolls are part of the reproducible run key
@@ -264,7 +278,15 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     // longer gate the win, so the lone captain wins on the activation tick and
     // the sample carries no combat at all. Story 6-5 owes the termination rule
     // that makes 1vN meaningful again; until then, batch evidence needs >= 2.
-    minHumans: 1,
+    //
+    // A BOT-ONLY LOBBY NEEDS ZERO (wave 4). `humanCount()` counts role
+    // 'captain' ONLY — by design, FR34 — so a `--captains 0 --bots N` run would
+    // sit in `waiting` forever at minHumans 1, and every bot metric would then
+    // be measured on a match that never started (World respawns in the waiting
+    // phase, so kills and deaths would be nonsense). 0 is the honest minimum
+    // for a lobby with no people in it, and it changes nothing for a run that
+    // has captains.
+    minHumans: spec.captains > 0 ? 1 : 0,
   };
   const match = new Match(world, timings, harnessHooks());
   const factory = spec.pilot ?? PILOT_REGISTRY.gunner;
@@ -276,8 +298,16 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]);
     pilots.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
   }
+  // THE BOT LOBBY (wave 4) — construction IS the whole job. addBot() rolls the
+  // class, priority profile and callsign off the BotController's own seeded
+  // stream and places the hull through the same spawn lattice a human uses; the
+  // brain then drives itself from World's `botsTick` STEP_ORDER row. There is
+  // no bot pilot and nothing bot-shaped in the per-tick loop below.
+  const botIds: string[] = [];
+  for (let i = 0; i < botCount; i += 1) botIds.push(world.addBot().id);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
+  const bots = new BotCollector(botIds);
   // Tick budget from the SHARED time-to-closed helper: the full phased
   // timeline (12:00 at production CONFIG — ~14400 ticks) + countdown + endgame
   // slack. Honest but bounded: a pacifist full run fits comfortably; nothing
@@ -288,12 +318,13 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     world.step();
     match.update();
     collector.observe(world, match);
-    if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds);
+    bots.observe(world, match.activatedAt);
+    if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds, bots);
   }
   if (match.activatedAt === 0) {
     throw new Error(`match ${index} (seed ${matchSeed}) never activated within ${tickCap} ticks`);
   }
-  return capSample(index, matchSeed, world, match, collector, captainIds);
+  return capSample(index, matchSeed, world, match, collector, captainIds, bots);
 }
 
 /**
@@ -312,9 +343,10 @@ export function capSample(
   match: Match,
   collector: MatchCollector,
   captainIds: readonly string[],
+  bots?: BotCollector,
 ): MatchSample {
-  if (match.phase === 'finished') return finishSample(index, seed, world, match, collector, captainIds);
-  return unresolvedSample(index, seed, world, match, collector, captainIds);
+  if (match.phase === 'finished') return finishSample(index, seed, world, match, collector, captainIds, bots);
+  return unresolvedSample(index, seed, world, match, collector, captainIds, bots);
 }
 
 /** DEPARTED CAPTAINS: a captain's ship is gone from world.ships if the match
@@ -333,9 +365,10 @@ function finishSample(
   match: Match,
   collector: MatchCollector,
   captainIds: readonly string[],
+  bots?: BotCollector,
 ): MatchSample {
   const summary = match.endSummary();
-  return buildSample(index, seed, world, collector, captainIds, {
+  return buildSample(index, seed, world, collector, captainIds, bots, {
     durationS: summary.durationS,
     endedBy: summary.endedBy,
     // Keep the field HONEST: match.ts today emits `?.hullId ?? null`, so ''
@@ -359,9 +392,10 @@ function unresolvedSample(
   match: Match,
   collector: MatchCollector,
   captainIds: readonly string[],
+  bots?: BotCollector,
 ): MatchSample {
   const durationS = Math.round((world.now - match.activatedAt) / 100) / 10;
-  return buildSample(index, seed, world, collector, captainIds, {
+  return buildSample(index, seed, world, collector, captainIds, bots, {
     durationS,
     endedBy: 'unresolved',
     // No conclusion => no winner, ever. Never borrow a class from the roster.
@@ -384,6 +418,7 @@ function buildSample(
   world: World,
   collector: MatchCollector,
   captainIds: readonly string[],
+  bots: BotCollector | undefined,
   outcome: SampleOutcome,
 ): MatchSample {
   const captains: CaptainSample[] = [];
@@ -401,6 +436,7 @@ function buildSample(
     winnerClass: outcome.winnerClass,
     stormDeaths: outcome.stormDeaths,
     killsByVictimTier: collector.killsByVictimTier,
+    bots: bots?.samples(world) ?? [],
     captains,
     departedCaptains,
   };

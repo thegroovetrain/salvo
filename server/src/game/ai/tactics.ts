@@ -23,10 +23,13 @@
 //      It outranks the un-beach manoeuvre deliberately: the storm does not
 //      miss, and a hull aground in the storm must at least be pointed the
 //      right way when it comes off.
-//   2. UN-BEACHING. Commanding ahead and going nowhere for CONFIG.bots.stuckMs
-//      arms an astern manoeuvre. A permanently beached bot is the single most
-//      visible failure this story can ship (the fleet AI shipped exactly that
-//      once), so this outranks every combat consideration below it.
+//   2. UN-BEACHING. SUSTAINED LAND CONTACT for CONFIG.bots.stuckMs arms an
+//      astern manoeuvre — read off the simulation's own contact bit
+//      (ShipRecord.landContact), never inferred from speed, because grounding
+//      here is a speed CAP and a beached hull still makes 8.75-11.25 u/s (see
+//      updateStuck). A permanently beached bot is the single most visible
+//      failure this story can ship (the fleet AI shipped exactly that once),
+//      so this outranks every combat consideration below it.
 //   3. POSTURE. engage / pursue / disengage / farm / reposition, per profile.
 //   4. AVOIDANCE, summed onto the rudder rather than replacing it: coastlines,
 //      the map edge, and MINES THE BOT CAN SEE. A bot sinking itself on a mine
@@ -96,8 +99,6 @@ const BOUNDARY_MARGIN = 80;
 /** u — lookahead for the visible-mine probe. Three trigger radii: far enough
  *  to turn out of, near enough that a mine abeam is not a phantom threat. */
 const MINE_LOOKAHEAD = CONFIG.mine.triggerRadius * 3;
-/** u/s — below this while commanding ahead we are going nowhere. */
-const STUCK_SPEED = 3;
 /** Cruise throttle while holding an engagement band (a bot in its band is
  *  keeping station, not charging). */
 const CRUISE_THROTTLE = 0.6;
@@ -433,15 +434,36 @@ function chooseAct(self: ShipRecord, sit: BotSituation, posture: BotPosture): nu
 // ---------------------------------------------------------------------------
 
 /**
- * Track "commanding ahead but going nowhere" and arm the astern manoeuvre.
- * Returns true while un-beaching. The grounding damp caps a beached hull well
- * above zero (cycle 59), so this tests a LOW speed, never a zero one — and the
- * trip and the manoeuvre share ONE number, `CONFIG.bots.stuckMs`, so a bot is
- * reversing within that window of losing way and clear within two of them.
+ * Track SUSTAINED LAND CONTACT and arm the astern manoeuvre. Returns true
+ * while un-beaching.
+ *
+ * IT READS THE SIMULATION'S OWN CONTACT BIT, NOT A SPEED HEURISTIC. Grounding
+ * in this game is a directional speed CAP, never a stop (cycle 59): a dead-on
+ * grounded hull still holds `islandSpeedMult x maxSpeed` — 11.25 / 10.00 /
+ * 8.75 u/s by class — so ANY "am I going nowhere" threshold low enough to mean
+ * beached is below a number a beached hull never goes below, and any threshold
+ * above it fires on every slow turn in open water. This function's first
+ * shipped form tripped under 3 u/s and was therefore unreachable dead code: a
+ * bot could grind a coastline for minutes. `ShipRecord.landContact` is the
+ * resolver's exact answer (`resolveShipPose().contact`, LAND ONLY — a
+ * map-boundary press is deliberately not contact), stored by
+ * World.resolveCollisions. Reading it off the bot's OWN record is a self-read
+ * like hp or ammo, not perception of the world.
+ *
+ * It is ONE TICK STALE by construction — botsTick sits ahead of
+ * resolveCollisions in STEP_ORDER so every AI input reaches applyInputs in the
+ * same tick — which is 50ms against a 1500ms trip and cannot matter.
+ *
+ * The trip and the manoeuvre still share ONE number, `CONFIG.bots.stuckMs`:
+ * sustained contact for that window arms the reverse, which then holds for the
+ * same window, so a grounded bot is reversing within one and clear within two.
+ * The window doubles as the graze debounce — a brush that resolves inside it
+ * never commands astern, and only water the hull is genuinely pressing into
+ * reports contact tick after tick.
  */
 function updateStuck(self: ShipRecord, mind: BotMind, now: number): boolean {
   if (now < mind.unbeachUntil) return true;
-  if (Math.abs(self.state.speed) >= STUCK_SPEED) {
+  if (!self.landContact) {
     mind.stuckMs = 0;
     return false;
   }

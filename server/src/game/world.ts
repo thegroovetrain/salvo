@@ -369,6 +369,25 @@ export interface ShipRecord {
    */
   prevPose: ShipState;
   /**
+   * IS THIS HULL TOUCHING LAND RIGHT NOW — the authoritative answer, written
+   * every tick by resolveCollisions from `resolveShipPose().contact`, which is
+   * TRUE FOR LAND ONLY (a map-boundary press is deliberately not contact —
+   * cycle 59 grounding ruling). Previously computed and thrown away inline.
+   *
+   * WHY IT IS STORED (Story 6.4 defect fix). Grounding is a SPEED CAP, not a
+   * stop: `applyGroundingDamp` holds a dead-on grounded hull at
+   * `islandSpeedMult x maxSpeed` — 8.75-11.25 u/s by class — so ANY "am I
+   * going nowhere" speed heuristic is guessing at a fact the simulation
+   * already knows exactly, and the bot brain's original 3 u/s trip sat 3-4x
+   * BELOW every grounded hull's floor, making its whole un-beach path
+   * unreachable. The AI now reads this bit instead.
+   *
+   * SERVER-ONLY, never on the wire (no PROTOCOL_VERSION movement): a bot reads
+   * it off its OWN ShipRecord, which is a self-read exactly like hp or ammo,
+   * not perception of the world. False for any hull not on the water.
+   */
+  landContact: boolean;
+  /**
    * THE WAKE RIBBON this hull is CURRENTLY laying (Story 4.12, amendments
    * 194/200/205): the shared ring buffer of pose samples the per-observer
    * wake scan discloses segment by segment. NOTE `prevPose` above is per-tick
@@ -1232,7 +1251,7 @@ export class World {
       hullId,
       cls,
       hullPoly: [],
-      prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 },
+      prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 }, landContact: false,
       // THE SWEEP STARTS AT THE HULL'S HEADING (Eric ruling 2026-08-16), at
       // EVERY placement edge — here, redeployShip and respawn — so there is one
       // rule and not three. Constructing every hull at 0 phase-LOCKED the whole
@@ -1459,6 +1478,10 @@ export class World {
     // reset at the countdown->active boundary).
     ship.lifecycle = transitionLifecycle(ship.lifecycle, 'redeploy', this.now);
     ship.respawnAt = 0;
+    // ...nor a stale grounding read: the placement is island-clear by
+    // construction, and a carried-over `true` would arm an un-beach reverse on
+    // a hull sitting in open water at the start line.
+    ship.landContact = false;
     // A fresh life never inherits an open boost window — nor a slow or dazzle.
     ship.boostUntil = 0;
     // ...nor a DAMAGE CONTROL pool: hp is already full here, so a surviving
@@ -2349,13 +2372,22 @@ export class World {
    * number the predictor passes — so the two sides stay byte-identical.
    * hullPoly doubles as the transform scratch (aliveHulls rewrites it for this
    * tick's ballistic/mine tests).
+   *
+   * The result's LAND-ONLY `contact` flag is also STORED on the record
+   * (ShipRecord.landContact) rather than consumed and dropped: it is the
+   * simulation's exact answer to "is this hull aground", and the bot brain's
+   * un-beach trip reads it off its own record instead of guessing from speed
+   * (which cannot work — the damp is a cap, not a stop).
    */
   private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
       // Story 5.2 motion seam 2 of 3 (amendment 15): a SINKING hull still
       // pushes out of islands and off the map edge — it moved this tick, so
       // its pose must resolve, or the window would let it coast into land.
-      if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) continue;
+      if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) {
+        ship.landContact = false; // off the water: never aground
+        continue;
+      }
       const res = resolveShipPose(
         ship.prevPose,
         ship.state,
@@ -2364,6 +2396,7 @@ export class World {
         hullSilhouette(ship.hullId),
         ship.hullPoly,
       );
+      ship.landContact = res.contact;
       applyGroundingDamp(ship.state, res, ship.stats.kinematics.maxSpeed);
     }
   }
@@ -3916,6 +3949,9 @@ export class World {
     ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
+    // ...nor a stale grounding read (the redeployShip rule): the respawn
+    // placement is island-clear, so the hull is not aground.
+    ship.landContact = false;
     // A fresh life never inherits a stale smoke timer (Story 4.4): without
     // this, a hull that puffed just before sinking would owe the remainder of
     // the old interval on its next life.

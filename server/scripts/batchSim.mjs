@@ -9,6 +9,16 @@
 // seam + spend policy): those two interfaces are the documented reuse points
 // for the later load-test and bot-vs-bot duties (AR12).
 //
+// SECOND DUTY, since Story 6.4: the BOT-VS-BOT instrument (`--bots N`). Story
+// 6.4 ships no playable path at all (Eric ruling A1 — Story 6-5 wires the
+// mode), so this harness is the ENTIRE verification instrument for combat-bot
+// quality and its report carries the spec's quality bar with a PASS/FAIL per
+// row. A bot needs NO pilot: it drives itself from World's `botsTick`
+// STEP_ORDER row, so "bot mode" is a lobby constructor (world.addBot() x N)
+// plus the read-only observer in batchsim/botMetrics.ts. A bot-only lobby
+// drops the harness's dev minHumans to 0 — `humanCount()` counts real captains
+// only, so a lobby of bots would otherwise never leave the waiting phase.
+//
 // This .mjs is only the gate + bootstrap:
 //   - refuses to run without HC_DEV_OPTIONS=1 (dev-tooling convention gate —
 //     no room is involved, but the harness must never look like a prod tool);
@@ -22,6 +32,8 @@
 //   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --matches 500 --seed 7
 //   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --deck-only --draws 20000
 //   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --sweep xp.levelMs=45000,60000
+//   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 20 --matches 50 --seed 7
+//   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 2 --bots 18 --matches 20  (mixed lobby)
 //
 // Determinism: identical run key (seed + overrides + roster + mode) =>
 // byte-identical report body; only the trailing `meta:` line carries wall
