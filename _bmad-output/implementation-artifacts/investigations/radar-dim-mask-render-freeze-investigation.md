@@ -352,3 +352,44 @@ proof is the reproduction below: it fails deterministically today and passes aft
 - **The `client/src/render/ambient.ts` teardown deliberately passes `textureSource: false`**
   (`ambient.ts:121`), which is why leaving the home screen for a match does *not* trigger this crash — an accidental
   but real precedent for the fix direction. (Confirmed.)
+
+## Follow-up: 2026-08-17 #2
+
+Opened while implementing the fix (`spec-radar-dim-mask-render-freeze.md`, cycle 98 / 0.17.98).
+
+### New Evidence
+
+- **`client/src/render/stage.ts:247` pins `preference: 'webgl'`.** (Confirmed.) The renderer backend is not a variable
+  in production.
+- **The regression is an ANCESTOR of the frame-loop containment cycle.** (Confirmed — `git merge-base --is-ancestor
+  c23ca0a 5b01803` returns true; `c23ca0a` is 2026-08-13, `5b01803` is 2026-08-16.) That cycle — recorded in the
+  trackers as cycle 91 / 0.17.91 after a renumbering, though its commit subject still reads "Cycle 90" — was chasing
+  *"players losing control of their ships after picking certain boons"* and closed with **"THE TRIGGER IS STILL
+  UNIDENTIFIED"**, naming a browser stack trace as its highest-value missing evidence.
+
+### Updated Hypotheses
+
+- **Hypothesis 3 (`fitHeat`'s `BufferImageSource.destroy()`) — now Refuted, was Open.** Its stated refutation
+  condition was the renderer never using WebGPU batch `BindGroup`s. `stage.ts:247` pins `preference: 'webgl'`, so the
+  variant is unreachable in production. Combined with the already-Confirmed fact that the heat sprite is a batched
+  child and never a mask, `fitHeat` is not an instance of this defect. Recorded as an explicit **Never** in the spec
+  so a future agent does not "harden" it on a false reading of this case file.
+- **New Hypothesis 4: this defect is the frame-loop containment cycle's unidentified boon-freeze trigger.**
+  **Status: Open (strongly supported).** The symptom that cycle described — *"the picture freezes on the last painted
+  frame"* while *"the server keeps sailing the hull on its last engine order"* — is this defect's signature exactly,
+  the regression was already live when that report came in, and the trigger it could not name is a boon pick
+  (`intelRange`). **Would confirm:** a reporter from that window naming the card, or the absence of further
+  boon-freeze reports after cycle 98 ships. **Would refute:** a boon-freeze report on a build carrying this fix.
+  **Why containment did not catch it:** `client/src/app/loop.ts` guards OUR ticker callbacks; this throw is inside
+  Pixi's own renderer listener at `UPDATE_PRIORITY.LOW`, outside that guard. That is a real gap in the containment,
+  not a flaw in this fix — logged for a future cycle rather than widened here.
+
+### Updated Conclusion
+
+Root cause unchanged and Confidence stays **High**. The fix landed as a lifetime change rather than a radar change:
+`bakeDimMaskTexture(sightU, into?)` redraws the live canvas in place and re-uploads via `source.update()`, so one
+`TextureSource` serves the `Radar`'s life and nothing is ever destroyed. The regression pin
+(`client/src/__tests__/dimMaskLifetime.test.ts`) was **proven to discriminate**: reverting `syncDimMask` to the
+destroying form fails 2 of its 5 tests, and restoring the fix turns them green.
+
+**Status: Concluded — fix implemented.**

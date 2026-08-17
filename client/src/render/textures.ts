@@ -189,15 +189,16 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  * would square the ramp. An opaque greyscale ramp makes the mask exactly the
  * grey level, whatever the upload's alpha mode does.
  *
- * Follows `bakeFogTexture`'s `createRadialGradient` precedent, and like every
- * other bake here it happens ONCE — the mask is positioned and scaled per frame,
- * never re-baked.
+ * Follows `bakeFogTexture`'s `createRadialGradient` precedent. UNLIKE every other
+ * bake here it does NOT happen once: cycle 92 anchored the ramp to the observer's
+ * effective truesight, so it re-bakes whenever that radius moves (a boon, a dazzle
+ * flip). Pass the live texture back as `into` to redraw it IN PLACE — see
+ * `bakeDimMaskTexture` below for why swapping-and-destroying is forbidden.
  */
-export function bakeDimMaskTexture(sightU: number): Texture {
+function drawDimMask(ctx: BakeCtx, sightU: number): void {
   const { spanU } = CLIENT_CONFIG.blip.heatmap.dim;
   const { innerU, outerU } = dimRadii(sightU);
   const size = DIM_MASK_TEXTURE_SIZE;
-  const { canvas, ctx } = makeCanvas(size, size);
   const c = size / 2;
   const px = c / spanU; // world units -> texture px
   // Full opacity everywhere first: the flat region past `outerU` reaches the
@@ -216,6 +217,64 @@ export function bakeDimMaskTexture(sightU: number): Texture {
   ctx.beginPath();
   ctx.arc(c, c, r1, 0, Math.PI * 2);
   ctx.fill();
+}
+
+/** Is this a canvas we can draw into? Structural, because the bake mints either
+ *  an `OffscreenCanvas` or an `HTMLCanvasElement` depending on the host. */
+function isBakeCanvas(v: unknown): v is BakeCanvas {
+  return typeof (v as BakeCanvas | null | undefined)?.getContext === 'function';
+}
+
+/**
+ * The 2d context of `into`'s backing canvas, or null when there is nothing of
+ * ours to redraw into — a destroyed texture or source, or one whose resource is
+ * not a canvas at all (`Texture.EMPTY`, which every headless/jsdom caller holds
+ * and which must never be drawn into, resized or updated).
+ */
+function redrawableCtx(into: Texture): BakeCtx | null {
+  if (into === Texture.EMPTY || into.destroyed) return null;
+  const source = into.source;
+  if (!source || source.destroyed) return null;
+  const canvas: unknown = source.resource;
+  if (!isBakeCanvas(canvas)) return null;
+  return canvas.getContext('2d') as BakeCtx | null;
+}
+
+/**
+ * Bake the near-range dim mask, or REDRAW an existing one in place.
+ *
+ * THE `into` PARAMETER IS A CRASH FIX, NOT AN OPTIMIZATION. `render/radar.ts`
+ * hangs this texture on a Sprite and uses that Sprite as `blipLayer`'s mask, and
+ * Pixi binds a SPRITE mask's own `TextureSource` straight into the `MaskFilter` of
+ * the `AlphaMaskEffect` it keeps in `BigPool` (a `Graphics` mask would get a pooled
+ * scratch texture instead — which is why `Fog.rebake`'s identical destroy is safe
+ * and this one was not). Destroying a bound source emits `change` with
+ * `destroyed`, and Pixi's `BindGroup` answers that by destroying ITSELF and nulling
+ * its resources permanently; the next alpha-mask push anywhere in the app then
+ * throws inside `renderer.render()` and kills the ticker, freezing the client on
+ * its last frame while the socket and sim carry on.
+ *
+ * So the caller hands the live texture back and gets the SAME object returned: one
+ * canvas and one source for the Radar's life, redrawn and re-uploaded in place. The
+ * re-upload is a plain `source.update()` because the canvas never changes size
+ * (`DIM_MASK_TEXTURE_SIZE` is a constant, so Pixi's resize path is a no-op and the
+ * update event reaches the texture system). No clear is needed first: the draw
+ * opens with an opaque full-canvas `fillRect`.
+ *
+ * With no `into` — first bake, or a caller holding `Texture.EMPTY` — it mints, as
+ * it always did.
+ */
+export function bakeDimMaskTexture(sightU: number, into?: Texture | null): Texture {
+  if (into != null) {
+    const reuseCtx = redrawableCtx(into);
+    if (reuseCtx !== null) {
+      drawDimMask(reuseCtx, sightU);
+      into.source.update();
+      return into;
+    }
+  }
+  const { canvas, ctx } = makeCanvas(DIM_MASK_TEXTURE_SIZE, DIM_MASK_TEXTURE_SIZE);
+  drawDimMask(ctx, sightU);
   return Texture.from(canvas);
 }
 
