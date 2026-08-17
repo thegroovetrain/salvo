@@ -58,7 +58,9 @@ brain measures quality.
   Nothing in production may construct a bot this cycle (harness + tests only). This is deliberate.
 - Do not modify `drones.ts` / `FleetController`, or `perception.ts` / `signals.ts` behaviour.
 - Do not "fix" the `mineDamage`×`minePropFouling` pick-order bug or special-case bots around it
-  (Eric-confirmed: bots eat it exactly as humans do).
+  (Eric-confirmed: bots eat it exactly as humans do). *(DISCHARGED at the cycle-95 merge — amendment
+  25 deleted prop-fouling's damage multiplier upstream, so the bug no longer exists. The general rule
+  survives: no pick-order lookahead in the bot policy.)*
 - Do not retire the omniscient batch-sim pilots (`gunner`/`pacifist`/`endgame`) — they are pinned
   storm-evidence controls.
 - No bot coordination, no focus-fire packs, no foghorn use, no respawn.
@@ -210,8 +212,13 @@ bot acts on it). Both are expected to be retuned by eye later.
 ledger explicitly warns `fleetAI` is not reusable as combat bots (different perception boundary), so
 re-implement in `ai/` against the perception view rather than sharing the module.
 
-**Known trap, deliberately unmitigated:** a doctrine-preferring ML bot hits the unruled
-`mineDamage`×`minePropFouling` pick-order bug (53 vs 45 hp) systematically. Eric-confirmed: leave it.
+**Known trap — RESOLVED UPSTREAM mid-cycle, recorded because the weights moved with it:** a
+doctrine-preferring ML bot would have hit the `mineDamage`×`minePropFouling` pick-order bug (53 vs 45
+hp) systematically, and Eric confirmed bots should eat it. Amendment 25 then deleted prop-fouling's
+damage multiplier outright, which both fixed the bug and **retired forager's 0.4 weight on that
+card** — the weight existed because ×0.6 broke the mine's one-shot on a 45 hp fleet hull, and with no
+multiplier there is nothing to avoid. The profile split survives in weaker form (trapper still wants
+the slow; forager prefers self-propelled), and the guarding test was retired rather than adapted.
 
 ## Verification
 

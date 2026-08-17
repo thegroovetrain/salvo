@@ -458,38 +458,43 @@ describe('ai/spending — the boon policy', () => {
   });
 
   // THE PROOF THAT PROFILES MATTER -------------------------------------------
-  it('forager and trapper genuinely DISAGREE about PROP-FOULING MINES', () => {
-    // The mechanism, not a taste: a base mine does 55 and the small fleet hull
-    // has 45 hp, so a base mine ONE-SHOTS it. Prop-fouling's x0.6 drops that
-    // to 33 and breaks the one-shot — the thing forager lives on. Trapper
-    // wants the identical card, because the fouling slow drags a victim into
-    // its field.
+  it('the two Mine Layer profiles rank the mine DOCTRINES differently', () => {
+    // WEAKENED DELIBERATELY at the cycle-95 merge, and the history matters.
+    // This test used to assert a hard split (forager < 1, trapper > 4x) on an
+    // arithmetic mechanism: prop-fouling carried mult 0.6 on mine.damage, which
+    // dropped a 55-damage mine to 33 and BROKE the one-shot on a 45 hp fleet
+    // hull — the thing forager lives on. Amendment 25 DELETED that multiplier
+    // (Eric: "remove damage decrease for the fouling mines"), so the penalty is
+    // gone and prop-fouling is a pure add. The weights were retired rather than
+    // defended: a bot avoiding a card for a reason the game no longer contains
+    // is a stale rationale, not a profile.
+    //
+    // What remains is real but softer — trapper's whole plan is dragging a
+    // victim INTO its field, forager merely has no use for a slow (a fleet hull
+    // dies to one mine either way) and prefers the mine that closes by itself.
     const forager = boonWeightFor('forager', 'minePropFouling');
     const trapper = boonWeightFor('trapper', 'minePropFouling');
-    expect(forager).toBeLessThan(1);
-    expect(trapper).toBeGreaterThan(forager * 4);
+    expect(trapper).toBeGreaterThan(forager);
 
-    // Forager ranks it below EVERY other mines-category line it can be
-    // offered — the demotion is not marginal.
-    for (const id of ['mineDamage', 'mineBlast', 'mineTrigger', 'mineMax', 'mineSelfPropelled']) {
-      expect(boonWeightFor('forager', id)).toBeGreaterThan(forager);
-    }
+    // Forager prefers SELF-PROPELLED over prop-fouling; trapper is the reverse.
+    expect(boonWeightFor('forager', 'mineSelfPropelled')).toBeGreaterThan(forager);
+    expect(boonWeightFor('trapper', 'mineSelfPropelled')).toBeLessThan(trapper);
 
-    // And it changes the actual PICK on the same hand.
-    const offer = ['minePropFouling', 'decoyDuration'];
+    // Neither profile REFUSES a doctrine any more — both are pure adds.
+    expect(forager).toBeGreaterThan(0);
+
+    // And the ranking still changes the actual pick on a shared hand.
+    const offer = ['minePropFouling', 'mineSelfPropelled'];
     expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(1);
     expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(0);
   });
 
-  it('the mineDamage x minePropFouling PICK-ORDER BUG is deliberately not dodged', () => {
-    // Eric-confirmed (spec "Never" clause): bots eat it exactly as humans do.
-    // Both cards stay ordinarily weighted for trapper — no ordering
-    // preference, no lookahead, no "take the multiplier last" special case.
-    // If this test starts failing because someone taught the policy about
-    // pick order, the fix belongs in the boon engine, with a ruling.
-    expect(boonWeightFor('trapper', 'mineDamage')).toBeGreaterThan(0);
-    expect(boonWeightFor('trapper', 'minePropFouling')).toBeGreaterThan(0);
-    const withDamageFitted = boonWeightFor('trapper', 'minePropFouling', ['mineDamage']);
-    expect(withDamageFitted).toBe(boonWeightFor('trapper', 'minePropFouling', []));
-  });
+  // RETIRED at the cycle-95 merge: "the mineDamage x minePropFouling PICK-ORDER
+  // BUG is deliberately not dodged". The bug it guarded (53 vs 45 hp depending
+  // on pick order, because prop-fouling's multiplicative write raced
+  // mineDamage's additive ladder) was FIXED UPSTREAM by amendment 25, which
+  // deleted the multiplier outright — "with no multiplier left, one effect
+  // writes the path and order cannot matter." The test is retired rather than
+  // adapted, per the project's standing rule; the spec's matching "Never"
+  // clause is discharged, not overruled.
 });

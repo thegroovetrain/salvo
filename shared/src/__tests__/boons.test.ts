@@ -101,7 +101,6 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   torpedoCommand: { rarity: 'exclusive', copies: 1 },
   mineDamage: { rarity: 'common', copies: 5 },
   mineBlast: { rarity: 'common', copies: 5 },
-  mineTrigger: { rarity: 'common', copies: 5 },
   mineMax: { rarity: 'common', copies: 5 },
   mineSelfPropelled: { rarity: 'exclusive', copies: 1 },
   minePropFouling: { rarity: 'exclusive', copies: 1 },
@@ -125,9 +124,9 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
 };
 
 describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => {
-  it('ships exactly the 34 card lines of the scarcity table', () => {
+  it('ships exactly the 33 card lines of the scarcity table', () => {
     expect(Object.keys(BOON_CATALOG).sort()).toEqual(Object.keys(SCARCITY).sort());
-    expect(ALL_DEFS).toHaveLength(34); // 36 -> 35 (intel merge) -> 34 (cannonBlast deleted, Eric 2026-08-16)
+    expect(ALL_DEFS).toHaveLength(33); // 36 -> 35 (intel merge) -> 34 (cannonBlast deleted) -> 33 (mine ring cards merged, Eric 2026-08-16)
   });
 
   it('spans exactly the 9 categories', () => {

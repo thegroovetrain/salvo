@@ -64,7 +64,6 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   // --- MINES ---------------------------------------------------------------
   mineDamage: ['TNT FILLER', 'AMATOL FILLER', 'TORPEX FILLER', 'MINOL FILLER', 'RDX FILLER'],
   mineBlast: ['BLAST CASING Mk I', 'BLAST CASING Mk II', 'BLAST CASING Mk III', 'BLAST CASING Mk IV', 'BLAST CASING Mk V'],
-  mineTrigger: ['MAGNETIC FUZE', 'ACOUSTIC FUZE', 'PRESSURE FUZE', 'ANTENNA FUZE', 'COMBINATION FUZE'],
   mineMax: ['DECK RACKS', 'EXTENDED RACKS', 'MINE RAILS', 'SPONSON STOWAGE', 'CONVERTED HOLD'],
   mineSelfPropelled: ['SELF-PROPELLED MINES'],
   minePropFouling: ['PROP-FOULING MINES'],
@@ -193,8 +192,11 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },
   torpedoTube: { label: 'Torpedoes loaded', read: (s) => s.torpedo.maxAmmo },
   mineDamage: { label: 'Mine damage', read: (s) => s.mine.damage },
-  mineBlast: { label: 'Mine blast radius', read: (s) => s.mine.blastRadius },
-  mineTrigger: { label: 'Mine trigger radius', read: (s) => s.mine.triggerRadius, note: 'Never wider than the blast.' },
+  // The merged mine-ring line (Eric ruling 2026-08-16). MAGNETIC -> COMBINATION
+  // FUZE retired with `mineTrigger`; the trip ring is now a fixed fraction of
+  // the blast, so ONE card grows both and the note says so rather than making
+  // the player infer it from a second number row.
+  mineBlast: { label: 'Mine blast radius', read: (s) => s.mine.blastRadius, note: 'The trip ring widens with it.' },
   mineMax: { label: 'Mines on the board', read: (s) => s.mine.maxLive },
   boostMax: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
   starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },

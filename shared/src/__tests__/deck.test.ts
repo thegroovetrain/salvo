@@ -94,11 +94,11 @@ describe('buildDeck — composition per hull loadout', () => {
 
   it('Mine Layer: mines + decoyBuoy subdecks; torpedo/cannon/star/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.mineLayer);
-    expect(categoryCount(deck.cards, 'mines')).toBe(22); // 5×4 + 1 + 1
+    expect(categoryCount(deck.cards, 'mines')).toBe(17); // 5x3 commons + 2 exclusives (the fuze line merged into BLAST CASING)
     expect(categoryCount(deck.cards, 'decoyBuoy')).toBe(5);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireCannon', 'acquireStarShells', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 9 + 15 + 22 + 5 + 4); // 63
+    expect(deck.cards).toHaveLength(8 + 9 + 15 + 17 + 5 + 4); // 58
   });
 
   it('the 7 deleted reload lines are in NO hull deck; ship contributes 15 (Eric rulings 2026-08-04)', () => {
@@ -287,7 +287,7 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
   it('R filled with mine: mine subdeck joins, EVERY acquisition card purges', () => {
     const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
     const after = consumeAcquisition(start, BOON_CATALOG, 'mine');
-    expect(categoryCount(after.cards, 'mines')).toBe(22); // the full mine subdeck
+    expect(categoryCount(after.cards, 'mines')).toBe(17); // the full mine subdeck
     expect(after.cards.some((id) => isAcquisitionDef(BOON_CATALOG[id]))).toBe(false); // R is permanent
     // Everything else untouched.
     expect(categoryCount(after.cards, 'torpedoes')).toBe(12);

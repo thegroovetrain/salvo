@@ -497,17 +497,29 @@ export const CONFIG = {
      * A bot picks the highest-weighted offered card, rarity as tiebreak.
      * Higher = wanted more; the absolute scale is arbitrary.
      *
-     * THE `minePropFouling` SPLIT IS RULED REASONING, NOT A TYPO. It is the
-     * one card the two Mine Layer profiles disagree about, and the mechanism
-     * is arithmetic: a base mine does 55 damage and the small PvE fleet hull
-     * has 45 hp, so a base mine ONE-SHOTS a fleet hull. PROP-FOULING MINES
-     * multiply mine damage by 0.6 → 33, which BREAKS that one-shot — and
-     * one-shotting fleet hulls is exactly what `forager` lives on (C3: clear
-     * fleet groups for a level lead), so forager weights it 0.4, well under
-     * every other card it can be offered. `trapper` wants the very same card
-     * at 2.0, because the fouling slow drags a victim INTO its minefield,
-     * which is what trapper lives on. Same card, opposite value, real
-     * mechanical reason.
+     * THE MINE-LAYER DOCTRINE SPLIT, AND A CORRECTION OF RECORD. These weights
+     * were first written against the PRE-cycle-95 mine rack, where
+     * `minePropFouling` carried `mult: 0.6` on `mine.damage`. That mattered
+     * arithmetically: a base mine does 55 and a small PvE fleet hull has 45 hp,
+     * so a base mine ONE-SHOTS a fleet hull while a fouling mine (33) does not
+     * — and one-shotting fleet hulls is what `forager` lives on (C3). So
+     * forager weighted the card 0.4 and trapper 2.0, a genuine same-card
+     * disagreement.
+     *
+     * AMENDMENT 25 DELETED THAT MULTIPLIER (Eric: *"remove damage decrease for
+     * the fouling mines"*), so the penalty forager was avoiding no longer
+     * exists and prop-fouling is now a PURE ADD. Forager's 0.4 is therefore
+     * retired rather than defended — keeping it would have been a bot avoiding
+     * a card for a reason the game no longer contains, which is exactly the
+     * stale-rationale trap this comment block exists to prevent.
+     *
+     * What survives is a WEAKER, still-real split: `trapper` keeps 2.0 because
+     * the fouling slow drags a victim INTO its minefield, which is its whole
+     * plan; `forager` merely has no special use for a slow (a fleet hull dies
+     * to one mine either way) and prefers SELF-PROPELLED, whose mine closes on
+     * a target by itself and so farms without re-positioning. Both doctrines
+     * are now pure adds and side-grades to each other, so neither profile
+     * refuses one — they just rank them differently.
      */
     boonWeights: {
       // TB raider — torpedo opener at credible range, then boost out. Buys
@@ -539,13 +551,13 @@ export const CONFIG = {
       // and rate of fire do that work; see the propFouling note above.
       forager: {
         cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, decoyBuoy: 1.0 },
-        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineDamage: 2.0, minePropFouling: 0.4 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineDamage: 2.0, mineSelfPropelled: 2.4, minePropFouling: 1.2 },
       },
       // ML trapper — mines astern while withdrawing, decoy to break locks,
       // fights near its own field.
       trapper: {
         cat: { mines: 2.6, decoyBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
-        lines: { mineMax: 2.8, mineDamage: 2.4, mineBlast: 2.4, minePropFouling: 2.0, shipCooldown: 2.2 },
+        lines: { mineMax: 2.8, mineDamage: 2.4, mineBlast: 2.4, minePropFouling: 3.0, mineSelfPropelled: 2.2, shipCooldown: 2.2 },
       },
     },
     /**
@@ -1084,7 +1096,19 @@ export const CONFIG = {
     // server's activation check both read it, so the leash moves in one place.
     placeRange: 150,
     armDelay: 3000, // ms — before it can trigger
-    triggerRadius: 32, // u — detonation proximity (enemy pass-over trips it)
+    // u — detonation proximity (enemy pass-over trips it). THE BASE-STATS RUNG:
+    // at runtime this is DERIVED from the effective blast radius via
+    // `triggerFactor` below (Eric ruling 2026-08-16), never read directly, so a
+    // blast-widening boon carries the trip ring out with it.
+    triggerRadius: 32,
+    // The runtime scale the trip ring is derived at: `trigger = blast ×
+    // triggerFactor`. It is the SAME ratio as the two base constants above and
+    // below by construction (32 / 48 = 2/3), pinned in tests exactly as
+    // `detect === sight * detectFactor` is — never edit one without the other.
+    // Deriving rather than clamping is what retired the old
+    // `min(trigger, blastRadius)` clamp: the trip ring can no longer be eaten by
+    // a ceiling, because it is now a fixed fraction of that ceiling.
+    triggerFactor: 2 / 3,
     // u — full damage to every non-owner hull within it; > triggerRadius by
     // design (the trip is the detection ring; the blast reaches farther).
     blastRadius: 48,

@@ -127,7 +127,10 @@ export const BOON_STAT_PATHS = [
   'mine.maxLive',
   'mine.damage',
   'mine.blastRadius',
-  'mine.triggerRadius',
+  // `mine.triggerRadius` is DELIBERATELY ABSENT (Eric ruling 2026-08-16): it
+  // became a DERIVED field — blastRadius × CONFIG.mine.triggerFactor — re-pinned
+  // post-fold in both clampStats and applyBoonStats, exactly as sightRange and
+  // the three rangeU paths are. Its card merged into `mineBlast`.
   'boost.speedBonus',
   'boost.durationMs',
   'boost.maxAmmo',
@@ -326,16 +329,34 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // balance pass moved the base 45 → 55, so the ladder tops at 75, still under
   // the 80hp one-hit-kill floor).
   mineDamage: { id: 'mineDamage', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.damage', { add: 4 })] },
-  // BLAST CASING Mk I–V: ×1.1 blast radius per card.
+  // BLAST CASING Mk I–V: ×1.1 blast radius per card — AND the trip ring with it
+  // (Eric ruling 2026-08-16: *"tie the trigger radius to the blast radius,
+  // combine the cards, so picking it up increases both"*). The separate
+  // `mineTrigger` line (MAGNETIC → COMBINATION FUZE) is DELETED and
+  // `mine.triggerRadius` is now DERIVED as `blastRadius × triggerFactor`.
+  //
+  // This retires a real defect rather than just merging two cards: the old
+  // trigger ladder was ~75% eaten on its 5th copy by the
+  // `min(trigger, blastRadius)` clamp whenever no `mineBlast` was held — you
+  // could pay a level for a card that bought you 1.1u instead of 4.7u, silently.
+  // A ring that is a fixed FRACTION of the blast can never be clamped away.
   mineBlast: { id: 'mineBlast', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.blastRadius', { mult: 1.1 })] },
-  // MAGNETIC → COMBINATION FUZE: ×1.1 trigger radius per card (clamped ≤ blast).
-  mineTrigger: { id: 'mineTrigger', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.triggerRadius', { mult: 1.1 })] },
   // DECK RACKS → CONVERTED HOLD: +1 max LIVE mine per card.
   mineMax: { id: 'mineMax', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.maxLive', { add: 1 })] },
   // SELF-PROPELLED MINES ⚔ PROP-FOULING MINES (exclusive pair). Prop-fouling
   // trades damage (×0.6, DRAFT) for the slow debuff (CONFIG.mine.foul*).
   mineSelfPropelled: { id: 'mineSelfPropelled', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'minePropFouling', effects: [doctrine('mine', 'selfPropelled')] },
-  minePropFouling: { id: 'minePropFouling', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'mineSelfPropelled', effects: [doctrine('mine', 'propFouling'), stat('mine.damage', { mult: 0.6 })] },
+  // PROP-FOULING no longer trades damage for the slow (Eric ruling 2026-08-16:
+  // *"remove damage decrease for the fouling mines"*). The old `mult: 0.6` on
+  // `mine.damage` is DELETED, so the doctrine is now a pure behaviour change.
+  //
+  // That also retires a defect the boon-cards investigation found: this was the
+  // only multiplicative writer of `mine.damage`, and `mineDamage` is an ADDITIVE
+  // writer of the same path, so the folded result depended on PICK ORDER —
+  // fouling-then-five-damage gave 55×0.6+20 = 53 hp, damage-then-fouling gave
+  // (55+20)×0.6 = 45 hp, for identical cards. With no multiplier left, only one
+  // effect writes the path and order cannot matter.
+  minePropFouling: { id: 'minePropFouling', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'mineSelfPropelled', effects: [doctrine('mine', 'propFouling')] },
   // --- speedBoost ----------------------------------------------------------
   // CLEAN BOILERS → EMERGENCY POWER: +2 u/s boost bonus per card (10 → 20).
   boostMax: { id: 'boostMax', category: 'speedBoost', rarity: 'common', copies: 5, effects: [stat('boost.speedBonus', { add: 2 })] },
@@ -572,6 +593,11 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   // otherwise leave it stale. Re-pinned again in sim/stats.ts clampStats (the
   // firewall's unconditional output pass); these two are the only sites.
   stats.sightRange = stats.radarRange / 2;
+  // The mine trip ring rides the blast radius (Eric ruling 2026-08-16) — same
+  // reason as the re-pins above: `mine.triggerRadius` left BOON_STAT_PATHS, so a
+  // `mineBlast` fold anywhere in the list would otherwise leave it stale. Also
+  // re-pinned in sim/stats.ts clampStats; these two are the only sites.
+  stats.mine.triggerRadius = stats.mine.blastRadius * CONFIG.mine.triggerFactor;
 }
 
 // ---------------------------------------------------------------------------

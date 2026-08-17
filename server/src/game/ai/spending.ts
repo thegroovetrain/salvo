@@ -30,15 +30,19 @@
 // junk. Same shape as the batch-sim's `preferenceRank`, which is a
 // MEASUREMENT INSTRUMENT and not canon — it is deliberately not imported.
 //
-// THE `mineDamage` × `minePropFouling` PICK-ORDER BUG IS EATEN, NOT DODGED.
-// The two cards compose differently depending on which is picked first (53 hp
-// vs 45 hp for the same pair of cards), because prop-fouling's ×0.6 multiplies
-// whatever damage is on the sheet when it lands. That is an UNRULED finding
-// against the boon engine, not a bot problem, and Eric confirmed bots eat it
-// exactly as human players do. There is deliberately NO special case here —
-// no ordering preference, no lookahead, no "buy the multiplier last" rule. If
-// you came here to fix it, fix it in the boon engine for everyone, with a
-// ruling.
+// NO PICK-ORDER AWARENESS LIVES HERE, AND NONE SHOULD.
+// This policy scores each offered card on its own merits and never reasons
+// about the order cards are acquired in. That was a deliberate ruling when the
+// `mineDamage` × `minePropFouling` pick-order bug was still open (the pair
+// composed to 53 hp or 45 hp depending on which landed first): the finding was
+// against the BOON ENGINE, not the bots, and Eric confirmed bots should eat it
+// exactly as human players do rather than route around it.
+//
+// That bug is now FIXED UPSTREAM — amendment 25 deleted prop-fouling's damage
+// multiplier, so one effect writes `mine.damage` and order cannot matter. The
+// rule survives its occasion: if a future card reintroduces order-dependence,
+// the fix belongs in the boon engine for everyone, with a ruling — not as a
+// lookahead special case in here.
 
 import { BOON_CATALOG, CONFIG, HEAL_CHOICE, type BoonCatalog, type BoonDef } from '@salvo/shared';
 import type { BotProfile } from './profiles.js';

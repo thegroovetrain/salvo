@@ -94,7 +94,7 @@ const FACES = everyFace();
 
 describe('refit card container fit (amendment 47)', () => {
   it('covers every catalog line at every stack position', () => {
-    expect(LINES.length).toBeGreaterThanOrEqual(34);
+    expect(LINES.length).toBeGreaterThanOrEqual(33);
     expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.copies, 0) * CLASSES.length * 2);
   });
 
