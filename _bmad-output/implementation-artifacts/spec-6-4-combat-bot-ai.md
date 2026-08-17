@@ -234,17 +234,17 @@ the slow; forager prefers self-propelled), and the guarding test was retired rat
 | Bar | Target | Measured | |
 |---|---|---|---|
 | Matches resolving before the 16:00 collapse | > 95% | 100.0% | PASS |
-| Mean per-match max single-bot kill share | <= 40% | 27.7% | PASS |
-| Bots scoring >= 1 participant kill | >= 60% | 45.3% | FAIL |
-| Storm deaths as a share of all bot deaths | 5-20% | 2.7% | FAIL |
-| Afloat bot-ticks in land contact | < 1% | 1.0% | PASS (borderline) |
-| Banked levels spent before death | > 90% | 99.8% | PASS |
+| Mean per-match max single-bot kill share | <= 40% | 27.2% | PASS |
+| Bots scoring >= 1 participant kill | >= 60% | 45.8% | FAIL |
+| Storm deaths as a share of all bot deaths | 5-20% | 3.3% | FAIL |
+| Afloat bot-ticks in land contact | < 1% | 0.9% | PASS |
+| Banked levels spent before death | > 90% | 99.9% | PASS |
 
 Both failures are ORCHESTRATOR-SET bars that turned out to measure the wrong thing, not defects: the
 kill-spread bar measures profile balance (a 20-bot match yields at most 19 kills, so even perfect
 spread tops out near 95%), and the storm band assumed matches run long enough for the ring to bite —
 only 2.0% reach the endgame ring because the bots resolve the field first. Ledgered, deliberately not
-tuned.
+tuned. Measured on the MERGED head (post cycle-95 mine rulings); three legs agree on every bar.
 
 **Manual checks:**
 - `git grep -n "world\." server/src/game/ai/` -- expected: only the narrow port methods
