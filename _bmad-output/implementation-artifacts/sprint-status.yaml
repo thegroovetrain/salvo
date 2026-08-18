@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-17  # epic-6 OPEN; Story 6-5 SOLO VS AI landed cycle 97 (0.17.97), epic-6 amendments 29-31, PV unchanged at 40; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix, PV unchanged at 40
+# last_updated: 2026-08-17  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; PV unchanged at 40
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -110,6 +110,7 @@
 #   cycle 94 (0.17.94)  PvE FLEET REBALANCE: hp 45/60/75, flat 1 damage, tiers 1/4-1/2-3/4, 6-hull groups at 8/4/2, spreadU 400->500 — epic-6 amendment 24; PV unchanged at 39
 #   cycle 95 (0.17.95)  mines: fouling damage penalty removed (kills the pick-order bug), trip ring DERIVED from blast, the two ring cards merged — epic-6 amendment 25; PV 39->40
 #   cycle 98 (0.17.98)  the frozen client: a Sprite mask's TextureSource may never be destroyed while bound — dim-mask rebake redraws in place; no amendment (defect); PV unchanged at 40 (client-only)
+#   cycle 99 (0.17.99)  BOT AI PLAYTEST FIXES: bots stop firing through islands (no LOS test existed anywhere in ai/) + the storm ring becomes a CONSTRAINT on every heading rather than a post-hoc override — epic-6 amendment 32; PV unchanged at 40
 
 generated: 2026-07-17
 last_updated: 2026-08-17
