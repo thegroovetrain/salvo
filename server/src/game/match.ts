@@ -367,6 +367,14 @@ export class Match {
    *  Kept beside (not inside) sinkOrder so the ordered record stays the plain
    *  array every existing consumer walks. */
   private readonly sinkTimes = new Map<string, number>();
+  /** Ids scuttled by onPlayerLeave (Story 6.7, R3/R4): their killer-less
+   *  `sunk` is a departure, not a storm death — consumeSinks reads this to
+   *  keep stormDeaths honest. Cleared at activate(). */
+  private readonly scuttled = new Set<string>();
+  /** Departed captains whose hull is still in its sinking window. The client
+   *  is gone, so nothing external will remove the ship — reapDeparted() takes
+   *  it at founder, preserving the full Story 5.2 window. */
+  private readonly departed = new Set<string>();
   /** Everyone present at activation, drones included (stats refreshed on
    *  exit/finish). Telemetry reads all of it; the results rows read the
    *  captains only. */
@@ -468,19 +476,67 @@ export class Match {
   }
 
   /**
-   * A client left. Owns the ship removal so a mid-match departure is
-   * snapshotted first: it counts as sunk-at-leave-time for placement, then the
-   * win check runs against the post-removal roster.
+   * A client left. Owns the departure so a mid-match leave is snapshotted
+   * first: it counts as sunk-at-leave-time for placement, then the win check
+   * runs against the post-departure roster.
+   *
+   * THE SCUTTLE (Story 6.7, Eric rulings R3/R4/R5, 2026-08-18): a mid-match
+   * departure of a still-afloat participant is a REAL SINKING, not a silent
+   * deletion. `world.sinkShip(id)` with no killer produces the proper `sunk`
+   * event (public via the register's combatant clause), the kill-feed line and
+   * the plume, credits NOBODY by construction (creditKill bails on an
+   * undefined `by` — no kill tally, no XP, no bounty bonus), and leaves the
+   * hull `sinking`, so an abandoning captain can never be the last one afloat.
+   * Grace expiry and a consented ABANDON MATCH both arrive here through the
+   * room's one teardown, so they are IDENTICAL by construction (R4), and the
+   * departure reads as an ordinary sinking with no new copy (R5).
+   *
+   * Placement is booked ONCE: recordSink here stamps the leave tick (today's
+   * value), and consumeSinks' later read of the scuttle's `sunk` event is a
+   * no-op against sinkOrder's dedupe. The hull is NOT removed at leave —
+   * removing it would truncate the Story 5.2 sinking window (and would delete
+   * the wreck record the sunk row's public clause gates on before the event is
+   * even framed). reapDeparted() removes it at founder; nothing external can,
+   * because the client is gone. A hull already sinking (or already a wreck)
+   * when its captain leaves keeps the shipped immediate removal — its `sunk`
+   * already went out, and the sinkingWindow suite pins the prompt finish.
    */
   onPlayerLeave(id: string): void {
     const ship = this.world.ships.get(id);
-    if (ship && this.phase === 'active' && this.participants.has(id)) {
+    const contests = ship && this.phase === 'active' && this.participants.has(id);
+    if (contests) {
       this.snapshotStats(ship);
       this.recordSink(id);
     }
-    this.world.removeShip(id);
+    if (contests && isAfloat(ship.lifecycle)) {
+      this.scuttled.add(id); // consumeSinks: this killer-less sunk is no storm death
+      this.departed.add(id); // reapDeparted: remove at founder, not before
+      this.world.sinkShip(id); // no killer — credits nobody by construction
+    } else if (!this.departed.has(id)) {
+      // Not the repeat-leave case: core can route onLeave twice (the
+      // drop -> failed-reconnect path), and a second call for a hull we
+      // already scuttled must not truncate the deferred window.
+      this.world.removeShip(id);
+    }
     this.notifyRosterChanged();
     if (this.phase === 'active') this.checkWin();
+  }
+
+  /**
+   * Remove departed hulls whose sinking window has run out (Story 6.7). The
+   * scuttle leaves the ship in the world so the window plays in full; once
+   * founderSinking has taken the `founder` edge (lifecycle 'sunk'), nothing
+   * else will ever remove it — the client is gone — so the match reaps it
+   * here. Runs every update() in every phase: a match can finish while a
+   * departed hull is still mid-window, and the wreck must still be reaped.
+   */
+  private reapDeparted(): void {
+    for (const id of this.departed) {
+      const ship = this.world.ships.get(id);
+      if (ship !== undefined && isSinking(ship.lifecycle)) continue; // window still open
+      this.departed.delete(id);
+      if (ship !== undefined) this.world.removeShip(id);
+    }
   }
 
   /**
@@ -523,6 +579,7 @@ export class Match {
 
   /** Advance the state machine one tick. Call right after world.step(). */
   update(): void {
+    this.reapDeparted(); // scuttled leavers whose window ran out (Story 6.7)
     // THE BOARDING BACKSTOP'S CLOCK (amendment 8). boardingReady() turns true
     // on its own timer with no roster event to announce it, so a waiting
     // boarding room re-runs the one gate that arms. Confined to queue-formed
@@ -582,6 +639,8 @@ export class Match {
     this.participants.clear();
     this.sinkOrder.length = 0;
     this.sinkTimes.clear();
+    this.scuttled.clear();
+    this.departed.clear();
     // Drones ARE participants — they are combatants for the KILL FEED, the
     // contact stream and the operator telemetry (endSummary reads this Map, and
     // rosterSize/rosterByClass/killsByClass must count every hull). They are
@@ -707,9 +766,10 @@ export class Match {
     for (const e of this.world.tickEvents) {
       if (e.k !== 'sunk') continue;
       this.recordSink(e.id);
-      // A sunk event with no killer is a storm death (world.applyStorm) — the
-      // only killer-less sink path. Tallied for match.end telemetry.
-      if (e.by === undefined) this.stormDeaths += 1;
+      // A sunk event with no killer is a storm death (world.applyStorm) — or,
+      // since Story 6.7, a departure scuttle. Only the storm case is tallied
+      // for match.end telemetry; the scuttled set keeps the two apart.
+      if (e.by === undefined && !this.scuttled.has(e.id)) this.stormDeaths += 1;
     }
   }
 
@@ -777,9 +837,12 @@ export class Match {
    *     phase stays 'active' and finish() is deferred — damage stays live,
    *     the dying hull keeps firing. Drones never hold (they are not
    *     combatants — epic-4 amendments 29-34, epic-5 amendment 4), so a
-   *     finish can still land with a drone mid-window. A sinking captain who
-   *     LEAVES stops holding the moment removeShip takes the hull, and the
-   *     leave's own checkWin lands the finish promptly.
+   *     finish can still land with a drone mid-window. A captain ALREADY
+   *     sinking when they leave stops holding the moment removeShip takes the
+   *     hull, and the leave's own checkWin lands the finish promptly — but an
+   *     AFLOAT captain who leaves is SCUTTLED (Story 6.7) and holds exactly
+   *     like any other sinking captain until reapDeparted takes the wreck at
+   *     founder.
    *
    * RE-ENTRANCY: this runs every active tick (update) and from onPlayerLeave.
    * The latch is guarded by outcomeLatched (written once); double-finish is

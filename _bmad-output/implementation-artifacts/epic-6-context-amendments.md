@@ -1619,3 +1619,136 @@ It routes through `h.cancel`, **the same canceller the CANCEL button uses**, so 
 exit rather than two that can drift; the modal's teardown and its tick stay that path's business.
 CANCEL also remains a real `<button>` — Tab-reachable, Enter/Space-activated, deliberately not
 autofocused because Enter is the deploy key.
+
+## Amendment 46 — THE MATCH URL IS WITHDRAWN. Investigated, considered, parked. (Eric, 2026-08-18)
+
+**Source:** Eric, mid-gate, verbatim: *"Forget about considerations for parties right now. In fact
+forget the URL idea. We can add it later, but its at least investigated and considered. Lets just move
+ahead with the original reconnect scope. As we are now just always running from hullcracker.io, and
+only allowed to be in one game at once, then reconnecting to the game is pretty easy. If you want to
+leave it, pull up the menu and abandon ship properly."*
+
+Story 6.7 arrived carrying a 598-line investigation
+(`investigations/match-url-spectate-reconnect-investigation.md`) that priced `hullcracker.io/<game-id>`
+as four capabilities: **A** the Express route, **B** a `history.replaceState` URL stamp, **C**
+refresh-resume, **D** live spectate. Its recommendation was A+B+C into 6-7 and D into its own story.
+**Eric withdrew A, B and the whole id-space question**, and C survives MINUS its URL half.
+
+**What died with it, so nobody re-derives it:** the `roomId`-vs-published-`matchId` decision (the
+investigation's Finding 9, "cheap now and awkward later") is MOOT — nothing is published, so nothing is
+committed to. Eric had raised parties (duos/trios) as an argument that the id-space should be OURS,
+since a party is not an arena room and Colyseus's `roomId` would change identity when the match
+started; that argument is sound and is recorded here for whoever revives the feature, but it is
+**withdrawn along with the rest**. The rejoin-window question his own clarification created — what
+`/<id>` means at 8:00 when you dropped at 3:00 and the 60s grace is long gone — is likewise moot.
+
+**And the design it was fighting resolved itself.** Eric's earlier instinct was that *"if someone goes
+back to hullcracker.io/ then they probably wanted to abandon their game"*. That is **superseded by his
+own later message** and, more importantly, by a law already shipped: `client/src/ui/settings.ts:155`
+has carried, since amendment 19, *"the modal's RETURN TO PORT or settings' ABANDON MATCH — never ESC,
+never a page refresh"*. **A refresh was never a sanctioned way to leave a match**, so making the root
+resume is that law's own consequence rather than new policy. `ABANDON MATCH` already ships,
+confirm-gated (`canAbandon`, `settings.ts:158`). **No new leave UI was built.**
+
+## Amendment 47 — THE DEPARTURE SCUTTLE: a leave is a real sinking (Eric rulings 2026-08-18)
+
+**Source:** Eric, Story 6.7 question gate, Q5/Q6 + the abandon-parity question.
+
+The story's own acceptance criterion said a never-returning captain's ship *"fights on until sunk or
+match end"*. **It did not.** `Match.onPlayerLeave` booked a placement and called `world.removeShip`,
+which emits NOTHING — so the hull vanished mid-fight with no `sunk` event, no kill-feed line and no
+plume, and `checkWin()` ran on the removal, meaning **an abandoning captain could end the match**. That
+is the same defect `deferred-work.md:514` recorded from the other direction ("a mid-match quitter still
+vanishes silently"), unruled since 2026-08-04.
+
+Eric was offered four options — build the AC literally (the hull fights on), keep today's deletion and
+correct the AC, scuttle it, or let it fight on but be excluded from the win check — and **chose the
+scuttle**: `world.sinkShip(id)` with NO killer, so the departure produces a proper `sunk`, feed line,
+plume and placement. **He declined the literal AC**, which would have let an absent captain WIN a
+battle royale.
+
+**Three sub-rulings, each of which paid for itself:**
+- **A consented ABANDON MATCH and a 60s grace expiry are IDENTICAL** (one path, one rule to explain).
+- **The departure reads as an ORDINARY SINKING** — no "LEFT THE BATTLE" grammar, **no new copy at
+  all**. This is why the scuttle was the cheap ruling: amendment 41's copy law costs nothing here.
+- Credit is by construction, not by a guard: `creditKill` already bails on an undefined `by`, the same
+  path storm deaths take, so no kill tally, no XP, no bounty movement. Verified by driving a scuttle
+  and asserting across the whole window that no surviving ship's counters moved.
+
+**Two collisions the spec did not predict, both real, both fixed:** core can route `onLeave` TWICE (the
+drop → failed-reconnect path), and the second call truncated the sinking window; and `consumeSinks`
+tallied every killer-less `sunk` as a **STORM DEATH**, so scuttles would have silently polluted storm
+telemetry. A `scuttled` set keeps them apart without touching storm/self-kill semantics.
+
+**And a cross-boundary defect that would have broken the ruling it implements:** `ArenaRoom.teardown`
+deleted the `PlayerMeta` roster row on the same call that scuttles, but the `sunk` event is framed ONE
+TICK LATER, and the client resolves feed names from the LIVE roster (`roomBindings.ts:1574`,
+`deps.names(id) ?? UNKNOWN_VESSEL`). A scuttle would have printed **UNKNOWN VESSEL** instead of the
+captain's name. The row now lives exactly as long as the hull — released at the founder edge, with an
+`onDispose` backstop so no seat can leak.
+
+**Left open, and NOT changed here (pre-existing, surfaced by the Codex cross-model pass):** if the last
+two captains both depart, the first departure latches the SECOND as winner, so a match can be "won" by
+someone who quit. `checkWin`/`latchOutcome` are untouched by this cycle and `afloatCaptains()` sees an
+identical set whether a departed hull is `sinking` or absent, so this is shipped behaviour rather than
+a regression — but whether a quitter may win is Eric's call, ledgered rather than decided.
+
+## Amendment 48 — Refresh-resume, and the token-rotation trap that looks correct (Eric ruling R2, 2026-08-18)
+
+**Source:** Eric, Q3: `sessionStorage`, **refresh only**. Tab-close survival was offered and declined.
+
+The reconnection token died with the tab's JS heap (`sessionStorage` was used NOWHERE in `client/src`),
+which is why a refresh lost the match; and even a hand-run resume rendered nothing, because
+`MSG.welcome` had exactly one send site, inside `onJoin`. `ArenaRoom` now implements `onReconnect` (core
+calls it INSTEAD OF `onJoin`, so no second hull) re-sending a byte-identical welcome.
+
+**THE TRAP, recorded because it looks right and silently reproduces `deferred-work.md:26`:** persisting
+the token once at connect is WRONG. A successful in-page resume ROTATES the token server-side, so a
+later refresh would carry a dead pre-resume token and fast-fail *deterministically* on a session fully
+entitled to resume. Worse, the obvious fix is also wrong: **the SDK invokes `onReconnect` and assigns
+the rotated token on the NEXT LINE** (`@colyseus/sdk/build/Room.mjs:241` then `:243`), so a handler that
+reads `room.reconnectionToken` sees the OLD value every time.
+
+**Two more ordering facts that each break a naive implementation:**
+- **`MSG.results` arrives BEFORE `MSG.welcome` on a resume** — core awaits the reconnection deferred
+  (which runs `onDrop`'s `.then`, including the `lastResults` re-send) before calling `onReconnect`.
+  `results` is a ONE-SHOT with no next tick, and it lands before `bindRoom` exists, so the "match
+  finished while away" case would silently never open the final table without an early capture.
+- **`onReconnect` is wrapped rethrow-true** (`@colyseus/core/build/Room.mjs:1129-1130`): a throw inside
+  it ABORTS the resume via `FAILED_TO_RECONNECT`. It must be total.
+
+**The session lock had to learn about refresh.** Its Web Locks path is clean, but the
+localStorage-heartbeat FALLBACK has no unload release and a 3s stale window, so on a browser without
+`navigator.locks` a refresh-resume would deterministically refuse ITSELF with `ALREADY AT SEA IN
+ANOTHER TAB` — at its own ghost. A per-tab holder id plus a `pagehide` release fixes it; a genuine
+second tab is still refused, so Eric's one-match-per-browser ruling is intact.
+
+## Amendment 49 — What 6-7 deliberately did NOT do (Eric rulings, 2026-08-18)
+
+Five rulings that all went the SAME way, and together are why **`PROTOCOL_VERSION` stayed at 40**:
+
+- **Catch-up: ACCEPT THE GAP (Q7).** A resuming player simply missed those kill-feed lines. The
+  ledger's suggested roster-delta digest was evaluated and **rejected on the project's own recorded
+  reasoning** — the `sunk` row's ratification rationale states verbatim (`signals.ts:1346-1349`) that
+  kills *"aggregate in the counters as (+1, +1) and cannot be paired back from deltas"*. A delta digest
+  could name who sank but never WHO SANK THEM, and would have manufactured a feed confidently wrong
+  about attribution in a game whose kill feed was deliberately made global and identity-exact. The
+  faithful alternative (a server-side sunk log) costs a new channel and a PV bump; it remains available.
+- **Own-sinking: BARE CLIENT-SIDE SYNTHESIS (Q8).** "You are eliminated" is conveyable with NO wire —
+  spectator frames plus the player's own roster row. Placement is approximate; killer and sink time are
+  not conveyed. A subtlety: the synthesis waits for the ROSTER, not "the first frame", because the frame
+  and the schema patch arrive independently.
+- **Grace chaining: STAYS UNLIMITED (Q9).** `deferred-work.md:22` closed as accepted. The exploit is
+  self-punishing (your hull sails straight while you do it) and any cap would punish the bad connection
+  this story exists to protect.
+- **Banner copy: UNTOUCHED (Q11).** `RECONNECTING…` stays bare — no countdown, no attempt count.
+  Amendment 41 honoured: no copy invented. **One exception is flagged as DRAFT** — see below.
+- **Telegraph restore: DECLINED under its own conditional (Q12/R11).** Authorized only if inferable
+  without wire; it is not. A battleship's `accel: 5` against `maxSpeed: 35` is ~7s from rest to full
+  ahead while a refresh completes in 1-3s, so a full-ahead order reads back as "half ahead"; grounding
+  damp and an open boost each break the inference independently. The neutral reset stands.
+
+**DRAFT COPY, unratified:** `COULD NOT REJOIN YOUR MATCH — BACK IN PORT` (home status line, tone
+`info`) was authored in-cycle because the AC demands "a plain explanation" for a failed resume. It uses
+the shipped two-part `<STATE> — <REMEDY>` grammar, but amendment 41 governs and Eric has not ruled on
+it. Same standing as the `UNKNOWN VESSEL` fallback: wants ratification or replacement in a copy pass.

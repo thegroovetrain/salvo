@@ -17,8 +17,10 @@ const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 }; // 2 tick
 // Ticks in one sinking window: since the amendment-17 REVERSAL (Eric veto
 // 2026-08-12) a terminal SINK holds the match open for the dying captain's
 // whole window, so every sunk-out finish below steps a window before its
-// finish assertions. Leave-only finishes are unaffected (a removed hull is
-// not a sinking hull).
+// finish assertions. Since Story 6.7 (the departure scuttle, Eric rulings
+// R3/R4/R5) a leave is ALSO a real sinking (world.sinkShip, no killer), so
+// leave-only finishes now hold the transition open for the departed hull's
+// window too, exactly like a combat sink.
 const SINK_TICKS = CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs;
 
 function noopHooks(): MatchHooks {
@@ -242,6 +244,8 @@ describe('Match.endSummary — endedBy classification', () => {
   it('a departure that leaves a survivor standing is fieldCleared', () => {
     const ctx = activated(0);
     ctx.m.onPlayerLeave('b'); // 'a' is left alone on an empty ocean
+    expect(ctx.m.phase).toBe('active'); // b's scuttled hull holds the finish (Story 6.7)
+    step(ctx, SINK_TICKS + 1); // b's sinking window runs out
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a');
     expect(ctx.m.endSummary().endedBy).toBe('fieldCleared');

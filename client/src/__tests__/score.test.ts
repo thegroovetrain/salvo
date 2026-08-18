@@ -9,6 +9,7 @@ import {
   freshScore,
   isAfloatHull,
   isLiveRival,
+  missedEliminationAction,
   personalScore,
   personalScoreFromResults,
   placementFor,
@@ -239,6 +240,50 @@ describe('canOpenElimination — the ordering law for the elimination modal', ()
 
   it('is latched — a duplicate own sunk can never re-open it', () => {
     expect(canOpenElimination('active', false, true)).toBe(false);
+  });
+});
+
+describe('missedEliminationAction — the death that happened while we were away (Story 6.7, R7)', () => {
+  const live = { spectating: true, ownAlive: false, phase: 'active', resultsFinal: false, alreadyEliminated: false };
+
+  it('opens the synthesized entry: spectating, own roster row sunk, live match', () => {
+    // The own `sunk` was delivered to nobody — the room had no socket to send it
+    // down — so without this the captain spectates forever with no ELIMINATED
+    // modal and no placement, which reads as the game forgetting them.
+    expect(missedEliminationAction(live)).toBe('open');
+  });
+
+  it('WAITS while the roster has not patched our row in', () => {
+    // The frame and the schema patch arrive independently, so a check that fired
+    // on "the first resumed frame" would read an empty roster about half the
+    // time and conclude — wrongly, and permanently — that nothing was missed.
+    expect(missedEliminationAction({ ...live, ownAlive: undefined })).toBe('wait');
+  });
+
+  it('WAITS while we are still conning a hull — a spec frame is the whole premise', () => {
+    expect(missedEliminationAction({ ...live, spectating: false })).toBe('wait');
+  });
+
+  it('settles quietly when we resumed ALIVE', () => {
+    expect(missedEliminationAction({ ...live, ownAlive: true })).toBe('settled');
+  });
+
+  it('never opens once the match is over — the resume-into-results ordering', () => {
+    // Core runs the reconnection deferred's `.then` (the `lastResults` re-send)
+    // BEFORE calling onReconnect, so on a resume `results` reaches the client
+    // ahead of the welcome. Both halves of that landing are covered: the schema
+    // phase, and `resultsFinal` once the table is up.
+    expect(missedEliminationAction({ ...live, phase: 'finished' })).toBe('settled');
+    expect(missedEliminationAction({ ...live, resultsFinal: true })).toBe('settled');
+  });
+
+  it('opens EXACTLY ONCE — a real `sunk` replayed behind it cannot re-open the modal', () => {
+    expect(missedEliminationAction(live)).toBe('open');
+    // `recordElimination` latches `eliminated`, which is the same never-twice
+    // clause that already protects a duplicate `sunk`.
+    const after = recordElimination(freshScore(), 3);
+    expect(after.eliminated).toBe(true);
+    expect(missedEliminationAction({ ...live, alreadyEliminated: after.eliminated })).toBe('settled');
   });
 });
 

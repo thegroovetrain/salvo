@@ -25,10 +25,36 @@ import { join } from 'node:path';
 
 type SessionLockModule = typeof import('../app/sessionLock.js');
 
-/** A fresh module instance = a fresh TAB. */
+/**
+ * A fresh module instance = a fresh TAB.
+ *
+ * `vi.resetModules()` models only the MODULE state a tab owns privately; the two
+ * instances still share the page's one `sessionStorage`, which real tabs do not.
+ * Since Story 6.7 the fallback backend tells "my own predecessor" from "another
+ * tab" by an id kept in exactly that store, so the harness has to model it: a
+ * NEW tab starts with the key cleared, and adopts its identity immediately (a
+ * lazy mint later would read whatever the other instance had written and the two
+ * would resolve to one id — silently retiring the second-tab guarantee).
+ */
 async function openTab(): Promise<SessionLockModule> {
   vi.resetModules();
-  return await import('../app/sessionLock.js');
+  const mod = await import('../app/sessionLock.js');
+  sessionStorage.removeItem(mod.SESSION_TAB_KEY); // a new tab's store is empty
+  mod.__adoptTabIdForTests();
+  return mod;
+}
+
+/**
+ * THE SAME TAB, RELOADED — the refresh-resume case (Story 6.7). Identical to
+ * `openTab` except the tab-identity key is left in place, which is precisely what
+ * a real refresh preserves: sessionStorage survives a reload of the same tab and
+ * is invisible to every other one.
+ */
+async function reloadTab(): Promise<SessionLockModule> {
+  vi.resetModules();
+  const mod = await import('../app/sessionLock.js');
+  mod.__adoptTabIdForTests(); // reads the id its predecessor left behind
+  return mod;
 }
 
 // --- a Web Locks manager that models the real semantics ----------------------
@@ -106,6 +132,7 @@ async function tab(): Promise<SessionLockModule> {
 beforeEach(() => {
   removeLocks();
   localStorage.clear();
+  sessionStorage.clear();
   tabs.length = 0;
 });
 
@@ -257,6 +284,100 @@ describe('the localStorage fallback (no navigator.locks)', () => {
     const a = await tab();
     localStorage.setItem(a.SESSION_LOCK_NAME, 'not json at all');
     expect(await a.acquireSessionLock()).not.toBeNull();
+  });
+});
+
+// --- Story 6.7: A REFRESH MUST NOT REFUSE ITSELF -----------------------------
+//
+// Root now means RESUME (there is no match URL — R0), so a mid-match reload
+// re-deploys through the same single-session gate. On this backend the reloading
+// page finds its own heartbeat still in the key, at most SESSION_HEARTBEAT_MS
+// old — well inside SESSION_STALE_MS — so before this story it refused ITSELF
+// with `ALREADY AT SEA IN ANOTHER TAB`, at its own ghost, deterministically.
+
+describe('the refresh case (Story 6.7)', () => {
+  it('a RELOADED tab recognises its own predecessor and takes the port back', async () => {
+    expect(hasWebLocks()).toBe(false); // the fallback backend, genuinely
+    const before = await tab();
+    await before.acquireSessionLock();
+    expect(localStorage.getItem(before.SESSION_LOCK_NAME)).not.toBeNull();
+
+    // The page reloads: `pagehide` fires (which is what a reload DOES — it is
+    // the modern, reliably-delivered unload event), module state is gone, and
+    // localStorage plus this tab's OWN sessionStorage both survive.
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+    const after = await reloadTab();
+    tabs.push(after);
+    expect(await after.acquireSessionLock()).not.toBeNull();
+  });
+
+  it('...even if the release could not drop the key, because the departure was ANNOUNCED', async () => {
+    // Belt and braces: the pagehide release normally deletes the key outright,
+    // so adoption only ever decides the case where that removal did not take.
+    // The departure NOTE is what carries the story across — and it is why this
+    // no longer has to be inferred from a tab id alone (see the clone below).
+    const before = await tab();
+    await before.acquireSessionLock();
+    const spy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('SecurityError: storage is blocked');
+    });
+    try {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(localStorage.getItem(before.SESSION_LOCK_NAME)).not.toBeNull(); // the claim survived
+    expect(localStorage.getItem(before.SESSION_HANDOFF_KEY)).not.toBeNull(); // ...and so did the note
+    const after = await reloadTab();
+    tabs.push(after);
+    expect(await after.acquireSessionLock()).not.toBeNull();
+    // The note is redeemed exactly once, so nothing can replay it later.
+    expect(localStorage.getItem(after.SESSION_HANDOFF_KEY)).toBeNull();
+  });
+
+  it('a DUPLICATED tab shares the id but announced no departure — and is REFUSED', async () => {
+    // `Duplicate Tab` CLONES sessionStorage, so the clone carries the same
+    // holder id as the tab it came from — which is exactly the harness the
+    // reload case uses, and exactly why a bare id comparison could not tell the
+    // two apart. The difference is that the original is STILL SAILING: no
+    // pagehide, no note. On this backend it used to adopt the live claim, and
+    // its later release would then delete the key the original depends on.
+    const original = await tab();
+    await original.acquireSessionLock();
+    const clone = await reloadTab(); // same sessionStorage, no pagehide
+    tabs.push(clone);
+    expect(await clone.acquireSessionLock()).toBeNull();
+    // ...and the refused clone hands nothing back that could free the port.
+    clone.releaseSessionLock();
+    expect(localStorage.getItem(original.SESSION_LOCK_NAME)).not.toBeNull();
+  });
+
+  it('...while a genuine SECOND TAB is still refused at the same instant', async () => {
+    // The guarantee the fix must not buy its way out of. Same fresh heartbeat,
+    // same moment — the only difference is whose sessionStorage is doing the
+    // asking.
+    const a = await tab();
+    await a.acquireSessionLock();
+    const b = await tab(); // a new tab: its own, empty sessionStorage
+    expect(await b.acquireSessionLock()).toBeNull();
+  });
+
+  it('releases the port on `pagehide`, so the reload window is closed rather than merely survived', async () => {
+    const a = await tab();
+    await a.acquireSessionLock();
+    expect(localStorage.getItem(a.SESSION_LOCK_NAME)).not.toBeNull();
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+    expect(localStorage.getItem(a.SESSION_LOCK_NAME)).toBeNull();
+  });
+
+  it('...but NOT when the page is going into bfcache and may come back', async () => {
+    // Releasing a lock we would still be holding is the one direction this must
+    // not go. (A live WebSocket disqualifies bfcache in practice, so this is
+    // belt-and-braces — and fail open is the doctrine either way.)
+    const a = await tab();
+    await a.acquireSessionLock();
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    expect(localStorage.getItem(a.SESSION_LOCK_NAME)).not.toBeNull();
   });
 });
 

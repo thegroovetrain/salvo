@@ -90,7 +90,7 @@ import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
 import { makeRequeue } from './app/requeue.js';
-import { claimSessionForDeploy, releaseSessionLock } from './app/sessionLock.js';
+import { acquireSessionLock, claimSessionForDeploy, releaseSessionLock } from './app/sessionLock.js';
 import {
   connect,
   connectErrorStatus,
@@ -98,8 +98,11 @@ import {
   mapFromWelcome,
   probeServer,
   radarModes,
+  resumeConnection,
+  resumeFailedStatus,
   type Connection,
 } from './net/connection.js';
+import { clearResumeToken, loadResumeToken } from './net/resumeToken.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
@@ -109,6 +112,7 @@ import { showBanner, hideBanner } from './util/banner.js';
 import {
   loadSavedClass,
   loadSavedMode,
+  loadSavedName,
   saveMode,
   serverStatusLine,
   showHome,
@@ -144,6 +148,7 @@ import {
   matchTimeMs,
   personalScore,
   personalScoreFromResults,
+  missedEliminationAction,
   recordElimination,
   recordSunk,
   refinePlacement,
@@ -466,6 +471,16 @@ interface Game {
    * match question.
    */
   pendingFounder: boolean;
+  /**
+   * THIS SESSION CAME BACK FROM A PAGE REFRESH and has not yet checked whether
+   * its hull sank while it was away (Story 6.7, ruling R7).
+   *
+   * A one-shot, set only on the fresh-page resume path and cleared by the first
+   * check that can answer — see `checkMissedElimination`. False for every
+   * ordinary join, and false for an IN-PAGE resume, which never lost the `sunk`
+   * in the first place.
+   */
+  resumeDeathCheck: boolean;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
@@ -1626,8 +1641,54 @@ function updateOpenResults(g: Game): void {
  * no-ops for a captain who has not been eliminated.
  */
 function updateEliminationUx(g: Game): void {
+  checkMissedElimination(g);
   updateOpenResults(g);
   tickSinkingWindow(g);
+}
+
+/**
+ * THE DEATH THAT HAPPENED WHILE WE WERE AWAY (Story 6.7, ruling R7): synthesized
+ * client-side, with NO WIRE.
+ *
+ * A captain whose hull sank during a disconnect got their own `sunk` delivered to
+ * nobody — the room had no socket to send it down — so on a fresh-page resume
+ * they would otherwise spectate forever with no ELIMINATED modal and no
+ * placement, which reads as the game having quietly forgotten them. Everything
+ * needed to reconstruct it is already in hand: the frame says `spec`, and the
+ * public roster says our own row is no longer alive.
+ *
+ * IT WAITS FOR THE ROSTER, not for a particular frame. The schema patch and the
+ * first frame arrive independently, so "check on the first resumed frame" would
+ * read an empty `players` map about half the time; the latch clears only once
+ * there is a row to read, and then exactly once.
+ *
+ * THE PLACEMENT IS APPROXIMATE and says so — `othersAlive` counts who is afloat
+ * NOW, which is a lower bound on who outlived us if anyone sank during the
+ * outage. R7 authorized exactly that ("an approximate placement"); the exact
+ * number would need a wire field, and no wire field is authorized in this cycle.
+ *
+ * EVERY SUPPRESSION IS `canOpenElimination`'s, unchanged and re-used rather than
+ * restated: not in a live match (a resume into `finished` — including the case
+ * where the server's `lastResults` re-send has already landed and set
+ * `resultsFinal`, which on a resume arrives BEFORE the welcome), and never twice
+ * — so a real `sunk` replayed behind this cannot re-open the modal, because
+ * `recordElimination` has already latched `eliminated`.
+ */
+function checkMissedElimination(g: Game): void {
+  if (!g.resumeDeathCheck) return;
+  const s = publicState(g);
+  const action = missedEliminationAction({
+    spectating: g.state.spectating,
+    ownAlive: s.players?.get(g.state.net.sessionId)?.alive,
+    phase: s.matchPhase ?? 'waiting',
+    resultsFinal: g.resultsFinal,
+    alreadyEliminated: g.score.eliminated,
+  });
+  if (action === 'wait') return; // nothing has landed that can answer yet
+  g.resumeDeathCheck = false; // one shot, whichever way it answered
+  if (action !== 'open') return;
+  g.score = recordElimination(g.score, othersAlive(g));
+  showEliminationResults(g);
 }
 
 // --- return to port / disconnect ---------------------------------------------
@@ -1648,6 +1709,12 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       const g = getG();
       if (!g) return;
       g.returning = true; // handleRoomLeave: the reload is already on its way
+      // A DELIBERATE LEAVE IS NEVER UNDONE BY A LATER REFRESH (Story 6.7). This
+      // chain ends in a reload, and root now means RESUME — so the stored token
+      // has to go with the decision that made it meaningless. RETURN TO PORT and
+      // ABANDON MATCH both arrive here (abandonMatch calls returnToPort), which
+      // is exactly the pair amendment 19 names as the only sanctioned ways out.
+      clearResumeToken();
       // THE SINGLE-SESSION LOCK is released HERE rather than left to the reload:
       // the ad break the chain awaits can legitimately run for tens of seconds,
       // and the port is free the moment this session ends, not whenever the page
@@ -1717,6 +1784,7 @@ function makeGameRequeue(getG: () => Game | null): () => void {
       const g = getG();
       if (!g) return;
       g.returning = true; // handleRoomLeave: this exit is already owned
+      clearResumeToken(); // the lobby is gone — nothing here to resume into
       endSession(g);
     },
   });
@@ -1754,6 +1822,14 @@ function handleRoomLeave(g: Game): void {
   if (g.returning) return; // we initiated it; the exit is already on its way
   g.returning = true;
   g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
+  // THE RESUME-RETRY LOOP GUARD (Story 6.7). Both branches below end in
+  // `location.reload()`, and a reload now attempts a resume — so a token left
+  // behind here would send the page straight back at a room that has just
+  // finished refusing us, forever. Getting to this function at all means the
+  // socket is gone by a route that cannot be resumed: the SDK exhausted its
+  // retries past the 60s grace, the seat was fast-failed, or the server disposed
+  // the room. There is nothing left for the token to address.
+  clearResumeToken();
   releaseSessionLock(); // the session is over — free the port before the delayed reload
   cancelZoomFogRebake(g); // same teardown hygiene as returnToPort
   if (g.state.matchOver) {
@@ -2340,7 +2416,7 @@ function buildGame(
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, pendingFounder: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     hullSoftness: NO_SOFTENING,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
@@ -4444,11 +4520,21 @@ async function startGame(
   stopLivenessPoll();
   stopAmbient(); // tear down the pre-join CIC scene now that we're joining
   hideBanner();
+  launchSession(shell, conn, cls);
+}
 
+/**
+ * Turn a completed connection into the live arena session.
+ *
+ * Extracted from `startGame` for Story 6.7's refresh-resume, which reaches this
+ * point by an entirely different door — no home screen, no ambient scene, no
+ * queue — but owes the session exactly the same assembly. Two copies of it would
+ * be two ideas of what a live match is.
+ */
+function launchSession(shell: Shell, conn: Connection, cls: ShipClassId): Game {
   // The server's map, regenerated deterministically from the welcome seed + cap.
   // The chart layer is built inside buildGame — it needs the camera's zoom.
   const map = mapFromWelcome(conn.welcome);
-
   const { stage } = shell;
   const game = buildGame(stage, conn, map, shell.audio, cls, shell.portal, shell.settingsOverlay);
   gameRef = game; // the settings overlay's late-bound view of the live match
@@ -4462,6 +4548,55 @@ async function startGame(
   game.disposers.push(bindWheelZoom(game));
 
   game.disposers.push(startLoop(stage.app, { ...makeCallbacks(game), onError: (e, p) => reportFrameFailure(game, e, p) }));
+  return game;
+}
+
+/**
+ * THE REFRESH RESUME (Story 6.7) — the whole reason root means *resume*.
+ *
+ * There is no match URL (R0, withdrawn): `hullcracker.io/` is the only address a
+ * player ever has, and leaving is the explicit act amendment 19 already ratified
+ * (RETURN TO PORT / ABANDON MATCH — *never ESC, never a page refresh*). So a
+ * reload of the root can only mean "put me back", and every deliberate exit
+ * clears the token so it cannot mean anything else.
+ *
+ * EVERY FAILURE IS AN ORDINARY OUTCOME, never an error. An expired grace, a
+ * disposed room, a redeployed server all land on the home screen with one plain
+ * sentence — no dead screen, and no reload loop, because the token is cleared
+ * before we get here (`resumeConnection`) and again at every exit that reloads.
+ *
+ * IT CLAIMS THE SINGLE-SESSION LOCK FIRST, and hands it straight back on a
+ * failure. A refusal here means another tab genuinely is at sea, so this page
+ * simply boots to port with the token untouched — a later reload, once that tab
+ * is done, can still resume inside the grace.
+ */
+async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'failed'> {
+  if (loadResumeToken() === null) return 'none';
+  if (!(await acquireSessionLock())) return 'none'; // another tab holds the port
+  let conn: Connection | null;
+  try {
+    conn = await resumeConnection();
+  } catch (err) {
+    // Not console.error: this is the designed landing for an expired grace, and
+    // it must not read in the console as a fault.
+    console.info('[net] could not rejoin the last match; returning to port', err);
+    releaseSessionLock();
+    return 'failed';
+  }
+  if (conn === null) {
+    releaseSessionLock(); // the token vanished under us — nothing was resumed
+    return 'none';
+  }
+  // What the auto-requeue would re-deploy with, had we come through the home.
+  const mode = loadSavedMode() ?? 'standard';
+  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), mode };
+  // `loadSavedClass()` is a GUESS and is meant to be: `buildGame` seeds the
+  // predictor and the hull view from it, and the very first frame's `you.cls`
+  // replaces every derived stat through `applyOwnStats` — the same desync
+  // firewall an ordinary join already relies on.
+  const game = launchSession(shell, conn, loadSavedClass());
+  game.resumeDeathCheck = true; // R7: did our hull sink while we were away?
+  return 'resumed';
 }
 
 /**
@@ -4628,7 +4763,22 @@ async function main(): Promise<void> {
     return; // no home, no connection — the staged scene is the whole page
   }
 
+  // ROOT MEANS RESUME (Story 6.7). Ahead of `enterPort` deliberately: a
+  // successful resume never builds a home screen or an ambient scene at all, so
+  // the player goes straight back to the ocean rather than watching the menu
+  // paint and vanish.
+  const resumed = await tryResumeMatch(shell);
+  if (resumed === 'resumed') return;
+
   enterPort(shell, false); // the ordinary door: the home waits for PLAY
+  if (resumed === 'failed') {
+    // One plain sentence on the line EXPERIENCE.md already names for exactly
+    // this ("failed connection surfaces on the home status line, never a dead
+    // screen"). It locks the register, so the server probe behind it yields —
+    // which is right: this IS the news.
+    const line = resumeFailedStatus();
+    homeRef?.setStatus(line.text, line.tone);
+  }
 }
 
 main().catch((err) => {

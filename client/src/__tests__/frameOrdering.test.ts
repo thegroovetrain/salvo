@@ -50,7 +50,7 @@ function setup(onOwnStats: () => void): {
   onServerState: ReturnType<typeof vi.fn>;
 } {
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-  const conn = { room: fakeRoom(), welcome: {}, sink } as unknown as Connection;
+  const conn = { room: fakeRoom(), welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
   // mode 'predict' so the reconcile call is actually reached — it is gated on
   // this, and an 'interp' harness would make the onServerState assertion vacuous.
   const state = {
