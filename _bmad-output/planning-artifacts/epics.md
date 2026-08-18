@@ -87,29 +87,31 @@ FR38: Disconnection: the ship keeps simulating under its last input and remains 
 
 ### NonFunctional Requirements
 
-NFR1: 60 FPS sustained on a low-end school Chromebook in a fully populated match — 20 contestants plus PvE fleets, in-flight ordnance, and all E6 effects. Per-epic frame budget on the reference device (Chrome at 4× CPU throttle until a real Chromebook is benched): 16.6 ms = sim ≤ 3 ms + render ≤ 10 ms + headroom ≥ 3.6 ms.
-NFR2: Portal click → playable in under ~10 s on that hardware; no install, no account.
+NFR1: 60 FPS sustained on the reference device — Eric's Intel i7 MacBook — in a fully populated match: 20 contestants plus PvE fleets, in-flight ordnance, and all shipped effects. Frame budget on that device: 16.6 ms = sim ≤ 3 ms + render ≤ 10 ms + headroom ≥ 3.6 ms. **The Chromebook target is RETIRED (Eric, 2026-08-18): no low-end reference device will be acquired, and the reference MacBook's performance is accepted as the bar.** The 4× CPU throttle proxy is retained as a cheap stress check, never as the gate.
+NFR2: Cold load → playable in under ~10 s on the reference device over a typical residential connection; no install, no account. Ad, analytics and consent scripts count against this budget and must not block first paint.
 NFR3: Authoritative 20 Hz (50 ms) fixed-tick server with client-side prediction (reconcile-and-replay) and ~100 ms snapshot-interpolated contacts; feel intact at ~150 ms residential latency, validated by measurable proxies (hit-registration agreement %, prediction-error bounds) on a simulated-latency harness — never by localhost feel.
 NFR4: Structural anti-cheat: everything spatial leaving the server passes the perception boundary — nothing outside sight ∪ this-tick radar paints reaches any client; counter-intel lies are wire-indistinguishable; player intent enters only through validated, finite-checked input messages.
 NFR5: Determinism: seeded mulberry32 RNG streams only; no Math.random()/Date.now() in sim code; maps rebuild from seed; the World owns the single server clock (scale-out is more Worlds, never a shared one).
 NFR6: Matches complete inside ~15:00 start-to-results (ring fully closed at ~12:00).
 NFR7: Desktop browser support: current Chrome, Edge, Firefox, Safari; keyboard + mouse; mobile/touch out of scope.
-NFR8: Poki/CrazyGames portal compliance: bundle size limits, SDK integration, ad-break seam at death→requeue — a hard launch gate.
-NFR9: Assets are procedural vector linework and synthesized WebAudio tones — no texture, model, or sound-file pipeline.
-NFR10: Horizontal scale-out as a deploy-time knob: no single-process assumptions; Presence/Driver injectable (memory → Redis as config); never enable Render autoscaling.
+NFR8: Self-published monetization compliance — a hard launch gate. Google AdSense H5 Games Ads (Ad Placement API) integrated behind the Story 0.4 seam; interstitial at death→return-to-port; display units on the home/port screen and How-to-Play only, ≥150 px clear of the game canvas; no ad surface of any kind during a match. A Google-certified CMP (Google's own free CMP) plus a published privacy policy gate personalized ads in the EEA/UK/Switzerland. **No portal (Poki/CrazyGames) integration ships — Eric, 2026-08-18.** The game must remain fully playable when ad scripts are blocked or fail.
+NFR9: Assets are procedural vector linework and synthesized WebAudio tones — no texture, model, or sound-file pipeline. (The constraint's original justification was portal bundle-size limits; with the portal gone it now stands on NFR2's load budget. The constraint survives its reason — it is not relaxed.)
+NFR10: Horizontal scale-out as a deploy-time knob: no single-process assumptions; Presence/Driver injectable (memory → Redis as config); never enable Render autoscaling. **Beta posture is a single VERTICALLY scaled game-server instance on Render** (Eric, 2026-08-18); horizontal scale-out stays a knob, explicitly NOT beta work.
 NFR11: PROTOCOL_VERSION gates every wire-contract change; Colyseus schema syncs the roster only — all spatial state travels in per-client frames.
 NFR12: Sim purity and layering laws: shared/ is pure and side-free; World/Match keep zero Colyseus imports; cyclomatic complexity ≤ 10 (ESLint error); `npm run check` green is the gate for every ship.
 NFR13: Accessibility floor (non-negotiable): dual-coding for class/threat/state meaning (one informed waiver: combatant identity is color-first); every audio cue has a visual twin and vice versa; photosensitivity restraint — breathing glows ≥ 2 s cycles, one-shot pulses 80 ms with a 300 ms same-source floor, HP/storm pulses capped at 1.1 Hz, final-10s ring pulse 1 Hz, aggregate ≤ 3 flashes/s per screen region, no full-screen strobes.
 NFR14: Persistence is client-side localStorage only (callsign, settings, class/color preference); no accounts, no server player DB at beta; match telemetry is stdout log lines with zero PII.
 NFR15: Observability: structured stdout logging with matchId/roomId/tick context (no hot-path logging beyond throttled aggregates); /metrics HTTP route (rooms, players, tick-duration p50/p95/max, message rates); match.end / match.abort telemetry lines instrumenting class pick/win rates and storm deaths; client perf overlay (FPS, frame-time split, RTT, prediction error, entity counts) in dev builds.
 NFR16: Error-handling zones: shared sim never throws (validated upstream); server validates-and-drops malformed input silently and contains tick errors at the room boundary (HC_TICK_ERROR_TOLERANCE: 1 dev / 3 public, graceful room disposal on threshold); client loop never dies (banner + auto-reconnect; render errors skip the frame).
-NFR17: Nothing debug ships in the portal build: client dev tools exist only under import.meta.env.DEV; server dev behavior only under HC_DEV_OPTIONS=1.
+NFR17: Nothing debug ships in the production build: client dev tools exist only under import.meta.env.DEV; server dev behavior only under HC_DEV_OPTIONS=1.
+NFR18: Two deployables. The client ships as a Render Static Site (client/dist, CDN-served, no Node process) on the apex domain; the game server ships as a Render Web Service running only the Colyseus arena, on a subdomain (ad and analytics identity is per-domain and must not move). shared/ is a build-time library of both and is never deployed independently. Each deployable carries its own version number, cutting `0.1.0` at beta; the game-server URL is build-time client config; the server declares explicit CORS and WebSocket origin allowances. PROTOCOL_VERSION remains the runtime client↔server compatibility gate and is independent of every release version.
+NFR19: Google Analytics 4 with Consent Mode v2, loaded on the static site only and gated by the certified CMP. No PII, ever — consistent with NFR14. Match telemetry remains stdout log lines per NFR15; GA4 measures the site and funnel (home → mode pick → match start → match end → requeue), never gameplay state.
 
 ### Additional Requirements
 
 **From Architecture — sequencing and platform**
 
-AR1: Work item #0 (before E1): the Colyseus 0.16 → 0.17 upgrade — epic work builds on the stabilized 0.17 adapter. The Track-2 hosting move (game server → Colyseus Cloud, client/site → static hosting, Redis-backed Presence/Driver) is a separate, trigger-based item: it happens before the first public/stranger link, at Eric's call — NOT as a prerequisite for epic work. Render remains fine for friends-scale playtests throughout (Eric, 2026-07-17: the game stays playable and hostable-as-is during the whole epic sequence). When the move happens, execute it as one motion so only one new deploy pipeline is ever built.
+AR1: Work item #0 (before E1): the Colyseus 0.16 → 0.17 upgrade — epic work builds on the stabilized 0.17 adapter. **The Track-2 hosting move is SUPERSEDED IN PART (Eric, 2026-08-18):** the trigger fired (open beta is the first public link) but the destination changed. The client/site → static hosting half IS executed (Story 7.7, as a Render Static Site); the game server → Colyseus Cloud half is NOT — Eric elected to stay on Render and scale vertically, retaining control of his own servers, so Redis-backed Presence/Driver is deferred with it (a single instance needs no shared registry; NFR10's injectability obligation keeps the door open). **Render still cannot host Colyseus horizontal scale-out (no WebSocket sticky sessions), and Render autoscaling must never be enabled.** Note also: matchmaking is NOT a separable service — in Colyseus 0.17 the matchmaker is a library every process shares through Presence/Driver, so the split is two deployables (frontend, backend), never three. The original trigger-based framing follows, retained as history: it happens before the first public/stranger link, at Eric's call — NOT as a prerequisite for epic work. Render remains fine for friends-scale playtests throughout (Eric, 2026-07-17: the game stays playable and hostable-as-is during the whole epic sequence). When the move happens, execute it as one motion so only one new deploy pipeline is ever built.
 AR2: 0.17 capabilities to adopt: automatic reconnection (with token-authenticated resume per FR38), QueueRoom matchmaking (D6 — modes are queues; arena logic never forks on mode), transport rate limiting (maxMessagesPerSecond), typed HTTP routes (for /metrics), room.ping() RTT measurement (feeds D1).
 AR3: D1 firing under latency: fire commands carry a client timestamp clamped to min(claimed, measured RTT + jitter allowance), hard ceiling 150 ms, never earlier than the previous input; projectiles spawn back-dated along their trajectory (masked by muzzle-flash VFX); hits always resolve against live server state — no victim rewind, ever. Tick stays 20 Hz.
 AR4: D2 boon effect model: boons are `{ id, category, effects[] }` in shared CONFIG with exactly two homes — `stat` effects consumed only by effectiveStats(); `slotFill`/`slotReplace` mutating loadout state; `behavior(hookId, params)` executing named hooks implemented once in shared/. Hook purity law: hooks are pure/deterministic and cannot register without sim-parity test coverage.
@@ -119,7 +121,7 @@ AR7: Equipment unification: server weapons/ becomes equipment/ — one Equipment
 AR8: STEP_ORDER as data: world.step() iterates a named step array; new sim steps (sinking deceleration, whirlpool force, PvE roving, bot decisions) are one-line reviewable insertions.
 AR9: Ship lifecycle is an explicit shared state machine (lifecycle.ts): `alive | sinking(since) | sunk(at)`, transitions validated in one place, sinking → alive reserved for a future heal; the win predicate in match.ts is one predicate over lifecycle states.
 AR10: New shared-sim homes: loadout.ts (slot grammar state), boons.ts (catalog + descriptors), hooks.ts (behavior hook registry), lifecycle.ts, whirlpool.ts; zone.ts evolves to phased rings; map.ts evolves to roster-scaled params + fog banks + whirlpools. Server: signals.ts, ai/ (utility.ts, botDriver.ts, pveFleet.ts), log.ts, metrics.ts, StandardQueueRoom.ts, SoloVsAiQueueRoom.ts. Client: portal/ (adapter + null impl), debug/ (perfOverlay, devTools).
-AR11: Portal adapter seam installed NOW (not at E7): `PortalAdapter { init, loadingProgress, matchStart, matchEnd, requestAdBreak }` with a null implementation; game code never imports a portal SDK directly; the death→requeue flow routes through requestAdBreak.
+AR11: **RETARGETED (Eric, 2026-08-18): the concrete implementation is Google AdSense H5 Games Ads (Ad Placement API), not Poki/CrazyGames** — `adBreak({type, beforeAd, afterAd, adBreakDone})` fits `requestAdBreak(): Promise<void>` exactly, and the seam's never-throw / always-settle contract is precisely what an ad-blocked integration requires. The interface name is retained deliberately. Original: ad/lifecycle adapter seam installed NOW (not at E7): `PortalAdapter { init, loadingProgress, matchStart, matchEnd, requestAdBreak }` with a null implementation; game code never imports a portal SDK directly; the death→requeue flow routes through requestAdBreak.
 AR12: Test harnesses as infrastructure: the drone-lobby batch-sim harness is triple-duty (economy tuning, pre-launch load test, bot-vs-bot AI evaluation scored on kill distributions/match lengths/storm deaths); a simulated-latency harness (~150 ms + jitter + loss) gates feel; sim-parity property tests are mandatory for every new shared-sim feature; perception-invariant extension is per-signal definition of done.
 AR13: No event bus anywhere — server systems communicate through the tick's explicit step order and per-tick event arrays; client keeps one-way data flow (net → sim → render); this absence is a decision.
 AR14: Dev-only fog-lift (server-side, HC_DEV_OPTIONS-gated) and dev spectate-all camera; the whirlpool hemisphere secret lives in World state, not the map seed.
@@ -236,8 +238,10 @@ FR35: Epic 6 — Solo vs AI mode with combat bots
 FR36: Epic 6 — Fair combat bots via observe(); PvE threat-check tier
 FR37: Epic 6 — All non-human ships through the same input pipeline
 FR38: Epic 0 — Token-authenticated reconnection; disconnected ship keeps simulating (UX polish in Epic 6)
+FR39: Epic 7 — How to Play page (controls, sensors, storm, classes, boon economy, boon glossary, and the win condition stated explicitly)
+FR40: Epic 7 — Interstitial ad break at death→return-to-port, behind the Story 0.4 seam; never interrupts a live match
 
-Cross-cutting NFRs (NFR1 frame budget, NFR3 latency proxies, NFR4 anti-cheat, NFR5 determinism, NFR11–NFR13, NFR16–NFR17) bind acceptance criteria in every epic; NFR2/NFR8 concentrate in Epic 7; NFR10/NFR14/NFR15 concentrate in Epic 0.
+Cross-cutting NFRs (NFR1 frame budget, NFR3 latency proxies, NFR4 anti-cheat, NFR5 determinism, NFR11–NFR13, NFR16–NFR17) bind acceptance criteria in every epic; NFR2/NFR8/NFR18/NFR19 concentrate in Epic 7; NFR10/NFR14/NFR15 concentrate in Epic 0.
 
 ## Epic List
 
@@ -273,9 +277,9 @@ The water itself creates stories — fog banks, hemisphered whirlpools, huntable
 Two real modes with honest matches: no bot-fill, min-2 fill-or-timer, cap 20, roster-scaled maps, Solo vs AI with real combat bots, queue-liveness menu, reconnection UX.
 **FRs covered:** FR27, FR31, FR34–FR37 · **Also:** AR2 (QueueRooms), UX-DR25 (mode pick + queue liveness)
 
-### Epic 7: Portal Launch Readiness
-The beta, live on a portal: Chromebook 60 FPS in a fully populated match, <10 s load, Poki/CrazyGames SDK behind the seam, How-to-Play page, DESIGN.md real-time-era refresh.
-**FRs covered:** — (hardens NFR1, NFR2, NFR7, NFR8, NFR9) · **Also:** AR11 (SDK implementations), AR17, UX-DR29, UX-DR39
+### Epic 7: Beta Launch Readiness
+The beta, self-published: 60 FPS on the reference i7 MacBook, fast cold load, GA4 + a certified CMP + a privacy policy, AdSense H5 Games Ads behind the seam, a How-to-Play page, the upgrade-cards v2 pass, the DESIGN.md real-time-era refresh, split frontend/backend deploys at 0.1.0 / 0.1.0, and the release gate. Rescoped 2026-08-18 — the portal launch and the Chromebook reference device are retired.
+**FRs covered:** FR39, FR40 (hardens NFR1, NFR2, NFR7, NFR8, NFR9, NFR18, NFR19) · **Also:** AR11 (AdSense implementation), AR17, UX-DR29, UX-DR39
 
 ## Epic 0: Stable Ground (Colyseus 0.17 Foundation)
 
@@ -1209,56 +1213,48 @@ So that a wifi blip reads as a blip — not a mystery death.
 **And** a failed reconnect (match over, ship sunk) routes to results or home with a plain explanation — never a dead screen (UX-DR30)
 **And** mid-match disconnect of OTHER captains is invisible beyond their ship's behavior (no wire field advertises a disconnected target).
 
-## Epic 7: Portal Launch Readiness
+## Epic 7: Beta Launch Readiness
 
-The beta, live on a portal: Chromebook 60 FPS in a fully populated match, <10 s load, Poki/CrazyGames SDK behind the seam, How-to-Play page, DESIGN.md real-time-era refresh, and the release gate.
+The beta, self-published: our own analytics and ad placements, a How-to-Play page, an upgrade-card rebalance, split frontend/backend deploys with independent versions, and the release gate. Rescoped 2026-08-18 (`sprint-change-proposal-2026-08-18.md`) — the portal launch and the Chromebook reference device are both retired.
 
-### Story 7.1: Chromebook Performance Pass
+Story numbering matches execution order. The split is deliberately LAST (Eric, 2026-08-18) so beta cuts clean at `0.1.0` / `0.1.0`.
 
-As Marco on a school Chromebook,
-I want 60 FPS in the fullest, ugliest fight the game can produce,
-So that low-end hardware is a distribution feature, not an apology.
+**External dependency — not code:** Eric has held an approved AdSense account for many years, so the programme prerequisite is already satisfied. Story 7.4 therefore splits: **display units need only the new site added and verified** on the existing account (plus `ads.txt`), while **the interstitial still needs H5 Games Ads access — a separate application on top of an approved account, subject to partner eligibility.** Add the site and apply as soon as 7.2's privacy policy is live. Every other story is independent of it, and if H5 access lags, beta can launch with display units only and the interstitial can follow as a client-only deploy.
+
+### Story 7.1: Performance & Load Pass
+
+As the operator,
+I want the frame budget and the load budget verified on a device that actually exists,
+So that beta's performance claim is measured rather than assumed.
 
 **Acceptance Criteria:**
 
-**Given** a real low-end Chromebook (acquired/benched here — it replaces the 4x-throttle proxy as the reference device permanently)
-**When** the reference scenario runs — 20 contestants + full PvE fleets + in-flight ordnance + all Epic 4 effects
-**Then** 60 FPS sustains with the frame budget holding (sim <= 3 ms, render <= 10 ms, headroom >= 3.6 ms) (NFR1)
+**Given** the reference i7 MacBook (NFR1 as amended — the Chromebook is retired; stamp the exact model/year into the spec so the bar is reproducible)
+**When** the reference scenario runs — 20 contestants + full PvE fleets + in-flight ordnance + all shipped effects
+**Then** 60 FPS sustains with the frame budget holding (sim ≤ 3 ms, render ≤ 10 ms, headroom ≥ 3.6 ms) (NFR1)
 **And** any budget breach is fixed at the offending system (pooling, batching, decay caps) — never by cutting a ratified feature without Eric's sign-off
-**And** the perf overlay evidence (frame-time split, entity counts) is captured as the audit record
-**And** prior epics' per-epic budget checks are re-validated on the real device.
+**And** cold load to interactive home lands under ~10 s including ad, analytics and consent scripts (NFR2), with fonts not blocking first paint
+**And** the perf overlay evidence (frame-time split, entity counts) and the load waterfall are captured as the audit record.
 
-### Story 7.2: Ten-Second Load
+**Take the cheap read FIRST.** The whole-frame NFR1 verdict has never been obtained and now carries three epics of unmeasured growth (return heatmap, radar shadows, wakes, chop, a 2800u ocean, up to 63 fleet hulls, 20-hull bot lobbies, the reveal chart). Three consecutive retrospectives asked for a rough early read; the device excuse is now gone.
 
-As a portal player one click deep,
-I want to be reading the home page in under ten seconds,
-So that "no install, no account" is true in wall-clock time.
+### Story 7.2: Analytics, Consent & Privacy
 
-**Acceptance Criteria:**
-
-**Given** a portal-shaped network + the reference device
-**When** the page is cold-loaded
-**Then** click to interactive home lands in under ~10 s (NFR2), with `loadingProgress()` reporting through the portal seam the whole way
-**And** the bundle passes portal size limits (procedural assets + tones keep it lean — NFR9 verified: zero texture/model/sound files shipped)
-**And** fonts load without blocking first paint (fallback strategy documented)
-**And** the load audit (waterfall, bundle breakdown) is captured as the record.
-
-### Story 7.3: Portal SDK Integrations
-
-As the launch engineer,
-I want Poki and CrazyGames adapters behind the existing seam,
-So that compliance is a config choice, not a code fork.
+As the operator,
+I want to know how players find, enter and leave the game — lawfully,
+So that beta produces evidence instead of impressions.
 
 **Acceptance Criteria:**
 
-**Given** the `PortalAdapter` seam (Story 0.4)
-**When** `pokiAdapter.ts` and `crazyAdapter.ts` land
-**Then** each implements the full interface (init, loading progress, match start/end, `requestAdBreak` at death-to-requeue — the revenue-and-retention seam) per its SDK docs, selected at build/config time (NFR8)
-**And** game code still never imports an SDK directly; the null adapter remains the dev default
-**And** each portal's technical checklist (bundle, events, ad rules) is verified and documented
-**And** the ad break plays at death-to-requeue without breaking the reveal-results-home flow (audio muted during breaks, state intact after).
+**Given** the live site
+**When** analytics lands
+**Then** GA4 with Consent Mode v2 measures the funnel (home → mode pick → match start → match end → requeue) and never carries PII or gameplay state (NFR14/NFR19)
+**And** a Google-certified CMP (Google's own free CMP) gates personalized ads and analytics storage in the EEA/UK/Switzerland (Eric ruling 2026-08-18)
+**And** a privacy policy page is published in standard page chrome and linked from home and How-to-Play
+**And** neither analytics nor consent blocks first paint, and both are counted against NFR2's 10 s budget with the measurement recorded
+**And** the consent banner is designed to DESIGN.md's register rather than shipped as vendor default — it is the first thing a new player sees.
 
-### Story 7.4: How-to-Play Page
+### Story 7.3: How-to-Play Page
 
 As a brand-new player,
 I want one static page that teaches the game,
@@ -1270,13 +1266,59 @@ So that onboarding exists without coach marks cluttering the HUD.
 **When** the How-to-Play page lands (linked from home; ESC/back returns)
 **Then** it covers the controls (the fixed bindings in the key-chip family), the three sensor tiers, the storm rhythm, classes + slot grammar, and the boon economy (UX-DR29)
 **And** it hosts the boon glossary (Story 2.8's content)
+**And** it states the win condition explicitly (FR39) — closing epic-5 amendment 46(c), which found it stated nowhere a new player can read
 **And** it positions Solo vs AI as the live tutorial
-**And** it renders in standard page chrome at the 1100 px max width, and its copy holds the terse-naval register.
+**And** it carries the privacy-policy link and may carry one display unit (per 7.4)
+**And** it renders in standard page chrome at the 1100 px max width, and its copy holds the terse-naval register
+**And** it is a beta launch gate, not optional polish — with strangers arriving there is no other onboarding surface.
 
-### Story 7.5: DESIGN.md Real-Time Refresh
+### Story 7.4: AdSense H5 Games Ads
+
+As the operator,
+I want my own ad placements, in the two places this game has room for them,
+So that the beta earns without ever interrupting a match.
+
+**Acceptance Criteria:**
+
+**Given** Eric's existing approved AdSense account with the new site added and verified, H5 Games Ads access granted, and the `PortalAdapter` seam (Story 0.4)
+**When** the integration lands
+**Then** a concrete adapter implements `PortalAdapter` against the Ad Placement API (`adConfig()` + `adBreak()`), and game code still never imports an ad SDK directly
+**And** an interstitial fires at death→return-to-port through `requestAdBreak()`, with audio muted for the break and match/UI state intact after (FR40)
+**And** display units appear on the home/port screen and How-to-Play only, ≥150 px clear of the game canvas, with no ad surface during a live match (NFR8)
+**And** the game remains fully playable with ads blocked, failing, or never resolving — the never-strand-the-player contract is tested, not assumed
+**And** ad script cost is measured against NFR2.
+
+### Story 7.5: Upgrade Cards v2
+
+As the designer (Eric),
+I want the Battleship's armament replaced, the mines and buoy changed, mutual exclusivity removed, and the affected cards retooled as added verbs,
+So that beta launches on a catalog where every card adds something and no card is dead.
+
+**Structure:** Eric holds the plan and delivers it in full when the story is reached (2026-08-18). The story opens with him stating it and does not proceed to implementation until it is stated — an implementer may not invent game mechanics. The forge sessions (`boon-deck-rebalance`, `loadout-equipment-rework`) are IRRELEVANT to this story and must not be mined for direction.
+
+**Rulings already made (Eric, 2026-08-18):**
+
+1. The cannon is REMOVED from the game.
+2. The Battleship gets a BROADSIDE BARRAGE in its place.
+3. Mutually exclusive upgrades are REMOVED — "at least for now."
+4. SOME existing cards are retooled to work as "added verbs" — specifically the formerly-exclusive cards that STAY need retooling, because a card authored as one half of an either/or has to work as a standalone addition. This is retooling, not deletion.
+
+Also in scope from the same scoping message, not yet ruled in detail: changes to mines and to the buoy.
+
+**Structural consequences to carry (verified against the code):** the cannon subdeck (7 cards since cycle 93) plus `acquireCannon` delete; `CannonMode` in stats.ts and `shell.ts:412`'s plunging-fire branch lose their only consumers; deleting AP orphans epic-4 amendment 17's "exactly one `hc` per shell resolution" clause; `loadout.ts:124` and the `bulwark`/`siege` bot profiles change. The broadside is the first non-360° weapon of the class era (gun/cannon/starShells are all `arc: 'full'`), and `ArcShape` has no twin-sector kind — a design call, not an implementer's pick. A salvo multiplies the `mz`/`sp`/`hc` signal surface, uncosted. Exclusivity spans 8 cards / 4 pairs; `mode` is single-valued per weapon, so a surviving pair cannot simply have `exclusiveWith` deleted — which is exactly why ruling 4 says those cards need retooling. `validateBoonDef`/`validateCatalog` enforce `exclusiveWith` symmetry. A deck refill path (doctrine return, `deferred-work.md:972`) disappears, so the terminal empty-deck analysis must be re-derived.
+
+**Acceptance Criteria (once the plan is stated):**
+
+**Given** Eric's stated plan
+**Then** the catalog change lands through `effectiveStats()` and `BOON_STAT_PATHS` with no ad-hoc stat derivation, `PROTOCOL_VERSION` bumps (catalog content is wire contract), and the deck/offer tests are updated rather than deleted
+**And** a batch-sim evidence pass runs — the cycle-39/2.10 mould — because the last catalog change (cycle 42) shipped explicitly unmeasured and that debt is still ledgered
+**And** the already-known dead cards are swept (cycles 93/95: `mineDamage` × `minePropFouling` pick-order dependence, `mineTrigger`'s 5th card ~75% clamped away, at most 1 of 6 acquisition cards can ever fire)
+**And** any ratified amendment this supersedes is recorded in `epic-7-context-amendments.md` with its supersession stated.
+
+### Story 7.6: Design & Doc Reconciliation
 
 As the design source of truth's keeper (Eric),
-I want DESIGN.md's hex-era passages replaced with the real-time reality,
+I want DESIGN.md's hex-era passages replaced with the real-time reality and every stale premise reconciled,
 So that the next design decision starts from a document that describes the shipped game.
 
 **Acceptance Criteria:**
@@ -1285,20 +1327,43 @@ So that the next design decision starts from a document that describes the shipp
 **When** the refresh pass runs (with Eric — it's the design source of truth)
 **Then** remaining hex-grid-era content (cell states, planning/resolution choreography) is replaced or struck; the aesthetic direction carries forward unchanged
 **And** open questions resolved during Epics 1–6 (storm edge, island colors if settled, text-safe variant table, whirlpool treatment, foghorn key, sound map) are written back as decisions
-**And** the GDD's correction flags (4-card offers, "Solo vs AI" naming, the retired spectate option — GDD and architecture still say "spectate" post-death) are reconciled in the GDD, and EXPERIENCE.md's pre-auto-reconnect disconnect wording ("banner + return home") is updated to the Story 0.2/6.7 resume flow
-**And** `gds-workflow-status.yaml` and CLAUDE.md pointers stay accurate.
+**And** the GDD's correction flags (4-card offers, "Solo vs AI" naming, the retired spectate option) are reconciled
+**And** the Epic 6 additions are reconciled: UX-DR30's sailable weapons-safe waiting room NO LONGER EXISTS in production (amendments 1/8 — a frozen held start line replaced it; the grammar survives only for the dev/sandbox door); `EXPERIENCE.md:67`'s home sub-line was overridden by Story 6-5; `EXPERIENCE.md:108`'s "absence, not placeholders" was SCOPED rather than followed (amendment 39); amendment 41's copy law and amendment 49's DRAFT reconnect string both want ratification in a copy pass; and EXPERIENCE.md's pre-auto-reconnect disconnect wording is updated to the Story 0.2/6.7 resume flow
+**And** every portal and Chromebook reference across DESIGN.md, EXPERIENCE.md, the GDD, the briefs and `game-architecture.md` is reconciled (a ~19-file mechanical sweep), plus CLAUDE.md's versioning ruling and deploy configuration
+**And** `gds-workflow-status.yaml`, `sprint-status.yaml` and CLAUDE.md pointers stay accurate.
 
-### Story 7.6: The Release Gate
+### Story 7.7: The Frontend/Backend Split + Per-Service Versioning
+
+As the operator,
+I want the client and the game server to be two independently deployable, independently versioned services,
+So that I can ship an ad tweak without redeploying the arena, and a sim fix without rebuilding the site.
+
+**This is the LAST BUILD STORY** (Eric, 2026-08-18): *"I want the split/versioning to be last, that way I can release beta as 0.1.0/0.1.0 cleanly."* Doing it first would burn version numbers on pre-beta cycles.
+
+**Acceptance Criteria:**
+
+**Given** one Render web service serving both `client/dist` and the Colyseus arena
+**When** the split lands
+**Then** the client deploys as a Render Static Site and the game server as a Render Web Service running only the arena (`server/src/app.config.ts:66`'s `express.static` is removed)
+**And** the client stays on the apex domain and the game server moves to a subdomain — AdSense approval and the GA4 property are per-domain, and both land before this story
+**And** the game-server URL is build-time client config, with explicit server-side CORS and WebSocket origin allowances
+**And** `client` and `server` each cut `0.1.0` as the beta release version, with `shared` versioned as the library it is; `client/vite.config.ts` sources `__APP_VERSION__` from the client's own `package.json` rather than root
+**And** the 0.17.X cycle-counting scheme is retired at this point, with the build-cycle ledger rehomed to `sprint-status.yaml` (this supersedes the ratified "the game stays 0.17.X until all 7 epics complete"; every cycle up to this story still increments it)
+**And** `PROTOCOL_VERSION` is untouched and still refuses a mismatched client/server pair — independent versions must never weaken the wire gate, and a test pins that they don't
+**And** both services deploy green and a full match runs cross-origin end to end.
+
+### Story 7.8: The Release Gate
 
 As the operator (Eric),
-I want a final hardening sweep before the portal link goes out,
+I want a final hardening sweep before the beta link goes out,
 So that launch day is boring.
 
 **Acceptance Criteria:**
 
-**Given** the launch candidate build
+**Given** the launch candidate build on the split topology
 **When** the gate runs
-**Then** the game verifies on current Chrome, Edge, Firefox, and Safari, and at the 1366x768 floor viewport (corner anatomy intact, no mono type below 9 px) (NFR7, UX-DR39)
+**Then** the game verifies on current Chrome, Edge, Firefox, and Safari, and at the 1366x768 floor viewport (corner anatomy intact, no mono type below 9 px) (NFR7, UX-DR39) — noting the ledgered ≤720p liveness-block collision (`deferred-work.md:1178`), whose stated urgency rested on the now-retired Chromebook target and should be re-derived, not inherited
 **And** nothing debug ships: dev tools stripped by `import.meta.env.DEV`, server dev behavior locked behind `HC_DEV_OPTIONS`, `P` toggle absent from prod (NFR17)
-**And** the pre-launch load test (the harness's second duty — `loadTest.mjs`) proves the deployed tier survives a portal-shaped connection spike, with `/metrics` confirming tick health under load (AR12, NFR10)
-**And** `npm run check` is green, `PROTOCOL_VERSION` is consistent, and the full pipeline (home to queue to match to death to ad break to requeue) passes a manual run on the production stack.
+**And** `loadTest.mjs` is BUILT — it does not exist. AR12's load-test leg died with epic-5 amendment 41's drone-fill deletion and Story 6-4 rebuilt only the bot-evaluation leg; this is the third epic to assume the capability present, so scope it as construction, not invocation. It then proves the deployed tier survives a connection spike, with `/metrics` confirming tick health under load (AR12, NFR10)
+**And** the unauthenticated solo-create cost vector is RULED (`deferred-work.md:1150`) — per-IP create throttle, global concurrent-solo ceiling, or explicit acceptance. The 7.7 split makes the game-server origin separately addressable, and because the split lands immediately before this gate, the gate is the FIRST verification the new topology gets
+**And** `npm run check` is green, `PROTOCOL_VERSION` is consistent, and the full pipeline (home to queue to match to death to ad break to requeue) passes a manual run on both production services.
