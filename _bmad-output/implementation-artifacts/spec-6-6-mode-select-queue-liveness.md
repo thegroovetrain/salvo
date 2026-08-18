@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-08-17'
 status: 'done'
 review_loop_iteration: 0
+final_revision: 'a5741fce8902517c89d3d040528db3de178ae7e4'
 followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/bmad-dev-auto-result-6-6-mode-select-queue-liveness-questions.md'
