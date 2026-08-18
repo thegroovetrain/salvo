@@ -88,19 +88,19 @@ pass enters Epic 7 as one story, per Eric's ruling, with its plan delivered at t
 
 ### 2.2 Story impact
 
-| Story | Verdict | Reason |
-|---|---|---|
-| 7.1 Chromebook Performance Pass | **RESCOPE + MERGE** | Reference device rebases to Eric's i7 MacBook; merges with 7.2 (both were gated on the same absent hardware) |
-| 7.2 Ten-Second Load | **MERGE into 7.6** | Loses its portal-network framing; the load budget survives on its own merits |
-| 7.3 Portal SDK Integrations | **REPLACE** | Poki/CrazyGames deleted; becomes AdSense H5 Games Ads |
-| 7.4 How-to-Play Page | **SURVIVES** | Explicitly confirmed still relevant; promoted to a beta gate |
-| 7.5 DESIGN.md Real-Time Refresh | **SURVIVES, WIDENED** | Renumbered 7.7; reconciliation list grew by ≥4 Epic 6 items plus this proposal's own doc changes |
-| 7.6 The Release Gate | **SURVIVES, WIDENED** | Renumbered 7.8; absorbs `loadTest.mjs` construction and the solo-create cost ruling |
-| — | **NEW 7.1** | Frontend/backend split + per-service versioning |
-| — | **NEW 7.2** | Analytics, consent & privacy |
-| — | **NEW 7.5** | Upgrade cards v2 |
+| Old story | Verdict | New # | Reason |
+|---|---|---|---|
+| 7.1 Chromebook Performance Pass | **RESCOPE + MERGE** | **7.1** | Reference device rebases to Eric's i7 MacBook; merges with old 7.2 (both were gated on the same absent hardware) |
+| 7.2 Ten-Second Load | **MERGE** | **7.1** | Loses its portal-network framing; the load budget survives on its own merits |
+| 7.3 Portal SDK Integrations | **REPLACE** | **7.4** | Poki/CrazyGames deleted; becomes AdSense H5 Games Ads |
+| 7.4 How-to-Play Page | **SURVIVES** | **7.3** | Explicitly confirmed still relevant; promoted to a beta gate |
+| 7.5 DESIGN.md Real-Time Refresh | **SURVIVES, WIDENED** | **7.6** | Reconciliation list grew by ≥4 Epic 6 items plus this proposal's own doc changes |
+| 7.6 The Release Gate | **SURVIVES, WIDENED** | **7.8** | Absorbs `loadTest.mjs` construction and the solo-create cost ruling |
+| — | **NEW** | **7.2** | Analytics, consent & privacy |
+| — | **NEW** | **7.5** | Upgrade cards v2 |
+| — | **NEW** | **7.7** | Frontend/backend split + per-service versioning — **sequenced LAST** (Eric, 2026-08-18) so beta cuts clean at `0.1.0` / `0.1.0` |
 
-Net: **6 stories → 8 stories.**
+Net: **6 stories → 8 stories.** Numbering matches execution order.
 
 ### 2.3 Requirements inventory conflicts
 
@@ -206,14 +206,14 @@ for this change, and no alternative path buys anything.
 
 | Story | Effort | Risk | Notes |
 |---|---|---|---|
-| 7.1 Split + versioning | Small–Medium | **Low** | Mostly config; one deleted line is the crux |
+| 7.1 Performance & load | Medium | Medium | Three epics of unmeasured growth; may surface real work |
 | 7.2 Analytics + consent + privacy | Medium | **Medium** | Consent Mode v2 + CMP is fiddly; it also puts a banner in front of a new player |
-| 7.3 AdSense integration | Small (code) | **HIGH — external** | Code is small behind the existing seam. **Approval is not ours to schedule** |
-| 7.4 How-to-Play | Medium | Low | Content work; boon glossary already drafted (Story 2.8) |
+| 7.3 How-to-Play | Medium | Low | Content work; boon glossary already drafted (Story 2.8) |
+| 7.4 AdSense integration | Small (code) | **HIGH — external** | Code is small behind the existing seam. **Approval is not ours to schedule** |
 | 7.5 Upgrade cards v2 | **Large** | **Medium** | Eric holds the plan, so the design risk is retired. What remains is surface area: a weapon deleted, a new arc-limited weapon built, and per-card retooling across four subdecks |
-| 7.6 Performance & load | Medium | Medium | Three epics of unmeasured growth; may surface real work |
-| 7.7 Doc reconciliation | Medium | Low | Known list, now enumerated |
-| 7.8 Release gate | Medium | Medium | Includes building `loadTest.mjs` from scratch |
+| 7.6 Doc reconciliation | Medium | Low | Known list, now enumerated |
+| 7.7 Split + versioning | Small–Medium | **Low–Medium** | Mostly config; one deleted line is the crux. Risk ticks up only because it now lands late, so a cross-origin surprise has less runway |
+| 7.8 Release gate | Medium | Medium | Includes building `loadTest.mjs` from scratch, **and is the first verification the split topology gets** |
 
 ### ⚠️ The new critical path is AdSense approval, and it replaces the Chromebook
 
@@ -226,16 +226,24 @@ H5 Games Ads requires an approved AdSense account **and** a separate application
 content and a published privacy policy. That produces a hard sequence:
 
 ```
-7.1 split (site is live and independently deployable)
-  → 7.2 privacy policy + analytics published
-    → APPLY FOR ADSENSE + H5 GAMES ADS ...................... ← start this the day 7.2 lands
-      → (review latency, not ours to control)
-        → 7.3 integrate against the approved account
+7.2 privacy policy + analytics published (on the CURRENT single service — no split needed)
+  → APPLY FOR ADSENSE + H5 GAMES ADS ...................... ← start this the day 7.2 lands
+    → (review latency, not ours to control)
+      → 7.4 integrate against the approved account
 ```
+
+**Deferring the split to the end shortened this path.** The site is already live at
+hullcracker.io, so the AdSense application needs only the privacy policy — not the new
+topology. The application can start earlier than the original plan allowed.
+
+**One constraint the split must respect because of it:** AdSense approval and GA4 property are
+**per-domain**. Keep the **client on the apex domain** (`hullcracker.io`) and move the **game
+server to a subdomain** (e.g. `game.hullcracker.io`). If the client moved instead, ad approval
+and analytics history would be pointing at the wrong host after a late-epic change.
 
 **Recommendation: Eric should start the AdSense account application as early as it will be
 accepted** — in parallel with story work, exactly as the Chromebook acquisition was meant to
-be. Stories 7.4–7.8 have no dependency on it and proceed regardless. If approval slips past
+be. Every other story has no dependency on it and proceeds regardless. If approval slips past
 everything else, **beta can launch ad-free and ads can land as a client-only deploy
 afterward** — which is precisely what the frontend/backend split buys us, and is worth noting
 as the risk mitigation it is.
@@ -243,15 +251,27 @@ as the risk mitigation it is.
 ### Sequencing
 
 ```
-7.1 Split + versioning               ← first; everything else deploys onto it
-7.6 Performance & load (early read)  ← the retro asked for a cheap read three epics running
-7.2 Analytics + consent              ← unblocks the AdSense application
-7.4 How-to-Play                      ← independent; content-heavy
+7.1 Performance & load (early read)  ← the retro asked for a cheap read three epics running
+7.2 Analytics + consent              ← unblocks the AdSense application immediately
+7.3 How-to-Play                      ← independent; content-heavy
+7.4 AdSense                          ← gated on external approval
 7.5 Upgrade cards v2                 ← independent of all launch infra; Eric's plan first
-7.3 AdSense                          ← gated on external approval
-7.7 Doc reconciliation               ← wants everything else settled
-7.8 Release gate                     ← last, by definition
+7.6 Doc reconciliation               ← wants the gameplay changes settled
+7.7 Split + versioning               ← LAST BUILD STORY (Eric, 2026-08-18); beta cuts at 0.1.0/0.1.0
+7.8 Release gate                     ← final verification, ON THE SPLIT TOPOLOGY
 ```
+
+**Story numbering now matches execution order** — the split moved from first to last on Eric's
+ruling, and everything ahead of it shifted up one.
+
+> **Why the release gate still comes after the split, not before.** Eric's ruling is that the
+> split is **last**; the release gate is not a build story but the verification pass over
+> whatever shipped. Running it before the split would validate a topology that is about to
+> change — including the browser matrix, the debug-strip check, and the "full pipeline on
+> production" clause, all of which move when the origins do. So the split is the **last thing
+> built** and the gate is the **last thing run.** If Eric wants the gate to precede the split
+> literally, that is a one-line reorder, but it would mean shipping beta on a topology the gate
+> never saw.
 
 ### Timeline impact
 
@@ -358,12 +378,13 @@ The autoscaling prohibition is untouched and remains critical.
 **NEW — NFR18: Deployment topology**
 
 > NFR18: **Two deployables.** The client ships as a **Render Static Site** (`client/dist`,
-> CDN-served, no Node process); the game server ships as a **Render Web Service** running only
-> the Colyseus arena. `shared/` is a build-time library of both and is **never deployed
-> independently**. Each deployable carries **its own version number**; the game-server URL is
-> build-time client config; the server declares explicit CORS and WebSocket origin allowances.
-> `PROTOCOL_VERSION` remains the runtime client↔server compatibility gate and is independent of
-> every release version.
+> CDN-served, no Node process) on the **apex domain**; the game server ships as a **Render Web
+> Service** running only the Colyseus arena, on a **subdomain** (ad and analytics identity is
+> per-domain and must not move). `shared/` is a build-time library of both and is **never
+> deployed independently**. Each deployable carries **its own version number**, cutting
+> **`0.1.0` at beta**; the game-server URL is build-time client config; the server declares
+> explicit CORS and WebSocket origin allowances. `PROTOCOL_VERSION` remains the runtime
+> client↔server compatibility gate and is independent of every release version.
 
 ---
 
@@ -411,7 +432,7 @@ a ledger entry.
 
 > **NEW:** **SUPERSEDED IN PART (Eric, 2026-08-18).** The trigger fired — open beta is the first
 > public link — but the destination changed. **The client/site → static hosting half IS
-> executed** (Story 7.1, as a Render Static Site). **The game server → Colyseus Cloud half is
+> executed** (Story 7.7, as a Render Static Site). **The game server → Colyseus Cloud half is
 > NOT**: Eric elected to stay on Render and scale vertically, retaining control of his own
 > servers. Redis-backed Presence/Driver is therefore **deferred with it** — a single instance
 > needs no shared registry, and the injectability obligation (NFR10) is what keeps the door open.
@@ -456,28 +477,26 @@ How-to-Play page, an upgrade-card rebalance, and the release gate.**
 
 ---
 
-#### Story 7.1 — The Frontend/Backend Split *(NEW)*
+#### Story 7.1 — Performance & Load Pass *(MERGES old 7.1 + 7.2, device rebased)*
 
 > As the operator,
-> I want the client and the game server to be two independently deployable, independently
-> versioned services,
-> So that I can ship an ad tweak without redeploying the arena, and a sim fix without rebuilding
-> the site.
+> I want the frame budget and the load budget verified on a device that actually exists,
+> So that beta's performance claim is measured rather than assumed.
 
 **Acceptance Criteria**
 
-- **Given** one Render web service serving both `client/dist` and the Colyseus arena
-- **When** the split lands
-- **Then** the client deploys as a **Render Static Site** and the game server as a **Render Web Service** running only the arena (`server/src/app.config.ts:66`'s `express.static` is removed)
-- **And** the game-server URL is build-time client config, with explicit server-side CORS and WebSocket origin allowances
-- **And** `client`, `server` and `shared` each carry their own version (all three are stub `0.1.0` today); `client/vite.config.ts` sources `__APP_VERSION__` from the client's own `package.json` rather than root
-- **And** **the 0.17.X cycle-counting scheme is retired** (Eric, 2026-08-18 — split now, in Epic 7), with the build-cycle ledger rehomed to `sprint-status.yaml` where cycles are already recorded
-- **And** `PROTOCOL_VERSION` is untouched and still refuses a mismatched client/server pair — independent versions must never weaken the wire gate, and a test pins that they don't
-- **And** both services deploy green and a full match runs cross-origin end to end.
+- **Given** the **reference i7 MacBook** (NFR1 as amended — the Chromebook is retired)
+- **When** the reference scenario runs — 20 contestants + full PvE fleets + in-flight ordnance + all shipped effects
+- **Then** 60 FPS sustains with the frame budget holding (sim ≤ 3 ms, render ≤ 10 ms, headroom ≥ 3.6 ms) (NFR1)
+- **And** any breach is fixed at the offending system (pooling, batching, decay caps) — never by cutting a ratified feature without Eric's sign-off
+- **And** cold load to interactive home lands under ~10 s **including ad, analytics and consent scripts** (NFR2), with fonts not blocking first paint
+- **And** the perf overlay evidence (frame-time split, entity counts) and the load waterfall are captured as the audit record.
 
-> **Note — this ends a ratified rule.** *"The game stays 0.17.X until all 7 epics complete"* is
-> superseded by Eric's 2026-08-18 ruling to split now. `X` has counted 102 landed cycles; that
-> ledger moves rather than ends.
+> **Take the cheap read FIRST.** The whole-frame NFR1 verdict has never been obtained and now
+> carries **three epics** of unmeasured growth (return heatmap, radar shadows, wakes, chop, a 2800 u
+> ocean, up to 63 fleet hulls, 20-hull bot lobbies, the reveal chart). Three consecutive
+> retrospectives asked for a rough early read. **The device excuse is now gone — the reference
+> device is the machine this is being built on.**
 
 ---
 
@@ -499,7 +518,17 @@ How-to-Play page, an upgrade-card rebalance, and the release gate.**
 
 ---
 
-#### Story 7.3 — AdSense H5 Games Ads *(REPLACES Portal SDK Integrations)*
+#### Story 7.3 — How-to-Play Page *(SURVIVES — promoted to beta gate)*
+
+Acceptance criteria as originally written, plus:
+
+- **And** it **states the win condition explicitly** (FR39) — closing epic-5 amendment 46(c), which found it stated nowhere a new player can read
+- **And** it carries the privacy-policy link and, per 7.3, may carry one display unit
+- **And** it is a **beta launch gate**, not optional polish: Solo vs AI is positioned as the tutorial, and with strangers arriving there is no other onboarding surface.
+
+---
+
+#### Story 7.4 — AdSense H5 Games Ads *(REPLACES Portal SDK Integrations)*
 
 > As the operator,
 > I want my own ad placements, in the two places this game has room for them,
@@ -519,17 +548,8 @@ How-to-Play page, an upgrade-card rebalance, and the release gate.**
 > account plus a separate application, subject to partner eligibility, and review generally
 > expects a live site with content and a published privacy policy. **Eric should apply as soon as
 > 7.2 lands.** No other story depends on this one, and **beta can launch ad-free with ads
-> following as a client-only deploy** — which is exactly what 7.1 buys.
-
----
-
-#### Story 7.4 — How-to-Play Page *(SURVIVES — promoted to beta gate)*
-
-Acceptance criteria as originally written, plus:
-
-- **And** it **states the win condition explicitly** (FR39) — closing epic-5 amendment 46(c), which found it stated nowhere a new player can read
-- **And** it carries the privacy-policy link and, per 7.3, may carry one display unit
-- **And** it is a **beta launch gate**, not optional polish: Solo vs AI is positioned as the tutorial, and with strangers arriving there is no other onboarding surface.
+> following as a client-only deploy** — which is exactly what the 7.7 split buys, and the
+> reason deferring the split does not endanger the ad revenue.
 
 ---
 
@@ -606,30 +626,7 @@ away, and *at most 1 of 6 acquisition cards can ever fire*.
 
 ---
 
-#### Story 7.6 — Performance & Load Pass *(MERGES old 7.1 + 7.2, device rebased)*
-
-> As the operator,
-> I want the frame budget and the load budget verified on a device that actually exists,
-> So that beta's performance claim is measured rather than assumed.
-
-**Acceptance Criteria**
-
-- **Given** the **reference i7 MacBook** (NFR1 as amended — the Chromebook is retired)
-- **When** the reference scenario runs — 20 contestants + full PvE fleets + in-flight ordnance + all shipped effects
-- **Then** 60 FPS sustains with the frame budget holding (sim ≤ 3 ms, render ≤ 10 ms, headroom ≥ 3.6 ms) (NFR1)
-- **And** any breach is fixed at the offending system (pooling, batching, decay caps) — never by cutting a ratified feature without Eric's sign-off
-- **And** cold load to interactive home lands under ~10 s **including ad, analytics and consent scripts** (NFR2), with fonts not blocking first paint
-- **And** the perf overlay evidence (frame-time split, entity counts) and the load waterfall are captured as the audit record.
-
-> **Take the cheap read FIRST.** The whole-frame NFR1 verdict has never been obtained and now
-> carries **three epics** of unmeasured growth (return heatmap, radar shadows, wakes, chop, a 2800 u
-> ocean, up to 63 fleet hulls, 20-hull bot lobbies, the reveal chart). Three consecutive
-> retrospectives asked for a rough early read. **The device excuse is now gone — the reference
-> device is the machine this is being built on.**
-
----
-
-#### Story 7.7 — Design & Doc Reconciliation *(was 7.5, widened)*
+#### Story 7.6 — Design & Doc Reconciliation *(was 7.5, widened)*
 
 Original acceptance criteria, plus the enumerated additions:
 
@@ -639,18 +636,50 @@ Original acceptance criteria, plus the enumerated additions:
 
 ---
 
+#### Story 7.7 — The Frontend/Backend Split + Per-Service Versioning *(NEW — LAST BUILD STORY)*
+
+> As the operator,
+> I want the client and the game server to be two independently deployable, independently
+> versioned services,
+> So that I can ship an ad tweak without redeploying the arena, and a sim fix without rebuilding
+> the site.
+
+**Acceptance Criteria**
+
+- **Given** one Render web service serving both `client/dist` and the Colyseus arena
+- **When** the split lands
+- **Then** the client deploys as a **Render Static Site** and the game server as a **Render Web Service** running only the arena (`server/src/app.config.ts:66`'s `express.static` is removed)
+- **And** the game-server URL is build-time client config, with explicit server-side CORS and WebSocket origin allowances
+- **And** the **client stays on the apex domain** (`hullcracker.io`) and the **game server moves to a subdomain** — AdSense approval and the GA4 property are per-domain, and both land before this story
+- **And** `client` and `server` each cut **`0.1.0`** as the beta release version (Eric, 2026-08-18), with `shared` versioned as the library it is; `client/vite.config.ts` sources `__APP_VERSION__` from the client's own `package.json` rather than root
+- **And** **the 0.17.X cycle-counting scheme is retired** at this point, with the build-cycle ledger rehomed to `sprint-status.yaml` where cycles are already recorded
+- **And** `PROTOCOL_VERSION` is untouched and still refuses a mismatched client/server pair — independent versions must never weaken the wire gate, and a test pins that they don't
+- **And** both services deploy green and a full match runs cross-origin end to end.
+
+> **Why this story is LAST** (Eric, 2026-08-18): *"I want the split/versioning to be last, that
+> way I can release beta as 0.1.0/0.1.0 cleanly."* Doing it first would burn version numbers on
+> pre-beta cycles; doing it last means the first number each service ever carries is its beta
+> release. This **refines** the earlier ruling ("split now, in Epic 7") rather than reversing it
+> — the split still lands inside Epic 7, at the end of it.
+>
+> **Note — this ends a ratified rule.** *"The game stays 0.17.X until all 7 epics complete"* is
+> superseded here. `X` will have counted its final landed cycle; that ledger moves rather than
+> ends, and every cycle up to this story still increments it.
+
+---
+
 #### Story 7.8 — The Release Gate *(was 7.6, widened)*
 
 Original acceptance criteria, minus the portal/ad-break clause (now 7.3), plus:
 
 - **And** **`loadTest.mjs` is BUILT** — it does not exist. AR12's load-test leg died with epic-5 amendment 41's drone-fill deletion; Story 6-4 rebuilt the bot-evaluation leg only. **This is the third epic to assume the capability present.** It must be scoped as construction work, not invocation
-- **And** the **unauthenticated solo-create cost vector is RULED** (`deferred-work.md:1150`) — per-IP create throttle, global concurrent-solo ceiling, or explicit acceptance. **The 7.1 split makes the game-server origin separately addressable, which raises this from ledgered to live**
+- **And** the **unauthenticated solo-create cost vector is RULED** (`deferred-work.md:1150`) — per-IP create throttle, global concurrent-solo ceiling, or explicit acceptance. **The 7.7 split makes the game-server origin separately addressable, which raises this from ledgered to live — and because the split now lands immediately before this gate, the gate is the FIRST verification the new topology ever gets**
 - **And** the browser matrix (Chrome, Edge, Firefox, Safari) and the 1366×768 floor viewport pass — **noting the ledgered ≤720p liveness-block collision, whose stated urgency rested on the now-retired Chromebook target and should be re-derived, not inherited**
 - **And** nothing debug ships (`import.meta.env.DEV`, `HC_DEV_OPTIONS`, no `P` toggle in prod), `npm run check` is green, and the full pipeline runs manually **on both production services**.
 
 ---
 
-### 4.4 Documents requiring reconciliation (Story 7.7 inventory)
+### 4.4 Documents requiring reconciliation (Story 7.6 inventory)
 
 Portal/Chromebook language appears in **19 files**. The load-bearing ones:
 
@@ -694,7 +723,7 @@ and one ratified versioning ruling ends. This exceeds "backlog reorganization."
 3. Both tracker files regenerated, **in the same PR** as the artifact changes
 4. The AdSense application is submitted and its status tracked as a first-class dependency
 5. Story 7.5's plan is stated and recorded in `epic-7-context-amendments.md` before any card code moves
-6. The three carried Epic 6 findings are scoped into 7.7 and 7.8 **at create-story time**, not discovered at the gate
+6. The three carried Epic 6 findings are scoped into 7.6 and 7.8 **at create-story time**, not discovered at the gate
 
 ### Recommended before story work begins
 
@@ -817,11 +846,12 @@ both.
 
 | # | Ruling | Consequence |
 |---|---|---|
-| 1 | **No portal release.** Self-published, own ads, own servers | Story 7.3 replaced; NFR8 struck and rewritten; AR11 retargeted |
+| 1 | **No portal release.** Self-published, own ads, own servers | Old Story 7.3 replaced (now 7.4); NFR8 struck and rewritten; AR11 retargeted |
 | 2 | **Chromebook retired.** The i7 MacBook is the reference device | NFR1 rebased; Epic 7's stated critical path closes; old 7.1 + 7.2 merge |
 | 3 | **How to Play still relevant** | Story 7.4 survives, promoted to a beta gate; FR39 added |
-| 4 | **Frontend/backend split, both on Render**, vertical scaling accepted | New Story 7.1; NFR10 amended; NFR18 added; AR1 superseded in part |
-| 5 | **Independent per-service versions**, split **now, in Epic 7** | The 0.17.X-until-epics-complete ruling ends; ledger rehomes to `sprint-status.yaml` |
+| 4 | **Frontend/backend split, both on Render**, vertical scaling accepted | New Story 7.7; NFR10 amended; NFR18 added; AR1 superseded in part |
+| 5 | **Independent per-service versions** | The 0.17.X-until-epics-complete ruling ends; ledger rehomes to `sprint-status.yaml` |
+| 5a | **The split is sequenced LAST** so beta cuts at **`0.1.0` / `0.1.0`** cleanly | Story 7.7 is the last build story; all other stories renumber up one; client must stay on the apex domain so AdSense/GA4 identity is stable |
 | 6 | **Interstitial at death→port + home-screen display unit** | FR40 added; NFR8 placement clauses |
 | 7 | **Google's own free certified CMP + privacy policy** | Story 7.2; NFR19 |
 | 8 | **Upgrade cards v2 as one Epic 7 story**, plan delivered by Eric at the story | New Story 7.5 |
