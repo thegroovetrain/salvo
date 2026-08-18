@@ -17,6 +17,15 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/b
 
 # Game Architecture
 
+> **RESCOPE NOTICE — 2026-08-18.** Epic 7 was rescoped from a portal launch to a
+> self-published beta (`_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-18.md`,
+> approved by Eric). **The portal (Poki/CrazyGames) release and the low-end Chromebook
+> reference device are both RETIRED.** This document's *Hosting Posture* and *Portal SDK Seam*
+> sections are updated below. Its **constraint, risk and rationale sections still contain
+> portal-launch and Chromebook framing that is now false** — reconciling them is Story 7.6's
+> job, and until it runs, read any "portal gate" or "Chromebook 60 FPS" language as historical.
+> The reference device is now Eric's Intel i7 MacBook; monetization is AdSense H5 Games Ads.
+
 ## Executive Summary
 
 **Hullcracker.io**'s architecture governs the evolution of a working v0.16 prototype (649
@@ -254,24 +263,50 @@ Migration is bounded by design: `ArenaRoom` is a thin adapter; `World`/`Match` h
 Colyseus imports.
 
 **Sequencing (unambiguous):** the 0.16 → 0.17 upgrade is **work item #0 — the first thing
-built, ahead of E1.** It pairs with the Track-2 hosting move (Colyseus Cloud + static client
-split) as the "one motion" described under Hosting Posture. Epic work (E1 onward) builds on
+built, ahead of E1.** It was to pair with the Track-2 hosting move (Colyseus Cloud + static client
+split) as "one motion" — see Hosting Posture, SUPERSEDED IN PART 2026-08-18: the static-client
+half ships, Colyseus Cloud does not. Epic work (E1 onward) builds on
 the stabilized 0.17 room/adapter layer; doing E1 first would mean redoing the adapter against
 0.17 afterward.
 
-### Hosting Posture — committed two-track timeline
+### Hosting Posture — SUPERSEDED IN PART (Eric, 2026-08-18)
 
-- **Track 1 (now):** Render as-is for friends-scale playtests — zero infra work required.
-- **Track 2 (before the first stranger):** executed as **one motion**, so only one new deploy
-  pipeline is ever built: Colyseus 0.17 upgrade + game server to **Colyseus Cloud** + client/
-  site to static hosting. The trigger is "first public link," not a calendar date.
-- **Render is structurally unable to host Colyseus scale-out**: no WebSocket sticky sessions /
-  per-instance addressing (seat reservation breaks under its load balancer); no UDP ingress
-  (blocks future WebTransport). **Never enable Render autoscaling** — it would actively break
-  matchmaking. Warning stands for as long as Render is in the path.
-- **Code obligations now:** no single-process assumptions; Presence/Driver injectable
-  (memory → Redis as config); at portal launch the client bundle ships on the portal CDN —
-  only the game-server tier and site are ours to scale.
+**The Track-2 trigger fired — open beta IS the first public link — but the destination
+changed.** Rescoped by `sprint-change-proposal-2026-08-18.md`; built as Story 7.7, which is
+deliberately the LAST build story of Epic 7 so beta cuts clean at `0.1.0` / `0.1.0`.
+
+- **Shipped topology (beta):** **two deployables, both on Render.** The client ships as a
+  **Render Static Site** on the **apex domain** (`client/dist`, CDN-served, no Node process);
+  the game server ships as a **Render Web Service** on a **subdomain**, running only the
+  Colyseus arena. Ad and analytics identity is per-domain, which is why the client keeps the
+  apex.
+- **`shared/` is NOT a third deployable** — it is a build-time library both sides compile
+  against (the determinism story requires byte-identical sim functions on both). It carries a
+  version; it never deploys alone. `PROTOCOL_VERSION` remains the runtime client↔server
+  compatibility gate, independent of every release version.
+- **Colyseus Cloud is NOT adopted.** Eric elected to stay on Render and **scale vertically**,
+  retaining control of his own servers (2026-08-18: *"I don't mind vertically scaling the game
+  server right now"*). **Redis-backed Presence/Driver is deferred with it** — a single instance
+  needs no shared registry, and the injectability obligation below is what keeps the door open.
+- **Matchmaking is NOT a separable service.** In Colyseus 0.17 the matchmaker is a library
+  every process shares through Presence/Driver, not a deployable tier. The split is two
+  deployables, never three; a "matchmaking service" would mean replacing Colyseus's matchmaker
+  rather than deploying it.
+- **Render is still structurally unable to host Colyseus scale-out**: no WebSocket sticky
+  sessions / per-instance addressing (seat reservation breaks under its load balancer); no UDP
+  ingress (blocks future WebTransport). **Never enable Render autoscaling** — it would actively
+  break matchmaking. This warning stands for as long as Render is in the path, and vertical
+  scaling is the only sanctioned growth lever at beta.
+- **Code obligations now (unchanged and still binding):** no single-process assumptions;
+  Presence/Driver injectable (memory → Redis as config). Horizontal scale-out remains a
+  deploy-time knob, explicitly **not** beta work.
+
+*Superseded original, retained as history:* Track 1 was Render as-is for friends-scale
+playtests; Track 2 was to be executed as one motion — Colyseus 0.17 upgrade + game server to
+Colyseus Cloud + client/site to static hosting — triggered by "first public link." The 0.17
+upgrade shipped as work item #0; the static-client half is executed as described above; the
+Colyseus Cloud half is not. The old note that "at portal launch the client bundle ships on the
+portal CDN" is void — there is no portal.
 
 ### Engine-Provided Architecture
 
@@ -528,13 +563,23 @@ try {
   projectiles, mines, and E6 effects. The perf target is the full populated match — 20
   contestants + PvE fleets + in-flight ordnance + effects — driven by the batch-sim harness,
   not a bare 20-hull count.
-- **Reference device pinned:** Chrome at 4× CPU throttle, integrated GPU, until a real
-  low-end Chromebook is benched — at which point the real device becomes the reference and
-  the proxy retires. Every epic measures against the same reference.
+- **Reference device pinned (UPDATED 2026-08-18):** **Eric's Intel i7 MacBook** is the
+  reference device. The Chromebook target is retired — no low-end device will be acquired, and
+  the MacBook's performance is accepted as the bar. Chrome at 4× CPU throttle is retained as a
+  cheap stress check, never as the gate. Every epic measures against the same reference.
 - Each epic's definition of done includes the budget check; E6 effects are costed against
   the render budget as they land, not audited after.
 
-### Portal SDK Seam
+### Ad / Lifecycle Adapter Seam (was: Portal SDK Seam)
+
+> **RETARGETED 2026-08-18 (AR11).** The concrete implementation is **Google AdSense H5 Games
+> Ads** (Ad Placement API), **not Poki/CrazyGames**. `adBreak({type, beforeAd, afterAd,
+> adBreakDone})` fits `requestAdBreak(): Promise<void>` exactly, and the seam's never-throw /
+> always-settle contract is precisely what an ad-blocked or script-failed integration needs.
+> **The interface name `PortalAdapter` is retained deliberately** — renaming ratified code to
+> match a changed destination is churn, and `safeAdapter.ts`'s guarantees are the valuable part.
+> Placement: interstitial at death→return-to-port; display units on home/port and How-to-Play
+> only, ≥150 px clear of the canvas; no ad surface during a live match.
 
 - One adapter interface in the client, **null implementation installed NOW** (not at E7):
 
@@ -548,9 +593,11 @@ interface PortalAdapter {
 }
 ```
 
-- Game code never imports a portal SDK directly; the next code that touches loading or the
-  death→requeue flow goes through the seam. Poki/CrazyGames implementations land at E7
-  behind the same interface. A seam installed late is a seam installed never.
+- Game code never imports an ad SDK directly; the next code that touches loading or the
+  death→requeue flow goes through the seam. The **AdSense H5 Games Ads** implementation lands
+  at Story 7.4 behind the same interface. A seam installed late is a seam installed never —
+  and this one survived a full change of destination untouched, which is the return on
+  installing it at Epic 0.
 
 ---
 

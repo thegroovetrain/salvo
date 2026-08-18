@@ -210,14 +210,19 @@ development_status:
   6-7-reconnection-ux: done  # 2026-08-18 cycle 102 (0.17.102); PV 40; amendments 46-49; refresh-resume (sessionStorage + onReconnect welcome), the departure scuttle, client-synthesized elimination; match URL withdrawn (A46)
   epic-6-retrospective: done  # 2026-08-18 epic-6-retro-2026-08-18.md; unattended run; 1 significant-discovery alert (Epic 7 plan change: loadTest.mjs absent, solo-create cost vector unruled, 7-5 list widened)
 
-  # epic-7: Portal Launch Readiness
+  # epic-7: Beta Launch Readiness (RESCOPED 2026-08-18; sprint-change-proposal-2026-08-18.md)
   epic-7: backlog
-  7-1-chromebook-performance-pass: backlog
-  7-2-ten-second-load: backlog
-  7-3-portal-sdk-integrations: backlog
-  7-4-how-to-play-page: backlog
-  7-5-design-md-real-time-refresh: backlog
-  7-6-the-release-gate: backlog
+  7-1-performance-and-load-pass: backlog
+  7-2-analytics-consent-and-privacy: backlog
+  7-3-how-to-play-page: backlog
+  7-4-adsense-h5-games-ads: backlog
+  7-5-upgrade-cards-v2: backlog
+  7-6-design-and-doc-reconciliation: backlog
+  7-7-frontend-backend-split-and-versioning: backlog
+  7-8-the-release-gate: backlog
+  # Old numbering retired 2026-08-18: 7-3-portal-sdk-integrations CANCELLED (no portal release);
+  # 7-1-chromebook-performance-pass + 7-2-ten-second-load MERGED into 7-1; 7-4 -> 7-3;
+  # 7-5-design-md-real-time-refresh -> 7-6; 7-6-the-release-gate -> 7-8.
   epic-7-retrospective: optional
 
 # action_items — OPEN entries carry their full text (they are live instructions).
@@ -237,7 +242,7 @@ action_items:
     status: done  # 3-1 spec + evidence campaign carried all four; picks-band ledger entry RESOLVED (pacifist picks p50 12.0 at 12:00 closure)
   - epic: 2
     action: "Epic 2 doc debt (typography rows, purple carve-out now moot, LitZoneView.mode, audio table) rides to Story 7-5 — no pre-Epic-3 batch"
-    owner: "Story 7-5"
+    owner: "Story 7-6"  # renumbered 2026-08-18
     status: open
   - epic: 3
     action: "Sudden-death full-close at ~15:00 is a PARKED Eric-gated contingency (would supersede amendment 24's geometric bar) — never built absent a new explicit ruling; revisit only on live-play evidence of non-concluding matches (Eric, epic-3 retro)"
@@ -329,7 +334,7 @@ action_items:
     status: open
   - epic: 4
     action: "7-5 doc batch grew by 7 rows (amendment 243); TWO of them are unspecified BEHAVIOUR not stale text (Tier-2-under-Tier-2; Tier-3-under-Tier-2-alone) and need a ruling, not a text edit"
-    owner: "Eric-gated 7-5 batch"
+    owner: "Eric-gated 7-6 doc batch"  # renumbered 2026-08-18 (was 7-5)
     status: open
   - epic: 4
     action: "Prove 'threat channels read first' TEMPORALLY (video capture or per-channel alpha trace) — the readability gate proves everything except its own headline claim; arbitration is unit-pinned either way"
@@ -337,7 +342,7 @@ action_items:
     status: open
   - epic: 4
     action: "NFR1 whole-frame verdict vs 16.6ms on real hardware — never obtained this epic (headless rAF throttling; dev build invalid basis), now carrying a full epic of render growth (return heatmap, shadows, wakes, chop, flash budget)"
-    owner: "Story 7-1 (Chromebook perf pass)"
+    owner: "Story 7-1 (Performance & Load Pass)"  # renamed 2026-08-18; Chromebook retired
     status: open  # 2026-08-14: now carrying TWO epics of growth — epic-5 added a 2800u ocean, up to 63 fleet hulls, and a whole-disc reveal chart, all unmeasured. A cheap early read is worth taking before 7-1
   - epic: 5
     action: "STORIES 5.4 (Fog Banks) + 5.5 (Whirlpools) DEFERRED, numbers reserved — and the systems layer is declared complete ('i have enough systems'). A new mechanic from here needs a fresh ruling; 'it was in the epic plan' is no longer sufficient grounds. Full record: epic-5 amendment 47"
@@ -366,7 +371,7 @@ action_items:
   - epic: 5
     action: "Re-put epic-5 amendment 46(c) on a CORRECTED premise — the win condition is now stated nowhere a new player can read it (HOW TO PLAY is the FIELD MANUAL stub, the results banner is winner-only). Either restore a home line or make Story 7-4 a beta gate"
     owner: "Eric (ruling)"
-    status: open
+    status: resolved  # 2026-08-18 rescope: How-to-Play (renumbered 7-4 -> 7-3) is now a BETA GATE and its AC states the win condition explicitly; FR39 added. Full record: sprint-change-proposal-2026-08-18.md
   - epic: 5
     action: "BATCH the nine small Eric calls in one sitting: kill flash under a co-located plume; boons/last-offer on the results modal; sudden-death tiebreak + heal-during-collapse + chrome register; tickSmoke during sinking; SunkEvent.vcls uniformity; one-hit-kill guardrail scope; degradeAlphaFactor; foghorn intel-truesight fork; 1.5x zoom chrome collision. Each is a sentence; most have their evidence already captured"
     owner: "Eric (ruling batch)"
@@ -393,15 +398,15 @@ action_items:
     status: open
   - epic: 6
     action: "SIGNIFICANT DISCOVERY — server/scripts/loadTest.mjs DOES NOT EXIST and Story 7-6's release-gate AC names it by name ('the harness's second duty'). AR12's load-test leg died with epic-5 amendment 41's drone-fill deletion; 6-4 rebuilt the bot-evaluation leg only. Verified at the epic-6 retro: server/scripts/ holds batchSim.mjs and thirteen smokes, no loadTest.mjs. Epic 7 must scope its construction into 7-6 explicitly or re-derive the gate. THIRD epic this capability has been assumed present"
-    owner: "spec author (create-story 7-6)"
+    owner: "spec author (create-story 7-8)"  # renumbered 2026-08-18 (was 7-6: release gate)
     status: open
   - epic: 6
     action: "RULE THE UNAUTHENTICATED SOLO-CREATE COST VECTOR — a bare POST /matchmake/create/arena now mints a full 20-hull 19-bot-mind 20Hz simulating room for the ~15s seat-reservation window, with no websocket and no matchmake rate limit anywhere; ~10 req/s sustains ~150 concurrent full arenas on the single Render process. SAFE against room hijack (verified twice, independently, against @colyseus/core 0.17.44) — this is cost, not capture, and it is bounded with no permanent leak. Before 6-5 no unauthenticated path could mint a simulating room at all. Candidates: per-IP create throttle, global concurrent-solo ceiling, or accept explicitly. Full record: deferred-work.md:1108"
-    owner: "Eric (ruling — Story 7-6 hardening sweep)"
+    owner: "Eric (ruling — Story 7-8 hardening sweep)"  # renumbered 2026-08-18
     status: open
   - epic: 6
     action: "RE-SCOPE STORY 7-5's reconciliation list — its AC names EXPERIENCE.md's disconnect wording and the GDD's post-death 'spectate' language, and epic 6 added at least four more: UX-DR30's sailable weapons-safe waiting room NO LONGER EXISTS in production (amendments 1/8 replaced it with a frozen held start line; the grammar survives only for the dev/sandbox door); EXPERIENCE.md:67's home sub-line was overridden by 6-5; EXPERIENCE.md:108's 'absence, not placeholders' was SCOPED rather than followed (amendment 39 — an honest zero renders); and amendment 41's copy law plus amendment 49's DRAFT string ('COULD NOT REJOIN YOUR MATCH — BACK IN PORT') both want ratification in a copy pass"
-    owner: "spec author (create-story 7-5)"
+    owner: "spec author (create-story 7-6)"  # renumbered 2026-08-18 (was 7-5)
     status: open
   - epic: 6
     action: "RUN THE DEFERRED-WORK TRIAGE PASS — SECOND HALF REMAINS: route the 149 entries that name NO HOME at all, and surface the ~7 among them needing an Eric ruling rather than an owner. Also still unannotated: 38 shipped-home entries needing genuine investigation (gun dead ring, hueLatch revision gap, sweepCrossed backward step, permanently-invisible straight torpedo) rather than a cross-reference. THE MECHANISM FIX IS THE DURABLE PART: whatever resolves an entry must MARK the entry — resolution is currently recorded only in the resolving story's spec/amendments, which is why resolved items are re-counted as open forever, and why the file carries three different annotation styles"
@@ -418,4 +423,20 @@ action_items:
   - epic: 6
     action: "ACQUIRE THE REFERENCE CHROMEBOOK — Story 7-1's AC makes it the permanent reference device, replacing the 4x-throttle proxy, and both 7-1 and 7-2 are gated on having it in hand. This is Epic 7's true critical path: hardware, not code"
     owner: "Eric"
+    status: cancelled  # 2026-08-18 Eric ruling (sprint-change-proposal-2026-08-18.md): Chromebook target retired, reference device is Eric's i7 MacBook. Epic 7's critical path is now AdSense approval, not hardware
+  - epic: 7
+    action: "ADD hullcracker.io TO THE EXISTING ADSENSE ACCOUNT + APPLY FOR H5 GAMES ADS — Eric has held an approved AdSense account for years, so the prerequisite is met and DISPLAY units need only site verification + ads.txt. The INTERSTITIAL still needs H5 Games Ads access, a separate application subject to partner eligibility. Do both once 7-2's privacy policy is live; if H5 lags, beta ships display-only and the interstitial follows as a client-only deploy"
+    owner: "Eric"
+    status: open
+  - epic: 7
+    action: "STAMP THE REFERENCE MACBOOK model/year into Story 7-1's spec so the NFR1 bar is reproducible by someone other than Eric"
+    owner: "Eric"
+    status: open
+  - epic: 7
+    action: "DELIVER THE STORY 7-5 CARD PLAN when the story is reached — four rulings already made (cannon REMOVED; Battleship gets a BROADSIDE BARRAGE; mutual exclusivity REMOVED; SOME cards retooled as 'added verbs', specifically the formerly-exclusive cards that STAY). The forge sessions are IRRELEVANT and must not be mined for direction. Full record: sprint-change-proposal-2026-08-18.md Story 7.5"
+    owner: "Eric"
+    status: open
+  - epic: 7
+    action: "KEEP THE CLIENT ON THE APEX DOMAIN at the 7-7 split — AdSense approval and the GA4 property are per-domain and both land before it; the game server takes a subdomain"
+    owner: "spec author (create-story 7-7)"
     status: open

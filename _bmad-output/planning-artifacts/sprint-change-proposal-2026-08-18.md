@@ -4,7 +4,7 @@ date: '2026-08-18'
 trigger: 'Strategic pivot (Eric, 2026-08-18) — distribution, monetization and hosting model all change before Epic 7 begins'
 scope_classification: 'MAJOR — epic redefinition + requirements inventory changes'
 mode: 'Batch (decisions pre-collected via question gate)'
-status: 'awaiting-approval'
+status: 'APPROVED 2026-08-18 by Eric; applied to epics.md, game-architecture.md, sprint-status.yaml, gds-workflow-status.yaml'
 supersedes_partially: '_bmad-output/planning-artifacts/sprint-change-proposal-2026-07-19.md (unrelated scope — three-class re-scope; no conflict)'
 ---
 
@@ -209,21 +209,33 @@ for this change, and no alternative path buys anything.
 | 7.1 Performance & load | Medium | Medium | Three epics of unmeasured growth; may surface real work |
 | 7.2 Analytics + consent + privacy | Medium | **Medium** | Consent Mode v2 + CMP is fiddly; it also puts a banner in front of a new player |
 | 7.3 How-to-Play | Medium | Low | Content work; boon glossary already drafted (Story 2.8) |
-| 7.4 AdSense integration | Small (code) | **HIGH — external** | Code is small behind the existing seam. **Approval is not ours to schedule** |
+| 7.4 AdSense integration | Small (code) | **Low–Medium — external** | Code is small behind the existing seam. Eric's AdSense account is long-approved, so display units need only site verification; the **interstitial** still waits on a separate H5 Games Ads application |
 | 7.5 Upgrade cards v2 | **Large** | **Medium** | Eric holds the plan, so the design risk is retired. What remains is surface area: a weapon deleted, a new arc-limited weapon built, and per-card retooling across four subdecks |
 | 7.6 Doc reconciliation | Medium | Low | Known list, now enumerated |
 | 7.7 Split + versioning | Small–Medium | **Low–Medium** | Mostly config; one deleted line is the crux. Risk ticks up only because it now lands late, so a cross-origin surprise has less runway |
 | 7.8 Release gate | Medium | Medium | Includes building `loadTest.mjs` from scratch, **and is the first verification the split topology gets** |
 
-### ⚠️ The new critical path is AdSense approval, and it replaces the Chromebook
+### The external dependency, substantially reduced (Eric, 2026-08-18)
 
-The Chromebook was Epic 7's stated critical path — hardware, not code. **It is now AdSense
-approval**, and it has the same shape: an external dependency with lead time that no amount of
-engineering removes.
+**Eric has held an approved AdSense account for many years** — so the prerequisite the H5 Games
+Ads programme names is already satisfied, and what was framed as Epic 7's replacement critical
+path is now much smaller. It splits in two:
 
-H5 Games Ads requires an approved AdSense account **and** a separate application, with access
-*"subject to partner eligibility."* AdSense review generally expects a live site with real
-content and a published privacy policy. That produces a hard sequence:
+- **Display units (home/port + How-to-Play) are effectively unblocked.** Add the new site to
+  the existing account, verify it, publish `ads.txt`. No new programme application.
+- **The interstitial still depends on H5 Games Ads access**, which is a **separate application
+  on top of an approved account**, subject to partner eligibility. An established account in
+  good standing makes this faster and likelier, but it is still an approval nobody here
+  schedules.
+
+So Epic 7 no longer has a hardware-shaped critical path *or* a full account-approval one. What
+remains is one programme application whose downside is already covered: **if H5 access lags,
+beta ships with display units and the interstitial follows as a client-only deploy.**
+
+H5 Games Ads requires an approved AdSense account (**held — Eric, since long before this
+project**) **and** a separate application, with access *"subject to partner eligibility."*
+Adding a new site to an existing account still involves site review, which expects real content
+and a published privacy policy. That produces this sequence:
 
 ```
 7.2 privacy policy + analytics published (on the CURRENT single service — no split needed)
@@ -241,10 +253,10 @@ topology. The application can start earlier than the original plan allowed.
 server to a subdomain** (e.g. `game.hullcracker.io`). If the client moved instead, ad approval
 and analytics history would be pointing at the wrong host after a late-epic change.
 
-**Recommendation: Eric should start the AdSense account application as early as it will be
-accepted** — in parallel with story work, exactly as the Chromebook acquisition was meant to
-be. Every other story has no dependency on it and proceeds regardless. If approval slips past
-everything else, **beta can launch ad-free and ads can land as a client-only deploy
+**Recommendation: Eric adds hullcracker.io to the existing AdSense account and applies for H5
+Games Ads access as soon as 7.2's privacy policy is live** — in parallel with story work. Every
+other story has no dependency on it and proceeds regardless. If H5 access lags, **beta can
+launch with display units only and the interstitial can land as a client-only deploy
 afterward** — which is precisely what the frontend/backend split buys us, and is worth noting
 as the risk mitigation it is.
 
@@ -787,7 +799,7 @@ Unchanged from the Epic 6 retrospective, and now more urgent rather than less:
 |---|---|---|
 | 5.1 | Edit proposals drafted | **[x]** §4, before/after with rationale |
 | 5.2 | Handoff defined | **[x]** §5 |
-| 5.3 | Owner approval | **[ ]** **Pending** |
+| 5.3 | Owner approval | **[x]** **APPROVED 2026-08-18** — applied same day |
 
 ---
 
