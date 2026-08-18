@@ -1154,7 +1154,134 @@ two-action precedent in the repo (`results.ts` — *"the secondary is the same s
 what keeps it the non-dominant action"*), which is a modal rather than the home screen. Eric has seen
 a screenshot; the lit/unlit split is a one-line change.
 
-## Amendment 32 — THE LIVENESS ROUTE: the home screen learns the population, and the mechanism is driver-backed (Eric rulings 2026-08-17, Story 6-6 question gate)
+## Amendment 32 — THE FIRST PLAYTEST OF SOLO VS AI: three bot defects found by eye in minutes, none of which the harness could see (Eric reports 2026-08-17, cycle 99)
+
+Solo vs AI shipped at 0.17.97 and Eric watched one match. He found three distinct AI defects before
+the harness had an opinion about any of them, and the through-line matters more than the fixes:
+**Story 6-4's six quality bars measured that bots FUNCTION, not that they BEHAVE SENSIBLY.** Kill
+spread, match length, storm deaths, land contact, levels spent — a bot chattering across the storm
+ring still resolves matches, and a bot firing into a cliff still spends its levels. Every one of
+these was invisible to the only instrument pointed at bot quality.
+
+### 32a — Bots fired through islands, forever
+
+> *"i am also watching a minelayer focus fire on some drones that it cannot possibly hit due to an
+> island being in the way."*
+
+`burstShot()` was the entire gun-family fire decision and gated on two things: pool loaded, target in
+range. **No line-of-fire or visibility test existed anywhere under `server/src/game/ai/`.** The one
+island call in the AI fire path guarded the MINE DROP alone — precisely why mines behaved and the gun
+did not.
+
+**Why it never self-corrected, and this is the part nobody predicted:** the Story 4.11 radar gate
+paints THROUGH partially-shadowing terrain (`visibilityTo(...) > 0`) while `stepShell` stops the
+shell at the coastline at ANY height. **Radar legitimately sees over the island; the shell cannot.**
+The bot re-acquired the same unreachable plot once per sweep revolution, indefinitely — reproduced as
+an unbroken 3-minute engagement, 72% of ordnance into rock.
+
+Strongest evidence this was an omission, not a choice: **the human already gets this readout** —
+`aimPreview.ts` runs `clipAtIslands` on every gun aim and dims the burst circle when the shot will
+not reach. The bot was the only shooter in the game not told. And `drones.ts:484` gates every PvE
+fleet shot on live LOS; Story 6-4 ported that module's lead solve, island bias, boundary bias and
+un-beaching **but not its LOS gate**, because a bot may not read `world.ships`. That is the
+regression in one sentence.
+
+**A SECOND DEFECT FOUND WHILE FIXING IT:** `RememberedContact.live` was documented as *"true while
+backed by a live truesight Contact"*, but a track sighted and then gone dark stayed flagged for the
+whole 8s memory window (observed at 6950 ms). Three consumers read it as "visible now": the cannon
+gate, `freshness()` (which therefore returned a flat 1.0 for a seven-second-old plot, so scoring
+could never decay it), and `flareTarget`. *(Corrected at the review gate: `writeTrack` DID clear it
+on a blip refresh — the defect is the truesight-then-dark case, not that it was never cleared.)* Now
+dropped at the top of every fold, re-raised only by a truesight contact. `seenAt === now` was
+REJECTED as the test: it is refreshed by radar paints and Hit Calls too, so reading it as "sighted"
+would let the cannon spend a 50s reload on a same-tick blip — a widening, not a fix.
+
+Measured, same probe both sides: gun shells into terrain **1.97% → 0.10%**; star shells (same gate)
+**11.05% → 0.00%**. **No over-blocking** — per sim-second the gun fires **+1.5%**: bots shoot
+slightly MORE, they just hit things now.
+
+### 32b — The storm ring was never a constraint, only an afterthought
+
+> *"I am literally watching one of the AI battleships dip in and out of the storm ring for no good
+> reason."* … *"ships that are trying to run away from combat ignore the ring's existence and just
+> keep going straight until they hit it… but they need to be more aware of it."*
+
+**Eric's second reading was exactly right; his first instinct — "correct that in the AI profiles" —
+was not.** It is shared tactics, affecting all six profiles and all three hulls. The flee heading was
+the bare reciprocal of the bearing to the target with NO ring term; neither the band orbit nor pursue
+consulted it either. The ring appeared in three places module-wide, every one "already outside".
+**Ring avoidance was a post-hoc correction, never a constraint** — which makes the straight-line exit
+and the boundary chatter THE SAME BUG at two moments. `isOutside` is boundary-inclusive, so escape
+released at exactly `dist <= r` with zero hysteresis.
+
+Ruled: the ring constrains EVERY posture bearing (a cornered bot's flee is now TANGENTIAL, along the
+inside of the rim, which is what a competent human does), plus a hysteresis deadband. **Both derive
+from the hull's own kinematics** — lookahead from the 180° reversal time `π/turnRate`, deadband from
+the full-ahead turn radius `maxSpeed/turnRate`, the quantity `REAR_QUARTER_U` is already documented
+against. **Deliberately NOT a fraction of ring radius**, which gives 140u of margin on the harmless
+2800u ocean and 33u on the lethal 660u endgame ring — exactly backwards.
+
+**Three corrections forced by measurement:** the projection targets a SAFE radius `r − M` not the raw
+rim (at the bare rim the equilibrium sits SEVEN UNITS inside a 2223u ring, so bots ran a tangential
+orbit and grazed anyway — the wall-hug failure mode, real and caught); the lookahead uses
+`max(rated, actual)` speed because the boost is applied OUTSIDE `EffectiveStats`; and the review gate
+found the same boost gap in the DEADBAND and closed it the same way (Codex flagged it, the
+adversarial pass missed it).
+
+**REJECTED:** the prototype's unconditional *"within one turn radius of the rim, steer for the
+centre"*. That is not hysteresis — it makes bots refuse to fight in the whole rim band, a behaviour
+change and exploitable by a human camping the edge.
+
+Measured (baseline re-taken on-branch, because the terrain fix moved where bots fight — the
+40-crossings figure quoted earlier was pre-terrain-fix on main): crossings **80 → 12**, **exits while
+the ring was NOT closing 69 → 3**, storm hp **492 → 226**, median re-entry depth **0.2u → 142.9u**
+(the chatter signature, gone). **No passivity trade:** kills 10.80 → 10.90/match, mean afloat 2.86 →
+2.97 min.
+
+**9 of 12 residual crossings happen on a CLOSING beat** — the ring overtaking the hull, which a bot
+cannot anticipate because `BotWorldPort` exposes only `zoneLiveRing`: no phase, no closing rate, no
+next ring. **The HUMAN is told all of it.** Ledgered as a parity gap.
+
+### 32c — SHOOTING AT RADAR BLIPS IS A SKILL, so bots keep doing it (Eric ruling)
+
+> *"should bots fire at radar plots they can't see? shooting at radar blips is definitely a skill,
+> right?"*
+
+Yes — and the game is built to reward it: fall-of-shot splash is self-private precisely so
+bracket-and-walk works (FR16), and the Hit Call confirms a fog hit. **So NO staleness budget and no
+"never fire at what you cannot see" rule** — the orchestrator proposed one and it would have broken a
+ratified feature.
+
+The ruling reframes it correctly: three things were tangled and only two are bugs. Shooting at a blip
+you cannot see is a SKILL. Shooting where the shell cannot physically arrive is WRONG (the terrain
+gate — physics, no ruling needed). Shooting at a seven-second-old plot as if fresh is ALSO wrong —
+**and a human cannot do it even if they want to, because the phosphor fades.** Blip decay IS the
+staleness signal a player reads. The bot was not choosing to fire at stale data; it was BLIND to
+staleness, because the broken `live` flag pinned `freshness()` at 1.0. Fixing PERCEPTION rather than
+adding a RULE means an old plot naturally loses to a better target, and fog shooting survives intact
+— strictly less machinery than the budget that was proposed.
+
+### Ledgered, not fixed
+The `BotWorldPort` ring-information parity gap; the priced-excursion behaviour (a bot knowingly
+eating storm damage to escape a lethal threat — offered to Eric, deferred, an addition rather than
+this bug); the fire gate's hull-centre origin (Codex called it over-blocking, the adversarial pass
+refuted it — the extra span lies inside the bot's own silhouette and push-out keeps hull vertices out
+of polygons, so a false denial needs the hull to overlap the coast it is pressed against; the
+measurements agree, since gun fire ROSE); an acoustic-homing torpedo can be over-blocked by a
+straight-line gate; a bot does not throttle down at the sudden-death collapse to shrink its turn
+circle.
+
+### The testing lesson, which is the durable one
+**Every existing fire-decision test ran on an island-free ocean** — `openWorld()` does
+`w.map.islands.length = 0`, and the one fire test with terrain was the mine test, the single weapon
+that had the check. **And every existing ring test was a SINGLE-TICK assertion** taken deep outside
+then deep inside, structurally unable to express a limit cycle living within 10u of the boundary. The
+suites proved bots would not STEER into rock and never asked whether they would SHOOT into it; they
+proved a bot outside the ring turns around and never asked what it does AT the rim. Both fixes ship
+with tests verified to fail against pristine HEAD in a throwaway worktree. `PROTOCOL_VERSION`
+unchanged at **40**; server-only.
+
+## Amendment 33 — THE LIVENESS ROUTE: the home screen learns the population, and the mechanism is driver-backed (Eric rulings 2026-08-17, Story 6-6 question gate)
 
 **Source:** Eric, 2026-08-17, Story 6-6 question gate (answered interactively).
 
@@ -1194,7 +1321,7 @@ Route is **public, unauthenticated, aggregates only** — no `roomId`s, names or
 already-public `/health` and `/metrics`. The unauthenticated room-create rate cap ledgered by
 amendment 29 stays a SEPARATE hardening item and was not folded in.
 
-## Amendment 33 — PLAYERS ONLINE counts HUMANS. `n AFLOAT` still counts participants. Two registers, deliberately.
+## Amendment 34 — PLAYERS ONLINE counts HUMANS. `n AFLOAT` still counts participants. Two registers, deliberately.
 
 **Source:** Eric, 2026-08-17.
 
@@ -1218,7 +1345,7 @@ dishonesty this epic exists to refuse, and discoverable by any player within one
   needed a metadata write per phase transition and would have made a lobby invisible for its last
   ten seconds.
 
-## Amendment 34 — The homepage shows GLOBAL totals, not per-mode. Eric rewrote the gate's proposal.
+## Amendment 35 — The homepage shows GLOBAL totals, not per-mode. Eric rewrote the gate's proposal.
 
 **Source:** Eric, 2026-08-17, in his own words:
 > *"I don't need to see how many players are playing solo vs AI on the homepage. I don't need to see
@@ -1243,7 +1370,7 @@ three ways the gate did not anticipate:
 **The per-mode breakdown still ships in the `/liveness` payload** — Eric explicitly kept it there for
 operators. So the split exists in the contract and simply has no consumer on the home screen yet.
 
-## Amendment 35 — `/metrics` is UNTOUCHED. Two routes whose numbers are MEANT to disagree.
+## Amendment 36 — `/metrics` is UNTOUCHED. Two routes whose numbers are MEANT to disagree.
 
 **Source:** Eric, 2026-08-17, raising it himself mid-gate:
 > *"does this replace /metrics? metrics seems to have stuff related to this."*
@@ -1264,7 +1391,7 @@ explaining the discrepancy is deliberate — specifically so a future agent does
 reconciling two numbers that are meant to disagree. Recorded because this is exactly the kind of
 tidy-looking refactor that would silently re-introduce the D8 violation.
 
-## Amendment 36 — The mode buttons get sub-lines BACK. A shape reversal that honours amendment 31's reasoning.
+## Amendment 37 — The mode buttons get sub-lines BACK. A shape reversal that honours amendment 31's reasoning.
 
 **Source:** Eric, 2026-08-17 (chose button annotation over a separate register line).
 
@@ -1289,7 +1416,7 @@ elements.
 An alternative single mono register line beneath the mode row, borrowing the BR chrome bar's
 `N LABEL · N LABEL` grammar, was offered and NOT taken.
 
-## Amendment 37 — The arena carries a mode TAG. Game logic still never learns it.
+## Amendment 38 — The arena carries a mode TAG. Game logic still never learns it.
 
 **Source:** Eric, 2026-08-17.
 
@@ -1308,7 +1435,7 @@ from a value it already computes one line earlier. Nothing under `server/src/gam
 Rooms with absent or unrecognised mode metadata fold to `standard` — defensive, and correct, since
 only the solo door tags anything else.
 
-## Amendment 38 — The honest zero. `EXPERIENCE.md:108` is scoped to DECORATIVE empties.
+## Amendment 39 — The honest zero. `EXPERIENCE.md:108` is scoped to DECORATIVE empties.
 
 **Source:** Eric, 2026-08-17 — the one gate question that asked him to override a ratified rule.
 

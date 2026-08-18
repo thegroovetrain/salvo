@@ -28,14 +28,23 @@ import {
   nearestCoastPoint,
   sectorArcFor,
   SHIP_CLASS_IDS,
+  stepShip,
   wrapAngle,
   type HullId,
+  type Island,
   type ShipClassId,
 } from '@salvo/shared';
+import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { COMBAT_BRAIN, approachPoint } from '../game/ai/tactics.js';
 import { profileOf } from '../game/ai/profiles.js';
-import type { BotMind, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
+import type {
+  BotDecision,
+  BotMind,
+  BotProfileId,
+  BotWorldPort,
+  RememberedContact,
+} from '../game/ai/types.js';
 
 const BOW_SECTOR = sectorArcFor('torpedo');
 const REAR_SECTOR = sectorArcFor('mine');
@@ -180,6 +189,22 @@ function botOfClass(w: World, cls: ShipClassId): ShipRecord {
 function openWorld(seed: number, cap = 8): World {
   const w = new World(seed, cap);
   w.map.islands.length = 0;
+  return w;
+}
+
+/**
+ * An otherwise-empty ocean with ONE coastline exactly where the test wants it.
+ *
+ * THE FIRE TESTS ABOVE ALL RUN ON `openWorld`, and that is why the terrain
+ * defect could ship: every one of them deleted the islands before asking what
+ * the bot shoots at, so "does a coastline deny this shot" was a question the
+ * suite structurally could not ask. The island-free harnesses are KEPT — they
+ * are the right tool for arcs, pools, ranges and abilities — and these run
+ * alongside them.
+ */
+function islandWorld(seed: number, isle: Island): World {
+  const w = openWorld(seed);
+  w.map.islands.push(isle);
   return w;
 }
 
@@ -530,6 +555,234 @@ describe('steering — the priority order is the policy', () => {
   });
 });
 
+/**
+ * THE STORM RING AS A CONSTRAINT — and why every ring test that shipped before
+ * this block was structurally incapable of catching the defect it is about.
+ *
+ * The shipped coverage is TWO SINGLE-TICK ASSERTIONS with the hull placed deep
+ * outside a ring and then deep inside one ('RING ESCAPE outranks target
+ * pursuit' above; botPolicy.test.ts's 'OUTSIDE THE LIVE RING, nothing else
+ * matters'). Both are correct and both stay. Neither can express the actual
+ * failure, which is a MULTI-TICK LIMIT CYCLE within a few metres of the
+ * boundary: escape releases the instant `dist <= r`, the outward-pushing
+ * posture resumes on the very next tick, and the hull re-crosses — measured at
+ * a ~2.2s period and ±3-8u amplitude. A single tick cannot see a cycle, and
+ * `fakePort`'s default ring is four map radii wide, so nothing in the suite was
+ * ever near a rim at all.
+ *
+ * So these sail. `sailTick` is the whole harness: the brain's own decision fed
+ * straight into the shared `stepShip` at the shared 50ms dt — the same two
+ * calls, in the same order, that World's STEP_ORDER makes (inputs -> ships).
+ */
+describe('the storm ring is a CONSTRAINT, not only an override', () => {
+  /** One tick of the real loop: decide, then integrate the hull with the
+   *  decision, then advance the clock. Returns what the brain asked for. */
+  function sailTick(rec: ShipRecord, mind: BotMind, port: FakePort): BotDecision {
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    stepShip(rec.state, { throttle: d.throttle, rudder: d.rudder }, rec.stats.kinematics, CONFIG.tick.simDtMs / 1000);
+    port.now += CONFIG.tick.simDtMs;
+    return d;
+  }
+
+  it('NO LIMIT CYCLE: a cornered bot flees for 30s at the rim without crossing once', () => {
+    const w = openWorld(301);
+    const R = 800;
+    const port = fakePort(w, { cx: 0, cy: 0, r: R });
+    // A Battleship 40u inside the rim, bow tangential, hurt past `bulwark`'s
+    // disengage fraction. It is the hull the report named first, and the one
+    // that pays most per crossing: 7.9s to reverse against a Torpedo Boat's
+    // 3.9s.
+    const rec = mkBot(w, 'battleship', R - 40, 0, Math.PI / 2);
+    rec.hp = rec.stats.maxHp * 0.1;
+    const mind = mkMind('bulwark');
+    const threat = track(port.now, { x: 0, y: 0, speed: 0 });
+    plot(mind, threat);
+
+    let crossings = 0;
+    let outsideTicks = 0;
+    let wasOut = false;
+    for (let i = 0; i < 600; i += 1) {
+      // THE THREAT IS PINNED 300u INWARD OF THE HULL, every tick. That makes
+      // the shipped flee heading — the pure reciprocal of the bearing to the
+      // target, with no ring term in it at all — point STRAIGHT OUT of the
+      // ring on every single tick. It is the exact geometry 8 of the 10
+      // measured non-closing exits were taken in.
+      const d = Math.hypot(rec.state.x, rec.state.y) || 1;
+      threat.x = rec.state.x * (1 - 300 / d);
+      threat.y = rec.state.y * (1 - 300 / d);
+      threat.seenAt = port.now;
+      threat.firstSeenAt = port.now - CONFIG.bots.reactionMs * 4;
+      sailTick(rec, mind, port);
+      const out = Math.hypot(rec.state.x, rec.state.y) > R;
+      if (out) outsideTicks += 1;
+      if (out && !wasOut) crossings += 1;
+      wasOut = out;
+    }
+    expect(mind.posture).toBe('disengage'); // it really was running the whole time
+    expect(crossings).toBe(0);
+    expect(outsideTicks).toBe(0);
+    // And it did not solve the problem by parking in the middle either — the
+    // flee is TANGENTIAL, so it holds station just inside the rim. The
+    // equilibrium is sqrt(r^2 - L^2) by construction (the radius at which the
+    // legal cone's edge is exactly tangent), 751u here.
+    expect(Math.hypot(rec.state.x, rec.state.y)).toBeGreaterThan(R * 0.7);
+  });
+
+  it('THE FLEE IS TANGENTIAL, NOT RADIAL: at the rim the helm turns away from straight-out', () => {
+    const w = openWorld(302);
+    const R = 800;
+    const near = fakePort(w, { cx: 0, cy: 0, r: R });
+    const rec = mkBot(w, 'battleship', 780, 0, Math.PI / 2); // bow due north = tangential
+    rec.hp = rec.stats.maxHp * 0.1;
+    const mind = mkMind('bulwark');
+    plot(mind, track(near.now, { x: 480, y: 0, speed: 0 })); // 300u INWARD of the hull
+    const d = COMBAT_BRAIN.decide(rec, mind, near);
+    expect(mind.posture).toBe('disengage');
+    expect(d.throttle).toBe(1);
+    // The reciprocal flee is due EAST — straight out — which from a
+    // north-facing bow is a STARBOARD (negative) rudder. The legal cone's edge
+    // sits PAST north here, so the constrained helm goes the OTHER WAY. The
+    // sign is the assertion: it cannot be satisfied by a smaller correction.
+    expect(d.rudder).toBeGreaterThan(0);
+
+    // THE PAIRED CONTROL, and it is what proves the ring did it: the same hull,
+    // the same threat, the same bearing — but a ring so wide the run cannot
+    // reach it — still flees radially, starboard rudder and all.
+    const wide = fakePort(w);
+    const far = mkMind('bulwark');
+    plot(far, track(wide.now, { x: 480, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, far, wide).rudder).toBeLessThan(0);
+  });
+
+  it('RING ESCAPE HAS A DEADBAND: it does not release the instant the hull is back inside', () => {
+    const w = openWorld(303);
+    const R = 900;
+    const port = fakePort(w, { cx: 0, cy: 0, r: R });
+    const rec = mkBot(w, 'battleship', R, 0, 0); // bow due east, ring centre astern
+    const mind = mkMind('bulwark');
+    const margin = rec.stats.kinematics.maxSpeed / rec.stats.kinematics.turnRate; // 87.5u
+    plot(mind, track(port.now, { x: R + 400, y: 0, speed: 0 })); // a target further OUT still
+
+    // EXACTLY ON THE RIM. `isOutside` is boundary-inclusive, so this reads as
+    // INSIDE — the zero-width release that produced the chatter. A hull that
+    // was already running keeps running, at full ahead, hard over for the
+    // centre.
+    mind.posture = 'ringRun';
+    const onRim = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.posture).toBe('ringRun');
+    expect(onRim.throttle).toBe(1);
+    expect(Math.abs(onRim.rudder)).toBe(1); // hard over: the centre is 180 astern
+
+    // One unit short of the deadband still holds it...
+    rec.state.x = R - margin + 1;
+    mind.posture = 'ringRun';
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.posture).toBe('ringRun');
+
+    // ...and one unit past it hands the bot back to its own war.
+    rec.state.x = R - margin - 1;
+    mind.posture = 'ringRun';
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.posture).not.toBe('ringRun');
+  });
+
+  it('OPEN WATER IS UNTOUCHED: the constraint engages only within one reversal run of the rim', () => {
+    const w = openWorld(304);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    const plotAt = (p: FakePort, m: BotMind): void => {
+      plot(m, track(p.now, { x: 200, y: 100, speed: 0 }));
+    };
+    // A ring whose rim is 600u away against a Torpedo Boat's 176.7u reversal
+    // run, and a ring four map radii wide: the same helm, to the bit.
+    const tight = fakePort(w, { cx: 0, cy: 0, r: 600 });
+    const wide = fakePort(w);
+    const m1 = mkMind('duelist');
+    const m2 = mkMind('duelist');
+    plotAt(tight, m1);
+    plotAt(wide, m2);
+    const a = COMBAT_BRAIN.decide(rec, m1, tight);
+    const b = COMBAT_BRAIN.decide(rec, m2, wide);
+    expect(a.throttle).toBe(b.throttle);
+    expect(a.rudder).toBe(b.rudder);
+
+    // THE CONTROL IS NOT VACUOUS: slide the same hull out to where the run
+    // does reach the rim and the two helms part company.
+    rec.state.x = 560;
+    const m3 = mkMind('duelist');
+    const m4 = mkMind('duelist');
+    plot(m3, track(tight.now, { x: 900, y: 0, speed: 0 })); // seaward of the rim
+    plot(m4, track(wide.now, { x: 900, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, m3, tight).rudder).not.toBe(COMBAT_BRAIN.decide(rec, m4, wide).rudder);
+  });
+
+  it('THE DEADBAND IS BOOST-AWARE TOO: the safe radius grows with the hull\'s real speed', () => {
+    // THE SPEED BOOST IS NOT IN `EffectiveStats` — World.stepShips raises the
+    // per-tick cap outside the stat block — so BOTH ring lengths must read the
+    // hull's live speed. The reversal RUN was made boost-aware first; the
+    // DEADBAND was missed, which left a boosted hull steering against a safe
+    // radius sized for a ship that turns tighter than it does.
+    //
+    // The berth is DERIVED, not a literal, so a kinematics retune moves the
+    // test instead of breaking it: the constraint engages at `d > S - L`, and
+    // the two candidate safe radii (rated deadband vs boosted deadband) put
+    // that threshold 17u apart. The hull is berthed exactly between them, so
+    // the rated-deadband answer is "no constraint at all" and the boosted one
+    // is a real turn.
+    const w = openWorld(306);
+    const R = 1000;
+    const port = fakePort(w, { cx: 0, cy: 0, r: R });
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due EAST = straight out
+    rec.hp = rec.stats.maxHp * 0.1; // `raider` disengages
+    const k = rec.stats.kinematics;
+    const boost = k.maxSpeed * 1.3; // roughly what a boosted raider makes
+    const runU = (boost * Math.PI) / k.turnRate; // the reversal run, boost-aware
+    const engageBoostBand = R - (boost / k.turnRate) - runU;
+    const engageRatedBand = R - (k.maxSpeed / k.turnRate) - runU;
+    const berth = (engageBoostBand + engageRatedBand) / 2;
+    expect(berth).toBeGreaterThan(engageBoostBand); // the boosted band bites here
+    expect(berth).toBeLessThan(engageRatedBand); // the rated one does not
+
+    const inward = { x: berth - 300, y: 0 }; // the threat, 300u INWARD
+    const boosted = mkMind('raider');
+    plot(boosted, track(port.now, { ...inward, speed: 0 }));
+    rec.state.x = berth;
+    rec.state.speed = boost;
+    const fast = COMBAT_BRAIN.decide(rec, boosted, port);
+    expect(boosted.posture).toBe('disengage');
+    expect(Math.abs(fast.rudder)).toBeGreaterThan(0.25); // turned off the rim
+
+    // THE PAIRED CONTROL: the same hull at the same berth, making its RATED
+    // speed, is nowhere near the constraint and asks for nothing.
+    const slowMind = mkMind('raider');
+    plot(slowMind, track(port.now, { ...inward, speed: 0 }));
+    rec.state.speed = k.maxSpeed;
+    const slow = COMBAT_BRAIN.decide(rec, slowMind, port);
+    expect(slowMind.posture).toBe('disengage');
+    expect(Math.abs(slow.rudder)).toBeLessThan(0.05);
+  });
+
+  it('STAR SHELLS TAKE THE TERRAIN GATE: no flare is spent bursting inside an island', () => {
+    // 71% of the bot's remaining into-terrain ordnance after the first pass.
+    const blocked = islandWorld(305, circleIsland(250, 0, 120)); // squarely on the line
+    const p1 = fakePort(blocked);
+    const rec = mkBot(blocked, 'battleship', 0, 0, 0);
+    const m1 = mkMind('siege');
+    plot(m1, track(p1.now, { x: 500, y: 0, live: false, seenAt: p1.now - 3000 }));
+    expect(COMBAT_BRAIN.decide(rec, m1, p1).fireSlot).not.toBe(slotOf(rec, 'starShells'));
+
+    // THE C2 BEHAVIOUR ITSELF IS UNCHANGED — the same plot, the same profile,
+    // the same island moved off the line, and the flare goes up. `flareTarget`
+    // was deliberately NOT filtered: the bot still WANTS the nearest lost plot,
+    // it just holds the round when the round cannot arrive.
+    const clear = islandWorld(305, circleIsland(250, 600, 120));
+    const p2 = fakePort(clear);
+    const rec2 = mkBot(clear, 'battleship', 0, 0, 0);
+    const m2 = mkMind('siege');
+    plot(m2, track(p2.now, { x: 500, y: 0, live: false, seenAt: p2.now - 3000 }));
+    expect(COMBAT_BRAIN.decide(rec2, m2, p2).fireSlot).toBe(slotOf(rec2, 'starShells'));
+  });
+});
+
 describe('weapons — every shot is a LEGAL shot', () => {
   it('THE TORPEDO ARC IS TESTED FIRST: a target astern never advances the tube', () => {
     const w = openWorld(201);
@@ -673,6 +926,20 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
   });
 
+  it('the CANNON is not spent on a plot that has gone dark (the `live` gate is a real gate)', () => {
+    // F2: `live` now means SIGHTED THIS TICK. A plot with a disclosed course
+    // that is no longer in the bubble is a gun target, never a 50s reload.
+    const w = openWorld(210);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const seen = mkMind('bulwark');
+    plot(seen, track(port.now, { x: 400, y: 0, heading: 0, speed: 20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, seen, port).fireSlot).toBe(slotOf(rec, 'cannon'));
+    const lost = mkMind('bulwark');
+    plot(lost, track(port.now, { x: 400, y: 0, heading: 0, speed: 20, live: false }));
+    expect(COMBAT_BRAIN.decide(rec, lost, port).fireSlot).toBe(slotOf(rec, 'gun'));
+  });
+
   it('the frozen boarding room is not the brain\'s business — but a bot with no view still sails', () => {
     const w = openWorld(209);
     const port = fakePort(w);
@@ -684,6 +951,100 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(d.spendChoice).toBeNull();
     expect(Number.isFinite(d.aim)).toBe(true);
     expect(d.throttle).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TERRAIN IS A DENIAL — the defect Eric watched ("a minelayer focus-firing on
+// drones it cannot possibly hit due to an island being in the way") and the
+// structural reason the shipped suite could not see it: EVERY fire test above
+// runs on an ocean with the islands deleted. These run with the coastline in.
+// ---------------------------------------------------------------------------
+
+describe('weapons — a shot that cannot ARRIVE is not requested', () => {
+  it('a COASTLINE BETWEEN gun and target refuses the shot; the same shot over clear water fires', () => {
+    // A 60u rock at (200,0), the target at (400,0): every scattered burst
+    // point is within ~10u of the plot, so the flight line crosses it.
+    const w = islandWorld(301, circleIsland(200, 0, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0, speed: 0, heading: null }));
+    const denied = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(denied.fireSlot).toBeNull();
+    expect(denied.aimDist).toBe(0);
+    expect(denied.throttle).toBeGreaterThan(0); // it still sails — this denies a SHOT, not a bot
+
+    // THE OVER-BLOCKING CONTROL: identical geometry, rock removed, gun fires.
+    const clear = openWorld(301);
+    const clearPort = fakePort(clear);
+    const rec2 = mkBot(clear, 'battleship', 0, 0, 0);
+    const mind2 = mkMind('bulwark');
+    plot(mind2, track(clearPort.now, { x: 400, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec2, mind2, clearPort).fireSlot).toBe(slotOf(rec2, 'gun'));
+  });
+
+  it('a coastline BESIDE the flight line denies nothing — only a line THROUGH land does', () => {
+    // The same rock moved abeam. A bot that stopped shooting whenever an
+    // island was anywhere nearby would be a worse bug than the one being fixed.
+    const w = islandWorld(302, circleIsland(200, 200, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'gun'));
+  });
+
+  it('PLUNGING FIRE IS EXEMPT: an arcing cannon still shoots over the headland', () => {
+    // stepShell skips en-route collision entirely for an arcing shell, so
+    // gating it would delete the doctrine's whole point.
+    const w = islandWorld(303, circleIsland(200, 0, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 400, y: 0, heading: 0, speed: 20 }));
+    // Standard doctrine: the rock denies the cannon AND the gun behind it.
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
+    rec.stats.cannon.mode = 'arcing';
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'cannon'));
+  });
+
+  it('the TUBE is never launched into a rock', () => {
+    const w = islandWorld(304, circleIsland(80, 0, 30));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due east
+    const mind = mkMind('duelist');
+    plot(mind, track(port.now, { x: 160, y: 0, speed: 0 }));
+    // Dead ahead, in the bow arc, inside credible range — and behind land.
+    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
+
+    const clear = openWorld(304);
+    const clearPort = fakePort(clear);
+    const rec2 = mkBot(clear, 'torpedoBoat', 0, 0, 0);
+    const mind2 = mkMind('duelist');
+    plot(mind2, track(clearPort.now, { x: 160, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec2, mind2, clearPort).fireSlot).toBe(slotOf(rec2, 'torpedo'));
+  });
+
+  it('THE STUCK ENGAGEMENT IS BROKEN TOO: a blocked target is pursued, not orbited', () => {
+    // F3. Holding fire alone would leave the bot circling the island forever,
+    // which is what Eric actually SAW. `pursue` steers at the target at full
+    // ahead and the coastline-avoidance term rounds the obstruction.
+    const w = islandWorld(305, circleIsland(150, 0, 60));
+    const port = fakePort(w);
+    const rec = mkBot(w, 'mineLayer', 0, 0, 0);
+    const mind = mkMind('forager');
+    plot(mind, track(port.now, { x: 300, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true }));
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.posture).toBe('pursue');
+    // The same fleet target on open water is FARMED from the band instead.
+    const clear = openWorld(305);
+    const clearPort = fakePort(clear);
+    const rec2 = mkBot(clear, 'mineLayer', 0, 0, 0);
+    const mind2 = mkMind('forager');
+    plot(mind2, track(clearPort.now, { x: 300, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true }));
+    COMBAT_BRAIN.decide(rec2, mind2, clearPort);
+    expect(mind2.posture).toBe('farm');
   });
 });
 

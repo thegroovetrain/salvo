@@ -31,13 +31,15 @@ import {
   type HullId,
   type ZoneRing,
 } from '@salvo/shared';
+import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
-import type { BotMind, BotProfileId } from '../game/ai/types.js';
+import type { BotMind, BotPosture, BotProfileId } from '../game/ai/types.js';
 import { BOT_PROFILES, engagementBand, profileOf } from '../game/ai/profiles.js';
 import {
   choosePosture,
   foldView,
   isActionable,
+  ringDeadband,
   scoreTrack,
   selectTarget,
   tracksOf,
@@ -93,6 +95,8 @@ function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'battleship'): 
 
 const WIDE_RING: ZoneRing = { cx: 0, cy: 0, r: 100000 };
 
+/** Open water unless a test names terrain — `islands: []` is the explicit
+ *  statement of intent, exactly as `openWorld()` is in botTactics.test.ts. */
 function situation(over: Partial<BotSituation> = {}): BotSituation {
   const profile = over.profile ?? profileOf('duelist');
   return {
@@ -102,8 +106,13 @@ function situation(over: Partial<BotSituation> = {}): BotSituation {
     hp: 100,
     maxHp: 100,
     stats: over.stats ?? stats(profile.hullId),
+    // Dead in the water by default: `ringDeadband` floors at RATED speed, so
+    // 0 here means every test that does not name a speed reads the rated turn
+    // radius — the figure the class table publishes.
+    speed: 0,
     profile,
     ring: WIDE_RING,
+    islands: [],
     ...over,
   };
 }
@@ -230,6 +239,115 @@ describe('ai/utility — the fold works under either radar grammar', () => {
     foldView(m, view({ contacts: [contact('e2', 50, 0)] }), 5000);
     foldView(m, view({ events: [{ k: 'sunk', id: 'e2' }] }), 5050);
     expect(tracksOf(m).length).toBe(0);
+  });
+});
+
+// --- `live` means SIGHTED NOW ------------------------------------------------
+
+describe('ai/utility — `live` is a truesight claim, not a write-only flag', () => {
+  it('is DROPPED by the first fold that carries no truesight contact for the track', () => {
+    // It shipped as a flag `writeTrack` set and nothing ever cleared, so a
+    // hull sighted once read as visible for the whole 8s memory window
+    // (observed at ageMs 6950). The PLOT survives; only the claim to see it
+    // right now is dropped.
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 120, 0)] }), 1000);
+    expect(onlyTrack(m).live).toBe(true);
+    foldView(m, view(), 1050);
+    const t = onlyTrack(m);
+    expect(t.live).toBe(false);
+    expect(t.seenAt).toBe(1000);
+    expect({ x: t.x, y: t.y }).toEqual({ x: 120, y: 0 });
+  });
+
+  it('a radar paint refreshes a track without ever making it live, and so does a Hit Call', () => {
+    // This is why the fix is "clear the flag" and not "read seenAt === now":
+    // `seenAt` is refreshed by every sensor, so that predicate would have let
+    // the cannon spend its reload on a same-tick blip.
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 300, 40)] }), 1000);
+    foldView(m, view({ events: [silhouetteBlip('e1', 320, 40, 1400)] }), 1500);
+    expect(onlyTrack(m).live).toBe(false);
+    expect(onlyTrack(m).seenAt).toBe(1500);
+    foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 320, y: 40 }] }), 2000);
+    expect(onlyTrack(m).live).toBe(false);
+    expect(onlyTrack(m).seenAt).toBe(2000);
+  });
+
+  it('a re-sighting raises it again — one tick out of the bubble is not amnesia', () => {
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 120, 0)] }), 1000);
+    foldView(m, view(), 1050);
+    foldView(m, view({ contacts: [contact('e1', 130, 0)] }), 1100);
+    expect(onlyTrack(m).live).toBe(true);
+  });
+
+  it('so freshness DECAYS a lost plot — the flag used to pin its score at a flat 1.0', () => {
+    const m = mind();
+    foldView(m, view({ contacts: [contact('e1', 300, 0)] }), 1000);
+    const fresh = scoreTrack(onlyTrack(m), situation({ now: 1000 }), tracksOf(m));
+    foldView(m, view(), 5000); // four seconds with nothing sighted
+    const stale = scoreTrack(onlyTrack(m), situation({ now: 5000 }), tracksOf(m));
+    expect(stale).toBeLessThan(fresh);
+  });
+});
+
+// --- a blocked line of fire has a consequence --------------------------------
+
+describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
+  /** A hand-built plot (these cases are about geometry, not about the fold). */
+  function plotTrack(over: Partial<BotTrack> = {}): BotTrack {
+    return {
+      id: 't',
+      x: 0,
+      y: 0,
+      heading: 0,
+      speed: 0,
+      seenAt: 10000,
+      live: true,
+      cls: 'battleship' as HullId,
+      fleet: false,
+      firstSeenAt: 0,
+      hits: 0,
+      ...over,
+    };
+  }
+
+  const ROCK = circleIsland(200, 0, 60);
+
+  it('de-scores a track with a coastline in the way', () => {
+    const t = plotTrack({ x: 400, y: 0 });
+    const open = scoreTrack(t, situation(), [t]);
+    const behind = scoreTrack(t, situation({ islands: [ROCK] }), [t]);
+    expect(behind).toBeGreaterThan(0); // a PENALTY, never a veto
+    expect(behind).toBeLessThan(open);
+  });
+
+  it('a clear-line target takes the slot from a blocked one — including a forager\'s fleet prize', () => {
+    // The measured worst case: `forager` weights fleet 2.0 against captain
+    // 0.5, which is what parked a Mine Layer on a drone group behind a rock.
+    const m = mind('forager');
+    m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, fleet: true, cls: 'droneSmall' as HullId }));
+    m.contacts.set('openWater', plotTrack({ id: 'openWater', x: 0, y: 400 }));
+    const sit = situation({ profile: profileOf('forager'), stats: stats('mineLayer'), islands: [ROCK] });
+    expect(selectTarget(m, sit)?.id).toBe('openWater');
+    // With the rock gone the fleet weight wins, exactly as it always did.
+    expect(selectTarget(m, situation({ profile: profileOf('forager'), stats: stats('mineLayer') }))?.id).toBe('behindRock');
+  });
+
+  it('forces PURSUE over the band postures, so the bot opens the angle', () => {
+    const band = engagementBand(profileOf('duelist'), stats('torpedoBoat'));
+    const t = plotTrack({ x: Math.min(400, band.max * 0.5), y: 0 });
+    const sit = () => situation({ profile: profileOf('duelist'), stats: stats('torpedoBoat') });
+    expect(choosePosture(sit(), t)).toBe('engage'); // in-band, clear water
+    expect(choosePosture({ ...sit(), islands: [circleIsland(t.x * 0.5, 0, 40)] }, t)).toBe('pursue');
+  });
+
+  it('does not outrank the storm or a broken hull — the priority order is unchanged', () => {
+    const t = plotTrack({ x: 400, y: 0 });
+    const blocked = situation({ islands: [ROCK] });
+    expect(choosePosture({ ...blocked, ring: { cx: 5000, cy: 0, r: 100 } }, t)).toBe('ringRun');
+    expect(choosePosture({ ...blocked, hp: 1, maxHp: 100 }, t)).toBe('disengage');
   });
 });
 
@@ -380,6 +498,101 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
     const far = mind('duelist');
     expect(choosePosture(situation({ now: NOW, profile: duelist, stats: st }), target(far, band.max + 200))).toBe('pursue');
+  });
+
+  /**
+   * THE DEADBAND — the posture half of the storm-chatter fix.
+   *
+   * The two ring tests either side of this one place the hull 400u outside a
+   * 500u ring and 900u outside it: correct, kept, and blind to the defect,
+   * which lives entirely in the last metre. `isOutside` is boundary-inclusive
+   * with no hysteresis at all, so escape released at exactly `dist == r` and
+   * whatever was pushing the hull outward resumed on the next deliberation.
+   */
+  it('RING ESCAPE RELEASES A DEADBAND INSIDE THE RIM, not on the boundary', () => {
+    const m = mind('bulwark');
+    const t = target(m, 40);
+    const ring: ZoneRing = { cx: 0, cy: 0, r: 500 };
+    const st = stats('battleship');
+    const margin = ringDeadband(st, 0);
+    const at = (x: number, prev: BotPosture): BotPosture =>
+      choosePosture(situation({ now: NOW, profile: profileOf('bulwark'), stats: st, ring, x, y: 0 }), t, prev);
+
+    // A hull ALREADY RUNNING stays running across the rim and through the
+    // deadband, and is released one unit past it.
+    expect(at(500, 'ringRun')).toBe('ringRun');
+    expect(at(500 - margin + 1, 'ringRun')).toBe('ringRun');
+    expect(at(500 - margin - 1, 'ringRun')).not.toBe('ringRun');
+
+    // THE ARM THRESHOLD DOES NOT MOVE — it is still `isOutside`, exactly. A
+    // hull that was not running only starts when it is genuinely wet, so the
+    // deadband can never keep a healthy bot off the water it is entitled to.
+    expect(at(500, 'engage')).not.toBe('ringRun');
+    expect(at(500.5, 'engage')).toBe('ringRun');
+  });
+
+  it('the deadband is the HULL\'s own full-ahead turn radius — per class, off EffectiveStats', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const k = CONFIG.shipClasses[cls].kinematics;
+      expect(ringDeadband(stats(cls), 0)).toBeCloseTo(k.maxSpeed / k.turnRate, 6);
+    }
+    // The ordering is the whole point: the hull that takes longest to turn
+    // around gets the most water to do it in.
+    expect(ringDeadband(stats('battleship'), 0)).toBeGreaterThan(ringDeadband(stats('mineLayer'), 0));
+    expect(ringDeadband(stats('mineLayer'), 0)).toBeGreaterThan(ringDeadband(stats('torpedoBoat'), 0));
+    // NEVER a fraction of ring radius: that would be widest on the opening
+    // 2800u ring and tightest on the 660u endgame ring, i.e. backwards.
+    expect(ringDeadband(stats('battleship'), 0)).toBeLessThan(CONFIG.vision.radar);
+  });
+
+  /**
+   * THE SPEED BOOST IS NOT IN `EffectiveStats` — `World.stepShips` raises the
+   * per-tick cap outside the stat block — so BOTH ring lengths have to read
+   * the hull's live speed or they size a boosted hull as if it still turned
+   * like a rated one. The lookahead was made boost-aware when the measurement
+   * named boosted raiders as 15 of 19 residual crossings; the deadband was
+   * missed, and the cross-model review caught it. This pins the pair.
+   */
+  it('BOTH RING LENGTHS ARE BOOST-AWARE, and rated speed is a FLOOR', () => {
+    const st = stats('torpedoBoat');
+    const rated = st.kinematics.maxSpeed;
+    const boosted = rated * 1.3; // roughly what a `raider` makes under boost
+
+    // Rated is a floor: a loafing hull keeps its rated turn radius, because it
+    // can still accelerate out of the trouble the deadband is guarding against.
+    expect(ringDeadband(st, 0)).toBe(ringDeadband(st, rated));
+    expect(ringDeadband(st, 5)).toBe(ringDeadband(st, rated));
+    expect(ringDeadband(st, -rated * 2)).toBeCloseTo((rated * 2) / st.kinematics.turnRate, 6); // magnitude, not sign
+
+    // Above rated it grows exactly in proportion — a hull making 30% more way
+    // turns through a 30% wider circle.
+    expect(ringDeadband(st, boosted)).toBeCloseTo(boosted / st.kinematics.turnRate, 6);
+    expect(ringDeadband(st, boosted)).toBeGreaterThan(ringDeadband(st, rated));
+
+    // AND THE RELEASE THRESHOLD MOVES WITH IT. A boosted hull sitting between
+    // the rated deadband and its own is still escaping; the same hull at rated
+    // speed at the same point has been released. That divergence is the bug.
+    const ring: ZoneRing = { cx: 0, cy: 0, r: 1000 };
+    const x = 1000 - (rated / st.kinematics.turnRate) - 1; // one unit past the RATED band
+    const m = mind('raider');
+    const t = target(m, 40);
+    const at = (speed: number): BotPosture =>
+      choosePosture(
+        situation({ now: NOW, profile: profileOf('raider'), stats: st, ring, x, y: 0, speed }),
+        t,
+        'ringRun',
+      );
+    expect(at(rated)).not.toBe('ringRun');
+    expect(at(boosted)).toBe('ringRun');
+  });
+
+  it('a COLLAPSED ring (sudden death, r <= 0) is outside for everyone, latched or not', () => {
+    const m = mind('bulwark');
+    const t = target(m, 40);
+    const dead: ZoneRing = { cx: 0, cy: 0, r: 0 };
+    const sit = situation({ now: NOW, profile: profileOf('bulwark'), ring: dead, x: 0, y: 0 });
+    expect(choosePosture(sit, t, 'engage')).toBe('ringRun');
+    expect(choosePosture(sit, t, 'ringRun')).toBe('ringRun');
   });
 
   it('forager on a fleet hull farms; duelist on the same hull does not', () => {

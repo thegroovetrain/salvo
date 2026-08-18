@@ -28,16 +28,37 @@
 // re-implemented against the perception view because a fleet hull reads
 // `world.ships` and a bot may not.
 //
+// THE RING IS BOTH A FLOOR AND A CEILING. It escapes as a BEARING OVERRIDE
+// when the hull is wet (priority 1 below), and — since the storm-chatter fix —
+// it also CONSTRAINS every bearing the postures choose while the hull is dry
+// (see ringClamped): a heading whose reversal-time run would end outside the
+// ring is rotated to the edge of the legal cone instead. Without that second
+// half the storm was only ever a post-hoc override, which is why a `disengage`
+// flee — a pure reciprocal of the bearing to the threat, with no ring term at
+// all — sailed straight through the rim and then bounced on it.
+//
 // STEERING PRIORITY — highest first, and the order is the policy:
-//   1. RING ESCAPE. Outside the live ring, steer to its centre at full ahead.
-//      It outranks everything a hull under way can do — including the un-beach
-//      manoeuvre's exit-heading HOLD, which yields to it: the storm does not
-//      miss. The one thing it does NOT outrank is the astern BURST, and that
-//      is a correction rather than a demotion: the burst commands astern, so
-//      "steer the bow at the ring centre" moved a backing hull AWAY from the
-//      ring while it was at it. A hull aground cannot escape a storm by
-//      steering; getting off the rock IS the escape, and the ring governs
-//      again the instant the burst releases (~<= 4s later, and pinned).
+//   1. RING ESCAPE. Outside the live ring, steer to its centre at full ahead,
+//      and keep doing so until the hull is a full-ahead turn radius INSIDE the
+//      rim (ringEscaping's deadband — releasing exactly on the boundary is
+//      what produced the ~2.2s in-and-out limit cycle Eric watched).
+//      It outranks every other BEARING a hull under way can choose — including
+//      the un-beach manoeuvre's exit-heading HOLD, which yields to it: the
+//      storm does not miss. The one thing it does NOT outrank is the astern
+//      BURST, and that is a correction rather than a demotion: the burst
+//      commands astern, so "steer the bow at the ring centre" moved a backing
+//      hull AWAY from the ring while it was at it. A hull aground cannot
+//      escape a storm by steering; getting off the rock IS the escape, and the
+//      ring governs again the instant the burst releases (~<= 4s later, and
+//      pinned).
+//      IT DOES NOT OUTRANK AVOIDANCE, and the header used to claim it did.
+//      helmFor composes the ESCAPE BEARING like any other track term, weighted
+//      by `helmLeft = max(0, 1 − |avoid|)`, so in principle two saturated
+//      coastline/mine/boundary terms could take the whole helm from a hull in
+//      the storm. That is LATENT, not live: measured over 3707 outside-the-
+//      ring bot-ticks, `helmLeft === 0` occurred ZERO times. The composition is
+//      deliberately left alone — re-ordering avoidance near a coastline is how
+//      bots get beached, and no evidence asks for it.
 //   2. UN-BEACHING, in THREE STAGES (arm on sustained contact, back off under
 //      a captured rudder, then hold the exit heading) — see updateManoeuvre.
 //      The contact is read off the simulation's own bit
@@ -64,10 +85,15 @@
 // ONE WEAPON PER TICK, and legality is checked in the EQUIPMENT ROWS' OWN
 // ORDER so a shot is never silently eaten: the torpedo's bow arc is tested
 // FIRST (an arc miss consumes nothing but also fires nothing), the mine's
-// astern sector + placeRange + blockedWater before a drop, the gun family's
-// only denial being an empty pool. `fireSlot` is null unless every check for
-// that weapon passed, so the driver's fireSeq advances exactly when a legal
-// shot was requested.
+// astern sector + placeRange + blockedWater before a drop. `fireSlot` is null
+// unless every check for that weapon passed, so the driver's fireSeq advances
+// exactly when a legal shot was requested.
+//
+// AND EVERY FLAT-TRAJECTORY SHOT IS CHECKED AGAINST THE COASTLINE (see
+// shotReaches). The mine always had this — `blockedWater` is why the rack
+// behaves — and the gun family and the tube never did, which is the whole of
+// the "focus-firing drones through an island" defect. PLUNGING FIRE is the one
+// exemption, because it is the one round that overflies terrain.
 
 import {
   CONFIG,
@@ -75,13 +101,14 @@ import {
   bearing,
   blockedWater,
   inArc,
-  isOutside,
   nearestCoastPoint,
   sectorArcFor,
   wrapAngle,
+  type EffectiveStats,
   type EquipmentId,
   type Island,
   type Rng,
+  type ShipState,
   type Vec2,
 } from '@salvo/shared';
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
@@ -91,6 +118,9 @@ import {
   choosePosture,
   foldView,
   isActionable,
+  lineBlocked,
+  ringDeadband,
+  ringEscaping,
   selectTargetKey,
   tracksOf,
   type BotPosture,
@@ -179,8 +209,10 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     hp: self.hp,
     maxHp: self.stats.maxHp,
     stats: self.stats,
+    speed: self.state.speed,
     profile: profileOf(mind.profile),
     ring: port.zoneLiveRing,
+    islands: port.map.islands,
   };
 }
 
@@ -267,37 +299,77 @@ function aimPoint(mind: BotMind, sit: BotSituation, t: BotTrack, speed: number):
 // null. Every one of them re-checks the equipment row's own gate.
 // ---------------------------------------------------------------------------
 
-/** A gun-family shot (gun / cannon): 360°, clamped range, no arc to miss. */
+/**
+ * THE TERRAIN CHECK — can this projectile actually REACH the point it is aimed
+ * at, or does the coastline stop it first?
+ *
+ * THIS IS AN OMISSION BEING CLOSED, NOT A NEW RULE. Every other shooter in the
+ * game already gets this answer: `stepShell` stops a non-arcing shell dead at
+ * the first coastline it meets, and the HUMAN is told so before he pulls the
+ * trigger — `client/src/render/aimPreview.ts` runs `clipAtIslands()` on every
+ * gun aim and dims the burst circle when the shot will not arrive. The bot was
+ * the only shooter never told, and it never self-corrected because the radar
+ * gate paints OVER partially-shadowing terrain (Story 4.11 `visibilityTo`)
+ * while the shell is stopped by the polygon at any height — so it re-acquired
+ * the same unreachable plot once per sweep revolution, indefinitely.
+ *
+ * IT IS A PHYSICS QUESTION, NOT A VISIBILITY ONE. "Can this shot arrive?" is
+ * deliberately NOT "should I shoot at something I cannot see": firing into fog
+ * is a ratified feature (FR16 — the self-private `sp` splash exists precisely
+ * so bracket-and-walk fire works), and a `return`-grammar plot stays a legal
+ * target here exactly as it always was.
+ *
+ * THE ORIGIN IS THE HULL CENTRE, not the silhouette muzzle the sim spawns
+ * from: `BotSelf` carries no hull class (by design — it is the self-read a
+ * human client gets), so `muzzleSpawn` is unreachable from ai/. The centre is
+ * the strictly LONGER segment, so the check can only ever be conservative, and
+ * the extra span is inside the bot's own hull.
+ */
+function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
+  return !lineBlocked(self.state, p, sit.islands);
+}
+
+/**
+ * A gun-family shot (gun / cannon): 360°, clamped range, no arc to miss — and
+ * a coastline that must not be in the way. `arcing` is the PLUNGING FIRE
+ * exemption: that doctrine overflies terrain and hulls alike (`stepShell`
+ * skips en-route collision entirely for it), so gating it would delete the
+ * card's whole point.
+ */
 function burstShot(
   self: BotSelf,
   mind: BotMind,
   sit: BotSituation,
   t: BotTrack,
   id: 'gun' | 'cannon',
-  rangeU: number,
+  spec: { rangeU: number; arcing: boolean },
 ): Shot | null {
   const slot = readySlot(self, id);
   if (slot < 0) return null;
   const p = aimPoint(mind, sit, t, CONFIG[id].shellSpeed);
   const d = Math.hypot(p.x - sit.x, p.y - sit.y);
-  if (d > rangeU) return null;
+  if (d > spec.rangeU) return null;
+  if (!spec.arcing && !shotReaches(self, sit, p)) return null;
   return { aim: bearing(self.state, p), aimDist: d, slot };
 }
 
 /** The gun — every bot's default weapon and the only one a fleet-clearing
- *  `forager` needs (3/4/5 rounds clear a fleet hull by size). */
+ *  `forager` needs (3/4/5 rounds clear a fleet hull by size). It has no
+ *  doctrine that arcs, so terrain always stops it. */
 function gunShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
-  return burstShot(self, mind, sit, t, 'gun', sit.stats.gun.rangeU);
+  return burstShot(self, mind, sit, t, 'gun', { rangeU: sit.stats.gun.rangeU, arcing: false });
 }
 
 /**
  * The cannon (Battleship). Held for a plot worth 45 seconds of reload: a LIVE
  * contact with a disclosed course, so the lead solution is real. An unled
- * ghost gets the gun instead.
+ * ghost gets the gun instead. PLUNGING FIRE is the one shot in the game that
+ * may be taken through a headland.
  */
 function cannonShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   if (!t.live || t.heading === null) return null;
-  return burstShot(self, mind, sit, t, 'cannon', sit.stats.cannon.rangeU);
+  const arcing = sit.stats.cannon.mode === 'arcing';
+  return burstShot(self, mind, sit, t, 'cannon', { rangeU: sit.stats.cannon.rangeU, arcing });
 }
 
 /**
@@ -305,7 +377,10 @@ function cannonShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack
  * equipment row tests it — an arc miss consumes nothing, but it also launches
  * nothing, so a bot that requested one would burn a click for free and look
  * broken. Contact-only in standard/homing mode (aimDist is ignored), and only
- * inside the range where a 60 u/s fish can credibly intercept.
+ * inside the range where a 60 u/s fish can credibly intercept. A fish runs on
+ * the surface and no doctrine arcs it, so the coastline stops it exactly as it
+ * stops a shell — and at a 50s reload, launching one into a rock is the
+ * single most expensive way a Torpedo Boat can waste a tick.
  */
 function torpedoShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   const slot = readySlot(self, 'torpedo');
@@ -317,6 +392,7 @@ function torpedoShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrac
   const aim = bearing(self.state, p);
   const center = wrapAngle(self.state.heading + BOW_SECTOR.offset);
   if (!inArc(aim, center, BOW_SECTOR.halfArc)) return null; // ARC FIRST
+  if (!shotReaches(self, sit, p)) return null;
   return { aim, aimDist: d, slot };
 }
 
@@ -396,6 +472,20 @@ function flareTarget(mind: BotMind, sit: BotSituation): BotTrack | null {
  * contact the cannon can be spent on. It deliberately does not need a lead
  * solution — the flare lights an AREA, which is exactly why it works on the
  * unled plots nothing else here will shoot at.
+ *
+ * AND IT TAKES THE TERRAIN GATE, on the same physics the gun family took it
+ * on: a star shell is a flat-trajectory round with no arcing doctrine, so a
+ * coastline stops it exactly as it stops a shell, and a flare that bursts
+ * INSIDE AN ISLAND illuminates nothing at all. It was left out of the first
+ * pass and measured as 71% of the bot's remaining into-terrain ordnance (10 of
+ * 14; 6.17% of all flares) — the single biggest residual, and the most
+ * expensive per round of any sensor the bot owns.
+ *
+ * THE GATE IS ON THE SHOT, NEVER ON `flareTarget`. Filtering inside the
+ * selector so it picks the nearest REACHABLE lost plot would change which
+ * contact a `siege` bot chooses to resolve, and that choice is Eric-ruled C2
+ * behaviour. Here the bot still wants the nearest lost plot; it simply holds
+ * the round when the round cannot get there.
  */
 function flareShot(self: BotSelf, mind: BotMind, sit: BotSituation): Shot | null {
   if (!sit.profile.usesStarShells) return null;
@@ -403,6 +493,7 @@ function flareShot(self: BotSelf, mind: BotMind, sit: BotSituation): Shot | null
   if (slot < 0) return null;
   const t = flareTarget(mind, sit);
   if (t === null) return null;
+  if (!shotReaches(self, sit, t)) return null;
   const d = Math.min(Math.hypot(t.x - sit.x, t.y - sit.y), sit.stats.starShells.rangeU);
   return { aim: bearing(self.state, t), aimDist: d, slot };
 }
@@ -668,8 +759,124 @@ function patrolBearing(self: BotSelf, sit: BotSituation): number {
   return bearing(self.state, { x: sit.ring.cx, y: sit.ring.cy });
 }
 
+/** The bearing the POSTURE wants, before the storm gets a say. Every branch
+ *  here is a combat decision; none of them knows where the ring is. */
+function postureBearing(
+  self: BotSelf,
+  sit: BotSituation,
+  target: BotTrack | null,
+  posture: BotPosture,
+): number {
+  const pos = self.state;
+  if (target === null || posture === 'reposition') return patrolBearing(self, sit);
+  if (posture === 'disengage') return wrapAngle(bearing(pos, target) + Math.PI);
+  if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target));
+  return bandBearing(self, sit, target);
+}
+
+/**
+ * u — HOW FAR AHEAD A BEARING IS JUDGED AGAINST THE RING.
+ *
+ * The TIME is the hull's own 180° REVERSAL TIME, `π / turnRate` (Torpedo Boat
+ * 3.93s, Mine Layer 5.24s, Battleship 7.85s) — the honest answer to "how long
+ * before I could be pointed back inward at all". Anything shorter is a promise
+ * the hull cannot keep, and it is exactly why the Battleship read as the
+ * offender first: it needs twice the Torpedo Boat's warning and was given the
+ * same none. Per-hull and boon-aware for free, because it reads
+ * `EffectiveStats.kinematics` rather than a table.
+ *
+ * THE SPEED IS THE GREATER OF RATED AND ACTUAL, and that is not a hedge — it
+ * is the SPEED BOOST. `chooseAct` spends the boost on `disengage`, precisely
+ * the posture that runs at the rim, and the ability raises the hull's cap in
+ * the WORLD without touching `EffectiveStats.kinematics`; a `raider` therefore
+ * makes 57 u/s against a rated 45 and covers 27% more water than a rated
+ * lookahead budgets for. Measured: with the rated figure alone, 15 of 19
+ * residual crossings were boosted raiders. `max()` and not the live speed
+ * outright, because a hull loafing at 10 u/s can still accelerate, and
+ * shrinking the horizon to match a momentary throttle would hand the storm
+ * back the head start this whole constraint exists to deny.
+ */
+function ringLookaheadU(stats: EffectiveStats, speed: number): number {
+  const rated = stats.kinematics.maxSpeed;
+  return (Math.max(rated, Math.abs(speed)) * Math.PI) / stats.kinematics.turnRate;
+}
+
+/**
+ * THE RING AS A CONSTRAINT ON A CHOSEN HEADING — the whole of this fix.
+ *
+ * Until now the storm appeared in the bot's steering in exactly one shape: an
+ * OVERRIDE, once the hull was already wet. Nothing capped how far a chosen
+ * heading could travel, so `disengage`'s pure reciprocal-of-the-bearing flee
+ * (`postureBearing`) ran a boosted raider at 55 u/s in a straight line into
+ * the storm whenever the enemy happened to lie inward of it. 8 of the 10
+ * measured exits taken while the ring was NOT even closing were `disengage`.
+ *
+ * THE TEST IS A DISC PROJECTION, one line of algebra. With `u = pos − centre`,
+ * `d = |u|`, a run of `L` (see ringLookaheadU) along `dir` and the safe radius
+ * `S` below, the run ends at `pos + L·dir`, so it stays inside `S` iff
+ *
+ *     d² + 2L(u·dir) + L² <= S²    i.e.    u·dir <= (S² − d² − L²) / 2L
+ *
+ * Dividing by `d` turns that into a bound on the COSINE of the angle off the
+ * outward radial, so the violating set is always a cone about "straight out"
+ * and the repair is a rotation to its edge on the side the bearing was already
+ * on — the smallest correction that satisfies it, never a reversal.
+ *
+ * THE CONSTRAINT ENGAGES EXACTLY AT `d > S − L` (set the bound to `d` and it
+ * factors to `(d + L)² = S²`), so a bot in open water is untouched and a bot
+ * near the rim finds its flee bent TANGENTIAL — running along the inside of
+ * the ring, which is what a competent human does when cornered. It is a
+ * CONSTRAINT and not a behaviour: nothing here chooses a target, a posture, a
+ * throttle or a shot, and the deliberately-not-built "priced excursion" (a bot
+ * knowingly taking storm damage to break a lethal contact) stays unbuilt.
+ *
+ * Degenerate cases, both fail-safe: at `d ≈ 0` no heading changes `u·dir` and
+ * the bearing stands; when even straight inward cannot make it (`cosMax <= -1`
+ * — a collapsing ring smaller than the hull's own reversal run), the least
+ * violating heading IS straight inward, which is also what ring escape would
+ * command a moment later.
+ *
+ * MEASURED, 10 matches x 12 bots, seed 7, ~356 bot-minutes: ring crossings 80
+ * -> 12, crossings while the ring was NOT closing 69 -> 3, storm damage 492 ->
+ * 226 hp, time outside 0.60% -> 0.26%, and the chatter signature itself —
+ * median depth reached back inside before the NEXT exit — 0.2u -> 142.9u.
+ * Bots fight the same: 10.80 -> 10.90 kills/match and 178.8 -> 177.2 damage
+ * per bot-minute, on a mean afloat time that ROSE 2.86 -> 2.97 minutes.
+ */
+function ringClamped(pos: ShipState, sit: BotSituation, want: number): number {
+  const ring = sit.ring;
+  const ux = pos.x - ring.cx;
+  const uy = pos.y - ring.cy;
+  const d = Math.hypot(ux, uy);
+  if (!(ring.r > 0) || d < 1e-6) return want;
+  const lookahead = ringLookaheadU(sit.stats, pos.speed);
+  // THE RUN MUST END INSIDE THE DEADBAND, NOT MERELY INSIDE THE RING — the
+  // SAME `ringDeadband` the escape releases at, so "water I may steer into"
+  // and "water I have escaped to" are one boundary rather than two. Measured,
+  // and it is why: clamping against the raw rim puts the constraint's
+  // equilibrium at sqrt(r^2 - L^2), which on a 2223u ring is SEVEN UNITS
+  // inside it — bots ran a perfect tangential orbit and grazed the rim by 1u
+  // anyway, trading Eric's chatter for a wall-hug. Five of seventeen residual
+  // crossings were exactly that, all at 90-110 degrees off the outward radial.
+  const safe = Math.max(0, ring.r - ringDeadband(sit.stats, pos.speed));
+  const cosMax = (safe * safe - d * d - lookahead * lookahead) / (2 * lookahead * d);
+  if (cosMax >= 1) return want; // the whole compass ends inside: no constraint
+  const out = Math.atan2(uy, ux); // the outward radial — the cone's axis
+  if (cosMax <= -1) return wrapAngle(out + Math.PI); // nothing fits: run inward
+  const off = angleDiff(out, want); // signed angle of `want` off the radial
+  const limit = Math.acos(cosMax);
+  if (Math.abs(off) >= limit) return want;
+  return wrapAngle(out + (off >= 0 ? limit : -limit));
+}
+
 /** The bearing the helm wants, applying the priority order in the header. The
- *  astern stage never asks: it steers on its captured rudder (see helmFor). */
+ *  astern stage never asks: it steers on its captured rudder (see helmFor).
+ *
+ *  THE HOLD IS DELIBERATELY NOT CLAMPED. It is the un-beach machine's
+ *  committed exit heading, chosen to get a hull OFF a rock, and bending it
+ *  toward the ring centre is how a bot re-beaches on the same coast. Ring
+ *  escape already outranks it (the clause above), which is the case that
+ *  actually matters; the constraint is for headings a bot chose freely. */
 function desiredBearing(
   self: BotSelf,
   mind: BotMind,
@@ -679,13 +886,9 @@ function desiredBearing(
   holding: boolean,
 ): number {
   const pos = self.state;
-  const ring = sit.ring;
-  if (isOutside(pos, ring.cx, ring.cy, ring.r)) return bearing(pos, { x: ring.cx, y: ring.cy });
+  if (ringEscaping(sit, posture === 'ringRun')) return bearing(pos, { x: sit.ring.cx, y: sit.ring.cy });
   if (holding) return mind.unbeach?.holdHeading ?? pos.heading;
-  if (target === null || posture === 'reposition') return patrolBearing(self, sit);
-  if (posture === 'disengage') return wrapAngle(bearing(pos, target) + Math.PI);
-  if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target));
-  return bandBearing(self, sit, target);
+  return ringClamped(pos, sit, postureBearing(self, sit, target, posture));
 }
 
 /** Full ahead everywhere except holding a band (station-keeping). */
@@ -825,10 +1028,14 @@ function ingest(mind: BotMind, port: BotWorldPort): void {
  * THE DELIBERATION — the decision-cadence work: reselect the target (cached
  * as its track KEY so every later tick re-resolves the freshest plot) and
  * re-choose the posture. The one writer of both cached fields.
+ *
+ * The OUTGOING posture is fed back in: it is the latch for the ring-escape
+ * deadband (see utility.ts's ringEscaping), so escape releases one full-ahead
+ * turn radius INSIDE the rim rather than exactly on it.
  */
 function deliberateNow(mind: BotMind, sit: BotSituation): void {
   mind.targetKey = selectTargetKey(mind, sit);
-  mind.posture = choosePosture(sit, resolveTarget(mind));
+  mind.posture = choosePosture(sit, resolveTarget(mind), mind.posture);
 }
 
 /** The cached target key resolved against the LIVE track store — a pruned or
