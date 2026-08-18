@@ -364,6 +364,47 @@ export function canOpenElimination(phase: string, resultsFinal: boolean, already
 }
 
 /**
+ * What a resumed session owes itself about a sinking it never saw (Story 6.7,
+ * ruling R7) — the pure half of the missed-death synthesis.
+ *
+ * A captain whose hull went down during a disconnect had their own `sunk`
+ * delivered to nobody, so a fresh-page resume arrives spectating with no
+ * ELIMINATED modal and no placement. Everything needed to notice is already in
+ * hand: the frame says `spec`, and the PUBLIC roster says our own row is no
+ * longer alive. No wire field is authorized for this and none is used.
+ *
+ * THREE ANSWERS, not two, because the frame and the schema patch arrive
+ * INDEPENDENTLY:
+ *   • `wait` — nothing has landed that can answer yet (still conning a hull, or
+ *     the roster has not patched our row in). Ask again next frame; a check that
+ *     fired unconditionally on "the first resumed frame" would read an empty
+ *     roster about half the time and conclude, wrongly, that nothing was missed.
+ *   • `settled` — answered, and no modal is owed: we resumed ALIVE, or one of
+ *     `canOpenElimination`'s existing suppressions applies (not a live match —
+ *     which covers a resume into `finished`, whose `lastResults` re-send reaches
+ *     the client BEFORE the welcome — or the modal has already been opened once).
+ *   • `open` — synthesize it.
+ *
+ * The never-twice clause is `canOpenElimination`'s own, deliberately re-used
+ * rather than restated: once `recordElimination` has latched `eliminated`, a real
+ * `sunk` replayed behind this synthesis answers `settled` and cannot re-open the
+ * modal — which is the same guard that already protects a duplicate `sunk`.
+ */
+export function missedEliminationAction(v: {
+  /** The frame said `spec` — we are watching, not conning. */
+  spectating: boolean;
+  /** Our own roster row's `alive`, or undefined when the row has not synced. */
+  ownAlive: boolean | undefined;
+  phase: string;
+  resultsFinal: boolean;
+  alreadyEliminated: boolean;
+}): 'wait' | 'settled' | 'open' {
+  if (!v.spectating || v.ownAlive === undefined) return 'wait';
+  if (v.ownAlive) return 'settled';
+  return canOpenElimination(v.phase, v.resultsFinal, v.alreadyEliminated) ? 'open' : 'settled';
+}
+
+/**
  * Pure: does a sinking in this match phase get a RESPAWN? — the client's mirror
  * of `Match.applyPolicy()`'s `world.respawnEnabled` (server/src/game/match.ts),
  * which is the READY ROOM and nothing else.

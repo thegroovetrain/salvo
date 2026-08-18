@@ -8,6 +8,9 @@ import { DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/sha
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
+  /** Story 6.7: what the SDK re-assigns on EVERY JOIN_ROOM ack — the value the
+   *  client must keep re-persisting, since an in-page resume ROTATES it. */
+  reconnectionToken: string;
   onMessage: (type: string, cb: (msg: unknown) => void) => void;
   onError: (cb: (code: number, message?: string) => void) => void;
   onLeave: (cb: (code: number) => void) => void;
@@ -30,6 +33,7 @@ function fakeRoom(): FakeRoom {
     // The SDK's shipping defaults — connect() is expected to (re)assert these on
     // the ARENA room and to leave them untouched on the QUEUE room (Story 6.1).
     reconnection: { enabled: true, maxRetries: 15 },
+    reconnectionToken: 'arena-1:tok-join',
     onMessage: (type, cb) => void handlers.set(type, cb),
     onError: (cb) => void errorHandlers.push(cb),
     onLeave: (cb) => void leaveHandlers.push(cb),
@@ -61,6 +65,9 @@ let lastReservation: unknown;
 // what makes the solo request unable to land in another captain's match.
 let lastCreateRoomName: string | undefined;
 let lastCreateOpts: Record<string, unknown> | undefined;
+// Story 6.7: the resume door.
+let lastReconnectToken: string | undefined;
+let reconnectRejection: Error | null = null;
 
 vi.mock('@colyseus/sdk', () => ({
   Client: class {
@@ -78,12 +85,22 @@ vi.mock('@colyseus/sdk', () => ({
       lastReservation = res;
       return Promise.resolve(room);
     }
+    // Story 6.7: the refresh-resume door. `reconnectRejection` models the
+    // ordinary failures — an expired grace, a disposed room, a redeployed
+    // server — all of which the SDK surfaces as a rejected matchmake request.
+    reconnect(token: string): Promise<FakeRoom> {
+      lastReconnectToken = token;
+      if (reconnectRejection) return Promise.reject(reconnectRejection);
+      return Promise.resolve(room);
+    }
   },
 }));
 
 import {
   connect,
   connectErrorStatus,
+  resumeConnection,
+  resumeFailedStatus,
   ensureColorPref,
   isQueueCancelled,
   loadColorPref,
@@ -94,6 +111,12 @@ import {
   __resetSessionColorPrefForTests,
   type ConnectHooks,
 } from '../net/connection';
+import {
+  RESUME_TOKEN_KEY,
+  clearResumeToken,
+  loadResumeToken,
+  saveResumeToken,
+} from '../net/resumeToken';
 
 // Module-level state in connection.ts (`sessionColorPref`) would otherwise leak
 // between tests in this file — e.g. the 'connect' tests below already exercise
@@ -109,6 +132,9 @@ beforeEach(() => {
   lastJoinOpts = undefined;
   lastCreateRoomName = undefined;
   lastCreateOpts = undefined;
+  lastReconnectToken = undefined;
+  reconnectRejection = null;
+  sessionStorage.clear();
 });
 
 /**
@@ -610,5 +636,164 @@ describe('ensureColorPref — session cache when localStorage.setItem throws (re
     // server would then assign a hue different from the one ensureColorPref()
     // told the whole home/bay chrome to tint with.
     expect(lastJoinOpts?.colorPref).toBe(idx);
+  });
+});
+
+// --- Story 6.7: THE RESUME TOKEN ---------------------------------------------
+//
+// A refresh used to lose the match outright, because `room.reconnectionToken`
+// lives on the Room object and dies with the tab's JS heap. `sessionStorage` was
+// used NOWHERE in `client/src` before this story.
+
+describe('the resume token store (net/resumeToken.ts)', () => {
+  it('round-trips a well-formed `roomId:token` through sessionStorage', () => {
+    saveResumeToken('arena-1:abc');
+    expect(sessionStorage.getItem(RESUME_TOKEN_KEY)).toBe('arena-1:abc');
+    expect(loadResumeToken()).toBe('arena-1:abc');
+    clearResumeToken();
+    expect(loadResumeToken()).toBeNull();
+    expect(sessionStorage.getItem(RESUME_TOKEN_KEY)).toBeNull();
+  });
+
+  it('reads a MALFORMED stored value as absent rather than handing it to the SDK', () => {
+    // `Client.reconnect()` splits on ':' and THROWS on anything that is not
+    // `roomId:token` (@colyseus/sdk 0.17.43 build/Client.mjs), so a corrupt key
+    // must land on the home screen, never as an exception on the boot path.
+    for (const junk of ['', 'no-colon', ':', 'roomonly:', ':tokenonly']) {
+      sessionStorage.setItem(RESUME_TOKEN_KEY, junk);
+      expect(loadResumeToken()).toBeNull();
+    }
+  });
+
+  it('never persists something reconnect() would throw on', () => {
+    saveResumeToken('no-colon');
+    expect(sessionStorage.getItem(RESUME_TOKEN_KEY)).toBeNull();
+  });
+});
+
+describe('connect — persisting the reconnection token (Story 6.7)', () => {
+  it('persists the token so a page refresh has something to resume with', async () => {
+    expect(sessionStorage.getItem(RESUME_TOKEN_KEY)).toBeNull();
+    await connectAndWelcome();
+    expect(loadResumeToken()).toBe('arena-1:tok-join');
+  });
+
+  it('RE-WRITES the token on every ack, not once at connect (ruling R9)', async () => {
+    await connectAndWelcome();
+    expect(loadResumeToken()).toBe('arena-1:tok-join');
+    // An in-page resume ROTATES the token server-side: the SDK re-assigns
+    // `room.reconnectionToken` on EVERY JOIN_ROOM ack, reconnects included. A
+    // write-once client would carry the DEAD pre-resume token into the next
+    // refresh and fast-fail deterministically on a session that was fully
+    // entitled to resume — the half-resume double fault R9 names.
+    room.reconnectionToken = 'arena-1:tok-rotated';
+    room.fire(MSG.frame, { t: 1, tick: 1, ackSeq: 0, contacts: [], mines: [] });
+    expect(loadResumeToken()).toBe('arena-1:tok-rotated');
+  });
+
+  it('does NOT hang the persistence off room.onReconnect — the SDK rotates AFTER invoking it', async () => {
+    // Verified against @colyseus/sdk 0.17.43 `build/Room.mjs`: the JOIN_ROOM
+    // handler calls `onReconnect.invoke()` and assigns the rotated token on the
+    // NEXT LINE, so an onReconnect handler reads the OLD token every time. This
+    // pins the consequence — the frame channel is what refreshes it, and it does
+    // so with no resume signal fired at all.
+    await connectAndWelcome();
+    room.reconnectionToken = 'arena-1:tok-rotated';
+    expect(loadResumeToken()).toBe('arena-1:tok-join'); // nothing has acked yet
+    room.fire(MSG.frame, { t: 2, tick: 2, ackSeq: 0, contacts: [], mines: [] });
+    expect(loadResumeToken()).toBe('arena-1:tok-rotated');
+  });
+
+  it('clears the token when the welcome handshake fails — a half-open room is not resumable', async () => {
+    const pending = connect('tester');
+    await vi.waitFor(() => {
+      if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
+    });
+    queue.fire(MSG.seat, SEAT);
+    await vi.waitFor(() => {
+      if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
+    });
+    expect(loadResumeToken()).toBe('arena-1:tok-join'); // the join ack persisted it
+    room.fireError(500, 'boom');
+    await expect(pending).rejects.toThrow();
+    expect(loadResumeToken()).toBeNull();
+  });
+});
+
+describe('resumeConnection — the refresh resume (Story 6.7)', () => {
+  it('resolves NULL without touching the network when nothing is stored', async () => {
+    expect(await resumeConnection()).toBeNull();
+    expect(lastReconnectToken).toBeUndefined(); // no matchmake request at all
+  });
+
+  it('resolves NULL on a malformed stored token, without asking the SDK to throw', async () => {
+    sessionStorage.setItem(RESUME_TOKEN_KEY, 'garbage');
+    expect(await resumeConnection()).toBeNull();
+    expect(lastReconnectToken).toBeUndefined();
+  });
+
+  it('reconnects on the stored token and CONSUMES the re-sent welcome', async () => {
+    saveResumeToken('arena-1:stored');
+    const pending = resumeConnection();
+    await vi.waitFor(() => {
+      if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
+    });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    const conn = await pending;
+    expect(lastReconnectToken).toBe('arena-1:stored');
+    // The welcome is consumed HERE, before any Game exists: `welcome.sessionId`
+    // feeds createGameState, which is NOT idempotent, so it must never be fed
+    // into a live Game.
+    expect(conn?.welcome.sessionId).toBe('s');
+    expect(conn?.room).toBe(room);
+    // ...and the resumed room gets the SAME reconnect policy an ordinary join
+    // does, or the next in-page drop would run on the SDK's own defaults.
+    expect(conn?.room.reconnection.enabled).toBe(true);
+    expect(conn?.room.reconnection.maxRetries).toBe(RECONNECT_MAX_RETRIES);
+    // ...and the resume's own ack re-persisted the token it came back with.
+    expect(loadResumeToken()).toBe('arena-1:tok-join');
+  });
+
+  it('CLEARS a stale token and rejects, so the next reload cannot loop on it', async () => {
+    saveResumeToken('arena-1:expired');
+    reconnectRejection = new Error('reconnection token invalid or expired');
+    await expect(resumeConnection()).rejects.toThrow(/invalid or expired/);
+    expect(loadResumeToken()).toBeNull();
+  });
+
+  it('CLEARS the token when the resumed room never sends a welcome', async () => {
+    saveResumeToken('arena-1:stored');
+    const pending = resumeConnection();
+    await vi.waitFor(() => {
+      if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
+    });
+    room.fireLeave(1006);
+    await expect(pending).rejects.toThrow();
+    expect(loadResumeToken()).toBeNull();
+  });
+
+  it('captures a `results` that lands BEFORE the welcome — the resume ordering', async () => {
+    // Core awaits the reconnection deferred's resolve before calling
+    // `onReconnect`, so ArenaRoom's `lastResults` re-send goes out FIRST and the
+    // welcome second. `results` is a ONE-SHOT with no next tick to say it again,
+    // so a resume into the results window would otherwise never open the final
+    // table at all. bindRoom replays whatever this holder caught.
+    saveResumeToken('arena-1:stored');
+    const pending = resumeConnection();
+    await vi.waitFor(() => {
+      if (!room.has(MSG.results)) throw new Error('results handler not yet registered');
+    });
+    room.fire(MSG.results, { rows: [], winnerId: 'w' });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    const conn = await pending;
+    expect(conn?.early.results).toEqual({ rows: [], winnerId: 'w' });
+    expect(conn?.early.bound).toBe(false); // bindRoom has not attached yet
+  });
+
+  it('a failed resume has one plain sentence for the home status line, never a dead screen', () => {
+    const line = resumeFailedStatus();
+    expect(line.text).toBe(line.text.toUpperCase()); // the house register
+    expect(line.text).toContain('—'); // the two-part <STATE> — <REMEDY> grammar
+    expect(line.tone).toBe('info'); // an expired grace is ordinary, not a refusal
   });
 });

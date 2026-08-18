@@ -382,7 +382,13 @@ export function runWorstCaseScene(deps: StageDeps): StageHarness {
   const serverT = now + SCENE_EPOCH_MS;
   const { room, state } = makeRoom(world, serverT);
   const sink: FrameSink = { handler: () => undefined };
-  const conn: Connection = { room, welcome: sceneWelcome(map.radius, serverT), sink };
+  const conn: Connection = {
+    room,
+    welcome: sceneWelcome(map.radius, serverT), sink,
+    // Story 6.7's pre-bind capture: the staged scene has no server to re-send a
+    // one-shot, so it starts empty and already bound.
+    early: { results: null, bound: true },
+  };
 
   const game = deps.start(conn, map, OWN_CLASS);
   game.camera.snapTo(world.ownStart);

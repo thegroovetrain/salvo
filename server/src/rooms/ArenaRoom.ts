@@ -221,6 +221,21 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private lastResults: ResultsMsg | null = null;
   /** Per-client D1 ping/RTT state; entries live from first ping to teardown. */
   private readonly pings = new Map<string, PingState>();
+  /**
+   * Seats whose captain has gone but whose SCUTTLED hull is still in its Story
+   * 5.2 sinking window (Story 6.7, R5). The `PlayerMeta` row outlives the
+   * client on purpose: `Match.onPlayerLeave` sinks the hull, but the resulting
+   * `sunk` event is framed on a LATER tick, and every client resolves kill-feed
+   * names from the live roster at event time — deleting the row with the seat
+   * renders the departure as `UNKNOWN VESSEL`, which is exactly the "reads as
+   * an ordinary sinking" ruling failing. `alive` is not special-cased: it is
+   * projected from the hull's lifecycle by syncRoster, so a scuttled captain
+   * shows as a sinking captain, which is what they are. Released by
+   * releaseDeparted() once the hull is actually gone (Match.reapDeparted takes
+   * it at the founder edge), and unconditionally at dispose so a seat can never
+   * be held past the room.
+   */
+  private readonly departing = new Set<string>();
 
   // --- story 0.3 operability state -------------------------------------------
   /** Room-generated match identity (one match per room); '' until onCreate. */
@@ -759,6 +774,40 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return null;
   }
 
+  /**
+   * The WelcomeMsg payload, built identically for BOTH doors (Story 6.7): the
+   * join at `onJoin`, and the RE-SEND at `onReconnect` that lets a refreshed
+   * page render at all. Everything here is either per-seat-immutable
+   * (`sessionId`, `mapSeed`, `mapRadius`, `playerCap`, the two radar modes) or
+   * read live at send time (`t` off `this.world.now`), so the payload is valid
+   * mid-match on either path. Nothing phase-dependent belongs here — match
+   * phase, countdown, zone, roster and bounty all live in `ArenaState`, which
+   * core re-sends in full on the resume ack.
+   *
+   * NO WIRE CHANGE: this is the shipped message, byte-identical, reached from a
+   * second lifecycle hook (PROTOCOL_VERSION stays 40 — amendment-24 precedent,
+   * matching the MSG.results re-send in onDrop's resume branch).
+   *
+   * DELIBERATELY NOT a shared join helper: the ship-spawn half of onJoin
+   * (`world.addShip`, the roster row, the hue draw) must stay EXCLUSIVELY on
+   * the join path. Core calls onReconnect INSTEAD OF onJoin, and re-running any
+   * of it would spawn a second hull for one captain.
+   */
+  private buildWelcome(sessionId: string): WelcomeMsg {
+    return {
+      sessionId,
+      mapSeed: this.state.mapSeed,
+      mapRadius: this.world.map.radius,
+      playerCap: this.world.playerCap,
+      t: this.world.now,
+      config: CONFIG,
+      // The room's radar modes (amendment 63) — the ONLY place they travel;
+      // blips themselves are tagless and the client narrows on these.
+      radarGrammar: this.world.radarGrammar,
+      radarIdentity: this.world.radarIdentity,
+    };
+  }
+
   onJoin(client: Client, options: JoinOptions = {}): void {
     this.joinCounter += 1;
     // SECURITY (Story 2.3, deferred-work 127/130): options.name arrives verbatim
@@ -800,19 +849,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     meta.color = this.resolveJoinerHue(sanitizeColorPref(options.colorPref));
     this.state.players.set(client.sessionId, meta);
 
-    const welcome: WelcomeMsg = {
-      sessionId: client.sessionId,
-      mapSeed: this.state.mapSeed,
-      mapRadius: this.world.map.radius,
-      playerCap: this.world.playerCap,
-      t: this.world.now,
-      config: CONFIG,
-      // The room's radar modes (amendment 63) — the ONLY place they travel;
-      // blips themselves are tagless and the client narrows on these.
-      radarGrammar: this.world.radarGrammar,
-      radarIdentity: this.world.radarIdentity,
-    };
-    client.send(MSG.welcome, welcome);
+    client.send(MSG.welcome, this.buildWelcome(client.sessionId));
 
     this.match?.notifyRosterChanged();
 
@@ -821,6 +858,38 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // /liveness (Story 6.6): the population moved. Publish-on-change, so a room
     // whose roster is stable never writes to the driver again.
     this.publishListing();
+  }
+
+  /**
+   * Resume door (Story 6.7). Core calls this INSTEAD OF onJoin on the
+   * reconnection branch (verified in @colyseus/core 0.17.44 Room.mjs:693-701 —
+   * `isWaitingReconnection` short-circuits the onJoin path entirely), so the
+   * seat, the ship, the roster row, the hue and the input store all still exist
+   * and NOTHING here may re-create any of them: a second `world.addShip` would
+   * give one captain two hulls.
+   *
+   * All this does is RE-SEND the welcome. Until Story 6.7 the payload was
+   * unreachable outside onJoin, so a client whose JS heap died — a page refresh
+   * — resumed into a socket that would never tell it its own sessionId or the
+   * map seed, and could render nothing. An in-page resume gets it too (core
+   * makes no distinction) and ignores it idempotently.
+   *
+   * Sending to a still-RECONNECTING/JOINING client is safe: the message
+   * enqueues and flushes on the JOIN_ROOM ack, exactly like the MSG.results
+   * re-send in onDrop's resume branch.
+   *
+   * TOTAL BY CONSTRUCTION. Core wraps this rethrow-true (Room.mjs:1129-1130)
+   * and its own catch answers a throw with `_onLeave(FAILED_TO_RECONNECT)` — so
+   * an exception here does not degrade the resume, it ABORTS it. A captain who
+   * reconnected successfully must never lose the seat to a diagnostic failure,
+   * so this takes the warnQuietly posture every other room hook uses.
+   */
+  onReconnect(client: Client): void {
+    try {
+      client.send(MSG.welcome, this.buildWelcome(client.sessionId));
+    } catch (err) {
+      this.warnQuietly('client.resumeWelcomeFailed', err);
+    }
   }
 
   /**
@@ -881,9 +950,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    *   the old client RECONNECTED and skips onLeave entirely. Server side of a
    *   resume is otherwise a no-op: the same-Room client kept its listeners
    *   and per-tick frames resume via afterStep once the ack lands (state
-   *   JOINED), so no onReconnect hook and no welcome re-send are needed —
-   *   EXCEPT the one-time results broadcast (finding F2), re-sent below to a
-   *   captain who resumes during the results window.
+   *   JOINED). Two things the ack alone does NOT carry are re-sent by hand:
+   *   the one-time results broadcast (finding F2, below — a captain who
+   *   resumes during the results window missed it), and the welcome
+   *   (onReconnect, Story 6.7 — a PAGE REFRESH lost its JS heap and has no
+   *   sessionId or map seed to render with).
    * If the ship is sunk DURING the grace window, the pending reconnection is
    * left untouched — a resuming client lands in the normal post-death flow
    * (spectator frames), and Match.recordSink's dedupe keeps the real combat
@@ -973,14 +1044,40 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    *      generates fresh ids per seat reservation).
    */
   private teardown(sessionId: string): boolean {
+    // A seat already torn down and now holding its scuttled hull's window is
+    // DONE — this guard is what keeps teardown strictly idempotent while the
+    // roster row is deliberately still present.
+    if (this.departing.has(sessionId)) return false;
     if (!this.state.players.has(sessionId) && !this.world.ships.has(sessionId)) return false;
     // Match owns ship removal so a mid-match departure is recorded for
     // placement (sunk-at-leave-time) before the win check runs.
     if (this.match) this.match.onPlayerLeave(sessionId);
     else this.world.removeShip(sessionId);
-    this.state.players.delete(sessionId);
     this.pings.delete(sessionId); // D1 ping/RTT state dies with the seat
+    // THE SCUTTLE LEAVES THE HULL ON THE WATER (Story 6.7): when onPlayerLeave
+    // sank it rather than removing it, the roster row must outlive the seat
+    // until the wreck is reaped, or the `sunk` event framed next tick has no
+    // name to resolve. Every other departure still releases the row here.
+    if (this.world.ships.has(sessionId)) {
+      this.departing.add(sessionId);
+      return true;
+    }
+    this.state.players.delete(sessionId);
     return true;
+  }
+
+  /**
+   * Release seats whose scuttled hull has been reaped (Story 6.7). Runs every
+   * step, right after Match.reapDeparted() has had its chance at the founder
+   * edge — so the row survives exactly as long as the hull does, and no longer.
+   * `force` releases regardless (dispose): the seat is never held past the room.
+   */
+  private releaseDeparted(force = false): void {
+    for (const id of this.departing) {
+      if (!force && this.world.ships.has(id)) continue;
+      this.departing.delete(id);
+      this.state.players.delete(id);
+    }
   }
 
   /** Fixed-step accumulator: drain whole SIM_DTs, frame out after each step. */
@@ -1130,6 +1227,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * unless the tick-error path already claimed the shared abort guard.
    */
   onDispose(): void {
+    this.releaseDeparted(true); // no seat outlives the room, reaped or not
     if (this.match?.phase === 'active') this.emitMatchAbort('abandoned');
     this.metrics?.unregister();
     this.metrics = null;
@@ -1137,6 +1235,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   private afterStep(): void {
+    this.releaseDeparted(); // scuttled hulls reaped this tick free their seats
     this.syncRoster();
     this.syncZone();
     this.syncMatch();

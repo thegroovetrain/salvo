@@ -63,7 +63,7 @@ function ownFrame(x: number, y: number): unknown {
 function setup() {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
   const ownBufferClear = vi.fn();
   const forceSnap = vi.fn();
   const onDrop = vi.fn();
@@ -155,7 +155,7 @@ describe('bindRoom reconnect signals', () => {
 function setupChannels() {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
   const decoysSync = vi.fn();
   const deps = {
     // spectating:true so a spec frame's onSpectate branch is skipped (the
@@ -203,7 +203,7 @@ function eventFrame(event: unknown): unknown {
 function setupEvents(over: Record<string, unknown> = {}) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
   const onBurst = vi.fn();
   const spawnEffect = vi.fn();
   const onBoom = vi.fn();
@@ -302,7 +302,7 @@ describe('bindRoom own sunk', () => {
   it('reverts BOTH the engine order and the primed skillshot to the gun for the next life', () => {
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const resetThrottle = vi.fn();
     const resetPrime = vi.fn();
     const onSunkObserved = vi.fn();
@@ -352,7 +352,7 @@ describe('bindRoom own sunk', () => {
   it('HOLDS both resets while the hull is inside its sinking window', () => {
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const resetThrottle = vi.fn();
     const resetPrime = vi.fn();
     const onSunkObserved = vi.fn();
@@ -415,7 +415,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
   function setupEta(armed: boolean) {
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const state = {
       net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
       spectating: false, phase: '', respawnEta: null, killerId: null, mode: 'interp',
@@ -514,7 +514,7 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
   function setupSpawn() {
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const resetThrottle = vi.fn();
     const resetHonkCooldown = vi.fn();
     const onOwnSpawn = vi.fn();
@@ -598,7 +598,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     let pos = contactPos;
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const spawnEffect = vi.fn();
     const markSunk = vi.fn();
     // THE SINKING BEAT'S two new spatial seams (Story 5.2 fix): the
@@ -1028,7 +1028,7 @@ function rewardFrame(event: unknown, own: { alive: boolean; boons?: string[] } |
 function setupToasts(spectating = false) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
   const play = vi.fn();
   const onSpendAck = vi.fn();
   const onBoonFitted = vi.fn();
@@ -1273,7 +1273,7 @@ function setupWater(
 ) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
   // A ONE-SHOT stand-in for main.ts's latch (sim/ownFire.ts, pinned in its own
   // suite): claiming CONSUMES, so a second reveal in the same window gets null.
   let held: OwnFire = ownFire;
@@ -1907,7 +1907,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
   function setupPulses() {
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const onBlip = vi.fn();
     const onSmoke = vi.fn();
     const onHonk = vi.fn();
@@ -2408,10 +2408,13 @@ function msgRoom(): MsgRoom {
   };
 }
 
-function setupSignals() {
+/** `early` models Story 6.7's pre-bind capture: on a fresh-page resume the
+ *  server's one-shot `lastResults` re-send reaches the client BEFORE the welcome,
+ *  so it lands in the holder rather than on a binding that does not exist yet. */
+function setupSignals(early: { results: unknown; bound: boolean } = { results: null, bound: false }) {
   const room = msgRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const conn = { room, welcome: {}, sink, early } as unknown as Connection;
   const onRequeue = vi.fn();
   const onRoomLeave = vi.fn();
   const onResults = vi.fn();
@@ -2442,7 +2445,7 @@ function setupSignals() {
     onDrop,
   } as unknown as RoomBindingDeps;
   const unbind = bindRoom(conn, deps);
-  return { room, sink, unbind, onRequeue, onRoomLeave, onResults, onDrop, addSample };
+  return { room, sink, unbind, onRequeue, onRoomLeave, onResults, onDrop, addSample, deps, early };
 }
 
 describe('bindRoom — the requeue signal', () => {
@@ -2471,6 +2474,34 @@ describe('bindRoom — the requeue signal', () => {
     room.fireLeave(4000);
     expect(onRoomLeave).toHaveBeenCalledTimes(1);
     expect(onRequeue).not.toHaveBeenCalled();
+  });
+
+  // --- Story 6.7: the results that arrived before the binding did ------------
+
+  it('REPLAYS a `results` that landed before bindRoom attached (the resume ordering)', () => {
+    // Core awaits the reconnection deferred's resolve before calling
+    // `onReconnect`, so on a fresh-page resume ArenaRoom's `lastResults` re-send
+    // goes out FIRST and the welcome second — and the client cannot bind until
+    // the welcome has built the Game. `results` is a ONE-SHOT with no next tick
+    // to say it again, so without the replay a captain resuming into the results
+    // window would never see the final table at all.
+    const msg = { winnerId: 'a', rows: [] };
+    const { onResults, deps, early } = setupSignals({ results: msg, bound: false });
+    expect(onResults).toHaveBeenCalledTimes(1);
+    expect(onResults).toHaveBeenCalledWith(msg);
+    // Through the SAME two statements the live handler uses, so a replayed
+    // message and a live one cannot come to mean different things.
+    expect((deps as unknown as { state: { matchOver: boolean } }).state.matchOver).toBe(true);
+    // Consumed once: the slot is emptied and the capture stands down, so a later
+    // bind can never re-open a stale table.
+    expect(early.results).toBeNull();
+    expect(early.bound).toBe(true);
+  });
+
+  it('replays NOTHING when the holder is empty — the ordinary join is untouched', () => {
+    const { onResults, early } = setupSignals();
+    expect(onResults).not.toHaveBeenCalled();
+    expect(early.bound).toBe(true);
   });
 
   // The collapse's real shape on the wire: signal first, socket close a beat
@@ -2565,7 +2596,7 @@ describe('bindRoom — the disposer', () => {
       onReconnect: () => undefined,
     };
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
-    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const onRequeue = vi.fn();
     const deps = { state: { net: {}, matchOver: false }, onRequeue } as unknown as RoomBindingDeps;
 

@@ -29,8 +29,10 @@ import {
   type QueueStatusMsg,
   type RadarGrammar,
   type RadarIdentity,
+  type ResultsMsg,
   type WelcomeMsg,
 } from '@salvo/shared';
+import { clearResumeToken, loadResumeToken, saveResumeToken } from './resumeToken.js';
 
 /**
  * Deadline for the ARENA welcome handshake ONLY.
@@ -173,11 +175,36 @@ export interface FrameSink {
   handler: (f: FrameMsg) => void;
 }
 
+/**
+ * Messages that can land BEFORE `bindRoom` attaches (Story 6.7).
+ *
+ * The fresh-page resume registers its real bindings only once the welcome has
+ * resolved and the Game is built — but on a resume the server's `lastResults`
+ * re-send is dispatched from the reconnection deferred's `.then`, which core
+ * runs BEFORE it calls `onReconnect` (verified against @colyseus/core 0.17.44).
+ * So a captain resuming into the results window receives `results` and THEN
+ * `welcome`, and without this the re-send would land on no handler at all and
+ * the final table would simply never open.
+ *
+ * The frame channel has needed nothing equivalent since it has always routed
+ * through the mutable `FrameSink` — this is that same idea for a ONE-SHOT
+ * message, which cannot rely on the next tick to say it again.
+ */
+export interface EarlyMessages {
+  /** The last `MSG.results` seen before `bindRoom` attached, or null. */
+  results: ResultsMsg | null;
+  /** Set by bindRoom once the real binding owns the channel — from here this
+   *  holder stops recording, so nothing can read a stale one-shot back. */
+  bound: boolean;
+}
+
 export interface Connection {
   room: Room;
   welcome: WelcomeMsg;
   /** Every "f" frame flows through sink.handler — set by bindRoom(). */
   sink: FrameSink;
+  /** Pre-bind one-shot capture — see EarlyMessages. */
+  early: EarlyMessages;
 }
 
 /**
@@ -403,21 +430,45 @@ async function acquireArena(
 }
 
 /**
- * `solo: true` (Story 6.5) takes the queue-free door — see `createSoloArena`.
- * Everything after the room is acquired is identical for both modes: the same
- * arena room, the same welcome handshake, the same reconnect policy.
+ * THE TOKEN IS RE-WRITTEN ON EVERY ACK, NEVER ONCE AT CONNECT (Story 6.7,
+ * ruling R9). A successful in-page resume ROTATES `room.reconnectionToken`
+ * server-side, so a write-once client would carry a dead pre-resume token into
+ * the next refresh and fast-fail deterministically on a session that was fully
+ * entitled to resume — a half-resume double fault, and the single most likely
+ * way to get this feature subtly wrong.
+ *
+ * IT HANGS OFF THE FRAME CHANNEL RATHER THAN `room.onReconnect`, and that is
+ * not an arbitrary choice: the SDK invokes `onReconnect` INSIDE its JOIN_ROOM
+ * handler and assigns the rotated token on the LINE AFTER
+ * (@colyseus/sdk 0.17.43 `build/Room.mjs`), so an `onReconnect` handler reads
+ * the OLD token every time. Frames arrive as separate socket messages, strictly
+ * after that assignment, so reading here cannot see a stale value. It is also
+ * self-healing: 20 chances a second rather than one.
+ *
+ * The memo keeps it to a string compare on the hot path — sessionStorage is
+ * only written when the token actually changes, which is at most twice per
+ * drop.
  */
-export async function connect(
-  name?: string,
-  cls?: string,
-  hooks: ConnectHooks = {},
-  solo = false,
-): Promise<Connection> {
-  const client = new Client(wsEndpoint());
-  const opts = joinOptions(name, cls);
-  // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
-  // ARENA room, so bindRoom/buildGame see exactly what they always did.
-  const room = await acquireArena(client, opts, hooks, solo);
+function tokenPersister(room: Room): () => void {
+  let last = '';
+  return () => {
+    const token = room.reconnectionToken;
+    if (typeof token !== 'string' || token === last) return;
+    last = token;
+    saveResumeToken(token);
+  };
+}
+
+/**
+ * Everything the ARENA room needs that is identical for a fresh join and a
+ * fresh-page resume: the SDK reconnect policy, the frame sink, the ping echo,
+ * the pre-bind results capture and the resume-token persistence.
+ *
+ * Extracted for the resume path (Story 6.7) — a resumed room that skipped any
+ * of this would be a second, silently-diverging idea of what an arena
+ * connection is.
+ */
+function outfitArena(room: Room): { sink: FrameSink; early: EarlyMessages } {
   // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection
   // token (all onMessage bindings survive), landing on onReconnect. The server
@@ -436,23 +487,125 @@ export async function connect(
   room.reconnection.enabled = true;
   room.reconnection.maxRetries = RECONNECT_MAX_RETRIES;
   const sink: FrameSink = { handler: () => undefined };
-  room.onMessage(MSG.frame, (f: FrameMsg) => sink.handler(f));
+  const early: EarlyMessages = { results: null, bound: false };
+  const persistToken = tokenPersister(room);
+  persistToken(); // the join's own token, before a single frame has landed
+  room.onMessage(MSG.frame, (f: FrameMsg) => {
+    persistToken();
+    sink.handler(f);
+  });
+  // The one-shot `results` re-send can outrun bindRoom on a resume — see
+  // EarlyMessages. Harmless on the ordinary join path (nothing arrives before
+  // the binding, and the holder stops recording the moment it attaches).
+  room.onMessage(MSG.results, (msg: ResultsMsg) => {
+    if (!early.bound) early.results = msg;
+  });
   // App-level ping echo (D1 RTT measurement): the server pings on an interval;
   // echo the nonce back IMMEDIATELY so its round-trip is a clean RTT sample.
   // Registered here (pre-welcome, alongside the frame handler) so it is live as
   // early as possible after join and — like every onMessage binding — survives
   // the SDK's same-room auto-reconnect for the whole session. Stateless.
   room.onMessage(MSG.ping, (msg: PingMsg) => room.send(MSG.ping, { n: msg.n }));
+  return { sink, early };
+}
+
+/**
+ * Finish a connection: await the welcome, or tear the half-open room down.
+ *
+ * The token is cleared on failure by the same rule that governs every other
+ * failure in this story — a token we could not turn into a live session must
+ * never be tried again on the next reload.
+ */
+async function settleArena(room: Room, sink: FrameSink, early: EarlyMessages): Promise<Connection> {
   try {
     const welcome = await waitForWelcome(room);
-    return { room, welcome, sink };
+    return { room, welcome, sink, early };
   } catch (err) {
     // Welcome timed out or the room errored — we already joined, so leave to
     // avoid stranding an occupied room slot the client never uses. Best
     // effort: swallow any leave() failure and rethrow the original error.
+    clearResumeToken();
     void room.leave().catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * `solo: true` (Story 6.5) takes the queue-free door — see `createSoloArena`.
+ * Everything after the room is acquired is identical for both modes: the same
+ * arena room, the same welcome handshake, the same reconnect policy.
+ */
+export async function connect(
+  name?: string,
+  cls?: string,
+  hooks: ConnectHooks = {},
+  solo = false,
+): Promise<Connection> {
+  const client = new Client(wsEndpoint());
+  const opts = joinOptions(name, cls);
+  // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
+  // ARENA room, so bindRoom/buildGame see exactly what they always did.
+  const room = await acquireArena(client, opts, hooks, solo);
+  const { sink, early } = outfitArena(room);
+  return await settleArena(room, sink, early);
+}
+
+/**
+ * THE REFRESH RESUME (Story 6.7): a fresh page load taking the stored token
+ * back into the match it left.
+ *
+ * Resolves NULL when there is simply nothing to resume — no stored token, or one
+ * malformed enough that `Client.reconnect()` would throw on it. That is the
+ * ordinary boot, not a failure, and the caller opens the home screen.
+ *
+ * THROWS on a genuine failed resume: an expired token past the 60s grace, a
+ * disposed room, a redeployed server. That too is an ORDINARY OUTCOME — the
+ * caller lands on home with a plain explanation, never a dead screen and never a
+ * reload loop — but it is worth telling apart from "the player just opened the
+ * page", because only one of the two owes the player a sentence.
+ *
+ * The token is cleared before either throw: a token that failed once will fail
+ * the same way forever, and leaving it in place is exactly how a resume-retry
+ * loop is built.
+ *
+ * THE WELCOME IS CONSUMED HERE, BEFORE ANY `Game` EXISTS. `welcome.sessionId`
+ * feeds `createGameState`, which is NOT idempotent, so a welcome must never be
+ * fed into a live Game — and the in-page resume path keeps ignoring its own
+ * re-sent welcome exactly as it does today, because that one lands on the
+ * already-settled `waitForWelcome` promise (a `clearTimeout` on a dead timer and
+ * a `resolve()` on a settled promise: two no-ops).
+ */
+export async function resumeConnection(): Promise<Connection | null> {
+  const token = loadResumeToken();
+  if (token === null) return null;
+  const client = new Client(wsEndpoint());
+  let room: Room;
+  try {
+    room = await client.reconnect(token);
+  } catch (err) {
+    clearResumeToken();
+    throw err;
+  }
+  // Registered synchronously in this continuation, so no message the server
+  // sends after the JOIN_ROOM ack (the `results` re-send included) can outrun
+  // the handlers — a socket message is a fresh macrotask, and this is still the
+  // microtask that the reconnect promise resolved into.
+  const { sink, early } = outfitArena(room);
+  return await settleArena(room, sink, early);
+}
+
+/**
+ * The home status line for a resume that could not land (Story 6.7).
+ *
+ * The two-part `<STATE> — <REMEDY>` grammar every other denied/info line on this
+ * surface already uses (`VERSION MISMATCH — PLEASE REFRESH THE PAGE`, `QUEUE
+ * CLOSED — PLEASE TRY AGAIN`), and it goes out on the line EXPERIENCE.md already
+ * names for exactly this: *"failed connection surfaces on the home status line,
+ * never a dead screen"*. `info`, not `denied` — an expired grace is an ordinary
+ * outcome, not a rejection.
+ */
+export function resumeFailedStatus(): { text: string; tone: 'info' } {
+  return { text: 'COULD NOT REJOIN YOUR MATCH — BACK IN PORT', tone: 'info' };
 }
 
 /**

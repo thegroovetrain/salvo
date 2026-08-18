@@ -459,6 +459,11 @@ describe('match — active phase', () => {
     ctx.m.onPlayerLeave('b');
     expect(ctx.m.phase).toBe('active'); // a + c still afloat
     ctx.m.onPlayerLeave('c');
+    // The outcome latches the instant a is the sole afloat captain, but the
+    // scuttled b/c hulls (Story 6.7) are still in their sinking windows, so
+    // the transition to 'finished' waits (amendment 17 reversed).
+    expect(ctx.m.phase).toBe('active');
+    step(ctx, SINK_TICKS + 1); // both scuttled windows must run out first
     expect(ctx.m.phase).toBe('finished');
     expect(ctx.m.winnerId).toBe('a');
     expect(ctx.m.placements.get('a')).toBe(1);

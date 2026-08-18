@@ -569,6 +569,32 @@ function bindMessages(conn: Connection, deps: RoomBindingDeps, gate: Gate, undo:
       }),
     ),
   );
+  replayEarlyResults(conn, deps);
+}
+
+/**
+ * THE RESULTS RE-SEND THAT ARRIVED BEFORE US (Story 6.7).
+ *
+ * A fresh-page resume binds only once the welcome has resolved and the Game is
+ * built, but on a resume core runs the reconnection deferred's `.then` — which
+ * is where `ArenaRoom` re-sends `lastResults` — BEFORE it calls `onReconnect`,
+ * where the welcome goes out. So a captain resuming into the results window
+ * receives `results` first, and without this replay the final table would never
+ * open: `results` is a ONE-SHOT, with no next tick to say it again.
+ *
+ * Handled through the SAME two statements the live handler above uses, so the
+ * replayed message and a live one cannot mean different things. Consumed once —
+ * `bound` stops the capture recording from here, and the slot is emptied — so a
+ * later re-bind (the auto-requeue builds a fresh Connection anyway) can never
+ * re-open a stale table.
+ */
+function replayEarlyResults(conn: Connection, deps: RoomBindingDeps): void {
+  const pending = conn.early.results;
+  conn.early.bound = true;
+  conn.early.results = null;
+  if (!pending) return;
+  deps.state.matchOver = true;
+  deps.onResults(pending);
 }
 
 /** The four room SIGNALS: error/leave, plus Story 0.2's same-Room drop/resume

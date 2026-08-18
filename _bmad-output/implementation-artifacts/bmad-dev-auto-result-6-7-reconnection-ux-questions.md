@@ -4,7 +4,7 @@ blocking_condition: ''
 answered: '2026-08-18'
 rulings: 'R0 (match URL withdrawn) + R1-R13 — see §5. PROTOCOL_VERSION stays 40.'
 story: 'Story 6.7 — Reconnection UX'
-cycle: 101 (0.17.101 if landed)
+cycle: 102 (0.17.102 if landed)
 created: '2026-08-18'
 base: main @ 2652f90 (cycle 100, 0.17.100, PROTOCOL_VERSION 40)
 inputs:

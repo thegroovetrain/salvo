@@ -106,7 +106,35 @@ let pending: Promise<SessionLockHandle | null> | null = null;
 
 function hold(handle: SessionLockHandle): SessionLockHandle {
   held = handle;
+  bindUnloadRelease();
   return handle;
+}
+
+/**
+ * RELEASE THE PORT WHEN THIS PAGE GOES AWAY (Story 6.7).
+ *
+ * The Web Locks backend gets this free from the browser; the localStorage
+ * fallback did NOT, and that is a defect a refresh-resume walks straight into —
+ * a reloading tab would find its own ≤1s-old heartbeat still in the key and
+ * refuse ITSELF with `ALREADY AT SEA IN ANOTHER TAB`, at its own ghost. Calling
+ * it here on BOTH backends closes the reload window rather than merely
+ * surviving it.
+ *
+ * `persisted` is checked because a bfcache'd page can come BACK: releasing a
+ * lock we would then still be holding is the one direction this must not go.
+ * (A live WebSocket disqualifies bfcache in practice, so this is belt-and-
+ * braces — and fail-open is the module's standing doctrine either way.)
+ *
+ * Registered once, on the first hold, so a tab that never deploys attaches
+ * nothing.
+ */
+let unloadBound = false;
+function bindUnloadRelease(): void {
+  if (unloadBound || typeof window === 'undefined') return;
+  unloadBound = true;
+  window.addEventListener('pagehide', (ev: PageTransitionEvent) => {
+    if (!ev.persisted) releaseSessionLock();
+  });
 }
 
 /**
@@ -211,6 +239,23 @@ export function __resetSessionLockForTests(): void {
   pending = null;
 }
 
+/**
+ * Test-only: adopt this tab's identity NOW, from whatever sessionStorage is
+ * visible at this instant, and return it.
+ *
+ * It exists because `vi.resetModules()` — the suite's model of "a second tab" —
+ * gives each module instance its own module state but leaves them sharing the
+ * page's ONE sessionStorage, which real tabs do not. Left to lazy minting, two
+ * simulated tabs would read the same key and resolve to the SAME id, and the
+ * "a genuine second tab is still refused" guarantee would silently stop being
+ * tested. The suite calls this at tab-open time, having first cleared (a new
+ * tab) or preserved (the same tab reloading) `SESSION_TAB_KEY`.
+ */
+export function __adoptTabIdForTests(): string {
+  tabId = null;
+  return holderId();
+}
+
 // --- `?multi=1`, the dev escape ----------------------------------------------
 
 /** `?multi=1` in the URL. Read defensively: a hostile or absent `location` must
@@ -287,11 +332,46 @@ interface Heartbeat {
   ts: number;
 }
 
-/** This tab's holder id — random, and only ever compared for equality (nothing
- *  is authenticated here; it exists so a release cannot delete another tab's
- *  claim, and so a stale key can be told apart from our own). */
-function newHolderId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+/** sessionStorage key holding THIS TAB's identity (Story 6.7) — see holderId. */
+export const SESSION_TAB_KEY = 'hullcracker.tab';
+
+/** In-memory fallback for the tab id when sessionStorage cannot persist it, so
+ *  two acquires inside one page still agree about who they are. */
+let tabId: string | null = null;
+
+/**
+ * THIS TAB's holder id — random, and only ever compared for equality (nothing is
+ * authenticated here; it exists so a release cannot delete another tab's claim,
+ * and so a stale key can be told apart from our own).
+ *
+ * IT LIVES IN `sessionStorage`, which is what makes a REFRESH work (Story 6.7).
+ * sessionStorage survives a reload and is scoped per tab, so the reloaded page
+ * recognises the heartbeat its own predecessor left behind and takes the port
+ * over instead of refusing itself — while a genuine SECOND TAB, which gets a
+ * fresh sessionStorage and therefore a different id, is still refused exactly as
+ * before. (The resume token uses the same store for the same reason: refresh
+ * yes, second tab no.)
+ */
+function holderId(): string {
+  if (tabId !== null) return tabId;
+  try {
+    const stored = sessionStorage.getItem(SESSION_TAB_KEY);
+    if (stored !== null && stored !== '') {
+      tabId = stored;
+      return stored;
+    }
+  } catch {
+    // blocked/private-mode storage — fall through to a session-lifetime id
+  }
+  const minted = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  tabId = minted;
+  try {
+    sessionStorage.setItem(SESSION_TAB_KEY, minted);
+  } catch {
+    // not persisted: a refresh will mint a new id and fall back to the stale
+    // timeout, which is the pre-6.7 behaviour rather than a new failure
+  }
+  return minted;
 }
 
 /** The stored heartbeat, or null when the key is absent, malformed or a shape
@@ -327,9 +407,14 @@ function writeHeartbeat(beat: Heartbeat): void {
  * fallback for a browser without Web Locks, and it is hygiene either way.
  */
 function acquireStorageLock(): SessionLockHandle | null {
+  const id = holderId();
   const existing = readHeartbeat();
-  if (existing !== null && Date.now() - existing.ts < SESSION_STALE_MS) return null;
-  const id = newHolderId();
+  // A live claim refuses us — UNLESS it is OUR OWN, left in the key by this same
+  // tab before a reload (Story 6.7). Without this clause a refresh-resume
+  // deterministically refuses itself at its own ghost, since the heartbeat it is
+  // reading is at most SESSION_HEARTBEAT_MS old. A second TAB has a different
+  // sessionStorage and therefore a different id, so it is still refused.
+  if (existing !== null && existing.id !== id && Date.now() - existing.ts < SESSION_STALE_MS) return null;
   writeHeartbeat({ id, ts: Date.now() });
   const timer = setInterval(() => beat(id), SESSION_HEARTBEAT_MS);
   return { release: () => releaseStorageLock(timer, id) };

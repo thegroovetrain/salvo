@@ -763,7 +763,7 @@ function setupHonk(over: Record<string, unknown> = {}) {
     onDrop: () => undefined,
     onReconnect: () => undefined,
   };
-  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
   const playHorn = vi.fn();
   const spawnEffect = vi.fn();
   const onHonk = vi.fn();
