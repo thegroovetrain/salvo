@@ -4,10 +4,12 @@
 // aborts rather than touch a listener it didn't start), then proves, over live
 // @colyseus/sdk sockets, that the route's numbers actually MOVE with the rooms:
 //
-//   1. IDLE — HTTP 200 and the exact documented shape, with the honest zero the
-//      story is about: playersOnline 0, liveGames 0, queue null (no room ==
-//      empty queue, never an error), both mode buckets zeroed. `serverNow` is a
-//      real epoch, checked against this process's own clock.
+//   1. IDLE — HTTP 200, `Cache-Control: no-store`, and the exact documented
+//      shape, with the honest zero the story is about: playersOnline 0,
+//      liveGames 0, and an EMITTED queue block reading pooled 0 / min / cap /
+//      deadlineAt null (no room == empty queue, answered by the server rather
+//      than guessed at by the client), both mode buckets zeroed. `serverNow` is
+//      a real epoch, checked against this process's own clock.
 //   2. UNARMED QUEUE — one captain queues. pooled 1, deadlineAt NULL. The null
 //      is load-bearing: a countdown that cannot fire is exactly what the queue
 //      policy forbids showing, and the endpoint must not invent one.
@@ -19,6 +21,12 @@
 //      SAME NUMBER. That is the observable consequence of stamping it once per
 //      cohort, which is what lets the queue publish its listing ON CHANGE
 //      instead of writing to the matchmaker driver once a second forever.
+//   4b. THE POOL DRAINS — a captain leaves an ARMED pool. `queueStep` keeps the
+//      arm (frozen policy: a deadline later joins could extend is a
+//      hostage-cycling vector), so the countdown would keep running toward a
+//      form the policy will refuse. The route must publish deadlineAt NULL
+//      while pooled < min — and republish the SAME instant, unmoved, when the
+//      pool refills.
 //   5. SOLO ARENA — a `create('arena', {solo:true})` room appears as ONE live
 //      game with ONE player, split into modes.soloVsAi. This is the humans-only
 //      rule at its sharpest: nineteen bots are afloat in that room and NONE of
@@ -32,7 +40,16 @@
 // WHY THE CAPTAINS NEVER FORM A MATCH: CONFIG.match.minHumans is 2 and the pool
 // then holds for CONFIG.match.queueTimerMs (2:00), which is not overridable
 // (StandardQueueRoom accepts no dev room options). Two captains therefore sit
-// armed for the whole smoke, which is exactly the state steps 3-4 need.
+// armed for the whole smoke, which is exactly the state steps 3-6 need.
+//
+// THAT MARGIN IS NOW ASSERTED, NOT ASSUMED. Steps 4-6 all depend on the cohort
+// armed in step 3 still being armed, and the only thing standing between them
+// and a mystery failure was the gap between the smoke's own runtime (~20-40s,
+// most of it deliberate sleeps past the 2s cache) and the 2:00 cohort timer. A
+// future step, a slower box or a longer sleep could quietly eat it. So the
+// smoke stamps the arm and, at the end, FAILS if it used more than
+// ARM_MARGIN_FRACTION of the cohort's life — a loud, diagnosable failure that
+// names the real cause instead of a confusing "the pool disarmed".
 //
 // Then kills its own server process group and verifies port 2607 is free — a
 // leaked listener FAILS the smoke (nonzero exit), it doesn't just warn.
@@ -58,6 +75,9 @@ const CAP = CONFIG.map.playerCap; // 20
 const CACHE_MS = 2000;
 /** Comfortably past the cache window, so a poll is guaranteed fresh. */
 const PAST_CACHE_MS = CACHE_MS + 600;
+/** The share of CONFIG.match.queueTimerMs the smoke may consume between arming
+ *  the cohort (step 3) and its last assertion about it (step 6). */
+const ARM_MARGIN_FRACTION = 0.5;
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -114,7 +134,7 @@ function killServer(proc, signal) {
 async function fetchLiveness() {
   const res = await fetch(livenessUrl);
   const body = await res.json();
-  return { status: res.status, body };
+  return { status: res.status, body, headers: res.headers };
 }
 
 /** Assert the payload has the exact documented shape (types, not values). */
@@ -129,7 +149,10 @@ function assertShape(body, where) {
     assert(typeof body.modes[key].players === 'number', `${where}: modes.${key}.players not numeric`);
     assert(typeof body.modes[key].games === 'number', `${where}: modes.${key}.games not numeric`);
   }
-  assert(body.queue === null || typeof body.queue === 'object', `${where}: queue neither null nor object`);
+  // `| null` survives in the TYPE (an older server, a proxy), but OUR server
+  // must never emit it — the client would otherwise have to invent the
+  // threshold, which is exactly what F7 deleted.
+  assert(body.queue !== null && typeof body.queue === 'object', `${where}: queue must be an emitted block, never null`);
   if (body.queue !== null) {
     for (const key of ['pooled', 'min', 'cap']) {
       assert(typeof body.queue[key] === 'number', `${where}: queue.${key} not numeric`);
@@ -215,31 +238,42 @@ async function step(label, ms, fn) {
 
 /** Step 1: an idle server reports an honest zero in the documented shape. */
 async function proveIdle() {
-  const { status, body } = await fetchLiveness();
+  const { status, body, headers } = await fetchLiveness();
   assert(status === 200, `idle /liveness status ${status}`);
   assertShape(body, 'idle');
+  // A caching proxy holding one response would freeze PLAYERS ONLINE for a
+  // whole session and pin the ABSOLUTE deadlineAt at 0:00 forever.
+  const cacheControl = headers.get('cache-control');
+  assert(
+    typeof cacheControl === 'string' && cacheControl.includes('no-store'),
+    `/liveness must send Cache-Control: no-store, got ${JSON.stringify(cacheControl)}`,
+  );
   assert(body.playersOnline === 0, `idle playersOnline should be 0, got ${body.playersOnline}`);
   assert(body.liveGames === 0, `idle liveGames should be 0, got ${body.liveGames}`);
-  assert(body.queue === null, `idle queue should be null (no room), got ${JSON.stringify(body.queue)}`);
+  // The EMPTY-SERVER answer comes from the server, never from a client literal.
+  assert(body.queue.pooled === 0, `idle queue.pooled should be 0, got ${body.queue.pooled}`);
+  assert(body.queue.min === MIN, `idle queue.min should be ${MIN}, got ${body.queue.min}`);
+  assert(body.queue.cap === CAP, `idle queue.cap should be ${CAP}, got ${body.queue.cap}`);
+  assert(body.queue.deadlineAt === null, `idle queue published a deadline: ${body.queue.deadlineAt}`);
   assert(body.modes.standard.games === 0 && body.modes.soloVsAi.games === 0, 'idle mode split not zeroed');
   // serverNow is an EPOCH the client subtracts from its own Date.now() to get a
   // skew offset — a monotonic source here would be silently, badly wrong.
   const skew = Math.abs(body.serverNow - Date.now());
   assert(skew < 60_000, `serverNow does not look like an epoch (off by ${skew}ms from ours)`);
-  // `metricsRoutes.extend()` must COMPOSE, not replace: /metrics is an ops
-  // route someone is watching, and a router mounted over it would 404 silently.
+  // ONE router now carries BOTH endpoints (so @colyseus/playground's
+  // __globalEndpoints lists /liveness too). /metrics is an ops route someone is
+  // watching: it must stay byte-identical in behaviour, not merely still exist.
   const ops = await fetch(`http://localhost:${PORT}/metrics`);
-  assert(ops.status === 200, `/metrics regressed to status ${ops.status} — .extend() replaced the router instead of composing it`);
+  assert(ops.status === 200, `/metrics regressed to status ${ops.status} — the router stopped serving it`);
   const opsBody = await ops.json();
   assert(typeof opsBody.rooms === 'number', '/metrics no longer returns its own payload');
-  return `idle: 200, shape ok, playersOnline=0 liveGames=0 queue=null, serverNow within ${skew}ms of ours; /metrics still 200`;
+  return `idle: 200 + no-store, shape ok, playersOnline=0 liveGames=0 queue={pooled:0,min:${MIN},cap:${CAP},deadlineAt:null}, serverNow within ${skew}ms of ours; /metrics still 200`;
 }
 
 /** Step 2: one queued captain — pooled 1, NO countdown. */
 async function proveUnarmed(a) {
   await waitFor(() => last(a) !== null, 8000, 'first queueStatus');
   const body = await pollFresh('unarmed');
-  assert(body.queue !== null, 'a queue room exists but /liveness reported queue=null');
   assert(body.queue.pooled === 1, `unarmed pooled=${body.queue.pooled}, expected 1`);
   assert(body.queue.min === MIN, `queue.min=${body.queue.min}, expected ${MIN}`);
   assert(body.queue.cap === CAP, `queue.cap=${body.queue.cap}, expected ${CAP}`);
@@ -260,7 +294,6 @@ async function proveArmed(a, b) {
     'both captains see an armed pool',
   );
   const body = await pollFresh('armed');
-  assert(body.queue !== null, 'armed: queue=null');
   assert(body.queue.pooled === 2, `armed pooled=${body.queue.pooled}, expected 2`);
   assert(typeof body.queue.deadlineAt === 'number', 'an ARMED pool published deadlineAt=null');
   const remaining = body.queue.deadlineAt - body.serverNow;
@@ -284,12 +317,44 @@ async function proveArmed(a, b) {
 /** Step 4: the deadline is stamped ONCE per cohort — it must not drift. */
 async function proveDeadlineStable(first) {
   const body = await pollFresh('stable');
-  assert(body.queue !== null && typeof body.queue.deadlineAt === 'number', 'stable: the pool disarmed');
+  assert(typeof body.queue.deadlineAt === 'number', 'stable: the pool disarmed');
   assert(
     body.queue.deadlineAt === first,
     `deadlineAt drifted ${body.queue.deadlineAt - first}ms between polls — it must be stamped once per cohort (a drifting value would also mean a driver write every tick)`,
   );
   return `deadline stable across a ${PAST_CACHE_MS}ms gap: ${first} both times`;
+}
+
+/**
+ * Step 4b: an ARMED pool drains below min.
+ *
+ * `queueStep` clears `armedAtMs` only when a match FORMS, never when the pool
+ * drains — frozen policy (a deadline later joins could extend is a
+ * hostage-cycling vector). So the pool below stays armed underneath while being
+ * unable to form, and the ROUTE must stop publishing the countdown: the home
+ * screen otherwise read `1 QUEUED · STARTS 1:50`, ticked to `0:00`, and stuck
+ * there forever with no match possible.
+ *
+ * Refilling must republish the SAME instant, unmoved — which is also the proof
+ * that this is a publishing decision and not a policy change.
+ */
+async function proveDrainAndRefill(leaving, rejoin, armedDeadline) {
+  await leaveQuietly(leaving.queue);
+  const drained = await pollFresh('drained');
+  assert(drained.queue.pooled === 1, `drained pooled=${drained.queue.pooled}, expected 1`);
+  assert(
+    drained.queue.deadlineAt === null,
+    `an armed pool that fell BELOW min still published a countdown (${drained.queue.deadlineAt}) — it can never fire`,
+  );
+  const back = await rejoin();
+  await waitFor(() => last(back) !== null, 8000, 'the replacement captain is pooled');
+  const refilled = await pollFresh('refilled');
+  assert(refilled.queue.pooled === 2, `refilled pooled=${refilled.queue.pooled}, expected 2`);
+  assert(
+    refilled.queue.deadlineAt === armedDeadline,
+    `the cohort's deadline MOVED across the drain (${refilled.queue.deadlineAt} vs ${armedDeadline}) — armedAtMs must survive, only its publication stops`,
+  );
+  return `drain: pooled 2->1 published deadlineAt=null; refill 1->2 republished the SAME deadline ${armedDeadline}`;
 }
 
 /** Step 5: a solo arena is 1 player / 1 game, split into soloVsAi. */
@@ -358,15 +423,26 @@ async function main() {
     }));
 
     let armedDeadline = null;
+    let armedAtWall = 0;
     log.push(await step('3 armed queue', 30000, async () => {
       captains.push(await queueUp('BRAVO'));
       const line = await proveArmed(captains[0], captains[1]);
       const { body } = await fetchLiveness();
       armedDeadline = body.queue.deadlineAt;
+      armedAtWall = Date.now(); // everything below rides THIS cohort's timer
       return line;
     }));
 
     log.push(await step('4 deadline stable', 30000, () => proveDeadlineStable(armedDeadline)));
+
+    log.push(await step('4b drain below min', 40000, async () => {
+      const bravo = captains.pop(); // leaves the pool inside the proof
+      return proveDrainAndRefill(bravo, async () => {
+        const c = await queueUp('DELTA');
+        captains.push(c);
+        return c;
+      }, armedDeadline);
+    }));
 
     log.push(await step('5 solo arena', 60000, async () => {
       solo = await soloUp('SOLO-1');
@@ -378,6 +454,25 @@ async function main() {
       captains.push(c);
       return c;
     })));
+
+    // THE MARGIN, ASSERTED. Steps 4-6 all rest on the step-3 cohort still being
+    // armed; that only holds because the smoke's own runtime is far under
+    // CONFIG.match.queueTimerMs, and nothing used to say so. Fail loudly, and
+    // name the cause, rather than let a future step turn this into a mystery.
+    log.push(await step('7 cohort margin', 20000, async () => {
+      const used = Date.now() - armedAtWall;
+      const budget = CONFIG.match.queueTimerMs * ARM_MARGIN_FRACTION;
+      assert(
+        used < budget,
+        `the smoke used ${used}ms of the cohort's ${CONFIG.match.queueTimerMs}ms timer (budget ${budget}ms) — steps 4-6 assume it stays armed; shorten the run or re-arm a fresh cohort`,
+      );
+      const { body } = await fetchLiveness();
+      assert(
+        typeof body.queue.deadlineAt === 'number',
+        'the cohort disarmed before the last assertion — the margin above is the thing that failed',
+      );
+      return `margin: used ${Math.round(used / 1000)}s of the ${Math.round(CONFIG.match.queueTimerMs / 1000)}s cohort timer (budget ${Math.round(budget / 1000)}s), still armed`;
+    }));
 
     console.log('LIVENESS SMOKE OK:', { trace: log });
   } finally {

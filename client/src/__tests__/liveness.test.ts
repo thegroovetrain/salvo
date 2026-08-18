@@ -287,3 +287,75 @@ describe('startLivenessPoll', () => {
     expect(calls).toBeGreaterThanOrEqual(2);
   });
 });
+
+// =============================================================================
+// REVIEW-GATE REGRESSIONS (Story 6.6, second pass)
+// =============================================================================
+
+describe('fetchLiveness — never served from a cache (F8)', () => {
+  it('asks for `no-store`, so a replayed response cannot freeze the register', async () => {
+    // Every figure in the payload is live population, and `queue.deadlineAt` is
+    // an ABSOLUTE epoch — a response replayed out of the HTTP cache would pin
+    // the countdown at 0:00 for the rest of the session. The server sends the
+    // header; this is the same instruction from the other end, because an
+    // intermediary that ignores one may still honour the other.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchLiveness();
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.cache).toBe('no-store');
+  });
+});
+
+describe('fetchLiveness — an external cancel (F13)', () => {
+  it('resolves null WITHOUT fetching at all when the signal is already aborted', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
+    vi.stubGlobal('fetch', fetchMock);
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(fetchLiveness(4000, ctrl.signal)).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves null (never throws) when aborted mid-flight', async () => {
+    vi.stubGlobal('fetch', (_url: string, init: { signal: AbortSignal }) => new Promise((_res, rej) => {
+      init.signal.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')));
+    }));
+    const ctrl = new AbortController();
+    const p = fetchLiveness(4000, ctrl.signal);
+    ctrl.abort();
+    await expect(p).resolves.toBeNull();
+  });
+});
+
+describe('startLivenessPoll.stop — aborts the request in the air (F13)', () => {
+  it('aborts the signal it handed to fetch, rather than only suppressing the reply', async () => {
+    // Suppressing the callback was never the same as cancelling: a player who
+    // enters the port, deploys, is bounced back and repeats on a slow server
+    // accumulated abandoned requests, each holding a socket to its own 4s
+    // timeout and then being parsed and thrown away.
+    const seen: { signal: AbortSignal | null } = { signal: null };
+    vi.stubGlobal('fetch', (_url: string, init: { signal: AbortSignal }) => {
+      seen.signal = init.signal;
+      return new Promise(() => undefined); // a server that never answers
+    });
+    const poll = startLivenessPoll(() => undefined);
+    await vi.waitFor(() => expect(seen.signal).not.toBeNull());
+    expect(seen.signal?.aborted).toBe(false);
+    poll.stop();
+    expect(seen.signal?.aborted).toBe(true);
+  });
+
+  it('is idempotent and safe after the request already settled', async () => {
+    const seen: Array<LivenessPayload | null> = [];
+    const poll = startLivenessPoll((p) => seen.push(p), {
+      fetchOnce: async () => payload(),
+      now: () => 900_000,
+    });
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(() => {
+      poll.stop();
+      poll.stop();
+    }).not.toThrow();
+  });
+});

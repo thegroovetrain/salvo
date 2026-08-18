@@ -4140,15 +4140,42 @@ let homeRef: HomeHandle | null = null;
  */
 let livenessPoll: LivenessPoll | null = null;
 
-function stopHomeLiveness(): void {
+/** Tear down the poll itself (and abort whatever it has in the air). Used on
+ *  its own only where a NEW poll is about to repaint the same surfaces. */
+function stopLivenessPoll(): void {
   livenessPoll?.stop();
   livenessPoll = null;
 }
 
+/**
+ * Stand the whole liveness surface down: stop the poll AND clear the paint.
+ *
+ * Clearing is not tidiness, it is the reason the poll stops. Stopping the poll
+ * alone left the LAST payload frozen on the buttons, and `Home`'s own 1 Hz
+ * countdown tick is cleared only by `hide()` — which is not reached until
+ * `connect()` resolves, i.e. after the ENTIRE pooled wait, up to 2:00. So a
+ * queued captain sat watching the live `QUEUED n CAPTAINS · DEPLOY IN m:ss`
+ * status line while the SOLO button above it counted down a payload that had
+ * been dead since the moment they pressed it. At beta population the first
+ * captain in the pool got the worst version of that: `0 QUEUED · NEEDS 2 TO
+ * START` on the button, directly above a line saying they were queued in it.
+ *
+ * `setLiveness(null)` is the module's own "unavailable" value, so it clears the
+ * top-left register and both sub-lines through the same path an outage takes —
+ * and, because `retickLiveness` reads armed-ness off that payload, it stops the
+ * 1 Hz tick as a consequence rather than as a second thing to remember.
+ */
+function stopHomeLiveness(home: HomeHandle): void {
+  stopLivenessPoll();
+  home.setLiveness(null);
+}
+
 /** Start (or restart) the home's liveness poll against a live HomeHandle. Any
- *  previous poll is stopped first, so a re-entered port never runs two. */
+ *  previous poll is stopped first, so a re-entered port never runs two — but
+ *  the PAINT is left standing, since the new poll is about to replace it and a
+ *  blink through "unavailable" would be a flicker with no meaning. */
 function startHomeLiveness(home: HomeHandle): void {
-  stopHomeLiveness();
+  stopLivenessPoll();
   livenessPoll = startLivenessPoll((payload) => home.setLiveness(payload));
 }
 
@@ -4359,9 +4386,11 @@ async function startGame(
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
-  // Story 6.6: the player has committed, so the home's liveness poll stands
-  // down. From here the queue's own pushed status line owns the wait.
-  stopHomeLiveness();
+  // Story 6.6: the player has committed, so the home's liveness surface stands
+  // down — poll AND paint. From here the queue's own pushed status line owns
+  // the wait, and a second, slower, cruder copy of the same number on the
+  // button behind it would just contradict it.
+  stopHomeLiveness(home);
   if (!(await claimPortForDeploy(home))) {
     startHomeLiveness(home); // another tab is at sea; this home stays live + informed
     return;

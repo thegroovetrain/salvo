@@ -220,6 +220,22 @@ export class StandardQueueRoom extends Room {
    *
    * Because `armedAtMs` never moves within a cohort (see QueueState.armedAtMs),
    * a stamp keyed on it is stable until a match forms and the next cohort arms.
+   *
+   * A DEADLINE THAT CANNOT FIRE IS NOT A DEADLINE, so it is not published.
+   * `queueStep` deliberately clears `armedAtMs` only when a match FORMS, never
+   * when the pool drains (that is the anti-hostage-cycling rule — a deadline
+   * later joins could extend is a griefing vector, and it is POLICY, frozen).
+   * The consequence for a PUBLISHER is that an armed pool of 2 that drops to 1
+   * keeps counting down toward a form `queueStep` will refuse: the home screen
+   * would read `1 QUEUED · STARTS 1:50`, tick to `0:00`, and stick there
+   * forever. So the publishing decision is taken here — below `min`, publish no
+   * deadline (epic-6 amendment 4: "the queue does not run a countdown that
+   * cannot fire") — while the policy stays byte-identical.
+   *
+   * The stamp itself is NOT cleared on the way down: `armedAtMs` did not move,
+   * so the cohort's deadline did not move, and re-publishing the SAME number
+   * when the pool refills is both the honest answer and what keeps the
+   * publish-on-change rule from writing to the driver on every dip.
    */
   private resolveDeadlineAt(decision: QueueDecision): number | null {
     if (decision.armedAtMs === null || decision.startsInMs === null) {
@@ -231,6 +247,7 @@ export class StandardQueueRoom extends Room {
       this.deadlineArmedAtMs = decision.armedAtMs;
       this.deadlineAt = Date.now() + decision.startsInMs;
     }
+    if (this.pool.length < this.cfg.minHumans) return null;
     return this.deadlineAt;
   }
 

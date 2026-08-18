@@ -113,24 +113,45 @@ export function localizeDeadline(p: LivenessPayload, receivedAtMs: number): Live
 
 // --- the fetch + poll --------------------------------------------------------
 
-/** One best-effort read of `/liveness`. Resolves the RAW (server-clock) payload
- *  or `null` for every failure mode. Never rejects. */
-export async function fetchLiveness(timeoutMs = DEFAULT_TIMEOUT_MS): Promise<LivenessPayload | null> {
+/**
+ * One best-effort read of `/liveness`. Resolves the RAW (server-clock) payload
+ * or `null` for every failure mode — including an abort. Never rejects.
+ *
+ * `cancel` is the CALLER's abort signal, distinct from the internal timeout: a
+ * poll that is torn down (the player pressed SOLO, the home went away) must be
+ * able to drop the request it is already waiting on, not merely decline to
+ * schedule the next one. See `startLivenessPoll.stop`.
+ *
+ * `cache: 'no-store'` for the same reason the server sends the header: every
+ * figure here is live population, and `queue.deadlineAt` is an ABSOLUTE epoch,
+ * so a response replayed out of the HTTP cache would freeze the register and
+ * pin the countdown. Belt to the server's braces — an intermediary that ignores
+ * one may still honour the other.
+ */
+export async function fetchLiveness(
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  cancel?: AbortSignal,
+): Promise<LivenessPayload | null> {
+  if (cancel?.aborted) return null;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const abort = (): void => ctrl.abort();
+  cancel?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
   try {
-    const res = await fetch(livenessUrl(), { method: 'GET', signal: ctrl.signal });
+    const res = await fetch(livenessUrl(), { method: 'GET', cache: 'no-store', signal: ctrl.signal });
     if (!res.ok) return null;
     return parseLiveness(await res.json());
   } catch {
     return null; // network error, abort, or a body that is not JSON
   } finally {
     clearTimeout(timer);
+    cancel?.removeEventListener('abort', abort);
   }
 }
 
 export interface LivenessPoll {
-  /** Stop polling and suppress any in-flight response. Idempotent. */
+  /** Stop polling, ABORT any in-flight request, and suppress its response.
+   *  Idempotent. */
   stop(): void;
 }
 
@@ -156,7 +177,14 @@ export function startLivenessPoll(
   opts: LivenessPollOpts = {},
 ): LivenessPoll {
   const intervalMs = opts.intervalMs ?? DEFAULT_POLL_MS;
-  const fetchOnce = opts.fetchOnce ?? ((): Promise<LivenessPayload | null> => fetchLiveness(opts.timeoutMs));
+  // ONE controller for the whole poll: `stop()` aborts whatever is in the air.
+  // Without it a player who enters the port, deploys, is bounced back, and
+  // repeats on a slow server accumulates abandoned requests, each living to its
+  // own 4s timeout — the socket is held, and the response is parsed and thrown
+  // away. Suppressing the callback (below) was never the same as cancelling.
+  const cancel = new AbortController();
+  const fetchOnce = opts.fetchOnce
+    ?? ((): Promise<LivenessPayload | null> => fetchLiveness(opts.timeoutMs, cancel.signal));
   const now = opts.now ?? ((): number => Date.now());
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
@@ -183,6 +211,11 @@ export function startLivenessPoll(
       stopped = true;
       if (timer !== null) clearTimeout(timer);
       timer = null;
+      // Safe after the request has already settled (abort on a done fetch is a
+      // no-op) and safe to repeat — and the abort surfaces in `fetchLiveness`'s
+      // catch, so it resolves to "unavailable" exactly like an outage, which
+      // `stopped` then suppresses rather than painting.
+      cancel.abort();
     },
   };
 }

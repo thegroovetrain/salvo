@@ -8,6 +8,8 @@
 // sub-line, and the callsign field + chip are TINTED with the ensured personal
 // hue (which a pick in the bay repaints live).
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   homeYieldStyle,
@@ -331,8 +333,37 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     expect(playButton().style.boxShadow).not.toBe(''); // the primary's glow
     expect((playButton().firstElementChild as HTMLElement).style.color).toBe('var(--hc-amber)');
     // Both boxes are the same shape — the ONLY difference is lit vs unlit.
-    expect(playButton().style.height).toBe(soloButton().style.height);
-    expect(playButton().style.width).toBe(soloButton().style.width);
+    //
+    // REVISED (F10): the shipped pin compared `style.height`, which is `''` on
+    // both buttons (neither pins a height — they HUG, see the container-fit
+    // block below), so it passed vacuously while the two buttons genuinely
+    // differed in rendered height before the first payload landed: one carried
+    // a sub-line and one did not. Since F9 both reserve the slot permanently,
+    // so the shape really is shared and can be asserted on the properties that
+    // actually carry it.
+    const shape = (b: HTMLButtonElement): Record<string, string> => ({
+      width: b.style.width,
+      maxWidth: b.style.maxWidth,
+      minHeight: b.style.minHeight,
+      padding: b.style.padding,
+      boxSizing: b.style.boxSizing,
+      borderRadius: b.style.borderRadius,
+      borderWidth: b.style.borderWidth,
+      borderStyle: b.style.borderStyle,
+      display: b.style.display,
+      flexDirection: b.style.flexDirection,
+      alignItems: b.style.alignItems,
+      justifyContent: b.style.justifyContent,
+      // The sub-line slot is part of the shape: both buttons hold one, always
+      // in flow, so availability of the queue count cannot make them differ.
+      subline: sublineOf(b).style.display,
+      children: String(b.children.length),
+    });
+    expect(shape(playButton())).toEqual(shape(soloButton()));
+    expect(shape(playButton()).minHeight).toBe('64px'); // not vacuous: real values
+    expect(shape(playButton()).subline).toBe('block');
+    // ...and the whole difference between them is which register they wear.
+    expect(playButton().style.borderColor).not.toBe(soloButton().style.borderColor);
   });
 
   it('carries NO ⏎ chip — Enter is bound to the SOLO primary only', () => {
@@ -866,10 +897,42 @@ describe("queueButtonSubline — the SOLO door's live sub-line", () => {
     expect(queueButtonSubline(q, NOW)).not.toContain('-');
   });
 
-  it('treats NO QUEUE ROOM as an empty pool — the normal empty state, not an error', () => {
-    // The room autoDisposes when the last captain leaves, so "nobody queued"
-    // and "no room" are the same fact and must read identically.
-    expect(queueButtonSubline(null, NOW)).toBe('0 QUEUED · NEEDS 2 TO START');
+  // --- F2/F7: the four states, and the absent block ---------------------------
+
+  it('says STARTING while a full pool is being seated (state 3)', () => {
+    // The queue clears its arm the instant it decides to form and publishes
+    // that listing BEFORE seating anyone, so `p >= m` with `d == null` is a
+    // real, ~100-500ms server state — and the 2s server cache plus the 10s
+    // client poll can hold it on screen for up to twelve seconds. Read as
+    // "unarmed" it rendered `20 QUEUED · NEEDS 2 TO START`, which contradicts
+    // itself. Eric's copy ruling: STARTING.
+    expect(queueButtonSubline({ pooled: 20, min: 2, cap: 20, deadlineAt: null }, NOW)).toBe(
+      '20 QUEUED · STARTING',
+    );
+    expect(queueButtonSubline({ pooled: 2, min: 2, cap: 20, deadlineAt: null }, NOW)).toBe(
+      '2 QUEUED · STARTING',
+    );
+  });
+
+  it('falls back to the NEEDS line if a server ever sends a deadline below min (state 4)', () => {
+    // Unreachable against our own server (StandardQueueRoom refuses to publish
+    // a deadline it cannot fire). Defensive only, and the failure mode chosen
+    // is "says less than it could" rather than "counts down to a match that
+    // will never start".
+    expect(queueButtonSubline({ pooled: 1, min: 2, cap: 20, deadlineAt: NOW + 83_000 }, NOW)).toBe(
+      '1 QUEUED · NEEDS 2 TO START',
+    );
+  });
+
+  it('says NOTHING when the payload carries no queue block at all', () => {
+    // REVISED (F7). This used to render `0 QUEUED · NEEDS 2 TO START` off a
+    // client-side `DEFAULT_QUEUE_MIN = 2`, which was the front page's most-read
+    // line on an empty server and would have started lying the day
+    // CONFIG.match.minHumans was retuned. Our server now always emits the
+    // block (filling the no-room case itself), so this path is only reachable
+    // from an older or foreign server — and inventing a threshold there is
+    // exactly the thing that was wrong.
+    expect(queueButtonSubline(null, NOW)).toBe('');
   });
 });
 
@@ -900,12 +963,15 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
   it('does not render at all until a payload arrives, and hides again on an outage', () => {
     const handle = showHome('0.0.0-test', vi.fn());
     expect(livenessBlock().style.display).toBe('none');
-    expect(sublineOf(playButton()).style.display).toBe('none');
+    // The SUB-LINE hides by VISIBILITY, not by leaving the flow (F9) — see the
+    // layout-shift block below.
+    expect(sublineOf(playButton()).style.visibility).toBe('hidden');
     handle.setLiveness(livePayload());
     expect(livenessBlock().style.display).toBe('flex');
+    expect(sublineOf(playButton()).style.visibility).toBe('visible');
     handle.setLiveness(null);
     expect(livenessBlock().style.display).toBe('none');
-    expect(sublineOf(playButton()).style.display).toBe('none');
+    expect(sublineOf(playButton()).style.visibility).toBe('hidden');
   });
 
   it('paints the two lines, PLAYERS ONLINE over LIVE GAMES', () => {
@@ -918,7 +984,15 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
 
   it('renders a genuine ZERO rather than disappearing', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    handle.setLiveness(livePayload({ playersOnline: 0, liveGames: 0, queue: null }));
+    // The empty-server payload as the SERVER now sends it: an emitted queue
+    // block with a pool of zero, never a null the client has to guess at (F7).
+    handle.setLiveness(
+      livePayload({
+        playersOnline: 0,
+        liveGames: 0,
+        queue: { pooled: 0, min: 2, cap: 20, deadlineAt: null },
+      }),
+    );
     expect(livenessBlock().style.display).toBe('flex');
     expect(livenessBlock().textContent).toContain('PLAYERS ONLINE: 0');
     expect(sublineOf(playButton()).textContent).toBe('0 QUEUED · NEEDS 2 TO START');
@@ -1028,5 +1102,131 @@ describe('hullcracker.mode persistence (Story 6.6)', () => {
     expect(() => saveMode('soloVsAi')).not.toThrow();
     getItem.mockRestore();
     setItem.mockRestore();
+  });
+});
+
+// --- F9: availability of a number must never reflow the deploy stack --------
+
+describe('the mode-button sub-line reserves its space (F9)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+  });
+
+  it('keeps the empty slot IN FLOW — hidden, never removed', () => {
+    // `display:none` took the span out of flow, so both deploy buttons grew by
+    // a line the moment the first payload landed and jittered every 10s on a
+    // flaky connection — with the PRIMARY BUTTON moving between a click's
+    // mousedown and its mouseup.
+    showHome('0.0.0-test', vi.fn());
+    const sub = sublineOf(playButton());
+    expect(sub.style.display).toBe('block'); // in flow with nothing to say
+    expect(sub.style.visibility).toBe('hidden');
+    // ...and it is one line TALL even while empty: an empty inline box has no
+    // height at all, so the reservation needs a character in it.
+    expect(sub.textContent).toBe(' ');
+  });
+
+  it('a payload arriving, and going away again, never changes `display`', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    const sub = sublineOf(playButton());
+    const before = sub.style.display;
+    handle.setLiveness(livePayload({ queue: { pooled: 1, min: 2, cap: 20, deadlineAt: null } }));
+    expect(sub.style.display).toBe(before);
+    expect(sub.style.visibility).toBe('visible');
+    expect(sub.textContent).toBe('1 QUEUED · NEEDS 2 TO START');
+    handle.setLiveness(null); // an outage: the copy goes, the box does not
+    expect(sub.style.display).toBe(before);
+    expect(sub.style.visibility).toBe('hidden');
+    expect(sub.textContent).toBe(' ');
+  });
+
+  it('holds the reservation on BOTH doors, in every state', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    for (const state of [null, livePayload(), livePayload({ queue: null })]) {
+      handle.setLiveness(state);
+      for (const btn of [playButton(), soloButton()]) {
+        expect(btn.children.length).toBe(2);
+        expect(sublineOf(btn).style.display).toBe('block');
+        expect(sublineOf(btn).textContent).not.toBe('');
+      }
+    }
+  });
+});
+
+// --- F3: committing to a deploy clears the paint, not just the poll ----------
+
+describe('setLiveness(null) stands the whole surface down (F3)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+    vi.useRealTimers();
+  });
+
+  it('clears the register, the sub-line AND the 1Hz countdown tick', () => {
+    // This is the value main.ts pushes when the player commits: `Home` has no
+    // other way to be told "stand down", and the 1Hz tick is cleared only by
+    // hide(), which is not reached until connect() resolves — i.e. after the
+    // ENTIRE pooled wait, up to 2:00.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
+    const sub = sublineOf(playButton());
+    expect(sub.textContent).toBe('4 QUEUED · STARTS 1:23');
+
+    handle.setLiveness(null);
+    expect(sub.style.visibility).toBe('hidden');
+    expect(sub.textContent).toBe(' ');
+    // The tick is gone with it: 30s of clock must not resurrect a countdown
+    // over a payload that has been dead since the player pressed SOLO.
+    vi.advanceTimersByTime(30_000);
+    expect(sub.textContent).toBe(' ');
+    handle.hide();
+  });
+});
+
+// main.ts is the bootstrap and cannot be imported into a test (it builds the
+// Pixi stage on import), so its lifecycle is pinned as SOURCE — the same idiom
+// sessionLock.test.ts uses for "which function claims the lock".
+describe('main.ts stands liveness down at the deploy door (F3)', () => {
+  // vitest's root is the client workspace dir, so process.cwd() === client/ —
+  // the same resolution tokens.test.ts and sessionLock.test.ts use.
+  const mainSrc = (): string => readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+
+  /** A top-level function body, by this file's own formatting (closing brace in
+   *  column 0). Good enough to say WHICH function a call lives in. */
+  function bodyOf(src: string, signature: string): string {
+    const start = src.indexOf(signature);
+    expect(start).toBeGreaterThan(-1);
+    const end = src.indexOf('\n}\n', start);
+    return src.slice(start, end);
+  }
+
+  it('stopHomeLiveness clears the PAINT, not only the poll', () => {
+    // The shipped version stopped the poll and left the last payload frozen on
+    // the buttons — so a queued captain watched the live `QUEUED n CAPTAINS ·
+    // DEPLOY IN m:ss` status line while the SOLO button above it counted down a
+    // dead payload; at beta population the first captain in the pool saw
+    // `0 QUEUED · NEEDS 2 TO START` directly above a line saying they were
+    // queued in it.
+    const body = bodyOf(mainSrc(), 'function stopHomeLiveness(');
+    expect(body).toMatch(/setLiveness\(null\)/);
+  });
+
+  it('startGame calls it with the live home, at the moment the player commits', () => {
+    const body = bodyOf(mainSrc(), 'async function startGame(');
+    expect(body).toMatch(/stopHomeLiveness\(home\)/);
+  });
+
+  it('a poll RESTART does not blink the paint through "unavailable"', () => {
+    // startHomeLiveness stops the previous poll only — the new one is about to
+    // repaint the same surfaces, and a flash of nothing in between would be a
+    // flicker with no meaning.
+    const body = bodyOf(mainSrc(), 'function startHomeLiveness(');
+    expect(body).toMatch(/stopLivenessPoll\(\)/);
+    expect(body).not.toMatch(/setLiveness\(null\)/);
   });
 });

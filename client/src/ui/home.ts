@@ -198,11 +198,6 @@ export function saveMode(mode: DeployMode): void {
 // did not strike sub-lines. A future agent must not "restore" the bare buttons
 // by citing it.
 
-/** The queue minimum assumed when the payload cannot name one (no queue room
- *  at all). It is 2 today, which is why the unarmed copy can say `NEEDS 2`;
- *  `queue.min` overrides it whenever the server actually reports a pool. */
-const DEFAULT_QUEUE_MIN = 2;
-
 /** SOLO VS AI's sub-line is CONSTANT, not data-driven: the door creates its own
  *  room, so there is no pool to count and no deadline to tick. It is the
  *  dead-queue steer — the answer to "nobody is queued, now what?". */
@@ -280,14 +275,34 @@ export function livenessLines(p: LivenessPayload | null): LivenessLines | null {
  * The SOLO button's live sub-line (Story 6.6) — the per-door detail the global
  * register above deliberately does not carry.
  *
- * `queue === null` means the queue room does not exist, which is the NORMAL
- * empty state rather than an error (it `autoDispose`s when the last captain
- * leaves) — so it reads identically to an empty pool: `0 QUEUED`.
+ * FOUR STATES over (pooled `p`, minimum `m`, deadline `d`), not two:
  *
- * UNARMED (`deadlineAt === null`) says what is missing instead of counting down
- * a deadline that cannot fire — the same rule `queueStatusLine` obeys, and the
- * threshold is read from `queue.min` rather than hardcoded so a server-side
- * retune cannot make this line lie.
+ *   1. `p < m`,  `d == null`  →  `p QUEUED · NEEDS m TO START`
+ *   2. `p >= m`, `d != null`  →  `p QUEUED · STARTS mm:ss`
+ *   3. `p >= m`, `d == null`  →  `p QUEUED · STARTING`
+ *   4. `p < m`,  `d != null`  →  rendered as state 1 (see below)
+ *
+ * STATE 3 IS REAL AND IT IS NOT RARE. The queue clears its arm the instant it
+ * decides to form, and publishes that listing BEFORE the cohort is seated — so
+ * for the whole `formMatch` window (map generation plus up to twenty seat
+ * reservations, 100-500 ms) a full pool has no deadline. Read as "unarmed" that
+ * renders `20 QUEUED · NEEDS 2 TO START`, a line that contradicts itself, and
+ * the server's 2 s cache plus the client's 10 s poll can hold it on screen for
+ * up to twelve seconds. `STARTING` is the honest reading: the match is being
+ * built right now.
+ *
+ * STATE 4 CANNOT HAPPEN and is still handled. `StandardQueueRoom` refuses to
+ * publish a deadline below `min` (a deadline that cannot fire is not a
+ * deadline), so the only route here is a server we did not write. Falling into
+ * state 1 keeps the failure mode "says less than it could" rather than
+ * "counts down to a match that will never start".
+ *
+ * `queue === null` means the payload carries no queue block at all. Our server
+ * always sends one (it fills the no-room case in itself, so the threshold comes
+ * from `CONFIG.match.minHumans` and can never be a client-side literal that
+ * starts lying after a retune) — so this is only reachable from an older or
+ * foreign server, and the honest answer is to say NOTHING rather than invent a
+ * threshold. The slot still reserves its space (see `paintModeSubline`).
  *
  * ARMED counts down the ABSOLUTE deadline against the caller's clock, so it
  * ticks smoothly between 10s polls. `nowMs` must already be in the CLIENT's
@@ -296,10 +311,10 @@ export function livenessLines(p: LivenessPayload | null): LivenessLines | null {
  * `countdownMmSs` clamps at 0:00, so an overshot deadline never goes negative.
  */
 export function queueButtonSubline(queue: LivenessPayload['queue'], nowMs: number): string {
-  const pooled = queue?.pooled ?? 0;
-  const min = queue?.min ?? DEFAULT_QUEUE_MIN;
-  const deadlineAt = queue?.deadlineAt ?? null;
-  if (deadlineAt === null) return `${pooled} QUEUED · NEEDS ${min} TO START`;
+  if (queue === null) return '';
+  const { pooled, min, deadlineAt } = queue;
+  if (pooled < min) return `${pooled} QUEUED · NEEDS ${min} TO START`;
+  if (deadlineAt === null) return `${pooled} QUEUED · STARTING`;
   return `${pooled} QUEUED · STARTS ${countdownMmSs(deadlineAt - nowMs)}`;
 }
 
@@ -536,10 +551,12 @@ function makeChip(onOpen: () => void): ChipEls {
  * (measured, not assumed — that is why the shipped PLAY button's own geometry
  * has never been assertable).
  *
- * The SUB-LINE element is always built, even when it has nothing to say: the
- * SOLO door's copy arrives asynchronously (and can go away again on an
- * outage), so a `display:none` empty span is the one structure that both states
- * can be painted into without rebuilding the button. It reads the hudMicro
+ * The SUB-LINE element is always built AND always occupies its line, even when
+ * it has nothing to say: the SOLO door's copy arrives asynchronously (and can
+ * go away again on an outage), so the slot is reserved and merely hidden rather
+ * than taken out of flow — otherwise the button would grow when the first
+ * payload landed and jitter on every flaky poll (see `paintModeSubline`). It
+ * reads the hudMicro
  * register in PHOSPHOR — the port's system/status voice, the same one the
  * server-status line takes — never `--hc-text-muted`, which DESIGN.md:153 bars
  * for load-bearing numbers, and never amber, which is the ACTION register and
@@ -565,19 +582,35 @@ function makeModeButton(label: string, accent: string, title: string, subline = 
   return root;
 }
 
-/** The mode button's sub-line span (see `makeModeButton`). Hidden while empty. */
+/** The mode button's sub-line span (see `makeModeButton`). Always in flow — an
+ *  empty line is HIDDEN, never removed (see `paintModeSubline`). */
 function makeModeSubline(text: string): HTMLElement {
   const el = document.createElement('span');
-  el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin-top:3px`;
+  el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin-top:3px;display:block`;
   paintModeSubline(el, text);
   return el;
 }
 
-/** Set (or clear) a mode button's sub-line. An empty line leaves NO gap — the
- *  span goes out of flow entirely, so the box shrinks back to hugging the label. */
+/**
+ * Set (or clear) a mode button's sub-line, WITHOUT EVER MOVING THE BUTTON.
+ *
+ * `display:none` was a layout-shift generator: the sub-line arrives
+ * asynchronously and can go away again on any flaky poll, so both deploy
+ * buttons grew by a line the moment the first payload landed and jittered every
+ * 10 s on a bad connection — with the PRIMARY BUTTON moving between a click's
+ * mousedown and its mouseup. Availability of a decorative-until-it-arrives
+ * number must never reflow the deploy stack.
+ *
+ * So the slot is permanent: `visibility:hidden` keeps it out of the picture and
+ * out of the accessibility tree while keeping its box, and the non-breaking
+ * space guarantees the box is exactly one line tall even with nothing to say
+ * (an empty inline box has no height at all, which would have reserved
+ * nothing). Both buttons therefore hold the same shape in every state, which is
+ * also what makes the shipped shape pin assertable again.
+ */
 function paintModeSubline(el: HTMLElement, text: string): void {
-  el.textContent = text;
-  el.style.display = text ? 'block' : 'none';
+  el.textContent = text === '' ? '\u00A0' : text;
+  el.style.visibility = text === '' ? 'hidden' : 'visible';
 }
 
 /** A mode button's sub-line span — `makeModeButton` always appends it second. */

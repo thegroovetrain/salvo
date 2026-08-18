@@ -89,7 +89,17 @@ export interface QueueStatusMsg {
  * wire contract does not move. `PROTOCOL_VERSION` stays 40.
  */
 export interface LivenessPayload {
-  /** Humans connected to the game server: in a queue OR in a match. */
+  /**
+   * Humans connected to the game server: in a queue OR in a match.
+   *
+   * Counted from each room's OWN live client count where the room publishes one
+   * (`metadata.humans`), NOT from the driver's raw `clients`. That distinction
+   * is load-bearing twice over: the driver increments at SEAT RESERVATION, so a
+   * captain mid-handoff would otherwise be counted in the queue and the arena at
+   * once; and it decrements only after the reconnect grace settles, so a captain
+   * who closed their tab would otherwise read as online for
+   * `CONFIG.net.reconnectGraceSeconds` (60s) afterwards.
+   */
   playersOnline: number;
   /** Arena rooms in existence, ANY phase (boarding/countdown/active/results). */
   liveGames: number;
@@ -115,6 +125,13 @@ export interface LivenessPayload {
    * 2026-08-17: "I don't need to see how many players are playing solo vs AI on
    * the homepage… This is great info for the endpoint, though") — it exists for
    * operators and for whatever later surface wants it.
+   *
+   * THESE COUNT ARENA ROOMS ONLY, so queued captains are in NEITHER bucket:
+   *   modes.standard.players + modes.soloVsAi.players  !=  playersOnline
+   * whenever anyone is pooled, and the difference IS the queue. Not a
+   * discrepancy to reconcile — a captain still waiting has no mode yet, the
+   * queue being the one door in front of every mode. Inventing a third bucket
+   * for them would put a number on the wire that nothing renders.
    */
   modes: {
     standard: { players: number; games: number };

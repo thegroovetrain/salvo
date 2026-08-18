@@ -2,9 +2,9 @@
 title: 'Story 6-6 — Mode Select & Queue Liveness'
 type: 'feature'
 created: '2026-08-17'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/bmad-dev-auto-result-6-6-mode-select-queue-liveness-questions.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-6-context-amendments.md'
@@ -70,7 +70,7 @@ so an auto-requeue survives a reload.
 |---|---|---|---|
 | Healthy server | 2 arenas (12 + 8 humans), queue with 3 | `PLAYERS ONLINE: 23`, `LIVE GAMES: 2`; SOLO reads `3 QUEUED · STARTS m:ss` | — |
 | Empty server | no rooms at all | `PLAYERS ONLINE: 0`, `LIVE GAMES: 0`; SOLO reads `0 QUEUED · NEEDS 2 TO START` | — |
-| No queue room | `autoDispose` removed it | Treated as pooled 0, `deadlineAt: null` — identical to an empty queue | Never an error |
+| No queue room | `autoDispose` removed it | Server emits `{pooled: 0, min, cap, deadlineAt: null}` from CONFIG — identical to an empty queue, and never `null`, so the client never has to invent a threshold | Never an error |
 | Queue unarmed | 1 pooled, `armedAtMs` null | `1 QUEUED · NEEDS 2 TO START` — **no countdown that cannot fire** | — |
 | Queue armed | 4 pooled, deadline +1:23 | `4 QUEUED · STARTS 1:23`, ticking locally between polls | — |
 | Deadline passed | `deadlineAt` in the past | Clamp at `0:00`; next poll reports the fresh pool | Never negative |
@@ -92,14 +92,18 @@ so an auto-requeue survives a reload.
 - `server/src/liveness.ts` -- NEW. The **pure** fold: `foldLiveness(rooms, nowMs)` over
   `{ name, clients, metadata }` records → `LivenessPayload`, plus `livenessPayload(query)` and the
   ~2 s cache. Endpoint via `createEndpoint` (the `metrics.ts:250-258` idiom).
-- `server/src/app.config.ts` -- mount with `metricsRoutes.extend({ getLiveness: livenessEndpoint })`
-  (verified API: `router/index.d.ts`). CORS needs no work — Colyseus prepends
-  `Access-Control-Allow-Origin: *` to every response (`router/index.mjs`).
+- `server/src/app.config.ts` -- mount ONE `createRouter({ getMetrics, getLiveness })` from core.
+  (`.extend()` was the first approach and was replaced at the review gate: better-call's `extend`
+  never sets core's `__globalEndpoints`, so the dev playground silently lost `/liveness`.) CORS needs
+  no work — Colyseus prepends `Access-Control-Allow-Origin: *` to every response (`router/index.mjs`).
 - `server/src/metrics.ts` -- COMMENT ONLY. A pointer to `/liveness` explaining the two numbers
   differ deliberately (process-local vs global) so nobody "reconciles" them.
-- `server/src/rooms/ArenaRoom.ts` -- one `setMetadata({ mode })` in `finishCreate` (`:315`), beside
-  the existing `sanitized.solo` derivation. Verified: metadata set inside `onCreate` costs zero
-  extra driver writes because the create-time `driver.persist` carries it.
+- `server/src/rooms/ArenaRoom.ts` -- publishes `{ mode, humans }` to listing metadata: the mode tag
+  at `finishCreate` (free — metadata set inside `onCreate` rides the create-time `driver.persist`),
+  and the live human count on change (join/leave/drop/reconnect-resume). `humans` exists because the
+  driver's `clients` is wrong in BOTH directions for a player-facing count — it increments at seat
+  RESERVATION (double-counting a captain mid-handoff) and decrements only after the 60 s reconnect
+  grace settles (counting a departed captain for a full minute).
 - `server/src/rooms/StandardQueueRoom.ts` -- publish `{ pooled, min, cap, deadlineAt }` to listing
   metadata **when they change**, not on every 1 Hz tick. Policy untouched.
 - `client/src/net/liveness.ts` -- NEW. Real (CORS-clean) fetch + shape guard + 10 s poll +
@@ -150,6 +154,29 @@ so an auto-requeue survives a reload.
 
 ## Review Triage Log
 
+### 2026-08-17 — Review pass (cycle 98): 3 reviewers — 2 adversarial (Blind Hunter, Edge Case Hunter) + 1 Codex cross-model
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 13: (high 3, medium 7, low 3)
+- defer: 4: (high 0, medium 3, low 1)
+- reject: 1: (low 1)
+- addressed_findings:
+  - `[high]` `[patch]` F1 — an ARMED pool that drains below `min` kept publishing a live deadline, so the front page counted down to `0:00` and STUCK THERE FOREVER advertising a match that could never form. Violated epic-6 amendment 4 verbatim and the spec's own AC. Fixed in the PUBLISHER (`resolveDeadlineAt` returns null below `min`); `queue.ts` policy left byte-identical. Both adversarial reviewers found this independently.
+  - `[high]` `[patch]` F3 — committing to the queue stopped the POLL but never cleared the PAINT, so for the whole 2:00 wait the SOLO button counted down a dead payload while the status line contradicted it — the exact failure `main.ts`'s own comment says it prevents. `stopHomeLiveness` now pushes `setLiveness(null)`.
+  - `[high]` `[patch]` F12 — `playersOnline` over-counted by up to 60s on EVERY dropped connection: the driver's `clients` decrements only after `allowReconnection()` settles (`reconnectGraceSeconds: 60`). Arena now publishes its own live `humans` count in listing metadata; the fold prefers it. Found by Codex alone, confirmed against `@colyseus/core` 0.17.44 source. THIS ALSO CLOSED the seat-handoff double-count the spec had accepted, since a reserved-but-unjoined seat is not in the room's own client list.
+  - `[medium]` `[patch]` F2 — the sub-line branched only on `deadlineAt === null`, rendering the self-contradicting `20 QUEUED · NEEDS 2 TO START` during the form window. Now a four-state machine; `STARTING` is the new orchestrator-ruled copy.
+  - `[medium]` `[patch]` F4 — the 2s cache had no in-flight coalescing, so N concurrent pollers each hit the driver on a public unauthenticated route. Memoized the in-flight promise; rejections release the slot.
+  - `[medium]` `[patch]` F5 — `serverNow` was stamped BEFORE the awaited query, injecting the query's own latency as phantom clock skew and making every countdown run early. Stamped after.
+  - `[medium]` `[patch]` F6 — `queueOf`'s `pooled` fallback did not validate `room.clients`, so one non-finite value became `NaN`, failed the client's strict guard, and blacked out the WHOLE register including healthy arena counts.
+  - `[medium]` `[patch]` F7 — the empty-server case (the most-viewed state this story exists for) hardcoded `min` as `2` client-side. Server now always emits the queue block with CONFIG-derived `min`/`cap`; the client literal is deleted.
+  - `[medium]` `[patch]` F9 — an absent sub-line used `display:none`, so the deploy stack shifted ~17px when the first payload landed and jittered every 10s on a flaky link, moving the primary button between mousedown and mouseup. Space is now reserved.
+  - `[medium]` `[patch]` F13 — `stop()` suppressed the callback but never aborted the in-flight fetch, leaking a request per home-entry on a slow server. The poll now owns an `AbortController`.
+  - `[low]` `[patch]` F8 — no cache directives on a polled endpoint; a caching proxy could freeze the counts and the absolute deadline for a whole session. `Cache-Control: no-store` both ends.
+  - `[low]` `[patch]` F10 — `home.test.ts`'s "both boxes are the same shape" pin had become a TAUTOLOGY (comparing `'' === ''`) while the two buttons genuinely differed. Replaced with a real shared-shape comparison asserting non-vacuous values.
+  - `[low]` `[patch]` F11 — `.extend()` bypasses core's `__globalEndpoints`, so the dev playground lost `/liveness`. One `createRouter({getMetrics, getLiveness})` instead; `/metrics` stays byte-identical by object identity (pinned).
+  - Verification that the regressions DISCRIMINATE: with all 10 source files reverted to HEAD and only the new tests kept, 27 server and 15 client tests fail.
+
 ## Design Notes
 
 **Why the aggregator is pure and injected.** `matchMaker.query()` is trivially mockable, but the
@@ -165,11 +192,22 @@ playing". Reconciling them would break the ops route's actual job. Both files ge
 per second per visitor. Publishing an absolute `deadlineAt` plus `serverNow` lets the client tick at
 60 fps off one 10 s poll, and makes clock skew explicit rather than latent.
 
-**The accepted double-count.** During seat handoff a captain is briefly connected to the queue room
-while already holding a reserved arena seat, so `PLAYERS ONLINE` may over-count by up to the cohort
-size for well under a second. Ledgered rather than solved: de-duplicating would require identity
-tracking across rooms, which costs far more than a sub-second flicker in a number that updates every
-10 s.
+**The double-count is FIXED, not accepted (review gate).** The original note ledgered it: during seat
+handoff a captain is briefly connected to the queue room while already holding a reserved arena seat,
+so `PLAYERS ONLINE` over-counts by up to the cohort size — claimed as "well under a second". Two
+things were wrong with that. The STATE is brief, but the DISPLAY is not: the figure passes through a
+2 s server cache and a 10 s client poll, so a sub-second truth can sit on a home screen for up to
+~12 s. And the same mechanism carries a much larger defect in the other direction — Colyseus
+decrements a room's driver-visible `clients` only inside `#_onAfterLeave`, which for a room defining
+`onDrop` is deferred until `allowReconnection()` settles, i.e. `CONFIG.net.reconnectGraceSeconds`
+(60) for the arena; a captain who closed their tab was reported ONLINE for a full minute, which is
+the ordinary way a player leaves rather than an edge case.
+
+Both are one fix and it needs no identity tracking across rooms: each arena publishes its OWN
+immediate human count (`metadata.humans` = `this.clients.length`, on change, beside the mode tag) and
+`foldLiveness` prefers it over the driver's seat ledger. `this.clients` is mutated immediately on
+both edges and never holds a reserved-but-unjoined seat, so a captain mid-handoff is counted exactly
+once (in the queue) and a departed captain is counted zero times, immediately.
 
 **The button sub-line reverses a shape, not a reason.** Amendment 31 deleted the sub-lines because
 they restated the Class Chip immediately above. A live queue count is information available nowhere
