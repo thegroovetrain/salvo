@@ -473,7 +473,11 @@ export async function connect(
  */
 export function connectErrorStatus(err: unknown): string {
   if (err instanceof QueueError) {
-    return err.cancelled ? 'QUEUE CANCELLED — STILL IN PORT' : 'QUEUE CLOSED — PLEASE TRY AGAIN';
+    // No cancelled branch: a CANCEL never reaches the status line any more
+    // (Eric ruling 2026-08-18), so a copy string for it would be a dead knob.
+    // The caller tests `isQueueCancelled` first and hands the line back to the
+    // server register instead.
+    return 'QUEUE CLOSED — PLEASE TRY AGAIN';
   }
   const code = (err as { code?: unknown } | null | undefined)?.code;
   const msg = err instanceof Error ? err.message : String(err ?? '');

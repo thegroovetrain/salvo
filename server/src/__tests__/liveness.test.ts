@@ -30,7 +30,12 @@ import {
   ARENA_ROOM,
   QUEUE_ROOM,
   livenessEndpoint,
+  viewerIdOf,
+  homeViewers,
+  PRESENCE_KEY,
+  PRESENCE_TTL_MS,
   type RoomRecord,
+  type PresenceLike,
 } from '../liveness.js';
 
 const NOW = 1_700_000_000_000;
@@ -921,5 +926,489 @@ describe('the HTTP router carries both endpoints (F11)', () => {
     expect(appConfig.routes.findRoute('GET', '/liveness')?.data.path).toBe('/liveness');
     const ops = appConfig.routes.findRoute('GET', '/metrics');
     expect(ops?.data).toBe(metricsEndpoint); // the same endpoint object, untouched
+  });
+});
+
+// =============================================================================
+// HOME-SCREEN PRESENCE (Eric ruling 2026-08-18)
+// =============================================================================
+//
+// `playersOnline` counts EVERY live human, and a player sitting on the home
+// screen deciding which door to press is one. They hold no room and no socket,
+// so the liveness poll itself is their heartbeat: `GET /liveness?c=<tab id>`
+// records the tab into a shared presence hash and the count is that hash's live
+// size.
+//
+// Everything below fails against the pre-ruling code, which had no notion of a
+// viewer at all: `foldLiveness` took two arguments and `viewerIdOf` /
+// `homeViewers` / `PRESENCE_KEY` / `PRESENCE_TTL_MS` did not exist.
+
+/** A `matchMaker.presence` stand-in: the hash, plus an op log to assert on. */
+function fakePresence(seed: Record<string, string> = {}): PresenceLike & {
+  hash: Record<string, string>;
+  ops: string[];
+  keys: string[];
+} {
+  const hash: Record<string, string> = { ...seed };
+  const ops: string[] = [];
+  const keys: string[] = [];
+  return {
+    hash,
+    ops,
+    keys,
+    hset(key: string, field: string, value: string) {
+      keys.push(key);
+      ops.push(`hset:${field}=${value}`);
+      hash[field] = value;
+      return Promise.resolve(true);
+    },
+    hgetall(key: string) {
+      keys.push(key);
+      ops.push('hgetall');
+      return Promise.resolve({ ...hash });
+    },
+    hdel(key: string, field: string) {
+      keys.push(key);
+      ops.push(`hdel:${field}`);
+      const had = hash[field] !== undefined;
+      delete hash[field];
+      return Promise.resolve(had);
+    },
+  };
+}
+
+const opsOf = (p: { ops: string[] }, prefix: string): string[] =>
+  p.ops.filter((o) => o.startsWith(prefix));
+
+// --- the `c` query parameter -------------------------------------------------
+
+describe('viewerIdOf — strict validation of ?c=', () => {
+  it('accepts the shapes a client actually mints', () => {
+    for (const id of [
+      '8f3a1c2b9d4e5f60', // 16 hex
+      crypto.randomUUID(), // dashes are in the alphabet on purpose
+      'AbCdEf01_-ZzYy9',
+      'a'.repeat(64), // exactly at the ceiling
+      '12345678', // exactly at the floor
+    ]) {
+      expect(viewerIdOf({ c: id })).toBe(id);
+    }
+  });
+
+  it('treats an ABSENT c as legitimate — a smoke, a curl and an operator are not counted', () => {
+    // Not an error, and emphatically not a 400: this route answers a population
+    // question and must keep answering it for a caller that has no tab.
+    expect(viewerIdOf({})).toBeNull();
+    expect(viewerIdOf(undefined)).toBeNull();
+    expect(viewerIdOf(null)).toBeNull();
+    expect(viewerIdOf('c=abcdefgh')).toBeNull(); // a string is not a query bag
+  });
+
+  it('rejects out-of-bounds lengths', () => {
+    expect(viewerIdOf({ c: '' })).toBeNull();
+    expect(viewerIdOf({ c: '1234567' })).toBeNull(); // one under the floor
+    expect(viewerIdOf({ c: 'a'.repeat(65) })).toBeNull(); // one over the ceiling
+    expect(viewerIdOf({ c: 'a'.repeat(100_000) })).toBeNull(); // an oversize attempt
+  });
+
+  it('rejects anything outside the URL-safe alphabet', () => {
+    for (const bad of [
+      'abcdefg h', // whitespace
+      'abcdefgh:1', // a separator
+      'abcdefgh*', // a redis glob
+      'abcdefgh?', // ditto
+      'abcdefgh.', // punctuation
+      'abcdefgh\n', // a control character
+      'abcdefgh%00',
+      'hc:liveness:home', // cannot address another presence key
+      '../../etc/passwd',
+    ]) {
+      expect(viewerIdOf({ c: bad })).toBeNull();
+    }
+  });
+
+  it('rejects a REPEATED ?c=a&c=b, which better-call hands over as an array', () => {
+    // The `typeof raw !== 'string'` guard is what catches this; without it the
+    // array would be stringified into a single bogus field.
+    expect(viewerIdOf({ c: ['abcdefgh1', 'abcdefgh2'] })).toBeNull();
+    expect(viewerIdOf({ c: 12345678 })).toBeNull();
+    expect(viewerIdOf({ c: { id: 'abcdefgh' } })).toBeNull();
+  });
+});
+
+// --- the fold takes the count as an INPUT ------------------------------------
+
+describe('foldLiveness — the home-screen term is an input, never a side effect', () => {
+  it('adds home viewers to playersOnline and to NOTHING else', () => {
+    const out = foldLiveness([arena(3, 'standard'), queue(2)], NOW, 4);
+    expect(out.playersOnline).toBe(9); // 3 aboard + 2 pooled + 4 reading the page
+    // A player on the front page is not a game and has no mode yet.
+    expect(out.liveGames).toBe(1);
+    expect(out.modes.standard).toEqual({ players: 3, games: 1 });
+    expect(out.modes.soloVsAi).toEqual({ players: 0, games: 0 });
+    expect(out.queue?.pooled).toBe(2);
+  });
+
+  it('counts viewers on a completely empty server — the launch-day case', () => {
+    const out = foldLiveness([], NOW, 1);
+    expect(out.playersOnline).toBe(1);
+    expect(out.liveGames).toBe(0);
+    expect(out.queue?.pooled).toBe(0);
+  });
+
+  it('defaults to 0, so every pre-ruling call site stays byte-identical', () => {
+    expect(foldLiveness([arena(3, 'standard')], NOW)).toEqual(
+      foldLiveness([arena(3, 'standard')], NOW, 0),
+    );
+    // ...and the parameter is really consumed rather than accepted and dropped:
+    // a nonzero term must MOVE the payload.
+    expect(foldLiveness([arena(3, 'standard')], NOW, 2)).not.toEqual(
+      foldLiveness([arena(3, 'standard')], NOW),
+    );
+  });
+
+  it('validates the term like every other external number (no NaN in the register)', () => {
+    for (const bad of [Number.NaN, Infinity, -Infinity]) {
+      const out = foldLiveness([arena(4, 'standard')], NOW, bad);
+      expect(out.playersOnline).toBe(4);
+      expect(Number.isFinite(out.playersOnline)).toBe(true);
+    }
+    expect(foldLiveness([arena(4, 'standard')], NOW, -9).playersOnline).toBe(4);
+    // A FINITE term still lands — the guard rejects garbage, it does not reject
+    // the feature.
+    expect(foldLiveness([arena(4, 'standard')], NOW, 3).playersOnline).toBe(7);
+  });
+
+  it('STAYS PURE: not async, and its body names no presence at all', () => {
+    // The presence set is an input to the fold, not I/O inside it. An async fold
+    // or one referencing the store would be the regression this pins.
+    expect(foldLiveness.constructor.name).toBe('Function');
+    const body = foldLiveness.toString();
+    expect(body).toContain('homeViewers'); // ...it does take the term as a parameter
+    for (const token of ['PRESENCE_KEY', 'hgetall', 'hset', 'hdel', 'await', 'Date.now']) {
+      expect(body).not.toContain(token);
+    }
+  });
+
+  it('is still referentially pure with a viewer count in play', () => {
+    const rooms: RoomRecord[] = [arena(3, 'standard')];
+    const snapshot = JSON.stringify(rooms);
+    expect(foldLiveness(rooms, NOW, 5).playersOnline).toBe(8);
+    expect(foldLiveness(rooms, NOW, 5)).toEqual(foldLiveness(rooms, NOW, 5));
+    expect(JSON.stringify(rooms)).toBe(snapshot);
+  });
+});
+
+// --- record, count, prune ----------------------------------------------------
+
+describe('homeViewers — record then count', () => {
+  it('records the viewer under PRESENCE_KEY with an epoch stamp and counts them', async () => {
+    const p = fakePresence();
+    expect(await homeViewers('abcdefgh1234', NOW, p)).toBe(1); // including you, poll one
+    expect(p.hash).toEqual({ abcdefgh1234: String(NOW) });
+    expect(new Set(p.keys)).toEqual(new Set([PRESENCE_KEY]));
+  });
+
+  it('counts TWO distinct tabs as two viewers', async () => {
+    const p = fakePresence();
+    expect(await homeViewers('tab-aaaaaaaa', NOW, p)).toBe(1);
+    expect(await homeViewers('tab-bbbbbbbb', NOW + 10, p)).toBe(2);
+    expect(Object.keys(p.hash).sort()).toEqual(['tab-aaaaaaaa', 'tab-bbbbbbbb']);
+  });
+
+  it('counts the SAME tab polling twice ONCE, and refreshes its stamp', async () => {
+    const p = fakePresence();
+    expect(await homeViewers('tab-aaaaaaaa', NOW, p)).toBe(1);
+    expect(await homeViewers('tab-aaaaaaaa', NOW + 10_000, p)).toBe(1);
+    expect(p.hash['tab-aaaaaaaa']).toBe(String(NOW + 10_000)); // heartbeat, not a 2nd row
+  });
+
+  it('drops an EXPIRED entry out of the count', async () => {
+    const p = fakePresence({
+      stale0000000: String(NOW - PRESENCE_TTL_MS), // exactly at the TTL: dead
+      stale1111111: String(NOW - PRESENCE_TTL_MS - 60_000), // long gone
+      alive0000000: String(NOW - PRESENCE_TTL_MS + 1), // one ms inside: alive
+    });
+    expect(await homeViewers(null, NOW, p)).toBe(1);
+  });
+
+  it('survives two missed polls — the whole reason the TTL is 3x the interval', async () => {
+    // 10s client poll. A backgrounded tab that misses two polls in a row is
+    // still present at 20s and must not blink out of a count that includes it.
+    const p = fakePresence();
+    await homeViewers('tab-aaaaaaaa', NOW, p);
+    expect(await homeViewers(null, NOW + 20_000, p)).toBe(1);
+    expect(PRESENCE_TTL_MS).toBeGreaterThan(20_000);
+    // ...and a closed tab is gone on its own shortly after, with nothing to
+    // unsubscribe. Half a minute, not a session.
+    expect(await homeViewers(null, NOW + 31_000, p)).toBe(0);
+    expect(PRESENCE_TTL_MS).toBeLessThanOrEqual(60_000);
+  });
+
+  it('actually PRUNES expired fields, so the hash cannot grow without bound', async () => {
+    const p = fakePresence({
+      gone00000000: String(NOW - PRESENCE_TTL_MS - 1),
+      gone11111111: String(NOW - PRESENCE_TTL_MS - 2),
+      here00000000: String(NOW),
+    });
+    expect(await homeViewers(null, NOW, p)).toBe(1);
+    // Filtering on read alone would leave every tab that ever loaded the page in
+    // the hash forever. The dead fields are deleted, not merely skipped.
+    expect(Object.keys(p.hash)).toEqual(['here00000000']);
+    expect(opsOf(p, 'hdel').sort()).toEqual(['hdel:gone00000000', 'hdel:gone11111111']);
+    // A second sweep has nothing left to delete — pruning is idempotent.
+    p.ops.length = 0;
+    expect(await homeViewers(null, NOW, p)).toBe(1);
+    expect(opsOf(p, 'hdel')).toEqual([]);
+  });
+
+  it('prunes a stamp that is not a number at all', async () => {
+    const p = fakePresence({
+      junk00000000: 'not-a-number',
+      nan000000000: 'NaN',
+      ok0000000000: String(NOW),
+    });
+    expect(await homeViewers(null, NOW, p)).toBe(1);
+    expect(Object.keys(p.hash)).toEqual(['ok0000000000']);
+  });
+
+  it('keeps a FUTURE stamp — one node must not delete another node\'s viewers', async () => {
+    // The only writer of these values is this server, so a future stamp means a
+    // peer's clock runs ahead. Pruning on that would be a self-inflicted outage
+    // of exactly the multi-node case the presence store exists for.
+    const p = fakePresence({ ahead0000000: String(NOW + 2_000) });
+    expect(await homeViewers(null, NOW, p)).toBe(1);
+    expect(p.hash.ahead0000000).toBe(String(NOW + 2_000));
+  });
+
+  it('counts the set for a caller with NO id — a curl reads the number, unrecorded', async () => {
+    const p = fakePresence({ tab000000000: String(NOW) });
+    expect(await homeViewers(null, NOW, p)).toBe(1);
+    expect(opsOf(p, 'hset')).toEqual([]); // nothing recorded for the anonymous caller
+  });
+
+  it('degrades to 0 with no presence available (unit tests, pre-listen)', async () => {
+    expect(await homeViewers('tab-aaaaaaaa', NOW, null)).toBe(0);
+  });
+
+  it('degrades to 0 rather than throwing when the store fails', async () => {
+    // A presence outage must cost the home-screen TERM, never the room counts:
+    // a 500 here would take the whole front page down to lose one number.
+    const boom: PresenceLike = {
+      hset: () => Promise.reject(new Error('presence down')),
+      hgetall: () => Promise.reject(new Error('presence down')),
+      hdel: () => Promise.reject(new Error('presence down')),
+    };
+    await expect(homeViewers('tab-aaaaaaaa', NOW, boom)).resolves.toBe(0);
+    await expect(homeViewers(null, NOW, boom)).resolves.toBe(0);
+  });
+});
+
+// --- the cache-vs-presence decision -----------------------------------------
+
+describe('livenessPayload — the rooms are cached, the viewer count is NOT', () => {
+  let clock = NOW;
+  let calls = 0;
+  const query = async (): Promise<RoomRecord[]> => {
+    calls++;
+    return [arena(1, 'standard')];
+  };
+
+  beforeEach(() => {
+    resetLiveness();
+    clock = NOW;
+    calls = 0;
+    __setLivenessNowSource(() => clock);
+  });
+
+  it('sums the room humans and the home viewers into playersOnline', async () => {
+    const p = fakePresence();
+    const out = await livenessPayload(query, 'tab-aaaaaaaa', p);
+    expect(out.playersOnline).toBe(2); // 1 aboard + 1 reading the page
+    expect(out.liveGames).toBe(1);
+  });
+
+  it('RECORDS THE HEARTBEAT ON A CACHE HIT — else a viewer silently ages out', async () => {
+    // The defect this pins: presence written only on the driver-refresh path. A
+    // tab whose polls keep landing inside somebody else's 2s window would never
+    // refresh its own TTL and would drop out of the count while sitting right
+    // there on the page.
+    const p = fakePresence();
+    await livenessPayload(query, 'tab-aaaaaaaa', p);
+    clock = NOW + LIVENESS_CACHE_MS - 1; // inside the window
+    await livenessPayload(query, 'tab-aaaaaaaa', p);
+    expect(calls).toBe(1); // one driver query served both, as before
+    expect(opsOf(p, 'hset')).toEqual([
+      `hset:tab-aaaaaaaa=${NOW}`,
+      `hset:tab-aaaaaaaa=${NOW + LIVENESS_CACHE_MS - 1}`,
+    ]);
+    expect(p.hash['tab-aaaaaaaa']).toBe(String(NOW + LIVENESS_CACHE_MS - 1));
+  });
+
+  it('serves a STALE room count with a FRESH viewer count on a cache hit', async () => {
+    // The decision, observable: nobody can perceive a 2s-stale room count;
+    // everybody can perceive not existing. So the room half is cached and the
+    // home half is read per request.
+    const p = fakePresence();
+    const first = await livenessPayload(query, 'tab-aaaaaaaa', p);
+    expect(first.playersOnline).toBe(2);
+    p.hash['tab-bbbbbbbb'] = String(NOW + 100); // another tab lands on the page
+    clock = NOW + 500; // still inside the 2s window
+    const cached = await livenessPayload(query, 'tab-aaaaaaaa', p);
+    expect(calls).toBe(1); // the driver was NOT re-queried
+    expect(cached.liveGames).toBe(1); // the stale room half, unchanged
+    expect(cached.playersOnline).toBe(3); // 1 aboard + 2 viewers, counted fresh
+    expect(cached.serverNow).toBe(NOW + 500);
+  });
+
+  it('a first-time visitor is in the number they are shown, even inside a warm cache', async () => {
+    const p = fakePresence();
+    await livenessPayload(query, null, p); // somebody else warmed the cache
+    clock = NOW + 400;
+    const mine = await livenessPayload(query, 'tab-newcomer', p);
+    expect(calls).toBe(1);
+    expect(mine.playersOnline).toBe(2); // NOT 1 — "including you" holds on poll one
+  });
+
+  it('serves the payload normally for a caller with no id at all', async () => {
+    const p = fakePresence({ tab000000000: String(NOW) });
+    const out = await livenessPayload(query, null, p);
+    expect(out.playersOnline).toBe(2); // the existing viewer still counts
+    expect(opsOf(p, 'hset')).toEqual([]);
+    expect(out.queue).not.toBeNull();
+    expect(JSON.parse(JSON.stringify(out))).toEqual(out); // no NaN, no undefined
+  });
+
+  it('serves the payload with the room counts intact when presence is down', async () => {
+    let attempts = 0;
+    const boom: PresenceLike = {
+      hset: () => {
+        attempts++;
+        return Promise.reject(new Error('presence down'));
+      },
+      hgetall: () => {
+        attempts++;
+        return Promise.reject(new Error('presence down'));
+      },
+      hdel: () => Promise.reject(new Error('presence down')),
+    };
+    const out = await livenessPayload(query, 'tab-aaaaaaaa', boom);
+    expect(attempts).toBeGreaterThan(0); // the store WAS reached, and it threw
+    expect(out.playersOnline).toBe(1); // ...and the room half survived it
+    expect(out.liveGames).toBe(1);
+  });
+
+  it('caches a SNAPSHOT, never the driver\'s live listing objects', async () => {
+    // Found by livenessSmoke.mjs, which is the only instrument that could:
+    // matchMaker.query() hands back the driver's LIVE listings, core mutates
+    // `listing.clients` on every seat edge and setMetadata writes into
+    // `listing.metadata` IN PLACE. Caching the reference made the 2s cache
+    // silently track live state — a poll 3ms inside the window already saw a
+    // captain who joined after the query. The pre-ruling code was safe only
+    // because it folded immediately and cached numbers.
+    const live: RoomRecord = { name: ARENA_ROOM, clients: 2, metadata: { mode: 'standard', humans: 2 } };
+    const first = await livenessPayload(async () => [live], null, fakePresence());
+    expect(first.playersOnline).toBe(2);
+    live.clients = 9; // what core does on a seat edge
+    (live.metadata as Record<string, unknown>).humans = 9; // ...and what setMetadata does
+    clock = NOW + LIVENESS_CACHE_MS - 1;
+    const cached = await livenessPayload(async () => [live], null, fakePresence());
+    expect(cached.playersOnline).toBe(2); // the CACHED truth, not the live one
+    expect(cached.modes.standard.players).toBe(2);
+  });
+
+  it('still collapses concurrent pollers onto ONE driver query with presence in play', async () => {
+    const p = fakePresence();
+    const gate: { release: (() => void) | null } = { release: null };
+    let slowCalls = 0;
+    const slow = async (): Promise<RoomRecord[]> => {
+      slowCalls++;
+      await new Promise<void>((res) => {
+        gate.release = res;
+      });
+      return [arena(3, 'standard')];
+    };
+    const all = Promise.all(
+      ['tab-aaaaaaaa', 'tab-bbbbbbbb', 'tab-cccccccc'].map((id) => livenessPayload(slow, id, p)),
+    );
+    await Promise.resolve();
+    expect(slowCalls).toBe(1);
+    gate.release?.();
+    const payloads = await all;
+    expect(slowCalls).toBe(1);
+    // Every one of the three tabs got recorded, and the last poll to fold sees
+    // all three.
+    expect(Object.keys(p.hash).sort()).toEqual(['tab-aaaaaaaa', 'tab-bbbbbbbb', 'tab-cccccccc']);
+    for (const out of payloads) expect(out.liveGames).toBe(1);
+    expect(Math.max(...payloads.map((o) => o.playersOnline))).toBe(6); // 3 aboard + 3 viewers
+  });
+});
+
+// --- the route ---------------------------------------------------------------
+
+describe('the /liveness endpoint reads ?c= (and never fails over it)', () => {
+  beforeEach(() => {
+    resetLiveness();
+    __setLivenessNowSource(() => NOW);
+  });
+
+  const call = async (query: unknown): Promise<{ playersOnline: number; liveGames: number }> => {
+    const handler = livenessEndpoint as unknown as (
+      ctx: Record<string, unknown>,
+    ) => Promise<{ playersOnline: number; liveGames: number }>;
+    return handler({ query });
+  };
+
+  it('is wired to the validator, and no ?c= value can ever break the payload', async () => {
+    // TWO halves, because a unit test can observe only one of them directly.
+    //
+    // (a) There is no matchMaker here, so the home term degrades to 0 and the
+    //     assertions below prove the part that matters most about this route: a
+    //     query parameter, whatever it holds, can never 400 or 500 the
+    //     population figures. Counting through the socket is livenessSmoke.mjs.
+    // (b) The source pin — this file's existing architecture-pin idiom. Deleting
+    //     `viewerIdOf(ctx.query)` from the route would leave every unit test
+    //     green while the heartbeat quietly stopped being recorded, so the wire
+    //     from the query bag to the validator is pinned literally.
+    await livenessPayload(async () => [arena(4, 'standard')]); // warm the cache
+    for (const q of [
+      { c: '8f3a1c2b9d4e5f60' },
+      { c: 'not a valid id!' },
+      { c: 'a'.repeat(100_000) },
+      { c: ['a1234567', 'b1234567'] },
+      {},
+      undefined,
+    ]) {
+      const body = await call(q);
+      expect(body.playersOnline).toBe(4);
+      expect(body.liveGames).toBe(1);
+    }
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../liveness.ts', import.meta.url), 'utf-8');
+    expect(src).toMatch(/livenessPayload\(driverQuery, viewerIdOf\(ctx\.query\)\)/);
+  });
+});
+
+// --- architecture: the presence store, not a module Map ----------------------
+
+describe('presence lives on matchMaker.presence, not in this process (D8)', () => {
+  it('reads the shared presence store and keeps stats.local banned', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../liveness.ts', import.meta.url), 'utf-8');
+    const code = src
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+      .join('\n');
+    // A module-level Map would be process-local and would UNDERCOUNT the day
+    // this runs on two nodes — silently, and in the direction that makes the
+    // game look dead. Same rule that made this route use matchMaker.query().
+    expect(code).toMatch(/matchMaker\.presence/);
+    expect(code).not.toMatch(/new Map\s*(<|\()/);
+    expect(code).not.toMatch(/new Set\s*(<|\()/);
+    expect(code).not.toMatch(/matchMaker\s*\.\s*stats/);
+  });
+
+  it('namespaces its key so it cannot collide with a Colyseus-internal one', () => {
+    expect(PRESENCE_KEY.startsWith('hc:')).toBe(true);
   });
 });

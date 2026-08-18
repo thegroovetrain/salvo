@@ -17,12 +17,23 @@
 // delayed or error-toasted by a decorative-until-it-arrives number.
 //
 // THE COUNTDOWN'S CLOCK. The payload carries an ABSOLUTE `queue.deadlineAt` (so
-// the client can tick a smooth countdown between 10s polls) plus `serverNow`
-// (so a wrong client clock cannot corrupt it). `localizeDeadline()` folds the
-// two together ONCE, at the boundary, rewriting `deadlineAt` into the CLIENT's
-// own epoch — which is why `ui/home.ts` may subtract a plain `Date.now()` and
-// stay clock-free. Doing the correction here rather than in the UI keeps the
-// skew explicit and keeps exactly one place that knows about it.
+// a client can tick a smooth countdown between 10s polls) plus `serverNow` (so a
+// wrong client clock cannot corrupt it). `localizeDeadline()` folds the two
+// together ONCE, at the boundary, rewriting `deadlineAt` into the CLIENT's own
+// epoch. Doing the correction here rather than in the UI keeps the skew explicit
+// and keeps exactly one place that knows about it.
+//
+// NOTE (Eric ruling 2026-08-18): the home's SOLO sub-line no longer counts
+// anything down — it is `N/20 QUEUED` and nothing else — so `deadlineAt` has no
+// consumer on this path today. The localization is retained because it is a
+// property of the PAYLOAD's contract, not of one reader: the field is on the
+// wire, absolute, and in the server's epoch, and any future reader that takes it
+// raw is wrong. (The queue modal's countdown is fed by the live
+// `MSG.queueStatus` push instead, which carries a RELATIVE `startsInMs`.)
+//
+// THE POLL IS ALSO A HEARTBEAT. Since Eric's 2026-08-18 widening of
+// `playersOnline` to include home-screen viewers, every read carries this tab's
+// ephemeral presence id as `?c=` — see `presenceId` below.
 
 import type { LivenessPayload } from '@salvo/shared';
 import { wsEndpoint } from './connection.js';
@@ -35,12 +46,64 @@ const DEFAULT_POLL_MS = 10_000;
  *  a request (and its `AbortController`) alive across the whole home session. */
 const DEFAULT_TIMEOUT_MS = 4000;
 
+// --- the presence id (Eric ruling 2026-08-18) ---------------------------------
+
+/**
+ * THIS TAB'S EPHEMERAL PRESENCE ID — the `c` query parameter on every
+ * `/liveness` read.
+ *
+ * `playersOnline` now counts home-screen viewers, and a player standing in port
+ * holds no room and no socket, so the driver cannot see them. THE POLL IS THE
+ * HEARTBEAT: each read records this id into the server's presence set (see
+ * server/src/liveness.ts), the count is the live size of that set, and a closed
+ * tab drops out on the TTL by itself. No extra request exists, and there is
+ * nothing to unsubscribe.
+ *
+ * IT IS ANONYMOUS BY CONSTRUCTION AND MUST STAY THAT WAY. It is a fresh random
+ * value per tab, held in memory only: NOT the callsign, NOT the colour
+ * preference, NOT anything in localStorage, and deliberately NOT persisted —
+ * persisting it would make it a device identifier, and a per-tab value is also
+ * the correct granularity, since two tabs are two viewers.
+ */
+let presenceIdCache: string | null = null;
+
+/** A random id, degrading through three tiers so this can never throw or return
+ *  an empty string: `randomUUID` (every current browser and jsdom ≥22), then
+ *  `getRandomValues` (older secure contexts), then a clock+`Math.random`
+ *  fallback. The fallback's collision odds do not matter — an occasional
+ *  collision undercounts by one, which is strictly better than a poll that
+ *  crashes and takes the whole register with it. */
+function makePresenceId(): string {
+  const c: Partial<Crypto> | undefined = globalThis.crypto;
+  try {
+    if (typeof c?.randomUUID === 'function') return c.randomUUID();
+    if (typeof c?.getRandomValues === 'function') {
+      const bytes = c.getRandomValues(new Uint8Array(16));
+      return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch {
+    // an insecure context, or a hostile shim — fall through
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** This tab's presence id, minted ONCE and stable for the tab's whole life (a
+ *  new id per poll would count one viewer as six a minute). */
+export function presenceId(): string {
+  if (presenceIdCache === null) presenceIdCache = makePresenceId();
+  return presenceIdCache;
+}
+
 /** The route's URL, off the SAME origin logic `connect()`/`probeServer()` use
  *  (`wsEndpoint()`, ws→http / wss→https). A trailing slash on a `VITE_WS_URL`
- *  override is trimmed so the path never doubles up. */
+ *  override is trimmed so the path never doubles up.
+ *
+ *  It carries the tab's presence id as `c` — see `presenceId`. Encoded even
+ *  though every generator above is URL-safe: the encoding is what keeps that
+ *  true if the fallback is ever changed. */
 export function livenessUrl(): string {
   const origin = wsEndpoint().replace(/^ws/, 'http').replace(/\/+$/, '');
-  return `${origin}/liveness`;
+  return `${origin}/liveness?c=${encodeURIComponent(presenceId())}`;
 }
 
 // --- the shape guard (pure, tested) ------------------------------------------

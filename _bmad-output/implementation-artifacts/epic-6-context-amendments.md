@@ -1456,3 +1456,117 @@ crowd.**
 information; the honest number is right when the emptiness IS the information. Genuine
 UNAVAILABILITY — a failed or malformed fetch — renders as absence under the original rule, so the
 block simply does not appear rather than showing a misleading `0`.
+
+## Amendment 40 — PLAYERS ONLINE counts EVERYONE, home screen included. Supersedes A34's definition.
+
+**Source:** Eric, 2026-08-18, on seeing 6-6 live:
+> *"'Players online' should in fact be a live player count, showing everyone who is in game, in queue,
+> or on the homepage (plus one for yourself)."*
+
+A33 defined it as *"in a queue OR in a match"*, and that clause is now WIDENED. The gate had offered
+exactly this option and Eric had declined it then (*"also count home-screen visitors"* — declined on
+the grounds it needed a presence surface built for a vanity figure); having watched the number sit at
+`0` while he was demonstrably looking at it, he reversed. **Recorded as a reversal by its owner, not
+as a new discovery** — the mechanism was costed and rejected before it was ruled in.
+
+**The poll IS the heartbeat, which is why this costs no new request.** Each
+`GET /liveness?c=<per-tab id>` records that tab into a presence hash and the count is the live size of
+the hash. Nothing subscribes, nothing unsubscribes, and a closed tab drops out on a TTL by itself.
+`c` is an anonymous per-tab value minted in memory — never the callsign, the colour preference or
+anything persisted — and it is validated strictly server-side (charset, length, string-not-array);
+anything else, including absent, is served normally and simply not counted, so a curl or a smoke never
+inflates the figure.
+
+**The store is `matchMaker.presence`, NOT a module Map** — the same D8 argument that made this route
+use `matchMaker.query()`. A Map is process-local and would undercount the day this runs on two nodes,
+silently and in the direction that makes the game look dead. TTL is **30s, three times the 10s poll**,
+so two consecutive missed polls (a throttled background tab, one dropped request) cannot blink a
+present viewer out of a number whose own definition includes them.
+
+**DOUBLE COUNTING IS STRUCTURAL, not reconciled:** the client stops polling the instant it commits to
+a door, so a human is either polling from home or holding a room seat, never both. Nothing subtracts
+or cross-references the two populations and nothing may start.
+
+**Consequence, ledgered rather than fixed:** because the poll stops at the door, the register BLANKS
+for the duration of a queue wait — the one moment a waiting player is most likely to want it. Left as
+Eric ruled the poll's lifecycle, not invented around; the fix (keep polling while pooled but omit `c`,
+since the queue seat already counts you) is small and unruled.
+
+**A defect this cycle found by smoke, worth knowing about generally:** `matchMaker.query()` returns the
+driver's LIVE listing objects, and core mutates `listing.clients` on every seat edge and writes
+`setMetadata` field-by-field INTO `listing.metadata` in place. Caching those references made the 2s
+cache silently track live state instead of caching a snapshot. The route now copies. Any future reader
+of a driver listing must assume the same.
+
+## Amendment 41 — The SOLO button carries a COUNT and nothing else. Supersedes A37's copy.
+
+**Source:** Eric, 2026-08-18:
+> *"I didn't ask you to add 'NEEDS 2 TO START', did I? Get the fucking fuck rid of that and stop adding
+> things I don't tell you to add. Just make it say 'N/20 Queued' where N is the number in queue."*
+
+A37 put a live sub-line on the SOLO button and the ORCHESTRATOR chose its wording — a four-state
+machine (`NEEDS n TO START` / `STARTS m:ss` / `STARTING`) invented at implementation time from a
+ruling that said only *"annotate the buttons"*. **That was scope Eric never granted, and the process
+rule is the durable half of this amendment: a ruling to put information somewhere is NOT a licence to
+author the copy that goes there.** When a state seems to need words that were not ruled, the answer is
+to leave it empty and ask.
+
+The sub-line is now exactly **`N/20 QUEUED`**, both numbers from the payload (never a literal `20`).
+The four-state machine, the 1 Hz button tick and the `STARTING` register are DELETED, not reworded.
+`STARTS INSTANTLY` on SOLO VS AI survives untouched — Eric chose that one himself at the gate.
+
+**And the status line is not a queue surface** (same ruling): *"Get rid of this information message
+that pops up next to 'HOW TO PLAY' and replaces the server status."* `queueStatusLine` and
+`requeueStatusLine` are deleted along with the status-hold machinery that existed only to arbitrate
+between them. The line beside HOW TO PLAY speaks for the SERVER and nothing else. Two consequences
+found by driving it rather than reading it: `QUEUE CANCELLED — STILL IN PORT` was still landing there
+on cancel (now nothing — the line is handed back to the server register), and `CONNECTING…` was parked
+there for the entire two-minute pooled wait (now handed back the moment the modal opens, because being
+pooled is not connecting — joining the queue is itself the proof the socket is up). A genuine
+connection FAILURE still speaks there: `EXPERIENCE.md` requires a failed connection to surface on this
+line rather than a dead screen, and that IS server news.
+
+## Amendment 42 — The queue is a MODAL. It may not repurpose anything already on the page.
+
+**Source:** Eric, 2026-08-18:
+> *"i want the queue to open up as a modal or something. Literally anything the fuck else that doesn't
+> involve CHANGING THE FUCKING TEXT ON THE PAGE THAT SERVES ANOTHER PURPOSE."*
+
+The pooled wait gets its own surface at **z 1150** (home 1100 < 1150 < class bay 1200), with a
+hit-testing backdrop so home's doors are unreachable behind it. It carries exactly three things and no
+prose: `N/20 QUEUED`, `STARTS IN m:ss` **only while genuinely armed** (a number AND `pooled >= min` —
+amendment 4's no-countdown-that-cannot-fire rule, enforced here as well as at the publisher), and
+`CANCEL`. A test enumerates the modal's entire `textContent` and pins it exactly, so no later pass can
+slip a sentence in.
+
+It is driven by the live per-tick `MSG.queueStatus`, not the 10s liveness poll — once you are in the
+pool the queue room is the authority. It closes on cancel, on the seat arriving, on connection failure
+and on `home.hide()`, all converging on one idempotent teardown that clears the tick.
+
+**ESC is inert while it is open** (orchestrator decision, flagged for review): settings sits at 1050,
+*under* the modal, so an ESC-opened panel would be invisible and unclickable; and the modal's only
+action is CANCEL, so ESC-as-close would mean "discard a minutes-long wait" — unlike results (ESC =
+SPECTATE, the non-destructive of two) or the class bay (discards an unsaved pick). CANCEL is a real
+button, Tab-reachable, deliberately NOT autofocused because Enter is the deploy key.
+
+The home underplay's `CANCEL` span is deleted: `setCancel` and "the modal is open" are now the same
+condition, so it was invisible for exactly as long as it was meaningful. The plumbing
+(`HomeHandle.setCancel` / `ConnectHooks.onQueued`) is unchanged — only the affordance moved.
+
+## Amendment 43 — The population register moves to the BOTTOM-left. Supersedes A34's placement.
+
+**Source:** Eric, 2026-08-18: *"Sure move them wherever if you think its a problem for them to be where
+I told you to put them."*
+
+A34 placed `PLAYERS ONLINE` / `LIVE GAMES` at the top-left, mirroring the settings gear. Verified by
+screenshot at 1280x720: it **collides with the wordmark**, because the home overlay is
+`justify-content: safe center` and the centered column rides up as the viewport shortens. Padding could
+not fix it — the block is absolutely positioned precisely so it costs the rigid port column zero height
+(amendment 47's container-fit law), and that column is already ~722px against a 768px floor, so the
+~62px of clearance needed would have broken the law at the SUPPORTED floor to fix a case below it.
+
+So the block moves to `bottom:22px;left:26px`, which cannot collide — the bottom of the port is empty
+at every size measured (1440x900, 1366x768, 1280x720). Everything else about it is unchanged:
+absolutely positioned, `pointer-events:none`, `hudMicro`, `--hc-phosphor`, and the honest `0` renders
+while genuine unavailability renders nothing (amendment 39). A test pins `style.top === ''` so it
+cannot drift back up.

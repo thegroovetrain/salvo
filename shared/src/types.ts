@@ -90,15 +90,28 @@ export interface QueueStatusMsg {
  */
 export interface LivenessPayload {
   /**
-   * Humans connected to the game server: in a queue OR in a match.
+   * EVERY live human: in a match, in the queue, OR sitting on the home screen —
+   * including you (Eric ruling 2026-08-18, widening the original in-match-or-in-
+   * queue definition). This is a LIVENESS figure, not a load figure: a player
+   * reading the home screen deciding whether to press SOLO is present, and the
+   * whole point of the number is to tell the next visitor somebody is here.
    *
-   * Counted from each room's OWN live client count where the room publishes one
-   * (`metadata.humans`), NOT from the driver's raw `clients`. That distinction
-   * is load-bearing twice over: the driver increments at SEAT RESERVATION, so a
-   * captain mid-handoff would otherwise be counted in the queue and the arena at
-   * once; and it decrements only after the reconnect grace settles, so a captain
-   * who closed their tab would otherwise read as online for
-   * `CONFIG.net.reconnectGraceSeconds` (60s) afterwards.
+   * The two ROOM populations come from each room's OWN live client count where
+   * the room publishes one (`metadata.humans`), NOT from the driver's raw
+   * `clients`. That distinction is load-bearing twice over: the driver
+   * increments at SEAT RESERVATION, so a captain mid-handoff would otherwise be
+   * counted in the queue and the arena at once; and it decrements only after the
+   * reconnect grace settles, so a captain who closed their tab would otherwise
+   * read as online for `CONFIG.net.reconnectGraceSeconds` (60s) afterwards.
+   *
+   * The HOME-SCREEN population is a presence set kept on `matchMaker.presence`
+   * (so it survives the move to a redis presence, per D8) and fed by the liveness
+   * poll itself — the poll IS the heartbeat, so no extra request exists. Entries
+   * expire on a TTL comfortably longer than the poll interval, which is what
+   * makes a closed tab drop out on its own with nothing to unsubscribe. Double
+   * counting is structurally impossible because the poll STOPS the moment a
+   * player commits to a door: you are either polling from home, or you are in a
+   * room, never both.
    */
   playersOnline: number;
   /** Arena rooms in existence, ANY phase (boarding/countdown/active/results). */

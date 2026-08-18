@@ -109,13 +109,11 @@ import { showBanner, hideBanner } from './util/banner.js';
 import {
   loadSavedClass,
   loadSavedMode,
-  queueStatusLine,
-  requeueStatusLine,
   saveMode,
+  serverStatusLine,
   showHome,
   type DeployMode,
   type HomeHandle,
-  type StatusLine,
 } from './ui/home.js';
 import { startLivenessPoll, type LivenessPoll } from './net/liveness.js';
 import { AmbientScene } from './render/ambient.js';
@@ -4201,59 +4199,17 @@ function startHomeLiveness(home: HomeHandle): void {
  */
 let lastDeploy: { name: string; cls: ShipClassId; mode: DeployMode } | null = null;
 
-/**
- * ms — how long the collapse register keeps the home's ONE status line before
- * the live queue liveness takes it over.
- *
- * It needs a dwell because the home has a single register and the queue pushes
- * its first liveness line the moment we are pooled — without this the reason a
- * player is suddenly back at the menu would flash past in under a frame's worth
- * of reading. Long enough to read a short line, short enough that the honest
- * `QUEUED n/2` state is never withheld for meaningfully long.
- */
-const REQUEUE_STATUS_HOLD_MS = 2500;
-
-/**
- * The home's status line, with a one-shot OPENING register that outranks the
- * queue's liveness for `holdMs`.
- *
- * The held line is never simply dropped: the last suppressed liveness line is
- * repainted when the hold expires, so a pool that never changes again (the
- * common case for a lone captain — an unarmed pool only pushes on a count
- * change) still ends up showing the truthful count rather than freezing on the
- * reason we came back. `cancel()` exists for the same reason: once the connect
- * flow has settled, a late repaint would land on top of copy that supersedes it
- * (a cancel line, or the ocean itself).
- */
-function makeStatusHold(
-  home: HomeHandle,
-  holdMs: number,
-): { paint: (line: StatusLine) => void; cancel: () => void } {
-  const until = holdMs > 0 ? Date.now() + holdMs : 0;
-  let pending: StatusLine | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const flush = (): void => {
-    timer = null;
-    if (pending) home.setStatus(pending.text, pending.tone);
-    pending = null;
-  };
-  return {
-    paint: (line) => {
-      const left = until - Date.now();
-      if (left <= 0) {
-        home.setStatus(line.text, line.tone);
-        return;
-      }
-      pending = line;
-      if (timer === null) timer = setTimeout(flush, left);
-    },
-    cancel: () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-      pending = null;
-    },
-  };
-}
+// RETIRED (Eric rulings 2026-08-18): `REQUEUE_STATUS_HOLD_MS` and
+// `makeStatusHold`. Both existed for ONE reason — the home had a single status
+// register and TWO callers competing for it, the collapse reason and the queue's
+// live liveness line, so one had to hold the other off for a readable beat.
+//
+// Neither caller exists any more. The queue's wait moved to its own surface
+// (ui/queueModal.ts) and the collapse register was deleted outright with no
+// replacement copy, so `h.statusEl` has exactly one owner again: the server
+// probe, plus the connect flow's own CONNECTING… / failure line. A hold with
+// nothing to arbitrate is a dead knob, so it goes rather than being kept "in
+// case". `startGame` lost its `statusHoldMs` parameter with it.
 
 /**
  * Tear the arena session's Pixi app down and hand the shell back to port,
@@ -4319,7 +4275,7 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     // SOLO VS AI (Story 6.5): same deploy identity, queue-free door.
     (name, cls) => {
       shell.audio.resume(); // same user-gesture rule as the SOLO primary
-      void startGame(shell, home, stopAmbient, name, cls, 0, 'soloVsAi');
+      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi');
     },
   );
   homeRef = home;
@@ -4328,8 +4284,12 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     // No audio.resume() here: there is no user gesture to ride, and none is
     // needed — the context was resumed by the PLAY that started the collapsed
     // match and has been running ever since.
-    const opening = requeueStatusLine();
-    home.setStatus(opening.text, opening.tone);
+    //
+    // AND NO OPENING REGISTER (Eric ruling 2026-08-18). The collapse used to
+    // paint `LOBBY DISBANDED — SEARCHING FOR A NEW MATCH` onto the home's status
+    // line and hold it there for a beat; that line is deleted, and the state now
+    // shows where every other queue wait shows — the queue modal, reading the
+    // same `N/20 QUEUED` as any ordinary join. No sentence replaces it.
     // The fallback can only be reached if a collapse somehow preceded any
     // deploy, which the lifecycle does not allow; it takes the saved hull rather
     // than inventing one — and the queue, which is the only door a collapse can
@@ -4343,7 +4303,7 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     };
     // Eric ruling 2026-08-17: re-enter the mode the player last chose, not
     // always Standard. (Unreachable for `soloVsAi` — see `lastDeploy`.)
-    void startGame(shell, home, stopAmbient, name, cls, REQUEUE_STATUS_HOLD_MS, mode);
+    void startGame(shell, home, stopAmbient, name, cls, mode);
     return;
   }
   // Client-side server-health probe → the status line (probing → ready/unreachable).
@@ -4375,19 +4335,37 @@ async function claimPortForDeploy(home: HomeHandle): Promise<boolean> {
   return false;
 }
 
+/**
+ * Give the status line beside HOW TO PLAY back to the SERVER register, which is
+ * the only thing it is for (Eric ruling 2026-08-18).
+ *
+ * Why it goes through `setStatus` rather than `setServerProbe`: the handle locks
+ * the line the moment the connect flow writes to it, so a probe resolving late
+ * cannot stomp a live `CONNECTING…`. That guard is right and stays — but these
+ * two transitions (entering the pool, and cancelling out of it) are DELIBERATE
+ * hand-backs, not late arrivals, so they have to be able to write through it.
+ *
+ * READY rather than a re-probe because reachability was just PROVEN: we held a
+ * socket to the queue room. And the copy comes from `serverStatusLine` itself,
+ * never a literal, so this can never drift from what the probe says.
+ */
+function handStatusBackToServer(home: HomeHandle): void {
+  const line = serverStatusLine('ready');
+  home.setStatus(line.text, line.tone);
+}
+
 async function startGame(
   shell: Shell,
   home: HomeHandle,
   stopAmbient: () => void,
   name: string,
   cls: ShipClassId,
-  statusHoldMs = 0,
   mode: DeployMode = 'standard',
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
   // Story 6.6: the player has committed, so the home's liveness surface stands
-  // down — poll AND paint. From here the queue's own pushed status line owns
+  // down — poll AND paint. From here the queue MODAL's own pushed count owns
   // the wait, and a second, slower, cruder copy of the same number on the
   // button behind it would just contradict it.
   stopHomeLiveness(home);
@@ -4397,48 +4375,66 @@ async function startGame(
   }
   lastDeploy = { name, cls, mode }; // what the auto-requeue re-deploys with
   saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
-  // An auto-requeue arrives with its own opening register already painted (the
-  // reason we are here), and holds it for a beat — so it does NOT get replaced
-  // by CONNECTING…, which says less and is over in a moment.
-  const hold = makeStatusHold(home, statusHoldMs);
-  if (statusHoldMs <= 0) home.setStatus('CONNECTING…', 'info');
+  // Every deploy opens on CONNECTING… now, the auto-requeue included: the
+  // collapse's own opening register is gone (Eric ruling 2026-08-18), so there
+  // is nothing left for it to be held off by.
+  home.setStatus('CONNECTING…', 'info');
   let conn: Connection;
   try {
     // Story 6.1: `connect()` now queues first and only resolves once the ARENA
     // welcome lands, so the home stays up (and the ambient keeps breathing)
-    // for the whole pooled wait. The two hooks are that wait's entire surface:
-    // the liveness line, and the CANCEL that leaves the queue without a reload.
-    // Story 6.5: a SOLO VS AI deploy never enters the pool, so it is handed NO
-    // queue hooks at all — there is no liveness line to paint and nothing to
-    // cancel out of. Belt and braces with `connect(..., solo)`, which never
-    // joins the queue room in the first place.
+    // for the whole pooled wait. The two hooks are that wait's entire surface,
+    // and BOTH now drive the queue MODAL rather than the home's status line
+    // (Eric ruling 2026-08-18): `onQueued` opens and closes it, `onQueue` feeds
+    // it the live count. Story 6.5: a SOLO VS AI deploy never enters the pool,
+    // so it is handed NO queue hooks at all — there is no modal to open and
+    // nothing to cancel out of. Belt and braces with `connect(..., solo)`,
+    // which never joins the queue room in the first place.
     conn = await connect(
       name || undefined,
       cls,
       solo
         ? {}
         : {
-            onQueue: (q) => hold.paint(queueStatusLine(q)),
-            onQueued: (cancel) => home.setCancel(cancel),
+            onQueue: (q) => home.setQueue(q),
+            onQueued: (cancel) => {
+              home.setCancel(cancel);
+              // ...and hand the status line back to the server register the
+              // moment the modal takes over (Eric ruling 2026-08-18). Being
+              // pooled is not "connecting" — the socket is up, which is exactly
+              // what joining the queue proved — so leaving CONNECTING… parked
+              // there for the whole two-minute wait would be the status line
+              // telling a second lie about a second thing. `null` (the modal
+              // closing) deliberately does NOT touch it: by then either the
+              // catch block above has spoken, or the match is starting.
+              if (cancel) handStatusBackToServer(home);
+            },
           },
       solo,
     );
   } catch (err) {
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
     // (tertiary, not denied) and never reaches the console.
-    hold.cancel(); // nothing may repaint over the failure/cancel line
     // The session never started, so the port is free again — a failed or
     // cancelled connect must not hold the single-session lock against the next
     // press (or against another tab) for the life of the page.
     releaseSessionLock();
     const cancelled = isQueueCancelled(err);
     if (!cancelled) console.error('[net] connection failed', err);
-    home.setStatus(connectErrorStatus(err), cancelled ? 'tertiary' : 'denied');
+    // A CANCEL WRITES NOTHING TO THE STATUS LINE (Eric ruling 2026-08-18: "stop
+    // CHANGING THE TEXT ON THE PAGE THAT SERVES ANOTHER PURPOSE"). Leaving the
+    // pool is not a connection outcome and the line beside HOW TO PLAY is the
+    // server register, so it goes back to reporting the server — and it reports
+    // READY rather than re-probing, because we demonstrably just held a socket
+    // to it. A genuine FAILURE still speaks here: EXPERIENCE.md requires a
+    // failed connection to surface on this line rather than a dead screen, and
+    // that IS server news.
+    if (cancelled) handStatusBackToServer(home);
+    else home.setStatus(connectErrorStatus(err), 'denied');
     home.setBusy(false);
     startHomeLiveness(home); // back at a live port — resume the population read
     return; // the ambient keeps breathing behind the still-live home
   }
-  hold.cancel(); // we are aboard; the home is about to go
   home.hide();
   stopAmbient(); // tear down the pre-join CIC scene now that we're joining
   hideBanner();

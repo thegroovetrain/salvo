@@ -113,3 +113,16 @@ amendment and the planning-artifact-derived content above, **the amendment wins*
 - **A39 (Eric, 2026-08-17)** — the honest zero renders. `EXPERIENCE.md:108` ("absence, not
   placeholders") is scoped to DECORATIVE empties; a population of zero is a fact the player needs.
   Genuine unavailability still renders as absence.
+- **A40 (Eric, 2026-08-18)** — `PLAYERS ONLINE` counts EVERYONE: in game, in queue, AND on the home
+  screen, viewer included. Widens A33 (a reversal by its owner — the option was costed and declined
+  at the gate). The liveness poll is the heartbeat; presence lives on `matchMaker.presence` (D8), TTL
+  30s = 3× the poll. Double counting is structural, not reconciled.
+- **A41 (Eric, 2026-08-18)** — the SOLO button says exactly `N/20 QUEUED` and nothing else; A37's
+  invented four-state copy is DELETED. **Process rule: a ruling to put information somewhere is not a
+  licence to author the copy.** The status line beside HOW TO PLAY speaks for the SERVER only — no
+  queue copy, ever (genuine connection failures excepted, per EXPERIENCE.md).
+- **A42 (Eric, 2026-08-18)** — the pooled wait is a MODAL at z 1150, carrying only `N/20 QUEUED`, an
+  armed-only `STARTS IN m:ss`, and `CANCEL`. It may not repurpose anything already on the page.
+- **A43 (Eric, 2026-08-18)** — the population register moves to the BOTTOM-left. A34's top-left
+  placement collided with the wordmark below ~768px viewport height, and padding could not fix it
+  without breaking amendment 47's container-fit law at the supported floor.

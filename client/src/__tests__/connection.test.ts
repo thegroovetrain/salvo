@@ -255,11 +255,15 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
     });
     (cancel as unknown as () => void)();
     await expect(pending).rejects.toThrow(QueueError);
-    // The room the player deliberately left must not be re-reported as a drop:
-    // the rejection is the CANCEL, and the copy stays quiet.
+    // The room the player deliberately left must not be re-reported as a drop.
+    // The rejection carries the CANCEL, and since Eric's 2026-08-18 ruling it
+    // carries NO STATUS COPY AT ALL: leaving the pool is not a connection
+    // outcome, so the caller hands the status line back to the server register
+    // instead of writing queue chatter onto it. `connectErrorStatus` therefore
+    // must never speak of a cancel — a dead copy string is a dead knob.
     await pending.catch((err) => {
       expect(isQueueCancelled(err)).toBe(true);
-      expect(connectErrorStatus(err)).toMatch(/CANCELLED/);
+      expect(connectErrorStatus(err)).not.toMatch(/CANCEL/i);
     });
     expect(queue.left).toBe(1);
   });
