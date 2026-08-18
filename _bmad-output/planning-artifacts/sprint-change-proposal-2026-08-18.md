@@ -65,7 +65,7 @@ is that review, widened by the pivot.
 | The portal ad-break seam already exists and is unused | `client/src/portal/` (Story 0.4) |
 | One Render service serves both client and game server today | `server/src/app.config.ts:66` |
 | All three workspaces carry a stub version `0.1.0`; only root is real | `*/package.json` |
-| A live forge session on upgrade cards v2 exists, untracked, unresolved | `_bmad-output/forge/boon-deck-rebalance/.memlog.md` |
+| Four upgrade-card rulings made, full plan held by Eric for the story | Eric, 2026-08-18 (see Story 7.5) |
 | Three Epic 6 findings already change what Epic 7's stories must contain | epic-6 retro §Significant Discovery |
 
 ---
@@ -84,7 +84,7 @@ completed story is invalidated. The single asset built *for* the portal — the 
 (see §2.4).
 
 **No new epic is required for launch work**; Epic 7 absorbs all of it. The upgrade-cards v2
-pass enters Epic 7 as a story with an internal design gate, per Eric's ruling.
+pass enters Epic 7 as one story, per Eric's ruling, with its plan delivered at the story.
 
 ### 2.2 Story impact
 
@@ -210,7 +210,7 @@ for this change, and no alternative path buys anything.
 | 7.2 Analytics + consent + privacy | Medium | **Medium** | Consent Mode v2 + CMP is fiddly; it also puts a banner in front of a new player |
 | 7.3 AdSense integration | Small (code) | **HIGH — external** | Code is small behind the existing seam. **Approval is not ours to schedule** |
 | 7.4 How-to-Play | Medium | Low | Content work; boon glossary already drafted (Story 2.8) |
-| 7.5 Upgrade cards v2 | **Large** | **HIGH — design** | Open design question with a known-fatal candidate direction |
+| 7.5 Upgrade cards v2 | **Large** | **Medium** | Eric holds the plan, so the design risk is retired. What remains is surface area: a weapon deleted, a new arc-limited weapon built, and per-card retooling across four subdecks |
 | 7.6 Performance & load | Medium | Medium | Three epics of unmeasured growth; may surface real work |
 | 7.7 Doc reconciliation | Medium | Low | Known list, now enumerated |
 | 7.8 Release gate | Medium | Medium | Includes building `loadTest.mjs` from scratch |
@@ -247,7 +247,7 @@ as the risk mitigation it is.
 7.6 Performance & load (early read)  ← the retro asked for a cheap read three epics running
 7.2 Analytics + consent              ← unblocks the AdSense application
 7.4 How-to-Play                      ← independent; content-heavy
-7.5 Upgrade cards v2                 ← independent of all launch infra; design gate first
+7.5 Upgrade cards v2                 ← independent of all launch infra; Eric's plan first
 7.3 AdSense                          ← gated on external approval
 7.7 Doc reconciliation               ← wants everything else settled
 7.8 Release gate                     ← last, by definition
@@ -533,80 +533,76 @@ Acceptance criteria as originally written, plus:
 
 ---
 
-#### Story 7.5 — Upgrade Cards v2 *(NEW — design gate inside)*
+#### Story 7.5 — Upgrade Cards v2 *(NEW — Eric's plan, delivered at the story)*
 
 > As the designer (Eric),
-> I want the boon catalog rebalanced and the Battleship, mines and buoy reworked,
-> So that beta launches on a catalog that isn't carrying known-dead cards and a known-broken
-> class identity.
+> I want the Battleship's armament replaced, the mines and buoy changed, mutual exclusivity
+> removed, and the affected cards retooled as added verbs,
+> So that beta launches on a catalog where every card adds something and no card is dead.
 
-**Structure:** this story **opens with a design session with Eric and does not proceed to
-implementation until its design questions are locked** (Eric's ruling, 2026-08-18). Per standing
-project law, an implementer may not invent game mechanics.
+**Structure:** **Eric holds the plan.** It is delivered in full when the story is reached
+(Eric, 2026-08-18). This story therefore opens with him stating it, and **does not proceed to
+implementation until it is stated** — per standing project law, an implementer may not invent
+game mechanics. What follows is *not* a design proposal: it is the four rulings already made,
+plus the structural consequences the story must carry so they are not discovered mid-build.
 
-**Design gate — the questions that must be locked first:**
+**Also in scope from Eric's 2026-08-18 scoping message, and not yet ruled on in detail:**
+changes to **mines** and to the **buoy**.
 
-1. **The Battleship's signature.** The live forge direction is *cannon DIES, star shells become
-   the signature* — and carries its own fatal objection: star shells are **damageless by ratified
-   design** (epic-4 amendment 39, structurally — no damage field). Fully doctrined, WP burns 132 u
-   at 5 hp/s for 10 s = 50 damage **only to a target that never leaves**; a TB at 45 u/s takes ~15
-   and often ~0. So the BB's signature deals about one gun shot to anything awake, while it holds
-   the worst rudder in the game and cannot chase. **And it creates a degenerate endgame:** at 175
-   hp vs a TB's 125, under sudden death's 4 hp/s collapse the BB wins by simply existing —
-   hide-and-outlast, the exact Rat Covenant concern the identity-fork forge already flagged.
-   *Arguably worse than the cannon it replaces.* **Unresolved.**
-2. **The diagnosis behind killing the cannon**, which is worth keeping whatever is decided: the
-   cannon is *the gun with three scalars changed* (identical 360° arc, shell speed, derived range,
-   fire flow, ammo pool — differing only in damage 15→65, burst 15→30, reload 5 s→45 s). Two
-   weapons at one design point leave a 1-D tuning line between redundant and oppressive. **The real
-   axis is burst radius, not damage:** perception reveals a shell only at the 330 u boundary, so a
-   victim always gets 0.66 s of flight time; max lateral displacement in 0.66 s is TB 29.7 u / ML
-   26.4 u / BB 23.1 u, against a 30 u cannon burst. **The cannon is mathematically undodgeable for
-   every hull at every range.** And `cannonArcing` (plunging fire) **skips island and hull collision
-   entirely** (`shell.ts:413`) — strictly stronger on an already un-missable weapon.
-3. **The central opposition — the one that must be resolved explicitly.** Build divergence comes
-   from only two engines: draw randomness, or choices that **close doors**. The draft catalog
-   deletes exclusives (*"all cards stack"*) and option (C) deletes acquisitions — **removing both
-   engines at once**, leaving only allocation quantity, which diverges only while the correct build
-   is unaffordable. Fewer, louder cards make builds *more* affordable, so players converge *faster*.
-   **Eric's two stated goals are mechanically opposed as drafted.** The forge's own resolution is
-   already locked and should anchor the session: **class-tilted offer weighting is ACCEPTED** (Eric:
-   *"Weighting sounds about right"*) — every hull can acquire anything, its own class equipment is
-   heavily weighted. That is the divergence engine that does not force the trade.
-4. **The buoy.** The sibling forge is **abandoned** and its Gun/Jammer Buoy exclusivity locks are
-   explicitly **void** — but it carries a kill that is not: *"Decoy Buoy is dead. The minelayer is
-   not a Q ship."* Whether the chassis becomes a radar buoy, and what rides on it, is open.
-   Reopening this also reopens the ledgered decoy items — the wakeless-decoy tell
-   (`deferred-work.md:722`, deferred **by Eric** pending exactly this rework), the dead-owner blip
-   cross-reference tell, and the shared 3-paint track budget.
-5. **The dead cards already found and still unruled** (cycles 93/95): `mineDamage` ×
-   `minePropFouling` pick-order dependence, `mineTrigger`'s 5th card ~75% clamped away, and *at most
-   1 of 6 acquisition cards can ever fire*.
-6. **`shipCooldown` and the cannon are both ABSENT from the draft catalog** — `shipCooldown` is the
-   single global cooldown lever Eric himself ruled in on 2026-08-04, which *replaced* all seven
-   per-equipment reload ladders **and drove base gun 3 s→5 s and cannon 15 s→50 s in the same
-   ruling.** Deleting the line without restoring those bases leaves every weapon at a reload tuned
-   for a lever that no longer exists.
-7. **The merged INTEL line concentrates power dangerously:** one INTEL 1–5 raising range *and* sweep
-   moves radar 660→1327 u (47% of the 2800 u map), sight 330→581, detect 247.5→436, the flash halo
-   412.5→727, every gun-family range, and sweep 15→30. Imbalance spread over many weak lines becomes
-   one dominant card.
+**Rulings already made (Eric, 2026-08-18):**
 
-**Implementation acceptance criteria** (after the gate):
+1. **The cannon is REMOVED from the game.**
+2. **The Battleship gets a BROADSIDE BARRAGE** in its place.
+3. **Mutually exclusive upgrades are REMOVED** — "at least for now."
+4. **SOME existing cards are retooled to work as "added verbs."** Specifically: the
+   formerly-exclusive cards that **stay in the game** need retooling. A card authored as one
+   half of an either/or has to work as a standalone addition once nothing is opposing it.
+   **This is retooling, not deletion** — which cards stay, and how each is retooled, is part
+   of the plan Eric delivers at the story.
 
-- **Given** locked design decisions
+> **The forge sessions are IRRELEVANT to this story** (Eric, 2026-08-18) and must not be
+> mined for direction. `boon-deck-rebalance` and `loadout-equipment-rework` are superseded by
+> Eric's own plan; do not cite their locks, kills or directions as input. They are left in
+> place as history only.
+
+**Structural consequences to carry into the story — verified against the code, not proposed:**
+
+*From removing the cannon:*
+
+- The **cannon subdeck deletes entirely** — 7 cards since cycle 93 (5 commons + `cannonArcing`/`cannonAp`) plus the `acquireCannon` acquisition card. Every deck-size test moves.
+- `CannonMode` in `stats.ts` goes dead, and **`shell.ts:412`'s plunging-fire branch loses its only consumer** — `shell.arcing` is set by nothing else.
+- **Deleting AP orphans a ratified clause.** Epic-4 amendment 17 fixed *"exactly one `hc` per shell resolution even when an AP shell pierces several hulls."* With AP gone the clause survives with nothing to exercise it; it should be explicitly retired or re-homed rather than left dangling.
+- The 2026-08-04 global-cooldown ruling drove **base cannon reload 15 s → 50 s → 45 s**; that tuning history retires with the weapon, and nothing else should inherit those numbers by accident.
+- `loadout.ts:124` (Battleship = cannon + starShells) changes, and the **`bulwark`/`siege` bot profiles** need rework — Story 6-4's per-profile boon weights carry per-line overrides that will reference deleted lines.
+
+*From the broadside barrage:*
+
+- **It is the first non-360° weapon of the class era.** `gun`/`cannon`/`starShells` are all `arc: 'full'`, ratified 2026-07-23 as *"360° with no mounts and no arc."* A broadside is a **mounted** weapon, which re-activates FR6 (mouse aim constrained to the selected weapon's arc) and FR12 (explicit denial, never silence) on a path the gun family has never exercised.
+- **`ArcShape` has no twin-sector kind.** It supports `full`, `sector` (torpedo bow, mine rear), `stern-drop` and `none`. A true port/starboard broadside needs either a new arc kind or a single wide beam sector — a design call, not an implementer's pick. Once the kind exists, enforcement and rendering come free: **both sides consume `arcs.ts`, so the enforced arc and the rendered arc cannot diverge.**
+- **"Barrage" implies a salvo**, and every existing weapon fires one projectile per activation. Multiple shells per activation touches the ammo pool, the reload contract, and the perception surface — a salvo's `mz` muzzle flashes, `sp` splashes and `hc` Hit Calls all multiply, against rows whose volume nobody has costed.
+
+*From removing mutual exclusivity:*
+
+- **The exclusivity spans 8 cards / 4 pairs**, not one: cannon (`cannonArcing`/`cannonAp` — dying with the weapon), **torpedoes** (`torpedoHoming`/`torpedoCommand`), **mines** (`mineSelfPropelled`/`minePropFouling`) and **star shells** (`starIncendiary`/`starDazzle`). **The six non-cannon cards are candidates to STAY** (per ruling 4) — which ones do is Eric's plan, not an inference to be drawn here.
+- **The load-bearing consequence: `mode` is single-valued per weapon.** `boons.ts` states *"only one doctrine"* — `doctrine` effects fold into a per-weapon `mode` field on `EffectiveStats`, and two simultaneously-held doctrines **cannot both set it**. So a surviving pair cannot simply have its `exclusiveWith` link deleted and be left alone: **this is precisely why ruling 4 says those cards need retooling.** A card that currently *switches a mode* has to become a card that *adds a verb*. Rulings 3 and 4 are one change, not two.
+- **The retooling is per-card design work, not a mechanical sweep.** Each surviving card was authored knowing exactly what it was traded against; standing alone, each needs its own answer. `minePropFouling` is the worked example already on record — cycle 95 stripped its bundled `mult: 0.6` damage penalty and ruled it *"a pure behaviour change,"* explicitly noting that this turned it from a side-grade into a pure upgrade, *"so taking a doctrine at all is strictly correct."* That is the exact pressure every de-exclusived card now comes under.
+- `validateBoonDef`/`validateCatalog` enforce **`exclusiveWith` symmetry**; that validation changes rather than simply relaxing, and it must not be loosened into accepting a dangling one-sided link.
+- **A deck refill path disappears.** `deferred-work.md:972` records exactly two — *doctrine return* and *acquisition subdeck*. If doctrines stop returning cards to the deck, that entry's terminal empty-deck analysis must be **re-derived**, not assumed still-safe.
+
+*Alignment worth naming:* ruling 4 is a **return to ratified intent, not a new direction** —
+FR20 already specifies *"Hades-style: qualitative, build-defining boons (not stat multipliers)."*
+"Added verbs" is that requirement restated. Cards that drifted into multipliers are the drift.
+
+*Already-known dead cards, still unruled, that this pass should sweep* (cycles 93/95):
+`mineDamage` × `minePropFouling` pick-order dependence, `mineTrigger`'s 5th card ~75% clamped
+away, and *at most 1 of 6 acquisition cards can ever fire*.
+
+**Implementation acceptance criteria** (once the plan is stated):
+
+- **Given** Eric's stated plan
 - **Then** the catalog change lands through `effectiveStats()` and `BOON_STAT_PATHS` with no ad-hoc stat derivation, `PROTOCOL_VERSION` bumps (catalog content is wire contract), and the deck/offer tests are updated rather than deleted
 - **And** a **batch-sim evidence pass** runs — the cycle-39/2.10 mould — because the last catalog change (cycle 42) shipped **explicitly unmeasured** and that debt is still ledgered
 - **And** any ratified amendment this supersedes is recorded in `epic-7-context-amendments.md` with its supersession stated, per project law.
-
-> **Source material** (all currently **untracked** — should be committed):
-> `_bmad-output/forge/boon-deck-rebalance/.memlog.md` (live, one lock),
-> `_bmad-output/forge/loadout-equipment-rework/.memlog.md` (abandoned; locks void, kill stands),
-> `_bmad-output/forge/identity-fork/forged-idea.md` (ratified: *class as envelope, build as point
-> inside it*).
->
-> **Handle as un-ratified input.** Forge memlogs record pressure-testing, not decisions. Only
-> entries explicitly attributed to Eric are rulings; everything else is a proposal awaiting one.
 
 ---
 
@@ -686,11 +682,10 @@ and one ratified versioning ruling ends. This exceeds "backlog reorganization."
 
 | Recipient | Deliverable |
 |---|---|
-| **Eric** | Approve this proposal; **start the AdSense application** (new critical path); stamp the reference MacBook model; convene the 7.5 design gate |
+| **Eric** | Approve this proposal; **start the AdSense application** (new critical path); stamp the reference MacBook model; **deliver the Story 7.5 card plan when the story is reached** |
 | **`gds-create-epics-and-stories`** (or a targeted edit pass) | Apply §4.1–4.3 to `epics.md` and `game-architecture.md` |
 | **`gds-sprint-planning`** | Regenerate `sprint-status.yaml` for the 8-story Epic 7 |
 | **`gds-create-story`** | Story specs, in the §3 sequence |
-| **Forge / design session** | Story 7.5's gate, anchored on the existing class-tilted-weighting lock |
 
 ### Success criteria
 
@@ -698,7 +693,7 @@ and one ratified versioning ruling ends. This exceeds "backlog reorganization."
 2. NFR1/2/8/9/10 amended; NFR18/19 and FR39/40 added; AR1/AR11 marked superseded-in-part with dates
 3. Both tracker files regenerated, **in the same PR** as the artifact changes
 4. The AdSense application is submitted and its status tracked as a first-class dependency
-5. Story 7.5's design gate produces locks recorded in `epic-7-context-amendments.md` before any card code moves
+5. Story 7.5's plan is stated and recorded in `epic-7-context-amendments.md` before any card code moves
 6. The three carried Epic 6 findings are scoped into 7.7 and 7.8 **at create-story time**, not discovered at the gate
 
 ### Recommended before story work begins
@@ -713,8 +708,8 @@ Unchanged from the Epic 6 retrospective, and now more urgent rather than less:
    on the retention path.
 3. **Run the deferred-work triage pass** — 250 entries, untriaged for three epics, now containing
    launch-relevant items whose visibility falls as the file grows.
-4. **Commit the untracked forge sessions** — Story 7.5's entire source material is currently
-   untracked and would be lost with the working directory.
+4. **Nothing further for Story 7.5 before it starts.** Eric holds the plan and delivers it at
+   the story. The forge sessions are explicitly **not** input to it.
 
 ---
 
@@ -829,5 +824,10 @@ both.
 | 5 | **Independent per-service versions**, split **now, in Epic 7** | The 0.17.X-until-epics-complete ruling ends; ledger rehomes to `sprint-status.yaml` |
 | 6 | **Interstitial at death→port + home-screen display unit** | FR40 added; NFR8 placement clauses |
 | 7 | **Google's own free certified CMP + privacy policy** | Story 7.2; NFR19 |
-| 8 | **Upgrade cards v2 as one Epic 7 story with a design gate inside** | New Story 7.5 |
+| 8 | **Upgrade cards v2 as one Epic 7 story**, plan delivered by Eric at the story | New Story 7.5 |
+| 8a | **The cannon is REMOVED from the game** | Cannon subdeck + `acquireCannon` delete; `CannonMode` and `shell.ts:412` plunging fire go dead; amendment 17's AP Hit Call clause is orphaned |
+| 8b | **The Battleship gets a BROADSIDE BARRAGE** | First non-360° weapon of the class era; `ArcShape` has no twin-sector kind; a salvo multiplies the `mz`/`sp`/`hc` signal surface |
+| 8c | **Mutually exclusive upgrades REMOVED** ("at least for now") | 8 cards / 4 pairs affected; `exclusiveWith` symmetry validation changes; a deck refill path disappears |
+| 8d | **SOME cards retooled as "added verbs"** — the formerly-exclusive cards that STAY need retooling | A card that switches a single-valued `mode` must become one that adds a verb; rulings 8c and 8d are one change |
+| 8e | **The forge sessions are IRRELEVANT** to Story 7.5 | Not to be mined for direction or cited as input |
 | 9 | **Matchmaking is not a separate service** *(assistant finding, accepted premise correction)* | Two deployables, not three |
