@@ -305,6 +305,19 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     });
   }
 
+  /**
+   * Best-effort diagnostic: log a warning and swallow anything the logging
+   * itself throws (the room.requeueBroadcastFailed posture — a report must
+   * never become a second failure).
+   */
+  private warnQuietly(event: string, err: unknown): void {
+    try {
+      this.log.warn(event, describeError(err));
+    } catch {
+      /* diagnostics are best-effort */
+    }
+  }
+
   /** The post-operability remainder of room creation (see onCreate's guard). */
   private finishCreate(input: SanitizedRoomOptions, seed: number): void {
     // SOLO VS AI (Story 6.5): a one-captain cohort. Both fields are DERIVED
@@ -349,6 +362,29 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // outside it). Building here — before setSimulationInterval below — is what
     // makes "before activate" structural rather than a race.
     if (sanitized.solo) this.buildBotFleet();
+
+    // LISTING metadata for /liveness's per-mode split (Story 6.6). This is the
+    // ONLY place the arena's mode is written down, and it goes on the ROOM
+    // LISTING — never into the World, the Match or anything under game/, which
+    // still never learns what kind of door created it (Story 6.5's boundary).
+    //
+    // FREE: setMetadata skips its driver.persist while `_internalState` is
+    // CREATING, and core only flips that to CREATED after onCreate returns
+    // (@colyseus/core 0.17.44 MatchMaker.mjs:298). It mutates `_listing`
+    // in place, and the create-time `driver.persist(listing, true)` that runs
+    // right after onCreate carries the metadata with it. So this costs zero
+    // extra driver writes — one write, as before.
+    //
+    // The catch is load-bearing, not decoration: a bare `void` on an async call
+    // makes any failure an UNHANDLED REJECTION that fails the whole test file
+    // around it. `setMetadata` dereferences core's `_listing`, which only the
+    // matchmaker creates — so every unit test that constructs an ArenaRoom
+    // directly (solo.test.ts et al) hits it — and against a remote driver a
+    // persist can legitimately fail. A missing listing tag degrades /liveness's
+    // per-mode split to 'standard'; it must never take the room down with it.
+    void this.setMetadata({ mode: sanitized.solo ? 'soloVsAi' : 'standard' }).catch(
+      (err: unknown) => this.warnQuietly('room.modeMetadataFailed', err),
+    );
 
     this.onMessage(MSG.input, (client: Client, raw: unknown) => this.onInputMessage(client, raw));
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => this.onSpendMessage(client, raw));

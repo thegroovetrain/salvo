@@ -8,6 +8,7 @@ import express, { type Request, type Response } from 'express';
 import { ArenaRoom } from './rooms/ArenaRoom.js';
 import { StandardQueueRoom } from './rooms/StandardQueueRoom.js';
 import { metricsRoutes } from './metrics.js';
+import { livenessEndpoint } from './liveness.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -18,8 +19,15 @@ const isProd = process.env.NODE_ENV === 'production';
 
 export default config({
   // Typed HTTP routes (Colyseus 0.17): served alongside the default
-  // matchmaking routes. `/metrics` returns the process-local ops snapshot.
-  routes: metricsRoutes,
+  // matchmaking routes. `/metrics` returns the process-local ops snapshot;
+  // `/liveness` (Story 6.6) returns the DRIVER-backed, cross-process,
+  // player-facing snapshot the home screen polls. The two numbers differ on
+  // purpose — see the note at the top of metrics.ts.
+  //
+  // `.extend()` composes a new router from the metrics one rather than
+  // replacing it (verified against @colyseus/core 0.17.44's
+  // build/router/index.d.ts, which declares `extend` on createRouter's return).
+  routes: metricsRoutes.extend({ getLiveness: livenessEndpoint }),
 
   initializeGameServer: (gameServer) => {
     // 'queue' is the ONLY door a production client knocks on (Story 6.1): it

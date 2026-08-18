@@ -25,7 +25,7 @@ import {
   sanitizeName,
   type JoinOptions,
 } from './roomOptions.js';
-import { defaultQueueConfig, queueStep, type QueueConfig } from './queue.js';
+import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
 
 /** The room name the queue seats captains into — must match app.config.ts. */
@@ -42,6 +42,19 @@ const TICK_MS = 1000;
  *  not be reserved. Never a silent drop — the client shows this and un-busies
  *  the home screen. */
 const FORM_FAILED_ERROR = 'could not start a match — please try again';
+
+/**
+ * The listing-metadata block this room publishes for `GET /liveness` (Story
+ * 6.6). It carries exactly what QueueStatusMsg already carries, with the
+ * countdown re-expressed as an ABSOLUTE epoch deadline (see resolveDeadlineAt).
+ */
+interface QueueListingMeta {
+  pooled: number;
+  min: number;
+  cap: number;
+  /** Epoch ms the pool forms at; null while UNARMED. */
+  deadlineAt: number | null;
+}
 
 /**
  * The IRoomCache handle matchMaker.createRoom hands back. Derived from the
@@ -124,9 +137,21 @@ export class StandardQueueRoom extends Room {
   private forming = false;
   private readonly cfg: QueueConfig = defaultQueueConfig();
   private log: Logger = createLogger({ mode: MODE });
+  /** The listing metadata last written, so a tick that changes nothing writes
+   *  nothing (see publishListing). */
+  private published: QueueListingMeta | null = null;
+  /** Absolute epoch-ms deadline for the CURRENT cohort, and the armedAtMs it
+   *  was stamped from (see resolveDeadlineAt). */
+  private deadlineAt: number | null = null;
+  private deadlineArmedAtMs: number | null = null;
 
   onCreate(): void {
     this.log = createLogger({ roomId: this.roomId, mode: MODE });
+    // Seed the listing metadata BEFORE the first join, so /liveness never sees
+    // a queue room with no shape. Free: `_internalState` is still CREATING
+    // here, so setMetadata skips its own persist and the create-time
+    // driver.persist carries it (the same argument as ArenaRoom's mode tag).
+    this.publishListing(null);
     this.clock.setInterval(() => this.evaluate(false), TICK_MS);
     this.log.info('queue.create', { minHumans: this.cfg.minHumans, cap: this.cfg.cap });
   }
@@ -171,11 +196,76 @@ export class StandardQueueRoom extends Room {
       this.cfg,
     );
     this.armedAtMs = decision.armedAtMs;
+    this.publishListing(decision);
     if (decision.form) {
       void this.formMatch(decision.formCount);
       return;
     }
     if (pushAlways || decision.startsInMs !== null) this.pushStatus(decision.startsInMs);
+  }
+
+  /**
+   * The cohort's deadline as an ABSOLUTE EPOCH ms, for `GET /liveness` (Story
+   * 6.6) — the home screen is not connected to this room, so it cannot be given
+   * a remaining-ms the way a pooled captain's QueueStatusMsg is; it needs a
+   * fixed point it can tick a local countdown against.
+   *
+   * Stamped ONCE per cohort, from `Date.now()` plus the policy's own remaining
+   * ms. Two reasons it is not `armedAtMs + queueTimerMs`: the queue's clock is
+   * `this.clock.currentTime` (a Colyseus room clock), so nothing in this file
+   * may assume its origin is the wall-clock epoch; and a value recomputed from
+   * `Date.now()` every tick would jitter by a few ms per second and defeat the
+   * publish-on-change rule below, turning liveness into a driver write per
+   * second forever.
+   *
+   * Because `armedAtMs` never moves within a cohort (see QueueState.armedAtMs),
+   * a stamp keyed on it is stable until a match forms and the next cohort arms.
+   */
+  private resolveDeadlineAt(decision: QueueDecision): number | null {
+    if (decision.armedAtMs === null || decision.startsInMs === null) {
+      this.deadlineArmedAtMs = null;
+      this.deadlineAt = null;
+      return null;
+    }
+    if (this.deadlineArmedAtMs !== decision.armedAtMs || this.deadlineAt === null) {
+      this.deadlineArmedAtMs = decision.armedAtMs;
+      this.deadlineAt = Date.now() + decision.startsInMs;
+    }
+    return this.deadlineAt;
+  }
+
+  /**
+   * Publish the pool to the ROOM LISTING for `GET /liveness` — ONLY WHEN A
+   * VALUE CHANGED. setMetadata persists to the matchmaker driver, and the 1 Hz
+   * tick runs for the whole life of the room, so an unconditional publish would
+   * be one driver write per second forever: invisible on the LocalDriver and a
+   * real, permanent cost the day the driver is Redis.
+   *
+   * `decision === null` is the onCreate seed: shape with no countdown.
+   *
+   * Policy is untouched by all of this — nothing here decides anything, it only
+   * mirrors what queueStep already computed.
+   */
+  private publishListing(decision: QueueDecision | null): void {
+    const meta: QueueListingMeta = {
+      pooled: this.pool.length,
+      min: this.cfg.minHumans,
+      cap: this.cfg.cap,
+      deadlineAt: decision === null ? null : this.resolveDeadlineAt(decision),
+    };
+    const prev = this.published;
+    const same = prev !== null
+      && prev.pooled === meta.pooled
+      && prev.min === meta.min
+      && prev.cap === meta.cap
+      && prev.deadlineAt === meta.deadlineAt;
+    if (same) return;
+    this.published = meta;
+    // A failed persist must not latch: clearing the mirror makes the next tick
+    // that changes anything retry rather than believe it already published.
+    void this.setMetadata(meta).catch(() => {
+      this.published = null;
+    });
   }
 
   /** QueueStatusMsg to every POOLED captain (a captain already seated by a

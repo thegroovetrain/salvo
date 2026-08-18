@@ -21,6 +21,18 @@
 //     survives room unregistration (retired rooms' counts are folded forward).
 //
 // No third-party libs, no Prometheus format, no auth — JSON body only.
+//
+// NOT to be reconciled with `/liveness` (Story 6.6, server/src/liveness.ts).
+// The two routes report different numbers ON PURPOSE and both are correct:
+//   - `/metrics` answers an OPS question — "how loaded is THIS process" — so
+//     `rooms`/`players` come from `matchMaker.stats.local` and are deliberately
+//     process-local. Anything else would be the wrong answer for a dyno gauge.
+//   - `/liveness` answers a PLAYER question — "is anyone playing anywhere" — so
+//     it reads the driver's room cache via `matchMaker.query()` and never
+//     touches `stats.local` (architecture rule D8: nothing player-facing may
+//     assume co-residency).
+// On a single process the two agree; the day there are two, they must not.
+// Do not "fix" the divergence by pointing one at the other's source.
 
 import { matchMaker, createEndpoint, createRouter } from 'colyseus';
 
