@@ -32,10 +32,23 @@
 //      rule at its sharpest: nineteen bots are afloat in that room and NONE of
 //      them may reach a player-facing count.
 //   6. THE CACHE — a poll taken immediately after a room's population changed
+//      (see also step 8, which proves the OTHER half of the cache ruling: the
+//      home-screen term is recounted per request while the room half is stale)
 //      still reports the PRE-change counts (one driver query serves many
 //      pollers), while `serverNow` is re-stamped fresh on that same cached
 //      response. The staleness assertion is skipped rather than guessed if the
 //      two polls did not land inside the cache window.
+//   8. THE HOME SCREEN COUNTS (Eric ruling 2026-08-18) — `GET /liveness?c=<tab
+//      id>` is the heartbeat of a player sitting on the home screen, who holds no
+//      room and no socket. A polling tab raises `playersOnline` on the poll that
+//      introduced it; two tabs count twice; one tab polling twice counts once; an
+//      absent, malformed, oversized or repeated `c` is served 200 in full shape
+//      and never counted; and a tab that stops polling ages out on its TTL with
+//      nothing to unsubscribe. The whole counting burst runs INSIDE the 2s room
+//      cache with the room half asserted unchanged, which is the cache ruling
+//      made visible. RUNS LAST — a recorded viewer lives for a TTL and would
+//      otherwise land inside the exact population figures steps 1-7 assert.
+//      (Those steps' own polls carry no `c`, so they are never counted.)
 //
 // WHY THE CAPTAINS NEVER FORM A MATCH: CONFIG.match.minHumans is 2 and the pool
 // then holds for CONFIG.match.queueTimerMs (2:00), which is not overridable
@@ -75,6 +88,9 @@ const CAP = CONFIG.map.playerCap; // 20
 const CACHE_MS = 2000;
 /** Comfortably past the cache window, so a poll is guaranteed fresh. */
 const PAST_CACHE_MS = CACHE_MS + 600;
+/** Mirrors server/src/liveness.ts PRESENCE_TTL_MS — restated for the same reason
+ *  CACHE_MS is. Step 8 waits this out to prove a closed tab ages out by itself. */
+const PRESENCE_TTL_MS = 30_000;
 /** The share of CONFIG.match.queueTimerMs the smoke may consume between arming
  *  the cohort (step 3) and its last assertion about it (step 6). */
 const ARM_MARGIN_FRACTION = 0.5;
@@ -172,6 +188,26 @@ async function pollFresh(where) {
   assertShape(body, where);
   return body;
 }
+
+/**
+ * One poll carrying (or deliberately omitting) the home-screen tab id.
+ * `c` is passed RAW and unencoded on purpose — the malformed cases below need to
+ * reach the server exactly as a hostile or buggy client would send them.
+ */
+async function pollAs(where, c) {
+  const url = c === null ? livenessUrl : `${livenessUrl}?c=${c}`;
+  const res = await fetch(url);
+  const body = await res.json();
+  assert(res.status === 200, `${where}: /liveness?c= status ${res.status} (a query param must never fail the payload)`);
+  assertShape(body, where);
+  return body;
+}
+
+/** Humans the payload attributes to ROOMS: every arena bucket plus the pool. */
+const roomHumans = (b) => b.modes.standard.players + b.modes.soloVsAi.players + b.queue.pooled;
+
+/** The room-derived signature, so a viewer delta can be attributed with certainty. */
+const roomSig = (b) => `${b.liveGames}/${b.modes.standard.players}/${b.modes.soloVsAi.players}/${b.queue.pooled}`;
 
 // --- client harness -----------------------------------------------------------
 
@@ -403,6 +439,114 @@ async function proveCache(makeCaptain) {
   return `cache: a poll inside the window served the stale count ${before.playersOnline} with a fresh serverNow; past it the count moved to ${fresh.playersOnline}`;
 }
 
+/**
+ * Step 8: THE HOME SCREEN COUNTS (Eric ruling 2026-08-18).
+ *
+ * `playersOnline` counts every live human, including one sitting on the home
+ * screen who holds no room and no socket. Their heartbeat IS this poll:
+ * `GET /liveness?c=<ephemeral tab id>`. Over the real route, on a real listener:
+ *
+ *   a. A polling viewer RAISES the count — and does so on the poll that
+ *      introduced them ("including you" holds on poll one, not poll two).
+ *   b. Two distinct tabs count twice; the same tab polling again counts once.
+ *   c. The whole burst runs INSIDE the 2s room cache, which is the ruling's
+ *      cache decision made visible: the room half is served stale from one
+ *      driver query while the home half is recounted per request. The
+ *      room-derived signature is asserted UNCHANGED across the burst, so the
+ *      movement in `playersOnline` is attributable to viewers and nothing else.
+ *   d. An ABSENT `c` is served normally and is NOT counted (a smoke, a curl, an
+ *      uptime probe, an operator), and neither is a malformed, oversized or
+ *      repeated one — each of those returns 200 with the full documented shape
+ *      rather than a 400 or a blacked-out register.
+ *   e. A closed tab drops out ON ITS OWN once its TTL lapses, with nothing to
+ *      unsubscribe. Asserted through the room-independent identity
+ *      `playersOnline === arena humans + pooled`, so it stays true even if the
+ *      queue happens to form a match during the wait.
+ *
+ * RUNS LAST, deliberately: steps 1-7 assert EXACT population figures, and a
+ * viewer recorded before them would survive its TTL straight into their
+ * assertions. Nothing here touches a room, so it cannot perturb them either.
+ */
+async function proveHomeScreenPresence(ttlMs) {
+  const tabA = 'smoketab-aaaa1111';
+  const tabB = 'smoketab-bbbb2222';
+
+  // Baseline WITHOUT a tab id: this caller is not counted, and it leaves a warm
+  // 2s cache so everything below reads the same room numbers.
+  const base = await pollFresh('presence-base');
+  assert(
+    base.playersOnline === roomHumans(base),
+    `presence-base: playersOnline=${base.playersOnline} but rooms account for ${roomHumans(base)} — a viewer from an earlier step leaked into the baseline`,
+  );
+
+  const a1 = await pollAs('presence-a', tabA);
+  const b1 = await pollAs('presence-b', tabB);
+  const a2 = await pollAs('presence-a-again', tabA);
+  const anon = await pollAs('presence-anon', null);
+  const junk = [];
+  for (const bad of ['not%20a%20tab!', 'x'.repeat(200), 'a1234567&c=b1234567', '', 'hc:liveness:home']) {
+    junk.push(await pollAs('presence-junk', bad));
+  }
+
+  // (c) THE CACHE DECISION. Every poll above landed inside one 2s window, so the
+  // room half must be byte-identical across all of them.
+  const sig = roomSig(base);
+  for (const [where, body] of [
+    ['a', a1], ['b', b1], ['a-again', a2], ['anon', anon],
+    ...junk.map((j, i) => [`junk${i}`, j]),
+  ]) {
+    assert(
+      roomSig(body) === sig,
+      `presence-${where}: the ROOM half moved mid-burst (${roomSig(body)} vs ${sig}) — the viewer delta below is no longer attributable; the burst outran the ${CACHE_MS}ms cache or a match formed`,
+    );
+  }
+
+  // (a) + (b) the counting rules, as deltas off the uncounted baseline.
+  assert(
+    a1.playersOnline === base.playersOnline + 1,
+    `a polling viewer did not raise the count: ${a1.playersOnline} vs baseline ${base.playersOnline} + 1`,
+  );
+  assert(
+    b1.playersOnline === base.playersOnline + 2,
+    `a SECOND distinct tab did not count separately: ${b1.playersOnline} vs ${base.playersOnline} + 2`,
+  );
+  assert(
+    a2.playersOnline === base.playersOnline + 2,
+    `the SAME tab polling twice was counted twice: ${a2.playersOnline} vs ${base.playersOnline} + 2 (the id must be a heartbeat, not a new row)`,
+  );
+  // (d) neither the anonymous nor any malformed caller adds itself.
+  assert(
+    anon.playersOnline === base.playersOnline + 2,
+    `a poll with NO c changed the count: ${anon.playersOnline} vs ${base.playersOnline} + 2`,
+  );
+  for (const [i, j] of junk.entries()) {
+    assert(
+      j.playersOnline === base.playersOnline + 2,
+      `a malformed c (case ${i}) was recorded: ${j.playersOnline} vs ${base.playersOnline} + 2`,
+    );
+  }
+
+  // (e) the TTL. A closed tab is a tab that stops polling; nothing tells the
+  // server it went away, so this is the only thing that removes it.
+  process.stderr.write(`[livenessSmoke]   waiting out the ${Math.round(ttlMs / 1000)}s presence TTL...\n`);
+  await sleep(ttlMs + PAST_CACHE_MS);
+  const after = await pollAs('presence-expired', null);
+  // The identity below is room-independent, but a cohort that FORMED during the
+  // wait passes through a brief window where the queue's own client count and its
+  // published `pooled` disagree, and the identity would fail for that reason
+  // rather than for a presence bug. Name the real cause if it ever happens: this
+  // step finishes ~35s into a 2:00 cohort timer, so it should never.
+  assert(
+    after.queue.deadlineAt !== null,
+    `the step-3 cohort disarmed or formed during the ${Math.round(ttlMs / 1000)}s TTL wait — step 8 has outgrown the ${Math.round(CONFIG.match.queueTimerMs / 1000)}s queue timer; re-arm a fresh cohort before it rather than reading the identity below`,
+  );
+  assert(
+    after.playersOnline === roomHumans(after),
+    `both tabs stopped polling ${Math.round(ttlMs / 1000)}s+ ago but playersOnline=${after.playersOnline} still exceeds the ${roomHumans(after)} humans in rooms — a closed tab must age out on its own`,
+  );
+  return `home presence: baseline ${base.playersOnline} (rooms only) -> ${a1.playersOnline} with one tab -> ${b1.playersOnline} with two -> ${a2.playersOnline} on tab A's second poll; absent + 5 malformed c values all served 200 uncounted; room half unchanged (${sig}) across the whole burst INSIDE the ${CACHE_MS}ms cache; both tabs aged out to ${after.playersOnline}`;
+}
+
 // --- main --------------------------------------------------------------------
 
 async function main() {
@@ -473,6 +617,12 @@ async function main() {
       );
       return `margin: used ${Math.round(used / 1000)}s of the ${Math.round(CONFIG.match.queueTimerMs / 1000)}s cohort timer (budget ${Math.round(budget / 1000)}s), still armed`;
     }));
+
+    // LAST, and it must stay last: it introduces home-screen viewers, which live
+    // for a TTL and would land inside the exact population figures every step
+    // above asserts. Nothing in it touches a room, so it perturbs nothing.
+    log.push(await step('8 home-screen presence', PRESENCE_TTL_MS + 60_000, () =>
+      proveHomeScreenPresence(PRESENCE_TTL_MS)));
 
     console.log('LIVENESS SMOKE OK:', { trace: log });
   } finally {

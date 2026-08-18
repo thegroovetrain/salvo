@@ -11,13 +11,21 @@
 // the class bay closed.
 //
 // STORY 6.6 gave the port its first knowledge of the world outside it: a
-// top-left PLAYERS ONLINE / LIVE GAMES register (the gear's mirror) and live
-// sub-lines back on the mode buttons — the Standard queue's count + countdown
-// on SOLO, and the constant STARTS INSTANTLY on SOLO VS AI, which is the
-// dead-queue steer. All of it is fed by `setLiveness()` from net/liveness.ts
-// and ALL of it simply does not render when that read is unavailable. The
-// module also owns `hullcracker.mode` (`saveMode`/`loadSavedMode`), beside the
-// callsign and class it already persisted.
+// BOTTOM-LEFT PLAYERS ONLINE / LIVE GAMES register and live sub-lines back on
+// the mode buttons — `N/20 QUEUED` on SOLO, and the constant STARTS INSTANTLY on
+// SOLO VS AI, which is the dead-queue steer. All of it is fed by `setLiveness()`
+// from net/liveness.ts and ALL of it simply does not render when that read is
+// unavailable. The module also owns `hullcracker.mode`
+// (`saveMode`/`loadSavedMode`), beside the callsign and class it already
+// persisted.
+//
+// THE QUEUE'S OWN WAIT IS NOT HERE ANY MORE (Eric rulings 2026-08-18). It has
+// its own surface — ui/queueModal.ts, opened and closed by `setCancel()` — and
+// the two things it used to do to this screen are undone: the status line beside
+// HOW TO PLAY is the SERVER PROBE's alone again (*"Get rid of this information
+// message that pops up next to 'HOW TO PLAY' and replaces the server status"*),
+// and the SOLO button's sub-line is now the bare count Eric asked for (*"Just
+// make it say 'N/20 Queued'"*) with no threshold, no state machine and no clock.
 //
 // The settings overlay is TRANSPARENT so the ambient scene breathes behind it;
 // the ambient's scrim keeps this text legible.
@@ -46,6 +54,13 @@ import {
   type QueueStatusMsg,
   type ShipClassId,
 } from '@salvo/shared';
+import {
+  hideQueueModal,
+  queuedCountLine,
+  queueModalVisible,
+  showQueueModal,
+  updateQueueModal,
+} from './queueModal.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
@@ -190,13 +205,16 @@ export function saveMode(mode: DeployMode): void {
 // so that sub-line was restating its neighbour.
 //
 // STORY 6.6 REVERSES THE SHAPE WHILE HONOURING THE REASON. Eric has ruled that
-// the queue's live counts go ON the mode buttons, so the buttons carry a
-// sub-line again — but a DIFFERENT one. `queueButtonSubline()` is a live count
-// and a live countdown: information that exists nowhere else on the page and
-// cannot be read off the chip, the label, or anything else the player can
-// already see. Amendment 31 struck a sub-line that repeated its neighbour; it
-// did not strike sub-lines. A future agent must not "restore" the bare buttons
-// by citing it.
+// the queue's live count goes ON the mode buttons, so the buttons carry a
+// sub-line again — but a DIFFERENT one. `queueButtonSubline()` is a live count:
+// information that exists nowhere else on the page and cannot be read off the
+// chip, the label, or anything else the player can already see. Amendment 31
+// struck a sub-line that repeated its neighbour; it did not strike sub-lines. A
+// future agent must not "restore" the bare buttons by citing it.
+//
+// AND IT IS A COUNT ONLY (Eric ruling 2026-08-18). The countdown, the threshold
+// and the `STARTING` state are gone from it; a clock belongs to the queue modal,
+// which the player only sees once they are actually in the pool.
 
 /** SOLO VS AI's sub-line is CONSTANT, not data-driven: the door creates its own
  *  room, so there is no pool to count and no deadline to tick. It is the
@@ -218,45 +236,32 @@ export function serverStatusLine(state: ProbeState): StatusLine {
   return { text: 'SERVER: CHECKING…', tone: 'tertiary' };
 }
 
-/** m:ss with the seconds CEILED — the chrome bar's countdown grammar (Story 3.3).
- *  A countdown reads the time REMAINING, so it must not show 0:00 while there is
- *  still a fraction of a second of it left. */
-function countdownMmSs(ms: number): string {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
+// RETIRED (Eric ruling 2026-08-18): `queueStatusLine()` and
+// `requeueStatusLine()`. Both painted `h.statusEl` — the line beside HOW TO PLAY
+// that the SERVER PROBE owns — and Eric struck the whole practice, not just the
+// wording: *"anything that doesn't involve CHANGING THE TEXT ON THE PAGE THAT
+// SERVES ANOTHER PURPOSE."* The queue's count and countdown moved to
+// ui/queueModal.ts, which is a surface of its own; the collapse register
+// (`LOBBY DISBANDED — SEARCHING FOR A NEW MATCH`) is DELETED with no replacement
+// copy anywhere, because an auto-requeue now simply shows the same `N/20 QUEUED`
+// as any other queue join. Nothing about the queue may write to `h.statusEl`
+// again — it carries the probe, plus the connect flow's own CONNECTING… /
+// failure register, and nothing else.
+//
+// `countdownMmSs` went with them: it lives in ui/queueModal.ts now, next to the
+// only countdown left in the port.
 
-/**
- * Queue liveness copy (Story 6.1) — the ONLY queue surface the home carries.
- *
- * An unarmed pool (below `min`) has NO deadline: `startsInMs` is null and the
- * wait is genuinely open-ended, so the line says so plainly rather than render a
- * countdown that cannot fire. The armed line is the hard deadline the queue set
- * once at arm time and never extends. `min` is 2 today, which is why the unarmed
- * copy can name the second captain concretely.
- *
- * A non-conforming server that omits `startsInMs` entirely resolves to the
- * unarmed line rather than counting down from NaN — fail-safe, never fail-open,
- * the same posture radarModes() takes on the welcome.
- *
- * The mode selector and the richer liveness register are Story 6.6's, not this.
- */
-export function queueStatusLine(q: QueueStatusMsg): StatusLine {
-  if (typeof q.startsInMs !== 'number') {
-    return { text: `QUEUED ${q.n}/${q.min} · AWAITING A SECOND CAPTAIN`, tone: 'info' };
-  }
-  return { text: `QUEUED ${q.n} CAPTAINS · DEPLOY IN ${countdownMmSs(q.startsInMs)}`, tone: 'info' };
-}
-
-/** The top-left liveness register's two lines (Story 6.6). */
+/** The bottom-left liveness register's two lines (Story 6.6). */
 export interface LivenessLines {
   players: string;
   games: string;
 }
 
 /**
- * The GLOBAL population register, top-left (Story 6.6, Eric ruling: this copy,
- * this placement — the mirror of the settings gear).
+ * The GLOBAL population register, bottom-left (Story 6.6 for the copy; Eric
+ * ruling 2026-08-18 for the placement — *"Sure move them wherever if you think
+ * its a problem"*, after the top-left block was measured OVERLAPPING the
+ * wordmark below a ~768px-tall viewport).
  *
  * `null` in → `null` out: liveness is UNAVAILABLE (an outage, a timeout, a
  * malformed payload) and the block does not render at all. That is the only
@@ -272,67 +277,28 @@ export function livenessLines(p: LivenessPayload | null): LivenessLines | null {
 }
 
 /**
- * The SOLO button's live sub-line (Story 6.6) — the per-door detail the global
- * register above deliberately does not carry.
+ * The SOLO button's live sub-line — `N/20 QUEUED`, AND NOTHING ELSE.
  *
- * FOUR STATES over (pooled `p`, minimum `m`, deadline `d`), not two:
+ * Eric ruling 2026-08-18, verbatim: *"I didn't ask you to add 'NEEDS 2 TO
+ * START'... Just make it say 'N/20 Queued' where N is the number in queue."*
  *
- *   1. `p < m`,  `d == null`  →  `p QUEUED · NEEDS m TO START`
- *   2. `p >= m`, `d != null`  →  `p QUEUED · STARTS mm:ss`
- *   3. `p >= m`, `d == null`  →  `p QUEUED · STARTING`
- *   4. `p < m`,  `d != null`  →  rendered as state 1 (see below)
+ * The four-state machine that shipped here (`NEEDS m TO START` / `STARTS m:ss` /
+ * `STARTING`) is DELETED, along with the 1 Hz tick that drove its countdown and
+ * the `countdownMmSs` helper that formatted it. The button says how many are
+ * waiting; the queue MODAL (ui/queueModal.ts) is where a player who has actually
+ * joined the pool gets a clock. Nothing here may grow a second clause again.
  *
- * STATE 3 IS REAL AND IT IS NOT RARE. The queue clears its arm the instant it
- * decides to form, and publishes that listing BEFORE the cohort is seated — so
- * for the whole `formMatch` window (map generation plus up to twenty seat
- * reservations, 100-500 ms) a full pool has no deadline. Read as "unarmed" that
- * renders `20 QUEUED · NEEDS 2 TO START`, a line that contradicts itself, and
- * the server's 2 s cache plus the client's 10 s poll can hold it on screen for
- * up to twelve seconds. `STARTING` is the honest reading: the match is being
- * built right now.
- *
- * STATE 4 CANNOT HAPPEN and is still handled. `StandardQueueRoom` refuses to
- * publish a deadline below `min` (a deadline that cannot fire is not a
- * deadline), so the only route here is a server we did not write. Falling into
- * state 1 keeps the failure mode "says less than it could" rather than
- * "counts down to a match that will never start".
+ * BOTH NUMBERS COME OFF THE PAYLOAD. `cap` is `CONFIG.map.playerCap` today, and
+ * a client-side `20` would start lying the day that is retuned — the same
+ * failure that took the invented `min` out of this function once already.
  *
  * `queue === null` means the payload carries no queue block at all. Our server
- * always sends one (it fills the no-room case in itself, so the threshold comes
- * from `CONFIG.match.minHumans` and can never be a client-side literal that
- * starts lying after a retune) — so this is only reachable from an older or
- * foreign server, and the honest answer is to say NOTHING rather than invent a
- * threshold. The slot still reserves its space (see `paintModeSubline`).
- *
- * ARMED counts down the ABSOLUTE deadline against the caller's clock, so it
- * ticks smoothly between 10s polls. `nowMs` must already be in the CLIENT's
- * epoch — net/liveness.ts's `localizeDeadline()` folds the server-clock skew
- * out at the boundary, which is why this reducer never sees a `serverNow`.
- * `countdownMmSs` clamps at 0:00, so an overshot deadline never goes negative.
+ * always emits one (it fills the no-room case itself), so this is only reachable
+ * from an older or foreign server, and the honest answer is to say nothing. The
+ * slot still reserves its space (see `paintModeSubline`).
  */
-export function queueButtonSubline(queue: LivenessPayload['queue'], nowMs: number): string {
-  if (queue === null) return '';
-  const { pooled, min, deadlineAt } = queue;
-  if (pooled < min) return `${pooled} QUEUED · NEEDS ${min} TO START`;
-  if (deadlineAt === null) return `${pooled} QUEUED · STARTING`;
-  return `${pooled} QUEUED · STARTS ${countdownMmSs(deadlineAt - nowMs)}`;
-}
-
-/**
- * Why the player is suddenly back in port with a queue join already running
- * (Story 6.3, epic-6 amendment 18): the cohort they were about to sail with
- * fell below the minimum during the countdown, and a queue-formed lobby is
- * sealed, so it cannot refill.
- *
- * It reads as the queue's own sibling — same register grammar, same `info`
- * tone, one line — because that is what it is: the reason attached to a wait
- * that has already begun. It states the LOBBY's fate and the client's response
- * and stops there. It does not name the captain who left, does not call it an
- * error, and does not apologise: nobody did anything wrong, and the honest
- * `QUEUED n/2` liveness takes this line over a beat later anyway.
- */
-export function requeueStatusLine(): StatusLine {
-  return { text: 'LOBBY DISBANDED — SEARCHING FOR A NEW MATCH', tone: 'info' };
+export function queueButtonSubline(queue: LivenessPayload['queue']): string {
+  return queue === null ? '' : queuedCountLine(queue.pooled, queue.cap);
 }
 
 function toneColor(tone: StatusTone): string {
@@ -353,21 +319,42 @@ export interface HomeHandle {
   /** Disable/enable BOTH deploy doors (PLAY + SOLO VS AI) while a join is in flight. */
   setBusy(busy: boolean): void;
   /**
-   * Show/hide the CANCEL affordance (Story 6.1). Passed a canceller while the
-   * player is POOLED in the queue, `null` the moment that stops being meaningful.
-   * Without it the only exit from a connected state is a page reload, and a
-   * queue wait is legitimately minutes long.
+   * OPEN or CLOSE the queue modal (Story 6.1's canceller, Eric's 2026-08-18
+   * modal). Passed a canceller while the player is POOLED in the queue, `null`
+   * the moment that stops being meaningful.
+   *
+   * The plumbing is unchanged — `ConnectHooks.onQueued` still drives this, and
+   * its `finally` fires on ALL THREE exits (the seat, an error, the player's
+   * CANCEL) — so "the modal is up exactly while cancelling is meaningful" is
+   * structural rather than something four call sites have to remember. The
+   * canceller is still the only exit from a pooled wait that is not a page
+   * reload, and a queue wait is legitimately minutes long.
+   *
+   * The retired underplay CANCEL span went with the move: it lived in the
+   * HOW TO PLAY row, which the modal now covers, so it could never have been
+   * seen or clicked while it was meaningful.
    */
   setCancel(onCancel: (() => void) | null): void;
   /**
-   * Publish the latest `/liveness` read (Story 6.6) — the top-left global
+   * Fold one live `MSG.queueStatus` push into the open queue modal. A no-op when
+   * no modal is up.
+   *
+   * This is the AUTHORITATIVE queue read: once you are in the pool the room
+   * pushes on every change, where `setLiveness` is a 10s poll for players still
+   * standing in port (and main.ts stands it down at the deploy door). It writes
+   * ONLY to the modal — never to the status line, which is the server probe's.
+   */
+  setQueue(status: QueueStatusMsg): void;
+  /**
+   * Publish the latest `/liveness` read (Story 6.6) — the bottom-left global
    * register and the SOLO button's queue sub-line. `null` means UNAVAILABLE
    * (outage, timeout, bad shape): both surfaces disappear and the doors stay
    * fully usable. Parallel to `setCancel`: main.ts drives it, the home only
    * paints.
    *
-   * `queue.deadlineAt` must already be in the CLIENT's epoch (net/liveness.ts
-   * localizes it) — the home ticks it against a plain `Date.now()`.
+   * NO CLOCK RIDES ON THIS ANY MORE (Eric ruling 2026-08-18): the sub-line is a
+   * bare count, so `queue.deadlineAt` is not read here at all and the home runs
+   * no timer. The only countdown in the port lives in the queue modal.
    */
   setLiveness(payload: LivenessPayload | null): void;
   /** YIELD the whole home surface while the settings overlay is open (see
@@ -721,11 +708,12 @@ function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement): HTMLElemen
   return stack;
 }
 
-function makeUnderplay(
-  statusEl: HTMLElement,
-  cancelEl: HTMLElement,
-  onHowTo: () => void,
-): HTMLElement {
+// The underplay row is HOW TO PLAY + the status line, and that is ALL it is
+// again (Eric ruling 2026-08-18). Story 6.1's CANCEL span used to sit here as a
+// third child; it moved into the queue modal, which covers this row, so keeping
+// it would have been an affordance that was invisible for exactly as long as it
+// was meaningful.
+function makeUnderplay(statusEl: HTMLElement, onHowTo: () => void): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;align-items:center;gap:26px;margin-top:16px';
   const howto = document.createElement('span');
@@ -734,30 +722,8 @@ function makeUnderplay(
     `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
     'text-underline-offset:4px;cursor:pointer';
   howto.addEventListener('click', onHowTo);
-  row.append(howto, statusEl, cancelEl);
+  row.append(howto, statusEl);
   return row;
-}
-
-/** The queue's CANCEL affordance — HOW TO PLAY's grammar in the DENIED register,
- *  hidden until `setCancel()` hands it a canceller. It sits in the underplay row
- *  rather than beside PLAY so the port's rigid column keeps its measured height
- *  (amendment 47, the container-fit law). */
-function makeCancel(onClick: () => void): HTMLElement {
-  const el = document.createElement('span');
-  el.textContent = 'CANCEL';
-  el.setAttribute('role', 'button');
-  el.setAttribute('title', 'Leave the queue');
-  el.tabIndex = 0;
-  el.style.cssText =
-    `${registerCss('hudMicro')};color:var(--hc-denied);letter-spacing:0.14em;text-decoration:underline;` +
-    'text-underline-offset:4px;cursor:pointer;display:none';
-  el.addEventListener('click', onClick);
-  el.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    onClick();
-  });
-  return el;
 }
 
 function makeStatusEl(): HTMLElement {
@@ -773,13 +739,22 @@ interface LivenessEls {
 }
 
 /**
- * The GLOBAL population register, TOP-LEFT (Story 6.6, Eric's placement and
- * Eric's copy): `PLAYERS ONLINE: n` over `LIVE GAMES: n`.
+ * The GLOBAL population register, BOTTOM-LEFT: `PLAYERS ONLINE: n` over
+ * `LIVE GAMES: n` (Story 6.6's copy; Eric's 2026-08-18 placement).
  *
- * It is the settings gear's MIRROR — the same `top:22px` inset, absolutely
- * positioned out of the port's rigid column so it costs that column zero height
- * (amendment 47, the container-fit law). It never takes pointer events: it is a
- * readout, and nothing about it is clickable.
+ * IT MOVED, AND THE REASON IS A MEASUREMENT. Shipped at `top:22px` it was the
+ * settings gear's mirror — but the port's rigid column is centered and the
+ * wordmark is the tallest thing in it, so below a ~768px-tall viewport the two
+ * OVERLAPPED (verified by screenshot at 1280×720). Eric: *"Sure move them
+ * wherever if you think its a problem."* The bottom-left corner cannot collide:
+ * the bottom of the port column is empty at every size measured, and the
+ * wordmark is at the other end of the column. Same 22/26 insets, `bottom`
+ * instead of `top`.
+ *
+ * Everything else about it is unchanged. Absolutely positioned out of the port's
+ * rigid column so it costs that column zero height (amendment 47, the
+ * container-fit law). It never takes pointer events: it is a readout, and nothing
+ * about it is clickable.
  *
  * TYPOGRAPHY. `hudMicro` = Geist Mono, uppercase, letter-spaced (DESIGN.md:183,
  * "Geist Mono for every label, readout, and stat"); `tabular-nums` arrives
@@ -800,7 +775,7 @@ interface LivenessEls {
 function makeLiveness(): LivenessEls {
   const root = document.createElement('div');
   root.style.cssText =
-    'position:absolute;top:22px;left:26px;display:none;flex-direction:column;' +
+    'position:absolute;bottom:22px;left:26px;display:none;flex-direction:column;' +
     'align-items:flex-start;gap:6px;pointer-events:none';
   const line = `${registerCss('hudMicro')};color:var(--hc-phosphor)`;
   const players = document.createElement('div');
@@ -836,22 +811,19 @@ interface Home {
   input: HTMLInputElement;
   hoist: ColorHoist;
   statusEl: HTMLElement;
-  /** The CANCEL affordance (Story 6.1) — shown only while `cancel` is set. */
-  cancelEl: HTMLElement;
-  /** Leave the queue, set by setCancel() while the player is pooled. */
+  /** Leave the queue, set by setCancel() while the player is pooled. The
+   *  AFFORDANCE lives in ui/queueModal.ts now; this is retained as the home's
+   *  record of whether a wait is cancellable at all. */
   cancel: (() => void) | null;
   chip: ChipEls;
   /** SOLO — the mode row's primary (no sub-line: Eric ruling 2026-08-17). */
   playBtn: HTMLButtonElement;
   /** SOLO VS AI (Story 6.5) — the port's second door, one row below. */
   soloBtn: HTMLButtonElement;
-  /** The top-left PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
+  /** The bottom-left PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
   livenessEls: LivenessEls;
   /** The last `/liveness` read, or null while UNAVAILABLE (nothing renders). */
   liveness: LivenessPayload | null;
-  /** The ~1Hz local countdown tick — live ONLY while the pool is armed, so an
-   *  idle port (the common case) runs no timer at all. */
-  livenessTick: ReturnType<typeof setInterval> | null;
   onDeploy: (name: string, cls: ShipClassId) => void;
   /** Deploy into a solo-vs-AI match. Same (name, cls) contract as onDeploy —
    *  the mode is the DOOR, not a field on the identity. */
@@ -876,13 +848,20 @@ interface Home {
 }
 
 /**
- * Repaint everything liveness owns: the top-left register and the SOLO door's
+ * Repaint everything liveness owns: the bottom-left register and the SOLO door's
  * sub-line. Both come from `h.liveness` alone, so an unavailable read (null)
  * clears them together rather than leaving half a picture — and a stale count
  * is never left painted next to a live one.
  *
  * SOLO VS AI's sub-line is NOT touched here: it is a constant, true with or
  * without a server answer.
+ *
+ * THE HOME RUNS NO TIMER (Eric ruling 2026-08-18). `retickLiveness` and the 1 Hz
+ * `livenessTick` it drove are DELETED with the countdown they existed for: the
+ * sub-line is a bare count now, so it changes only when the poll brings a new
+ * one. That also retires a whole class of leak — the tick closed over `h` and had
+ * to be cleared by `hide()`, by `setLiveness(null)`, and on every path in
+ * between.
  */
 function paintLiveness(h: Home): void {
   const lines = livenessLines(h.liveness);
@@ -893,24 +872,8 @@ function paintLiveness(h: Home): void {
   }
   paintModeSubline(
     sublineOf(h.playBtn),
-    h.liveness ? queueButtonSubline(h.liveness.queue, Date.now()) : '',
+    h.liveness ? queueButtonSubline(h.liveness.queue) : '',
   );
-}
-
-/**
- * Start/stop the 1Hz local countdown, which exists ONLY while the pool is
- * armed. An unarmed line ("NEEDS 2 TO START") carries no clock, so ticking it
- * would repaint an unchanging string once a second forever on a port nobody is
- * queued at; the poll's next read is what turns the timer on.
- */
-function retickLiveness(h: Home): void {
-  const armed = (h.liveness?.queue?.deadlineAt ?? null) !== null;
-  if (armed && h.livenessTick === null) {
-    h.livenessTick = setInterval(() => paintLiveness(h), 1000);
-  } else if (!armed && h.livenessTick !== null) {
-    clearInterval(h.livenessTick);
-    h.livenessTick = null;
-  }
 }
 
 function paintStatus(h: Home, text: string, tone: StatusTone): void {
@@ -1048,12 +1011,13 @@ function mountHome(
     // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
     // (SOLO VS AI, centered) — Eric ruling 2026-08-17.
     makeDeployStack(makeModeRow(playBtn), soloBtn),
-    makeUnderplay(h.statusEl, h.cancelEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
+    makeUnderplay(h.statusEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
   );
   h.overlay.append(
     makeWordmark(version),
     console_,
-    // The two corners: liveness top-LEFT, the gear top-RIGHT (Eric's placement).
+    // The gear stays top-RIGHT; liveness moved to the BOTTOM-left (Eric ruling
+    // 2026-08-18 — top-left collided with the wordmark under 768px).
     h.livenessEls.root,
     makeGear(() => h.onSettings()),
   );
@@ -1085,6 +1049,21 @@ function mountHome(
  * later refit" note is gone). The callsign field keeps ESC to itself so a player
  * mid-edit isn't yanked into a modal. Toggling means a second ESC closes the
  * overlay, exactly as it does in a match.
+ *
+ * WHILE THE QUEUE MODAL IS OPEN, ESC CANCELS THE QUEUE (Eric ruling 2026-08-18:
+ * *"ESC could/should cancel the queue and close the modal. I'm cool with that."*).
+ * It does NOT also toggle settings: settings sits at z 1050, UNDER the modal at
+ * 1150, and the modal is not part of the home overlay so `setYielded` cannot
+ * hide it — an ESC that opened settings here would raise a panel the player
+ * could neither see nor click. So the modal takes precedence while it is up, and
+ * settings behaves normally the moment it is gone.
+ *
+ * This IS destructive — it discards a wait that is legitimately minutes long —
+ * which is why it was shipped inert first and is only enabled now that its owner
+ * has asked for it. It routes through `h.cancel`, the SAME canceller the CANCEL
+ * button uses, so there is one exit from a pooled wait rather than two that can
+ * drift; the modal's teardown (and its tick) is that path's business, not this
+ * handler's.
  */
 function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
   const handler = (e: KeyboardEvent): void => {
@@ -1093,6 +1072,10 @@ function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
     // inside the overlay must NOT (textFieldElement excludes ranges), or ESC
     // dies the moment the player touches a volume from the home gear.
     if (textFieldElement(document.activeElement)) return;
+    if (queueModalVisible()) {
+      h.cancel?.();
+      return;
+    }
     h.onSettings();
   };
   window.addEventListener('keydown', handler);
@@ -1123,7 +1106,6 @@ export function showHome(
 
   const input = makeNameField();
   const statusEl = makeStatusEl();
-  const cancelEl = makeCancel(() => h.cancel?.());
   const play = makePlayButton(() => onPlay(h));
   const solo = makeSoloButton(() => onSolo(h));
   const chip = makeChip(() => openLayer(h));
@@ -1133,14 +1115,12 @@ export function showHome(
     input,
     hoist: new ColorHoist(),
     statusEl,
-    cancelEl,
     cancel: null,
     chip,
     playBtn: play,
     soloBtn: solo,
     livenessEls: makeLiveness(),
     liveness: null,
-    livenessTick: null,
     onDeploy,
     onSolo: onSoloDeploy,
     onSettings,
@@ -1181,14 +1161,20 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
         btn.style.cursor = busy ? 'default' : 'pointer';
       }
     },
+    // The queue modal's whole lifecycle hangs off this ONE call, which is what
+    // makes "the modal is up exactly while cancelling is meaningful" structural:
+    // `ConnectHooks.onQueued` fires it with a canceller at the join and with
+    // `null` in a `finally` that covers the seat, an error and the player's own
+    // CANCEL alike. There is no second place a modal can be opened or leaked.
     setCancel: (onCancel) => {
       h.cancel = onCancel;
-      h.cancelEl.style.display = onCancel ? 'inline' : 'none';
+      if (onCancel) showQueueModal(onCancel);
+      else hideQueueModal();
     },
+    setQueue: (status) => updateQueueModal(status),
     setLiveness: (payload) => {
       h.liveness = payload;
       paintLiveness(h);
-      retickLiveness(h);
     },
     setYielded: (yielded) => {
       const style = homeYieldStyle(yielded);
@@ -1198,10 +1184,11 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
     hide: () => {
       h.layer?.close(); // never orphan a live layer's window listener into the game
       h.layer = null;
-      // The countdown tick must never outlive the screen it counts down on —
-      // it closes over `h` and would repaint a detached DOM tree forever.
-      if (h.livenessTick !== null) clearInterval(h.livenessTick);
-      h.livenessTick = null;
+      // The queue modal is a SIBLING of this overlay (its own top-level node), so
+      // removing the home would leave it — and its 1 Hz tick — on screen forever.
+      // Idempotent, so the normal path (setCancel(null) got there first) is free.
+      hideQueueModal();
+      h.cancel = null;
       for (const off of h.disposers.splice(0)) off();
       window.removeEventListener('keydown', keyHandler);
       h.overlay.remove();

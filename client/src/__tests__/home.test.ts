@@ -16,8 +16,6 @@ import {
   livenessLines,
   loadSavedMode,
   queueButtonSubline,
-  queueStatusLine,
-  requeueStatusLine,
   saveMode,
   serverStatusLine,
   showHome,
@@ -51,65 +49,15 @@ describe('serverStatusLine — probe reducer', () => {
   });
 });
 
-describe('queueStatusLine — Story 6.1 queue liveness copy', () => {
-  it('says plainly that it is waiting when the pool is UNARMED (no phantom countdown)', () => {
-    // startsInMs is null below `min`: there is no deadline, so a countdown here
-    // would be a number that cannot fire.
-    expect(queueStatusLine({ n: 1, min: 2, cap: 20, startsInMs: null })).toEqual({
-      text: 'QUEUED 1/2 · AWAITING A SECOND CAPTAIN',
-      tone: 'info',
-    });
-  });
-
-  it('counts down the armed deadline in m:ss', () => {
-    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: 120_000 }).text).toBe(
-      'QUEUED 2 CAPTAINS · DEPLOY IN 2:00',
-    );
-    expect(queueStatusLine({ n: 7, min: 2, cap: 20, startsInMs: 65_000 }).text).toBe(
-      'QUEUED 7 CAPTAINS · DEPLOY IN 1:05',
-    );
-  });
-
-  it('CEILS the countdown — never 0:00 while time remains (chrome-bar grammar)', () => {
-    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: 1 }).text).toContain('0:01');
-    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: 0 }).text).toContain('0:00');
-    // A negative/overshot deadline clamps rather than printing a negative clock.
-    expect(queueStatusLine({ n: 2, min: 2, cap: 20, startsInMs: -500 }).text).toContain('0:00');
-  });
-
-  it('FAILS SAFE to the waiting line when a server omits startsInMs entirely', () => {
-    const bogus = { n: 1, min: 2, cap: 20 } as unknown as Parameters<typeof queueStatusLine>[0];
-    expect(queueStatusLine(bogus).text).toContain('AWAITING A SECOND CAPTAIN');
-    expect(queueStatusLine(bogus).text).not.toContain('NaN');
-  });
-
-  it('carries NO mode selector and NO liveness panel copy (both are Story 6.6)', () => {
-    const armed = queueStatusLine({ n: 4, min: 2, cap: 20, startsInMs: 30_000 }).text;
-    expect(armed).not.toMatch(/SOLO|MODE|VS AI/);
-  });
-});
-
-describe('requeueStatusLine — Story 6.3 collapse copy', () => {
-  it('is the queue register grammar: uppercase, one line, info tone', () => {
-    const line = requeueStatusLine();
-    expect(line.tone).toBe('info'); // a wait, not a failure — never `denied`
-    expect(line.text).toBe(line.text.toUpperCase());
-    expect(line.text).not.toContain('\n');
-  });
-
-  it('says what happened AND that a search is already under way', () => {
-    const { text } = requeueStatusLine();
-    expect(text).toMatch(/DISBANDED/);
-    expect(text).toMatch(/SEARCHING/);
-  });
-
-  // The honesty clause (R7): nobody did anything wrong, so the line must not
-  // read as a fault, an error, or an accusation aimed at the captain who left.
-  it('blames nobody and reports no error', () => {
-    const { text } = requeueStatusLine();
-    expect(text).not.toMatch(/ERROR|FAIL|SORRY|LOST CONNECTION|DISCONNECT|ABANDON|QUIT|LEFT/);
-  });
-});
+// RETIRED (Eric rulings 2026-08-18): the `queueStatusLine` and
+// `requeueStatusLine` blocks. Both reducers painted `h.statusEl`, the line beside
+// HOW TO PLAY that the SERVER PROBE owns, and Eric struck the practice — *"Get
+// rid of this information message that pops up next to 'HOW TO PLAY' and replaces
+// the server status."* The queue's count and countdown live in the queue modal
+// now (see queueModal.test.ts); the collapse register has NO replacement copy at
+// all, so its three pins are retired rather than reworded onto a new string. The
+// standing rule they leave behind is asserted below instead: no queue code may
+// write to the status line.
 
 // --- DOM: showHome -----------------------------------------------------------
 
@@ -700,6 +648,37 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
     range.remove();
   });
 
+  // --- Eric 2026-08-18: ESC while the QUEUE MODAL is open ---------------------
+
+  it('ESC CANCELS THE QUEUE while the modal is open, and never opens settings there', () => {
+    // Eric ruling 2026-08-18: "ESC could/should cancel the queue and close the
+    // modal." It goes through the SAME canceller the CANCEL button uses, so a
+    // pooled wait has ONE exit rather than two that can drift.
+    //
+    // It must not ALSO toggle settings: the ratified z register puts settings at
+    // 1050, UNDER the modal at 1150, and the modal is not part of the home
+    // overlay so setYielded cannot hide it — an ESC that opened settings here
+    // would raise a panel the player could neither see nor click.
+    const onSettings = vi.fn();
+    const cancel = vi.fn();
+    const handle = showHome('0.0.0-test', vi.fn(), onSettings);
+    handle.setCancel(cancel);
+    nameInput().blur();
+    press('Escape');
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(onSettings).not.toHaveBeenCalled();
+    // Tearing the modal down is the CANCELLER's business (it rejects `connect`,
+    // which drives `setCancel(null)`) — not this handler's, which is why the
+    // modal is still standing here with only a stubbed canceller.
+    expect(document.getElementById('queue-modal')).not.toBeNull();
+    // ...and settings comes straight back once the modal is gone.
+    handle.setCancel(null);
+    press('Escape');
+    expect(onSettings).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1); // not called a second time
+    document.getElementById('queue-modal')?.remove();
+  });
+
   it('HOW TO PLAY still shows the field-manual note (out of 2.3 scope)', () => {
     showHome('0.0.0-test', vi.fn());
     const howto = [...home().querySelectorAll('span')].find((s) => s.textContent === 'HOW TO PLAY') as HTMLElement;
@@ -786,40 +765,61 @@ describe('showHome — status-line states via the handle', () => {
   });
 });
 
-describe('showHome — the queue CANCEL affordance (Story 6.1)', () => {
+describe('showHome — setCancel drives the QUEUE MODAL (Story 6.1 plumbing, Eric 2026-08-18)', () => {
   beforeEach(() => localStorage.clear());
-  afterEach(() => home()?.remove());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('queue-modal')?.remove();
+  });
 
-  function cancelEl(): HTMLElement {
-    return home().querySelector('[title="Leave the queue"]') as HTMLElement;
+  function modal(): HTMLElement | null {
+    return document.getElementById('queue-modal');
   }
 
-  it('is hidden until setCancel hands it a canceller, and hidden again after', () => {
+  function modalCancel(): HTMLButtonElement {
+    return document.getElementById('queue-modal-cancel') as HTMLButtonElement;
+  }
+
+  it('opens the modal with a canceller and closes it again with null', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    expect(cancelEl().style.display).toBe('none');
+    expect(modal()).toBeNull();
     handle.setCancel(vi.fn());
-    expect(cancelEl().style.display).toBe('inline');
+    expect(modal()).not.toBeNull();
     handle.setCancel(null);
-    expect(cancelEl().style.display).toBe('none');
+    expect(modal()).toBeNull();
   });
 
-  it('runs the canceller on click and on Enter — no reload path involved', () => {
+  it('THE HOME CARRIES NO CANCEL OF ITS OWN — the underplay span is retired', () => {
+    // It lived in the HOW TO PLAY row, which the modal now covers, so it could
+    // never have been seen or clicked while it was meaningful. Deleted rather
+    // than left invisible (the no-dead-knobs rule).
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setCancel(vi.fn());
+    expect(home().querySelector('[title="Leave the queue"]')).toBeNull();
+    expect(home().textContent).not.toContain('CANCEL');
+  });
+
+  it('CANCEL fires the canceller AND closes the modal in the same press', () => {
     const cancel = vi.fn();
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setCancel(cancel);
-    cancelEl().click();
+    modalCancel().click();
     expect(cancel).toHaveBeenCalledTimes(1);
-    cancelEl().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(modal()).toBeNull(); // instant, not waiting on connect() to reject
   });
 
-  it('a withdrawn canceller cannot be fired by a stale click', () => {
-    const cancel = vi.fn();
+  it('a re-open never stacks a second overlay', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    handle.setCancel(cancel);
-    handle.setCancel(null);
-    cancelEl().click();
-    expect(cancel).not.toHaveBeenCalled();
+    handle.setCancel(vi.fn());
+    handle.setCancel(vi.fn());
+    expect(document.querySelectorAll('#queue-modal').length).toBe(1);
+  });
+
+  it('hide() takes the modal with it — it is a SIBLING of the home overlay', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setCancel(vi.fn());
+    handle.hide();
+    expect(modal()).toBeNull();
   });
 });
 
@@ -864,75 +864,58 @@ describe('livenessLines — the top-left global register', () => {
   });
 });
 
-describe("queueButtonSubline — the SOLO door's live sub-line", () => {
-  const NOW = 1_000_000;
-
-  it('names what is MISSING while unarmed — never a countdown that cannot fire', () => {
-    expect(queueButtonSubline({ pooled: 1, min: 2, cap: 20, deadlineAt: null }, NOW)).toBe(
-      '1 QUEUED · NEEDS 2 TO START',
-    );
+describe("queueButtonSubline — the SOLO door's sub-line is `N/20 QUEUED`, FULL STOP", () => {
+  it("is Eric's copy verbatim and nothing else", () => {
+    // Eric ruling 2026-08-18: *"I didn't ask you to add 'NEEDS 2 TO START'...
+    // Just make it say 'N/20 Queued' where N is the number in queue."*
+    expect(queueButtonSubline({ pooled: 1, min: 2, cap: 20, deadlineAt: null })).toBe('1/20 QUEUED');
+    expect(queueButtonSubline({ pooled: 0, min: 2, cap: 20, deadlineAt: null })).toBe('0/20 QUEUED');
+    expect(queueButtonSubline({ pooled: 20, min: 2, cap: 20, deadlineAt: null })).toBe('20/20 QUEUED');
   });
 
-  it('reads the threshold from `min`, so a server-side retune cannot make it lie', () => {
-    expect(queueButtonSubline({ pooled: 2, min: 5, cap: 20, deadlineAt: null }, NOW)).toBe(
-      '2 QUEUED · NEEDS 5 TO START',
-    );
+  it('takes the CAP off the payload, never a client-side 20', () => {
+    // `cap` is CONFIG.map.playerCap; a restated literal starts lying the day it
+    // is retuned — the same failure that took the invented `min` out of here.
+    expect(queueButtonSubline({ pooled: 3, min: 2, cap: 12, deadlineAt: null })).toBe('3/12 QUEUED');
   });
 
-  it('counts the ABSOLUTE deadline down in m:ss once armed', () => {
-    expect(queueButtonSubline({ pooled: 4, min: 2, cap: 20, deadlineAt: NOW + 83_000 }, NOW)).toBe(
-      '4 QUEUED · STARTS 1:23',
-    );
+  // THE RETIRED STATE MACHINE MUST NOT COME BACK. These four are the whole
+  // substance of the ruling: no threshold clause, no `STARTING`, no clock, and no
+  // second clause of any kind — in ANY state of the payload, armed or not.
+  it('NEVER says NEEDS, NEVER says STARTING, and NEVER carries a countdown', () => {
+    const states: Array<NonNullable<LivenessPayload['queue']>> = [
+      { pooled: 0, min: 2, cap: 20, deadlineAt: null },
+      { pooled: 1, min: 2, cap: 20, deadlineAt: null },
+      { pooled: 2, min: 2, cap: 20, deadlineAt: null }, // the old `STARTING` state
+      { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 }, // armed
+      { pooled: 1, min: 2, cap: 20, deadlineAt: 1_083_000 }, // armed below min
+      { pooled: 20, min: 2, cap: 20, deadlineAt: null },
+    ];
+    for (const q of states) {
+      const line = queueButtonSubline(q);
+      expect(line).not.toMatch(/NEEDS/);
+      expect(line).not.toMatch(/STARTING/);
+      expect(line).not.toMatch(/STARTS/);
+      expect(line).not.toMatch(/\d:\d\d/); // no m:ss anywhere
+      expect(line).not.toContain('·'); // exactly ONE clause, so no separator
+      expect(line).toBe(`${q.pooled}/${q.cap} QUEUED`);
+    }
   });
 
-  it('ticks LOCALLY between polls — the same payload, a later clock', () => {
-    const q = { pooled: 4, min: 2, cap: 20, deadlineAt: NOW + 83_000 };
-    expect(queueButtonSubline(q, NOW + 3000)).toBe('4 QUEUED · STARTS 1:20');
-    expect(queueButtonSubline(q, NOW + 60_000)).toBe('4 QUEUED · STARTS 0:23');
-  });
-
-  it('clamps a passed deadline at 0:00 — never negative', () => {
-    const q = { pooled: 4, min: 2, cap: 20, deadlineAt: NOW - 30_000 };
-    expect(queueButtonSubline(q, NOW)).toBe('4 QUEUED · STARTS 0:00');
-    expect(queueButtonSubline(q, NOW)).not.toContain('-');
-  });
-
-  // --- F2/F7: the four states, and the absent block ---------------------------
-
-  it('says STARTING while a full pool is being seated (state 3)', () => {
-    // The queue clears its arm the instant it decides to form and publishes
-    // that listing BEFORE seating anyone, so `p >= m` with `d == null` is a
-    // real, ~100-500ms server state — and the 2s server cache plus the 10s
-    // client poll can hold it on screen for up to twelve seconds. Read as
-    // "unarmed" it rendered `20 QUEUED · NEEDS 2 TO START`, which contradicts
-    // itself. Eric's copy ruling: STARTING.
-    expect(queueButtonSubline({ pooled: 20, min: 2, cap: 20, deadlineAt: null }, NOW)).toBe(
-      '20 QUEUED · STARTING',
+  it('is INDIFFERENT to the deadline — an armed pool reads identically', () => {
+    // The deadline is not an input any more (the reducer takes one argument), so
+    // this cannot regress into a countdown by accident.
+    expect(queueButtonSubline({ pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 })).toBe(
+      queueButtonSubline({ pooled: 4, min: 2, cap: 20, deadlineAt: null }),
     );
-    expect(queueButtonSubline({ pooled: 2, min: 2, cap: 20, deadlineAt: null }, NOW)).toBe(
-      '2 QUEUED · STARTING',
-    );
-  });
-
-  it('falls back to the NEEDS line if a server ever sends a deadline below min (state 4)', () => {
-    // Unreachable against our own server (StandardQueueRoom refuses to publish
-    // a deadline it cannot fire). Defensive only, and the failure mode chosen
-    // is "says less than it could" rather than "counts down to a match that
-    // will never start".
-    expect(queueButtonSubline({ pooled: 1, min: 2, cap: 20, deadlineAt: NOW + 83_000 }, NOW)).toBe(
-      '1 QUEUED · NEEDS 2 TO START',
-    );
+    expect(queueButtonSubline.length).toBe(1); // no `nowMs` parameter to pass
   });
 
   it('says NOTHING when the payload carries no queue block at all', () => {
-    // REVISED (F7). This used to render `0 QUEUED · NEEDS 2 TO START` off a
-    // client-side `DEFAULT_QUEUE_MIN = 2`, which was the front page's most-read
-    // line on an empty server and would have started lying the day
-    // CONFIG.match.minHumans was retuned. Our server now always emits the
-    // block (filling the no-room case itself), so this path is only reachable
-    // from an older or foreign server — and inventing a threshold there is
-    // exactly the thing that was wrong.
-    expect(queueButtonSubline(null, NOW)).toBe('');
+    // Only reachable from an older or foreign server (ours always emits the
+    // block, filling the no-room case itself), and inventing numbers there is
+    // exactly what was wrong with the retired version.
+    expect(queueButtonSubline(null)).toBe('');
   });
 });
 
@@ -943,21 +926,36 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     document.getElementById('hc-class-select')?.remove();
   });
 
-  /** The top-left block — the settings gear's mirror. */
+  /** The BOTTOM-left population block. */
   function livenessBlock(): HTMLElement {
     return [...home().children].find(
       (el) => (el as HTMLElement).style.left === '26px',
     ) as HTMLElement;
   }
 
-  it('is TOP-LEFT, the mirror of the gear at top-right, and out of the port column', () => {
+  it('is BOTTOM-LEFT, out of the port column, and CANNOT collide with the wordmark', () => {
+    // Eric ruling 2026-08-18. At `top:22px` this block overlapped the wordmark
+    // below a ~768px-tall viewport (verified by screenshot at 1280×720): the port
+    // column is centered and the wordmark is its tallest member, so the two
+    // corners fought for the same pixels. The bottom of the column is empty at
+    // every size measured. Same 22/26 insets, `bottom` instead of `top`.
     showHome('0.0.0-test', vi.fn());
     const block = livenessBlock();
     const gear = [...home().children].find((el) => el.textContent === '⚙') as HTMLElement;
     expect(block.style.position).toBe('absolute'); // costs the rigid column zero height
-    expect(block.style.top).toBe(gear.style.top); // same inset as its mirror
+    expect(block.style.bottom).toBe('22px');
+    expect(block.style.top).toBe(''); // the collision: never anchored to the top again
     expect(block.style.left).toBe('26px');
+    // The gear did NOT move — it is still the top-right corner.
+    expect(gear.style.top).toBe('22px');
     expect(gear.style.right).toBe('26px');
+  });
+
+  it('is still a readout: no pointer events, and it still renders the honest zero', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    expect(livenessBlock().style.pointerEvents).toBe('none');
+    handle.setLiveness(livePayload({ playersOnline: 0, liveGames: 0 }));
+    expect(livenessBlock().textContent).toContain('PLAYERS ONLINE: 0');
   });
 
   it('does not render at all until a payload arrives, and hides again on an outage', () => {
@@ -995,7 +993,7 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     );
     expect(livenessBlock().style.display).toBe('flex');
     expect(livenessBlock().textContent).toContain('PLAYERS ONLINE: 0');
-    expect(sublineOf(playButton()).textContent).toBe('0 QUEUED · NEEDS 2 TO START');
+    expect(sublineOf(playButton()).textContent).toBe('0/20 QUEUED');
   });
 
   it('is Geist Mono, uppercase, and NEVER text-muted (DESIGN.md:153, load-bearing numbers)', () => {
@@ -1023,37 +1021,37 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     expect(sublineOf(soloButton()).textContent).toBe('STARTS INSTANTLY');
   });
 
-  it('the SOLO sub-line ticks locally ~1Hz off the absolute deadline while ARMED', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000_000);
-    const handle = showHome('0.0.0-test', vi.fn());
-    handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
-    expect(sublineOf(playButton()).textContent).toBe('4 QUEUED · STARTS 1:23');
-    vi.advanceTimersByTime(3000); // no new payload — the clock alone moves it
-    expect(sublineOf(playButton()).textContent).toBe('4 QUEUED · STARTS 1:20');
-    handle.hide();
-    vi.useRealTimers();
-  });
-
-  it('runs NO timer while unarmed (an idle port must not repaint once a second)', () => {
+  // REPLACES the three tick pins retired with the countdown (Eric ruling
+  // 2026-08-18). The sub-line is a bare count now, so the home must run NO
+  // interval in ANY state — armed, unarmed or absent. That is stronger than the
+  // old "no timer while unarmed" pin, and it retires the whole leak class the old
+  // one guarded (the tick closed over the home and had to be cleared by hide(),
+  // by setLiveness(null), and on every path in between).
+  it('runs NO 1Hz timer in ANY state — the home has no clock at all any more', () => {
     const spy = vi.spyOn(globalThis, 'setInterval');
     const handle = showHome('0.0.0-test', vi.fn());
-    handle.setLiveness(livePayload({ queue: { pooled: 1, min: 2, cap: 20, deadlineAt: null } }));
+    for (const q of [
+      { pooled: 1, min: 2, cap: 20, deadlineAt: null },
+      { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 }, // armed: used to tick
+      null,
+    ]) {
+      handle.setLiveness(livePayload({ queue: q }));
+    }
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
     handle.hide();
   });
 
-  it('hide() stops the tick — it must never repaint a detached home', () => {
+  it('an armed payload paints the same bare count — no clock reaches the button', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
     const sub = sublineOf(playButton());
+    expect(sub.textContent).toBe('4/20 QUEUED');
+    vi.advanceTimersByTime(30_000); // 30s of clock changes nothing at all
+    expect(sub.textContent).toBe('4/20 QUEUED');
     handle.hide();
-    const before = sub.textContent;
-    vi.advanceTimersByTime(30_000);
-    expect(sub.textContent).toBe(before);
     vi.useRealTimers();
   });
 
@@ -1135,7 +1133,7 @@ describe('the mode-button sub-line reserves its space (F9)', () => {
     handle.setLiveness(livePayload({ queue: { pooled: 1, min: 2, cap: 20, deadlineAt: null } }));
     expect(sub.style.display).toBe(before);
     expect(sub.style.visibility).toBe('visible');
-    expect(sub.textContent).toBe('1 QUEUED · NEEDS 2 TO START');
+    expect(sub.textContent).toBe('1/20 QUEUED');
     handle.setLiveness(null); // an outage: the copy goes, the box does not
     expect(sub.style.display).toBe(before);
     expect(sub.style.visibility).toBe('hidden');
@@ -1165,26 +1163,77 @@ describe('setLiveness(null) stands the whole surface down (F3)', () => {
     vi.useRealTimers();
   });
 
-  it('clears the register, the sub-line AND the 1Hz countdown tick', () => {
+  it('clears the register AND the sub-line', () => {
     // This is the value main.ts pushes when the player commits: `Home` has no
-    // other way to be told "stand down", and the 1Hz tick is cleared only by
-    // hide(), which is not reached until connect() resolves — i.e. after the
-    // ENTIRE pooled wait, up to 2:00.
+    // other way to be told "stand down", and a stale count on the button behind
+    // the queue modal would contradict the live one inside it.
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
     const sub = sublineOf(playButton());
-    expect(sub.textContent).toBe('4 QUEUED · STARTS 1:23');
+    expect(sub.textContent).toBe('4/20 QUEUED');
 
     handle.setLiveness(null);
     expect(sub.style.visibility).toBe('hidden');
     expect(sub.textContent).toBe(' ');
-    // The tick is gone with it: 30s of clock must not resurrect a countdown
-    // over a payload that has been dead since the player pressed SOLO.
+    // ...and 30s of clock cannot resurrect it: there is no timer left to do so.
     vi.advanceTimersByTime(30_000);
     expect(sub.textContent).toBe(' ');
     handle.hide();
+  });
+});
+
+// --- Eric 2026-08-18: the status line beside HOW TO PLAY belongs to the PROBE --
+
+describe('the status line is NEVER written by queue code', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('queue-modal')?.remove();
+  });
+
+  /** The underplay row — HOW TO PLAY's parent. */
+  function underplay(): HTMLElement {
+    return [...home().querySelectorAll('span')].find((s) => s.textContent === 'HOW TO PLAY')
+      ?.parentElement as HTMLElement;
+  }
+
+  function statusText(): string {
+    return (underplay().children[1] as HTMLElement).textContent ?? '';
+  }
+
+  it('the underplay row is HOW TO PLAY + the probe line, and nothing else', () => {
+    // The CANCEL span that used to be its third child moved into the modal.
+    showHome('0.0.0-test', vi.fn());
+    expect(underplay().children.length).toBe(2);
+    expect(statusText()).toBe('SERVER: CHECKING…');
+  });
+
+  it('setServerProbe owns it, and the whole queue lifecycle does not disturb it', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setServerProbe('ready');
+    expect(statusText()).toBe('SERVER: READY');
+    // Join, an unarmed push, an armed push, a poll read, then leave.
+    handle.setCancel(vi.fn());
+    handle.setQueue({ n: 1, min: 2, cap: 20, startsInMs: null });
+    handle.setQueue({ n: 7, min: 2, cap: 20, startsInMs: 65_000 });
+    handle.setLiveness(livePayload({ queue: { pooled: 7, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
+    expect(statusText()).toBe('SERVER: READY'); // untouched by every one of them
+    handle.setCancel(null);
+    expect(statusText()).toBe('SERVER: READY');
+  });
+
+  it('and no retired queue copy can reach the home surface at all', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setServerProbe('ready');
+    handle.setCancel(vi.fn());
+    handle.setQueue({ n: 1, min: 2, cap: 20, startsInMs: null });
+    const text = home().textContent ?? '';
+    expect(text).not.toMatch(/AWAITING A SECOND CAPTAIN/);
+    expect(text).not.toMatch(/DEPLOY IN/);
+    expect(text).not.toMatch(/LOBBY DISBANDED|SEARCHING FOR A NEW MATCH/);
+    expect(text).not.toMatch(/NEEDS|STARTING/);
   });
 });
 
@@ -1205,20 +1254,53 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
     return src.slice(start, end);
   }
 
-  it('stopHomeLiveness clears the PAINT, not only the poll', () => {
-    // The shipped version stopped the poll and left the last payload frozen on
-    // the buttons — so a queued captain watched the live `QUEUED n CAPTAINS ·
-    // DEPLOY IN m:ss` status line while the SOLO button above it counted down a
-    // dead payload; at beta population the first captain in the pool saw
-    // `0 QUEUED · NEEDS 2 TO START` directly above a line saying they were
-    // queued in it.
-    const body = bodyOf(mainSrc(), 'function stopHomeLiveness(');
-    expect(body).toMatch(/setLiveness\(null\)/);
+  it('stopHomeLiveness is GONE, not kept for a future caller', () => {
+    // Eric's 2026-08-18 ruling removed its only call site: the door demotes the
+    // poll instead of killing it, and the stop at home.hide() needs no repaint
+    // because the home is already torn down. Leaving a stop-and-blank helper
+    // lying around would be a dead knob AND a trap — calling it during the
+    // pooled wait is exactly the blanking the ruling removed.
+    expect(mainSrc()).not.toMatch(/function stopHomeLiveness\(/);
   });
 
-  it('startGame calls it with the live home, at the moment the player commits', () => {
+  it('the queue hooks drive the MODAL, never the status line (Eric 2026-08-18)', () => {
     const body = bodyOf(mainSrc(), 'async function startGame(');
-    expect(body).toMatch(/stopHomeLiveness\(home\)/);
+    expect(body).toMatch(/onQueue: \(q\) => home\.setQueue\(q\)/);
+    expect(body).toMatch(/onQueued: \(cancel\) => \{/);
+    expect(body).toMatch(/home\.setCancel\(cancel\)/);
+    // Entering the pool hands the status line BACK to the server register
+    // rather than leaving CONNECTING… parked there for the whole two-minute
+    // wait. Being pooled is not "connecting" — joining the queue is itself the
+    // proof the socket is up — so the only thing this line may say is server
+    // news. The queue's own numbers live in the modal.
+    expect(body).toMatch(/if \(cancel\) handStatusBackToServer\(home\)/);
+    // ...and a CANCEL likewise writes no queue copy onto it.
+    expect(body).toMatch(/if \(cancelled\) handStatusBackToServer\(home\)/);
+    expect(body).not.toMatch(/connectErrorStatus\(err\), cancelled \?/);
+    // The retired reducers, and the status-hold machinery that existed ONLY to
+    // arbitrate between them on the home's single register. Matched as CODE
+    // rather than as text — main.ts's own RETIRED comment names all four, and a
+    // bare source search would trip on the explanation of the deletion.
+    const src = mainSrc();
+    expect(src).not.toMatch(/^\s*(queueStatusLine|requeueStatusLine),$/m); // the import
+    expect(src).not.toMatch(/function makeStatusHold\(/);
+    expect(src).not.toMatch(/const REQUEUE_STATUS_HOLD_MS/);
+    expect(src).not.toMatch(/hold\.(paint|cancel)\(/);
+  });
+
+  it('the door DEMOTES the poll rather than stopping it, and the arena stops it', () => {
+    // Eric ruling 2026-08-18 ("keep the heartbeat running"): the register used to
+    // blank for the whole pooled wait, which is the one moment a waiting player
+    // most wants it. So the door keeps READING and stops BEACONING — the queue
+    // socket counts that player from here, and beaconing too would count one
+    // person twice. The poll ends with the home, not with the button press.
+    const body = bodyOf(mainSrc(), 'async function startGame(');
+    expect(body).toMatch(/startHomeLiveness\(home, false\)/);
+    expect(body).not.toMatch(/stopHomeLiveness\(home\)/);
+    // ...and the outright stop sits with home.hide(), where there is no longer a
+    // register to feed. stopLivenessPoll, not stopHomeLiveness: painting a home
+    // that hide() has already torn down is the one thing it exists to end.
+    expect(body).toMatch(/home\.hide\(\);[\s\S]{0,600}?stopLivenessPoll\(\)/);
   });
 
   it('a poll RESTART does not blink the paint through "unavailable"', () => {

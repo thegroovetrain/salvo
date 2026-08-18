@@ -15,6 +15,7 @@ import {
   livenessUrl,
   localizeDeadline,
   parseLiveness,
+  presenceId,
   skewOffsetMs,
   startLivenessPoll,
 } from '../net/liveness.js';
@@ -41,9 +42,109 @@ describe('livenessUrl — the origin idiom probeServer uses', () => {
     const url = livenessUrl();
     expect(url.startsWith('http')).toBe(true);
     expect(url).not.toContain('ws://');
-    expect(url.endsWith('/liveness')).toBe(true);
     expect(url.match(/\/liveness/g)).toHaveLength(1);
     expect(url).not.toContain('//liveness'); // a trailing-slash origin must not double up
+    expect(new URL(url).pathname).toBe('/liveness');
+  });
+});
+
+// --- the presence id (Eric ruling 2026-08-18) --------------------------------
+//
+// `playersOnline` now counts home-screen viewers, who hold no room and no socket
+// — so the POLL is their heartbeat, and `?c=` is the tab it heartbeats for.
+
+describe('the presence id — the poll IS the heartbeat', () => {
+  it('rides every read as the `c` query parameter', () => {
+    const url = new URL(livenessUrl());
+    expect(url.searchParams.get('c')).toBe(presenceId());
+    expect(url.searchParams.get('c')).toBeTruthy();
+  });
+
+  it('is STABLE for the tab — a fresh id per poll would count one viewer as six', () => {
+    const a = new URL(livenessUrl()).searchParams.get('c');
+    const b = new URL(livenessUrl()).searchParams.get('c');
+    expect(a).toBe(b);
+    expect(presenceId()).toBe(a);
+  });
+
+  it('is OMITTED by a reader — the pooled wait reads the register without claiming a place in it', () => {
+    // Eric ruling 2026-08-18. A queued player keeps a live register, but the
+    // server already counts them through their queue-room socket, so beaconing
+    // as a home-screen viewer too would count ONE person TWICE and read `2` to
+    // somebody sitting alone in the pool.
+    const url = new URL(livenessUrl(false));
+    expect(url.searchParams.has('c')).toBe(false);
+    expect(url.pathname).toBe('/liveness');
+    expect(url.search).toBe(''); // no stray `?`, so no empty-parameter edge
+    // ...and the default is still to COUNT: a poll from the port is a viewer.
+    expect(new URL(livenessUrl()).searchParams.get('c')).toBe(presenceId());
+  });
+
+  it('a countMe:false POLL never beacons, on any cycle', async () => {
+    // The flag has to reach the real fetch path, not just the url helper — a poll
+    // that quietly beaconed on its second cycle would be the same double count,
+    // only harder to see.
+    const seen: boolean[] = [];
+    const poll = startLivenessPoll(() => undefined, {
+      intervalMs: 1,
+      countMe: false,
+      fetchOnce: () => {
+        seen.push(new URL(livenessUrl(false)).searchParams.has('c'));
+        return Promise.resolve(null);
+      },
+    });
+    await vi.waitFor(() => {
+      if (seen.length < 3) throw new Error('not enough cycles yet');
+    });
+    poll.stop();
+    expect(seen.every((claimed) => claimed === false)).toBe(true);
+  });
+
+  it('carries NO identity: not the callsign, not the colour, nothing persisted', () => {
+    localStorage.setItem('hullcracker.name', 'ADMIRAL');
+    localStorage.setItem('hullcracker.color', '7');
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const id = presenceId();
+    expect(id).not.toMatch(/ADMIRAL/i);
+    expect(id).not.toMatch(/battleship/i);
+    // ...and it is not itself persisted — a stored id would be a DEVICE
+    // identifier, and per-tab is also the right granularity (two tabs, two
+    // viewers).
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i) as string;
+      expect(localStorage.getItem(key)).not.toBe(id);
+    }
+    localStorage.clear();
+  });
+
+  it('is URL-safe as emitted, so the server reads back exactly what was minted', () => {
+    const url = livenessUrl();
+    expect(url).toBe(`${url.split('?')[0]}?c=${encodeURIComponent(presenceId())}`);
+    expect(new URL(url).searchParams.get('c')).toBe(presenceId());
+  });
+
+  it('the real fetch sends it (with `no-store` and the abort signal intact)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
+    vi.stubGlobal('fetch', fetchMock);
+    await fetchLiveness();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(url as string).searchParams.get('c')).toBe(presenceId());
+    expect(init.cache).toBe('no-store');
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('every poll cycle sends it — the heartbeat is the read, not a one-shot', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
+    vi.stubGlobal('fetch', fetchMock);
+    const poll = startLivenessPoll(() => undefined, { intervalMs: 10 });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(25);
+    poll.stop();
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(new URL(url as string).searchParams.get('c')).toBe(presenceId());
+    }
   });
 });
 

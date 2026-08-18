@@ -1704,7 +1704,16 @@ export const CLIENT_CONFIG = {
      *  and the out-of-zone storm vignette (render/zone.ts). Nothing may pulse
      *  faster; a new pulsing surface reads this, never its own literal. */
     pulseCapHz: 1.1,
-    /** Overlay chrome: z between the refit modal (1000) and the home (1100). */
+    /**
+     * Overlay chrome: z between the refit modal (1000) and the home (1100).
+     *
+     * THE FULL RATIFIED LADDER, stated once here because this is the only rung
+     * that is a config value: toast stacks 900 < refit modal 1000 < settings
+     * 1050 < home 1100 < queue modal 1150 (ui/queueModal.ts, Eric 2026-08-18) <
+     * class bay 1200. The queue modal takes the rung ABOVE the home because it
+     * covers the port while a join is in flight; the class bay is above it in
+     * turn but unreachable then (`openLayer` refuses while busy).
+     */
     zIndex: 1050,
     /** Panel geometry (px) — the DOM port-chrome register (panel bed, 1px
      *  hairline border, 12px radius, no fullscreen backdrop dim). */
