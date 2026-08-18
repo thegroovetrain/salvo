@@ -300,15 +300,56 @@ describe('the refresh case (Story 6.7)', () => {
     expect(hasWebLocks()).toBe(false); // the fallback backend, genuinely
     const before = await tab();
     await before.acquireSessionLock();
-    const beat = localStorage.getItem(before.SESSION_LOCK_NAME);
-    expect(beat).not.toBeNull(); // a live, seconds-fresh claim is sitting there
+    expect(localStorage.getItem(before.SESSION_LOCK_NAME)).not.toBeNull();
 
-    // The page reloads: module state is gone, localStorage and this tab's OWN
-    // sessionStorage both survive. Nothing simulates a release, because the
-    // point is that the reload must work even if `pagehide` never fired.
+    // The page reloads: `pagehide` fires (which is what a reload DOES — it is
+    // the modern, reliably-delivered unload event), module state is gone, and
+    // localStorage plus this tab's OWN sessionStorage both survive.
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
     const after = await reloadTab();
     tabs.push(after);
     expect(await after.acquireSessionLock()).not.toBeNull();
+  });
+
+  it('...even if the release could not drop the key, because the departure was ANNOUNCED', async () => {
+    // Belt and braces: the pagehide release normally deletes the key outright,
+    // so adoption only ever decides the case where that removal did not take.
+    // The departure NOTE is what carries the story across — and it is why this
+    // no longer has to be inferred from a tab id alone (see the clone below).
+    const before = await tab();
+    await before.acquireSessionLock();
+    const spy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('SecurityError: storage is blocked');
+    });
+    try {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(localStorage.getItem(before.SESSION_LOCK_NAME)).not.toBeNull(); // the claim survived
+    expect(localStorage.getItem(before.SESSION_HANDOFF_KEY)).not.toBeNull(); // ...and so did the note
+    const after = await reloadTab();
+    tabs.push(after);
+    expect(await after.acquireSessionLock()).not.toBeNull();
+    // The note is redeemed exactly once, so nothing can replay it later.
+    expect(localStorage.getItem(after.SESSION_HANDOFF_KEY)).toBeNull();
+  });
+
+  it('a DUPLICATED tab shares the id but announced no departure — and is REFUSED', async () => {
+    // `Duplicate Tab` CLONES sessionStorage, so the clone carries the same
+    // holder id as the tab it came from — which is exactly the harness the
+    // reload case uses, and exactly why a bare id comparison could not tell the
+    // two apart. The difference is that the original is STILL SAILING: no
+    // pagehide, no note. On this backend it used to adopt the live claim, and
+    // its later release would then delete the key the original depends on.
+    const original = await tab();
+    await original.acquireSessionLock();
+    const clone = await reloadTab(); // same sessionStorage, no pagehide
+    tabs.push(clone);
+    expect(await clone.acquireSessionLock()).toBeNull();
+    // ...and the refused clone hands nothing back that could free the port.
+    clone.releaseSessionLock();
+    expect(localStorage.getItem(original.SESSION_LOCK_NAME)).not.toBeNull();
   });
 
   it('...while a genuine SECOND TAB is still refused at the same instant', async () => {

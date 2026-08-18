@@ -12,6 +12,8 @@ interface FakeRoom {
    *  client must keep re-persisting, since an in-page resume ROTATES it. */
   reconnectionToken: string;
   onMessage: (type: string, cb: (msg: unknown) => void) => void;
+  /** The SDK's reconnect signal — `createSignal()`, so registering is a CALL. */
+  onReconnect: (cb: () => void) => void;
   onError: (cb: (code: number, message?: string) => void) => void;
   onLeave: (cb: (code: number) => void) => void;
   leave: () => Promise<void>;
@@ -19,6 +21,15 @@ interface FakeRoom {
   send: (type: string, msg: unknown) => void;
   sent: Array<{ type: string; msg: unknown }>;
   fire: (type: string, msg: unknown) => void;
+  /**
+   * A RECONNECT ACK, in the SDK's real order (@colyseus/sdk 0.17.43
+   * `build/Room.mjs`): `onReconnect.invoke()` runs its handlers SYNCHRONOUSLY
+   * (`:241`, via `EventEmitter.invoke`'s `forEach`) and the rotated token is
+   * assigned on the NEXT LINE (`:243`). Modelling that order is the whole point
+   * — a handler that reads `reconnectionToken` directly sees the OLD value, and
+   * only a continuation scheduled out of it sees the new one.
+   */
+  fireReconnect: (rotated: string) => void;
   fireError: (code: number, message?: string) => void;
   fireLeave: (code: number) => void;
   has: (type: string) => boolean;
@@ -28,6 +39,7 @@ function fakeRoom(): FakeRoom {
   const handlers = new Map<string, (msg: unknown) => void>();
   const errorHandlers: Array<(code: number, message?: string) => void> = [];
   const leaveHandlers: Array<(code: number) => void> = [];
+  const reconnectHandlers: Array<() => void> = [];
   const sent: Array<{ type: string; msg: unknown }> = [];
   const self: FakeRoom = {
     // The SDK's shipping defaults — connect() is expected to (re)assert these on
@@ -35,6 +47,7 @@ function fakeRoom(): FakeRoom {
     reconnection: { enabled: true, maxRetries: 15 },
     reconnectionToken: 'arena-1:tok-join',
     onMessage: (type, cb) => void handlers.set(type, cb),
+    onReconnect: (cb) => void reconnectHandlers.push(cb),
     onError: (cb) => void errorHandlers.push(cb),
     onLeave: (cb) => void leaveHandlers.push(cb),
     leave: () => {
@@ -45,6 +58,10 @@ function fakeRoom(): FakeRoom {
     send: (type, msg) => void sent.push({ type, msg }),
     sent,
     fire: (type, msg) => handlers.get(type)?.(msg),
+    fireReconnect: (rotated) => {
+      reconnectHandlers.forEach((cb) => cb()); // invoked BEFORE the rotation...
+      self.reconnectionToken = rotated; // ...which lands on the next line.
+    },
     fireError: (code, message) => errorHandlers.forEach((cb) => cb(code, message)),
     fireLeave: (code) => leaveHandlers.forEach((cb) => cb(code)),
     has: (type) => handlers.has(type),
@@ -173,6 +190,12 @@ async function connectAndWelcome(
   });
   room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
   return pending;
+}
+
+/** Let a `queueMicrotask` continuation run. It is queued BEFORE this resolver,
+ *  so awaiting this is deterministic rather than a race. */
+function flushMicrotasks(): Promise<void> {
+  return new Promise<void>((resolve) => queueMicrotask(resolve));
 }
 
 describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
@@ -691,17 +714,34 @@ describe('connect — persisting the reconnection token (Story 6.7)', () => {
     expect(loadResumeToken()).toBe('arena-1:tok-rotated');
   });
 
-  it('does NOT hang the persistence off room.onReconnect — the SDK rotates AFTER invoking it', async () => {
-    // Verified against @colyseus/sdk 0.17.43 `build/Room.mjs`: the JOIN_ROOM
-    // handler calls `onReconnect.invoke()` and assigns the rotated token on the
-    // NEXT LINE, so an onReconnect handler reads the OLD token every time. This
-    // pins the consequence — the frame channel is what refreshes it, and it does
-    // so with no resume signal fired at all.
+  it('the frame channel alone still refreshes it, with no resume signal fired at all', async () => {
     await connectAndWelcome();
     room.reconnectionToken = 'arena-1:tok-rotated';
     expect(loadResumeToken()).toBe('arena-1:tok-join'); // nothing has acked yet
     room.fire(MSG.frame, { t: 2, tick: 2, ackSeq: 0, contacts: [], mines: [] });
     expect(loadResumeToken()).toBe('arena-1:tok-rotated');
+  });
+
+  it('re-writes the ROTATED token ON THE RESUME ACK, not on the first frame after it', async () => {
+    // THE WINDOW THIS CLOSES. Frames are one tick apart (50ms), so a
+    // frame-driven write left `sessionStorage` holding the PRE-ROTATION token
+    // for a whole tick after a successful in-page resume — and a second drop or
+    // a refresh inside it fast-fails on a dead token, which is the half-resume
+    // double fault R9 exists to prevent.
+    //
+    // Verified against @colyseus/sdk 0.17.43 `build/Room.mjs`: the JOIN_ROOM
+    // handler calls `onReconnect.invoke()` (`:241`) and assigns the rotated
+    // token on the NEXT LINE (`:243`), both synchronous. So the handler itself
+    // must NOT read the token — a microtask scheduled out of it must.
+    await connectAndWelcome();
+    let insideHandler: string | null = null;
+    room.onReconnect(() => void (insideHandler = loadResumeToken()));
+    room.fireReconnect('arena-1:tok-rotated');
+    expect(insideHandler).toBe('arena-1:tok-join'); // the OLD value, as the SDK dictates
+    await flushMicrotasks();
+    expect(loadResumeToken()).toBe('arena-1:tok-rotated');
+    // ...and no frame was involved: the belt-and-braces path never ran.
+    expect(room.sent.length).toBe(0);
   });
 
   it('clears the token when the welcome handshake fails — a half-open room is not resumable', async () => {

@@ -437,17 +437,29 @@ async function acquireArena(
  * entitled to resume — a half-resume double fault, and the single most likely
  * way to get this feature subtly wrong.
  *
- * IT HANGS OFF THE FRAME CHANNEL RATHER THAN `room.onReconnect`, and that is
- * not an arbitrary choice: the SDK invokes `onReconnect` INSIDE its JOIN_ROOM
- * handler and assigns the rotated token on the LINE AFTER
- * (@colyseus/sdk 0.17.43 `build/Room.mjs`), so an `onReconnect` handler reads
- * the OLD token every time. Frames arrive as separate socket messages, strictly
- * after that assignment, so reading here cannot see a stale value. It is also
- * self-healing: 20 chances a second rather than one.
+ * TWO WRITERS, AND THE PAIR IS THE POINT.
  *
- * The memo keeps it to a string compare on the hot path — sessionStorage is
- * only written when the token actually changes, which is at most twice per
- * drop.
+ * The SDK invokes `onReconnect` INSIDE its JOIN_ROOM handler and assigns the
+ * rotated token on the LINE AFTER (@colyseus/sdk 0.17.43 `build/Room.mjs:241`
+ * then `:243`; `createSignal().invoke` runs its handlers synchronously via
+ * `forEach`), so a handler that reads `room.reconnectionToken` DIRECTLY sees the
+ * OLD value every time — which is why the first cut of this hung the write off
+ * frames instead. But a continuation SCHEDULED from that handler does not: a
+ * microtask runs once the whole synchronous JOIN_ROOM block has unwound, i.e.
+ * strictly after the assignment. So `outfitArena` persists from an
+ * `onReconnect`-scheduled microtask AND from the frame channel.
+ *
+ * The microtask closes a real window. Frames are one tick apart (50ms), so
+ * between a successful in-page resume's ack and its first frame the store still
+ * held the PRE-ROTATION token — and a second drop or a refresh inside that
+ * window fast-fails on a dead token, which is exactly the half-resume double
+ * fault ruling R9 exists to prevent. The frame channel stays as the
+ * belt-and-braces path: frames arrive as separate socket messages, strictly
+ * after the assignment, and give 20 chances a second rather than one.
+ *
+ * The memo keeps the pair to a string compare on the hot path — sessionStorage
+ * is written only when the token actually CHANGES, so the second writer costs
+ * nothing and cannot double-write.
  */
 function tokenPersister(room: Room): () => void {
   let last = '';
@@ -490,6 +502,11 @@ function outfitArena(room: Room): { sink: FrameSink; early: EarlyMessages } {
   const early: EarlyMessages = { results: null, bound: false };
   const persistToken = tokenPersister(room);
   persistToken(); // the join's own token, before a single frame has landed
+  // The resume ack, one microtask after the SDK rotates the token (see
+  // tokenPersister). The handler body is a BARE SCHEDULE and nothing else: it
+  // runs inside the SDK's JOIN_ROOM handler, where a throw would abort the ack
+  // before it is even sent back.
+  room.onReconnect(() => queueMicrotask(persistToken));
   room.onMessage(MSG.frame, (f: FrameMsg) => {
     persistToken();
     sink.handler(f);

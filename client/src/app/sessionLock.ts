@@ -125,6 +125,12 @@ function hold(handle: SessionLockHandle): SessionLockHandle {
  * (A live WebSocket disqualifies bfcache in practice, so this is belt-and-
  * braces — and fail-open is the module's standing doctrine either way.)
  *
+ * IT ALSO STAMPS THE HANDOFF (see `stampHandoff`) — the announcement that makes
+ * "this claim is my own predecessor's" a fact the next page load can CHECK
+ * rather than infer from a tab id that a duplicated tab also carries. Stamped
+ * BEFORE the release, so the note is in place whatever the release then manages
+ * to do with the key.
+ *
  * Registered once, on the first hold, so a tab that never deploys attaches
  * nothing.
  */
@@ -133,7 +139,9 @@ function bindUnloadRelease(): void {
   if (unloadBound || typeof window === 'undefined') return;
   unloadBound = true;
   window.addEventListener('pagehide', (ev: PageTransitionEvent) => {
-    if (!ev.persisted) releaseSessionLock();
+    if (ev.persisted) return;
+    stampHandoff();
+    releaseSessionLock();
   });
 }
 
@@ -374,10 +382,9 @@ function holderId(): string {
   return minted;
 }
 
-/** The stored heartbeat, or null when the key is absent, malformed or a shape
- *  we do not recognise — all of which read as FREE (fail open). */
-function readHeartbeat(): Heartbeat | null {
-  const raw = localStorage.getItem(SESSION_LOCK_NAME);
+/** A stored `{id, ts}` record, or null when the value is absent, malformed or a
+ *  shape we do not recognise — all of which read as FREE (fail open). */
+function parseStamp(raw: string | null): Heartbeat | null {
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<Heartbeat> | null;
@@ -389,8 +396,85 @@ function readHeartbeat(): Heartbeat | null {
   }
 }
 
+/** The stored heartbeat, or null. The read itself is deliberately NOT wrapped —
+ *  see `acquireStorageLock`: unreadable storage must mean "play", not "refused". */
+function readHeartbeat(): Heartbeat | null {
+  return parseStamp(localStorage.getItem(SESSION_LOCK_NAME));
+}
+
 function writeHeartbeat(beat: Heartbeat): void {
   localStorage.setItem(SESSION_LOCK_NAME, JSON.stringify(beat));
+}
+
+// --- the handoff: "I am going away, and this claim is mine" ------------------
+//
+// DUPLICATE TAB CLONES `sessionStorage`. That is the whole reason this exists:
+// the browser's own Duplicate Tab copies the store wholesale, so the clone
+// carries the SAME `SESSION_TAB_KEY` holder id as the tab it was cloned from —
+// and a bare id comparison therefore reads a LIVE claim as "my own predecessor's
+// ghost" and adopts it. Two tabs then hold the port at once, and the clone's
+// release deletes the key the original is still beating into.
+//
+// Web Locks refuses the clone correctly (the original's lock is genuinely held
+// by a live page), so this is a FALLBACK-ONLY correction and the Web Locks path
+// is untouched — `handoffHolder` is only ever set by the heartbeat backend, so
+// on a browser with `navigator.locks` nothing here writes, reads or runs.
+//
+// THE DISCRIMINATOR IS DEPARTURE, NOT IDENTITY. A reloading tab ANNOUNCES the
+// handoff at `pagehide`; a live clone never does, because its original has not
+// gone anywhere. Adoption now requires that announcement. Nothing waits and
+// nothing blocks — the note is either there or it is not.
+
+/** localStorage key for the departure note — the `hullcracker.*` family again. */
+export const SESSION_HANDOFF_KEY = 'hullcracker.session.handoff';
+
+/** The holder id of a live FALLBACK claim this tab owns, or null. The Web Locks
+ *  path leaves it null forever, which is what keeps the handoff off that
+ *  backend entirely. */
+let handoffHolder: string | null = null;
+
+/** Announce that this page is going away and its claim may be taken over by its
+ *  own successor. Best-effort: a storage failure here just means the successor
+ *  waits out SESSION_STALE_MS, which is the pre-6.7 behaviour, not a new one. */
+function stampHandoff(): void {
+  const id = handoffHolder;
+  if (id === null) return; // no fallback claim (Web Locks, or nothing held)
+  try {
+    localStorage.setItem(SESSION_HANDOFF_KEY, JSON.stringify({ id, ts: Date.now() }));
+  } catch {
+    // storage unavailable — no note, so the successor falls back to the timeout
+  }
+}
+
+/** Forget the note. Called whenever this backend takes the port, so one
+ *  departure can be redeemed exactly once and a later clone cannot replay it. */
+function dropHandoff(): void {
+  try {
+    localStorage.removeItem(SESSION_HANDOFF_KEY);
+  } catch {
+    // storage unavailable — the age bound below retires it anyway
+  }
+}
+
+/** Did the holder of this id announce, recently, that it was going away? Bounded
+ *  by SESSION_STALE_MS — the same window in which a claim is live at all, so this
+ *  can never widen adoption beyond the case it is deciding. */
+function handoffAnnounced(id: string): boolean {
+  const note = parseStamp(localStorage.getItem(SESSION_HANDOFF_KEY));
+  return note !== null && note.id === id && Date.now() - note.ts < SESSION_STALE_MS;
+}
+
+/**
+ * Does a live claim refuse us?
+ *
+ * A stale or absent claim never does. A live one does UNLESS it is our own
+ * predecessor's — same tab id AND a departure it announced. The second half is
+ * what a duplicated tab cannot forge: it shares the id, but its original is
+ * still sailing and never stamped anything.
+ */
+function refusedByLiveClaim(existing: Heartbeat | null, id: string): boolean {
+  if (existing === null || Date.now() - existing.ts >= SESSION_STALE_MS) return false;
+  return !(existing.id === id && handoffAnnounced(id));
 }
 
 /**
@@ -408,14 +492,17 @@ function writeHeartbeat(beat: Heartbeat): void {
  */
 function acquireStorageLock(): SessionLockHandle | null {
   const id = holderId();
-  const existing = readHeartbeat();
-  // A live claim refuses us — UNLESS it is OUR OWN, left in the key by this same
-  // tab before a reload (Story 6.7). Without this clause a refresh-resume
-  // deterministically refuses itself at its own ghost, since the heartbeat it is
-  // reading is at most SESSION_HEARTBEAT_MS old. A second TAB has a different
-  // sessionStorage and therefore a different id, so it is still refused.
-  if (existing !== null && existing.id !== id && Date.now() - existing.ts < SESSION_STALE_MS) return null;
+  // A live claim refuses us — UNLESS it is OUR OWN PREDECESSOR's, left in the key
+  // by this same tab before a reload AND announced at its pagehide (Story 6.7,
+  // then the duplicate-tab correction). Without adoption at all, a refresh-resume
+  // would deterministically refuse itself at its own ghost, since the heartbeat
+  // it reads is at most SESSION_HEARTBEAT_MS old. A second TAB has its own
+  // sessionStorage and therefore a different id; a DUPLICATED tab shares the id
+  // but has no departure to point at. Both stay refused.
+  if (refusedByLiveClaim(readHeartbeat(), id)) return null;
   writeHeartbeat({ id, ts: Date.now() });
+  dropHandoff(); // the note has been redeemed; nothing may replay it
+  handoffHolder = id;
   const timer = setInterval(() => beat(id), SESSION_HEARTBEAT_MS);
   return { release: () => releaseStorageLock(timer, id) };
 }
@@ -436,6 +523,7 @@ function beat(id: string): void {
  *  their live claim. */
 function releaseStorageLock(timer: ReturnType<typeof setInterval>, id: string): void {
   clearInterval(timer);
+  if (handoffHolder === id) handoffHolder = null;
   try {
     if (readHeartbeat()?.id === id) localStorage.removeItem(SESSION_LOCK_NAME);
   } catch {
