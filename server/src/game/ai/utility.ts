@@ -56,7 +56,6 @@
 import {
   CONFIG,
   SHIP_CLASS_IDS,
-  isOutside,
   islandBlocksSegment,
   type BlipEvent,
   type Contact,
@@ -464,10 +463,67 @@ export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null 
 }
 
 /**
+ * u — THE RING-ESCAPE DEADBAND: how far INSIDE the live ring a hull must get
+ * before it is allowed to stop running for the centre.
+ *
+ * `isOutside` is boundary-inclusive with ZERO hysteresis, so escape used to
+ * release the instant `dist <= r` — one tick inside, posture flips back to
+ * whatever was pushing the hull outward in the first place, and the hull
+ * re-crosses. Measured on the water: a ~2.2s limit cycle of ±3-8u amplitude,
+ * bleeding `stormDps` for about half of each period. That is the "dipping in
+ * and out of the storm ring for no good reason" Eric watched.
+ *
+ * THE NUMBER IS THE HULL'S OWN FULL-AHEAD TURN RADIUS (`maxSpeed / turnRate`
+ * — Torpedo Boat 56.25u, Mine Layer 66.67u, Battleship 87.50u), which is
+ * ALREADY THIS FILE'S FAMILY OF DERIVATION: `REAR_QUARTER_U` in tactics.ts is
+ * documented as "just outside the Torpedo Boat's 56.3u full-ahead turn
+ * radius" for the same reason — it is the distance at which a heading is a
+ * manoeuvre rather than a hope. It reads `EffectiveStats.kinematics`, so it is
+ * per-hull and boon-aware for free, and it is never a fraction of ring radius:
+ * that would be 140u on the opening 2800u ring and 33u on the 660u endgame
+ * ring, i.e. loosest where the storm is slowest and tightest where it is
+ * closing hardest — exactly backwards.
+ *
+ * SANITY AGAINST THE CLOSING RATE: the ring closes at 16.1/10.5/9.1/11.0 u/s
+ * across the four groups, so even a Battleship's 87.5u buys 5.4s on the
+ * fastest beat — well over the 250ms deliberation cadence, so the deadband can
+ * never be eaten by the ring between two decisions.
+ */
+export function ringDeadband(stats: EffectiveStats): number {
+  return stats.kinematics.maxSpeed / stats.kinematics.turnRate;
+}
+
+/**
+ * IS THIS BOT RUNNING FOR THE RING CENTRE THIS TICK? The ONE predicate both
+ * ring consumers ask — `choosePosture` here and `desiredBearing` in tactics.ts
+ * — because two independent readings of "am I escaping" would disagree about
+ * when escape ENDS and re-open the chatter from the other side.
+ *
+ * `latched` is the hysteresis memory, and it is the CACHED POSTURE rather than
+ * a new field on the mind: posture is already the bot's one-word answer to
+ * "what am I doing", the driver already caches it across the decision cadence,
+ * and steering already receives it. So the arm threshold is `isOutside`'s
+ * exactly (nothing about entering the storm moves), and only the RELEASE
+ * threshold tightens to `ringDeadband` inside the rim.
+ *
+ * `r <= 0` is outside for every point — the sudden-death collapse ring's whole
+ * meaning, and the same fail-closed reading `isOutside` takes.
+ */
+export function ringEscaping(sit: BotSituation, latched: boolean): boolean {
+  const ring = sit.ring;
+  if (!(ring.r > 0)) return true;
+  const d = Math.hypot(sit.x - ring.cx, sit.y - ring.cy);
+  return d > (latched ? ring.r - ringDeadband(sit.stats) : ring.r);
+}
+
+/**
  * What the bot is doing this tick. The order of these clauses IS the policy:
  *
  *   1. RING ESCAPE DOMINATES EVERYTHING. Outside the live storm ring nothing
- *      else is worth deciding — the storm does not miss.
+ *      else is worth deciding — the storm does not miss. It RELEASES a
+ *      deadband inside the rim rather than on the boundary (see ringEscaping
+ *      / ringDeadband), which is why `prev` is threaded in: the posture the
+ *      bot already held is the latch.
  *   2. Then survival: below the profile's disengage fraction, break off.
  *   3. Then, with nothing actionable to chase, reposition (wave-3 tactics
  *      patrols toward the ring centre).
@@ -484,8 +540,12 @@ export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null 
  *      its own weights say a fleet hull is the better prize.
  *   6. Otherwise it is band geometry: inside the band engage, outside pursue.
  */
-export function choosePosture(sit: BotSituation, target: BotTrack | null): BotPosture {
-  if (isOutside({ x: sit.x, y: sit.y }, sit.ring.cx, sit.ring.cy, sit.ring.r)) return 'ringRun';
+export function choosePosture(
+  sit: BotSituation,
+  target: BotTrack | null,
+  prev: BotPosture = 'reposition',
+): BotPosture {
+  if (ringEscaping(sit, prev === 'ringRun')) return 'ringRun';
   if (sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac) return 'disengage';
   if (target === null) return 'reposition';
   if (lineBlocked({ x: sit.x, y: sit.y }, target, sit.islands)) return 'pursue';

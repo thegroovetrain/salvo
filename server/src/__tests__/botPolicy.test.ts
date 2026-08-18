@@ -33,12 +33,13 @@ import {
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
-import type { BotMind, BotProfileId } from '../game/ai/types.js';
+import type { BotMind, BotPosture, BotProfileId } from '../game/ai/types.js';
 import { BOT_PROFILES, engagementBand, profileOf } from '../game/ai/profiles.js';
 import {
   choosePosture,
   foldView,
   isActionable,
+  ringDeadband,
   scoreTrack,
   selectTarget,
   tracksOf,
@@ -493,6 +494,60 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
     const far = mind('duelist');
     expect(choosePosture(situation({ now: NOW, profile: duelist, stats: st }), target(far, band.max + 200))).toBe('pursue');
+  });
+
+  /**
+   * THE DEADBAND — the posture half of the storm-chatter fix.
+   *
+   * The two ring tests either side of this one place the hull 400u outside a
+   * 500u ring and 900u outside it: correct, kept, and blind to the defect,
+   * which lives entirely in the last metre. `isOutside` is boundary-inclusive
+   * with no hysteresis at all, so escape released at exactly `dist == r` and
+   * whatever was pushing the hull outward resumed on the next deliberation.
+   */
+  it('RING ESCAPE RELEASES A DEADBAND INSIDE THE RIM, not on the boundary', () => {
+    const m = mind('bulwark');
+    const t = target(m, 40);
+    const ring: ZoneRing = { cx: 0, cy: 0, r: 500 };
+    const st = stats('battleship');
+    const margin = ringDeadband(st);
+    const at = (x: number, prev: BotPosture): BotPosture =>
+      choosePosture(situation({ now: NOW, profile: profileOf('bulwark'), stats: st, ring, x, y: 0 }), t, prev);
+
+    // A hull ALREADY RUNNING stays running across the rim and through the
+    // deadband, and is released one unit past it.
+    expect(at(500, 'ringRun')).toBe('ringRun');
+    expect(at(500 - margin + 1, 'ringRun')).toBe('ringRun');
+    expect(at(500 - margin - 1, 'ringRun')).not.toBe('ringRun');
+
+    // THE ARM THRESHOLD DOES NOT MOVE — it is still `isOutside`, exactly. A
+    // hull that was not running only starts when it is genuinely wet, so the
+    // deadband can never keep a healthy bot off the water it is entitled to.
+    expect(at(500, 'engage')).not.toBe('ringRun');
+    expect(at(500.5, 'engage')).toBe('ringRun');
+  });
+
+  it('the deadband is the HULL\'s own full-ahead turn radius — per class, off EffectiveStats', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const k = CONFIG.shipClasses[cls].kinematics;
+      expect(ringDeadband(stats(cls))).toBeCloseTo(k.maxSpeed / k.turnRate, 6);
+    }
+    // The ordering is the whole point: the hull that takes longest to turn
+    // around gets the most water to do it in.
+    expect(ringDeadband(stats('battleship'))).toBeGreaterThan(ringDeadband(stats('mineLayer')));
+    expect(ringDeadband(stats('mineLayer'))).toBeGreaterThan(ringDeadband(stats('torpedoBoat')));
+    // NEVER a fraction of ring radius: that would be widest on the opening
+    // 2800u ring and tightest on the 660u endgame ring, i.e. backwards.
+    expect(ringDeadband(stats('battleship'))).toBeLessThan(CONFIG.vision.radar);
+  });
+
+  it('a COLLAPSED ring (sudden death, r <= 0) is outside for everyone, latched or not', () => {
+    const m = mind('bulwark');
+    const t = target(m, 40);
+    const dead: ZoneRing = { cx: 0, cy: 0, r: 0 };
+    const sit = situation({ now: NOW, profile: profileOf('bulwark'), ring: dead, x: 0, y: 0 });
+    expect(choosePosture(sit, t, 'engage')).toBe('ringRun');
+    expect(choosePosture(sit, t, 'ringRun')).toBe('ringRun');
   });
 
   it('forager on a fleet hull farms; duelist on the same hull does not', () => {
