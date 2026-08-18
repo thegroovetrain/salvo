@@ -402,3 +402,71 @@ override in your own words.
 - **Q5 is the one that overrides a ratified rule** and should not be answered by reflex.
 - **Q3, Q4, Q7, Q11** decide what the numbers actually mean and say.
 - **Q9, Q12** are confirmations with standing recommendations to change nothing.
+
+---
+
+## §7. RULINGS (Eric, 2026-08-17 — gate answered interactively)
+
+Answered live rather than in writing. Twelve of the fourteen decisions took the recommendation; **Q4
+was rewritten by Eric into something different and simpler**, and one new question (the `/metrics`
+relationship) was raised by him and answered mid-gate.
+
+| # | Question | Ruling |
+|---|---|---|
+| Q1 | Transport | **(a)** public `GET /liveness`, polled by home. Not a LobbyRoom, not a queue peek. |
+| Q2 | Arena mode tag | **(a)** yes — `setMetadata` in `ArenaRoom.finishCreate`. Game logic never learns it. |
+| Q3 | What is a "player" | **(a)** HUMANS ONLY. Bots are never counted. |
+| Q4 | Games count | **REWRITTEN — see below.** |
+| Q5 | Zero state | **(a)** the zero renders honestly; `EXPERIENCE.md:108` is scoped to decorative empties. |
+| Q6 | Visual surface | **(b)** annotate the MODE BUTTONS, not a separate register line. |
+| Q7 | Pre-join timer | **(a)** show it, ticking locally off an absolute deadline. |
+| Q8 | Mode persistence | **(a)** persist last-used mode only; two direct buttons unchanged. |
+| Q9 | Poll cadence | Not round-tripped — standing recommendation taken: 10 s client / ~2 s server cache. |
+| Q10/Q16 | Endpoint exposure | **(a)** public, unauthenticated, aggregates only. Create-rate cap stays separate. |
+| Q11 | Naming register | Dissolved by Q4+Q6 — the labels are the buttons themselves. |
+| Q12 | Scope confirmations | Taken as recommended: no DUO/TRIO, `?direct=1` untouched, queue policy untouched, secondary-button treatment ships unchanged. |
+| Q13 | "Online" means | **(a)** in a queue **or** in a match. No home-screen visitor tracking. |
+| Q14 | "Live game" means | **(a)** every arena room, any phase. No phase metadata. |
+| Q15 | SOLO VS AI annotation | **(a)** the constant `STARTS INSTANTLY`. This IS the dead-queue steer. |
+| NEW | `/metrics` relationship | **(a)** two routes; `/metrics` UNTOUCHED. |
+
+### Q4 as Eric rewrote it — the homepage shows GLOBAL totals, not per-mode
+
+> *"I don't need to see how many players are playing solo vs AI on the homepage. I don't need to see
+> how many games of each mode are being played on the homepage. This is great info for the endpoint,
+> though. I do, however, want to know how many players **total** are online right now, and how many
+> games **total** are currently running… Maybe in the top-left, it can say "PLAYERS ONLINE: [n]" and
+> then "LIVE GAMES: [n]" right under it?"*
+
+This **supersedes the per-mode homepage readout the gate proposed**, and it is simpler in three ways
+the gate did not anticipate: it retires the degenerate solo games-count problem (§1.1) by not
+rendering it, it retires the naming-register question (Q11) by having no per-mode labels to name, and
+it puts the population figure somewhere that does not compete with the deploy buttons. The per-mode
+breakdown still ships **in the endpoint payload** — Eric explicitly kept it there.
+
+Placement is Eric's: **top-left of the home screen**, the mirror of the settings gear at top-right.
+
+### The `/metrics` question, raised by Eric mid-gate
+
+> *"does this replace /metrics? metrics seems to have stuff related to this."*
+
+It does not, and the overlap is exactly two fields. `/metrics` returns `rooms`, `players`, tick
+p50/p95/max and message rates; the last two are pure ops telemetry. The two overlapping fields are
+wrong for the homepage twice over: `localCounts()` (`metrics.ts:218-231`) reads
+`matchMaker.stats.local` — **this process only** — and `rooms` counts every room type, so LIVE GAMES
+would read 1 whenever anyone is queued and no match is running.
+
+**Ruled: two routes, and `/metrics` is not touched.** The decisive argument is that the two numbers
+*should* differ — process-local is the CORRECT answer to an ops route's actual question ("is this
+dyno loaded?"), and global is the correct answer to a player's. Each route gets a comment pointing at
+the other so a future agent does not "fix" the discrepancy by reconciling numbers that are meant to
+disagree.
+
+### One consequence to record deliberately (Q6)
+
+Annotating the buttons puts a sub-line back on them **one day after amendment 31 deleted sub-lines**.
+This reverses the SHAPE while honouring the REASONING: amendment 31 struck the old sub-line because
+it *restated the Class Chip directly above it* (`DEPLOY AS TORPEDO BOAT · SOLO`). A live queue count
+is new information the player has nowhere else. The `home.test.ts:244-253` pin
+(`children.length === 1`) is therefore **deliberately revised, not deleted**, with that reasoning
+written into it.

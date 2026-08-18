@@ -204,7 +204,7 @@ development_status:
   6-3-the-participants-only-win-check: done  # 2026-08-15 cycle 89 (0.17.89); PV 36->37; amendments 13-18
   6-4-combat-bot-ai: done  # 2026-08-17 cycle 96 (0.17.96); PV 40; amendments 26-28; bot-evidence-2026-08-16.md
   6-5-solo-vs-ai-mode: done  # 2026-08-17 cycle 97 (0.17.97); PV 40; amendments 29-31; queue-free create door, 1 human + 19 AI captains
-  6-6-mode-select-queue-liveness: backlog
+  6-6-mode-select-queue-liveness: done  # 2026-08-17 cycle 98 (0.17.98); PV 40; amendments 32-38; GET /liveness (driver-backed), global counts on home
   6-7-reconnection-ux: backlog
   epic-6-retrospective: optional
 
