@@ -95,6 +95,13 @@ export interface BotSituation {
   hp: number;
   maxHp: number;
   stats: EffectiveStats;
+  /** u/s — the hull's CURRENT signed speed, straight off its own ShipState.
+   *  A self-read of the bot's own hull, the same category as `hp`, and it
+   *  discloses nothing. It exists for exactly one reason: `EffectiveStats`
+   *  does NOT carry the speed boost (World.stepShips raises the per-tick cap
+   *  outside it), so `ringDeadband` cannot size a boosted hull's turn radius
+   *  without it. See ringDeadband. */
+  speed: number;
   profile: BotProfile;
   /** The LIVE storm ring — ring escape overrides everything else. */
   ring: ZoneRing;
@@ -473,24 +480,45 @@ export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null 
  * bleeding `stormDps` for about half of each period. That is the "dipping in
  * and out of the storm ring for no good reason" Eric watched.
  *
- * THE NUMBER IS THE HULL'S OWN FULL-AHEAD TURN RADIUS (`maxSpeed / turnRate`
- * — Torpedo Boat 56.25u, Mine Layer 66.67u, Battleship 87.50u), which is
- * ALREADY THIS FILE'S FAMILY OF DERIVATION: `REAR_QUARTER_U` in tactics.ts is
- * documented as "just outside the Torpedo Boat's 56.3u full-ahead turn
- * radius" for the same reason — it is the distance at which a heading is a
- * manoeuvre rather than a hope. It reads `EffectiveStats.kinematics`, so it is
- * per-hull and boon-aware for free, and it is never a fraction of ring radius:
- * that would be 140u on the opening 2800u ring and 33u on the 660u endgame
- * ring, i.e. loosest where the storm is slowest and tightest where it is
- * closing hardest — exactly backwards.
+ * THE NUMBER IS THE HULL'S OWN FULL-AHEAD TURN RADIUS (`speed / turnRate` —
+ * at rated speed, Torpedo Boat 56.25u, Mine Layer 66.67u, Battleship 87.50u),
+ * which is ALREADY THIS FILE'S FAMILY OF DERIVATION: `REAR_QUARTER_U` in
+ * tactics.ts is documented as "just outside the Torpedo Boat's 56.3u
+ * full-ahead turn radius" for the same reason — it is the distance at which a
+ * heading is a manoeuvre rather than a hope. It reads
+ * `EffectiveStats.kinematics`, so it is per-hull and boon-aware for free, and
+ * it is never a fraction of ring radius: that would be 140u on the opening
+ * 2800u ring and 33u on the 660u endgame ring, i.e. loosest where the storm is
+ * slowest and tightest where it is closing hardest — exactly backwards.
+ *
+ * THE SPEED IS THE GREATER OF RATED AND ACTUAL, for the same reason
+ * `ringLookaheadU` takes it and NOT for free: THE SPEED BOOST IS NOT IN
+ * `EffectiveStats`. `World.stepShips` raises the per-tick `maxSpeed` cap
+ * outside the stat block entirely, so a boosted hull turns through a WIDER
+ * circle than its rated stats describe — and `chooseAct` spends the boost on
+ * `disengage`, which is precisely the posture that runs at the rim. Sizing the
+ * deadband off rated speed alone hands a boosted `raider` a release threshold
+ * calibrated for a ship that turns tighter than it does; the cross-model
+ * review caught this as the half of the boost fix that was missed, after the
+ * measurement had already named boosted raiders as 15 of 19 residual
+ * crossings. RATED IS A FLOOR (`max`, never the live speed outright): a hull
+ * loafing at 10 u/s can still accelerate, and shrinking its deadband to match
+ * a momentary throttle would give the storm back the head start the deadband
+ * exists to deny.
+ *
+ * ONE FUNCTION, BOTH CONSUMERS — the release threshold (`ringEscaping`) and
+ * the steer-into threshold (`ringClamped`'s safe radius) must be the same
+ * number or the bot's idea of "water I may steer for" and "water I have
+ * escaped to" drift apart and re-open the chatter from the other side. That
+ * is why `BotSituation` carries `speed` rather than `ringEscaping` guessing.
  *
  * SANITY AGAINST THE CLOSING RATE: the ring closes at 16.1/10.5/9.1/11.0 u/s
  * across the four groups, so even a Battleship's 87.5u buys 5.4s on the
  * fastest beat — well over the 250ms deliberation cadence, so the deadband can
  * never be eaten by the ring between two decisions.
  */
-export function ringDeadband(stats: EffectiveStats): number {
-  return stats.kinematics.maxSpeed / stats.kinematics.turnRate;
+export function ringDeadband(stats: EffectiveStats, speed: number): number {
+  return Math.max(stats.kinematics.maxSpeed, Math.abs(speed)) / stats.kinematics.turnRate;
 }
 
 /**
@@ -513,7 +541,7 @@ export function ringEscaping(sit: BotSituation, latched: boolean): boolean {
   const ring = sit.ring;
   if (!(ring.r > 0)) return true;
   const d = Math.hypot(sit.x - ring.cx, sit.y - ring.cy);
-  return d > (latched ? ring.r - ringDeadband(sit.stats) : ring.r);
+  return d > (latched ? ring.r - ringDeadband(sit.stats, sit.speed) : ring.r);
 }
 
 /**

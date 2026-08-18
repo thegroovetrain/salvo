@@ -106,6 +106,10 @@ function situation(over: Partial<BotSituation> = {}): BotSituation {
     hp: 100,
     maxHp: 100,
     stats: over.stats ?? stats(profile.hullId),
+    // Dead in the water by default: `ringDeadband` floors at RATED speed, so
+    // 0 here means every test that does not name a speed reads the rated turn
+    // radius — the figure the class table publishes.
+    speed: 0,
     profile,
     ring: WIDE_RING,
     islands: [],
@@ -510,7 +514,7 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     const t = target(m, 40);
     const ring: ZoneRing = { cx: 0, cy: 0, r: 500 };
     const st = stats('battleship');
-    const margin = ringDeadband(st);
+    const margin = ringDeadband(st, 0);
     const at = (x: number, prev: BotPosture): BotPosture =>
       choosePosture(situation({ now: NOW, profile: profileOf('bulwark'), stats: st, ring, x, y: 0 }), t, prev);
 
@@ -530,15 +534,56 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
   it('the deadband is the HULL\'s own full-ahead turn radius — per class, off EffectiveStats', () => {
     for (const cls of SHIP_CLASS_IDS) {
       const k = CONFIG.shipClasses[cls].kinematics;
-      expect(ringDeadband(stats(cls))).toBeCloseTo(k.maxSpeed / k.turnRate, 6);
+      expect(ringDeadband(stats(cls), 0)).toBeCloseTo(k.maxSpeed / k.turnRate, 6);
     }
     // The ordering is the whole point: the hull that takes longest to turn
     // around gets the most water to do it in.
-    expect(ringDeadband(stats('battleship'))).toBeGreaterThan(ringDeadband(stats('mineLayer')));
-    expect(ringDeadband(stats('mineLayer'))).toBeGreaterThan(ringDeadband(stats('torpedoBoat')));
+    expect(ringDeadband(stats('battleship'), 0)).toBeGreaterThan(ringDeadband(stats('mineLayer'), 0));
+    expect(ringDeadband(stats('mineLayer'), 0)).toBeGreaterThan(ringDeadband(stats('torpedoBoat'), 0));
     // NEVER a fraction of ring radius: that would be widest on the opening
     // 2800u ring and tightest on the 660u endgame ring, i.e. backwards.
-    expect(ringDeadband(stats('battleship'))).toBeLessThan(CONFIG.vision.radar);
+    expect(ringDeadband(stats('battleship'), 0)).toBeLessThan(CONFIG.vision.radar);
+  });
+
+  /**
+   * THE SPEED BOOST IS NOT IN `EffectiveStats` — `World.stepShips` raises the
+   * per-tick cap outside the stat block — so BOTH ring lengths have to read
+   * the hull's live speed or they size a boosted hull as if it still turned
+   * like a rated one. The lookahead was made boost-aware when the measurement
+   * named boosted raiders as 15 of 19 residual crossings; the deadband was
+   * missed, and the cross-model review caught it. This pins the pair.
+   */
+  it('BOTH RING LENGTHS ARE BOOST-AWARE, and rated speed is a FLOOR', () => {
+    const st = stats('torpedoBoat');
+    const rated = st.kinematics.maxSpeed;
+    const boosted = rated * 1.3; // roughly what a `raider` makes under boost
+
+    // Rated is a floor: a loafing hull keeps its rated turn radius, because it
+    // can still accelerate out of the trouble the deadband is guarding against.
+    expect(ringDeadband(st, 0)).toBe(ringDeadband(st, rated));
+    expect(ringDeadband(st, 5)).toBe(ringDeadband(st, rated));
+    expect(ringDeadband(st, -rated * 2)).toBeCloseTo((rated * 2) / st.kinematics.turnRate, 6); // magnitude, not sign
+
+    // Above rated it grows exactly in proportion — a hull making 30% more way
+    // turns through a 30% wider circle.
+    expect(ringDeadband(st, boosted)).toBeCloseTo(boosted / st.kinematics.turnRate, 6);
+    expect(ringDeadband(st, boosted)).toBeGreaterThan(ringDeadband(st, rated));
+
+    // AND THE RELEASE THRESHOLD MOVES WITH IT. A boosted hull sitting between
+    // the rated deadband and its own is still escaping; the same hull at rated
+    // speed at the same point has been released. That divergence is the bug.
+    const ring: ZoneRing = { cx: 0, cy: 0, r: 1000 };
+    const x = 1000 - (rated / st.kinematics.turnRate) - 1; // one unit past the RATED band
+    const m = mind('raider');
+    const t = target(m, 40);
+    const at = (speed: number): BotPosture =>
+      choosePosture(
+        situation({ now: NOW, profile: profileOf('raider'), stats: st, ring, x, y: 0, speed }),
+        t,
+        'ringRun',
+      );
+    expect(at(rated)).not.toBe('ringRun');
+    expect(at(boosted)).toBe('ringRun');
   });
 
   it('a COLLAPSED ring (sudden death, r <= 0) is outside for everyone, latched or not', () => {

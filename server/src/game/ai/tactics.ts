@@ -209,6 +209,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     hp: self.hp,
     maxHp: self.stats.maxHp,
     stats: self.stats,
+    speed: self.state.speed,
     profile: profileOf(mind.profile),
     ring: port.zoneLiveRing,
     islands: port.map.islands,
@@ -857,7 +858,7 @@ function ringClamped(pos: ShipState, sit: BotSituation, want: number): number {
   // inside it — bots ran a perfect tangential orbit and grazed the rim by 1u
   // anyway, trading Eric's chatter for a wall-hug. Five of seventeen residual
   // crossings were exactly that, all at 90-110 degrees off the outward radial.
-  const safe = Math.max(0, ring.r - ringDeadband(sit.stats));
+  const safe = Math.max(0, ring.r - ringDeadband(sit.stats, pos.speed));
   const cosMax = (safe * safe - d * d - lookahead * lookahead) / (2 * lookahead * d);
   if (cosMax >= 1) return want; // the whole compass ends inside: no constraint
   const out = Math.atan2(uy, ux); // the outward radial — the cone's axis

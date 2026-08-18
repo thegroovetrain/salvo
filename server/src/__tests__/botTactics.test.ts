@@ -715,6 +715,52 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     expect(COMBAT_BRAIN.decide(rec, m3, tight).rudder).not.toBe(COMBAT_BRAIN.decide(rec, m4, wide).rudder);
   });
 
+  it('THE DEADBAND IS BOOST-AWARE TOO: the safe radius grows with the hull\'s real speed', () => {
+    // THE SPEED BOOST IS NOT IN `EffectiveStats` — World.stepShips raises the
+    // per-tick cap outside the stat block — so BOTH ring lengths must read the
+    // hull's live speed. The reversal RUN was made boost-aware first; the
+    // DEADBAND was missed, which left a boosted hull steering against a safe
+    // radius sized for a ship that turns tighter than it does.
+    //
+    // The berth is DERIVED, not a literal, so a kinematics retune moves the
+    // test instead of breaking it: the constraint engages at `d > S - L`, and
+    // the two candidate safe radii (rated deadband vs boosted deadband) put
+    // that threshold 17u apart. The hull is berthed exactly between them, so
+    // the rated-deadband answer is "no constraint at all" and the boosted one
+    // is a real turn.
+    const w = openWorld(306);
+    const R = 1000;
+    const port = fakePort(w, { cx: 0, cy: 0, r: R });
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due EAST = straight out
+    rec.hp = rec.stats.maxHp * 0.1; // `raider` disengages
+    const k = rec.stats.kinematics;
+    const boost = k.maxSpeed * 1.3; // roughly what a boosted raider makes
+    const runU = (boost * Math.PI) / k.turnRate; // the reversal run, boost-aware
+    const engageBoostBand = R - (boost / k.turnRate) - runU;
+    const engageRatedBand = R - (k.maxSpeed / k.turnRate) - runU;
+    const berth = (engageBoostBand + engageRatedBand) / 2;
+    expect(berth).toBeGreaterThan(engageBoostBand); // the boosted band bites here
+    expect(berth).toBeLessThan(engageRatedBand); // the rated one does not
+
+    const inward = { x: berth - 300, y: 0 }; // the threat, 300u INWARD
+    const boosted = mkMind('raider');
+    plot(boosted, track(port.now, { ...inward, speed: 0 }));
+    rec.state.x = berth;
+    rec.state.speed = boost;
+    const fast = COMBAT_BRAIN.decide(rec, boosted, port);
+    expect(boosted.posture).toBe('disengage');
+    expect(Math.abs(fast.rudder)).toBeGreaterThan(0.25); // turned off the rim
+
+    // THE PAIRED CONTROL: the same hull at the same berth, making its RATED
+    // speed, is nowhere near the constraint and asks for nothing.
+    const slowMind = mkMind('raider');
+    plot(slowMind, track(port.now, { ...inward, speed: 0 }));
+    rec.state.speed = k.maxSpeed;
+    const slow = COMBAT_BRAIN.decide(rec, slowMind, port);
+    expect(slowMind.posture).toBe('disengage');
+    expect(Math.abs(slow.rudder)).toBeLessThan(0.05);
+  });
+
   it('STAR SHELLS TAKE THE TERRAIN GATE: no flare is spent bursting inside an island', () => {
     // 71% of the bot's remaining into-terrain ordnance after the first pass.
     const blocked = islandWorld(305, circleIsland(250, 0, 120)); // squarely on the line
