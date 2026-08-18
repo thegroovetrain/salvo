@@ -650,27 +650,32 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
 
   // --- Eric 2026-08-18: ESC while the QUEUE MODAL is open ---------------------
 
-  it('ESC is INERT while the queue modal is open — no settings, no cancel', () => {
-    // Two reasons. (1) The ratified z register puts settings at 1050, UNDER the
-    // queue modal at 1150, and the modal is not part of the home overlay so
-    // setYielded cannot hide it — an ESC here would open a panel the player could
-    // neither see nor click. (2) ESC-as-close is inherently DESTRUCTIVE on this
-    // surface: the modal's only action is CANCEL, so closing it and throwing away
-    // a minutes-long wait are the same act, unlike the results modal (ESC =
-    // SPECTATE) or the class bay (ESC discards an unsaved pick).
+  it('ESC CANCELS THE QUEUE while the modal is open, and never opens settings there', () => {
+    // Eric ruling 2026-08-18: "ESC could/should cancel the queue and close the
+    // modal." It goes through the SAME canceller the CANCEL button uses, so a
+    // pooled wait has ONE exit rather than two that can drift.
+    //
+    // It must not ALSO toggle settings: the ratified z register puts settings at
+    // 1050, UNDER the modal at 1150, and the modal is not part of the home
+    // overlay so setYielded cannot hide it — an ESC that opened settings here
+    // would raise a panel the player could neither see nor click.
     const onSettings = vi.fn();
     const cancel = vi.fn();
     const handle = showHome('0.0.0-test', vi.fn(), onSettings);
     handle.setCancel(cancel);
     nameInput().blur();
     press('Escape');
+    expect(cancel).toHaveBeenCalledTimes(1);
     expect(onSettings).not.toHaveBeenCalled();
-    expect(cancel).not.toHaveBeenCalled();
+    // Tearing the modal down is the CANCELLER's business (it rejects `connect`,
+    // which drives `setCancel(null)`) — not this handler's, which is why the
+    // modal is still standing here with only a stubbed canceller.
     expect(document.getElementById('queue-modal')).not.toBeNull();
-    // ...and it comes straight back once the modal is gone.
+    // ...and settings comes straight back once the modal is gone.
     handle.setCancel(null);
     press('Escape');
     expect(onSettings).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1); // not called a second time
     document.getElementById('queue-modal')?.remove();
   });
 
@@ -1249,12 +1254,13 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
     return src.slice(start, end);
   }
 
-  it('stopHomeLiveness clears the PAINT, not only the poll', () => {
-    // The shipped version stopped the poll and left the last payload frozen on
-    // the buttons, so a queued captain watched a dead count on the SOLO button
-    // behind the live one they were actually waiting on.
-    const body = bodyOf(mainSrc(), 'function stopHomeLiveness(');
-    expect(body).toMatch(/setLiveness\(null\)/);
+  it('stopHomeLiveness is GONE, not kept for a future caller', () => {
+    // Eric's 2026-08-18 ruling removed its only call site: the door demotes the
+    // poll instead of killing it, and the stop at home.hide() needs no repaint
+    // because the home is already torn down. Leaving a stop-and-blank helper
+    // lying around would be a dead knob AND a trap — calling it during the
+    // pooled wait is exactly the blanking the ruling removed.
+    expect(mainSrc()).not.toMatch(/function stopHomeLiveness\(/);
   });
 
   it('the queue hooks drive the MODAL, never the status line (Eric 2026-08-18)', () => {
@@ -1282,9 +1288,19 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
     expect(src).not.toMatch(/hold\.(paint|cancel)\(/);
   });
 
-  it('startGame calls it with the live home, at the moment the player commits', () => {
+  it('the door DEMOTES the poll rather than stopping it, and the arena stops it', () => {
+    // Eric ruling 2026-08-18 ("keep the heartbeat running"): the register used to
+    // blank for the whole pooled wait, which is the one moment a waiting player
+    // most wants it. So the door keeps READING and stops BEACONING — the queue
+    // socket counts that player from here, and beaconing too would count one
+    // person twice. The poll ends with the home, not with the button press.
     const body = bodyOf(mainSrc(), 'async function startGame(');
-    expect(body).toMatch(/stopHomeLiveness\(home\)/);
+    expect(body).toMatch(/startHomeLiveness\(home, false\)/);
+    expect(body).not.toMatch(/stopHomeLiveness\(home\)/);
+    // ...and the outright stop sits with home.hide(), where there is no longer a
+    // register to feed. stopLivenessPoll, not stopHomeLiveness: painting a home
+    // that hide() has already torn down is the one thing it exists to end.
+    expect(body).toMatch(/home\.hide\(\);[\s\S]{0,600}?stopLivenessPoll\(\)/);
   });
 
   it('a poll RESTART does not blink the paint through "unavailable"', () => {

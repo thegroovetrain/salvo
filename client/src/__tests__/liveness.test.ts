@@ -67,6 +67,39 @@ describe('the presence id — the poll IS the heartbeat', () => {
     expect(presenceId()).toBe(a);
   });
 
+  it('is OMITTED by a reader — the pooled wait reads the register without claiming a place in it', () => {
+    // Eric ruling 2026-08-18. A queued player keeps a live register, but the
+    // server already counts them through their queue-room socket, so beaconing
+    // as a home-screen viewer too would count ONE person TWICE and read `2` to
+    // somebody sitting alone in the pool.
+    const url = new URL(livenessUrl(false));
+    expect(url.searchParams.has('c')).toBe(false);
+    expect(url.pathname).toBe('/liveness');
+    expect(url.search).toBe(''); // no stray `?`, so no empty-parameter edge
+    // ...and the default is still to COUNT: a poll from the port is a viewer.
+    expect(new URL(livenessUrl()).searchParams.get('c')).toBe(presenceId());
+  });
+
+  it('a countMe:false POLL never beacons, on any cycle', async () => {
+    // The flag has to reach the real fetch path, not just the url helper — a poll
+    // that quietly beaconed on its second cycle would be the same double count,
+    // only harder to see.
+    const seen: boolean[] = [];
+    const poll = startLivenessPoll(() => undefined, {
+      intervalMs: 1,
+      countMe: false,
+      fetchOnce: () => {
+        seen.push(new URL(livenessUrl(false)).searchParams.has('c'));
+        return Promise.resolve(null);
+      },
+    });
+    await vi.waitFor(() => {
+      if (seen.length < 3) throw new Error('not enough cycles yet');
+    });
+    poll.stop();
+    expect(seen.every((claimed) => claimed === false)).toBe(true);
+  });
+
   it('carries NO identity: not the callsign, not the colour, nothing persisted', () => {
     localStorage.setItem('hullcracker.name', 'ADMIRAL');
     localStorage.setItem('hullcracker.color', '7');

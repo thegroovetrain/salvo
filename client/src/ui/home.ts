@@ -1050,26 +1050,32 @@ function mountHome(
  * mid-edit isn't yanked into a modal. Toggling means a second ESC closes the
  * overlay, exactly as it does in a match.
  *
- * WHILE THE QUEUE MODAL IS OPEN, ESC IS INERT — it neither opens settings nor
- * leaves the queue. Two reasons, and the first is a real defect it prevents: the
- * ratified z register puts settings at 1050, UNDER the queue modal at 1150, and
- * the modal is not part of the home overlay so `setYielded` does not hide it —
- * so an ESC here would open a settings panel the player could neither see nor
- * click. The second is that ESC-as-close is inherently DESTRUCTIVE on this
- * surface: the modal's only action is CANCEL, so "close the topmost thing" and
- * "throw away a wait that is legitimately minutes long" are the same act, unlike
- * the results modal (where ESC picks SPECTATE, the non-destructive of two) or
- * the class bay (where it discards an unsaved pick). Doing nothing is never
- * harmful, and CANCEL is a real `<button>` that Tab reaches and Enter/Space
- * activates, so the modal is not a keyboard trap.
+ * WHILE THE QUEUE MODAL IS OPEN, ESC CANCELS THE QUEUE (Eric ruling 2026-08-18:
+ * *"ESC could/should cancel the queue and close the modal. I'm cool with that."*).
+ * It does NOT also toggle settings: settings sits at z 1050, UNDER the modal at
+ * 1150, and the modal is not part of the home overlay so `setYielded` cannot
+ * hide it — an ESC that opened settings here would raise a panel the player
+ * could neither see nor click. So the modal takes precedence while it is up, and
+ * settings behaves normally the moment it is gone.
+ *
+ * This IS destructive — it discards a wait that is legitimately minutes long —
+ * which is why it was shipped inert first and is only enabled now that its owner
+ * has asked for it. It routes through `h.cancel`, the SAME canceller the CANCEL
+ * button uses, so there is one exit from a pooled wait rather than two that can
+ * drift; the modal's teardown (and its tick) is that path's business, not this
+ * handler's.
  */
 function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
   const handler = (e: KeyboardEvent): void => {
-    if (e.key !== 'Escape' || h.layerOpen || queueModalVisible()) return;
+    if (e.key !== 'Escape' || h.layerOpen) return;
     // The callsign field keeps ESC to itself — but a focused VOLUME SLIDER
     // inside the overlay must NOT (textFieldElement excludes ranges), or ESC
     // dies the moment the player touches a volume from the home gear.
     if (textFieldElement(document.activeElement)) return;
+    if (queueModalVisible()) {
+      h.cancel?.();
+      return;
+    }
     h.onSettings();
   };
   window.addEventListener('keydown', handler);

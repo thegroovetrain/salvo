@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-18  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; interstitial cycle 100 (0.17.100) STORY 6-6 mode select & queue liveness, epic-6 amendments 33-39; interstitial cycle 101 (0.17.101) 6-6 FOLLOW-UP on Eric playtest: home-screen presence in PLAYERS ONLINE, queue becomes a MODAL, SOLO sub-line is a bare count, register moves bottom-left, epic-6 amendments 40-43; PV unchanged at 40
+# last_updated: 2026-08-18  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; interstitial cycle 100 (0.17.100) STORY 6-6 mode select & queue liveness, epic-6 amendments 33-39; interstitial cycle 101 (0.17.101) 6-6 FOLLOW-UP on Eric playtest: home-screen presence in PLAYERS ONLINE, queue becomes a MODAL, SOLO sub-line is a bare count, register moves bottom-left, epic-6 amendments 40-45 (44/45: register survives the door, ESC cancels); PV unchanged at 40
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system

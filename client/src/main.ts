@@ -4145,36 +4145,29 @@ function stopLivenessPoll(): void {
   livenessPoll = null;
 }
 
-/**
- * Stand the whole liveness surface down: stop the poll AND clear the paint.
- *
- * Clearing is not tidiness, it is the reason the poll stops. Stopping the poll
- * alone left the LAST payload frozen on the buttons, and `Home`'s own 1 Hz
- * countdown tick is cleared only by `hide()` — which is not reached until
- * `connect()` resolves, i.e. after the ENTIRE pooled wait, up to 2:00. So a
- * queued captain sat watching the live `QUEUED n CAPTAINS · DEPLOY IN m:ss`
- * status line while the SOLO button above it counted down a payload that had
- * been dead since the moment they pressed it. At beta population the first
- * captain in the pool got the worst version of that: `0 QUEUED · NEEDS 2 TO
- * START` on the button, directly above a line saying they were queued in it.
- *
- * `setLiveness(null)` is the module's own "unavailable" value, so it clears the
- * top-left register and both sub-lines through the same path an outage takes —
- * and, because `retickLiveness` reads armed-ness off that payload, it stops the
- * 1 Hz tick as a consequence rather than as a second thing to remember.
- */
-function stopHomeLiveness(home: HomeHandle): void {
-  stopLivenessPoll();
-  home.setLiveness(null);
-}
+// `stopHomeLiveness` (stop the poll AND blank the paint) is DELETED, not kept
+// for a future caller: Eric's 2026-08-18 ruling removed its only one. The door
+// now DEMOTES the poll instead of killing it, and the outright stop at
+// `home.hide()` needs no repaint because the home is already gone. The hazard it
+// was written for is also gone at the root — the button carries a bare count with
+// no clock (amendment 41), so there is no 1 Hz tick to strand and no stale
+// countdown to keep ticking behind the modal.
 
-/** Start (or restart) the home's liveness poll against a live HomeHandle. Any
- *  previous poll is stopped first, so a re-entered port never runs two — but
- *  the PAINT is left standing, since the new poll is about to replace it and a
- *  blink through "unavailable" would be a flicker with no meaning. */
-function startHomeLiveness(home: HomeHandle): void {
+/**
+ * Start (or restart) the home's liveness poll against a live HomeHandle. Any
+ * previous poll is stopped first, so a re-entered port never runs two — but the
+ * PAINT is left standing, since the new poll is about to replace it and a blink
+ * through "unavailable" would be a flicker with no meaning.
+ *
+ * `countMe` is what separates a VIEWER from a READER. From the port the player
+ * is a home-screen viewer and beacons. Once POOLED they still want the numbers,
+ * but the server already counts them via their queue socket — so the wait
+ * re-starts the poll here with `countMe: false`, which keeps the register live
+ * without counting one person twice.
+ */
+function startHomeLiveness(home: HomeHandle, countMe = true): void {
   stopLivenessPoll();
-  livenessPoll = startLivenessPoll((payload) => home.setLiveness(payload));
+  livenessPoll = startLivenessPoll((payload) => home.setLiveness(payload), { countMe });
 }
 
 /**
@@ -4364,11 +4357,18 @@ async function startGame(
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
-  // Story 6.6: the player has committed, so the home's liveness surface stands
-  // down — poll AND paint. From here the queue MODAL's own pushed count owns
-  // the wait, and a second, slower, cruder copy of the same number on the
-  // button behind it would just contradict it.
-  stopHomeLiveness(home);
+  // THE REGISTER SURVIVES THE DOOR (Eric ruling 2026-08-18: "keep the heartbeat
+  // running"). It used to stand down here, which blanked PLAYERS ONLINE for the
+  // whole pooled wait — the one moment a waiting player most wants it. The poll
+  // is DEMOTED instead: it keeps reading, but stops beaconing, because the queue
+  // socket the player is about to hold is what counts them from now on. Counting
+  // both would read `2` to somebody sitting alone in the pool.
+  //
+  // Safe for SOLO VS AI too, which never pools: it simply spends the moment
+  // between here and the arena welcome as a reader, then the poll is stopped
+  // outright once the home is gone. No branch on mode, so nothing to keep in
+  // sync with the queue/solo split.
+  startHomeLiveness(home, false);
   if (!(await claimPortForDeploy(home))) {
     startHomeLiveness(home); // another tab is at sea; this home stays live + informed
     return;
@@ -4436,6 +4436,12 @@ async function startGame(
     return; // the ambient keeps breathing behind the still-live home
   }
   home.hide();
+  // THE POLL ENDS WITH THE HOME, not with the button press. It was demoted to a
+  // reader at the door so the register stayed live through the pooled wait; now
+  // there is no register to feed and no player to inform, so it stops outright.
+  // `stopLivenessPoll` rather than `stopHomeLiveness`: the handle is already torn
+  // down, and painting a dead home would be the one thing hide() exists to end.
+  stopLivenessPoll();
   stopAmbient(); // tear down the pre-join CIC scene now that we're joining
   hideBanner();
 

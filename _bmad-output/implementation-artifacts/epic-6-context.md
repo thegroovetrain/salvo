@@ -126,3 +126,9 @@ amendment and the planning-artifact-derived content above, **the amendment wins*
 - **A43 (Eric, 2026-08-18)** — the population register moves to the BOTTOM-left. A34's top-left
   placement collided with the wordmark below ~768px viewport height, and padding could not fix it
   without breaking amendment 47's container-fit law at the supported floor.
+- **A44 (Eric, 2026-08-18)** — the register SURVIVES the door: the poll is demoted to a reader
+  (`countMe:false`) for the pooled wait instead of stopped, so `PLAYERS ONLINE` stays live while you
+  queue. Closes A40's ledgered blanking. `stopHomeLiveness` deleted.
+- **A45 (Eric, 2026-08-18)** — ESC CANCELS the queue and closes the modal, reversing A42's inert-ESC
+  decision. Routed through the same canceller as the button. ESC still never opens settings while the
+  modal is up (settings sits UNDER it).

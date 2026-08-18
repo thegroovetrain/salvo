@@ -101,9 +101,15 @@ export function presenceId(): string {
  *  It carries the tab's presence id as `c` — see `presenceId`. Encoded even
  *  though every generator above is URL-safe: the encoding is what keeps that
  *  true if the fallback is ever changed. */
-export function livenessUrl(): string {
+export function livenessUrl(countMe = true): string {
   const origin = wsEndpoint().replace(/^ws/, 'http').replace(/\/+$/, '');
-  return `${origin}/liveness?c=${encodeURIComponent(presenceId())}`;
+  // `countMe: false` READS the register without CLAIMING a place in it. The one
+  // caller is the pooled wait (Eric ruling 2026-08-18): the player keeps seeing
+  // a live count, but the server already counts them through their queue-room
+  // socket, so also beaconing as a home-screen viewer would count one person
+  // twice and read `2` to somebody sitting alone in the pool. The route serves
+  // a `c`-less request normally and simply records nobody.
+  return countMe ? `${origin}/liveness?c=${encodeURIComponent(presenceId())}` : `${origin}/liveness`;
 }
 
 // --- the shape guard (pure, tested) ------------------------------------------
@@ -194,6 +200,7 @@ export function localizeDeadline(p: LivenessPayload, receivedAtMs: number): Live
 export async function fetchLiveness(
   timeoutMs = DEFAULT_TIMEOUT_MS,
   cancel?: AbortSignal,
+  countMe = true,
 ): Promise<LivenessPayload | null> {
   if (cancel?.aborted) return null;
   const ctrl = new AbortController();
@@ -201,7 +208,11 @@ export async function fetchLiveness(
   cancel?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(abort, timeoutMs);
   try {
-    const res = await fetch(livenessUrl(), { method: 'GET', cache: 'no-store', signal: ctrl.signal });
+    const res = await fetch(livenessUrl(countMe), {
+      method: 'GET',
+      cache: 'no-store',
+      signal: ctrl.signal,
+    });
     if (!res.ok) return null;
     return parseLiveness(await res.json());
   } catch {
@@ -221,6 +232,13 @@ export interface LivenessPoll {
 export interface LivenessPollOpts {
   intervalMs?: number;
   timeoutMs?: number;
+  /**
+   * Whether this poll BEACONS (claims a home-screen place in `playersOnline`) or
+   * merely READS. Default true — a poll started from the port is a viewer. The
+   * pooled wait passes false: the queue socket already counts that player, so
+   * beaconing too would count them twice (Eric ruling 2026-08-18).
+   */
+  countMe?: boolean;
   /** Injected in tests — resolves the RAW (server-clock) payload, or null. */
   fetchOnce?: () => Promise<LivenessPayload | null>;
   /** Injected in tests — the client clock the skew correction is taken against. */
@@ -246,8 +264,9 @@ export function startLivenessPoll(
   // own 4s timeout — the socket is held, and the response is parsed and thrown
   // away. Suppressing the callback (below) was never the same as cancelling.
   const cancel = new AbortController();
+  const countMe = opts.countMe ?? true;
   const fetchOnce = opts.fetchOnce
-    ?? ((): Promise<LivenessPayload | null> => fetchLiveness(opts.timeoutMs, cancel.signal));
+    ?? ((): Promise<LivenessPayload | null> => fetchLiveness(opts.timeoutMs, cancel.signal, countMe));
   const now = opts.now ?? ((): number => Date.now());
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;

@@ -1570,3 +1570,52 @@ at every size measured (1440x900, 1366x768, 1280x720). Everything else about it 
 absolutely positioned, `pointer-events:none`, `hudMicro`, `--hc-phosphor`, and the honest `0` renders
 while genuine unavailability renders nothing (amendment 39). A test pins `style.top === ''` so it
 cannot drift back up.
+
+## Amendment 44 — The register survives the door. Closes A40's ledgered blanking.
+
+**Source:** Eric, 2026-08-18: *"keep the heartbeat running."*
+
+A40 shipped with a consequence ledgered rather than fixed: because the poll stopped the instant the
+player committed, `PLAYERS ONLINE` / `LIVE GAMES` **blanked for the whole pooled wait** — the one
+moment a waiting player is most likely to want them. Eric ruled it closed.
+
+**The poll is DEMOTED at the door, not killed.** It keeps READING (so the register stays live and
+ticking through the wait) and stops BEACONING (`?c=` is omitted). The player is already counted by the
+server as a QUEUE human through their queue-room socket; also registering them as a home-screen viewer
+would count one person TWICE and read `2` to somebody sitting alone in the pool. The poll then stops
+outright at `home.hide()`, where there is no register left to feed. **SOLO VS AI needs no branch** — it
+never pools, so it simply spends the moment between the door and the arena welcome as a reader.
+
+`stopHomeLiveness` (stop-the-poll-AND-blank-the-paint) is **DELETED**, not left for a future caller:
+its only call site was the door, and leaving it around would be both a dead knob and a trap, since
+calling it during a wait is exactly the blanking this ruling removes. A test pins its absence. The
+frozen-paint hazard it originally guarded is gone at the root anyway — amendment 41 left the button
+carrying a bare count with no clock, so there is no tick to strand.
+
+**One bounded artefact, measured and self-healing:** the beacon already sent before the door cannot be
+retracted, so for up to the 30s presence TTL a player who queues is counted twice — verified live
+(`playersOnline: 2` on queueing alone, settling to `1` on its own inside the TTL). Retracting it would
+need an explicit "drop me" call and a server route to honour it; not built, because the count converges
+without one and an un-retractable beacon is the cost of a TTL set rather than a defect in it.
+
+## Amendment 45 — ESC cancels the queue. Reverses A42's inert-ESC decision.
+
+**Source:** Eric, 2026-08-18: *"ESC could/should cancel the queue and close the modal. I'm cool with
+that."*
+
+A42 shipped ESC INERT while the queue modal was open, an ORCHESTRATOR decision flagged for review on
+two grounds. **The first still stands and is why ESC does not do the obvious thing:** settings sits at
+z 1050, UNDER the modal at 1150, and the modal is not part of the home overlay so `setYielded` cannot
+hide it — an ESC that opened settings here would raise a panel the player could neither see nor click.
+So the modal keeps precedence while it is up, and settings behaves normally the moment it is gone.
+
+**The second ground is now overruled by its reviewer**, which is the right outcome: the orchestrator's
+objection was that ESC-as-close is DESTRUCTIVE here, because the modal's only action is CANCEL, so
+"close the topmost thing" and "throw away a wait that is legitimately minutes long" are the same act.
+That is a real property and it is still true — Eric simply decided the convention is worth it. Recorded
+as a deliberate acceptance of a destructive shortcut, not as a discovery that it is harmless.
+
+It routes through `h.cancel`, **the same canceller the CANCEL button uses**, so a pooled wait has ONE
+exit rather than two that can drift; the modal's teardown and its tick stay that path's business.
+CANCEL also remains a real `<button>` — Tab-reachable, Enter/Space-activated, deliberately not
+autofocused because Enter is the deploy key.
