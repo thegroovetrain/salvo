@@ -2,8 +2,9 @@
 title: 'Story 6.1 — Queue-Based Lobbies'
 type: 'feature'
 created: '2026-08-14'
-status: 'ready-for-dev'
+status: 'done'  # 2026-08-15 cycle 88 (0.17.88), PV 36; amendments 1-9; merged as f738b06 (PR #146). Frontmatter drift corrected at the epic-6 retro — the story's Spec Change Log, Review Triage Log and Verification sections remain EMPTY and are NOT reconstructed here (see sprint-status action_items, epic 6, spec closeout)
 review_loop_iteration: 0
+final_revision: 'f738b06'
 followup_review_recommended: false
 context: []
 warnings: []
