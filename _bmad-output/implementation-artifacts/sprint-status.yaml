@@ -404,9 +404,9 @@ action_items:
     owner: "spec author (create-story 7-5)"
     status: open
   - epic: 6
-    action: "RUN THE DEFERRED-WORK TRIAGE PASS — 250 entries, none triaged since 2026-07-18. THIRD epic carried; make it an explicit interstitial cycle rather than a good intention. It now contains at least two launch-relevant items (the solo-create cost vector, the loadTest gap) whose visibility falls as the file grows. Partition into resolved-by-later-work / still-open / needs-Eric, as the 2026-07-18 cycle did"
+    action: "RUN THE DEFERRED-WORK TRIAGE PASS — SECOND HALF REMAINS: route the 149 entries that name NO HOME at all, and surface the ~7 among them needing an Eric ruling rather than an owner. Also still unannotated: 38 shipped-home entries needing genuine investigation (gun dead ring, hueLatch revision gap, sweepCrossed backward step, permanently-invisible straight torpedo) rather than a cross-reference. THE MECHANISM FIX IS THE DURABLE PART: whatever resolves an entry must MARK the entry — resolution is currently recorded only in the resolving story's spec/amendments, which is why resolved items are re-counted as open forever, and why the file carries three different annotation styles"
     owner: "interstitial chore"
-    status: open
+    status: partially-done  # 2026-08-18 epic-6 retro, at Eric's direction: MECHANICAL HALF DONE. 38 entries annotated (15 RESOLVED with cited code evidence, 3 PARTIAL, 7 VERIFIED-STILL-OPEN, 1 REFRAMED, 2 standing records, rest superseded/routed); shipped-home-but-unadjudicated fell 76 -> 38. Full record: the 2026-08-18 triage section in deferred-work.md
   - epic: 6
     action: "ASSERT SPEC-FRONTMATTER/TRACKER AGREEMENT MECHANICALLY — spec-5-6's drift was fixed at the epic-5 retro and RECURRED at spec-6-1 on the very next story (still 'ready-for-dev', no final_revision, empty closeout sections). Fixing instances has now failed twice; nothing in the pipeline asserts a spec's own status agrees with sprint-status. Add the check to the dev-auto close-out or the retro script. Fixing an instance is not fixing a mechanism"
     owner: "bookkeeping (mechanism)"
