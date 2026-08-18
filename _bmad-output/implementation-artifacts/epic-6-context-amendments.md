@@ -1154,7 +1154,7 @@ two-action precedent in the repo (`results.ts` — *"the secondary is the same s
 what keeps it the non-dominant action"*), which is a modal rather than the home screen. Eric has seen
 a screenshot; the lit/unlit split is a one-line change.
 
-## Amendment 32 — THE FIRST PLAYTEST OF SOLO VS AI: three bot defects found by eye in minutes, none of which the harness could see (Eric reports 2026-08-17, cycle 98)
+## Amendment 32 — THE FIRST PLAYTEST OF SOLO VS AI: three bot defects found by eye in minutes, none of which the harness could see (Eric reports 2026-08-17, cycle 99)
 
 Solo vs AI shipped at 0.17.97 and Eric watched one match. He found three distinct AI defects before
 the harness had an opinion about any of them, and the through-line matters more than the fixes:

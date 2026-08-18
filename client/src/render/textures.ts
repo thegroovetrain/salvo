@@ -189,15 +189,25 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  * would square the ramp. An opaque greyscale ramp makes the mask exactly the
  * grey level, whatever the upload's alpha mode does.
  *
- * Follows `bakeFogTexture`'s `createRadialGradient` precedent, and like every
- * other bake here it happens ONCE — the mask is positioned and scaled per frame,
- * never re-baked.
+ * Follows `bakeFogTexture`'s `createRadialGradient` precedent. UNLIKE every other
+ * bake here it does NOT happen once: cycle 92 anchored the ramp to the observer's
+ * effective truesight, so it re-bakes whenever that radius moves (a boon, a dazzle
+ * flip). Pass the live texture back as `into` to redraw it IN PLACE — see
+ * `bakeDimMaskTexture` below for why swapping-and-destroying is forbidden.
  */
-export function bakeDimMaskTexture(sightU: number): Texture {
+function drawDimMask(ctx: BakeCtx, sightU: number): void {
+  // THE CANVAS IS REUSED NOW, so the context arrives carrying whatever state the
+  // previous draw left rather than the virgin state a fresh canvas used to give us.
+  // Resetting the channels a draw can depend on makes reuse structurally equivalent
+  // to a mint: without it, the first future edit that adds a clip, a composite mode
+  // or a transform would corrupt only the SECOND bake onward — i.e. only after a
+  // boon or a dazzle, which is exactly the path hardest to reproduce.
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
   const { spanU } = CLIENT_CONFIG.blip.heatmap.dim;
   const { innerU, outerU } = dimRadii(sightU);
   const size = DIM_MASK_TEXTURE_SIZE;
-  const { canvas, ctx } = makeCanvas(size, size);
   const c = size / 2;
   const px = c / spanU; // world units -> texture px
   // Full opacity everywhere first: the flat region past `outerU` reaches the
@@ -216,7 +226,82 @@ export function bakeDimMaskTexture(sightU: number): Texture {
   ctx.beginPath();
   ctx.arc(c, c, r1, 0, Math.PI * 2);
   ctx.fill();
-  return Texture.from(canvas);
+}
+
+/** Is this a canvas we can draw into? Structural, because the bake mints either
+ *  an `OffscreenCanvas` or an `HTMLCanvasElement` depending on the host. */
+function isBakeCanvas(v: unknown): v is BakeCanvas {
+  return typeof (v as BakeCanvas | null | undefined)?.getContext === 'function';
+}
+
+/**
+ * The 2d context of `into`'s backing canvas, or null when there is nothing of
+ * ours to redraw into — a destroyed texture or source, or one whose resource is
+ * not a canvas at all (`Texture.EMPTY`, which every headless/jsdom caller holds
+ * and which must never be drawn into, resized or updated).
+ */
+function redrawableCtx(into: Texture): BakeCtx | null {
+  if (into === Texture.EMPTY || into.destroyed) return null;
+  const source = into.source;
+  if (!source || source.destroyed) return null;
+  const canvas: unknown = source.resource;
+  if (!isBakeCanvas(canvas)) return null;
+  // SIZE IS PART OF OWNERSHIP, not a sanity check. Every other bake in this file is
+  // canvas-backed too and would sail through `isBakeCanvas`, so without this a
+  // texture that is not ours could be overwritten with 1024-space coordinates. It
+  // also PINS the invariant the re-upload depends on — a same-size canvas is what
+  // makes `source.update()` emit an update rather than take Pixi's resize path.
+  if (canvas.width !== DIM_MASK_TEXTURE_SIZE || canvas.height !== DIM_MASK_TEXTURE_SIZE) return null;
+  return canvas.getContext('2d') as BakeCtx | null;
+}
+
+/**
+ * Bake the near-range dim mask, or REDRAW an existing one in place.
+ *
+ * THE `into` PARAMETER IS A CRASH FIX, NOT AN OPTIMIZATION. `render/radar.ts`
+ * hangs this texture on a Sprite and uses that Sprite as `blipLayer`'s mask, and
+ * Pixi binds a SPRITE mask's own `TextureSource` straight into the `MaskFilter` of
+ * the `AlphaMaskEffect` it keeps in `BigPool` (a `Graphics` mask would get a pooled
+ * scratch texture instead). The rule is about the texture's JOB, not its layer:
+ * never destroy a `TextureSource` hanging on a Sprite that is currently someone's
+ * mask. `Fog.rebake`'s identical destroy is safe because the texture it destroys is
+ * the fog overlay's own CONTENT — it sits on the sprite being MASKED, so it is never
+ * bound as `uMaskTexture` whatever its mask happens to be. Destroying a bound
+ * source emits `change` with
+ * `destroyed`, and Pixi's `BindGroup` answers that by destroying ITSELF and nulling
+ * its resources permanently; the next alpha-mask push anywhere in the app then
+ * throws inside `renderer.render()` and kills the ticker, freezing the client on
+ * its last frame while the socket and sim carry on.
+ *
+ * So the caller hands the live texture back and gets the SAME object returned: one
+ * canvas and one source for the Radar's life, redrawn and re-uploaded in place. The
+ * re-upload is a plain `source.update()` because the canvas never changes size
+ * (`DIM_MASK_TEXTURE_SIZE` is a constant, so Pixi's resize path is a no-op and the
+ * update event reaches the texture system). No clear is needed first: the draw
+ * opens with an opaque full-canvas `fillRect`.
+ *
+ * With no `into` — first bake, or a caller holding `Texture.EMPTY` — it mints, as
+ * it always did.
+ */
+export function bakeDimMaskTexture(sightU: number, into?: Texture | null): Texture {
+  if (into != null) {
+    const reuseCtx = redrawableCtx(into);
+    if (reuseCtx !== null) {
+      drawDimMask(reuseCtx, sightU);
+      into.source.update();
+      return into;
+    }
+  }
+  const { canvas, ctx } = makeCanvas(DIM_MASK_TEXTURE_SIZE, DIM_MASK_TEXTURE_SIZE);
+  drawDimMask(ctx, sightU);
+  // `skipCache` DELIBERATELY. `Texture.from` otherwise does `Cache.set(canvas, tex)`
+  // and only releases it from the texture's own `destroy` event — which is the one
+  // thing this function may never do. Nothing ever looks this texture up by its
+  // canvas, so skipping the cache costs nothing and means that if the reuse guard
+  // ever rejects a held texture and we mint a replacement, the abandoned one is
+  // plain garbage rather than pinned for the life of the page. Destroying it
+  // instead — the obvious-looking alternative — is precisely the crash above.
+  return Texture.from(canvas, true);
 }
 
 // --- 3. blip soft-dot --------------------------------------------------------

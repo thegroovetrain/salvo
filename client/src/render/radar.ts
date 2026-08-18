@@ -1220,20 +1220,47 @@ export class Radar {
    * and a real change costs the same 1024² canvas draw the fog already pays on
    * exactly the same events.
    *
-   * The old texture is destroyed with it (`bakeFogTexture`'s precedent) — these
-   * are full-size canvases and a match can rack up several dazzle events.
+   * THE OLD TEXTURE IS NEVER DESTROYED, AND THAT IS LOAD-BEARING — it is the whole
+   * of the frozen-client bug this cycle fixes. `this.dim` is a SPRITE and it is
+   * `blipLayer`'s mask, so Pixi binds its `TextureSource` straight into the
+   * `MaskFilter` of the `AlphaMaskEffect` it holds in `BigPool`; destroying a bound
+   * source makes that filter's `BindGroup` destroy itself and null its resources
+   * permanently, and the next alpha-mask push ANYWHERE in the app throws inside
+   * `renderer.render()` and kills the ticker. THE RULE IS ABOUT THE TEXTURE'S JOB,
+   * NOT THE LAYER'S: never destroy a `TextureSource` hanging on a Sprite that is
+   * currently serving as someone's mask. (`Fog.rebake` keeps its destroy for that
+   * reason and not the one it is easy to assume — the texture it destroys is the
+   * fog overlay's own CONTENT, on the sprite being masked, so it would never be
+   * bound as `uMaskTexture` even if its mask were a Sprite rather than a Graphics.)
+   *
+   * Handing the live texture back to the bake redraws that one canvas in place and
+   * re-uploads it, so the binding is never invalidated. Steady-state memory is
+   * UNCHANGED — the old code destroyed as it minted, so it also held one surface at
+   * a time; what goes away is the per-dazzle allocation churn. The old
+   * `Texture.EMPTY` guard went with the destroy: a headless caller holding EMPTY
+   * simply gets a fresh mint from the bake.
    */
   private syncDimMask(): void {
     const want = this.sightHoleU;
-    if (want === this.dimBakedAtU) return;
+    // NON-FINITE IS A LATCH FAILURE, NOT A DRAW FAILURE, and it only became one when
+    // the destroy left: `NaN === this.dimBakedAtU` is false forever, so a NaN bubble
+    // would redraw and re-upload the whole 1024² surface EVERY FRAME, silently and
+    // for the rest of the match. (The old code crashed on the first such frame
+    // instead.) `radarDim` already treats a non-finite bubble as reachable — both
+    // `dimRadii` and `dimScaleAt` guard it — and holding the last good radius is
+    // that module's own "fails toward a fully visible scope" rule.
+    if (!Number.isFinite(want) || want === this.dimBakedAtU) return;
+    // COMMIT THE RADIUS BEFORE THE BAKE, DELIBERATELY — the review gate tried the
+    // other order and it was wrong. The bake can throw (the mint fallback needs a 2d
+    // context), and app/loop.ts's contract is that a frame-path throw costs ONE
+    // FRAME. Committing first spends exactly that one frame and then early-returns
+    // forever after, leaving a stale-but-drawn ramp; committing afterwards would
+    // retry every frame, abort `render` every frame, and freeze the picture — the
+    // very failure class this cycle exists to remove. A stale radius is the same
+    // graceful degradation `radarDim` already chooses ("fails toward a fully
+    // visible scope").
     this.dimBakedAtU = want;
-    const old = this.dim.texture;
-    this.dim.texture = bakeDimMaskTexture(want);
-    // The EMPTY guard is `Fog.rebake`'s, verbatim and for its reason: a headless
-    // caller (tests stub the bake, jsdom has no 2d canvas) holds the shared
-    // `Texture.EMPTY`, and destroying that would take every other consumer of it
-    // down with it.
-    if (old !== Texture.EMPTY) old.destroy(true);
+    this.dim.texture = bakeDimMaskTexture(want, this.dim.texture);
   }
 
   /** The dim mask sprite — the observation seam for amendment 181's placement,
