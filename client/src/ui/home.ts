@@ -8,8 +8,19 @@
 // 2026-08-17 relabelled PLAY → SOLO and deleted both sub-lines), an inert
 // How-to-Play link + server status line, and the settings gear — which as of
 // Story 2.3 opens the REAL settings overlay (ui/settings.ts), as does ESC with
-// the class bay closed. The overlay is TRANSPARENT so the ambient scene
-// breathes behind it; the ambient's scrim keeps this text legible.
+// the class bay closed.
+//
+// STORY 6.6 gave the port its first knowledge of the world outside it: a
+// top-left PLAYERS ONLINE / LIVE GAMES register (the gear's mirror) and live
+// sub-lines back on the mode buttons — the Standard queue's count + countdown
+// on SOLO, and the constant STARTS INSTANTLY on SOLO VS AI, which is the
+// dead-queue steer. All of it is fed by `setLiveness()` from net/liveness.ts
+// and ALL of it simply does not render when that read is unavailable. The
+// module also owns `hullcracker.mode` (`saveMode`/`loadSavedMode`), beside the
+// callsign and class it already persisted.
+//
+// The settings overlay is TRANSPARENT so the ambient scene breathes behind it;
+// the ambient's scrim keeps this text legible.
 //
 // The color picker lives ONLY in the class bay's footer now (Eric ruling — the
 // duplicate home hoist is retired). The shared ColorHoist still lives here, as
@@ -29,7 +40,12 @@
 // All colors/typography via CLIENT_CONFIG tokens (var(--hc-*) + registerCss;
 // cssHex for the personal hues, which have no --hc-* var).
 
-import { sanitizeClassId, type QueueStatusMsg, type ShipClassId } from '@salvo/shared';
+import {
+  sanitizeClassId,
+  type LivenessPayload,
+  type QueueStatusMsg,
+  type ShipClassId,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
@@ -52,6 +68,7 @@ export { NAME_MAX };
 const HOME_ID = 'main-menu'; // kept id so index.html / any external hook is stable
 const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
+const MODE_KEY = 'hullcracker.mode';
 
 const NOTE_HOWTO = 'FIELD MANUAL ARRIVES IN A LATER REFIT';
 const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect
@@ -121,17 +138,75 @@ function saveClass(cls: ShipClassId): void {
   }
 }
 
+/**
+ * The MODE a deploy goes out through. `standard` is the queue; `soloVsAi` is
+ * the queue-free `create('arena', {solo:true})` door (Story 6.5). It is an
+ * IDENTIFIER rather than a boolean so DUO/TRIO slot in beside it without
+ * reshaping anything that holds one (Eric: the mode row is built for those).
+ *
+ * It lives HERE rather than in main.ts because `hullcracker.mode` is persisted
+ * alongside `hullcracker.name`/`hullcracker.class`, and main.ts imports this
+ * module (the reverse would be a cycle).
+ */
+export type DeployMode = 'standard' | 'soloVsAi';
+
+const DEPLOY_MODES: readonly DeployMode[] = ['standard', 'soloVsAi'];
+
+/**
+ * The saved deploy mode, or NULL when nothing valid is stored (Story 6.6).
+ * Mirrors `loadSavedClassOrNull` deliberately — per-file try/catch, fail-open,
+ * no shared storage helper — and IGNORES anything outside the union, so a
+ * stale/corrupt/hand-edited value can never route a deploy through a door that
+ * does not exist.
+ *
+ * The only consumer is main.ts's auto-requeue fallback: the mode is SESSION
+ * state during a page's life (`lastDeploy`), and this is what survives a
+ * reload.
+ */
+export function loadSavedMode(): DeployMode | null {
+  try {
+    const raw = localStorage.getItem(MODE_KEY);
+    return DEPLOY_MODES.find((m) => m === raw) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveMode(mode: DeployMode): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    // storage unavailable — the mode just won't persist
+  }
+}
+
 // --- pure copy + status reducers (tested) ------------------------------------
 
-// THE DEPLOY BUTTONS CARRY NO SUB-LINE (Eric ruling 2026-08-17, Story 6.5).
-// `deploySubline()` ("DEPLOY AS <CLASS> · SOLO") is DELETED, not reworded:
-// *"I want the current 'PLAY' button to say 'SOLO' and nothing else. It doesn't
-// need to say 'Deploy as [ship class]'."* The Class Chip sits directly above
-// and already answers which hull you sail, so the sub-line was restating its
-// neighbour. SOLO VS AI drops its own sub-line for symmetry — both buttons are
-// bare MODE labels now. This knowingly supersedes EXPERIENCE.md:67 ("sub-line
-// always states what will happen") on the home screen; it is Eric's call,
-// recorded as an epic-6 amendment.
+// THE DEPLOY BUTTONS CARRY NO *RESTATING* SUB-LINE (Eric ruling 2026-08-17,
+// Story 6.5 / epic-6 amendment 31). `deploySubline()` ("DEPLOY AS <CLASS> ·
+// SOLO") is DELETED, not reworded: *"I want the current 'PLAY' button to say
+// 'SOLO' and nothing else. It doesn't need to say 'Deploy as [ship class]'."*
+// The Class Chip sits directly above and already answers which hull you sail,
+// so that sub-line was restating its neighbour.
+//
+// STORY 6.6 REVERSES THE SHAPE WHILE HONOURING THE REASON. Eric has ruled that
+// the queue's live counts go ON the mode buttons, so the buttons carry a
+// sub-line again — but a DIFFERENT one. `queueButtonSubline()` is a live count
+// and a live countdown: information that exists nowhere else on the page and
+// cannot be read off the chip, the label, or anything else the player can
+// already see. Amendment 31 struck a sub-line that repeated its neighbour; it
+// did not strike sub-lines. A future agent must not "restore" the bare buttons
+// by citing it.
+
+/** The queue minimum assumed when the payload cannot name one (no queue room
+ *  at all). It is 2 today, which is why the unarmed copy can say `NEEDS 2`;
+ *  `queue.min` overrides it whenever the server actually reports a pool. */
+const DEFAULT_QUEUE_MIN = 2;
+
+/** SOLO VS AI's sub-line is CONSTANT, not data-driven: the door creates its own
+ *  room, so there is no pool to count and no deadline to tick. It is the
+ *  dead-queue steer — the answer to "nobody is queued, now what?". */
+const SOLO_AI_SUBLINE = 'STARTS INSTANTLY';
 
 export type ProbeState = 'probing' | 'ready' | 'unreachable';
 export type StatusTone = 'info' | 'denied' | 'tertiary';
@@ -178,6 +253,56 @@ export function queueStatusLine(q: QueueStatusMsg): StatusLine {
   return { text: `QUEUED ${q.n} CAPTAINS · DEPLOY IN ${countdownMmSs(q.startsInMs)}`, tone: 'info' };
 }
 
+/** The top-left liveness register's two lines (Story 6.6). */
+export interface LivenessLines {
+  players: string;
+  games: string;
+}
+
+/**
+ * The GLOBAL population register, top-left (Story 6.6, Eric ruling: this copy,
+ * this placement — the mirror of the settings gear).
+ *
+ * `null` in → `null` out: liveness is UNAVAILABLE (an outage, a timeout, a
+ * malformed payload) and the block does not render at all. That is the only
+ * absence — a genuine population of ZERO renders `0`, deliberately. Eric ruled
+ * the honest zero IS the point: "nobody is here yet" is a fact a player at beta
+ * population needs, and hiding it is what makes an empty server read as a
+ * broken one. (EXPERIENCE.md:108's "absence, not placeholders" is scoped to
+ * DECORATIVE empties; this is load-bearing.)
+ */
+export function livenessLines(p: LivenessPayload | null): LivenessLines | null {
+  if (!p) return null;
+  return { players: `PLAYERS ONLINE: ${p.playersOnline}`, games: `LIVE GAMES: ${p.liveGames}` };
+}
+
+/**
+ * The SOLO button's live sub-line (Story 6.6) — the per-door detail the global
+ * register above deliberately does not carry.
+ *
+ * `queue === null` means the queue room does not exist, which is the NORMAL
+ * empty state rather than an error (it `autoDispose`s when the last captain
+ * leaves) — so it reads identically to an empty pool: `0 QUEUED`.
+ *
+ * UNARMED (`deadlineAt === null`) says what is missing instead of counting down
+ * a deadline that cannot fire — the same rule `queueStatusLine` obeys, and the
+ * threshold is read from `queue.min` rather than hardcoded so a server-side
+ * retune cannot make this line lie.
+ *
+ * ARMED counts down the ABSOLUTE deadline against the caller's clock, so it
+ * ticks smoothly between 10s polls. `nowMs` must already be in the CLIENT's
+ * epoch — net/liveness.ts's `localizeDeadline()` folds the server-clock skew
+ * out at the boundary, which is why this reducer never sees a `serverNow`.
+ * `countdownMmSs` clamps at 0:00, so an overshot deadline never goes negative.
+ */
+export function queueButtonSubline(queue: LivenessPayload['queue'], nowMs: number): string {
+  const pooled = queue?.pooled ?? 0;
+  const min = queue?.min ?? DEFAULT_QUEUE_MIN;
+  const deadlineAt = queue?.deadlineAt ?? null;
+  if (deadlineAt === null) return `${pooled} QUEUED · NEEDS ${min} TO START`;
+  return `${pooled} QUEUED · STARTS ${countdownMmSs(deadlineAt - nowMs)}`;
+}
+
 /**
  * Why the player is suddenly back in port with a queue join already running
  * (Story 6.3, epic-6 amendment 18): the cohort they were about to sail with
@@ -219,6 +344,17 @@ export interface HomeHandle {
    * queue wait is legitimately minutes long.
    */
   setCancel(onCancel: (() => void) | null): void;
+  /**
+   * Publish the latest `/liveness` read (Story 6.6) — the top-left global
+   * register and the SOLO button's queue sub-line. `null` means UNAVAILABLE
+   * (outage, timeout, bad shape): both surfaces disappear and the doors stay
+   * fully usable. Parallel to `setCancel`: main.ts drives it, the home only
+   * paints.
+   *
+   * `queue.deadlineAt` must already be in the CLIENT's epoch (net/liveness.ts
+   * localizes it) — the home ticks it against a plain `Date.now()`.
+   */
+  setLiveness(payload: LivenessPayload | null): void;
   /** YIELD the whole home surface while the settings overlay is open (see
    *  `homeYieldStyle`). Idempotent; restored with `false`. */
   setYielded(yielded: boolean): void;
@@ -383,25 +519,39 @@ function makeChip(onOpen: () => void): ChipEls {
  * with the accent left to the caller: panel-deep bed, 1px outline (never a
  * filled slab), {rounded.md} 8px, one mono uppercase letter-spaced label.
  *
- * HEIGHT IS 64px, DOWN FROM THE SHIPPED 86px. That is a consequence of Eric's
- * 2026-08-17 sub-line deletion rather than a separate styling decision: the
- * 86px box was sized to hold a label AND a sub-line, and a fixed-height box does
- * not shrink when its second line goes away — it just carries dead air, and it
- * carries it twice now that there are two buttons. Hugging the label is also
- * what keeps the port column inside the 768px floor viewport (amendment 47).
+ * THE BOX HUGS ITS CONTENT (`min-height:64px` + symmetric padding), it does not
+ * pin a height. 6.5 took the shipped 86px fixed box down to a fixed 64px when
+ * Eric deleted the restating sub-line; 6.6 puts a DIFFERENT sub-line back (a
+ * live queue count), and a fixed height would either clip it or carry dead air
+ * when it is absent. Hugging is what satisfies both states from one rule — and
+ * it is what keeps the port column inside the 768px floor viewport (amendment
+ * 47, the container-fit law). The height budget, against the measured column:
+ * 6.5 landed at ~722px with ~46px of headroom, and a 14px hudMicro sub-line
+ * plus its 3px lead adds ~17px to each of the two buttons → ~756px. Inside the
+ * floor, and `applySafeCenterScroll` still backstops anything shorter.
  *
  * The outline is assigned as SEPARATE properties rather than inside the cssText
  * blob: a `border:1px solid var(--x)` shorthand is rejected by the test
  * environment's CSSOM parser, which silently voids the ENTIRE declaration list
  * (measured, not assumed — that is why the shipped PLAY button's own geometry
  * has never been assertable).
+ *
+ * The SUB-LINE element is always built, even when it has nothing to say: the
+ * SOLO door's copy arrives asynchronously (and can go away again on an
+ * outage), so a `display:none` empty span is the one structure that both states
+ * can be painted into without rebuilding the button. It reads the hudMicro
+ * register in PHOSPHOR — the port's system/status voice, the same one the
+ * server-status line takes — never `--hc-text-muted`, which DESIGN.md:153 bars
+ * for load-bearing numbers, and never amber, which is the ACTION register and
+ * is forbidden as decoration.
  */
-function makeModeButton(label: string, accent: string, title: string): HTMLButtonElement {
+function makeModeButton(label: string, accent: string, title: string, subline = ''): HTMLButtonElement {
   const root = document.createElement('button');
   root.type = 'button';
   root.setAttribute('title', title);
   root.style.cssText =
-    'width:480px;max-width:calc(100vw - 48px);height:64px;background:var(--hc-panel-deep);' +
+    'width:480px;max-width:calc(100vw - 48px);min-height:64px;padding:8px 0;' +
+    'box-sizing:border-box;background:var(--hc-panel-deep);' +
     'border-radius:8px;display:flex;flex-direction:column;align-items:center;' +
     'justify-content:center;cursor:pointer';
   root.style.borderWidth = '1px';
@@ -411,8 +561,28 @@ function makeModeButton(label: string, accent: string, title: string): HTMLButto
   big.textContent = label;
   big.style.cssText =
     `font:800 34px var(--hc-font-mono);letter-spacing:0.34em;text-indent:0.34em;color:${accent}`;
-  root.appendChild(big);
+  root.append(big, makeModeSubline(subline));
   return root;
+}
+
+/** The mode button's sub-line span (see `makeModeButton`). Hidden while empty. */
+function makeModeSubline(text: string): HTMLElement {
+  const el = document.createElement('span');
+  el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin-top:3px`;
+  paintModeSubline(el, text);
+  return el;
+}
+
+/** Set (or clear) a mode button's sub-line. An empty line leaves NO gap — the
+ *  span goes out of flow entirely, so the box shrinks back to hugging the label. */
+function paintModeSubline(el: HTMLElement, text: string): void {
+  el.textContent = text;
+  el.style.display = text ? 'block' : 'none';
+}
+
+/** A mode button's sub-line span — `makeModeButton` always appends it second. */
+function sublineOf(btn: HTMLButtonElement): HTMLElement {
+  return btn.children[1] as HTMLElement;
 }
 
 /**
@@ -467,6 +637,10 @@ function makeSoloButton(onSolo: () => void): HTMLButtonElement {
     'SOLO VS AI',
     'var(--hc-phosphor)',
     'Deploy alone against a field of AI captains',
+    // STATIC, and true whether or not `/liveness` ever answers: this door
+    // creates its own room. It is the whole point of the pairing — when the
+    // SOLO button reads `0 QUEUED`, this line is the way out of a dead queue.
+    SOLO_AI_SUBLINE,
   );
   root.addEventListener('click', onSolo);
   return root;
@@ -559,6 +733,51 @@ function makeStatusEl(): HTMLElement {
   return el;
 }
 
+interface LivenessEls {
+  root: HTMLElement;
+  players: HTMLElement;
+  games: HTMLElement;
+}
+
+/**
+ * The GLOBAL population register, TOP-LEFT (Story 6.6, Eric's placement and
+ * Eric's copy): `PLAYERS ONLINE: n` over `LIVE GAMES: n`.
+ *
+ * It is the settings gear's MIRROR — the same `top:22px` inset, absolutely
+ * positioned out of the port's rigid column so it costs that column zero height
+ * (amendment 47, the container-fit law). It never takes pointer events: it is a
+ * readout, and nothing about it is clickable.
+ *
+ * TYPOGRAPHY. `hudMicro` = Geist Mono, uppercase, letter-spaced (DESIGN.md:183,
+ * "Geist Mono for every label, readout, and stat"); `tabular-nums` arrives
+ * globally from ui/theme.ts's injected stylesheet, so the digits do not jitter
+ * as the counts change under a 10s poll.
+ *
+ * COLOUR: `--hc-phosphor`, NOT `--hc-text-muted`. DESIGN.md:153 bars muted from
+ * load-bearing numbers, and these are the most load-bearing numbers on the page
+ * — the whole reason the block exists is that a player cannot otherwise tell
+ * whether anyone is here. Phosphor is also the register the answer belongs to:
+ * it is the port's SYSTEM voice (the one `serverStatusLine` already speaks in),
+ * while amber is reserved for the ACTION register and would read as a second
+ * call to act.
+ *
+ * Hidden (`display:none`) until a payload arrives, and hidden again the moment
+ * liveness goes unavailable — see `livenessLines`, which owns that rule.
+ */
+function makeLiveness(): LivenessEls {
+  const root = document.createElement('div');
+  root.style.cssText =
+    'position:absolute;top:22px;left:26px;display:none;flex-direction:column;' +
+    'align-items:flex-start;gap:6px;pointer-events:none';
+  const line = `${registerCss('hudMicro')};color:var(--hc-phosphor)`;
+  const players = document.createElement('div');
+  players.style.cssText = line;
+  const games = document.createElement('div');
+  games.style.cssText = line;
+  root.append(players, games);
+  return { root, players, games };
+}
+
 function makeGear(onClick: () => void): HTMLElement {
   const gear = document.createElement('div');
   gear.textContent = '⚙';
@@ -593,6 +812,13 @@ interface Home {
   playBtn: HTMLButtonElement;
   /** SOLO VS AI (Story 6.5) — the port's second door, one row below. */
   soloBtn: HTMLButtonElement;
+  /** The top-left PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
+  livenessEls: LivenessEls;
+  /** The last `/liveness` read, or null while UNAVAILABLE (nothing renders). */
+  liveness: LivenessPayload | null;
+  /** The ~1Hz local countdown tick — live ONLY while the pool is armed, so an
+   *  idle port (the common case) runs no timer at all. */
+  livenessTick: ReturnType<typeof setInterval> | null;
   onDeploy: (name: string, cls: ShipClassId) => void;
   /** Deploy into a solo-vs-AI match. Same (name, cls) contract as onDeploy —
    *  the mode is the DOOR, not a field on the identity. */
@@ -614,6 +840,44 @@ interface Home {
   lastStatus: StatusLine | null;
   /** Teardown for subscriptions/listeners created at mount (run by hide()). */
   disposers: Array<() => void>;
+}
+
+/**
+ * Repaint everything liveness owns: the top-left register and the SOLO door's
+ * sub-line. Both come from `h.liveness` alone, so an unavailable read (null)
+ * clears them together rather than leaving half a picture — and a stale count
+ * is never left painted next to a live one.
+ *
+ * SOLO VS AI's sub-line is NOT touched here: it is a constant, true with or
+ * without a server answer.
+ */
+function paintLiveness(h: Home): void {
+  const lines = livenessLines(h.liveness);
+  h.livenessEls.root.style.display = lines ? 'flex' : 'none';
+  if (lines) {
+    h.livenessEls.players.textContent = lines.players;
+    h.livenessEls.games.textContent = lines.games;
+  }
+  paintModeSubline(
+    sublineOf(h.playBtn),
+    h.liveness ? queueButtonSubline(h.liveness.queue, Date.now()) : '',
+  );
+}
+
+/**
+ * Start/stop the 1Hz local countdown, which exists ONLY while the pool is
+ * armed. An unarmed line ("NEEDS 2 TO START") carries no clock, so ticking it
+ * would repaint an unchanging string once a second forever on a port nobody is
+ * queued at; the poll's next read is what turns the timer on.
+ */
+function retickLiveness(h: Home): void {
+  const armed = (h.liveness?.queue?.deadlineAt ?? null) !== null;
+  if (armed && h.livenessTick === null) {
+    h.livenessTick = setInterval(() => paintLiveness(h), 1000);
+  } else if (!armed && h.livenessTick !== null) {
+    clearInterval(h.livenessTick);
+    h.livenessTick = null;
+  }
 }
 
 function paintStatus(h: Home, text: string, tone: StatusTone): void {
@@ -753,7 +1017,13 @@ function mountHome(
     makeDeployStack(makeModeRow(playBtn), soloBtn),
     makeUnderplay(h.statusEl, h.cancelEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
   );
-  h.overlay.append(makeWordmark(version), console_, makeGear(() => h.onSettings()));
+  h.overlay.append(
+    makeWordmark(version),
+    console_,
+    // The two corners: liveness top-LEFT, the gear top-RIGHT (Eric's placement).
+    h.livenessEls.root,
+    makeGear(() => h.onSettings()),
+  );
   h.input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     // Stop the SAME keystroke from bubbling to the layer's window listener (which
@@ -835,6 +1105,9 @@ export function showHome(
     chip,
     playBtn: play,
     soloBtn: solo,
+    livenessEls: makeLiveness(),
+    liveness: null,
+    livenessTick: null,
     onDeploy,
     onSolo: onSoloDeploy,
     onSettings,
@@ -879,6 +1152,11 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
       h.cancel = onCancel;
       h.cancelEl.style.display = onCancel ? 'inline' : 'none';
     },
+    setLiveness: (payload) => {
+      h.liveness = payload;
+      paintLiveness(h);
+      retickLiveness(h);
+    },
     setYielded: (yielded) => {
       const style = homeYieldStyle(yielded);
       h.overlay.style.visibility = style.visibility;
@@ -887,6 +1165,10 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
     hide: () => {
       h.layer?.close(); // never orphan a live layer's window listener into the game
       h.layer = null;
+      // The countdown tick must never outlive the screen it counts down on —
+      // it closes over `h` and would repaint a detached DOM tree forever.
+      if (h.livenessTick !== null) clearInterval(h.livenessTick);
+      h.livenessTick = null;
       for (const off of h.disposers.splice(0)) off();
       window.removeEventListener('keydown', keyHandler);
       h.overlay.remove();

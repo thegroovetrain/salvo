@@ -11,11 +11,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   homeYieldStyle,
+  livenessLines,
+  loadSavedMode,
+  queueButtonSubline,
   queueStatusLine,
   requeueStatusLine,
+  saveMode,
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
+import type { LivenessPayload } from '@salvo/shared';
 import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
 import { HOME_TAGLINES } from '../ui/taglines.js';
 
@@ -120,6 +125,17 @@ function soloButton(): HTMLButtonElement {
   return home().querySelector(
     '[title="Deploy alone against a field of AI captains"]',
   ) as HTMLButtonElement;
+}
+
+/** A mode button's big MODE label (child 0) and its Story 6.6 sub-line (child
+ *  1). `textContent` on the button itself now concatenates both, so anything
+ *  asserting the label alone has to go through these. */
+function labelOf(btn: HTMLButtonElement): HTMLElement {
+  return btn.children[0] as HTMLElement;
+}
+
+function sublineOf(btn: HTMLButtonElement): HTMLElement {
+  return btn.children[1] as HTMLElement;
 }
 
 function nameInput(): HTMLInputElement {
@@ -241,15 +257,29 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     document.getElementById('hc-class-select')?.remove();
   });
 
-  it('renders TWO bare mode buttons: SOLO in the mode row, SOLO VS AI below', () => {
+  // REVISED DELIBERATELY BY STORY 6.6, NOT DELETED. The shipped pin asserted
+  // `children.length === 1` on both buttons — a bare label, no sub-line —
+  // because epic-6 amendment 31 struck the sub-lines. Eric has now ruled that
+  // the queue's live counts ride ON these buttons, which reverses the SHAPE of
+  // that amendment while honouring its REASON: what 31 struck was a sub-line
+  // that RESTATED the Class Chip directly above it ("DEPLOY AS TORPEDO BOAT ·
+  // SOLO"); a live queue count and countdown is information that exists nowhere
+  // else on the page. So the pin now guards the intended structure — a label
+  // plus exactly ONE sub-line slot — and, below, that neither sub-line names
+  // the hull. Restoring `children.length === 1` would break Story 6.6.
+  it('renders TWO mode buttons — a label plus ONE sub-line slot each', () => {
     localStorage.setItem('hullcracker.class', 'torpedoBoat');
     showHome('0.0.0-test', vi.fn());
     expect(soloButton()).not.toBeNull();
-    expect(soloButton().textContent).toBe('SOLO VS AI');
-    expect(playButton().textContent).toBe('SOLO'); // was PLAY, Eric ruling 2026-08-17
-    // Neither carries a sub-line — the Class Chip above already names the hull.
-    expect(soloButton().children.length).toBe(1);
-    expect(playButton().children.length).toBe(1);
+    expect(labelOf(soloButton()).textContent).toBe('SOLO VS AI');
+    expect(labelOf(playButton()).textContent).toBe('SOLO'); // was PLAY, Eric ruling 2026-08-17
+    expect(soloButton().children.length).toBe(2);
+    expect(playButton().children.length).toBe(2);
+    // Neither sub-line restates the Class Chip — the reason amendment 31 struck
+    // the old ones. The chip is the only place the hull is ever named.
+    for (const btn of [playButton(), soloButton()]) {
+      expect(sublineOf(btn).textContent).not.toMatch(/TORPEDO BOAT|BATTLESHIP|MINE LAYER|DEPLOY AS/);
+    }
   });
 
   it('is on its OWN row, below the mode row that will hold DUO and TRIO', () => {
@@ -352,8 +382,8 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     playButton().click(); // first-run: opens the bay
     press('2'); // battleship
     press('Enter');
-    expect(playButton().textContent).toBe('SOLO');
-    expect(soloButton().textContent).toBe('SOLO VS AI');
+    expect(labelOf(playButton()).textContent).toBe('SOLO');
+    expect(labelOf(soloButton()).textContent).toBe('SOLO VS AI');
     expect(home().textContent).toContain('BATTLESHIP'); // ...the chip took the pick
   });
 
@@ -759,5 +789,244 @@ describe('showHome — the queue CANCEL affordance (Story 6.1)', () => {
     handle.setCancel(null);
     cancelEl().click();
     expect(cancel).not.toHaveBeenCalled();
+  });
+});
+
+// --- Story 6.6: the liveness register + the mode-button sub-lines ------------
+
+/** A well-formed `/liveness` payload, with its deadline ALREADY localized to
+ *  the client clock (net/liveness.ts does that at the boundary). */
+function livePayload(over: Partial<LivenessPayload> = {}): LivenessPayload {
+  return {
+    playersOnline: 23,
+    liveGames: 2,
+    queue: { pooled: 3, min: 2, cap: 20, deadlineAt: null },
+    modes: { standard: { players: 20, games: 1 }, soloVsAi: { players: 3, games: 1 } },
+    serverNow: 1_000_000,
+    ...over,
+  };
+}
+
+describe('livenessLines — the top-left global register', () => {
+  it('renders the honest ZERO rather than hiding (Eric ruling)', () => {
+    // "Nobody is here yet" is a fact the player needs at beta population;
+    // hiding it is what makes an empty server read as a broken one.
+    expect(livenessLines(livePayload({ playersOnline: 0, liveGames: 0 }))).toEqual({
+      players: 'PLAYERS ONLINE: 0',
+      games: 'LIVE GAMES: 0',
+    });
+  });
+
+  it("is Eric's copy, in his order, uppercase", () => {
+    const lines = livenessLines(livePayload({ playersOnline: 23, liveGames: 2 }));
+    expect(lines).toEqual({ players: 'PLAYERS ONLINE: 23', games: 'LIVE GAMES: 2' });
+    expect(lines?.players).toBe(lines?.players.toUpperCase());
+  });
+
+  it('is the ONE absence: an unavailable read renders nothing at all', () => {
+    expect(livenessLines(null)).toBeNull();
+  });
+
+  it('carries no per-mode breakdown — that ships in the endpoint only (Eric)', () => {
+    const lines = livenessLines(livePayload());
+    expect(`${lines?.players} ${lines?.games}`).not.toMatch(/SOLO|AI|STANDARD/);
+  });
+});
+
+describe("queueButtonSubline — the SOLO door's live sub-line", () => {
+  const NOW = 1_000_000;
+
+  it('names what is MISSING while unarmed — never a countdown that cannot fire', () => {
+    expect(queueButtonSubline({ pooled: 1, min: 2, cap: 20, deadlineAt: null }, NOW)).toBe(
+      '1 QUEUED · NEEDS 2 TO START',
+    );
+  });
+
+  it('reads the threshold from `min`, so a server-side retune cannot make it lie', () => {
+    expect(queueButtonSubline({ pooled: 2, min: 5, cap: 20, deadlineAt: null }, NOW)).toBe(
+      '2 QUEUED · NEEDS 5 TO START',
+    );
+  });
+
+  it('counts the ABSOLUTE deadline down in m:ss once armed', () => {
+    expect(queueButtonSubline({ pooled: 4, min: 2, cap: 20, deadlineAt: NOW + 83_000 }, NOW)).toBe(
+      '4 QUEUED · STARTS 1:23',
+    );
+  });
+
+  it('ticks LOCALLY between polls — the same payload, a later clock', () => {
+    const q = { pooled: 4, min: 2, cap: 20, deadlineAt: NOW + 83_000 };
+    expect(queueButtonSubline(q, NOW + 3000)).toBe('4 QUEUED · STARTS 1:20');
+    expect(queueButtonSubline(q, NOW + 60_000)).toBe('4 QUEUED · STARTS 0:23');
+  });
+
+  it('clamps a passed deadline at 0:00 — never negative', () => {
+    const q = { pooled: 4, min: 2, cap: 20, deadlineAt: NOW - 30_000 };
+    expect(queueButtonSubline(q, NOW)).toBe('4 QUEUED · STARTS 0:00');
+    expect(queueButtonSubline(q, NOW)).not.toContain('-');
+  });
+
+  it('treats NO QUEUE ROOM as an empty pool — the normal empty state, not an error', () => {
+    // The room autoDisposes when the last captain leaves, so "nobody queued"
+    // and "no room" are the same fact and must read identically.
+    expect(queueButtonSubline(null, NOW)).toBe('0 QUEUED · NEEDS 2 TO START');
+  });
+});
+
+describe('showHome — the liveness surfaces (Story 6.6)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+  });
+
+  /** The top-left block — the settings gear's mirror. */
+  function livenessBlock(): HTMLElement {
+    return [...home().children].find(
+      (el) => (el as HTMLElement).style.left === '26px',
+    ) as HTMLElement;
+  }
+
+  it('is TOP-LEFT, the mirror of the gear at top-right, and out of the port column', () => {
+    showHome('0.0.0-test', vi.fn());
+    const block = livenessBlock();
+    const gear = [...home().children].find((el) => el.textContent === '⚙') as HTMLElement;
+    expect(block.style.position).toBe('absolute'); // costs the rigid column zero height
+    expect(block.style.top).toBe(gear.style.top); // same inset as its mirror
+    expect(block.style.left).toBe('26px');
+    expect(gear.style.right).toBe('26px');
+  });
+
+  it('does not render at all until a payload arrives, and hides again on an outage', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    expect(livenessBlock().style.display).toBe('none');
+    expect(sublineOf(playButton()).style.display).toBe('none');
+    handle.setLiveness(livePayload());
+    expect(livenessBlock().style.display).toBe('flex');
+    handle.setLiveness(null);
+    expect(livenessBlock().style.display).toBe('none');
+    expect(sublineOf(playButton()).style.display).toBe('none');
+  });
+
+  it('paints the two lines, PLAYERS ONLINE over LIVE GAMES', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(livePayload({ playersOnline: 23, liveGames: 2 }));
+    const [players, games] = [...livenessBlock().children] as HTMLElement[];
+    expect(players.textContent).toBe('PLAYERS ONLINE: 23');
+    expect(games.textContent).toBe('LIVE GAMES: 2');
+  });
+
+  it('renders a genuine ZERO rather than disappearing', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(livePayload({ playersOnline: 0, liveGames: 0, queue: null }));
+    expect(livenessBlock().style.display).toBe('flex');
+    expect(livenessBlock().textContent).toContain('PLAYERS ONLINE: 0');
+    expect(sublineOf(playButton()).textContent).toBe('0 QUEUED · NEEDS 2 TO START');
+  });
+
+  it('is Geist Mono, uppercase, and NEVER text-muted (DESIGN.md:153, load-bearing numbers)', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(livePayload());
+    for (const el of [...livenessBlock().children] as HTMLElement[]) {
+      expect(el.style.font).toContain('var(--hc-font-mono)');
+      expect(el.style.textTransform).toBe('uppercase');
+      expect(el.style.color).toBe('var(--hc-phosphor)');
+      expect(el.getAttribute('style')).not.toContain('text-muted');
+    }
+  });
+
+  it('SOLO VS AI carries the CONSTANT steer — true with or without a server answer', () => {
+    showHome('0.0.0-test', vi.fn());
+    // Never data-driven: this door creates its own room, so there is no pool to
+    // count. It is the way out of a dead queue.
+    expect(sublineOf(soloButton()).textContent).toBe('STARTS INSTANTLY');
+    expect(sublineOf(soloButton()).style.display).toBe('block');
+  });
+
+  it("an outage leaves SOLO VS AI's steer standing — it needs no liveness", () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(null);
+    expect(sublineOf(soloButton()).textContent).toBe('STARTS INSTANTLY');
+  });
+
+  it('the SOLO sub-line ticks locally ~1Hz off the absolute deadline while ARMED', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
+    expect(sublineOf(playButton()).textContent).toBe('4 QUEUED · STARTS 1:23');
+    vi.advanceTimersByTime(3000); // no new payload — the clock alone moves it
+    expect(sublineOf(playButton()).textContent).toBe('4 QUEUED · STARTS 1:20');
+    handle.hide();
+    vi.useRealTimers();
+  });
+
+  it('runs NO timer while unarmed (an idle port must not repaint once a second)', () => {
+    const spy = vi.spyOn(globalThis, 'setInterval');
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(livePayload({ queue: { pooled: 1, min: 2, cap: 20, deadlineAt: null } }));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    handle.hide();
+  });
+
+  it('hide() stops the tick — it must never repaint a detached home', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
+    const sub = sublineOf(playButton());
+    handle.hide();
+    const before = sub.textContent;
+    vi.advanceTimersByTime(30_000);
+    expect(sub.textContent).toBe(before);
+    vi.useRealTimers();
+  });
+
+  it('the mode buttons hug their content, so a sub-line cannot overflow the box', () => {
+    // Amendment 47 (the container-fit law): a FIXED height would clip the
+    // sub-line 6.6 puts back. `min-height` + border-box padding satisfies both
+    // the with-sub-line and the without-sub-line states from one rule.
+    showHome('0.0.0-test', vi.fn());
+    for (const btn of [playButton(), soloButton()]) {
+      expect(btn.style.height).toBe('');
+      expect(btn.style.minHeight).toBe('64px');
+      expect(btn.style.boxSizing).toBe('border-box');
+    }
+  });
+});
+
+describe('hullcracker.mode persistence (Story 6.6)', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('round-trips both doors of the DeployMode union', () => {
+    saveMode('soloVsAi');
+    expect(loadSavedMode()).toBe('soloVsAi');
+    saveMode('standard');
+    expect(loadSavedMode()).toBe('standard');
+  });
+
+  it('is NULL when nothing is stored — the caller decides the default', () => {
+    expect(loadSavedMode()).toBeNull();
+  });
+
+  it('IGNORES anything outside the union (corrupt / hand-edited / a future mode)', () => {
+    localStorage.setItem('hullcracker.mode', 'duo');
+    expect(loadSavedMode()).toBeNull();
+    localStorage.setItem('hullcracker.mode', '{"mode":"soloVsAi"}');
+    expect(loadSavedMode()).toBeNull();
+  });
+
+  it('fails OPEN when storage throws (private mode, blocked storage)', () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(loadSavedMode()).toBeNull();
+    expect(() => saveMode('soloVsAi')).not.toThrow();
+    getItem.mockRestore();
+    setItem.mockRestore();
   });
 });
