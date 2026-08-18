@@ -108,12 +108,16 @@ import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import {
   loadSavedClass,
+  loadSavedMode,
   queueStatusLine,
   requeueStatusLine,
+  saveMode,
   showHome,
+  type DeployMode,
   type HomeHandle,
   type StatusLine,
 } from './ui/home.js';
+import { startLivenessPoll, type LivenessPoll } from './net/liveness.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
@@ -4125,12 +4129,55 @@ let shellRef: Shell | null = null;
 let homeRef: HomeHandle | null = null;
 
 /**
- * The MODE a deploy went out through (Story 6.5). `standard` is the queue;
- * `soloVsAi` is the queue-free `create('arena', {solo:true})` door. It is an
- * IDENTIFIER rather than a boolean so DUO/TRIO slot in beside it without
- * reshaping `lastDeploy` (Eric: the mode row is built for those).
+ * The home's `/liveness` poll, live ONLY while the home screen is up and the
+ * player has not committed to a deploy (Story 6.6).
+ *
+ * It stops the moment a deploy starts — no polling during a match, and none
+ * while pooled either: from the join onward the live `MSG.queueStatus` push
+ * owns the queue's status, and a second, slower, cruder copy of the same number
+ * on the button behind it would just contradict it. A failed or cancelled
+ * connect puts the player back in front of a live home, so it restarts there.
  */
-type DeployMode = 'standard' | 'soloVsAi';
+let livenessPoll: LivenessPoll | null = null;
+
+/** Tear down the poll itself (and abort whatever it has in the air). Used on
+ *  its own only where a NEW poll is about to repaint the same surfaces. */
+function stopLivenessPoll(): void {
+  livenessPoll?.stop();
+  livenessPoll = null;
+}
+
+/**
+ * Stand the whole liveness surface down: stop the poll AND clear the paint.
+ *
+ * Clearing is not tidiness, it is the reason the poll stops. Stopping the poll
+ * alone left the LAST payload frozen on the buttons, and `Home`'s own 1 Hz
+ * countdown tick is cleared only by `hide()` — which is not reached until
+ * `connect()` resolves, i.e. after the ENTIRE pooled wait, up to 2:00. So a
+ * queued captain sat watching the live `QUEUED n CAPTAINS · DEPLOY IN m:ss`
+ * status line while the SOLO button above it counted down a payload that had
+ * been dead since the moment they pressed it. At beta population the first
+ * captain in the pool got the worst version of that: `0 QUEUED · NEEDS 2 TO
+ * START` on the button, directly above a line saying they were queued in it.
+ *
+ * `setLiveness(null)` is the module's own "unavailable" value, so it clears the
+ * top-left register and both sub-lines through the same path an outage takes —
+ * and, because `retickLiveness` reads armed-ness off that payload, it stops the
+ * 1 Hz tick as a consequence rather than as a second thing to remember.
+ */
+function stopHomeLiveness(home: HomeHandle): void {
+  stopLivenessPoll();
+  home.setLiveness(null);
+}
+
+/** Start (or restart) the home's liveness poll against a live HomeHandle. Any
+ *  previous poll is stopped first, so a re-entered port never runs two — but
+ *  the PAINT is left standing, since the new poll is about to replace it and a
+ *  blink through "unavailable" would be a flicker with no meaning. */
+function startHomeLiveness(home: HomeHandle): void {
+  stopLivenessPoll();
+  livenessPoll = startLivenessPoll((payload) => home.setLiveness(payload));
+}
 
 /**
  * The identity the player last deployed with (callsign + hull + MODE). The
@@ -4139,9 +4186,12 @@ type DeployMode = 'standard' | 'soloVsAi';
  * sail, and a name typed for one match carries into its replacement.
  *
  * The mode is here on Eric's ruling (2026-08-17): *"Lobby collapse should
- * return to whatever the last mode the player/group had queued for."* It is
- * SESSION state only — nothing is written to localStorage, and `hullcracker.mode`
- * stays Story 6.6's.
+ * return to whatever the last mode the player/group had queued for."* This
+ * field is the SESSION copy; Story 6.6 added the durable one (`hullcracker.mode`
+ * via ui/home.ts's `saveMode`/`loadSavedMode`), which is what the auto-requeue
+ * falls back to across a reload. Both are consumed in exactly one place —
+ * `enterPort`'s autoQueue branch — and the session copy always wins, because a
+ * mode chosen this page-load is fresher than one chosen days ago.
  *
  * WORTH KNOWING, because it reads like dead code: the collapse path CANNOT fire
  * in Solo vs AI. `rq` only reaches a sealed queue-formed cohort that drops below
@@ -4287,7 +4337,9 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     const { name, cls, mode } = lastDeploy ?? {
       name: '',
       cls: loadSavedClass(),
-      mode: 'standard' as DeployMode,
+      // Story 6.6: the persisted mode, so a reload between the deploy and the
+      // collapse still re-enters the door the player actually chose.
+      mode: loadSavedMode() ?? 'standard',
     };
     // Eric ruling 2026-08-17: re-enter the mode the player last chose, not
     // always Standard. (Unreachable for `soloVsAi` — see `lastDeploy`.)
@@ -4296,6 +4348,10 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   }
   // Client-side server-health probe → the status line (probing → ready/unreachable).
   void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
+  // Story 6.6: the population register + the SOLO door's queue count. Started
+  // only on THIS branch — the autoQueue path above returns straight into a
+  // deploy, which would stop the poll on its first line anyway.
+  startHomeLiveness(home);
 }
 
 /**
@@ -4330,8 +4386,17 @@ async function startGame(
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
-  if (!(await claimPortForDeploy(home))) return; // another tab is already at sea
+  // Story 6.6: the player has committed, so the home's liveness surface stands
+  // down — poll AND paint. From here the queue's own pushed status line owns
+  // the wait, and a second, slower, cruder copy of the same number on the
+  // button behind it would just contradict it.
+  stopHomeLiveness(home);
+  if (!(await claimPortForDeploy(home))) {
+    startHomeLiveness(home); // another tab is at sea; this home stays live + informed
+    return;
+  }
   lastDeploy = { name, cls, mode }; // what the auto-requeue re-deploys with
+  saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
   // An auto-requeue arrives with its own opening register already painted (the
   // reason we are here), and holds it for a beat — so it does NOT get replaced
   // by CONNECTING…, which says less and is over in a moment.
@@ -4370,6 +4435,7 @@ async function startGame(
     if (!cancelled) console.error('[net] connection failed', err);
     home.setStatus(connectErrorStatus(err), cancelled ? 'tertiary' : 'denied');
     home.setBusy(false);
+    startHomeLiveness(home); // back at a live port — resume the population read
     return; // the ambient keeps breathing behind the still-live home
   }
   hold.cancel(); // we are aboard; the home is about to go

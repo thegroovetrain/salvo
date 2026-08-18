@@ -1280,3 +1280,179 @@ suites proved bots would not STEER into rock and never asked whether they would 
 proved a bot outside the ring turns around and never asked what it does AT the rim. Both fixes ship
 with tests verified to fail against pristine HEAD in a throwaway worktree. `PROTOCOL_VERSION`
 unchanged at **40**; server-only.
+
+## Amendment 33 — THE LIVENESS ROUTE: the home screen learns the population, and the mechanism is driver-backed (Eric rulings 2026-08-17, Story 6-6 question gate)
+
+**Source:** Eric, 2026-08-17, Story 6-6 question gate (answered interactively).
+
+The home screen knew nothing. `MSG.queueStatus` reaches *pooled captains only*
+(`StandardQueueRoom.ts:177-185`), so every number the story needed existed only AFTER a player had
+already committed to queueing — and `probeServer()` (`connection.ts:193-205`) is a `mode:'no-cors'`
+fetch that reads no body at all. Ruled: **a public `GET /liveness` HTTP route, polled by home.**
+A Colyseus `LobbyRoom` was offered and declined (a real websocket per idle visitor, raw per-room
+records including `roomId`s for the client to aggregate); a read-only pre-join peek at the queue room
+was rejected outright, because it destroys "being in the queue is a commitment" and would make
+amendment 3's arm-at-2nd-captain rule fire on window-shoppers.
+
+**THE MECHANISM IS `matchMaker.query()`, AND `matchMaker.stats.local` IS FORBIDDEN HERE.**
+`MatchMaker.mjs:161-163` is literally `return await driver.query(conditions, sortOptions)` — it goes
+entirely through the DRIVER, so it is correct today on `LocalDriver` and stays correct under a future
+`@colyseus/redis-driver`. That is what makes this feature compatible with **D8** (no code path may
+assume same-process room co-residency), which is the rule the obvious shortcut would have broken.
+
+**Three framework facts were verified by hand against `@colyseus/core` 0.17.44 rather than assumed,
+because the whole feature rests on them:**
+1. **Locked rooms stay queryable.** Every production arena locks at birth (`ArenaRoom.ts:335`), so if
+   locking removed the listing the feature would be unbuildable. `LocalDriver.query()` applies ONLY
+   the conditions passed — the implicit `locked: false` lives in `findOneRoomAvailable`, not `query`.
+2. **The listing is persisted after `onCreate`** (`MatchMaker.mjs:327`), which is also the mechanic
+   behind 6-5's "no unlocked window" argument.
+3. **`setMetadata()` inside `onCreate` costs ZERO extra driver writes.** `Room.mjs:396-413` persists
+   only when `_internalState === CREATED`, which is not yet true inside `onCreate` (set at
+   `MatchMaker.mjs:298`) — but it does write `_listing.metadata` in memory, and the create-time
+   persist carries it. **The trap in the other direction:** metadata changed LATER does write, which
+   is why the queue publishes on change and never on its 1 Hz tick.
+
+CORS needed no work: `router/index.mjs` prepends `Access-Control-Allow-Origin: *` to every response,
+covering custom routes and Express alike, so a real cross-origin fetch works in dev (client `:5173`
+→ server `:2567`).
+
+Route is **public, unauthenticated, aggregates only** — no `roomId`s, names or seeds — matching the
+already-public `/health` and `/metrics`. The unauthenticated room-create rate cap ledgered by
+amendment 29 stays a SEPARATE hardening item and was not folded in.
+
+## Amendment 34 — PLAYERS ONLINE counts HUMANS. `n AFLOAT` still counts participants. Two registers, deliberately.
+
+**Source:** Eric, 2026-08-17.
+
+Bots hold no seat, so the driver's per-room `clients` is a humans-only count **for free** — a solo
+room with 1 human and 19 AI captains contributes exactly **1**. Ruled: every player-facing liveness
+number is **HUMANS ONLY**.
+
+This does **not** disturb amendment 30 (`n AFLOAT` counts every PARTICIPANT, human or AI). The two
+answer different questions and are both right: AFLOAT asks *"how many hulls can still kill me in this
+match"*, where an AI captain plainly counts; PLAYERS ONLINE asks *"how many people are here"*, where
+it plainly does not. The reasoning that settles it is the epic's own: reporting participants would
+have multiplied every single Solo-vs-AI player by twenty, which is population theater — precisely the
+dishonesty this epic exists to refuse, and discoverable by any player within one match.
+
+**Definitions ruled at the same time:**
+- **"Online"** = humans in a queue **or** in a match. A player idling on the home screen holds no
+  connection at all (no websocket until they press a button), and counting them was declined rather
+  than building a presence/heartbeat surface for a vanity figure.
+- **"Live game"** = every arena room, **any phase** — boarding, countdown, active or results. A room
+  in countdown IS a game about to start. Costs zero extra writes; the alternative (only `active`)
+  needed a metadata write per phase transition and would have made a lobby invisible for its last
+  ten seconds.
+
+## Amendment 35 — The homepage shows GLOBAL totals, not per-mode. Eric rewrote the gate's proposal.
+
+**Source:** Eric, 2026-08-17, in his own words:
+> *"I don't need to see how many players are playing solo vs AI on the homepage. I don't need to see
+> how many games of each mode are being played on the homepage. This is great info for the endpoint,
+> though. I do, however, want to know how many players **total** are online right now, and how many
+> games **total** are currently running, and I want that information on the homepage. Maybe in the
+> top-left, it can say "PLAYERS ONLINE: [n]" and then "LIVE GAMES: [n]" right under it?"*
+
+The gate had proposed a per-mode readout. **Eric replaced it**, and the replacement is better in
+three ways the gate did not anticipate:
+
+1. It **retires a degeneracy the gate had flagged but not solved.** Solo vs AI is one human per room,
+   always (`client.create('arena',{solo:true})` always mints a fresh room; `expectedCaptains: 1`), so
+   its player count and its game count are permanently THE SAME NUMBER. A per-mode readout would have
+   printed `12 PLAYING ACROSS 12 GAMES` — one fact twice. Not rendering it removes the problem
+   instead of wording around it.
+2. It **retires the naming-register question** the 6-1 gate handed to this story (Q15 there): with no
+   per-mode labels on the page, there is nothing to name, and the buttons keep being their own labels.
+3. It puts the population figure **top-left, the mirror of the settings gear**, where it does not
+   compete with the deploy buttons for the centre column.
+
+**The per-mode breakdown still ships in the `/liveness` payload** — Eric explicitly kept it there for
+operators. So the split exists in the contract and simply has no consumer on the home screen yet.
+
+## Amendment 36 — `/metrics` is UNTOUCHED. Two routes whose numbers are MEANT to disagree.
+
+**Source:** Eric, 2026-08-17, raising it himself mid-gate:
+> *"does this replace /metrics? metrics seems to have stuff related to this."*
+
+It does not, and the overlap is exactly **two fields**. `/metrics` (Story 0.3) returns `rooms`,
+`players`, tick p50/p95/max and inbound message rates; the last two are pure ops telemetry with no
+player-facing meaning. The two overlapping fields are wrong for the home screen twice over:
+`localCounts()` (`metrics.ts:218-231`) reads `matchMaker.stats.local` — **this process only** — and
+its `rooms` counts EVERY room type, so `LIVE GAMES` would read 1 whenever someone was queued and no
+match was running.
+
+**The decisive argument is not that `/metrics` is broken — it is that the two numbers SHOULD differ.**
+Process-local is the CORRECT answer to an ops route's actual question (*"is this dyno loaded?"*);
+global is the correct answer to a player's. Folding them together would break the ops route's job.
+
+So: **two routes, `/metrics` behaviour byte-identical**, and a cross-reference comment in each file
+explaining the discrepancy is deliberate — specifically so a future agent does not "fix" it by
+reconciling two numbers that are meant to disagree. Recorded because this is exactly the kind of
+tidy-looking refactor that would silently re-introduce the D8 violation.
+
+## Amendment 37 — The mode buttons get sub-lines BACK. A shape reversal that honours amendment 31's reasoning.
+
+**Source:** Eric, 2026-08-17 (chose button annotation over a separate register line).
+
+Liveness detail hangs on the mode buttons themselves: SOLO carries a live `n QUEUED · NEEDS 2 TO
+START` / `n QUEUED · STARTS m:ss`, and SOLO VS AI carries the constant **`STARTS INSTANTLY`** — which
+IS the dead-queue steer the AC requires (`epics.md:1193`), delivered without nagging and without
+claiming a population that is not there.
+
+**This puts a sub-line back on those buttons ONE DAY after amendment 31 deleted them, and that is not
+a contradiction — read the reason, not the shape.** Amendment 31 struck the old sub-line because it
+*restated the Class Chip sitting directly above it* (`DEPLOY AS TORPEDO BOAT · SOLO`). A live queue
+count is information available **nowhere else on the page**. The rule amendment 31 actually
+established was "the button must not repeat what the player is already looking at", and that rule is
+intact.
+
+**Consequence, taken deliberately:** `home.test.ts:244-253` pins `children.length === 1` on both
+buttons. That pin is **revised, not deleted**, with this reasoning written into the test body.
+`home.test.ts:79-82` (`queueStatusLine()` carries no `SOLO|MODE|VS AI` copy) is a DIFFERENT surface —
+the in-queue status line — and stays untouched and green, because the liveness copy lives in separate
+elements.
+
+An alternative single mono register line beneath the mode row, borrowing the BR chrome bar's
+`N LABEL · N LABEL` grammar, was offered and NOT taken.
+
+## Amendment 38 — The arena carries a mode TAG. Game logic still never learns it.
+
+**Source:** Eric, 2026-08-17.
+
+`setMetadata` had **zero hits** anywhere in `server/src` or `client/src`, and `ArenaState` carries no
+mode field, so the driver could not tell a Standard arena from a Solo-vs-AI one — which made *"how
+many are playing in this mode"* unanswerable. Ruled: **`ArenaRoom.finishCreate` tags its own room**,
+`{ mode: sanitized.solo ? 'soloVsAi' : 'standard' }`.
+
+**This does not weaken amendment 29, and the distinction matters.** What 29 ratified is that *GAME
+LOGIC* never forks on mode — storm, economy, PvE, perception and the win check stay byte-identical —
+and that **`ArenaRoom` is already "THE ONLY FILE THAT KNOWS THE WORD SOLO"**
+(`spec-6-5-solo-vs-ai-mode.md:86`). The tag is written in that same file, in the room-adapter layer,
+from a value it already computes one line earlier. Nothing under `server/src/game/` reads it, and
+6-5's standing verification (`git grep -n "solo" server/src/game/` returns nothing) still passes.
+
+Rooms with absent or unrecognised mode metadata fold to `standard` — defensive, and correct, since
+only the solo door tags anything else.
+
+## Amendment 39 — The honest zero. `EXPERIENCE.md:108` is scoped to DECORATIVE empties.
+
+**Source:** Eric, 2026-08-17 — the one gate question that asked him to override a ratified rule.
+
+`EXPERIENCE.md:108` ratifies *"empty kill feed / zero kills render as **absence, not
+placeholders**."* Applied literally to liveness, a Standard queue of zero would render as **nothing
+at all** — hiding the fact at exactly the moment it is most decision-relevant, and reproducing the
+precise failure this story's own user story names (*"wondering if the game is broken"*,
+`epics.md:1186`).
+
+**Ruled: the zero renders.** `PLAYERS ONLINE: 0` and `LIVE GAMES: 0` are drawn, not suppressed, and
+`:108` is hereby scoped to **decorative** absences — an empty kill feed teaches nothing, whereas a
+population of zero is a fact the player needs in order to choose a door. This is the story's whole
+point: at beta population the truthful Standard line IS zero (amendment 3 arms nothing below two
+captains), so **the counts exist to make the Solo-vs-AI steer credible rather than to advertise a
+crowd.**
+
+**The distinction that keeps both rules alive:** absence is right when the empty state carries no
+information; the honest number is right when the emptiness IS the information. Genuine
+UNAVAILABILITY — a failed or malformed fetch — renders as absence under the original rule, so the
+block simply does not appear rather than showing a misleading `0`.

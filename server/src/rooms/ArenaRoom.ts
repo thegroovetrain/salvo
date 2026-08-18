@@ -62,6 +62,16 @@ const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 const MAX_OUTSTANDING_PINGS = 16;
 /** Telemetry mode tag (one room type today) carried on match.end/match.abort. */
 const MODE = 'arena';
+
+/**
+ * The listing-metadata block this room publishes for `GET /liveness` (Story
+ * 6.6): which door created it, and how many humans are aboard RIGHT NOW (see
+ * publishListing for why the driver's own `clients` count cannot answer that).
+ */
+interface ArenaListingMeta {
+  mode: 'standard' | 'soloVsAi';
+  humans: number;
+}
 /** The zeroed "unrevealed" next-ring mirror (r 0 = no reveal — see ArenaState). */
 const ZERO_RING = Object.freeze({ cx: 0, cy: 0, r: 0 });
 /**
@@ -217,6 +227,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private matchId = '';
   /** Bound room logger; rebuilt in onCreate with {roomId, matchId, mode} + tick. */
   private log: Logger = createLogger({ mode: MODE });
+  /** Which door created this room — the /liveness per-mode split (Story 6.6). */
+  private mode: ArenaListingMeta['mode'] = 'standard';
+  /** The listing metadata last written, so an unchanged room writes nothing. */
+  private publishedListing: ArenaListingMeta | null = null;
   /** Metrics registry handle; null before onCreate and after dispose. */
   private metrics: RoomMetricsHandle | null = null;
   /** Consecutive failed sim steps (world.step + match.update + afterStep). */
@@ -305,6 +319,70 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     });
   }
 
+  /**
+   * Best-effort diagnostic: log a warning and swallow anything the logging
+   * itself throws (the room.requeueBroadcastFailed posture — a report must
+   * never become a second failure).
+   */
+  private warnQuietly(event: string, err: unknown): void {
+    try {
+      this.log.warn(event, describeError(err));
+    } catch {
+      /* diagnostics are best-effort */
+    }
+  }
+
+  /**
+   * Publish this room's listing metadata for `GET /liveness` — ONLY WHEN A
+   * VALUE CHANGED, the same discipline (and the same un-latching `.catch`)
+   * StandardQueueRoom.publishListing uses. Never on a tick: setMetadata
+   * persists to the matchmaker driver, and a 20 Hz room would turn that into a
+   * write storm.
+   *
+   * WHY `humans` IS PUBLISHED AT ALL — the driver's own `clients` count is not
+   * this room's population, it is its SEAT LEDGER, and it over-reports in two
+   * ways that both land on the front page (verified in @colyseus/core 0.17.44
+   * Room.mjs):
+   *
+   *   1. `#_decrementClientCount()` runs inside `#_onAfterLeave`, which for a
+   *      room defining `onDrop` is deferred until the `allowReconnection()`
+   *      promise settles. This room grants CONFIG.net.reconnectGraceSeconds
+   *      (60), so a captain who closes their tab was still being counted as
+   *      ONLINE a full minute later. That is the ordinary way a player leaves.
+   *   2. `#_incrementClientCount()` runs inside `_reserveSeat` — the moment the
+   *      queue reserves a seat, while the captain is still holding their queue
+   *      socket — so every seat handoff double-counted a cohort.
+   *
+   * `this.clients` answers both: core pushes into it in `_onJoin` and deletes
+   * from it at the TOP of `_onLeave` (before onDrop/onLeave run), and a
+   * reserved-but-unjoined seat is never in it. So the count published here is
+   * the number of humans actually connected to this room, right now.
+   *
+   * Both keys are written together as ONE object every time. setMetadata
+   * shallow-merges, so a partial write would be safe — but writing the pair
+   * keeps "what this room publishes" readable in one place.
+   *
+   * The catch is load-bearing, not decoration: a bare `void` on an async call
+   * makes any failure an UNHANDLED REJECTION that fails the whole test file
+   * around it. `setMetadata` dereferences core's `_listing`, which only the
+   * matchmaker creates — so every unit test that constructs an ArenaRoom
+   * directly (solo.test.ts et al) hits it — and against a remote driver a
+   * persist can legitimately fail. A missing listing tag degrades /liveness's
+   * per-mode split to 'standard' and its human count to the seat ledger; it
+   * must never take the room down with it. Clearing the mirror on failure is
+   * what makes the next change RETRY instead of believing it already published.
+   */
+  private publishListing(): void {
+    const meta: ArenaListingMeta = { mode: this.mode, humans: this.clients.length };
+    const prev = this.publishedListing;
+    if (prev !== null && prev.mode === meta.mode && prev.humans === meta.humans) return;
+    this.publishedListing = meta;
+    void this.setMetadata(meta).catch((err: unknown) => {
+      this.publishedListing = null;
+      this.warnQuietly('room.modeMetadataFailed', err);
+    });
+  }
+
   /** The post-operability remainder of room creation (see onCreate's guard). */
   private finishCreate(input: SanitizedRoomOptions, seed: number): void {
     // SOLO VS AI (Story 6.5): a one-captain cohort. Both fields are DERIVED
@@ -349,6 +427,20 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // outside it). Building here — before setSimulationInterval below — is what
     // makes "before activate" structural rather than a race.
     if (sanitized.solo) this.buildBotFleet();
+
+    // LISTING metadata for /liveness (Story 6.6). This is the ONLY place the
+    // arena's mode is written down, and it goes on the ROOM LISTING — never
+    // into the World, the Match or anything under game/, which still never
+    // learns what kind of door created it (Story 6.5's boundary).
+    //
+    // FREE at create time: setMetadata skips its driver.persist while
+    // `_internalState` is CREATING, and core only flips that to CREATED after
+    // onCreate returns (@colyseus/core 0.17.44 MatchMaker.mjs:298). It mutates
+    // `_listing` in place, and the create-time `driver.persist(listing, true)`
+    // that runs right after onCreate carries the metadata with it. So this
+    // costs zero extra driver writes — one write, as before.
+    this.mode = sanitized.solo ? 'soloVsAi' : 'standard';
+    this.publishListing();
 
     this.onMessage(MSG.input, (client: Client, raw: unknown) => this.onInputMessage(client, raw));
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => this.onSpendMessage(client, raw));
@@ -726,6 +818,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
     this.log.info('client.join', { sessionId: client.sessionId });
     this.armJoiningDeadline(client);
+    // /liveness (Story 6.6): the population moved. Publish-on-change, so a room
+    // whose roster is stable never writes to the driver again.
+    this.publishListing();
   }
 
   /**
@@ -795,6 +890,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * placement when teardown eventually runs.
    */
   onDrop(client: Client, code?: number): void {
+    // THE 60-SECOND OVER-COUNT ENDS HERE (Story 6.6). Core deletes the client
+    // from `this.clients` at the top of `_onLeave`, before this runs, but it
+    // does NOT decrement the driver's own listing count until the
+    // allowReconnection() promise below settles — a full
+    // CONFIG.net.reconnectGraceSeconds later. Publishing now is what makes
+    // `PLAYERS ONLINE` drop when the tab closes rather than a minute after.
+    this.publishListing();
     const ship = this.world.ships.get(client.sessionId);
     const policy = dropPolicy(
       this.match?.phase === 'active',
@@ -809,6 +911,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.allowReconnection(client, CONFIG.net.reconnectGraceSeconds)
         .then((newClient) => {
           this.log.info('client.resume', { sessionId: client.sessionId });
+          // The resume branch pushes the new client into `this.clients` without
+          // re-running onJoin, so this is the only place that can put the
+          // recovered captain back into the published count.
+          this.publishListing();
           // Finding F2: results fire as a one-shot broadcast the dropped client
           // missed (not in this.clients). Re-send only if the match finished
           // while they were away; a normal mid-match resume sends nothing. The
@@ -834,6 +940,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   onLeave(client: Client, code?: number): void {
+    // Covers every departure onDrop does not: a CONSENTED leave (code 4000
+    // routes straight here), a reconnection that expired, and room dispose.
+    // Idempotent by publish-on-change, so the drop→leave pair costs one write.
+    this.publishListing();
     // Log only when the teardown actually removed something: with onDrop
     // defined, core can route one departure into onLeave through several
     // paths, and a repeat must stay silent (one info line per real leave).

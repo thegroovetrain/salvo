@@ -92,3 +92,24 @@ amendment and the planning-artifact-derived content above, **the amendment wins*
   had phase-locked every captain's sweep at 0, making first-detection a function of world position.
   Chosen over randomizing: it does not equalize timing, it makes the formation rotationally
   symmetric.
+- **A33 (Eric, 2026-08-17)** — queue liveness reaches the home screen through a public `GET
+  /liveness` route built on `matchMaker.query()`, which is DRIVER-backed and therefore D8-safe.
+  `matchMaker.stats.local` is forbidden as its source. A `LobbyRoom` and a pre-join queue peek were
+  both declined.
+- **A34 (Eric, 2026-08-17)** — every player-facing liveness count is HUMANS ONLY (bots hold no seat).
+  This does not disturb A30's participants-based `n AFLOAT`: the two answer different questions.
+  "Online" = in a queue or in a match; "live game" = any arena room, any phase.
+- **A35 (Eric, 2026-08-17)** — the home screen shows GLOBAL totals only (`PLAYERS ONLINE`,
+  `LIVE GAMES`, top-left), NOT per-mode counts. Eric rewrote the gate's per-mode proposal; the
+  breakdown survives in the endpoint payload. Retires the degenerate solo games-count.
+- **A36 (Eric, 2026-08-17)** — `/metrics` is UNTOUCHED. Two routes, and their overlapping numbers are
+  MEANT to disagree: process-local is correct for ops, global is correct for players.
+- **A37 (Eric, 2026-08-17)** — the mode buttons regain sub-lines (live queue count on SOLO,
+  `STARTS INSTANTLY` on SOLO VS AI). Reverses A31's shape while honouring its reason — A31 struck a
+  sub-line that RESTATED the Class Chip; a live count is new information.
+- **A38 (Eric, 2026-08-17)** — `ArenaRoom.finishCreate` tags its room with `{ mode }` in listing
+  metadata. Consistent with A29: that file already knows the word "solo", and `server/src/game/`
+  still never does.
+- **A39 (Eric, 2026-08-17)** — the honest zero renders. `EXPERIENCE.md:108` ("absence, not
+  placeholders") is scoped to DECORATIVE empties; a population of zero is a fact the player needs.
+  Genuine unavailability still renders as absence.
