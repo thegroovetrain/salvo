@@ -1,6 +1,8 @@
 ---
-status: blocked
-blocking_condition: intent gaps — pre-implementation question gate (Eric rulings required)
+status: answered
+blocking_condition: ''
+answered: '2026-08-18'
+rulings: 'R0 (match URL withdrawn) + R1-R13 — see §5. PROTOCOL_VERSION stays 40.'
 story: 'Story 6.7 — Reconnection UX'
 cycle: 101 (0.17.101 if landed)
 created: '2026-08-18'
@@ -461,3 +463,90 @@ Q10=a, Q11=a-or-your-string, Q12=a-if-free, Q13=split, Q14=b):
   a story stub for live spectate; the resolved ledger entries closed with their rulings.
 
 Answer Q1 and correct whichever recommendations you disagree with — everything else can ride.
+
+---
+
+## §5. ANSWERS — Eric's rulings, 2026-08-18
+
+**The gate is closed.** Fourteen questions became sixteen (two were created by Eric's own
+clarifications) and then twelve, because the whole match-URL block was withdrawn. Rulings of record
+below; the durable home for these is `epic-6-context-amendments.md` **46+**.
+
+### R0 — THE MATCH URL IS WITHDRAWN. Investigated, considered, parked.
+
+Eric, verbatim:
+
+> *"Forget about considerations for parties right now. In fact forget the URL idea. We can add it
+> later, but its at least investigated and considered. Lets just move ahead with the original
+> reconnect scope. As we are now just always running from hullcracker.io, and only allowed to be in
+> one game at once, then reconnecting to the game is pretty easy. If you want to leave it, pull up
+> the menu and abandon ship properly."*
+
+So capabilities **A (the Express route), B (`history.replaceState`) and the whole id-space question
+(Q2) are OUT** — along with the party/replay considerations that were briefly pulled in and then
+withdrawn in the same breath. **Capability C survives, minus its URL half**: token persistence, the
+`onReconnect` welcome re-send, and resume-on-load. The investigation is not wasted — it is the
+record that makes adding the URL later a decision rather than a discovery.
+
+**Two things died with the URL, and both are worth naming so nobody re-derives them:**
+
+- **The id-space question (Q2) is moot**, including the party argument that had just made an owned
+  `matchId` the better answer. Nothing is published, so nothing is committed to.
+- **The rejoin-window question (the one Eric's own clarification created) is moot.** It asked what
+  `/<match-id>` means at 8:00 when you dropped at 3:00 and the 60s grace is long gone. With no URL
+  there is no such address, so the answer is simply the grace window and nothing else.
+
+**And the design it was fighting resolved itself.** Eric's earlier instinct — *"if someone goes back
+to hullcracker.io/ then they probably wanted to abandon their game"* — is **superseded by his own
+later message** and by a law already shipped. Because the root IS the only address, root must mean
+*resume*; leaving is an explicit act. That is not new policy: `client/src/ui/settings.ts:155` has
+carried the ratified leaving law since amendment 19 —
+
+> *"the modal's RETURN TO PORT or settings' ABANDON MATCH — never ESC, never a page refresh"*
+
+— so **a refresh was never a sanctioned way to leave a match**, and making it resume is the shipped
+law's own consequence. `ABANDON MATCH` already exists, confirm-gated, in the settings overlay
+(`canAbandon`, `settings.ts:158`). **No new leave UI is needed.**
+
+### R1–R12 — the rulings
+
+| # | Question | Ruling | Note |
+| - | -------- | ------ | ---- |
+| **R1** | Scope | **All four blocks, minus the withdrawn URL.** Block I collapses to refresh-resume | Blocks II, III, IV as scoped in §2 Q1 |
+| **R2** | Token store | **`sessionStorage`, refresh only** | Per-tab scoping matches the one-match-per-browser ruling; tab-close resume is explicitly not offered |
+| **R3** | Grace expiry on a live hull | **Scuttle it — a real sinking** | `sinkShip`, not `removeShip`: proper `sunk` event, feed line, plume, placement. An absent player cannot win |
+| **R4** | Consented abandon vs timeout | **Identical — one path** | ABANDON MATCH and a 60s timeout do the same thing. One rule to explain |
+| **R5** | Departure register line | **Reads as an ordinary sinking** | Falls out free from R3. **No new copy authored** — which is why R3 was the cheap ruling |
+| **R6** | Catch-up fidelity | **Accept the gap** | No wire. The feed's 8s TTL means most missed lines would have expired anyway |
+| **R7** | Own-sinking on resume | **Bare synthesis, no wire** | Client notices `spec` + own `alive=false` on its first resumed frame and opens ELIMINATED with an approximate placement |
+| **R8** | Per-match grace budget | **Leave it unlimited** | Ledger entry `:22` closed as accepted. The exploit is self-punishing; a cap would punish bad connections |
+| **R9** | Half-resume double-fault | **Fix the new instance only** | Re-write the persisted token on every ack; clear on any "invalid or expired". Ledger `:26` stays open for the original window |
+| **R10** | Banner copy | **Leave it bare** — `RECONNECTING…` unchanged | No countdown, no attempt count. Amendment 41 respected: no copy invented |
+| **R11** | Telegraph on refresh | **Restore it if it costs no wire, else accept the reset** | Inference from own-ship kinematics to be checked first; a wire field is NOT authorized for this |
+| **R12** | Live spectate | **Split into its own story, no fog ruling today** | Story stub added so it stops being an untracked thread |
+| **R13** | `EXPERIENCE.md:106` | **6-7 fixes that one line now** | One sentence only — a change signal authorizes only what it rules on |
+
+### The consequence that matters: `PROTOCOL_VERSION` STAYS AT 40
+
+Every ruling that could have moved the wire went the other way, independently:
+
+- the URL is withdrawn, so no `matchId` is published (R0);
+- catch-up accepts the gap, so no sunk-log channel (R6);
+- own-sinking synthesizes client-side, so no placement/killer/time fields (R7);
+- the telegraph restore is authorized **only** if it needs no field (R11).
+
+So this cycle re-sends an **unchanged** `WelcomeMsg` from a new lifecycle hook and adds nothing else
+to the wire. Under the amendment-24 precedent (PV moves when the client **reads** new bytes) and the
+shipped `MSG.results` re-send at `ArenaRoom.ts:922`, **PV stays 40**. Anything that would move it is
+out of scope by ruling, not by oversight — if a reviewer finds a new wire field in this cycle's diff,
+that is a defect, not a judgement call.
+
+### What R3 costs, stated plainly
+
+Routing grace expiry through a real sinking is the largest behavioural change in the cycle and it
+touches the win path. `Match.onPlayerLeave` currently books placement via `recordSink` then calls
+`world.removeShip`, and `checkWin()` runs on the removal. After R3 the departure must produce a
+genuine `sunk` — which means it flows through the Public Register's three-clause gate, reaches every
+client for a captain victim, pays a killer nobody (no `by`), and must not pay bounty or XP to anyone.
+The regression that would hurt most and show up least: **a scuttle must not be creditable as a kill**.
+
