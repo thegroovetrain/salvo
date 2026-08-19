@@ -21,7 +21,7 @@
 //   - Torpedo (contact-only: no target, burstRadius 0): today's behavior
 //     byte-for-byte — first non-owner contact hits for full damage
 //     (contactDamage = damage), islands stop it, it runs until impact/edge.
-//   (Eric rulings 2026-07-21; the 1.7 long-range cannon likely reuses the
+//   (Eric rulings 2026-07-21; the broadside barrage reuses the
 //   burst rule with different numbers.)
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
@@ -82,21 +82,12 @@ export interface ShellState {
    * (BallisticEvent), and the perception shape guards pin that.
    */
   lit?: { radius: number; durationMs: number };
-  /**
-   * PLUNGING FIRE doctrine (Story 2.8, cannonArcing): the shell arcs OVER the
-   * water — island and hull collision are skipped entirely en route and it
-   * bursts exactly at its target point. Set at spawn by the server; never on
-   * the wire (the doctrine fields below share that rule).
-   */
-  arcing?: true;
-  /**
-   * ARMOR-PIERCING doctrine (Story 2.8, cannonAp): a full-range direction shot
-   * (no target point, no burst) that pierces up to `remaining` hulls with
-   * damage falloff by hit order (PIERCE_FALLOFF — 100/50/25%), never re-hits a
-   * hull in `hitIds`, continues its swept segment after each pierce, and is
-   * stopped dead by islands. `remaining` starts at 3; `hitIds` starts empty.
-   */
-  pierce?: { remaining: number; hitIds: string[] };
+  // PLUNGING FIRE (`arcing`) and ARMOR-PIERCING (`pierce`) are DELETED with the
+  // cannon (Story 7-5 wave 2, R2.6): they were the cannon's two doctrine cards
+  // and nothing else ever set either field. The BROADSIDE BARRAGE that replaces
+  // the weapon has no doctrines at all — its shells are ordinary gun-pattern
+  // shells that burst at their own points — so both branches, PIERCE_FALLOFF,
+  // pierceDamage, PierceHit and the 'pierced' outcome go with them.
   /**
    * ACOUSTIC HOMING doctrine (Story 2.8, torpedoHoming): per tick the fish
    * acquires the nearest non-owner hull whose centroid is within
@@ -106,24 +97,6 @@ export interface ShellState {
    * are untouched. `targetId` is the current lock (re-acquired every tick).
    */
   homing?: { turnRate: number; acquireRange: number; targetId?: string };
-}
-
-/** The AP damage-falloff table by hit ORDER (0-based): 100% / 50% / 25%. */
-export const PIERCE_FALLOFF: readonly number[] = [1, 0.5, 0.25];
-
-/** The damage of the `order`-th pierce hit (0-based) for a base damage — the
- *  helper the server applies to each PierceHit. Past-table orders deal 0. */
-export function pierceDamage(baseDamage: number, order: number): number {
-  return baseDamage * (PIERCE_FALLOFF[order] ?? 0);
-}
-
-/** One hull pierced by an AP shell this tick, in hit order. `order` is the
- *  GLOBAL 0-based hit index across the shell's life (feeds pierceDamage). */
-export interface PierceHit {
-  victimId: string;
-  x: number; // u — the pierce point
-  y: number;
-  order: number;
 }
 
 /**
@@ -152,18 +125,13 @@ export interface ShellContext {
  * (reached it, or was intercepted inside the would-be blast) — the server
  * resolves victims via burstVictims() and applies `damage` to each.
  * `hitIsland` = stopped dead by an island outside the blast — no damage.
- * `pierced` = an AP shell went THROUGH one or more hulls this tick (`hits` in
- * order; the server applies pierceDamage per hit); `spent` = the shell also
- * terminated this tick (third hull, island, edge, or range end — x/y is the
- * stop point) and must be removed.
  */
 export type ShellOutcome =
   | { kind: 'travel' }
   | { kind: 'hitShip'; victimId: string; x: number; y: number }
   | { kind: 'burst'; x: number; y: number }
   | { kind: 'hitIsland'; x: number; y: number }
-  | { kind: 'expired'; x: number; y: number }
-  | { kind: 'pierced'; hits: PierceHit[]; spent: boolean; x: number; y: number };
+  | { kind: 'expired'; x: number; y: number };
 
 interface Hit {
   frac: number; // fraction along the shell segment [0,1]
@@ -189,19 +157,12 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | n
   return best;
 }
 
-/** Earliest hull hit along p0->p1; the firer is permanently immune, and any
- *  id in `exclude` (already-pierced hulls) is skipped. Null = no hit. */
-function earliestHull(
-  shell: ShellState,
-  p0: Vec2,
-  p1: Vec2,
-  ctx: ShellContext,
-  exclude?: readonly string[],
-): Hit | null {
+/** Earliest hull hit along p0->p1; the firer is permanently immune. Null = no
+ *  hit. */
+function earliestHull(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
   let best: Hit | null = null;
   for (const hull of ctx.hulls) {
     if (hull.id === shell.ownerId) continue; // own weapon never damages the owner
-    if (exclude !== undefined && exclude.includes(hull.id)) continue; // pierced already: never re-hit
     // Silhouette polygon dilated by this projectile's own radius.
     const frac = segPolygonHit(p0, p1, hull.poly, shell.hitRadius);
     if (frac === null) continue;
@@ -310,64 +271,6 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   shell.vy = speed * Math.sin(dir);
 }
 
-/** Resolve a pierce sweep's NON-hull stop (island/edge) into an outcome. */
-function pierceStop(hits: PierceHit[], edge: boolean, ix: number, iy: number): ShellOutcome {
-  if (hits.length === 0) return edge ? { kind: 'expired', x: ix, y: iy } : { kind: 'hitIsland', x: ix, y: iy };
-  return { kind: 'pierced', hits, spent: true, x: ix, y: iy };
-}
-
-/**
- * ARMOR-PIERCING sweep: walk the tick's travel segment, piercing hulls in
- * order (recorded in hit order with falloff indices; never re-hitting a hull
- * in hitIds — which also covers "segment starts inside a pierced hull" on the
- * next tick), continuing the swept segment after each pierce, until the shell
- * runs out of pierces (3 hulls), meets an island/edge (stopped dead), or the
- * segment ends.
- */
-function stepPierce(
-  shell: ShellState,
-  ctx: ShellContext,
-  p0: Vec2,
-  ux: number,
-  uy: number,
-  moveDist: number,
-): ShellOutcome {
-  const pierce = shell.pierce!;
-  const hits: PierceHit[] = [];
-  let travelled = 0;
-  for (;;) {
-    const from: Vec2 = { x: p0.x + ux * travelled, y: p0.y + uy * travelled };
-    const p1: Vec2 = { x: p0.x + ux * moveDist, y: p0.y + uy * moveDist };
-    const hull = earliestHull(shell, from, p1, ctx, pierce.hitIds);
-    const blocker = earlier(earliestIsland(from, p1, ctx.islands), earliestEdge(from, p1, ctx.mapRadius));
-    const first = earlier(hull, blocker);
-    if (first === null) break;
-    const segLen = moveDist - travelled;
-    const ix = from.x + ux * segLen * first.frac;
-    const iy = from.y + uy * segLen * first.frac;
-    if (first.victimId === undefined) {
-      shell.x = ix;
-      shell.y = iy;
-      return pierceStop(hits, first.edge === true, ix, iy);
-    }
-    hits.push({ victimId: first.victimId, x: ix, y: iy, order: pierce.hitIds.length });
-    pierce.hitIds.push(first.victimId);
-    pierce.remaining -= 1;
-    travelled += segLen * first.frac;
-    if (pierce.remaining <= 0) {
-      shell.x = ix;
-      shell.y = iy;
-      return { kind: 'pierced', hits, spent: true, x: ix, y: iy };
-    }
-  }
-  shell.x = p0.x + ux * moveDist;
-  shell.y = p0.y + uy * moveDist;
-  shell.distLeft -= moveDist;
-  const spent = shell.distLeft <= 0;
-  if (hits.length === 0) return spent ? { kind: 'expired', x: shell.x, y: shell.y } : { kind: 'travel' };
-  return { kind: 'pierced', hits, spent, x: shell.x, y: shell.y };
-}
-
 /** Distance from p0 to the shell's target point (Infinity for point-less). */
 function targetDistance(shell: ShellState, p0: Vec2): number {
   return shell.targetX === null || shell.targetY === null
@@ -380,10 +283,10 @@ function targetDistance(shell: ShellState, p0: Vec2): number {
  * returns the outcome. On any terminal outcome the shell is spent (the caller
  * removes it) and the returned x/y is the impact/burst/splash point. A
  * targeted projectile stops AT its target point and bursts there when nothing
- * intercepted it earlier. Doctrine fields (Story 2.8) reroute the scan:
- * `homing` steers the velocity before the sweep, `pierce` runs the AP
- * multi-hull sweep, `arcing` skips island AND hull collision entirely (the
- * shell overflies everything and bursts exactly at its target).
+ * intercepted it earlier. The ONE surviving doctrine field reroutes the scan:
+ * `homing` steers the velocity before the sweep (Story 2.8, ACOUSTIC HOMING).
+ * The cannon's `arcing`/`pierce` reroutes died with the weapon in Story 7-5
+ * wave 2.
  */
 export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
   if (shell.homing !== undefined) steerHoming(shell, ctx);
@@ -403,16 +306,9 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
   const ux = shell.vx / speed;
   const uy = shell.vy / speed;
 
-  // ARMOR-PIERCING: the multi-hull sweep owns the whole scan.
-  if (shell.pierce !== undefined) return stepPierce(shell, ctx, p0, ux, uy, moveDist);
-
   const p1: Vec2 = { x: p0.x + ux * moveDist, y: p0.y + uy * moveDist };
 
-  // PLUNGING FIRE overflies islands and hulls (no en-route collision at all);
-  // the map edge still terminates (a target is always inside the water disk).
-  const obstacle = shell.arcing
-    ? null
-    : earlier(earliestIsland(p0, p1, ctx.islands), earliestHull(shell, p0, p1, ctx));
+  const obstacle = earlier(earliestIsland(p0, p1, ctx.islands), earliestHull(shell, p0, p1, ctx));
   const hit = earlier(obstacle, earliestEdge(p0, p1, ctx.mapRadius));
   if (hit) {
     const ix = p0.x + ux * moveDist * hit.frac;

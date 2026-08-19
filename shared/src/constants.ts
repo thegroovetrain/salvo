@@ -466,7 +466,7 @@ export const CONFIG = {
      * spawn off the seeded RNG. Profiles decide what a bot WANTS, never its
      * competence: TB raider = isolated/damaged targets, torpedo opener, boost
      * out; TB duelist = rear-quarter turn-fights vs peers; BS bulwark =
-     * attrition on HP; BS siege = standoff cannon + star shells; ML forager =
+     * attrition on HP; BS siege = standoff broadside + star shells; ML forager =
      * fleet clearing for the level lead; ML trapper = mines astern while
      * withdrawing. Behaviour tables live in server ai/profiles.ts — only the
      * ID VOCABULARY is data, so it lives here.
@@ -516,10 +516,21 @@ export const CONFIG = {
      * What survives is a WEAKER, still-real split: `trapper` keeps 2.0 because
      * the fouling slow drags a victim INTO its minefield, which is its whole
      * plan; `forager` merely has no special use for a slow (a fleet hull dies
-     * to one mine either way) and prefers SELF-PROPELLED, whose mine closes on
-     * a target by itself and so farms without re-positioning. Both doctrines
-     * are now pure adds and side-grades to each other, so neither profile
-     * refuses one — they just rank them differently.
+     * to one mine either way) and prefers CAPTIVE, whose mine reaches a target
+     * by itself and so farms without re-positioning. Both doctrines are now
+     * pure adds and side-grades to each other, so neither profile refuses one —
+     * they just rank them differently.
+     *
+     * STORY 7-5 WAVE 2 RE-KEYED FIVE MORE for the same forced reason — the
+     * cannon and the decoy buoy were replaced outright, taking `cannonDamage`,
+     * `decoyDuration` and `mineSelfPropelled` with them. Each moved to the
+     * surviving line carrying the same INTENT, never re-tuned: siege's cannon
+     * want becomes `broadsideTurrets` (the broadside's throughput line, its
+     * only damage-shaped card), both Mine Layer profiles' SELF-PROPELLED want
+     * becomes `mineCaptive` (its direct successor — a mine that reaches the
+     * target itself), and trapper's decoy want becomes `buoySweep`. The two
+     * `cannon`/`decoyBuoy` CATEGORY weights carry over verbatim onto
+     * `broadside`/`radarBuoy`.
      *
      * STORY 7-5 WAVE 1 RE-KEYED FOUR OVERRIDES, and this was forced rather
      * than chosen: `starRadius`, `mineDamage` and `mineMax` were DELETED from
@@ -551,27 +562,27 @@ export const CONFIG = {
       // BS bulwark — attrition. Trades on hp, so hull is the top line of any
       // profile's table.
       bulwark: {
-        cat: { ship: 2.4, guns: 2.0, cannon: 2.0, starShells: 1.0, intel: 1.0 },
+        cat: { ship: 2.4, guns: 2.0, broadside: 2.0, starShells: 1.0, intel: 1.0 },
         lines: { shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6 },
       },
-      // BS siege — standoff, cannon-led, star shells to resolve stale
-      // contacts into live sight (C2). Intel range IS its reach: gun, cannon
-      // and star-shell rangeU all ride radarRange.
+      // BS siege — standoff, broadside-led, star shells to resolve stale
+      // contacts into live sight (C2). Intel range IS its reach: gun, broadside
+      // and star-shell rangeU all ride radarRange (the broadside at the 5/8 rung).
       siege: {
-        cat: { cannon: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
-        lines: { cannonDamage: 2.8, intelRange: 2.4, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
+        cat: { broadside: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
+        lines: { broadsideTurrets: 2.8, intelRange: 2.4, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
       },
       // ML forager — clears PvE fleet groups for the level lead (C3). Guns
       // and rate of fire do that work; see the propFouling note above.
       forager: {
-        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, decoyBuoy: 1.0 },
-        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineBlast: 2.0, mineSelfPropelled: 2.4, minePropFouling: 1.2 },
+        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, radarBuoy: 1.0 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineBlast: 2.0, mineCaptive: 2.4, minePropFouling: 1.2 },
       },
-      // ML trapper — mines astern while withdrawing, decoy to break locks,
+      // ML trapper — mines astern while withdrawing, a radar buoy for reach,
       // fights near its own field.
       trapper: {
-        cat: { mines: 2.6, decoyBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
-        lines: { mineBlast: 2.8, minePropFouling: 3.0, mineSelfPropelled: 2.2, shipCooldown: 2.2, decoyDuration: 2.0 },
+        cat: { mines: 2.6, radarBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
+        lines: { mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.2, shipCooldown: 2.2, buoySweep: 2.0 },
       },
     },
     /**
@@ -628,13 +639,14 @@ export const CONFIG = {
    *
    *   band   multiple        u        rung           consumer
    *   ----   -------------   -----    ------------   ---------------------------
-   *   8/8    SIGHT * 2       660      radar          radar sweep; gun / cannon /
+   *   8/8    SIGHT * 2       660      radar          radar sweep; gun and
    *                                                  star-shell base range;
    *                                                  foghorn band 8 (50% gain)
    *   7/8    SIGHT * 1.75    577.5    farRadar       NONE — see the comment on
    *                                                  the field itself
    *   5/8    SIGHT * 1.25    412.5    muzzleFlash    muzzle flash + wounded
-   *                                                  smoke (one constant, both)
+   *                                                  smoke (one constant, both);
+   *                                                  BROADSIDE range (7-5 w2)
    *   4/8    SIGHT           330      sight          true-sight bubble
    *   3/8    SIGHT * 0.75    247.5    detect         mines + torpedoes
    *
@@ -1014,6 +1026,16 @@ export const CONFIG = {
     contactDamage: 6,
     burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
+    // u — LATERAL spacing between ADJACENT shells of a multi-barrel click
+    // (Story 7-5 wave 2, R2.16). BARREL's extra shells fly on PARALLEL TRACKS
+    // now, not a spreading fan: every shell is offset perpendicular to the aim
+    // bearing by a multiple of this and bursts at its OWN point, so the volley
+    // covers a constant-width band at every range instead of widening with it.
+    // The STRADDLE rule is the broadside's (sim/spread.ts): an odd barrel count
+    // puts one shell exactly on the click, an even count straddles it with none
+    // on it. This REPLACES the retired BARREL_FAN_STEP_RAD 3° angular step.
+    // DRAFT VALUE (implementer handwave inside Eric's ratified shape).
+    barrelSpacingU: 12,
   },
 
   /**
@@ -1096,7 +1118,7 @@ export const CONFIG = {
   mine: {
     // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
     // Story 2.8: now the CENTER of the mine's aimed rear placement arc. The
-    // decoyBuoy still shares THIS offset for its (unchanged) stern drop.
+    // The radar buoy shares THIS whole rear sector: it is click-placed too.
     offset: deg(180),
     // deg — half-arc of the aimed rear placement sector about `offset`
     // (Story 2.8, amendment 45 — DRAFT value, 2.10 tunes).
@@ -1162,7 +1184,24 @@ export const CONFIG = {
     // (whose torpedo carries the foul with it — Eric, same ruling).
     foulFactor: 0.75, // × maxSpeed AND reverseSpeed while fouled (25% slower)
     foulDurationMs: 5000, // ms — slow window per blast (refresh, don't stack)
-    // --- SELF-PROPELLED MINES doctrine (Story 2.8, exclusive boon).
+    // --- CAPTIVE MINES doctrine (Story 7-5 wave 2, `mineCaptive`) — REPLACES
+    // SELF-PROPELLED MINES outright (Eric: *"this replaces the old tracking
+    // mines with a more realistic torpedo mine"*). A captive mine NEVER
+    // detonates on contact: it holds ONE un-upgraded torpedo doing the MINE's
+    // damage at the MINE's blast radius, fired with intelligent lead at the
+    // first HOSTILE to enter its (much larger) trigger ring, and is EXPENDED on
+    // fire. THE TRANSFORM, derived post-fold in sim/stats.ts: the trigger and
+    // blast radii SWAP, then the trigger is multiplied by this factor — 144u
+    // trigger / 32u blast at base, 210.8u / 46.9u at a maxed MINES ladder. It
+    // is linear in the folded blast radius, so MINES cards apply on top and
+    // card ORDER CANNOT MATTER.
+    captiveTriggerFactor: 3,
+    // --- SELF-PROPELLED MINES doctrine (Story 2.8; the card and the
+    // `mine.selfPropelled` verb were DELETED in Story 7-5 wave 2 — CAPTIVE
+    // MINES replaces the tracking mine). These two knobs are the last of the
+    // creep behaviour still standing: server/src/game/world.ts reads them, so
+    // they are LEFT here to be deleted with that code path rather than ahead of
+    // it. Nothing in shared/ reads them.
     // Armed mines creep toward the nearest enemy hull within acquire range.
     // ACQUISITION IS SILHOUETTE-METRIC (Eric ruling 2026-08-02): the range below
     // is measured mine→hull POLYGON (pointPolygonDistance — the SAME metric the
@@ -1195,36 +1234,55 @@ export const CONFIG = {
   },
 
   /**
-   * Long-range cannon (Battleship slot 1, Story 1.7): a gun-pattern burst
-   * skillshot with bigger numbers (Eric Q&A 2026-07-21) — same fire flow as
-   * the standard gun (flies to the clicked point, bursts there, early
-   * interceptor takes the smaller contactDamage unless inside the would-be
-   * blast), its own CONFIG block. NO range field: cannon range is DERIVED from
-   * CONFIG.vision.radar in effectiveStats() (= the gun's BASE range — not
-   * extended, and NO upgrade stacks on it). Every number is a DESIGN TARGET,
+   * BROADSIDE BARRAGE (Battleship slot 1, Story 7-5 wave 2) — REPLACES the
+   * long-range cannon outright (Eric's `7-5-decks.md`). A click to either BEAM
+   * fires every broadside turret on THAT side in one barrage: one shell runs
+   * to the clicked point exactly, the rest fan out ANGULARLY about the click
+   * bearing and end their run at the SAME range (an arc at constant radius —
+   * sim/spread.ts fanTargets). Each shell is a real gun-pattern shell that
+   * BURSTS at its own point and emits its OWN mz/sp/hc signals — there is no
+   * salvo aggregation (R2.5).
+   *
+   * The ARC is a TWIN SECTOR (sim/arcs.ts, R2.1): two mirrored sectors at
+   * `heading ± arcOffsetDeg`, each `arcHalfArcDeg` wide, so port covers
+   * 30°–150° and starboard −30°–−150°, leaving 60°-wide dead zones dead ahead
+   * and dead astern. The side whose sector contains the click is the side that
+   * fires (R2.2); a click outside BOTH is DENIED through the ordinary
+   * out-of-arc denial path (FR12 — never silent). Geometry taken VERBATIM from
+   * the class-era side arcs (commit 26318d5).
+   *
+   * NO range field: broadside range is DERIVED in effectiveStats() as
+   * `radarRange × CONFIG.vision.muzzleFlashFactor` — THE 5/8 RUNG of the
+   * eighths ladder, 412.5u at base. It is the FIRST weapon in the game that
+   * does not reach the full radar horizon (Eric: *"This weapon's range is
+   * limited to 5/8"*), so it rides the ladder rather than a literal and moves
+   * with `intelRange` like everything else. Every number is a DESIGN TARGET,
    * tunable.
    */
-  cannon: {
-    arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
-    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
-    maxAmmo: 1, // single shot — a 1-round pool presented as a pure cooldown
-    // ms — cooldown between shots (the commitment spike). RETUNED 15000 →
-    // 50000 (Eric ruling 2026-08-04, the global-cooldown-reduction cycle): a
-    // 500 u/s shell at a 15s cadence gave no reaction window, making the
-    // cannon the strongest weapon in the game.
-    // AMENDED 50000 → 45000 (Eric ruling 2026-08-04, the weapon balance pass):
-    // the same-day 50s retune overshot; 45s keeps the commitment spike without
-    // benching the slot. A max shipCooldown build (5 copies, cooldownScale 0.5)
-    // now lands it at 22.5s (it was 25s under the 50s base).
-    reloadMs: 45000,
-    // hp per burst victim (pinned by damageGuardrail.test). RETUNED 50 → 65
-    // (Eric ruling 2026-08-04, weapon balance pass). HEAVY CHARGE ×5 was
-    // simultaneously cut to +2/card so the ladder tops at 75 — strictly under
-    // the 80hp one-hit-kill floor (see sim/boons.ts cannonDamage).
-    damage: 65,
-    contactDamage: 20, // hp to an early interceptor outside the blast (bodyblock)
-    burstRadius: 30, // u — blast radius around the clicked point
+  broadside: {
+    // deg — bearing of each sector's CENTER off the bow (±): the beams.
+    arcOffsetDeg: 90,
+    // deg — half-width of each beam sector about its center.
+    arcHalfArcDeg: 60,
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    maxAmmo: 1, // one barrage in the pool — presented as a pure cooldown
+    reloadMs: 30000, // ms — cooldown between barrages (Eric: "lets set the cooldown to 30 seconds")
+    turrets: 3, // shells per barrage at base; BROADSIDE TURRETS ×2 takes it to 5
+    damage: 20, // hp per burst victim, per shell (Eric: "lets say 20 damage")
+    // u — blast radius around each shell's own point. DRAFT (the gun's own
+    // burstRadius): Eric ruled the shells "burst like the gun" without naming
+    // a radius, so the gun's number is the handwave until it is tuned.
+    burstRadius: 15,
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
+    // deg — HALF-ANGLE of the full fan, indexed by BROADSIDE SPREAD copies
+    // held (index 0 = no cards, index 4 = the ×4 cap). The extreme shells sit
+    // at ±this; the rest are evenly spaced across it, so an ODD turret count
+    // puts one shell exactly on the click bearing and an EVEN count straddles
+    // it (sim/spread.ts). DRAFT LADDER (Eric: *"i don't know what scale to set
+    // these to yet, we'll need to tweak"* — spread, then parallel-ish, then
+    // near the clicked point). Read through
+    // EffectiveStats.broadside.fanHalfAngleRad, never indexed at a call site.
+    fanHalfAngleDeg: [12, 9, 6.5, 4.5, 3],
   },
 
   /**
@@ -1269,21 +1327,46 @@ export const CONFIG = {
   },
 
   /**
-   * Decoy buoy (Mine Layer slot 2, Story 1.8): an ACTIVATED ABILITY (Eric
-   * ruling 2026-07-22) — a stationary server entity dropped astern that
-   * radar-doubles the owner. To any fogged non-owner it paints on radar EXACTLY
-   * like the owner's own ship (same blip gate + materialize, id = the owner's
-   * ship id — wire-indistinguishable per FR10/counterIntel); one live per owner
-   * (a new placement silently replaces the old); persists to natural expiry
-   * (`durationMs`) even past owner death. Never blips to its owner, never a
-   * collision subject (shells/bursts pass through with no Hit Call), never trips
-   * mines. No legacy upgrade touches it. Every number is a DESIGN TARGET,
-   * tunable.
+   * RADAR BUOY (Mine Layer slot 2, Story 7-5 wave 2) — REPLACES the decoy buoy
+   * outright (Eric's `7-5-decks.md`). THE DECOY ROLE IS DELETED: nothing in
+   * the game fakes a ship contact any more. What is dropped now is a real
+   * sensor — a stationary, destructible buoy carrying its OWN radar set that
+   * RELAYS its returns to the player who placed it.
+   *
+   * It is CLICK-PLACED like a mine (R2.7), reusing the mine's rear sector
+   * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`), which is
+   * why it is a WEAPON in EQUIPMENT_IS_WEAPON rather than the 1.8 stern-drop
+   * ability. `radarRange` is a FLAT SET — the buoy's own equipment, NOT the
+   * owner's boon-scaled intel range — and its sweep is its own too.
+   *
+   * ONE BUOY, AND A GAP (Eric ruling 2026-08-19, amending R2.7 mid-flight): the
+   * life is SHORTER than the reload, so at most ONE buoy can ever be live and
+   * there is a ~10s dead window between one expiring and the next becoming
+   * available. That gap is the point — a buoy is a commitment, not permanent
+   * cover. The earlier ordering (30s life on a 20s reload) allowed two
+   * overlapping and is superseded. Do NOT close the gap by raising `maxAmmo` or
+   * shortening `reloadMs`.
+   * It paints on radar with its OWN profile carrying no owner identity (R2.9),
+   * and killing one pays no XP and prints no kill-feed line. Every number is a
+   * DESIGN TARGET, tunable.
    */
-  decoyBuoy: {
-    durationMs: 30000, // ms — lifetime before natural expiry
-    reloadMs: 20000, // ms — cooldown between placements
-    maxAmmo: 1, // single charge in the pool (one live per owner)
+  radarBuoy: {
+    radarRange: 330, // u — the buoy's OWN radar reach (flat; never observer-scaled)
+    sweepRpm: 15, // rev/min — its own sweep; BUOY ×4 adds +1.25/card to 20
+    durationMs: 20000, // ms — lifetime before natural expiry
+    hp: 50, // hp — destructible by anything that damages a ship
+    // ms — cooldown between placements. LONGER than the life (Eric 2026-08-19),
+    // so one buoy at a time with a ~10s dead gap between them.
+    reloadMs: 30000,
+    maxAmmo: 1, // single charge in the pool
+    // --- GUN BUOY doctrine (buoyGun): the buoy defends itself.
+    gunDamage: 5, // hp per shot at a hostile inside its own radarRange
+    gunReloadMs: 5000, // ms — cooldown between its shots
+    // --- JAMMING BUOY doctrine (buoyJamming): SERVER-GENERATED false returns,
+    // wire-indistinguishable from real blips, re-scattered each sweep inside
+    // the buoy's circle. It ADDS fakes and never deletes a real return; the
+    // buoy's owner is exempt. DRAFT count (R2.11).
+    jamFakes: 10,
   },
 
   /**

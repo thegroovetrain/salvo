@@ -57,9 +57,14 @@ is DELETED — nothing fakes a ship contact any more** (Eric: may return someday
 
 **R2.7 — the buoy.** Own radar, range 330u **[DRAFT: a flat constant, NOT observer-scaled — it is
 the buoy's own set, not the owner's build]**. Own sweep, 15 RPM base, +1.25/BUOY card → 20 at ×4.
-30 000 ms life. **50 HP, destructible by anything that damages a ship**; killing one pays NO XP and
+**20 000 ms life on a 30 000 ms reload (Eric ruling 2026-08-19 — SUPERSEDES the earlier
+30s/20s)**. **50 HP, destructible by anything that damages a ship**; killing one pays NO XP and
 prints NO kill-feed line. Click-placed like a mine — reuse the mine's rear sector (±60° at
-`placeRange` 150u). Pool 1 on a 20 000 ms reload against a 30s life, so TWO may be live.
+`placeRange` 150u). Pool 1.
+**CONSEQUENCE, ledgered not fudged:** life is now SHORTER than the reload, so **at most ONE buoy
+can ever be live**, with a ~10s dead gap between one expiring and the next being available. The
+earlier 30s/20s ordering allowed two overlapping; that is now structurally impossible. Nothing may
+"helpfully" restore overlap.
 
 **R2.8 — the relay is RADAR RETURNS ONLY, never vision.** The buoy is a second observer for
 `blipGate` purposes and nothing else: it grants no sight bubble, no truesight, no LOS. Its returns

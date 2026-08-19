@@ -2,7 +2,7 @@
 // dummy-set pins FLIPPED DELIBERATELY to the ratified v1 catalog shape
 // (amendment 42, thinned by the 2026-08-04 global-cooldown ruling): 36 card
 // lines across 9 categories, rarity/copies as
-// physical scarcity, 4 symmetric exclusive doctrine pairs, slotFill-only
+// physical scarcity, slotFill-only
 // acquisitions, healOnGrant on shipHull alone — all validated by the new
 // authoring-time validateBoonDef/validateCatalog (closing the 2.5 ledger
 // entry). The engine laws (two homes + hooks, fail-closed resolve, the
@@ -86,30 +86,32 @@ function flatten(stats: EffectiveStats): Map<string, number | string> {
 
 const ALL_DEFS = Object.values(BOON_CATALOG);
 
-/** The ratified rarity/copies table, every one of the 28 wave-1 lines
- *  (Story 7-5). Seven lines were DELETED here — `gunDamage`, `torpedoDamage`,
- *  `torpedoCommand`, `mineDamage`, `mineMax`, `starRadius`, `boostMax` — two
- *  are NEW (`boostDuration`/`boostSpeed`, the old `boostMax` split in half),
- *  and every doctrine card except the cannon pair dropped from `exclusive` to
- *  `rare` because its verb now STACKS instead of excluding. */
+/** The ratified rarity/copies table — the FINAL 29 lines (Story 7-5 wave 2:
+ *  23 upgrade lines + 6 acquisitions). Wave 2 replaced two whole equipments:
+ *  `cannonDamage`/`cannonArcing`/`cannonAp` gave way to `broadsideSpread` ×4 +
+ *  `broadsideTurrets` ×2, `decoyDuration` to `buoySweep` ×4 + `buoyGun` +
+ *  `buoyJamming`, and `mineSelfPropelled` to `mineCaptive`. NO `exclusive`
+ *  rarity survives anywhere in the table: the cannon pair was the tier's last
+ *  user, and every doctrine card is now a plain `rare` verb that STACKS. */
 const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   gunBarrel: { rarity: 'rare', copies: 2 },
   gunTurret: { rarity: 'rare', copies: 1 },
-  cannonDamage: { rarity: 'common', copies: 5 },
-  cannonArcing: { rarity: 'exclusive', copies: 1 }, // the LAST exclusive pair
-  cannonAp: { rarity: 'exclusive', copies: 1 },
+  broadsideSpread: { rarity: 'common', copies: 4 },
+  broadsideTurrets: { rarity: 'rare', copies: 2 },
   torpedoSpeed: { rarity: 'common', copies: 4 }, // the ratified ×4 ladder (60 → 80)
   torpedoTube: { rarity: 'rare', copies: 1 },
   torpedoHoming: { rarity: 'rare', copies: 1 },
   mineBlast: { rarity: 'common', copies: 4 },
-  mineSelfPropelled: { rarity: 'rare', copies: 1 },
+  mineCaptive: { rarity: 'rare', copies: 1 },
   minePropFouling: { rarity: 'rare', copies: 1 },
   boostDuration: { rarity: 'common', copies: 4 },
   boostSpeed: { rarity: 'common', copies: 2 },
   starDuration: { rarity: 'common', copies: 4 },
   starIncendiary: { rarity: 'rare', copies: 1 }, // PHOSPHOR SHELLS — display rename, id kept
   starDazzle: { rarity: 'rare', copies: 1 },
-  decoyDuration: { rarity: 'common', copies: 5 },
+  buoySweep: { rarity: 'common', copies: 4 },
+  buoyGun: { rarity: 'rare', copies: 1 },
+  buoyJamming: { rarity: 'rare', copies: 1 },
   intelRange: { rarity: 'common', copies: 4 },
   intelSweep: { rarity: 'common', copies: 5 },
   shipSpeed: { rarity: 'common', copies: 4 },
@@ -118,22 +120,37 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   acquireTorpedo: { rarity: 'rare', copies: 1 },
   acquireMine: { rarity: 'rare', copies: 1 },
   acquireStarShells: { rarity: 'rare', copies: 1 },
-  acquireCannon: { rarity: 'rare', copies: 1 },
-  acquireDecoy: { rarity: 'rare', copies: 1 },
+  acquireBroadside: { rarity: 'rare', copies: 1 },
+  acquireRadarBuoy: { rarity: 'rare', copies: 1 },
   acquireBoost: { rarity: 'rare', copies: 1 },
 };
 
 describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => {
-  it('ships exactly the 28 card lines of the scarcity table', () => {
+  it('ships exactly the 29 card lines of the scarcity table (the FINAL shape)', () => {
     expect(Object.keys(BOON_CATALOG).sort()).toEqual(Object.keys(SCARCITY).sort());
     // 36 -> 35 (intel merge) -> 34 (cannonBlast deleted) -> 33 (mine ring cards
-    // merged) -> 28 (Story 7-5 wave 1: 7 deleted, 2 added).
-    expect(ALL_DEFS).toHaveLength(28);
+    // merged) -> 28 (Story 7-5 wave 1: 7 deleted, 2 added) -> 29 (wave 2: 5
+    // deleted, 6 added) = 23 upgrade lines + 6 acquisitions.
+    expect(ALL_DEFS).toHaveLength(29);
+    expect(ALL_DEFS.filter((d) => !isAcquisitionDef(d))).toHaveLength(23);
+  });
+
+  // THE DECK ARITHMETIC, VERIFIED BY EXECUTION rather than by table (Story 7-5
+  // wave 2): every EQUIPMENT subdeck is exactly 6 CARDS and every hull's deck is
+  // exactly 41. The `guns` category is UNIVERSAL rather than an equipment
+  // subdeck (it is in every deck regardless of fit) and carries 3.
+  it('every equipment subdeck totals exactly 6 cards; the universal three total 25', () => {
+    const cardsIn = (category: string): number =>
+      ALL_DEFS.filter((d) => d.category === category && !isAcquisitionDef(d)).reduce((n, d) => n + d.copies, 0);
+    for (const category of ['torpedoes', 'mines', 'speedBoost', 'starShells', 'broadside', 'radarBuoy']) {
+      expect(cardsIn(category), category).toBe(6);
+    }
+    expect(cardsIn('intel') + cardsIn('ship') + cardsIn('guns')).toBe(25);
   });
 
   it('spans exactly the 9 categories', () => {
     expect(new Set(ALL_DEFS.map((d) => d.category))).toEqual(
-      new Set(['guns', 'cannon', 'torpedoes', 'mines', 'speedBoost', 'starShells', 'decoyBuoy', 'intel', 'ship']),
+      new Set(['guns', 'broadside', 'torpedoes', 'mines', 'speedBoost', 'starShells', 'radarBuoy', 'intel', 'ship']),
     );
   });
 
@@ -156,44 +173,21 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     expect(validateCatalog()).toEqual([]); // default arg = the production catalog
   });
 
-  // NARROWED PIN (Story 7-5 wave 1): there were FOUR exclusive pairs and there
-  // is now exactly ONE. Three pairs stopped contradicting each other — their
-  // verbs stack — so they dropped `exclusiveWith` and became plain rares. The
-  // cannon pair genuinely contradicts (AP hardcodes burstRadius 0 while arcing
-  // bursts on click), so it keeps the mechanism alive until wave 2 replaces the
-  // weapon. The pair SHAPE is pinned exactly as before; only the count moved.
-  it('the ONE surviving exclusive pair is symmetric, same-weapon doctrine cards', () => {
-    const pairs = [['cannonArcing', 'cannonAp', 'cannon']] as const;
-    const exclusives = ALL_DEFS.filter((d) => d.rarity === 'exclusive');
-    expect(exclusives.map((d) => d.id).sort()).toEqual(['cannonAp', 'cannonArcing']);
-    for (const [a, b, weapon] of pairs) {
-      expect(BOON_CATALOG[a].exclusiveWith).toBe(b);
-      expect(BOON_CATALOG[b].exclusiveWith).toBe(a);
-      for (const id of [a, b]) {
-        const doctrines = BOON_CATALOG[id].effects.filter((e) => e.kind === 'doctrine');
-        expect(doctrines, id).toHaveLength(1);
-        expect(doctrines[0].kind === 'doctrine' && doctrines[0].weapon, id).toBe(weapon);
-      }
-    }
-  });
-
-  // RETIRED HALF / SURVIVING HALF. `doctrine effects live ONLY on exclusives`
-  // is GONE, deliberately: rarity no longer says anything about whether an
-  // effect is a doctrine, because a stackable verb is an ordinary `rare` card.
-  // What survives is the exclusivity mechanism's own symmetry — an `exclusive`
-  // still requires a rival and a rival link still requires `exclusive` rarity.
-  it('exclusiveWith and the exclusive tier still imply each other (the mechanism survives)', () => {
+  // RETIRED, both of them (Story 7-5 wave 2): 'the ONE surviving exclusive pair
+  // is symmetric, same-weapon doctrine cards' and 'exclusiveWith and the
+  // exclusive tier still imply each other'. They tested a MECHANISM that no
+  // longer exists — `BoonDef.exclusiveWith` left the type with the cannon pair
+  // that was its last user (R2.6), so there is no link to be symmetric and no
+  // rival to require. What replaces them is one ABSENCE pin: the field cannot
+  // come back by accident, and no card in the catalog excludes another.
+  it('NO card excludes another — the exclusivity mechanism is gone end to end', () => {
+    expect(ALL_DEFS.filter((d) => d.rarity === 'exclusive')).toEqual([]);
     for (const d of ALL_DEFS) {
-      if (d.exclusiveWith !== undefined) expect(d.rarity, d.id).toBe('exclusive');
-      if (d.rarity === 'exclusive') {
-        expect(d.effects.some((e) => e.kind === 'doctrine'), d.id).toBe(true);
-        expect(d.exclusiveWith, d.id).toBeDefined();
-      }
+      expect(Object.hasOwn(d, 'exclusiveWith'), d.id).toBe(false);
     }
-    // The verb cards carry a doctrine at `rare` rarity and NO rival at all.
-    for (const id of ['torpedoHoming', 'minePropFouling', 'mineSelfPropelled', 'starIncendiary', 'starDazzle']) {
+    // Every doctrine card is a plain `rare` VERB that stacks with its siblings.
+    for (const id of ['torpedoHoming', 'minePropFouling', 'mineCaptive', 'starIncendiary', 'starDazzle', 'buoyGun', 'buoyJamming']) {
       expect(BOON_CATALOG[id].rarity, id).toBe('rare');
-      expect(BOON_CATALOG[id].exclusiveWith, id).toBeUndefined();
       expect(BOON_CATALOG[id].effects.some((e) => e.kind === 'doctrine'), id).toBe(true);
     }
   });
@@ -202,9 +196,9 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     const acquisitions = ALL_DEFS.filter((d) => isAcquisitionDef(d));
     expect(acquisitions.map((d) => d.id).sort()).toEqual([
       'acquireBoost',
-      'acquireCannon',
-      'acquireDecoy',
+      'acquireBroadside',
       'acquireMine',
+      'acquireRadarBuoy',
       'acquireStarShells',
       'acquireTorpedo',
     ]);
@@ -218,7 +212,7 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     }
     // Every acquirable equipment except the universal gun has exactly one card.
     const targets = acquisitions.map((d) => (d.effects[0].kind === 'slotFill' ? d.effects[0].equipmentId : ''));
-    expect(targets.sort()).toEqual(['cannon', 'decoyBuoy', 'mine', 'speedBoost', 'starShells', 'torpedo']);
+    expect(targets.sort()).toEqual(['broadside', 'mine', 'radarBuoy', 'speedBoost', 'starShells', 'torpedo']);
   });
 
   it('healOnGrant rides shipHull and NOTHING else', () => {
@@ -234,9 +228,10 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
       }
     }
     expect(BOON_STAT_PATHS).not.toContain('sweepPeriodMs'); // derived — never addressable
-    // No doctrine field is stat-addressable: not the cannon's surviving `mode`
-    // enum, and not any of the five verb booleans that replaced the other three.
-    const doctrineFields = ['mode', 'homing', 'propFouling', 'selfPropelled', 'phosphor', 'dazzle'];
+    // No doctrine field is stat-addressable. The cannon's `mode` enum is gone
+    // (wave 2), so this is now a pure list of VERB BOOLEANS — `mode` stays in
+    // the list as a guard against any future enum sneaking back in.
+    const doctrineFields = ['mode', 'homing', 'propFouling', 'captive', 'phosphor', 'dazzle', 'jamming'];
     for (const path of BOON_STAT_PATHS) {
       for (const f of doctrineFields) expect(path.endsWith(`.${f}`), path).toBe(false);
     }
@@ -264,10 +259,15 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     expect(BOON_STAT_PATHS).toContain('gun.damage'); // damage promoted onto EffectiveStats
   });
 
-  it('WHITELIST SHRINK: gun/cannon/starShells rangeU are OFF the whitelist (derived from radarRange, brainstorm 2026-07-30)', () => {
+  it('WHITELIST SHRINK: every rangeU is OFF the whitelist (derived from radarRange, brainstorm 2026-07-30)', () => {
     expect(BOON_STAT_PATHS).not.toContain('gun.rangeU');
-    expect(BOON_STAT_PATHS).not.toContain('cannon.rangeU');
     expect(BOON_STAT_PATHS).not.toContain('starShells.rangeU');
+    // The broadside's rangeU is derived too — at the 5/8 rung rather than 8/8
+    // (Story 7-5 wave 2) — and so is its fan half-angle, which reads the
+    // authored ladder off the stat-addressable SPREAD rung.
+    expect(BOON_STAT_PATHS).not.toContain('broadside.rangeU');
+    expect(BOON_STAT_PATHS).not.toContain('broadside.fanHalfAngleRad');
+    expect(BOON_STAT_PATHS).toContain('broadside.spreadRung');
   });
 
   it('the universal categories are intel + ship + guns; equipment categories map 1:1', () => {
@@ -277,19 +277,19 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
       torpedo: 'torpedoes',
       mine: 'mines',
       speedBoost: 'speedBoost',
-      cannon: 'cannon',
+      broadside: 'broadside',
       starShells: 'starShells',
-      decoyBuoy: 'decoyBuoy',
+      radarBuoy: 'radarBuoy',
     });
-    // The verb vocabulary (Story 7-5 wave 1). On torpedo/mine/starShells each
-    // entry is now the NAME OF A BOOLEAN FIELD on EffectiveStats; on the cannon
-    // it is still a value of the `mode` enum. COMMAND DETONATION is deleted and
-    // 'incendiary' was renamed to the verb 'phosphor'.
+    // The verb vocabulary. EVERY entry is now the NAME OF A BOOLEAN FIELD on
+    // EffectiveStats — the cannon's `mode` enum was the last exception and died
+    // with the weapon (Story 7-5 wave 2). SELF-PROPELLED became CAPTIVE, and the
+    // radar buoy brings two verbs of its own.
     expect(DOCTRINE_MODES).toEqual({
-      cannon: ['arcing', 'ap'],
       torpedo: ['homing'],
-      mine: ['propFouling', 'selfPropelled'],
+      mine: ['propFouling', 'captive'],
       starShells: ['phosphor', 'dazzle'],
+      radarBuoy: ['gun', 'jamming'],
     });
   });
 
@@ -340,34 +340,38 @@ describe('validateBoonDef — authoring-time rejection cases', () => {
     }
   });
 
-  it('rejects empty effects, non-integer/zero copies, and multi-copy exclusives', () => {
+  it('rejects empty effects, non-integer/zero copies, and a multi-copy exclusive', () => {
     expect(validateBoonDef({ ...base, effects: [] }, BOON_CATALOG)).not.toEqual([]);
     expect(validateBoonDef({ ...base, copies: 0 }, BOON_CATALOG)).not.toEqual([]);
     expect(validateBoonDef({ ...base, copies: 1.5 }, BOON_CATALOG)).not.toEqual([]);
-    expect(validateBoonDef({ ...BOON_CATALOG.cannonArcing, copies: 2 }, BOON_CATALOG)).not.toEqual([]);
+    // The `exclusive` TIER survives as a scarcity label with no user in the
+    // catalog (Story 7-5 wave 2), and its 1-copy rule is still enforced — so a
+    // future exclusive cannot ship malformed. Built by hand now that no
+    // production def carries the rarity.
+    expect(validateBoonDef({ ...base, rarity: 'exclusive', copies: 2 } as BoonDef, BOON_CATALOG)).not.toEqual([]);
   });
 
-  it('rejects an asymmetric or wrong-weapon exclusive link', () => {
-    // Points at torpedoHoming, which points back at torpedoCommand — asymmetric.
-    expect(validateBoonDef({ ...BOON_CATALOG.cannonArcing, exclusiveWith: 'torpedoHoming' }, BOON_CATALOG)).not.toEqual([]);
-    // Rival missing from the catalog entirely.
-    expect(validateBoonDef({ ...BOON_CATALOG.cannonArcing, exclusiveWith: 'ghost' }, BOON_CATALOG)).not.toEqual([]);
-    // An exclusive without a rival at all.
-    const lonely = { ...BOON_CATALOG.cannonArcing } as { exclusiveWith?: string };
-    delete lonely.exclusiveWith;
-    expect(validateBoonDef(lonely as BoonDef, BOON_CATALOG)).not.toEqual([]);
-  });
+  // RETIRED (Story 7-5 wave 2): 'rejects an asymmetric or wrong-weapon
+  // exclusive link'. `BoonDef.exclusiveWith` left the type with the cannon
+  // pair, so there is no link to author wrongly — the whole validator it
+  // exercised (validateExclusiveLink/validateRival) is deleted. The catalog-wide
+  // absence pin above is what guards the field's return.
 
   // RETIRED CLAUSE, named rather than quietly dropped: this test used to also
   // assert that a doctrine effect at non-exclusive rarity is rejected. Story
-  // 7-5 wave 1 makes that the NORMAL case — five catalog lines are `rare`
-  // doctrine cards — so the clause is gone. The unknown-weapon and
-  // unknown-verb rejections, which are the actual fail-closed gate, stand.
+  // 7-5 wave 1 makes that the NORMAL case — every doctrine line is a `rare`
+  // verb card — so the clause is gone. The unknown-weapon and unknown-verb
+  // rejections, which are the actual fail-closed gate, stand.
   it('rejects unknown doctrine weapons and unknown verbs', () => {
-    const badMode = { ...BOON_CATALOG.cannonArcing, effects: [{ kind: 'doctrine', weapon: 'cannon', mode: 'nuclear' }] } as unknown as BoonDef;
+    const badMode = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'mine', mode: 'nuclear' }] } as unknown as BoonDef;
     expect(validateBoonDef(badMode, BOON_CATALOG)).not.toEqual([]);
-    const badWeapon = { ...BOON_CATALOG.cannonArcing, effects: [{ kind: 'doctrine', weapon: 'gun', mode: 'arcing' }] } as unknown as BoonDef;
+    const badWeapon = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'gun', mode: 'captive' }] } as unknown as BoonDef;
     expect(validateBoonDef(badWeapon, BOON_CATALOG)).not.toEqual([]);
+    // The DELETED weapon and verb are rejected exactly like any other unknown.
+    const goneWeapon = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'cannon', mode: 'ap' }] } as unknown as BoonDef;
+    expect(validateBoonDef(goneWeapon, BOON_CATALOG)).not.toEqual([]);
+    const goneVerb = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'mine', mode: 'selfPropelled' }] } as unknown as BoonDef;
+    expect(validateBoonDef(goneVerb, BOON_CATALOG)).not.toEqual([]);
     // The RETIRED verb names are rejected exactly like any other unknown.
     const retired = { ...BOON_CATALOG.starDazzle, effects: [{ kind: 'doctrine', weapon: 'starShells', mode: 'incendiary' }] } as unknown as BoonDef;
     expect(validateBoonDef(retired, BOON_CATALOG)).not.toEqual([]);
@@ -625,8 +629,8 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
     REPLACE_BOON,
     BEHAVIOR_BOON,
     def('fillMine', { kind: 'slotFill', equipmentId: 'mine' }),
-    def('mineToDecoy', { kind: 'slotReplace', from: 'mine', to: 'decoyBuoy' }),
-    def('boostToCannon', { kind: 'slotReplace', from: 'speedBoost', to: 'cannon' }),
+    def('mineToBuoy', { kind: 'slotReplace', from: 'mine', to: 'radarBuoy' }),
+    def('boostToBroadside', { kind: 'slotReplace', from: 'speedBoost', to: 'broadside' }),
     def('combo', { kind: 'stat', path: 'torpedo.reloadMs', mult: 0.8 }, { kind: 'slotFill', equipmentId: 'starShells' }),
   ];
 
@@ -669,7 +673,7 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
     const build = resolveBoons(['gunTurret', 'acquireMine']);
     const stats = effectiveStats(BS, build);
     const loadout = slotsWithBoons('battleship', stats, build);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'cannon', 'starShells', 'mine']);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'broadside', 'starShells', 'mine']);
     expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // AFT TURRET pool
     expect(loadout[SLOT_EXTRA].state).toEqual({ n: equipmentMaxAmmo(stats, 'mine'), reloadMsLeft: 0 });
   });

@@ -3,10 +3,10 @@
 // two specials, one extra), each either empty or holding one equipment id +
 // its state. The fit is per-hull (Stories 1.6–1.8): the Torpedo Boat carries
 // [gun, torpedo, speedBoost, empty], the Battleship carries
-// [gun, cannon, starShells, empty], the Mine Layer carries
-// [gun, mine, decoyBuoy, empty] (Story 1.8), while every drone keeps the
-// universal fit [gun, torpedo, mine, empty]. speedBoost, mine (as of 1.8), and
-// decoyBuoy are the non-weapon (instant-activation) specials. Pure, zero I/O.
+// [gun, broadside, starShells, empty], the Mine Layer carries
+// [gun, mine, radarBuoy, empty] (Story 7-5 wave 2), while every drone keeps the
+// universal fit [gun, torpedo, mine, empty]. speedBoost is the ONLY non-weapon
+// (instant-activation) special left. Pure, zero I/O.
 
 import type { HullId } from '../constants.js';
 import type { EffectiveStats } from './stats.js';
@@ -17,9 +17,9 @@ export type EquipmentId =
   | 'torpedo'
   | 'mine'
   | 'speedBoost'
-  | 'cannon'
+  | 'broadside'
   | 'starShells'
-  | 'decoyBuoy';
+  | 'radarBuoy';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
@@ -38,9 +38,16 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // instant-activate stern drop.
   mine: true,
   speedBoost: false,
-  cannon: true, // Story 1.7: prime-then-click burst skillshot (gun pattern)
+  // Story 7-5 wave 2: the BROADSIDE BARRAGE — prime, aim into ONE of the two
+  // beam sectors (sim/arcs.ts 'twin-sector'), click fires that side's whole
+  // barrage at the clicked point's RANGE. A click outside both sectors is
+  // denied out-of-arc.
+  broadside: true,
   starShells: true, // Story 1.7: prime-then-click skillshot (spawns a lit zone at burst)
-  decoyBuoy: false, // Story 1.8: activated ability — drops a stationary radar-double
+  // Story 7-5 wave 2 (R2.7): the RADAR BUOY is CLICK-PLACED like the mine — it
+  // shares the mine's rear sector and placeRange — so it is a WEAPON now,
+  // where the decoy buoy it replaces was an un-aimed stern-drop ABILITY.
+  radarBuoy: true,
 };
 
 /**
@@ -90,9 +97,9 @@ export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number
     torpedo: stats.torpedo.maxAmmo,
     mine: stats.mine.maxAmmo,
     speedBoost: stats.boost.maxAmmo,
-    cannon: stats.cannon.maxAmmo,
+    broadside: stats.broadside.maxAmmo,
     starShells: stats.starShells.maxAmmo,
-    decoyBuoy: stats.decoyBuoy.maxAmmo,
+    radarBuoy: stats.radarBuoy.maxAmmo,
   }[id];
 }
 
@@ -103,15 +110,15 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
     torpedo: stats.torpedo.reloadMs,
     mine: stats.mine.reloadMs,
     speedBoost: stats.boost.reloadMs,
-    cannon: stats.cannon.reloadMs,
+    broadside: stats.broadside.reloadMs,
     starShells: stats.starShells.reloadMs,
-    decoyBuoy: stats.decoyBuoy.reloadMs,
+    radarBuoy: stats.radarBuoy.reloadMs,
   }[id];
 }
 
 /** The two specials (slots 1–2) each hull id fits: torpedo + speedBoost for the
- *  Torpedo Boat (1.6), cannon + starShells for the Battleship (1.7), mine +
- *  decoyBuoy for the Mine Layer (1.8).
+ *  Torpedo Boat (1.6), broadside + starShells for the Battleship (7-5 wave 2),
+ *  mine + radarBuoy for the Mine Layer (7-5 wave 2).
  *
  *  PvE FLEET HULLS FIT NOTHING (Story 5.6, epic-5 amendment 34). They used to
  *  fall through this function's catch-all and inherit the universal
@@ -121,16 +128,16 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  *  specials are gone and the gun in slot 0 is the whole fit. */
 function specialsFor(hullId: HullId): [EquipmentId | null, EquipmentId | null] {
   if (hullId === 'torpedoBoat') return ['torpedo', 'speedBoost'];
-  if (hullId === 'battleship') return ['cannon', 'starShells'];
-  if (hullId === 'mineLayer') return ['mine', 'decoyBuoy'];
+  if (hullId === 'battleship') return ['broadside', 'starShells'];
+  if (hullId === 'mineLayer') return ['mine', 'radarBuoy'];
   return [null, null]; // PvE fleet hulls: gun only
 }
 
 /**
  * The loadout a given hull id spawns with (per-hull, Stories 1.6–1.8, 5.6). The
  * Torpedo Boat fits [gun, torpedo, speedBoost, empty]; the Battleship fits
- * [gun, cannon, starShells, empty]; the Mine Layer fits
- * [gun, mine, decoyBuoy, empty] (Story 1.8); a PvE fleet hull fits
+ * [gun, broadside, starShells, empty]; the Mine Layer fits
+ * [gun, mine, radarBuoy, empty] (Story 7-5 wave 2); a PvE fleet hull fits
  * [gun, empty, empty, empty] (Story 5.6). Fitted slots start with a full
  * pool and an idle reload timer — exactly matching server
  * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics.

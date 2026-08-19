@@ -3,6 +3,48 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  43: UPGRADE CARDS v2, WAVE 2 (Story 7-5) — TWO EQUIPMENTS REPLACED OUTRIGHT,
+ *  and the catalog reaches its FINAL shape. Four independent wire breaks.
+ *  (a) TWO EquipmentId VALUES CHANGE: `cannon` → `broadside` and `decoyBuoy` →
+ *  `radarBuoy`. Equipment ids ride every loadout the client mirrors and drive
+ *  the hotbar, the arc renderer and the prime/fire channel, so a stale client
+ *  holds a slot id the server no longer knows. The Battleship's fit becomes
+ *  [gun, broadside, starShells, empty] and the Mine Layer's
+ *  [gun, mine, radarBuoy, empty]. The radar buoy is also a WEAPON now — it is
+ *  click-placed in the mine's rear sector rather than dropped astern — so it
+ *  moved from the actSeq ability channel to the fireSeq weapon channel, and the
+ *  `stern-drop` ARC SHAPE is deleted with its last user (a new `twin-sector`
+ *  shape arrives for the broadside's two beam arcs).
+ *  (b) BOON_CATALOG REACHES ITS FINAL 23 LINES + 6 ACQUISITIONS (28 → 29 defs;
+ *  catalog content has been wire contract since PV 13). OUT: `cannonDamage`,
+ *  `cannonArcing`, `cannonAp`, `decoyDuration`, `mineSelfPropelled`. IN:
+ *  `broadsideSpread` ×4, `broadsideTurrets` ×2, `buoySweep` ×4, `buoyGun`,
+ *  `buoyJamming`, `mineCaptive`. RENAMED: `acquireCannon` → `acquireBroadside`,
+ *  `acquireDecoy` → `acquireRadarBuoy`. The `cannon` and `decoyBuoy` CATEGORIES
+ *  are replaced by `broadside`/`radarBuoy`, so every equipment subdeck is now
+ *  exactly 6 cards and every hull's deck exactly 41. A stale client resolves a
+ *  deleted id fail-closed and silently drops the whole boon — protected from
+ *  CRASHING, never from being WRONG.
+ *  (c) THE EXCLUSIVITY MECHANISM IS DELETED (R2.6). `BoonDef.exclusiveWith`
+ *  leaves the type, with its symmetry validation, the doctrine swap-out and
+ *  `returnCards`. The cannon pair was its last user (wave 1 R4) and it died
+ *  with the weapon, so no card can exclude another any more — the deck has no
+ *  inflow at all. `EffectiveStats.cannon.mode` and the `CannonMode` enum go the
+ *  same way, which leaves EVERY doctrine in the game an independent boolean
+ *  verb and the fold with no special cases.
+ *  (d) EffectiveStats MOVES, and it is the desync firewall both sides call:
+ *  `cannon` → `broadside` (damage/burstRadius/reloadMs/maxAmmo/turrets, plus a
+ *  DERIVED `rangeU` at the 5/8 muzzle-flash rung — the FIRST weapon in the game
+ *  that does not reach the full radar horizon — and a DERIVED `fanHalfAngleRad`
+ *  off the authored SPREAD ladder); `decoyBuoy` → `radarBuoy` (its OWN flat
+ *  radarRange/sweepRpm/hp/gunDamage/gunReloadMs plus the `gun`/`jamming` verbs);
+ *  and `mine.selfPropelled` becomes `mine.captive`, whose transform SWAPS the
+ *  trip and blast rings and triples the trip (144u/32u at base). Also riding
+ *  this bump, both wire-shaped: `DecoyView` becomes `BuoyView` and
+ *  `FrameMsg.decoys` becomes `FrameMsg.buoys` (the decoy ROLE is deleted —
+ *  nothing fakes a ship contact any more, so what paints is the buoy itself on
+ *  its own profile), and `ShellOutcome` loses its `'pierced'` member with the
+ *  AP sweep.
  *  42: UPGRADE CARDS v2, WAVE 1 (Story 7-5, Eric's `7-5-decks.md` rewrite) —
  *  THREE independent wire breaks in one bump.
  *  (a) BOON_CATALOG IS REWRITTEN. Catalog content has been wire contract since
@@ -427,7 +469,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 42;
+export const PROTOCOL_VERSION = 43;
 
 // Tunables
 export * from './constants.js';
@@ -459,6 +501,7 @@ export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';
 export * from './sim/island.js';
 export * from './sim/aim.js';
+export * from './sim/spread.js';
 export * from './sim/shell.js';
 export * from './sim/map.js';
 export * from './sim/noise.js';

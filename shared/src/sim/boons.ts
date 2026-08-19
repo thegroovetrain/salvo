@@ -28,7 +28,7 @@
 import type { EquipmentId, LoadoutSlot } from './loadout.js';
 import { SLOT_EXTRA, equipmentMaxAmmo, loadoutFor } from './loadout.js';
 import { CONFIG, type HullId } from '../constants.js';
-import type { CannonMode, EffectiveStats } from './stats.js';
+import { broadsideFanHalfAngle, clampSpreadRung, mineTriggerRadius, type EffectiveStats } from './stats.js';
 import type { HookParams } from './hooks.js';
 
 /** Catalog boon id (camelCase string — the registry-id convention). */
@@ -55,25 +55,25 @@ export const EQUIPMENT_CATEGORY: Readonly<Record<EquipmentId, BoonCategory>> = {
   torpedo: 'torpedoes',
   mine: 'mines',
   speedBoost: 'speedBoost',
-  cannon: 'cannon',
+  broadside: 'broadside',
   starShells: 'starShells',
-  decoyBuoy: 'decoyBuoy',
+  radarBuoy: 'radarBuoy',
 };
 
 /**
  * The known doctrine VERBS per weapon — the fold's fail-closed vocabulary AND
- * the validateBoonDef authoring gate. Story 7-5 wave 1: on torpedo/mine/
- * starShells each entry now names a BOOLEAN FIELD on EffectiveStats that the
- * fold sets true (verbs STACK — a star shell may be both phosphor and dazzle);
- * on the cannon alone it still names a value of the single-valued `mode` enum,
- * because PLUNGING FIRE and ARMOR-PIERCING genuinely contradict. Nothing else
- * about the effect shape moved. An unknown weapon or verb is a no-op.
+ * the validateBoonDef authoring gate. EVERY entry names a BOOLEAN FIELD on that
+ * weapon's EffectiveStats block which the fold sets true; verbs STACK (a star
+ * shell may be both phosphor and dazzle, a mine both captive and prop-fouling).
+ * Story 7-5 wave 2 removed the LAST exception: the cannon's single-valued
+ * `mode` enum died with the weapon, so there is no special case left in the
+ * fold. An unknown weapon or verb is a no-op.
  */
 export const DOCTRINE_MODES = {
-  cannon: ['arcing', 'ap'],
   torpedo: ['homing'],
-  mine: ['propFouling', 'selfPropelled'],
+  mine: ['propFouling', 'captive'],
   starShells: ['phosphor', 'dazzle'],
+  radarBuoy: ['gun', 'jamming'],
 } as const satisfies Partial<Record<EquipmentId, readonly string[]>>;
 
 /** A weapon that carries doctrine state on EffectiveStats (verb booleans, or
@@ -83,12 +83,13 @@ export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
 /**
  * The typed whitelist of EffectiveStats scalar paths a `stat` effect may
  * address — every scalar except the derived fields (always re-derived after
- * the fold, never independently stat-addressable) and the mode fields
+ * the fold, never independently stat-addressable) and the verb flags
  * (doctrine effects' home). Derived fields: `sweepPeriodMs` (from sweepRpm),
- * and `gun.rangeU`/`cannon.rangeU`/`starShells.rangeU` (from radarRange —
- * brainstorm 2026-07-30: Intel's radarRange growth quietly buffs gun/cannon/
- * blast-torp reach too, so those three ride radarRange, they don't take their
- * own boon lines). Story 2.8 additions: the promoted damage/blast/trigger/lit
+ * `gun.rangeU`/`starShells.rangeU` (from radarRange — brainstorm 2026-07-30:
+ * Intel's radarRange growth quietly buffs gun/blast-torp reach too, so they
+ * ride radarRange rather than taking their own boon lines) and
+ * `broadside.rangeU` (from radarRange at the 5/8 rung) plus
+ * `broadside.fanHalfAngleRad` (from the SPREAD rung). Story 2.8 additions: the promoted damage/blast/trigger/lit
  * scalars, plus `gun.barrels` and `gun.maxAmmo` — the single-shot gun-pool
  * pin is DELIBERATELY RETIRED (AFT TURRET raises the pool; clamps live in
  * effectiveStats).
@@ -152,18 +153,38 @@ export const BOON_STAT_PATHS = [
   'boost.durationMs',
   'boost.maxAmmo',
   'boost.reloadMs',
-  'cannon.reloadMs',
-  'cannon.maxAmmo',
-  'cannon.damage',
-  'cannon.contactDamage',
-  'cannon.burstRadius',
   'starShells.reloadMs',
   'starShells.maxAmmo',
   'starShells.litRadius',
   'starShells.litDurationMs',
-  'decoyBuoy.reloadMs',
-  'decoyBuoy.maxAmmo',
-  'decoyBuoy.durationMs',
+  // --- the BROADSIDE BARRAGE (Story 7-5 wave 2, replacing the cannon's paths).
+  // `broadside.rangeU` is DELIBERATELY ABSENT: it is DERIVED as
+  // `radarRange × CONFIG.vision.muzzleFlashFactor` (the 5/8 rung), re-pinned
+  // post-fold in both clampStats and applyBoonStats exactly as its two gun-family
+  // siblings are — so a card addressing it would be a second derivation.
+  // `broadside.fanHalfAngleRad` is absent for the same reason: the SPREAD card
+  // writes the 1-based `spreadRung` and the angle is read off the authored
+  // ladder. `damage`/`burstRadius`/`reloadMs`/`maxAmmo` are whitelisted-but-
+  // unwritten (the established shape — no card drives them today).
+  'broadside.reloadMs',
+  'broadside.maxAmmo',
+  'broadside.damage',
+  'broadside.burstRadius',
+  'broadside.turrets',
+  'broadside.spreadRung',
+  // --- the RADAR BUOY (Story 7-5 wave 2, replacing the decoy's paths).
+  // `radarBuoy.radarRange` is whitelisted-but-unwritten deliberately: the buoy's
+  // set is FLAT by ruling (R2.7 — the equipment's own reach, never the owner's
+  // intel build), so no card writes it, but a future BUOY RANGE line would land
+  // here without touching this whitelist.
+  'radarBuoy.reloadMs',
+  'radarBuoy.maxAmmo',
+  'radarBuoy.durationMs',
+  'radarBuoy.radarRange',
+  'radarBuoy.sweepRpm',
+  'radarBuoy.hp',
+  'radarBuoy.gunDamage',
+  'radarBuoy.gunReloadMs',
 ] as const;
 
 /** A stat-addressable EffectiveStats scalar path. */
@@ -233,11 +254,15 @@ export type BoonEffect =
 
 /**
  * One catalog card LINE: id, category, scarcity (rarity + physical copies),
- * and its effect list. `exclusiveWith` links the two cards of a CONTRADICTORY
- * doctrine pair (symmetric, same weapon — validated); since Story 7-5 wave 1
- * the cannon pair is its only user, because every other doctrine card became
- * an independently-stackable verb. `healOnGrant` marks the grant itself as
- * healing the granted maxHp delta (shipHull — the ONLY heal path).
+ * and its effect list. `healOnGrant` marks the grant itself as healing the
+ * granted maxHp delta (shipHull — the ONLY heal path).
+ *
+ * `exclusiveWith` IS DELETED (Story 7-5 wave 2, R2.6). Wave 1 turned every
+ * doctrine card into an independently-stackable VERB and left the cannon's
+ * PLUNGING FIRE ⚔ ARMOR-PIERCING pair as the mechanism's last user; wave 2
+ * deleted the cannon, so the field, its symmetry validation, the deck
+ * swap-out and the give-back all go with it. There is no longer any way for
+ * one card to exclude another, by construction.
  */
 export interface BoonDef {
   id: BoonId;
@@ -245,7 +270,6 @@ export interface BoonDef {
   rarity: BoonRarity;
   copies: number;
   effects: readonly BoonEffect[];
-  exclusiveWith?: BoonId;
   healOnGrant?: true;
 }
 
@@ -280,8 +304,27 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
 });
 
 /**
- * THE production Boon Catalog — STORY 7-5 WAVE 1 (Eric's card rewrite,
- * `7-5-decks.md`). 28 card lines across 9 categories; was 33.
+ * THE production Boon Catalog — STORY 7-5 WAVE 2 (Eric's card rewrite,
+ * `7-5-decks.md`). 29 card lines across 9 categories — THE FINAL SHAPE: 23
+ * upgrade lines + 6 acquisitions, every equipment subdeck exactly 6 CARDS and
+ * every hull's deck exactly 41.
+ *
+ * WAVE 2 REPLACED TWO WHOLE EQUIPMENTS. The cannon became the BROADSIDE
+ * BARRAGE (`cannonDamage`/`cannonArcing`/`cannonAp` out, `broadsideSpread` ×4 +
+ * `broadsideTurrets` ×2 in) and the decoy buoy became the RADAR BUOY
+ * (`decoyDuration` out, `buoySweep` ×4 + `buoyGun` + `buoyJamming` in), so the
+ * `cannon` and `decoyBuoy` CATEGORIES are gone and `broadside`/`radarBuoy` take
+ * their places. `mineSelfPropelled` was replaced by `mineCaptive` — the tracking
+ * mine becomes a torpedo mine — and the two acquisition cards were renamed with
+ * their equipment (`acquireCannon` → `acquireBroadside`, `acquireDecoy` →
+ * `acquireRadarBuoy`).
+ *
+ * AND THE EXCLUSIVITY MECHANISM IS GONE ENTIRELY. The cannon pair was its last
+ * user (wave 1 R4), so with the cannon deleted `BoonDef.exclusiveWith`, its
+ * symmetry validation, the deck swap-out and `returnCards` all died here. Every
+ * card in the catalog now stacks with every other; the `exclusive` RARITY TIER
+ * survives as a scarcity label with no user, and `validateScarcity` still
+ * enforces its 1-copy rule so a future one cannot ship malformed.
  *
  * WHAT THIS PASS DID, in one paragraph. Every ladder Eric re-authored is now a
  * SHORT ladder of BIG steps at a smaller copy count (HULL/SPEED/RANGE/MINES/
@@ -298,16 +341,11 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
  * battleship against +29% on its top speed).
  *
  * AND THE DOCTRINE CARDS STOPPED BEING EITHER/OR. PHOSPHOR/DAZZLE and
- * PROP-FOULING/SELF-PROPELLED are now INDEPENDENT VERBS you may hold together
- * (see EffectiveStats' boolean verb fields and applyDoctrineEffect above), so
- * they drop `exclusiveWith` and their rarity collapses from `exclusive` to
- * `rare`. `PHOSPHOR SHELLS` is a DISPLAY rename of the card whose id stays
- * `starIncendiary` — project law, the KILL LEADER precedent: a copy rename is
- * not an id rename. The `exclusive` TIER and the whole exclusivity mechanism
- * SURVIVE untouched, because the cannon pair still uses them: PLUNGING FIRE
- * and ARMOR-PIERCING really do contradict (AP hardcodes burstRadius 0), so
- * independent flags there would ship an incoherent state. That pair, and the
- * mechanism with it, is wave 2's problem.
+ * PROP-FOULING/CAPTIVE are INDEPENDENT VERBS you may hold together (see
+ * EffectiveStats' boolean verb fields and applyDoctrineEffect above), so none
+ * of them carries an exclusion and their rarity is plain `rare`. `PHOSPHOR
+ * SHELLS` is a DISPLAY rename of the card whose id stays `starIncendiary` —
+ * project law, the KILL LEADER precedent: a copy rename is not an id rename.
  *
  * Player-facing names live CLIENT-side (boonCopy.ts). Stack count = OCCURRENCES
  * of an id in ship.boons / you.boons; `copies` IS the cap (THE DECK MODEL,
@@ -324,21 +362,26 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // need damage bonuses."*). `gun.damage` stays on BOON_STAT_PATHS with no card
   // behind it — the established shape (the cycle-93 FRAGMENTATION CASING
   // precedent).
-  // BARREL I–II (rare ×2): +1 barrel per card (clamped 1..3). The shots fire in
-  // PARALLEL lines rather than a spread — that geometry is wave 2.
+  // BARREL I–II (rare ×2): +1 barrel per card (clamped 1..3). The shots fire on
+  // PARALLEL TRACKS rather than a spreading fan (wave 2, R2.16 —
+  // CONFIG.gun.barrelSpacingU + sim/spread.ts), straddling the click exactly as
+  // the broadside's fan does.
   gunBarrel: { id: 'gunBarrel', category: 'guns', rarity: 'rare', copies: 2, effects: [stat('gun.barrels', { add: 1 })] },
   // EXTRA TURRET (rare ×1): gun pool 1 → 2 — the single-shot pin deliberately retired.
   gunTurret: { id: 'gunTurret', category: 'guns', rarity: 'rare', copies: 1, effects: [stat('gun.maxAmmo', { add: 1 })] },
-  // --- cannon (WAVE 2: the cannon becomes the BROADSIDE BARRAGE) ------------
-  // Carried forward BYTE-IDENTICAL. HEAVY CHARGE Mk I–V: 65 → 75 hp (+2/card).
-  cannonDamage: { id: 'cannonDamage', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.damage', { add: 2 })] },
-  // PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS — THE LAST EXCLUSIVE PAIR IN THE
-  // GAME, and the reason `exclusiveWith`, its symmetry validation, the deck
-  // swap-out and returnCards all still exist. AP hardcodes burstRadius 0 while
-  // arcing bursts on click: holding both is not a build, it is a contradiction.
-  // Both cards (and the mechanism) go in wave 2 with the weapon.
-  cannonArcing: { id: 'cannonArcing', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonAp', effects: [doctrine('cannon', 'arcing')] },
-  cannonAp: { id: 'cannonAp', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonArcing', effects: [doctrine('cannon', 'ap')] },
+  // --- broadside (the BROADSIDE BARRAGE — replaces the cannon) --------------
+  // BROADSIDE SPREAD I–IV (×4): each card climbs the authored fan ladder
+  // (12° → 9° → 6.5° → 4.5° → 3° half-angle), so the barrage tightens from a
+  // wide sweep toward the clicked point. The card writes the 1-BASED RUNG and
+  // `broadside.fanHalfAngleRad` is derived from it (sim/stats.ts): the ladder is
+  // a table of authored degrees, not a constant step, so no `mult`/`add` can
+  // express it and a derived read is the only way it stays one derivation.
+  broadsideSpread: { id: 'broadsideSpread', category: 'broadside', rarity: 'common', copies: 4, effects: [stat('broadside.spreadRung', { add: 1 })] },
+  // BROADSIDE TURRETS I–II (rare ×2): +1 shell per barrage, 3 → 5. At 4 turrets
+  // NO shell sits on the click (the two center shells straddle it); at 5 the
+  // middle shell is back on the bearing — Eric's own straddle rule, implemented
+  // structurally by sim/spread.ts rather than special-cased per count.
+  broadsideTurrets: { id: 'broadsideTurrets', category: 'broadside', rarity: 'rare', copies: 2, effects: [stat('broadside.turrets', { add: 1 })] },
   // --- torpedoes -----------------------------------------------------------
   // HEAVY WARHEAD is DELETED — `torpedo.damage` keeps its whitelisted path with
   // no card behind it.
@@ -360,10 +403,13 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // cycle-95 ruling deleted that), and since wave 1 no longer exclusive with
   // anything. Holding it alongside SELF-PROPELLED is now a legal build.
   minePropFouling: { id: 'minePropFouling', category: 'mines', rarity: 'rare', copies: 1, effects: [doctrine('mine', 'propFouling')] },
-  // SELF-PROPELLED MINES (rare ×1): carried forward as a card so the line
-  // survives into wave 2, where it is reworked into CAPTIVE MINES. It loses
-  // only its exclusivity here — the verb itself is untouched.
-  mineSelfPropelled: { id: 'mineSelfPropelled', category: 'mines', rarity: 'rare', copies: 1, effects: [doctrine('mine', 'selfPropelled')] },
+  // CAPTIVE MINES (rare ×1): REPLACES SELF-PROPELLED MINES outright (Eric:
+  // *"this replaces the old tracking mines with a more realistic torpedo
+  // mine"*). The verb swaps the trip/blast rings and triples the trip
+  // (sim/stats.ts — 144u/32u at base), and the mine stops detonating on contact
+  // entirely: it fires one un-upgraded torpedo at the first hostile into range
+  // and is expended. STACKS with PROP FOULING, and the torpedo carries the foul.
+  mineCaptive: { id: 'mineCaptive', category: 'mines', rarity: 'rare', copies: 1, effects: [doctrine('mine', 'captive')] },
   // --- speedBoost ----------------------------------------------------------
   // `boostMax` SPLIT INTO TWO LINES (Eric): the old single card moved
   // speedBonus alone at +2/card ×5. Now duration and speed are separate buys.
@@ -383,9 +429,19 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // DAZZLE SHELLS (rare ×1): STACKS with phosphor now — a shell can burn and
   // blind. That is precisely what the verb-flag stat model exists to express.
   starDazzle: { id: 'starDazzle', category: 'starShells', rarity: 'rare', copies: 1, effects: [doctrine('starShells', 'dazzle')] },
-  // --- decoyBuoy (WAVE 2: the decoy becomes the RADAR BUOY) ----------------
-  // Carried forward BYTE-IDENTICAL. EXTENDED BATTERY Mk I–V: ×1.1 lifetime.
-  decoyDuration: { id: 'decoyDuration', category: 'decoyBuoy', rarity: 'common', copies: 5, effects: [stat('decoyBuoy.durationMs', { mult: 1.1 })] },
+  // --- radarBuoy (the RADAR BUOY — replaces the decoy buoy) ----------------
+  // BUOY I–IV (×4): +1.25 RPM on the BUOY'S OWN sweep, 15 → 20. It moves the
+  // buoy's set, never the owner's — `radarBuoy.sweepRpm` is a separate scalar
+  // from the ship's `sweepRpm`, and `intelSweep` does not touch it.
+  buoySweep: { id: 'buoySweep', category: 'radarBuoy', rarity: 'common', copies: 4, effects: [stat('radarBuoy.sweepRpm', { add: 1.25 })] },
+  // GUN BUOY (rare ×1): the buoy defends itself — 5 damage on a 5s cooldown at
+  // hostiles inside its own radar range (CONFIG.radarBuoy.gunDamage/gunReloadMs).
+  buoyGun: { id: 'buoyGun', category: 'radarBuoy', rarity: 'rare', copies: 1, effects: [doctrine('radarBuoy', 'gun')] },
+  // JAMMING BUOY (rare ×1): the buoy floods its own circle with SERVER-GENERATED
+  // false returns, wire-indistinguishable from real blips. It only ever ADDS
+  // fakes — the real hull still paints — and the owner is exempt. STACKS with
+  // GUN BUOY: both are plain verbs.
+  buoyJamming: { id: 'buoyJamming', category: 'radarBuoy', rarity: 'rare', copies: 1, effects: [doctrine('radarBuoy', 'jamming')] },
   // --- intel (universal) ---------------------------------------------------
   // RANGE I–IV (×4): +50 u of INTEL RANGE per card — ADDITIVE now, where the
   // cycle-92 merged line was ×1.15 compounding. It drives `radarRange`, and the
@@ -421,8 +477,8 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   acquireTorpedo: acquire('acquireTorpedo', 'torpedo'),
   acquireMine: acquire('acquireMine', 'mine'),
   acquireStarShells: acquire('acquireStarShells', 'starShells'),
-  acquireCannon: acquire('acquireCannon', 'cannon'),
-  acquireDecoy: acquire('acquireDecoy', 'decoyBuoy'),
+  acquireBroadside: acquire('acquireBroadside', 'broadside'),
+  acquireRadarBuoy: acquire('acquireRadarBuoy', 'radarBuoy'),
   acquireBoost: acquire('acquireBoost', 'speedBoost'),
 });
 
@@ -552,22 +608,18 @@ function applyStatEffect(stats: EffectiveStats, e: BoonStatEffect): void {
  * Fold one doctrine effect into its weapon's doctrine state — fail-closed:
  * an unknown weapon or an unknown verb for that weapon moves nothing.
  *
- * Story 7-5 wave 1: for torpedo/mine/starShells the verb NAMES A BOOLEAN
- * FIELD on the weapon's stats block and the fold SETS IT TRUE, so two verbs on
- * one weapon compose instead of the second silently erasing the first. The
- * cannon keeps the single-valued enum assignment (last write wins), which is
- * correct there because its two doctrines contradict. The DOCTRINE_MODES
- * membership test above is what makes the dynamic field write safe: only the
- * declared verb names — which ARE the boolean field names — can reach it.
+ * The verb NAMES A BOOLEAN FIELD on the weapon's stats block and the fold SETS
+ * IT TRUE, so two verbs on one weapon compose instead of the second silently
+ * erasing the first. Story 7-5 wave 2 removed the last exception (the cannon's
+ * single-valued enum died with the weapon), so this function has NO special
+ * cases: every doctrine in the game is a boolean. The DOCTRINE_MODES membership
+ * test above is what makes the dynamic field write safe — only the declared
+ * verb names, which ARE the boolean field names, can reach it.
  */
 function applyDoctrineEffect(stats: EffectiveStats, e: BoonDoctrineEffect): void {
   if (!Object.hasOwn(DOCTRINE_MODES, e.weapon)) return;
   const weapon = e.weapon as DoctrineWeapon;
   if (!(DOCTRINE_MODES[weapon] as readonly string[]).includes(e.mode)) return;
-  if (weapon === 'cannon') {
-    stats.cannon.mode = e.mode as CannonMode;
-    return;
-  }
   (stats[weapon] as unknown as Record<string, boolean>)[e.mode] = true;
 }
 
@@ -595,8 +647,16 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   // anywhere in the list can never leave them stale; re-pinned again in
   // sim/stats.ts clampStats, the sweepPeriodMs precedent's sibling site.
   stats.gun.rangeU = stats.radarRange;
-  stats.cannon.rangeU = stats.radarRange;
   stats.starShells.rangeU = stats.radarRange;
+  // The BROADSIDE rides the same number one rung short — the 5/8 muzzle/smoke
+  // rung, Eric's "limited to 5/8" (Story 7-5 wave 2). Same re-pin law, same two
+  // sites, and it is why `broadside.rangeU` is not on BOON_STAT_PATHS either.
+  stats.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
+  // The broadside FAN reads its authored ladder off the folded SPREAD rung —
+  // derived for the same reason as every rangeU above (`fanHalfAngleRad` is not
+  // stat-addressable, so a mid-list `broadsideSpread` fold would leave it stale).
+  stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
+  stats.broadside.fanHalfAngleRad = broadsideFanHalfAngle(stats.broadside.spreadRung);
   // THE EIGHTHS LADDER IS ONE NUMBER NOW (Eric ruling 2026-08-16): truesight is
   // the 4/8 rung of intel range, so it is DERIVED here exactly as the three
   // rangeU paths above are, and for the same reason — `sightRange` left
@@ -607,8 +667,13 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   // The mine trip ring rides the blast radius (Eric ruling 2026-08-16) — same
   // reason as the re-pins above: `mine.triggerRadius` left BOON_STAT_PATHS, so a
   // `mineBlast` fold anywhere in the list would otherwise leave it stale. Also
-  // re-pinned in sim/stats.ts clampStats; these two are the only sites.
-  stats.mine.triggerRadius = stats.mine.blastRadius * CONFIG.mine.triggerFactor;
+  // re-pinned in sim/stats.ts clampStats; these two are the only sites. The
+  // CAPTIVE verb changes the FACTOR (swap-and-triple, Story 7-5 wave 2) but not
+  // the shape: still pure and linear in the folded blast radius, so re-pinning
+  // it here as many times as the fold likes changes nothing. The matching BLAST
+  // rewrite lives in clampStats ALONE — it consumes the value it overwrites, so
+  // it must run exactly once (see the note there).
+  stats.mine.triggerRadius = mineTriggerRadius(stats.mine.blastRadius, stats.mine.captive);
 }
 
 // ---------------------------------------------------------------------------
@@ -674,64 +739,25 @@ function validateScarcity(def: BoonDef): string[] {
   return errs;
 }
 
-/** The weapon of a def's doctrine effect, if any (exclusive-pair helper). */
-function doctrineWeaponOf(d: BoonDef): string | undefined {
-  return d.effects.find((e): e is BoonDoctrineEffect => e.kind === 'doctrine')?.weapon;
-}
-
-/** Problems with the RIVAL side of an exclusive link (helper below). */
-function validateRival(def: BoonDef, rival: BoonDef | undefined): string[] {
-  if (rival === undefined) return [`${def.id}: exclusiveWith names unknown boon '${def.exclusiveWith}'`];
-  const errs: string[] = [];
-  if (rival.exclusiveWith !== def.id) errs.push(`${def.id}: exclusiveWith is not symmetric with '${rival.id}'`);
-  if (rival.rarity !== 'exclusive') errs.push(`${def.id}: rival '${rival.id}' is not rarity 'exclusive'`);
-  const w1 = doctrineWeaponOf(def);
-  if (w1 === undefined || w1 !== doctrineWeaponOf(rival)) {
-    errs.push(`${def.id}: exclusive pair must both carry a doctrine on the same weapon`);
-  }
-  return errs;
-}
-
 /**
- * Problems with a def's exclusiveWith link (helper of validateBoonDef).
+ * Validate ONE boon def (authoring-time; closes the 2.5 deferred-work entry).
+ * Returns problems, empty = valid: whitelisted stat paths with finite positive
+ * values, non-empty effects, sane rarity/copies (an `exclusive` is 1 copy),
+ * known doctrine verbs, real slotFill/slotReplace equipment, healOnGrant
+ * coherence.
  *
- * The clause `doctrine effects belong to 'exclusive' rarity only` was RETIRED
- * in Story 7-5 wave 1, deliberately and not by oversight: a doctrine effect is
- * now a VERB, and a verb that stacks with its neighbours (PHOSPHOR beside
- * DAZZLE) is a plain `rare` card. Rarity no longer says anything about whether
- * an effect is a doctrine. What survives untouched is the exclusivity
- * mechanism itself — `exclusive` rarity still REQUIRES a named rival, an
- * `exclusiveWith` link still requires `exclusive` rarity, and a pair must
- * still be symmetric and carry doctrines on the SAME weapon. The cannon pair
- * is its last user.
+ * The EXCLUSIVE-PAIR checks are RETIRED with the mechanism (Story 7-5 wave 2):
+ * with `exclusiveWith` off the type there is no link to validate, and the
+ * `catalog` parameter survives only because it is part of the public signature
+ * every caller already passes. It is deliberately unread.
  */
-function validateExclusiveLink(def: BoonDef, catalog: BoonCatalog): string[] {
-  const errs: string[] = [];
-  if (def.exclusiveWith === undefined) {
-    if (def.rarity === 'exclusive') errs.push(`${def.id}: an exclusive must name its rival (exclusiveWith)`);
-    return errs;
-  }
-  if (def.rarity !== 'exclusive') errs.push(`${def.id}: exclusiveWith requires rarity 'exclusive'`);
-  const rival = Object.hasOwn(catalog, def.exclusiveWith) ? catalog[def.exclusiveWith] : undefined;
-  errs.push(...validateRival(def, rival));
-  return errs;
-}
-
-/**
- * Validate ONE boon def against its catalog (authoring-time; closes the 2.5
- * deferred-work entry). Returns problems, empty = valid: whitelisted stat
- * paths with finite positive values, non-empty effects, sane rarity/copies
- * (exclusives are 1 copy), symmetric same-weapon exclusive pairs, known
- * doctrine modes, real slotFill/slotReplace equipment, healOnGrant coherence.
- */
-export function validateBoonDef(def: BoonDef, catalog: BoonCatalog = BOON_CATALOG): string[] {
+export function validateBoonDef(def: BoonDef, _catalog: BoonCatalog = BOON_CATALOG): string[] {
   const errs: string[] = [];
   if (typeof def.id !== 'string' || !/^[a-z][A-Za-z0-9]*$/.test(def.id)) errs.push(`'${String(def.id)}': id must be camelCase`);
   if (typeof def.category !== 'string' || def.category.length === 0) errs.push(`${def.id}: category must be non-empty`);
   if (def.effects.length === 0) errs.push(`${def.id}: effects must be non-empty`);
   def.effects.forEach((e, i) => errs.push(...validateEffect(e, `${def.id}[${i}]`)));
   errs.push(...validateScarcity(def));
-  errs.push(...validateExclusiveLink(def, catalog));
   return errs;
 }
 

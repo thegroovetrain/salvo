@@ -2,7 +2,7 @@
 //
 // Every function here was PROMOTED verbatim out of the server's equipment rows
 // (equipment/ballistics.ts hullClearOffset/muzzleSpawn, equipment/guns.ts
-// clampInsideMap/burstPointAlong/muzzleOrTarget/BARREL_FAN_STEP_RAD) so the
+// clampInsideMap/burstPointAlong/muzzleOrTarget) so the
 // CLIENT can compute the
 // exact same points for its ordnance aim previews. Behavior is byte-identical
 // — the server rows now re-import these and keep only their ShipRecord-shaped
@@ -28,14 +28,13 @@ export interface AimPose {
   heading: number;
 }
 
-/**
- * rad — the fixed angular spread between ADJACENT shells of a multi-barrel fan
- * (Story 2.8, TWIN/TRIPLE MOUNT). DRAFT HANDWAVE (implementer-drafted; 2.10's
- * evidence pass may promote/tune it): 3° reads as a volley at typical gun
- * ranges without shotgunning the blast. Shared because the aim preview draws
- * one line + one burst circle PER BARREL and must fan them identically.
- */
-export const BARREL_FAN_STEP_RAD = (3 * Math.PI) / 180;
+// BARREL_FAN_STEP_RAD (the 3° angular step between adjacent shells of a
+// multi-barrel fan) is RETIRED — Story 7-5 wave 2, R2.16: BARREL's extra shells
+// fly on PARALLEL TRACKS now, not a spreading fan, so an angular step is the
+// wrong shape entirely. Its replacement is CONFIG.gun.barrelSpacingU (a LATERAL
+// distance) resolved through sim/spread.ts parallelOffsets, which both sides
+// call for the same reason this constant was shared: the aim preview draws one
+// line + one burst circle PER BARREL and must place them identically.
 
 /**
  * Hull-clearing spawn offset: half the FIRER'S hull length (per hull envelope)
@@ -115,9 +114,9 @@ export function clampInsideMap(center: Vec2, target: Vec2, mapRadius: number): V
 }
 
 /**
- * The clicked burst point for ANY point-burst system (gun / cannon / star
- * shells / a command-detonation fish), generalized over an explicit bearing so
- * the multi-barrel fan can aim each shell at its OWN range-preserved point:
+ * The clicked burst point for ANY point-burst system (gun / broadside / star
+ * shells), generalized over an explicit bearing so a multi-shell volley can aim
+ * each shell at its OWN range-preserved point:
  * along `dir` at the clicked distance `aimDist`, clamped to the system's
  * EFFECTIVE max range `rangeU` AND to the water disk (an in-range rim shot
  * still bursts in-bounds instead of expiring at the map edge). BOTH distances
@@ -168,7 +167,7 @@ export function muzzleOrTarget(
 /**
  * Is a placement/drop point ILLEGAL water (Story 1.10 'blocked')? True when the
  * point lands on any island's LAND (inside its coastline polygon) or outside
- * the water disk. The mine AND decoy rows refuse a blocked point WITHOUT
+ * the water disk. The mine AND radar-buoy rows refuse a blocked point WITHOUT
  * consuming anything, so the client's mine-placement preview reads the SAME
  * predicate to draw its blocked tell — promoted here (from equipment/mines.ts
  * dropBlocked) so the two can never disagree about which water is legal.

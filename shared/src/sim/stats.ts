@@ -14,7 +14,7 @@
 // Damage/blast/trigger/lit numbers are now PROMOTED onto EffectiveStats so the
 // catalog's stat ladders can move them through the one firewall.
 //
-// gun/cannon/starShells rangeU are DERIVED, not independently stat-addressable
+// gun/starShells rangeU are DERIVED, not independently stat-addressable
 // (brainstorm 2026-07-30: Radar Range quietly buffs gun/cannon/blast-torp
 // reach too — Intel is a stealth offense category). They are re-pinned to the
 // POST-FOLD `radarRange` every time, in both applyBoonStats (sim/boons.ts —
@@ -26,8 +26,8 @@
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling —
 //     re-applied over the boon fold in sim/boons.ts applyBoonStats, its only
 //     sibling site);
-//   - mine.triggerRadius ≤ mine.blastRadius (the trip ring never outgrows the
-//     blast);
+//   - mine trip ring / blast radius are DERIVED from the folded blastRadius
+//     and the CAPTIVE verb (Story 7-5 wave 2 — see clampStats);
 //   - gun.barrels clamped to 1..3 integer (TWIN/TRIPLE MOUNT ladder bounds).
 //
 // `cooldownScale` (Eric ruling 2026-08-04) is the ONE global cooldown lever:
@@ -59,17 +59,33 @@ export interface EffectiveGun {
   barrels: number; // shells per click (1..3 — each a real shell, own burst point)
 }
 
-/** Cannon doctrine modes (PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS). */
-export type CannonMode = 'standard' | 'arcing' | 'ap';
-
-export interface EffectiveCannon {
-  reloadMs: number; // ms per shot (the cannon cooldown)
-  maxAmmo: number; // pool size
-  rangeU: number; // u — max shell travel / aimDist clamp — DERIVED = radarRange post-fold (not stat-addressable)
-  damage: number; // hp per burst victim
-  contactDamage: number; // hp to an early interceptor outside the blast
-  burstRadius: number; // u — blast radius around the clicked point
-  mode: CannonMode; // doctrine fold (sim/boons.ts) — 'standard' unless an exclusive is held
+/**
+ * The BROADSIDE BARRAGE's effective numbers (Story 7-5 wave 2 — replaces the
+ * cannon outright, along with its `CannonMode` enum and both doctrine cards).
+ * Every shell of a barrage carries `damage` and `burstRadius`; `turrets` is how
+ * many fly.
+ */
+export interface EffectiveBroadside {
+  reloadMs: number; // ms per barrage
+  maxAmmo: number; // pool size (barrages held)
+  // u — max shell travel / aimDist clamp. DERIVED post-fold as
+  // `radarRange × CONFIG.vision.muzzleFlashFactor` — THE 5/8 RUNG, 412.5u base
+  // (Eric: "This weapon's range is limited to 5/8"). The first and only weapon
+  // that does not reach the full radar horizon. Not stat-addressable.
+  rangeU: number;
+  damage: number; // hp per burst victim, PER SHELL
+  burstRadius: number; // u — blast radius around each shell's own point
+  turrets: number; // shells per barrage (3 base .. 5 at the BROADSIDE TURRETS cap)
+  // The SPREAD LADDER RUNG: 1 = no BROADSIDE SPREAD cards held, 5 = the ×4 cap.
+  // This is the stat-addressable field the card writes (+1/card); the fan angle
+  // itself is derived from it, because the ladder is a table of authored
+  // degrees rather than a multiplicative step. 1-based so every whitelisted
+  // stat stays strictly positive, the law applyStatEffect enforces.
+  spreadRung: number;
+  // rad — HALF-ANGLE of the full fan about the click bearing. DERIVED post-fold
+  // from `spreadRung` against CONFIG.broadside.fanHalfAngleDeg; never
+  // stat-addressable (a card writing it would be a second derivation).
+  fanHalfAngleRad: number;
 }
 
 // STORY 7-5 WAVE 1 — DOCTRINE IS A SET OF INDEPENDENT VERBS, NOT ONE ENUM.
@@ -78,10 +94,11 @@ export interface EffectiveCannon {
 // field structurally cannot hold — the last card granted would silently erase
 // the earlier one. So the three weapons whose verbs now stack carry one
 // INDEPENDENT BOOLEAN PER VERB, folded by sim/boons.ts applyDoctrineEffect.
-// `cannon.mode` deliberately stays a single-valued enum: PLUNGING FIRE and
-// ARMOR-PIERCING genuinely contradict (AP never bursts), so independent flags
-// there would ship an incoherent state. Both die together in wave 2 when the
-// cannon becomes the BROADSIDE BARRAGE.
+// STORY 7-5 WAVE 2 finished the job: the cannon's single-valued `mode` enum
+// was the last one standing, and it died with the weapon (the BROADSIDE BARRAGE
+// has no doctrine cards at all). EVERY doctrine verb in the game is now an
+// independent boolean, so the fold has no special cases left — see
+// sim/boons.ts applyDoctrineEffect.
 
 export interface EffectiveTorpedo {
   reloadMs: number; // ms per fish
@@ -99,7 +116,13 @@ export interface EffectiveMine {
   blastRadius: number; // u — full damage to every non-owner hull within it
   triggerRadius: number; // u — detonation proximity (DERIVED = blastRadius × triggerFactor)
   propFouling: boolean; // PROP FOULING verb (doctrine fold) — false unless held
-  selfPropelled: boolean; // SELF-PROPELLED verb (doctrine fold) — false unless held
+  // CAPTIVE MINES verb (doctrine fold) — false unless held. REPLACES the
+  // deleted SELF-PROPELLED verb. A captive mine never detonates on contact: it
+  // fires ONE un-upgraded torpedo doing `damage` at `blastRadius` and is
+  // expended. It also SWAPS the two radii and triples the trigger (derived in
+  // clampStats), which is why holding it changes the two numbers above rather
+  // than adding a third pair.
+  captive: boolean;
 }
 
 export interface EffectiveStarShells {
@@ -124,11 +147,23 @@ export interface EffectiveBoost {
   reloadMs: number; // ms — cooldown between activations
 }
 
-/** The decoy buoy's effective numbers. */
-export interface EffectiveDecoy {
+/**
+ * The RADAR BUOY's effective numbers (Story 7-5 wave 2 — replaces the decoy
+ * buoy; the decoy role is deleted, nothing fakes a ship contact any more).
+ * `radarRange` is the BUOY'S OWN SET, flat and never observer-scaled: it is the
+ * equipment's reach, not the owner's intel build (R2.7).
+ */
+export interface EffectiveRadarBuoy {
   reloadMs: number; // ms — cooldown between placements
-  maxAmmo: number; // charge pool size (one live per owner)
+  maxAmmo: number; // charge pool size
   durationMs: number; // ms — buoy lifetime before natural expiry
+  radarRange: number; // u — the buoy's own radar reach (flat, not observer-scaled)
+  sweepRpm: number; // rev/min — the buoy's own sweep (BUOY ×4: +1.25/card)
+  hp: number; // hp — destructible; killing one pays no XP and prints no feed line
+  gunDamage: number; // hp per shot — GUN BUOY verb only
+  gunReloadMs: number; // ms — cooldown between its shots — GUN BUOY verb only
+  gun: boolean; // GUN BUOY verb (doctrine fold) — false unless held
+  jamming: boolean; // JAMMING BUOY verb (doctrine fold) — false unless held
 }
 
 /** Everything (class, boons) resolves to. See effectiveStats(). */
@@ -147,14 +182,14 @@ export interface EffectiveStats {
   torpedo: EffectiveTorpedo;
   mine: EffectiveMine;
   boost: EffectiveBoost;
-  cannon: EffectiveCannon;
+  broadside: EffectiveBroadside;
   starShells: EffectiveStarShells;
-  decoyBuoy: EffectiveDecoy;
+  radarBuoy: EffectiveRadarBuoy;
 }
 
-/** The count-independent ability blocks + the cannon/starShells skillshots —
- *  pure CONFIG pass-throughs, split out so baseStats stays lean. */
-function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells' | 'decoyBuoy'> {
+/** The count-independent ability blocks + the broadside/starShells skillshots
+ *  — pure CONFIG pass-throughs, split out so baseStats stays lean. */
+function baseEquipment(): Pick<EffectiveStats, 'boost' | 'broadside' | 'starShells' | 'radarBuoy'> {
   return {
     boost: {
       speedBonus: CONFIG.speedBoost.speedBonus,
@@ -162,16 +197,18 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells'
       maxAmmo: CONFIG.speedBoost.maxAmmo,
       reloadMs: CONFIG.speedBoost.reloadMs,
     },
-    cannon: {
-      reloadMs: CONFIG.cannon.reloadMs,
-      maxAmmo: CONFIG.cannon.maxAmmo,
-      // rangeU base — re-derived from radarRange post-fold in clampStats/
-      // applyBoonStats regardless of this seed.
-      rangeU: CONFIG.vision.radar,
-      damage: CONFIG.cannon.damage,
-      contactDamage: CONFIG.cannon.contactDamage,
-      burstRadius: CONFIG.cannon.burstRadius,
-      mode: 'standard',
+    broadside: {
+      reloadMs: CONFIG.broadside.reloadMs,
+      maxAmmo: CONFIG.broadside.maxAmmo,
+      // rangeU base — re-derived from radarRange × muzzleFlashFactor post-fold
+      // in clampStats/applyBoonStats regardless of this seed.
+      rangeU: CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor,
+      damage: CONFIG.broadside.damage,
+      burstRadius: CONFIG.broadside.burstRadius,
+      turrets: CONFIG.broadside.turrets,
+      spreadRung: 1, // no BROADSIDE SPREAD cards held
+      // fanHalfAngleRad base — re-derived from spreadRung post-fold, same law.
+      fanHalfAngleRad: broadsideFanHalfAngle(1),
     },
     starShells: {
       reloadMs: CONFIG.starShells.reloadMs,
@@ -185,12 +222,56 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells'
       phosphor: false,
       dazzle: false,
     },
-    decoyBuoy: {
-      reloadMs: CONFIG.decoyBuoy.reloadMs,
-      maxAmmo: CONFIG.decoyBuoy.maxAmmo,
-      durationMs: CONFIG.decoyBuoy.durationMs,
+    radarBuoy: {
+      reloadMs: CONFIG.radarBuoy.reloadMs,
+      maxAmmo: CONFIG.radarBuoy.maxAmmo,
+      durationMs: CONFIG.radarBuoy.durationMs,
+      radarRange: CONFIG.radarBuoy.radarRange,
+      sweepRpm: CONFIG.radarBuoy.sweepRpm,
+      hp: CONFIG.radarBuoy.hp,
+      gunDamage: CONFIG.radarBuoy.gunDamage,
+      gunReloadMs: CONFIG.radarBuoy.gunReloadMs,
+      gun: false,
+      jamming: false,
     },
   };
+}
+
+/** deg -> rad (CONFIG.broadside.fanHalfAngleDeg is authored in degrees).
+ *  SAME ASSOCIATION as sim/arcs.ts's `deg` — `(d * PI) / 180`, never
+ *  `d * (PI / 180)`: the two round differently in the last bit, and both sides
+ *  must land on the identical double. */
+const deg = (d: number): number => (d * Math.PI) / 180;
+
+/**
+ * The BROADSIDE SPREAD rung, clamped to the authored ladder: 1 (no cards) ..
+ * fanHalfAngleDeg.length (the ×4 cap). Integer — the card adds exactly 1, so a
+ * fractional value can only come from malformed effect data.
+ */
+export function clampSpreadRung(rung: number): number {
+  const top = CONFIG.broadside.fanHalfAngleDeg.length;
+  return Math.min(top, Math.max(1, Math.round(rung)));
+}
+
+/**
+ * rad — the broadside fan's HALF-ANGLE at a given SPREAD rung (1-based). THE
+ * single derivation of the authored ladder; both re-pin sites call it, and no
+ * consumer indexes CONFIG.broadside.fanHalfAngleDeg directly.
+ */
+export function broadsideFanHalfAngle(rung: number): number {
+  return deg(CONFIG.broadside.fanHalfAngleDeg[clampSpreadRung(rung) - 1]);
+}
+
+/**
+ * u — the mine's TRIP RING for a folded blast radius, under the CAPTIVE verb.
+ * An ordinary mine trips at a fixed fraction of its blast; a CAPTIVE mine swaps
+ * the two rings and triples the trip (Story 7-5 wave 2, R2.12), so its trigger
+ * is the folded blast × `captiveTriggerFactor`. Pure and linear in
+ * `blastRadius`, which is what makes MINES card ORDER irrelevant. Shared by
+ * clampStats and sim/boons.ts applyBoonStats — the only two sites.
+ */
+export function mineTriggerRadius(blastRadius: number, captive: boolean): number {
+  return blastRadius * (captive ? CONFIG.mine.captiveTriggerFactor : CONFIG.mine.triggerFactor);
 }
 
 /** The CONFIG-base stats tree for a class — every number a pure base, every
@@ -241,7 +322,7 @@ function baseStats(cls: ShipClass): EffectiveStats {
       blastRadius: CONFIG.mine.blastRadius,
       triggerRadius: CONFIG.mine.triggerRadius,
       propFouling: false,
-      selfPropelled: false,
+      captive: false,
     },
     ...baseEquipment(),
   };
@@ -254,12 +335,21 @@ function clampStats(stats: EffectiveStats): void {
   // firewall's OUTPUT is the contract — clamp unconditionally.
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
-  // gun/cannon/starShells range is radarRange, always — the boon fold already
+  // gun/starShells range is radarRange, always — the boon fold already
   // re-derives it (applyBoonStats), but the firewall's OUTPUT is the contract
   // — re-pin unconditionally so a boonless call is byte-consistent too.
   stats.gun.rangeU = stats.radarRange;
-  stats.cannon.rangeU = stats.radarRange;
   stats.starShells.rangeU = stats.radarRange;
+  // THE BROADSIDE IS THE 5/8 RUNG (Story 7-5 wave 2, Eric: "This weapon's range
+  // is limited to 5/8") — the same re-pin law as its two siblings above, one
+  // rung short of the horizon. It rides `radarRange` rather than a literal, so
+  // an intelRange stack carries it out with everything else.
+  stats.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
+  // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
+  // and the angle is derived from it (clamped inside the helper) — the
+  // sweepPeriodMs pattern applied to an authored ladder.
+  stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
+  stats.broadside.fanHalfAngleRad = broadsideFanHalfAngle(stats.broadside.spreadRung);
   // TRUESIGHT IS THE 4/8 RUNG OF INTEL RANGE (Eric ruling 2026-08-16) — derived,
   // never stat-addressable. `sightRange` left BOON_STAT_PATHS with the two intel
   // cards it used to have, so this is the firewall's authoritative answer and
@@ -274,7 +364,19 @@ function clampStats(stats: EffectiveStats): void {
   // never cross the ceiling, so the invariant now holds by construction and the
   // clamp has nothing left to do. At zero boons this is byte-identical to the
   // old base: 48 × 2/3 = 32 exactly.
-  stats.mine.triggerRadius = stats.mine.blastRadius * CONFIG.mine.triggerFactor;
+  //
+  // CAPTIVE MINES (Story 7-5 wave 2) then SWAP the two radii and triple the
+  // trigger: 144u trip / 32u blast at base, 210.8u / 46.9u at a maxed MINES
+  // ladder. Both outputs are linear in the ONE folded `blastRadius`, so MINES
+  // cards apply on top and card ORDER CANNOT MATTER. The blast write is the one
+  // NON-idempotent line here — it consumes `blastRadius` and rewrites it — which
+  // is exactly the shape of the `cooldownScale` multiply below and is safe for
+  // the same reason: clampStats is the firewall's single OUTPUT pass and runs
+  // exactly once per effectiveStats() call. applyBoonStats therefore re-pins the
+  // TRIGGER only (pure in blastRadius, idempotent) and never the swap.
+  const blast = stats.mine.blastRadius;
+  stats.mine.triggerRadius = mineTriggerRadius(blast, stats.mine.captive);
+  if (stats.mine.captive) stats.mine.blastRadius = blast * CONFIG.mine.triggerFactor;
   stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment —
   // the sibling of the rangeU re-derivations above. Additive folding
@@ -291,12 +393,12 @@ function clampStats(stats: EffectiveStats): void {
   const cd = Math.max(0.1, Math.round(stats.cooldownScale * 1000) / 1000);
   stats.cooldownScale = cd;
   stats.gun.reloadMs *= cd;
-  stats.cannon.reloadMs *= cd;
+  stats.broadside.reloadMs *= cd;
   stats.torpedo.reloadMs *= cd;
   stats.mine.reloadMs *= cd;
   stats.starShells.reloadMs *= cd;
   stats.boost.reloadMs *= cd;
-  stats.decoyBuoy.reloadMs *= cd;
+  stats.radarBuoy.reloadMs *= cd;
 }
 
 /**

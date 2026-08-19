@@ -9,7 +9,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BARREL_FAN_STEP_RAD,
   burstPointAlong,
   clampInsideMap,
   hullClearOffset,
@@ -143,8 +142,10 @@ describe('torpedo geometry', () => {
   // the spawn point" invariant left to hold.
 });
 
-describe('BARREL_FAN_STEP_RAD', () => {
-  it('is the ratified 3° fan step both sides fan a salvo by', () => {
-    expect(BARREL_FAN_STEP_RAD).toBeCloseTo((3 * Math.PI) / 180, 12);
-  });
-});
+// RETIRED (Story 7-5 wave 2, R2.16): 'BARREL_FAN_STEP_RAD is the ratified 3°
+// fan step both sides fan a salvo by'. BARREL's extra shells fly on PARALLEL
+// TRACKS now, not a spreading fan, so an angular step is the wrong shape
+// entirely — the constant is deleted and its replacement is
+// CONFIG.gun.barrelSpacingU (a lateral distance) resolved through
+// sim/spread.ts parallelOffsets. Pinned in __tests__/spread.test.ts, with the
+// constant's absence pinned in the barrel test.

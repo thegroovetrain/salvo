@@ -8,7 +8,7 @@
 // defensive clamps: sweepRpm ≤ CONFIG.vision.sweepRpmMax (re-homed from the
 // deleted CONFIG.upgrades), mine.triggerRadius ≤ blastRadius, gun.barrels
 // 1..3; (5) the single-shot gun-pool pin is RETIRED (gun.maxAmmo moves);
-// (6) gun/cannon/starShells rangeU are DERIVED from post-fold radarRange —
+// (6) gun/broadside/starShells rangeU are DERIVED from post-fold radarRange —
 // an intelRadar stack grows them too (brainstorm 2026-07-30: Intel is a
 // stealth offense category), and they are never independently addressable.
 
@@ -92,7 +92,7 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         blastRadius: CONFIG.mine.blastRadius,
         triggerRadius: CONFIG.mine.triggerRadius,
         propFouling: false,
-        selfPropelled: false,
+        captive: false,
       },
       boost: {
         speedBonus: CONFIG.speedBoost.speedBonus,
@@ -100,14 +100,17 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         maxAmmo: CONFIG.speedBoost.maxAmmo,
         reloadMs: CONFIG.speedBoost.reloadMs,
       },
-      cannon: {
-        reloadMs: CONFIG.cannon.reloadMs,
-        maxAmmo: CONFIG.cannon.maxAmmo,
-        rangeU: CONFIG.vision.radar,
-        damage: CONFIG.cannon.damage,
-        contactDamage: CONFIG.cannon.contactDamage,
-        burstRadius: CONFIG.cannon.burstRadius,
-        mode: 'standard',
+      broadside: {
+        reloadMs: CONFIG.broadside.reloadMs,
+        maxAmmo: CONFIG.broadside.maxAmmo,
+        // THE 5/8 RUNG, not the horizon — the only weapon that does not reach
+        // full radar range (Eric: "limited to 5/8"). 412.5u at base.
+        rangeU: CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor,
+        damage: CONFIG.broadside.damage,
+        burstRadius: CONFIG.broadside.burstRadius,
+        turrets: CONFIG.broadside.turrets,
+        spreadRung: 1,
+        fanHalfAngleRad: (CONFIG.broadside.fanHalfAngleDeg[0] * Math.PI) / 180,
       },
       starShells: {
         reloadMs: CONFIG.starShells.reloadMs,
@@ -118,10 +121,17 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         phosphor: false,
         dazzle: false,
       },
-      decoyBuoy: {
-        reloadMs: CONFIG.decoyBuoy.reloadMs,
-        maxAmmo: CONFIG.decoyBuoy.maxAmmo,
-        durationMs: CONFIG.decoyBuoy.durationMs,
+      radarBuoy: {
+        reloadMs: CONFIG.radarBuoy.reloadMs,
+        maxAmmo: CONFIG.radarBuoy.maxAmmo,
+        durationMs: CONFIG.radarBuoy.durationMs,
+        radarRange: CONFIG.radarBuoy.radarRange,
+        sweepRpm: CONFIG.radarBuoy.sweepRpm,
+        hp: CONFIG.radarBuoy.hp,
+        gunDamage: CONFIG.radarBuoy.gunDamage,
+        gunReloadMs: CONFIG.radarBuoy.gunReloadMs,
+        gun: false,
+        jamming: false,
       },
     });
   });
@@ -145,16 +155,79 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(s3.mine.blastRadius).toBeCloseTo(CONFIG.mine.blastRadius * 1.1 ** 3, 9);
   });
 
-  it('intelRange stacks ALSO grow gun/cannon/starShells rangeU — Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
+  it('intelRange stacks ALSO grow gun/broadside/starShells rangeU — Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
     const s4 = effectiveStats(BASE, stack('intelRange', 4)); // ×4 copies
     // ADDITIVE since Story 7-5 wave 1 (Eric: "+50 units to intel range"); the
     // cycle-92 merged line was ×1.15 compounding, which topped out at ~1154 u.
     const grown = CONFIG.vision.radar + 50 * 4;
     expect(s4.radarRange).toBeCloseTo(grown, 9);
     expect(s4.gun.rangeU).toBe(s4.radarRange);
-    expect(s4.cannon.rangeU).toBe(s4.radarRange);
     expect(s4.starShells.rangeU).toBe(s4.radarRange);
     expect(s4.gun.rangeU).toBeCloseTo(grown, 9);
+    // The BROADSIDE rides the same number one rung short (Story 7-5 wave 2):
+    // the 5/8 muzzle/smoke rung, so it grows with intel range like everything
+    // else while staying inside the horizon at EVERY stack level.
+    expect(s4.broadside.rangeU).toBeCloseTo(grown * CONFIG.vision.muzzleFlashFactor, 9);
+    expect(s4.broadside.rangeU).toBeLessThan(s4.radarRange);
+  });
+
+  // THE BROADSIDE'S TWO DERIVED FIELDS (Story 7-5 wave 2). Both are re-pinned
+  // post-fold in clampStats AND applyBoonStats, exactly as the rangeU siblings
+  // are, and neither is stat-addressable.
+  it('broadside rangeU is the 5/8 rung at every stack; the SPREAD ladder is read off the rung', () => {
+    for (let n = 0; n <= 4; n++) {
+      const s = effectiveStats(BASE, stack('intelRange', n));
+      expect(s.broadside.rangeU).toBeCloseTo(s.radarRange * CONFIG.vision.muzzleFlashFactor, 9);
+    }
+    expect(effectiveStats(BASE).broadside.rangeU).toBeCloseTo(412.5, 9); // the ratified base
+    // 0..4 SPREAD copies walk the authored ladder 12 -> 9 -> 6.5 -> 4.5 -> 3.
+    for (let n = 0; n <= 4; n++) {
+      const s = effectiveStats(BASE, stack('broadsideSpread', n));
+      expect(s.broadside.spreadRung, `${n} copies`).toBe(n + 1);
+      expect(s.broadside.fanHalfAngleRad, `${n} copies`).toBeCloseTo((CONFIG.broadside.fanHalfAngleDeg[n] * Math.PI) / 180, 12);
+    }
+    // Over-stacking past the physical copy cap CLAMPS rather than running off
+    // the table (the gun.barrels precedent) — a hostile boon list cannot NaN it.
+    const over = effectiveStats(BASE, stack('broadsideSpread', 9));
+    expect(over.broadside.spreadRung).toBe(CONFIG.broadside.fanHalfAngleDeg.length);
+    expect(Number.isFinite(over.broadside.fanHalfAngleRad)).toBe(true);
+  });
+
+  it('broadsideTurrets adds a shell per card, 3 -> 5, and moves nothing else', () => {
+    expect(effectiveStats(BASE).broadside.turrets).toBe(3);
+    expect(effectiveStats(BASE, stack('broadsideTurrets', 2)).broadside.turrets).toBe(5);
+  });
+
+  it('buoySweep moves the BUOY sweep only — never the ship sweep, and intelSweep never touches the buoy', () => {
+    const buoy = effectiveStats(BASE, stack('buoySweep', 4));
+    expect(buoy.radarBuoy.sweepRpm).toBeCloseTo(CONFIG.radarBuoy.sweepRpm + 1.25 * 4, 9); // 15 -> 20
+    expect(buoy.sweepRpm).toBe(effectiveStats(BASE).sweepRpm);
+    const ship = effectiveStats(BASE, stack('intelSweep', 5));
+    expect(ship.radarBuoy.sweepRpm).toBe(CONFIG.radarBuoy.sweepRpm);
+    // The buoy's radar set is FLAT — the owner's intel build never widens it.
+    expect(effectiveStats(BASE, stack('intelRange', 4)).radarBuoy.radarRange).toBe(CONFIG.radarBuoy.radarRange);
+  });
+
+  // CAPTIVE MINES (Story 7-5 wave 2, R2.12): trigger and blast SWAP, then the
+  // trigger triples. Both outputs are linear in the ONE folded blast radius, so
+  // the MINES ladder applies on top and CARD ORDER CANNOT MATTER.
+  it('mineCaptive swaps the rings and triples the trip — 144u/32u at base, 210.8u/46.9u at ×4', () => {
+    const plain = effectiveStats(BASE);
+    expect([plain.mine.triggerRadius, plain.mine.blastRadius]).toEqual([32, 48]);
+    const captive = effectiveStats(BASE, stack('mineCaptive', 1));
+    expect(captive.mine.triggerRadius).toBeCloseTo(144, 9);
+    expect(captive.mine.blastRadius).toBeCloseTo(32, 9);
+    const stacked4 = effectiveStats(BASE, resolveBoons(['mineCaptive', 'mineBlast', 'mineBlast', 'mineBlast', 'mineBlast']));
+    expect(stacked4.mine.triggerRadius).toBeCloseTo(48 * 1.1 ** 4 * 3, 6); // ~210.8
+    expect(stacked4.mine.blastRadius).toBeCloseTo((48 * 1.1 ** 4 * 2) / 3, 6); // ~46.9
+  });
+
+  it('CARD ORDER CANNOT MATTER: the captive verb before or after the MINES ladder is byte-identical', () => {
+    const before = effectiveStats(BASE, resolveBoons(['mineCaptive', 'mineBlast', 'mineBlast']));
+    const after = effectiveStats(BASE, resolveBoons(['mineBlast', 'mineCaptive', 'mineBlast']));
+    const last = effectiveStats(BASE, resolveBoons(['mineBlast', 'mineBlast', 'mineCaptive']));
+    expect(after).toEqual(before);
+    expect(last).toEqual(before);
   });
 
   // THE MERGE'S WHOLE POINT (Eric rulings 2026-08-16). Truesight is the 4/8 rung
@@ -241,21 +314,21 @@ describe('effectiveStats — the single-shot gun-pool pin is RETIRED (Story 2.8)
 // DOCTRINE FOLDS — REWRITTEN FOR THE VERB-FLAG MODEL (Story 7-5 wave 1).
 // The old suite pinned four single-valued `mode` enums and, by construction,
 // could only ever express ONE doctrine per weapon. Eric's rewrite stacks verbs
-// (PHOSPHOR beside DAZZLE, PROP-FOULING beside SELF-PROPELLED), so torpedo /
-// mine / starShells now carry one INDEPENDENT BOOLEAN PER VERB and the pins
-// below are about COMPOSITION, which is the property that did not exist
-// before. `cannon.mode` keeps its enum and keeps its old pins verbatim.
+// (PHOSPHOR beside DAZZLE, PROP-FOULING beside CAPTIVE), so every weapon now
+// carries one INDEPENDENT BOOLEAN PER VERB and the pins below are about
+// COMPOSITION, which is the property that did not exist before. Story 7-5
+// wave 2 removed the last enum with the cannon, so there is no `mode` field
+// left anywhere and the fold has no special cases.
 // ---------------------------------------------------------------------------
 describe('effectiveStats — doctrine verb folds', () => {
-  it('every verb is false at base and the cannon enum is standard; each card sets exactly its own', () => {
+  it('every verb is false at base; each card sets exactly its own', () => {
     const base = effectiveStats(BASE);
-    expect(base.cannon.mode).toBe('standard');
-    expect([base.torpedo.homing, base.mine.propFouling, base.mine.selfPropelled, base.starShells.phosphor, base.starShells.dazzle])
-      .toEqual([false, false, false, false, false]);
-    expect(effectiveStats(BASE, stack('cannonArcing', 1)).cannon.mode).toBe('arcing');
-    expect(effectiveStats(BASE, stack('cannonAp', 1)).cannon.mode).toBe('ap');
+    expect([base.torpedo.homing, base.mine.propFouling, base.mine.captive, base.starShells.phosphor, base.starShells.dazzle,
+      base.radarBuoy.gun, base.radarBuoy.jamming]).toEqual([false, false, false, false, false, false, false]);
     expect(effectiveStats(BASE, stack('torpedoHoming', 1)).torpedo.homing).toBe(true);
-    expect(effectiveStats(BASE, stack('mineSelfPropelled', 1)).mine.selfPropelled).toBe(true);
+    expect(effectiveStats(BASE, stack('mineCaptive', 1)).mine.captive).toBe(true);
+    expect(effectiveStats(BASE, stack('buoyGun', 1)).radarBuoy.gun).toBe(true);
+    expect(effectiveStats(BASE, stack('buoyJamming', 1)).radarBuoy.jamming).toBe(true);
     expect(effectiveStats(BASE, stack('minePropFouling', 1)).mine.propFouling).toBe(true);
     // The card id is still `starIncendiary` — a display rename is not an id
     // rename (project law) — but the VERB it sets is `phosphor`.
@@ -271,22 +344,26 @@ describe('effectiveStats — doctrine verb folds', () => {
     // ...and in the other pick order, since neither erases the other.
     const reversed = effectiveStats(BASE, resolveBoons(['starDazzle', 'starIncendiary']));
     expect([reversed.starShells.phosphor, reversed.starShells.dazzle]).toEqual([true, true]);
-    const bothMine = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineSelfPropelled']));
-    expect([bothMine.mine.propFouling, bothMine.mine.selfPropelled]).toEqual([true, true]);
+    // CAPTIVE beside PROP-FOULING is Eric's own A1 ruling — the captive mine's
+    // torpedo carries the foul with it.
+    const bothMine = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineCaptive']));
+    expect([bothMine.mine.propFouling, bothMine.mine.captive]).toEqual([true, true]);
+    const bothBuoy = effectiveStats(BASE, resolveBoons(['buoyGun', 'buoyJamming']));
+    expect([bothBuoy.radarBuoy.gun, bothBuoy.radarBuoy.jamming]).toEqual([true, true]);
   });
 
   it('one verb card sets ONE flag and leaves its sibling alone', () => {
     const dazzleOnly = effectiveStats(BASE, stack('starDazzle', 1));
     expect([dazzleOnly.starShells.phosphor, dazzleOnly.starShells.dazzle]).toEqual([false, true]);
     const foulOnly = effectiveStats(BASE, stack('minePropFouling', 1));
-    expect([foulOnly.mine.propFouling, foulOnly.mine.selfPropelled]).toEqual([true, false]);
+    expect([foulOnly.mine.propFouling, foulOnly.mine.captive]).toEqual([true, false]);
   });
 
   it('a doctrine card moves ONLY its own doctrine field (flatten diff)', () => {
     const identity = flatten(effectiveStats(BASE));
-    const arcing = flatten(effectiveStats(BASE, stack('cannonArcing', 1)));
-    expect([...arcing.keys()]).toEqual([...identity.keys()]);
-    expect([...arcing.keys()].filter((k) => arcing.get(k) !== identity.get(k))).toEqual(['cannon.mode']);
+    const buoyGun = flatten(effectiveStats(BASE, stack('buoyGun', 1)));
+    expect([...buoyGun.keys()]).toEqual([...identity.keys()]);
+    expect([...buoyGun.keys()].filter((k) => buoyGun.get(k) !== identity.get(k))).toEqual(['radarBuoy.gun']);
     const dazzle = flatten(effectiveStats(BASE, stack('starDazzle', 1)));
     expect([...dazzle.keys()].filter((k) => dazzle.get(k) !== identity.get(k))).toEqual(['starShells.dazzle']);
   });
@@ -300,7 +377,7 @@ describe('effectiveStats — doctrine verb folds', () => {
     expect(s.mine.propFouling).toBe(true);
     expect(s.mine.damage).toBe(CONFIG.mine.damage);
     // No card writes mine.damage any more — every build lands on the base.
-    const heavy = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineSelfPropelled', 'mineBlast', 'mineBlast']));
+    const heavy = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineCaptive', 'mineBlast', 'mineBlast']));
     expect(heavy.mine.damage).toBe(CONFIG.mine.damage);
   });
 
@@ -320,7 +397,8 @@ describe('effectiveStats — doctrine verb folds', () => {
       copies: 1,
       effects: [
         { kind: 'doctrine', weapon: 'gun', mode: 'arcing' }, // gun carries no doctrine state
-        { kind: 'doctrine', weapon: 'cannon', mode: 'nuclear' }, // unknown cannon mode
+        { kind: 'doctrine', weapon: 'cannon', mode: 'ap' }, // the DELETED weapon
+        { kind: 'doctrine', weapon: 'mine', mode: 'selfPropelled' }, // the DELETED verb
         { kind: 'doctrine', weapon: 'starShells', mode: 'incendiary' }, // the RETIRED verb name
         { kind: 'doctrine', weapon: 'torpedo', mode: 'command' }, // COMMAND DETONATION is deleted
         { kind: 'doctrine', weapon: 'starShells', mode: 'litRadius' }, // a real field, NOT a verb
@@ -399,20 +477,22 @@ describe('effectiveStats — every production catalog line folds (no dead cards)
 /** The seven equipment reloads, paired with their CONFIG bases. */
 const RELOADS = [
   ['gun', (s: EffectiveStats) => s.gun.reloadMs, CONFIG.gun.reloadMs],
-  ['cannon', (s: EffectiveStats) => s.cannon.reloadMs, CONFIG.cannon.reloadMs],
+  ['broadside', (s: EffectiveStats) => s.broadside.reloadMs, CONFIG.broadside.reloadMs],
   ['torpedo', (s: EffectiveStats) => s.torpedo.reloadMs, CONFIG.torpedo.reloadMs],
   ['mine', (s: EffectiveStats) => s.mine.reloadMs, CONFIG.mine.reloadMs],
   ['starShells', (s: EffectiveStats) => s.starShells.reloadMs, CONFIG.starShells.reloadMs],
   ['boost', (s: EffectiveStats) => s.boost.reloadMs, CONFIG.speedBoost.reloadMs],
-  ['decoyBuoy', (s: EffectiveStats) => s.decoyBuoy.reloadMs, CONFIG.decoyBuoy.reloadMs],
+  ['radarBuoy', (s: EffectiveStats) => s.radarBuoy.reloadMs, CONFIG.radarBuoy.reloadMs],
 ] as const;
 
 describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-04)', () => {
-  it('the retuned CONFIG bases are the ruling: gun 5000 ms, cannon 45000 ms', () => {
+  it('the retuned CONFIG bases are the ruling: gun 5000 ms, broadside 30000 ms', () => {
     expect(CONFIG.gun.reloadMs).toBe(5000);
-    // 15000 -> 50000 (the global-cooldown cycle) -> 45000 (the weapon balance
-    // pass): both Eric rulings, 2026-08-04.
-    expect(CONFIG.cannon.reloadMs).toBe(45000);
+    // The cannon's 45000 (15000 -> 50000 -> 45000, Eric 2026-08-04) left with
+    // the weapon; the BROADSIDE BARRAGE replacing it is 30000 by Eric's own
+    // wave-2 words: *"lets set the cooldown to 30 seconds"*. A max shipCooldown
+    // build lands it at 15s.
+    expect(CONFIG.broadside.reloadMs).toBe(30000);
   });
 
   it('zero boons: scale is exactly 1 and EVERY reload is REFERENCE-EXACT to its CONFIG base (a true no-op)', () => {
@@ -424,11 +504,11 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     }
   });
 
-  it('ONE stack: scale 0.9 — gun 4500, cannon 40500', () => {
+  it('ONE stack: scale 0.9 — gun 4500, broadside 27000', () => {
     const s = effectiveStats(BASE, stack('shipCooldown', 1));
     expect(s.cooldownScale).toBeCloseTo(0.9, 12);
     expect(s.gun.reloadMs).toBeCloseTo(4500, 9);
-    expect(s.cannon.reloadMs).toBeCloseTo(40500, 9);
+    expect(s.broadside.reloadMs).toBeCloseTo(27000, 9);
   });
 
   it('THE COPY CAP IS 5 and a full stack is EXACTLY 0.5 — the ×5 / 50% ruling pin (Eric 2026-08-04)', () => {
@@ -447,40 +527,39 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     // not merely close. See the tick-count test below for why dust mattered.
     expect(s.cooldownScale).toBe(0.5);
     // ANTI-MULTIPLICATIVE PIN: 0.9^5 = 0.59049 would land gun at 2952.45 ms
-    // and cannon at 26572.05 ms — Eric's targets are 2500 / 22500 exactly.
+    // and the broadside at 17714.7 ms — the targets are 2500 / 15000 exactly.
     expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 5, 3);
     expect(s.gun.reloadMs).toBe(2500);
-    expect(s.cannon.reloadMs).toBe(22500);
+    expect(s.broadside.reloadMs).toBe(15000);
     expect(s.gun.reloadMs).not.toBeCloseTo(2952.45, 3);
-    expect(s.cannon.reloadMs).not.toBeCloseTo(26572.05, 3);
-    // ALL SEVEN move — one card, every cooldown. Torpedo/mine/cannon bases
-    // retuned 2026-08-04 (weapon balance pass): 30000 / 15000 / 45000.
+    expect(s.broadside.reloadMs).not.toBeCloseTo(17714.7, 3);
+    // ALL SEVEN move — one card, every cooldown.
     const expected: Record<string, number> = {
       gun: 2500,
-      cannon: 22500,
+      broadside: 15000,
       torpedo: 15000,
       mine: 7500,
       starShells: 10000,
       boost: 9000,
-      decoyBuoy: 10000,
+      radarBuoy: 15000,
     };
     for (const [name, read] of RELOADS) expect(read(s), name).toBe(expected[name]);
   });
 
-  it('FOUR stacks (one short of the cap, still a reachable state): scale 0.6 — gun 3000, cannon 27000', () => {
+  it('FOUR stacks (one short of the cap, still a reachable state): scale 0.6 — gun 3000, broadside 18000', () => {
     const s = effectiveStats(BASE, stack('shipCooldown', 4));
     expect(s.cooldownScale).toBe(0.6);
-    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3); // 0.6561 would be 3280.5 / 29524.5
+    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3); // 0.6561 would be 3280.5 / 19683
     expect(s.gun.reloadMs).toBe(3000);
-    expect(s.cannon.reloadMs).toBe(27000);
+    expect(s.broadside.reloadMs).toBe(18000);
     const expected: Record<string, number> = {
       gun: 3000,
-      cannon: 27000,
+      broadside: 18000,
       torpedo: 18000,
       mine: 9000,
       starShells: 12000,
       boost: 10800,
-      decoyBuoy: 12000,
+      radarBuoy: 18000,
     };
     for (const [name, read] of RELOADS) expect(read(s), name).toBe(expected[name]);
   });
@@ -492,23 +571,24 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     // 2500.0000000000005, cannon 22500.000000000004 — all off the ruled
     // numbers by float dust).
     //
-    // Bases retuned 2026-08-04 (weapon balance pass): cannon 50000 -> 45000,
-    // torpedo 12000 -> 30000, mine 8000 -> 15000.
+    // Bases retuned 2026-08-04 (weapon balance pass): torpedo 12000 -> 30000,
+    // mine 8000 -> 15000; the broadside's 30000 is Eric's wave-2 ruling.
     //
-    // ONE cell carries IEEE754 dust that the scale rounding CANNOT remove:
-    // 45000 * 0.7 is 31499.999999999996, not 31500 — the product of two exactly
-    // representable-enough operands simply is not the decimal we would write.
-    // It is pinned STRICTLY to the double it actually is (never loosened to a
-    // tolerance, which would let the scale-rounding regression back in), and
-    // the tick-count test below proves the dust is behaviorally inert: it still
-    // refills in 630 ticks, exactly as a clean 31500 would.
+    // THE ONE IEEE754-DUST CELL IS GONE — and by accident, not by fix. It was
+    // `45000 * 0.7 === 31499.999999999996`, and 45000 was the CANNON's base; the
+    // broadside's 30000 multiplies clean at every stack. The rounding this test
+    // exists to guard is UNCHANGED and still load-bearing (it is what keeps the
+    // scale itself off 0.5000000000000001), so the strict-equality table below
+    // still fails without it. Noted rather than silently dropped: if a base ever
+    // lands back on a dusty product, pin it STRICTLY to the double it actually
+    // is — never loosen the cell to a tolerance.
     const table: Record<number, { scale: number } & Record<string, number>> = {
-      0: { scale: 1, gun: 5000, cannon: 45000, torpedo: 30000, mine: 15000, starShells: 20000, boost: 18000, decoyBuoy: 20000 },
-      1: { scale: 0.9, gun: 4500, cannon: 40500, torpedo: 27000, mine: 13500, starShells: 18000, boost: 16200, decoyBuoy: 18000 },
-      2: { scale: 0.8, gun: 4000, cannon: 36000, torpedo: 24000, mine: 12000, starShells: 16000, boost: 14400, decoyBuoy: 16000 },
-      3: { scale: 0.7, gun: 3500, cannon: 31499.999999999996, torpedo: 21000, mine: 10500, starShells: 14000, boost: 12600, decoyBuoy: 14000 },
-      4: { scale: 0.6, gun: 3000, cannon: 27000, torpedo: 18000, mine: 9000, starShells: 12000, boost: 10800, decoyBuoy: 12000 },
-      5: { scale: 0.5, gun: 2500, cannon: 22500, torpedo: 15000, mine: 7500, starShells: 10000, boost: 9000, decoyBuoy: 10000 },
+      0: { scale: 1, gun: 5000, broadside: 30000, torpedo: 30000, mine: 15000, starShells: 20000, boost: 18000, radarBuoy: 30000 },
+      1: { scale: 0.9, gun: 4500, broadside: 27000, torpedo: 27000, mine: 13500, starShells: 18000, boost: 16200, radarBuoy: 27000 },
+      2: { scale: 0.8, gun: 4000, broadside: 24000, torpedo: 24000, mine: 12000, starShells: 16000, boost: 14400, radarBuoy: 24000 },
+      3: { scale: 0.7, gun: 3500, broadside: 21000, torpedo: 21000, mine: 10500, starShells: 14000, boost: 12600, radarBuoy: 21000 },
+      4: { scale: 0.6, gun: 3000, broadside: 18000, torpedo: 18000, mine: 9000, starShells: 12000, boost: 10800, radarBuoy: 18000 },
+      5: { scale: 0.5, gun: 2500, broadside: 15000, torpedo: 15000, mine: 7500, starShells: 10000, boost: 9000, radarBuoy: 15000 },
     };
     // The table IS the whole reachable ladder — no stack count is untested.
     expect(Object.keys(table)).toHaveLength(BOON_CATALOG.shipCooldown.copies + 1);
@@ -520,10 +600,10 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     // The ruling itself, as strict multiplication identities.
     const full = effectiveStats(BASE, stack('shipCooldown', 5));
     expect(5000 * full.cooldownScale === 2500).toBe(true);
-    expect(45000 * full.cooldownScale === 22500).toBe(true);
+    expect(30000 * full.cooldownScale === 15000).toBe(true);
   });
 
-  it('the tick-count consequence: ammo.ts ticks reloads down in 50ms steps and refills at <= 0 — a 5-stack gun must take EXACTLY 50 ticks (not 51) and cannon 450 (not 451); a 4-stack 60 / 540', () => {
+  it('the tick-count consequence: ammo.ts ticks reloads down in 50ms steps and refills at <= 0 — a 5-stack gun must take EXACTLY 50 ticks (not 51) and broadside 300 (not 301); a 4-stack 60 / 360', () => {
     // Inlined ammo.ts loop shape (server/src/game/equipment/ammo.ts) — do not
     // import server code into a shared test.
     const ticksToRefill = (reloadMs: number): number => {
@@ -537,16 +617,17 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     };
     const capped = effectiveStats(BASE, stack('shipCooldown', 5));
     expect(ticksToRefill(capped.gun.reloadMs)).toBe(50);
-    expect(ticksToRefill(capped.cannon.reloadMs)).toBe(450);
+    expect(ticksToRefill(capped.broadside.reloadMs)).toBe(300);
     const four = effectiveStats(BASE, stack('shipCooldown', 4));
     expect(ticksToRefill(four.gun.reloadMs)).toBe(60);
-    expect(ticksToRefill(four.cannon.reloadMs)).toBe(540);
-    // The 3-stack cannon is the one cell where 45000 * 0.7 leaves IEEE754 dust
-    // (31499.999999999996). This is the assertion that says the dust is
-    // BEHAVIOURALLY INERT: it refills in the same 630 ticks a clean 31500 would.
+    expect(ticksToRefill(four.broadside.reloadMs)).toBe(360);
+    // The dust cell this test used to prove behaviourally inert (the 3-stack
+    // cannon, 45000 * 0.7 = 31499.999999999996) left with the weapon. The
+    // 3-stack broadside is clean, and pinned so a base retune that reintroduces
+    // dust shows up as a TICK COUNT rather than only as a decimal.
     const three = effectiveStats(BASE, stack('shipCooldown', 3));
-    expect(ticksToRefill(three.cannon.reloadMs)).toBe(630);
-    expect(ticksToRefill(31500)).toBe(630);
+    expect(three.broadside.reloadMs).toBe(21000);
+    expect(ticksToRefill(three.broadside.reloadMs)).toBe(420);
   });
 
   it('the scale reaches EVERY equipment: no reload is left at its base after a full stack', () => {
@@ -584,9 +665,9 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     expect(changed.sort()).toEqual(
       [
         'boost.reloadMs',
-        'cannon.reloadMs',
+        'broadside.reloadMs',
         'cooldownScale',
-        'decoyBuoy.reloadMs',
+        'radarBuoy.reloadMs',
         'gun.reloadMs',
         'mine.reloadMs',
         'starShells.reloadMs',
@@ -603,12 +684,12 @@ describe('equipment helpers', () => {
     expect(equipmentMaxAmmo(s, 'torpedo')).toBe(s.torpedo.maxAmmo);
     expect(equipmentMaxAmmo(s, 'mine')).toBe(s.mine.maxAmmo);
     expect(equipmentMaxAmmo(s, 'speedBoost')).toBe(s.boost.maxAmmo);
-    expect(equipmentMaxAmmo(s, 'decoyBuoy')).toBe(s.decoyBuoy.maxAmmo);
+    expect(equipmentMaxAmmo(s, 'radarBuoy')).toBe(s.radarBuoy.maxAmmo);
     expect(equipmentReloadMs(s, 'gun')).toBe(s.gun.reloadMs);
     expect(equipmentReloadMs(s, 'torpedo')).toBe(s.torpedo.reloadMs);
     expect(equipmentReloadMs(s, 'mine')).toBe(s.mine.reloadMs);
     expect(equipmentReloadMs(s, 'speedBoost')).toBe(s.boost.reloadMs);
-    expect(equipmentReloadMs(s, 'decoyBuoy')).toBe(s.decoyBuoy.reloadMs);
+    expect(equipmentReloadMs(s, 'radarBuoy')).toBe(s.radarBuoy.reloadMs);
     // ONE shipCooldown stack scales EVERY lookup, not just one weapon's.
     expect(equipmentReloadMs(s, 'mine')).toBeCloseTo(CONFIG.mine.reloadMs * 0.9, 9);
     expect(equipmentReloadMs(s, 'gun')).toBeCloseTo(CONFIG.gun.reloadMs * 0.9, 9);

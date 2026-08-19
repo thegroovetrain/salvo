@@ -6,8 +6,8 @@
 // (2) drawOffer distinctness / weighting / determinism / rare escalation +
 // reset / empty-and-thin-deck fail-safety — and, since the lazy-draw bugfix,
 // that a draw is NON-CONSUMING (the pool is only READ); (3) consumeCard (the
-// fit — the deck's one and only outflow) / returnCards (the doctrine swap-out)
-// / consumeAcquisition purge semantics; (4) a
+// fit — the deck's ONLY outflow, and since Story 7-5 wave 2 the only flow at
+// all) / consumeAcquisition purge semantics; (4) a
 // full-economy replay property (no line ever exceeds its copy count, the
 // deck visibly thins, same seed = same economy). This suite also absorbs the
 // retired offers.test.ts (rollBoonOffer died with the category-first roll —
@@ -26,7 +26,6 @@ import {
   drawOffer,
   isAcquisitionDef,
   mulberry32,
-  returnCards,
   type BoonCatalog,
   type BoonDef,
   type BoonId,
@@ -37,8 +36,8 @@ import {
 /** The carried equipment per hull (the loadoutFor fits, sans empty slot). */
 const CARRIED: Record<'torpedoBoat' | 'battleship' | 'mineLayer', readonly EquipmentId[]> = {
   torpedoBoat: ['gun', 'torpedo', 'speedBoost'],
-  battleship: ['gun', 'cannon', 'starShells'],
-  mineLayer: ['gun', 'mine', 'decoyBuoy'],
+  battleship: ['gun', 'broadside', 'starShells'],
+  mineLayer: ['gun', 'mine', 'radarBuoy'],
 };
 
 /** Count cards per line id. */
@@ -82,34 +81,46 @@ describe('buildDeck — composition per hull loadout', () => {
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(6); // 4 speed + 1 tube + 1 homing
     expect(categoryCount(deck.cards, 'speedBoost')).toBe(6); // 4 duration + 2 speed (boostMax split)
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
-    expect(acquisitions.sort()).toEqual(['acquireCannon', 'acquireDecoy', 'acquireMine', 'acquireStarShells']);
+    expect(acquisitions.sort()).toEqual(['acquireBroadside', 'acquireMine', 'acquireRadarBuoy', 'acquireStarShells']);
     expect(deck.cards).toHaveLength(41);
     expect(deck.levelsSinceRare).toBe(0);
   });
 
-  it('Battleship: cannon + starShells subdecks; torpedo/mine/decoy/boost acquisitions', () => {
+  it('Battleship: broadside + starShells subdecks; torpedo/mine/buoy/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.battleship);
-    // The cannon subdeck is carried forward untouched and is now the THICKEST
-    // equipment subdeck rather than the thinnest — every other one shrank.
-    expect(categoryCount(deck.cards, 'cannon')).toBe(7); // 5 damage + 2 exclusives
+    expect(categoryCount(deck.cards, 'broadside')).toBe(6); // 4 spread + 2 turrets
     expect(categoryCount(deck.cards, 'starShells')).toBe(6); // 4 duration + phosphor + dazzle
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(0);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
-    expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireDecoy', 'acquireMine', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(3 + 9 + 13 + 7 + 6 + 4); // 42
+    expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireMine', 'acquireRadarBuoy', 'acquireTorpedo']);
+    expect(deck.cards).toHaveLength(3 + 9 + 13 + 6 + 6 + 4); // 41
   });
 
-  it('Mine Layer: mines + decoyBuoy subdecks; torpedo/cannon/star/boost acquisitions', () => {
+  it('Mine Layer: mines + radarBuoy subdecks; torpedo/broadside/star/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.mineLayer);
-    expect(categoryCount(deck.cards, 'mines')).toBe(6); // 4 blast + propFouling + selfPropelled
-    expect(categoryCount(deck.cards, 'decoyBuoy')).toBe(5);
+    expect(categoryCount(deck.cards, 'mines')).toBe(6); // 4 blast + propFouling + captive
+    expect(categoryCount(deck.cards, 'radarBuoy')).toBe(6); // 4 sweep + gun + jamming
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
-    expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireCannon', 'acquireStarShells', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(3 + 9 + 13 + 6 + 5 + 4); // 40
+    expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireBroadside', 'acquireStarShells', 'acquireTorpedo']);
+    expect(deck.cards).toHaveLength(3 + 9 + 13 + 6 + 6 + 4); // 41
+  });
+
+  // THE FINAL DECK ARITHMETIC (Story 7-5 wave 2), asserted BY EXECUTION over
+  // every hull rather than by three hand-written sums: 25 universal + 6 + 6
+  // subdeck + 4 acquisitions = 41, the same on all three. Wave 2 is the first
+  // time the three decks are the SAME SIZE — the cannon's 7 and the decoy's 5
+  // were the two odd ones out.
+  it('EVERY hull deck is exactly 41 cards, and the three are now equal', () => {
+    const sizes = (['torpedoBoat', 'battleship', 'mineLayer'] as const).map(
+      (cls) => buildDeck(BOON_CATALOG, CARRIED[cls]).cards.length,
+    );
+    expect(sizes).toEqual([41, 41, 41]);
   });
 
   it('the 7 deleted reload lines are in NO hull deck; ship contributes 13 (Eric rulings 2026-08-04)', () => {
     const dead = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
+    const wave2Gone = ['cannonDamage', 'cannonArcing', 'cannonAp', 'decoyDuration', 'mineSelfPropelled'];
+    for (const id of wave2Gone) expect(BOON_CATALOG[id], id).toBeUndefined();
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       const deck = buildDeck(BOON_CATALOG, CARRIED[cls]);
       for (const id of dead) expect(deck.cards, `${cls}:${id}`).not.toContain(id);
@@ -240,19 +251,24 @@ describe('drawOffer — distinct weighted lines, determinism, escalation', () =>
   });
 });
 
-describe('returnCards — the doctrine swap-out give-back', () => {
-  it('appends the ids and leaves levelsSinceRare untouched', () => {
-    const deck: DeckState = { cards: ['a', 'b'], levelsSinceRare: 4 };
-    const out = returnCards(deck, ['c', 'a']);
-    expect(out.cards).toEqual(['a', 'b', 'c', 'a']);
-    expect(out.levelsSinceRare).toBe(4);
-    expect(returnCards(deck, [])).toBe(deck); // empty return: same state reference
-  });
+// RETIRED, the whole describe block (Story 7-5 wave 2, R2.6): 'returnCards —
+// the doctrine swap-out give-back' (2 tests). `returnCards` existed for exactly
+// one caller — the exclusive-doctrine SWAP-OUT, which handed the rival card back
+// to the deck — and the exclusivity mechanism died with the cannon pair that was
+// its last user. The deck now has NO inflow at all, which is a stronger property
+// than the round-trip these tests pinned, and it is pinned in its place below.
 
-  it('consume → return round-trips the multiset (a doctrine can ping-pong)', () => {
+describe('the deck has no inflow — cards only ever LEAVE (Story 7-5 wave 2)', () => {
+  it('no exported deck function grows a deck: draw reads, fit removes, acquire swaps a purge for a subdeck', () => {
     const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
+    // A draw is READ-ONLY (the lazy-draw law).
+    expect(drawOffer(start, mulberry32(7)).deck.cards).toEqual(start.cards);
+    // A fit is the one and only outflow, and it is strictly monotone.
     const fitted = consumeCard(start, 'torpedoHoming');
-    expect(tally(returnCards(fitted, ['torpedoHoming']).cards)).toEqual(tally(start.cards));
+    expect(fitted.cards).toHaveLength(start.cards.length - 1);
+    expect(tally(fitted.cards).get('torpedoHoming') ?? 0).toBe(0);
+    // ...and nothing puts it back: there is no give-back path to call.
+    expect(consumeCard(fitted, 'torpedoHoming')).toBe(fitted); // no copy left: same reference
   });
 });
 
@@ -317,10 +333,10 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
 
   it('the acquired equipment can never be acquired again (its card purged with the rest)', () => {
     const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
-    const after = consumeAcquisition(start, BOON_CATALOG, 'cannon');
-    expect(after.cards).not.toContain('acquireCannon');
+    const after = consumeAcquisition(start, BOON_CATALOG, 'broadside');
+    expect(after.cards).not.toContain('acquireBroadside');
     expect(after.cards).not.toContain('acquireMine');
-    expect(categoryCount(after.cards, 'cannon')).toBe(7); // 5 commons + 2 exclusives (carried forward whole)
+    expect(categoryCount(after.cards, 'broadside')).toBe(6); // 4 spread + 2 turrets
   });
 });
 
@@ -367,12 +383,12 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
     return { picks, drawn, drawsUntilEmpty: draws };
   }
 
-  // ONE PAIR LEFT (Story 7-5 wave 1). `torpedoHoming`/`torpedoCommand` was the
-  // second pair; COMMAND DETONATION is deleted and every other doctrine card
-  // became an independently-stackable verb, so the cannon pair is the whole
-  // list. The two properties below are about DECK behaviour around 1-copy
-  // doctrine lines, so they are kept and simply run over the survivor.
-  const DOCTRINE_PAIRS = [['cannonArcing', 'cannonAp']] as const;
+  // NO PAIRS LEFT (Story 7-5 wave 2). The cannon pair was the last one and it
+  // died with the weapon, so "rivals" is not a category any more. The two
+  // properties below were never about rivalry though — they are about DECK
+  // behaviour around 1-COPY DOCTRINE LINES — so they are kept and re-pointed at
+  // the ones a Torpedo Boat's deck actually holds.
+  const DOCTRINE_LINES = ['torpedoHoming'] as const;
 
   it('no line is EVER picked beyond its copy count — caps self-enforce physically', () => {
     for (const seed of [1, 42, 1337]) {
@@ -388,35 +404,30 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
   });
 
   // The retired pin here asserted (a + b) <= 2 for two 1-copy lines — true by
-  // construction and unfalsifiable. What the ENGINE actually owes is copy
-  // scarcity per doctrine line; MUTUAL exclusion is the SERVER's job (the
-  // applyBoon doctrine swap, exercised in server/doctrines.test), and the deck
-  // deliberately does NOT impose it — that division of labor is what lets a
-  // swapped-out rival's card return to the pool and ping-pong.
+  // construction and unfalsifiable. What the ENGINE owes is copy scarcity per
+  // doctrine line, and since Story 7-5 wave 2 that is the WHOLE story: mutual
+  // exclusion used to be the SERVER's job (the applyBoon doctrine swap) and no
+  // longer exists anywhere, because every doctrine card is a stackable verb.
   it('a doctrine line may be OFFERED many times but PICKED at most `copies` (=1) — the only cap is scarcity', () => {
     for (const seed of [1, 42, 1337]) {
       const { picks, drawn } = playEconomy(seed);
       const pickCounts = tally(picks);
       const drawnCounts = tally(drawn);
-      for (const pair of DOCTRINE_PAIRS) {
-        for (const id of pair) {
-          expect(BOON_CATALOG[id].copies, id).toBe(1); // the scarcity the pin rests on
-          // Consuming a card is the ONLY thing that removes it for good: an
-          // unchosen doctrine returns to the pool and can be offered again...
-          expect(drawnCounts.get(id) ?? 0).toBeGreaterThanOrEqual(pickCounts.get(id) ?? 0);
-          // ...but a PICKED one is gone — never a second copy in one replay.
-          expect(pickCounts.get(id) ?? 0, `seed ${seed}: ${id}`).toBeLessThanOrEqual(BOON_CATALOG[id].copies);
-        }
+      for (const id of DOCTRINE_LINES) {
+        expect(BOON_CATALOG[id].copies, id).toBe(1); // the scarcity the pin rests on
+        // Consuming a card is the ONLY thing that removes it for good: an
+        // unchosen doctrine stays in the pool and can be offered again...
+        expect(drawnCounts.get(id) ?? 0).toBeGreaterThanOrEqual(pickCounts.get(id) ?? 0);
+        // ...but a PICKED one is gone — never a second copy in one replay.
+        expect(pickCounts.get(id) ?? 0, `seed ${seed}: ${id}`).toBeLessThanOrEqual(BOON_CATALOG[id].copies);
       }
     }
   });
 
-  it('BOTH rivals of a pair can appear across replays — the engine imposes no exclusion', () => {
+  it('every 1-copy doctrine line is genuinely reachable across replays (the engine imposes no exclusion)', () => {
     const seen = new Set<BoonId>();
     for (let seed = 0; seed < 40; seed += 1) for (const id of playEconomy(seed).drawn) seen.add(id);
-    for (const pair of DOCTRINE_PAIRS) {
-      for (const id of pair) expect(seen.has(id), `${id} never drawable`).toBe(true);
-    }
+    for (const id of DOCTRINE_LINES) expect(seen.has(id), `${id} never drawable`).toBe(true);
   });
 
   it('the same seed replays the identical economy (server-side reproducibility)', () => {
