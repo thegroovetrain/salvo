@@ -12,9 +12,10 @@
 // EVERYTHING HERE FAILS SAFE. A network error, a non-2xx, a timeout, a body
 // that is not JSON, or a payload whose shape does not hold ALL resolve to
 // `null` — "unavailable" — and nothing in this module ever throws into the home
-// screen. The home renders no liveness block and no button sub-line in that
-// case, and the deploy doors stay fully usable: the port must never be blocked,
-// delayed or error-toasted by a decorative-until-it-arrives number.
+// screen. The home renders no liveness block in that case (the mode buttons
+// carry nothing at all since 2026-08-19 — epic-6 amendment 50), and the deploy
+// doors stay fully usable: the port must never be blocked, delayed or
+// error-toasted by a decorative-until-it-arrives number.
 //
 // THE COUNTDOWN'S CLOCK. The payload carries an ABSOLUTE `queue.deadlineAt` (so
 // a client can tick a smooth countdown between 10s polls) plus `serverNow` (so a
@@ -23,13 +24,20 @@
 // epoch. Doing the correction here rather than in the UI keeps the skew explicit
 // and keeps exactly one place that knows about it.
 //
-// NOTE (Eric ruling 2026-08-18): the home's SOLO sub-line no longer counts
-// anything down — it is `N/20 QUEUED` and nothing else — so `deadlineAt` has no
-// consumer on this path today. The localization is retained because it is a
-// property of the PAYLOAD's contract, not of one reader: the field is on the
-// wire, absolute, and in the server's epoch, and any future reader that takes it
-// raw is wrong. (The queue modal's countdown is fed by the live
-// `MSG.queueStatus` push instead, which carries a RELATIVE `startsInMs`.)
+// NOTE (Eric rulings 2026-08-18 and 2026-08-19): `deadlineAt` lost its consumer
+// when the SOLO sub-line stopped counting down, and as of epic-6 amendment 50 the
+// sub-line is DELETED — so it is now the WHOLE `queue` block, not just
+// `deadlineAt`, that has no client reader at all. The localization is retained
+// because it is a property of the PAYLOAD's contract, not of one reader: the
+// field is on the wire, absolute, and in the server's epoch, and any future
+// reader that takes it raw is wrong. (The queue modal's countdown is fed by the
+// live `MSG.queueStatus` push instead, which carries a RELATIVE `startsInMs`.)
+//
+// CONSEQUENCE, LEDGERED NOT TAKEN: `parseLiveness` still fails the WHOLE payload
+// closed when `queue` is malformed (`isQueue` below), so a server that reshapes
+// a block nothing renders would blank PLAYERS ONLINE / LIVE GAMES. Relaxing that
+// contradicts this module's ratified all-or-nothing guard, and deleting the block
+// is a wire decision — both need a ruling. See deferred-work.md.
 //
 // THE POLL IS ALSO A HEARTBEAT. Since Eric's 2026-08-18 widening of
 // `playersOnline` to include home-screen viewers, every read carries this tab's

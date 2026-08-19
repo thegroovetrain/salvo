@@ -1752,3 +1752,59 @@ Five rulings that all went the SAME way, and together are why **`PROTOCOL_VERSIO
 `info`) was authored in-cycle because the AC demands "a plain explanation" for a failed resume. It uses
 the shipped two-part `<STATE> — <REMEDY>` grammar, but amendment 41 governs and Eric has not ruled on
 it. Same standing as the `UNKNOWN VESSEL` fallback: wants ratification or replacement in a copy pass.
+
+## Amendment 50 — The mode-button sub-lines are DELETED. They were escaping the settings yield. (Eric ruling 2026-08-19)
+
+**Source:** Eric, 2026-08-19, on seeing `N/20 QUEUED` and `STARTS INSTANTLY` floating on top of an open
+settings panel:
+> *"Just get rid of that text entirely instead of fixing it, i changed my mind, it doesn't need to be
+> there."*
+
+**The root cause, because the fix is a deletion and the mechanism would otherwise be lost with it.**
+`home.ts`'s `paintModeSubline()` wrote `el.style.visibility = 'visible'` on those two spans so an
+asynchronously-arriving line could occupy a reserved slot without reflowing the deploy stack. But
+`visibility` is an **INHERITED** property: a descendant asserting `visible` OVERRIDES an ancestor's
+`hidden`. The home yields to the settings overlay by setting `visibility:hidden` on its ROOT
+(`homeYieldStyle`, applied in `setYielded`), and the ratified z register puts home at 1100 above
+settings at 1050. Those two spans were therefore the **only** descendants of the entire home tree that
+survived the yield, and they rendered over the open panel. Deleting the copy deletes the only
+`visibility` writer below the root, so the yield now governs every pixel of the home **by
+construction** rather than by a second rule. A structural pin in `home.test.ts` asserts that no
+descendant carries an inline `visibility` while yielded — asserted on INLINE style, not
+`getComputedStyle`, because jsdom has no layout engine and its inheritance of `visibility` is not a
+dependable oracle, while the inline write IS the defect mechanism.
+
+**What this supersedes.** The **sub-line halves** of amendments 37 and 41 only. A37 put sub-lines back
+on the mode buttons one day after A31 deleted them, reasoning that a live queue count is information
+available nowhere else on the page; A41 then cut that copy down to the bare `N/20 QUEUED`. A37's
+reasoning was sound when written and is now moot: **A42** moved the pooled wait into its own modal,
+which carries the count for anyone actually in the pool, and **A43** put the population register
+bottom-left. A41's process rule (a ruling to place information is not a licence to author copy) is
+UNTOUCHED and governs here too — no replacement copy was authored for the retired dead-queue steer.
+**Amendment 31's bare mode buttons are RESTORED**: each button holds exactly one child, its label.
+
+**What did NOT move.** The queue MODAL's own `N/20 QUEUED` (A42) is a different, ratified surface and
+is byte-identical — `queuedCountLine` stays exported from `ui/queueModal.ts`. The bottom-left
+`PLAYERS ONLINE` / `LIVE GAMES` register (A43) keeps rendering, honest zero included (A39). The z
+register was NOT re-cut: settings 1050 < home 1100 stands, and `homeYieldStyle` is unchanged. Layout
+moved in the safe direction — the buttons hug their content, so the port column got ~17px shorter per
+button against the amendment 47 container-fit law, and nothing was re-tuned. Client-only;
+`PROTOCOL_VERSION` unchanged at **40**; `shared/` and `server/` untouched.
+
+**Deleted, not hidden** — `SOLO_AI_SUBLINE`, `queueButtonSubline()`, `makeModeSubline()`,
+`paintModeSubline()`, `sublineOf()` and `makeModeButton`'s `subline` parameter all go, in the standing
+style that removed grey NO-DATA (cycle 69) and the storm radar return (cycle 72); the pins that read
+them are RETIRED rather than bent onto new copy, including the whole F9 "the sub-line reserves its
+space" block — F9 existed only to stop an asynchronous line reflowing the stack, and nothing on the
+buttons is asynchronous any more.
+
+**Two consequences ledgered rather than taken** (both are in `deferred-work.md`):
+
+- **(a) `LivenessPayload.queue` now has NO client consumer at all.** `deadlineAt` already had none
+  after A41; `pooled` and `cap` lose theirs here. It is deliberately NOT deleted from
+  `shared/src/types.ts`, `client/src/net/liveness.ts` or the server's `/liveness` handler — that is a
+  wire/shape decision with no ruling, and this cycle's ruling was about copy.
+- **(b) `epics.md:1197`'s D6 steer** (*"steer toward Solo vs AI when Standard is empty"*) loses its
+  copy. What remains of that steer is the **SOLO VS AI door itself** plus the bottom-left liveness
+  register showing the honest population. Whether D6 wants a replacement surface is Eric's call, and
+  A41 bars inventing one unasked.
