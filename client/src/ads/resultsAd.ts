@@ -37,8 +37,26 @@
 //
 // IT LIVES OUTSIDE THE MODAL and touches none of its DOM: the results panel is a
 // fixed `CLIENT_CONFIG.results.panelWidth` centred column, so this is a separate
-// fixed-position element positioned FROM THE CENTRE, in the gutter beside it.
-// The modal's action set and the NO-INSTANT-RE-QUEUE pin are untouched.
+// fixed-position element positioned FROM THE CENTRE, beside it. The modal's
+// action set and the NO-INSTANT-RE-QUEUE pin are untouched.
+//
+// THE PANEL AND THE COLUMN ARE CENTRED AS ONE GROUP (Eric ruling 2026-08-19:
+// *"you can move the results screen over to make room for the ad unit to the
+// right if needed. idgaf."*). Squeezing the column into the right GUTTER of a
+// dead-centred panel demanded `(W − panelWidth)/2 >= gap + column`, i.e. a
+// 1352px viewport — which hid the unit on every 1024- and 1280-wide laptop and
+// earned nothing there. Centring `panelWidth + gap + column` instead needs only
+// that group plus its edge margins: 1002px. Same composition, ~350px cheaper.
+//
+// AND THE PANEL MOVES ONLY WHEN THE AD HAS ACTUALLY FILLED — the whole safety
+// rule of the shift. A blocked client, an unfilled slot, a missing slot id, an
+// unconfigured build and a viewport too narrow for the group ALL leave the score
+// screen exactly where it has always been, because an off-centre results panel
+// sitting beside empty space is worse than either outcome. The trigger is the
+// SAME `data-ad-status="filled"` signal that reveals the unit (there is no
+// second signal), the offset is a TRANSFORM on the panel — so the modal's own
+// width, bed, scroll cap and `max-width:100%` narrow fallback are untouched —
+// and it is reverted on hide, on teardown and on a resize below the breakpoint.
 //
 // AND IT IS DORMANT UNTIL THE SLOT EXISTS. A display unit needs a slot id minted
 // in the AdSense dashboard, so the slot has its OWN build-time switch beside the
@@ -56,6 +74,12 @@ import {
   pushDisplaySlot,
 } from './adsense.js';
 import { isValidAdsClientId } from './adsHead.js';
+// THE ONE HOOK INTO THE MODAL, and it points this way round on purpose: the ad
+// layer may read the panel's id, but no game module may import the ad layer
+// (`ads.test.ts` pins that main.ts is the only importer), so the dependency has
+// to hang here. It is an id string and nothing else — no DOM the modal owns is
+// written except a transform this file also removes.
+import { RESULTS_PANEL_ID } from '../ui/results.js';
 
 /** The host element's id — exported so tests can assert on the real DOM rather
  *  than on an accessor written for them. */
@@ -73,8 +97,9 @@ const AD_BORDER = 1;
 /** px — clear water between the results panel's edge and the ad column. */
 const AD_GAP = 24;
 
-/** px — clear water between the ad column and the viewport's right edge. Below
- *  this the unit is hidden outright rather than crowded against the frame. */
+/** px — clear water between the GROUP (panel + gap + column) and each viewport
+ *  edge. Below this the unit is hidden outright — and the panel stays dead
+ *  centre — rather than the pair being crowded against the frame. */
 const AD_EDGE = 16;
 
 /** Above the results overlay's own 1000 (`ui/results.ts`), below settings (1050)
@@ -87,24 +112,53 @@ export function resultsAdColumnWidth(): number {
   return AD_SLOT_WIDTH + 2 * AD_PAD + 2 * AD_BORDER;
 }
 
+/** THE GROUP: the panel, the gap and the column read as one composition, and it
+ *  is the group — not the panel — that is centred whenever the unit is up. */
+export function resultsAdGroupWidth(): number {
+  return CLIENT_CONFIG.results.panelWidth + AD_GAP + resultsAdColumnWidth();
+}
+
 /**
  * The narrowest viewport this unit may appear at — DERIVED, never a magic
  * number, so a change to the results panel's width moves it for free.
  *
- * The panel is centred, so half of it (`panelWidth / 2`) sits in each gutter;
- * to the right of that we need the gap, the column, and the edge margin, and
- * the viewport is symmetric about the centre — hence the doubling. At today's
- * 620px panel that is 2 × (310 + 24 + 326 + 16) = 1352, which clears the
- * ratified 1366×768 floor (UX-DR39) with room to spare and hides the unit on
- * anything narrower rather than letting it crowd or overlap the panel.
+ * It is simply the group plus an edge margin on each side. At today's 620px
+ * panel that is 620 + 24 + 326 + 2 × 16 = 1002, which takes in every 1024-wide
+ * laptop as well as the ratified 1366×768 floor (UX-DR39). The superseded
+ * gutter rule — panel dead centre, column squeezed into what was left —
+ * demanded 2 × (310 + 24 + 326 + 16) = 1352 and hid the unit on everything
+ * below a 1366-wide screen.
  */
 export function resultsAdMinViewportWidth(): number {
-  return 2 * (CLIENT_CONFIG.results.panelWidth / 2 + AD_GAP + resultsAdColumnWidth() + AD_EDGE);
+  return resultsAdGroupWidth() + 2 * AD_EDGE;
 }
 
-/** Whether the gutter can hold the column at this viewport width. */
+/** Whether the viewport can hold the panel and the column side by side. */
 export function resultsAdFits(viewportWidth: number): boolean {
   return viewportWidth >= resultsAdMinViewportWidth();
+}
+
+/**
+ * px — how far LEFT of dead centre the results panel sits while the unit is up.
+ *
+ * The group's centre is the viewport's centre, so the panel's own centre lands
+ * half the group's width from its left edge: `panelWidth/2 − group/2`, which is
+ * `−(gap + column)/2`. A CONSTANT, deliberately — it depends on nothing that
+ * changes with the viewport, so the pair never slides about as the window is
+ * resized above the breakpoint.
+ */
+export function resultsPanelOffsetX(): number {
+  return -(AD_GAP + resultsAdColumnWidth()) / 2;
+}
+
+/**
+ * px — the column's left edge, measured from dead centre: the shifted panel's
+ * right edge (its offset CENTRE plus half its width) plus the gap. Derived from
+ * the SAME group arithmetic the panel offset is, so the two can never drift
+ * apart into an uneven gap.
+ */
+export function resultsAdOffsetX(): number {
+  return resultsPanelOffsetX() + CLIENT_CONFIG.results.panelWidth / 2 + AD_GAP;
 }
 
 /**
@@ -164,6 +218,7 @@ export function destroyResultsAd(): void {
   wanted = false;
   filled = false;
   pushed = false;
+  setPanelShift(false); // the panel usually outlives nothing here — but never leave a shift behind
   unbindResize();
   if (mounted === null) return;
   mounted.observer?.disconnect();
@@ -181,6 +236,7 @@ function sync(): void {
   if (!isResultsAdConfigured()) return;
   if (!wanted || !resultsAdFits(viewportWidth())) {
     if (mounted !== null) mounted.host.style.display = 'none';
+    setPanelShift(false);
     return;
   }
   ensureMounted();
@@ -188,6 +244,29 @@ function sync(): void {
   if (!filled && mounted.ins.getAttribute(AD_STATUS_ATTR) === 'filled') filled = true;
   mounted.host.style.display = 'block';
   mounted.host.style.visibility = filled ? 'visible' : 'hidden';
+  // ONLY A REAL AD MOVES THE SCORE SCREEN. Everything else — blocked, unfilled,
+  // still waiting on Google — leaves it dead centre, which is also what every
+  // early return above this line does.
+  setPanelShift(filled);
+}
+
+/**
+ * Offset the results panel left by half the group, or put it back.
+ *
+ * A TRANSFORM rather than a margin or a `left`, so the panel's flex layout, its
+ * `max-height` scroll cap and its `max-width:100%` narrow fallback all keep
+ * behaving exactly as they do with no ad in the build. A no-op when no modal is
+ * on screen: the panel is created fresh by every `showResults()` and destroyed
+ * by every `hideResults()`, so there is no element left to carry a stale shift
+ * — but reverting is still written explicitly, because the resize path clears
+ * it on a LIVE panel.
+ */
+function setPanelShift(on: boolean): void {
+  const doc = (globalThis as { document?: Document }).document;
+  const panel = doc?.getElementById(RESULTS_PANEL_ID) ?? null;
+  if (panel === null) return;
+  if (on) panel.style.setProperty('transform', `translateX(${resultsPanelOffsetX()}px)`);
+  else panel.style.removeProperty('transform');
 }
 
 /**
@@ -243,7 +322,7 @@ function hostStyle(): [string, string][] {
   return [
     ['position', 'fixed'],
     ['top', '50%'],
-    ['left', `calc(50% + ${R.panelWidth / 2 + AD_GAP}px)`],
+    ['left', `calc(50% + ${resultsAdOffsetX()}px)`],
     ['transform', 'translateY(-50%)'],
     ['width', `${resultsAdColumnWidth()}px`],
     ['box-sizing', 'border-box'],

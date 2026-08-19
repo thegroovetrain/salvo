@@ -957,6 +957,33 @@ anywhere on the site"* became FALSE the moment this shipped and was rewritten in
 the standing rule that a policy misstating collection is a defect, not a wording preference, applies
 just as hard to a policy misstating ADVERTISING. The unit sits on the `--hc-panel` bed with a
 hairline border rather than floating on live ocean, which is both design-consistent and materially
-strengthens the placement's footing under Google's (recommendation-grade) clearance guidance. And it
-hides entirely below the viewport width where the gutter can no longer hold it without crowding the
-620px panel, rather than overlapping at any width.
+strengthens the placement's footing under Google's (recommendation-grade) clearance guidance.
+
+### The panel moves (ERIC RULING, same day) — and it was worth 350px of viewport
+
+The first build kept the results panel DEAD CENTRE and squeezed the ad into the right gutter, which
+made the fit rule `(W − 620)/2 ≥ column + gap` and put the breakpoint at **1352px**. Below that the
+unit was hidden and earned nothing — losing every 1024- and 1280-wide laptop, which is a large share
+of the audience for a browser game. Eric, unprompted: *"you can move the results screen over to make
+room for the ad unit to the right if needed. idgaf."*
+
+**The panel and the ad are now centred AS ONE GROUP**, so the rule becomes
+`panelWidth + gap + column + 2×edge` = 620 + 24 + 326 + 32 = **1002px**. The panel shifts a constant
+−175px (`−(gap + column)/2`, viewport-independent) and the ad's offset is recomputed from the same
+group arithmetic, so the gap between them cannot drift. **The reachable-viewport gain is the point of
+the ruling, not a side effect** — 1024 and 1280 both move from "no ad" to "ad".
+
+**THE PANEL MOVES ONLY WHEN THE AD HAS ACTUALLY FILLED, and this is the safety rule that must survive
+any future edit.** A blocked client, an unfilled slot, a missing slot id, an unconfigured build, or a
+viewport below the breakpoint ALL leave the panel exactly where it has always been. An off-centre
+score screen sitting beside empty space is worse than either a centred screen or an ad. The shift is
+reverted on SPECTATE, on teardown, and on a resize below the breakpoint; a stale offset outliving the
+ad is the specific failure mode under test. Both directions are MUTATION-PROVEN — forcing the shift
+on fails the blocked and unfilled cases, forcing it off fails the shifted cases.
+
+`ui/results.ts` gained exactly one hook (an exported id on the panel element, since it previously had
+no handle at all); `PANEL_CSS` and `OVERLAY_CSS` are byte-identical and the offset is written by the
+ads layer as a transform. The dependency direction stays ads → ui, so the containment pin holds
+unwidened. **Known and accepted:** at viewports 1002–1017 the group's 16px edge margin is inside the
+overlay's own 24px padding, so the panel escapes its padding box by 8px. Raising the edge to 24 would
+have cost that band entirely; the band is worth more than the 8px.

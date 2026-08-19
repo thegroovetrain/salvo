@@ -47,10 +47,14 @@ import {
   isResultsAdConfigured,
   resultsAdColumnWidth,
   resultsAdFits,
+  resultsAdGroupWidth,
   resultsAdMinViewportWidth,
+  resultsAdOffsetX,
+  resultsPanelOffsetX,
   showResultsAd,
   __resetResultsAdForTests,
 } from '../ads/resultsAd.js';
+import { RESULTS_PANEL_ID, hideResults, showResults } from '../ui/results.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { EEA_UK_CH_REGIONS } from '../analytics/consent.js';
 import { safeAdapter } from '../portal/safeAdapter.js';
@@ -704,6 +708,40 @@ describe('the results-screen display unit', () => {
     return host()?.querySelector('ins') ?? null;
   }
 
+  function panel(): HTMLElement | null {
+    return document.getElementById(RESULTS_PANEL_ID);
+  }
+
+  /** Open the REAL score screen, so the shift is asserted against the modal the
+   *  player actually gets rather than against a stand-in div. */
+  function openScoreScreen(): void {
+    showResults(
+      {
+        banner: 'SUNK',
+        victory: false,
+        score: { boons: 0, kills: 0, sunkContestants: [], placement: 4, winner: false, matchLog: [], afloatMs: null },
+        rows: null,
+        ownId: 'a',
+        canSpectate: true,
+      },
+      { onSpectate: () => undefined, onReturn: () => undefined },
+    );
+  }
+
+  /** Google reports a fill. The attribute is read by `sync()`, so a second open
+   *  latches it synchronously — no MutationObserver microtask to wait on. */
+  function reportFilled(): void {
+    ins()?.setAttribute(AD_STATUS_ATTR, 'filled');
+    showResultsAd();
+  }
+
+  /** The panel's shift in px, or 0 when it is sitting dead centre. */
+  function panelShift(): number {
+    const t = panel()?.style.transform ?? '';
+    if (t === '') return 0;
+    return Number(/translateX\((-?[\d.]+)px\)/.exec(t)?.[1] ?? NaN);
+  }
+
   /** Replace the command queue with a recorder. Non-array on purpose: that is
    *  the shape Google's own loader leaves behind once it has arrived. */
   function recorder(): unknown[] {
@@ -724,6 +762,7 @@ describe('the results-screen display unit', () => {
   afterEach(() => {
     __resetResultsAdForTests();
     __resetAdsForTests();
+    hideResults();
     vi.unstubAllEnvs();
     document.body.innerHTML = '';
   });
@@ -859,32 +898,54 @@ describe('the results-screen display unit', () => {
     expect(host()?.style.visibility).toBe('visible');
   });
 
-  // --- geometry: right gutter, never over the panel ---
+  // --- geometry: the panel and the column are centred as ONE GROUP ---
 
   it('derives its breakpoint from the panel width — no magic number', () => {
-    const expected = 2 * (CLIENT_CONFIG.results.panelWidth / 2 + 24 + resultsAdColumnWidth() + 16);
+    // Eric ruling 2026-08-19: the panel may move over. The requirement is the
+    // GROUP plus its two edge margins, not a gutter beside a dead-centre panel
+    // — which is what took this from 1352 down to 1002.
+    const expected = CLIENT_CONFIG.results.panelWidth + 24 + resultsAdColumnWidth() + 2 * 16;
+    expect(resultsAdGroupWidth()).toBe(CLIENT_CONFIG.results.panelWidth + 24 + resultsAdColumnWidth());
     expect(resultsAdMinViewportWidth()).toBe(expected);
   });
 
-  it('fits at the ratified 1366-wide floor and is hidden below its breakpoint', () => {
+  it('now takes in the 1024- and 1280-wide laptops the gutter rule lost', () => {
+    // The whole point of the ruling: the old 1352 breakpoint earned NOTHING on
+    // either of the two commonest small-laptop widths.
+    expect(resultsAdMinViewportWidth()).toBeLessThanOrEqual(1024);
+    expect(resultsAdFits(1024)).toBe(true);
+    expect(resultsAdFits(1280)).toBe(true);
     expect(resultsAdFits(1366)).toBe(true);
     expect(resultsAdFits(resultsAdMinViewportWidth())).toBe(true);
     expect(resultsAdFits(resultsAdMinViewportWidth() - 1)).toBe(false);
-    expect(resultsAdFits(1024)).toBe(false);
+    expect(resultsAdFits(960)).toBe(false);
   });
 
-  it('sits clear of the panel: offset from the CENTRE by half the panel plus a gap', () => {
+  it('centres the PAIR: equal margins at the floor viewport and at 1920', () => {
+    // The composition reads as one block, so what must be symmetric about the
+    // centre is the group — the panel's left edge and the column's right edge.
+    for (const w of [resultsAdMinViewportWidth(), 1920]) {
+      // the panel's LEFT edge and the column's RIGHT edge, in viewport px
+      const panelLeft = w / 2 + resultsPanelOffsetX() - CLIENT_CONFIG.results.panelWidth / 2;
+      const columnRight = w / 2 + resultsAdOffsetX() + resultsAdColumnWidth();
+      expect(panelLeft, `${w}`).toBe(w - columnRight);
+      expect(panelLeft, `${w}`).toBeGreaterThanOrEqual(16);
+      expect(columnRight - panelLeft).toBe(resultsAdGroupWidth());
+    }
+  });
+
+  it('keeps the ad immediately right of the SHIFTED panel, same gap', () => {
     showResultsAd();
     const left = host()?.style.left ?? '';
-    const px = Number(/calc\(50% \+ ([\d.]+)px\)/.exec(left)?.[1] ?? NaN);
-    expect(px).toBeGreaterThanOrEqual(CLIENT_CONFIG.results.panelWidth / 2);
-    // ...and the column's far edge still clears the viewport at the 1366 floor
-    expect(2 * (px + resultsAdColumnWidth())).toBeLessThanOrEqual(1366);
+    const px = Number(/calc\(50% \+ (-?[\d.]+)px\)/.exec(left)?.[1] ?? NaN);
+    expect(px).toBe(resultsAdOffsetX());
+    // the gap is exactly one gap: shifted panel's right edge → column's left
+    expect(px - (resultsPanelOffsetX() + CLIENT_CONFIG.results.panelWidth / 2)).toBe(24);
   });
 
-  it('creates NOTHING at a viewport too narrow to hold it', () => {
+  it('creates NOTHING at a viewport too narrow to hold the pair', () => {
     const pushes = recorder();
-    setViewport(1024);
+    setViewport(960);
     showResultsAd();
     expect(host()).toBeNull();
     expect(pushes).toHaveLength(0);
@@ -893,12 +954,86 @@ describe('the results-screen display unit', () => {
   it('re-evaluates the fit on resize, in both directions', () => {
     showResultsAd();
     expect(host()?.style.display).toBe('block');
-    setViewport(1024);
+    setViewport(960);
     globalThis.dispatchEvent(new Event('resize'));
     expect(host()?.style.display).toBe('none');
     setViewport(1600);
     globalThis.dispatchEvent(new Event('resize'));
     expect(host()?.style.display).toBe('block');
+  });
+
+  // --- the panel moves ONLY for an ad that actually filled ---
+
+  it('FILLED: the score screen slides left by half the gap-plus-column', () => {
+    openScoreScreen();
+    showResultsAd();
+    reportFilled();
+    expect(panelShift()).toBe(resultsPanelOffsetX());
+    expect(panelShift()).toBeLessThan(0);
+  });
+
+  it('BLOCKED: no attribute ever arrives, so the panel never moves', () => {
+    // The safety rule of the whole shift: an off-centre score screen beside
+    // empty space is worse than either outcome.
+    openScoreScreen();
+    showResultsAd();
+    expect(host()?.style.visibility).toBe('hidden');
+    expect(panelShift()).toBe(0);
+  });
+
+  it('UNFILLED: an explicit no-fill leaves the panel dead centre', () => {
+    openScoreScreen();
+    showResultsAd();
+    ins()?.setAttribute(AD_STATUS_ATTR, 'unfilled');
+    showResultsAd();
+    expect(panelShift()).toBe(0);
+  });
+
+  it('UNCONFIGURED: no slot id, no element — and no shift', () => {
+    vi.stubEnv('VITE_ADSENSE_SLOT_RESULTS', '');
+    openScoreScreen();
+    showResultsAd();
+    expect(host()).toBeNull();
+    expect(panelShift()).toBe(0);
+  });
+
+  it('TOO NARROW: nothing mounts, so nothing moves', () => {
+    setViewport(960);
+    openScoreScreen();
+    showResultsAd();
+    expect(panelShift()).toBe(0);
+  });
+
+  it('a resize below the breakpoint puts a SHIFTED panel back to centre', () => {
+    // The one path where the revert acts on a LIVE panel rather than on one the
+    // modal has already destroyed.
+    openScoreScreen();
+    showResultsAd();
+    reportFilled();
+    expect(panelShift()).toBe(resultsPanelOffsetX());
+    setViewport(960);
+    globalThis.dispatchEvent(new Event('resize'));
+    expect(panelShift()).toBe(0);
+    setViewport(1600);
+    globalThis.dispatchEvent(new Event('resize'));
+    expect(panelShift()).toBe(resultsPanelOffsetX());
+  });
+
+  it('leaves NO stale shift after hide (SPECTATE) or after teardown', () => {
+    openScoreScreen();
+    showResultsAd();
+    reportFilled();
+    hideResultsAd();
+    expect(panelShift()).toBe(0);
+    // ...and the modal's own close destroys the panel, so a reopened score
+    // screen starts centred and is re-shifted only because the fill still holds
+    hideResults();
+    openScoreScreen();
+    expect(panelShift()).toBe(0);
+    showResultsAd();
+    expect(panelShift()).toBe(resultsPanelOffsetX());
+    destroyResultsAd();
+    expect(panelShift()).toBe(0);
   });
 
   // --- the bed ---
