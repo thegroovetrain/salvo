@@ -163,8 +163,17 @@ number, so its face is name + tag only.
 **The hover tooltip carries the EXPLANATION** — what the card actually does, in plain terms. Every
 line gets one, stat lines included (a `current → next` number does not tell a new player what
 `cooldownScale` or a trip ring IS). Reuse the EXISTING tooltip machinery (`tooltipFit.test.ts`, the
-hotbar's accrued-boon tooltip) rather than inventing a second one; keyboard selection must reach it
-too, since the refit window is driven by CTRL+1/2/3 and a mouse-only affordance would strand that path.
+hotbar's accrued-boon tooltip) rather than inventing a second one.
+
+**THE TOOLTIP IS HOVER-ONLY. It deliberately does NOT need a keyboard path (Eric ruling
+2026-08-19, correcting an earlier orchestrator ruling that demanded one).** The refit window is
+**Tab** to open, **1-4** to pick a card, **5** to heal — verified in `client/src/input/keyboard.ts`
+(`bind(['Tab'], ...)`, `Digit1..4 -> 0..3`, `Digit5 -> HEAL_CHOICE`). NOTE: CLAUDE.md's "CTRL spend
+window / CTRL+1/2/3 / CTRL+E" is STALE and belongs to Story 7-6's doc reconciliation.
+The two paths serve DIFFERENT players and must not be collapsed: *"a new player will probably click
+and hover and read tooltips. an experienced player knows what they want and will use the shortcut or
+click faster without reading."* The shortcut exists precisely so you can SKIP the reading — wiring
+the tooltip into it would put the explanation back in front of the player who does not want it.
 
 **CONSEQUENCE — epic-4 amendment 47's container-fit law is RELAXED for this text, and that is the
 point.** That ~90-character / ~5-wrapped-line budget exists because Story 2.8's doctrine text

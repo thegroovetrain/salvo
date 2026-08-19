@@ -26,7 +26,7 @@ import {
   SLOT_COUNT,
   type BoonDef,
   type Island,
-  type DecoyView,
+  type BuoyView,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
@@ -1629,7 +1629,7 @@ function resetOwnOrders(g: Game): void {
   // the shot it describes either splashed unseen or belongs to a hull that no
   // longer exists, so letting it stand would dress the FIRST reveal of the next
   // life (quite possibly somebody else's shell, landing where we just spawned)
-  // as our cannon shot. An unclaimed reveal reads generic, the honest fallback.
+  // as our own barrage. An unclaimed reveal reads generic, the honest fallback.
   g.ownFire.clear();
   // Reset the denial dedup at the SAME boundary (Story 1.10): dropping queued
   // presses without advancing actCount would otherwise let the next press reuse
@@ -2240,7 +2240,7 @@ function overlayFocused(g: Game | null): boolean {
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
  *    double press within RTT can't extend it). The decoyBuoy drop needs
  *    no press-time cue: its placement tone rides the Decoys reconcile
- *    own-spawn hook (fired on the confirmed OWN buoy, gated by DecoyView `own`
+ *    own-spawn hook (fired on the confirmed OWN buoy, gated by BuoyView `own`
  *    so it never misfires on a truesighted enemy buoy) — the same hook the
  *    mine's placement tone still rides from the Mines reconcile.
  */
@@ -2398,7 +2398,7 @@ function abilityFeedbackState(): Pick<
  * reads. The hook only ever fires for buoys we own, so a truesighted enemy buoy
  * can never light our slot.
  */
-function onOwnDecoy(g: Game | null, audio: Audio, d: DecoyView): void {
+function onOwnDecoy(g: Game | null, audio: Audio, d: BuoyView): void {
   audio.play('placeDecoy');
   if (g) g.ownDecoyUntil = Math.max(g.ownDecoyUntil, d.until);
 }
@@ -2418,13 +2418,13 @@ function latchFitFlash(g: Game, category: string): void {
 /**
  * ms — the REMAINING ability window per loadout slot (0 = none running), the
  * ACTIVE state's only input (amendment 48). The boost reads the same
- * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; the decoy
+ * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; the buoy
  * reads the latched own-buoy expiry. Everything else has no window.
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
-  const until = { speedBoost: boostUntilNow(g), decoyBuoy: g.ownDecoyUntil };
-  return status.loadout.map((id) => (id === 'speedBoost' || id === 'decoyBuoy' ? Math.max(0, until[id] - now) : 0));
+  const until = { speedBoost: boostUntilNow(g), radarBuoy: g.ownDecoyUntil };
+  return status.loadout.map((id) => (id === 'speedBoost' || id === 'radarBuoy' ? Math.max(0, until[id] - now) : 0));
 }
 
 /**
@@ -2668,7 +2668,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   // earn it from observable behavior). Deliberately ABOVE the vision-change
   // early-return below: a doctrine swap moves no vision stat, so gating it on
   // one would leave the water lying about the build we just fitted.
-  g.projectiles.setOwnModes({ cannon: stats.cannon.mode, torpedoHoming: stats.torpedo.homing });
+  g.projectiles.setOwnModes({ torpedoHoming: stats.torpedo.homing });
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -2700,15 +2700,19 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
  * of our mines trips or blasts), stamped with the FRAME's own time so the
  * arming window is measured on the clock that owns it — an estimated local
  * serverNow() charges the mine for the transport delay and holds the dim late.
- * The acquisition ring is present only under the SELF-PROPELLED doctrine, and
- * its radius is raw CONFIG on purpose — no boon scales acquisition today.
+ * The acquisition ring is UNFED as of Story 7-5 wave 2: SELF-PROPELLED MINES —
+ * the flag that was its only source — is deleted with its card (R2.6), and
+ * CAPTIVE MINES, the card that replaces it, is a LATER SLICE of this story. The
+ * ring channel is left in place rather than torn out because that slice is the
+ * one that decides whether a captive mine draws one; nothing may re-derive it
+ * from a stat here in the meantime.
  */
 function ownMineRingParams(g: Game, t: number): OwnMineRings {
   const mine = g.ownStats.mine;
   return {
     blast: mine.blastRadius,
     trigger: mine.triggerRadius,
-    acquire: mine.selfPropelled ? CONFIG.mine.creepAcquireRange : null,
+    acquire: null,
     now: t,
   };
 }

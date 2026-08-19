@@ -6,12 +6,12 @@
 // on radar) never rides here — it arrives as an ordinary `blip` event and is
 // rendered by the phosphor/radar path with zero changes.
 //
-// OWN vs ENEMY LAYER split (mirrors mines.ts, driven by DecoyView.own): OWN buoys
+// OWN vs ENEMY LAYER split (mirrors mines.ts, driven by BuoyView.own): OWN buoys
 // draw in chartRoot's decoy layer (fog-immune) so you always read your own buoy
 // even when it lies under fog beyond sight range; a truesighted ENEMY buoy draws
 // in worldRoot's decoy layer and only ever arrives while sighted, so fog over it
 // is a non-issue — exactly the mine convention. The MARKER COLOR, as of Story
-// 1.12, is the OWNER's personal hue (DecoyView.by → hueFor) — the SAME hue for
+// 1.12, is the OWNER's personal hue (BuoyView.by → hueFor) — the SAME hue for
 // every observer, not an own-green / enemy-amber split (amber survives only as
 // the roster-miss fallback); `own` now drives only the layer + brightness.
 //
@@ -23,7 +23,7 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { DecoyView } from '@salvo/shared';
+import type { BuoyView } from '@salvo/shared';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
 export type { HueFor };
@@ -34,7 +34,7 @@ const MAST = 6; // u — short topmark mast so the buoy reads distinct from a mi
 
 /** What changed between the sprites we hold and the incoming decoy list. */
 export interface DecoyDiff {
-  add: DecoyView[];
+  add: BuoyView[];
   remove: string[];
 }
 
@@ -46,9 +46,9 @@ export interface DecoyDiff {
  * id joins) resolve to one remove + one add, and an expiry/out-of-view drop
  * resolve to a plain remove.
  */
-export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly DecoyView[]): DecoyDiff {
+export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly BuoyView[]): DecoyDiff {
   const seen = new Set<string>();
-  const add: DecoyView[] = [];
+  const add: BuoyView[] = [];
   for (const d of incoming) {
     seen.add(d.id);
     if (!current.has(d.id)) add.push(d);
@@ -79,7 +79,7 @@ export class Decoys {
   constructor(
     private readonly ownLayer: Container,
     private readonly enemyLayer: Container,
-    private readonly onOwnDecoySpawn?: (d: DecoyView) => void,
+    private readonly onOwnDecoySpawn?: (d: BuoyView) => void,
   ) {}
 
   /**
@@ -89,7 +89,7 @@ export class Decoys {
    * every sprite, which is how a match reset / despawn-all lands (the mines
    * precedent).
    */
-  sync(decoys: readonly DecoyView[], hueFor: HueFor): void {
+  sync(decoys: readonly BuoyView[], hueFor: HueFor): void {
     const { add, remove } = reconcileDecoys(new Set(this.sprites.keys()), decoys);
     for (const id of remove) this.despawn(id);
     for (const d of add) this.spawn(d, hueFor);
@@ -98,7 +98,7 @@ export class Decoys {
     for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.drawMarker(s.g, s.own, color));
   }
 
-  private spawn(d: DecoyView, hueFor: HueFor): void {
+  private spawn(d: BuoyView, hueFor: HueFor): void {
     const g = new Graphics();
     const { color, colored, rev } = resolveHue(d.by, hueFor);
     this.drawMarker(g, d.own, color);

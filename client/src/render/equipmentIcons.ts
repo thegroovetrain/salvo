@@ -71,8 +71,10 @@ const starShells: Glyph = (g, cx, cy, r) => {
   }
 };
 
-/** Decoy buoy: an anchored float with a masthead reflector. */
-const decoyBuoy: Glyph = (g, cx, cy, r) => {
+/** Radar buoy: an anchored float with a masthead reflector. (Eric's deck note
+ *  asks for a mark more distinct from the mine's — that redraw belongs with the
+ *  buoy's own slice, so the shipped linework stands for now.) */
+const radarBuoy: Glyph = (g, cx, cy, r) => {
   g.circle(cx, cy + r * 0.25, r * 0.38);
   g.moveTo(cx, cy - r * 0.13).lineTo(cx, cy - r * 0.9);
   g.moveTo(cx, cy - r * 0.9).lineTo(cx + r * 0.5, cy - r * 0.62).lineTo(cx, cy - r * 0.38);
