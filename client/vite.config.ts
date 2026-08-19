@@ -17,19 +17,26 @@ type DevMiddleware = (
 ) => void;
 
 /**
+ * THE BARE PATHS THAT NEED THE TRAILING-SLASH 301. One entry per static page
+ * (Story 7.3 made this a LIST rather than a second copy of the same middleware:
+ * two hand-written redirects are two chances for the third page to drift from
+ * the second).
+ *
  * `/privacy` -> `/privacy/`, the same 301 `express.static` issues in production.
  * The QUERY STRING IS CARRIED (review gate): dropping it made a dev redirect
  * diverge from prod for any link carrying `?utm_source=`, which is exactly the
- * kind of link a privacy policy gets shared with. Matches the bare path ONLY, so
+ * kind of link these pages get shared with. Matches the bare path ONLY, so
  * `/privacyfoo` and every asset under `/privacy/` fall straight through.
  */
-const privacyRedirect: DevMiddleware = (req, res, next) => {
+const STATIC_PAGE_PATHS = ['/privacy', '/how-to-play'] as const;
+
+const staticPageRedirect: DevMiddleware = (req, res, next) => {
   const url = req.url ?? '';
   const q = url.indexOf('?');
   const path = q === -1 ? url : url.slice(0, q);
-  if (path !== '/privacy') return next();
+  if (!(STATIC_PAGE_PATHS as readonly string[]).includes(path)) return next();
   res.statusCode = 301;
-  res.setHeader('Location', q === -1 ? '/privacy/' : `/privacy/${url.slice(q)}`);
+  res.setHeader('Location', q === -1 ? `${path}/` : `${path}/${url.slice(q)}`);
   res.end();
 };
 
@@ -73,12 +80,13 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     /**
-     * TWO ENTRIES (Story 7.2, Eric ruling R8 — the policy lives at `/privacy`).
+     * THREE ENTRIES (Story 7.2 added `/privacy`; Story 7.3 adds
+     * `/how-to-play`).
      *
      * `main` is the entry Vite already used by default; naming it explicitly is
      * required, because the moment `input` is given it REPLACES the default
      * rather than adding to it, and omitting `main` would ship a site that is
-     * nothing but a privacy policy.
+     * nothing but static pages.
      *
      * Rollup keys the emitted path off the entry's path relative to the project
      * root, so `client/privacy/index.html` lands at `dist/privacy/index.html` —
@@ -86,15 +94,15 @@ export default defineConfig(({ mode }) => ({
      * byte-identical to the URL Eric picked (it 301s to `/privacy/` and serves
      * the directory index, exactly as it does for `/`).
      *
-     * THE DEV SERVER DOES NOT DO THAT BY ITSELF — see `hc-privacy-dev-url`
+     * THE DEV SERVER DOES NOT DO THAT BY ITSELF — see `hc-static-page-dev-url`
      * below. Vite's SPA html-fallback answers a bare `/privacy` with the GAME,
      * so without the plugin the link on home would look broken in `npm run dev`
      * and work in production, which is the worst way round.
      *
      * NOTHING ELSE ABOUT THE BUILD MOVES. `build:perf`'s `--mode perf
      * --outDir dist-perf` still governs where output goes, so the perf build
-     * simply emits both entries into `dist-perf`; the shipped `dist` is
-     * unchanged apart from gaining the second page, and NFR17's
+     * simply emits every entry into `dist-perf`; the shipped `dist` is
+     * unchanged apart from gaining the static pages, and NFR17's
      * `--verify-bundle` grep still finds no instrument in it (the policy page's
      * module graph is the theme bridge, the page chrome and its copy — no Pixi,
      * no stage, no analytics).
@@ -103,6 +111,7 @@ export default defineConfig(({ mode }) => ({
       input: {
         main: resolve(__dirname, 'index.html'),
         privacy: resolve(__dirname, 'privacy/index.html'),
+        'how-to-play': resolve(__dirname, 'how-to-play/index.html'),
       },
     },
   },
@@ -128,17 +137,17 @@ export default defineConfig(({ mode }) => ({
        * production issues, so the two behave identically rather than merely
        * both working.
        */
-      name: 'hc-privacy-dev-url',
+      name: 'hc-static-page-dev-url',
       apply: 'serve' as const,
       configureServer(server: DevServer) {
-        server.middlewares.use(privacyRedirect);
+        server.middlewares.use(staticPageRedirect);
       },
       // `vite preview` serves the BUILT dist and is the closest local stand-in
       // for production, so it needs the same redirect: `apply: 'serve'` covers
       // the dev server only, and without this `/privacy` behaved differently in
       // preview than in either dev or prod (review gate).
       configurePreviewServer(server: DevServer) {
-        server.middlewares.use(privacyRedirect);
+        server.middlewares.use(staticPageRedirect);
       },
     },
   ],

@@ -588,3 +588,124 @@ per-connection ids and Render's edge logs. Separately, and found before the gate
 inventory described `hullcracker.session` as a match-resume token when it is the single-session
 LOCK, and omitted the legacy `hullcracker-muted` key entirely. **A privacy policy that misstates
 collection is a defect, not a wording preference** — every claim in it is now checked against code.
+
+---
+
+## Amendment 15 — The Story 7-3 question gate: THREE ERIC RULINGS, 2026-08-19 (cycle 106)
+
+The story opened with a question gate (`bmad-dev-auto-result-7-3-how-to-play-page-questions.md`,
+eleven questions). Eric answered all eleven, then three follow-ups after the first pass was rejected
+for jargon — *"ELI5 this shit, I do not have the time nor energy to decypher your technical jargon
+hallucinations."* **A question the owner cannot parse is not a question; it is a delay.** The
+useful form was plain English plus multiple choice, and the second pass was answered immediately.
+
+### The rulings
+
+**On the standing of the planning docs (Eric, 2026-08-19).** The orchestrator described one of
+Eric's copy cuts as "superseding an AC clause", as though `epics.md` had authority he was departing
+from. He corrected it: *"YOU decided it was a requirement, I didn't. Whatever the fuck I say is the
+requirement, and my mind is known to change."* **The planning artifacts record what Eric wanted when
+they were written; they are downstream of him, never a constraint on him.** When he says otherwise
+the doc is simply OUT OF DATE. Amendments still record which planning text is dead — that is what
+this file is for and future agents need it — but the framing is "the doc is stale", never "the
+ruling overrides the requirement", and a cut of his needs no justification against a written clause.
+
+**R1 — SCOPE IS THE BASICS, AND THE GLOSSARY IS STRUCK.** *"No need for a boon glossary, eat shit.
+This page needs to give people the basics on how to steer their ship, select weapons, upgrade, and
+shoot. They can figure the rest out through play."* This **supersedes the Story 7.3 AC's coverage
+list** (three sensor tiers, storm rhythm, classes + slot grammar, boon economy) and **strikes the
+boon-glossary clause of UX-DR29 and FR39**. Restated when the structure question came back: *"NO
+FUCKING GLOSSARY. One page."* What survives from FR39 is the **win condition**, which is why the
+story is a beta gate at all (epic-5 amendment 46(c)) and which Eric had already ruled on 2026-08-14
+*"moves to HOW TO PLAY"*.
+
+The glossary was **unbuildable as specified anyway**, and this is worth recording because the AC
+asked for it twice: card rules-text is not a string. `boonDescription()` renders a live
+`effectiveStats()` diff against the reader's own ship (`"Radar range: 660 → 759.0"`), and a static
+page has no ship; `STAT_LINES` is module-private; and Story 7.5 rewrites the catalog wholesale, so
+any hand-copied glossary would go stale silently within two stories. The options were "generate from
+source" or "ship something that rots". Eric's cut removes the question rather than answering it.
+
+**R2 — KEYS RENDER AS KEYCAPS.** UX-DR33 names "the key-chip family" as if it were one thing. It is
+four: the Pixi 22px chip (hotbar/refit/helm), the DOM refit-card 22px square, the 10px inline chip
+`ui/page.ts` already uses for its own ESC affordance, and — on the game's *existing* controls
+reference (`ui/settings.ts`) — plain phosphor mono with no chip at all. Eric took the bordered
+keycap. `makeKeyTable` therefore restates `upgradeMenu.ts`'s chip rather than importing it, per the
+precedent already documented in `page.ts`.
+
+**R3 — THERE IS ONLY ONE RADAR, AND THE OTHER ONE IS DELETED.** *"I could have sworn I had the old
+'default radar' removed? Guess not. The radar on prod is the ONLY radar. Its too good."* Production
+has run `HC_RADAR_GRAMMAR=return` / `HC_RADAR_IDENTITY=pseudonym` via `render.yaml` since cycle 51,
+while the CODE defaulted to `silhouette`/`roster` — so the repo carried two sensors and shipped one.
+Deleted end to end in the cycle-69 grey-NO-DATA style: the types, the env flags, the resolvers, the
+`WelcomeMsg` fields, the perception/signals branches, the whole client silhouette render path, and
+two modules left with zero consumers (`render/blipMarks.ts`, `phosphor.ts`'s `blipCool`). Tests that
+existed only to prove the deleted mode were RETIRED, not adapted (−49 net).
+
+**`PROTOCOL_VERSION` 40 → 41**, because `WelcomeMsg` loses two required fields. **Pseudonymous
+identity is the survivor** — the stricter, anti-cheat-correct half (amendment 63) — and is kept even
+though the `return` payload is structurally id-free today, pinned by a new test asserting no wire
+blip carries an `id`. **`shared/src/sim/silhouette.ts` was NOT touched**: that is the polygon
+geometry library, which merely shares a name with the deleted grammar mode, and confusing the two
+would destroy island collision, LOS and hull rendering.
+
+**Evidence the deletion changed no behaviour:** the RETURN golden-frame snapshot is byte-identical
+(the diff is one renamed key line; the 134 deleted lines are the old key plus the entire retired
+silhouette battery). Verified independently by the orchestrator, not taken on the agent's report.
+
+### Consequences named rather than absorbed
+
+- **The bot tactics tests were validating a perception model production never ran.** `botTactics`'s
+  end-to-end movement bar dropped 100u → 50u, because the fixture inherited the TEST-default
+  silhouette grammar — id-and-pose-rich bot perception — while production bots have always seen the
+  anonymous return wire. Nothing a production room emits moved; the test corrected to reality. **Any
+  future bot-behaviour baseline taken before this cycle was measured against the wrong sensor.**
+- The `mz`/`sm`/`hc`/`sp`/`sunk`/`fh` exception count is untouched: this deleted a rendering and
+  wire *mode*, not a disclosure rule. The master perception invariant still has exactly SIX.
+- `PROTOCOL_VERSION` entries 38-40 were never written into `index.ts` (its top entry was 37). Entry
+  41 was added in the established style and the gap left as found rather than back-filled.
+
+### Corrections of record
+
+- **Five doc claims are stale on the controls, CLAUDE.md among them**, and the page was authored
+  from `input/keyboard.ts` instead: there is **no CTRL binding of any kind** (ctrl/meta/alt are
+  returned as native and never reach the game) — the refit window is **TAB (toggle)**, picks are
+  **1-4**, and **5 is DAMAGE CONTROL**; slots are **4 per-class**, not "0 gun / 1 torpedo / 2 mine
+  universal"; `CONFIG.offer.size` is **4**, not 3; **F is the FOGHORN** and SPACE is bound-inert.
+- **The in-game binding reference was itself incomplete** and was fixed in the same change (R2's
+  sibling ruling, *"a, fix it"*): it omitted digit 5, the arrow and numpad aliases, and the fact that
+  **the gun is slot 0 with no key at all** — the one omission a new player cannot recover from, since
+  nothing tells them how to get back to the gun. `P` stays out of BOTH surfaces by ruling; it is a
+  netcode debug toggle, and its being un-gated in production remains a separate ledgered NFR17 item.
+- **No ad slot ships here.** DESIGN.md contains nothing about advertising — no token, no component,
+  no reservation — and 7-2's R14 already ruled that reserving space for a full-width element inside a
+  centred column *"converts a covering bug into an overflow bug without fixing anything"*. Story 7.4
+  owns ad placement and lands after.
+- **The page copy is DRAFT pending Eric's pass** (*"No fucking shit its unratified copy, i said I
+  wanted my hand on this one"*), on the `policyCopy.ts` R9 mould: implementer drafts from verified
+  facts, Eric approves, then it freezes the way `ui/taglines.ts` is frozen.
+
+### The copy pass (Eric, same day)
+
+The implementer's draft was rejected on sight — *"That is really fucking poorly written. I can't
+even rewrite it intelligently because it just SCREAMS 'HI IM AN LLM AND I WROTE THIS.'"* The tell was
+nameable and is worth recording so it is not reproduced: **antithesis** as a default sentence shape
+(*"a telegraph, not a pedal"*, *"held, not tapped"* — twice in one section), every second paragraph
+closed with an **aphorism carrying no information** (*"a ship dead in the water turns nowhere"*, *"the
+sea does not wait for you to read"*), *"her"* for the ship, and nine em-dashes in a page of six
+sections. Eric's own edits ran in exactly one direction — cut the flourish, say the thing — which is
+the register the rewrite adopted: short declaratives, no antithesis, no closers, the naval flavour
+carried by the REAL NOUNS (telegraph, rudder, refit, deck gun, astern) rather than by cadence.
+
+**Eric's structural calls in that pass:** `WEAPONS` → **`EQUIPMENT`** (the better word — one of the
+two slots is a utility, not a weapon), the six-item enumeration cut to a single sentence, and the
+**SOLO VS AI section deleted entirely** (the home screen already carries the mode with `STARTS
+INSTANTLY` under it, so the page was restating a button). FR39/UX-DR29's *"positions Solo vs AI as
+the live tutorial"* is therefore not built, and per the standing note above that is a change of mind,
+not an override. **One mechanic was rescued at the gate**: the rewrite had dropped *"you return to
+the deck gun after firing anything else"*, leaving nothing on the page to answer *"I pressed Q, how
+do I get back to my gun?"* — unanswerable by experiment, since the gun has no key. Eric added it back.
+
+**Verified rather than assumed:** his new line *"If it has a firing arc, it will be indicated on the
+screen"* is true — `render/firing.ts` draws the sector for arc-limited equipment (torpedo bow arc,
+mine rear arc) and draws none for the 360° gun.

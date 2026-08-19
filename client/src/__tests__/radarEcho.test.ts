@@ -27,9 +27,6 @@
 //     than a mark on one object.
 //   • TERRAIN COMES FROM THE HEIGHT RASTER, and the beam paints all of it — near
 //     face, far face, and whatever stands behind it (amendment 140).
-//   • `silhouette` MODE IS UNTOUCHED (amendment 79). It keeps hull outlines,
-//     personal hues, ARPA vectors and the hue-preserving `blipCool` decay, and it
-//     allocates no heatmap at all.
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Graphics, Texture } from 'pixi.js';
@@ -43,14 +40,13 @@ import {
   type HeightRaster,
   type HullId,
   type ReturnBlipEvent,
-  type SilhouetteBlipEvent,
   type WakeBlipEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Radar } from '../render/radar.js';
 import { fogHoleRadiusU } from '../render/fog.js';
-import { blipCool, blipLifeMs } from '../render/phosphor.js';
+import { blipLifeMs } from '../render/phosphor.js';
 import { wakeLitFloor } from '../render/radarSources.js';
 
 // jsdom has no 2d canvas, so neither baked texture the adapter builds at
@@ -74,7 +70,7 @@ const RCELL = 14; // the shipped generator's height-field sample spacing
 
 function makeRadar(): { radar: Radar; layer: Container } {
   const layer = new Container();
-  const radar = new Radar(layer, new Container(), () => null, 'return');
+  const radar = new Radar(layer, new Container());
   radar.onSweepSample(0, 0);
   return { radar, layer };
 }
@@ -258,25 +254,6 @@ describe('malformed wire payloads are dropped whole at the adapter', () => {
     radar.onBlip({ ...big, bits: big.bits.slice(0, -1) });
     radar.render(OWN, 1000);
     expect(radar.livePaints).toBe(0);
-  });
-
-  it('a malformed SILHOUETTE payload is dropped on the same terms — the branch the first hardening pass left raw', () => {
-    const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
-    radar.onSweepSample(0, 0);
-    radar.render(OWN, 900);
-    const good: SilhouetteBlipEvent = { k: 'blip', id: 't1', x: 0, y: 500, t: 900, cls: 'battleship', heading: 0, speed: 10 };
-    const bad: SilhouetteBlipEvent[] = [
-      { ...good, x: Number.NaN },
-      { ...good, heading: Infinity },
-      { ...good, t: 1e15 },
-      { ...good, cls: 'notAHull' as never },
-      { ...good, id: 7 as never },
-    ];
-    for (const e of bad) radar.onBlip(e);
-    expect(radar.liveBlips, 'nothing malformed acquired a Graphics').toBe(0);
-    radar.onBlip(good);
-    expect(radar.liveBlips, 'and a conforming blip still lands').toBe(1);
   });
 
   it('the pending park is CAPPED while own pose is null — a join gap cannot grow it unboundedly', () => {
@@ -777,14 +754,6 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
     expect(radar.bandAt(200, 0), 'painted through the headland').toBeGreaterThanOrEqual(0);
   });
 
-  it('and nothing at all is synthesized in `silhouette` mode', () => {
-    const store = sightedStore(200);
-    const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
-    revolution(radar, OWN, store);
-    expect(radar.livePaints).toBe(0);
-    expect(radar.liveBlips).toBe(0);
-  });
 });
 
 // --- the SOURCE SEAM is the drawn fog hole, dazzle included (amendment 89) ------
@@ -888,111 +857,3 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
   });
 });
 
-// --- `silhouette` mode is UNTOUCHED (amendment 79) -------------------------------
-
-describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar', () => {
-  const HUE = CLIENT_CONFIG.colors.players.cyan;
-  const POSE: SilhouetteBlipEvent = {
-    k: 'blip', id: 'trk-s', x: 0, y: 500, t: 1000, cls: 'battleship', heading: 0, speed: 20,
-  };
-
-  /** The blip's Graphics. Selected BY TYPE, not by index: since Story 4.11 the
-   *  layer's first child is the near-range dim mask sprite (added in the
-   *  constructor), which `children[0]` would otherwise hand back. */
-  function blipGraphics(layer: Container): Graphics {
-    const g = layer.children.find((c): c is Graphics => c instanceof Graphics);
-    if (g === undefined) throw new Error('no blip Graphics in the layer');
-    return g;
-  }
-
-  /** The color a Graphics was actually stroked with (Pixi keeps the draw
-   *  instructions on the context; `tint` is a separate multiplier). */
-  function strokeColor(g: Graphics): number {
-    const { instructions } = g.context as unknown as {
-      instructions: { action: string; data: { style?: { color?: number } } }[];
-    };
-    return instructions.find((i) => i.action === 'stroke')?.data.style?.color ?? -1;
-  }
-
-  function hue(color: number): number {
-    const r = ((color >> 16) & 0xff) / 255;
-    const g = ((color >> 8) & 0xff) / 255;
-    const b = (color & 0xff) / 255;
-    const max = Math.max(r, g, b);
-    const c = max - Math.min(r, g, b);
-    if (c === 0) return -1;
-    const h = max === r ? (g - b) / c : max === g ? 2 + (b - r) / c : 4 + (r - g) / c;
-    return (h * 60 + 360) % 360;
-  }
-
-  function makeSilhouette(): { radar: Radar; layer: Container } {
-    const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => HUE, 'silhouette');
-    radar.onSweepSample(0, 0);
-    return { radar, layer };
-  }
-
-  it('still draws a hull outline in the owner\'s personal hue', () => {
-    const { radar, layer } = makeSilhouette();
-    radar.render(OWN, 900);
-    radar.onBlip(POSE);
-    const g = blipGraphics(layer);
-    expect(radar.liveBlips).toBe(1);
-    expect(hue(strokeColor(g))).toBeCloseTo(hue(HUE), 0);
-    // True-scale silhouette + ARPA vector, drawn once at acquire.
-    expect(g.getLocalBounds().width).toBeGreaterThan(0);
-  });
-
-  it('still cools on the same hue-preserving grey ramp, at the same floor', () => {
-    const { radar, layer } = makeSilhouette();
-    radar.render(OWN, 900);
-    radar.onBlip(POSE);
-    const g = blipGraphics(layer);
-    const stroked = strokeColor(g);
-    for (const now of [1000, 2000, 4000, 8000, 12_000]) {
-      radar.render(OWN, now);
-      expect(g.tint, `age ${now - POSE.t}`).toBe(
-        blipCool(now - POSE.t, LIFE, CLIENT_CONFIG.blip.coolFloor),
-      );
-      expect(strokeColor(g)).toBe(stroked); // the owner's hue, untouched
-    }
-  });
-
-  it('allocates NO heatmap and paints no bitmap cell, ever', () => {
-    const { radar } = makeSilhouette();
-    radar.setHeightRaster(rasterFrom(600, ridge(300, 0, 120, 90)));
-    radar.render(OWN, 0);
-    radar.render(OWN, 900);
-    radar.onBlip(POSE);
-    radar.render(OWN, 1000);
-    expect(radar.livePaints).toBe(0);
-    expect(radar.heatDims, 'no buffer at all').toBeNull();
-    expect(radar.bandAt(0, 500)).toBe(-1);
-    expect(radar.bandAt(300, 0)).toBe(-1);
-  });
-
-  it('THE SIGHT GATE NEVER REACHES IT: a paint deep inside truesight still '
-    + 'draws its full outline, dazzled or not (amendment 82)', () => {
-    // `silhouette` has no buffer and never had the bug, so the gate must be
-    // structurally invisible to it. A hull 120u out — well inside the bubble, and
-    // inside even the DAZZLED bubble — still draws exactly as it always did.
-    const close: SilhouetteBlipEvent = { ...POSE, y: 120 };
-    const { radar, layer } = makeSilhouette();
-    radar.render(OWN, 900);
-    radar.onBlip(close);
-    const g = blipGraphics(layer);
-    const stroked = strokeColor(g);
-    const bounds = g.getLocalBounds().width;
-    expect(radar.liveBlips).toBe(1);
-    expect(bounds).toBeGreaterThan(0);
-
-    radar.setDazzled(true);
-    radar.render(OWN, 1000);
-    expect(radar.liveBlips).toBe(1);
-    expect(g.visible).toBe(true);
-    expect(strokeColor(g)).toBe(stroked);
-    expect(g.getLocalBounds().width).toBe(bounds);
-    // ...and still no buffer exists to gate.
-    expect(radar.bandAt(close.x, close.y)).toBe(-1);
-  });
-});

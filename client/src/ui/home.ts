@@ -5,8 +5,9 @@
 // (ui/classSelect.ts), a MODE ROW carrying the dominant amber OUTLINE+GLOW SOLO
 // button (DUO/TRIO join it in-line later) with the UNLIT phosphor SOLO VS AI
 // door centered on the row below (Story 6.5 — the port's two doors; Eric ruling
-// 2026-08-17 relabelled PLAY → SOLO and deleted both sub-lines), an inert
-// How-to-Play link + server status line, and the settings gear — which as of
+// 2026-08-17 relabelled PLAY → SOLO and deleted both sub-lines), a How-to-Play
+// link (REAL as of Story 7.3 — it used to paint a stub, and there is a page
+// behind it now) + server status line, and the settings gear — which as of
 // Story 2.3 opens the REAL settings overlay (ui/settings.ts), as does ESC with
 // the class bay closed.
 //
@@ -103,7 +104,6 @@ const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
 const MODE_KEY = 'hullcracker.mode';
 
-const NOTE_HOWTO = 'FIELD MANUAL ARRIVES IN A LATER REFIT';
 const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect
 
 // --- pure name / class persistence (tested) ----------------------------------
@@ -676,7 +676,15 @@ const UNDERPLAY_LINK_CSS =
   `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
   'text-underline-offset:4px;cursor:pointer';
 
-function makeUnderplay(statusEl: HTMLElement, onHowTo: () => void): HTMLElement {
+/**
+ * The How-to-Play page's URL (Story 7.3). A LOCAL CONSTANT rather than a
+ * `CLIENT_CONFIG` entry: `consent.policyHref` earns its config home because the
+ * privacy policy's address is quoted back inside the policy copy and the consent
+ * bar, so three surfaces must agree on it. This URL has exactly one reader.
+ */
+const HOWTO_HREF = '/how-to-play';
+
+function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   // TWO LINES NOW (Eric ruling 2026-08-18, Story 7.2): the LINKS share the top
   // line and the SERVER STATUS gets its own beneath them. Asked where PRIVACY
   // should go given the row's two-child pin, Eric took neither offered option
@@ -688,15 +696,21 @@ function makeUnderplay(statusEl: HTMLElement, onHowTo: () => void): HTMLElement 
   col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:16px';
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;align-items:center;gap:26px';
-  const howto = document.createElement('span');
+  // A REAL ANCHOR SINCE STORY 7.3, and no longer a span with a click handler.
+  // It used to paint the `FIELD MANUAL ARRIVES IN A LATER REFIT` stub, because
+  // there was no page behind it; now there is, at a genuine URL on a separate
+  // document. It takes PRIVACY's treatment for PRIVACY's reasons — see below —
+  // and the two static-page links are now built identically, which is the point
+  // of the row.
+  const howto = document.createElement('a');
   howto.textContent = 'HOW TO PLAY';
+  howto.href = HOWTO_HREF;
   howto.style.cssText = UNDERPLAY_LINK_CSS;
-  howto.addEventListener('click', onHowTo);
-  // A REAL ANCHOR, not a click handler on a span like its neighbour: `/privacy`
-  // is a genuine URL on a separate document, and an <a> is what makes it
-  // middle-clickable, openable in a new tab, and — the load-bearing one —
-  // CRAWLABLE. AdSense site review and Google's CMP setup both want a reachable
-  // privacy-policy URL, and a span that calls `location.href` is not one.
+  // A REAL ANCHOR, not a click handler on a span: `/privacy` is a genuine URL on
+  // a separate document, and an <a> is what makes it middle-clickable, openable
+  // in a new tab, and — the load-bearing one — CRAWLABLE. AdSense site review
+  // and Google's CMP setup both want a reachable privacy-policy URL, and a span
+  // that calls `location.href` is not one.
   const privacy = document.createElement('a');
   privacy.textContent = 'PRIVACY';
   privacy.href = CLIENT_CONFIG.consent.policyHref;
@@ -986,7 +1000,7 @@ function mountHome(
     // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
     // (SOLO VS AI, centered) — Eric ruling 2026-08-17.
     makeDeployStack(makeModeRow(playBtn), soloBtn),
-    makeUnderplay(h.statusEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
+    makeUnderplay(h.statusEl),
   );
   h.overlay.append(
     makeWordmark(version),

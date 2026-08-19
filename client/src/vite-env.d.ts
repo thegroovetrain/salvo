@@ -15,5 +15,6 @@ declare const __APP_VERSION__: string;
  */
 declare const __HC_PERF__: boolean;
 
-// (`__BLIP_VARIANT_P__` retired in cycle 51 — the radar grammar is a server
-// flag announced in the welcome handshake, not a build-time client define.)
+// (`__BLIP_VARIANT_P__` retired in cycle 51; the per-room radar-mode flags
+// that replaced it were themselves deleted in cycle 105 — there is exactly
+// one radar grammar, so nothing is announced and nothing is defined.)

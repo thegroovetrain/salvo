@@ -67,8 +67,6 @@ import {
   type MuzzleEvent,
   type BoonFitEvent,
   type PointEvent,
-  type RadarGrammar,
-  type RadarIdentity,
   type ShellState,
   type SmokeEvent,
   type SpawnEvent,
@@ -110,16 +108,11 @@ interface SignalContextBase {
   /** All LIVE decoy buoys (Story 1.8) — the decoy row's scan subjects AND the
    *  blip row's counterIntel subjects (the radar-double deception). */
   decoys: ReadonlyMap<string, Decoy>;
-  /** Which blip wire shape this room emits (the radar realism cycle, amendment
-   *  63) — the blipShape branch key. The GATE never reads it: only the wire
-   *  SHAPE branches on grammar, never who can see what. */
-  radarGrammar: RadarGrammar;
-  /** Which id namespace blips carry (amendment 63): 'roster' = the painted
-   *  ship's real id (today's behavior), 'pseudonym' = pseudonymOf(shipId). */
-  radarIdentity: RadarIdentity;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
    *  private stream; see World.trackIds for the honest correlation bound).
-   *  Consulted by blipShape ONLY in pseudonym mode. */
+   *  The `return` blip payload carries no id at all (amendment 152), so no
+   *  row consults this today — it rides the context so identity resolution
+   *  stays one seam for any future row that needs it. */
   pseudonymOf(shipId: string): string;
   /**
    * Has PvE fleet hull `fleetShipId` acquired `observerId`? (Story 5.6,
@@ -390,31 +383,22 @@ function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster, now: number): b
 }
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
- *  indistinguishability by construction), branched per the room's radar modes
- *  (amendments 62-68; the `return` payload REPLACED by cycle 63, amendment
- *  152 — ONLY the wire shape branches; blipGate is untouched). KEY ORDER IS
- *  LOAD-BEARING: silhouette grammar emits k,id,x,y,t,cls,heading,speed
- *  (Story 4.2); return grammar emits k,t,gx,gy,w,h,bits — THE SERVER
- *  RASTERIZES THE HULL: the true silhouette polygon at the paint pose,
- *  projected onto the shared radar grid (CONFIG.vision.radarCellU) and
- *  FUZZED per paint (dilation + glint, amendments 156-157) by the shared
- *  `paintCoverage`, as a world-anchored coverage footprint
- *  carrying NO id, NO class, NO heading, NO extent and no exact position.
- *  Identity stops leaving the server at all in return mode — there is no
- *  correlation handle across sweeps, so `radarIdentity` is structurally
- *  inert there (the pseudonym resolver only ever runs for silhouette
- *  paints). GEOMETRY ONLY, observer-independent: the mask is a pure function
- *  of (hull, pose, grid, paint tick), never of boons, hp, damage state, or
- *  the observer — every observer painting this hull this tick receives the
- *  identical mask, and the client computes all intensity. In silhouette pseudonym mode
- *  `id` is the ship's stable per-match track id (ctx.pseudonymOf) — a
- *  genuine paint resolves the SHIP's id, the decoy counterIntel resolves the
- *  OWNER's. A genuine paint passes the ship's position and LIVE pose; the
+ *  indistinguishability by construction). KEY ORDER IS LOAD-BEARING: the wire
+ *  emits k,t,gx,gy,w,h,bits — THE SERVER RASTERIZES THE HULL (cycle 63,
+ *  amendment 152): the true silhouette polygon at the paint pose, projected
+ *  onto the shared radar grid (CONFIG.vision.radarCellU) and FUZZED per paint
+ *  (dilation + glint, amendments 156-157) by the shared `paintCoverage`, as a
+ *  world-anchored coverage footprint carrying NO id, NO class, NO heading, NO
+ *  extent and no exact position. Identity never leaves the server — there is
+ *  no correlation handle across sweeps. GEOMETRY ONLY, observer-independent:
+ *  the mask is a pure function of (hull, pose, grid, paint tick), never of
+ *  boons, hp, damage state, or the observer — every observer painting this
+ *  hull this tick receives the identical mask, and the client computes all
+ *  intensity. A genuine paint passes the ship's position and LIVE pose; the
  *  decoy counterIntel passes the buoy's position and its FROZEN drop-time
- *  cls/heading at speed 0 (a radar reflector reports true stationary values)
- *  — byte-for-byte the same shape either way, in BOTH grammars, because both
- *  run through this one shaper (and, in return mode, the one shared
- *  rasterizer+fuzz pipeline — amendment 11 by construction).
+ *  cls/heading (a radar reflector reports true stationary values) — byte-for-
+ *  byte the same shape either way, because both run through this one shaper
+ *  and the one shared rasterizer+fuzz pipeline (amendment 11 by construction).
  *
  *  THE MASK IS FUZZED PER PAINT (cycle-63 review gate, amendments 156-157):
  *  `paintCoverage` dilates the sharp rasterization and jitters its fringe on a
@@ -449,20 +433,9 @@ function paintMask(cls: HullId, p: Vec2, heading: number, t: number): HullCovera
   return mask;
 }
 
-function blipShape(
-  ctx: SignalContext,
-  shipId: string,
-  p: Vec2,
-  cls: HullId,
-  heading: number,
-  speed: number,
-): BlipEvent {
-  if (ctx.radarGrammar === 'return') {
-    const c = paintMask(cls, p, heading, ctx.now);
-    return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
-  }
-  const id = ctx.radarIdentity === 'pseudonym' ? ctx.pseudonymOf(shipId) : shipId;
-  return { k: 'blip', id, x: p.x, y: p.y, t: ctx.now, cls, heading, speed };
+function blipShape(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): BlipEvent {
+  const c = paintMask(cls, p, heading, ctx.now);
+  return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
 }
 
 // ---------------------------------------------------------------------------
@@ -667,7 +640,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // scalar at paint time — never a derived cap or boost flag (build leak).
     // In `return` grammar the pose feeds the server-side raster ONLY — the
     // wire carries the coverage footprint, nothing else (amendment 152).
-    return blipShape(ctx, target.id, target.state, target.hullId, target.state.heading, target.state.speed);
+    return blipShape(ctx, target.state, target.hullId, target.state.heading);
   },
   counterIntel(ctx, decoy) {
     // Spectators are unfogged — they get the truth (the decoy row), never a lie.
@@ -690,20 +663,17 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     const owner = ctx.ships.get(decoy.ownerId);
     if (owner !== undefined && contactSignal.visible(ctx, owner)) return null;
     if (!blipGate(me, decoy, ctx.heightRaster, ctx.now)) return null;
-    // The lie: the genuine blip shape with the OWNER's ship id at the buoy's
-    // position. `t` = ctx.now, like every real paint. The pose is the buoy's
+    // The lie: the genuine blip shape at the buoy's position. `t` = ctx.now, like every real paint. The pose is the buoy's
     // FROZEN drop-time snapshot at speed 0 (Story 4.2, amendment 11) — TRUE
     // stationary values, never a live ctx.ships.get(ownerId) kinematics read
     // (the buoy outlives its owner by up to 30s and must keep painting; a live
     // read would also leak the fogged owner's course/speed at a false
     // position). Unmasking the lie is BEHAVIORAL — it never moves — not a
-    // payload difference. In pseudonym mode blipShape resolves the OWNER's
-    // pseudonym from ownerId, so the lie rides exactly the track id the
-    // owner's own hull paints under; in return grammar it is the owner hull's
-    // COVERAGE FOOTPRINT at the buoy position and frozen drop heading, built
-    // by the same shared rasterizer a genuine paint runs through (cycle 63) —
-    // indistinguishable under every flag combination.
-    return blipShape(ctx, decoy.ownerId, decoy, decoy.hullId, decoy.heading, 0);
+    // payload difference. The lie is the owner hull's COVERAGE FOOTPRINT at
+    // the buoy position and frozen drop heading, built by the same shared
+    // rasterizer a genuine paint runs through (cycle 63) — indistinguishable
+    // by construction.
+    return blipShape(ctx, decoy, decoy.hullId, decoy.heading);
   },
 };
 
@@ -1022,14 +992,6 @@ function wakeMask(s: WakeSubject, t: number): HullCoverage {
  * inherited knowingly). What is new is only that the subject is water rather
  * than a ship.
  *
- * THE ROW EXISTS ONLY IN THE `return` GRAMMAR (cycle-69 review gate, P1):
- * the wake payload is a coverage footprint, and the client's wake path only
- * runs under `return` — the DEFAULT `silhouette` grammar has no consumer, so
- * emitting there would pay wire and scan cost for rows the client parks
- * forever. The grammar clause is the gate's FIRST term (cheapest, most
- * selective), the blipShape precedent taken one step further: there the
- * grammar picks the wire SHAPE; here the row's existence IS the shape.
- *
  * THE INNER BOUND IS PER SOURCE (cycle-69 review gate, P2 — see
  * wakeInnerBound/wakeGate above): a SHIP's water inherits blipGate's sight
  * exclusion verbatim, a TORPEDO's water discloses down to the DETECT radius.
@@ -1081,8 +1043,6 @@ function wakeMask(s: WakeSubject, t: number): HullCoverage {
 const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
   eventType: 'wk',
   visible(ctx, seg) {
-    // Grammar first (review-gate P1): the row is inert outside `return`.
-    if (ctx.radarGrammar !== 'return') return false;
     // Wake events are perception-generated, never world-emitted: a world-
     // dispatched 'wk' WIRE event (no `ax` on the wire shape) fails closed.
     if (!('ax' in seg)) return false;

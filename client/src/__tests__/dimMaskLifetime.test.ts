@@ -59,7 +59,7 @@ const OWN = { x: 0, y: 0 };
 
 const radarFor = (): Radar => {
   bakes.into.length = 0;
-  return new Radar(new Container(), new Container(), () => null, 'return');
+  return new Radar(new Container(), new Container());
 };
 
 describe('a dim-mask rebake never destroys the bound TextureSource', () => {

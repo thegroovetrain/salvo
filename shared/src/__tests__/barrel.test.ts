@@ -175,15 +175,22 @@ describe('shared barrel', () => {
     // `intelTruesight`/`intelRadar` in favour of `intelRange` is a wire-contract
     // break — the PV join gate is the only thing that stops a stale bundle
     // silently dropping the card.
-    expect(PROTOCOL_VERSION).toBe(40);
+    // 40 -> 41: THE ONE RADAR (cycle 105, Eric ruling 2026-08-19: "the radar
+    // on prod is the ONLY radar"): the retired `silhouette` grammar and the
+    // `roster` id namespace are deleted end to end. WelcomeMsg LOSES its two
+    // required radar-mode fields (the room-wide announcement the client used
+    // to narrow blips on) and BlipEvent collapses to ReturnBlipEvent alone —
+    // a stale client would wait on welcome fields that never arrive and
+    // mis-narrow every paint, so the PV join gate is the guard.
+    expect(PROTOCOL_VERSION).toBe(41);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
-    // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
-    // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
-    // range term, amendment 66's anti-cheat bound) and WelcomeMsg gains
-    // required radarGrammar/radarIdentity, the room-wide mode announcement
-    // the client narrows on. One bump covers "a blip may carry either shape"
-    // (amendment 72). Landed in parallel with the foghorn below: both branched
-    // from PV 25 and claimed 26; 4.5 merged first, so this cycle took 27.
+    // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
+    // ext pure aspect geometry, no range term, amendment 66's anti-cheat
+    // bound) and WelcomeMsg gained required radar-mode fields, the room-wide
+    // announcement the client narrowed on (both deleted again at PV 41). One
+    // bump covers "a blip may carry either shape" (amendment 72). Landed in
+    // parallel with the foghorn below: both branched from PV 25 and claimed
+    // 26; 4.5 merged first, so this cycle took 27.
     // THE FOGHORN (PV 26, Eric rulings 2026-08-05, amendments 51-58): the new
     // 'fh' GameEvent ({k,h,self?,b?,v?,x?,y?} — bearing + volume tier for a
     // fogged listener, NEVER a position or ship id; the 6th declared

@@ -76,13 +76,8 @@ function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): 
   return { id, x, y, heading: 0, speed: 20, cls };
 }
 
-/** A `silhouette`-grammar paint (pose on the wire). */
-function silhouetteBlip(id: string, x: number, y: number, t: number): GameEvent {
-  return { k: 'blip', id, x, y, t, cls: 'mineLayer', heading: 1, speed: 12 };
-}
-
-/** A `return`-grammar paint: a 2x2 all-lit footprint at absolute cell
- *  (gx, gy). Centroid = ((gx+1) * cell, (gy+1) * cell). */
+/** A radar paint: a 2x2 all-lit footprint at absolute cell (gx, gy).
+ *  Centroid = ((gx+1) * cell, (gy+1) * cell). */
 function returnBlip(gx: number, gy: number, t: number): GameEvent {
   return { k: 'blip', t, gx, gy, w: 2, h: 2, bits: [0b1111] };
 }
@@ -176,22 +171,10 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
   });
 });
 
-// --- perception fold: BOTH blip grammars ------------------------------------
+// --- perception fold: the radar wire -----------------------------------------
 
-describe('ai/utility — the fold works under either radar grammar', () => {
-  it('silhouette grammar: pose lands on the track, stale (not live)', () => {
-    const m = mind();
-    foldView(m, view({ events: [silhouetteBlip('e1', 300, 40, 900)] }), 1000);
-    const t = onlyTrack(m);
-    expect(t.id).toBe('e1');
-    expect({ x: t.x, y: t.y }).toEqual({ x: 300, y: 40 });
-    expect(t.heading).toBe(1);
-    expect(t.speed).toBe(12);
-    expect(t.cls).toBe('mineLayer');
-    expect(t.live).toBe(false);
-  });
-
-  it('return grammar: position derived from the footprint, identity-free', () => {
+describe('ai/utility — the fold works on the identity-free radar wire', () => {
+  it('position derived from the footprint, identity-free', () => {
     const m = mind();
     foldView(m, view({ events: [returnBlip(10, 20, 900)] }), 1000);
     const t = onlyTrack(m);
@@ -203,14 +186,14 @@ describe('ai/utility — the fold works under either radar grammar', () => {
     expect(t.y).toBeCloseTo(21 * CELL, 6);
   });
 
-  it('return grammar: an empty mask is not a contact, and never throws', () => {
+  it('an empty mask is not a contact, and never throws', () => {
     const m = mind();
     const empty: GameEvent = { k: 'blip', t: 900, gx: 3, gy: 4, w: 2, h: 2, bits: [0] };
     expect(() => foldView(m, view({ events: [empty] }), 1000)).not.toThrow();
     expect(tracksOf(m).length).toBe(0);
   });
 
-  it('return grammar: a nearby second paint ASSOCIATES to the same track', () => {
+  it('a nearby second paint ASSOCIATES to the same track', () => {
     const m = mind();
     foldView(m, view({ events: [returnBlip(10, 20, 900)] }), 1000);
     foldView(m, view({ events: [returnBlip(11, 20, 1150)] }), 1200);
@@ -218,14 +201,6 @@ describe('ai/utility — the fold works under either radar grammar', () => {
     expect(t.firstSeenAt).toBe(1000); // the reaction gate's clock survives
     expect(t.seenAt).toBe(1200);
     expect(t.x).toBeCloseTo(12 * CELL, 6);
-  });
-
-  it('a live contact outranks a same-tick paint of the same hull', () => {
-    const m = mind();
-    foldView(m, view({ contacts: [contact('e1', 120, 0)], events: [silhouetteBlip('e1', 300, 40, 900)] }), 1000);
-    const t = onlyTrack(m);
-    expect(t.live).toBe(true);
-    expect(t.x).toBe(120);
   });
 
   it('memory expires at contactMemoryMs and a sunk hull is retired at once', () => {
@@ -265,11 +240,12 @@ describe('ai/utility — `live` is a truesight claim, not a write-only flag', ()
     // `seenAt` is refreshed by every sensor, so that predicate would have let
     // the cannon spend its reload on a same-tick blip.
     const m = mind();
-    foldView(m, view({ contacts: [contact('e1', 300, 40)] }), 1000);
-    foldView(m, view({ events: [silhouetteBlip('e1', 320, 40, 1400)] }), 1500);
+    foldView(m, view({ events: [returnBlip(10, 20, 900)] }), 1000);
+    expect(onlyTrack(m).live).toBe(false);
+    foldView(m, view({ events: [returnBlip(11, 20, 1400)] }), 1500);
     expect(onlyTrack(m).live).toBe(false);
     expect(onlyTrack(m).seenAt).toBe(1500);
-    foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 320, y: 40 }] }), 2000);
+    foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 12 * CELL, y: 21 * CELL }] }), 2000);
     expect(onlyTrack(m).live).toBe(false);
     expect(onlyTrack(m).seenAt).toBe(2000);
   });
@@ -449,12 +425,12 @@ describe('ai/utility — profile-weighted target selection', () => {
 
   it('a stale plot is worth less than a live one at the same range', () => {
     const m = mind();
+    foldView(m, view({ events: [returnBlip(-34, -1, 12000)] }), 12000); // anon paint near (-300, 0)
     foldView(m, view({ contacts: [contact('live', 300, 0)] }), 19000);
-    foldView(m, view({ events: [silhouetteBlip('stale', -300, 0, 12000)] }), 12000);
     const sit = situation({ now: NOW });
     const all = tracksOf(m);
     const live = all.find((t) => t.id === 'live');
-    const stale = all.find((t) => t.id === 'stale');
+    const stale = all.find((t) => t.id === null);
     expect(scoreTrack(live!, sit, all)).toBeGreaterThan(scoreTrack(stale!, sit, all));
   });
 });

@@ -221,7 +221,7 @@ export class AmbientScene {
     this.chart = buildMap(this.map, stage.layers, this.camera.zoom);
     // `return` grammar, and no hue resolver: under `return` the scope carries no
     // identity at all (amendments 65/67), so there is nothing for one to answer.
-    this.radar = new Radar(stage.layers.blip, stage.layers.sweep, () => null, 'return');
+    this.radar = new Radar(stage.layers.blip, stage.layers.sweep);
     this.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
     this.radar.setHeightRaster(this.map.heightRaster);
     // One layer for all three of Effects' sinks: the scene spawns wake and

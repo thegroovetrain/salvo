@@ -10,7 +10,6 @@ import { CLIENT_CONFIG } from '../config.js';
 import { hueAngle, hueSeparation, labDistance, simulateDeuteranopia } from '../util/cvd.js';
 import { contrastRatio } from '../util/color.js';
 import { blipAlpha } from '../render/phosphor.js';
-import { luminanceFloor, relativeLuminance } from '../render/blipMarks.js';
 import {
   PLAYER_FILLS,
   PLAYER_HUES,
@@ -130,7 +129,7 @@ describe('the remap CHOKEPOINT (render/ships.ts) — one swap, every consumer', 
 describe('blip legibility levers', () => {
   it('the opacity FLOOR keeps a decaying blip readable without extending its life', () => {
     const floor = CLIENT_CONFIG.blip.assistMinAlpha;
-    expect(CLIENT_CONFIG.blip.minAlpha).toBe(0); // the base grammar is unchanged
+    expect(CLIENT_CONFIG.blip.minAlpha).toBe(0); // the base behaviour is unchanged
     expect(blipAlpha(900, 1000)).toBeCloseTo(0.1, 9); // base: nearly gone
     expect(blipAlpha(900, 1000, floor)).toBe(floor); // assist: still readable
     expect(blipAlpha(0, 1000, floor)).toBe(1); // a fresh paint is unaffected
@@ -138,20 +137,6 @@ describe('blip legibility levers', () => {
     expect(blipAlpha(5000, 1000, floor)).toBe(0);
   });
 
-  // Story 4.2 retired the assist's hard OUTLINE RING with the soft dot it
-  // existed for: every blip is now a 1px `pixelLine` hull outline, and
-  // `pixelLine` IGNORES stroke width, so the assist cannot thicken it. Amendment
-  // 18's "boost the outline" intent moved to the two channels a hairline has —
-  // the decayed-alpha floor above, and the hue LUMINANCE floor here.
-  it('the assist raises the blip hue LUMINANCE floor above the base grammar', () => {
-    expect(CLIENT_CONFIG.blip.assistLumaFloor).toBeGreaterThan(CLIENT_CONFIG.blip.lumaFloor);
-    // Every assist family clears the raised floor once lifted (the lift is
-    // algorithmic, so this holds for any future family without a table edit).
-    for (const hue of Object.values(CLIENT_CONFIG.colors.cvd)) {
-      const lifted = luminanceFloor(hue, CLIENT_CONFIG.blip.assistLumaFloor);
-      expect(relativeLuminance(lifted)).toBeGreaterThanOrEqual(CLIENT_CONFIG.blip.assistLumaFloor - 1e-6);
-    }
-  });
 });
 
 // --- REGRESSION (Story 2.3 review gate): the assist must be LIVE --------------

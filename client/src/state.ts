@@ -5,7 +5,7 @@
 // main.ts. Kept a leaf module: it imports only shared types, never render,
 // net, or input code.
 
-import type { LitZoneView, OwnShip, RadarGrammar, RadarIdentity } from '@salvo/shared';
+import type { LitZoneView, OwnShip } from '@salvo/shared';
 
 /** Coarse client phase. Expands (waiting/countdown/spectate) in later steps. */
 export type Phase = 'connecting' | 'active';
@@ -41,27 +41,10 @@ export interface GameState {
   killerId: string | null;
   /** True once the results broadcast arrived (drives auto-return on disconnect). */
   matchOver: boolean;
-  /** Which `BlipEvent` member this room emits (cycle 51, amendment 63) — a
-   *  SERVER flag, announced once in the welcome and constant for the match.
-   *  Every blip narrows on this, never on which fields an event carries. */
-  radarGrammar: RadarGrammar;
-  /** Which id namespace blips carry — roster ids (today) or per-match
-   *  pseudonyms. Independent of the grammar on purpose: presentation and
-   *  identity are orthogonal questions (amendment 63). Mirrored here for the
-   *  same reason `radarGrammar` is — the client must never infer it. */
-  radarIdentity: RadarIdentity;
 }
 
-/** Build a fresh client state for a joined session. The radar modes default to
- *  TODAY's shipped behavior, so every caller that predates the flags (and every
- *  test) keeps the `silhouette`/`roster` grammar unchanged. */
-export function createGameState(
-  sessionId: string,
-  radar: { grammar: RadarGrammar; identity: RadarIdentity } = {
-    grammar: 'silhouette',
-    identity: 'roster',
-  },
-): GameState {
+/** Build a fresh client state for a joined session. */
+export function createGameState(sessionId: string): GameState {
   return {
     phase: 'connecting',
     mode: 'predict',
@@ -70,7 +53,5 @@ export function createGameState(
     spectating: false,
     killerId: null,
     matchOver: false,
-    radarGrammar: radar.grammar,
-    radarIdentity: radar.identity,
   };
 }

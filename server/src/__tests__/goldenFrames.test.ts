@@ -34,7 +34,7 @@ import {
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
-import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
@@ -54,9 +54,7 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // homing-track update 'torpU'; Story 4.3 added the gunnery conversation's
 // 'sp'/'hc'/'mz'; the 2026-08-04 DAMAGE CONTROL strip brought 'heal' BACK)
 // plus the four contact-like channels (contact/mine/litzone/decoy) and the
-// spectator frame. 'wk' is grammar-gated (cycle-69 review gate, P1): it rides
-// the RETURN battery only — runBattery drops it from the default (silhouette)
-// run's expectation, where the row is inert by rule.
+// spectator frame.
 const EXPECTED_CHANNELS = [
   'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'hc', 'heal', 'litzone',
   'mine', 'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
@@ -114,19 +112,14 @@ const EXPECTED_SUBCASES = [
   'torpu-unsighted-silent',
 ];
 
-// Wake sub-cases are GRAMMAR-SPLIT (cycle-69 review gate, P1): the `wk` row
-// exists only in the `return` grammar (the client's wake path has no other
-// consumer), so the return battery proves the five wake behaviours and the
-// default (silhouette) battery proves exactly their ABSENCE. runBattery
-// composes the expected set per grammar.
-const WAKE_SUBCASES_RETURN = [
+// The five wake behaviours the battery must prove (Story 4.12).
+const WAKE_SUBCASES = [
   'wake-identity-free',
   'wake-outlives-removal',
   'wake-outlives-ship',
   'wake-sight-bubble-quiet',
   'wake-torpedo-ribbon',
 ];
-const WAKE_SUBCASES_DEFAULT = ['wake-silhouette-inert'];
 
 // ---------- collector ---------------------------------------------------------
 
@@ -160,17 +153,13 @@ function prove(g: Golden, tag: string, held: boolean): void {
  *  per-observer first-sight reveal. */
 const isBallistic = (e: GameEvent): boolean => e.k === 'shell' || e.k === 'torp';
 
-/** Grammar-aware blip reference test (cycle 63): a silhouette paint matches on
- *  its exact position; a `return` coverage footprint matches when its mask
- *  lights the cell containing the point — the wire no longer carries a
- *  position or an id (amendment 152), so position-by-cell is the strongest
- *  public reference that exists. */
+/** Blip reference test (cycle 63): a coverage footprint matches when its mask
+ *  lights the cell containing the point — the wire carries no position and no
+ *  id (amendment 152), so position-by-cell is the strongest public reference
+ *  that exists. */
 function blipRefs(e: BlipEvent, x: number, y: number): boolean {
-  if ('gx' in e) {
-    const cellU = CONFIG.vision.radarCellU;
-    return coverageHas(e, Math.floor(x / cellU) - e.gx, Math.floor(y / cellU) - e.gy);
-  }
-  return e.x === x && e.y === y;
+  const cellU = CONFIG.vision.radarCellU;
+  return coverageHas(e, Math.floor(x / cellU) - e.gx, Math.floor(y / cellU) - e.gy);
 }
 
 /** Does the frame carry a blip referencing world point (x, y)? */
@@ -185,23 +174,12 @@ function cap(g: Golden, w: World, id: string, phase?: MatchPhase): FrameMsg {
 
 // ---------- world construction helpers (mirror perception.test) ---------------
 
-/**
- * The radar-mode options every scenario world is built with (R6 — the
- * golden-frames battery runs once per GRAMMAR). Module-scoped so the scenario
- * functions stay signature-stable; set by each `it` before running the
- * battery and restored to the default after. Identity stays 'roster' in both
- * runs: several scenarios pin blip ids against roster ids ('a'), which is the
- * shipped default — pseudonym identity is covered by the invariant fuzz and
- * the directed radarModes/decoy suites.
- */
-let WORLD_OPTS: WorldOptions = {};
-
 /** World with a fixed seed and no islands (fog stays out of the geometry).
  *  The height raster is flattened too (Story 4.11): the real generated
  *  terrain must not radar-shadow a scenario built on empty water — scenarios
  *  that WANT terrain occlusion set an explicit raster (scnIslandLos). */
 function bareWorld(seed: number): World {
-  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, WORLD_OPTS);
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
@@ -1033,14 +1011,6 @@ function scnWake(g: Golden): void {
     'wake-outlives-removal',
     fa2.events.filter((e) => e.k === 'wk').length > 0 && !w.ships.has('b'),
   );
-  // Review-gate P1: outside the `return` grammar the row is INERT — both
-  // captures must carry ZERO wk rows (the five behaviour proofs above then
-  // simply never record, and runBattery expects this tag instead).
-  prove(
-    g,
-    'wake-silhouette-inert',
-    w.radarGrammar !== 'return' && wks.length === 0 && fa2.events.every((e) => e.k !== 'wk'),
-  );
 }
 
 // ---------- the fixture -------------------------------------------------------
@@ -1051,14 +1021,9 @@ function scnWake(g: Golden): void {
 function runBattery(): string[] {
   const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
   runScenarios(g);
-  // Grammar-split wake expectations (cycle-69 review gate, P1): the `wk`
-  // channel and its five behaviour tags exist only in the return battery;
-  // the default battery must instead prove the row's INERTNESS.
-  const inReturn = WORLD_OPTS.radarGrammar === 'return';
-  const channels = inReturn ? EXPECTED_CHANNELS : EXPECTED_CHANNELS.filter((c) => c !== 'wk');
-  const subcases = [...EXPECTED_SUBCASES, ...(inReturn ? WAKE_SUBCASES_RETURN : WAKE_SUBCASES_DEFAULT)].sort();
+  const subcases = [...EXPECTED_SUBCASES, ...WAKE_SUBCASES].sort();
   // Self-validating coverage: the fixture can never silently lose a channel.
-  expect([...g.channels].sort()).toEqual(channels);
+  expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
   // Strengthened coverage: every appended scenario's mandatory sub-cases were
   // actually OBSERVED (each tag is recorded only when its fact held), so a
   // regression or a removed scenario fails here.
@@ -1067,24 +1032,12 @@ function runBattery(): string[] {
 }
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
-  it('serializes every signal channel across observers and ticks, deterministically', () => {
-    // Default grammar (silhouette/roster): this snapshot key predates the
-    // radar realism cycle and MUST stay byte-identical (AC4).
-    WORLD_OPTS = {};
+  // THE snapshot key is historical and load-bearing: it was cut when the
+  // grammar was a per-room mode, and cycle 105's ONE-RADAR deletion must
+  // leave every byte of the battery it pins unchanged — the deletion removed
+  // the road not taken, never the behaviour production runs.
+  it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
-  });
-
-  it('RETURN grammar (R6): the same battery under HC_RADAR_GRAMMAR=return semantics', () => {
-    // Every scenario, prove(), and coverage assertion runs unchanged — only
-    // the blip wire shape branches ({k,t,gx,gy,w,h,bits} since cycle 63: a
-    // server-rasterized coverage footprint carrying no id at all). Its
-    // own snapshot keeps the new path from rotting silently.
-    WORLD_OPTS = { radarGrammar: 'return' };
-    try {
-      expect(runBattery()).toMatchSnapshot();
-    } finally {
-      WORLD_OPTS = {};
-    }
   });
 });
 

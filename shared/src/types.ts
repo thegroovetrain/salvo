@@ -517,45 +517,6 @@ export interface Contact {
 // --- GameEvent union (discriminated on `k`) --------------------------------
 
 /**
- * Radar paint: a timestamped stale snapshot of a contact's position — and,
- * as of Story 4.2 (FR14), its pose: hull class, heading, and signed speed at
- * paint time, so a paint renders as the true-scale silhouette with an
- * ARPA-style speed vector instead of an anonymous dot.
- *
- * ANTI-CHEAT — why `heading`/`speed` are safe where BallisticEvent's
- * constant-free rule forbids any derivable field: a painted hull's POSITION is
- * already disclosed by the paint itself, and its instantaneous velocity says
- * nothing about the observer→target geometry — there is no CONFIG constant to
- * combine it with that would solve back to anything hidden (contrast a fogged
- * shell, where remaining-flight × known speed recovers the muzzle). Only the
- * raw `state.speed` scalar rides here — NEVER a derived speed cap, max-speed
- * fraction, or boost flag, which would leak build state (the OwnShip
- * boostUntil/boons self-private law). Note the honest limit of that rule: base
- * class envelopes are public CONFIG, so a paint reporting speed above a class's
- * base maxSpeed still IMPLIES an engine boon or an active boost. That inference
- * is inherent to disclosing speed at all (FR14) and is not new — `Contact`
- * already discloses raw speed at sight range; 4.2 extends an accepted
- * disclosure outward to radar range rather than opening a new class of leak.
- * What the rule buys is that the wire never states build state OUTRIGHT, so a
- * stock hull at flank is indistinguishable from a boosted one at the same
- * speed. A decoy buoy's paint carries its FROZEN
- * drop-time cls/heading with speed exactly 0 (a radar reflector reports true
- * stationary values) through the same shaper — field-for-field identical.
- * KEY ORDER: the three fields are APPENDED after `t` (msgpack key-insertion
- * order) so the historical {k,id,x,y,t} prefix stays byte-stable.
- */
-export interface SilhouetteBlipEvent {
-  k: 'blip';
-  id: string;
-  x: number; // u — position at paint time
-  y: number; // u
-  t: number; // ms — server time the blip was painted (drives phosphor decay)
-  cls: HullId; // hull id at paint time (drones paint their drone hull)
-  heading: number; // rad — at paint time
-  speed: number; // u/s (signed, the raw scalar) — at paint time
-}
-
-/**
  * Radar paint, `return` grammar — THE SERVER RASTERIZES THE HULL (cycle 63,
  * Eric ruling 2026-08-07, amendment 152; supersedes the cycle-51
  * {k,id,x,y,t,ext} shape). The server projects the true hull polygon onto the
@@ -615,14 +576,12 @@ export interface ReturnBlipEvent {
 }
 
 /**
- * The blip wire shape — a two-member union with NO per-event discriminator
- * beyond the shared `k: 'blip'`. The server picks ONE grammar for the whole
- * room (`HC_RADAR_GRAMMAR`, amendment 63) and announces it in the welcome
- * handshake (`WelcomeMsg.radarGrammar`), so every blip in a given match has
- * the same shape and the client narrows on the ANNOUNCED mode, never by
- * probing fields — a per-event tag would be dead weight on a 20Hz channel.
+ * The blip wire shape — `ReturnBlipEvent`, the one radar grammar (cycle 105,
+ * Eric ruling 2026-08-19: "the radar on prod is the ONLY radar"). The retired
+ * `silhouette` grammar (Story 4.2's pose-on-the-wire shape) and the per-room
+ * mode announcement went with it; every room emits this shape.
  */
-export type BlipEvent = SilhouetteBlipEvent | ReturnBlipEvent;
+export type BlipEvent = ReturnBlipEvent;
 
 /**
  * One wake ribbon SEGMENT the observer's sweep crossed this tick (Story 4.12,
@@ -1273,32 +1232,9 @@ export interface ResultsMsg {
 }
 
 /**
- * Which blip wire shape this room speaks (amendment 63): 'silhouette' is the
- * shipped 4.2 grammar (SilhouetteBlipEvent — pose on the wire), 'return' the
- * realism grammar (ReturnBlipEvent — a fuzzed coverage footprint, cycle 63).
- * Server-picked per room (`HC_RADAR_GRAMMAR`, default 'silhouette'), announced
- * once in the welcome; the client narrows every BlipEvent on this, never by
- * probing fields.
- */
-export type RadarGrammar = 'silhouette' | 'return';
-
-/**
- * Which id namespace blips carry (amendment 63): 'roster' is today's behavior
- * (blip.id is the painted ship's roster id), 'pseudonym' maps each ship to a
- * stable per-match track id rolled on the server's private stream (the zone
- * nonce posture), a decoy emitting under its OWNER's pseudonym. Orthogonal to
- * RadarGrammar by design — presentation and identity are independent questions
- * and a single flag would foreclose the happy medium the ruling exists to
- * enable. Server-picked per room (`HC_RADAR_IDENTITY`, default 'roster').
- */
-export type RadarIdentity = 'roster' | 'pseudonym';
-
-/**
  * Server -> client handshake ("w"), sent once on join. Carries the map seed for
  * deterministic client-side island generation plus a CONFIG snapshot so the
- * client shares every tunable — and, as of the radar realism cycle, the room's
- * radar grammar/identity modes, the ONLY place they travel (blips themselves
- * are deliberately tagless; see BlipEvent).
+ * client shares every tunable.
  */
 export interface WelcomeMsg {
   sessionId: string;
@@ -1307,6 +1243,4 @@ export interface WelcomeMsg {
   playerCap: number; // the cap the server sized the map against (feeds generateMap)
   t: number; // ms — server time at welcome (seeds the client clock)
   config: GameConfig;
-  radarGrammar: RadarGrammar; // which BlipEvent member this room emits
-  radarIdentity: RadarIdentity; // which id namespace blips carry
 }

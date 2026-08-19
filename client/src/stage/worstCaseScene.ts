@@ -50,7 +50,6 @@ import {
   type GameEvent,
   type HullId,
   type OwnShip,
-  type RadarGrammar,
   type ShipClassId,
   type WelcomeMsg,
   type ZoneRing,
@@ -77,26 +76,6 @@ export const SCENE_TICK_MS = CONFIG.tick.simDtMs;
  *  room's). Lives here, with the rest of the scene's data, because the welcome
  *  it rides in is composed here too. */
 export const STAGE_MAP_SEED = 20260811;
-
-/**
- * THE RADAR GRAMMAR THE SCENE STAGES (Eric ruling 2026-08-11).
- *
- * `return` — the physical return model — is what ships; `silhouette` (Story
- * 4.2's true-scale hull outlines + ARPA vector) is being removed wholesale
- * (*"I am going to be completely removing all radar shit that existed before
- * that. Its too good."*). A readability gate captured against a doomed grammar
- * would be evidence about the wrong game, so the scene synthesizes its own
- * welcome with this value and the wire blips it emits are `ReturnBlipEvent`s.
- *
- * IT IS NOT READ FROM THE SERVER. The scene builds a STUB room and synthesizes
- * the welcome handshake, so the server process's `HC_RADAR_GRAMMAR` never
- * reaches it: THIS constant is what decides the capture, which is why it is
- * pinned by a test rather than left as a literal in the wiring shell.
- *
- * `radarIdentity` stays `roster` and is out of scope: under `return` the hue
- * resolver is never called (amendments 65/67), so identity is independent.
- */
-export const SCENE_RADAR_GRAMMAR: RadarGrammar = 'return';
 
 /**
  * THE STAGED SERVER-CLOCK EPOCH (ms) — the origin the scene's server
@@ -683,9 +662,8 @@ function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
 /**
  * Radar paint for the fogged far band — the scope's load under the same frame.
  *
- * `RETURN` GRAMMAR (SCENE_RADAR_GRAMMAR): a wire blip is a world-anchored
- * cell-rect plus a packed coverage mask, carrying NO identity — never the
- * `silhouette` grammar's id/pose payload. The mask comes from the SHIPPED
+ * A wire blip is a world-anchored cell-rect plus a packed coverage mask,
+ * carrying NO identity. The mask comes from the SHIPPED
  * shaper (`paintCoverage`, the same function the server's blip row calls) at
  * the shipped lattice, so a staged echo and a real one are the same artifact by
  * construction; anything hand-rolled here would be a picture of a mask, not a
@@ -808,9 +786,6 @@ export function sceneFrame(world: SceneWorld, tick: number, serverT: number): Fr
  * ServerClock's offset therefore lands at −SCENE_EPOCH_MS and `serverNow()`
  * tracks the scene's stamps exactly: one clock, no skew to model.
  *
- * `radarGrammar` is SCENE_RADAR_GRAMMAR (`return`), which is the whole reason
- * this function lives in the pure half — the value that decides what the
- * capture is evidence ABOUT is pinned by a test, not buried in wiring.
  */
 export function sceneWelcome(mapRadius: number, serverT: number): WelcomeMsg {
   return {
@@ -820,8 +795,6 @@ export function sceneWelcome(mapRadius: number, serverT: number): WelcomeMsg {
     playerCap: CONFIG.map.playerCap,
     t: serverT,
     config: CONFIG,
-    radarGrammar: SCENE_RADAR_GRAMMAR,
-    radarIdentity: 'roster',
   };
 }
 

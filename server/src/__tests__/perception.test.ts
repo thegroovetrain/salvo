@@ -52,7 +52,6 @@ import {
   type BlipEvent,
   type HullId,
   type ReturnBlipEvent,
-  type SilhouetteBlipEvent,
   type BoomEvent,
   type BoonFitEvent,
   type BurstEvent,
@@ -290,13 +289,6 @@ function bareWorld(seed = 1, opts: WorldOptions = {}): World {
   return w;
 }
 
-/** bareWorld in the `return` radar grammar — the ONLY grammar whose client
- *  wake path exists, and therefore the only grammar the `wk` row fires under
- *  (cycle-69 review gate, P1). The directed wake cases run here. */
-function bareReturnWorld(seed = 1): World {
-  return bareWorld(seed, { radarGrammar: 'return' });
-}
-
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase());
@@ -456,16 +448,16 @@ describe('perception — sight tier boundaries (exact)', () => {
 // ---------- directed cases: radar tier ---------------------------------------
 
 describe('perception — radar paint window (exact)', () => {
-  it('paints a ship in the annulus when the beam crosses its bearing — carrying its LIVE pose (Story 4.2)', () => {
+  it('paints a ship in the annulus when the beam crosses its bearing — the identity-free footprint of its LIVE pose (cycle 63)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 400, 0, 0.7);
-    b.state.speed = 12; // the raw signed scalar rides the wire
+    b.state.speed = 12; // speed never rides the wire — the mask is pose geometry only
     windowAround(a, 0);
     const blips = blipsOf(buildFrame(w, 'a'));
-    expect(blips).toEqual([
-      { k: 'blip', id: 'b', x: b.state.x, y: b.state.y, t: w.now, cls: 'torpedoBoat', heading: 0.7, speed: 12 },
-    ]);
+    expect(blips).toHaveLength(1);
+    expect(blips[0].t).toBe(w.now);
+    expect(maskEquals(maskOracle('torpedoBoat', b.state.x, b.state.y, 0.7, w.now), blips[0])).toBe(true);
   });
 
   it('does not paint outside the beam window', () => {
@@ -481,7 +473,7 @@ describe('perception — radar paint window (exact)', () => {
     const a = place(w, 'a', 0, 0);
     place(w, 'b', RADAR, 0);
     windowAround(a, 0);
-    expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+    expect(blipsOf(buildFrame(w, 'a'))).toHaveLength(1);
     w.ships.get('b')!.state.x = RADAR + 0.01;
     windowAround(a, 0);
     expect(blipsOf(buildFrame(w, 'a'))).toEqual([]);
@@ -512,7 +504,7 @@ describe('perception — radar paint window (exact)', () => {
     // binary rule deleted this blip.
     w.map.heightRaster = rasterFrom(700, ridgeField(200, 0, 40, 40, 16));
     windowAround(a, 0);
-    expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+    expect(blipsOf(buildFrame(w, 'a'))).toHaveLength(1);
   });
 
   it('soft cover still goes dark past its residual reach (the shadow runs to the rim)', () => {
@@ -527,7 +519,7 @@ describe('perception — radar paint window (exact)', () => {
     // The SAME ridge does not touch a nearer target on the same bearing.
     w.ships.get('b')!.state.x = 400; // inside the residual reach
     windowAround(a, 0);
-    expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+    expect(blipsOf(buildFrame(w, 'a'))).toHaveLength(1);
   });
 
   it('a polygon island with NO raster presence no longer occludes radar (sight keeps binary island LOS)', () => {
@@ -542,7 +534,7 @@ describe('perception — radar paint window (exact)', () => {
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     expect(f.contacts).toEqual([]); // sight stays island-LOS-blocked
-    expect(blipsOf(f).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+    expect(blipsOf(f)).toHaveLength(1);
   });
 
   it('a hull whose CENTRE sits inside a hard-cover cell still paints, from every bearing (the far-end exemption)', () => {
@@ -566,7 +558,7 @@ describe('perception — radar paint window (exact)', () => {
       // Non-vacuous: the target really is in the radar annulus, not sighted.
       expect(dist(a.state, b.state)).toBeGreaterThan(effSight(a, w.now));
       expect(dist(a.state, b.state)).toBeLessThanOrEqual(effRadar(a));
-      expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
+      expect(blipsOf(buildFrame(w, 'a'))).toHaveLength(1);
       expect(shadowVisible(w, a, b.state)).toBe(true); // …and the oracle agrees
     }
   });
@@ -584,6 +576,11 @@ describe('perception — exactly once per revolution (incl. 2π wrap)', () => {
     place(w, 'c', 400 * Math.cos(wrapBrg), 400 * Math.sin(wrapBrg));
 
     const paints = new Map<string, number[]>([['b', []], ['c', []]]);
+    // The wire carries no id, so a paint is attributed by which hull's cell
+    // its mask lights (b and c sit on well-separated bearings).
+    const cellU = CONFIG.vision.radarCellU;
+    const covers = (e: BlipEvent, ship: ShipRecord): boolean =>
+      coverageHas(e, Math.floor(ship.state.x / cellU) - e.gx, Math.floor(ship.state.y / cellU) - e.gy);
     let expectedSweep = 0;
     for (let tick = 1; tick <= 2 * TICKS_PER_REV; tick++) {
       w.step();
@@ -592,7 +589,10 @@ describe('perception — exactly once per revolution (incl. 2π wrap)', () => {
       // OwnShip.sweep is the post-advance angle == this tick's window end
       // (identical accumulation => exact equality expected).
       expect(f.you!.sweep).toBe(expectedSweep);
-      for (const e of blipsOf(f)) paints.get((e as SilhouetteBlipEvent).id)!.push(tick);
+      for (const e of blipsOf(f)) {
+        if (covers(e, w.ships.get('b')!)) paints.get('b')!.push(tick);
+        else if (covers(e, w.ships.get('c')!)) paints.get('c')!.push(tick);
+      }
     }
     expect(paints.get('b')).toEqual([1, 1 + TICKS_PER_REV]);
     expect(paints.get('c')).toEqual([TICKS_PER_REV, 2 * TICKS_PER_REV]);
@@ -1479,7 +1479,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
 
 describe('perception — radar wakes (Story 4.12, directed)', () => {
   it('discloses exactly the swept annulus segments — and never in-sight water (the in-bubble ruling)', () => {
-    const w = bareReturnWorld();
+    const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 900); // its WATER, not its hull, is under test
     // Pin the production-derived ribbon constants against LITERALS (the
@@ -1510,7 +1510,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
   });
 
   it('a track behind hard cover does not disclose; the same track over low terrain does (amendment 179 on water)', () => {
-    const w = bareReturnWorld();
+    const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 900);
     injectWakeTrack(b.wake, 500, 0, 0, 6, w.now, 3_000); // 440..500 along y=0
@@ -1529,7 +1529,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
   });
 
   it("a wake outlives its ship, then the ship's record, and is reaped when the water is gone (amendment 200)", () => {
-    const w = bareReturnWorld();
+    const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 900);
     injectWakeTrack(b.wake, 500, 0, 0, 10, w.now, 2_000);
@@ -1555,7 +1555,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
   });
 
   it("a torpedo's water paints while the fish itself stays silent beyond detect (amendment 196)", () => {
-    const w = bareReturnWorld();
+    const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // A live fish at 500u — far beyond the 3/8 detect rung (247.5u): its
     // torp row must stay byte-silent while the water behind it paints.
@@ -1577,24 +1577,8 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     expect(new Set(wks.map((e) => e.a)).size).toBeGreaterThan(1);
   });
 
-  it('the wk row is INERT outside the return grammar: a default (silhouette) room emits no wake row at all (review-gate P1)', () => {
-    // The client's wake path only exists under the `return` grammar
-    // (resolveRadarGrammar defaults to 'silhouette'), so a default room must
-    // pay neither wire nor scan cost for rows the client parks forever — the
-    // blipShape precedent: grammar decides the wire, and here the row's very
-    // existence IS the wire.
-    const w = bareWorld(); // default: silhouette/roster
-    const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 900, 900);
-    injectWakeTrack(b.wake, 500, 0, 0, 10, w.now, 5_000);
-    windowAround(a, 0);
-    const f = buildFrame(w, 'a');
-    verifyFrame(w, 'a', f);
-    expect(f.events.some((e) => e.k === 'wk')).toBe(false);
-  });
-
   it("torpedo water discloses through the (detect, sight] band — the fish's own tier, not the ship annulus (review-gate P2)", () => {
-    const w = bareReturnWorld();
+    const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // Torpedo water wholly inside (247.5, 330]: the band where the fish has
     // no entity (beyond detect) and a SHIP's wake has no disclosure (inside
@@ -1635,7 +1619,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
   });
 
   it('in-bubble torpedo water occludes on BINARY island LOS — the shadow march may not reveal what pointDetected hides (review-gate P2)', () => {
-    const w = bareReturnWorld();
+    const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // An island polygon squarely across bearing 0, with the raster left FLAT:
     // binary LOS is blocked while the shadow march sees open water — exactly
@@ -1662,7 +1646,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
   });
 
   it('the wire mask SCINTILLATES per paint: the same segment on two ticks draws two different masks, spine intact (review-gate P3)', () => {
-    const w = bareReturnWorld();
+    const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 900);
     injectWakeTrack(b.wake, 500, 0, 0, 10, w.now, 2_000);
@@ -1775,7 +1759,7 @@ function verifyAggro(w: World, me: ShipRecord, c: Contact, target: ShipRecord): 
  * crossing.
  */
 function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
-  if (w.radarGrammar !== 'return' || !isAfloat(me.lifecycle)) return;
+  if (!isAfloat(me.lifecycle)) return;
   const blips = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
   let gated = 0;
   for (const target of w.ships.values()) {
@@ -1812,32 +1796,22 @@ function verifyDenied(me: ShipRecord, d: { slot: number; reason: string; seq: nu
  *  PUBLIC payload only — never by source (genuine ship scan vs decoy
  *  counter-intel), or array position would de-anonymize the deception whenever
  *  a hull and its buoy paint the same tick. Reimplemented test-locally,
- *  applied to EVERY verified frame, per grammar: silhouette by (x, y, t, id);
- *  the cycle-63 `return` footprint by (gx, gy, t, w, h, then the mask words —
- *  length first, then each signed-int32 word). The mask words ARE part of the
- *  production comparator's key (cycle-63 review gate: the oracle used to stop
- *  at the rect, a strictly weaker order than the one it claimed to pin), and
- *  the full key is total up to byte-identical payloads — which carry no order
- *  information to leak. */
+ *  applied to EVERY verified frame: the cycle-63 footprint orders by (gx, gy,
+ *  t, w, h, then the mask words — length first, then each signed-int32 word).
+ *  The mask words ARE part of the production comparator's key (cycle-63
+ *  review gate: the oracle used to stop at the rect, a strictly weaker order
+ *  than the one it claimed to pin), and the full key is total up to
+ *  byte-identical payloads — which carry no order information to leak. */
 function verifyBlipOrdering(w: World, f: FrameMsg): void {
   const blips = f.events.filter((e): e is BlipEvent => e.k === 'blip');
   for (let i = 1; i < blips.length; i++) {
-    if (w.radarGrammar === 'return') {
-      const a = blips[i - 1] as ReturnBlipEvent;
-      const b = blips[i] as ReturnBlipEvent;
-      const key = (e: ReturnBlipEvent): number[] => [e.gx, e.gy, e.t, e.w, e.h, e.bits.length, ...e.bits];
-      const ka = key(a);
-      const kb = key(b);
-      const cmp = ka.map((v, j) => v - kb[j]).find((d) => d !== 0) ?? 0;
-      expect(cmp).toBeLessThanOrEqual(0);
-      continue;
-    }
-    const a = blips[i - 1] as SilhouetteBlipEvent;
-    const b = blips[i] as SilhouetteBlipEvent;
-    const ordered =
-      a.x < b.x ||
-      (a.x === b.x && (a.y < b.y || (a.y === b.y && (a.t < b.t || (a.t === b.t && a.id <= b.id)))));
-    expect(ordered).toBe(true);
+    const a = blips[i - 1];
+    const b = blips[i];
+    const key = (e: ReturnBlipEvent): number[] => [e.gx, e.gy, e.t, e.w, e.h, e.bits.length, ...e.bits];
+    const ka = key(a);
+    const kb = key(b);
+    const cmp = ka.map((v, j) => v - kb[j]).find((d) => d !== 0) ?? 0;
+    expect(cmp).toBeLessThanOrEqual(0);
   }
 }
 
@@ -1923,18 +1897,6 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
     inPaintWindow(me, bearing(me.state, p)) &&
     !zoneCovers(w, me, p)
   );
-}
-
-/** Test-local reverse pseudonym resolution (radar realism cycle, R3): the
- *  roster ship id a blip id names under the world's identity mode. In roster
- *  mode the blip id IS the roster id; in pseudonym mode we invert the world's
- *  track map (read-only — never the production pseudonymOf resolver path). */
-function rosterIdOf(w: World, blipId: string): string | undefined {
-  if (w.radarIdentity === 'roster') return blipId;
-  for (const [shipId, track] of w.pseudonyms) {
-    if (track === blipId) return shipId;
-  }
-  return undefined;
 }
 
 // --- the cycle-63 `return`-grammar COVERAGE oracle (amendments 155-157) ------
@@ -2107,9 +2069,8 @@ function maskEquals(a: MaskOracle, ev: ReturnBlipEvent): boolean {
   return a.bits.length === ev.bits.length && a.bits.every((v, i) => v === ev.bits[i]);
 }
 
-/** Grammar-branched pose check for one blip against a (cls, heading, speed)
- *  truth source at a position: silhouette mode carries the pose verbatim
- *  (Story 4.2); `return` mode must carry EXACTLY the coverage footprint the
+/** Pose check for one blip against a (cls, heading) truth source at a
+ *  position: the blip must carry EXACTLY the coverage footprint the
  *  independent oracle rasterizes from that pose (cycle 63, amendment 152 —
  *  never an id, position, extent, or pose field). */
 function blipPoseMatches(
@@ -2118,35 +2079,21 @@ function blipPoseMatches(
   cls: HullId,
   p: { x: number; y: number },
   heading: number,
-  speed: number,
 ): boolean {
-  if (w.radarGrammar === 'return') {
-    return maskEquals(maskOracle(cls, p.x, p.y, heading, w.now), ev as ReturnBlipEvent);
-  }
-  const sil = ev as SilhouetteBlipEvent;
-  return sil.x === p.x && sil.y === p.y && sil.cls === cls && sil.heading === heading && sil.speed === speed;
+  return maskEquals(maskOracle(cls, p.x, p.y, heading, w.now), ev);
 }
 
-/** True iff `ev` is a legitimate GENUINE ship paint. Silhouette grammar: the
- *  id resolves a live non-self ship at exactly the blip position, carrying its
- *  LIVE pose verbatim (Story 4.2). `return` grammar carries NO id (cycle 63),
- *  so the justification quantifies over the ships: SOME live non-self ship
- *  passing the ship-blip predicate must rasterize to exactly this footprint. */
+/** True iff `ev` is a legitimate GENUINE ship paint. The payload carries NO
+ *  id (cycle 63), so the justification quantifies over the ships: SOME live
+ *  non-self ship passing the ship-blip predicate must rasterize to exactly
+ *  this footprint. */
 function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  if (w.radarGrammar === 'return') {
-    for (const target of w.ships.values()) {
-      if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
-      if (!blipPredicate(w, me, target.state)) continue;
-      if (blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading, target.state.speed)) return true;
-    }
-    return false;
+  for (const target of w.ships.values()) {
+    if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
+    if (!blipPredicate(w, me, target.state)) continue;
+    if (blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading)) return true;
   }
-  const rosterId = rosterIdOf(w, (ev as SilhouetteBlipEvent).id);
-  if (rosterId === undefined) return false;
-  const target = w.ships.get(rosterId);
-  if (!target || !isAfloat(target.lifecycle) || target.id === me.id) return false;
-  if (!blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading, target.state.speed)) return false;
-  return blipPredicate(w, me, target.state);
+  return false;
 }
 
 /** True iff the decoy's OWNER is currently contact-visible to `me` — the
@@ -2164,19 +2111,14 @@ function ownerContactVisible(w: World, me: ShipRecord, ownerId: string): boolean
  *  unexpired buoy sits where the blip claims metal, the observer is NOT the
  *  owner (a buoy never lies to its owner), the OWNER is NOT simultaneously a
  *  contact for the observer (the coexistence guard above), and the ship-blip
- *  predicate holds at the BUOY's position. Silhouette grammar additionally
- *  binds the wire id to the owner and the pose to the record's FROZEN
- *  drop-time snapshot at speed 0 (amendment 11 — a live owner value here
- *  would mean the counterIntel path read ctx.ships.get(ownerId), which it
- *  must never do). In `return` grammar the same frozen-pose law holds through
- *  the footprint: the mask must be EXACTLY the owner hull rasterized at the
+ *  predicate holds at the BUOY's position. The frozen-pose law (amendment 11
+ *  — a live owner value here would mean the counterIntel path read
+ *  ctx.ships.get(ownerId), which it must never do) holds through the
+ *  footprint: the mask must be EXACTLY the owner hull rasterized at the
  *  buoy position and drop heading. */
 function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  const rosterId = w.radarGrammar === 'return' ? undefined : rosterIdOf(w, (ev as SilhouetteBlipEvent).id);
-  if (w.radarGrammar !== 'return' && rosterId === undefined) return false;
   for (const decoy of w.decoys.values()) {
-    if (rosterId !== undefined && decoy.ownerId !== rosterId) continue;
-    if (!blipPoseMatches(w, ev, decoy.hullId, decoy, decoy.heading, 0)) continue;
+    if (!blipPoseMatches(w, ev, decoy.hullId, decoy, decoy.heading)) continue;
     if (w.now >= decoy.until) continue;
     if (decoy.ownerId === me.id) continue;
     if (ownerContactVisible(w, me, decoy.ownerId)) continue;
@@ -2185,11 +2127,10 @@ function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return false;
 }
 
-/** The exact per-grammar blip key sets. Silhouette: the 4.2 pose shape.
- *  `return` (cycle 63, amendment 152): the coverage footprint and NOTHING
- *  else — pinned as an exact key set, so the deletion of `id`, the position,
- *  `ext` and every pose channel is structural on every blip the fuzz sees. */
-const SILHOUETTE_BLIP_KEYS = ['cls', 'heading', 'id', 'k', 'speed', 't', 'x', 'y'];
+/** The exact blip key set (cycle 63, amendment 152): the coverage footprint
+ *  and NOTHING else — pinned as an exact key set, so the deletion of `id`,
+ *  the position, `ext` and every pose channel is structural on every blip
+ *  the fuzz sees. */
 const RETURN_BLIP_KEYS = ['bits', 'gx', 'gy', 'h', 'k', 't', 'w'];
 /** Fields the `return` payload must NEVER grow back — asserted by name as well
  *  as by the exact key set, because each is its own disclosure channel: `id`
@@ -2200,16 +2141,9 @@ const RETURN_FORBIDDEN_KEYS = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed']
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
   expect(ev.t).toBe(w.now);
-  // Grammar shape gate: exact key sets, both directions.
-  expect(Object.keys(ev).sort()).toEqual(w.radarGrammar === 'return' ? RETURN_BLIP_KEYS : SILHOUETTE_BLIP_KEYS);
-  if (w.radarGrammar === 'return') {
-    for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
-  } else if (w.radarIdentity === 'pseudonym') {
-    // Identity gate (R3), silhouette only — the `return` payload has no id at
-    // all, so there is nothing to pseudonymize: in pseudonym mode a blip id
-    // must NEVER be a roster ship id (the roster link is deliberately not free).
-    expect(w.ships.has((ev as SilhouetteBlipEvent).id)).toBe(false);
-  }
+  // Shape gate: the exact key set, both directions.
+  expect(Object.keys(ev).sort()).toEqual(RETURN_BLIP_KEYS);
+  for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
   // Every blip in a frame must be JUSTIFIED as exactly one of the two legal
   // sources: a genuine ship paint, or a decoy counter-intel paint. Anything
   // else — a fabricated footprint, a wrong rect, a mask that disagrees with
@@ -2474,13 +2408,12 @@ function wakeSegmentsOracle(r: WakeRibbon, now: number): WakeSegOracle[] {
 }
 
 /** The per-segment wake gate, reimplemented test-locally (see the oracle
- *  header): `return` grammar only (P1); PER-SOURCE inner bound — sight for a
- *  ship's water, the 0.75-literal detect radius for a torpedo's (P2); the
- *  this-tick paint window; and band-consistent occlusion — binary island LOS
- *  inside the sight bubble (only torpedo water can reach it), the shadow
- *  march beyond. NO zone term and NO self term (deliberate). */
+ *  header): PER-SOURCE inner bound — sight for a ship's water, the
+ *  0.75-literal detect radius for a torpedo's (P2); the this-tick paint
+ *  window; and band-consistent occlusion — binary island LOS inside the
+ *  sight bubble (only torpedo water can reach it), the shadow march beyond.
+ *  NO zone term and NO self term (deliberate). */
 function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, torp: boolean): boolean {
-  if (w.radarGrammar !== 'return') return false; // P1: the row is inert elsewhere
   const mid = { x: seg.mx, y: seg.my };
   const d = dist(me.state, mid);
   const sight = effSight(me, w.now);
@@ -2824,23 +2757,12 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
   EVENT_VERIFIERS[e.k](w, me, e);
 }
 
-/** Every flag combination the radar realism cycle ships (amendment 63 — the
- *  two modes are orthogonal, so the invariant must hold under all four).
- *  Labels feed it.each; the default combo runs FIRST so a regression in the
- *  shipped behavior reads first in the output. */
-const MODE_COMBOS: [string, WorldOptions][] = [
-  ['silhouette/roster (default)', {}],
-  ['return/roster', { radarGrammar: 'return' }],
-  ['silhouette/pseudonym', { radarIdentity: 'pseudonym' }],
-  ['return/pseudonym', { radarGrammar: 'return', radarIdentity: 'pseudonym' }],
-];
-
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
-  it.each(MODE_COMBOS)('no frame ever references anything outside sight ∪ this-tick paints [%s]', (_label, modeOpts) => {
+  it('no frame ever references anything outside sight ∪ this-tick paints', () => {
     const rng = mulberry32(0x5eed_f0f0);
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     for (let world = 0; world < 20; world++) {
-      const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone, modeOpts);
+      const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
       const ids: string[] = [];
       const shipCount = rng.int(3, 6);
       for (let i = 0; i < shipCount; i++) {
@@ -2984,13 +2906,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         }
       }
     }
-    // The wake oracle must have been EXERCISED (amendment 40's vacuity rule)
-    // — in the `return` grammar: with 70% of hulls pre-laid with tracks
-    // across 20 worlds × 6 ticks, zero disclosed segments would mean the
-    // channel silently died. In the silhouette combos the row is INERT by
-    // rule (cycle-69 review gate, P1), and zero is the pin, not vacuity.
-    if (modeOpts.radarGrammar === 'return') expect(wkSeen).toBeGreaterThan(0);
-    else expect(wkSeen).toBe(0);
+    // The wake oracle must have been EXERCISED (amendment 40's vacuity rule):
+    // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero
+    // disclosed segments would mean the channel silently died.
+    expect(wkSeen).toBeGreaterThan(0);
   });
 });
 

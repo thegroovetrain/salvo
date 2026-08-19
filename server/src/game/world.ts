@@ -91,8 +91,6 @@ import {
   type HullTarget,
   type InputMsg,
   type LoadoutSlot,
-  type RadarGrammar,
-  type RadarIdentity,
   type Rng,
   type ShellOutcome,
   type ShellState,
@@ -165,27 +163,6 @@ const FLEET_OFFSET_TRIES = 12;
  *  off the hull id — so there is no numbered identity to mint. */
 const FLEET_SHIP_NAME = 'DRONE';
 
-/**
- * Resolve the raw HC_RADAR_GRAMMAR env value into a RadarGrammar (the radar
- * realism cycle, amendment 63). PURE — the env var itself is read in the
- * adapter (ArenaRoom), never here; World stays free of process.env exactly as
- * it stays free of Colyseus. FAIL-SAFE, never fail-open: only the exact string
- * 'return' selects the new grammar — absent, empty, mis-cased, or garbage
- * values all fall back to today's shipped behavior ('silhouette').
- */
-export function resolveRadarGrammar(raw: string | undefined): RadarGrammar {
-  return raw === 'return' ? 'return' : 'silhouette';
-}
-
-/**
- * Resolve the raw HC_RADAR_IDENTITY env value into a RadarIdentity (amendment
- * 63). Same contract as resolveRadarGrammar: pure, adapter-read, fail-safe —
- * only the exact string 'pseudonym' leaves the default 'roster' namespace.
- */
-export function resolveRadarIdentity(raw: string | undefined): RadarIdentity {
-  return raw === 'pseudonym' ? 'pseudonym' : 'roster';
-}
-
 /** The frozen zero-boon behavior list — one shared identity so every
  *  boon-less ShipRecord's per-tick hook fold is allocation-free. */
 const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
@@ -242,27 +219,12 @@ export interface WorldOptions {
    */
   zoneSeeds?: readonly number[];
   /**
-   * Which blip wire shape this room emits (the radar realism cycle, amendment
-   * 63): 'silhouette' (default — the shipped 4.2 pose grammar) or 'return'
-   * (the realism grammar: one aspect-projected `ext` scalar). Resolved from
-   * HC_RADAR_GRAMMAR by the ADAPTER (resolveRadarGrammar) — World never reads
-   * process.env. Announced to clients in the welcome handshake.
-   */
-  radarGrammar?: RadarGrammar;
-  /**
-   * Which id namespace blips carry (amendment 63): 'roster' (default — the
-   * painted ship's real id) or 'pseudonym' (a stable per-match track id from
-   * the server-private pseudonym stream). Resolved from HC_RADAR_IDENTITY by
-   * the ADAPTER (resolveRadarIdentity). Orthogonal to radarGrammar by design.
-   */
-  radarIdentity?: RadarIdentity;
-  /**
    * Seed material of the SERVER-PRIVATE pseudonym stream (R3 — the zone-nonce
    * posture): track ids must never be derivable from the client-known map
    * seed. ArenaRoom passes fresh per-room entropy (adapter-layer, like
    * zoneSeeds); omitted => a fixed derivation of the map seed — fine for
    * standalone Worlds (unit tests, smokes), NEVER acceptable for a production
-   * room in pseudonym mode.
+   * room.
    */
   pseudonymSeed?: number;
 }
@@ -811,14 +773,6 @@ export class World {
   private fleetSeq = 0;
   /** Monotonic fleet-hull ordinal — the ship id namespace `fleet-N`. */
   private fleetHullSeq = 0;
-  /** Which blip wire shape this room emits (amendment 63) — fixed at
-   *  construction, announced in the welcome, threaded into every
-   *  SignalContext. Default 'silhouette' = the shipped 4.2 behavior. */
-  readonly radarGrammar: RadarGrammar;
-  /** Which id namespace blips carry (amendment 63) — fixed at construction,
-   *  announced in the welcome. Default 'roster' = today's behavior. */
-  readonly radarIdentity: RadarIdentity;
-
   /** ms since world creation — the one server clock. */
   now = 0;
   /** Fixed-step counter. */
@@ -1031,10 +985,6 @@ export class World {
     this.spawnPhase = mulberry32((seed ^ 0xb5297a4d) >>> 0).float(0, Math.PI * 2);
     this.zoneCfg = zoneCfg;
     this.zoneSeeds = opts.zoneSeeds;
-    // Radar realism cycle (amendment 63): both modes default to the shipped
-    // behavior — production is byte-identical until a flag is flipped.
-    this.radarGrammar = opts.radarGrammar ?? 'silhouette';
-    this.radarIdentity = opts.radarIdentity ?? 'roster';
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);

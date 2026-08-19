@@ -2085,12 +2085,9 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * Radar blip render knobs. Story 2.3 added the colorblind-assist channel;
-   * Story 4.2 (FR14, amendments 7-13) replaced the soft dot with the ship's
-   * TRUE-SCALE hull silhouette — so every size knob here is gone: the blip's
-   * footprint IS the hull footprint, straight off the shared
-   * `hullSilhouette()` polygon, and no blip-specific geometry exists anywhere.
-   * What remains is persistence, the speed vector, and legibility.
+   * Radar blip render knobs — persistence and legibility for the quantized
+   * intensity bitmap (the one radar grammar; cycle 105 deleted the retired
+   * `silhouette` outline path and every knob that only it read).
    */
   blip: {
     /** How many SWEEP PERIODS a paint lives (amendment 9): the live paint plus
@@ -2099,108 +2096,28 @@ export const CLIENT_CONFIG = {
      *  encodes speed for free (a fast hull's ghosts sit nose-to-tail, a
      *  loitering hull's overlap into a blob). ~12s of track at 15rpm. */
     persistSweeps: 3,
-    /** Live paints retained per CONTACT id. The 4th paint of an id releases
-     *  that id's oldest, so a busy contact can never crowd the scope: the cap
-     *  is per-track, not just the global backstop. Matches persistSweeps —
-     *  one sweep, one paint — but is a separate knob because the two answer
-     *  different questions (how long a track lives vs how long it is). */
-    paintsPerContact: 3,
     /** Minimum alpha a decayed blip may reach while it is still alive. 0 is the
      *  base behavior (linear fade to nothing over the full life); the assist
      *  raises the floor so a cooling blip never fades to near-invisible. */
     minAlpha: 0,
     /** The assist's raised minimum decayed-blip alpha. */
     assistMinAlpha: 0.35,
-    /** Neutral-grey multiplier a paint COOLS to (1 = fresh/white). The tint is
-     *  greyscale on purpose: the blip's COLOR is now an information channel
-     *  (owner hue / drone grey), so the shipped bright→dark phosphor ramp had
-     *  to become a hue-PRESERVING dim or it would have erased the very hue
-     *  Story 4.2 adds. A fresh paint still pops hotter than a 1s-old one,
-     *  which a 12s linear alpha ramp alone could never deliver.
-     *
-     *  BOTH GRAMMARS COOL THROUGH THIS RAMP AS OF AMENDMENT 74. The `return`
-     *  echo was monochrome when it shipped, so it decayed on the color-SETTING
-     *  `blipTint`; now that hue carries return strength (`returns.ramp` below)
-     *  that wiring would erase the scale exactly as it would have erased the
-     *  personal hue here. Same trap, second grammar, same answer. */
-    coolFloor: 0.55,
-    /** WCAG relative-luminance floor a blip's hue is lifted to (amendment 13,
-     *  render/blipMarks.luminanceFloor — ALGORITHMIC, no per-hue table). A 1px
-     *  hairline carries far less light than the hull view's 1.5px stroke over a
-     *  solid fill, so the dark end of the wheel (cobalt ~0.19 at full value,
-     *  azure, mulberry, lagoon) would sink into the fogged ocean unlifted. The
-     *  bright half of the wheel is already above this and returns untouched. */
-    lumaFloor: 0.3,
-    /** The colorblind assist's raised luminance floor. `pixelLine` strokes are
-     *  exactly 1 screen px by construction and IGNORE width, so the assist
-     *  cannot thicken an outline — it boosts it in the only two channels a
-     *  hairline has: this floor and `assistMinAlpha` (amendment 18's intent,
-     *  carried onto the outline grammar). The old hard OUTLINE RING is retired
-     *  with the soft dot that needed it: every blip is now a hard outline. */
-    assistLumaFloor: 0.45,
-    /** The assist's raised COOLING floor. Review catch: the luminance floor is
-     *  baked into the stroke color ONCE at draw, but `blipCool` then multiplies
-     *  every channel down to `coolFloor` — which drags a lifted cobalt/azure
-     *  ghost back to roughly a quarter of its floor in linear light, BELOW even
-     *  the base floor, for the last ~70% of its 12s life. That silently undid
-     *  the assist for exactly the hues it exists to rescue. Cooling still runs
-     *  for the assist (the fresh-vs-ghost read matters just as much there), but
-     *  on a much shallower ramp so the floor survives the whole paint. */
-    assistCoolFloor: 0.85,
-    /** ARPA speed-vector geometry (amendment 10), world units — see
-     *  render/blipMarks.speedVector. */
-    vector: {
-      /** Seconds of travel the shaft represents: the tip IS where the contact
-       *  will be in this long, which is the ARPA convention and makes the mark
-       *  a deduction input rather than decoration. A 35 u/s battleship gets
-       *  ~52.5u — a bit under half a hull length.
-       *
-       *  RETUNED 3 → 1.5 (Eric ruling 2026-08-04, the weapon balance pass): the
-       *  Story 4.2 vector drew long enough to overwhelm the silhouette it
-       *  annotates. All THREE knobs halve together — halving `seconds` alone
-       *  would leave the 24u floor dominating everything under 16 u/s and
-       *  strand `maxLength` beyond any hull's reach. */
-      seconds: 1.5,
-      /** Shortest drawable shaft — a crawling contact still shows a course.
-       *  Halved 24 → 12 with `seconds` (Eric ruling 2026-08-04). */
-      minLength: 12,
-      /** Longest drawable shaft. Above the fastest hull's 1.5s of travel (45
-       *  u/s → 67.5u) plus upgrade headroom, so the clamp bites only on absurd
-       *  speeds and never lets linework overwhelm the silhouette. Halved
-       *  150 → 75 with `seconds` (Eric ruling 2026-08-04). */
-      maxLength: 75,
-      /** At or below this speed (u/s) NO vector is drawn — a stationary return
-       *  has no course, and drawing the min-length stub for a decoy buoy
-       *  (`speed` exactly 0) would have the RENDER invent the lie the wire
-       *  deliberately refused to tell (amendment 11). */
-      deadSpeed: 0.5,
-      /** Arrowhead barb length. The terminal is what keeps the vector from
-       *  sharing line grammar with a rotated hull outline (DESIGN.md). */
-      barbLength: 9,
-      /** Arrowhead half-angle (rad) between a barb and the shaft (~26°). */
-      barbAngle: 0.45,
-    },
     /**
-     * `return`-GRAMMAR HEATMAP KNOBS (cycle 52, amendments 76-79 — superseding
-     * cycle 51's polygon-blob knobs entirely). Inert unless the SERVER announces
-     * `radarGrammar: 'return'` in the welcome — the grammar is a server flag
-     * (amendment 63), never a client choice, because a client-side switch would
-     * force the wire to carry the identity superset in both modes and reduce the
-     * whole anti-cheat argument to cosmetics.
+     * HEATMAP KNOBS (cycle 52, amendments 76-79 — superseding cycle 51's
+     * polygon-blob knobs entirely).
      *
      * Every value here is PRESENTATION. No wire field, no server work, no
-     * perception-invariant surface: the server sends pure aspect geometry
-     * (`ext`, world units, no range term) and the islands are already
-     * client-known from the map seed, so everything below is computed on this
-     * side of the wire. `PROTOCOL_VERSION` is untouched by this whole block.
+     * perception-invariant surface: the server sends coverage footprints and
+     * the islands are already client-known from the map seed, so everything
+     * below is computed on this side of the wire. `PROTOCOL_VERSION` is
+     * untouched by this whole block.
      *
      * THE BASELINE IS EXPLICITLY TWEAKABLE and `bands` is the first thing Eric
      * will retune — he hedged the color ORDER himself ("Or whatever the ACTUAL
      * RADAR would look like"), so the array is ordered, self-describing, and a
-     * reorder is one line. `persistSweeps`/`paintsPerContact` above are NOT in
-     * that set — in `return` mode they are the entire course-and-speed channel
-     * (amendment 67 kills the ARPA vector), so retuning them is a deliberate
-     * post-playtest job.
+     * reorder is one line. `persistSweeps` above is NOT in that set — it is
+     * the entire course-and-speed channel (amendment 67 kills the ARPA
+     * vector), so retuning it is a deliberate post-playtest job.
      */
     heatmap: {
       /**
@@ -3119,8 +3036,7 @@ export const CLIENT_CONFIG = {
 
 // VARIANT P IS RETIRED (cycle 51, amendment 63). The build-time
 // `__BLIP_VARIANT_P__` define and its `BLIP_VARIANT_P` export lived here to A/B
-// a phosphor-anonymous scope against the personal-hue one. Both are superseded
-// by the SERVER-side flag pair `HC_RADAR_GRAMMAR` / `HC_RADAR_IDENTITY`, which
-// answers the same question properly: a client-side variant could only ever
-// repaint a wire that still carried class, heading, speed and roster identity,
-// so it was cosmetics — the server flags actually delete those fields.
+// a phosphor-anonymous scope against the personal-hue one. Both were superseded
+// by the radar realism cycle's server-side mode flags — and cycle 105 then
+// deleted the modes themselves: the identity-free coverage footprint is the one
+// wire shape, so the question the variant asked no longer exists.

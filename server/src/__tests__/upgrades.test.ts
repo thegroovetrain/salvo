@@ -22,7 +22,6 @@ import {
   effectiveStats,
   isAcquisitionDef,
   type BallisticEvent,
-  type SilhouetteBlipEvent,
   type BoonOffer,
   type FrameMsg,
   type GameEvent,
@@ -111,8 +110,8 @@ function copiesInDeck(ship: ShipRecord, id: string): number {
 
 const bnsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'bn');
 const ptsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'pt');
-// Silhouette-grammar worlds only (the default) — narrow straight to the 4.2 shape.
-const blipsOf = (f: FrameMsg) => f.events.filter((e): e is SilhouetteBlipEvent => e.k === 'blip');
+// Radar paints — the identity-free coverage footprint (the one grammar).
+const blipsOf = (f: FrameMsg) => f.events.filter((e) => e.k === 'blip');
 const ballisticsOf = (f: FrameMsg) =>
   f.events.filter((e): e is BallisticEvent => e.k === 'shell' || e.k === 'torp');
 
@@ -1141,7 +1140,7 @@ describe('per-observer intel range (intelRange)', () => {
     stack(w, up, 'intelRange', 1);
     windowAround(up, 0);
     windowAround(base, 0);
-    expect(blipsOf(buildFrame(w, 'up')).map((e) => e.id)).toEqual(['target']);
+    expect(blipsOf(buildFrame(w, 'up'))).toHaveLength(1); // the widened annulus paints
     expect(blipsOf(buildFrame(w, 'base'))).toEqual([]);
   });
 

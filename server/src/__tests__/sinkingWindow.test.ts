@@ -22,6 +22,7 @@ import {
   isAfloat,
   isSinking,
   isSunk,
+  paintCoverage,
   wrapPositive,
   type GameEvent,
   type InputMsg,
@@ -406,9 +407,8 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     w.sinkShip('b', 'a');
     windowAround(a, 0); // beam over b's bearing this tick
     const blips = buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'blip');
-    expect(blips).toEqual([
-      { k: 'blip', id: 'b', x: b.state.x, y: b.state.y, t: w.now, cls: 'torpedoBoat', heading: 0, speed: 0 },
-    ]);
+    const c = paintCoverage('torpedoBoat', b.state.x, b.state.y, 0, CONFIG.vision.radarCellU, w.now);
+    expect(blips).toEqual([{ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }]);
   });
 
   it('at founder the hull leaves both tiers', () => {

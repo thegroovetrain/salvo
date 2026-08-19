@@ -131,9 +131,9 @@ export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'far
 /**
  * A remembered contact — the decayed form of a live Contact or a radar blip
  * once it leaves the current view (CONFIG.bots.contactMemoryMs governs
- * expiry). Identity-optional by construction: a `return`-grammar blip carries
- * no id/class/heading/speed, so every field beyond position is nullable and
- * the brain must not crash on either grammar.
+ * expiry). Identity-optional by construction: a radar blip carries no
+ * id/class/heading/speed (the identity-free coverage footprint), so every
+ * field beyond position is nullable and the brain must not crash on it.
  *
  * Populated by ai/utility.ts from each observe() view; target scoring and
  * wave-3 tactics read these, never the view's raw arrays directly.
@@ -147,12 +147,12 @@ export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'far
  * two shapes could ever disagree.
  */
 export interface RememberedContact {
-  /** Roster/track id, or null (identity-free return-grammar blip). */
+  /** Roster/track id, or null (an identity-free radar blip). */
   id: string | null;
   /** Last-known position (u). */
   x: number;
   y: number;
-  /** Last-known heading/speed, or null when the grammar carried none. */
+  /** Last-known heading/speed, or null when the source carried none. */
   heading: number | null;
   speed: number | null;
   /** Server ms this contact was last seen/painted. */
@@ -165,7 +165,7 @@ export interface RememberedContact {
    *  nothing ever cleared, which made a plot last seen seven seconds ago read
    *  as visible to the cannon gate, to `freshness()` and to `flareTarget()`. */
   live: boolean;
-  /** Hull class if the grammar disclosed one, else null (return blips are
+  /** Hull class if the source disclosed one, else null (radar blips are
    *  identity-free by ruling). Drives the rear-quarter mine-layer exception
    *  in wave-3 tactics and the participant-vs-fleet split below. */
   cls: HullId | null;

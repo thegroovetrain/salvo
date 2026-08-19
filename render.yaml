@@ -23,25 +23,3 @@ services:
       # property does production report to" is answerable by reading the repo.
       - key: VITE_GA_MEASUREMENT_ID
         value: G-LLCR4XRZGG
-      # THE RADAR REALISM CYCLE (cycle 51, amendments 62-75). Both flags default
-      # to the shipped Story 4.2 behavior in code — deliberately, so a bad build
-      # can never silently change the sensor. Production opts IN here, which is
-      # the only place the new grammar is turned on.
-      #
-      #   HC_RADAR_GRAMMAR=return   — radar paints anonymous, aspect-sized echoes
-      #                               (Garmin strength ramp; sweep stays green)
-      #                               instead of true-scale hull silhouettes with
-      #                               heading/speed vectors.
-      #   HC_RADAR_IDENTITY=pseudonym — blips carry a per-match track id instead of
-      #                               the real ship id. NO visual difference on an
-      #                               honest client; it is what stops a modified one
-      #                               re-deriving who a contact is from the public
-      #                               roster (see amendment 63 / spec §3.1).
-      #
-      # To revert to the shipped radar WITHOUT a code change, set either value to
-      # `silhouette` / `roster` (or delete the var — resolution is fail-safe, so any
-      # unrecognized value falls back to shipped behavior).
-      - key: HC_RADAR_GRAMMAR
-        value: return
-      - key: HC_RADAR_IDENTITY
-        value: pseudonym

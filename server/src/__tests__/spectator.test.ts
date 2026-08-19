@@ -16,8 +16,10 @@ import {
   CONFIG,
   bearing,
   mulberry32,
+  paintCoverage,
   segPolygonHit,
   wrapPositive,
+  type BlipEvent,
   type Island,
   type FrameMsg,
   type GameEvent,
@@ -337,15 +339,21 @@ function verifyFoggedFrame(w: World, me: ShipRecord, f: FrameMsg): void {
 function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
   switch (e.k) {
     case 'blip': {
-      // Silhouette-grammar worlds only in this suite (the default), so the
-      // paint carries the 4.2 id/position shape.
-      const target = w.ships.get((e as import('@salvo/shared').SilhouetteBlipEvent).id)!;
-      const d = dist(me.state, target.state);
-      // Story 5.2: a sinking hull still paints (amendment 15 seam 3).
-      expect(isAfloat(target.lifecycle) || isSinking(target.lifecycle)).toBe(true);
-      expect(d).toBeGreaterThan(SIGHT);
-      expect(d).toBeLessThanOrEqual(RADAR);
-      expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
+      // The identity-free coverage footprint: with no id on the wire, the
+      // audit is that SOME afloat-or-sinking hull in this observer's radar
+      // annulus rasterizes to exactly this mask (paintCoverage at the live
+      // pose and this tick's clock — the production shaper, re-run here).
+      const b = e as BlipEvent;
+      const match = [...w.ships.values()].some((target) => {
+        // Story 5.2: a sinking hull still paints (amendment 15 seam 3).
+        if (!(isAfloat(target.lifecycle) || isSinking(target.lifecycle))) return false;
+        const d = dist(me.state, target.state);
+        if (d <= SIGHT || d > RADAR) return false;
+        const c = paintCoverage(target.hullId, target.state.x, target.state.y, target.state.heading, CONFIG.vision.radarCellU, w.now);
+        return c.gx === b.gx && c.gy === b.gy && c.w === b.w && c.h === b.h
+          && c.bits.length === b.bits.length && c.bits.every((v, i) => v === b.bits[i]);
+      });
+      expect(match).toBe(true);
       return;
     }
     case 'shell':

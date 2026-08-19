@@ -40,7 +40,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ReturnBlipEvent, type SilhouetteBlipEvent, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
@@ -71,11 +71,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
-    // Radar realism cycle (amendment 63): the room's modes + the pseudonym
-    // resolver, threaded from the World (which the ADAPTER configured — no
-    // process.env anywhere on this path).
-    radarGrammar: world.radarGrammar,
-    radarIdentity: world.radarIdentity,
+    // The pseudonym resolver (radar realism cycle), threaded from the World.
     pseudonymOf: (id: string) => world.pseudonymFor(id),
     // Story 5.6 (amendment 40): the self-private aggro mark's ONE input.
     aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
@@ -100,14 +96,12 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
-    // Modes ride every context uniformly (spectators get live contacts, never
-    // blips — these are inert here, but the context stays one shape).
-    radarGrammar: world.radarGrammar,
-    radarIdentity: world.radarIdentity,
+    // Inert on this path (spectators get live contacts, never blips) — rides
+    // uniformly so the context stays one shape.
     pseudonymOf: (id: string) => world.pseudonymFor(id),
     // Story 5.6 (amendment 40): DEAD on this path — the contact row refuses
     // the aggro mark for `mode: 'spectator'` before it ever asks. It rides
-    // uniformly so the context stays one shape (the radarGrammar posture).
+    // uniformly so the context stays one shape (the narrow-context posture).
     aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
   };
 }
@@ -268,11 +262,6 @@ const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, buck
 function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
   const out: WakeBlipEvent[] = [];
   if (ctx.mode !== 'fogged') return out;
-  // Grammar early-out (cycle-69 review gate, P1) — a COST device beside the
-  // row's own first clause, the sweepMayCrossWake pattern: the rule lives in
-  // the row (its visible() is grammar-gated), this line only spares a default
-  // silhouette room the whole per-ribbon walk. Deleting it changes no frame.
-  if (ctx.radarGrammar !== 'return') return out;
   const row = SIGNAL_REGISTRY.wk;
   for (const ribbon of ctx.wakes) {
     if (!sweepMayCrossWake(ctx.me, ribbon, ctx.now)) continue;
@@ -321,17 +310,12 @@ function wakeOrder(a: WakeBlipEvent, b: WakeBlipEvent): number {
  * genuine-then-decoy (source order) would make array position a wire-readable
  * de-anonymizer whenever a hull and a buoy paint the same tick.
  *
- * Two comparators, one per grammar (a room emits exactly one shape —
- * amendment 63): silhouette orders by (x, y, t, id) exactly as it always has
- * — cls/heading/speed are deliberately NOT in the key (a field that DIFFERS
- * between a genuine paint and a decoy paint, like speed = 0, would become a
- * sort-position de-anonymizer). The cycle-63 `return` shape carries NO id
- * (amendment 152), so its key is the full public payload: (gx, gy, t, w, h,
- * then the mask words lexicographically) — total up to byte-identical
- * payloads, and two byte-identical payloads carry no order information to
- * leak.
+ * The cycle-63 `return` shape carries NO id (amendment 152), so its key is
+ * the full public payload: (gx, gy, t, w, h, then the mask words
+ * lexicographically) — total up to byte-identical payloads, and two
+ * byte-identical payloads carry no order information to leak.
  */
-function returnBlipOrder(a: ReturnBlipEvent, b: ReturnBlipEvent): number {
+function blipOrder(a: BlipEvent, b: BlipEvent): number {
   if (a.gx !== b.gx) return a.gx - b.gx;
   if (a.gy !== b.gy) return a.gy - b.gy;
   if (a.t !== b.t) return a.t - b.t;
@@ -344,21 +328,6 @@ function returnBlipOrder(a: ReturnBlipEvent, b: ReturnBlipEvent): number {
   return 0;
 }
 
-function silhouetteBlipOrder(a: SilhouetteBlipEvent, b: SilhouetteBlipEvent): number {
-  if (a.x !== b.x) return a.x - b.x;
-  if (a.y !== b.y) return a.y - b.y;
-  if (a.t !== b.t) return a.t - b.t;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-}
-
-/** Grammar-dispatched comparator over the tagless union: every blip in a
- *  frame has the one shape the room's grammar picked, so presence of `gx`
- *  (a required `return` key that the silhouette shape can never carry) is a
- *  structural discriminator, not a probe of optional fields. */
-function blipOrder(a: BlipEvent, b: BlipEvent): number {
-  if ('gx' in a && 'gx' in b) return returnBlipOrder(a, b);
-  return silhouetteBlipOrder(a as SilhouetteBlipEvent, b as SilhouetteBlipEvent);
-}
 
 /** One registry-driven view build — both observer modes share it; the ctx mode
  *  is the ONLY thing that differs. Emission order per the header: forwarded
