@@ -591,7 +591,7 @@ collection is a defect, not a wording preference** — every claim in it is now 
 
 ---
 
-## Amendment 15 — The Story 7-3 question gate: THREE ERIC RULINGS, 2026-08-19 (cycle 105)
+## Amendment 15 — The Story 7-3 question gate: THREE ERIC RULINGS, 2026-08-19 (cycle 106)
 
 The story opened with a question gate (`bmad-dev-auto-result-7-3-how-to-play-page-questions.md`,
 eleven questions). Eric answered all eleven, then three follow-ups after the first pass was rejected

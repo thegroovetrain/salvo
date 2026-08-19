@@ -2,7 +2,7 @@
 status: blocked
 blocking_condition: intent gaps — 11 questions for Eric before implementation
 story: '7-3 How-to-Play Page'
-cycle: 105
+cycle: 106
 created: '2026-08-19'
 baseline_revision: '362e7e7'
 ---
@@ -239,7 +239,7 @@ Nothing here needs new game mechanics, wire changes, or a `PROTOCOL_VERSION` bum
 Planned shape: a third Vite entry (`client/how-to-play/index.html` + `src/how-to-play/main.ts` +
 a copy-as-data module), a `makePageLink` and a controls-table/key-chip helper in `ui/page.ts`, the
 home link rewired, the `analytics.test.ts` third-party-script guard extended to the new page, and
-tests matching `page.test.ts`'s established pins. Version → `0.17.105`; both tracker files updated
+tests matching `page.test.ts`'s established pins. Version → `0.17.106`; both tracker files updated
 in the same PR.
 
 ## Notes of record

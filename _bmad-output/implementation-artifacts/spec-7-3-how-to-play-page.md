@@ -86,7 +86,7 @@ library that merely shares a name with the deleted grammar mode.
 - [x] `client/src/ui/page.ts` -- `makePageLink`, keycap `makeKeyTable`, mount-lifetime fix -- the AC needs a link; Eric ruled keycaps
 - [x] radar deletion across `shared/`, `server/`, `client/`, `render.yaml` -- one radar, PV 40 -> 41
 - [x] tests -- new page tests; the home stub pin inverted; the script guard generalized
-- [x] `VERSION` + `package.json` -> `0.17.105`; both tracker files; epic-7 amendments entry
+- [x] `VERSION` + `package.json` -> `0.17.106`; both tracker files; epic-7 amendments entry
 
 **Acceptance Criteria:**
 - Given a new player on home, when they click HOW TO PLAY, then a real page loads at
