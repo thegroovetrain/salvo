@@ -20,10 +20,13 @@
 // if they do not, the blocker is real and named. That is also the honest
 // simulation of a player behind a firewall or a slow font CDN.
 //
-// WHAT IS NOT MEASURED HERE, AND WHY: no ad, analytics or consent script cost.
-// None of them exist yet (Stories 7.2 and 7.4). This run establishes the budget
-// they must later fit inside, and the record says so rather than implying the
-// measured figure is final.
+// AD / ANALYTICS / CONSENT COST IS NOW INCLUDED (Story 7.4). It was not when
+// this script was written — the header used to say so — but Story 7.2 shipped
+// the analytics layer and Story 7.4 puts the AdSense loader in the head, so the
+// bytes are in `client/dist` and this run counts them. The AdSense tag is
+// BUILD-GATED on `VITE_ADSENSE_CLIENT`, so a run measures whichever build it was
+// given; each run records `thirdPartyOrigins` so the record can never be read as
+// covering a script it never fetched.
 //
 //   npm run build
 //   node client/scripts/loadCapture.mjs
@@ -113,9 +116,29 @@ async function runProfile(pw, base, profile) {
     await cdp.send('Network.clearBrowserCache');
     await cdp.send('Network.emulateNetworkConditions', profile.net);
 
+    // THIRD-PARTY ORIGINS ARE RECORDED, NOT INFERRED (Story 7.4).
+    //
+    // Story 7.2's decisive NFR2 evidence was an ABSENCE — the cold-load record
+    // contacted the font CDN and nothing else, which is what Consent Mode BASIC
+    // looked like from the outside. Story 7.4 retires Basic and puts the AdSense
+    // loader in the head, so that absence is GONE BY RULING and the record must
+    // now say which third parties a cold load actually reaches. Without this the
+    // file could not distinguish "the ad script loaded and cost 3 kB" from "the
+    // ad script never loaded and this number is meaningless" — the same
+    // self-description failure the run-configuration fields were added for.
     let requestCount = 0;
-    page.on('requestfinished', () => {
+    const thirdPartyOrigins = new Set();
+    page.on('requestfinished', (req) => {
       requestCount += 1;
+      try {
+        // Compare ORIGIN to ORIGIN. `base` carries a trailing slash, so a
+        // `startsWith` against it classifies the local static server itself as
+        // third-party — which would bury the real finding in noise.
+        const { origin } = new URL(req.url());
+        if (origin !== new URL(base).origin) thirdPartyOrigins.add(origin);
+      } catch {
+        /* a non-URL request target tells us nothing; the count still stands */
+      }
     });
 
     const t0 = Date.now();
@@ -172,6 +195,7 @@ async function runProfile(pw, base, profile) {
       // fonts-blocked profile landing inside budget; this is context only.
       fcpPrecededLastFontResponse: fcp !== null && lastFontEnd !== null ? fcp < lastFontEnd : null,
       requestCount,
+      thirdPartyOrigins: [...thirdPartyOrigins].sort(),
       image: `nfr2-home-${profile.name}.png`,
     };
   } finally {
@@ -202,12 +226,24 @@ async function main() {
 
   const blocked = runs.find((r) => r.fontsBlocked);
   const record = {
-    story: '7.1',
+    // The instrument is Story 7.1's; the CONTENT of a run is whatever build it
+    // was handed. Naming only 7.1 made a 7.4 run read as a 7.1 verdict.
+    story: '7.1 (instrument) — re-run by any story that adds page weight',
     what: 'NFR2 cold-load verdict against the SHIPPED production build',
     device: REFERENCE_DEVICE,
     budgetMs: BUDGET_MS,
-    notMeasuredYet:
-      'Ad, analytics and consent script cost — none exist yet (Stories 7.2/7.4). They must fit inside the same 10 s budget and be re-measured when they land.',
+    // WAS `notMeasuredYet` UNTIL STORY 7.4. That field said ad/analytics/consent
+    // cost did not exist yet; both stories have since landed, so leaving it would
+    // have made the record state something false about itself. What a run now
+    // reaches is recorded per profile in `thirdPartyOrigins` rather than asserted
+    // here, because the ad tag is BUILD-GATED on `VITE_ADSENSE_CLIENT` — an
+    // unconfigured build legitimately contacts no ad origin at all, and the
+    // record has to be able to tell the two builds apart.
+    scriptCostMeasured:
+      'Third-party script cost is included only to the extent the MEASURED BUILD carried it. Both the AdSense loader '
+      + '(`VITE_ADSENSE_CLIENT`, Story 7.4) and the GA4 tag (`VITE_GA_MEASUREMENT_ID`, Story 7.2) are BUILD-GATED, so a '
+      + 'run with neither set measures neither. Do not read this field as a claim — read each run\'s `thirdPartyOrigins`, '
+      + 'which is the only evidence of what was actually fetched.',
     fontsDoNotBlockFirstPaint: blocked
       ? {
           demonstratedBy: 'residential-24mbps-fonts-blocked',

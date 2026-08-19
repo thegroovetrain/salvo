@@ -8,9 +8,15 @@
 // THE RULE CALLERS MUST NOT BREAK: **never branch on consent state at a call
 // site.** `main.ts` and `home.ts` call `analytics.home()` / `.modePick()` /
 // `.matchStart()` / `.matchEnd()` / `.requeue()` at the ruled funnel moments and
-// stop thinking about it. Whether the event is sent, queued, or dropped is this
-// module's problem — a caller that asks "have they consented?" is a second copy
-// of the decision, and the second copy is the one that drifts.
+// stop thinking about it. Whether the event is sent or dropped is this module's
+// problem — a caller that asks "have they consented?" is a second copy of the
+// decision, and the second copy is the one that drifts.
+//
+// STORY 7.4 MOVED THIS LAYER TO CONSENT MODE ADVANCED. Google's own certified
+// CMP is now the single consent dialog (it is delivered by the ad script, so it
+// cannot sit behind a gate of ours), the self-built consent card is deleted, and
+// the tag is therefore built at boot for everyone. The player's decision travels
+// as consent SIGNALS, never as the presence or absence of a script.
 //
 // THE FUNNEL IS FIVE EVENTS AND NOTHING ELSE (NFR19). No callsign, no ship
 // class, no kills, no placement, no room id, no match id, no gameplay state,
@@ -25,7 +31,7 @@ import {
   type ConsentChoice,
   type ConsentState,
 } from './consent.js';
-import { isGaConfigured, sendGaBeaconEvent, sendGaEvent, startGa } from './ga.js';
+import { sendGaBeaconEvent, sendGaConsentUpdate, sendGaEvent, startGa } from './ga.js';
 
 export type { ConsentChoice, ConsentState } from './consent.js';
 export { CONSENT_KEY } from './consent.js';
@@ -48,20 +54,20 @@ export const FUNNEL_EVENTS = Object.freeze({
   requeue: 'requeue',
 } as const);
 
-/**
- * Pre-consent queue cap.
- *
- * `home` fires before the player has answered the bar, so events MUST be
- * survivable across an undecided window or the first funnel step is
- * structurally unmeasurable. The window is one page load and the funnel is five
- * steps, so eight is the whole journey plus slack; the only way to exceed it is
- * a player cycling mode picks repeatedly before answering. Past the cap the
- * OLDEST is dropped, which bounds memory without ever letting the queue become
- * a leak.
- */
-const QUEUE_CAP = 8;
+// THE PRE-CONSENT QUEUE IS RETIRED (Story 7.4, Eric rulings 2026-08-19).
+//
+// It existed for exactly one reason: under Consent Mode BASIC no tag existed
+// until an explicit Accept, so `home` — which fires before the player answers —
+// had to be held or the first funnel step was structurally unmeasurable. Under
+// ADVANCED the tag is built at boot for everyone, so there is no undecided
+// window left to hold anything across, and `dataLayer` already buffers every
+// command until the remote script arrives and drains it. Nothing is lost.
+//
+// Retired rather than adapted, in the cycle-69 grey-NO-DATA style: a queue that
+// can never fill is a knob a later reader has to reason about for nothing.
 
-interface QueuedEvent {
+/** One event on its way to the vendor. */
+interface FunnelEvent {
   name: string;
   params?: Record<string, unknown>;
   beacon?: true;
@@ -69,14 +75,16 @@ interface QueuedEvent {
 
 /** The game-facing surface. Every method is void, synchronous and no-throw. */
 export interface Analytics {
-  /** Resolve the stored decision and, if it is already `granted`, build the tag.
-   *  Called once at boot, before any funnel call. Idempotent. */
+  /** Build the tag and apply any stored local override. Called once at boot,
+   *  before any funnel call. Idempotent. */
   boot(): void;
-  /** The player's decision, for the consent bar's show/hide test. */
+  /** The LOCAL analytics override, for the settings PRIVACY row. `undecided`
+   *  means the player has set none — the CMP and the region defaults govern. */
   consentState(): ConsentState;
-  /** ACCEPT pressed: persist, build the tag, flush whatever queued. */
+  /** Settings ANALYTICS → ON: persist and send a granting consent update. */
   grantConsent(): void;
-  /** DECLINE pressed: persist, discard the queue, never load anything. */
+  /** Settings ANALYTICS → OFF: persist, send a denying consent update, and stop
+   *  dispatching funnel events for the rest of the session. */
   denyConsent(): void;
 
   /** Funnel 1 — the player is standing in port. */
@@ -93,8 +101,8 @@ export interface Analytics {
 }
 
 /** Hand one event to the vendor. The single site that knows a beacon event is
- *  sent differently, so the queue's flush and the live path can never drift. */
-function emit(ev: QueuedEvent): void {
+ *  sent differently. */
+function emit(ev: FunnelEvent): void {
   if (ev.beacon) sendGaBeaconEvent(ev.name);
   else sendGaEvent(ev.name, ev.params);
 }
@@ -113,54 +121,55 @@ function guard(call: () => void): void {
 }
 
 function createAnalytics(): Analytics {
-  /** `undecided` until `boot()` reads storage. Held in memory so the consent
-   *  bar and the queue agree without re-reading `localStorage` per event. */
+  /** The LOCAL analytics override, `undecided` until `boot()` reads storage.
+   *  Held in memory so the settings row and the dispatch path agree without
+   *  re-reading `localStorage` per event. */
   let state: ConsentState = 'undecided';
   let booted = false;
-  let queue: QueuedEvent[] = [];
 
-  /** Push through to GA, or hold it. The one place the tri-state is consulted. */
-  function dispatch(ev: QueuedEvent): void {
+  /**
+   * Push through to GA, or drop it. The one place the tri-state is consulted.
+   *
+   * ONLY AN EXPLICIT LOCAL DENIAL SUPPRESSES (Story 7.4). `undecided` now means
+   * "no local override", not "an unanswered question", so it dispatches — which
+   * is the honest reading under Advanced mode: the global default grants
+   * analytics, so a non-EEA visitor IS being measured, while an EEA visitor's
+   * region default denies storage until Google's CMP says otherwise. What a hit
+   * under a denied signal becomes (a cookieless ping) is Google's rule to apply,
+   * not ours to re-implement here — a second copy is the copy that drifts.
+   */
+  function dispatch(ev: FunnelEvent): void {
     if (state === 'denied') return;
-    if (state === 'granted') {
-      emit(ev);
-      return;
-    }
-    // undecided: hold it. Nothing is queued when there is no measurement ID —
-    // an inert build must not accumulate objects for a flush that can never come.
-    if (!isGaConfigured()) return;
-    // PAST THE CAP, DROP THE NEWEST — not the oldest (review gate). A funnel
-    // reads forwards, and `home` is both the first event queued and the one the
-    // queue exists for, so drop-oldest evicted precisely the wrong end: a player
-    // who cycled mode picks before answering would have flushed a funnel with no
-    // beginning. Keeping the earliest events preserves the shape that matters.
-    if (queue.length >= QUEUE_CAP) return;
-    queue.push(ev);
+    emit(ev);
   }
 
   /**
-   * Build the tag and drain the queue, in that order.
+   * Build the tag. Idempotent — `startGa` latches on its first attempt, and is
+   * a no-op with no measurement ID.
    *
-   * BOTH consent defaults are sent — the global one and the EEA/UK/CH
-   * region-scoped one — before the update. Under Basic mode the region default
-   * changes nothing; see `consent.ts` for why it is sent anyway.
+   * BOTH consent defaults ride it, REGION-SCOPED FIRST then global, and NO
+   * update: an unconditional update here would override the EEA/UK/CH denial
+   * before the CMP had any chance to ask. See `ga.ts`'s `startGa` for the full
+   * argument.
+   *
+   * The order matches `ads/adsHead.ts`'s injected block exactly. Google resolves
+   * a `default` by SPECIFICITY rather than by order, so both orderings are
+   * correct — but the two blocks are two statements of one contract, and two
+   * statements that differ are how a later reader concludes one of them is
+   * wrong.
    */
   function activate(): void {
-    // The queue is drained ONLY once the tag is known to be built (review gate).
-    // Clearing it first meant a `startGa` that failed — a frozen window, no
-    // document head, a CSP — silently threw away the queued `home`/`mode_pick`
-    // with no possibility of a later retry.
-    if (!startGa([consentDefaults(), consentRegionDefaults()], consentUpdate('granted'))) return;
-    const pending = queue;
-    queue = [];
-    for (const ev of pending) emit(ev);
+    startGa([consentRegionDefaults(), consentDefaults()]);
   }
 
   function settle(choice: ConsentChoice): void {
     state = choice;
     saveConsent(choice);
-    if (choice === 'granted') activate();
-    else queue = [];
+    // The tag is normally already up — `boot()` builds it — but a settings press
+    // can reach here first after a failed boot, and `activate` is cheap and
+    // idempotent. An update into a tag that was never built is a no-op.
+    activate();
+    sendGaConsentUpdate(consentUpdate(choice));
   }
 
   return {
@@ -169,8 +178,22 @@ function createAnalytics(): Analytics {
         if (booted) return;
         booted = true;
         state = loadConsent();
-        if (state === 'granted') activate();
-        else if (state === 'denied') queue = [];
+        // ALWAYS ACTIVATE (Story 7.4). There is no pre-consent window on this
+        // page any more, so withholding the tag would withhold it forever from
+        // every visitor Google's CMP never asks.
+        activate();
+        // A stored choice is re-asserted AFTER activation, in BOTH directions:
+        // it is an update, and an update is only meaningful once the defaults
+        // are in the dataLayer ahead of it.
+        //
+        // BOTH, because `settle()` sends both and every RETURN TO PORT ends in a
+        // `location.reload()`. Re-sending only the denial meant a visitor who
+        // turned ANALYTICS ON got it for that page life alone and then silently
+        // reverted to the region default forever, with the settings row still
+        // reading ON — while the privacy policy says the stored choice overrides
+        // the region default. `undecided` still sends nothing: no local override
+        // means the defaults and the CMP govern, which is the whole design.
+        if (state !== 'undecided') sendGaConsentUpdate(consentUpdate(state));
       }),
 
     // `loadConsent()` has its own fail-open catch, so no guard is needed here —

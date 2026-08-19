@@ -709,3 +709,199 @@ do I get back to my gun?"* — unanswerable by experiment, since the gun has no 
 **Verified rather than assumed:** his new line *"If it has a firing arc, it will be indicated on the
 screen"* is true — `render/firing.ts` draws the sector for arc-limited equipment (torpedo bow arc,
 mine rear arc) and draws none for the 360° gun.
+
+---
+
+## Amendment 16 — The Story 7-4 question gate: SEVEN ERIC RULINGS, 2026-08-19 (cycle 107)
+
+The story opened with a question gate (`bmad-dev-auto-result-7-4-adsense-questions.md`) because Eric
+asked for questions before implementation. Two of the four opening questions existed because **the
+story's own acceptance criteria could not be built as written** — the first time in Epic 7 that the
+planning text was not merely stale but structurally impossible.
+
+### The blocking findings that forced the gate
+
+**(1) THE HOME DISPLAY UNIT WAS UNBUILDABLE, AND NOT MARGINALLY.** The AC required display units on
+home *"≥150 px clear of the game canvas"*. `client/index.html:34` makes the Pixi canvas
+`position:fixed; inset:0` — it IS the viewport and is never resized or letterboxed — and since cycle
+82 it renders a **live ambient scene** behind home (real terrain, real radar with height shadows and
+wakes, real hulls on real `stepShip` kinematics, `render/ambient.ts:1-20`). **Distance from canvas is
+zero at every pixel of home**, and cannot be made non-zero without moving ratified anatomy: the
+centred column measures ~688 px against the 768 px floor viewport (UX-DR39), about 40 px of total
+slack.
+
+**(2) THE CMP AND CONSENT MODE BASIC ARE MUTUALLY EXCLUSIVE — Story 7.2 deferred a composition that
+does not exist.** Amendment 14 R1 deferred *"the certified CMP"* to this story, assuming it would
+compose with R7's Basic mode (*"nothing Google loads until the player clicks Accept"*). It cannot:
+**Google's CMP has no standalone script — it is delivered BY `adsbygoogle.js`**
+(https://developers.google.com/funding-choices/fc-api-docs; AdSense's own help requires *"the AdSense
+code needs to be located on the page"* for messages to display, https://support.google.com/adsense/answer/10924669).
+So the ad script must load BEFORE consent, because it is the thing that ASKS for consent. There is no
+configuration in which both hold.
+
+**(3) A DISPLAY UNIT ON HOME WAS AN ACCOUNT-SUSPENSION RISK, not merely a layout problem.**
+`app/returnToPort.ts:82` ends every return-to-port with `location.reload()`, so **home re-renders on
+every single match end**. A unit there would mint a fresh impression for the same player all session.
+Google: publishers *"should refrain from inserting ads in auto-refreshing placements"*, and
+*"if Google observes high levels of invalid traffic on an account, they may suspend or close the
+account"* (https://support.google.com/adsense/answer/16737). Whether a user-initiated reload counts
+as auto-refresh is **undocumented by Google** — and the downside is a years-old AdSense account.
+
+### The rulings
+
+- **R1 — GOOGLE'S OWN CERTIFIED CMP.** `adsbygoogle.js` loads for everyone, pre-consent, and Google's
+  dialog asks the consent question. Chosen over keeping the promise (option A) and over a self-driven
+  non-personalized posture (option B) because it is the only option that unlocks **personalized ads in
+  the EEA/UK/CH**. **Consent Mode BASIC (amendment 14 R7) is RETIRED**, and with it R7's accepted cost
+  (*"the funnel measures only players who actively click Accept"*) — under Advanced the tag loads for
+  everyone, so that undercount ends.
+- **R2 — INTERSTITIAL ONLY. NO DISPLAY UNITS ANYWHERE.** Not on home, not on How-to-Play, not on
+  `/privacy`. **This strikes the display-unit clause of the Story 7.4 AC and of NFR8**, and with it the
+  150 px clause and the invalid-traffic exposure of finding (3), in one cut. Offered the cheap
+  compliant option (How-to-Play only) Eric took the cleaner one instead: in H5 games the interstitial
+  is where the revenue is, and a unit on a page nobody visits earns nothing while still carrying
+  thin-content risk.
+- **R3 — ADS.TXT IS THE VERIFICATION METHOD.** Chosen over the meta tag and the AdSense snippet
+  because it is the only one that is **architecture-neutral**: it loads no Google script (so it is
+  independent of R1), it survives Story 7.7's move to a CDN static site unchanged, and the file is
+  wanted anyway to authorize Google as a seller — one artifact doing two jobs.
+- **R4 — THE INTERSTITIAL IS BUILT NOW, DORMANT**, gated on the publisher ID being present at build
+  time.
+- **R5 — THE SELF-BUILT CONSENT CARD IS DELETED.** Google's CMP becomes the single consent dialog,
+  covering ads AND analytics. Outside Europe no dialog appears and analytics simply runs. **This
+  retires amendment 14 R2 (the non-blocking bottom bar) and R14 (the corner card) two days after they
+  shipped** — not because either was wrong, but because their premise (our banner is the consent
+  surface) is gone. The alternative was two dialogs back-to-back for every European player, since
+  Google's message shows only in the EEA/UK/CH while our card showed to everyone.
+  **Amendment 14 R15's settings PRIVACY row SURVIVES and Eric kept it explicitly** — it is now the
+  ONLY in-product analytics door.
+- **R6 — THE H5 GAMES ADS APPLICATION IS ALREADY SUBMITTED**, awaiting approval. It is a separate
+  application on top of an approved AdSense account and *"approval is not guaranteed as it is subject
+  to partner eligibility"* with no published timeline
+  (https://developers.google.com/ad-placement/docs/signup), so it is the one dependency this cycle
+  cannot shorten. R4 is what makes that latency free.
+- **R7 — THE PUBLISHER ID IS `pub-8667818947296707`.** `ads.txt` carries exactly
+  `google.com, pub-8667818947296707, DIRECT, f08c47fec0942fa0`; the loader client is
+  `ca-pub-8667818947296707`. It rides `render.yaml` beside `VITE_GA_MEASUREMENT_ID`, whose own comment
+  establishes the precedent (*"Not a secret… committed deliberately, so that 'which property does
+  production report to' is answerable by reading the repo"*). A publisher ID is public by
+  construction — it is published in `ads.txt`.
+
+### Verified external facts of record (with sources)
+
+- **NOTHING IN THE PLAN IS DEPRECATED.** H5 Games Ads and the Ad Placement API are current; the signup
+  doc carries a **"Last updated June 18, 2026"** stamp and no sunset or migration notice exists.
+- **THE 150 px FIGURE IS A RECOMMENDATION, NOT POLICY — `epic-7-context.md` states this wrongly.**
+  It says *"The 150 px clearance and the natural-transition-point restriction are Google policy, not
+  preference."* Half is right. Natural transition points IS policy and is prohibitive (full-screen ads
+  *"that interrupt the user during periods of continuous game play"* are banned,
+  https://support.google.com/publisherpolicies/answer/11975916). The 150 px figure is *"we recommend"*
+  / *"we strongly recommend"*, published under the heading **"Distance between ads and Flash games"**
+  (https://support.google.com/adsense/answer/2768340, /1346295), with **no modern canvas/HTML5
+  restatement found**. The real enforcement mechanism is invalid-click detection, not a numeric bar.
+  R2 makes the point moot, but the record should not carry a recommendation as a policy.
+- **NO CERTIFIED CMP DOES NOT MEAN NO ADS IN EUROPE.** *"Traffic from a non-certified CMP may be
+  eligible for non-personalized ads or limited ads"* (https://support.google.com/adsense/answer/13554116).
+  The cost of declining R1 would have been personalization revenue in three regions, not a blackout —
+  stated at the gate so the ruling was taken on the true price.
+- **GOOGLE'S CMP *CAN* CARRY ANALYTICS CONSENT.** An account-level *"Enable consent mode for analytics
+  purposes"* flag drives `analytics_storage`; it appears only after *"Enable consent mode for
+  advertising purposes"* is ticked, and **both default to OFF**
+  (https://support.google.com/adsense/answer/16053245, /16088460). This is what makes R5 safe:
+  deleting our card does not strand EEA analytics consent.
+- **ADVANCED MODE NEEDS NO WIRING.** *"Advanced consent mode is supported by default; once you have
+  enabled Consent Mode in the Privacy & messaging UI, no additional work is needed"* — the CMP issues
+  the `gtag('consent','update',…)` itself (https://developers.google.com/funding-choices/fc-api-docs).
+- **A BLOCKED AD SCRIPT FIRES NO CALLBACK AT ALL.** Google documents nothing about ad blockers. The
+  shim is `adBreak = function(o){ adsbygoogle.push(o); }`, so with the script blocked `adsbygoogle`
+  stays a plain `Array` and the push is inert — **not even `adBreakDone` runs**. This is why
+  return-to-port may never be gated on an ad callback; `safeAdapter`'s 35 s cap is the only backstop.
+
+### Consequences named rather than absorbed
+
+**THE DASHBOARD IS NOW LOAD-BEARING, AND NO CODE HERE CAN TEST IT.** Both AdSense consent-mode flags
+must be ticked by Eric or EEA analytics consent is never collected. This is the same class as
+amendment 14 R16's Enhanced Measurement finding — property-side settings this repo cannot control or
+observe. It **fails safe**: unticked flags leave EEA visitors at the region-scoped denied default.
+
+**THE CMP APPEARS ONLY WHERE THE ADSENSE CODE IS.** The loader ships on `index.html` only, so
+`/privacy` and `/how-to-play` get no dialog and no auto-injected revocation link, and an EEA visitor
+on those pages sits at the denied default — no analytics cookie is written there. Fail-safe, and
+recorded so it is not mistaken later for a defect.
+
+**THE SETTINGS PRIVACY ROW INVERTS ITS UNANSWERED STATE (IMPLEMENTER DECISION).** Amendment 14 R15
+renders an unanswered player as OFF, correctly, *"which is the truth under Basic mode rather than a
+placeholder — nothing is measured until an explicit grant."* **That premise is gone.** Under Advanced
+with a granted global default, analytics IS running for an unanswered non-EEA player, so OFF would now
+be the lie R15 was written to avoid. The row therefore renders unanswered as ON. The ruling behind
+R15 is honoured, not reversed: *the row tells the truth about what is being measured.*
+
+**`hullcracker.consent` KEEPS ITS KEY AND SHAPE, AND CHANGES MEANING.** It was *"the answer to our
+banner"*; it is now *"the player's LOCAL analytics override"*. Absent means "follow the CMP and the
+region defaults", not "unanswered question". It carries `analytics_storage` alone — the three ad
+signals belong to Google's CMP now, and our toggle has no authority over them.
+
+**THE PRE-CONSENT EVENT QUEUE IS RETIRED.** Its entire purpose was holding funnel events until a
+decision that no longer gates the tag, and `dataLayer` buffers before the script loads. Retired with
+its tests rather than adapted — including the review-gate drop-newest fix from amendment 14, whose
+reasoning was correct and whose subject no longer exists.
+
+**THE GLOBAL CONSENT DEFAULT NOW GRANTS ALL FOUR SIGNALS (IMPLEMENTER DECISION, flagged not buried).**
+The region-scoped EEA/UK/CH default still denies all four and is what protects those visitors; it
+finally becomes load-bearing rather than the inert correctness placeholder amendment 14 shipped it as.
+Granting ad signals outside Europe follows from R1's own rationale (personalized ads are the revenue
+Eric chose), but Google's documentation does not decide it and Eric did not state it in those words —
+so it is recorded here as the implementer's reading of his ruling, open to correction.
+**Not taken, and Eric's to decide:** Google also offers a separate **US-states message** covering 20
+states, which is dashboard configuration and needs no code. It carries no consent-mode integration and
+would not affect analytics.
+
+**NOT A SEVENTH PERCEPTION EXCEPTION, AND NOT A WIRE CHANGE.** Nothing spatial or gameplay-bearing
+moves. `PROTOCOL_VERSION` stays **41**. The master perception invariant still has exactly SIX declared
+exceptions.
+
+### Corrections of record
+
+- **`CLAUDE.md:82` says `PROTOCOL_VERSION` is "currently 40". It is 41** since Story 7-3. Corrected in
+  this cycle.
+- **`sprint-status.yaml` still showed `7-3-how-to-play-page: in-review`** although PR #171 merged.
+  Stamped in this cycle rather than silently, since a landed story must read as landed in both
+  trackers.
+
+---
+
+## Amendment 17 — ESC from spectate reopens the SCORE SCREEN (ERIC RULING, 2026-08-19, cycle 107)
+
+Taken mid-cycle, during Story 7-4's review gate, on a surface 7-4 does not otherwise touch. Eric:
+*"when you have been eliminated and see the score screen, if I click spectate, I would like the
+score screen to open back up, rather than the regular menu."*
+
+**What was actually happening.** SPECTATE's handler was a LITERAL NO-OP (`main.ts`,
+`showResults(view, { onSpectate: () => undefined, … })`) — the button's only effect was
+`hideResults()`, called by `ui/results.ts` before invoking it. Nothing anywhere in the client could
+bring the score screen back: there was no reopen function, no key, and no dead code for one. ESC
+from spectate ran `escapeAction`'s final fallthrough and opened the SETTINGS overlay, which is the
+*"regular menu"* of the ruling — the home gear is pre-join only, and the port menu is reachable only
+through a full page reload, so settings was the only candidate surface.
+
+**The change.** `escapeAction` gains a `spectating` parameter (defaulting to `false`, so every
+pre-existing caller is byte-compatible) and a fifth action, `reopenResults`. ESC while spectating is
+now a TOGGLE: score screen ⇄ the water.
+
+**THE CONSEQUENCE, TAKEN DELIBERATELY AND FLAGGED RATHER THAN BURIED: settings is no longer
+reachable while spectating**, because ESC was its only in-match opener. This does NOT trap anyone —
+the score screen's own RETURN TO PORT is a better-signposted exit than settings' ABANDON MATCH, and
+it is the button the player just came from. What is genuinely lost is mid-spectate access to the
+volume and motion settings. If that matters it wants its own key; it does not want this one back.
+
+**Two sources, and picking the wrong one puts a stale number on screen.** A reopen after the match
+has ended replays the STORED view (`Game.lastResultsView`), because the game-end table's numbers come
+from the results MESSAGE and are already final. A reopen while still mid-match REBUILDS from live
+state, because `updateOpenResults` keeps refining the placement whether or not the modal is on
+screen — replaying a snapshot there would restore a placement the roster had already corrected.
+
+**What did NOT move.** The modal still renders exactly SPECTATE + RETURN TO PORT and the
+NO-INSTANT-RE-QUEUE pin is untouched; ESC ON the modal still means SPECTATE (epic-2 amendment 23);
+`canOpenElimination`'s one-shot still guards the `sunk` path; and a LIVE player is unaffected —
+pinned by a test, because a stray ESC throwing a full-screen score overlay over a moving ship would
+be a combat hazard rather than a convenience.

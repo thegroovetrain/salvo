@@ -123,7 +123,12 @@ export interface OpenSurfaces {
 }
 
 /** What ESC does, given the open surfaces. */
-export type EscapeAction = 'closeResults' | 'closeRefit' | 'closeSettings' | 'openSettings';
+export type EscapeAction =
+  | 'closeResults'
+  | 'closeRefit'
+  | 'closeSettings'
+  | 'openSettings'
+  | 'reopenResults';
 
 /**
  * Pure: THE uniform ESC law (amendment 23). ESC closes the TOPMOST open surface
@@ -132,14 +137,28 @@ export type EscapeAction = 'closeResults' | 'closeRefit' | 'closeSettings' | 'op
  *   • settings NEVER opens over another surface (no stacking, ever);
  *   • ESC never returns to port — closing the results modal equals pressing
  *     SPECTATE, and leaving is RETURN TO PORT or ABANDON MATCH;
- *   • from spectate (nothing open) ESC opens settings, whose ABANDON MATCH is
- *     how a spectating player leaves.
+ *   • from spectate (nothing open) ESC REOPENS THE SCORE SCREEN — see below.
+ *
+ * ERIC RULING 2026-08-19: *"when you have been eliminated and see the score
+ * screen, if I click spectate, I would like the score screen to open back up,
+ * rather than the regular menu."* SPECTATE only ever HID the score screen (its
+ * handler was a literal no-op), and nothing in the client could bring it back —
+ * ESC from spectate opened SETTINGS, which is the "regular menu" he means, the
+ * home gear being pre-join only. ESC is now a TOGGLE while spectating: score
+ * screen ⇄ the water.
+ *
+ * THE CONSEQUENCE, TAKEN DELIBERATELY: settings is no longer reachable while
+ * spectating, because ESC was its only in-match opener. That does NOT trap
+ * anyone — the score screen's own RETURN TO PORT is a better-signposted exit
+ * than settings' ABANDON MATCH ever was, and it is the button the player just
+ * came from. What is genuinely lost is mid-spectate access to volume/motion
+ * settings; if that matters it wants its own key, not this one back.
  */
-export function escapeAction(open: OpenSurfaces): EscapeAction {
+export function escapeAction(open: OpenSurfaces, spectating = false): EscapeAction {
   if (open.results) return 'closeResults';
   if (open.refit) return 'closeRefit';
   if (open.settings) return 'closeSettings';
-  return 'openSettings';
+  return spectating ? 'reopenResults' : 'openSettings';
 }
 
 /**
@@ -411,10 +430,15 @@ export interface SettingsOverlayDeps {
    * callsign, class, colour and every accessibility setting, i.e. strictly
    * harder than the single ACCEPT press that granted it.
    *
-   * CALLBACKS, NOT AN IMPORT, following ui/consentBar.ts: this overlay stays
-   * renderable with no analytics layer at all, and `analytics/ga.ts` remains
-   * the only module in the client that knows GA4 exists. Omitted ⇒ no row, so
-   * every existing construction site and test is unaffected.
+   * SINCE STORY 7.4 IT IS THE ONLY IN-PRODUCT ANALYTICS DOOR. The consent card
+   * is deleted and Google's own CMP owns the EEA/UK/CH dialog, which asks about
+   * ADS as well as analytics; this row is the local analytics override Eric
+   * specifically kept, and it has no authority over the three ad signals.
+   *
+   * CALLBACKS, NOT AN IMPORT: this overlay stays renderable with no analytics
+   * layer at all, and `analytics/ga.ts` remains the only module in the client
+   * that knows GA4 exists. Omitted ⇒ no row, so every existing construction site
+   * and test is unaffected.
    */
   consent?: {
     /** `true` granted, `false` denied, `null` not yet answered. */
@@ -552,10 +576,17 @@ export class SettingsOverlay {
   /**
    * The PRIVACY section, or nothing when no consent wiring was supplied.
    *
-   * An UNANSWERED player shows as OFF and nothing is measured — which is the
-   * truth under Consent Mode BASIC, where no Google script exists until an
-   * explicit grant. Pressing ON here is therefore a real grant, and is the
-   * second door to the same decision the card offers.
+   * AN UNANSWERED PLAYER NOW SHOWS AS **ON**, WHICH IS THE INVERSE OF WHAT 7.2
+   * SHIPPED, AND DELIBERATELY SO (Story 7.4, Eric rulings 2026-08-19). 7.2 chose
+   * OFF because Consent Mode BASIC meant nothing was measured until an explicit
+   * grant, so OFF was the literal truth. That premise is gone: 7.4 deleted the
+   * consent card, adopted Google's own CMP, and moved the tag to ADVANCED with a
+   * GRANTED global default — so for a player with no local override analytics
+   * IS running, and rendering OFF would be a lie about the shipped behaviour.
+   *
+   * `!== false` rather than `=== true`: only an explicit local denial reads as
+   * off. `null` (no override) sits with granted, which is where the defaults put
+   * the player.
    */
   private makePrivacySection(): HTMLElement[] {
     const c = this.deps.consent;
@@ -563,7 +594,7 @@ export class SettingsOverlay {
     return [
       makeSection(
         'PRIVACY',
-        makeToggleRow('ANALYTICS', c.granted() === true, (v) => {
+        makeToggleRow('ANALYTICS', c.granted() !== false, (v) => {
           c.set(v);
           this.render();
         }),

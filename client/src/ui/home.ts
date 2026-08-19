@@ -679,8 +679,8 @@ const UNDERPLAY_LINK_CSS =
 /**
  * The How-to-Play page's URL (Story 7.3). A LOCAL CONSTANT rather than a
  * `CLIENT_CONFIG` entry: `consent.policyHref` earns its config home because the
- * privacy policy's address is quoted back inside the policy copy and the consent
- * bar, so three surfaces must agree on it. This URL has exactly one reader.
+ * privacy policy's address is read by this link AND by the How-to-Play page's
+ * own footer, so two surfaces must agree on it. This URL has exactly one reader.
  */
 const HOWTO_HREF = '/how-to-play';
 

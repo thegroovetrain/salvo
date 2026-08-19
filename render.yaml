@@ -23,3 +23,20 @@ services:
       # property does production report to" is answerable by reading the repo.
       - key: VITE_GA_MEASUREMENT_ID
         value: G-LLCR4XRZGG
+      # THE ADSENSE PUBLISHER CLIENT (Story 7.4). Same mechanism and the same
+      # precedent as the GA4 ID above: Vite inlines `VITE_`-prefixed vars at
+      # BUILD time, so this reaches `import.meta.env` in the bundle AND the
+      # `hc-adsense` build plugin, which is what injects the loader into
+      # `index.html` and emits `dist/ads.txt`.
+      #
+      # THE POINT IS AGAIN THE ABSENCE ELSEWHERE. With no ID a build injects no
+      # ad script, emits no `ads.txt` and uses the null portal adapter — a fork
+      # or a local `npm run dev` cannot serve ads against this account by
+      # accident, and an `ads.txt` is authoritative by omission, so a wrong or
+      # partial one would be strictly worse than none.
+      #
+      # Not a secret: an AdSense publisher ID is public BY CONSTRUCTION — it is
+      # served in the loader URL to every visitor and published verbatim in
+      # `ads.txt` at the site root.
+      - key: VITE_ADSENSE_CLIENT
+        value: ca-pub-8667818947296707
