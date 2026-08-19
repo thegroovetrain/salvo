@@ -35,7 +35,6 @@ import {
   HOWTO_FOOTER_LINK,
   HOWTO_FOOTER_TAIL,
   HOWTO_SECTIONS,
-  HOWTO_SUBTITLE,
   HOWTO_TITLE,
   type HowToSection,
 } from './copy.js';
@@ -67,7 +66,6 @@ export function mountHowToPlayPage(): void {
   renderPage({
     id: 'how-to-play-page',
     title: HOWTO_TITLE,
-    subtitle: HOWTO_SUBTITLE,
     body: [...HOWTO_SECTIONS.map(sectionBlock), footerBlock()],
     // Back means the PORT, never `history.back()` — a reader can arrive here
     // straight from a search result, and for them "back" leaves the site.

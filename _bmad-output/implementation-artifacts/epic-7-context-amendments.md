@@ -601,6 +601,15 @@ useful form was plain English plus multiple choice, and the second pass was answ
 
 ### The rulings
 
+**On the standing of the planning docs (Eric, 2026-08-19).** The orchestrator described one of
+Eric's copy cuts as "superseding an AC clause", as though `epics.md` had authority he was departing
+from. He corrected it: *"YOU decided it was a requirement, I didn't. Whatever the fuck I say is the
+requirement, and my mind is known to change."* **The planning artifacts record what Eric wanted when
+they were written; they are downstream of him, never a constraint on him.** When he says otherwise
+the doc is simply OUT OF DATE. Amendments still record which planning text is dead — that is what
+this file is for and future agents need it — but the framing is "the doc is stale", never "the
+ruling overrides the requirement", and a cut of his needs no justification against a written clause.
+
 **R1 — SCOPE IS THE BASICS, AND THE GLOSSARY IS STRUCK.** *"No need for a boon glossary, eat shit.
 This page needs to give people the basics on how to steer their ship, select weapons, upgrade, and
 shoot. They can figure the rest out through play."* This **supersedes the Story 7.3 AC's coverage
@@ -675,3 +684,28 @@ silhouette battery). Verified independently by the orchestrator, not taken on th
 - **The page copy is DRAFT pending Eric's pass** (*"No fucking shit its unratified copy, i said I
   wanted my hand on this one"*), on the `policyCopy.ts` R9 mould: implementer drafts from verified
   facts, Eric approves, then it freezes the way `ui/taglines.ts` is frozen.
+
+### The copy pass (Eric, same day)
+
+The implementer's draft was rejected on sight — *"That is really fucking poorly written. I can't
+even rewrite it intelligently because it just SCREAMS 'HI IM AN LLM AND I WROTE THIS.'"* The tell was
+nameable and is worth recording so it is not reproduced: **antithesis** as a default sentence shape
+(*"a telegraph, not a pedal"*, *"held, not tapped"* — twice in one section), every second paragraph
+closed with an **aphorism carrying no information** (*"a ship dead in the water turns nowhere"*, *"the
+sea does not wait for you to read"*), *"her"* for the ship, and nine em-dashes in a page of six
+sections. Eric's own edits ran in exactly one direction — cut the flourish, say the thing — which is
+the register the rewrite adopted: short declaratives, no antithesis, no closers, the naval flavour
+carried by the REAL NOUNS (telegraph, rudder, refit, deck gun, astern) rather than by cadence.
+
+**Eric's structural calls in that pass:** `WEAPONS` → **`EQUIPMENT`** (the better word — one of the
+two slots is a utility, not a weapon), the six-item enumeration cut to a single sentence, and the
+**SOLO VS AI section deleted entirely** (the home screen already carries the mode with `STARTS
+INSTANTLY` under it, so the page was restating a button). FR39/UX-DR29's *"positions Solo vs AI as
+the live tutorial"* is therefore not built, and per the standing note above that is a change of mind,
+not an override. **One mechanic was rescued at the gate**: the rewrite had dropped *"you return to
+the deck gun after firing anything else"*, leaving nothing on the page to answer *"I pressed Q, how
+do I get back to my gun?"* — unanswerable by experiment, since the gun has no key. Eric added it back.
+
+**Verified rather than assumed:** his new line *"If it has a firing arc, it will be indicated on the
+screen"* is true — `render/firing.ts` draws the sector for arc-limited equipment (torpedo bow arc,
+mine rear arc) and draws none for the 360° gun.

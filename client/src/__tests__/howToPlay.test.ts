@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   HOWTO_FOOTER_LINK,
   HOWTO_SECTIONS,
-  HOWTO_SUBTITLE,
   HOWTO_TITLE,
 } from '../how-to-play/copy.js';
 import { mountHowToPlayPage } from '../how-to-play/main.js';
@@ -42,7 +41,9 @@ describe('how-to-play copy', () => {
   // Eric ruled the scope down to the basics on 2026-08-19 — steer, select
   // weapons, upgrade, shoot — and struck the boon glossary by name. This pins
   // the SCOPE, so a later well-meaning expansion has to move a test rather than
-  // quietly reinstate a thing that was cut.
+  // quietly reinstate a thing that was cut. He renamed WEAPONS -> EQUIPMENT in
+  // his copy pass, which is the better word: one of the two slots is a utility
+  // (speed boost, decoy), not a weapon.
   it('carries no boon glossary', () => {
     const all = JSON.stringify(HOWTO_SECTIONS).toLowerCase();
     for (const banned of ['glossary', 'rarity', 'exclusive', 'mk i', 'subdeck']) {
@@ -52,7 +53,7 @@ describe('how-to-play copy', () => {
 
   it('teaches the four basics Eric named', () => {
     const headings = HOWTO_SECTIONS.map((s) => s.heading).join(' ');
-    for (const topic of ['STEERING', 'SHOOTING', 'WEAPONS', 'UPGRADING']) {
+    for (const topic of ['STEERING', 'SHOOTING', 'EQUIPMENT', 'UPGRADING']) {
       expect(headings, topic).toContain(topic);
     }
   });
@@ -72,10 +73,9 @@ describe('how-to-play page mount', () => {
     mountHowToPlayPage();
   });
 
-  it('renders in the standard page chrome, titled, with its sub-line', () => {
+  it('renders in the standard page chrome, titled', () => {
     expect(page()).toBeTruthy();
     expect(page().querySelector('h1')?.textContent).toBe(HOWTO_TITLE);
-    expect(page().textContent).toContain(HOWTO_SUBTITLE);
   });
 
   it('renders one block per copy section, in order', () => {

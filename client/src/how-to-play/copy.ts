@@ -45,65 +45,55 @@ export interface HowToSection {
 
 export const HOWTO_TITLE = 'HOW TO PLAY';
 
-/** The sub-line under the title. */
-export const HOWTO_SUBTITLE = 'THE SHORT VERSION. THE REST YOU LEARN AT SEA.';
-
 export const HOWTO_SECTIONS: readonly HowToSection[] = [
   {
     heading: 'THE OBJECTIVE',
     paragraphs: [
-      'Twenty hulls, one ocean, one winner. Last hull floating wins.',
-      'A storm closes in as the match runs and takes the ocean with it. Stay inside the ring or it will drown you by inches.',
+      'Many ships, one ocean, one winner. Last hull floating wins.',
+      'A storm closes in as the match runs and takes the ocean with it. Stay inside the ring or it will drown you.',
     ],
   },
   {
     heading: 'STEERING',
     paragraphs: [
-      'Your engine is a telegraph, not a pedal. Each tap moves it one notch — full astern, through stop, to full ahead — and the ship takes her time answering.',
-      'The rudder is held, not tapped. You need way on to steer at all: a ship dead in the water turns nowhere.',
+      'Your engine is a telegraph. Tap to move it one notch at a time, from full astern to full ahead. The ship takes a few seconds to answer.',
+      'Hold the rudder to turn. You need speed to steer: a stopped ship barely turns at all.',
     ],
     keys: [
-      { keys: ['W', 'S'], action: 'Engine telegraph — one notch per tap' },
-      { keys: ['A', 'D'], action: 'Rudder — hold to hold the turn' },
+      { keys: ['W', 'S'], action: 'Engine telegraph — tap to raise or lower speed' },
+      { keys: ['A', 'D'], action: 'Rudder — hold to turn' },
     ],
   },
   {
     heading: 'SHOOTING',
     paragraphs: [
-      'Click the water where you want the shell to land. Your deck gun throws it there and it bursts on arrival, hitting every hull inside the blast.',
-      'The gun reloads on a cooldown, so you will not win a brawl by clicking faster. Lead your target, mind the islands — they stop a shell dead — and make the shot count.',
+      'Click where you want the shell to land. It bursts there and damages every hull inside the blast.',
+      'The gun has a cooldown, so clicking faster does not help. Lead moving targets. Islands stop shells.',
     ],
     keys: [{ keys: ['CLICK'], action: 'Fire at the point you clicked' }],
   },
   {
-    heading: 'WEAPONS',
+    heading: 'EQUIPMENT',
     paragraphs: [
-      'Every hull carries the same deck gun. It is always there, it needs no key, and you fall back to it automatically once anything else has fired.',
-      'On top of that your class carries two of its own — torpedoes, mines, a heavy cannon, star shells, a speed boost, a decoy. Press its key to bring it up, press the same key again to put it away. Some are weapons you aim and fire; some are gear that works the instant you press it.',
+      'Your ship carries two pieces of equipment, either weapons or utilities. Press its key to select it, press again to cancel (using the equipment also returns you to the deck gun). Some fire where you click. Others activate the moment you press them. If it has a firing arc, it will be indicated on the screen.',
+      'All ships come with one extra equipment slot. You can pick something else up to fill it from the upgrade pool.'
     ],
     keys: [
-      { keys: ['Q', 'E'], action: 'Bring up your class weapons and gear' },
+      { keys: ['Q', 'E'], action: 'Select your class weapons and gear' },
       { keys: ['R'], action: 'Anything you pick up at sea' },
     ],
   },
   {
     heading: 'UPGRADING',
     paragraphs: [
-      'You earn a level every minute simply for staying afloat, and more for sinking other captains. Levels bank up and never expire — there is no rush to spend one.',
-      'Open the refit and you are offered four cards. Take one, and it is bolted to your hull for the rest of the match. Spend on DAMAGE CONTROL instead and you patch the hull you already have.',
-      'The refit is a full stop on your guns while it is open. Your helm still answers, so keep her moving — the sea does not wait for you to read.',
+      'You gain a level every minute you stay afloat, and more for sinking other captains. Levels never expire, so there is no rush to spend one.',
+      'The refit offers four cards. Take one and it is fitted for the rest of the match. Spend the level on DAMAGE CONTROL instead to repair your hull.',
+      'You cannot fire while the refit is open. You can still steer.',
     ],
     keys: [
       { keys: ['TAB'], action: 'Open and close the refit' },
       { keys: ['1', '2', '3', '4'], action: 'Take that card' },
-      { keys: ['5'], action: 'Damage control — patch the hull' },
-    ],
-  },
-  {
-    heading: 'LEARNING THE WATER',
-    paragraphs: [
-      'SOLO VS AI puts you on the water against nineteen AI captains immediately, with nothing to wait for. It is the fastest way to learn a hull, and the AI will sink you if you let it.',
-      'Everything else — what your radar is telling you, how the storm keeps time, when to fight and when to run — you will pick up faster at sea than on this page.',
+      { keys: ['5'], action: 'Damage control — repair your hull' },
     ],
   },
 ];
