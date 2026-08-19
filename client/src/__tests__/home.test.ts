@@ -1193,21 +1193,39 @@ describe('the status line is NEVER written by queue code', () => {
     document.getElementById('queue-modal')?.remove();
   });
 
-  /** The underplay row — HOW TO PLAY's parent. */
+  /** The underplay LINK row — HOW TO PLAY's parent. */
   function underplay(): HTMLElement {
     return [...home().querySelectorAll('span')].find((s) => s.textContent === 'HOW TO PLAY')
       ?.parentElement as HTMLElement;
   }
 
+  /** The status line is the link row's SIBLING now, not its second child
+   *  (Eric ruling 2026-08-18, Story 7.2 — see `makeUnderplay`). */
   function statusText(): string {
-    return (underplay().children[1] as HTMLElement).textContent ?? '';
+    return (underplay().parentElement?.children[1] as HTMLElement).textContent ?? '';
   }
 
-  it('the underplay row is HOW TO PLAY + the probe line, and nothing else', () => {
-    // The CANCEL span that used to be its third child moved into the modal.
+  it('the underplay row is the two static-page links, and nothing else', () => {
+    // The CANCEL span that used to be a third child moved into the modal
+    // (Eric ruling 2026-08-18). The row is still exactly two children, but the
+    // SECOND one changed: Story 7.2 added PRIVACY beside HOW TO PLAY and moved
+    // the server status onto its own line beneath, on Eric's ruling. The pin is
+    // therefore intact in spirit — the row is navigation and nothing else — and
+    // the status register is asserted separately just below.
     showHome('0.0.0-test', vi.fn());
     expect(underplay().children.length).toBe(2);
+    expect([...underplay().children].map((c) => c.textContent)).toEqual(['HOW TO PLAY', 'PRIVACY']);
     expect(statusText()).toBe('SERVER: CHECKING…');
+  });
+
+  it('PRIVACY is a REAL anchor to /privacy, not a scripted span', () => {
+    // Load-bearing rather than cosmetic: AdSense site review and Google's CMP
+    // setup both want a reachable, crawlable privacy-policy URL, and a span
+    // that calls location.href is not one.
+    showHome('0.0.0-test', vi.fn());
+    const link = [...underplay().children].find((c) => c.textContent === 'PRIVACY');
+    expect(link?.tagName).toBe('A');
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/privacy');
   });
 
   it('setServerProbe owns it, and the whole queue lifecycle does not disturb it', () => {

@@ -344,3 +344,165 @@ period is not a miss. Both figures live in `CADENCE` beside `BUDGET` rather than
 Related, same cycle: `SAMPLE_CAP` rose 600 → 1200 because a 12 s dwell at 60 Hz presents ~720
 frames — the ring silently reported the last ~10 s while the record claimed a 12 s window, and
 `frames` could never exceed 601.
+
+---
+
+## Amendment 14 — The Story 7-2 question gate: fourteen ERIC RULINGS, 2026-08-18 (cycle 104)
+
+Eric asked for questions before implementation and supplied the live GA4 tag, so the measurement
+ID is settled: **`G-LLCR4XRZGG`**, property already created. Everything below is an **ERIC RULING**
+taken at the pre-implementation gate (`bmad-dev-auto-result-7-2-analytics-consent-and-privacy-questions.md`).
+
+**THE BLOCKING FINDING THAT FORCED THE GATE.** Story 7.2's AC names *"Google's own free CMP"*
+(`epics.md:1252`), but Google's setup article opens with the prerequisite verbatim — *"After you
+add your sites to AdSense, complete the following steps to create the European regulations
+message"* and *"Make sure you've placed the AdSense code on your site"*
+(https://support.google.com/adsense/answer/10960768). **Adding the site to AdSense and placing its
+code IS Story 7.4**, while the epic sequences 7.2 first precisely so its privacy policy unblocks
+the AdSense application (`sprint-change-proposal-2026-08-18.md:240-245`). **7.2 produces the CMP's
+input; 7.4 produces the CMP's prerequisite.** Compounding it, Google's CMP renders **its own
+dialog** (https://support.google.com/adsense/answer/16918505), so adopting it *is* shipping the
+vendor surface that `epics.md:1255` forbids three lines below the clause requiring it.
+
+It resolved on Eric's own approved document rather than on new judgement: a certified CMP is a
+condition on **serving personalized ads**, not on analytics
+(https://support.google.com/adsense/answer/13554116), and
+`sprint-change-proposal-2026-08-18.md:840` already records that *"Non-personalized ads do not
+require a certified CMP — which is what made this a revenue question rather than a legal one."*
+
+### The rulings
+
+- **R1 — OWN-BUILT BANNER NOW; GOOGLE'S CMP ARRIVES WITH THE ADS AT 7.4.** 7.2 ships a
+  Hullcracker-register banner driving Consent Mode v2 for **analytics**. Nothing is discarded at
+  7.4: the Consent Mode plumbing, the persisted consent record and the privacy policy are all
+  required either way. **`epics.md:1252`'s CMP clause is DEFERRED to Story 7.4, not struck** —
+  the certified CMP is still required before personalized ads serve in the EEA/UK/CH.
+- **R2 — THE BANNER IS A NON-BLOCKING BOTTOM BAR.** Home stays fully usable; the bar persists
+  until answered. *The strictness lives in the data, not in the player's way* — which is only
+  coherent because of R7. This SOFTENS the change proposal's *"it sits between them and the
+  water"* (`:529`) to *"it is the first thing a new player sees"* (`epics.md:1255`), which the bar
+  still satisfies.
+- **R3 — GA4's PERSISTED `client_id` IS ACCEPTED, UNDER CONSENT.** Named as a values decision, not
+  a legal one: `client/src/net/liveness.ts:62-67` says in capital letters that its id is
+  *"deliberately NOT persisted — persisting it would make it a device identifier."* **That comment
+  stays true of `liveness.ts` and is NOT a project-wide vow**; it gains one clarifying line so a
+  future reader does not read the two as contradictory. This is the first identifier this project
+  has ever persisted on a player's machine, and the policy names the cookie explicitly.
+- **R4 — `match_start` IS ROOM-JOINED-PLUS-WELCOME**, not the countdown ending. For a funnel the
+  moment means *the player got into a game*. Consequence accepted: a player who joins and quits
+  during the waiting room counts as having started.
+- **R5 — `match_end` IS THE PLAYER'S OWN EXIT FROM PLAY** — elimination modal or results,
+  whichever comes first, latched once per match. Firing only on the results broadcast would miss
+  every player who died and left, which in a 20-hull lobby is most of them.
+- **R6 + R7 COLLIDED, AND R7 GOVERNS.** R6 was *"show the bar to everyone; deny by default only in
+  the EEA/UK/CH"*; R7 was **Consent Mode BASIC** — no Google tag loads until a player accepts.
+  **They cannot both hold, because there is no client-side geo signal**, so the code cannot know
+  whether to load the script before the answer arrives. Put back to Eric explicitly, he chose
+  **BASIC, GLOBALLY: nothing loads for anyone until Accept.** What survives of R6 is that the bar
+  is **shown to everyone** (no geo lookup is added — it would be a new third-party request against
+  NFR2) and that region-scoped defaults are still set once the tag loads, for correctness.
+  **The accepted cost, stated at the gate and taken knowingly: the funnel measures only players
+  who actively click Accept, and will undercount by however many ignore the bar.**
+- **R8 — THE POLICY LIVES AT `/privacy`.** *(See the implementer deviation recorded below.)*
+- **R9 — THE POLICY COPY IS DRAFTED BY THE IMPLEMENTER FROM THE VERIFIED DATA INVENTORY, AND
+  APPROVED BY ERIC**, then frozen in the manner of `client/src/ui/taglines.ts:7-10`.
+- **R10 — THE PRIVACY CONTACT IS `contact@hullcracker.io`.** It MUST receive mail before beta; an
+  unreachable contact address in a published policy is a defect, not a placeholder.
+- **R11 — THE DATA CONTROLLER IS ERIC AS AN INDIVIDUAL OPERATOR, UNITED STATES.** No company
+  entity, no state named in the governing-law clause.
+- **R12 — STORY 7.2 MINTS THE REUSABLE STANDARD PAGE CHROME** that Story 7.3's How-to-Play page
+  reuses. The pattern existed as **two sentences and no component**: a `1100px` token
+  (`DESIGN.md:94`, `:201`; UX-DR39 at `epics.md:199`) and *"ESC/back returns home"*
+  (`EXPERIENCE.md:37`) — and `1100` appears nowhere in the client as a width, only as a z-index
+  (`client/src/config.ts:1734-1745`).
+- **R13 — THE REFRESH-RESUME `matchStart` DEFECT IS FIXED IN THIS STORY**, not ledgered.
+  `INITIAL_CUE_STATE.lastPhase` is `'connecting'` (`client/src/audio/tones.ts:464`), so the
+  `phase === 'active' && prev !== 'active'` edge trips on the first resumed frame and
+  `portal.matchStart()` already fires for a match that started ten minutes ago. Measuring through a
+  known-wrong edge would make the funnel's match-start count wrong from day one.
+
+### Consequences and disclosures the rulings created
+
+**THE CONSENT RECORD PERSISTS IN `localStorage` AS `hullcracker.consent`, AND THIS IS STRUCTURAL
+RATHER THAN A PREFERENCE.** `client/src/app/returnToPort.ts:82` ends every return-to-port with
+`.finally(() => deps.reload())` — **every normal loop iteration is a full page navigation** — so
+without a persisted record the bar would reappear after every single match. The same fact makes
+`sendBeacon` transport mandatory rather than optional for the `requeue` event, since it must leave
+before the navigation.
+
+**A PRIVACY POLICY CLAIMING "WE COLLECT NOTHING" WOULD BE FALSE, AND THREE DISCLOSURES ARE EASY TO
+MISS.** (a) `client/index.html:7-8,27-30` preconnects and preloads Google Fonts, so **Google
+receives every visitor's IP on every page load, today, before any consent surface exists** — out
+of 7.2's scope to change, in scope to disclose; self-hosting the two Geist faces would remove the
+disclosure entirely *and* delete the `fontWaitMs` boot race, which is a ledger item, not this
+story's work. (b) `GET /liveness?c=` records an anonymous per-tab id into server presence with a
+30s TTL (`server/src/liveness.ts:265`). (c) `sessionId` is logged on join/drop/resume/leave
+(`server/src/rooms/ArenaRoom.ts:856,918,981,984,1024`) **against `server/src/log.ts:9-11`'s own
+comment forbidding exactly that** — the callers are right (an ephemeral per-connection id in an ops
+line is not PII) and the comment is wrong, so the comment is corrected rather than the code.
+Separately, the **callsign is user-entered free text shown to every other player**, which is a
+disclosure rather than a collection and belongs in the policy.
+
+**IMPLEMENTER DEVIATION ON R8's MECHANISM, URL PRESERVED EXACTLY.** Eric chose
+`client/public/privacy/index.html` → `/privacy`. A file under `public/` is copied verbatim and
+**cannot import the token bridge**, so it could not reuse the chrome R12 requires — the two
+rulings would have produced two divergent pages. The page therefore ships as a **second Vite entry
+at `client/privacy/index.html`**, which Rollup emits to `dist/privacy/index.html` and
+`express.static` serves at **`/privacy`, byte-identical to the URL Eric picked**. Recorded here
+because a mechanism changed, not a decision.
+
+**WHAT DID NOT MOVE.** Server telemetry is untouched — NFR15's stdout lines stay exactly as they
+are, and GA4's only territory is browser-session counts the server structurally cannot see. The
+measurement ID rides the existing build-time `VITE_*` mechanism (`client/src/net/connection.ts:234-241`)
+rather than a literal, so a fork or a local build never reports into Eric's property. `epics.md:1249`'s
+*"Given the live site"* governs and the change proposal's *"Given the static site from 7.1"* (`:523`)
+is stale — 7.2 lands on the current single Render service (`gds-workflow-status.yaml`). And
+`client/src/__tests__/tokens.test.ts:113` asserts `index.html` holds exactly one colour literal and
+`client/src` holds none, so every new surface is built from `--hc-*` tokens or the suite fails.
+
+### R14 — THE CONSENT SURFACE IS A CORNER CARD, NOT A FULL-WIDTH STRIP (ERIC, same day)
+
+R2 shipped first as a `left:0;right:0;bottom:0` strip, which is what "non-blocking bottom bar"
+plainly describes. **Screenshot at the RATIFIED FLOOR VIEWPORT (1366x768, UX-DR39) showed the strip
+covering the entire underplay block** — HOW TO PLAY, the server register, and PRIVACY, *the AC's own
+required policy link and AdSense review's crawl target*, invisible for exactly as long as the consent
+question was open. Reserving the strip's height on the port column fixed the covering and bought an
+overflow instead (the wordmark clipped at the head, 22px over), and every remaining lever was a pixel
+shave against FROZEN LEGAL COPY — which is how a consent notice quietly stops being true.
+
+Eric: *"it could go in a box in the corner couldn't it?"* **It could, and that removes the collision
+rather than negotiating with it.** A ~380px card on the bottom-right against a ~480px centred column
+cannot share horizontal space at any ratified width, so the column reserves nothing, nothing on home
+moves, and the `--hc-consent-inset` machinery built for the strip was **deleted end to end** (the
+CSS variable, the publisher, home's `padding-bottom`, the liveness `calc()`, and their pins) in the
+cycle-69 grey-NO-DATA style, so no dead knob survives. **BOTTOM-RIGHT is the only free corner** —
+bottom-left is the population register, top-right is the settings gear.
+
+**R2's non-blocking promise is UNCHANGED and still structural**: no `top`, no `left`, no `inset`, no
+scrim. The card also gains the panel grammar it now deserves (full hairline outline + 12px radius,
+the settings/results bed) where the strip carried a single top edge. A new test pins the geometry off
+CONFIG — `maxWidth + inset <= (1366 - 480) / 2` — so widening the cap past the free margin fails in
+CI rather than in a screenshot somebody has to remember to take.
+
+**THE GENERAL LESSON, worth more than the placement:** a full-width element and a CENTRED column are
+in permanent conflict at the floor viewport, and reserving space for one inside the other converts a
+covering bug into an overflow bug without fixing anything. This is the container-fit law (amendment
+47) arriving from a new direction, and the screenshot found it where reasoning had not.
+
+### Measurements of record (this cycle)
+
+- **NFR2 re-measured on the shipped build with `loadCapture.mjs`** (the ratified instrument, not a
+  re-derived method): interactive home **2 521 ms** and **3 289 ms** on two runs of the throttled
+  residential profile against the **~10 s** budget. **Run-to-run variance dominates any delta this
+  story could have produced** — amendment 7 already recorded a 2.3-3.1 s spread on identical bytes —
+  so **NO improvement or regression is claimed from the numbers.** Bundle **310.8 kB gzipped**
+  against 7.1's 309 kB: **+1.8 kB** for the whole analytics layer, the consent card, the reusable
+  page chrome and the policy page.
+- **THE DECISIVE EVIDENCE IS NOT A TIMING, IT IS AN ABSENCE.** The cold-load record contacts
+  `fonts.googleapis.com` and **nothing else** — zero `googletagmanager.com`, zero
+  `google-analytics.com` — which is Consent Mode BASIC (R7) working, and is the claim NFR2's "must
+  not block first paint" actually rests on here. Pinned in code by a test that reads `index.html`
+  off disk and refuses any third-party origin but the font CDN, because the runtime tests could not
+  catch somebody pasting Google's stock snippet into the head.
+- `npm run check` green at **5 202 tests** (746 shared / 1 505 server / 2 951 client), up from 5 127.
+  `--verify-bundle` still passes, so NFR17's dead-strip is intact.

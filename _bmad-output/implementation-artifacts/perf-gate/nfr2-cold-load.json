@@ -12,23 +12,23 @@
   "notMeasuredYet": "Ad, analytics and consent script cost — none exist yet (Stories 7.2/7.4). They must fit inside the same 10 s budget and be re-measured when they land.",
   "fontsDoNotBlockFirstPaint": {
     "demonstratedBy": "residential-24mbps-fonts-blocked",
-    "firstContentfulPaintMs": 836,
-    "interactiveHomeMs": 2688,
+    "firstContentfulPaintMs": 984,
+    "interactiveHomeMs": 3793,
     "pass": true
   },
   "bundle": {
-    "totalBytes": 982077,
-    "totalGzipBytes": 309074,
+    "totalBytes": 1003549,
+    "totalGzipBytes": 318263,
     "byExt": {
       ".js": {
-        "files": 9,
-        "bytes": 979990,
-        "gzip": 307965
+        "files": 11,
+        "bytes": 999071,
+        "gzip": 315925
       },
       ".html": {
-        "files": 1,
-        "bytes": 2087,
-        "gzip": 1109
+        "files": 2,
+        "bytes": 4478,
+        "gzip": 2338
       }
     }
   },
@@ -36,70 +36,70 @@
     {
       "profile": "residential-24mbps",
       "fontsBlocked": false,
-      "firstPaintMs": 64,
-      "firstContentfulPaintMs": 1264,
-      "interactiveHomeMs": 3076,
+      "firstPaintMs": 84,
+      "firstContentfulPaintMs": 1028,
+      "interactiveHomeMs": 3289,
       "withinBudget": true,
       "navigation": {
-        "domContentLoadedMs": 358.2,
-        "loadMs": 777.1
+        "domContentLoadedMs": 354.4,
+        "loadMs": 484.7
       },
       "fontRequests": [
         {
           "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
-          "startMs": 45.2,
-          "endMs": 175.2
+          "startMs": 42.9,
+          "endMs": 319.2
         }
       ],
-      "lastFontEndMs": 175.2,
+      "lastFontEndMs": 319.2,
       "fcpPrecededLastFontResponse": false,
-      "requestCount": 12,
+      "requestCount": 13,
       "image": "nfr2-home-residential-24mbps.png"
     },
     {
       "profile": "residential-24mbps-fonts-blocked",
       "fontsBlocked": true,
-      "firstPaintMs": 72,
-      "firstContentfulPaintMs": 836,
-      "interactiveHomeMs": 2688,
+      "firstPaintMs": 128,
+      "firstContentfulPaintMs": 984,
+      "interactiveHomeMs": 3793,
       "withinBudget": true,
       "navigation": {
-        "domContentLoadedMs": 360.9,
-        "loadMs": 361.5
+        "domContentLoadedMs": 368.3,
+        "loadMs": 368.8
       },
       "fontRequests": [
         {
           "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
-          "startMs": 48.7,
-          "endMs": 58.5
+          "startMs": 44.8,
+          "endMs": 56.2
         }
       ],
-      "lastFontEndMs": 58.5,
+      "lastFontEndMs": 56.2,
       "fcpPrecededLastFontResponse": false,
-      "requestCount": 9,
+      "requestCount": 10,
       "image": "nfr2-home-residential-24mbps-fonts-blocked.png"
     },
     {
       "profile": "unthrottled",
       "fontsBlocked": false,
-      "firstPaintMs": 92,
-      "firstContentfulPaintMs": 412,
-      "interactiveHomeMs": 1816,
+      "firstPaintMs": 116,
+      "firstContentfulPaintMs": 560,
+      "interactiveHomeMs": 3270,
       "withinBudget": true,
       "navigation": {
-        "domContentLoadedMs": 66.7,
-        "loadMs": 68.8
+        "domContentLoadedMs": 111,
+        "loadMs": 113.5
       },
       "fontRequests": [
         {
           "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
-          "startMs": 7,
-          "endMs": 123.5
+          "startMs": 9.3,
+          "endMs": 227.3
         }
       ],
-      "lastFontEndMs": 123.5,
+      "lastFontEndMs": 227.3,
       "fcpPrecededLastFontResponse": false,
-      "requestCount": 14,
+      "requestCount": 16,
       "image": "nfr2-home-unthrottled.png"
     }
   ]

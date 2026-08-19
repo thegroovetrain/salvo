@@ -713,17 +713,46 @@ function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement): HTMLElemen
 // third child; it moved into the queue modal, which covers this row, so keeping
 // it would have been an affordance that was invisible for exactly as long as it
 // was meaningful.
+//
+// PRIVACY joins it in Story 7.2, and that does NOT reopen the ruling above. The
+// CANCEL span was struck because it was invisible for exactly as long as it was
+// meaningful (the queue modal covers this row); PRIVACY is the opposite — a
+// permanent affordance that is always meaningful, and the AC requires the policy
+// to be linked from home. This row is also where static-page links belong: it
+// already holds the only other one, and Story 7.3's How-to-Play will land beside
+// it rather than inventing a second home for the same idea.
+const UNDERPLAY_LINK_CSS =
+  `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
+  'text-underline-offset:4px;cursor:pointer';
+
 function makeUnderplay(statusEl: HTMLElement, onHowTo: () => void): HTMLElement {
+  // TWO LINES NOW (Eric ruling 2026-08-18, Story 7.2): the LINKS share the top
+  // line and the SERVER STATUS gets its own beneath them. Asked where PRIVACY
+  // should go given the row's two-child pin, Eric took neither offered option
+  // and moved the status line instead — which is the better shape: the row is
+  // now uniformly "places you can go", and the status register stops being a
+  // sibling of navigation, so a long line like SERVER: UNREACHABLE no longer
+  // pushes the links sideways.
+  const col = document.createElement('div');
+  col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:16px';
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;align-items:center;gap:26px;margin-top:16px';
+  row.style.cssText = 'display:flex;align-items:center;gap:26px';
   const howto = document.createElement('span');
   howto.textContent = 'HOW TO PLAY';
-  howto.style.cssText =
-    `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.14em;text-decoration:underline;` +
-    'text-underline-offset:4px;cursor:pointer';
+  howto.style.cssText = UNDERPLAY_LINK_CSS;
   howto.addEventListener('click', onHowTo);
-  row.append(howto, statusEl);
-  return row;
+  // A REAL ANCHOR, not a click handler on a span like its neighbour: `/privacy`
+  // is a genuine URL on a separate document, and an <a> is what makes it
+  // middle-clickable, openable in a new tab, and — the load-bearing one —
+  // CRAWLABLE. AdSense site review and Google's CMP setup both want a reachable
+  // privacy-policy URL, and a span that calls `location.href` is not one.
+  const privacy = document.createElement('a');
+  privacy.textContent = 'PRIVACY';
+  privacy.href = CLIENT_CONFIG.consent.policyHref;
+  privacy.style.cssText = UNDERPLAY_LINK_CSS;
+  row.append(howto, privacy);
+  col.append(row, statusEl);
+  return col;
 }
 
 function makeStatusEl(): HTMLElement {

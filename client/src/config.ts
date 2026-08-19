@@ -1463,6 +1463,93 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE STANDARD PAGE CHROME (Story 7.2, Eric ruling R12) — the port's
+   * FULL-PAGE register, as opposed to the modal register above.
+   *
+   * IT HAD NEVER BEEN BUILT. The pattern existed as two sentences and no
+   * component: DESIGN.md:94/:201 ("DOM port chrome … centers at
+   * {spacing.chrome-max-width} max", UX-DR39) and EXPERIENCE.md:37 ("standard
+   * page chrome; ESC/back returns home"). `1100` appears nowhere else in the
+   * client AS A WIDTH — every other occurrence of that number is a z-index rung
+   * — so this is the token's first and only home, and `ui/page.ts` is its only
+   * reader. Nothing may restate it.
+   *
+   * The bed geometry is deliberately the SETTINGS overlay's rather than a new
+   * one: {colors.panel} bed, 1px hairline, {rounded.lg}, `box-sizing:border-box`
+   * beside its own `overflow-y:auto` (amendment 47, the container-fit law).
+   * Story 7.3's How-to-Play page inherits all of it.
+   */
+  page: {
+    /** {spacing.chrome-max-width} — the ratified port-chrome column cap (px). */
+    maxWidthPx: 1100,
+    /** Panel padding (px) — the settings bed's own `panelPad`, restated here
+     *  rather than read across so a page can be re-proportioned without moving
+     *  the settings overlay with it. */
+    pad: 28,
+    /** {rounded.lg} — port chrome goes soft; hard corners stay on the water. */
+    radius: 12,
+    /** Gutter (px) between the panel and the viewport edge. */
+    gutter: 24,
+    /** Vertical rhythm (px) between the page's stacked blocks — {spacing.lg}. */
+    gap: 24,
+  },
+
+  /**
+   * THE CONSENT BAR (Story 7.2, Eric ruling R2 — *"a NON-BLOCKING bottom bar"*;
+   * home stays fully usable while it is up).
+   *
+   * THE Z RUNG IS THE ONE REAL DECISION HERE, AND IT SITS AT THE TOP OF THE
+   * LADDER. The ratified ladder is toasts 900 < refit 1000 < settings 1050 <
+   * home 1100 < queue modal 1150 < class bay 1200; this takes **1250**, above
+   * every one of them. The reason is that the rungs above the home are all
+   * `position:fixed;inset:0` elements that HIT-TEST EVERY PIXEL even when they
+   * paint nothing (see `ui/queueModal.ts`'s own note on exactly this) — so any
+   * rung below them would leave the consent choice visible but unclickable for
+   * as long as one of them was open, which for a queue wait is legitimately
+   * minutes. A legal control that cannot be answered is a worse outcome than
+   * one that overlaps a footer for a few seconds.
+   *
+   * It is the only surface in the port allowed above the class bay, and it earns
+   * that by being a bottom-anchored strip that occludes no centred content and
+   * by leaving the instant it is answered.
+   */
+  consent: {
+    /** Above every port rung — see the ladder note above. */
+    zIndex: 1250,
+    /**
+     * ms — the entrance opacity fade.
+     *
+     * AN OPACITY FADE IS THE ONLY DOM ANIMATION THAT SHIPS ANYWHERE in this
+     * client (`ui/upgradeToast.ts` 600ms, `ui/killFeed.ts` 1.2s), and it is the
+     * only entrance that can be safe UNCONDITIONALLY: the bar appears before a
+     * first-time player has had any chance to set a motion preference, so it may
+     * not read that setting and it may not slide, pulse or flash. 600ms is the
+     * toast's own figure.
+     */
+    fadeMs: 600,
+    /** Card padding (`y x`). */
+    pad: '18px 20px',
+    /** Gap (px) between the card's stacked blocks. */
+    gap: 14,
+    /** Distance (px) from the two viewport edges it hugs. Matches the
+     *  population register's own 22/26 corner insets so the two bottom corners
+     *  read as a pair rather than as two unrelated floats. */
+    inset: 24,
+    /** Card width cap (px). Narrow enough that it never shares horizontal space
+     *  with the centred port column at the 1366px floor viewport — which is the
+     *  whole reason it is a corner card and not a full-width strip. */
+    maxWidth: 380,
+    /** {rounded.lg} — panel corner, matching results/settings. */
+    radius: 12,
+    /** {rounded.md} — the two actions' corner radius, matching results'. */
+    controlRadius: 8,
+    /** Where the policy link points. Eric ruling R8: the policy lives at
+     *  `/privacy`, and `client/privacy/index.html` is the Rollup entry that puts
+     *  it there. */
+    policyHref: '/privacy',
+  },
+
+  /**
    * The bottom-left hotbar (Story 2.2) — geometry + behavior knobs for the four
    * slot rows (Gun / Q / E / R, top-to-bottom). Values come from the ratified
    * register: DESIGN.md Components · Hotbar Slot / Ammo Badge / Slot Tooltip and
@@ -1733,12 +1820,18 @@ export const CLIENT_CONFIG = {
     /**
      * Overlay chrome: z between the refit modal (1000) and the home (1100).
      *
-     * THE FULL RATIFIED LADDER, stated once here because this is the only rung
-     * that is a config value: toast stacks 900 < refit modal 1000 < settings
-     * 1050 < home 1100 < queue modal 1150 (ui/queueModal.ts, Eric 2026-08-18) <
-     * class bay 1200. The queue modal takes the rung ABOVE the home because it
+     * THE FULL RATIFIED LADDER, stated once here: toast stacks 900 < refit modal
+     * 1000 < settings 1050 < home 1100 < queue modal 1150 (ui/queueModal.ts,
+     * Eric 2026-08-18) < class bay 1200 < consent bar 1250 (`consent.zIndex`,
+     * Story 7.2). The queue modal takes the rung ABOVE the home because it
      * covers the port while a join is in flight; the class bay is above it in
-     * turn but unreachable then (`openLayer` refuses while busy).
+     * turn but unreachable then (`openLayer` refuses while busy); the consent
+     * bar tops the ladder because every rung above the home hit-tests the whole
+     * viewport, and a consent choice that cannot be clicked is worse than one
+     * that overlaps (see `consent.zIndex` for the full argument).
+     *
+     * Two of these rungs are config values — this one and `consent.zIndex`. The
+     * rest are literals at their call sites, each carrying a pointer back here.
      */
     zIndex: 1050,
     /** Panel geometry (px) — the DOM port-chrome register (panel bed, 1px
