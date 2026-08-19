@@ -4,6 +4,7 @@ type: 'bugfix'
 created: '2026-08-19'
 status: 'done'
 baseline_revision: '4d60f3d7716b3a2bc61ef0154df08975f33fd457'
+final_revision: '2d73955'
 review_loop_iteration: 0
 followup_review_recommended: false  # 7 patches, all localized comment/test-precision fixes; no behavior, API, security or data impact
 context: []
