@@ -214,7 +214,13 @@ the Epic 0 seam with no display units anywhere, Google's certified CMP replaces 
 consent card, Consent Mode moves BASIC → ADVANCED, and `ads.txt` plus the loader are injected at
 build time under `VITE_ADSENSE_CLIENT`. Everything is dormant until the H5 application is approved.
 
-Verification: `npm run check` green at **5221 tests** (shared 746 / server 1489 / client 2986),
+SCOPE GREW AFTER THE REVIEW GATE, on two same-day Eric rulings recorded as amendment 18: ONE
+responsive display unit now sits beside the score screen (superseding amendment 16 R2's "no
+display units anywhere"), and the score panel shifts left so the pair centres as a group,
+dropping the unit's viewport floor from 1352px to 1002px. The slot is gated by its own unset
+`VITE_ADSENSE_SLOT_RESULTS`, so it is dormant until Eric creates the AdSense unit.
+
+Verification: `npm run check` green at **5251 tests** (shared 746 / server 1489 / client 3016),
 lint 0 errors. Three build states proven by inspection of `client/dist` — unconfigured (no
 `ads.txt`, no injected origin), configured (exact `ads.txt` line, consent defaults BEFORE the
 loader, static pages clean), and deliberately malformed (nothing emitted, nothing injected). NFR2
