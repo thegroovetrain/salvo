@@ -6,7 +6,28 @@
   <title>HULLCRACKER.IO</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!--
+    THE FONT STYLESHEET IS NON-RENDER-BLOCKING (Story 7.1, NFR2). As a plain
+    `rel="stylesheet"` this was a hard barrier in front of first paint: the
+    browser will not paint until every stylesheet in <head> has resolved, so a
+    slow or unreachable Google Fonts CDN held a black page for as long as the
+    request took to fail. The load budget is cold-load → interactive home, and
+    a third-party CDN must never be able to spend it.
+
+    `rel="preload" as="style"` fetches the sheet at high priority WITHOUT
+    blocking, and the onload handler flips it to a real stylesheet the moment it
+    arrives — so the faces still apply as early as they ever did, they just stop
+    gating the paint. The <noscript> copy keeps the ratified typography for a
+    scripting-disabled reader (who has no game to play, but should still get the
+    page as designed).
+
+    The two `preconnect` hints stay: they warm the TCP+TLS handshakes to both
+    Google hosts, which is what makes the non-blocking fetch land quickly.
+  -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" onload="this.rel='stylesheet'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  </noscript>
   <style>
     html, body { margin: 0; height: 100%; width: 100%; }
     body { background: #050807; overflow: hidden; }

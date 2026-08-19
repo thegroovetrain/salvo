@@ -1,0 +1,106 @@
+{
+  "story": "7.1",
+  "what": "NFR2 cold-load verdict against the SHIPPED production build",
+  "device": {
+    "model": "MacBookPro16,1",
+    "cpu": "Intel Core i7-9750H @ 2.60GHz (6 cores / 12 threads)",
+    "memoryGB": 32,
+    "platform": "darwin 25.4.0",
+    "note": "Eric's i7 MacBook — NFR1 as amended 2026-08-18. The Chromebook target is retired."
+  },
+  "budgetMs": 10000,
+  "notMeasuredYet": "Ad, analytics and consent script cost — none exist yet (Stories 7.2/7.4). They must fit inside the same 10 s budget and be re-measured when they land.",
+  "fontsDoNotBlockFirstPaint": {
+    "demonstratedBy": "residential-24mbps-fonts-blocked",
+    "firstContentfulPaintMs": 824,
+    "interactiveHomeMs": 2306,
+    "pass": true
+  },
+  "bundle": {
+    "totalBytes": 982077,
+    "totalGzipBytes": 309060,
+    "byExt": {
+      ".js": {
+        "files": 9,
+        "bytes": 979990,
+        "gzip": 307952
+      },
+      ".html": {
+        "files": 1,
+        "bytes": 2087,
+        "gzip": 1108
+      }
+    }
+  },
+  "runs": [
+    {
+      "profile": "residential-24mbps",
+      "fontsBlocked": false,
+      "firstPaintMs": 60,
+      "firstContentfulPaintMs": 948,
+      "interactiveHomeMs": 2310,
+      "withinBudget": true,
+      "navigation": {
+        "domContentLoadedMs": 354.3,
+        "loadMs": 471.3
+      },
+      "fontRequests": [
+        {
+          "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
+          "startMs": 41.8,
+          "endMs": 304.3
+        }
+      ],
+      "lastFontEndMs": 304.3,
+      "firstPaintPrecededFonts": false,
+      "requestCount": 12,
+      "image": "nfr2-home-residential-24mbps.png"
+    },
+    {
+      "profile": "residential-24mbps-fonts-blocked",
+      "fontsBlocked": true,
+      "firstPaintMs": 72,
+      "firstContentfulPaintMs": 824,
+      "interactiveHomeMs": 2306,
+      "withinBudget": true,
+      "navigation": {
+        "domContentLoadedMs": 366.6,
+        "loadMs": 367.3
+      },
+      "fontRequests": [
+        {
+          "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
+          "startMs": 44,
+          "endMs": 53.6
+        }
+      ],
+      "lastFontEndMs": 53.6,
+      "firstPaintPrecededFonts": false,
+      "requestCount": 9,
+      "image": "nfr2-home-residential-24mbps-fonts-blocked.png"
+    },
+    {
+      "profile": "unthrottled",
+      "fontsBlocked": false,
+      "firstPaintMs": 96,
+      "firstContentfulPaintMs": 420,
+      "interactiveHomeMs": 1970,
+      "withinBudget": true,
+      "navigation": {
+        "domContentLoadedMs": 74.5,
+        "loadMs": 76.5
+      },
+      "fontRequests": [
+        {
+          "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
+          "startMs": 8.6,
+          "endMs": 116.1
+        }
+      ],
+      "lastFontEndMs": 116.1,
+      "firstPaintPrecededFonts": false,
+      "requestCount": 14,
+      "image": "nfr2-home-unthrottled.png"
+    }
+  ]
+}

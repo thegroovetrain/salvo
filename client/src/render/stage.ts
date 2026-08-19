@@ -194,6 +194,50 @@ export interface Stage {
   layers: StageLayers;
 }
 
+/**
+ * Resolve after `ms`, and never reject. The losing half of the font race.
+ *
+ * The timer is CLEARED when the caller is done with it (see `boundedFontWait`),
+ * because an un-cleared timeout keeps the event loop alive and, in a test
+ * environment with fake timers, keeps a pending handle around long after the
+ * assertion it existed for.
+ */
+function afterMs(ms: number): { promise: Promise<void>; cancel: () => void } {
+  let handle: ReturnType<typeof setTimeout> | undefined;
+  const promise = new Promise<void>((resolve) => {
+    handle = setTimeout(resolve, ms);
+  });
+  return { promise, cancel: () => clearTimeout(handle) };
+}
+
+/**
+ * THE FONT WAIT IS BOUNDED (Story 7.1, NFR2) — `preloadFonts()` raced against a
+ * timeout, so `createStage()` can never be held hostage by a third-party CDN.
+ *
+ * FIRST PAINT MUST NOT BE SOMEONE ELSE'S TO SPEND. `document.fonts.ready`
+ * settles only once every pending font has resolved, and it does NOT reject on a
+ * network stall — a Google Fonts host that is slow, throttled or blocked simply
+ * never settles it, and the whole boot (canvas, loader, menu) waited behind it
+ * indefinitely. The existing catch only ever covered a THROW, which is not the
+ * failure mode that costs the load budget.
+ *
+ * Losing the race is not an error: Pixi falls back to a system mono face exactly
+ * as the catch below already documents, and the real faces swap in the moment
+ * they arrive. The bound is `CLIENT_CONFIG.boot.fontWaitMs`.
+ *
+ * EXPORTED so a test can prove the bound rather than trust it: the failure it
+ * guards against is a promise that NEVER settles, which no assertion about
+ * `createStage()` could observe without a WebGL context.
+ */
+export async function boundedFontWait(): Promise<void> {
+  const timeout = afterMs(CLIENT_CONFIG.boot.fontWaitMs);
+  try {
+    await Promise.race([preloadFonts(), timeout.promise]);
+  } finally {
+    timeout.cancel();
+  }
+}
+
 /** Preload Geist Mono so the first Pixi Text rasterizes with the right face. */
 async function preloadFonts(): Promise<void> {
   // FontFaceSet.load wants a concrete family (not a fallback stack), so we take
@@ -235,7 +279,7 @@ function addLayers(parent: Container, names: readonly LayerName[], out: StageLay
 
 /** Create the Pixi app and full layer tree. Returns once fonts + GPU are ready. */
 export async function createStage(): Promise<Stage> {
-  await preloadFonts();
+  await boundedFontWait();
 
   const app = new Application();
   await app.init({
@@ -245,6 +289,33 @@ export async function createStage(): Promise<Stage> {
     autoDensity: true,
     resolution: Math.min(window.devicePixelRatio || 1, 2),
     preference: 'webgl',
+    /**
+     * ASK FOR THE DISCRETE GPU (Story 7.1, measured).
+     *
+     * Pixi defaults this to `'default'` (GlContextSystem), which on a machine
+     * with switchable graphics lets the browser park a WebGL context on the
+     * low-power part to save battery. On the reference MacBook — an Intel UHD
+     * 630 alongside an AMD Radeon Pro 5300M — that is the difference between
+     * the game running and the game not running, and it was invisible until
+     * the frame budget was measured against a real display:
+     *
+     *   home screen, shipped build, 1600x900 at dpr 2
+     *     integrated UHD 630 .... 50.8 ms/frame  (~20 FPS)
+     *     discrete Radeon 5300M .. 16.7 ms/frame (~60 FPS, 0 long frames)
+     *
+     * Same bytes, same pixels, same scene — only the adapter differs. The
+     * fully populated NFR1 scenario passes the whole frame budget with
+     * 11-13.7 ms of headroom on the discrete part and misses 60 FPS outright
+     * on the integrated one, so this hint is load-bearing rather than a
+     * micro-optimisation.
+     *
+     * IT IS A HINT, NOT A GUARANTEE, and that is why nothing depends on it:
+     * a machine with no discrete GPU simply keeps the one it has, which is the
+     * integrated-hardware case beta still has to be honest about. The cost is
+     * battery on dual-GPU laptops — the correct trade for a real-time game,
+     * and the same one every browser game that asks for this makes.
+     */
+    powerPreference: 'high-performance',
   });
 
   const worldRoot = new Container();

@@ -4600,13 +4600,29 @@ async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'faile
 }
 
 /**
- * Was the dev-only staged worst-case scene asked for (`?stage=worstcase`)?
+ * Was the staged worst-case scene asked for (`?stage=worstcase`)?
  *
  * The opt-in is EXPLICIT and the gate is DOUBLE: this predicate only ever runs
- * inside an `import.meta.env.DEV` branch, which Vite folds to `false` in a
- * production build — so the query parameter is not merely ignored in
- * production, the code that reads it is not shipped. Same posture as the
- * server's `HC_DEV_OPTIONS`: a production client cannot reach it at all.
+ * inside a `(import.meta.env.DEV || __HC_PERF__)` branch — so the query
+ * parameter is not merely ignored in production, the code that reads it is not
+ * shipped. Same posture as the server's `HC_DEV_OPTIONS`: a production client
+ * cannot reach it at all.
+ *
+ * THERE ARE NOW TWO DOORS AND BOTH ARE DELIBERATE (Story 7.1). The first is the
+ * dev server (`import.meta.env.DEV`); the second is the PERF BUILD
+ * (`__HC_PERF__`, true only under `vite build --mode perf`, which writes to
+ * `dist-perf`). The second exists because NFR1's frame-budget verdict must be
+ * taken on a production-identical bundle rather than a Vite dev build (Eric
+ * ruling 2026-08-11) while the only split sim/render instrument lived behind
+ * the dev gate.
+ *
+ * THE DEAD-STRIP STILL HOLDS, and that is the whole point of the defaults: in
+ * `npm run build` Vite substitutes `false` for BOTH terms before Rollup runs, so
+ * the branch folds to `false && …`, this function has no live caller, the
+ * dynamic import goes with it, and the whole `src/stage/*` module graph is
+ * eliminated. Checked rather than asserted — `client/scripts/
+ * readabilityCapture.mjs --verify-bundle` greps the built assets for
+ * `STAGE_MARKER`.
  */
 function stagedSceneRequested(): boolean {
   try {
@@ -4617,15 +4633,32 @@ function stagedSceneRequested(): boolean {
 }
 
 /**
- * Boot the dev-only staged worst-case scene (Story 4.8, amendment 242) — the
- * readability gate's capture subject.
+ * Which staged POPULATION was asked for (`?profile=nfr1`), as the raw query
+ * value — resolved to a profile by `sceneProfile()` inside the stage module,
+ * which is where the fallback and its warning live.
  *
- * DEAD-STRIPPED FROM PRODUCTION: the sole call site sits inside an
- * `import.meta.env.DEV` branch, which Vite substitutes with `false` before
- * Rollup runs, so the branch, this function's dynamic import, and the whole
- * `src/stage/*` module graph behind it are eliminated. Verified by grepping the
- * built assets for `STAGE_MARKER` (client/scripts/readabilityCapture.mjs
- * --verify-bundle).
+ * Absent (the Story 4.8 readability gate's own URL) reads `null` and stages
+ * exactly today's scene. Read here, beside the `stage` parameter, so both halves
+ * of the opt-in sit in one dead-strippable place.
+ */
+function stagedSceneProfile(): string | null {
+  try {
+    return new URLSearchParams(location.search).get('profile');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Boot the staged worst-case scene (Story 4.8, amendment 242) — the readability
+ * gate's capture subject, and since Story 7.1 the NFR1 frame budget's too.
+ *
+ * DEAD-STRIPPED FROM PRODUCTION: the sole call site sits inside a
+ * `(import.meta.env.DEV || __HC_PERF__)` branch, and Vite substitutes `false`
+ * for both terms before Rollup runs in the shipped build, so the branch, this
+ * function's dynamic import, and the whole `src/stage/*` module graph behind it
+ * are eliminated. Verified by grepping the built assets for `STAGE_MARKER`
+ * (client/scripts/readabilityCapture.mjs --verify-bundle).
  *
  * The scene runs the REAL game — `buildGame` against a staged connection —
  * because a gate that measured a mock would prove nothing about the shipped
@@ -4636,9 +4669,11 @@ async function startStagedScene(
   audio: Audio,
   portal: PortalAdapter,
   settingsOverlay: SettingsOverlay,
+  profile: string | null,
 ): Promise<void> {
   const { runWorstCaseScene } = await import('./stage/worstCase.js');
   runWorstCaseScene({
+    profile,
     stage,
     start: (conn, map, cls) => {
       const g = buildGame(stage, conn, map, audio, cls, portal, settingsOverlay);
@@ -4753,13 +4788,15 @@ async function main(): Promise<void> {
   setUiScaleVar(scaleFactor(effectiveScale(settings.current, stage.app.screen.width)));
   settings.subscribe(applyRenderSettings);
 
-  // THE READABILITY GATE's staged worst-case scene (Story 4.8, amendment 242).
-  // DEV ONLY, and dead-stripped from a production build (see startStagedScene).
-  if (import.meta.env.DEV && stagedSceneRequested()) {
+  // THE READABILITY GATE's staged worst-case scene (Story 4.8, amendment 242),
+  // and since Story 7.1 the NFR1 frame-budget subject as well. Reachable from
+  // the DEV server or the PERF BUILD, and dead-stripped from the shipped build
+  // — both terms fold to `false` there (see startStagedScene).
+  if ((import.meta.env.DEV || __HC_PERF__) && stagedSceneRequested()) {
     // This branch returns BEFORE `enterPort`, which is where the ambient scene
     // is now built at all — so the staged scene gets `worldRoot` uncontested and
     // skips half a second of map generation it would only have thrown away.
-    await startStagedScene(stage, audio, portal, settingsOverlay);
+    await startStagedScene(stage, audio, portal, settingsOverlay, stagedSceneProfile());
     return; // no home, no connection — the staged scene is the whole page
   }
 

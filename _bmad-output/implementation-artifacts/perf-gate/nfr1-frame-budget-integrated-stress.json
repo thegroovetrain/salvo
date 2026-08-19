@@ -1,0 +1,237 @@
+{
+  "story": "7.1",
+  "what": "NFR1 frame-budget verdict, staged NFR1 population on the perf build",
+  "device": {
+    "model": "MacBookPro16,1",
+    "cpu": "Intel Core i7-9750H @ 2.60GHz (6 cores / 12 threads)",
+    "memoryGB": 32,
+    "platform": "darwin 25.4.0",
+    "note": "Eric's i7 MacBook — NFR1 as amended 2026-08-18. The Chromebook target is retired."
+  },
+  "basis": {
+    "build": "client/dist-perf (vite build --mode perf) — production pipeline, production minification",
+    "headless": false,
+    "gpu": {
+      "ok": true,
+      "renderer": "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) UHD Graphics 630, Unspecified Version)",
+      "vendor": "Google Inc. (Intel)",
+      "devicePixelRatio": 2,
+      "hardwareAccelerated": true
+    },
+    "viewport": {
+      "width": 1600,
+      "height": 900
+    },
+    "devicePixelRatio": 2,
+    "dwellMsPerFraming": 12000,
+    "scene": "?stage=worstcase&profile=nfr1"
+  },
+  "budget": {
+    "frameMs": 16.6,
+    "simMs": 3,
+    "renderMs": 10,
+    "headroomMs": 3.6
+  },
+  "framings": [
+    {
+      "framing": "alive-zoom-0.5x",
+      "image": "nfr1-alive-zoom-0.5x.png",
+      "zoom": 0.5,
+      "sceneTick": 391,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 62,
+        "sprites": 713
+      },
+      "frameCostMs": {
+        "frames": 176,
+        "total": {
+          "p50": 8,
+          "p95": 9.8,
+          "max": 12.6
+        },
+        "sim": {
+          "p50": 0.1,
+          "p95": 0.2,
+          "max": 0.5
+        },
+        "render": {
+          "p50": 7.9,
+          "p95": 9.7,
+          "max": 12.4
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "simP95Ms": 0.2,
+        "renderP95Ms": 9.7,
+        "headroomMs": 6.7,
+        "pass": {
+          "sim": true,
+          "render": true,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 66.8,
+          "p95IntervalMs": 116.4,
+          "longFrames": 157,
+          "sustains60": false
+        }
+      }
+    },
+    {
+      "framing": "alive-zoom-1.0x",
+      "image": "nfr1-alive-zoom-1.0x.png",
+      "zoom": 1,
+      "sceneTick": 681,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 51,
+        "sprites": 715
+      },
+      "frameCostMs": {
+        "frames": 173,
+        "total": {
+          "p50": 5.5,
+          "p95": 7.1,
+          "max": 8
+        },
+        "sim": {
+          "p50": 0.1,
+          "p95": 0.2,
+          "max": 0.8
+        },
+        "render": {
+          "p50": 5.4,
+          "p95": 6.9,
+          "max": 7.9
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "simP95Ms": 0.2,
+        "renderP95Ms": 6.9,
+        "headroomMs": 9.5,
+        "pass": {
+          "sim": true,
+          "render": true,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 66.9,
+          "p95IntervalMs": 116.7,
+          "longFrames": 156,
+          "sustains60": false
+        }
+      }
+    },
+    {
+      "framing": "alive-zoom-1.5x",
+      "image": "nfr1-alive-zoom-1.5x.png",
+      "zoom": 1.5,
+      "sceneTick": 971,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 68,
+        "sprites": 723
+      },
+      "frameCostMs": {
+        "frames": 143,
+        "total": {
+          "p50": 5.1,
+          "p95": 6.7,
+          "max": 7.7
+        },
+        "sim": {
+          "p50": 0.1,
+          "p95": 0.2,
+          "max": 0.3
+        },
+        "render": {
+          "p50": 5,
+          "p95": 6.6,
+          "max": 7.5
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "simP95Ms": 0.2,
+        "renderP95Ms": 6.6,
+        "headroomMs": 9.8,
+        "pass": {
+          "sim": true,
+          "render": true,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 83.6,
+          "p95IntervalMs": 150.5,
+          "longFrames": 119,
+          "sustains60": false
+        }
+      }
+    },
+    {
+      "framing": "omniscient-reveal",
+      "image": "nfr1-omniscient-reveal.png",
+      "zoom": 1.5,
+      "sceneTick": 1267,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 75,
+        "sprites": 723
+      },
+      "frameCostMs": {
+        "frames": 178,
+        "total": {
+          "p50": 11.7,
+          "p95": 14.4,
+          "max": 15.6
+        },
+        "sim": {
+          "p50": 0.1,
+          "p95": 0.2,
+          "max": 0.3
+        },
+        "render": {
+          "p50": 11.6,
+          "p95": 14.3,
+          "max": 15.5
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "simP95Ms": 0.2,
+        "renderP95Ms": 14.3,
+        "headroomMs": 2.1,
+        "pass": {
+          "sim": true,
+          "render": false,
+          "headroom": false
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 66.7,
+          "p95IntervalMs": 115.7,
+          "longFrames": 164,
+          "sustains60": false
+        }
+      }
+    }
+  ]
+}

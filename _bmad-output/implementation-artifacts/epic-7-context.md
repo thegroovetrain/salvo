@@ -1,0 +1,74 @@
+# Epic 7 Context: Beta Launch Readiness
+
+<!-- Generated from planning artifacts. Regenerate with compile-epic-context if planning docs change. -->
+
+## Goal
+
+Epic 7 (GDD E7) takes the game to a public, **self-published** beta: measured performance instead of an assumed one, lawful analytics, an onboarding page, our own ad placements, a catalog where no card is dead, planning docs that describe the shipped game, two independently deployable and independently versioned services, and a final hardening gate. It was **rescoped on 2026-08-18**: the portal launch (Poki/CrazyGames) and the low-end Chromebook reference device are both **retired** — Eric controls his own ads, analytics, servers and domain. Story numbering is execution order, and the frontend/backend split is deliberately LAST so beta cuts clean at `0.1.0` / `0.1.0`.
+
+## Stories
+
+- Story 7.1: Performance & Load Pass
+- Story 7.2: Analytics, Consent & Privacy
+- Story 7.3: How-to-Play Page
+- Story 7.4: AdSense H5 Games Ads
+- Story 7.5: Upgrade Cards v2
+- Story 7.6: Design & Doc Reconciliation
+- Story 7.7: The Frontend/Backend Split + Per-Service Versioning
+- Story 7.8: The Release Gate
+
+## Requirements & Constraints
+
+- **Performance bar (amended):** 60 FPS sustained on the reference device — **Eric's Intel i7 MacBook**, whose exact model/year gets stamped into the story so the bar is reproducible. Frame budget 16.6 ms = sim ≤ 3 ms + render ≤ 10 ms + headroom ≥ 3.6 ms, in a fully populated match (20 contestants + PvE fleets + in-flight ordnance + all shipped effects). The 4× CPU throttle survives only as a cheap stress check, never the gate. A budget breach is fixed at the offending system (pooling, batching, decay caps) — never by cutting a ratified feature without Eric's sign-off. **Take the cheap read first:** the whole-frame verdict has never been obtained and now carries three epics of unmeasured growth (return heatmap, radar shadows, wakes, chop, a 2800u ocean, up to 63 fleet hulls, 20-hull bot lobbies, the reveal chart).
+- **Load budget (amended):** cold load → interactive home under ~10 s on the reference device over a typical residential connection, no install and no account. **Ad, analytics and consent scripts now count against this budget** and must not block first paint; neither must fonts. Every story that adds a third-party script measures its cost against it.
+- **Monetization compliance is a hard launch gate (struck and rewritten):** AdSense H5 Games Ads (Ad Placement API) behind the existing adapter seam; one interstitial at death→return-to-port with audio muted for the break and match/UI state intact after; display units on home/port and How-to-Play only, **≥150 px clear of the game canvas**; **no ad surface of any kind during a live match**. The 150 px clearance and the natural-transition-point restriction are Google policy, not preference. The game must stay fully playable when ad scripts are blocked, fail, or never resolve — tested, not assumed.
+- **Analytics and privacy:** GA4 with Consent Mode v2 on the static site only, gated by a Google-certified CMP (Google's own free one) in the EEA/UK/Switzerland, measuring the funnel home → mode pick → match start → match end → requeue. **No PII and no gameplay state, ever** — persistence stays client-side localStorage, match telemetry stays stdout log lines. A published privacy policy is a prerequisite for the ad application, linked from home and How-to-Play.
+- **Onboarding:** one static How-to-Play page teaching controls, the three sensor tiers, the storm rhythm, classes + slot grammar and the boon economy; it hosts the boon glossary, **states the win condition explicitly** (stated nowhere a new player can read today), and positions Solo vs AI as the live tutorial. It is a launch gate, not polish — with strangers arriving there is no other onboarding surface.
+- **Deployment topology (new):** two deployables. Client as a Render **Static Site** (CDN, no Node process) on the **apex domain**; game server as a Render **Web Service** running only the arena, on a **subdomain**. `shared/` is a build-time library of both and is never deployed independently. Ad and analytics identity is per-domain and must not move after approval. Each deployable carries its own version, cutting `0.1.0` at beta; the game-server URL is build-time client config; the server declares explicit CORS and WebSocket origin allowances. `PROTOCOL_VERSION` stays the runtime compatibility gate, independent of every release version — independent versioning must never weaken it, and a test pins that.
+- **Scale posture (amended):** beta runs a **single vertically scaled** game-server instance on Render. Horizontal scale-out stays an injectable deploy-time knob but is explicitly **not** beta work. **Render autoscaling must never be enabled** — no WebSocket sticky sessions, it would actively break matchmaking.
+- **Release gate:** current Chrome/Edge/Firefox/Safari, 1366×768 floor viewport with corner anatomy intact and no mono type below 9 px; nothing debug ships (client dev tools behind `import.meta.env.DEV`, server dev behavior behind `HC_DEV_OPTIONS`, no prod `P` toggle); a load test proves the deployed tier survives a connection spike with `/metrics` confirming tick health; the unauthenticated solo-create cost vector gets ruled (per-IP create throttle, global concurrent-solo ceiling, or explicit acceptance); full pipeline (home → queue → match → death → ad break → requeue) passes manually on both production services.
+- **Catalog rebalance is Eric-gated:** Story 7.5 does not proceed to implementation until Eric states the plan in full — an implementer may not invent game mechanics. Rulings already made: the cannon is removed; the Battleship gets a BROADSIDE BARRAGE; mutually exclusive upgrades are removed "at least for now"; formerly-exclusive cards that survive are **retooled as added verbs**, not deleted. Mines and the buoy also change, undetailed. The forge sessions (`boon-deck-rebalance`, `loadout-equipment-rework`) are IRRELEVANT here and must not be mined for direction.
+- Every specific number that isn't a policy figure or a physics constant remains a tunable design target.
+
+## Technical Decisions
+
+- **The ad seam is retargeted, not retired.** `PortalAdapter { init, loadingProgress, matchStart, matchEnd, requestAdBreak }` was installed at Epic 0 with a null implementation and a never-throw / always-settle contract; Epic 7 writes the first concrete implementation against `adConfig()` + `adBreak()`. `adBreak({type:'next', …})` fits `requestAdBreak(): Promise<void>` exactly, and always-settle is precisely what an ad-blocked integration needs. **Game code still never imports an ad SDK directly.** The interface keeps its name deliberately — renaming ratified code to match a changed destination is churn.
+- **Colyseus Cloud is NOT adopted**; the earlier two-track hosting plan is superseded in part. Its static-client half executes, its Colyseus-Cloud half does not, and Redis-backed Presence/Driver defers with it (a single instance needs no shared registry — the injectability obligation is what keeps the door open).
+- **Matchmaking is not a separable service.** In Colyseus 0.17 the matchmaker is a library every process shares through Presence/Driver, not a deployable tier. The answer to "split into game server, matchmaking server, etc.?" is: exactly two deployables, frontend and backend.
+- **Catalog changes are wire contract.** Story 7.5 lands through `effectiveStats()` and `BOON_STAT_PATHS` with no ad-hoc stat derivation, bumps `PROTOCOL_VERSION`, updates deck/offer tests rather than deleting them, and runs a batch-sim evidence pass — the last catalog change shipped explicitly unmeasured and that debt is still ledgered. It also sweeps the already-known dead cards and records every ratified amendment it supersedes.
+- **The load-test harness must be BUILT, not invoked.** `loadTest.mjs` does not exist; the batch-sim harness's load-test leg died with the drone-fill deletion and only the bot-evaluation leg was rebuilt. This is the third epic to assume the capability is present — scope it as construction.
+- **Observability already in place** to lean on: structured stdout logging with match/room/tick context, and the typed `/metrics` route (rooms, players, tick-duration p50/p95/max, message rates). **CORRECTED (cycle 103, amendment 2): the "dev-build client perf overlay" the architecture describes was never built** — there is no FPS/frame-time/entity HUD anywhere in `client/`, and the only split sim/render timer is Story 4.8's dev-only staged scene. Story 7.1 built the measurement path instead (a `--mode perf` production build plus headful captures), and its audit record is `implementation-artifacts/perf-gate/`. Do not plan work against an overlay that does not exist.
+- Procedural-only assets (vector linework + synthesized WebAudio tones, no texture/model/sound-file pipeline) remain binding; the constraint outlived its portal justification and now stands on the load budget. It is **not** relaxed.
+
+## UX & Interaction Patterns
+
+- DOM chrome pages (home, results, settings, privacy policy, How-to-Play) center at the 1100 px max width in standard page chrome; ESC/back returns home. Copy holds the terse-naval register.
+- **The consent banner is designed to the design system's register, not shipped as vendor default** — it is literally the first thing a new player sees.
+- How-to-Play renders control bindings in the one mono key-chip family shared by slot keys, card picks and helm gauges, so "keys look like this" reads as one system.
+- Story 7.6 is a **with-Eric** pass on the design source of truth: strike or replace the remaining hex-grid-era content (cell states, planning/resolution choreography) while carrying the aesthetic direction forward unchanged; write back the open questions resolved during Epics 1–6 (storm edge, island colors, text-safe variant table, whirlpool, foghorn key, sound map) as decisions; reconcile the GDD's stale correction flags (4-card offers, "Solo vs AI" naming, the retired spectate option); and reconcile the Epic 6 additions — most importantly that the sailable weapons-safe waiting room **no longer exists in production** (a frozen held start line replaced it; the grammar survives only for the dev/sandbox door). It also runs the ~19-file mechanical sweep removing every portal and Chromebook reference across the design docs, GDD, briefs, architecture, CLAUDE.md and both tracker files.
+- A ledgered ≤720p liveness-block collision is flagged at the release gate: its stated urgency rested on the now-retired Chromebook target and must be **re-derived, not inherited**.
+
+## Cross-Story Dependencies
+
+- **External, not code:** Eric holds a long-approved AdSense account, so the programme prerequisite is met. Display units need only the new site added and verified (plus `ads.txt`); the **interstitial additionally needs H5 Games Ads access**, a separate application subject to partner eligibility. Add the site and apply as soon as 7.2's privacy policy is live. Every other story is independent of it — if H5 access lags, beta launches with display units only and the interstitial follows as a client-only deploy.
+- 7.2 → 7.4: the published privacy policy and the certified CMP gate the ad integration.
+- 7.2 / 7.3 / 7.4 → 7.1: each adds a third-party script or page weight that must be re-measured against the load budget.
+- 7.3 depends on the boon glossary content authored in Epic 2 and on Solo vs AI (Epic 6) existing as the live tutorial.
+- 7.5 touches shared sim, stats and the bot loadout/profile layer; removing the cannon orphans several shipped consumers and one ratified perception clause, so its supersessions must be recorded rather than absorbed silently.
+- **7.7 must land after AdSense approval and the GA4 property exist** (both are per-domain and cannot move afterward), and immediately before 7.8 — which makes the release gate the FIRST verification the new two-service topology ever gets. 7.7 also retires the 0.17.X cycle-counting scheme, rehoming the build-cycle ledger; every cycle up to that story still increments it.
+- 7.8 depends on every other story, and on the load-test harness it has to build first.
+
+## Ratified Amendments (durable — survives recompiles)
+
+The durable record lives in `epic-7-context-amendments.md` and WINS over anything in this
+regenerable file on any conflict. Read it before acting on this document.
+
+- **1** — the reference device is stamped: MacBook Pro 16,1 / i7-9750H / 32 GB / Radeon Pro 5300M + UHD 630, switchable. Any NFR1 run that does not name the adapter is not a verdict.
+- **2** — the perf build (`vite build --mode perf`) is how NFR1 became measurable; the shipped bundle stays clean and NFR17 is intact. There is NO client perf overlay.
+- **3** — `powerPreference` was unset and worth ~40 FPS on switchable graphics; fixed to `high-performance`.
+- **4** — NFR1 PASSES on the discrete GPU with 10.9-13.8 ms headroom, reveal included. The integrated-only case (~12-15 FPS) is OPEN and needs Eric.
+- **5** — the risk was FILL RATE, not entity growth; population does not move the frame, pixels do. This reframes three retrospectives.
+- **6** — the cadence trust flag must key off the interval FLOOR, never the median; keying on the median failed OPEN and hid a real 30 FPS behind a refusal.
+- **7** — NFR2 passes at ~2.3 s of a ~10 s budget; ~7.7 s of headroom remains for ad/analytics/consent. The font fix claims no measured improvement.
+- **8** — Story 4.8's readability gate is untouched; NFR1 is a second scene profile, with two disclosed modelling choices.
+- **9** — `npm run check` is 5127 tests (746/1505/2876). The "4309" and "7980" figures are both wrong.

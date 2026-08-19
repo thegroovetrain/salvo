@@ -23,13 +23,26 @@
 // capture also measures real per-frame cost, and a scene driven off a fake clock
 // would not.
 //
-// DEV-ONLY. Nothing in the shipped game imports this module; the sole reference
-// is a dynamic import behind `import.meta.env.DEV` in main.ts, which Vite folds
-// to `false` in a production build so the whole module is dropped from the
-// bundle. See STAGE_MARKER.
+// NEVER IN THE SHIPPED BUILD. Nothing in the shipped game imports this module;
+// the sole reference is a dynamic import behind `import.meta.env.DEV ||
+// __HC_PERF__` in main.ts. In `npm run build` Vite folds BOTH terms to `false`
+// before Rollup runs, so the whole module is dropped from the bundle. See
+// STAGE_MARKER.
+//
+// THE SECOND DOOR IS THE PERF BUILD (Story 7.1), not a widening of the first:
+// `__HC_PERF__` is true only under `vite build --mode perf`, which writes to
+// `dist-perf`. It exists because NFR1's verdict must be taken on a
+// production-identical bundle (Eric ruling 2026-08-11) and the instrument used
+// to live behind the dev gate alone.
+//
+// TWO POPULATIONS, ONE SCENE (Story 7.1). `READABILITY_PROFILE` is Story 4.8's
+// ratified subject and is FROZEN; `NFR1_PROFILE` stages the frame budget's
+// reference scenario. `/?stage=worstcase` with no `profile` parameter stages
+// exactly the former, which is what keeps the 4.8 gate working unchanged.
 
 import {
   CONFIG,
+  SHIP_CLASS_IDS,
   mulberry32,
   paintCoverage,
   type Contact,
@@ -167,6 +180,59 @@ export const SCENE = {
   clusterOffsetU: 130,
 } as const;
 
+/**
+ * THE TWO SCENE PROFILES (Story 7.1). `readability` is Story 4.8's ratified
+ * subject and its population is FROZEN; `nfr1` is the reference scenario the
+ * frame budget is judged against.
+ *
+ * WHY A SECOND PROFILE RATHER THAN A BIGGER `SCENE`. `SCENE`'s counts are
+ * reasoned against the ATTENTION ceiling — ~100x the ratified onset budget
+ * inside ONE viewport region — and Story 4.8's gate is ratified on them.
+ * NFR1's ceiling is a different one: the TOTAL entity population across the
+ * whole viewport. Editing `SCENE` would silently re-take a ratified decision;
+ * adding a profile takes neither.
+ */
+export type SceneProfileId = 'readability' | 'nfr1';
+
+/**
+ * One staged population.
+ *
+ * BOTH SHIPPED PROFILES POINT `scene` AT THE SAME `SCENE` OBJECT, deliberately.
+ * The flash stack is already sized several times above anything the arena can
+ * structurally produce (see SCENE), so re-inflating it for NFR1 would make the
+ * frame-budget number a lie in the PESSIMISTIC direction — the one failure mode
+ * that would let this story report a breach nobody could ever provoke. The field
+ * exists so the knobs have exactly ONE reader per profile, not so they differ.
+ */
+export interface SceneProfile {
+  id: SceneProfileId;
+  /** The per-tick event knobs this profile stages with. */
+  scene: typeof SCENE;
+  /** Staged hulls BESIDES the local captain. */
+  contacts: number;
+  /** True when slot `i` is staged inside the truesight bubble. Everything else
+   *  sits in the radar annulus and reaches the client as paint instead (see
+   *  `blipEvents`). A PREDICATE rather than a count, so a profile can INTERLEAVE
+   *  the two bands: NFR1's fleet hulls are the tail of the slot range, and a
+   *  bare `i <= nearContacts` split would have put every one of them outside the
+   *  bubble — no drone silhouette, no aggro bracket, no hull-hit flash, i.e. the
+   *  cheap half of the picture measured as if it were the whole one. */
+  near(i: number): boolean;
+  /**
+   * Ticks between radar paints of ONE far hull. 1 = every far hull paints every
+   * tick, which is what Story 4.8's scene has always done and must keep doing.
+   *
+   * A REAL SWEEP DOES NOT DO THAT, and at NFR1's population the difference stops
+   * being cosmetic: a hull paints once per revolution (15 rpm = 4 s = 80 ticks),
+   * so 50 far hulls are ~0.6 paints/tick, not 50. Emitting one per hull per tick
+   * would bury the scope in ~80x the phosphor a real match can hold and report a
+   * frame cost no player could ever provoke.
+   */
+  blipStrideTicks: number;
+  /** The hull staged in slot `i`. Slot 0 is the local captain. */
+  hullFor(i: number): HullId;
+}
+
 /** The kill leader's roster index (a captain, never the local player). */
 export const BOUNTY_INDEX = 7;
 
@@ -197,8 +263,116 @@ export function sceneSlotIsDrone(i: number): boolean {
   return i > 0 && isDroneHull(sceneHullFor(i));
 }
 
+/** The same question against an arbitrary profile — the form every internal
+ *  reader uses. Slot 0 is always the local captain and is never a fleet hull. */
+function slotIsDrone(profile: SceneProfile, i: number): boolean {
+  return i > 0 && isDroneHull(profile.hullFor(i));
+}
+
 /** The local captain's class. */
 export const OWN_CLASS: ShipClassId = 'battleship';
+
+/**
+ * STORY 4.8's RATIFIED POPULATION — 12 near + 7 far contacts around the local
+ * captain, hulls cycled off CONTACT_HULLS, every far hull painting every tick.
+ * The default everywhere, so no pre-7.1 call site changes behaviour.
+ */
+export const READABILITY_PROFILE: SceneProfile = {
+  id: 'readability',
+  scene: SCENE,
+  contacts: Math.min(CONFIG.map.playerCap - 1, SCENE.nearContacts + SCENE.farContacts),
+  near: (i) => i <= SCENE.nearContacts,
+  blipStrideTicks: 1,
+  hullFor: sceneHullFor,
+};
+
+/**
+ * NFR1's REFERENCE SCENARIO, derived from CONFIG rather than written down: a
+ * FULL arena of contestants plus the PEAK concurrent PvE fleet.
+ *
+ * `playerCap` is 20, so 19 rival captains ride slots 1..19 and the local captain
+ * is slot 0 — twenty contestants, the number NFR1 names. Fleet hulls follow on
+ * slots 20+.
+ */
+const NFR1_CAPTAIN_SLOTS = CONFIG.map.playerCap;
+
+/** One PvE fleet group's hulls, in `CONFIG.fleet.composition` proportion
+ *  (1 large : 2 medium : 3 small = the six-hull half-fleet Eric ruled is the
+ *  spawn unit). Built from CONFIG so a composition retune moves the staged
+ *  fleet with it. */
+const FLEET_GROUP: readonly HullId[] = [
+  ...Array<HullId>(CONFIG.fleet.composition.large).fill('droneLarge'),
+  ...Array<HullId>(CONFIG.fleet.composition.medium).fill('droneMedium'),
+  ...Array<HullId>(CONFIG.fleet.composition.small).fill('droneSmall'),
+];
+
+/**
+ * The PEAK CONCURRENT fleet population — the largest single wave, not the sum
+ * of the schedule. `CONFIG.fleet.waves` spawns 8 groups at 1:00, 4 at 5:00 and
+ * 2 at 9:00; at six hulls a group that is 48 / 24 / 12, and the waves are
+ * spaced minutes apart precisely so the field is thinned between them. 48 is
+ * therefore the number a frame can actually be asked to draw.
+ */
+const NFR1_FLEET_HULLS =
+  FLEET_GROUP.length * CONFIG.fleet.waves.reduce((peak, w) => Math.max(peak, w.fleets), 0);
+
+/**
+ * NEAR/FAR INTERLEAVE for the NFR1 profile: every 4th slot sits inside the
+ * truesight bubble.
+ *
+ * FOUR IS THE AREA RATIO, not a feel number. The bubble is `sight` (330u) and
+ * the scope reaches `radar` (660u), so the bubble is (330/660)² = one QUARTER
+ * of the disc a uniformly-spread population occupies — a quarter near, three
+ * quarters in the annulus. Taking every 4th slot also mixes captains and fleet
+ * hulls into both bands, which is the point of using a stride at all.
+ */
+const NFR1_NEAR_STRIDE = 4;
+
+/** Ticks per radar revolution at the shipped sweep rate — how often ONE far
+ *  hull legitimately paints. 15 rpm ⇒ 4 s ⇒ 80 ticks at the 20 Hz sim rate. */
+const SWEEP_REVOLUTION_TICKS = Math.round(60_000 / CONFIG.vision.sweepRpm / SCENE_TICK_MS);
+
+/**
+ * THE NFR1 POPULATION PROFILE (Story 7.1) — 20 contestants + the 48-hull peak
+ * PvE fleet = 68 hulls, sharing SCENE's flash stack and torpedo salvo.
+ *
+ * Reached at `/?stage=worstcase&profile=nfr1`; the readability gate's own URL
+ * (no `profile`) is untouched.
+ */
+export const NFR1_PROFILE: SceneProfile = {
+  id: 'nfr1',
+  scene: SCENE,
+  contacts: NFR1_CAPTAIN_SLOTS - 1 + NFR1_FLEET_HULLS,
+  near: (i) => (i - 1) % NFR1_NEAR_STRIDE === 0,
+  blipStrideTicks: SWEEP_REVOLUTION_TICKS,
+  hullFor: (i) =>
+    i < NFR1_CAPTAIN_SLOTS
+      ? SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]
+      : FLEET_GROUP[(i - NFR1_CAPTAIN_SLOTS) % FLEET_GROUP.length],
+};
+
+/** Every profile by id — the selector's table (see `sceneProfile`). */
+const PROFILES: Readonly<Record<SceneProfileId, SceneProfile>> = {
+  readability: READABILITY_PROFILE,
+  nfr1: NFR1_PROFILE,
+};
+
+/**
+ * Resolve a profile from a raw query-string value.
+ *
+ * AN UNKNOWN STRING FALLS BACK TO THE READABILITY PROFILE and warns, rather
+ * than throwing or staging nothing: this is a measurement door, and a typo in a
+ * capture script must degrade to the ratified scene (which is at least a scene)
+ * instead of a blank page nobody can diagnose. An ABSENT value is the ordinary
+ * Story 4.8 case and warns about nothing.
+ */
+export function sceneProfile(raw: string | null | undefined): SceneProfile {
+  if (raw === null || raw === undefined || raw === '') return READABILITY_PROFILE;
+  const hit = Object.prototype.hasOwnProperty.call(PROFILES, raw) ? PROFILES[raw as SceneProfileId] : undefined;
+  if (hit) return hit;
+  console.warn(`[stage] unknown scene profile "${raw}" — falling back to the readability profile`);
+  return READABILITY_PROFILE;
+}
 
 /** One roster row, in exactly the shape main.ts's `publicState()` reads. */
 export interface SceneRosterRow {
@@ -229,6 +403,12 @@ export interface SceneHull {
 
 /** The whole staged world, built once from the seed + the real map radius. */
 export interface SceneWorld {
+  /** The population this world was built from. Carried on the world so every
+   *  frame builder DEFAULTS to it: a world staged with one profile and framed
+   *  with another would disagree about which hulls are near and how often the
+   *  scope paints, which is exactly the two-derivations class this codebase
+   *  refuses everywhere else. */
+  profile: SceneProfile;
   mapRadius: number;
   ownId: string;
   ownStart: { x: number; y: number };
@@ -262,10 +442,10 @@ function callsign(i: number): string {
  * The kill leader carries the highest kill count, which is the count `bountyId`
  * agrees with.
  */
-function buildRoster(count: number): SceneRosterRow[] {
+function buildRoster(profile: SceneProfile, count: number): SceneRosterRow[] {
   const rows: SceneRosterRow[] = [];
   for (let i = 0; i < count; i += 1) {
-    if (sceneSlotIsDrone(i)) continue;
+    if (slotIsDrone(profile, i)) continue;
     rows.push({
       id: hullId(i),
       name: callsign(i),
@@ -286,13 +466,13 @@ function buildRoster(count: number): SceneRosterRow[] {
  * annulus (it must read as phosphor, never as a hull the fog is hiding). The
  * orbits are centred on the own hull's live pose — see `hullPose`.
  */
-function buildHull(i: number, rng: () => number, near: number): SceneHull {
-  const far = i > near;
+function buildHull(i: number, rng: () => number, profile: SceneProfile): SceneHull {
+  const far = !profile.near(i);
   const band = far ? 400 + rng() * 180 : 60 + rng() * 180;
   const bearing = rng() * Math.PI * 2;
   return {
     id: hullId(i),
-    cls: sceneHullFor(i),
+    cls: profile.hullFor(i),
     cx: Math.cos(bearing) * band,
     cy: Math.sin(bearing) * band,
     radiusU: 18 + rng() * 46,
@@ -304,7 +484,7 @@ function buildHull(i: number, rng: () => number, near: number): SceneHull {
     // aggro bracket stacked with every other channel rather than in isolation.
     // A FAR one is not: at radar range you hold no hull view to hang a bracket
     // on, which is the honest picture of what amendment 40 actually renders.
-    aggro: !far && sceneSlotIsDrone(i),
+    aggro: !far && slotIsDrone(profile, i),
   };
 }
 
@@ -323,17 +503,25 @@ function buildRings(mapRadius: number, own: { x: number; y: number }): { cur: Zo
   };
 }
 
-/** Build the staged world. Pure and total: same (seed, mapRadius) ⇒ same world. */
-export function buildSceneWorld(mapRadius: number, seed: number = STAGE_SEED): SceneWorld {
+/** Build the staged world. Pure and total: same (seed, mapRadius, profile) ⇒
+ *  same world. */
+export function buildSceneWorld(
+  mapRadius: number,
+  seed: number = STAGE_SEED,
+  profile: SceneProfile = READABILITY_PROFILE,
+): SceneWorld {
   const stream = mulberry32(seed);
   const rng = (): number => stream.next();
-  const cap = CONFIG.map.playerCap;
-  const roster = buildRoster(cap);
+  const total = profile.contacts;
+  // Slot 0 is the local captain, so the roster scan spans one more slot than
+  // there are contacts. Fleet slots contribute no row (amendment 39) and are
+  // skipped inside buildRoster.
+  const roster = buildRoster(profile, total + 1);
   const ownStart = { x: 0, y: 0 };
   const hulls: SceneHull[] = [];
-  const total = Math.min(cap - 1, SCENE.nearContacts + SCENE.farContacts);
-  for (let i = 1; i <= total; i += 1) hulls.push(buildHull(i, rng, SCENE.nearContacts));
+  for (let i = 1; i <= total; i += 1) hulls.push(buildHull(i, rng, profile));
   return {
+    profile,
     mapRadius,
     ownId: hullId(0),
     ownStart,
@@ -384,12 +572,13 @@ export function ownPoseAt(world: SceneWorld, tick: number): { x: number; y: numb
 
 /** Banked levels at `tick` — bumped on the schedule so the Tier-3 bank chip
  *  stays inside its ~10 s breathing window and therefore has a breath to freeze. */
-export function bankedPointsAt(tick: number): number {
-  return 1 + Math.floor(tick / SCENE.pointEveryTicks) % 3;
+export function bankedPointsAt(tick: number, profile: SceneProfile = READABILITY_PROFILE): number {
+  return 1 + Math.floor(tick / profile.scene.pointEveryTicks) % 3;
 }
 
 /** The staged own ship for `tick`. hp sits in the CRIMSON band by construction. */
 export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
+  const s = world.profile.scene;
   const p = ownPoseAt(world, tick);
   const maxHp = CONFIG.shipClasses[OWN_CLASS].hp;
   return {
@@ -398,7 +587,7 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     y: p.y,
     heading: p.heading,
     speed: p.speed,
-    hp: Math.round(maxHp * SCENE.ownHpFrac),
+    hp: Math.round(maxHp * s.ownHpFrac),
     alive: true,
     ammo: [
       { n: 1, reloadMsLeft: 0 },
@@ -408,12 +597,12 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     ],
     sweep: (tick * 0.06) % (Math.PI * 2),
     cls: OWN_CLASS,
-    pts: bankedPointsAt(tick),
+    pts: bankedPointsAt(tick, world.profile),
     offer: ['gunDamage', 'torpedoSpeed', 'cannonDamage'],
     boostUntil: 0,
     boons: [],
-    lvl: 4 + Math.floor(tick / SCENE.pointEveryTicks),
-    xp: (tick % SCENE.pointEveryTicks) / SCENE.pointEveryTicks,
+    lvl: 4 + Math.floor(tick / s.pointEveryTicks),
+    xp: (tick % s.pointEveryTicks) / s.pointEveryTicks,
     repairHp: 0,
   };
 }
@@ -434,10 +623,8 @@ function scatter(cx: number, cy: number, i: number, tick: number, radius: number
 /** The hot region's world centre this tick — a fixed offset off the own bow. */
 export function clusterCentre(world: SceneWorld, tick: number): { x: number; y: number } {
   const p = ownPoseAt(world, tick);
-  return {
-    x: p.x + Math.cos(p.heading) * SCENE.clusterOffsetU,
-    y: p.y + Math.sin(p.heading) * SCENE.clusterOffsetU,
-  };
+  const off = world.profile.scene.clusterOffsetU;
+  return { x: p.x + Math.cos(p.heading) * off, y: p.y + Math.sin(p.heading) * off };
 }
 
 /**
@@ -448,18 +635,19 @@ export function clusterCentre(world: SceneWorld, tick: number): { x: number; y: 
  * the window's (the fourth onset onward degrades).
  */
 function gunneryEvents(world: SceneWorld, tick: number): GameEvent[] {
+  const s = world.profile.scene;
   const c = clusterCentre(world, tick);
   const out: GameEvent[] = [];
-  for (let i = 0; i < SCENE.muzzlePerTick; i += 1) {
-    const p = i < SCENE.muzzleColocated ? c : scatter(c.x, c.y, i, tick, SCENE.clusterRadiusU);
+  for (let i = 0; i < s.muzzlePerTick; i += 1) {
+    const p = i < s.muzzleColocated ? c : scatter(c.x, c.y, i, tick, s.clusterRadiusU);
     out.push({ k: 'mz', x: p.x, y: p.y });
   }
-  for (let i = 0; i < SCENE.splashPerTick; i += 1) {
-    const p = scatter(c.x, c.y, i + 40, tick, SCENE.clusterRadiusU * 1.6);
+  for (let i = 0; i < s.splashPerTick; i += 1) {
+    const p = scatter(c.x, c.y, i + 40, tick, s.clusterRadiusU * 1.6);
     out.push({ k: 'sp', id: world.ownId, x: p.x, y: p.y });
   }
-  for (let i = 0; i < SCENE.hitCallPerTick; i += 1) {
-    const p = scatter(c.x, c.y, i + 80, tick, SCENE.clusterRadiusU * 1.2);
+  for (let i = 0; i < s.hitCallPerTick; i += 1) {
+    const p = scatter(c.x, c.y, i + 80, tick, s.clusterRadiusU * 1.2);
     out.push({ k: 'hc', id: world.ownId, x: p.x, y: p.y });
   }
   return out;
@@ -468,19 +656,20 @@ function gunneryEvents(world: SceneWorld, tick: number): GameEvent[] {
 /** Hull hit flashes + burst rings: `boom` with `hit` drives render/ships.ts's
  *  130 ms flash (itself budget-gated), `burst` the fog-immune ring. */
 function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
+  const s = world.profile.scene;
   const near = world.hulls.filter((h) => !h.far);
   const out: GameEvent[] = [];
-  for (let i = 0; i < SCENE.hullHitsPerTick && near.length > 0; i += 1) {
+  for (let i = 0; i < s.hullHitsPerTick && near.length > 0; i += 1) {
     const h = near[(tick + i * 3) % near.length];
     const p = hullPose(h, world, tick);
     out.push({ k: 'boom', id: `b${tick}_${i}`, hit: h.id, x: p.x, y: p.y });
   }
   const c = clusterCentre(world, tick);
-  for (let i = 0; i < SCENE.burstsPerTick; i += 1) {
-    const p = scatter(c.x, c.y, i + 120, tick, SCENE.clusterRadiusU * 2.2);
+  for (let i = 0; i < s.burstsPerTick; i += 1) {
+    const p = scatter(c.x, c.y, i + 120, tick, s.clusterRadiusU * 2.2);
     out.push({ k: 'burst', id: `s${tick}_${i}`, x: p.x, y: p.y });
   }
-  for (let i = 0; i < SCENE.smokePerTick && near.length > 0; i += 1) {
+  for (let i = 0; i < s.smokePerTick && near.length > 0; i += 1) {
     const h = near[(tick * 2 + i * 5) % near.length];
     const p = hullPose(h, world, tick);
     out.push({ k: 'sm', x: p.x, y: p.y, tier: i % 2 === 0 ? 2 : 1 });
@@ -499,16 +688,30 @@ function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
  * construction; anything hand-rolled here would be a picture of a mask, not a
  * mask. Each paint is deliberately STALE by its own age, exactly as a real
  * sweep's paints are, and its `t` is the time it was painted at.
+ *
+ * THE STRIDE IS WHY THE NFR1 PROFILE'S SCOPE IS A MEASUREMENT AND NOT A FICTION
+ * (Story 7.1). Story 4.8's profile paints EVERY far hull EVERY tick — fine at 7
+ * hulls, and preserved byte-for-byte at `blipStrideTicks === 1`. At NFR1's 50
+ * far hulls it would lay ~80x the phosphor a real sweep can produce, because a
+ * hull only paints when the beam crosses its bearing: once per revolution. Above
+ * 1 the stride spreads the far band over one revolution — hull `i` paints on the
+ * ticks where `(tick + i) % stride === 0` — so the scope holds the paint count a
+ * player can actually provoke.
  */
 function blipEvents(world: SceneWorld, tick: number, serverT: number): GameEvent[] {
+  const stride = world.profile.blipStrideTicks;
+  const out: GameEvent[] = [];
   const far = world.hulls.filter((h) => h.far);
-  return far.map((h, i) => {
+  for (let i = 0; i < far.length; i += 1) {
+    if (stride > 1 && (tick + i) % stride !== 0) continue;
+    const h = far[i];
     const age = (i * 7) % 40;
     const p = hullPose(h, world, tick - age);
     const t = serverT - age * SCENE_TICK_MS;
     const c = paintCoverage(h.cls, p.x, p.y, p.heading, CONFIG.vision.radarCellU, t);
-    return { k: 'blip' as const, t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
-  });
+    out.push({ k: 'blip' as const, t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+  }
+  return out;
 }
 
 /**
@@ -518,14 +721,15 @@ function blipEvents(world: SceneWorld, tick: number, serverT: number): GameEvent
  * scene never runs out of them.
  */
 function torpedoEvents(world: SceneWorld, tick: number, serverT: number): GameEvent[] {
+  const s = world.profile.scene;
   const own = ownPoseAt(world, tick);
   const cycle = 240; // ticks — 12 s run, then the salvo re-launches
   const out: GameEvent[] = [];
-  for (let i = 0; i < SCENE.torpedoes; i += 1) {
+  for (let i = 0; i < s.torpedoes; i += 1) {
     const local = (tick + i * 37) % cycle;
     const run = Math.floor((tick + i * 37) / cycle);
     const id = `t${i}_${run}`;
-    const bearing = (i / SCENE.torpedoes) * Math.PI * 2 + run * 0.7;
+    const bearing = (i / s.torpedoes) * Math.PI * 2 + run * 0.7;
     const speed = CONFIG.torpedo.speed;
     const dist = 620 - local * (speed * SCENE_TICK_MS) / 1000;
     const x = own.x + Math.cos(bearing) * dist;
@@ -544,21 +748,22 @@ function torpedoEvents(world: SceneWorld, tick: number, serverT: number): GameEv
  * own-damage aggregate, and a foghorn.
  */
 function registerEvents(world: SceneWorld, tick: number): GameEvent[] {
+  const s = world.profile.scene;
   const out: GameEvent[] = [];
-  if (tick % SCENE.sunkEveryTicks === 0) {
+  if (tick % s.sunkEveryTicks === 0) {
     const n = world.roster.length;
-    const victim = world.roster[1 + ((tick / SCENE.sunkEveryTicks) % (n - 1))];
-    const killerIdx = 1 + (((tick / SCENE.sunkEveryTicks) * 3 + 2) % (n - 1));
+    const victim = world.roster[1 + ((tick / s.sunkEveryTicks) % (n - 1))];
+    const killerIdx = 1 + (((tick / s.sunkEveryTicks) * 3 + 2) % (n - 1));
     const killer = world.roster[killerIdx];
     const bty = killer.id === world.bountyId ? ('k' as const) : victim.id === world.bountyId ? ('v' as const) : undefined;
     out.push(bty ? { k: 'sunk', id: victim.id, by: killer.id, seen: true, bty } : { k: 'sunk', id: victim.id, by: killer.id, seen: true });
   }
-  if (tick % SCENE.pointEveryTicks === 0) out.push({ k: 'pt', id: world.ownId });
-  if (tick % SCENE.ownDamageEveryTicks === 0) {
+  if (tick % s.pointEveryTicks === 0) out.push({ k: 'pt', id: world.ownId });
+  if (tick % s.ownDamageEveryTicks === 0) {
     const maxHp = CONFIG.shipClasses[OWN_CLASS].hp;
-    out.push({ k: 'dmg', id: world.ownId, amount: 6, hp: Math.round(maxHp * SCENE.ownHpFrac) });
+    out.push({ k: 'dmg', id: world.ownId, amount: 6, hp: Math.round(maxHp * s.ownHpFrac) });
   }
-  if (tick % SCENE.foghornEveryTicks === 0) out.push({ k: 'fh', h: 'standard', b: (tick * 0.13) % (Math.PI * 2), v: 6 });
+  if (tick % s.foghornEveryTicks === 0) out.push({ k: 'fh', h: 'standard', b: (tick * 0.13) % (Math.PI * 2), v: 6 });
   return out;
 }
 
@@ -588,7 +793,7 @@ export function sceneFrame(world: SceneWorld, tick: number, serverT: number): Fr
     events: sceneEvents(world, tick, serverT),
     mines: [],
   };
-  if (tick % SCENE.deniedEveryTicks === 0) frame.denied = [{ slot: 1, reason: 'cooling', seq: tick }];
+  if (tick % world.profile.scene.deniedEveryTicks === 0) frame.denied = [{ slot: 1, reason: 'cooling', seq: tick }];
   return frame;
 }
 
@@ -642,7 +847,7 @@ export interface ScenePublicPlane {
 export function scenePublicPlane(world: SceneWorld, serverNow: number): ScenePublicPlane {
   return {
     zoneState: 'active',
-    zoneStartT: serverNow - SCENE.zoneElapsedMs,
+    zoneStartT: serverNow - world.profile.scene.zoneElapsedMs,
     zoneCurCx: world.ring.cur.cx,
     zoneCurCy: world.ring.cur.cy,
     zoneCurR: world.ring.cur.r,
