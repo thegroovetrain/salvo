@@ -33,7 +33,7 @@ import { circleIsland, flatRaster } from './islandFixture.js';
 const SLOT_GUN = 0;
 const SLOT_TORPEDO = 1;
 const SLOT_MINE = 2;
-// The Mine Layer fits its mine in SLOT 1 (Story 1.8: [gun, mine, decoyBuoy]).
+// The Mine Layer fits its mine in SLOT 1 (Story 1.8: [gun, mine, radarBuoy]).
 const SLOT_MINE_ML = 1;
 
 const HALF_PI = Math.PI / 2;
@@ -235,7 +235,7 @@ describe('mines — per-player cap despawns the oldest', () => {
 describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
   it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer'); // mine at slot 1 ([gun, mine, radarBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
@@ -464,7 +464,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('one CLICK places exactly one mine (fireSeq — Story 2.8 aimed weapon), even applied past the drop cooldown; a second click places another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer'); // mine at slot 1 ([gun, mine, radarBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     // Under hold-to-fire this input would re-place every reload; a click must not.

@@ -226,13 +226,15 @@ describe('star shells — denials', () => {
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: false, reason: 'dead' });
   });
 
-  it('ML slot-2 is the decoyBuoy ABILITY (Story 1.8) — activation drops a buoy, never a flare', () => {
+  it('ML slot-2 is the RADAR BUOY, never a flare (Story 7-5 wave 2 — it replaced the decoy)', () => {
     const w = bareWorld();
     const ml = place(w, 'ml', 'mineLayer', 0, 0);
-    expect(ml.loadout[SLOT_STAR].equipmentId).toBe('decoyBuoy');
+    expect(ml.loadout[SLOT_STAR].equipmentId).toBe('radarBuoy');
     setInput(ml, { slot: SLOT_STAR });
-    expect(w.sinkingActivationGate(ml, SLOT_STAR)).toEqual({ ok: true });
-    expect(w.decoys.size).toBe(1);
+    // The buoy itself is an UNIMPLEMENTED PLACEHOLDER this cycle (a later
+    // agent builds it), so the activation is refused — what this case pins is
+    // that the slot is NOT the star shell: no flare, no shell, no zone.
+    expect(w.sinkingActivationGate(ml, SLOT_STAR)).toEqual({ ok: false, reason: 'blocked' });
     expect(w.shells.size).toBe(0);
     expect(w.litZones.size).toBe(0);
     expect(w.mines.size).toBe(0);

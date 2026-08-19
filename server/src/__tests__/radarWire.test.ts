@@ -203,7 +203,7 @@ describe('pseudonym track ids — the server-private per-match stream survives t
     expect(mkTrack(0xdead_beef)).toBe(mkTrack(0xdead_beef)); // …deterministically
   });
 
-  it('every ship gets a distinct track id, and ids survive removeShip (a decoy may impersonate a departed owner)', () => {
+  it('every ship gets a distinct track id, and ids survive removeShip (a paint may outlive the ship it belongs to)', () => {
     const w = bareWorld(59);
     for (let i = 0; i < 12; i++) w.addShip(`p${i}`, `P${i}`);
     const tracks = [...Array(12).keys()].map((i) => w.pseudonymFor(`p${i}`));

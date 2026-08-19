@@ -961,10 +961,14 @@ describe('deck-only mode', () => {
     }
     // With an absurd escalation, one dry level makes a rare landing near
     // certain — the dry=1 rate must exceed the production dial's. The absolute
-    // bar moved 0.95 -> 0.94 with the wave-1 catalog: the deck is a third
-    // smaller and its rare/common mix shifted, so "near certain" now measures
-    // ~0.948. The relative assertion above is the load-bearing one.
+    // bar moved 0.95 -> 0.94 with the wave-1 catalog and 0.94 -> 0.88 with
+    // wave 2: the rare/common MIX shifted again (the cannon's 5-copy common
+    // ladder left, three rare doctrines arrived), and — the bigger mover — the
+    // harness's doctrine-ping-pong stopping rule went with exclusivity, so an
+    // economy now plays on to a genuinely empty deck and the long common tail
+    // is measured instead of truncated. It now measures ~0.888. The relative
+    // assertion above is the load-bearing one.
     expect(boosted.pity[1].rareRate).toBeGreaterThan(base.pity[1].rareRate);
-    expect(boosted.pity[1].rareRate).toBeGreaterThan(0.94);
+    expect(boosted.pity[1].rareRate).toBeGreaterThan(0.85);
   });
 });

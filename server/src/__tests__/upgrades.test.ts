@@ -36,8 +36,8 @@ const RADAR = CONFIG.vision.radar;
 const DT = CONFIG.tick.simDtMs;
 const SLOT_GUN = 0;
 const SLOT_TORPEDO = 1;
-/** Battleship fit [gun, cannon, starShells, empty]. */
-const SLOT_CANNON = 1;
+/** Battleship fit [gun, broadside, starShells, empty]. */
+const SLOT_BROADSIDE = 1;
 
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
  *  not radar-shadow a world the test built as empty water. */
@@ -92,12 +92,14 @@ function front(ship: ShipRecord): string[] {
 }
 
 /** Spend the front offer on the first card that is neither an ACQUISITION (which
- *  purges + shuffles a subdeck in) nor a DOCTRINE (whose rival's card can come
- *  BACK) — so the deck moves by exactly the one fitted card and a card-count
- *  assertion means what it says. Returns the fitted id. */
+ *  purges + shuffles a subdeck in) — so the deck moves by exactly the one
+ *  fitted card and a card-count assertion means what it says. (The second
+ *  clause, "nor a DOCTRINE whose rival's card can come BACK", is retired with
+ *  exclusivity itself in Story 7-5 wave 2: no card ever re-enters a deck.)
+ *  Returns the fitted id. */
 function spendPlainCard(w: World, ship: ShipRecord): string {
   const hand = front(ship);
-  const i = hand.findIndex((id) => !isAcquisitionDef(BOON_CATALOG[id]) && BOON_CATALOG[id].exclusiveWith === undefined);
+  const i = hand.findIndex((id) => !isAcquisitionDef(BOON_CATALOG[id]));
   expect(i, `no plain card in ${hand.join(',')}`).toBeGreaterThanOrEqual(0);
   expect(w.spendPoint(ship.id, i)).toBe(true);
   return hand[i];
@@ -124,17 +126,18 @@ const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineRelo
 describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', () => {
   // Per-hull expected line totals against the production catalog: universal
   // (guns 3 + intel 9 + ship 13 = 25) + carried subdecks + ONE acquisition
-  // card per absent equipment. STORY 7-5 WAVE 1 rebuilt the catalog — 33 lines
-  // to 22, every deck roughly a third thinner — so these totals moved with it
-  // (TB 53 -> 41, BS 55 -> 42, ML 58 -> 40); the SHAPE of the assertion, and
-  // the acquisition rules it pins, are unchanged.
+  // card per absent equipment. STORY 7-5 WAVE 1 rebuilt the catalog (33 lines
+  // to 22); WAVE 2 finished it at 23 lines + 6 acquisitions and made EVERY
+  // equipment subdeck exactly 6, so all three hulls now carry the SAME deck
+  // size: 25 universal + 6 + 6 + 4 acquisitions = 41. The SHAPE of the
+  // assertion, and the acquisition rules it pins, are unchanged.
   const CASES: [ShipClassId, number, string[]][] = [
-    // TB: torpedo 6 + boost 6 + acquisitions (mine/cannon/star/decoy) 4 = 41.
-    ['torpedoBoat', 25 + 6 + 6 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
-    // BS: cannon 7 + starShells 6 + acquisitions (torpedo/mine/decoy/boost) 4 = 42.
-    ['battleship', 25 + 7 + 6 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
-    // ML: mine 6 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 40.
-    ['mineLayer', 25 + 6 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
+    // TB: torpedo 6 + boost 6 + acquisitions (mine/broadside/star/buoy) 4 = 41.
+    ['torpedoBoat', 25 + 6 + 6 + 4, ['acquireMine', 'acquireBroadside', 'acquireStarShells', 'acquireRadarBuoy']],
+    // BS: broadside 6 + starShells 6 + acquisitions (torpedo/mine/buoy/boost) 4 = 41.
+    ['battleship', 25 + 6 + 6 + 4, ['acquireTorpedo', 'acquireMine', 'acquireRadarBuoy', 'acquireBoost']],
+    // ML: mine 6 + radarBuoy 6 + acquisitions (torpedo/broadside/star/boost) 4 = 41.
+    ['mineLayer', 25 + 6 + 6 + 4, ['acquireTorpedo', 'acquireBroadside', 'acquireStarShells', 'acquireBoost']],
   ];
 
   for (const [hull, total, acquisitions] of CASES) {
@@ -804,7 +807,7 @@ describe('acquisitions — R fills once, purge (amendments 38/41)', () => {
     expect(w.spendPoint('a', 0)).toBe(true);
     // The mine subdeck joined the pool at catalog copy counts.
     expect(copiesInDeck(a, 'mineBlast')).toBe(4);
-    expect(copiesInDeck(a, 'mineSelfPropelled')).toBe(1);
+    expect(copiesInDeck(a, 'mineCaptive')).toBe(1); // wave 2: CAPTIVE MINES replaced SELF-PROPELLED
     // Every acquisition card is GONE from the deck — permanently.
     for (const id of Object.keys(BOON_CATALOG)) {
       if (isAcquisitionDef(BOON_CATALOG[id])) expect(copiesInDeck(a, id)).toBe(0);
@@ -845,66 +848,20 @@ describe('acquisitions — R fills once, purge (amendments 38/41)', () => {
   });
 });
 
-// ---------- doctrine swaps ---------------------------------------------------
-
-// STORY 7-5 WAVE 1 RE-KEYED THIS SUITE ONTO THE CANNON. The swap MECHANISM
-// (exclusiveWith, boonReplacesLine, the returned card) is untouched and still
-// needs coverage — but its subject moved: the torpedo pair it used to be
-// written against is gone (COMMAND DETONATION deleted, ACOUSTIC HOMING now an
-// independent verb with no rival), and PLUNGING FIRE ⚔ ARMOR-PIERCING is the
-// LAST exclusive pair in the game. Same assertions, same seam, a battleship
-// board so the cannon subdeck is in the deck.
-describe('doctrine swap — free replace, rival card returns, ping-pong (amendment 44)', () => {
-  it('fitting the rival removes ONE occurrence of the held doctrine and returns its card to the deck', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    // Direct the front hand at the arcing card (a draw takes nothing out — the
-    // FIT does, so the deck loses the copy only when the spend lands).
-    a.bankedLevels = 1;
-    a.offer = ['cannonArcing', 'gunBarrel', 'shipHull', 'intelSweep'];
-    expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.boons).toEqual(['cannonArcing']);
-    expect(a.stats.cannon.mode).toBe('arcing');
-    expect(copiesInDeck(a, 'cannonArcing')).toBe(0); // held — its only copy is out of the pool
-    // Now the rival is drawn and picked: a free swap.
-    a.bankedLevels = 1;
-    a.offer = ['cannonAp', 'gunBarrel', 'shipHull', 'intelSweep'];
-    expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.boons).toEqual(['cannonAp']); // the arcing id LEFT boons
-    expect(a.stats.cannon.mode).toBe('ap');
-    expect(copiesInDeck(a, 'cannonArcing')).toBe(1); // the rival's card is BACK in the deck
-    expect(copiesInDeck(a, 'cannonAp')).toBe(0);
-  });
-
-  it('doctrine can ping-pong across a match; stat stacks apply under either doctrine', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    stack(w, a, 'cannonDamage', 2); // stat stacks fitted first
-    w.applyBoon(a, 'cannonArcing');
-    expect(a.stats.cannon.mode).toBe('arcing');
-    // Two HEAVY CHARGE copies at +2/card.
-    expect(a.stats.cannon.damage).toBe(CONFIG.cannon.damage + 4);
-    w.applyBoon(a, 'cannonAp'); // swap...
-    expect(a.boons).toEqual(['cannonDamage', 'cannonDamage', 'cannonAp']);
-    expect(a.stats.cannon.mode).toBe('ap');
-    w.applyBoon(a, 'cannonArcing'); // ...and back (ping-pong legal)
-    expect(a.boons).toEqual(['cannonDamage', 'cannonDamage', 'cannonArcing']);
-    expect(a.stats.cannon.mode).toBe('arcing');
-    expect(a.stats.cannon.damage).toBe(CONFIG.cannon.damage + 4); // stacks survive every swap
-  });
-
-  // Story 7-5 wave 1: the OTHER weapons stopped being either/or. Fitting both
-  // verbs must NOT swap — nothing returns to the deck, and both flags stand.
-  it('a non-cannon verb has no rival: fitting both keeps both, and returns nothing', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-    w.applyBoon(a, 'minePropFouling');
-    w.applyBoon(a, 'mineSelfPropelled');
-    expect(a.boons).toEqual(['minePropFouling', 'mineSelfPropelled']);
-    expect(a.stats.mine.propFouling).toBe(true);
-    expect(a.stats.mine.selfPropelled).toBe(true);
-  });
-});
+// ---------- doctrine swaps: RETIRED (Story 7-5 wave 2, R2.6) -----------------
+//
+// THE WHOLE EXCLUSIVITY MECHANISM IS DELETED, not just its last subject.
+// `exclusiveWith`, the symmetry validation, `boonReplacesLine`, the doctrine
+// swap-out and `returnCards` all died with the cannon pair (PLUNGING FIRE ⚔
+// ARMOR-PIERCING was the last exclusive pair in the game), so the three cases
+// here — the free replace, the rival's card returning to the deck, and
+// ping-pong across a match — have no mechanism left to assert about.
+//
+// The surviving half of the third case ("fitting both verbs keeps both, and
+// returns nothing") is now the ONLY behaviour there is: every doctrine in the
+// game is an independent boolean that stacks. It is pinned per weapon in
+// doctrines.test.ts rather than here, where it only ever existed as the
+// counterexample to a swap.
 
 // ---------- heal-on-grant + capacity raises ----------------------------------
 
@@ -1233,28 +1190,28 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeLessThan(CONFIG.torpedo.reloadMs);
   });
 
-  it('shipCooldown: the CANNON reads the same global scale (45s -> 22.5s) off the Battleship fit', () => {
+  it('shipCooldown: the BROADSIDE reads the same global scale (30s -> 15s) off the Battleship fit', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, cannon, starShells, empty]
+    const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, broadside, starShells, empty]
     stack(w, bb, 'shipCooldown', 5);
-    expect(bb.stats.cannon.reloadMs).toBe(22500); // 45000 base -> 22500 (Eric ruling 2026-08-04)
-    fire(bb, 1, SLOT_CANNON, 400);
+    expect(bb.stats.broadside.reloadMs).toBe(15000); // 30000 base -> 15000 (Eric ruling 2026-08-04)
+    fire(bb, 1, SLOT_BROADSIDE, 300, Math.PI / 2); // abeam — inside the beam sector
     w.step();
-    expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
-    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBe(CONFIG.cannon.reloadMs * 0.5);
-    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBeLessThan(CONFIG.cannon.reloadMs);
+    expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(0);
+    expect(bb.loadout[SLOT_BROADSIDE].state!.reloadMsLeft).toBe(CONFIG.broadside.reloadMs * 0.5);
+    expect(bb.loadout[SLOT_BROADSIDE].state!.reloadMsLeft).toBeLessThan(CONFIG.broadside.reloadMs);
 
-    // ...and the authoritative tick really returns the round on the 22.5s
-    // clock: still empty at 22 450ms, back at exactly 22 500ms — 22.5s short of
-    // the 45s base, and exactly 450 ticks (not 451 — the rounding fix's
-    // tick-count pin: reloadMsLeft is exactly 22500, so it takes exactly
-    // 450 * 50ms decrements to cross zero, never one tick of float-dust slop).
+    // ...and the authoritative tick really returns the barrage on the 15s
+    // clock: still empty at 14 950ms, back at exactly 15 000ms — exactly 300
+    // ticks (not 301 — the rounding fix's tick-count pin: reloadMsLeft is
+    // exactly 15000, so it takes exactly 300 * 50ms decrements to cross zero,
+    // never one tick of float-dust slop).
     bb.input = { ...bb.input!, fireSeq: 0, seq: 2 };
-    for (let i = 0; i < 449; i++) w.step();
-    expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
+    for (let i = 0; i < 299; i++) w.step();
+    expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(0);
     w.step();
-    expect(bb.loadout[SLOT_CANNON].state!.n).toBe(1);
-    expect(451 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 22 550 < 45 000
+    expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(1);
+    expect(301 * DT).toBeLessThan(CONFIG.broadside.reloadMs); // 15 050 < 30 000
   });
 
   it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (exactly 2.5s), not the 5.0s base', () => {
@@ -1414,7 +1371,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   // that the cap is read off the OWNER'S EFFECTIVE STATS rather than CONFIG —
   // asserted against `a.stats.mine.maxLive`, not the constant.
   it("mine maxLive comes from the OWNER's effective stats (no card writes it any more)", () => {
-    const SLOT_MINE_ML = 1; // ML fit: [gun, mine, decoyBuoy, empty]
+    const SLOT_MINE_ML = 1; // ML fit: [gun, mine, radarBuoy, empty]
     const dropMines = (drops: number): number => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, 'mineLayer');

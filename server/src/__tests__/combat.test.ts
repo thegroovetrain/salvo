@@ -518,7 +518,7 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
 
 const DT_MS = CONFIG.tick.simDtMs;
 const SLOT_TORPEDO = 1;
-/** The Mine Layer's mine slot (Story 1.8 fit: [gun, mine, decoyBuoy, empty]). */
+/** The Mine Layer's mine slot (Story 1.8 fit: [gun, mine, radarBuoy, empty]). */
 const SLOT_MINE_ML = 1;
 
 /** A slot-1/2 click input (torpedo/mine are direction-only; aimDist ignored). */
@@ -694,7 +694,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     // The 2.8 flip of the 1.8 no-compensation pin: mines ride the CLICK
     // channel again, so the D1-validated fire time is the placement time and
     // the 3s arm delay counts from it.
-    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine ([gun, mine, decoyBuoy])
+    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine ([gun, mine, radarBuoy])
     for (let i = 0; i < 40; i++) w.step(); // give the clock room to back-date into
     w.setRtt('a', 80); // allowance = min(80+30, 150) = 110
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };

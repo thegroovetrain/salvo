@@ -25,7 +25,6 @@ import {
   resolveBoons,
   type BoonDef,
   type BoonDoctrineEffect,
-  type CannonMode,
   type EquipmentId,
   type ShipClassId,
 } from '@salvo/shared';
@@ -151,31 +150,11 @@ const zoneView = (id: string, verbs: { phos?: true; daz?: true }) =>
  * rendering, and the HUD's victim tell lines.
  */
 const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
-  // PLUNGING FIRE / ARMOR-PIERCING: own-cannon shells resolve to a DISTINCT
-  // ProjectileLookId (Wave 3's cannonArcing/cannonAp looks), never the plain
-  // 'cannon' look — the swell/stretch identity a hunter would have to spot.
-  cannonArcing: () => {
-    const look = lookForReveal('shell', 'cannon', { cannon: 'arcing' as CannonMode, torpedoHoming: false });
-    expect(look).toBe('cannonArcing');
-  },
-  cannonAp: () => {
-    const look = lookForReveal('shell', 'cannon', { cannon: 'ap' as CannonMode, torpedoHoming: false });
-    expect(look).toBe('cannonAp');
-  },
-  // ACOUSTIC HOMING: an own fish launched under the homing mode resolves to
+  // ACOUSTIC HOMING: an own fish launched under the homing verb resolves to
   // 'torpHoming' from launch (self-private identity, Wave 3).
   torpedoHoming: () => {
-    const look = lookForReveal('torp', 'torpedo', { cannon: 'standard' as CannonMode, torpedoHoming: true });
+    const look = lookForReveal('torp', 'torpedo', { torpedoHoming: true });
     expect(look).toBe('torpHoming');
-  },
-  // SELF-PROPELLED MINES: a creeping mine's re-synced position is caught by
-  // reconcileMines' move bucket (the Wave-3 frozen-renderer fix) — not
-  // silently dropped as an add/no-op.
-  mineSelfPropelled: () => {
-    const held = new Map<string, MinePos>([['m1', { x: 0, y: 0 }]]);
-    const { move, add } = reconcileMines(held, [{ id: 'm1', x: 5, y: 0, by: 'firer', own: true }]);
-    expect(move.map((m) => m.id)).toContain('m1');
-    expect(add).toEqual([]);
   },
   // PROP-FOULING: the victim's SLOWED tell renders a real dual-coded line.
   minePropFouling: () => {
@@ -200,20 +179,42 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
   },
 };
 
+/**
+ * DOCTRINE LINES WHOSE CLIENT IDENTITY CHANNEL IS NOT BUILT YET — the Story 7-5
+ * wave-2 lines whose behaviour lands in a LATER slice of the same story (captive
+ * mines; the radar buoy's gun and jamming displays). They are in the catalog, so
+ * they must be listed SOMEWHERE rather than silently missing from the registry,
+ * and this list is deliberately EXACT (not a `>=`): the agent that builds one of
+ * them has to delete its line here, which is what turns "pending" back into a
+ * real identity check instead of a permanent exemption.
+ *
+ * PLUNGING FIRE / ARMOR-PIERCING / SELF-PROPELLED MINES are NOT here — their
+ * registrations are RETIRED with the lines themselves (R2.6).
+ */
+const PENDING_IDENTITY: readonly string[] = ['mineCaptive', 'buoyGun', 'buoyJamming'];
+
 describe('fit-check — DOCTRINE IDENTITY (every doctrine boon registers an on-water tell)', () => {
-  // Story 7-5 wave 1: SEVEN doctrine lines, not eight — COMMAND DETONATION was
-  // deleted, and only the cannon pair is still exclusive (the torpedo, mine and
-  // star-shell verbs are independent flags that stack).
+  // Story 7-5 wave 2: still SEVEN doctrine lines — the cannon pair and
+  // SELF-PROPELLED left, CAPTIVE MINES / GUN BUOY / JAMMING BUOY arrived.
   it('the catalog carries the ratified 7 doctrine lines', () => {
     expect(DOCTRINE_BOONS.length).toBeGreaterThanOrEqual(7);
   });
 
-  it('every doctrine boon in the catalog has a registered identity check', () => {
-    const missing = DOCTRINE_BOONS.filter((d) => DOCTRINE_IDENTITY[d.id] === undefined).map((d) => d.id);
+  it('every doctrine boon is either registered or explicitly PENDING a later slice', () => {
+    const missing = DOCTRINE_BOONS.filter(
+      (d) => DOCTRINE_IDENTITY[d.id] === undefined && !PENDING_IDENTITY.includes(d.id),
+    ).map((d) => d.id);
     expect(missing).toEqual([]);
   });
 
-  for (const def of DOCTRINE_BOONS) {
+  it('the PENDING list names only lines that really are unregistered (it cannot rot)', () => {
+    const stale = PENDING_IDENTITY.filter((id) => DOCTRINE_IDENTITY[id] !== undefined);
+    expect(stale).toEqual([]);
+    const known = new Set(DOCTRINE_BOONS.map((d) => d.id));
+    expect(PENDING_IDENTITY.filter((id) => !known.has(id))).toEqual([]);
+  });
+
+  for (const def of DOCTRINE_BOONS.filter((d) => !PENDING_IDENTITY.includes(d.id))) {
     it(`${def.id}: identity channel is real (fails if a future catalog edit strips it)`, () => {
       const check = DOCTRINE_IDENTITY[def.id];
       expect(check, `${def.id} has no doctrine identity registration`).toBeDefined();

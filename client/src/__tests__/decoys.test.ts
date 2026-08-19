@@ -4,7 +4,7 @@
 // plain id-set diff: ids only in the incoming list are added, ids only in the
 // held set are removed, ids in both are left untouched.
 //
-// The OWN/ENEMY split rides DecoyView.own (added to mirror MineView.own): an OWN
+// The OWN/ENEMY split rides BuoyView.own (added to mirror MineView.own): an OWN
 // buoy draws in the fog-immune chart layer, a truesighted ENEMY buoy in the
 // fogged world layer — without it a truesighted enemy buoy would have read as
 // YOURS. The own-spawn hook fires ONLY for newly-added OWN buoys (the audio
@@ -12,10 +12,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import type { DecoyView } from '@salvo/shared';
+import type { BuoyView } from '@salvo/shared';
 import { reconcileDecoys, Decoys } from '../render/decoys.js';
 
-const decoy = (id: string, own = false, until = 5000, by = 'p1'): DecoyView => ({ id, x: 0, y: 0, until, own, by });
+const decoy = (id: string, own = false, until = 5000, by = 'p1'): BuoyView => ({ id, x: 0, y: 0, until, own, by });
 
 /** Stub firer-hue resolver for the render harness (Story 1.12). */
 const HUE = (): number => 0x123456;

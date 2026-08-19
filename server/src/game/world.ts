@@ -43,15 +43,11 @@ import {
   isAfloat,
   isSinking,
   isSunk,
-  islandDistance,
   loadoutFor,
-  nearestCoastPoint,
-  pointInIsland,
   slotsWithBoons,
   hullEnvelope,
   hullSilhouette,
   mulberry32,
-  pointPolygonDistance,
   resolveBoons,
   resolveShipPose,
   slowedKinematics,
@@ -3386,7 +3382,7 @@ export class World {
    * carried since Epic 1): NO RESTRICTION AT THE GATE. The ratified criterion
    * is FITMENT, not category — "it is in a ship equipment slot so it meets
    * criteria for usability" — so all seven registry rows (gun, torpedo, mine,
-   * cannon, starShells, speedBoost, decoyBuoy) activate while SINKING exactly
+   * broadside, starShells, speedBoost, radarBuoy) activate while SINKING exactly
    * as when alive, and a future row is in by default rather than needing a
    * ruling. What a sinking captain loses is the ECONOMY — the upgrade menu,
    * picks and the heal — which never routed through this gate at all (that

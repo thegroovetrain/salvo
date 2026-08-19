@@ -13,8 +13,12 @@
 //   • both build extremes: a bare hull (smallest numbers) AND a maximally
 //     stacked build (largest numbers — 1136.9 → 1307.4 is four more glyphs than
 //     330 → 369.6),
-//   • the rival doctrine HELD, so every exclusive card carries its REPLACES line
 // — and asserts the rendered content fits the card's inner box.
+//
+// STORY 7-5 WAVE 2 dropped the REPLACES row from the model: exclusivity is
+// deleted (R2.6), so no card can carry a fourth text line and the "rival held"
+// dimension of the sweep is retired with it. That FREES a wrapped line of the
+// fit budget rather than spending one — the headroom pin below still guards it.
 //
 // It also guards the two laws that constrain the FIX, so a future "fix" cannot
 // simply delete its way out of a failure: amendment 15's legibility floor (the
@@ -30,7 +34,6 @@ import {
   boonLineageLine,
   boonName,
   boonRarityLabel,
-  boonReplacesLine,
 } from '../ui/boonCopy.js';
 import {
   MONO_ADVANCE_EM,
@@ -53,13 +56,11 @@ const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
  *  `current → next` sentence can print, which is exactly what a fit pin wants. */
 const MAXED = LINES.filter((d) => d.rarity !== 'exclusive').flatMap((d) => Array<string>(d.copies).fill(d.id));
 
-/** The fitted-boon list a worst case is measured against: the rival doctrine is
- *  always held (so exclusives carry their REPLACES line) and the line under test
- *  sits at `stack` copies. */
+/** The fitted-boon list a worst case is measured against: the line under test
+ *  sits at `stack` copies, on top of a bare or a maximally stacked build. */
 function heldBoons(def: BoonDef, stack: number, maxed: boolean): string[] {
   const base = maxed ? MAXED.filter((id) => id !== def.id) : [];
-  const rival = def.exclusiveWith ? [def.exclusiveWith] : [];
-  return [...base, ...rival, ...Array<string>(stack).fill(def.id)];
+  return [...base, ...Array<string>(stack).fill(def.id)];
 }
 
 /** The card face exactly as ui/upgradeMenu.ts's toCard() builds it. */
@@ -70,7 +71,6 @@ function faceOf(def: BoonDef, stack: number, cls: ShipClassId, maxed: boolean): 
     rarity: boonRarityLabel(def.rarity),
     name: boonName(def.id, stack),
     lineage: boonLineageLine(def, stack),
-    replaces: boonReplacesLine(def, boons),
     description: boonDescription(def, { cls, boons }),
   };
 }
@@ -93,10 +93,10 @@ function everyFace(): { label: string; face: RefitCardCopy }[] {
 const FACES = everyFace();
 
 describe('refit card container fit (amendment 47)', () => {
-  // Story 7-5 wave 1 shrank the catalog to 28 lines (seven deleted; `boostMax`
-  // split into BOOST DURATION + BOOST SPEED).
+  // Story 7-5 wave 2 settles the catalog at its FINAL shape: 23 upgrade lines +
+  // 6 acquisitions = 29.
   it('covers every catalog line at every stack position', () => {
-    expect(LINES.length).toBeGreaterThanOrEqual(28);
+    expect(LINES.length).toBeGreaterThanOrEqual(29);
     expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.copies, 0) * CLASSES.length * 2);
   });
 
@@ -177,8 +177,8 @@ describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['cannonAp', 'intelSweep'], boostUntil: 0,
-      boons: ['cannonArcing'], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['mineCaptive', 'intelSweep'], boostUntil: 0,
+      boons: [], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false, false)!);
     const card = document.querySelector('#upgrade-menu button') as HTMLElement;

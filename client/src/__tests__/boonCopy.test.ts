@@ -21,7 +21,6 @@ import {
   boonLineageLine,
   boonName,
   boonRarityLabel,
-  boonReplacesLine,
 } from '../ui/boonCopy.js';
 
 const TB = { cls: 'torpedoBoat' as const, boons: [] as string[] };
@@ -80,19 +79,28 @@ describe('ladder coverage — every catalog line, every stack position', () => {
     // The doctrine forks. PHOSPHOR SHELLS is a DISPLAY rename of the
     // `starIncendiary` line — the id is deliberately unchanged (project law:
     // a copy rename is never an id rename, the KILL LEADER precedent).
-    expect(boonName('cannonArcing')).toBe('PLUNGING FIRE');
-    expect(boonName('cannonAp')).toBe('ARMOR-PIERCING SHELLS');
     expect(boonName('torpedoHoming')).toBe('ACOUSTIC HOMING');
-    expect(boonName('mineSelfPropelled')).toBe('SELF-PROPELLED MINES');
     expect(boonName('minePropFouling')).toBe('PROP FOULING MINES');
     expect(boonName('starIncendiary')).toBe('PHOSPHOR SHELLS');
     expect(boonName('starDazzle')).toBe('DAZZLE SHELLS');
+    // STORY 7-5 WAVE 2 — Eric's names for the two reworked equipments, verbatim.
+    // The PLUNGING FIRE / ARMOR-PIERCING / HEAVY CHARGE / EXTENDED BATTERY /
+    // SELF-PROPELLED MINES spot checks are RETIRED with their catalog lines.
+    expect(boonName('broadsideSpread', 0)).toBe('BROADSIDE SPREAD I');
+    expect(boonName('broadsideSpread', 3)).toBe('BROADSIDE SPREAD IV');
+    expect(boonName('broadsideTurrets', 0)).toBe('BROADSIDE TURRETS I');
+    expect(boonName('broadsideTurrets', 1)).toBe('BROADSIDE TURRETS II');
+    expect(boonName('buoySweep', 0)).toBe('BUOY I');
+    expect(boonName('buoySweep', 3)).toBe('BUOY IV');
+    expect(boonName('buoyGun')).toBe('GUN BUOY');
+    expect(boonName('buoyJamming')).toBe('JAMMING BUOY');
+    expect(boonName('mineCaptive')).toBe('CAPTIVE MINES');
     // Acquisitions — amendment 42 named the Speed Boost card EMERGENCY THROTTLE.
     expect(boonName('acquireTorpedo')).toBe('TORPEDO TUBES');
     expect(boonName('acquireMine')).toBe('MINE RACKS');
     expect(boonName('acquireStarShells')).toBe('STAR SHELL MORTAR');
-    expect(boonName('acquireCannon')).toBe('CANNON');
-    expect(boonName('acquireDecoy')).toBe('DECOY BUOY');
+    expect(boonName('acquireBroadside')).toBe('BROADSIDE BARRAGE');
+    expect(boonName('acquireRadarBuoy')).toBe('RADAR BUOY');
     expect(boonName('acquireBoost')).toBe('EMERGENCY THROTTLE');
   });
 
@@ -106,6 +114,8 @@ describe('ladder coverage — every catalog line, every stack position', () => {
     expect(boonName('someFutureBoon')).toBe('Some Future Boon');
   });
 
+  // The nine survive wave 2 one-for-one: `cannon` → `broadside`, `decoyBuoy` →
+  // `radarBuoy`.
   it('labels all NINE catalog categories, and fails open on an unknown one', () => {
     const categories = new Set(Object.values(BOON_CATALOG).map((d) => d.category));
     expect(categories.size).toBe(9);
@@ -163,30 +173,57 @@ describe('rules text — the contract, with live values', () => {
     // count to headline, so it prints the scale itself, reading downward.
     expect(boonDescription(BOON_CATALOG.shipCooldown, TB)).toContain('All cooldowns: 100% → 90%.');
     expect(boonDescription(BOON_CATALOG.shipHull, TB)).toContain('Repairs the hull it adds.');
-    expect(boonDescription(BOON_CATALOG.intelRange, TB)).toContain('Sight, gun, cannon and star shells reach with it.');
+    expect(boonDescription(BOON_CATALOG.intelRange, TB)).toContain('Sight, gun, broadside and star shells reach with it.');
     expect(boonDescription(BOON_CATALOG.mineBlast, TB)).toContain('The trip ring widens with it.');
   });
 
   it('doctrine cards spell out the behavior change; acquisitions say what they fit', () => {
-    expect(boonDescription(BOON_CATALOG.cannonAp, TB)).toContain('three hulls');
-    expect(boonDescription(BOON_CATALOG.cannonArcing, TB)).toContain('islands');
     expect(boonDescription(BOON_CATALOG.torpedoHoming, TB)).toContain('steer');
     expect(boonDescription(BOON_CATALOG.minePropFouling, TB)).toContain('fouled');
     expect(boonDescription(BOON_CATALOG.starDazzle, TB)).toContain('dazzle');
-    expect(boonDescription(BOON_CATALOG.acquireCannon, TB)).toContain('open slot');
+    expect(boonDescription(BOON_CATALOG.mineCaptive, TB)).toContain('torpedo');
+    expect(boonDescription(BOON_CATALOG.buoyGun, TB)).toContain('5 damage');
+    expect(boonDescription(BOON_CATALOG.buoyJamming, TB)).toContain('false returns');
+    expect(boonDescription(BOON_CATALOG.acquireBroadside, TB)).toContain('open slot');
+    expect(boonDescription(BOON_CATALOG.acquireRadarBuoy, TB)).toContain('open slot');
     // ...and a doctrine card never prints a bare stat diff instead.
     expect(boonDescription(BOON_CATALOG.starIncendiary, TB)).not.toContain('→');
+  });
+
+  // STORY 7-5 WAVE 2 — the BROADSIDE pair. SPREAD is the ONE line in the catalog
+  // whose printed number falls as the card climbs, and the number it prints is
+  // NOT the stat the card writes: `broadside.spreadRung` is an index into a
+  // ladder of authored degrees, so "1 → 2" would say nothing. It prints the
+  // DERIVED fan half-angle instead, through the same preview diff.
+  it('BROADSIDE SPREAD prints the fan TIGHTENING, not the rung it writes', () => {
+    const text = boonDescription(BOON_CATALOG.broadsideSpread, TB);
+    expect(text).toContain('Barrage spread');
+    expect(text).toContain('°');
+    expect(text).not.toMatch(/\b1 → 2\b/); // never the raw rung
+    // The half-angle really falls, and it is the firewall's own number.
+    const before = effectiveStats(CONFIG.shipClasses.battleship);
+    const after = effectiveStats(CONFIG.shipClasses.battleship, resolveBoons(['broadsideSpread'], BOON_CATALOG));
+    expect(after.broadside.fanHalfAngleRad).toBeLessThan(before.broadside.fanHalfAngleRad);
+    expect(text).toContain('Shells land nearer the point you clicked.');
+  });
+
+  it('BROADSIDE TURRETS prints shells per barrage, and the straddle note', () => {
+    const text = boonDescription(BOON_CATALOG.broadsideTurrets, TB);
+    expect(text).toContain('Shells per barrage: 3 → 4.');
+    expect(text).toContain('An odd count puts one shell dead on your click.');
   });
 
   // STORY 7-5 WAVE 1 — the verbs STACK, so no doctrine card may still sell
   // itself as a trade against its former rival. Both star-shell cards and both
   // mine cards are legal to hold together now.
-  it('no stacking-verb card implies an either/or any more', () => {
-    const stacking = ['starIncendiary', 'starDazzle', 'minePropFouling', 'mineSelfPropelled', 'torpedoHoming'];
-    for (const id of stacking) {
-      const text = boonDescription(BOON_CATALOG[id], TB);
-      expect(text, id).not.toMatch(/instead|no longer|replaces/i);
-      expect(BOON_CATALOG[id].exclusiveWith, id).toBeUndefined();
+  // WAVE 2 made this TOTAL: exclusivity is deleted (R2.6), so EVERY doctrine
+  // card in the catalog is a stacking verb and none may sell itself as a trade.
+  it('no doctrine card implies an either/or any more — every verb stacks', () => {
+    const verbs = Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'doctrine'));
+    expect(verbs.length).toBeGreaterThanOrEqual(7);
+    for (const def of verbs) {
+      const text = boonDescription(def, TB);
+      expect(text, def.id).not.toMatch(/instead|replaces/i);
     }
   });
 
@@ -219,24 +256,19 @@ describe('lineage handrail + doctrine-swap line', () => {
     expect(boonLineageLine(BOON_CATALOG.shipCooldown, 9)).toBe('V/V');
   });
 
-  it('names the rival ONLY while you hold it (amendment 44 — the free swap)', () => {
-    // The CANNON pair is the LAST exclusive pair in the game (Story 7-5 wave 1
-    // left `exclusiveWith` in place for it alone, because PLUNGING FIRE and
-    // ARMOR-PIERCING genuinely contradict), so it is what this pins now.
-    expect(boonReplacesLine(BOON_CATALOG.cannonAp, [])).toBeNull();
-    expect(boonReplacesLine(BOON_CATALOG.cannonAp, ['cannonArcing'])).toBe('REPLACES: PLUNGING FIRE');
-    expect(boonReplacesLine(BOON_CATALOG.cannonArcing, ['cannonAp'])).toBe('REPLACES: ARMOR-PIERCING SHELLS');
-    // A non-exclusive line never carries the swap line, whatever you hold —
-    // and since wave 1 that includes every stacking VERB card.
-    expect(boonReplacesLine(BOON_CATALOG.shipCooldown, ['shipCooldown'])).toBeNull();
-    expect(boonReplacesLine(BOON_CATALOG.starDazzle, ['starIncendiary'])).toBeNull();
-  });
-
-  it('every exclusive pair in the catalog can name its rival (symmetry, end to end)', () => {
-    for (const def of Object.values(BOON_CATALOG)) {
-      if (def.exclusiveWith === undefined) continue;
-      expect(boonReplacesLine(def, [def.exclusiveWith]), def.id).toBe(`REPLACES: ${boonName(def.exclusiveWith)}`);
-    }
+  // THE "REPLACES: <rival>" PINS ARE RETIRED (Story 7-5 wave 2, R2.6).
+  // `boonReplacesLine` existed to name the rival of an EXCLUSIVE pair; the
+  // cannon's PLUNGING FIRE / ARMOR-PIERCING was the last pair in the game, and
+  // `BoonDef.exclusiveWith` left the type with it. The function is deleted
+  // rather than kept as one that can only ever return null, so these two pins
+  // have nothing left to assert. What replaces them is the STRUCTURAL claim
+  // below: no card face can carry a swap line, because no line is exclusive.
+  it('NO catalog line is exclusive any more — the swap grammar has no subject', () => {
+    const tiers = new Set(Object.values(BOON_CATALOG).map((d) => d.rarity));
+    expect(tiers.has('exclusive')).toBe(false);
+    // The rarity LABEL is still supported (a future tier can use it) — it just
+    // has no line behind it today.
+    expect(boonRarityLabel('exclusive')).toBe('EXCLUSIVE');
   });
 });
 
@@ -274,8 +306,8 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   });
 
   it('reuses the doctrine / acquisition text verbatim (one copy of every string)', () => {
-    expect(boonEffectLine('cannonAp', bare)).toBe(
-      boonDescription(BOON_CATALOG.cannonAp, { cls: 'battleship', boons: [] }),
+    expect(boonEffectLine('mineCaptive', bare)).toBe(
+      boonDescription(BOON_CATALOG.mineCaptive, { cls: 'battleship', boons: [] }),
     );
     expect(boonEffectLine('acquireTorpedo', bare)).toBe(
       boonDescription(BOON_CATALOG.acquireTorpedo, { cls: 'battleship', boons: [] }),

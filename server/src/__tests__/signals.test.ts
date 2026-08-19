@@ -43,12 +43,12 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
   return rec;
 }
 
-/** A fogged SignalContext for `me`, reading time/islands/ships/zones/decoys —
+/** A fogged SignalContext for `me`, reading time/islands/ships/zones —
  *  and the radar modes + pseudonym resolver (radar realism cycle) — off the world. */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, me, wakes: w.wakeRibbons,
+    litZones: w.litZones, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -58,7 +58,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -98,7 +98,6 @@ const REGISTRY_KEYS = [
   'contact',
   'mine',
   'litzone',
-  'decoy',
   'blip',
   'shell',
   'torp',
@@ -136,18 +135,19 @@ const REGISTRY_KEYS = [
 describe('SIGNAL_REGISTRY — row shape', () => {
   it('has exactly the 22 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
   });
 
-  it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
+  it('every row: eventType matches its registry key, visible/materialize are callable; NO row carries a counterIntel seam any more (Story 7-5 wave 2)', () => {
     for (const [key, row] of Object.entries(SIGNAL_REGISTRY)) {
       expect(row.eventType).toBe(key);
       expect(typeof row.visible).toBe('function');
       expect(typeof row.materialize).toBe('function');
-      // Story 1.8 lands the FIRST counterIntel implementation — the blip row's
-      // decoy radar-double. Every other row keeps the slot empty.
-      if (key === 'blip') expect(typeof row.counterIntel).toBe('function');
-      else expect(row.counterIntel).toBeUndefined();
+      // The blip row carried the game's ONLY counterIntel implementation — the
+      // decoy's radar-double lie. The decoy is deleted (R2.6) and the seam went
+      // with it: nothing fabricates a signal. The jamming buoy (R2.11) will
+      // re-establish it WITH its own oracle carve-out, not inherit a dormant one.
+      expect((row as { counterIntel?: unknown }).counterIntel).toBeUndefined();
     }
   });
 });
@@ -254,54 +254,14 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect((wire as { by: string }).by).toBe('a'); // the dropper's ship id
   });
 
-  it('decoy row: [id,x,y,until,own,by] — DECOY id, `by` = owner ship id appended LAST (Story 1.12)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 40, y: 0, hullId: 'mineLayer', heading: 0, until: 30_000 }); // owner sees it always
-    const row = SIGNAL_REGISTRY.decoy; // pseudo-row: direct access (not signalFor)
-    const ctx = foggedCtx(w, a);
-    const decoy = w.decoys.get('d1')!;
-    expect(row.visible(ctx, decoy)).toBe(true);
-    const wire = row.materialize(ctx, decoy);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'until', 'own', 'by']);
-    // `id` is the DECOY's own id; `by` is the OWNER's ship id (the personal-hue +
-    // roster attribution hook — the deceiving blip carries the owner id separately).
-    expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000, own: true, by: 'a' });
-  });
-
-  it('blip row counterIntel: the SAME [k,t,gx,gy,w,h,bits] shape — the OWNER hull\'s footprint at the BUOY\'s position, FROZEN drop-time heading', () => {
-    const w = bareWorld();
-    const b = place(w, 'b', 0, 0); // fogged non-owner observer
-    // hullId/heading are the drop-time snapshot ON the record (Story 4.2,
-    // amendment 11) — the owner needs no ship in the world at all.
-    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, hullId: 'mineLayer', heading: 0.9, until: 999_999 }); // radar annulus, bearing 0
-    b.prevSweepAngle = wrapPositive(-0.02);
-    b.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
-    const row = SIGNAL_REGISTRY.blip;
-    const lie = row.counterIntel!(foggedCtx(w, b), w.decoys.get('d1')!);
-    expect(lie).not.toBeNull();
-    expect(Object.keys(lie as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']); // byte-identical to a real paint
-    const c = paintCoverage('mineLayer', 400, 0, 0.9, CONFIG.vision.radarCellU, w.now);
-    expect(lie).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
-  });
-
-  it('blip row counterIntel: SUPPRESSED while the owner is contact-visible (the FR10 coexistence guard)', () => {
-    const w = bareWorld();
-    const b = place(w, 'b', 0, 0);
-    const a = place(w, 'a', 100, 0); // the owner, inside b's sight — a live contact
-    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, hullId: 'mineLayer', heading: 0, until: 999_999 }); // swept annulus
-    b.prevSweepAngle = wrapPositive(-0.02);
-    b.sweepAngle = wrapPositive(0.02);
-    const row = SIGNAL_REGISTRY.blip;
-    const ctx = foggedCtx(w, b);
-    expect(SIGNAL_REGISTRY.contact.visible(ctx, a)).toBe(true); // the exact predicate the guard reuses
-    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toBeNull(); // contact(a) + blip(a) can never coexist
-    // Owner out of contact reach: the same call lies again (control).
-    a.state.x = -400; // annulus, bearing π — invisible to the window around 0
-    expect(SIGNAL_REGISTRY.contact.visible(ctx, a)).toBe(false);
-    const c = paintCoverage('mineLayer', 400, 0, 0, CONFIG.vision.radarCellU, w.now);
-    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
-  });
+  // RETIRED (Story 7-5 wave 2): the `decoy` row's key-order pin and the two
+  // blip-counterIntel pins (wire-shape identity with a real paint, and the
+  // FR10 contact-coexistence suppression). All three assert about a channel
+  // and a seam that are DELETED — the decoy buoy no longer exists and nothing
+  // fabricates a ship contact. They are not adapted to the RADAR BUOY: it
+  // paints on its OWN profile with no owner identity (R2.9), which is an
+  // ordinary return rather than a lie, and its `buoys` channel lands with the
+  // buoy itself (a later agent) along with its own key-order pin.
 
   it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
     const w = bareWorld();
@@ -979,21 +939,17 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
     expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 200, y: 0 }))).toBe(false);
   });
 
-  it('the decoy row does NOT ride detect — it stays on truesight, untouched (amendment 91)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.decoys.set('d1', { id: 'd1', ownerId: 'z', x: 300, y: 0, hullId: 'mineLayer', heading: 0, until: 999_999 });
-    // 300u: beyond detect (247.5) but inside sight (330) — the buoy is SEEN.
-    expect(SIGNAL_REGISTRY.decoy.visible(foggedCtx(w, a), w.decoys.get('d1')!)).toBe(true);
-  });
+  // RETIRED (Story 7-5 wave 2): "the decoy row does NOT ride detect". The row
+  // is deleted; the amendment-91 rule it illustrated (exactly THREE rows ride
+  // detect — mine, torp, torpU) is still pinned by the cases above.
 });
 
 // ---------- fail-closed lookups -----------------------------------------------
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
   // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 16 GameEvent
-  // kinds. The four contact/mine/litzone/decoy pseudo-rows are unreachable from
-  // it (a fabricated k:'mine'/'litzone'/'decoy' world event can never
+  // kinds. The three contact/mine/litzone pseudo-rows are unreachable from
+  // it (a fabricated k:'mine'/'litzone' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
 
@@ -1009,16 +965,14 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     }
   });
 
-  it('signalFor excludes the contact/mine/litzone/decoy pseudo-rows (world-event dispatch only)', () => {
+  it('signalFor excludes the contact/mine/litzone pseudo-rows (world-event dispatch only)', () => {
     expect(signalFor('contact')).toBeUndefined();
     expect(signalFor('mine')).toBeUndefined();
     expect(signalFor('litzone')).toBeUndefined();
-    expect(signalFor('decoy')).toBeUndefined();
     // ...but the rows themselves still exist for direct scan-driven access.
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
-    expect(SIGNAL_REGISTRY.decoy).toBeDefined();
   });
 
   it('signalFor never resolves an inherited prototype key to a Function', () => {

@@ -405,12 +405,14 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(stacked?.options[0].name).not.toBe(fresh?.options[0].name);
   });
 
-  // Story 7-5 wave 1: the verb cards (ACOUSTIC HOMING, PROP FOULING, PHOSPHOR/
-  // DAZZLE SHELLS) dropped from `exclusive` to `rare` when they stopped being
-  // either/or, so the CANNON pair is the last EXCLUSIVE tier in the catalog.
-  it('carries the rarity tier: nothing for a common, RARE / EXCLUSIVE otherwise', () => {
-    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret', 'cannonAp', 'acquireMine'] }), false, false, false);
-    expect(view?.options.map((o) => o.rarity)).toEqual(['', 'RARE', 'EXCLUSIVE', 'RARE']);
+  // Story 7-5 wave 1 dropped the verb cards from `exclusive` to `rare` when they
+  // stopped being either/or, and WAVE 2 deleted the cannon pair — the last
+  // EXCLUSIVE line in the catalog. So no SHIPPED line carries that tier today;
+  // the label itself is still supported and pinned in boonCopy.test.ts, and the
+  // DOM row below still renders one from a hand-built card.
+  it('carries the rarity tier: nothing for a common, RARE otherwise', () => {
+    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret', 'mineCaptive', 'acquireMine'] }), false, false, false);
+    expect(view?.options.map((o) => o.rarity)).toEqual(['', 'RARE', 'RARE', 'RARE']);
   });
 
   it('carries the lineage handrail for multi-copy lines only, at the right position', () => {
@@ -419,14 +421,10 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(view?.options[1].lineage).toBeNull(); // AFT TURRET is a single copy
   });
 
-  // The cannon pair is the LAST exclusive pair in the game (Story 7-5 wave 1
-  // left `exclusiveWith` in place for it alone), so it is what this pins now.
-  it('carries the doctrine-swap line ONLY while the rival is held (amendment 44)', () => {
-    const none = offerView(ownShip({ offer: ['cannonAp'] }), false, false, false);
-    expect(none?.options[0].replaces).toBeNull();
-    const held = offerView(ownShip({ offer: ['cannonAp'], boons: ['cannonArcing'] }), false, false, false);
-    expect(held?.options[0].replaces).toBe('REPLACES: PLUNGING FIRE');
-  });
+  // THE DOCTRINE-SWAP PIN IS RETIRED (Story 7-5 wave 2, R2.6). Amendment 44's
+  // free swap needed an exclusive PAIR, and the cannon's was the last one in the
+  // game; `BoonDef.exclusiveWith` left the type with it, so an OfferCard has no
+  // `replaces` field for a card to carry.
 
   it('prints rules text with the player\'s LIVE values (a preview diff, not a static table)', () => {
     const fresh = offerView(ownShip({ offer: ['intelSweep'] }), false, false, false);
@@ -532,7 +530,6 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       rarity: '',
       name: boonName(id, 0),
       lineage: null,
-      replaces: null,
       description: '',
     }));
 
@@ -591,7 +588,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       options: [
         { ...cardsOf(['intelSweep'])[0] }, // common: rarity ''
         { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' },
-        { ...cardsOf(['cannonAp'])[0], rarity: 'EXCLUSIVE' },
+        { ...cardsOf(['mineCaptive'])[0], rarity: 'EXCLUSIVE' },
       ],
     }));
     const [common, rare, exclusive] = cards();
@@ -609,20 +606,20 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(tagColor(exclusive)).toContain('var(--hc-storm-readout)');
   });
 
-  it('renders the lineage handrail for a multi-copy line and the doctrine-swap line', () => {
+  it('renders the lineage handrail for a multi-copy line and nothing for a single', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
         { ...cardsOf(['intelSweep'])[0], lineage: 'II/V' },
-        { ...cardsOf(['cannonAp'])[0], rarity: 'EXCLUSIVE', replaces: 'REPLACES: PLUNGING FIRE' },
+        { ...cardsOf(['mineCaptive'])[0], rarity: 'RARE' },
         { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' }, // 1 copy: no lineage line
       ],
     }));
-    const [stacked, swap, single] = cards();
+    const [stacked, verb, single] = cards();
     expect(stacked.textContent).toContain('II/V');
-    expect(swap.textContent).toContain('REPLACES: PLUNGING FIRE');
+    expect(verb.textContent).not.toContain('/');
     expect(single.textContent).not.toContain('/');
-    // The chip is STILL the first span, with every new line in place.
+    // The chip is STILL the first span, with every line in place.
     expect(cards().map((b) => b.querySelector('span')?.textContent)).toEqual(['1', '2', '3']);
   });
 

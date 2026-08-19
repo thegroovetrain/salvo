@@ -199,8 +199,8 @@ describe('the ◆n quick-info compression fits the label column', () => {
       // Worst case per row: a live reload countdown AND — for the two pieces of
       // equipment that HAVE a window — that window at its longest fitted
       // duration, AND the accrued mark, all on the line at once.
-      const window = { speedBoost: stats.boost.durationMs, decoyBuoy: stats.decoyBuoy.durationMs }[
-        c.id as 'speedBoost' | 'decoyBuoy'
+      const window = { speedBoost: stats.boost.durationMs, radarBuoy: stats.radarBuoy.durationMs }[
+        c.id as 'speedBoost' | 'radarBuoy'
       ];
       for (const active of [0, window ?? 0]) {
         const line = quickInfoLine(info, info.reloadMs, active, n);

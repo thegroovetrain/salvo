@@ -14,10 +14,10 @@ import { OWN_FIRE_WINDOW_MS, OwnFireLatch, isBallisticFire } from '../sim/ownFir
 describe('OwnFireLatch — the one-shot claim', () => {
   it('hands the claim to the FIRST reveal and to nothing after it', () => {
     const latch = new OwnFireLatch();
-    latch.latch('cannon', 1000);
-    expect(latch.claim(1000)).toBe('cannon');
+    latch.latch('broadside', 1000);
+    expect(latch.claim(1000)).toBe('broadside');
     // A second shell inside the same window — ours only if we fired twice, and
-    // we did not. Before this rule, ONE cannon click dressed every own-looking
+    // we did not. Before this rule, ONE broadside click dressed every own-looking
     // reveal for the next 400ms, enemy shells on our bow included.
     expect(latch.claim(1000)).toBeNull();
     expect(latch.claim(1200)).toBeNull();
@@ -33,15 +33,15 @@ describe('OwnFireLatch — the one-shot claim', () => {
 
   it('goes stale at the window edge rather than dressing an old shot', () => {
     const latch = new OwnFireLatch();
-    latch.latch('cannon', 1000);
-    expect(latch.claim(1000 + OWN_FIRE_WINDOW_MS)).toBe('cannon'); // the last instant
-    latch.latch('cannon', 1000);
+    latch.latch('broadside', 1000);
+    expect(latch.claim(1000 + OWN_FIRE_WINDOW_MS)).toBe('broadside'); // the last instant
+    latch.latch('broadside', 1000);
     expect(latch.claim(1000 + OWN_FIRE_WINDOW_MS + 1)).toBeNull();
   });
 
   it('is CLEARED at the hard boundary (own sunk / spawn / match teleport)', () => {
     const latch = new OwnFireLatch();
-    latch.latch('cannon', 1000);
+    latch.latch('broadside', 1000);
     expect(latch.pending).toBe(true);
     latch.clear();
     expect(latch.pending).toBe(false);
@@ -52,11 +52,11 @@ describe('OwnFireLatch — the one-shot claim', () => {
 
   it('claims only the BALLISTIC ids — an ability never dresses a projectile', () => {
     expect(isBallisticFire('gun')).toBe(true);
-    expect(isBallisticFire('cannon')).toBe(true);
+    expect(isBallisticFire('broadside')).toBe(true);
     expect(isBallisticFire('torpedo')).toBe(true);
     expect(isBallisticFire('starShells')).toBe(true); // rides the `shell` kind
     expect(isBallisticFire('speedBoost')).toBe(false);
-    expect(isBallisticFire('decoyBuoy')).toBe(false);
+    expect(isBallisticFire('radarBuoy')).toBe(false);
     expect(isBallisticFire('mine')).toBe(false); // placed, never revealed as a track
     const latch = new OwnFireLatch();
     latch.latch('speedBoost', 1000);

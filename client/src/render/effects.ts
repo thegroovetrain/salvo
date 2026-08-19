@@ -243,9 +243,9 @@ const FB = CLIENT_CONFIG.flashBudget;
 
 const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   muzzle: { type: 'dot', life: 0.12, color: C.muzzle, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
-  // Story 2.9 — the OWN cannon's muzzle: the same flash with real weight behind
-  // it (bigger, and it hangs a beat longer). Own-side only, because the wire's
-  // ballistic shape deliberately cannot say "cannon" to an onlooker.
+  // Story 2.9 — the OWN broadside's muzzle: the same flash with real weight
+  // behind it (bigger, and it hangs a beat longer). Own-side only, because the
+  // wire's ballistic shape deliberately cannot name the weapon to an onlooker.
   muzzleHeavy: { type: 'dot', life: 0.18, color: C.muzzle, r0: 9, r1: 1.5, width: 0, alpha: 1, additive: true },
   // spark = the hit flash at a shell-vs-ship impact → Hit Call bloom.
   spark: { type: 'dot', life: 0.2, color: C.hitBloom, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },

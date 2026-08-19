@@ -28,7 +28,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireGun',
   'fireTorp',
   'fireMine',
-  'fireCannon',
+  'fireBroadside',
   'fireStarShells',
   'placeDecoy',
   'denied',
@@ -108,25 +108,26 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
     expect(fireTone('gun')).toBe('fireGun');
     expect(fireTone('torpedo')).toBe('fireTorp');
     expect(fireTone('mine')).toBe('fireMine');
-    expect(fireTone('cannon')).toBe('fireCannon'); // Story 1.7: BB heavy report
+    expect(fireTone('broadside')).toBe('fireBroadside'); // the BB's heavy report
     expect(fireTone('starShells')).toBe('fireStarShells'); // Story 1.7: BB flare pop
   });
 
   it('covers all five weapon ids with no gaps', () => {
-    const ids = ['gun', 'torpedo', 'mine', 'cannon', 'starShells'] as const;
+    const ids = ['gun', 'torpedo', 'mine', 'broadside', 'starShells'] as const;
     for (const id of ids) expect(TONES[fireTone(id)]).toBeDefined();
   });
 
-  it('the cannon report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
-    expect(TONES.fireCannon.freqStart).toBeLessThan(TONES.fireGun.freqStart); // heavier
+  it('the broadside report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
+    expect(TONES.fireBroadside.freqStart).toBeLessThan(TONES.fireGun.freqStart); // heavier
     expect(TONES.fireStarShells.freqEnd).toBeGreaterThan(TONES.fireStarShells.freqStart); // rising pop
   });
 });
 
 describe('placeDecoy tone (Story 1.8) — buoy placement cue', () => {
-  // The decoy is an instant ability, not a firing weapon, so it is NOT in the
-  // fireTone map (decoyBuoy is excluded at the type level); its cue plays as
-  // 'placeDecoy' from the Decoys reconcile own-spawn hook (the mine precedent).
+  // The buoy is placed, not fired, so it is NOT in the fireTone map (radarBuoy
+  // is excluded at the type level); its cue plays as 'placeDecoy' from the buoy
+  // reconcile own-spawn hook (the mine precedent). The TONE ID keeps its shipped
+  // name — the buoy's own slice owns any rename.
   // It shares the soft sine "drop" family with the mine plop but is pitched a
   // touch higher so seeding a buoy is audibly distinct from dropping a mine.
   it('is a soft sine drop, within the short-tone budget, pitched above the mine plop', () => {
@@ -149,10 +150,10 @@ describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', ()
   });
 
   it('is distinct from every fire/placement success cue and the damage thud', () => {
-    // Starts well BELOW every gun-family crack (fireGun 900 / fireCannon 520)…
-    expect(TONES.denied.freqStart).toBeLessThan(TONES.fireCannon.freqStart);
+    // Starts well BELOW every gun-family crack (fireGun 900 / fireBroadside 520)…
+    expect(TONES.denied.freqStart).toBeLessThan(TONES.fireBroadside.freqStart);
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireGun.freqStart);
-    // …is not a soft sine drop (the mine/decoy placement family)…
+    // …is not a soft sine drop (the mine/buoy placement family)…
     expect(TONES.denied.type).not.toBe(TONES.fireMine.type);
     expect(TONES.denied.type).not.toBe(TONES.placeDecoy.type);
     // …and is a different waveform family from the damage thud.

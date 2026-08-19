@@ -53,10 +53,11 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // self-private 'bn' boon-fit event; Story 2.8 stripped 'upg' and added the
 // homing-track update 'torpU'; Story 4.3 added the gunnery conversation's
 // 'sp'/'hc'/'mz'; the 2026-08-04 DAMAGE CONTROL strip brought 'heal' BACK)
-// plus the four contact-like channels (contact/mine/litzone/decoy) and the
-// spectator frame.
+// plus the three contact-like channels (contact/mine/litzone) and the
+// spectator frame. (`decoy` left with the decoy buoy — Story 7-5 wave 2; the
+// RADAR BUOY's `buoys` channel joins this list when the buoy is built.)
 const EXPECTED_CHANNELS = [
-  'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'hc', 'heal', 'litzone',
+  'blip', 'bn', 'boom', 'burst', 'contact', 'denied', 'dmg', 'hc', 'heal', 'litzone',
   'mine', 'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
 ];
 
@@ -67,15 +68,10 @@ const EXPECTED_CHANNELS = [
 // sub-case" the straddle-boom check pioneered, generalized across the additions.
 const EXPECTED_SUBCASES = [
   'dazzled-victim-private',
-  'decoy-expiry',
-  'decoy-owner-truth-view',
-  'decoy-thirdparty-swept-blip',
-  'decoy-truesight-view',
-  'denied-blocked-stern-drop',
+  'denied-blocked-mine-click',
   'denied-cooling-weapon',
   'denied-noammo-ability',
   'denied-out-of-arc-owner-only',
-  'gunnery-decoy-splash-no-hitcall',
   'gunnery-hitcall-beyond-sight',
   'gunnery-miss-own-splash',
   'heal-event-healer-only',
@@ -136,7 +132,6 @@ function record(g: Golden, f: FrameMsg): FrameMsg {
   if (f.contacts.length > 0) g.channels.add('contact');
   if (f.mines.length > 0) g.channels.add('mine');
   if (f.litZones !== undefined && f.litZones.length > 0) g.channels.add('litzone');
-  if (f.decoys !== undefined && f.decoys.length > 0) g.channels.add('decoy');
   if (f.denied !== undefined && f.denied.length > 0) g.channels.add('denied');
   if (f.spec) g.channels.add('spec');
   g.frames.push(JSON.stringify(f));
@@ -627,61 +622,21 @@ function scnMineBurstDetonation(g: Golden): void {
   );
 }
 
-/**
- * Decoy buoy lifecycle (Story 1.8) — a REAL placement through the actSeq
- * channel: ML `a` drops the buoy astern; the OWNER's frame carries the truth
- * (decoys channel); a swept third party `c` receives the counterIntel blip
- * (id = a's ship id at the BUOY's position — a itself is outside c's beam
- * window); a truesighted enemy `e` receives the DecoyView; after the 30s
- * expiry the owner's frame is byte-free of the channel again.
- */
-function scnDecoy(g: Golden): void {
-  const w = bareWorld(1015);
-  const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-  const e = place(w, 'e', -76, 60); // truesight enemy: 60u from the drop point
-  const c = place(w, 'c', 0, -400); // third party: buoy at ~407u — radar annulus
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
-  w.step(); // the press drops the buoy astern at (-76, 0)
-  expect(w.decoys.size).toBe(1);
-  const buoy = [...w.decoys.values()][0];
-  const fa = cap(g, w, 'a'); // owner truth view
-  prove(g, 'decoy-owner-truth-view', (fa.decoys ?? []).some((d) => d.id === buoy.id));
-  // Third party: beam window around the BUOY's bearing only (a's own bearing
-  // from c stays outside it, so the only 'a' signal is the lie).
-  const brg = Math.atan2(0 - c.state.y, buoy.x - c.state.x);
-  c.prevSweepAngle = wrapPositive(brg - 0.02);
-  c.sweepAngle = wrapPositive(brg + 0.02);
-  const fc = cap(g, w, 'c');
-  prove(
-    g,
-    'decoy-thirdparty-swept-blip',
-    blipAt(fc, buoy.x, buoy.y) &&
-      fc.events.every((ev) => ev.k !== 'blip' || blipRefs(ev, buoy.x, buoy.y)) &&
-      (fc.decoys ?? []).length === 0,
-  );
-  // Truesight enemy: the buoy view (the lie unmasked), no blip.
-  e.prevSweepAngle = Math.PI; // park the beam away from everything relevant
-  e.sweepAngle = Math.PI + 0.0001;
-  const fe = cap(g, w, 'e');
-  prove(
-    g,
-    'decoy-truesight-view',
-    (fe.decoys ?? []).some((d) => d.id === buoy.id) && !blipAt(fe, buoy.x, buoy.y),
-  );
-  // Natural expiry: run out the 30s lifetime — the owner's channel goes silent.
-  const steps = Math.ceil(CONFIG.decoyBuoy.durationMs / DT) + 1;
-  for (let i = 0; i < steps; i++) w.step();
-  const after = cap(g, w, 'a');
-  prove(g, 'decoy-expiry', w.decoys.size === 0 && !('decoys' in after));
-}
+/* RETIRED (Story 7-5 wave 2): `scnDecoy`, the decoy-buoy lifecycle scenario
+ * (owner truth view / third-party counter-intel blip / truesight unmasking /
+ * natural expiry). All four sub-cases assert about a deleted entity and a
+ * deleted wire channel. The RADAR BUOY replacing it gets its OWN scenario
+ * when it is built — its rules are not the decoy's. */
 
 /**
  * Denial channel (Story 1.10) — every wire reason through the REAL input
  * path, pinned byte-for-byte in the fixture: an astern torpedo click
  * ('out-of-arc'), a gun click mid-cooldown ('cooling'), an ability double
- * press ('no-ammo'), and an island-backed ML DECOY stern drop ('blocked' —
- * the decoy alone keeps the stern rack as of Story 2.8; the mine's own
- * blocked CLICK is pinned in denials.test.ts). Denials are SELF-PRIVATE:
+ * press ('no-ammo'), and an island-backed ML MINE CLICK ('blocked'). That
+ * last one was the DECOY's un-aimed stern drop until Story 7-5 wave 2 deleted
+ * the decoy; the mine's click is the surviving 'blocked' producer and lands
+ * at the same rock, so the scenario's fog geometry is unchanged.
+ * Denials are SELF-PRIVATE:
  * sighted observer `b` captures the same tick byte-free of the channel. When
  * a weapon click AND an ability press deny on the same tick, the weapon
  * denial rides first (fireControl runs before activationControl — the step
@@ -697,9 +652,9 @@ function scnDenied(g: Golden): void {
   // scenario's fog geometry is unchanged — without it the polygon would still
   // block the drop but m would now PAINT on a's radar through it.
   w.map.heightRaster = rasterFrom(700, ridgeField(324, 0, 20, 20, 255));
-  // Tick 1: a clicks the torpedo dead astern; m presses its DECOY into the rock.
+  // Tick 1: a clicks the torpedo dead astern; m clicks a MINE into the rock.
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
-  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
+  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step();
   const fa1 = cap(g, w, 'a');
   const fm1 = cap(g, w, 'm');
@@ -710,7 +665,7 @@ function scnDenied(g: Golden): void {
     (fa1.denied ?? []).some((d) => d.reason === 'out-of-arc' && d.slot === 1 && d.seq === 1) &&
       !('denied' in fb1),
   );
-  prove(g, 'denied-blocked-stern-drop', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === 2) && w.decoys.size === 0);
+  prove(g, 'denied-blocked-mine-click', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === 1) && w.mines.size === 0);
   // Tick 2: a fires the gun (spends the round) + activates the boost (spends the charge).
   w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
   w.step();
@@ -871,33 +826,12 @@ function scnGunnery(g: Golden): void {
   );
 }
 
-/**
- * Shooting a decoy buoy (Story 4.3 + the Story 1.8 oracle, on the wire): a
- * burst centered on a buoy structurally resolves no victim (the buoy is not a
- * collision subject), so the shooter's frame carries a fall-of-shot `sp` and
- * NEVER an `hc` — the ratified decoy disambiguation, with zero suppression
- * code anywhere on the path.
- */
-function scnGunneryDecoy(g: Golden): void {
-  const w = bareWorld(1020);
-  place(w, 'a', 0, 0);
-  w.decoys.set('d1', { id: 'd1', ownerId: 'z', x: 400, y: 0, hullId: 'mineLayer', heading: 0, until: 999_999 });
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
-  let burst = false;
-  for (let i = 0; i < 40 && !burst; i++) {
-    w.step();
-    burst = w.tickEvents.some((e) => e.k === 'burst');
-  }
-  expect(burst).toBe(true);
-  const fa = cap(g, w, 'a');
-  prove(
-    g,
-    'gunnery-decoy-splash-no-hitcall',
-    fa.events.some((e) => e.k === 'sp' && e.id === 'a') &&
-      !fa.events.some((e) => e.k === 'hc') &&
-      w.decoys.has('d1'),
-  );
-}
+/* RETIRED (Story 7-5 wave 2): `scnGunneryDecoy` — "shooting a decoy produces
+ * no Hit Call". The buoy it shot at no longer exists. The RULE it illustrated
+ * is untouched and still holds BY CONSTRUCTION (`hc` is keyed off victim
+ * resolution, and a non-collision-subject resolves none — see the `hc` row's
+ * comment in signals.ts); the shooter's own-miss splash is still pinned by
+ * `gunnery-miss-own-splash`. */
 
 /**
  * DAMAGE CONTROL on the wire (Eric rulings 2026-08-04): `a` banks a level,
@@ -1036,6 +970,14 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // grammar was a per-room mode, and cycle 105's ONE-RADAR deletion must
   // leave every byte of the battery it pins unchanged — the deletion removed
   // the road not taken, never the behaviour production runs.
+  //
+  // REGENERATED KNOWINGLY IN STORY 7-5 WAVE 2. The decoy-buoy and
+  // shoot-a-decoy scenarios were RETIRED with their subject (nothing fakes a
+  // ship contact any more), and the denial scenario's 'blocked' producer moved
+  // from the decoy's un-aimed stern drop to the MINE's click at the same rock.
+  // Every surviving scenario's frames are otherwise unchanged — the equipment
+  // swap does not touch the fixture's hulls (TB/ML), and the reload timers
+  // visible in `you.ammo` are the ones those hulls already carried.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });
@@ -1059,7 +1001,6 @@ function runScenarios(g: Golden): void {
   scnZoneKill(g);
   scnMineBlast(g);
   scnMineBurstDetonation(g);
-  scnDecoy(g);
   scnDenied(g);
   // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
   // the strip + deck economy; every earlier scenario's rows changed shape
@@ -1071,7 +1012,6 @@ function runScenarios(g: Golden): void {
   // their existing shots always earned them; every other channel must stay
   // byte-identical).
   scnGunnery(g);
-  scnGunneryDecoy(g);
   // PV 23 (the public register — snapshot regenerated KNOWINGLY): witnessed
   // `sunk` rows gain the trailing per-observer `seen: true`, and previously
   // absent sunk rows appear unseen where an observer is the credited killer

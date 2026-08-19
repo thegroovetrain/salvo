@@ -19,7 +19,7 @@ import {
 import type { Connection } from '../net/connection';
 import type { OwnFire } from '../render/projectiles';
 import { CLIENT_CONFIG } from '../config';
-import { fitDetune } from '../audio/tones';
+import { fitDetune, fitTone } from '../audio/tones';
 import { UNKNOWN_VESSEL } from '../ui/killFeed';
 import { KILL_LEADER_MARK } from '../ui/bounty';
 
@@ -178,12 +178,13 @@ function setupChannels() {
   return { sink, decoysSync };
 }
 
-describe('bindRoom decoy channel', () => {
-  it('syncs the decoy list contact-like every frame (the mines/litZones precedent)', () => {
+describe('bindRoom buoy channel', () => {
+  // Story 7-5 wave 2: FrameMsg.decoys → FrameMsg.buoys (BuoyView, same fields).
+  it('syncs the buoy list contact-like every frame (the mines/litZones precedent)', () => {
     const { sink, decoysSync } = setupChannels();
-    const decoys = [{ id: 'd1', x: 10, y: 20, until: 5000, own: true, by: 'p1' }];
-    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], decoys });
-    expect(decoysSync).toHaveBeenCalledWith(decoys, expect.any(Function)); // + firer-hue resolver (Story 1.12)
+    const buoys = [{ id: 'd1', x: 10, y: 20, until: 5000, own: true, by: 'p1' }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], buoys });
+    expect(decoysSync).toHaveBeenCalledWith(buoys, expect.any(Function)); // + firer-hue resolver (Story 1.12)
   });
 
   it('treats an omitted decoys key as an empty list (frames omit it when none)', () => {
@@ -1117,8 +1118,12 @@ describe('bindRoom reward toasts', () => {
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ship') });
   });
 
+  // The EXCLUSIVE rung is asserted through `fitTone` alone from Story 7-5 wave 2
+  // on: the cannon pair was the last exclusive LINE in the catalog (R2.6), so
+  // there is no boon id left that routes a `bn` event to that cue.
   it('WEIGHTS the fit cue by the fitted line\'s tier (Story 2.9)', () => {
-    for (const [boon, tone] of [['shipCooldown', 'fitCommon'], ['gunBarrel', 'fitRare'], ['cannonAp', 'fitExclusive']]) {
+    expect(fitTone('exclusive')).toBe('fitExclusive');
+    for (const [boon, tone] of [['shipCooldown', 'fitCommon'], ['gunBarrel', 'fitRare'], ['mineCaptive', 'fitRare']]) {
       document.body.replaceChildren();
       const { sink, play } = setupToasts();
       sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, boons: [boon] }));
@@ -1331,13 +1336,13 @@ function setupWater(
   return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon };
 }
 
-describe('own-fire correlation (Story 2.9) — telling our cannon from our gun', () => {
-  it('an OWN cannon shot lands with cannon weight: heavy muzzle, heavy report, cannon look', () => {
-    const { sink, play, spawnEffect, onShell } = setupWater('cannon');
+describe('own-fire correlation (Story 2.9) — telling our broadside from our gun', () => {
+  it('an OWN broadside shot lands with its weight: heavy muzzle, heavy report, broadside look', () => {
+    const { sink, play, spawnEffect, onShell } = setupWater('broadside');
     sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'cannon', 'cannon');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'broadside', 'broadside');
     expect(spawnEffect).toHaveBeenCalledWith('muzzleHeavy', 0, 0);
-    expect(play).toHaveBeenCalledWith('fireCannon'); // the heavier report, finally played
+    expect(play).toHaveBeenCalledWith('fireBroadside'); // the heavier report, finally played
   });
 
   it('an OWN gun shot keeps its crack — and no longer flashes from here (Story 4.3)', () => {
@@ -1363,7 +1368,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
   });
 
   it('NEVER attributes a distant (enemy) shell to our own weapon, latch or no latch', () => {
-    const { sink, play, spawnEffect, onShell } = setupWater('cannon');
+    const { sink, play, spawnEffect, onShell } = setupWater('broadside');
     // Far from our hull: this is somebody else's shell, revealed at our fog edge.
     sink.handler(victimFrame([{ k: 'shell', id: 'e1', x: 900, y: 0, vx: 130, vy: 0, t: 900 }], {}));
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), null, null);
@@ -1385,10 +1390,10 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
   // Every case below is one where it used to claim more than that.
 
   it('a fish on our bow we did NOT fire renders generic — the homing look is not free', () => {
-    // A cannon latch is standing (we just shelled someone) and an ENEMY torpedo
+    // A broadside latch is standing (we just shelled someone) and an ENEMY torpedo
     // surfaces inside our hull length. Dressing it as our own steering fish
     // would tell the player their doctrine is in the water when the enemy's is.
-    const { sink, onShell } = setupWater('cannon');
+    const { sink, onShell } = setupWater('broadside');
     sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null, null);
   });
@@ -1406,26 +1411,26 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
   it('ONE claim dresses ONE shell: the second reveal in the window reads generic', () => {
     // The latch is one-shot (sim/ownFire.ts). Two shells materialize on our hull
     // in the same frame — ours, and an enemy's revealed at point-blank range.
-    // The first wears the cannon weight; the second must not.
-    const { sink, play, spawnEffect, onShell } = setupWater('cannon');
+    // The first wears the broadside weight; the second must not.
+    const { sink, play, spawnEffect, onShell } = setupWater('broadside');
     sink.handler(victimFrame([
       { k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 },
       { k: 'shell', id: 's2', x: 0, y: 0, vx: -130, vy: 0, t: 900 },
     ], {}));
-    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 's1' }), 'cannon', 'cannon');
+    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 's1' }), 'broadside', 'broadside');
     expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 's2' }), 'gun', null);
-    // Only the CLAIMED cannon shot spawns anything here; the second reveal's
+    // Only the CLAIMED broadside shot spawns anything here; the second reveal's
     // flash (if it earns one) comes from the server's own `mz` row.
     expect(spawnEffect).toHaveBeenCalledTimes(1);
     expect(spawnEffect).toHaveBeenCalledWith('muzzleHeavy', 0, 0);
-    expect(play).toHaveBeenNthCalledWith(1, 'fireCannon');
+    expect(play).toHaveBeenNthCalledWith(1, 'fireBroadside');
     expect(play).toHaveBeenNthCalledWith(2, 'fireGun');
   });
 
   it('never CLAIMS the latch for a reveal that is not on our own hull', () => {
     // Consuming on a distant shell would burn the claim our own reveal is about
     // to need — so the far shell must not consult it at all.
-    const { sink, onShell, ownFireWeapon } = setupWater('cannon');
+    const { sink, onShell, ownFireWeapon } = setupWater('broadside');
     sink.handler(victimFrame([{ k: 'shell', id: 'e1', x: 900, y: 0, vx: 130, vy: 0, t: 900 }], {}));
     sink.handler(victimFrame([{ k: 'torp', id: 'e2', x: 900, y: 0, vx: 60, vy: 0, t: 900 }], {}));
     expect(ownFireWeapon).not.toHaveBeenCalled();
@@ -1449,22 +1454,24 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
 // The latch's own rules (one-shot claim, staleness, the hard-boundary clear)
 // live in __tests__/ownFire.test.ts — this suite pins how roomBindings SPENDS it.
 
-describe('pierce identity (Story 2.9) — the derived AP boom id', () => {
-  it('renders a punch-through ring for a derived id and the ordinary spark otherwise', () => {
+// THE PIERCE-IDENTITY PINS ARE RETIRED (Story 7-5 wave 2, R2.6): ARMOR-PIERCING
+// was the only source of the derived `<shellId>#p<order>` boom id, and its weapon
+// is deleted — `pierceOrder`, the `pierce` EffectKind and its spec went with it.
+// What survives is the claim that never depended on AP: an ordinary boom on a
+// struck hull sparks, flashes the contact, and a miss splashes.
+describe('boom identity — spark on a hit, splash on a miss', () => {
+  it('sparks a terminal boom on a struck hull', () => {
     const { sink, spawnEffect } = setupWater();
-    sink.handler(victimFrame([{ k: 'boom', id: 's7#p0', hit: 'foe', x: 40, y: 0 }], {}));
-    expect(spawnEffect).toHaveBeenCalledWith('pierce', 40, 0);
-    spawnEffect.mockClear();
     sink.handler(victimFrame([{ k: 'boom', id: 's7', hit: 'foe', x: 90, y: 0 }], {}));
-    expect(spawnEffect).toHaveBeenCalledWith('spark', 90, 0); // terminal: unchanged
+    expect(spawnEffect).toHaveBeenCalledWith('spark', 90, 0);
   });
 
-  it('still flashes the struck contact, and still splashes a MISS (no id styling)', () => {
+  it('still flashes the struck contact, and still splashes a MISS', () => {
     const { sink, spawnEffect, flash } = setupWater();
-    sink.handler(victimFrame([{ k: 'boom', id: 's7#p1', hit: 'foe', x: 40, y: 0 }], {}));
+    sink.handler(victimFrame([{ k: 'boom', id: 's7', hit: 'foe', x: 40, y: 0 }], {}));
     expect(flash).toHaveBeenCalledWith('foe');
     spawnEffect.mockClear();
-    sink.handler(victimFrame([{ k: 'boom', id: 's7#p2', x: 40, y: 0 }], {})); // no hit
+    sink.handler(victimFrame([{ k: 'boom', id: 's8', x: 40, y: 0 }], {})); // no hit
     expect(spawnEffect).toHaveBeenCalledWith('splash', 40, 0);
   });
 
@@ -1554,19 +1561,6 @@ describe('the gunnery rows (Story 4.3) — mz / sp / hc', () => {
     ], {}));
     expect(spawnEffect).toHaveBeenCalledTimes(1);
     expect(spawnEffect).toHaveBeenCalledWith('splash', 88, 3);
-  });
-
-  it('leaves the PIERCE ring alongside the Hit Call bloom — different facts', () => {
-    // The ring says the shell went THROUGH and is still flying; the bloom says
-    // we connected. Keeping pierce out of the claim is also what keeps the
-    // boom/hc pairing order-independent.
-    const { sink, spawnEffect } = setupWater();
-    sink.handler(victimFrame([
-      { k: 'boom', id: 's7#p0', hit: 'foe', x: 40, y: 0 },
-      { k: 'hc', id: 'me', x: 40, y: 0 },
-    ], {}));
-    expect(spawnEffect).toHaveBeenNthCalledWith(1, 'pierce', 40, 0);
-    expect(spawnEffect).toHaveBeenNthCalledWith(2, 'spark', 40, 0);
   });
 
   it('draws every bloom of a rapid salvo but plays at most one tone per 300ms', () => {

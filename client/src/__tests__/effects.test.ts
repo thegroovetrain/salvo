@@ -36,7 +36,7 @@ describe('isFogImmuneEffect — the marks that must read above the fog', () => {
   it('is FALSE for every fogged world effect', () => {
     // muzzleHeavy stays fogged and correctly so: it is own-side only and only
     // ever draws on our own hull, which IS the hole in the fog.
-    const fogged: EffectKind[] = ['wake', 'muzzleHeavy', 'pierce', 'sink', 'torpwake'];
+    const fogged: EffectKind[] = ['wake', 'muzzleHeavy', 'sink', 'torpwake'];
     for (const kind of fogged) expect(isFogImmuneEffect(kind)).toBe(false);
   });
 });
@@ -60,25 +60,20 @@ describe('isJuiceEffect — only the own cannon\'s extra weight is decoration', 
   });
 
   it('is TRUE for muzzleHeavy alone — the whole juice set is one kind', () => {
-    const kinds: EffectKind[] = ['wake', 'muzzle', 'muzzleHeavy', 'spark', 'pierce', 'splash', 'sink', 'torpwake', 'burst'];
+    const kinds: EffectKind[] = ['wake', 'muzzle', 'muzzleHeavy', 'spark', 'splash', 'sink', 'torpwake', 'burst'];
     expect(kinds.filter(isJuiceEffect)).toEqual(['muzzleHeavy']);
   });
 });
 
 // --- STORY 2.9: the two doctrine one-shots -------------------------------------
 
-describe('the Story 2.9 one-shots — a heavy muzzle and a pierce ring', () => {
-  it('classes the OWN cannon\'s heavier muzzle as juice, like the muzzle it replaces', () => {
+// The AP PIERCE RING'S PINS ARE RETIRED (Story 7-5 wave 2, R2.6): ARMOR-PIERCING
+// was the ring's only source and the cannon is deleted, so `pierce` left
+// EffectKind entirely rather than surviving as a spec nothing can spawn.
+describe('the Story 2.9 one-shot — the heavy muzzle', () => {
+  it('classes the OWN broadside\'s heavier muzzle as juice, like the muzzle it replaces', () => {
     expect(isJuiceEffect('muzzleHeavy')).toBe(true);
     expect(effectPeakAlpha('muzzleHeavy', 1, 0)).toBe(0); // motion=off: no flash
-  });
-
-  it('classes the AP PIERCE ring as INFORMATION — it survives motion=off', () => {
-    // It is the entire enemy-side armor-piercing tell: a hit that did NOT stop
-    // the shell. Gating it on motion would delete the doctrine from the screen
-    // for anyone who turned animation down.
-    expect(isJuiceEffect('pierce')).toBe(false);
-    expect(effectPeakAlpha('pierce', 0.9, 0)).toBe(0.9);
   });
 });
 
@@ -124,7 +119,7 @@ describe('isBudgetedFlash — every one-shot claims except the two wake material
     // track — degrading the muzzle flashes and Hit Calls that land there next.
     expect(isBudgetedFlash('wake')).toBe(false);
     expect(isBudgetedFlash('torpwake')).toBe(false);
-    const flashes: EffectKind[] = ['muzzle', 'muzzleHeavy', 'spark', 'pierce', 'splash', 'sink', 'burst', 'horn'];
+    const flashes: EffectKind[] = ['muzzle', 'muzzleHeavy', 'spark', 'splash', 'sink', 'burst', 'horn'];
     for (const k of flashes) expect(isBudgetedFlash(k)).toBe(true);
   });
 });
@@ -267,7 +262,7 @@ describe('coalescing — one frame, one cue (amendment 37 extended to visuals)',
 describe('motion: \'off\' is unchanged by the budget', () => {
   it('spawns exactly the same kinds, and never renders one MORE visible', () => {
     settings.set({ motion: 'off' });
-    const kinds: EffectKind[] = ['muzzle', 'muzzleHeavy', 'spark', 'pierce', 'splash', 'sink', 'burst', 'horn', 'torpwake'];
+    const kinds: EffectKind[] = ['muzzle', 'muzzleHeavy', 'spark', 'splash', 'sink', 'burst', 'horn', 'torpwake'];
     const plainLayer = new Container();
     const plain = new Effects(plainLayer, plainLayer, plainLayer); // no gate = the pre-4.8 path
     const { fx } = harness();

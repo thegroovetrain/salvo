@@ -389,8 +389,9 @@ interface Game {
    *  Story 1.6) or, as of Story 1.10, an UNMATCHED server denial on ANY slot
    *  (weapon chips flash per-slot too) — consumed into the matching
    *  abilityPulse (never silence). Per-slot since Story 1.8: the ML fits TWO
-   *  special slots (mine + decoyBuoy), so a denied press must not flash
-   *  the decoy chip. Indexed by loadout slot (length SLOT_COUNT). */
+   *  special slots (mine + radarBuoy — both click-placed WEAPONS as of Story
+   *  7-5 wave 2), so a denied press must not flash the other slot's chip.
+   *  Indexed by loadout slot (length SLOT_COUNT). */
   abilityDeniedPress: boolean[];
   /** Rate-limited denied pulse PER LOADOUT SLOT — the SAME deniedFire grammar
    *  (80ms flash / 300ms floor), one driver per slot so two ability slots (and
@@ -2224,22 +2225,24 @@ function overlayFocused(g: Game | null): boolean {
 }
 
 /**
- * An ability-activation keypress landed (the TB's speed boost, or — Story 1.8 —
- * the Mine Layer's decoyBuoy; the MINE left this path in Story 2.8 when it
- * became a click-aimed weapon, amendment 45): the keyboard has QUEUED the press (it rides
+ * An ability-activation keypress landed. As of Story 7-5 wave 2 the SPEED BOOST
+ * is the only equipment left on this path: the MINE left it in Story 2.8
+ * (amendment 45) and the RADAR BUOY replacing the decoy rack is click-placed in
+ * the same rear sector (R2.7), so both prime instead. The keyboard has QUEUED
+ * the press (it rides
  * a later input, drained one-per-tick so the server's one-ability-per-tick gate
  * fires each in turn) — the server decides. Here the client only predicts the
  * verdict, at PRESS time, keyed on the pressed slot:
  *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
  *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
  *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
- *    denied decoy press never flashes another slot's chip;
+ *    denied press never flashes another slot's chip;
  *  - predicted READY → per equipment: speedBoost opens the predictor's optimistic
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
- *    double press within RTT can't extend it). The decoyBuoy drop needs
- *    no press-time cue: its placement tone rides the Decoys reconcile
+ *    double press within RTT can't extend it). A click-placed BUOY needs
+ *    no press-time cue either: its placement tone rides the buoy reconcile's
  *    own-spawn hook (fired on the confirmed OWN buoy, gated by BuoyView `own`
  *    so it never misfires on a truesighted enemy buoy) — the same hook the
  *    mine's placement tone still rides from the Mines reconcile.
@@ -2249,8 +2252,8 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
   // Story 5.2 / amendment 10 — NO RESTRICTION AT THE GATE: every fitted slot
-  // activates while sinking, speedBoost and decoyBuoy included (the criterion
-  // is fitment, not category), so this reads the WIDENED flag. The `?? true`
+  // activates while sinking (the criterion is fitment, not category), so this
+  // reads the WIDENED flag. The `?? true`
   // default for a missing own ship is unchanged.
   if (abilityPressDenied(conningNow(g) ?? true, loaded)) {
     // No live hotbar to flash into (sunk / spectating) — the tone's only
@@ -2281,8 +2284,8 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // an input (it may sit behind other queued presses); the optimistic boost
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
-  // decoyBuoy has no press-time cue: its placement tone rides the Decoys
-  // reconcile own-spawn hook (the mine precedent), so it fires on the confirmed
+  // A click-placed buoy has no press-time cue: its placement tone rides the buoy
+  // reconcile's own-spawn hook (the mine precedent), so it fires on the confirmed
   // OWN buoy and never on a truesighted enemy buoy.
 }
 
@@ -2359,7 +2362,7 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
 
 /** Fresh per-slot denied-feedback state (Story 1.6/1.8): one latch +
  *  rate-limited pulse + flash per loadout slot, so two special slots (the ML's
- *  mine + decoyBuoy) never share a pulse/flash. Fed by predicted ability-press
+ *  mine + radarBuoy) never share a pulse/flash. Fed by predicted ability-press
  *  denials and — Story 1.10 — by unmatched server denials on any slot (the
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<

@@ -142,13 +142,17 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(2); // dedupe is per owner, never global
   });
 
-  it("the cannon (battleship slot 1) flashes too — wire kind 'shell' IS the gun-family predicate", () => {
+  it("the BROADSIDE (battleship slot 1) flashes PER SHELL — R2.5's declared opt-out from the per-owner dedupe", () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'battleship');
-    fire(w, 'a', 1, 0, 400);
+    fire(w, 'a', 1, Math.PI / 2, 300); // abeam — inside the port beam sector
     w.step();
-    expect([...w.shells.values()][0]?.kind).toBe('shell'); // the cannon shell
-    expect(ofKind(w.tickEvents, 'mz')).toHaveLength(1);
+    expect([...w.shells.values()][0]?.kind).toBe('shell'); // still the gun-family wire kind
+    // Story 7-5 wave 2 (Eric A2): a barrage is N independent shells, so it is
+    // N independent flashes. The gun's per-owner-per-tick dedupe is UNCHANGED
+    // and still collapses a multi-barrel gun salvo (see the cases above).
+    expect(w.shells.size).toBe(CONFIG.broadside.turrets);
+    expect(ofKind(w.tickEvents, 'mz')).toHaveLength(CONFIG.broadside.turrets);
   });
 
   it('a torpedo launch emits NO mz — the ratified quiet weapon (amendment 20)', () => {
@@ -279,30 +283,13 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
     expect(b.hp).toBe(hpBefore); // ...but no hp moved
   });
 
-  it('an AP shell piercing hulls across MULTIPLE ticks sends exactly ONE hc, at the FIRST pierce point — and no terminal sp', () => {
-    const w = bareWorld();
-    place(w, 'a', 0, -900);
-    place(w, 'b', 150, 0); // first pierced hull
-    place(w, 'c', 300, 0); // second pierced hull, a later tick
-    injectShell(w, {
-      id: 'ap1',
-      ownerId: 'a',
-      x: 0,
-      y: 0,
-      distLeft: 400, // pierces both, then expires by range — a would-be splash
-      pierce: { remaining: 3, hitIds: [] },
-    });
-    const acc = stepCollect(w, 20, () => !w.shells.has('ap1') && w.tickEvents.length === 0);
-    // Both hulls really were pierced (two victim-private dmg events)...
-    expect(w.ships.get('b')!.hp).toBeLessThan(w.ships.get('b')!.stats.maxHp);
-    expect(w.ships.get('c')!.hp).toBeLessThan(w.ships.get('c')!.stats.maxHp);
-    // ...but the wire carries ONE hc (hull count is severity information),
-    // anchored at the FIRST pierce point, and NO fall-of-shot for the
-    // range-end stop of a shell that already connected.
-    expect(acc.hc).toHaveLength(1);
-    expect(acc.hc[0].x).toBeLessThan(150); // b's near hull edge — the first pierce
-    expect(acc.sp).toHaveLength(0);
-  });
+  // RETIRED (Story 7-5 wave 2): the AP multi-tick pierce case. ARMOR-PIERCING,
+  // the pierce bookkeeping and the 'pierced' outcome are all deleted with the
+  // cannon, so a shell can never resolve more than one victim any more —
+  // epic-4 amendment 17's "exactly one `hc` per shell resolution" is now true
+  // BY CONSTRUCTION rather than by the suppression guard this case pinned. The
+  // per-SHELL reading of that amendment is what the broadside relies on and is
+  // pinned in broadside.test.ts (N shells, up to N hit calls).
 
   it('a tripped mine that resolves a victim sends one hc to the mine OWNER at the MINE position (amendment 18)', () => {
     const w = bareWorld();

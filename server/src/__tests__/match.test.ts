@@ -161,7 +161,7 @@ describe('match — waiting phase (ready room)', () => {
   });
 
   it('allows mine drops (no phase lockout — resetForMatchStart clears the field at activation instead)', () => {
-    const ctx = setup(['a'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, decoyBuoy])
+    const ctx = setup(['a'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, radarBuoy])
     mineClick(ctx, 'a', 1, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
@@ -357,7 +357,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
 
 describe('match — active phase', () => {
   it('re-enables mine drops', () => {
-    const ctx = setup(['a', 'b'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, decoyBuoy])
+    const ctx = setup(['a', 'b'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, radarBuoy])
     activate(ctx);
     mineClick(ctx, 'a', 1, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
     step(ctx);

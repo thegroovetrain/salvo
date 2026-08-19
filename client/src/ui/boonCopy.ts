@@ -247,7 +247,7 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
     label: 'Radar range',
     read: (s) => s.radarRange,
     // The riders ride the NOTE rather than a second number row (Eric ruling
-    // 2026-08-16), which is the pattern already ratified for gun/cannon/star
+    // 2026-08-16), which is the pattern already ratified for gun/broadside/star
     // reach. `Sight` leads the list deliberately: truesight is now derived from
     // this card, and it is the half a player would otherwise never see move.
     note: 'Sight, gun, broadside and star shells reach with it.',
@@ -285,7 +285,7 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
  * for a doctrine card carrying a REPLACES line under a two-line ladder name.
  */
 const DOCTRINE_TEXT: Readonly<Record<string, string>> = {
-  torpedoHoming: 'Torpedoes slowly steer to the nearest enemy hull in range.',
+  torpedoHoming: 'Torpedoes slowly steer to the nearest enemy hull in their acquisition band.',
   mineCaptive: 'A mine no longer blasts on contact. It fires one torpedo at the first hostile in range.',
   buoyGun: 'Your buoy shoots at hostile hulls inside its radar circle: 5 damage every 5 seconds.',
   buoyJamming: 'Your buoy fills its radar circle with false returns on every scan but your own.',

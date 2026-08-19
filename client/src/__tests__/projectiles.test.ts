@@ -6,16 +6,13 @@ import { CONFIG, type BallisticEvent, type TorpedoUpdateEvent } from '@salvo/sha
 import {
   MAX_OWN_CLAIMS,
   Projectiles,
-  arcSwellScale,
   cullRadiusSq,
   lookForReveal,
-  pierceOrder,
   shellCulledBeyondSight,
   shellPosition,
   maxLifetimeMs,
 } from '../render/projectiles.js';
 import type { OwnZone } from '../render/litZones.js';
-import { settings } from '../settings/store.js';
 
 describe('shellPosition (dead reckoning)', () => {
   it('extrapolates p0 + v*(now - t0)', () => {
@@ -517,31 +514,19 @@ describe('Projectiles.onBallisticUpdate — the homing-torpedo track update', ()
 //   • an ENEMY's is styled only from behavior the observer can already see —
 //     a fish that visibly steers, a boom whose derived id says the shell kept
 //     flying — and NEVER from anything the wire would have to start carrying.
-// A regression that styles an enemy's stock shell as a cannon (or an unfired
+// A regression that styles an enemy's stock shell as a broadside (or an unfired
 // doctrine as anything at all) is an information leak, not a cosmetic slip.
-
-describe('pierceOrder — the derived AP boom id', () => {
-  it('reads the pierce order out of a derived id', () => {
-    expect(pierceOrder('s7#p0')).toBe(0);
-    expect(pierceOrder('s7#p2')).toBe(2);
-    expect(pierceOrder('shell-12#p11')).toBe(11);
-  });
-
-  it('is null for an ordinary boom id, and for anything malformed', () => {
-    expect(pierceOrder('s7')).toBeNull();
-    expect(pierceOrder('')).toBeNull();
-    expect(pierceOrder('s7#p')).toBeNull(); // no order at all
-    expect(pierceOrder('s7#pX')).toBeNull(); // not a number
-    expect(pierceOrder('s7#p1x')).toBeNull(); // trailing junk
-    expect(pierceOrder('s7#p2-late')).toBeNull(); // suffix not at the end
-  });
-});
+//
+// STORY 7-5 WAVE 2 RETIRED the `pierceOrder` suite and the cannon-doctrine look
+// pins (R2.6): the derived `#p<n>` boom id was ARMOR-PIERCING's alone, and the
+// weapon that emitted it is deleted. The BROADSIDE BARRAGE takes ONE look
+// because it has no doctrine cards at all.
 
 describe('lookForReveal — who gets which identity, on what evidence', () => {
-  const stock = { cannon: 'standard', torpedoHoming: false } as const;
+  const stock = { torpedoHoming: false } as const;
 
   it('gives every OBSERVER the plain wire-kind look, whatever WE have fitted', () => {
-    const armed = { cannon: 'ap', torpedoHoming: true } as const;
+    const armed = { torpedoHoming: true } as const;
     // `own: null` is "not our shot" — an enemy's shell/fish. Our own doctrine
     // must not paint their ordnance: that would leak OUR build to nobody's
     // benefit and, worse, make the two indistinguishable on screen.
@@ -549,22 +534,17 @@ describe('lookForReveal — who gets which identity, on what evidence', () => {
     expect(lookForReveal('torp', null, armed)).toBe('torp');
   });
 
-  it('styles OWN cannon fire per the fitted doctrine — and own GUN fire never', () => {
-    expect(lookForReveal('shell', 'cannon', stock)).toBe('cannon');
-    expect(lookForReveal('shell', 'cannon', { ...stock, cannon: 'arcing' })).toBe('cannonArcing');
-    expect(lookForReveal('shell', 'cannon', { ...stock, cannon: 'ap' })).toBe('cannonAp');
-    // The gun is not the cannon: an own gun shell stays the ordinary dot even
-    // with a cannon doctrine fitted.
-    expect(lookForReveal('shell', 'gun', { ...stock, cannon: 'ap' })).toBe('shell');
+  it('styles OWN broadside fire heavy — and own GUN / STAR fire never', () => {
+    expect(lookForReveal('shell', 'broadside', stock)).toBe('broadside');
+    // The gun is not the broadside, and a star shell is just a shell until it
+    // bursts: both keep the ordinary dot.
+    expect(lookForReveal('shell', 'gun', stock)).toBe('shell');
+    expect(lookForReveal('shell', 'starShells', stock)).toBe('shell');
   });
 
   it('styles an OWN homing fish from LAUNCH, and a stock own fish not at all', () => {
-    expect(lookForReveal('torp', 'torpedo', { ...stock, torpedoHoming: true })).toBe('torpHoming');
+    expect(lookForReveal('torp', 'torpedo', { torpedoHoming: true })).toBe('torpHoming');
     expect(lookForReveal('torp', 'torpedo', stock)).toBe('torp');
-    // Story 7-5 wave 1: ACOUSTIC HOMING is the ONLY torpedo verb left (COMMAND
-    // DETONATION was deleted with the weapon behavior), so the flag is the whole
-    // question and an unarmed fish keeps the straight-runner look.
-    expect(lookForReveal('torp', 'torpedo', { cannon: 'arcing', torpedoHoming: false })).toBe('torp');
   });
 });
 
@@ -587,20 +567,21 @@ describe('Projectiles — the identity a live track paints with', () => {
 
   it('styles OWN ordnance off the modes fanned in from applyOwnStats', () => {
     const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'ap', torpedoHoming: true });
-    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    p.setOwnModes({ torpedoHoming: true });
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'broadside');
     p.onShell({ k: 'shell', id: 's2', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'gun');
     p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'torpedo');
-    expect(p.lookOf('s1')).toBe('cannonAp');
+    expect(p.lookOf('s1')).toBe('broadside');
     expect(p.lookOf('s2')).toBe('shell');
     expect(p.lookOf('t1')).toBe('torpHoming'); // styled at launch, before any steer
   });
 
   it('a doctrine swap never restyles ordnance already in the water', () => {
     const p = new Projectiles(900, new Container());
-    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
-    p.setOwnModes({ cannon: 'ap', torpedoHoming: false });
-    expect(p.lookOf('s1')).toBe('cannon'); // the shell that left the barrel stock
+    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'torpedo');
+    expect(p.lookOf('t1')).toBe('torp'); // launched under the stock verb set
+    p.setOwnModes({ torpedoHoming: true });
+    expect(p.lookOf('t1')).toBe('torp'); // the fish that left the tube straight
   });
 
   // AMENDMENT 204 — ONE WAKE, ONE LENGTH (cycle-69 review gate, P10). This
@@ -631,59 +612,22 @@ describe('Projectiles — the identity a live track paints with', () => {
     expect(new Projectiles(900, new Container()).lookOf('nope')).toBeNull();
   });
 
-  it('a retired sprite hands on no scale or rotation to the next track', () => {
+  // RETIRED with PLUNGING FIRE and ARMOR-PIERCING (Story 7-5 wave 2, R2.6): the
+  // sprite `scale`/`rotation` channels those two doctrines drove — and with them
+  // `arcSwellScale`, the `swell`/`stretch` look fields and the `scaleOf` test
+  // seam — are DELETED, so there is no per-look sprite state left to hand on.
+  // Every shipped look is now a plain dot at scale 1.
+  it('retires a track and reuses its pooled sprite for the next one', () => {
     const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
-    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'broadside');
     p.render(400, own, []);
-    expect(p.scaleOf('s1')).toBeGreaterThan(1); // mid-arc: swollen
+    expect(p.liveCount).toBe(1);
     p.onBoom({ k: 'boom', id: 's1', x: 50, y: 0 });
+    expect(p.liveCount).toBe(0);
     p.onShell({ k: 'shell', id: 's2', x: 0, y: 0, vx: 130, vy: 0, t: 0 }); // pooled gfx
     p.render(400, own, []);
-    expect(p.scaleOf('s2')).toBe(1);
-  });
-});
-
-describe('arcSwellScale — PLUNGING FIRE reads as height', () => {
-  it('rises to its peak mid-arc and settles back to 1', () => {
-    expect(arcSwellScale(0, 0.4, 1000)).toBe(1);
-    expect(arcSwellScale(500, 0.4, 1000)).toBeCloseTo(1.4, 9);
-    expect(arcSwellScale(1000, 0.4, 1000)).toBe(1);
-    expect(arcSwellScale(5000, 0.4, 1000)).toBe(1); // long after: flat
-  });
-
-  it('is exactly 1 with no amplitude — the motion=off contract', () => {
-    for (const t of [0, 250, 500, 900]) expect(arcSwellScale(t, 0, 1000)).toBe(1);
-  });
-});
-
-describe('the arc swell is MOTION, the position is INFORMATION', () => {
-  afterEach(() => settings.reset());
-
-  it('holds an arcing shell at scale 1 with motion off — and still moves it', () => {
-    settings.set({ motion: 'off' });
-    const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
-    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
-    p.render(400, { x: 0, y: 0 }, []);
-    expect(p.scaleOf('s1')).toBe(1); // no swell at all
-    expect(p.liveCount).toBe(1); // ...and the shell is still tracked + placed
-  });
-
-  it('halves the swell at reduced motion (never removes the shell)', () => {
-    settings.set({ motion: 'reduced' });
-    const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
-    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
-    p.render(450, { x: 0, y: 0 }, []);
-    const reduced = p.scaleOf('s1');
-    settings.set({ motion: 'full' });
-    const q = new Projectiles(900, new Container());
-    q.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
-    q.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
-    q.render(450, { x: 0, y: 0 }, []);
-    expect(reduced).toBeGreaterThan(1);
-    expect(reduced - 1).toBeCloseTo((q.scaleOf('s1') - 1) / 2, 9);
+    expect(p.lookOf('s2')).toBe('shell');
+    expect(p.liveCount).toBe(1);
   });
 });
 
@@ -691,7 +635,7 @@ describe('the arc swell is MOTION, the position is INFORMATION', () => {
 //
 // The burst ring wants to know "was that OUR shell?" long after the track that
 // could answer is gone: the sight-bubble cull (~370u) and the lifetime backstop
-// both retire a shell well before a boosted gun/cannon reaches its 660u+ burst
+// both retire a shell well before a boosted gun reaches its 660u+ burst
 // point — i.e. the claim evaporated for exactly the long-range upgraded blasts
 // the effective-radius ring exists to draw. The claim therefore outlives the
 // sprite, bounded by count so it can never grow without limit.
@@ -702,10 +646,10 @@ describe('Projectiles — own-shot claims outlive their sprites', () => {
 
   it('answers ownFireOf for a track the SIGHT CULL has already retired', () => {
     const p = new Projectiles(900, new Container());
-    p.onShell(shell('s1'), 'cannon', 'cannon');
+    p.onShell(shell('s1'), 'broadside', 'broadside');
     p.render(10_000, { x: 5_000, y: 5_000 }); // far outside the bubble → culled
     expect(p.liveCount).toBe(0);
-    expect(p.ownFireOf('s1')).toBe('cannon'); // ...the claim survives it
+    expect(p.ownFireOf('s1')).toBe('broadside'); // ...the claim survives it
   });
 
   it('answers ownFireOf after the LIFETIME backstop retires the track', () => {
@@ -730,7 +674,7 @@ describe('Projectiles — own-shot claims outlive their sprites', () => {
 
   it('is BOUNDED: the oldest claim is evicted, and that burst falls back to default', () => {
     const p = new Projectiles(900, new Container());
-    p.onShell(shell('oldest'), 'cannon', 'cannon');
+    p.onShell(shell('oldest'), 'broadside', 'broadside');
     for (let i = 0; i < MAX_OWN_CLAIMS; i++) p.onShell(shell(`s${i}`), 'gun', 'gun');
     expect(p.ownFireOf('oldest')).toBeNull(); // aged out → CONFIG-default ring
     expect(p.ownFireOf(`s${MAX_OWN_CLAIMS - 1}`)).toBe('gun'); // the recent ones stand

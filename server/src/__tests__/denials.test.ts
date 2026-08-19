@@ -116,16 +116,12 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     expect(w.mines.size).toBe(0);
   });
 
-  it("blocked (island): a DECOY stern drop into a rock denies {'blocked'} and consumes NOTHING", () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // stern rack drops at (-76, 0)
-    w.map.islands.push(circleIsland(-76, 0, 20)); // the rock the stern is backed against
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: 2, hornSeq: 0 }));
-    w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'blocked', seq: 1 }]);
-    expect(a.loadout[2].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(w.decoys.size).toBe(0);
-  });
+  // RETIRED (Story 7-5 wave 2): the DECOY stern drop denial. Its subject —
+  // an un-aimed stern-rack ABILITY that could be blocked by a rock — no longer
+  // exists: the decoy buoy is deleted and the RADAR BUOY replacing it is a
+  // CLICK-PLACED weapon on the mine's rear sector (R2.7), whose 'blocked'
+  // denial is the mine's own, already covered by the two cases below. The
+  // buoy's own denial matrix lands with the buoy (a later agent).
 
   it("blocked (boundary): a mine click off the water disk denies {'blocked'} too", () => {
     const w = bareWorld();
@@ -200,9 +196,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 41→42 bump (PV 42: UPGRADE CARDS v2 wave 1 — the catalog is rebuilt (17 lines, COMMAND DETONATION deleted) and doctrine becomes independent verb flags, so LitZoneView trades `mode` for `phos`/`daz`; a stale bundle would read a card list that no longer exists and a zone field that never arrives) is enforced at matchmake', () => {
-  it('rejects pv-41 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(42);
+describe('pv join gate — the 42→43 bump (PV 43: UPGRADE CARDS v2 wave 2 — the CANNON is replaced by the BROADSIDE BARRAGE and the DECOY BUOY by the RADAR BUOY, so the equipment ids, the catalog lines and the contact-like buoy frame channel all move; a stale bundle would fit weapons that no longer exist and read a frame channel that never arrives) is enforced at matchmake', () => {
+  it('rejects pv-42 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(43);
+    expect(protocolVersionError(42)).toMatch(/refresh/);
     expect(protocolVersionError(41)).toMatch(/refresh/);
     expect(protocolVersionError(40)).toMatch(/refresh/);
     expect(protocolVersionError(39)).toMatch(/refresh/);
@@ -212,7 +209,7 @@ describe('pv join gate — the 41→42 bump (PV 42: UPGRADE CARDS v2 wave 1 — 
   });
 });
 
-describe('blocked-drop geometry sanity (Story 2.8: clicked placement + the decoy stern rack)', () => {
+describe('blocked-drop geometry sanity (Story 2.8: clicked mine placement)', () => {
   it('an ML clicking open water astern still places normally (the check refuses only illegal water)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'mineLayer');

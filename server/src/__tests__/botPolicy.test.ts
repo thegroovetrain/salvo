@@ -69,7 +69,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], decoys: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
@@ -238,7 +238,7 @@ describe('ai/utility — `live` is a truesight claim, not a write-only flag', ()
   it('a radar paint refreshes a track without ever making it live, and so does a Hit Call', () => {
     // This is why the fix is "clear the flag" and not "read seenAt === now":
     // `seenAt` is refreshed by every sensor, so that predicate would have let
-    // the cannon spend its reload on a same-tick blip.
+    // the broadside spend its reload on a same-tick blip.
     const m = mind();
     foldView(m, view({ events: [returnBlip(10, 20, 900)] }), 1000);
     expect(onlyTrack(m).live).toBe(false);
@@ -608,49 +608,49 @@ describe('ai/spending — the boon policy', () => {
   });
 
   it('a per-LINE override beats its own category base', () => {
-    // siege's cannon category is 2.6 and its cannonDamage override is 2.8, so
-    // the named line must win over an unnamed sibling of the same category.
-    expect(boonWeightFor('siege', 'cannonDamage')).toBeGreaterThan(boonWeightFor('siege', 'cannonArcing'));
-    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['cannonArcing', 'cannonDamage'] }))).toBe(1);
+    // siege's broadside category is 2.6 and its broadsideTurrets override is
+    // 2.8, so the named line must win over an unnamed sibling of the same
+    // category (re-keyed off the deleted cannon lines, Story 7-5 wave 2).
+    expect(boonWeightFor('siege', 'broadsideTurrets')).toBeGreaterThan(boonWeightFor('siege', 'broadsideSpread'));
+    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['broadsideSpread', 'broadsideTurrets'] }))).toBe(1);
   });
 
-  // RE-KEYED IN STORY 7-5 WAVE 1. `pairResolved` keys on `exclusiveWith`, and
-  // the torpedo pair this pin was written against is gone (COMMAND DETONATION
-  // deleted, ACOUSTIC HOMING now an independent verb with no rival). The
-  // demotion MECHANISM is untouched and its last user is the cannon pair, so
-  // the pin follows it there — bulwark, whose `cannon` category (2.0) outranks
-  // its `starDazzle` line (1.6) fresh, and loses to it at the resolved score.
-  it('demotes an exclusive whose PAIR IS ALREADY RESOLVED (no doctrine ping-pong)', () => {
+  // RE-KEYED AGAIN IN STORY 7-5 WAVE 2, and NARROWED. Wave 1 pointed this pin
+  // at the cannon pair as the last `exclusiveWith` users; wave 2 DELETED
+  // exclusivity outright with the cannon (R2.6), so the "holding the RIVAL
+  // demotes this line" half has no mechanism left and is RETIRED. What
+  // survives — and is what the demotion was always for — is that a line the
+  // bot ALREADY HOLDS drops below a real card, so a one-copy doctrine is never
+  // re-bought as a no-op.
+  it('demotes a line this bot ALREADY HOLDS (re-buying a one-copy doctrine is a no-op)', () => {
     const bulwark = profileOf('bulwark');
-    const offer = ['cannonArcing', 'starDazzle'];
-    // Fresh: the cannon exclusive outranks the star-shell line.
-    expect(chooseSpend(bulwark, spendState({ offer }))).toBe(0);
-    // Holding it already — re-buying is a no-op, so it drops below a real card.
-    expect(chooseSpend(bulwark, spendState({ offer, boons: ['cannonArcing'] }))).toBe(1);
-    // Holding the RIVAL — taking it would swap the doctrine back and forth
-    // forever, which is exactly the ping-pong the demotion exists to stop.
-    expect(chooseSpend(bulwark, spendState({ offer, boons: ['cannonAp'] }))).toBe(1);
-    expect(boonWeightFor('bulwark', 'cannonArcing', ['cannonAp']))
-      .toBeLessThan(boonWeightFor('bulwark', 'cannonArcing', []));
+    const offer = ['starIncendiary', 'starDazzle'];
+    // Fresh: bulwark's `starDazzle` line override (1.6) beats its unnamed
+    // sibling on the starShells category base (1.0).
+    expect(chooseSpend(bulwark, spendState({ offer }))).toBe(1);
+    // Holding it already — re-buying is a no-op, so it drops below its sibling.
+    expect(chooseSpend(bulwark, spendState({ offer, boons: ['starDazzle'] }))).toBe(0);
+    expect(boonWeightFor('bulwark', 'starDazzle', ['starDazzle']))
+      .toBeLessThan(boonWeightFor('bulwark', 'starDazzle', []));
   });
 
-  // Wave 1's counterpart: a verb line with NO rival is never demoted, because
-  // there is no pair to resolve. Holding one star-shell verb must not push the
-  // other down — they stack now.
+  // Wave 1's counterpart, now the GENERAL rule (wave 2 deleted exclusivity):
+  // holding one verb never demotes ANOTHER line. Holding one star-shell verb
+  // must not push the other down — every doctrine stacks.
   it('a non-exclusive doctrine verb is NEVER demoted by holding its former rival', () => {
     expect(boonWeightFor('bulwark', 'starDazzle', ['starIncendiary']))
       .toBe(boonWeightFor('bulwark', 'starDazzle', []));
   });
 
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
-    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['decoyDuration', 'boostSpeed'] }));
+    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['buoySweep', 'boostSpeed'] }));
     expect(idx).not.toBeNull();
     expect(idx).toBeGreaterThanOrEqual(0);
   });
 
   it('an unknown id never wins, and cannot crash the policy', () => {
     expect(boonWeightFor('siege', 'notACard')).toBe(0);
-    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['notACard', 'cannonDamage'] }))).toBe(1);
+    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['notACard', 'broadsideTurrets'] }))).toBe(1);
   });
 
   it('every per-line override names a REAL catalog line', () => {
@@ -679,15 +679,17 @@ describe('ai/spending — the boon policy', () => {
     const trapper = boonWeightFor('trapper', 'minePropFouling');
     expect(trapper).toBeGreaterThan(forager);
 
-    // Forager prefers SELF-PROPELLED over prop-fouling; trapper is the reverse.
-    expect(boonWeightFor('forager', 'mineSelfPropelled')).toBeGreaterThan(forager);
-    expect(boonWeightFor('trapper', 'mineSelfPropelled')).toBeLessThan(trapper);
+    // Forager prefers CAPTIVE over prop-fouling; trapper is the reverse.
+    // (Re-keyed in wave 2: `mineSelfPropelled` is deleted and `mineCaptive` is
+    // its direct successor — a mine that reaches the target itself.)
+    expect(boonWeightFor('forager', 'mineCaptive')).toBeGreaterThan(forager);
+    expect(boonWeightFor('trapper', 'mineCaptive')).toBeLessThan(trapper);
 
     // Neither profile REFUSES a doctrine any more — both are pure adds.
     expect(forager).toBeGreaterThan(0);
 
     // And the ranking still changes the actual pick on a shared hand.
-    const offer = ['minePropFouling', 'mineSelfPropelled'];
+    const offer = ['minePropFouling', 'mineCaptive'];
     expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(1);
     expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(0);
   });

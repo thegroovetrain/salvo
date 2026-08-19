@@ -128,11 +128,11 @@ describe('slot order — Gun (keyless) / Q / E / R, top to bottom (amendment 10)
   it('names each hull its own fit; slot 3 reads the awaiting-refit label', () => {
     expect(slotViewModels(viewFor('battleship')).map((r) => r.name)).toEqual([
       'Deck Gun',
-      'Heavy Cannon',
+      'Broadside Barrage',
       'Star Shells',
       EMPTY_SLOT_LABEL,
     ]);
-    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(['gun', 'mine', 'decoyBuoy', null]);
+    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(['gun', 'mine', 'radarBuoy', null]);
   });
 });
 
@@ -206,13 +206,14 @@ describe('the seven-state grammar + its precedence', () => {
 
 describe('the chamfer is an ABILITY shape mark — weapons never carry it', () => {
   it('cuts only the ability rows of each hull', () => {
+    // The TB's E slot is the speed boost — the game's ONLY remaining ability.
     expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.chamfer)).toEqual([false, false, true, false]);
     expect(slotViewModels(viewFor('battleship')).map((r) => r.chamfer)).toEqual([false, false, false, false]);
-    // Mine Layer fits TWO abilities (mine + decoy).
-    // PIN FLIPPED (Story 2.8, amendment 45): the ML's Q slot holds the MINE,
-    // now a click-aimed weapon — no chamfer. Only the decoy rack (E) keeps the
-    // ability shape mark.
-    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.chamfer)).toEqual([false, false, true, false]);
+    // PIN FLIPPED (Story 2.8, amendment 45): the ML's Q slot holds the MINE, a
+    // click-aimed weapon — no chamfer. PIN FLIPPED AGAIN (Story 7-5 wave 2,
+    // R2.7): its E slot now holds the click-placed RADAR BUOY, so the Mine Layer
+    // carries NO chamfered row at all.
+    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.chamfer)).toEqual([false, false, false, false]);
   });
 });
 
@@ -258,7 +259,7 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
     expect(quickInfoLine(equipmentInfo(stats, 'torpedo'), 0)).toBe(
       `DMG ${CONFIG.torpedo.damage} · CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`,
     );
-    expect(quickInfoLine(equipmentInfo(stats, 'cannon'), 0)).toContain(`DMG ${CONFIG.cannon.damage}`);
+    expect(quickInfoLine(equipmentInfo(stats, 'broadside'), 0)).toContain(`DMG ${CONFIG.broadside.damage}`);
     // PIN FLIPPED (Story 2.8, amendment 45): the MINE is a click-aimed WEAPON
     // now, so it reads DMG · CD like every other weapon — the line it used to
     // hide in the tooltip description.
@@ -272,7 +273,7 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
     );
     expect(quickInfoLine(equipmentInfo(stats, 'starShells'), 0)).not.toContain('DMG');
     expect(quickInfoLine(equipmentInfo(stats, 'speedBoost'), 0)).toBe(`CD ${fmtSeconds(CONFIG.speedBoost.reloadMs)}`);
-    expect(quickInfoLine(equipmentInfo(stats, 'decoyBuoy'), 0)).toBe(`CD ${fmtSeconds(CONFIG.decoyBuoy.reloadMs)}`);
+    expect(quickInfoLine(equipmentInfo(stats, 'radarBuoy'), 0)).toBe(`CD ${fmtSeconds(CONFIG.radarBuoy.reloadMs)}`);
   });
 
   // The documented migration seam closed in Story 2.8: damage is stat-driven,
@@ -439,7 +440,7 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   });
 
   it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {
-    for (const id of ['gun', 'torpedo', 'mine', 'speedBoost', 'cannon', 'starShells', 'decoyBuoy'] as const) {
+    for (const id of ['gun', 'torpedo', 'mine', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'] as const) {
       expect(tooltipModel(1, id, stats)?.boons).toEqual([]);
     }
   });
@@ -570,10 +571,10 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
   });
 
   it('outranks COOLING — a decoy floats while its rack reloads — but not denied/activated', () => {
-    expect(slotState('decoyBuoy', NONE, true, false, false, true)).toBe('active');
-    expect(slotState('decoyBuoy', NONE, true, true, false, true)).toBe('active');
-    expect(slotState('decoyBuoy', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
-    expect(slotState('decoyBuoy', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
+    expect(slotState('radarBuoy', NONE, true, false, false, true)).toBe('active');
+    expect(slotState('radarBuoy', NONE, true, true, false, true)).toBe('active');
+    expect(slotState('radarBuoy', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
+    expect(slotState('radarBuoy', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
     // ...and the conic cool track keeps its fraction, so nothing is lost.
     const view = viewFor('mineLayer', {
       ammo: [null, null, { n: 0, reloadMsLeft: 5000 }, null],
@@ -641,10 +642,10 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
   });
 
   it('routes a fitted CATEGORY to its slot, and a shipwide line to no slot at all', () => {
-    const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / mine / decoyBuoy / null
+    const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / mine / radarBuoy / null
     expect(slotForBoonCategory(loadout, 'guns')).toBe(0);
     expect(slotForBoonCategory(loadout, 'mines')).toBe(1);
-    expect(slotForBoonCategory(loadout, 'decoyBuoy')).toBe(2);
+    expect(slotForBoonCategory(loadout, 'radarBuoy')).toBe(2);
     expect(slotForBoonCategory(loadout, 'intel')).toBeNull();
     expect(slotForBoonCategory(loadout, 'ship')).toBeNull();
     // A category this hull does not carry owns no slot either (rank-wide flash).
@@ -707,9 +708,13 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   });
 
   it('prints a doctrine row with its behavior text, not a number', () => {
-    const t = tooltipModel(1, 'mine', stats, ['mineSelfPropelled'])!;
-    expect(t.boons[0].label).toBe('◆ SELF-PROPELLED MINES');
-    expect(t.boons[0].effect).toContain('creep');
+    // SELF-PROPELLED MINES is deleted (Story 7-5 wave 2); CAPTIVE MINES is the
+    // mine verb that replaced it, and the claim under test is unchanged — a
+    // doctrine row prints BEHAVIOUR, never a stat readout.
+    const t = tooltipModel(1, 'mine', stats, ['mineCaptive'])!;
+    expect(t.boons[0].label).toBe('◆ CAPTIVE MINES');
+    expect(t.boons[0].effect).toContain('torpedo');
+    expect(t.boons[0].effect).not.toContain(':');
   });
 
   it('hosts INTEL/SHIP lines under the — SHIP — divider, in the gun tooltip only', () => {
