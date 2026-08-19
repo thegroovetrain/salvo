@@ -93,8 +93,10 @@ function everyFace(): { label: string; face: RefitCardCopy }[] {
 const FACES = everyFace();
 
 describe('refit card container fit (amendment 47)', () => {
+  // Story 7-5 wave 1 shrank the catalog to 28 lines (seven deleted; `boostMax`
+  // split into BOOST DURATION + BOOST SPEED).
   it('covers every catalog line at every stack position', () => {
-    expect(LINES.length).toBeGreaterThanOrEqual(33);
+    expect(LINES.length).toBeGreaterThanOrEqual(28);
     expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.copies, 0) * CLASSES.length * 2);
   });
 
@@ -148,9 +150,13 @@ describe('the laws that constrain the fix', () => {
     expect(blank).toEqual([]);
   });
 
+  // Keyed off the EFFECT SHAPE, not the rarity tier: Story 7-5 wave 1 dropped
+  // the verb cards from `exclusive` to `rare` (they stopped being either/or), so
+  // a rarity-keyed partition would start demanding a `current → next` sentence
+  // off a doctrine card that has no number to print.
   it('keeps the contract: every STAT line still prints its live current → next', () => {
     const doctrineOrAcquire = new Set(
-      LINES.filter((d) => d.rarity === 'exclusive' || d.effects.some((e) => e.kind === 'slotFill')).map((d) => d.id),
+      LINES.filter((d) => d.effects.some((e) => e.kind === 'doctrine' || e.kind === 'slotFill')).map((d) => d.id),
     );
     const missing = LINES.filter((d) => !doctrineOrAcquire.has(d.id))
       .filter((def) => !faceOf(def, 0, 'torpedoBoat', false).description.includes('→'))
@@ -159,7 +165,7 @@ describe('the laws that constrain the fix', () => {
   });
 
   it('keeps the contract: no doctrine card was tightened down to a stub', () => {
-    const stubs = LINES.filter((d) => d.rarity === 'exclusive')
+    const stubs = LINES.filter((d) => d.effects.some((e) => e.kind === 'doctrine'))
       .filter((def) => faceOf(def, 0, 'torpedoBoat', false).description.length < 60)
       .map((d) => d.id);
     expect(stubs).toEqual([]);
@@ -171,7 +177,7 @@ describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['cannonAp', 'gunDamage'], boostUntil: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['cannonAp', 'intelSweep'], boostUntil: 0,
       boons: ['cannonArcing'], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false, false)!);

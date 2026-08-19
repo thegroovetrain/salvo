@@ -30,7 +30,6 @@ import {
   clampInsideMap,
   hullEnvelope,
   islandSegHit,
-  minCommandDistance,
   muzzleOrTarget,
   torpedoSpawn,
   type EffectiveStats,
@@ -234,15 +233,18 @@ function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
 /**
  * The flare's EFFECTIVE lit radius — the exact number the server hands the
  * shell (`equipment/starShells.ts`): the owner's stats.starShells.litRadius,
- * shrunk by CONFIG.starShells.incendiaryRadiusFactor while the INCENDIARY
- * doctrine is held. Both halves matter: the SLOW-BURN/WIDE BURST ladders move
- * the stat, and incendiary trades reach for the burn, so a preview built on
- * either the raw CONFIG base or the un-shrunk stat would over-draw the zone the
- * player is trying to place.
+ * shrunk by CONFIG.starShells.incendiaryRadiusFactor while the PHOSPHOR verb is
+ * held. Both halves matter: the STAR SHELLS ladder moves the stat, and phosphor
+ * trades reach for the burn, so a preview built on either the raw CONFIG base or
+ * the un-shrunk stat would over-draw the zone the player is trying to place.
+ *
+ * Reads the PHOSPHOR flag ALONE (Story 7-5 wave 1): DAZZLE is an independent
+ * verb that does not touch the radius, so a captain holding both still previews
+ * the phosphor-shrunk circle.
  */
 export function effectiveLitRadius(stats: EffectiveStats): number {
   const stars = stats.starShells;
-  return stars.litRadius * (stars.mode === 'incendiary' ? CONFIG.starShells.incendiaryRadiusFactor : 1);
+  return stars.litRadius * (stars.phosphor ? CONFIG.starShells.incendiaryRadiusFactor : 1);
 }
 
 /**
@@ -271,30 +273,6 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
   });
 }
 
-/** COMMAND DETONATION: the fish bursts at the commanded point — clicked
- *  distance, capped by the owner's EFFECTIVE radar reach and floored at the
- *  shared minCommandDistance (the point can never sit behind the tube). */
-function commandTorpedo(inp: AimPreviewInput, origin: Vec2, dir: number): AimPreviewModel {
-  const hullLength = hullEnvelope(inp.ship.cls).hull.length;
-  const target = burstPointAlong(
-    inp.ship,
-    inp.aimDist,
-    inp.mapRadius,
-    inp.stats.radarRange,
-    dir,
-    minCommandDistance(hullLength),
-  );
-  const clip = clipAtIslands(origin, target, inp.islands);
-  return {
-    lines: [{ x1: origin.x, y1: origin.y, x2: clip.point.x, y2: clip.point.y }],
-    bursts: [
-      { x: target.x, y: target.y, r: CONFIG.torpedo.commandBurstRadius, blocked: clip.clipped, effect: false },
-    ],
-    place: null,
-    band: null,
-  };
-}
-
 /**
  * The torpedo family. The line starts at the REAL tube exit (torpedoSpawn — a
  * fish is not launched from the ship's centre) and runs to the first island or
@@ -311,8 +289,7 @@ function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
   // map clamp below would fold its whole run into a degenerate point and draw a
   // phantom track out of the ship's nose. Preview nothing instead.
   if (outsideDisk(origin, inp.mapRadius)) return EMPTY;
-  if (inp.stats.torpedo.mode === 'command') return commandTorpedo(inp, origin, dir);
-  const homing = inp.stats.torpedo.mode === 'homing';
+  const homing = inp.stats.torpedo.homing;
   const run = homing ? CONFIG.torpedo.homingMaxRangeU : inp.mapRadius * 2;
   const far = { x: origin.x + Math.cos(dir) * run, y: origin.y + Math.sin(dir) * run };
   const clip = clipAtIslands(origin, clampInsideMap(origin, far, inp.mapRadius), inp.islands);
@@ -383,12 +360,10 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
 export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | undefined {
   if (own === 'gun') return stats.gun.burstRadius;
   if (own === 'cannon') return stats.cannon.burstRadius;
-  // COMMAND DETONATION is the one torpedo that bursts at a point — and it is
-  // the biggest blast in the game (60u), so the CONFIG-default gun ring
-  // under-drew it by 4×. A standard/homing fish has no point burst at all (a
-  // contact hit rides the boom/spark path), so it stays on the default.
-  if (own === 'torpedo' && stats.torpedo.mode === 'command') return CONFIG.torpedo.commandBurstRadius;
-  return undefined; // star shells (lit, not blast) and every non-own burst
+  // No torpedo bursts at a POINT any more — COMMAND DETONATION left the game in
+  // Story 7-5 wave 1, and a standard/homing fish's contact hit rides the
+  // boom/spark path — so the fish keeps the CONFIG default like everything else.
+  return undefined; // torpedoes, star shells (lit, not blast), every non-own burst
 }
 
 /** The stroke tint for a weapon's preview: the torpedo keeps its cool-green

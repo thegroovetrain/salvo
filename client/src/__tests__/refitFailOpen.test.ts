@@ -32,20 +32,20 @@ const STAT_LINES_WITH_NUMBERS: Record<string, true> = Object.fromEntries(
 
 describe('boonDescription — an unresolvable hull renders nothing, never throws', () => {
   it('returns rules text for a real hull (the control)', () => {
-    const def = BOON_CATALOG['gunDamage'];
+    const def = BOON_CATALOG['shipCooldown'];
     const text = boonDescription(def, KNOWN as never);
     expect(text.length).toBeGreaterThan(0);
     expect(text).toContain('→');
   });
 
   it('returns empty text for an unknown hull instead of throwing', () => {
-    const def = BOON_CATALOG['gunDamage'];
+    const def = BOON_CATALOG['shipCooldown'];
     expect(() => boonDescription(def, UNKNOWN as never)).not.toThrow();
     expect(boonDescription(def, UNKNOWN as never)).toBe('');
   });
 
   // NAMED EXPLICITLY, not discovered by `find` (review gate): the original
-  // version searched the catalog and got `gunDamage`, which carries NO note —
+  // version searched the catalog and got a line carrying NO note —
   // so `line.note ? … : head` already produced '' and the test passed with the
   // production guard reverted. `intelRange` DOES carry a standing note, so
   // without the guard this returns " Gun, cannon and star shells reach with it."
@@ -80,7 +80,7 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
 describe('results LAST OFFER — an unresolvable boon id drops its card, never the block', () => {
   const own = {
     name: 'ERIC', cls: 'torpedoBoat', hue: 0, boons: [] as string[],
-    offer: ['gunDamage', 'notARealBoon', 'shipHull'] as string[],
+    offer: ['intelSweep', 'notARealBoon', 'shipHull'] as string[],
     pts: 3,
   };
 

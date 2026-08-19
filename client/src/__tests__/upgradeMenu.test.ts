@@ -39,7 +39,7 @@ const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['gunDamage', 'shipHull', 'intelRange', 'mineBlast'];
+const OFFER = ['intelSweep', 'shipHull', 'intelRange', 'mineBlast'];
 const OFFER_B = ['shipCooldown', 'shipSpeed', 'intelSweep', 'mineBlast'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
@@ -399,28 +399,33 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
 
   it('names each card at the rung the player\'s stack puts it at (name-by-stack-position)', () => {
     const fresh = offerView(ownShip(), false, false, false);
-    expect(fresh?.options[0].name).toBe(boonName('gunDamage', 0));
-    const stacked = offerView(ownShip({ boons: ['gunDamage', 'gunDamage'] }), false, false, false);
-    expect(stacked?.options[0].name).toBe(boonName('gunDamage', 2));
+    expect(fresh?.options[0].name).toBe(boonName('intelSweep', 0));
+    const stacked = offerView(ownShip({ boons: ['intelSweep', 'intelSweep'] }), false, false, false);
+    expect(stacked?.options[0].name).toBe(boonName('intelSweep', 2));
     expect(stacked?.options[0].name).not.toBe(fresh?.options[0].name);
   });
 
+  // Story 7-5 wave 1: the verb cards (ACOUSTIC HOMING, PROP FOULING, PHOSPHOR/
+  // DAZZLE SHELLS) dropped from `exclusive` to `rare` when they stopped being
+  // either/or, so the CANNON pair is the last EXCLUSIVE tier in the catalog.
   it('carries the rarity tier: nothing for a common, RARE / EXCLUSIVE otherwise', () => {
-    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret', 'torpedoHoming', 'acquireMine'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret', 'cannonAp', 'acquireMine'] }), false, false, false);
     expect(view?.options.map((o) => o.rarity)).toEqual(['', 'RARE', 'EXCLUSIVE', 'RARE']);
   });
 
   it('carries the lineage handrail for multi-copy lines only, at the right position', () => {
-    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret'], boons: ['gunDamage'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret'], boons: ['intelSweep'] }), false, false, false);
     expect(view?.options[0].lineage).toBe('II/V'); // one held → this card is the second
     expect(view?.options[1].lineage).toBeNull(); // AFT TURRET is a single copy
   });
 
+  // The cannon pair is the LAST exclusive pair in the game (Story 7-5 wave 1
+  // left `exclusiveWith` in place for it alone), so it is what this pins now.
   it('carries the doctrine-swap line ONLY while the rival is held (amendment 44)', () => {
-    const none = offerView(ownShip({ offer: ['torpedoCommand'] }), false, false, false);
+    const none = offerView(ownShip({ offer: ['cannonAp'] }), false, false, false);
     expect(none?.options[0].replaces).toBeNull();
-    const held = offerView(ownShip({ offer: ['torpedoCommand'], boons: ['torpedoHoming'] }), false, false, false);
-    expect(held?.options[0].replaces).toBe('REPLACES: ACOUSTIC HOMING');
+    const held = offerView(ownShip({ offer: ['cannonAp'], boons: ['cannonArcing'] }), false, false, false);
+    expect(held?.options[0].replaces).toBe('REPLACES: PLUNGING FIRE');
   });
 
   it('prints rules text with the player\'s LIVE values (a preview diff, not a static table)', () => {
@@ -584,9 +589,9 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
-        { ...cardsOf(['gunDamage'])[0] }, // common: rarity ''
+        { ...cardsOf(['intelSweep'])[0] }, // common: rarity ''
         { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' },
-        { ...cardsOf(['torpedoHoming'])[0], rarity: 'EXCLUSIVE' },
+        { ...cardsOf(['cannonAp'])[0], rarity: 'EXCLUSIVE' },
       ],
     }));
     const [common, rare, exclusive] = cards();
@@ -608,14 +613,14 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
-        { ...cardsOf(['gunDamage'])[0], lineage: 'II/V' },
-        { ...cardsOf(['torpedoCommand'])[0], rarity: 'EXCLUSIVE', replaces: 'REPLACES: ACOUSTIC HOMING' },
+        { ...cardsOf(['intelSweep'])[0], lineage: 'II/V' },
+        { ...cardsOf(['cannonAp'])[0], rarity: 'EXCLUSIVE', replaces: 'REPLACES: PLUNGING FIRE' },
         { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' }, // 1 copy: no lineage line
       ],
     }));
     const [stacked, swap, single] = cards();
     expect(stacked.textContent).toContain('II/V');
-    expect(swap.textContent).toContain('REPLACES: ACOUSTIC HOMING');
+    expect(swap.textContent).toContain('REPLACES: PLUNGING FIRE');
     expect(single.textContent).not.toContain('/');
     // The chip is STILL the first span, with every new line in place.
     expect(cards().map((b) => b.querySelector('span')?.textContent)).toEqual(['1', '2', '3']);

@@ -275,10 +275,19 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
     expect(quickInfoLine(equipmentInfo(stats, 'decoyBuoy'), 0)).toBe(`CD ${fmtSeconds(CONFIG.decoyBuoy.reloadMs)}`);
   });
 
-  it('DMG rides the effective stats — a filler/shell stack moves the printed number', () => {
-    // The documented migration seam closed in Story 2.8: damage is stat-driven,
-    // so equipmentDamage() reads the firewall's output, not CONFIG.
-    const heavy = statsFor('mineLayer', { mineDamage: 3, gunDamage: 2 });
+  // The documented migration seam closed in Story 2.8: damage is stat-driven,
+  // so equipmentDamage() reads the firewall's output, not CONFIG. Story 7-5
+  // wave 1 DELETED every card that moved a damage number (HEAVY SHELLS, HEAVY
+  // WARHEAD, TNT FILLER), so the "a stack moves it" half is RETIRED — the paths
+  // stay whitelisted and unwritten, and the readout is pinned against a
+  // hand-built stats object instead, which proves the same seam without a card.
+  it('DMG rides the effective stats, not CONFIG', () => {
+    const base = statsFor('mineLayer');
+    const heavy: EffectiveStats = {
+      ...base,
+      mine: { ...base.mine, damage: base.mine.damage + 7 },
+      gun: { ...base.gun, damage: base.gun.damage + 3 },
+    };
     expect(quickInfoLine(equipmentInfo(heavy, 'mine'), 0)).toContain(`DMG ${heavy.mine.damage}`);
     expect(heavy.mine.damage).toBeGreaterThan(CONFIG.mine.damage);
     expect(quickInfoLine(equipmentInfo(heavy, 'gun'), 0)).toContain(`DMG ${heavy.gun.damage}`);
@@ -645,7 +654,7 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
 
 describe('the ◆n accrued mark compresses the build into the row', () => {
   it('counts the slot family only, and shows nothing on an unboonded slot', () => {
-    const boons = ['gunDamage', 'gunDamage', 'torpedoSpeed'];
+    const boons = ['gunBarrel', 'gunBarrel', 'torpedoSpeed'];
     const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
     expect(rows[0].boonCount).toBe(2); // gun
     expect(rows[1].boonCount).toBe(1); // torpedo
@@ -663,7 +672,7 @@ describe('the ◆n accrued mark compresses the build into the row', () => {
   });
 
   it('ignores a junk id on the wire rather than counting it', () => {
-    expect(slotBoonIds('gun', ['gunDamage', 'notARealBoon', 'constructor'])).toEqual(['gunDamage']);
+    expect(slotBoonIds('gun', ['gunBarrel', 'notARealBoon', 'constructor'])).toEqual(['gunBarrel']);
   });
 
   it('clamps at 9+ so the mark can never outgrow the label column', () => {
@@ -677,9 +686,9 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   const stats = statsFor('torpedoBoat');
 
   it('gives every held line a ◆ name row and a live effect line', () => {
-    const t = tooltipModel(1, 'torpedo', stats, ['torpedoDamage', 'torpedoTube'])!;
-    expect(t.boons.map((r) => r.label)).toEqual(['◆ HEAVY WARHEAD Mk I', '◆ SECOND TUBE']);
-    expect(t.boons[0].effect).toMatch(/^Torpedo damage: \d/);
+    const t = tooltipModel(1, 'torpedo', stats, ['torpedoSpeed', 'torpedoTube'])!;
+    expect(t.boons.map((r) => r.label)).toEqual(['◆ TORPEDO I', '◆ EXTRA TUBE']);
+    expect(t.boons[0].effect).toMatch(/^Torpedo speed: \d/);
     expect(t.boons[1].effect).toMatch(/^Torpedoes loaded: \d/);
   });
 
@@ -690,10 +699,10 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   // where there is nothing to count. The suffix is gone; the row's contract
   // ("only when needed") is now trivially satisfied.
   it('COLLAPSES a stack into ONE row that names the rung — and nothing else', () => {
-    const held = ['gunDamage', 'gunDamage', 'gunDamage'];
-    const rows = boonRows('gun', held, statsFor('torpedoBoat', { gunDamage: 3 }));
+    const held = ['gunBarrel', 'gunBarrel'];
+    const rows = boonRows('gun', held, statsFor('torpedoBoat', { gunBarrel: 2 }));
     expect(rows).toHaveLength(1);
-    expect(rows[0].label).toBe('◆ HEAVY SHELLS Mk III');
+    expect(rows[0].label).toBe('◆ BARREL II');
     expect(rows[0].label).not.toContain('×');
   });
 
@@ -707,14 +716,14 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
     // `shipCooldown` is a SHIP line (the universal cooldown card), so it belongs
     // BELOW the divider with the intel/ship lines — the gun's own row here is
     // the gun-category one, which is what puts a side on each of the separator.
-    const held = ['gunDamage', 'shipCooldown', 'intelSweep', 'shipSpeed'];
+    const held = ['gunBarrel', 'shipCooldown', 'intelSweep', 'shipSpeed'];
     const gun = tooltipModel(0, 'gun', stats, held)!;
     expect(gun.boons.map((r) => r.label)).toEqual([
-      '◆ HEAVY SHELLS Mk I',
+      '◆ BARREL I',
       SHIP_DIVIDER_ROW,
-      '◆ DRILL SCHEDULE',
-      '◆ UPRATED SWEEP MOTOR Mk I',
-      '◆ HULL SCRAPING',
+      '◆ RELOAD I',
+      '◆ INTEL I',
+      '◆ SPEED I',
     ]);
     expect(gun.boons[1].divider).toBe(true);
     expect(gun.boons[1].effect).toBe('');
@@ -722,14 +731,14 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   });
 
   it('still renders ABSENCE for a slot with nothing fitted', () => {
-    expect(tooltipModel(1, 'torpedo', stats, ['gunDamage'])!.boons).toEqual([]);
+    expect(tooltipModel(1, 'torpedo', stats, ['gunBarrel'])!.boons).toEqual([]);
     expect(tooltipModel(1, 'torpedo', stats)!.boons).toEqual([]);
   });
 
   it('reports the LIVE value, so the row moves with the stack', () => {
-    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunDamage: 1 }), ['gunDamage'])!;
-    const four = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunDamage: 4 }), Array(4).fill('gunDamage'))!;
-    expect(one.boons[0].effect).not.toBe(four.boons[0].effect);
+    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunBarrel: 1 }), ['gunBarrel'])!;
+    const two = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunBarrel: 2 }), Array(2).fill('gunBarrel'))!;
+    expect(one.boons[0].effect).not.toBe(two.boons[0].effect);
   });
 });
 
@@ -782,7 +791,7 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
     .flatMap((d) => Array<string>(d.copies).fill(d.id));
 
   it('places the boons block below the MEASURED description, never under it', () => {
-    const model = tooltipModel(0, 'gun', stats, ['gunDamage', 'shipCooldown'])!;
+    const model = tooltipModel(0, 'gun', stats, ['gunBarrel', 'shipCooldown'])!;
     const modelled = tooltipRenderGeom(model, 0, 1080);
     // Pixi wrapped the description taller than the mono model predicted (the
     // model is an upper bound on WIDTH, a nominal on height). The block below it
@@ -794,7 +803,7 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
   });
 
   it('never shrinks below the model — the fit pin stays the authority', () => {
-    const model = tooltipModel(0, 'gun', stats, ['gunDamage'])!;
+    const model = tooltipModel(0, 'gun', stats, ['gunBarrel'])!;
     const under = tooltipRenderGeom(model, 1, 1080); // a measurement smaller than modelled
     expect(under.panelH).toBe(tooltipRenderGeom(model, 0, 1080).panelH);
   });

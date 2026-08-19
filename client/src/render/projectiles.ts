@@ -38,7 +38,6 @@ import {
   type BoomEvent,
   type BurstEvent,
   type CannonMode,
-  type TorpedoMode,
   type TorpedoUpdateEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -126,11 +125,16 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
   },
 };
 
-/** The OWN loadout's doctrine modes — the self-private half of the identity
- *  split (main.applyOwnStats fans them in, mirroring setSightRange). */
+/** The OWN loadout's doctrine state — the self-private half of the identity
+ *  split (main.applyOwnStats fans them in, mirroring setSightRange).
+ *
+ *  STORY 7-5 WAVE 1: the torpedo's single-valued `mode` became independent verb
+ *  FLAGS, and ACOUSTIC HOMING is the only one the water styles, so this carries
+ *  the boolean directly. The cannon keeps its enum (PLUNGING FIRE and
+ *  ARMOR-PIERCING genuinely contradict). */
 export interface OwnModes {
   cannon: CannonMode;
-  torpedo: TorpedoMode;
+  torpedoHoming: boolean;
 }
 
 /** Which own weapon a `shell`/`torp` reveal came out of, when the client can
@@ -152,7 +156,7 @@ export type OwnFire = 'gun' | 'cannon' | 'torpedo' | 'starShells' | null;
  * wire kind) falls through to the generic shell look on the same clause.
  */
 export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): ProjectileLookId {
-  if (kind === 'torp') return own === 'torpedo' && modes.torpedo === 'homing' ? 'torpHoming' : 'torp';
+  if (kind === 'torp') return own === 'torpedo' && modes.torpedoHoming ? 'torpHoming' : 'torp';
   if (own !== 'cannon') return 'shell';
   if (modes.cannon === 'arcing') return 'cannonArcing';
   return modes.cannon === 'ap' ? 'cannonAp' : 'cannon';
@@ -408,7 +412,7 @@ export class Projectiles {
   /** The OWN doctrine modes, fanned in from applyOwnStats (Story 2.9) — the
    *  seam setSightRange established, for the self-private half of ordnance
    *  identity. Stock until the first authoritative `you` lands. */
-  private ownModes: OwnModes = { cannon: 'standard', torpedo: 'standard' };
+  private ownModes: OwnModes = { cannon: 'standard', torpedoHoming: false };
 
   /** Track the own ship's boon-widened sight range so reveals don't pop early.
    *  ONE plumbed value, THREE rings — the enemy-torpedo ring is `detectFactor`

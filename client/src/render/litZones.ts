@@ -16,15 +16,22 @@
 
 // STORY 2.9 (amendment 50) — a zone reads as its DOCTRINE, for every observer.
 // A lit zone is observable behavior of a fired shell, and Eric ruled counterplay
-// over concealment: `LitZoneView.mode` rides the wire so an INCENDIARY patch of
-// burning water is distinguishable from a DAZZLE flash-blind and from an
-// ordinary flare — you cannot play around a hazard you cannot see. The firer's
-// personal hue keeps the RING (a zone always says whose it is); the doctrine
-// layers INSIDE it, so the two channels never fight.
+// over concealment: the doctrine rides the wire so a BURNING patch of water is
+// distinguishable from a DAZZLE flash-blind and from an ordinary flare — you
+// cannot play around a hazard you cannot see. The firer's personal hue keeps the
+// RING (a zone always says whose it is); the doctrine layers INSIDE it, so the
+// two channels never fight.
+//
+// STORY 7-5 WAVE 1 — THE VERBS STACK. `LitZoneView.mode` (one of standard /
+// incendiary / dazzle) became two INDEPENDENT optional wire flags, `phos` and
+// `daz`, either or BOTH of which may be set: a captain holding both star-shell
+// cards lights water that burns AND blinds. Every branch below is therefore an
+// INDEPENDENT check — never an if/else-if chain, never a switch — because a
+// mutually-exclusive read would silently drop one of the two hazards.
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { LitZoneView, StarShellsMode } from '@salvo/shared';
+import type { LitZoneView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
@@ -33,7 +40,7 @@ const Z = CLIENT_CONFIG.litZone;
 const PEAK_FILL_ALPHA = 0.12; // soft additive fill at full brightness
 const RING_ALPHA = 0.38; // the zone edge, a touch brighter than the fill
 const RING_W = 2; // u — edge stroke width
-/** INCENDIARY ember: the existing damage-marker crimson — burn feedback stays in
+/** PHOSPHOR ember: the existing damage-marker crimson — burn feedback stays in
  *  the damage register (no new reds), and this is literally water on fire. */
 const EMBER_COLOR = CLIENT_CONFIG.colors.damageMarker;
 /** DAZZLE glare: the muzzle-flash near-white. A flash-blind is white light; it
@@ -87,13 +94,20 @@ export function ownActiveZones(
   return out;
 }
 
+/** The verbs one lit zone carries. INDEPENDENT booleans, never an enum: a zone
+ *  may be neither, either, or BOTH (Story 7-5 wave 1). */
+export interface ZoneVerbs {
+  phos: boolean; // the water burns
+  daz: boolean; // the water blinds
+}
+
 /**
- * Pure: the doctrine a zone view carries. A frame from an older server (or any
- * view built before amendment 50) simply has no `mode`, and reads as an ordinary
- * flare — the fail-open branch, so a missing field can never blank a zone.
+ * Pure: the verbs a zone view carries. The wire omits a false flag entirely (the
+ * established optional-flag style), so an absent key reads as "not doing that" —
+ * a plain flare is simply both-false, and a missing field can never blank a zone.
  */
-export function zoneMode(z: { mode?: StarShellsMode }): StarShellsMode {
-  return z.mode ?? 'standard';
+export function zoneVerbs(z: { phos?: true; daz?: true }): ZoneVerbs {
+  return { phos: z.phos === true, daz: z.daz === true };
 }
 
 /** Ember-breath rate (Hz) for a burning zone — well under the shared
@@ -184,8 +198,8 @@ interface ZoneSprite extends HueState {
   g: Graphics;
   until: number; // server-clock expiry — drives the render() fade
   r: number; // zone radius (u) — needed to redraw on a firer-hue recolor
-  mode: StarShellsMode; // the doctrine this glow paints (amendment 50)
-  /** INCENDIARY only: the breathing ember disc, a CHILD of `g` so its own alpha
+  verbs: ZoneVerbs; // the doctrine verbs this glow paints (amendment 50)
+  /** PHOSPHOR only: the breathing ember disc, a CHILD of `g` so its own alpha
    *  can pulse without disturbing the glow's expiry fade (which rides `g.alpha`). */
   ember: Graphics | null;
 }
@@ -213,7 +227,7 @@ export class LitZones {
     for (const z of add) this.spawn(z, hueFor);
     // Story 1.12: recolor any glow that booted on the amber fallback (firer hue
     // not yet synced at spawn) once its personal hue lands — the mines precedent.
-    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.drawGlow(s.g, s.r, color, s.mode));
+    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.drawGlow(s.g, s.r, color, s.verbs));
   }
 
   /**
@@ -244,19 +258,21 @@ export class LitZones {
 
   private spawn(z: LitZoneView, hueFor: HueFor): void {
     const { color, colored, rev } = resolveHue(z.by, hueFor);
-    const mode = zoneMode(z);
+    const verbs = zoneVerbs(z);
     const g = new Graphics();
-    this.drawGlow(g, z.r, color, mode);
+    this.drawGlow(g, z.r, color, verbs);
     g.position.set(z.x, z.y);
     this.layer.addChild(g);
-    this.sprites.set(z.id, { g, until: z.until, r: z.r, by: z.by, colored, rev, mode, ember: this.emberOf(g, z.r, mode) });
+    const sprite = { g, until: z.until, r: z.r, by: z.by, colored, rev, verbs, ember: this.emberOf(g, z.r, verbs) };
+    this.sprites.set(z.id, sprite);
   }
 
   /** The burning zone's ember disc: a child Graphics whose ALPHA breathes, so a
    *  glow's expiry fade (`g.alpha`) and the fire's breath never fight over one
-   *  property. Null for every other doctrine. */
-  private emberOf(g: Graphics, r: number, mode: StarShellsMode): Graphics | null {
-    if (mode !== 'incendiary') return null;
+   *  property. Null unless the zone carries PHOSPHOR — and independent of
+   *  DAZZLE, so a zone carrying both breathes AND glares. */
+  private emberOf(g: Graphics, r: number, verbs: ZoneVerbs): Graphics | null {
+    if (!verbs.phos) return null;
     const ember = new Graphics();
     ember.blendMode = 'add';
     ember.circle(0, 0, r * Z.emberFrac).fill({ color: EMBER_COLOR, alpha: 1 });
@@ -271,16 +287,18 @@ export class LitZones {
    *
    * Every doctrine keeps the firer-hue ring and fill — that is the zone's
    * IDENTITY channel, and amendment 50 changed what a zone DOES, not whose it
-   * is. `dazzle` adds a brighter core and a soft halo, both CONTAINED inside the
+   * is. DAZZLE adds a brighter core and a soft halo, both CONTAINED inside the
    * ring (dazzleRadii — the glare is what the zone is doing, the ring is where
    * it stops) and deliberately STATIC (a flickering flash-blind is the exact
-   * hazard the flash budget exists to prevent); `incendiary`'s ember disc is a
-   * separate breathing child (emberOf); `standard` paints exactly as before.
+   * hazard the flash budget exists to prevent); PHOSPHOR's ember disc is a
+   * separate breathing child (emberOf); a zone with neither verb paints exactly
+   * as before. The two are INDEPENDENT — a both-verb zone draws the glare here
+   * and gets its ember from emberOf, and neither branch can suppress the other.
    */
-  private drawGlow(g: Graphics, r: number, color: number, mode: StarShellsMode): void {
+  private drawGlow(g: Graphics, r: number, color: number, verbs: ZoneVerbs): void {
     g.clear();
     g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
-    if (mode === 'dazzle') {
+    if (verbs.daz) {
       const glare = dazzleRadii(r);
       g.circle(0, 0, glare.halo).fill({ color: GLARE_COLOR, alpha: Z.haloAlpha });
       g.circle(0, 0, glare.core).fill({ color: GLARE_COLOR, alpha: Z.glareAlpha });
@@ -289,13 +307,13 @@ export class LitZones {
     g.circle(0, 0, r).stroke({ width: RING_W, color, alpha: RING_ALPHA });
   }
 
-  /** The doctrine a held zone is painted as (test/debug seam). */
-  modeOf(id: string): StarShellsMode | null {
-    return this.sprites.get(id)?.mode ?? null;
+  /** The doctrine verbs a held zone is painted with (test/debug seam). */
+  verbsOf(id: string): ZoneVerbs | null {
+    return this.sprites.get(id)?.verbs ?? null;
   }
 
   /** The live ember alpha of a held burning zone (test seam for the breath);
-   *  null for a zone with no ember (every non-incendiary doctrine). */
+   *  null for a zone with no ember (any zone without the PHOSPHOR verb). */
   emberAlphaOf(id: string): number | null {
     return this.sprites.get(id)?.ember?.alpha ?? null;
   }

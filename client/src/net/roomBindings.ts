@@ -1992,7 +1992,12 @@ export function readsAsBurn(amount: number, sinceBurningMs: number): boolean {
 }
 
 /**
- * Pure: is `p` standing in some OTHER captain's burning (INCENDIARY) zone?
+ * Pure: is `p` standing in some OTHER captain's burning (PHOSPHOR) zone?
+ *
+ * Reads the `phos` flag ALONE (Story 7-5 wave 1): the verbs stack, so a zone
+ * that also carries `daz` is still a burning zone and must still classify — a
+ * `mode === 'incendiary'` style equality read would have dropped exactly the
+ * both-verb case.
  *
  * Deliberately does NOT re-check the zone's expiry: a zone that is still in the
  * frame's list is still live by construction (the server rebuilds that list per
@@ -2005,7 +2010,7 @@ export function inEnemyBurningZone(
   selfId: string,
 ): boolean {
   for (const z of zones) {
-    if (z.mode !== 'incendiary' || z.by === selfId) continue;
+    if (z.phos !== true || z.by === selfId) continue;
     const dx = p.x - z.x;
     const dy = p.y - z.y;
     if (dx * dx + dy * dy <= z.r * z.r) return true;

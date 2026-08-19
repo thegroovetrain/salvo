@@ -538,10 +538,10 @@ describe('pierceOrder — the derived AP boom id', () => {
 });
 
 describe('lookForReveal — who gets which identity, on what evidence', () => {
-  const stock = { cannon: 'standard', torpedo: 'standard' } as const;
+  const stock = { cannon: 'standard', torpedoHoming: false } as const;
 
   it('gives every OBSERVER the plain wire-kind look, whatever WE have fitted', () => {
-    const armed = { cannon: 'ap', torpedo: 'homing' } as const;
+    const armed = { cannon: 'ap', torpedoHoming: true } as const;
     // `own: null` is "not our shot" — an enemy's shell/fish. Our own doctrine
     // must not paint their ordnance: that would leak OUR build to nobody's
     // benefit and, worse, make the two indistinguishable on screen.
@@ -559,11 +559,12 @@ describe('lookForReveal — who gets which identity, on what evidence', () => {
   });
 
   it('styles an OWN homing fish from LAUNCH, and a stock own fish not at all', () => {
-    expect(lookForReveal('torp', 'torpedo', { ...stock, torpedo: 'homing' })).toBe('torpHoming');
+    expect(lookForReveal('torp', 'torpedo', { ...stock, torpedoHoming: true })).toBe('torpHoming');
     expect(lookForReveal('torp', 'torpedo', stock)).toBe('torp');
-    // COMMAND DETONATION is the other torpedo exclusive: it changes when the
-    // fish detonates, not how it runs, so it inherits the straight-runner look.
-    expect(lookForReveal('torp', 'torpedo', { ...stock, torpedo: 'command' })).toBe('torp');
+    // Story 7-5 wave 1: ACOUSTIC HOMING is the ONLY torpedo verb left (COMMAND
+    // DETONATION was deleted with the weapon behavior), so the flag is the whole
+    // question and an unarmed fish keeps the straight-runner look.
+    expect(lookForReveal('torp', 'torpedo', { cannon: 'arcing', torpedoHoming: false })).toBe('torp');
   });
 });
 
@@ -586,7 +587,7 @@ describe('Projectiles — the identity a live track paints with', () => {
 
   it('styles OWN ordnance off the modes fanned in from applyOwnStats', () => {
     const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'ap', torpedo: 'homing' });
+    p.setOwnModes({ cannon: 'ap', torpedoHoming: true });
     p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
     p.onShell({ k: 'shell', id: 's2', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'gun');
     p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'torpedo');
@@ -598,7 +599,7 @@ describe('Projectiles — the identity a live track paints with', () => {
   it('a doctrine swap never restyles ordnance already in the water', () => {
     const p = new Projectiles(900, new Container());
     p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
-    p.setOwnModes({ cannon: 'ap', torpedo: 'standard' });
+    p.setOwnModes({ cannon: 'ap', torpedoHoming: false });
     expect(p.lookOf('s1')).toBe('cannon'); // the shell that left the barrel stock
   });
 
@@ -632,7 +633,7 @@ describe('Projectiles — the identity a live track paints with', () => {
 
   it('a retired sprite hands on no scale or rotation to the next track', () => {
     const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    p.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
     p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
     p.render(400, own, []);
     expect(p.scaleOf('s1')).toBeGreaterThan(1); // mid-arc: swollen
@@ -662,7 +663,7 @@ describe('the arc swell is MOTION, the position is INFORMATION', () => {
   it('holds an arcing shell at scale 1 with motion off — and still moves it', () => {
     settings.set({ motion: 'off' });
     const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    p.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
     p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
     p.render(400, { x: 0, y: 0 }, []);
     expect(p.scaleOf('s1')).toBe(1); // no swell at all
@@ -672,13 +673,13 @@ describe('the arc swell is MOTION, the position is INFORMATION', () => {
   it('halves the swell at reduced motion (never removes the shell)', () => {
     settings.set({ motion: 'reduced' });
     const p = new Projectiles(900, new Container());
-    p.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    p.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
     p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
     p.render(450, { x: 0, y: 0 }, []);
     const reduced = p.scaleOf('s1');
     settings.set({ motion: 'full' });
     const q = new Projectiles(900, new Container());
-    q.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    q.setOwnModes({ cannon: 'arcing', torpedoHoming: false });
     q.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
     q.render(450, { x: 0, y: 0 }, []);
     expect(reduced).toBeGreaterThan(1);

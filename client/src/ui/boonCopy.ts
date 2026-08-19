@@ -24,6 +24,20 @@
 //     The Mk numerals are printed as authored; the card's name style deliberately
 //     does NOT uppercase-transform, so "Mk III" never becomes "MK III".
 //
+// STORY 7-5 WAVE 1 — THE v2 CATALOG. Eric re-authored the deck
+// (_bmad-output/implementation-artifacts/7-5-decks.md) and HIS CARD NAMES ARE
+// CANON, verbatim: HULL/SPEED/INTEL/RANGE/RELOAD, BARREL, EXTRA TURRET,
+// TORPEDO, EXTRA TUBE, BOOST DURATION, BOOST SPEED, STAR SHELLS, MINES, plus
+// PHOSPHOR SHELLS / DAZZLE SHELLS / PROP FOULING MINES. The v1 bespoke ladders
+// survive ONLY where wave 1 did not touch the line (the cannon and the decoy
+// buoy, both reworked in wave 2, and the acquisition cards). Seven lines were
+// deleted outright (gunDamage, torpedoDamage, torpedoCommand, mineDamage,
+// mineMax, starRadius, boostMax) and their copy went with them.
+//
+// THE VERBS NOW STACK. PHOSPHOR and DAZZLE are independent flags on one star
+// shell, as are PROP FOULING and SELF-PROPELLED on one mine, so no doctrine
+// card's rules text may imply an either/or any more.
+//
 // FAIL-OPEN, not fail-closed: an id with no copy renders a readable
 // de-camelCased fallback rather than an empty card, and a stack position past
 // the end of a ladder clamps to its last rung. The fail-CLOSED gate lives
@@ -48,51 +62,46 @@ import {
  */
 const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   // --- GUNS ----------------------------------------------------------------
-  gunDamage: ['HEAVY SHELLS Mk I', 'HEAVY SHELLS Mk II', 'HEAVY SHELLS Mk III', 'HEAVY SHELLS Mk IV', 'HEAVY SHELLS Mk V'],
-  gunBarrel: ['TWIN MOUNT', 'TRIPLE MOUNT'],
-  gunTurret: ['AFT TURRET'],
-  // --- CANNON --------------------------------------------------------------
+  // HEAVY SHELLS is DELETED with `gunDamage` (Eric: the gun needs no damage
+  // bonuses). BARREL keeps the ladder-of-numerals register the v2 catalog runs on.
+  gunBarrel: ['BARREL I', 'BARREL II'],
+  gunTurret: ['EXTRA TURRET'],
+  // --- CANNON (WAVE 2 rework) — carried forward VERBATIM --------------------
   cannonDamage: ['HEAVY CHARGE Mk I', 'HEAVY CHARGE Mk II', 'HEAVY CHARGE Mk III', 'HEAVY CHARGE Mk IV', 'HEAVY CHARGE Mk V'],
   cannonArcing: ['PLUNGING FIRE'],
   cannonAp: ['ARMOR-PIERCING SHELLS'],
   // --- TORPEDOES -----------------------------------------------------------
-  torpedoDamage: ['HEAVY WARHEAD Mk I', 'HEAVY WARHEAD Mk II', 'HEAVY WARHEAD Mk III', 'HEAVY WARHEAD Mk IV', 'HEAVY WARHEAD Mk V'],
-  torpedoSpeed: ['HIGH-SPEED SETTING', 'WET-HEATER ENGINE', 'ENRICHED OXIDIZER', 'PURE OXYGEN DRIVE'],
-  torpedoTube: ['SECOND TUBE'],
+  // HEAVY WARHEAD and COMMAND DETONATION are both DELETED (their catalog lines
+  // are gone; command detonation left the game entirely).
+  torpedoSpeed: ['TORPEDO I', 'TORPEDO II', 'TORPEDO III', 'TORPEDO IV'],
+  torpedoTube: ['EXTRA TUBE'],
   torpedoHoming: ['ACOUSTIC HOMING'],
-  torpedoCommand: ['COMMAND DETONATION'],
   // --- MINES ---------------------------------------------------------------
-  mineDamage: ['TNT FILLER', 'AMATOL FILLER', 'TORPEX FILLER', 'MINOL FILLER', 'RDX FILLER'],
-  mineBlast: ['BLAST CASING Mk I', 'BLAST CASING Mk II', 'BLAST CASING Mk III', 'BLAST CASING Mk IV', 'BLAST CASING Mk V'],
-  mineMax: ['DECK RACKS', 'EXTENDED RACKS', 'MINE RAILS', 'SPONSON STOWAGE', 'CONVERTED HOLD'],
+  // TNT FILLER and DECK RACKS are DELETED with `mineDamage`/`mineMax`.
+  mineBlast: ['MINES I', 'MINES II', 'MINES III', 'MINES IV'],
   mineSelfPropelled: ['SELF-PROPELLED MINES'],
-  minePropFouling: ['PROP-FOULING MINES'],
+  minePropFouling: ['PROP FOULING MINES'],
   // --- SPEED BOOST ---------------------------------------------------------
-  boostMax: ['CLEAN BOILERS', 'UPRATED BOILERS', 'SUPERHEATERS', 'FORCED DRAUGHT', 'EMERGENCY POWER'],
+  // `boostMax` (CLEAN BOILERS…) SPLIT into two lines: duration and speed are
+  // separate buys now, so the old one-ladder flavor had nothing left to name.
+  boostDuration: ['BOOST DURATION I', 'BOOST DURATION II', 'BOOST DURATION III', 'BOOST DURATION IV'],
+  boostSpeed: ['BOOST SPEED I', 'BOOST SPEED II'],
   // --- STAR SHELLS ---------------------------------------------------------
-  starDuration: ['SLOW-BURN COMPOUND Mk I', 'SLOW-BURN COMPOUND Mk II', 'SLOW-BURN COMPOUND Mk III', 'SLOW-BURN COMPOUND Mk IV', 'SLOW-BURN COMPOUND Mk V'],
-  starRadius: ['WIDE BURST Mk I', 'WIDE BURST Mk II', 'WIDE BURST Mk III', 'WIDE BURST Mk IV', 'WIDE BURST Mk V'],
-  starIncendiary: ['INCENDIARY COMPOUND'],
-  starDazzle: ['DAZZLE BURST'],
-  // --- DECOY BUOY ----------------------------------------------------------
+  // WIDE BURST is DELETED with `starRadius`. PHOSPHOR SHELLS is a DISPLAY
+  // rename of the `starIncendiary` line — project law (the KILL LEADER
+  // precedent): a copy rename is never an id rename.
+  starDuration: ['STAR SHELLS I', 'STAR SHELLS II', 'STAR SHELLS III', 'STAR SHELLS IV'],
+  starIncendiary: ['PHOSPHOR SHELLS'],
+  starDazzle: ['DAZZLE SHELLS'],
+  // --- DECOY BUOY (WAVE 2 rework) — carried forward VERBATIM ----------------
   decoyDuration: ['EXTENDED BATTERY Mk I', 'EXTENDED BATTERY Mk II', 'EXTENDED BATTERY Mk III', 'EXTENDED BATTERY Mk IV', 'EXTENDED BATTERY Mk V'],
   // --- INTEL ---------------------------------------------------------------
-  // INTEL RANGE (Eric ruling 2026-08-16) — one four-rung ladder replacing the
-  // two five-rung ones. Drawn from BOTH retired ladders, alternating optics and
-  // antenna, because the merged card widens the whole sensor suite rather than
-  // one instrument: every name here is existing ratified copy, none is invented.
-  intelRange: ['IMPROVED OPTICS', 'HIGH-GAIN ANTENNA', 'DIRECTOR TOWER', 'CAVITY MAGNETRON'],
-  intelSweep: ['UPRATED SWEEP MOTOR Mk I', 'UPRATED SWEEP MOTOR Mk II', 'UPRATED SWEEP MOTOR Mk III', 'UPRATED SWEEP MOTOR Mk IV', 'UPRATED SWEEP MOTOR Mk V'],
+  intelRange: ['RANGE I', 'RANGE II', 'RANGE III', 'RANGE IV'],
+  intelSweep: ['INTEL I', 'INTEL II', 'INTEL III', 'INTEL IV', 'INTEL V'],
   // --- SHIP ----------------------------------------------------------------
-  shipSpeed: ['HULL SCRAPING', 'NEW SCREWS', 'ENGINE REFIT', 'GEARED TURBINES', 'FLANK SPEED TRIALS'],
-  shipHull: ['REINFORCED HULL', 'ARMOR BELT', 'TORPEDO BULGE', 'WATERTIGHT COMPARTMENTS', 'ARMORED CITADEL'],
-  // The universal cooldown line (Eric ruling 2026-08-04): a CREW-PROFICIENCY
-  // ladder, not a hardware one — it scales every mounting on the ship at once,
-  // so the flavor is the ratings who work them, not any one weapon's loader.
-  // The 5th rung (Eric ruling 2026-08-04, copies 4 → 5): the gunnery pennant is
-  // the real-world award for the squadron's top gunnery ship — an EARNED capstone
-  // for max crew proficiency, so it closes the ladder rather than continuing it.
-  shipCooldown: ['DRILL SCHEDULE', 'PRACTICED CREWS', 'VETERAN RATINGS', 'BATTLE STATIONS', 'GUNNERY PENNANT'],
+  shipSpeed: ['SPEED I', 'SPEED II', 'SPEED III', 'SPEED IV'],
+  shipHull: ['HULL I', 'HULL II', 'HULL III', 'HULL IV'],
+  shipCooldown: ['RELOAD I', 'RELOAD II', 'RELOAD III', 'RELOAD IV', 'RELOAD V'],
   // --- EQUIPMENT ACQUISITIONS (fill the R slot, shuffle their subdeck in) ---
   acquireTorpedo: ['TORPEDO TUBES'],
   acquireMine: ['MINE RACKS'],
@@ -184,23 +193,19 @@ interface StatLine {
 /** The headline stat each COMMON/RARE line moves — the number the card prints
  *  as `current → next`. One row per stat line in BOON_CATALOG. */
 const STAT_LINES: Readonly<Record<string, StatLine>> = {
-  gunDamage: { label: 'Gun damage', read: (s) => s.gun.damage },
   gunBarrel: { label: 'Shells per shot', read: (s) => s.gun.barrels, note: 'Every shell bursts at its own point.' },
   gunTurret: { label: 'Gun rounds ready', read: (s) => s.gun.maxAmmo },
   cannonDamage: { label: 'Cannon damage', read: (s) => s.cannon.damage },
-  torpedoDamage: { label: 'Torpedo damage', read: (s) => s.torpedo.damage },
   torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },
   torpedoTube: { label: 'Torpedoes loaded', read: (s) => s.torpedo.maxAmmo },
-  mineDamage: { label: 'Mine damage', read: (s) => s.mine.damage },
-  // The merged mine-ring line (Eric ruling 2026-08-16). MAGNETIC -> COMBINATION
-  // FUZE retired with `mineTrigger`; the trip ring is now a fixed fraction of
-  // the blast, so ONE card grows both and the note says so rather than making
-  // the player infer it from a second number row.
+  // The merged mine-ring line (Eric ruling 2026-08-16). The trip ring is a
+  // fixed fraction of the blast, so ONE card grows both and the note says so
+  // rather than making the player infer it from a second number row.
   mineBlast: { label: 'Mine blast radius', read: (s) => s.mine.blastRadius, note: 'The trip ring widens with it.' },
-  mineMax: { label: 'Mines on the board', read: (s) => s.mine.maxLive },
-  boostMax: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
+  // The two halves of the retired `boostMax` line, bought separately now.
+  boostDuration: { label: 'Boost duration', read: (s) => s.boost.durationMs, fmt: secs },
+  boostSpeed: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
   starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },
-  starRadius: { label: 'Lit zone radius', read: (s) => s.starShells.litRadius },
   decoyDuration: { label: 'Buoy lifetime', read: (s) => s.decoyBuoy.durationMs, fmt: secs },
   intelRange: {
     label: 'Radar range',
@@ -227,29 +232,30 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
 
 /**
  * The doctrine cards' rules text — each spells out the full behavior change
- * (the Exclusive Law: exclusives change a weapon's NATURE).
+ * (a doctrine card changes a weapon's NATURE, so the card has to say how).
  *
- * AMENDMENT 47 (the container-fit law) rewrote every line here. The Story 2.8
- * drafts ran 111–149 characters, which wrapped to 7–9 lines inside the card's
- * 186px inner box and pushed the exclusive cards 50–97px past the card bottom
- * on the live site. These are the SHORTEST wordings that still state the whole
- * contract — nothing was deleted from any behavior (no-burst, pierce count and
- * damage ladder, island stop, acquisition-range homing, decoy immunity, the
- * command-detonation range and the surviving contact hit, the fouling trade,
- * the burn/dazzle radius-and-duration terms are all still printed). The pin in
- * __tests__/refitCardFit.test.ts fails the build if a future edit re-inflates
- * one: the budget is ~5 wrapped lines (~90 characters) for a doctrine card
- * carrying a REPLACES line under a two-line ladder name.
+ * STORY 7-5 WAVE 1: the verbs STACK now. `torpedoCommand` is gone with COMMAND
+ * DETONATION; the star-shell and mine pairs stopped being either/or, so their
+ * text says "also" rather than trading one behavior for another, and PROP
+ * FOULING no longer claims a damage penalty (cycle 95 deleted it) — it states
+ * the real slow instead.
+ *
+ * AMENDMENT 47 (the container-fit law) governs the LENGTH of every line here.
+ * The Story 2.8 drafts ran 111–149 characters, which wrapped to 7–9 lines inside
+ * the card's 186px inner box and pushed the doctrine cards 50–97px past the card
+ * bottom on the live site. These are the SHORTEST wordings that still state the
+ * whole contract. The pin in __tests__/refitCardFit.test.ts fails the build if a
+ * future edit re-inflates one: the budget is ~5 wrapped lines (~90 characters)
+ * for a doctrine card carrying a REPLACES line under a two-line ladder name.
  */
 const DOCTRINE_TEXT: Readonly<Record<string, string>> = {
   cannonArcing: 'Cannon shells lob over islands and hulls, cannot be intercepted, and burst on your click.',
   cannonAp: 'Cannon shells stop bursting. A shot pierces up to three hulls: 100/50/25%. Islands stop it.',
   torpedoHoming: 'Torpedoes slowly steer to the nearest enemy hull in range. Decoys are ignored.',
-  torpedoCommand: 'Click to detonate a torpedo, out to radar range, in a big blast. Contact still hits.',
   mineSelfPropelled: 'Armed mines creep toward the nearest enemy hull in acquisition range.',
-  minePropFouling: 'Mines hit softer, but hulls in the blast are fouled to half speed briefly.',
-  starIncendiary: 'The lit zone burns: a smaller circle scorches every hull but yours inside it, while lit.',
-  starDazzle: 'The lit zone still lights. Every hull but yours inside it is dazzled: true sight cut.',
+  minePropFouling: 'Hulls caught in a mine blast are fouled: 25% slower for 5 seconds. Damage unchanged.',
+  starIncendiary: 'Your lit zones also burn: a smaller circle scorches every hull but yours inside it.',
+  starDazzle: 'Your lit zones also dazzle: every hull but yours inside one has its true sight cut.',
 };
 
 /** The acquisition cards' rules text — what arrives in the open slot. */

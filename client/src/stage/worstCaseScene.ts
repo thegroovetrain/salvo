@@ -580,7 +580,7 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     sweep: (tick * 0.06) % (Math.PI * 2),
     cls: OWN_CLASS,
     pts: bankedPointsAt(tick, world.profile),
-    offer: ['gunDamage', 'torpedoSpeed', 'cannonDamage'],
+    offer: ['intelSweep', 'torpedoSpeed', 'cannonDamage'],
     boostUntil: 0,
     boons: [],
     lvl: 4 + Math.floor(tick / s.pointEveryTicks),

@@ -2668,7 +2668,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   // earn it from observable behavior). Deliberately ABOVE the vision-change
   // early-return below: a doctrine swap moves no vision stat, so gating it on
   // one would leave the water lying about the build we just fitted.
-  g.projectiles.setOwnModes({ cannon: stats.cannon.mode, torpedo: stats.torpedo.mode });
+  g.projectiles.setOwnModes({ cannon: stats.cannon.mode, torpedoHoming: stats.torpedo.homing });
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -2708,7 +2708,7 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
   return {
     blast: mine.blastRadius,
     trigger: mine.triggerRadius,
-    acquire: mine.mode === 'selfPropelled' ? CONFIG.mine.creepAcquireRange : null,
+    acquire: mine.selfPropelled ? CONFIG.mine.creepAcquireRange : null,
     now: t,
   };
 }

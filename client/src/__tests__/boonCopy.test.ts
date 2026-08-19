@@ -48,36 +48,45 @@ describe('ladder coverage — every catalog line, every stack position', () => {
   });
 
   it('carries the ratified ladders verbatim (spot checks across the naming styles)', () => {
-    expect(boonName('gunDamage', 0)).toBe('HEAVY SHELLS Mk I');
-    expect(boonName('gunDamage', 4)).toBe('HEAVY SHELLS Mk V');
-    // The universal cooldown line's crew-proficiency ladder (2026-08-04): FIVE
-    // rungs, one per copy (the copies 4 → 5 ruling took the cap to 0.5), sitting
-    // in the SHIP category beside HULL SCRAPING. Both ends are pinned.
-    expect(boonName('shipCooldown', 0)).toBe('DRILL SCHEDULE');
-    expect(boonName('shipCooldown', 3)).toBe('BATTLE STATIONS');
-    expect(boonName('shipCooldown', 4)).toBe('GUNNERY PENNANT');
-    expect(boonName('gunBarrel', 0)).toBe('TWIN MOUNT');
-    expect(boonName('gunBarrel', 1)).toBe('TRIPLE MOUNT');
-    expect(boonName('gunTurret')).toBe('AFT TURRET');
-    expect(boonName('mineDamage', 0)).toBe('TNT FILLER');
-    expect(boonName('mineDamage', 4)).toBe('RDX FILLER');
-    expect(boonName('mineBlast', 4)).toBe('BLAST CASING Mk V');
-    expect(boonName('mineMax', 4)).toBe('CONVERTED HOLD');
-    expect(boonName('torpedoSpeed', 3)).toBe('PURE OXYGEN DRIVE');
-    expect(boonName('intelRange', 4)).toBe('CAVITY MAGNETRON');
-    expect(boonName('intelRange', 3)).toBe('CAVITY MAGNETRON'); // top rung of the merged 4-copy ladder
-    expect(boonName('shipSpeed', 4)).toBe('FLANK SPEED TRIALS');
-    expect(boonName('shipHull', 4)).toBe('ARMORED CITADEL');
-    expect(boonName('boostMax', 4)).toBe('EMERGENCY POWER');
-    // The four ratified doctrine forks.
+    // STORY 7-5 WAVE 1 — Eric's own card names, verbatim canon
+    // (_bmad-output/implementation-artifacts/7-5-decks.md). The v1 spot checks
+    // for the SEVEN deleted lines (HEAVY SHELLS, HEAVY WARHEAD, COMMAND
+    // DETONATION, TNT FILLER, DECK RACKS, WIDE BURST, CLEAN BOILERS) are
+    // RETIRED with their catalog lines.
+    expect(boonName('shipHull', 0)).toBe('HULL I');
+    expect(boonName('shipHull', 3)).toBe('HULL IV');
+    expect(boonName('shipSpeed', 0)).toBe('SPEED I');
+    expect(boonName('shipSpeed', 3)).toBe('SPEED IV');
+    expect(boonName('intelSweep', 0)).toBe('INTEL I');
+    expect(boonName('intelSweep', 4)).toBe('INTEL V');
+    expect(boonName('intelRange', 0)).toBe('RANGE I');
+    expect(boonName('intelRange', 3)).toBe('RANGE IV');
+    expect(boonName('shipCooldown', 0)).toBe('RELOAD I');
+    expect(boonName('shipCooldown', 4)).toBe('RELOAD V');
+    expect(boonName('gunBarrel', 0)).toBe('BARREL I');
+    expect(boonName('gunBarrel', 1)).toBe('BARREL II');
+    expect(boonName('gunTurret')).toBe('EXTRA TURRET');
+    expect(boonName('torpedoSpeed', 0)).toBe('TORPEDO I');
+    expect(boonName('torpedoSpeed', 3)).toBe('TORPEDO IV');
+    expect(boonName('torpedoTube')).toBe('EXTRA TUBE');
+    expect(boonName('boostDuration', 0)).toBe('BOOST DURATION I');
+    expect(boonName('boostDuration', 3)).toBe('BOOST DURATION IV');
+    expect(boonName('boostSpeed', 0)).toBe('BOOST SPEED I');
+    expect(boonName('boostSpeed', 1)).toBe('BOOST SPEED II');
+    expect(boonName('starDuration', 0)).toBe('STAR SHELLS I');
+    expect(boonName('starDuration', 3)).toBe('STAR SHELLS IV');
+    expect(boonName('mineBlast', 0)).toBe('MINES I');
+    expect(boonName('mineBlast', 3)).toBe('MINES IV');
+    // The doctrine forks. PHOSPHOR SHELLS is a DISPLAY rename of the
+    // `starIncendiary` line — the id is deliberately unchanged (project law:
+    // a copy rename is never an id rename, the KILL LEADER precedent).
     expect(boonName('cannonArcing')).toBe('PLUNGING FIRE');
     expect(boonName('cannonAp')).toBe('ARMOR-PIERCING SHELLS');
     expect(boonName('torpedoHoming')).toBe('ACOUSTIC HOMING');
-    expect(boonName('torpedoCommand')).toBe('COMMAND DETONATION');
     expect(boonName('mineSelfPropelled')).toBe('SELF-PROPELLED MINES');
-    expect(boonName('minePropFouling')).toBe('PROP-FOULING MINES');
-    expect(boonName('starIncendiary')).toBe('INCENDIARY COMPOUND');
-    expect(boonName('starDazzle')).toBe('DAZZLE BURST');
+    expect(boonName('minePropFouling')).toBe('PROP FOULING MINES');
+    expect(boonName('starIncendiary')).toBe('PHOSPHOR SHELLS');
+    expect(boonName('starDazzle')).toBe('DAZZLE SHELLS');
     // Acquisitions — amendment 42 named the Speed Boost card EMERGENCY THROTTLE.
     expect(boonName('acquireTorpedo')).toBe('TORPEDO TUBES');
     expect(boonName('acquireMine')).toBe('MINE RACKS');
@@ -88,9 +97,9 @@ describe('ladder coverage — every catalog line, every stack position', () => {
   });
 
   it('clamps a stack past the end of a ladder to its last rung (never blank)', () => {
-    expect(boonName('gunDamage', 99)).toBe('HEAVY SHELLS Mk V');
-    expect(boonName('gunTurret', 3)).toBe('AFT TURRET');
-    expect(boonName('gunDamage', -1)).toBe('HEAVY SHELLS Mk I');
+    expect(boonName('shipCooldown', 99)).toBe('RELOAD V');
+    expect(boonName('gunTurret', 3)).toBe('EXTRA TURRET');
+    expect(boonName('shipCooldown', -1)).toBe('RELOAD I');
   });
 
   it('fails OPEN on an unknown id (a readable fallback, never an empty card)', () => {
@@ -130,11 +139,11 @@ describe('rules text — the contract, with live values', () => {
   });
 
   it('the printed values MOVE with the player\'s existing build (not a static table)', () => {
-    const fresh = boonDescription(BOON_CATALOG.gunDamage, TB);
-    const stacked = boonDescription(BOON_CATALOG.gunDamage, { cls: 'torpedoBoat', boons: ['gunDamage', 'gunDamage'] });
+    const fresh = boonDescription(BOON_CATALOG.shipHull, TB);
+    const stacked = boonDescription(BOON_CATALOG.shipHull, { cls: 'torpedoBoat', boons: ['shipHull', 'shipHull'] });
     expect(stacked).not.toBe(fresh);
-    const two = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(['gunDamage', 'gunDamage'], BOON_CATALOG));
-    expect(stacked).toContain(`${two.gun.damage} →`);
+    const two = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(['shipHull', 'shipHull'], BOON_CATALOG));
+    expect(stacked).toContain(`${two.maxHp} →`);
   });
 
   it('tells the TRUTH at a firewall clamp — a capped sweep prints an unchanged number', () => {
@@ -162,19 +171,40 @@ describe('rules text — the contract, with live values', () => {
     expect(boonDescription(BOON_CATALOG.cannonAp, TB)).toContain('three hulls');
     expect(boonDescription(BOON_CATALOG.cannonArcing, TB)).toContain('islands');
     expect(boonDescription(BOON_CATALOG.torpedoHoming, TB)).toContain('steer');
-    expect(boonDescription(BOON_CATALOG.torpedoCommand, TB)).toContain('detonate');
     expect(boonDescription(BOON_CATALOG.minePropFouling, TB)).toContain('fouled');
-    expect(boonDescription(BOON_CATALOG.starDazzle, TB)).toContain('dazzled');
+    expect(boonDescription(BOON_CATALOG.starDazzle, TB)).toContain('dazzle');
     expect(boonDescription(BOON_CATALOG.acquireCannon, TB)).toContain('open slot');
     // ...and a doctrine card never prints a bare stat diff instead.
     expect(boonDescription(BOON_CATALOG.starIncendiary, TB)).not.toContain('→');
+  });
+
+  // STORY 7-5 WAVE 1 — the verbs STACK, so no doctrine card may still sell
+  // itself as a trade against its former rival. Both star-shell cards and both
+  // mine cards are legal to hold together now.
+  it('no stacking-verb card implies an either/or any more', () => {
+    const stacking = ['starIncendiary', 'starDazzle', 'minePropFouling', 'mineSelfPropelled', 'torpedoHoming'];
+    for (const id of stacking) {
+      const text = boonDescription(BOON_CATALOG[id], TB);
+      expect(text, id).not.toMatch(/instead|no longer|replaces/i);
+      expect(BOON_CATALOG[id].exclusiveWith, id).toBeUndefined();
+    }
+  });
+
+  // PROP FOULING is a PURE behaviour verb since cycle 95 deleted its damage
+  // penalty — the shipped v1 text still claimed "Mines hit softer", which was a
+  // lie on the card. It states the real slow now.
+  it('PROP FOULING states the real slow and claims no damage penalty', () => {
+    const text = boonDescription(BOON_CATALOG.minePropFouling, TB);
+    expect(text).toContain('25%');
+    expect(text).toContain('5 seconds');
+    expect(text).not.toMatch(/softer|less damage/i);
   });
 });
 
 describe('lineage handrail + doctrine-swap line', () => {
   it('marks the position a card would take out of its line\'s copies', () => {
-    expect(boonLineageLine(BOON_CATALOG.gunDamage, 0)).toBe('I/V');
-    expect(boonLineageLine(BOON_CATALOG.gunDamage, 1)).toBe('II/V');
+    expect(boonLineageLine(BOON_CATALOG.shipCooldown, 0)).toBe('I/V');
+    expect(boonLineageLine(BOON_CATALOG.shipCooldown, 1)).toBe('II/V');
     expect(boonLineageLine(BOON_CATALOG.torpedoSpeed, 3)).toBe('IV/IV');
     expect(boonLineageLine(BOON_CATALOG.gunBarrel, 1)).toBe('II/II');
   });
@@ -186,15 +216,20 @@ describe('lineage handrail + doctrine-swap line', () => {
   });
 
   it('clamps a full stack to the last position rather than overflowing', () => {
-    expect(boonLineageLine(BOON_CATALOG.gunDamage, 9)).toBe('V/V');
+    expect(boonLineageLine(BOON_CATALOG.shipCooldown, 9)).toBe('V/V');
   });
 
   it('names the rival ONLY while you hold it (amendment 44 — the free swap)', () => {
-    expect(boonReplacesLine(BOON_CATALOG.torpedoCommand, [])).toBeNull();
-    expect(boonReplacesLine(BOON_CATALOG.torpedoCommand, ['torpedoHoming'])).toBe('REPLACES: ACOUSTIC HOMING');
-    expect(boonReplacesLine(BOON_CATALOG.torpedoHoming, ['torpedoCommand'])).toBe('REPLACES: COMMAND DETONATION');
-    // A non-exclusive line never carries the swap line, whatever you hold.
-    expect(boonReplacesLine(BOON_CATALOG.gunDamage, ['gunDamage'])).toBeNull();
+    // The CANNON pair is the LAST exclusive pair in the game (Story 7-5 wave 1
+    // left `exclusiveWith` in place for it alone, because PLUNGING FIRE and
+    // ARMOR-PIERCING genuinely contradict), so it is what this pins now.
+    expect(boonReplacesLine(BOON_CATALOG.cannonAp, [])).toBeNull();
+    expect(boonReplacesLine(BOON_CATALOG.cannonAp, ['cannonArcing'])).toBe('REPLACES: PLUNGING FIRE');
+    expect(boonReplacesLine(BOON_CATALOG.cannonArcing, ['cannonAp'])).toBe('REPLACES: ARMOR-PIERCING SHELLS');
+    // A non-exclusive line never carries the swap line, whatever you hold —
+    // and since wave 1 that includes every stacking VERB card.
+    expect(boonReplacesLine(BOON_CATALOG.shipCooldown, ['shipCooldown'])).toBeNull();
+    expect(boonReplacesLine(BOON_CATALOG.starDazzle, ['starIncendiary'])).toBeNull();
   });
 
   it('every exclusive pair in the catalog can name its rival (symmetry, end to end)', () => {
@@ -207,13 +242,13 @@ describe('lineage handrail + doctrine-swap line', () => {
 
 describe('the fitted toast', () => {
   it('names the rung that was fitted and carries the accrued-boon diamond', () => {
-    expect(boonFitToastLine('gunDamage', 1)).toBe('◆ HEAVY SHELLS Mk I FITTED');
-    expect(boonFitToastLine('gunDamage', 3)).toBe('◆ HEAVY SHELLS Mk III FITTED');
+    expect(boonFitToastLine('shipCooldown', 1)).toBe('◆ RELOAD I FITTED');
+    expect(boonFitToastLine('shipCooldown', 3)).toBe('◆ RELOAD III FITTED');
     expect(boonFitToastLine('acquireBoost', 1)).toBe('◆ EMERGENCY THROTTLE FITTED');
   });
 
   it('floors a defensive 0 to the ladder\'s first name', () => {
-    expect(boonFitToastLine('gunDamage', 0)).toBe('◆ HEAVY SHELLS Mk I FITTED');
+    expect(boonFitToastLine('shipCooldown', 0)).toBe('◆ RELOAD I FITTED');
   });
 });
 
@@ -221,16 +256,16 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
 
   it('reports a stat line\'s LIVE value, with no current→next arrow', () => {
-    expect(boonEffectLine('gunDamage', bare)).toBe(`Gun damage: ${bare.gun.damage}`);
-    expect(boonEffectLine('gunDamage', bare)).not.toContain('→');
+    expect(boonEffectLine('shipHull', bare)).toBe(`Max hull: ${bare.maxHp}`);
+    expect(boonEffectLine('shipHull', bare)).not.toContain('→');
     expect(boonEffectLine('intelSweep', bare)).toBe(`Radar sweep: ${bare.sweepRpm} RPM`);
     expect(boonEffectLine('shipCooldown', bare)).toBe('All cooldowns: 100%');
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {
-    const stacked = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(['gunDamage', 'gunDamage']));
-    expect(boonEffectLine('gunDamage', stacked)).not.toBe(boonEffectLine('gunDamage', bare));
-    expect(boonEffectLine('gunDamage', stacked)).toBe(`Gun damage: ${stacked.gun.damage}`);
+    const stacked = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(['shipHull', 'shipHull']));
+    expect(boonEffectLine('shipHull', stacked)).not.toBe(boonEffectLine('shipHull', bare));
+    expect(boonEffectLine('shipHull', stacked)).toBe(`Max hull: ${stacked.maxHp}`);
   });
 
   it('drops the card\'s standing note — the row is a readout, not a pitch', () => {

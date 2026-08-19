@@ -207,29 +207,15 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(m.lines[0].x2 - m.lines[0].x1).toBeCloseTo(CONFIG.torpedo.homingMaxRangeU, 3);
   });
 
-  it('no band on a straight-runner or a command fish (only homing steers)', () => {
+  // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): the three commanded-
+  // point pins and the command half of the no-band pin are gone with the weapon
+  // behavior — there is no longer a torpedo that bursts at a clicked point.
+  it('no band on a straight-runner (only ACOUSTIC HOMING steers)', () => {
     expect(computeAimPreview(input({ id: 'torpedo' })).band).toBeNull();
-    expect(computeAimPreview(input({ id: 'torpedo', stats: stats('torpedoCommand') })).band).toBeNull();
   });
 
-  it('COMMAND DETONATION previews its blast at the commanded point', () => {
-    const inp = input({ id: 'torpedo', stats: stats('torpedoCommand'), aimDist: 500 });
-    const [b] = computeAimPreview(inp).bursts;
-    expect(b.r).toBe(CONFIG.torpedo.commandBurstRadius);
-    expect(b.x).toBeCloseTo(500, 6);
-  });
-
-  it('...honoring the minimum commanded distance on a point-blank click', () => {
-    const inp = input({ id: 'torpedo', stats: stats('torpedoCommand'), aimDist: 0 });
-    const [b] = computeAimPreview(inp).bursts;
-    const tube = torpedoSpawn(SHIP, hullEnvelope('battleship').hull.length, 0);
-    expect(b.x).toBeGreaterThan(tube.x); // never BEHIND the fish it just launched
-  });
-
-  it('...and capping the commanded point at the owner’s effective radar reach', () => {
-    const inp = input({ id: 'torpedo', stats: stats('torpedoCommand'), aimDist: 99999 });
-    const [b] = computeAimPreview(inp).bursts;
-    expect(Math.hypot(b.x, b.y)).toBeCloseTo(inp.stats.radarRange, 6);
+  it('no torpedo previews a point burst any more — contact only', () => {
+    expect(computeAimPreview(input({ id: 'torpedo', stats: stats('torpedoHoming') })).bursts).toEqual([]);
   });
 });
 
@@ -277,16 +263,19 @@ describe('star shells — the lit radius is the preview', () => {
     expect(m.lines).toHaveLength(1); // ...and it keeps its travel line
   });
 
+  // The WIDE BURST half of this pin is RETIRED: `starRadius` was deleted from
+  // the catalog in Story 7-5 wave 1, so no card moves `starShells.litRadius`
+  // any more. What survives is the load-bearing half — the preview reads the
+  // EFFECTIVE stat rather than the raw CONFIG base.
   it('uses the EFFECTIVE lit radius, never the raw CONFIG base', () => {
-    const wide = stats('starRadius', 'starRadius');
-    expect(wide.starShells.litRadius).toBeGreaterThan(CONFIG.starShells.litRadius);
-    const m = computeAimPreview(input({ id: 'starShells', stats: wide }));
-    expect(m.bursts[0].r).toBe(wide.starShells.litRadius);
+    const s = stats();
+    const m = computeAimPreview(input({ id: 'starShells', stats: s }));
+    expect(m.bursts[0].r).toBe(s.starShells.litRadius);
   });
 
-  it('honors the INCENDIARY shrink — the doctrine trades reach for burn', () => {
+  it('honors the PHOSPHOR shrink — the verb trades reach for burn', () => {
     const inc = stats('starIncendiary');
-    expect(inc.starShells.mode).toBe('incendiary');
+    expect(inc.starShells.phosphor).toBe(true);
     const m = computeAimPreview(input({ id: 'starShells', stats: inc }));
     expect(m.bursts[0].r).toBeCloseTo(
       inc.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor,
@@ -294,6 +283,20 @@ describe('star shells — the lit radius is the preview', () => {
     );
     expect(m.bursts[0].r).toBeLessThan(inc.starShells.litRadius);
     expect(effectiveLitRadius(inc)).toBe(m.bursts[0].r);
+  });
+
+  // THE VERBS STACK (Story 7-5 wave 1). A captain holding BOTH star-shell cards
+  // still previews the phosphor-shrunk circle: DAZZLE is an independent verb
+  // that does not touch the radius, and an either/or read would have picked one.
+  it('a both-verb flare previews the SAME phosphor-shrunk circle', () => {
+    const both = stats('starIncendiary', 'starDazzle');
+    expect(both.starShells.phosphor).toBe(true);
+    expect(both.starShells.dazzle).toBe(true);
+    expect(effectiveLitRadius(both)).toBeCloseTo(
+      both.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor,
+      9,
+    );
+    expect(effectiveLitRadius(both)).toBe(effectiveLitRadius(stats('starIncendiary')));
   });
 
   it('clamps the lit circle to effective range like any gun-family shot', () => {
@@ -357,13 +360,9 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
     expect(ownBurstRadius(s, 'starShells')).toBeUndefined();
   });
 
-  // The command fish is the biggest blast in the game (60u) and it DOES burst
-  // at a point — leaving it on the gun's 15u default under-drew it by 4×.
-  it('sizes an own COMMAND DETONATION fish at its real 60u blast', () => {
-    expect(ownBurstRadius(stats('torpedoCommand'), 'torpedo')).toBe(CONFIG.torpedo.commandBurstRadius);
-  });
-
-  it('...but a HOMING or standard fish still has no burst ring of its own', () => {
+  // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): no torpedo bursts at a
+  // point any more, so there is no fish whose ring beats the CONFIG default.
+  it('a HOMING or standard fish has no burst ring of its own', () => {
     expect(ownBurstRadius(stats('torpedoHoming'), 'torpedo')).toBeUndefined();
     expect(ownBurstRadius(stats(), 'torpedo')).toBeUndefined();
   });

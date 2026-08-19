@@ -1110,15 +1110,15 @@ describe('bindRoom reward toasts', () => {
   it('a fitted boon toasts with the ladder name + its TIER cue, even while dead', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: false, boons: ['gunDamage'] }));
-    expect(toastLines()).toEqual(['◆ HEAVY SHELLS Mk I FITTED']);
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: false, boons: ['shipCooldown'] }));
+    expect(toastLines()).toEqual(['◆ RELOAD I FITTED']);
     // The cue carries BOTH axes as of Story 2.9: the tier picks the tone, the
     // category transposes it (see the fitDetune suite below).
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('guns') });
+    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ship') });
   });
 
   it('WEIGHTS the fit cue by the fitted line\'s tier (Story 2.9)', () => {
-    for (const [boon, tone] of [['gunDamage', 'fitCommon'], ['gunBarrel', 'fitRare'], ['cannonAp', 'fitExclusive']]) {
+    for (const [boon, tone] of [['shipCooldown', 'fitCommon'], ['gunBarrel', 'fitRare'], ['cannonAp', 'fitExclusive']]) {
       document.body.replaceChildren();
       const { sink, play } = setupToasts();
       sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, boons: [boon] }));
@@ -1146,15 +1146,15 @@ describe('bindRoom reward toasts', () => {
 
   it('the fitted toast names the RUNG that was fitted, not the line\'s first name', () => {
     // Story 2.8's name-by-stack-position: the frame's `boons` already carries
-    // the new occurrence, so the third HEAVY SHELLS toasts as Mk III — exactly
+    // the new occurrence, so the third RELOAD card toasts as RELOAD III — exactly
     // the name the card the player clicked was showing.
     document.body.replaceChildren();
     const { sink } = setupToasts();
     sink.handler(rewardFrame(
-      { k: 'bn', id: 'me', boon: 'gunDamage' },
-      { alive: true, boons: ['gunDamage', 'gunDamage', 'gunDamage'] },
+      { k: 'bn', id: 'me', boon: 'shipCooldown' },
+      { alive: true, boons: ['shipCooldown', 'shipCooldown', 'shipCooldown'] },
     ));
-    expect(toastLines()).toEqual(['◆ HEAVY SHELLS Mk III FITTED']);
+    expect(toastLines()).toEqual(['◆ RELOAD III FITTED']);
   });
 
   // DAMAGE CONTROL (cycle 46): the `heal` row is a pure self-private
@@ -1201,7 +1201,7 @@ describe('bindRoom reward toasts', () => {
   it('routes a SELF boon-fit to deps.onSpendAck (the spend latch receipt)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: true, boons: ['gunDamage'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: true, boons: ['shipCooldown'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
@@ -1593,7 +1593,7 @@ describe('the gunnery rows (Story 4.3) — mz / sp / hc', () => {
 });
 
 describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', () => {
-  const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by, mode: 'incendiary' }];
+  const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by, phos: true as const }];
   const dmg = [{ k: 'dmg', id: 'me', amount: 6 }];
 
   it('reads an ordinary hit as damage: full shake, the impact thud', () => {
@@ -1619,13 +1619,24 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     expect(play).toHaveBeenCalledWith('damage');
   });
 
-  it('a NON-incendiary enemy zone is not fire, and neither is standing outside one', () => {
+  it('a NON-burning enemy zone is not fire, and neither is standing outside one', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], mode: 'dazzle' }] }));
+    const dazzleOnly = { id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', daz: true as const };
+    sink.handler(victimFrame(dmg, {}, { litZones: [dazzleOnly] }));
     expect(play).toHaveBeenCalledWith('damage');
     play.mockClear();
     sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], x: 900 }] }));
     expect(play).toHaveBeenCalledWith('damage');
+  });
+
+  // THE INDEPENDENT-CHECKS PIN (Story 7-5 wave 1): the verbs STACK, so a zone
+  // that both burns AND dazzles is still a burning zone. An equality read
+  // against one enum value would have classified this tick as a plain hit.
+  it('a zone carrying BOTH verbs still reads as BURN', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], daz: true as const }] }));
+    expect(play).toHaveBeenCalledWith('burn');
+    expect(play).not.toHaveBeenCalledWith('damage');
   });
 
   // --- 2.9 REVIEW: burn is a CLASSIFICATION, not a location -------------------
@@ -1806,13 +1817,18 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
 
   it('inEnemyBurningZone pins the predicate itself', () => {
     const zones = [
-      { id: 'a', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', mode: 'incendiary' as const },
-      { id: 'b', x: 0, y: 0, r: 100, until: 9e9, by: 'me', mode: 'incendiary' as const },
+      { id: 'a', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', phos: true as const },
+      { id: 'b', x: 0, y: 0, r: 100, until: 9e9, by: 'me', phos: true as const },
+      // A dazzle-only zone is not fire, whoever fired it.
+      { id: 'c', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', daz: true as const },
     ];
     expect(inEnemyBurningZone(zones, { x: 50, y: 0 }, 'me')).toBe(true);
     expect(inEnemyBurningZone(zones, { x: 100, y: 0 }, 'me')).toBe(true); // on the edge
     expect(inEnemyBurningZone(zones, { x: 101, y: 0 }, 'me')).toBe(false);
     expect(inEnemyBurningZone([zones[1]], { x: 0, y: 0 }, 'me')).toBe(false); // our own flare
+    expect(inEnemyBurningZone([zones[2]], { x: 0, y: 0 }, 'me')).toBe(false); // dazzle is not fire
+    // ...and a BOTH-verb enemy zone still burns (the verbs stack).
+    expect(inEnemyBurningZone([{ ...zones[0], daz: true as const }], { x: 0, y: 0 }, 'me')).toBe(true);
     expect(inEnemyBurningZone([], { x: 0, y: 0 }, 'me')).toBe(false);
   });
 });
@@ -1880,7 +1896,7 @@ describe('the fit cue is transposed by CATEGORY (Story 2.9 carry-over)', () => {
   it('gives two same-tier fits on DIFFERENT slots different voices', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: true, boons: ['gunDamage'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: true, boons: ['shipCooldown'] }));
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
     const [first, second] = play.mock.calls;
     expect(first[0]).toBe(second[0]); // same tier → same tone id
