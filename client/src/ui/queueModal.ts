@@ -8,7 +8,8 @@
 // `h.statusEl` is the server probe's again.
 //
 // IT SAYS EXACTLY THREE THINGS AND INVENTS NOTHING. `N/20 QUEUED` (Eric's own
-// wording, and the same derivation the SOLO button's sub-line takes), a
+// wording; this modal is the ONLY surface that says it now — the SOLO button's
+// sub-line shared the derivation until Eric deleted that copy on 2026-08-19), a
 // `STARTS IN m:ss` countdown that exists ONLY while the pool is genuinely armed,
 // and `CANCEL`. There is no title sentence, no explanatory prose, no
 // reassurance, and — deliberately — NOTHING AT ALL about a lobby collapse: an
@@ -52,13 +53,16 @@ const QUEUE_MODAL_ID = 'queue-modal';
  *
  * The CAP comes off the payload, never a client-side literal: `20` is
  * `CONFIG.map.playerCap` today, and a copy that restated it would start lying
- * the day that is retuned — the same failure `queueButtonSubline` was fixed for
- * when it stopped inventing a `min`.
+ * the day that is retuned — the same failure the home button's retired sub-line
+ * was fixed for when it stopped inventing a `min`.
  *
- * THE ONE STRING BOTH SURFACES USE. The SOLO button's sub-line (ui/home.ts) and
- * this modal are the same sentence about the same pool, so they share one
- * derivation rather than two that can drift; only their INPUT shapes differ
- * (`LivenessPayload['queue']` carries `pooled`, `QueueStatusMsg` carries `n`).
+ * THIS MODAL IS NOW THE ONLY SURFACE THAT SAYS IT. The SOLO button's sub-line
+ * shared this derivation until Eric deleted that copy outright (2026-08-19,
+ * epic-6 amendment 50), so the two-surfaces-one-string argument that shaped this
+ * helper is history rather than a live constraint. It keeps its `(pooled, cap)`
+ * signature anyway: the one surviving caller passes `QueueStatusMsg`'s `n`, and
+ * a rename to match a single caller would be churn against a helper whose whole
+ * point was to be caller-agnostic.
  */
 export function queuedCountLine(pooled: number, cap: number): string {
   return `${pooled}/${cap} QUEUED`;
@@ -165,14 +169,28 @@ function applyHairline(el: HTMLElement, color: string): void {
 }
 
 /**
- * Set a slot's copy WITHOUT EVER MOVING WHAT IS BELOW IT — the same rule the
- * mode buttons' sub-line obeys, and for the same reason: the countdown appears
+ * Set a slot's copy WITHOUT EVER MOVING WHAT IS BELOW IT: the countdown appears
  * the moment the pool arms and goes away again if it un-arms, and the CANCEL
  * button must not jump between a click's mousedown and its mouseup.
  *
  * `visibility:hidden` keeps the box and drops it out of the accessibility tree;
  * the non-breaking space is what gives an otherwise-empty inline box a height at
  * all.
+ *
+ * DO NOT CITE THIS AS PRECEDENT ON THE HOME SCREEN. The mode buttons used to
+ * carry the byte-equivalent of this function, and it was a BUG: `visibility` is
+ * an INHERITED property, so a descendant asserting `visible` overrides an
+ * ancestor's `hidden` — and the home yields to the settings overlay by setting
+ * `visibility:hidden` on its ROOT, so those spans floated on top of the open
+ * panel. Eric deleted that copy outright (2026-08-19, epic-6 amendment 50).
+ *
+ * It is safe HERE for a structural reason, not by luck: this modal is a
+ * `document.body` SIBLING at z 1150, never a descendant of the home root, so no
+ * ancestor is ever trying to hide it. It is also unreachable while settings is
+ * open (ESC precedence hands the key to CANCEL, and the modal's own backdrop
+ * covers the gear). Both of those are incidental rather than asserted — see the
+ * deferred-work entry — so anything that changes this modal's parentage or its
+ * ESC handling must revisit this function first.
  */
 function paintSlot(el: HTMLElement, text: string): void {
   el.textContent = text === '' ? ' ' : text;

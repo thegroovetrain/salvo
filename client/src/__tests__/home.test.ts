@@ -15,7 +15,6 @@ import {
   homeYieldStyle,
   livenessLines,
   loadSavedMode,
-  queueButtonSubline,
   saveMode,
   serverStatusLine,
   showHome,
@@ -77,15 +76,42 @@ function soloButton(): HTMLButtonElement {
   ) as HTMLButtonElement;
 }
 
-/** A mode button's big MODE label (child 0) and its Story 6.6 sub-line (child
- *  1). `textContent` on the button itself now concatenates both, so anything
- *  asserting the label alone has to go through these. */
+/** A mode button's ONLY child — its big MODE label. Since Eric's 2026-08-19
+ *  ruling deleted the sub-lines the button's own `textContent` is just this, but
+ *  the accessor stays so the label is asserted structurally rather than by
+ *  concatenation. `sublineOf` is RETIRED with the copy it read. */
 function labelOf(btn: HTMLButtonElement): HTMLElement {
   return btn.children[0] as HTMLElement;
 }
 
-function sublineOf(btn: HTMLButtonElement): HTMLElement {
-  return btn.children[1] as HTMLElement;
+/** The BOTTOM-left population block — the one surface liveness still paints.
+ *  Module scope because two separate describes assert on it (the register's own
+ *  block and the F3 stand-down), and a second copy of this selector would be a
+ *  second thing to fix the day the block moves again. */
+function livenessBlock(): HTMLElement {
+  return [...home().children].find(
+    (el) => (el as HTMLElement).style.left === '26px',
+  ) as HTMLElement;
+}
+
+/**
+ * Every element in the home subtree that ASSERTS its own paint or hit-testing,
+ * i.e. that would defeat the yield. `homeYieldStyle` writes TWO properties and
+ * BOTH are inherited with identical escape semantics: a descendant asserting
+ * `visibility:visible` defeats the root's `hidden` (the cycle-105 defect), and a
+ * descendant asserting `pointer-events:auto` would defeat the root's `none` the
+ * same way — silently re-opening the "PLAY and the class chip are unreachable
+ * while yielded" guarantee. Both vectors are scanned.
+ *
+ * The test is for the ASSERTING values only. `visibility:hidden` and
+ * `pointer-events:none` on a descendant cannot escape anything (hidden under
+ * hidden is still hidden), so banning them outright would forbid a legitimate
+ * reserved-space slot for no safety gain.
+ */
+function yieldEscapes(): string[] {
+  return [...home().querySelectorAll<HTMLElement>('*')]
+    .filter((el) => el.style.visibility === 'visible' || el.style.pointerEvents === 'auto')
+    .map((el) => `${el.tagName}[visibility=${el.style.visibility},pointerEvents=${el.style.pointerEvents}]`);
 }
 
 function nameInput(): HTMLInputElement {
@@ -207,28 +233,25 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     document.getElementById('hc-class-select')?.remove();
   });
 
-  // REVISED DELIBERATELY BY STORY 6.6, NOT DELETED. The shipped pin asserted
-  // `children.length === 1` on both buttons — a bare label, no sub-line —
-  // because epic-6 amendment 31 struck the sub-lines. Eric has now ruled that
-  // the queue's live counts ride ON these buttons, which reverses the SHAPE of
-  // that amendment while honouring its REASON: what 31 struck was a sub-line
-  // that RESTATED the Class Chip directly above it ("DEPLOY AS TORPEDO BOAT ·
-  // SOLO"); a live queue count and countdown is information that exists nowhere
-  // else on the page. So the pin now guards the intended structure — a label
-  // plus exactly ONE sub-line slot — and, below, that neither sub-line names
-  // the hull. Restoring `children.length === 1` would break Story 6.6.
-  it('renders TWO mode buttons — a label plus ONE sub-line slot each', () => {
+  // RE-TAKEN AT THE 6.5 SHAPE (Eric ruling 2026-08-19). Story 6.6 had widened
+  // this pin to "a label plus ONE sub-line slot"; the sub-lines are deleted, so
+  // the pin returns to the bare-button shape of epic-6 amendment 31 — ONE child,
+  // and its text is exactly the mode label. That single child is also what makes
+  // the settings-yield escape unbuildable (see the yield-escape pin below).
+  it('renders TWO mode buttons — each exactly ONE child, its bare mode label', () => {
     localStorage.setItem('hullcracker.class', 'torpedoBoat');
     showHome('0.0.0-test', vi.fn());
     expect(soloButton()).not.toBeNull();
     expect(labelOf(soloButton()).textContent).toBe('SOLO VS AI');
     expect(labelOf(playButton()).textContent).toBe('SOLO'); // was PLAY, Eric ruling 2026-08-17
-    expect(soloButton().children.length).toBe(2);
-    expect(playButton().children.length).toBe(2);
-    // Neither sub-line restates the Class Chip — the reason amendment 31 struck
-    // the old ones. The chip is the only place the hull is ever named.
+    expect(soloButton().children.length).toBe(1);
+    expect(playButton().children.length).toBe(1);
+    // ...and the button says NOTHING beyond that label — no restated hull (the
+    // reason amendment 31 struck the first sub-lines), no queue count, no steer.
+    expect(playButton().textContent).toBe('SOLO');
+    expect(soloButton().textContent).toBe('SOLO VS AI');
     for (const btn of [playButton(), soloButton()]) {
-      expect(sublineOf(btn).textContent).not.toMatch(/TORPEDO BOAT|BATTLESHIP|MINE LAYER|DEPLOY AS/);
+      expect(btn.textContent).not.toMatch(/TORPEDO BOAT|BATTLESHIP|MINE LAYER|DEPLOY AS/);
     }
   });
 
@@ -284,11 +307,10 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     //
     // REVISED (F10): the shipped pin compared `style.height`, which is `''` on
     // both buttons (neither pins a height — they HUG, see the container-fit
-    // block below), so it passed vacuously while the two buttons genuinely
-    // differed in rendered height before the first payload landed: one carried
-    // a sub-line and one did not. Since F9 both reserve the slot permanently,
-    // so the shape really is shared and can be asserted on the properties that
-    // actually carry it.
+    // block below), so it passed vacuously. It asserts the properties that
+    // actually carry the shape instead. The sub-line slot left the shape with
+    // the copy (Eric ruling 2026-08-19); `children` still pins the count, which
+    // is now 1 on both.
     const shape = (b: HTMLButtonElement): Record<string, string> => ({
       width: b.style.width,
       maxWidth: b.style.maxWidth,
@@ -302,14 +324,11 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
       flexDirection: b.style.flexDirection,
       alignItems: b.style.alignItems,
       justifyContent: b.style.justifyContent,
-      // The sub-line slot is part of the shape: both buttons hold one, always
-      // in flow, so availability of the queue count cannot make them differ.
-      subline: sublineOf(b).style.display,
       children: String(b.children.length),
     });
     expect(shape(playButton())).toEqual(shape(soloButton()));
     expect(shape(playButton()).minHeight).toBe('64px'); // not vacuous: real values
-    expect(shape(playButton()).subline).toBe('block');
+    expect(shape(playButton()).children).toBe('1'); // label only, no sub-line slot
     // ...and the whole difference between them is which register they wear.
     expect(playButton().style.borderColor).not.toBe(soloButton().style.borderColor);
   });
@@ -625,6 +644,49 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
     expect(home().style.pointerEvents).toBe('auto');
   });
 
+  // --- REGRESSION (Eric report 2026-08-19, cycle 105): NOTHING ESCAPES THE YIELD
+  // The two mode-button sub-lines rendered ON TOP of the open settings panel.
+  // `paintModeSubline()` wrote `el.style.visibility = 'visible'` on those spans,
+  // and `visibility` is an INHERITED property — a descendant asserting `visible`
+  // OVERRIDES the ancestor `hidden` the yield sets on the home ROOT. They were
+  // the only descendants in the whole tree that did so, and the home sits at
+  // z 1100 above settings at 1050, so they floated over the panel. Deleting the
+  // copy removed the writer; this pin keeps it removed.
+  //
+  // ASSERTED ON INLINE STYLE, DELIBERATELY, NOT `getComputedStyle`: jsdom has no
+  // layout engine and its inheritance of `visibility` is not a dependable oracle
+  // (it would happily agree with a broken tree). The INLINE WRITE *is* the defect
+  // mechanism, so the inline style is the honest thing to assert on — a subtree
+  // where no descendant ASSERTS itself cannot escape the yield in any engine.
+  //
+  // BOTH HALVES OF THE YIELD ARE SCANNED, not just the one that broke: `pointer-
+  // events` is inherited too, so a descendant asserting `auto` would defeat the
+  // inertness guarantee exactly as `visibility:visible` defeated the paint one.
+  // See `yieldEscapes()`.
+  //
+  // SCOPE, STATED HONESTLY: this pin walks the home SUBTREE. The port's three
+  // sibling surfaces (queue modal z 1150, class bay 1200, consent bar 1250) are
+  // `document.body` children outside the yield and are unreachable-or-ratified by
+  // other means; it cannot speak for them. See deferred-work.md.
+  it('yield escape: NO descendant asserts paint or hit-testing while yielded', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const handle = showHome('0.0.0-test', vi.fn(), vi.fn());
+    handle.setLiveness(livePayload()); // the payload that used to paint `visible`
+    handle.setYielded(true);
+    expect(home().style.visibility).toBe('hidden'); // the root yields...
+    expect(home().style.pointerEvents).toBe('none'); // ...on both properties...
+    // ...the tree is genuinely populated (so the scan below is not vacuous)...
+    expect(home().querySelectorAll('*').length).toBeGreaterThan(10);
+    expect(yieldEscapes()).toEqual([]); // ...and nothing under it argues.
+    // The buttons in particular: they are what carried the escape hatch.
+    for (const btn of [playButton(), soloButton()]) {
+      for (const el of [btn, ...btn.querySelectorAll<HTMLElement>('*')]) {
+        expect(el.style.visibility).not.toBe('visible');
+        expect(el.style.pointerEvents).not.toBe('auto');
+      }
+    }
+  });
+
   it('reverse stacking holds: PLAY and the class chip are unreachable while yielded', () => {
     const onDeploy = vi.fn();
     const handle = showHome('0.0.0-test', onDeploy, vi.fn());
@@ -823,7 +885,7 @@ describe('showHome — setCancel drives the QUEUE MODAL (Story 6.1 plumbing, Eri
   });
 });
 
-// --- Story 6.6: the liveness register + the mode-button sub-lines ------------
+// --- Story 6.6: the liveness register ---------------------------------------
 
 /** A well-formed `/liveness` payload, with its deadline ALREADY localized to
  *  the client clock (net/liveness.ts does that at the boundary). */
@@ -864,60 +926,17 @@ describe('livenessLines — the top-left global register', () => {
   });
 });
 
-describe("queueButtonSubline — the SOLO door's sub-line is `N/20 QUEUED`, FULL STOP", () => {
-  it("is Eric's copy verbatim and nothing else", () => {
-    // Eric ruling 2026-08-18: *"I didn't ask you to add 'NEEDS 2 TO START'...
-    // Just make it say 'N/20 Queued' where N is the number in queue."*
-    expect(queueButtonSubline({ pooled: 1, min: 2, cap: 20, deadlineAt: null })).toBe('1/20 QUEUED');
-    expect(queueButtonSubline({ pooled: 0, min: 2, cap: 20, deadlineAt: null })).toBe('0/20 QUEUED');
-    expect(queueButtonSubline({ pooled: 20, min: 2, cap: 20, deadlineAt: null })).toBe('20/20 QUEUED');
-  });
-
-  it('takes the CAP off the payload, never a client-side 20', () => {
-    // `cap` is CONFIG.map.playerCap; a restated literal starts lying the day it
-    // is retuned — the same failure that took the invented `min` out of here.
-    expect(queueButtonSubline({ pooled: 3, min: 2, cap: 12, deadlineAt: null })).toBe('3/12 QUEUED');
-  });
-
-  // THE RETIRED STATE MACHINE MUST NOT COME BACK. These four are the whole
-  // substance of the ruling: no threshold clause, no `STARTING`, no clock, and no
-  // second clause of any kind — in ANY state of the payload, armed or not.
-  it('NEVER says NEEDS, NEVER says STARTING, and NEVER carries a countdown', () => {
-    const states: Array<NonNullable<LivenessPayload['queue']>> = [
-      { pooled: 0, min: 2, cap: 20, deadlineAt: null },
-      { pooled: 1, min: 2, cap: 20, deadlineAt: null },
-      { pooled: 2, min: 2, cap: 20, deadlineAt: null }, // the old `STARTING` state
-      { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 }, // armed
-      { pooled: 1, min: 2, cap: 20, deadlineAt: 1_083_000 }, // armed below min
-      { pooled: 20, min: 2, cap: 20, deadlineAt: null },
-    ];
-    for (const q of states) {
-      const line = queueButtonSubline(q);
-      expect(line).not.toMatch(/NEEDS/);
-      expect(line).not.toMatch(/STARTING/);
-      expect(line).not.toMatch(/STARTS/);
-      expect(line).not.toMatch(/\d:\d\d/); // no m:ss anywhere
-      expect(line).not.toContain('·'); // exactly ONE clause, so no separator
-      expect(line).toBe(`${q.pooled}/${q.cap} QUEUED`);
-    }
-  });
-
-  it('is INDIFFERENT to the deadline — an armed pool reads identically', () => {
-    // The deadline is not an input any more (the reducer takes one argument), so
-    // this cannot regress into a countdown by accident.
-    expect(queueButtonSubline({ pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 })).toBe(
-      queueButtonSubline({ pooled: 4, min: 2, cap: 20, deadlineAt: null }),
-    );
-    expect(queueButtonSubline.length).toBe(1); // no `nowMs` parameter to pass
-  });
-
-  it('says NOTHING when the payload carries no queue block at all', () => {
-    // Only reachable from an older or foreign server (ours always emits the
-    // block, filling the no-room case itself), and inventing numbers there is
-    // exactly what was wrong with the retired version.
-    expect(queueButtonSubline(null)).toBe('');
-  });
-});
+// RETIRED (Eric ruling 2026-08-19): the whole `queueButtonSubline` block — the
+// verbatim-copy pin, the cap-off-the-payload pin, the no-state-machine pin, the
+// deadline-indifference pin and the null-queue pin. The reducer is DELETED with
+// the sub-line it fed: *"Just get rid of that text entirely instead of fixing
+// it, i changed my mind, it doesn't need to be there."* Retired rather than bent
+// onto new copy, in the standing style — there is no replacement string, so
+// there is nothing left for them to assert. The queue MODAL's own `N/20 QUEUED`
+// is a different, ratified surface and keeps its pins in queueModal.test.ts.
+//
+// What survives them is the NEGATIVE pin (the rendered home contains neither
+// `QUEUED` nor `STARTS INSTANTLY`) and the STRUCTURAL yield-escape pin above.
 
 describe('showHome — the liveness surfaces (Story 6.6)', () => {
   beforeEach(() => localStorage.clear());
@@ -925,13 +944,6 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     home()?.remove();
     document.getElementById('hc-class-select')?.remove();
   });
-
-  /** The BOTTOM-left population block. */
-  function livenessBlock(): HTMLElement {
-    return [...home().children].find(
-      (el) => (el as HTMLElement).style.left === '26px',
-    ) as HTMLElement;
-  }
 
   it('is BOTTOM-LEFT, out of the port column, and CANNOT collide with the wordmark', () => {
     // Eric ruling 2026-08-18. At `top:22px` this block overlapped the wordmark
@@ -959,17 +971,19 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
   });
 
   it('does not render at all until a payload arrives, and hides again on an outage', () => {
+    // RE-TAKEN (Eric ruling 2026-08-19): the sub-line half of this pin is gone
+    // with the sub-line. The register is the ONLY thing liveness paints now, and
+    // it hides by `display`, which is not an inherited property and therefore
+    // never argued with the yield.
     const handle = showHome('0.0.0-test', vi.fn());
     expect(livenessBlock().style.display).toBe('none');
-    // The SUB-LINE hides by VISIBILITY, not by leaving the flow (F9) — see the
-    // layout-shift block below.
-    expect(sublineOf(playButton()).style.visibility).toBe('hidden');
     handle.setLiveness(livePayload());
     expect(livenessBlock().style.display).toBe('flex');
-    expect(sublineOf(playButton()).style.visibility).toBe('visible');
     handle.setLiveness(null);
     expect(livenessBlock().style.display).toBe('none');
-    expect(sublineOf(playButton()).style.visibility).toBe('hidden');
+    // A payload arriving and going away again writes NOTHING to the buttons.
+    expect(playButton().textContent).toBe('SOLO');
+    expect(soloButton().textContent).toBe('SOLO VS AI');
   });
 
   it('paints the two lines, PLAYERS ONLINE over LIVE GAMES', () => {
@@ -993,7 +1007,7 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     );
     expect(livenessBlock().style.display).toBe('flex');
     expect(livenessBlock().textContent).toContain('PLAYERS ONLINE: 0');
-    expect(sublineOf(playButton()).textContent).toBe('0/20 QUEUED');
+    expect(home().textContent).not.toContain('QUEUED'); // ...and never on a button
   });
 
   it('is Geist Mono, uppercase, and NEVER text-muted (DESIGN.md:153, load-bearing numbers)', () => {
@@ -1007,22 +1021,25 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     }
   });
 
-  it('SOLO VS AI carries the CONSTANT steer — true with or without a server answer', () => {
-    showHome('0.0.0-test', vi.fn());
-    // Never data-driven: this door creates its own room, so there is no pool to
-    // count. It is the way out of a dead queue.
-    expect(sublineOf(soloButton()).textContent).toBe('STARTS INSTANTLY');
-    expect(sublineOf(soloButton()).style.display).toBe('block');
-  });
-
-  it("an outage leaves SOLO VS AI's steer standing — it needs no liveness", () => {
+  // RETIRED (Eric ruling 2026-08-19): the two `STARTS INSTANTLY` pins — the
+  // constant-steer pin and the it-survives-an-outage pin. The copy is DELETED,
+  // not reworded, so there is no string left to assert and no replacement copy
+  // was authored for the dead-queue steer. Its INVERSE is pinned instead: the
+  // rendered home may contain that phrase in no state at all.
+  it('carries NO steer copy on either door, in EVERY liveness state', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    handle.setLiveness(null);
-    expect(sublineOf(soloButton()).textContent).toBe('STARTS INSTANTLY');
+    for (const state of [null, livePayload(), livePayload({ queue: null })]) {
+      handle.setLiveness(state);
+      expect(home().textContent).not.toContain('STARTS INSTANTLY');
+      expect(home().textContent).not.toContain('QUEUED');
+      expect(playButton().textContent).toBe('SOLO');
+      expect(soloButton().textContent).toBe('SOLO VS AI');
+    }
   });
 
   // REPLACES the three tick pins retired with the countdown (Eric ruling
-  // 2026-08-18). The sub-line is a bare count now, so the home must run NO
+  // 2026-08-18), and stands unchanged now the sub-line itself is DELETED (Eric
+  // ruling 2026-08-19): the buttons carry nothing at all, so the home must run NO
   // interval in ANY state — armed, unarmed or absent. That is stronger than the
   // old "no timer while unarmed" pin, and it retires the whole leak class the old
   // one guarded (the tick closed over the home and had to be cleared by hide(),
@@ -1042,23 +1059,26 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     handle.hide();
   });
 
-  it('an armed payload paints the same bare count — no clock reaches the button', () => {
+  it('an armed payload reaches the button with nothing at all — not even a clock', () => {
+    // RE-TAKEN (Eric ruling 2026-08-19): was "paints the same bare count". There
+    // is no count to paint; the stronger statement is that 30s of clock and an
+    // armed pool leave the button byte-identical.
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
-    const sub = sublineOf(playButton());
-    expect(sub.textContent).toBe('4/20 QUEUED');
+    expect(playButton().textContent).toBe('SOLO');
     vi.advanceTimersByTime(30_000); // 30s of clock changes nothing at all
-    expect(sub.textContent).toBe('4/20 QUEUED');
+    expect(playButton().textContent).toBe('SOLO');
+    expect(playButton().children.length).toBe(1);
     handle.hide();
     vi.useRealTimers();
   });
 
-  it('the mode buttons hug their content, so a sub-line cannot overflow the box', () => {
-    // Amendment 47 (the container-fit law): a FIXED height would clip the
-    // sub-line 6.6 puts back. `min-height` + border-box padding satisfies both
-    // the with-sub-line and the without-sub-line states from one rule.
+  it('the mode buttons hug their content rather than pinning a height', () => {
+    // Amendment 47 (the container-fit law). The buttons hugged so the 6.6
+    // sub-line could not be clipped; with it deleted the rule still holds and the
+    // column got SHORTER, which is the safe direction — nothing is re-tuned.
     showHome('0.0.0-test', vi.fn());
     for (const btn of [playButton(), soloButton()]) {
       expect(btn.style.height).toBe('');
@@ -1103,55 +1123,21 @@ describe('hullcracker.mode persistence (Story 6.6)', () => {
   });
 });
 
-// --- F9: availability of a number must never reflow the deploy stack --------
-
-describe('the mode-button sub-line reserves its space (F9)', () => {
-  beforeEach(() => localStorage.clear());
-  afterEach(() => {
-    home()?.remove();
-    document.getElementById('hc-class-select')?.remove();
-  });
-
-  it('keeps the empty slot IN FLOW — hidden, never removed', () => {
-    // `display:none` took the span out of flow, so both deploy buttons grew by
-    // a line the moment the first payload landed and jittered every 10s on a
-    // flaky connection — with the PRIMARY BUTTON moving between a click's
-    // mousedown and its mouseup.
-    showHome('0.0.0-test', vi.fn());
-    const sub = sublineOf(playButton());
-    expect(sub.style.display).toBe('block'); // in flow with nothing to say
-    expect(sub.style.visibility).toBe('hidden');
-    // ...and it is one line TALL even while empty: an empty inline box has no
-    // height at all, so the reservation needs a character in it.
-    expect(sub.textContent).toBe(' ');
-  });
-
-  it('a payload arriving, and going away again, never changes `display`', () => {
-    const handle = showHome('0.0.0-test', vi.fn());
-    const sub = sublineOf(playButton());
-    const before = sub.style.display;
-    handle.setLiveness(livePayload({ queue: { pooled: 1, min: 2, cap: 20, deadlineAt: null } }));
-    expect(sub.style.display).toBe(before);
-    expect(sub.style.visibility).toBe('visible');
-    expect(sub.textContent).toBe('1/20 QUEUED');
-    handle.setLiveness(null); // an outage: the copy goes, the box does not
-    expect(sub.style.display).toBe(before);
-    expect(sub.style.visibility).toBe('hidden');
-    expect(sub.textContent).toBe(' ');
-  });
-
-  it('holds the reservation on BOTH doors, in every state', () => {
-    const handle = showHome('0.0.0-test', vi.fn());
-    for (const state of [null, livePayload(), livePayload({ queue: null })]) {
-      handle.setLiveness(state);
-      for (const btn of [playButton(), soloButton()]) {
-        expect(btn.children.length).toBe(2);
-        expect(sublineOf(btn).style.display).toBe('block');
-        expect(sublineOf(btn).textContent).not.toBe('');
-      }
-    }
-  });
-});
+// --- F9 RETIRED (Eric ruling 2026-08-19) ------------------------------------
+//
+// The whole `the mode-button sub-line reserves its space (F9)` describe block —
+// the in-flow-while-empty pin, the `display` never changes pin, and the both
+// doors hold the reservation pin. F9 existed because an ASYNCHRONOUS line
+// (`N/20 QUEUED`) would otherwise reflow the deploy stack between a click's
+// mousedown and its mouseup; the reserved slot answered it with a non-breaking
+// space plus a `visibility` toggle.
+//
+// Nothing on the buttons is asynchronous any more, so there is no slot to
+// reserve — and the slot's `visibility` write was the very mechanism that let
+// the home escape the settings yield. Retiring these pins is therefore not a
+// loss of coverage: the yield-escape pin above asserts the STRONGER property
+// (no descendant writes `visibility` at all), and the one-child shape pin
+// asserts that no slot exists to be written to.
 
 // --- F3: committing to a deploy clears the paint, not just the poll ----------
 
@@ -1163,23 +1149,26 @@ describe('setLiveness(null) stands the whole surface down (F3)', () => {
     vi.useRealTimers();
   });
 
-  it('clears the register AND the sub-line', () => {
+  it('clears the register — the only surface liveness paints', () => {
     // This is the value main.ts pushes when the player commits: `Home` has no
-    // other way to be told "stand down", and a stale count on the button behind
-    // the queue modal would contradict the live one inside it.
+    // other way to be told "stand down". RE-TAKEN (Eric ruling 2026-08-19): the
+    // sub-line half of this pin retires with the sub-line, and the hazard it
+    // guarded — a stale count on the button contradicting the live one inside
+    // the queue modal — cannot exist any more, because the buttons carry none.
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
-    const sub = sublineOf(playButton());
-    expect(sub.textContent).toBe('4/20 QUEUED');
+    // The register hides by `display`, which jsdom's `textContent` cannot see —
+    // so the stand-down is asserted on the style, as the register's own block does.
+    expect(livenessBlock().style.display).toBe('flex');
 
     handle.setLiveness(null);
-    expect(sub.style.visibility).toBe('hidden');
-    expect(sub.textContent).toBe(' ');
+    expect(livenessBlock().style.display).toBe('none');
+    expect(home().textContent).not.toContain('QUEUED'); // nothing was left on a button
     // ...and 30s of clock cannot resurrect it: there is no timer left to do so.
     vi.advanceTimersByTime(30_000);
-    expect(sub.textContent).toBe(' ');
+    expect(livenessBlock().style.display).toBe('none');
     handle.hide();
   });
 });

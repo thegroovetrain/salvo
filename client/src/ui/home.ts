@@ -11,21 +11,40 @@
 // the class bay closed.
 //
 // STORY 6.6 gave the port its first knowledge of the world outside it: a
-// BOTTOM-LEFT PLAYERS ONLINE / LIVE GAMES register and live sub-lines back on
-// the mode buttons — `N/20 QUEUED` on SOLO, and the constant STARTS INSTANTLY on
-// SOLO VS AI, which is the dead-queue steer. All of it is fed by `setLiveness()`
-// from net/liveness.ts and ALL of it simply does not render when that read is
-// unavailable. The module also owns `hullcracker.mode`
-// (`saveMode`/`loadSavedMode`), beside the callsign and class it already
-// persisted.
+// BOTTOM-LEFT PLAYERS ONLINE / LIVE GAMES register, fed by `setLiveness()` from
+// net/liveness.ts and simply not rendered when that read is unavailable. The
+// module also owns `hullcracker.mode` (`saveMode`/`loadSavedMode`), beside the
+// callsign and class it already persisted.
 //
-// THE QUEUE'S OWN WAIT IS NOT HERE ANY MORE (Eric rulings 2026-08-18). It has
+// THE MODE BUTTONS CARRY NO SUB-LINE AT ALL (Eric ruling 2026-08-19, cycle 105).
+// 6.6 had put two back — `N/20 QUEUED` on SOLO and the constant STARTS INSTANTLY
+// on SOLO VS AI — and Eric struck both: *"Just get rid of that text entirely
+// instead of fixing it, i changed my mind, it doesn't need to be there."* The
+// buttons are the bare mono uppercase labels of epic-6 amendment 31 again, and
+// the whole reserved-slot machinery that carried an asynchronously-arriving line
+// (`SOLO_AI_SUBLINE`, `queueButtonSubline`, `makeModeSubline`,
+// `paintModeSubline`, `sublineOf`) is DELETED rather than hidden — no dead knob
+// survives a deletion ruling.
+//
+// THE DELETION IS ALSO THE BUGFIX, AND THIS IS THE PART A FUTURE AGENT MUST NOT
+// UNDO. `paintModeSubline()` wrote `el.style.visibility = 'visible'` on those two
+// spans. `visibility` is an INHERITED property, so a descendant that asserts
+// `visible` OVERRIDES an ancestor's `hidden` — and the home yields to the
+// settings overlay by setting `visibility:hidden` on its ROOT (`homeYieldStyle`,
+// applied in `setYielded`), with home at z 1100 above settings at 1050. Those two
+// spans were therefore the ONLY descendants of the home tree that survived the
+// yield, and they floated on top of the open settings panel. With them gone the
+// home subtree contains ZERO inline `visibility` writers, so the root's `hidden`
+// governs every pixel of it. RESTORING A SUB-LINE HERE RE-OPENS THAT ESCAPE
+// unless it is painted without ever writing `visibility` on a descendant; there
+// is a structural pin in home.test.ts asserting exactly that.
+//
+// THE QUEUE'S OWN WAIT IS NOT HERE EITHER (Eric rulings 2026-08-18). It has
 // its own surface — ui/queueModal.ts, opened and closed by `setCancel()` — and
-// the two things it used to do to this screen are undone: the status line beside
-// HOW TO PLAY is the SERVER PROBE's alone again (*"Get rid of this information
-// message that pops up next to 'HOW TO PLAY' and replaces the server status"*),
-// and the SOLO button's sub-line is now the bare count Eric asked for (*"Just
-// make it say 'N/20 Queued'"*) with no threshold, no state machine and no clock.
+// the status line beside HOW TO PLAY is the SERVER PROBE's alone again (*"Get
+// rid of this information message that pops up next to 'HOW TO PLAY' and
+// replaces the server status"*). The modal keeps its own `N/20 QUEUED` line
+// (epic-6 amendment 42); that surface is untouched by the ruling above.
 //
 // The settings overlay is TRANSPARENT so the ambient scene breathes behind it;
 // the ambient's scrim keeps this text legible.
@@ -56,7 +75,6 @@ import {
 } from '@salvo/shared';
 import {
   hideQueueModal,
-  queuedCountLine,
   queueModalVisible,
   showQueueModal,
   updateQueueModal,
@@ -197,29 +215,28 @@ export function saveMode(mode: DeployMode): void {
 
 // --- pure copy + status reducers (tested) ------------------------------------
 
-// THE DEPLOY BUTTONS CARRY NO *RESTATING* SUB-LINE (Eric ruling 2026-08-17,
-// Story 6.5 / epic-6 amendment 31). `deploySubline()` ("DEPLOY AS <CLASS> ·
-// SOLO") is DELETED, not reworded: *"I want the current 'PLAY' button to say
-// 'SOLO' and nothing else. It doesn't need to say 'Deploy as [ship class]'."*
-// The Class Chip sits directly above and already answers which hull you sail,
-// so that sub-line was restating its neighbour.
+// THE MODE BUTTONS CARRY NO SUB-LINE (Eric rulings 2026-08-17 and 2026-08-19,
+// epic-6 amendments 31 and 50). The history is worth keeping because it has been
+// reversed once already and the reasons are not the same.
 //
-// STORY 6.6 REVERSES THE SHAPE WHILE HONOURING THE REASON. Eric has ruled that
-// the queue's live count goes ON the mode buttons, so the buttons carry a
-// sub-line again — but a DIFFERENT one. `queueButtonSubline()` is a live count:
-// information that exists nowhere else on the page and cannot be read off the
-// chip, the label, or anything else the player can already see. Amendment 31
-// struck a sub-line that repeated its neighbour; it did not strike sub-lines. A
-// future agent must not "restore" the bare buttons by citing it.
+// Amendment 31 struck `deploySubline()` ("DEPLOY AS <CLASS> · SOLO") because it
+// RESTATED the Class Chip sitting directly above it: *"I want the current 'PLAY'
+// button to say 'SOLO' and nothing else."* Story 6.6 then put a DIFFERENT
+// sub-line back — a live `N/20 QUEUED` count plus the constant STARTS INSTANTLY
+// steer on SOLO VS AI — on the reasoning that a queue count is information
+// available nowhere else on the page.
 //
-// AND IT IS A COUNT ONLY (Eric ruling 2026-08-18). The countdown, the threshold
-// and the `STARTING` state are gone from it; a clock belongs to the queue modal,
-// which the player only sees once they are actually in the pool.
-
-/** SOLO VS AI's sub-line is CONSTANT, not data-driven: the door creates its own
- *  room, so there is no pool to count and no deadline to tick. It is the
- *  dead-queue steer — the answer to "nobody is queued, now what?". */
-const SOLO_AI_SUBLINE = 'STARTS INSTANTLY';
+// That reasoning is now moot and the copy is RULED OUT (Eric 2026-08-19): the
+// queue modal carries the count for anyone actually in the pool (amendment 42)
+// and the bottom-left register carries the population (amendment 43), so the
+// buttons are bare labels again — *"Just get rid of that text entirely instead of
+// fixing it, i changed my mind, it doesn't need to be there."* `SOLO_AI_SUBLINE`
+// and `queueButtonSubline()` are DELETED, not hidden, and their pins are RETIRED
+// rather than bent onto new copy.
+//
+// A future agent restoring a sub-line here must read the module header first: the
+// slot machinery those two lines needed is what let the home escape the settings
+// yield (a descendant `visibility:visible` beats the root's `hidden`).
 
 export type ProbeState = 'probing' | 'ready' | 'unreachable';
 export type StatusTone = 'info' | 'denied' | 'tertiary';
@@ -276,31 +293,6 @@ export function livenessLines(p: LivenessPayload | null): LivenessLines | null {
   return { players: `PLAYERS ONLINE: ${p.playersOnline}`, games: `LIVE GAMES: ${p.liveGames}` };
 }
 
-/**
- * The SOLO button's live sub-line — `N/20 QUEUED`, AND NOTHING ELSE.
- *
- * Eric ruling 2026-08-18, verbatim: *"I didn't ask you to add 'NEEDS 2 TO
- * START'... Just make it say 'N/20 Queued' where N is the number in queue."*
- *
- * The four-state machine that shipped here (`NEEDS m TO START` / `STARTS m:ss` /
- * `STARTING`) is DELETED, along with the 1 Hz tick that drove its countdown and
- * the `countdownMmSs` helper that formatted it. The button says how many are
- * waiting; the queue MODAL (ui/queueModal.ts) is where a player who has actually
- * joined the pool gets a clock. Nothing here may grow a second clause again.
- *
- * BOTH NUMBERS COME OFF THE PAYLOAD. `cap` is `CONFIG.map.playerCap` today, and
- * a client-side `20` would start lying the day that is retuned — the same
- * failure that took the invented `min` out of this function once already.
- *
- * `queue === null` means the payload carries no queue block at all. Our server
- * always emits one (it fills the no-room case itself), so this is only reachable
- * from an older or foreign server, and the honest answer is to say nothing. The
- * slot still reserves its space (see `paintModeSubline`).
- */
-export function queueButtonSubline(queue: LivenessPayload['queue']): string {
-  return queue === null ? '' : queuedCountLine(queue.pooled, queue.cap);
-}
-
 function toneColor(tone: StatusTone): string {
   if (tone === 'info') return 'var(--hc-info)';
   if (tone === 'denied') return 'var(--hc-denied)';
@@ -347,14 +339,14 @@ export interface HomeHandle {
   setQueue(status: QueueStatusMsg): void;
   /**
    * Publish the latest `/liveness` read (Story 6.6) — the bottom-left global
-   * register and the SOLO button's queue sub-line. `null` means UNAVAILABLE
-   * (outage, timeout, bad shape): both surfaces disappear and the doors stay
-   * fully usable. Parallel to `setCancel`: main.ts drives it, the home only
-   * paints.
+   * register — and, since Eric's 2026-08-19 ruling deleted the mode-button
+   * sub-lines, NOTHING ELSE. `null` means UNAVAILABLE (outage, timeout, bad
+   * shape): the register disappears and the doors stay fully usable. Parallel to
+   * `setCancel`: main.ts drives it, the home only paints.
    *
-   * NO CLOCK RIDES ON THIS ANY MORE (Eric ruling 2026-08-18): the sub-line is a
-   * bare count, so `queue.deadlineAt` is not read here at all and the home runs
-   * no timer. The only countdown in the port lives in the queue modal.
+   * NO CLOCK AND NO COUNT RIDE ON THIS (Eric rulings 2026-08-18 / 08-19): neither
+   * `queue.deadlineAt` nor `queue.pooled` is read here, and the home runs no
+   * timer. The only queue readout in the port lives in the queue modal.
    */
   setLiveness(payload: LivenessPayload | null): void;
   /** YIELD the whole home surface while the settings overlay is open (see
@@ -522,15 +514,18 @@ function makeChip(onOpen: () => void): ChipEls {
  * filled slab), {rounded.md} 8px, one mono uppercase letter-spaced label.
  *
  * THE BOX HUGS ITS CONTENT (`min-height:64px` + symmetric padding), it does not
- * pin a height. 6.5 took the shipped 86px fixed box down to a fixed 64px when
- * Eric deleted the restating sub-line; 6.6 puts a DIFFERENT sub-line back (a
- * live queue count), and a fixed height would either clip it or carry dead air
- * when it is absent. Hugging is what satisfies both states from one rule — and
- * it is what keeps the port column inside the 768px floor viewport (amendment
- * 47, the container-fit law). The height budget, against the measured column:
- * 6.5 landed at ~722px with ~46px of headroom, and a 14px hudMicro sub-line
- * plus its 3px lead adds ~17px to each of the two buttons → ~756px. Inside the
- * floor, and `applySafeCenterScroll` still backstops anything shorter.
+ * pin a height — but say plainly what that means TODAY, because a comment that
+ * describes a rule which never fires is the same vacuity this file criticises
+ * two blocks down. With the sub-line deleted (Eric ruling 2026-08-19) the content
+ * is one 34px/800 label: roughly a 41px line box plus 16px padding, ~57px, UNDER
+ * the 64px floor. So both buttons currently sit AT the floor and hugging is
+ * dormant. It is kept rather than swapped for a fixed height because it is what
+ * keeps the port column inside the 768px floor viewport (**epic-2** amendment 47,
+ * the container-fit law — NOT epic-6's amendment 47, which is the departure
+ * scuttle) if anything is ever added back to these boxes, and
+ * `applySafeCenterScroll` still backstops anything shorter. The deletion moved
+ * the column in the SAFE direction (~17px off each button), so nothing is
+ * re-tuned.
  *
  * The outline is assigned as SEPARATE properties rather than inside the cssText
  * blob: a `border:1px solid var(--x)` shorthand is rejected by the test
@@ -538,18 +533,14 @@ function makeChip(onOpen: () => void): ChipEls {
  * (measured, not assumed — that is why the shipped PLAY button's own geometry
  * has never been assertable).
  *
- * The SUB-LINE element is always built AND always occupies its line, even when
- * it has nothing to say: the SOLO door's copy arrives asynchronously (and can
- * go away again on an outage), so the slot is reserved and merely hidden rather
- * than taken out of flow — otherwise the button would grow when the first
- * payload landed and jitter on every flaky poll (see `paintModeSubline`). It
- * reads the hudMicro
- * register in PHOSPHOR — the port's system/status voice, the same one the
- * server-status line takes — never `--hc-text-muted`, which DESIGN.md:153 bars
- * for load-bearing numbers, and never amber, which is the ACTION register and
- * is forbidden as decoration.
+ * THE BUTTON HOLDS EXACTLY ONE CHILD — its label. There is no sub-line slot any
+ * more, and re-adding one is not a local decision: the reserved-slot machinery
+ * that carried the 6.6 lines toggled `visibility` on a DESCENDANT, which is how
+ * the home escaped the settings yield (see the module header). Any future
+ * sub-line must reach the same "absent" state without ever writing `visibility`
+ * below the root.
  */
-function makeModeButton(label: string, accent: string, title: string, subline = ''): HTMLButtonElement {
+function makeModeButton(label: string, accent: string, title: string): HTMLButtonElement {
   const root = document.createElement('button');
   root.type = 'button';
   root.setAttribute('title', title);
@@ -565,44 +556,8 @@ function makeModeButton(label: string, accent: string, title: string, subline = 
   big.textContent = label;
   big.style.cssText =
     `font:800 34px var(--hc-font-mono);letter-spacing:0.34em;text-indent:0.34em;color:${accent}`;
-  root.append(big, makeModeSubline(subline));
+  root.append(big);
   return root;
-}
-
-/** The mode button's sub-line span (see `makeModeButton`). Always in flow — an
- *  empty line is HIDDEN, never removed (see `paintModeSubline`). */
-function makeModeSubline(text: string): HTMLElement {
-  const el = document.createElement('span');
-  el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin-top:3px;display:block`;
-  paintModeSubline(el, text);
-  return el;
-}
-
-/**
- * Set (or clear) a mode button's sub-line, WITHOUT EVER MOVING THE BUTTON.
- *
- * `display:none` was a layout-shift generator: the sub-line arrives
- * asynchronously and can go away again on any flaky poll, so both deploy
- * buttons grew by a line the moment the first payload landed and jittered every
- * 10 s on a bad connection — with the PRIMARY BUTTON moving between a click's
- * mousedown and its mouseup. Availability of a decorative-until-it-arrives
- * number must never reflow the deploy stack.
- *
- * So the slot is permanent: `visibility:hidden` keeps it out of the picture and
- * out of the accessibility tree while keeping its box, and the non-breaking
- * space guarantees the box is exactly one line tall even with nothing to say
- * (an empty inline box has no height at all, which would have reserved
- * nothing). Both buttons therefore hold the same shape in every state, which is
- * also what makes the shipped shape pin assertable again.
- */
-function paintModeSubline(el: HTMLElement, text: string): void {
-  el.textContent = text === '' ? '\u00A0' : text;
-  el.style.visibility = text === '' ? 'hidden' : 'visible';
-}
-
-/** A mode button's sub-line span — `makeModeButton` always appends it second. */
-function sublineOf(btn: HTMLButtonElement): HTMLElement {
-  return btn.children[1] as HTMLElement;
 }
 
 /**
@@ -657,10 +612,6 @@ function makeSoloButton(onSolo: () => void): HTMLButtonElement {
     'SOLO VS AI',
     'var(--hc-phosphor)',
     'Deploy alone against a field of AI captains',
-    // STATIC, and true whether or not `/liveness` ever answers: this door
-    // creates its own room. It is the whole point of the pairing — when the
-    // SOLO button reads `0 QUEUED`, this line is the way out of a dead queue.
-    SOLO_AI_SUBLINE,
   );
   root.addEventListener('click', onSolo);
   return root;
@@ -877,20 +828,19 @@ interface Home {
 }
 
 /**
- * Repaint everything liveness owns: the bottom-left register and the SOLO door's
- * sub-line. Both come from `h.liveness` alone, so an unavailable read (null)
- * clears them together rather than leaving half a picture — and a stale count
- * is never left painted next to a live one.
+ * Repaint the one surface liveness still owns: the BOTTOM-LEFT PLAYERS ONLINE /
+ * LIVE GAMES register. It comes from `h.liveness` alone, so an unavailable read
+ * (null) hides it outright rather than leaving a stale population painted.
  *
- * SOLO VS AI's sub-line is NOT touched here: it is a constant, true with or
- * without a server answer.
+ * THE MODE BUTTONS ARE NOT TOUCHED HERE ANY MORE (Eric ruling 2026-08-19). The
+ * SOLO door's `N/20 QUEUED` sub-line is deleted with its whole slot, so nothing
+ * on the deploy stack is data-driven and `LivenessPayload.queue` has no client
+ * reader left at all. The register keeps its honest zero (amendment 39).
  *
  * THE HOME RUNS NO TIMER (Eric ruling 2026-08-18). `retickLiveness` and the 1 Hz
- * `livenessTick` it drove are DELETED with the countdown they existed for: the
- * sub-line is a bare count now, so it changes only when the poll brings a new
- * one. That also retires a whole class of leak — the tick closed over `h` and had
- * to be cleared by `hide()`, by `setLiveness(null)`, and on every path in
- * between.
+ * `livenessTick` it drove are DELETED with the countdown they existed for, which
+ * retired a whole class of leak — the tick closed over `h` and had to be cleared
+ * by `hide()`, by `setLiveness(null)`, and on every path in between.
  */
 function paintLiveness(h: Home): void {
   const lines = livenessLines(h.liveness);
@@ -899,10 +849,6 @@ function paintLiveness(h: Home): void {
     h.livenessEls.players.textContent = lines.players;
     h.livenessEls.games.textContent = lines.games;
   }
-  paintModeSubline(
-    sublineOf(h.playBtn),
-    h.liveness ? queueButtonSubline(h.liveness.queue) : '',
-  );
 }
 
 function paintStatus(h: Home, text: string, tone: StatusTone): void {
