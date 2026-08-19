@@ -62,7 +62,8 @@ qualify that, and neither excuses it:
   player-visible stutter here; what is breached is the ratified *allocation* of the frame,
   not 60 FPS.
 - **It is the framing, not the roster.** Re-run at the same framing with the 20-hull
-  readability population instead of 68, it still costs **11.0 ms** (scene-graph 8.6 ms).
+  readability population instead of 68, it still costs **11.3 ms** (scene-graph 8.9 ms).
+  Data: `nfr1-frame-budget-readability-subset.json`.
   So the cost is whole-disc drawing, essentially independent of how many ships are afloat.
 
 **What is NOT claimed: an attribution.** The cost is CPU-side scene-graph work (9.1 of the
@@ -116,8 +117,7 @@ risk was.** Three controls, each taken on this device:
 
 1. **Population does not matter.** On the integrated GPU the NFR1 population (68 hulls) and
    the readability population (20 hulls) cost the same — 67.2 ms vs 66.7 ms per frame. The
-   same holds at the reveal framing on the discrete GPU: 11.0 ms for 20 hulls against
-   11.7-11.8 ms for 68, measured in the same session.
+   same holds at the reveal framing on the discrete GPU: 11.3 ms for 20 hulls against 11.8 ms for 68.
 2. **Pixels do.** The same scene at dpr 1 (1.44 M px) held 16.7 ms where dpr 2 (5.76 M px)
    took 67 ms, with a half-viewport dpr-2 point (2.88 M px) at 49.3 ms in between.
 3. **The staged scene is exonerated.** The **home screen** of the shipped build — no match,

@@ -117,7 +117,7 @@ Simulation runs at ~3% of its allowance, so the sim half of the budget is not a 
 of which excuses it: the FRAME still holds (11.8 ms inside 16.6, headroom 4.8 ms, zero
 dropped frames — what is breached is the ratified ALLOCATION, not 60 FPS); and it is the
 FRAMING, not the roster — re-run at the same framing with the 20-hull readability population
-it still costs 11.0 ms against 11.8, so whole-disc drawing is the cost and the number is nearly
+it still costs 11.3 ms against 11.8, so whole-disc drawing is the cost and the number is nearly
 independent of how many ships are afloat.
 
 **NO ATTRIBUTION IS CLAIMED.** The cost is CPU-side scene-graph (9.1 of the 11.8 ms) and the
