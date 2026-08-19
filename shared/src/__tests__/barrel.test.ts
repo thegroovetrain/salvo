@@ -348,8 +348,10 @@ describe('shared barrel', () => {
     // inside your own wake; 150u lets a Mine Layer actually seed water.
     expect(CONFIG.mine.placeRange).toBe(150);
     expect(CONFIG.mine.placeHalfArcDeg).toBe(60);
-    expect(CONFIG.mine.foulFactor).toBe(0.5);
-    expect(CONFIG.mine.foulDurationMs).toBe(4000);
+    // RETUNED (Eric ruling 2026-08-19, Story 7-5): 25% slower for 5s — a
+    // weaker slow held longer, and no longer paired with a damage penalty.
+    expect(CONFIG.mine.foulFactor).toBe(0.75);
+    expect(CONFIG.mine.foulDurationMs).toBe(5000);
     // The tracking-mine fix (Eric ruling 2026-08-02): acquisition is measured
     // mine→hull SILHOUETTE (world.ts nearestEnemyHull, the trigger's metric),
     // so the range is a silhouette reach and must clear the widest trip ring —
@@ -360,11 +362,12 @@ describe('shared barrel', () => {
     expect(CONFIG.decoyBuoy).toEqual({ durationMs: 30000, reloadMs: 20000, maxAmmo: 1 });
   });
 
-  it('CONFIG.torpedo: the homing/command doctrine fields (Story 2.8)', () => {
+  it('CONFIG.torpedo: the homing doctrine fields (command detonation retired)', () => {
     expect(CONFIG.torpedo.homingTurnRate).toBe(0.5);
     expect(CONFIG.torpedo.homingAcquireRange).toBe(120);
     expect(CONFIG.torpedo.homingUpdateAngleDeg).toBe(5);
-    expect(CONFIG.torpedo.commandBurstRadius).toBe(60);
+    // `commandBurstRadius` is RETIRED with COMMAND DETONATION (Story 7-5): the
+    // weapon left the game, so the constant has no consumer to pin.
     // The homing travel budget (review P8): finite, so a fish can never orbit
     // forever — and long enough to cross the map twice over.
     expect(CONFIG.torpedo.homingMaxRangeU).toBe(1300);

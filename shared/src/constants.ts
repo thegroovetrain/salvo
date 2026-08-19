@@ -1076,7 +1076,6 @@ export const CONFIG = {
     // u — blast radius of the point-detonation at the click (reuses the
     // gun-pattern targetX/targetY + burstRadius shell fields; range is capped
     // by radar range server-side; contact hits stay ordinary torpedo hits).
-    commandBurstRadius: 60,
     // u — extra spawn-offset margin ON TOP of hitRadius (see hullClearOffset)
     // so the fish spawns genuinely CLEAR of the firer's own hull, not merely
     // touching it — clean spawn geometry only. Own weapons NEVER damage the
@@ -1155,12 +1154,18 @@ export const CONFIG = {
     // once (oldest evicted past it). Separate stat, separate upgrade later.
     maxLive: 5, // max simultaneous live mines per player
     globalCap: 60, // defensive ceiling on total live mines across all players
-    // --- PROP-FOULING MINES doctrine (Story 2.8, exclusive boon) — DRAFT.
-    // Victims of a fouling blast are slowed (self-private you.slowedUntil;
-    // sim/slow.ts slowedKinematics — composition pinned boosted → slowed →
-    // hooks). The doctrine also reduces mine damage (catalog-side effect).
-    foulFactor: 0.5, // × maxSpeed AND reverseSpeed while fouled
-    foulDurationMs: 4000, // ms — slow window per blast (refresh, don't stack)
+    // --- PROP-FOULING MINES doctrine. Victims of a fouling blast are slowed
+    // (self-private you.slowedUntil; sim/slow.ts slowedKinematics — composition
+    // pinned boosted → slowed → hooks).
+    //
+    // RETUNED (Eric ruling 2026-08-19, Story 7-5): *"simply slows affected ships
+    // by 25% for 5 seconds"* — a WEAKER slow held LONGER (was 0.5 / 4000ms). It
+    // is also no longer an EXCLUSIVE and no longer trades damage: the cycle-95
+    // ruling deleted the damage penalty, and Story 7-5 made every doctrine an
+    // added verb, so this is a pure addition that STACKS with CAPTIVE MINES
+    // (whose torpedo carries the foul with it — Eric, same ruling).
+    foulFactor: 0.75, // × maxSpeed AND reverseSpeed while fouled (25% slower)
+    foulDurationMs: 5000, // ms — slow window per blast (refresh, don't stack)
     // --- SELF-PROPELLED MINES doctrine (Story 2.8, exclusive boon).
     // Armed mines creep toward the nearest enemy hull within acquire range.
     // ACQUISITION IS SILHOUETTE-METRIC (Eric ruling 2026-08-02): the range below

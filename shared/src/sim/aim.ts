@@ -2,8 +2,8 @@
 //
 // Every function here was PROMOTED verbatim out of the server's equipment rows
 // (equipment/ballistics.ts hullClearOffset/muzzleSpawn, equipment/guns.ts
-// clampInsideMap/burstPointAlong/muzzleOrTarget/BARREL_FAN_STEP_RAD,
-// equipment/torpedoes.ts minCommandDistance) so the CLIENT can compute the
+// clampInsideMap/burstPointAlong/muzzleOrTarget/BARREL_FAN_STEP_RAD) so the
+// CLIENT can compute the
 // exact same points for its ordnance aim previews. Behavior is byte-identical
 // — the server rows now re-import these and keep only their ShipRecord-shaped
 // wrappers, which is what makes "the preview circle IS where the shell bursts"
@@ -163,24 +163,6 @@ export function muzzleOrTarget(
   const targetDist = Math.hypot(target.x - pose.x, target.y - pose.y);
   const muzzleDist = Math.hypot(muzzle.x - pose.x, muzzle.y - pose.y);
   return targetDist <= muzzleDist + shellRadius ? { x: target.x, y: target.y } : muzzle;
-}
-
-/** u — how far PAST the fish's own spawn point the nearest legal COMMAND
- *  DETONATION point sits (Story 2.8 review, P7). A commanded burst point
- *  inside the bow spawn clearance would lie BEHIND the just-spawned fish:
- *  distToTarget is measured forward along the track, so the fish would never
- *  reach it and would run to the map edge instead of detonating. */
-const COMMAND_MIN_EPSILON = 1;
-
-/** The nearest legal commanded burst distance from the ship CENTER: the fish's
- *  own spawn offset along the bearing (hullClearOffset with the torpedo's
- *  hitRadius + spawnClearance — exactly what makeBallistic uses) plus a small
- *  epsilon, so the burst point is always AHEAD of the spawn point. */
-export function minCommandDistance(hullLength: number): number {
-  return (
-    hullClearOffset(hullLength, CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance) +
-    COMMAND_MIN_EPSILON
-  );
 }
 
 /**

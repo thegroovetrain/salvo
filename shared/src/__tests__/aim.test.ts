@@ -13,7 +13,6 @@ import {
   burstPointAlong,
   clampInsideMap,
   hullClearOffset,
-  minCommandDistance,
   muzzleOrTarget,
   muzzleSpawn,
   torpedoSpawn,
@@ -139,12 +138,9 @@ describe('torpedo geometry', () => {
     expect(p.x).toBeCloseTo(want, 6);
   });
 
-  it('minCommandDistance always sits AHEAD of the spawn point', () => {
-    for (const id of HULLS) {
-      const spawn = torpedoSpawn({ x: 0, y: 0, heading: 0 }, len(id), 0).x;
-      expect(minCommandDistance(len(id))).toBeGreaterThan(spawn);
-    }
-  });
+  // The `minCommandDistance` pin is RETIRED with COMMAND DETONATION (Story
+  // 7-5): the commanded burst point no longer exists, so there is no "ahead of
+  // the spawn point" invariant left to hold.
 });
 
 describe('BARREL_FAN_STEP_RAD', () => {
