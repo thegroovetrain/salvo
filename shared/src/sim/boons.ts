@@ -4,10 +4,13 @@
 // one may touch exactly these lawful paths:
 //   1. `stat` effects flow ONLY through effectiveStats() (sim/stats.ts calls
 //      applyBoonStats — the desync firewall stays intact);
-//   2. `doctrine` effects fold ONLY into the per-weapon `mode` fields of
-//      EffectiveStats (same fold, same firewall — the exclusive doctrines are
-//      data + bespoke shared modifiers, the boost precedent; HOOK_REGISTRY
-//      stays EMPTY, amendment 30 satisfied without new hook plumbing);
+//   2. `doctrine` effects fold ONLY into the per-weapon DOCTRINE STATE of
+//      EffectiveStats (same fold, same firewall — the doctrines are data +
+//      bespoke shared modifiers, the boost precedent; HOOK_REGISTRY stays
+//      EMPTY, amendment 30 satisfied without new hook plumbing). Since Story
+//      7-5 wave 1 that state is one INDEPENDENT BOOLEAN PER VERB on torpedo/
+//      mine/starShells, because verbs now stack; only the cannon still holds a
+//      single-valued `mode` enum;
 //   3. `slotFill`/`slotReplace` effects mutate ONLY the one LoadoutSlot[]
 //      structure, through applySlotEffect below — used INCREMENTALLY by the
 //      server and REPLAYED by the client over loadoutFor output;
@@ -25,7 +28,7 @@
 import type { EquipmentId, LoadoutSlot } from './loadout.js';
 import { SLOT_EXTRA, equipmentMaxAmmo, loadoutFor } from './loadout.js';
 import { CONFIG, type HullId } from '../constants.js';
-import type { CannonMode, EffectiveStats, MineMode, StarShellsMode, TorpedoMode } from './stats.js';
+import type { CannonMode, EffectiveStats } from './stats.js';
 import type { HookParams } from './hooks.js';
 
 /** Catalog boon id (camelCase string — the registry-id convention). */
@@ -58,19 +61,23 @@ export const EQUIPMENT_CATEGORY: Readonly<Record<EquipmentId, BoonCategory>> = {
 };
 
 /**
- * The known doctrine modes per weapon — the fold's fail-closed vocabulary AND
- * the validateBoonDef authoring gate. Exactly the four ratified exclusive
- * pairs (amendments 38/44); 'standard' is the implicit no-doctrine mode and
- * never appears in a catalog datum.
+ * The known doctrine VERBS per weapon — the fold's fail-closed vocabulary AND
+ * the validateBoonDef authoring gate. Story 7-5 wave 1: on torpedo/mine/
+ * starShells each entry now names a BOOLEAN FIELD on EffectiveStats that the
+ * fold sets true (verbs STACK — a star shell may be both phosphor and dazzle);
+ * on the cannon alone it still names a value of the single-valued `mode` enum,
+ * because PLUNGING FIRE and ARMOR-PIERCING genuinely contradict. Nothing else
+ * about the effect shape moved. An unknown weapon or verb is a no-op.
  */
 export const DOCTRINE_MODES = {
   cannon: ['arcing', 'ap'],
-  torpedo: ['homing', 'command'],
-  mine: ['selfPropelled', 'propFouling'],
-  starShells: ['incendiary', 'dazzle'],
+  torpedo: ['homing'],
+  mine: ['propFouling', 'selfPropelled'],
+  starShells: ['phosphor', 'dazzle'],
 } as const satisfies Partial<Record<EquipmentId, readonly string[]>>;
 
-/** A weapon that carries a doctrine mode field on EffectiveStats. */
+/** A weapon that carries doctrine state on EffectiveStats (verb booleans, or
+ *  the cannon's surviving `mode` enum). */
 export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
 
 /**
@@ -91,6 +98,16 @@ export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
  * future per-weapon line must still be able to compose BEFORE the global
  * `cooldownScale` multiply in clampStats. Nothing in the catalog writes them
  * today.
+ *
+ * STORY 7-5 WAVE 1 widened that same shape rather than narrowing the list.
+ * `gun.damage`, `torpedo.damage`, `mine.damage`, `mine.maxLive`,
+ * `starShells.litRadius`, `boost.maxAmmo` and `kinematics.reverseSpeed` are now
+ * ALSO whitelisted-but-unwritten — their cards were deleted, the paths were
+ * not. Deleting a path is only correct when the stat itself stops being
+ * addressable in principle (the `sightRange` / `mine.triggerRadius` case, where
+ * a card writing it would be a second derivation of a DERIVED number). A stat
+ * that merely has no card behind it stays here so a future line can land
+ * without touching this whitelist.
  */
 export const BOON_STAT_PATHS = [
   'maxHp',
@@ -192,11 +209,13 @@ export interface BoonBehaviorEffect {
 }
 
 /**
- * Set a weapon's doctrine `mode` on EffectiveStats (Story 2.8) — the exclusive
- * cards' declarative home. Folded by applyBoonStats into stats.<weapon>.mode;
- * an unknown weapon/mode combination is a fail-closed no-op. Only one doctrine
- * per weapon can be HELD (deck exclusivity + the swap flow enforce it — the
- * fold itself just applies list order, last write wins).
+ * Set a weapon's doctrine VERB on EffectiveStats (Story 2.8) — the doctrine
+ * cards' declarative home. THE SHAPE OF THIS DATUM DID NOT MOVE in Story 7-5
+ * wave 1; what changed is what the fold does with it. `mode` names a verb from
+ * that weapon's DOCTRINE_MODES vocabulary: on torpedo/mine/starShells it is the
+ * name of a BOOLEAN FIELD the fold sets true (so two verbs on one weapon
+ * compose), on the cannon it is a value of the surviving `mode` enum (last
+ * write wins). An unknown weapon/verb combination is a fail-closed no-op.
  */
 export interface BoonDoctrineEffect {
   kind: 'doctrine';
@@ -214,9 +233,11 @@ export type BoonEffect =
 
 /**
  * One catalog card LINE: id, category, scarcity (rarity + physical copies),
- * and its effect list. `exclusiveWith` links the two cards of a doctrine pair
- * (symmetric, same weapon — validated); `healOnGrant` marks the grant itself
- * as healing the granted maxHp delta (shipHull — the ONLY heal path).
+ * and its effect list. `exclusiveWith` links the two cards of a CONTRADICTORY
+ * doctrine pair (symmetric, same weapon — validated); since Story 7-5 wave 1
+ * the cannon pair is its only user, because every other doctrine card became
+ * an independently-stackable verb. `healOnGrant` marks the grant itself as
+ * healing the granted maxHp delta (shipHull — the ONLY heal path).
  */
 export interface BoonDef {
   id: BoonId;
@@ -259,16 +280,38 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
 });
 
 /**
- * THE production Boon Catalog v1 (Story 2.8, amendment 42 — 36 card lines
- * across 9 categories; was 42 until the 2026-08-04 global-cooldown ruling
- * traded the seven per-equipment reload ladders for the single universal
- * `shipCooldown` line). Ladder NAMES are ratified canon and live client-side
- * (boonCopy.ts); every step VALUE here is an implementer-drafted handwave
- * inside the ratified pins (damageGuardrail: no single hit can kill the
- * lightest hull — the 80hp small drone since the 2026-08-03 hp-ladder move —
- * even max-stacked; torpedoSpeed +5/card 60→80 ratified; intelSweep +3 RPM/card to
- * the 30 cap; shipHull +20/card heal-on-grant; trigger ≤ blast clamped in
- * effectiveStats). 2.10's batch-sim evidence retunes.
+ * THE production Boon Catalog — STORY 7-5 WAVE 1 (Eric's card rewrite,
+ * `7-5-decks.md`). 28 card lines across 9 categories; was 33.
+ *
+ * WHAT THIS PASS DID, in one paragraph. Every ladder Eric re-authored is now a
+ * SHORT ladder of BIG steps at a smaller copy count (HULL/SPEED/RANGE/MINES/
+ * STAR SHELLS all ×4), and seven lines are GONE outright: `gunDamage` and
+ * `torpedoDamage` (Eric: *"The gun is absurdly powerful and does not need
+ * damage bonuses"*), `mineDamage` and `mineMax`, `starRadius`, `boostMax` (it
+ * split into the two lines BOOST DURATION and BOOST SPEED), and
+ * `torpedoCommand` (COMMAND DETONATION is deleted as a mechanic). Several
+ * ladders changed FORM rather than value: SPEED and RANGE became ADDITIVE
+ * (+2.5 u/s, +50 u) where they used to be ×1.05 / ×1.15, and STAR SHELLS
+ * became additive +1250 ms. `shipSpeed` no longer touches `reverseSpeed` at
+ * all (there is no constant `add` that preserves the reverse:forward ratio
+ * across three hulls, and a flat +2.5 on reverse would be +111% on the
+ * battleship against +29% on its top speed).
+ *
+ * AND THE DOCTRINE CARDS STOPPED BEING EITHER/OR. PHOSPHOR/DAZZLE and
+ * PROP-FOULING/SELF-PROPELLED are now INDEPENDENT VERBS you may hold together
+ * (see EffectiveStats' boolean verb fields and applyDoctrineEffect above), so
+ * they drop `exclusiveWith` and their rarity collapses from `exclusive` to
+ * `rare`. `PHOSPHOR SHELLS` is a DISPLAY rename of the card whose id stays
+ * `starIncendiary` — project law, the KILL LEADER precedent: a copy rename is
+ * not an id rename. The `exclusive` TIER and the whole exclusivity mechanism
+ * SURVIVE untouched, because the cannon pair still uses them: PLUNGING FIRE
+ * and ARMOR-PIERCING really do contradict (AP hardcodes burstRadius 0), so
+ * independent flags there would ship an incoherent state. That pair, and the
+ * mechanism with it, is wave 2's problem.
+ *
+ * Player-facing names live CLIENT-side (boonCopy.ts). Stack count = OCCURRENCES
+ * of an id in ship.boons / you.boons; `copies` IS the cap (THE DECK MODEL,
+ * amendment 38).
  *
  * CATALOG CONTENT IS WIRE CONTRACT: adding, removing, or changing any entry
  * REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Boon ids ride the
@@ -277,145 +320,102 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
  */
 export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // --- guns (universal) ----------------------------------------------------
-  // HEAVY SHELLS Mk I–V: 15 → 30 hp (+3/card — step unchanged; the 2026-08-04
-  // balance pass moved the base 25 → 15. Guardrail: max burst < the 80hp floor).
-  gunDamage: { id: 'gunDamage', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.damage', { add: 3 })] },
-  // TWIN MOUNT → TRIPLE MOUNT (rare ×2): +1 barrel per card (clamped 1..3).
+  // HEAVY SHELLS is DELETED (Eric: *"The gun is absurdly powerful and does not
+  // need damage bonuses."*). `gun.damage` stays on BOON_STAT_PATHS with no card
+  // behind it — the established shape (the cycle-93 FRAGMENTATION CASING
+  // precedent).
+  // BARREL I–II (rare ×2): +1 barrel per card (clamped 1..3). The shots fire in
+  // PARALLEL lines rather than a spread — that geometry is wave 2.
   gunBarrel: { id: 'gunBarrel', category: 'guns', rarity: 'rare', copies: 2, effects: [stat('gun.barrels', { add: 1 })] },
-  // AFT TURRET (rare ×1): gun pool 1 → 2 — the single-shot pin deliberately retired.
+  // EXTRA TURRET (rare ×1): gun pool 1 → 2 — the single-shot pin deliberately retired.
   gunTurret: { id: 'gunTurret', category: 'guns', rarity: 'rare', copies: 1, effects: [stat('gun.maxAmmo', { add: 1 })] },
-  // --- cannon --------------------------------------------------------------
-  // HEAVY CHARGE Mk I–V: 65 → 75 hp (+2/card); was 50 → 65 hp (+3/card) before
-  // the 2026-08-04 balance pass moved the base. Step CUT 3 → 2 (Eric ruling
-  // 2026-08-04, the weapon balance pass): at the retuned 65hp base a +3 ladder
-  // would top out at exactly 80 and one-shot an undamaged small drone, which
-  // the one-hit-kill law forbids. The flatter curve is deliberate — the base
-  // number is the ratified one, so the step gives.
+  // --- cannon (WAVE 2: the cannon becomes the BROADSIDE BARRAGE) ------------
+  // Carried forward BYTE-IDENTICAL. HEAVY CHARGE Mk I–V: 65 → 75 hp (+2/card).
   cannonDamage: { id: 'cannonDamage', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.damage', { add: 2 })] },
-  // FRAGMENTATION CASING is GONE (Eric ruling 2026-08-16: *"Remove the cannon
-  // blast radius card altogether."*). It was a TOTAL no-op for any build holding
-  // ARMOR-PIERCING SHELLS, because AP hardcodes `burstRadius: 0` — so a player
-  // on the AP doctrine could be offered, pay a level for, and fit up to FIVE
-  // copies of a card that did literally nothing, with no disclosure anywhere.
-  // Deleted rather than gated: making it conditional would have needed either a
-  // deck-time exclusion or a burst floor under AP, both of which change how the
-  // doctrine plays for a card nobody was choosing on purpose.
-  //
-  // `cannon.burstRadius` STAYS on BOON_STAT_PATHS with no card behind it, which
-  // is the established shape — `gun.burstRadius`, `gun.contactDamage` and
-  // `cannon.contactDamage` are all whitelisted-but-unwritten already. The stat
-  // itself is untouched: the cannon still bursts at its CONFIG base, and still
-  // does not burst under AP.
-  // PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS (exclusive pair).
+  // PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS — THE LAST EXCLUSIVE PAIR IN THE
+  // GAME, and the reason `exclusiveWith`, its symmetry validation, the deck
+  // swap-out and returnCards all still exist. AP hardcodes burstRadius 0 while
+  // arcing bursts on click: holding both is not a build, it is a contradiction.
+  // Both cards (and the mechanism) go in wave 2 with the weapon.
   cannonArcing: { id: 'cannonArcing', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonAp', effects: [doctrine('cannon', 'arcing')] },
   cannonAp: { id: 'cannonAp', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonArcing', effects: [doctrine('cannon', 'ap')] },
   // --- torpedoes -----------------------------------------------------------
-  // HEAVY WARHEAD Mk I–V: 70 → 75 hp (+1/card); was 55 → 65 hp (+2/card) before
-  // the 2026-08-04 balance pass moved the base. Step CUT 2 → 1 (Eric ruling
-  // 2026-08-04, the weapon balance pass): at the retuned 70hp base a +2 ladder
-  // would top out at 80 and one-shot an undamaged small drone, which the
-  // one-hit-kill law forbids. The flatter curve is deliberate — the base number
-  // is the ratified one, so the step gives.
-  torpedoDamage: { id: 'torpedoDamage', category: 'torpedoes', rarity: 'common', copies: 5, effects: [stat('torpedo.damage', { add: 1 })] },
-  // HIGH-SPEED SETTING → PURE OXYGEN DRIVE (×4): +5 kn/card, 60 → 80 (RATIFIED).
+  // HEAVY WARHEAD is DELETED — `torpedo.damage` keeps its whitelisted path with
+  // no card behind it.
+  // TORPEDO I–IV (×4): +5 u/s per card, 60 → 80 (RATIFIED, unchanged).
   torpedoSpeed: { id: 'torpedoSpeed', category: 'torpedoes', rarity: 'common', copies: 4, effects: [stat('torpedo.speed', { add: 5 })] },
-  // SECOND TUBE (rare ×1): tube pool 1 → 2.
+  // EXTRA TUBE (rare ×1): tube pool 1 → 2.
   torpedoTube: { id: 'torpedoTube', category: 'torpedoes', rarity: 'rare', copies: 1, effects: [stat('torpedo.maxAmmo', { add: 1 })] },
-  // ACOUSTIC HOMING ⚔ COMMAND DETONATION (exclusive pair).
-  torpedoHoming: { id: 'torpedoHoming', category: 'torpedoes', rarity: 'exclusive', copies: 1, exclusiveWith: 'torpedoCommand', effects: [doctrine('torpedo', 'homing')] },
-  torpedoCommand: { id: 'torpedoCommand', category: 'torpedoes', rarity: 'exclusive', copies: 1, exclusiveWith: 'torpedoHoming', effects: [doctrine('torpedo', 'command')] },
+  // ACOUSTIC HOMING (rare ×1): now a lone VERB, not half an exclusive pair —
+  // COMMAND DETONATION is deleted, so there is nothing left to be exclusive
+  // WITH. Same effect datum it always carried.
+  torpedoHoming: { id: 'torpedoHoming', category: 'torpedoes', rarity: 'rare', copies: 1, effects: [doctrine('torpedo', 'homing')] },
   // --- mines ---------------------------------------------------------------
-  // TNT → RDX FILLER: 55 → 75 hp (+4/card — step unchanged; the 2026-08-04
-  // balance pass moved the base 45 → 55, so the ladder tops at 75, still under
-  // the 80hp one-hit-kill floor).
-  mineDamage: { id: 'mineDamage', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.damage', { add: 4 })] },
-  // BLAST CASING Mk I–V: ×1.1 blast radius per card — AND the trip ring with it
-  // (Eric ruling 2026-08-16: *"tie the trigger radius to the blast radius,
-  // combine the cards, so picking it up increases both"*). The separate
-  // `mineTrigger` line (MAGNETIC → COMBINATION FUZE) is DELETED and
-  // `mine.triggerRadius` is now DERIVED as `blastRadius × triggerFactor`.
-  //
-  // This retires a real defect rather than just merging two cards: the old
-  // trigger ladder was ~75% eaten on its 5th copy by the
-  // `min(trigger, blastRadius)` clamp whenever no `mineBlast` was held — you
-  // could pay a level for a card that bought you 1.1u instead of 4.7u, silently.
-  // A ring that is a fixed FRACTION of the blast can never be clamped away.
-  mineBlast: { id: 'mineBlast', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.blastRadius', { mult: 1.1 })] },
-  // DECK RACKS → CONVERTED HOLD: +1 max LIVE mine per card.
-  mineMax: { id: 'mineMax', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.maxLive', { add: 1 })] },
-  // SELF-PROPELLED MINES ⚔ PROP-FOULING MINES (exclusive pair). Prop-fouling
-  // trades damage (×0.6, DRAFT) for the slow debuff (CONFIG.mine.foul*).
-  mineSelfPropelled: { id: 'mineSelfPropelled', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'minePropFouling', effects: [doctrine('mine', 'selfPropelled')] },
-  // PROP-FOULING no longer trades damage for the slow (Eric ruling 2026-08-16:
-  // *"remove damage decrease for the fouling mines"*). The old `mult: 0.6` on
-  // `mine.damage` is DELETED, so the doctrine is now a pure behaviour change.
-  //
-  // That also retires a defect the boon-cards investigation found: this was the
-  // only multiplicative writer of `mine.damage`, and `mineDamage` is an ADDITIVE
-  // writer of the same path, so the folded result depended on PICK ORDER —
-  // fouling-then-five-damage gave 55×0.6+20 = 53 hp, damage-then-fouling gave
-  // (55+20)×0.6 = 45 hp, for identical cards. With no multiplier left, only one
-  // effect writes the path and order cannot matter.
-  minePropFouling: { id: 'minePropFouling', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'mineSelfPropelled', effects: [doctrine('mine', 'propFouling')] },
+  // MINES I–IV (×4): ×1.1 blast radius per card — AND the trip ring with it,
+  // since `mine.triggerRadius` is DERIVED as `blastRadius × triggerFactor`
+  // (Eric ruling 2026-08-16). TNT FILLER and DECK RACKS are both deleted;
+  // `mine.damage` and `mine.maxLive` keep their whitelisted paths unwritten.
+  mineBlast: { id: 'mineBlast', category: 'mines', rarity: 'common', copies: 4, effects: [stat('mine.blastRadius', { mult: 1.1 })] },
+  // PROP FOULING (rare ×1): a PURE behaviour verb — no damage trade (the
+  // cycle-95 ruling deleted that), and since wave 1 no longer exclusive with
+  // anything. Holding it alongside SELF-PROPELLED is now a legal build.
+  minePropFouling: { id: 'minePropFouling', category: 'mines', rarity: 'rare', copies: 1, effects: [doctrine('mine', 'propFouling')] },
+  // SELF-PROPELLED MINES (rare ×1): carried forward as a card so the line
+  // survives into wave 2, where it is reworked into CAPTIVE MINES. It loses
+  // only its exclusivity here — the verb itself is untouched.
+  mineSelfPropelled: { id: 'mineSelfPropelled', category: 'mines', rarity: 'rare', copies: 1, effects: [doctrine('mine', 'selfPropelled')] },
   // --- speedBoost ----------------------------------------------------------
-  // CLEAN BOILERS → EMERGENCY POWER: +2 u/s boost bonus per card (10 → 20).
-  boostMax: { id: 'boostMax', category: 'speedBoost', rarity: 'common', copies: 5, effects: [stat('boost.speedBonus', { add: 2 })] },
+  // `boostMax` SPLIT INTO TWO LINES (Eric): the old single card moved
+  // speedBonus alone at +2/card ×5. Now duration and speed are separate buys.
+  // BOOST DURATION I–IV: +1000 ms per card (6s → 10s).
+  boostDuration: { id: 'boostDuration', category: 'speedBoost', rarity: 'common', copies: 4, effects: [stat('boost.durationMs', { add: 1000 })] },
+  // BOOST SPEED I–II: +5 u/s per card (10 → 20 u/s over the forward cap).
+  boostSpeed: { id: 'boostSpeed', category: 'speedBoost', rarity: 'common', copies: 2, effects: [stat('boost.speedBonus', { add: 5 })] },
   // --- starShells ----------------------------------------------------------
-  // SLOW-BURN COMPOUND Mk I–V: ×1.1 lit duration per card.
-  starDuration: { id: 'starDuration', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.litDurationMs', { mult: 1.1 })] },
-  // WIDE BURST Mk I–V: ×1.1 lit radius per card.
-  starRadius: { id: 'starRadius', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.litRadius', { mult: 1.1 })] },
-  // INCENDIARY COMPOUND ⚔ DAZZLE BURST (exclusive pair).
-  starIncendiary: { id: 'starIncendiary', category: 'starShells', rarity: 'exclusive', copies: 1, exclusiveWith: 'starDazzle', effects: [doctrine('starShells', 'incendiary')] },
-  starDazzle: { id: 'starDazzle', category: 'starShells', rarity: 'exclusive', copies: 1, exclusiveWith: 'starIncendiary', effects: [doctrine('starShells', 'dazzle')] },
-  // --- decoyBuoy -----------------------------------------------------------
-  // EXTENDED BATTERY Mk I–V: ×1.1 lifetime per card.
+  // STAR SHELLS I–IV (×4): +1250 ms lit duration per card — ADDITIVE now
+  // (10s → 15s), where the old SLOW-BURN COMPOUND ladder was ×1.1 compounding.
+  // WIDE BURST is deleted; `starShells.litRadius` stays whitelisted, unwritten.
+  starDuration: { id: 'starDuration', category: 'starShells', rarity: 'common', copies: 4, effects: [stat('starShells.litDurationMs', { add: 1250 })] },
+  // PHOSPHOR SHELLS (rare ×1) — id UNCHANGED (`starIncendiary`): this is a
+  // DISPLAY rename, and project law is that a copy rename is not an id rename.
+  // The verb it sets is `phosphor`.
+  starIncendiary: { id: 'starIncendiary', category: 'starShells', rarity: 'rare', copies: 1, effects: [doctrine('starShells', 'phosphor')] },
+  // DAZZLE SHELLS (rare ×1): STACKS with phosphor now — a shell can burn and
+  // blind. That is precisely what the verb-flag stat model exists to express.
+  starDazzle: { id: 'starDazzle', category: 'starShells', rarity: 'rare', copies: 1, effects: [doctrine('starShells', 'dazzle')] },
+  // --- decoyBuoy (WAVE 2: the decoy becomes the RADAR BUOY) ----------------
+  // Carried forward BYTE-IDENTICAL. EXTENDED BATTERY Mk I–V: ×1.1 lifetime.
   decoyDuration: { id: 'decoyDuration', category: 'decoyBuoy', rarity: 'common', copies: 5, effects: [stat('decoyBuoy.durationMs', { mult: 1.1 })] },
   // --- intel (universal) ---------------------------------------------------
-  // INTEL RANGE — the merged line (Eric rulings 2026-08-16). `intelTruesight`
-  // and `intelRadar` are GONE; ONE card now drives the whole eighths ladder.
-  //
-  // WHY THE MERGE, in one line: sightRange and radarRange used to move on two
-  // INDEPENDENT cards, which is exactly why a 2-stack truesight build overran
-  // the flat 5/8 muzzle/smoke rung (330 × 1.12² = 414.0 against 412.5). With
-  // every rung a fixed fraction of ONE number — detect 0.375R, sight 0.5R,
-  // muzzle/smoke 0.625R, farRadar 0.875R, radar R — the ladder ordering
-  // `detect < sight < muzzleFlash < farRadar < radar` holds at EVERY stack level
-  // by ARITHMETIC rather than by invariant. It cannot be violated any more.
-  //
-  // ×4 COPIES, not 5 (Eric: *"Make it 4 copies, its powerful."*). That is also a
-  // PERFORMANCE ruling: client radar render cost is purely quadratic in
-  // radarRange across the whole reachable range (the minRayRad clamp does not
-  // engage below 2000u), so the copy cap IS the cost cap — ×4 tops the worst
-  // frame at ×3.06 rather than ×4.05. Top of ladder: radar 1154.3, detect 432.9,
-  // sight 577.2, muzzle/smoke 721.5, farRadar 1010.1.
-  //
-  // It drives `radarRange` alone; `sightRange` is DERIVED from it (sim/stats.ts)
-  // and is no longer stat-addressable at all. gun/cannon/starShells rangeU and
-  // command-det reach ride radarRange as they always have — Intel remains a
-  // stealth offense category (brainstorm 2026-07-30).
-  intelRange: { id: 'intelRange', category: 'intel', rarity: 'common', copies: 4, effects: [stat('radarRange', { mult: 1.15 })] },
-  // UPRATED SWEEP MOTOR Mk I–V: +3 RPM/card (15 → 30 at the ratified cap).
+  // RANGE I–IV (×4): +50 u of INTEL RANGE per card — ADDITIVE now, where the
+  // cycle-92 merged line was ×1.15 compounding. It drives `radarRange`, and the
+  // whole eighths ladder rides that ONE number: detect 0.375R, sight 0.5R,
+  // muzzle/smoke 0.625R, farRadar 0.875R, radar R — plus gun/cannon/starShells
+  // rangeU. So the ladder ordering holds at every stack level by ARITHMETIC,
+  // exactly as the merge established, and `sightRange` remains DERIVED
+  // (radarRange/2) rather than stat-addressable. Top of ladder: radar 860,
+  // sight 430. The ×4 copy cap is also the client radar COST cap (render cost
+  // is quadratic in radarRange), and the additive step makes the top of the
+  // ladder markedly cheaper than the old ×1.15⁴ ≈ 1154 u.
+  intelRange: { id: 'intelRange', category: 'intel', rarity: 'common', copies: 4, effects: [stat('radarRange', { add: 50 })] },
+  // INTEL I–V (×5): +3 RPM per card (15 → 30 at the ratified cap).
   intelSweep: { id: 'intelSweep', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sweepRpm', { add: 3 })] },
   // --- ship (universal) ----------------------------------------------------
-  // HULL SCRAPING → FLANK SPEED TRIALS: ×1.05 maxSpeed AND reverseSpeed per
-  // card (reverse scales with it, as the legacy upgrade did). Draft chosen so
-  // a max-stacked, max-boosted hull (TB ≈ 77.4 u/s) stays under the
-  // max-stacked torpedo (80 u/s) — pinned by damageGuardrail.test.
-  shipSpeed: { id: 'shipSpeed', category: 'ship', rarity: 'common', copies: 5, effects: [stat('kinematics.maxSpeed', { mult: 1.05 }), stat('kinematics.reverseSpeed', { mult: 1.05 })] },
-  // REINFORCED HULL → ARMORED CITADEL: +20 max hp per card; the grant HEALS
-  // the granted delta (healOnGrant — the ONLY heal path, amendment 38).
-  shipHull: { id: 'shipHull', category: 'ship', rarity: 'common', copies: 5, healOnGrant: true, effects: [stat('maxHp', { add: 20 })] },
-  // DRILL SCHEDULE → BATTLE STATIONS (×5): −0.10 cooldownScale per card, the
-  // ONE global cooldown line (Eric ruling 2026-08-04 — it replaced all seven
-  // per-equipment reload ladders). ADDITIVE, never multiplicative: 1.0 → 0.9 →
-  // 0.8 → 0.7 → 0.6 → 0.5, so a full stack lands gun 5000 → 2500 ms and cannon
-  // 45000 → 22500 ms exactly (the cannon endpoint was 50000 → 25000 until the
-  // same-day balance pass retuned its base). The ladder was widened 4 → 5 copies (a 50% cap,
-  // was 40%) by a later Eric ruling the same day: 2.5s on the gun feels
-  // genuinely fast next to 3s, which makes a full cooldown investment a real
-  // reward. Applied once, post-fold, to EVERY equipment reloadMs
-  // (sim/stats.ts clampStats).
+  // SPEED I–IV (×4): +2.5 u/s of TOP SPEED per card. It does NOT touch
+  // `reverseSpeed` — the old ×1.05 card scaled both to preserve the
+  // reverse:forward ratio, and no constant `add` can preserve that ratio across
+  // three hulls (a flat +2.5 would be +111% on the battleship's reverse against
+  // +29% on its top speed). Eric's card reads "increases ship top speed by this
+  // amount", so top speed is what it moves. `kinematics.reverseSpeed` keeps its
+  // whitelisted path with no card behind it.
+  shipSpeed: { id: 'shipSpeed', category: 'ship', rarity: 'common', copies: 4, effects: [stat('kinematics.maxSpeed', { add: 2.5 })] },
+  // HULL I–IV (×4): +25 max hp per card; the grant HEALS the granted delta
+  // (healOnGrant — the ONLY heal path, amendment 38).
+  shipHull: { id: 'shipHull', category: 'ship', rarity: 'common', copies: 4, healOnGrant: true, effects: [stat('maxHp', { add: 25 })] },
+  // RELOAD I–V (×5): −0.10 cooldownScale per card, the ONE global cooldown
+  // line (Eric ruling 2026-08-04). ADDITIVE, never multiplicative: 1.0 → 0.5 at
+  // the cap. Applied once, post-fold, to EVERY equipment reloadMs (stats.ts
+  // clampStats).
   shipCooldown: { id: 'shipCooldown', category: 'ship', rarity: 'common', copies: 5, effects: [stat('cooldownScale', { add: -0.1 })] },
   // --- acquisitions (rare ×1 each; category = the equipment's category) -----
   acquireTorpedo: acquire('acquireTorpedo', 'torpedo'),
@@ -548,16 +548,27 @@ function applyStatEffect(stats: EffectiveStats, e: BoonStatEffect): void {
   target[key] = v;
 }
 
-/** Fold one doctrine effect into its weapon's `mode` field — fail-closed:
- *  unknown weapon or mode moves nothing. */
+/**
+ * Fold one doctrine effect into its weapon's doctrine state — fail-closed:
+ * an unknown weapon or an unknown verb for that weapon moves nothing.
+ *
+ * Story 7-5 wave 1: for torpedo/mine/starShells the verb NAMES A BOOLEAN
+ * FIELD on the weapon's stats block and the fold SETS IT TRUE, so two verbs on
+ * one weapon compose instead of the second silently erasing the first. The
+ * cannon keeps the single-valued enum assignment (last write wins), which is
+ * correct there because its two doctrines contradict. The DOCTRINE_MODES
+ * membership test above is what makes the dynamic field write safe: only the
+ * declared verb names — which ARE the boolean field names — can reach it.
+ */
 function applyDoctrineEffect(stats: EffectiveStats, e: BoonDoctrineEffect): void {
   if (!Object.hasOwn(DOCTRINE_MODES, e.weapon)) return;
   const weapon = e.weapon as DoctrineWeapon;
   if (!(DOCTRINE_MODES[weapon] as readonly string[]).includes(e.mode)) return;
-  if (weapon === 'cannon') stats.cannon.mode = e.mode as CannonMode;
-  else if (weapon === 'torpedo') stats.torpedo.mode = e.mode as TorpedoMode;
-  else if (weapon === 'mine') stats.mine.mode = e.mode as MineMode;
-  else stats.starShells.mode = e.mode as StarShellsMode;
+  if (weapon === 'cannon') {
+    stats.cannon.mode = e.mode as CannonMode;
+    return;
+  }
+  (stats[weapon] as unknown as Record<string, boolean>)[e.mode] = true;
 }
 
 /**
@@ -681,12 +692,21 @@ function validateRival(def: BoonDef, rival: BoonDef | undefined): string[] {
   return errs;
 }
 
-/** Problems with a def's exclusiveWith link (helper of validateBoonDef). */
+/**
+ * Problems with a def's exclusiveWith link (helper of validateBoonDef).
+ *
+ * The clause `doctrine effects belong to 'exclusive' rarity only` was RETIRED
+ * in Story 7-5 wave 1, deliberately and not by oversight: a doctrine effect is
+ * now a VERB, and a verb that stacks with its neighbours (PHOSPHOR beside
+ * DAZZLE) is a plain `rare` card. Rarity no longer says anything about whether
+ * an effect is a doctrine. What survives untouched is the exclusivity
+ * mechanism itself — `exclusive` rarity still REQUIRES a named rival, an
+ * `exclusiveWith` link still requires `exclusive` rarity, and a pair must
+ * still be symmetric and carry doctrines on the SAME weapon. The cannon pair
+ * is its last user.
+ */
 function validateExclusiveLink(def: BoonDef, catalog: BoonCatalog): string[] {
   const errs: string[] = [];
-  if (doctrineWeaponOf(def) !== undefined && def.rarity !== 'exclusive') {
-    errs.push(`${def.id}: doctrine effects belong to 'exclusive' rarity only`);
-  }
   if (def.exclusiveWith === undefined) {
     if (def.rarity === 'exclusive') errs.push(`${def.id}: an exclusive must name its rival (exclusiveWith)`);
     return errs;

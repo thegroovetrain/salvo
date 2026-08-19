@@ -182,7 +182,15 @@ describe('shared barrel', () => {
     // to narrow blips on) and BlipEvent collapses to ReturnBlipEvent alone —
     // a stale client would wait on welcome fields that never arrive and
     // mis-narrow every paint, so the PV join gate is the guard.
-    expect(PROTOCOL_VERSION).toBe(41);
+    // 41 -> 42: UPGRADE CARDS v2, WAVE 1 (Story 7-5, Eric's card rewrite).
+    // Three breaks at once: BOON_CATALOG is rewritten (7 lines deleted, 2 new,
+    // copy counts and ladder FORMS moved — a stale client resolves a deleted id
+    // fail-closed and silently drops the whole boon, so its prediction and HUD
+    // disagree with the sim); the doctrine `mode` enums on torpedo/mine/
+    // starShells become INDEPENDENT VERB BOOLEANS (verbs stack now, which one
+    // enum field cannot express); and LitZoneView trades `mode` for the two
+    // optional flags `phos`/`daz`, which is the payload shape of that change.
+    expect(PROTOCOL_VERSION).toBe(42);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -363,7 +371,10 @@ describe('shared barrel', () => {
   });
 
   it('re-exports the boon effect engine + Catalog v1 (Stories 2.5/2.8)', () => {
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(33); // 42 - 7 reloads + shipCooldown; 36->35 intel merge; 35->34 cannonBlast deleted; 34->33 mine ring cards merged (Eric 2026-08-16)
+    // 42 - 7 reloads + shipCooldown; 36->35 intel merge; 35->34 cannonBlast
+    // deleted; 34->33 mine ring cards merged (Eric 2026-08-16); 33->28 Story
+    // 7-5 wave 1 (7 lines deleted, 2 new: boostDuration + boostSpeed).
+    expect(Object.keys(BOON_CATALOG)).toHaveLength(28);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);

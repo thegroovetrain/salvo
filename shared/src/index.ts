@@ -3,6 +3,42 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  42: UPGRADE CARDS v2, WAVE 1 (Story 7-5, Eric's `7-5-decks.md` rewrite) —
+ *  THREE independent wire breaks in one bump.
+ *  (a) BOON_CATALOG IS REWRITTEN. Catalog content has been wire contract since
+ *  PV 13, and this is the largest content move since Story 2.8 seeded it: SEVEN
+ *  lines are DELETED outright (`gunDamage`, `torpedoDamage`, `torpedoCommand`,
+ *  `mineDamage`, `mineMax`, `starRadius`, `boostMax`), TWO are NEW
+ *  (`boostDuration`, `boostSpeed` — the old `boostMax` split in half), and most
+ *  survivors moved: copy counts fell to ×4 on HULL/SPEED/RANGE/MINES/STAR
+ *  SHELLS, and three ladders changed FORM from multiplicative to ADDITIVE
+ *  (`shipSpeed` +2.5 u/s, `intelRange` +50 u, `starDuration` +1250 ms).
+ *  `shipSpeed` also stops touching `reverseSpeed`. A stale client would resolve
+ *  a deleted id fail-closed and silently drop the whole boon — the fail-closed
+ *  path protects it from CRASHING, never from being WRONG — so its HUD and its
+ *  prediction would both disagree with the authoritative sim about speed,
+ *  range, hp and every reload. 33 lines → 28.
+ *  (b) DOCTRINE BECAME INDEPENDENT VERB FLAGS. `EffectiveStats` loses
+ *  `torpedo.mode`, `mine.mode` and `starShells.mode` (and the `TorpedoMode` /
+ *  `MineMode` / `StarShellsMode` types with them, COMMAND DETONATION deleted
+ *  along the way) for one boolean per verb: `torpedo.homing`,
+ *  `mine.propFouling` / `mine.selfPropelled`, `starShells.phosphor` /
+ *  `starShells.dazzle`. A single-valued enum structurally cannot hold two verbs
+ *  at once, and Eric's rewrite stacks them — PHOSPHOR and DAZZLE are no longer
+ *  either/or, nor are PROP-FOULING and SELF-PROPELLED — so under the old field
+ *  the second card granted would have silently erased the first. `cannon.mode`
+ *  is DELIBERATELY UNCHANGED: PLUNGING FIRE and ARMOR-PIERCING genuinely
+ *  contradict (AP hardcodes burstRadius 0), so the exclusive pair, the
+ *  `exclusive` rarity tier and the whole `exclusiveWith` mechanism all survive
+ *  wave 1 with the cannon as their last user. This is not itself a payload
+ *  shape, but `effectiveStats()` IS the desync firewall both sides call, so a
+ *  version skew here is exactly the drift the join gate exists to stop.
+ *  (c) LitZoneView LOSES `mode` FOR TWO OPTIONAL FLAGS `phos?: true` /
+ *  `daz?: true` — a real payload change, and the (b) consequence made visible
+ *  on the wire: one lit zone may now be BOTH, which one enum field cannot say.
+ *  Omitted when false (the `aggro`/`slowedUntil` optional-flag style), so an
+ *  ordinary zone costs the bytes it always did. A stale client reads `mode`,
+ *  finds nothing, and renders every burning or blinding zone as plain.
  *  41: THE ONE RADAR (cycle 105, Eric ruling 2026-08-19: "the radar on prod
  *  is the ONLY radar") — the `silhouette` grammar and the `roster` identity
  *  are DELETED, not defaulted away. Production has run `return`/`pseudonym`
@@ -391,7 +427,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 41;
+export const PROTOCOL_VERSION = 42;
 
 // Tunables
 export * from './constants.js';

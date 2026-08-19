@@ -69,47 +69,67 @@ const common = (id: string, copies = 5): BoonDef => ({
 });
 
 describe('buildDeck — composition per hull loadout', () => {
-  it('Torpedo Boat: universal (guns 8, intel 9, ship 15) + torpedo 12 + boost 5 + 4 acquisitions = 53', () => {
+  // EVERY DECK GOT SMALLER (Story 7-5 wave 1): Eric's rewrite trades long
+  // ladders of small steps for short ladders of big ones, so a hull now draws
+  // 40-42 cards rather than 53-58. The composition RULE is unchanged — three
+  // universal subdecks + the carried equipment's subdecks + one acquisition per
+  // un-carried equipment — and these pins are the same pins at the new counts.
+  it('Torpedo Boat: universal (guns 3, intel 9, ship 13) + torpedo 6 + boost 6 + 4 acquisitions = 41', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
-    expect(categoryCount(deck.cards, 'guns')).toBe(8); // 5+2+1 (the gunReload line died 2026-08-04)
-    expect(categoryCount(deck.cards, 'intel')).toBe(9); // 4 intelRange + 5 intelSweep (was 5+5+5 before the merge)
-    expect(categoryCount(deck.cards, 'ship')).toBe(15); // 5+5+5 (shipCooldown joined, widened to ×5)
-    expect(categoryCount(deck.cards, 'torpedoes')).toBe(12); // 5+4+1+1+1
-    expect(categoryCount(deck.cards, 'speedBoost')).toBe(5); // 5
+    expect(categoryCount(deck.cards, 'guns')).toBe(3); // 2 barrel + 1 turret (HEAVY SHELLS deleted)
+    expect(categoryCount(deck.cards, 'intel')).toBe(9); // 4 intelRange + 5 intelSweep
+    expect(categoryCount(deck.cards, 'ship')).toBe(13); // 4 speed + 4 hull + 5 cooldown
+    expect(categoryCount(deck.cards, 'torpedoes')).toBe(6); // 4 speed + 1 tube + 1 homing
+    expect(categoryCount(deck.cards, 'speedBoost')).toBe(6); // 4 duration + 2 speed (boostMax split)
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireCannon', 'acquireDecoy', 'acquireMine', 'acquireStarShells']);
-    expect(deck.cards).toHaveLength(53);
+    expect(deck.cards).toHaveLength(41);
     expect(deck.levelsSinceRare).toBe(0);
   });
 
   it('Battleship: cannon + starShells subdecks; torpedo/mine/decoy/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.battleship);
-    expect(categoryCount(deck.cards, 'cannon')).toBe(7); // 5 damage + 2 exclusives (FRAGMENTATION CASING deleted, Eric 2026-08-16)
-    expect(categoryCount(deck.cards, 'starShells')).toBe(12); // 5+5+1+1
+    // The cannon subdeck is carried forward untouched and is now the THICKEST
+    // equipment subdeck rather than the thinnest — every other one shrank.
+    expect(categoryCount(deck.cards, 'cannon')).toBe(7); // 5 damage + 2 exclusives
+    expect(categoryCount(deck.cards, 'starShells')).toBe(6); // 4 duration + phosphor + dazzle
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(0);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireDecoy', 'acquireMine', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 9 + 15 + 7 + 12 + 4); // 55
+    expect(deck.cards).toHaveLength(3 + 9 + 13 + 7 + 6 + 4); // 42
   });
 
   it('Mine Layer: mines + decoyBuoy subdecks; torpedo/cannon/star/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.mineLayer);
-    expect(categoryCount(deck.cards, 'mines')).toBe(17); // 5x3 commons + 2 exclusives (the fuze line merged into BLAST CASING)
+    expect(categoryCount(deck.cards, 'mines')).toBe(6); // 4 blast + propFouling + selfPropelled
     expect(categoryCount(deck.cards, 'decoyBuoy')).toBe(5);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireCannon', 'acquireStarShells', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 9 + 15 + 17 + 5 + 4); // 58
+    expect(deck.cards).toHaveLength(3 + 9 + 13 + 6 + 5 + 4); // 40
   });
 
-  it('the 7 deleted reload lines are in NO hull deck; ship contributes 15 (Eric rulings 2026-08-04)', () => {
+  it('the 7 deleted reload lines are in NO hull deck; ship contributes 13 (Eric rulings 2026-08-04)', () => {
     const dead = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       const deck = buildDeck(BOON_CATALOG, CARRIED[cls]);
       for (const id of dead) expect(deck.cards, `${cls}:${id}`).not.toContain(id);
       // The one global cooldown line replaces them, in the UNIVERSAL ship
-      // subdeck — every hull draws it: 5 shipSpeed + 5 shipHull + 5 shipCooldown.
-      expect(categoryCount(deck.cards, 'ship'), cls).toBe(15);
+      // subdeck — every hull draws it: 4 shipSpeed + 4 shipHull + 5 shipCooldown
+      // (the two hull/speed ladders went ×5 → ×4 in Story 7-5 wave 1).
+      expect(categoryCount(deck.cards, 'ship'), cls).toBe(13);
       expect(tally(deck.cards).get('shipCooldown'), cls).toBe(5);
+    }
+  });
+
+  // Wave 1 deleted SEVEN lines outright. Their ids ride the wire, so proving
+  // they are unreachable in every deck is the deck-side half of the fail-closed
+  // guarantee the PV bump exists to back up.
+  it('the 7 lines Story 7-5 wave 1 DELETED are in no hull deck and not in the catalog', () => {
+    const gone = ['gunDamage', 'torpedoDamage', 'torpedoCommand', 'mineDamage', 'mineMax', 'starRadius', 'boostMax'];
+    for (const id of gone) expect(BOON_CATALOG[id], id).toBeUndefined();
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      const deck = buildDeck(BOON_CATALOG, CARRIED[cls]);
+      for (const id of gone) expect(deck.cards, `${cls}:${id}`).not.toContain(id);
     }
   });
 
@@ -287,11 +307,11 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
   it('R filled with mine: mine subdeck joins, EVERY acquisition card purges', () => {
     const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
     const after = consumeAcquisition(start, BOON_CATALOG, 'mine');
-    expect(categoryCount(after.cards, 'mines')).toBe(17); // the full mine subdeck
+    expect(categoryCount(after.cards, 'mines')).toBe(6); // the full mine subdeck
     expect(after.cards.some((id) => isAcquisitionDef(BOON_CATALOG[id]))).toBe(false); // R is permanent
     // Everything else untouched.
-    expect(categoryCount(after.cards, 'torpedoes')).toBe(12);
-    expect(categoryCount(after.cards, 'guns')).toBe(8);
+    expect(categoryCount(after.cards, 'torpedoes')).toBe(6);
+    expect(categoryCount(after.cards, 'guns')).toBe(3);
     expect(after.levelsSinceRare).toBe(start.levelsSinceRare);
   });
 
@@ -300,7 +320,7 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
     const after = consumeAcquisition(start, BOON_CATALOG, 'cannon');
     expect(after.cards).not.toContain('acquireCannon');
     expect(after.cards).not.toContain('acquireMine');
-    expect(categoryCount(after.cards, 'cannon')).toBe(7); // 5 commons + 2 exclusives (FRAGMENTATION CASING deleted)
+    expect(categoryCount(after.cards, 'cannon')).toBe(7); // 5 commons + 2 exclusives (carried forward whole)
   });
 });
 
@@ -347,10 +367,12 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
     return { picks, drawn, drawsUntilEmpty: draws };
   }
 
-  const DOCTRINE_PAIRS = [
-    ['cannonArcing', 'cannonAp'],
-    ['torpedoHoming', 'torpedoCommand'],
-  ] as const;
+  // ONE PAIR LEFT (Story 7-5 wave 1). `torpedoHoming`/`torpedoCommand` was the
+  // second pair; COMMAND DETONATION is deleted and every other doctrine card
+  // became an independently-stackable verb, so the cannon pair is the whole
+  // list. The two properties below are about DECK behaviour around 1-copy
+  // doctrine lines, so they are kept and simply run over the survivor.
+  const DOCTRINE_PAIRS = [['cannonArcing', 'cannonAp']] as const;
 
   it('no line is EVER picked beyond its copy count — caps self-enforce physically', () => {
     for (const seed of [1, 42, 1337]) {

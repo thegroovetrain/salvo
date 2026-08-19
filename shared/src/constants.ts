@@ -520,6 +520,20 @@ export const CONFIG = {
      * a target by itself and so farms without re-positioning. Both doctrines
      * are now pure adds and side-grades to each other, so neither profile
      * refuses one — they just rank them differently.
+     *
+     * STORY 7-5 WAVE 1 RE-KEYED FOUR OVERRIDES, and this was forced rather
+     * than chosen: `starRadius`, `mineDamage` and `mineMax` were DELETED from
+     * the catalog, and a per-line override naming a card that no longer exists
+     * is dead data that scores nothing (a test pins that every key here is a
+     * real line, precisely so a catalog move fails loudly instead of silently
+     * dropping a bot's priority). Each was re-pointed at the surviving line
+     * that carries the same INTENT for that profile, never re-tuned:
+     * siege's star-shell want moves to `starDuration` (its only remaining
+     * star-shell line), and both Mine Layer profiles' mine want consolidates
+     * onto `mineBlast` — which since the cycle-95 merge grows the trip ring
+     * too, so it is now the whole mine rack in one card. `trapper` picks up an
+     * explicit `decoyDuration` in the freed slot, matching the `decoyBuoy: 2.0`
+     * category weight it already carried.
      */
     boonWeights: {
       // TB raider — torpedo opener at credible range, then boost out. Buys
@@ -545,19 +559,19 @@ export const CONFIG = {
       // and star-shell rangeU all ride radarRange.
       siege: {
         cat: { cannon: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
-        lines: { cannonDamage: 2.8, intelRange: 2.4, starRadius: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
+        lines: { cannonDamage: 2.8, intelRange: 2.4, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
       },
       // ML forager — clears PvE fleet groups for the level lead (C3). Guns
       // and rate of fire do that work; see the propFouling note above.
       forager: {
         cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, decoyBuoy: 1.0 },
-        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineDamage: 2.0, mineSelfPropelled: 2.4, minePropFouling: 1.2 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineBlast: 2.0, mineSelfPropelled: 2.4, minePropFouling: 1.2 },
       },
       // ML trapper — mines astern while withdrawing, decoy to break locks,
       // fights near its own field.
       trapper: {
         cat: { mines: 2.6, decoyBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
-        lines: { mineMax: 2.8, mineDamage: 2.4, mineBlast: 2.4, minePropFouling: 3.0, mineSelfPropelled: 2.2, shipCooldown: 2.2 },
+        lines: { mineBlast: 2.8, minePropFouling: 3.0, mineSelfPropelled: 2.2, shipCooldown: 2.2, decoyDuration: 2.0 },
       },
     },
     /**
@@ -987,8 +1001,12 @@ export const CONFIG = {
     // hp per burst victim — THE gun-damage tunable (pinned by
     // damageGuardrail.test). RETUNED 25 → 15 (Eric ruling 2026-08-04, the
     // weapon balance pass): a permanently-fitted default weapon hit far too
-    // hard. HEAVY SHELLS ×5 (+3/card) tops the ladder at 30, still well under
-    // the 80hp one-hit-kill floor.
+    // hard. HEAVY SHELLS ×5 (+3/card) used to top the ladder at 30; that CARD
+    // IS GONE (`gunDamage`, deleted in Story 7-5 wave 1 — Eric: *"The gun is
+    // absurdly powerful and does not need damage bonuses"*), so 15 is now the
+    // gun's damage at every build. Note the knock-on: a max-stacked TRIPLE
+    // MOUNT click is now 3 × 15 = 45, exactly the 45hp small drone rather than
+    // double it (damageGuardrail.test carries the margin note).
     damage: 15,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
     // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of `damage`,
@@ -1024,8 +1042,11 @@ export const CONFIG = {
     speed: 60, // u/s
     // hp. RETUNED 55 → 70 (Eric ruling 2026-08-04, the weapon balance pass): a
     // heavier fish on a much longer commitment cycle. HEAVY WARHEAD ×5 was
-    // simultaneously cut to +1/card so the ladder tops at 75 — strictly under
-    // the 80hp one-hit-kill floor (see sim/boons.ts torpedoDamage).
+    // simultaneously cut to +1/card so the ladder topped at 75 — strictly under
+    // the 80hp one-hit-kill floor. That CARD IS GONE (`torpedoDamage`, deleted
+    // in Story 7-5 wave 1: Eric took damage bonuses off both the gun and the
+    // torpedo), so 70 is now the fish's damage at every build, with no ladder
+    // above it to bound.
     damage: 70,
     maxAmmo: 1, // one fish in the tube pool
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
@@ -1113,8 +1134,10 @@ export const CONFIG = {
     // design (the trip is the detection ring; the blast reaches farther).
     blastRadius: 48,
     // hp. RETUNED 45 → 55 (Eric ruling 2026-08-04, the weapon balance pass).
-    // TNT → RDX FILLER ×5 (+4/card) tops the ladder at 75 — strictly under the
-    // 80hp one-hit-kill floor.
+    // TNT → RDX FILLER ×5 (+4/card) used to top the ladder at 75; that CARD IS
+    // GONE (`mineDamage`, deleted in Story 7-5 wave 1), so 55 is now the mine's
+    // damage at every build — and it still clears the 45hp small drone at base,
+    // which is the Mine Layer fleet-farming ruling (2026-08-16).
     damage: 55,
     // stored drops in the ammo pool (one refilled per reload). RETUNED 1 → 2
     // (Eric ruling 2026-08-04, weapon balance pass): a Mine Layer could not lay

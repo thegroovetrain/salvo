@@ -72,19 +72,24 @@ export interface EffectiveCannon {
   mode: CannonMode; // doctrine fold (sim/boons.ts) — 'standard' unless an exclusive is held
 }
 
-/** Torpedo doctrine modes (ACOUSTIC HOMING ⚔ COMMAND DETONATION). */
-export type TorpedoMode = 'standard' | 'homing' | 'command';
+// STORY 7-5 WAVE 1 — DOCTRINE IS A SET OF INDEPENDENT VERBS, NOT ONE ENUM.
+// Eric's retooling stacks verbs on the same weapon (PHOSPHOR *and* DAZZLE
+// shells; PROP FOULING beside SELF-PROPELLED), which a single-valued `mode`
+// field structurally cannot hold — the last card granted would silently erase
+// the earlier one. So the three weapons whose verbs now stack carry one
+// INDEPENDENT BOOLEAN PER VERB, folded by sim/boons.ts applyDoctrineEffect.
+// `cannon.mode` deliberately stays a single-valued enum: PLUNGING FIRE and
+// ARMOR-PIERCING genuinely contradict (AP never bursts), so independent flags
+// there would ship an incoherent state. Both die together in wave 2 when the
+// cannon becomes the BROADSIDE BARRAGE.
 
 export interface EffectiveTorpedo {
   reloadMs: number; // ms per fish
   maxAmmo: number; // tube pool size
   speed: number; // u/s — launch speed
   damage: number; // hp per contact hit
-  mode: TorpedoMode; // doctrine fold — 'standard' unless an exclusive is held
+  homing: boolean; // ACOUSTIC HOMING verb (doctrine fold) — false unless held
 }
-
-/** Mine doctrine modes (SELF-PROPELLED ⚔ PROP-FOULING). */
-export type MineMode = 'standard' | 'selfPropelled' | 'propFouling';
 
 export interface EffectiveMine {
   reloadMs: number; // ms per drop
@@ -92,12 +97,10 @@ export interface EffectiveMine {
   maxLive: number; // max simultaneous live mines on the board
   damage: number; // hp per blast victim
   blastRadius: number; // u — full damage to every non-owner hull within it
-  triggerRadius: number; // u — detonation proximity (clamped ≤ blastRadius)
-  mode: MineMode; // doctrine fold — 'standard' unless an exclusive is held
+  triggerRadius: number; // u — detonation proximity (DERIVED = blastRadius × triggerFactor)
+  propFouling: boolean; // PROP FOULING verb (doctrine fold) — false unless held
+  selfPropelled: boolean; // SELF-PROPELLED verb (doctrine fold) — false unless held
 }
-
-/** Star-shell doctrine modes (INCENDIARY COMPOUND ⚔ DAZZLE BURST). */
-export type StarShellsMode = 'standard' | 'incendiary' | 'dazzle';
 
 export interface EffectiveStarShells {
   reloadMs: number; // ms per flare (the star-shell cooldown)
@@ -105,7 +108,8 @@ export interface EffectiveStarShells {
   rangeU: number; // u — max flare travel — DERIVED = radarRange post-fold (not stat-addressable)
   litRadius: number; // u — lit-zone radius (base = the ratified SIGHT/2 CONFIG derivation)
   litDurationMs: number; // ms — lit-zone lifetime
-  mode: StarShellsMode; // doctrine fold — 'standard' unless an exclusive is held
+  phosphor: boolean; // PHOSPHOR SHELLS verb (the burning zone) — false unless held
+  dazzle: boolean; // DAZZLE SHELLS verb — false unless held; STACKS with phosphor
 }
 
 /**
@@ -178,7 +182,8 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells'
       // Base stays the ratified SIGHT/2-derived CONFIG value (Eric 2026-07-23).
       litRadius: CONFIG.starShells.litRadius,
       litDurationMs: CONFIG.starShells.litDurationMs,
-      mode: 'standard',
+      phosphor: false,
+      dazzle: false,
     },
     decoyBuoy: {
       reloadMs: CONFIG.decoyBuoy.reloadMs,
@@ -189,7 +194,8 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells'
 }
 
 /** The CONFIG-base stats tree for a class — every number a pure base, every
- *  mode 'standard'. Split out so effectiveStats stays lean. */
+ *  doctrine verb false (and the cannon's enum 'standard'). Split out so
+ *  effectiveStats stays lean. */
 function baseStats(cls: ShipClass): EffectiveStats {
   return {
     kinematics: { ...cls.kinematics },
@@ -225,7 +231,7 @@ function baseStats(cls: ShipClass): EffectiveStats {
       maxAmmo: CONFIG.torpedo.maxAmmo,
       speed: CONFIG.torpedo.speed,
       damage: CONFIG.torpedo.damage,
-      mode: 'standard',
+      homing: false,
     },
     mine: {
       reloadMs: CONFIG.mine.reloadMs,
@@ -234,7 +240,8 @@ function baseStats(cls: ShipClass): EffectiveStats {
       damage: CONFIG.mine.damage,
       blastRadius: CONFIG.mine.blastRadius,
       triggerRadius: CONFIG.mine.triggerRadius,
-      mode: 'standard',
+      propFouling: false,
+      selfPropelled: false,
     },
     ...baseEquipment(),
   };

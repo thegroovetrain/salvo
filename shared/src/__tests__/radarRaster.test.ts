@@ -183,8 +183,8 @@ describe('rasterizeHullCoverage — the coverage contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('the radar lattice is pinned beside the protocol version', () => {
-  it('radarCellU is 9 at PROTOCOL_VERSION 41 — retune both together, deliberately (34 → 35 was sudden death appending the storm timeline\'s collapse group; 35 → 36 was Story 5.6, the bigger ocean + the self-private Contact.aggro; 36 → 37 was Story 6.3\'s arena-side requeue signal; 37 → 38 was the Intel Range merge; 38 → 39 deleted the FRAGMENTATION CASING card; 39 → 40 merged the two mine-ring cards; 40 → 41 deleted the retired silhouette radar grammar. The lattice itself moved for none of them)', () => {
-    expect(PROTOCOL_VERSION).toBe(41);
+  it('radarCellU is 9 at PROTOCOL_VERSION 42 — retune both together, deliberately (34 → 35 was sudden death appending the storm timeline\'s collapse group; 35 → 36 was Story 5.6, the bigger ocean + the self-private Contact.aggro; 36 → 37 was Story 6.3\'s arena-side requeue signal; 37 → 38 was the Intel Range merge; 38 → 39 deleted the FRAGMENTATION CASING card; 39 → 40 merged the two mine-ring cards; 40 → 41 deleted the retired silhouette radar grammar; 41 → 42 was Story 7-5 wave 1, the upgrade-catalog rewrite + the doctrine verb flags. The lattice itself moved for none of them)', () => {
+    expect(PROTOCOL_VERSION).toBe(42);
     expect(CONFIG.vision.radarCellU).toBe(9);
     // The fuzz knobs are wire-authoritative for the same reason (they shape
     // the bits the server sends): pinned with the lattice.

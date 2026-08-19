@@ -40,13 +40,16 @@ const boon = (path: BoonStatPath, over: { mult?: number; add?: number }): BoonDe
 /** N occurrences of a production catalog line (the deck's stacking shape). */
 const stack = (id: string, n: number): readonly BoonDef[] => resolveBoons(new Array<string>(n).fill(id));
 
-/** Flatten an EffectiveStats tree into dotted-path -> number entries. */
-function flatten(stats: EffectiveStats): Map<string, number | string> {
-  const out = new Map<string, number | string>();
+/** Flatten an EffectiveStats tree into dotted-path -> scalar entries.
+ *  BOOLEANS ARE LEAVES TOO since Story 7-5 wave 1 — the doctrine verb flags
+ *  live there, and a walker that skipped them would recurse INTO a boolean,
+ *  find no entries, and silently report a verb card as a dead card. */
+function flatten(stats: EffectiveStats): Map<string, number | string | boolean> {
+  const out = new Map<string, number | string | boolean>();
   const walk = (node: Record<string, unknown>, prefix: string): void => {
     for (const [key, value] of Object.entries(node)) {
       const path = prefix ? `${prefix}.${key}` : key;
-      if (typeof value === 'number' || typeof value === 'string') out.set(path, value);
+      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') out.set(path, value);
       else walk(value as Record<string, unknown>, path);
     }
   };
@@ -79,7 +82,7 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         maxAmmo: CONFIG.torpedo.maxAmmo,
         speed: CONFIG.torpedo.speed,
         damage: CONFIG.torpedo.damage,
-        mode: 'standard',
+        homing: false,
       },
       mine: {
         reloadMs: CONFIG.mine.reloadMs,
@@ -88,7 +91,8 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         damage: CONFIG.mine.damage,
         blastRadius: CONFIG.mine.blastRadius,
         triggerRadius: CONFIG.mine.triggerRadius,
-        mode: 'standard',
+        propFouling: false,
+        selfPropelled: false,
       },
       boost: {
         speedBonus: CONFIG.speedBoost.speedBonus,
@@ -111,7 +115,8 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         rangeU: CONFIG.vision.radar,
         litRadius: CONFIG.starShells.litRadius, // the ratified SIGHT/2 derivation
         litDurationMs: CONFIG.starShells.litDurationMs,
-        mode: 'standard',
+        phosphor: false,
+        dazzle: false,
       },
       decoyBuoy: {
         reloadMs: CONFIG.decoyBuoy.reloadMs,
@@ -134,13 +139,17 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
 
 describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', () => {
   it('N repeats of a mult line compound: base × mult^N', () => {
-    const s3 = effectiveStats(BASE, stack('intelRange', 3));
-    expect(s3.radarRange).toBeCloseTo(CONFIG.vision.radar * 1.15 ** 3, 9);
+    // `mineBlast` is the surviving multiplicative ladder — `intelRange` carried
+    // this pin until Story 7-5 wave 1 made it ADDITIVE (+50 u/card).
+    const s3 = effectiveStats(BASE, stack('mineBlast', 3));
+    expect(s3.mine.blastRadius).toBeCloseTo(CONFIG.mine.blastRadius * 1.1 ** 3, 9);
   });
 
   it('intelRange stacks ALSO grow gun/cannon/starShells rangeU — Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
-    const s4 = effectiveStats(BASE, stack('intelRange', 4)); // 4 copies since the merge, not 5
-    const grown = CONFIG.vision.radar * 1.15 ** 4;
+    const s4 = effectiveStats(BASE, stack('intelRange', 4)); // ×4 copies
+    // ADDITIVE since Story 7-5 wave 1 (Eric: "+50 units to intel range"); the
+    // cycle-92 merged line was ×1.15 compounding, which topped out at ~1154 u.
+    const grown = CONFIG.vision.radar + 50 * 4;
     expect(s4.radarRange).toBeCloseTo(grown, 9);
     expect(s4.gun.rangeU).toBe(s4.radarRange);
     expect(s4.cannon.rangeU).toBe(s4.radarRange);
@@ -173,10 +182,11 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     }
   });
 
-  it('N repeats of an add line stack linearly (shipHull +20/card)', () => {
-    for (const n of [1, 3, 5]) {
-      expect(effectiveStats(BASE, stack('shipHull', n)).maxHp).toBe(BASE.hp + 20 * n);
+  it('N repeats of an add line stack linearly (shipHull +25/card)', () => {
+    for (const n of [1, 3, 4]) {
+      expect(effectiveStats(BASE, stack('shipHull', n)).maxHp).toBe(BASE.hp + 25 * n);
     }
+    expect(BOON_CATALOG.shipHull.copies).toBe(4); // Story 7-5 wave 1: ×5 → ×4, +20 → +25
   });
 
   it('torpedoSpeed is the RATIFIED +5/card ladder: 60 → 80 at the 4-copy cap', () => {
@@ -184,13 +194,23 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(CONFIG.torpedo.speed).toBe(60);
   });
 
-  it('shipSpeed scales maxSpeed AND reverseSpeed by the same factor (reverse rides along)', () => {
+  // FLIPPED PIN (Story 7-5 wave 1). This test used to assert the OPPOSITE:
+  // that shipSpeed scaled maxSpeed AND reverseSpeed by the same ×1.05 factor,
+  // so the reverse:forward ratio survived the ladder. Eric's card is now
+  // ADDITIVE (+2.5 u/s, "increases ship top speed by this amount"), and NO
+  // constant `add` can preserve that ratio across three hulls — a flat +2.5 on
+  // reverse would be +111% on the battleship against +29% on its top speed. So
+  // reverse is not addressed by any card at all, and this pins that on purpose.
+  it('shipSpeed adds to maxSpeed ONLY — reverseSpeed is deliberately untouched', () => {
+    for (const n of [1, 2, 4]) {
+      const s = effectiveStats(BASE, stack('shipSpeed', n));
+      expect(s.kinematics.maxSpeed).toBeCloseTo(BASE.kinematics.maxSpeed + 2.5 * n, 9);
+      expect(s.kinematics.reverseSpeed).toBe(BASE.kinematics.reverseSpeed);
+    }
     const s = effectiveStats(BASE, stack('shipSpeed', 2));
-    const f = 1.05 ** 2;
-    expect(s.kinematics.maxSpeed).toBeCloseTo(BASE.kinematics.maxSpeed * f, 9);
-    expect(s.kinematics.reverseSpeed).toBeCloseTo(BASE.kinematics.reverseSpeed * f, 9);
     expect(s.kinematics.accel).toBe(BASE.kinematics.accel); // accel/turn untouched
     expect(s.kinematics.turnRate).toBe(BASE.kinematics.turnRate);
+    expect(BOON_CATALOG.shipSpeed.copies).toBe(4);
   });
 
   it('boon-list order is load-bearing and deterministic (mult-then-add ≠ add-then-mult)', () => {
@@ -217,70 +237,98 @@ describe('effectiveStats — the single-shot gun-pool pin is RETIRED (Story 2.8)
   });
 });
 
-describe('effectiveStats — doctrine mode folds', () => {
-  it('every weapon defaults to standard; each doctrine card sets exactly its mode', () => {
+// ---------------------------------------------------------------------------
+// DOCTRINE FOLDS — REWRITTEN FOR THE VERB-FLAG MODEL (Story 7-5 wave 1).
+// The old suite pinned four single-valued `mode` enums and, by construction,
+// could only ever express ONE doctrine per weapon. Eric's rewrite stacks verbs
+// (PHOSPHOR beside DAZZLE, PROP-FOULING beside SELF-PROPELLED), so torpedo /
+// mine / starShells now carry one INDEPENDENT BOOLEAN PER VERB and the pins
+// below are about COMPOSITION, which is the property that did not exist
+// before. `cannon.mode` keeps its enum and keeps its old pins verbatim.
+// ---------------------------------------------------------------------------
+describe('effectiveStats — doctrine verb folds', () => {
+  it('every verb is false at base and the cannon enum is standard; each card sets exactly its own', () => {
     const base = effectiveStats(BASE);
-    expect([base.cannon.mode, base.torpedo.mode, base.mine.mode, base.starShells.mode]).toEqual([
-      'standard',
-      'standard',
-      'standard',
-      'standard',
-    ]);
+    expect(base.cannon.mode).toBe('standard');
+    expect([base.torpedo.homing, base.mine.propFouling, base.mine.selfPropelled, base.starShells.phosphor, base.starShells.dazzle])
+      .toEqual([false, false, false, false, false]);
     expect(effectiveStats(BASE, stack('cannonArcing', 1)).cannon.mode).toBe('arcing');
     expect(effectiveStats(BASE, stack('cannonAp', 1)).cannon.mode).toBe('ap');
-    expect(effectiveStats(BASE, stack('torpedoHoming', 1)).torpedo.mode).toBe('homing');
-    expect(effectiveStats(BASE, stack('torpedoCommand', 1)).torpedo.mode).toBe('command');
-    expect(effectiveStats(BASE, stack('mineSelfPropelled', 1)).mine.mode).toBe('selfPropelled');
-    expect(effectiveStats(BASE, stack('starIncendiary', 1)).starShells.mode).toBe('incendiary');
-    expect(effectiveStats(BASE, stack('starDazzle', 1)).starShells.mode).toBe('dazzle');
+    expect(effectiveStats(BASE, stack('torpedoHoming', 1)).torpedo.homing).toBe(true);
+    expect(effectiveStats(BASE, stack('mineSelfPropelled', 1)).mine.selfPropelled).toBe(true);
+    expect(effectiveStats(BASE, stack('minePropFouling', 1)).mine.propFouling).toBe(true);
+    // The card id is still `starIncendiary` — a display rename is not an id
+    // rename (project law) — but the VERB it sets is `phosphor`.
+    expect(effectiveStats(BASE, stack('starIncendiary', 1)).starShells.phosphor).toBe(true);
+    expect(effectiveStats(BASE, stack('starDazzle', 1)).starShells.dazzle).toBe(true);
   });
 
-  it('a doctrine card moves ONLY its mode field (flatten diff)', () => {
+  // THE PROPERTY THE ENUM COULD NOT HOLD, and the reason wave 1 exists: under
+  // the old `mode` field the second card granted silently erased the first.
+  it('VERBS STACK: both star-shell verbs and both mine verbs compose on one weapon', () => {
+    const bothStar = effectiveStats(BASE, resolveBoons(['starIncendiary', 'starDazzle']));
+    expect([bothStar.starShells.phosphor, bothStar.starShells.dazzle]).toEqual([true, true]);
+    // ...and in the other pick order, since neither erases the other.
+    const reversed = effectiveStats(BASE, resolveBoons(['starDazzle', 'starIncendiary']));
+    expect([reversed.starShells.phosphor, reversed.starShells.dazzle]).toEqual([true, true]);
+    const bothMine = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineSelfPropelled']));
+    expect([bothMine.mine.propFouling, bothMine.mine.selfPropelled]).toEqual([true, true]);
+  });
+
+  it('one verb card sets ONE flag and leaves its sibling alone', () => {
+    const dazzleOnly = effectiveStats(BASE, stack('starDazzle', 1));
+    expect([dazzleOnly.starShells.phosphor, dazzleOnly.starShells.dazzle]).toEqual([false, true]);
+    const foulOnly = effectiveStats(BASE, stack('minePropFouling', 1));
+    expect([foulOnly.mine.propFouling, foulOnly.mine.selfPropelled]).toEqual([true, false]);
+  });
+
+  it('a doctrine card moves ONLY its own doctrine field (flatten diff)', () => {
     const identity = flatten(effectiveStats(BASE));
     const arcing = flatten(effectiveStats(BASE, stack('cannonArcing', 1)));
     expect([...arcing.keys()]).toEqual([...identity.keys()]);
-    const changed = [...arcing.keys()].filter((k) => arcing.get(k) !== identity.get(k));
-    expect(changed).toEqual(['cannon.mode']);
+    expect([...arcing.keys()].filter((k) => arcing.get(k) !== identity.get(k))).toEqual(['cannon.mode']);
+    const dazzle = flatten(effectiveStats(BASE, stack('starDazzle', 1)));
+    expect([...dazzle.keys()].filter((k) => dazzle.get(k) !== identity.get(k))).toEqual(['starShells.dazzle']);
   });
 
-  // The ×0.6 damage trade was DELETED (Eric ruling 2026-08-16). The doctrine is
-  // now a pure behaviour change, and — the reason it mattered — it was the only
-  // MULTIPLICATIVE writer of `mine.damage` against `mineDamage`'s ADDITIVE one,
-  // so the folded result used to depend on PICK ORDER.
-  it('minePropFouling sets the mode and does NOT touch damage', () => {
+  // The ×0.6 damage trade was DELETED (Eric ruling 2026-08-16), and wave 1
+  // deleted `mineDamage` outright, so `mine.damage` now has NO writer at all.
+  // The pick-order test this pin used to sit beside is RETIRED with that card:
+  // with zero writers of the path, order cannot matter by construction.
+  it('minePropFouling sets its verb and does NOT touch damage', () => {
     const s = effectiveStats(BASE, stack('minePropFouling', 1));
-    expect(s.mine.mode).toBe('propFouling');
+    expect(s.mine.propFouling).toBe(true);
     expect(s.mine.damage).toBe(CONFIG.mine.damage);
+    // No card writes mine.damage any more — every build lands on the base.
+    const heavy = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineSelfPropelled', 'mineBlast', 'mineBlast']));
+    expect(heavy.mine.damage).toBe(CONFIG.mine.damage);
   });
 
-  it('mine damage is PICK-ORDER INDEPENDENT now that nothing multiplies it', () => {
-    const foulFirst = effectiveStats(BASE, resolveBoons(['minePropFouling', 'mineDamage', 'mineDamage', 'mineDamage', 'mineDamage', 'mineDamage']));
-    const damageFirst = effectiveStats(BASE, resolveBoons(['mineDamage', 'mineDamage', 'mineDamage', 'mineDamage', 'mineDamage', 'minePropFouling']));
-    expect(foulFirst.mine.damage).toBe(damageFirst.mine.damage);
-    // Both are the plain additive ladder — no 53-vs-45 split any more.
-    expect(foulFirst.mine.damage).toBe(CONFIG.mine.damage + 5 * 4);
+  it('stat stacks apply alongside a doctrine verb (amendment 44): the ladders survive', () => {
+    const homingBuild = resolveBoons(['torpedoSpeed', 'torpedoSpeed', 'torpedoHoming']);
+    const plainBuild = resolveBoons(['torpedoSpeed', 'torpedoSpeed']);
+    expect(effectiveStats(BASE, homingBuild).torpedo.speed).toBe(CONFIG.torpedo.speed + 10);
+    expect(effectiveStats(BASE, homingBuild).torpedo.speed).toBe(effectiveStats(BASE, plainBuild).torpedo.speed);
+    expect(effectiveStats(BASE, homingBuild).torpedo.homing).toBe(true);
   });
 
-  it('stat stacks apply under either doctrine (amendment 44): swap keeps the ladders', () => {
-    const homingBuild = resolveBoons(['torpedoDamage', 'torpedoDamage', 'torpedoHoming']);
-    const commandBuild = resolveBoons(['torpedoDamage', 'torpedoDamage', 'torpedoCommand']);
-    // Two HEAVY WARHEAD copies at the retuned +1/card step (Eric ruling
-    // 2026-08-04, the weapon balance pass; was +2/card).
-    expect(effectiveStats(BASE, homingBuild).torpedo.damage).toBe(CONFIG.torpedo.damage + 2);
-    expect(effectiveStats(BASE, commandBuild).torpedo.damage).toBe(CONFIG.torpedo.damage + 2);
-  });
-
-  it('an unknown doctrine weapon/mode in an untyped def is a fail-closed no-op', () => {
+  it('an unknown doctrine weapon/verb in an untyped def is a fail-closed no-op', () => {
     const rogue = {
       id: 'rogue',
       category: 'test',
-      rarity: 'exclusive',
+      rarity: 'rare',
       copies: 1,
       effects: [
-        { kind: 'doctrine', weapon: 'gun', mode: 'arcing' }, // gun has no mode field
-        { kind: 'doctrine', weapon: 'cannon', mode: 'nuclear' }, // unknown mode
+        { kind: 'doctrine', weapon: 'gun', mode: 'arcing' }, // gun carries no doctrine state
+        { kind: 'doctrine', weapon: 'cannon', mode: 'nuclear' }, // unknown cannon mode
+        { kind: 'doctrine', weapon: 'starShells', mode: 'incendiary' }, // the RETIRED verb name
+        { kind: 'doctrine', weapon: 'torpedo', mode: 'command' }, // COMMAND DETONATION is deleted
+        { kind: 'doctrine', weapon: 'starShells', mode: 'litRadius' }, // a real field, NOT a verb
       ],
     } as unknown as BoonDef;
+    // The DOCTRINE_MODES membership test is what makes the dynamic field write
+    // safe — only a declared verb name can reach the stats tree, so neither a
+    // retired verb nor an arbitrary field name moves anything.
     expect(effectiveStats(BASE, [rogue])).toEqual(effectiveStats(BASE));
   });
 });
