@@ -72,27 +72,39 @@ export interface BindingRow {
 }
 
 /**
- * Pure: the CURRENT-TRUTH binding reference (amendments 1–13). Authored from the
- * amendments, never copied from EXPERIENCE/DESIGN — those tables predate the
- * 2026-07-21/24 re-rulings (Q-on-gun, the F slot, SPACE-hold refit). This
- * is a REFERENCE, not a remapper: key remapping is post-beta.
+ * Pure: the CURRENT-TRUTH binding reference (amendments 1–13). Authored from
+ * `input/keyboard.ts` — the one keydown chokepoint — never copied from
+ * EXPERIENCE/DESIGN — those tables predate the 2026-07-21/24 re-rulings
+ * (Q-on-gun, the F slot, SPACE-hold refit). This is a REFERENCE, not a
+ * remapper: key remapping is post-beta.
  *
  * F IS NOW A REAL BINDING (Story 4.5, amendment 56 — UX open question #20
  * closed). It sat reserved-and-unbound here since Epic 2 and was deliberately
  * ABSENT from this table for exactly as long; that omission is wrong by design
  * as of the foghorn, and the row below replaces it. Listed right after the slot
  * keys because it is a conning-position action, not chrome.
+ *
+ * Story 7-3 (Eric ruling 2026-08-19): this list disagreed with keyboard.ts on
+ * three points and is now reconciled — W/S and A/D alias the arrows
+ * (`THROTTLE_AHEAD`/`THROTTLE_ASTERN` in telegraph.ts, `LEFT`/`RIGHT` in
+ * keyboard.ts), the refit digit row silently stopped at 4 and omitted 5
+ * (DAMAGE CONTROL, the always-available heal rail — `REFIT_DIGIT_CODES`,
+ * which also aliases the numpad), and the gun (slot 0) had no row at all even
+ * though it is the permanently-selected default reachable ONLY by clicking
+ * its hotbar tile — Q/E/R are the OTHER slots, never the gun's key. `P`
+ * (netcode debug) is deliberately still absent; it stays out of this surface.
  */
 export function bindingRows(): BindingRow[] {
   return [
-    { keys: 'W / S', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
-    { keys: 'A / D', action: 'RUDDER — HELD' },
+    { keys: 'W / S (+ ARROWS)', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
+    { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
+    { keys: '(NONE)', action: 'GUN — ALWAYS-SELECTED DEFAULT; CLICK ITS HOTBAR TILE TO RESELECT' },
     { keys: 'Q / E', action: 'CLASS SPECIAL SLOTS' },
     { keys: 'R', action: 'PICKUP SLOT — INERT WHILE EMPTY' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE SELECTED WEAPON / PRIME A SKILLSHOT' },
     { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
-    { keys: '1 – 4', action: 'PICK A REFIT CARD (WHILE THE WINDOW IS OPEN)' },
+    { keys: '1 – 5 (+ NUMPAD)', action: 'PICK A REFIT CARD — 5 IS DAMAGE CONTROL (WHILE THE WINDOW IS OPEN)' },
     { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },
     { keys: 'Z / X', action: 'CAMERA ZOOM OUT / IN — WHEEL ZOOMS SMOOTHLY' },
     { keys: 'M', action: 'MUTE' },

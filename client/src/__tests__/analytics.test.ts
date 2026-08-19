@@ -464,45 +464,50 @@ describe('nothing in the analytics graph may reach the game', () => {
 // snippet into the head, and no runtime assertion here would notice. Read off
 // disk, in the style foghorn/projectiles/resumeWiring already use for main.ts.
 describe('EVERY shipped page carries no third-party script (Consent Mode BASIC)', () => {
-  // BOTH entries, not just the game's (review gate). The guard originally read
+  // EVERY entry, not just the game's (review gate). The guard originally read
   // `index.html` alone, which left `privacy/index.html` — the NEWER, less-watched
   // page, and the natural place somebody would paste a CMP snippet — outside the
   // net. A leak there would be on the one page whose whole job is to say there
   // isn't one.
-  const PAGES = ['index.html', 'privacy/index.html'] as const;
+  //
+  // STORY 7.3 MADE THIS A TABLE rather than a third hand-written pair of tests.
+  // The one-script assertion was written out per page, so the page most likely
+  // to be forgotten was the newest one — exactly the failure this guard exists
+  // to prevent. Adding a static page now means adding ONE row here, and every
+  // assertion in the block covers it.
+  const PAGES = [
+    { rel: 'index.html', entry: 'src="/src/main.ts"' },
+    { rel: 'privacy/index.html', entry: '/src/privacy/main.ts' },
+    { rel: 'how-to-play/index.html', entry: '/src/how-to-play/main.ts' },
+  ] as const;
   const pageHtml = (rel: string): string => readFileSync(join(process.cwd(), rel), 'utf8');
-  const indexHtml = (): string => pageHtml('index.html');
 
-  it('has exactly one script element, and it is our own module entry', () => {
-    const tags = indexHtml().match(/<script\b[^>]*>/g) ?? [];
-    expect(tags).toHaveLength(1);
-    expect(tags[0]).toContain('src="/src/main.ts"');
+  it('every page has exactly one script element, and it is its own module entry', () => {
+    for (const { rel, entry } of PAGES) {
+      const tags = pageHtml(rel).match(/<script\b[^>]*>/g) ?? [];
+      expect(tags, rel).toHaveLength(1);
+      expect(tags[0], rel).toContain(entry);
+    }
   });
 
-  it('names no analytics or tag-manager origin anywhere, on either page', () => {
-    for (const page of PAGES) {
-      const html = pageHtml(page);
+  it('names no analytics or tag-manager origin anywhere, on any page', () => {
+    for (const { rel } of PAGES) {
+      const html = pageHtml(rel);
       for (const host of ['googletagmanager.com', 'google-analytics.com', 'gtag/js', 'dataLayer']) {
-        expect(html, `${page} names ${host}`).not.toContain(host);
+        expect(html, `${rel} names ${host}`).not.toContain(host);
       }
     }
   });
 
-  it('the privacy page has exactly one script element, and it is its own entry', () => {
-    const tags = pageHtml('privacy/index.html').match(/<script\b[^>]*>/g) ?? [];
-    expect(tags).toHaveLength(1);
-    expect(tags[0]).toContain('/src/privacy/main.ts');
-  });
-
-  it('the ONLY third-party origins EITHER page may name are the font CDN', () => {
+  it('the ONLY third-party origins ANY page may name are the font CDN', () => {
     // Pre-existing and disclosed in the privacy policy rather than removed —
     // Google Fonts receives every visitor's IP on page load, which is exactly
     // why the policy names it. A NEW third-party origin appearing here should
     // fail this test and force the same disclosure decision.
-    for (const page of PAGES) {
-      const origins = pageHtml(page).match(/https:\/\/[a-z0-9.-]+/g) ?? [];
+    for (const { rel } of PAGES) {
+      const origins = pageHtml(rel).match(/https:\/\/[a-z0-9.-]+/g) ?? [];
       const hosts = [...new Set(origins.map((o) => o.replace('https://', '')))];
-      expect(hosts.sort(), page).toEqual(['fonts.googleapis.com', 'fonts.gstatic.com']);
+      expect(hosts.sort(), rel).toEqual(['fonts.googleapis.com', 'fonts.gstatic.com']);
     }
   });
 });

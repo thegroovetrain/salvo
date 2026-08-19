@@ -296,6 +296,45 @@ describe('bindingRows — current truth (amendments 1–13), view-only', () => {
     expect(text).not.toContain('SPACE');
     expect(text).not.toContain('CTRL');
   });
+
+  // Story 7-3 (Eric ruling 2026-08-19): reconciled against input/keyboard.ts,
+  // the one keydown chokepoint, so the in-game reference and the How-to-Play
+  // page cannot disagree.
+
+  it('the digit row covers 1 through 5, not just 1–4', () => {
+    const digits = rows.find((r) => r.keys.includes('1') && r.keys.includes('5'));
+    expect(digits).toBeDefined();
+    expect(digits?.keys).not.toContain('1 – 4');
+  });
+
+  it('DAMAGE CONTROL (the digit-5 heal rail, HEAL_CHOICE) has a row', () => {
+    const dc = rows.find((r) => r.action.includes('DAMAGE CONTROL'));
+    expect(dc).toBeDefined();
+    expect(dc?.keys).toContain('5');
+  });
+
+  it('the digit row also advertises the NUMPAD alias', () => {
+    const digits = rows.find((r) => r.action.includes('DAMAGE CONTROL'));
+    expect(digits?.keys).toContain('NUMPAD');
+  });
+
+  it('the helm rows advertise the arrow-key aliases (W/S/A/D, not a separate scheme)', () => {
+    const throttle = rows.find((r) => r.keys.startsWith('W / S'));
+    const rudder = rows.find((r) => r.keys.startsWith('A / D'));
+    expect(throttle?.keys).toContain('ARROWS');
+    expect(rudder?.keys).toContain('ARROWS');
+  });
+
+  it('the gun (slot 0) is listed as the keyless default, reachable via its hotbar tile', () => {
+    const gun = rows.find((r) => r.action.includes('GUN'));
+    expect(gun).toBeDefined();
+    expect(gun?.action).toContain('DEFAULT');
+    expect(gun?.action).toContain('HOTBAR');
+  });
+
+  it('never advertises P — the netcode debug toggle stays out of this surface', () => {
+    expect(rows.some((r) => r.keys.trim() === 'P')).toBe(false);
+  });
 });
 
 // --- danger row --------------------------------------------------------------

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!--
+    NO `user-scalable=no` HERE, deliberately — the game's own index.html locks
+    zoom because it is a canvas that manages its own scale, but this is a page of
+    body copy and pinch-zoom is how a reader with low vision reads it.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HOW TO PLAY — HULLCRACKER.IO</title>
+  <meta name="description" content="How to steer, shoot, arm and refit your ship in Hullcracker.io. Last hull floating wins.">
+  <!--
+    THE SAME NON-RENDER-BLOCKING FONT LOAD AS index.html (Story 7.1, NFR2), and
+    for the same reason: a plain `rel="stylesheet"` lets a slow Google Fonts CDN
+    hold a black page for as long as the request takes to fail. `preload as=style`
+    fetches at high priority without blocking; the onload handler promotes it.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" onload="this.rel='stylesheet'">
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  </noscript>
+  <style>
+    /*
+      THE FOUC GUARD, and the one colour literal on this page — index.html's
+      identical `#050807` {colors.void} guard, for the identical reason: the
+      token bridge cannot publish `--hc-void` until the module has run, so
+      without this the reader gets a white flash first. tokens.test.ts sanctions
+      exactly this literal in `client/index.html`; its scan does not currently
+      reach this file, so the exemption is restated here in words instead.
+    */
+    html, body { margin: 0; height: 100%; width: 100%; }
+    body { background: #050807; }
+  </style>
+</head>
+<body>
+  <script type="module" src="/src/how-to-play/main.ts"></script>
+</body>
+</html>

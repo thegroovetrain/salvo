@@ -679,11 +679,23 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
     document.getElementById('queue-modal')?.remove();
   });
 
-  it('HOW TO PLAY still shows the field-manual note (out of 2.3 scope)', () => {
+  // STORY 7.3 RETIRED THE STUB. This used to pin `FIELD MANUAL ARRIVES IN A
+  // LATER REFIT` — a placeholder that was correct for as long as there was no
+  // page behind the link. There is one now, so the pin inverts: the stub must be
+  // GONE, and the link must be a real anchor to it. The same shape as the gear's
+  // "no 'later refit' note survives" test above.
+  it('HOW TO PLAY is a REAL anchor to /how-to-play, and the field-manual stub is gone', () => {
     showHome('0.0.0-test', vi.fn());
-    const howto = [...home().querySelectorAll('span')].find((s) => s.textContent === 'HOW TO PLAY') as HTMLElement;
-    howto.click();
-    expect(home().textContent).toContain('FIELD MANUAL ARRIVES IN A LATER REFIT');
+    const howto = [...home().querySelectorAll('a')].find(
+      (a) => a.textContent === 'HOW TO PLAY',
+    ) as HTMLAnchorElement | undefined;
+    expect(howto).toBeDefined();
+    expect(howto?.getAttribute('href')).toBe('/how-to-play');
+    // It is no longer a span, so a click handler cannot be what navigates.
+    expect([...home().querySelectorAll('span')].some((s) => s.textContent === 'HOW TO PLAY')).toBe(
+      false,
+    );
+    expect(home().textContent).not.toContain('FIELD MANUAL ARRIVES IN A LATER REFIT');
   });
 });
 
@@ -1193,9 +1205,10 @@ describe('the status line is NEVER written by queue code', () => {
     document.getElementById('queue-modal')?.remove();
   });
 
-  /** The underplay LINK row — HOW TO PLAY's parent. */
+  /** The underplay LINK row — HOW TO PLAY's parent. Both children are ANCHORS
+   *  since Story 7.3 gave HOW TO PLAY a real page and PRIVACY's treatment. */
   function underplay(): HTMLElement {
-    return [...home().querySelectorAll('span')].find((s) => s.textContent === 'HOW TO PLAY')
+    return [...home().querySelectorAll('a')].find((s) => s.textContent === 'HOW TO PLAY')
       ?.parentElement as HTMLElement;
   }
 
