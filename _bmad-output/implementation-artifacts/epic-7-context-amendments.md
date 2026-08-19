@@ -905,3 +905,58 @@ NO-INSTANT-RE-QUEUE pin is untouched; ESC ON the modal still means SPECTATE (epi
 `canOpenElimination`'s one-shot still guards the `sunk` path; and a LIVE player is unaffected —
 pinned by a test, because a stray ESC throwing a full-screen score overlay over a moving ship would
 be a combat hazard rather than a convenience.
+
+---
+
+## Amendment 18 — ONE display unit, beside the score screen (ERIC RULING, 2026-08-19, cycle 107)
+
+**This supersedes amendment 16 R2 in part, hours after it was taken, and that is not a defect** —
+the standing note from amendment 15 governs: *"the planning artifacts record what Eric wanted when
+they were written; they are downstream of him, never a constraint on him."* R2's reasoning was
+never *"display advertising is wrong"*; it was that the two places 7-4 proposed putting it were both
+unbuildable or unsafe (the home canvas is `inset:0`, and home re-renders on every match end). He has
+now found a third place neither of us considered, and it has neither problem. Eric:
+
+> *"I would like some normal display ad space on the results screen. I think this is a good place
+> for it for now honestly. I don't want it in the results modal. but off to the side or something,
+> only visible while the end game screen is up. If you spectate, it goes away. If you hit esc to get
+> back to score screen, there it is."*
+
+Followed by a placement choice at a question gate: **a RESPONSIVE unit, on the RIGHT side.**
+
+**Why this placement escapes R2's two objections.** The score screen is not gameplay — the player
+has been sunk and their own match is over, which is the same argument that makes the interstitial a
+permitted "natural transition point". And it is not the home screen, so it does not re-render on the
+`location.reload()` that ends every return-to-port.
+
+**IT DOES NOT NEED H5 APPROVAL.** Display units require only site verification on an approved
+AdSense account; the separate H5 Games Ads application gates the INTERSTITIAL alone. So this unit
+can begin earning before the interstitial does — the first revenue this project has ever had.
+
+**THE HARD PART IS AMENDMENT 17, NOT THE AD.** Because ESC now toggles the score screen, the modal
+opens and closes many times in one match. Pushing a slot to `window.adsbygoogle` is what REQUESTS an
+ad, so a naive implementation would mint a fresh impression on every ESC press — precisely the
+auto-refresh pattern Google suspends accounts over. **The slot is therefore created and pushed
+EXACTLY ONCE PER MATCH and merely SHOWN/HIDDEN with CSS thereafter**, pinned by a test that toggles
+repeatedly and asserts a single push. The two rulings interact, and anyone re-deriving either one
+must re-derive this together with it.
+
+**NOTHING IS SHOWN UNTIL GOOGLE REPORTS THE AD FILLED.** The container reveals only on
+`data-ad-status="filled"`. A blocked client never receives the attribute and an unfilled slot reports
+`"unfilled"`, so in both cases the player sees NOTHING — no empty box, no bed, no reserved hole.
+This is the shape that keeps "the game is fully playable with ads blocked" visually true as well as
+functionally true.
+
+**A SECOND BUILD-TIME GATE.** A display unit needs a SLOT id, which is a distinct artifact from the
+publisher id and did not exist when this was ruled. `VITE_ADSENSE_SLOT_RESULTS` gates it exactly as
+`VITE_ADSENSE_CLIENT` gates the loader: missing or malformed ⇒ no element, no push, no observer.
+`render.yaml` carries it COMMENTED OUT rather than invented.
+
+**Consequences recorded rather than absorbed:** the privacy policy's *"there are no banners or boxes
+anywhere on the site"* became FALSE the moment this shipped and was rewritten in the same change —
+the standing rule that a policy misstating collection is a defect, not a wording preference, applies
+just as hard to a policy misstating ADVERTISING. The unit sits on the `--hc-panel` bed with a
+hairline border rather than floating on live ocean, which is both design-consistent and materially
+strengthens the placement's footing under Google's (recommendation-grade) clearance guidance. And it
+hides entirely below the viewport width where the gutter can no longer hold it without crowding the
+620px panel, rather than overlapping at any width.

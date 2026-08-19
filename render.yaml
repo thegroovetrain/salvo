@@ -40,3 +40,12 @@ services:
       # `ads.txt` at the site root.
       - key: VITE_ADSENSE_CLIENT
         value: ca-pub-8667818947296707
+      # THE RESULTS-SCREEN DISPLAY SLOT (Eric ruling 2026-08-19). Its OWN switch:
+      # with this unset the game ships the interstitial and no display unit at
+      # all — no element, no ad request, no observer. Uncomment and paste the
+      # `data-ad-slot` digits once the display unit has been created in the
+      # AdSense dashboard; no value is invented here, because an `<ins>` naming a
+      # slot that does not exist is answered with silence and would be
+      # indistinguishable from a legitimately unfilled slot.
+      # - key: VITE_ADSENSE_SLOT_RESULTS
+      #   value: <paste the unit's data-ad-slot digits here>

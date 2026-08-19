@@ -172,6 +172,7 @@ import { createNullAdapter } from './portal/nullAdapter.js';
 // question that decides which adapter is built.
 import { createAdsAdapter } from './ads/adsAdapter.js';
 import { isAdsConfigured } from './ads/adsense.js';
+import { destroyResultsAd, hideResultsAd, showResultsAd } from './ads/resultsAd.js';
 // The analytics SEAM, never the vendor. Only modules under `analytics/` may
 // name `gtag`/`dataLayer` — the same containment rule `portal/` has carried
 // since Story 0.4, and for the same reason: a blocked domain or a thrown
@@ -1710,7 +1711,14 @@ function presentResults(g: Game, view: ResultsView): void {
   g.keyboard.clearKeys();
   g.resultsShownAt = performance.now();
   g.lastResultsView = view;
-  showResults(view, { onSpectate: () => undefined, onReturn: () => returnToPort(g) });
+  // THE DISPLAY UNIT'S ONLY OPENER (Eric ruling 2026-08-19). It hangs off THIS
+  // funnel rather than off either caller, so there is exactly one path from
+  // "the score screen is up" to "an ad column is beside it" — and none at all
+  // from live play. SPECTATE is what takes it away, and since amendment 17 ESC
+  // from spectate lands back here and puts it up again; the unit itself pushes
+  // only on the first of those, so a toggled ESC is CSS, not impressions.
+  showResults(view, { onSpectate: () => hideResultsAd(), onReturn: () => returnToPort(g) });
+  showResultsAd();
 }
 
 /**
@@ -1852,6 +1860,11 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // and the port is free the moment this session ends, not whenever the page
       // finishes tearing itself down.
       releaseSessionLock();
+      // THE DISPLAY UNIT'S TEARDOWN, and it has to be here rather than at the
+      // button: this latched hook is the ONE point RETURN TO PORT, results-phase
+      // Enter and ABANDON MATCH all pass through, and it runs BEFORE the awaited
+      // ad break, so an interstitial never plays over a live display column.
+      destroyResultsAd();
       cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
       // Defensive: today the chain always ends in location.reload(), which
       // wipes every plume for free — but a plume is drawn at a hull's TRUE
@@ -1944,6 +1957,7 @@ function endSession(g: Game): void {
   }
   g.disposers.length = 0;
   hideResults(); // an elimination modal must not survive the teardown
+  destroyResultsAd(); // ...nor the ad column beside it (this exit has no reload)
   hideBanner();
   g.upgradeMenu.hide();
   g.settingsOverlay.close();

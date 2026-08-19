@@ -39,6 +39,19 @@ import {
   type AdBreakPlacement,
 } from '../ads/adsense.js';
 import { AD_BREAK_NAME, createAdsAdapter, lastBreakStatus, __resetAdsAdapterForTests } from '../ads/adsAdapter.js';
+import { AD_INS_CLASS, AD_STATUS_ATTR, adsSlotResults, isValidAdSlotId } from '../ads/adsense.js';
+import {
+  RESULTS_AD_ID,
+  destroyResultsAd,
+  hideResultsAd,
+  isResultsAdConfigured,
+  resultsAdColumnWidth,
+  resultsAdFits,
+  resultsAdMinViewportWidth,
+  showResultsAd,
+  __resetResultsAdForTests,
+} from '../ads/resultsAd.js';
+import { CLIENT_CONFIG } from '../config.js';
 import { EEA_UK_CH_REGIONS } from '../analytics/consent.js';
 import { safeAdapter } from '../portal/safeAdapter.js';
 import { Audio } from '../audio/context.js';
@@ -661,6 +674,273 @@ describe('consent defaults are stated exactly once per page', () => {
   });
 });
 
+// --- the results-screen display unit ------------------------------------------
+
+// THE ONE DISPLAY AD ON THE SITE (Eric ruling 2026-08-19, superseding amendment
+// 16's R2). The hardest row here is NOT "does an ad render" — it is that ESC now
+// TOGGLES the score screen (amendment 17), so the modal opens and closes many
+// times in one match and a naive implementation would mint one impression per
+// keypress. That is an auto-refreshing placement, the pattern Google suspends
+// accounts over, so "exactly one push across many toggles" is pinned first and
+// hardest. The second hardest is that NOTHING may appear until Google says
+// `filled`: an ad-BLOCKED client is never told anything at all, and an unfilled
+// slot is told `unfilled` — both must leave the screen untouched, with no empty
+// bed and no layout hole.
+
+describe('the results-screen display unit', () => {
+  /** A plausible AdSense slot id. Written out here rather than derived, so the
+   *  assertion is an independent statement of the shape. */
+  const SLOT = '1234567890';
+
+  function setViewport(width: number): void {
+    Object.defineProperty(globalThis, 'innerWidth', { value: width, configurable: true, writable: true });
+  }
+
+  function host(): HTMLElement | null {
+    return document.getElementById(RESULTS_AD_ID);
+  }
+
+  function ins(): HTMLElement | null {
+    return host()?.querySelector('ins') ?? null;
+  }
+
+  /** Replace the command queue with a recorder. Non-array on purpose: that is
+   *  the shape Google's own loader leaves behind once it has arrived. */
+  function recorder(): unknown[] {
+    const pushes: unknown[] = [];
+    g.adsbygoogle = { push: (cmd: unknown) => pushes.push(cmd) };
+    return pushes;
+  }
+
+  beforeEach(() => {
+    __resetResultsAdForTests();
+    __resetAdsForTests();
+    document.body.innerHTML = '';
+    vi.stubEnv('VITE_ADSENSE_CLIENT', CLIENT);
+    vi.stubEnv('VITE_ADSENSE_SLOT_RESULTS', SLOT);
+    setViewport(1600);
+  });
+
+  afterEach(() => {
+    __resetResultsAdForTests();
+    __resetAdsForTests();
+    vi.unstubAllEnvs();
+    document.body.innerHTML = '';
+  });
+
+  // --- the build-time gate ---
+
+  it('reads the slot id from build config, trimmed — never a literal', () => {
+    vi.stubEnv('VITE_ADSENSE_SLOT_RESULTS', `  ${SLOT}  `);
+    expect(adsSlotResults()).toBe(SLOT);
+  });
+
+  it('accepts a digit-string slot id and refuses anything else', () => {
+    expect(isValidAdSlotId(SLOT)).toBe(true);
+    for (const bad of ['', ' ', '12345', 'abcdefghij', '123456789a', 'ca-pub-8667818947296707', '12345 67890']) {
+      expect(isValidAdSlotId(bad), bad).toBe(false);
+    }
+  });
+
+  it('creates NOTHING with no slot id — no element, no push, no observer', () => {
+    const pushes = recorder();
+    vi.stubEnv('VITE_ADSENSE_SLOT_RESULTS', '');
+    expect(isResultsAdConfigured()).toBe(false);
+    showResultsAd();
+    expect(host()).toBeNull();
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('creates NOTHING with no publisher id, even when a slot IS configured', () => {
+    const pushes = recorder();
+    vi.stubEnv('VITE_ADSENSE_CLIENT', '');
+    expect(isResultsAdConfigured()).toBe(false);
+    showResultsAd();
+    expect(host()).toBeNull();
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('creates NOTHING on a MALFORMED slot id — validated, not trusted', () => {
+    // A slot that does not exist is answered with silence, which from inside the
+    // page is indistinguishable from a legitimately unfilled one — so a typo
+    // would be invisible rather than loud.
+    const pushes = recorder();
+    vi.stubEnv('VITE_ADSENSE_SLOT_RESULTS', 'slot-1234567890');
+    showResultsAd();
+    expect(host()).toBeNull();
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('mounts the slot with the responsive attributes and the vendor class', () => {
+    showResultsAd();
+    const el = ins();
+    expect(el).not.toBeNull();
+    expect(el?.className).toBe(AD_INS_CLASS);
+    expect(el?.getAttribute('data-ad-client')).toBe(CLIENT);
+    expect(el?.getAttribute('data-ad-slot')).toBe(SLOT);
+    expect(el?.getAttribute('data-ad-format')).toBe('auto');
+    expect(el?.getAttribute('data-full-width-responsive')).toBe('false');
+  });
+
+  // --- ONE IMPRESSION PER MATCH ---
+
+  it('pushes EXACTLY ONCE across many open/close toggles', () => {
+    // THE RULE THIS UNIT EXISTS UNDER. ESC from spectate reopens the score
+    // screen (amendment 17), so a re-push per toggle would be one ad request
+    // per keypress.
+    const pushes = recorder();
+    showResultsAd();
+    const first = host();
+    for (let i = 0; i < 12; i++) {
+      hideResultsAd();
+      showResultsAd();
+    }
+    expect(pushes).toHaveLength(1);
+    expect(host()).toBe(first); // the SAME node throughout — never remounted
+  });
+
+  it('hides with CSS and keeps the element — never a remove-and-remount', () => {
+    showResultsAd();
+    const first = host();
+    hideResultsAd();
+    expect(host()).toBe(first);
+    expect(first?.style.display).toBe('none');
+    showResultsAd();
+    expect(host()?.style.display).toBe('block');
+  });
+
+  it('mints a NEW request only after a teardown — the match boundary', () => {
+    const pushes = recorder();
+    showResultsAd();
+    destroyResultsAd();
+    expect(host()).toBeNull();
+    showResultsAd();
+    expect(pushes).toHaveLength(2);
+  });
+
+  // --- nothing is shown until Google reports it FILLED ---
+
+  it('BLOCKED: the attribute never arrives, so nothing is ever revealed', () => {
+    // With the loader blocked our push lands in the plain Array shim and no
+    // callback and no attribute ever follow. There is no timer waiting to give
+    // up — the unit simply stays invisible for the whole match.
+    showResultsAd();
+    expect(host()?.style.visibility).toBe('hidden');
+    hideResultsAd();
+    showResultsAd();
+    expect(host()?.style.visibility).toBe('hidden');
+  });
+
+  it('UNFILLED: an explicit no-fill leaves no empty box on screen', () => {
+    showResultsAd();
+    ins()?.setAttribute(AD_STATUS_ATTR, 'unfilled');
+    hideResultsAd();
+    showResultsAd();
+    expect(host()?.style.visibility).toBe('hidden');
+  });
+
+  it('FILLED: the unit is revealed, and stays revealed across a toggle', async () => {
+    showResultsAd();
+    ins()?.setAttribute(AD_STATUS_ATTR, 'filled');
+    // the MutationObserver delivers on a microtask
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(host()?.style.visibility).toBe('visible');
+    hideResultsAd();
+    showResultsAd();
+    expect(host()?.style.visibility).toBe('visible');
+  });
+
+  it('a fill that lands while the modal is CLOSED is picked up at the next open', () => {
+    showResultsAd();
+    hideResultsAd();
+    ins()?.setAttribute(AD_STATUS_ATTR, 'filled');
+    showResultsAd();
+    expect(host()?.style.visibility).toBe('visible');
+  });
+
+  // --- geometry: right gutter, never over the panel ---
+
+  it('derives its breakpoint from the panel width — no magic number', () => {
+    const expected = 2 * (CLIENT_CONFIG.results.panelWidth / 2 + 24 + resultsAdColumnWidth() + 16);
+    expect(resultsAdMinViewportWidth()).toBe(expected);
+  });
+
+  it('fits at the ratified 1366-wide floor and is hidden below its breakpoint', () => {
+    expect(resultsAdFits(1366)).toBe(true);
+    expect(resultsAdFits(resultsAdMinViewportWidth())).toBe(true);
+    expect(resultsAdFits(resultsAdMinViewportWidth() - 1)).toBe(false);
+    expect(resultsAdFits(1024)).toBe(false);
+  });
+
+  it('sits clear of the panel: offset from the CENTRE by half the panel plus a gap', () => {
+    showResultsAd();
+    const left = host()?.style.left ?? '';
+    const px = Number(/calc\(50% \+ ([\d.]+)px\)/.exec(left)?.[1] ?? NaN);
+    expect(px).toBeGreaterThanOrEqual(CLIENT_CONFIG.results.panelWidth / 2);
+    // ...and the column's far edge still clears the viewport at the 1366 floor
+    expect(2 * (px + resultsAdColumnWidth())).toBeLessThanOrEqual(1366);
+  });
+
+  it('creates NOTHING at a viewport too narrow to hold it', () => {
+    const pushes = recorder();
+    setViewport(1024);
+    showResultsAd();
+    expect(host()).toBeNull();
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('re-evaluates the fit on resize, in both directions', () => {
+    showResultsAd();
+    expect(host()?.style.display).toBe('block');
+    setViewport(1024);
+    globalThis.dispatchEvent(new Event('resize'));
+    expect(host()?.style.display).toBe('none');
+    setViewport(1600);
+    globalThis.dispatchEvent(new Event('resize'));
+    expect(host()?.style.display).toBe('block');
+  });
+
+  // --- the bed ---
+
+  it('wears the PANEL BED — tokens only, never a colour literal', () => {
+    showResultsAd();
+    const css = host()?.getAttribute('style') ?? '';
+    expect(css).toContain('var(--hc-panel)');
+    expect(css).toContain('var(--hc-hairline)');
+    expect(css).toContain(`${CLIENT_CONFIG.results.panelRadius}px`);
+    expect(host()?.style.position).toBe('fixed');
+  });
+
+  it('sits above the results dim (1000) and below settings (1050)', () => {
+    showResultsAd();
+    const z = Number(host()?.style.zIndex ?? NaN);
+    expect(z).toBeGreaterThan(1000);
+    expect(z).toBeLessThan(1050);
+  });
+
+  // --- NO AD SURFACE DURING LIVE PLAY ---
+
+  it('never mounts without an explicit open — a resize alone does nothing', () => {
+    globalThis.dispatchEvent(new Event('resize'));
+    hideResultsAd();
+    destroyResultsAd();
+    expect(host()).toBeNull();
+  });
+
+  it('main.ts opens it from presentResults and NOWHERE else', () => {
+    // The structural half of "no ad surface during live play": `presentResults`
+    // is the ONE funnel both results openers pass through, so an opener there
+    // and nowhere else means the unit cannot exist while the player is alive.
+    const main = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+    expect(main.match(/showResultsAd\(\)/g)).toHaveLength(1);
+    const body = /\nfunction presentResults\([^)]*\): void \{([\s\S]*?)\n\}/.exec(main)?.[1] ?? '';
+    expect(body).toContain('showResultsAd()');
+    // ...and SPECTATE is what takes it away (the modal's own close path).
+    expect(body).toContain('hideResultsAd()');
+  });
+});
+
 // --- containment --------------------------------------------------------------
 
 describe('the vendor stays behind its seam', () => {
@@ -680,11 +960,15 @@ describe('the vendor stays behind its seam', () => {
   // `client/vite.config.ts` reads the env var too and is deliberately outside
   // this scan: it is the BUILD's switch, it names no origin and no ID, and it
   // takes both from `src/ads/adsHead.ts`.
-  it('only src/ads/adsense.ts names the AdSense origin or the client-id env var', () => {
+  it('only src/ads/adsense.ts names the AdSense origin or either id env var', () => {
     for (const f of FILES) {
       if (f.path.endsWith(join('ads', 'adsense.ts'))) continue;
       expect(f.body, f.path).not.toContain('googlesyndication');
       expect(f.body, f.path).not.toContain('VITE_ADSENSE_CLIENT');
+      // TIGHTENED, not widened: the display unit's slot var (Eric ruling
+      // 2026-08-19) is the second build-time id the ad layer reads, and it is
+      // contained in exactly the same one file as the first.
+      expect(f.body, f.path).not.toContain('VITE_ADSENSE_SLOT_RESULTS');
     }
   });
 

@@ -83,8 +83,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       + 'which are described below.',
       'Three things do involve other companies, and all three are set out in full below: the page '
       + 'loads its typefaces from Google Fonts, it uses Google Analytics to count how the game is '
-      + 'used, and it shows advertising through Google AdSense — a single full-screen ad that can '
-      + 'appear when you return to port after a match, and never while you are playing.',
+      + 'used, and it shows advertising through Google AdSense — a full-screen ad when you return '
+      + 'to port after a match, and one boxed ad beside your score screen once you have been sunk. '
+      + 'Never while you are playing.',
       'If you are in the European Economic Area, the United Kingdom or Switzerland, Google shows '
       + 'you its own consent dialog and asks you there. Wherever you are, you can turn analytics '
       + 'off at any time using the ANALYTICS row in SETTINGS.',
@@ -216,10 +217,15 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'ADVERTISING (GOOGLE ADSENSE)',
     paragraphs: [
-      'The game is paid for by advertising, served by Google AdSense. There is exactly one place '
-      + 'an advertisement can appear: a single full-screen ad shown when you leave a match and '
-      + 'return to port — whether your match ended or you chose to abandon it. No advertisement is '
-      + 'ever shown while you are playing, and there are no banners or boxes anywhere on the site.',
+      'The game is paid for by advertising, served by Google AdSense. There are exactly two places '
+      + 'an advertisement can appear. The first is a single full-screen ad shown when you leave a '
+      + 'match and return to port — whether your match ended or you chose to abandon it. The second '
+      + 'is one ordinary boxed advertisement beside your score screen after you have been sunk, '
+      + 'which disappears the moment you go back to watching the match and returns if you reopen '
+      + 'the score screen.',
+      'No advertisement is ever shown while you are playing, and there are none on the home screen, '
+      + 'the how-to-play page or this page. Both places above are moments when your own match is '
+      + 'already over.',
       'Google’s advertising script loads with the page, before any advertisement is shown, because '
       + 'it is also what presents Google’s consent dialog to visitors in the European Economic '
       + 'Area, the United Kingdom and Switzerland. If you are in one of those places, nothing is '
