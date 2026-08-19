@@ -664,10 +664,11 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
   // inertness guarantee exactly as `visibility:visible` defeated the paint one.
   // See `yieldEscapes()`.
   //
-  // SCOPE, STATED HONESTLY: this pin walks the home SUBTREE. The port's three
-  // sibling surfaces (queue modal z 1150, class bay 1200, consent bar 1250) are
-  // `document.body` children outside the yield and are unreachable-or-ratified by
-  // other means; it cannot speak for them. See deferred-work.md.
+  // SCOPE, STATED HONESTLY: this pin walks the home SUBTREE. The port's two
+  // sibling surfaces (queue modal z 1150, class bay 1200) are `document.body`
+  // children outside the yield and are unreachable-or-ratified by other means;
+  // it cannot speak for them. See deferred-work.md. (The consent bar's z-1250
+  // rung was the third until Story 7.4 deleted the card.)
   it('yield escape: NO descendant asserts paint or hit-testing while yielded', () => {
     localStorage.setItem('hullcracker.class', 'battleship');
     const handle = showHome('0.0.0-test', vi.fn(), vi.fn());

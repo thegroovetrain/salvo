@@ -1,7 +1,10 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The PURE half of the ad-tag injection. `src/ads/adsense.ts` is the only file
+// that names the vendor's origin or client ID; this config names neither.
+import { adsTxtContent, injectAdsHead, isGameIndexPath } from './src/ads/adsHead.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-8'));
@@ -30,6 +33,10 @@ type DevMiddleware = (
  */
 const STATIC_PAGE_PATHS = ['/privacy', '/how-to-play'] as const;
 
+/** The Rollup emit context `generateBundle` is called with. Declared locally so
+ *  this config needs no `rollup` type import. */
+type EmitContext = { emitFile: (file: { type: 'asset'; fileName: string; source: string }) => void };
+
 const staticPageRedirect: DevMiddleware = (req, res, next) => {
   const url = req.url ?? '';
   const q = url.indexOf('?');
@@ -40,10 +47,68 @@ const staticPageRedirect: DevMiddleware = (req, res, next) => {
   res.end();
 };
 
+/**
+ * THE ADSENSE HEAD INJECTION + `ads.txt` (Story 7.4).
+ *
+ * Everything this plugin DECIDES lives in `src/ads/adsHead.ts` as pure
+ * functions, so it is unit-tested without running a build; what is left here is
+ * the two Vite hooks. Both are gated on the publisher ID, so an unconfigured
+ * build injects nothing and emits no `ads.txt` — which matters because an
+ * `ads.txt` is authoritative BY OMISSION, and a wrong or partial one is strictly
+ * worse than none.
+ *
+ * `order: 'pre'` puts our block in before any other html transform can reorder
+ * the head. The page filter is `isGameIndexPath`: the loader ships on the GAME's
+ * entry only, so `/privacy` and `/how-to-play` load no Google ADVERTISING or
+ * ANALYTICS script, and an EEA visitor reading the policy is shown no dialog and
+ * given no cookie there.
+ *
+ * THE `injected` FLAG IS THE POINT OF THE CLOSURE. The emit used to be gated on
+ * the client ID being non-empty, which is a WEAKER statement than the one
+ * `ads.txt` makes: `injectAdsHead` never throws and silently returns the html
+ * unchanged on a malformed ID or a document with no `</head>`, so a build could
+ * publish a file authorising Google to sell inventory on a page carrying no ad
+ * code at all. The two are now the same fact — reported by the transform rather
+ * than assumed — and it lives per plugin instance rather than at module scope so
+ * two builds in one process cannot inherit each other's answer.
+ */
+function adsensePlugin(adsClient: string) {
+  let injected = false;
+  return {
+    name: 'hc-adsense',
+    transformIndexHtml: {
+      order: 'pre' as const,
+      handler(html: string, ctx: { filename: string }) {
+        if (!isGameIndexPath(ctx.filename)) return html;
+        const out = injectAdsHead(html, adsClient);
+        if (out.injected) injected = true;
+        return out.html;
+      },
+    },
+    generateBundle(this: EmitContext) {
+      if (!injected) return;
+      this.emitFile({ type: 'asset', fileName: 'ads.txt', source: adsTxtContent(adsClient) });
+    },
+  };
+}
+
 // THE FUNCTION FORM IS LOAD-BEARING (Story 7.1). This took a plain object until
 // this cycle; the perf build needs `mode`, which is the ONE input separating a
 // measurable build from the shipped one.
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  /**
+   * THE ONE SWITCH THE WHOLE AD LAYER HANGS OFF (Story 7.4).
+   *
+   * `loadEnv` is what makes a Render build and a local `.env` agree: it merges
+   * `process.env`'s `VITE_`-prefixed vars with the `.env` files Vite would load
+   * anyway, which is exactly the set `import.meta.env.VITE_ADSENSE_CLIENT` will
+   * resolve to at runtime. One value, read once, drives the head injection and
+   * `ads.txt` alike — an unconfigured build emits neither and is byte-identical
+   * to the pre-7.4 artifact.
+   */
+  const adsClient = (loadEnv(mode, __dirname, 'VITE_').VITE_ADSENSE_CLIENT ?? '').trim();
+
+  return {
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     /**
@@ -150,5 +215,7 @@ export default defineConfig(({ mode }) => ({
         server.middlewares.use(staticPageRedirect);
       },
     },
+    adsensePlugin(adsClient),
   ],
-}));
+  };
+});

@@ -13,13 +13,25 @@
 // `dataLayer` in scope for every file in `client/src`, which is precisely the
 // boundary this module exists to hold.
 
-import type { ConsentDefaultPayload, ConsentSignals } from './consent.js';
+import type { ConsentAnalyticsUpdate, ConsentDefaultPayload } from './consent.js';
+// THE MARKER ONLY — and from a LEAF module that imports nothing, not from the ad
+// layer. `ads/adsHead.ts` is the pure build-time transform that writes the
+// consent defaults into the page head when a publisher ID is configured; this
+// module has to know whether that happened, and one shared constant is the
+// alternative to typing the same global's name into two files (the desync class
+// this project exists to prevent). Importing it from `ads/adsHead.js` — as this
+// did — inverted the layering: the module documented as the only one permitted
+// to name gtag depended on the ad layer, and through it on the vendor origin,
+// for a single string.
+import { CONSENT_DEFAULTS_MARKER } from './consentMarker.js';
 
 /**
  * The tag host. Named once, here, so a grep for the vendor's domain lands in
- * exactly one file. `index.html` deliberately contains no reference to it at
- * all (Eric ruling R7): the script element below is the ONLY way this origin is
- * ever contacted, and it is constructed only after an explicit Accept.
+ * exactly one file. The shipped `index.html` deliberately contains no reference
+ * to it at all: the script element below is the ONLY way this origin is ever
+ * contacted. Since Story 7.4 it is contacted at boot rather than after an
+ * Accept — Consent Mode ADVANCED — and the consent SIGNALS, not the script's
+ * existence, are what carry the player's decision.
  */
 export const GA_SCRIPT_SRC = 'https://www.googletagmanager.com/gtag/js';
 
@@ -62,8 +74,8 @@ export function measurementId(): string {
   }
 }
 
-/** Whether an ID exists at all. No ID ⇒ every function below is a no-op and the
- *  consent bar still works and still records the player's choice. */
+/** Whether an ID exists at all. No ID ⇒ every function below is a no-op, and the
+ *  settings PRIVACY row still works and still records the player's choice. */
 export function isGaConfigured(): boolean {
   return measurementId() !== '';
 }
@@ -103,25 +115,56 @@ function injectTag(id: string): void {
 }
 
 /**
- * Build the tag. Called ONLY after consent is granted — on boot for a returning
- * granted player, or the moment the bar's ACCEPT is pressed. Returns whether
- * the tag is live.
+ * Build the tag. Since Story 7.4 this runs at BOOT for everyone (Consent Mode
+ * ADVANCED — Google's CMP is delivered by the ad script, so there is no
+ * pre-consent window left on this page). Returns whether the tag is live.
  *
- * ORDER IS THE CONTRACT, and it is Google's, not ours: the consent DEFAULT must
+ * IT NO LONGER SENDS AN UPDATE, and that omission is load-bearing. Under Basic
+ * mode the tag was built only after a grant, so an unconditional granting
+ * update was correct by construction. Under Advanced it is built for an
+ * undecided EEA visitor too, and an update here would OVERRIDE the region-scoped
+ * denial that is the only thing protecting them. Updates now arrive from exactly
+ * two places, both of them decisions: Google's CMP, and `sendGaConsentUpdate`
+ * below carrying the settings row's local analytics override.
+ *
+ * ORDER IS THE CONTRACT, and it is Google's, not ours: the consent DEFAULTS must
  * be in the dataLayer before `config`, or the tag briefly runs with unknown
- * signals; the UPDATE follows so the granted state is the one `config` measures
- * under. The remote script is appended last and drains the queue on arrival, so
- * every command above is already waiting for it.
+ * signals. The remote script is appended last and drains the queue on arrival,
+ * so every command above is already waiting for it.
  *
  * `send_page_view: false` IS A DELIBERATE NFR19 DECISION, not an oversight.
  * GA4's automatic page_view would be a SIXTH event on a funnel ruled to be
  * exactly five, and it would double-count `home`, which is this game's own
- * page-view moment. `allow_google_signals: false` follows from the three ad
- * signals staying denied (see `consent.ts`): analytics-only means no
- * cross-device advertising identifier, and saying so in `config` makes that
- * true even if the property's UI is toggled later.
+ * page-view moment. `allow_google_signals: false` is kept as an INDEPENDENT
+ * assertion rather than a consequence: 7.4's global default grants the ad
+ * signals for AdSense's sake, and this line says the ANALYTICS property still
+ * builds no cross-device advertising identifier, true even if the property's UI
+ * is toggled later.
  */
-export function startGa(defaults: readonly ConsentDefaultPayload[], update: ConsentSignals): boolean {
+/**
+ * Did the PAGE ITSELF already state the consent defaults?
+ *
+ * Since Story 7.4 an ads-configured build injects `gtag('consent','default',…)`
+ * into `<head>`, ahead of `adsbygoogle.js`, because Google's CMP is delivered by
+ * that loader and gtag.js processes `dataLayer` IN ORDER — a `default` arriving
+ * behind the CMP's `update` would be processed second and could reset a returning
+ * EEA visitor's granted consent back to denied.
+ *
+ * So when the marker is present the defaults are already first in the queue and
+ * this module must not restate them. When it is ABSENT — an unconfigured build,
+ * `npm run dev`, or a fork with a GA ID but no publisher ID — nothing else states
+ * them, so `startGa` keeps sending them exactly as it did before and an ads-less
+ * build still protects EEA visitors. One statement per page, either way.
+ */
+function defaultsAlreadyInPage(): boolean {
+  try {
+    return (globalThis as unknown as Record<string, unknown>)[CONSENT_DEFAULTS_MARKER] === true;
+  } catch {
+    return false;
+  }
+}
+
+export function startGa(defaults: readonly ConsentDefaultPayload[]): boolean {
   const id = measurementId();
   if (id === '') return false;
   if (started) return ready;
@@ -129,8 +172,7 @@ export function startGa(defaults: readonly ConsentDefaultPayload[], update: Cons
   try {
     const win = globalThis as unknown as GaWindow;
     const gtag = bootstrapDataLayer(win);
-    for (const d of defaults) gtag('consent', 'default', { ...d });
-    gtag('consent', 'update', { ...update });
+    if (!defaultsAlreadyInPage()) for (const d of defaults) gtag('consent', 'default', { ...d });
     gtag('js', new Date());
     // `transport_type` rides the CONFIG, not the event (review gate). It was
     // attached to `requeue`'s parameter bag first, which made NFR19's "the only
@@ -154,9 +196,26 @@ export function startGa(defaults: readonly ConsentDefaultPayload[], update: Cons
   return ready;
 }
 
-/** Push a funnel event. Silently drops if the tag was never built — callers
- *  never branch on that; the seam queues pre-consent and this is the backstop
- *  for the blocked/inert cases. */
+/**
+ * Send a consent UPDATE to a live tag.
+ *
+ * PARTIAL BY DESIGN (Story 7.4): the payload names `analytics_storage` alone,
+ * because the three ad signals belong to Google's CMP now and a `consent update`
+ * leaves every signal it omits exactly where the CMP and the defaults left it.
+ * Silently drops if the tag was never built, which is the inert-build case.
+ */
+export function sendGaConsentUpdate(update: ConsentAnalyticsUpdate): void {
+  if (!ready) return;
+  try {
+    const win = globalThis as unknown as GaWindow;
+    win.gtag?.('consent', 'update', { ...update });
+  } catch {
+    // never let a consent signal reach the render loop
+  }
+}
+
+/** Push a funnel event. Silently drops if the tag was never built — the
+ *  backstop for the blocked and inert-build cases. Callers never branch on it. */
 export function sendGaEvent(name: string, params?: Record<string, unknown>): void {
   if (!ready) return;
   try {

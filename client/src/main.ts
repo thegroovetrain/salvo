@@ -166,12 +166,18 @@ import {
 } from './audio/tones.js';
 import { ownHpFrac, hpStingCueAt, hpStingFloor } from './audio/hpSting.js';
 import { createNullAdapter } from './portal/nullAdapter.js';
+// The AdSense interstitial (Story 7.4). Only modules under `ads/` may name the
+// vendor — the same containment `portal/` and `analytics/` carry — and this
+// import reaches nothing but the seam's own factory and the "is it configured?"
+// question that decides which adapter is built.
+import { createAdsAdapter } from './ads/adsAdapter.js';
+import { isAdsConfigured } from './ads/adsense.js';
+import { destroyResultsAd, hideResultsAd, showResultsAd } from './ads/resultsAd.js';
 // The analytics SEAM, never the vendor. Only modules under `analytics/` may
 // name `gtag`/`dataLayer` — the same containment rule `portal/` has carried
 // since Story 0.4, and for the same reason: a blocked domain or a thrown
 // initialiser must never be able to reach the render loop.
 import { analytics } from './analytics/index.js';
-import { hideConsentBar, showConsentBar } from './ui/consentBar.js';
 
 /**
  * Did THIS page load report a `match_start`? (Story 7.2, review gate.)
@@ -463,6 +469,19 @@ interface Game {
    *  is). Results-phase ESC/Enter arm only after CLIENT_CONFIG.results.keyGraceMs
    *  has elapsed, so a key aimed at the refit modal can't instantly return. */
   resultsShownAt: number;
+  /**
+   * The last view handed to `presentResults`, kept so ESC can REOPEN the score
+   * screen from spectate (Eric ruling 2026-08-19; see `escapeAction`).
+   *
+   * It exists for the GAME-END view only. An elimination reopen is rebuilt from
+   * live state instead, because `updateOpenResults` keeps refining the
+   * placement whether or not the modal is on screen — replaying a snapshot
+   * would put a stale placement back on screen after the roster had already
+   * corrected it. The game-end table has the opposite property: its numbers come
+   * from the results MESSAGE and are already final, so the snapshot IS the
+   * truth and re-deriving it is what would be wrong.
+   */
+  lastResultsView: ResultsView | null;
   /**
    * THE DEFERRED ELIMINATION (Story 5.2, amendment 16): our own sinking has
    * been observed and LATCHED (placement recorded, banner shown) but the
@@ -905,13 +924,14 @@ function openSurfaces(g: Game): { results: boolean; refit: boolean; settings: bo
  * simply skipped (the modal stays up and the next ESC lands honestly).
  */
 function handleEscape(g: Game): void {
-  const action = escapeAction(openSurfaces(g));
+  const action = escapeAction(openSurfaces(g), g.state.spectating);
   if (action === 'closeResults') {
     if (resultsKeysArmed(g)) closeResultsAsSpectate();
     return;
   }
   if (action === 'closeRefit') g.upgradeMenu.hide();
   else if (action === 'closeSettings') g.settingsOverlay.close();
+  else if (action === 'reopenResults') reopenResults(g);
   else openSettingsOverlay(g);
 }
 
@@ -1690,7 +1710,32 @@ function presentResults(g: Game, view: ResultsView): void {
   g.settingsOverlay.close();
   g.keyboard.clearKeys();
   g.resultsShownAt = performance.now();
-  showResults(view, { onSpectate: () => undefined, onReturn: () => returnToPort(g) });
+  g.lastResultsView = view;
+  // THE DISPLAY UNIT'S ONLY OPENER (Eric ruling 2026-08-19). It hangs off THIS
+  // funnel rather than off either caller, so there is exactly one path from
+  // "the score screen is up" to "an ad column is beside it" — and none at all
+  // from live play. SPECTATE is what takes it away, and since amendment 17 ESC
+  // from spectate lands back here and puts it up again; the unit itself pushes
+  // only on the first of those, so a toggled ESC is CSS, not impressions.
+  showResults(view, { onSpectate: () => hideResultsAd(), onReturn: () => returnToPort(g) });
+  showResultsAd();
+}
+
+/**
+ * ESC from spectate: put the score screen back (Eric ruling 2026-08-19).
+ *
+ * Two sources, and which one is correct depends on whether the match is over —
+ * see `Game.lastResultsView` for why a snapshot is right for the game-end table
+ * and wrong for an elimination placement. Guarded on having something to show
+ * at all: a spectator who somehow never saw a modal gets nothing rather than an
+ * empty one.
+ */
+function reopenResults(g: Game): void {
+  if (g.resultsFinal) {
+    if (g.lastResultsView) presentResults(g, g.lastResultsView);
+    return;
+  }
+  if (g.score.eliminated) showEliminationResults(g);
 }
 
 /**
@@ -1815,6 +1860,11 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // and the port is free the moment this session ends, not whenever the page
       // finishes tearing itself down.
       releaseSessionLock();
+      // THE DISPLAY UNIT'S TEARDOWN, and it has to be here rather than at the
+      // button: this latched hook is the ONE point RETURN TO PORT, results-phase
+      // Enter and ABANDON MATCH all pass through, and it runs BEFORE the awaited
+      // ad break, so an interstitial never plays over a live display column.
+      destroyResultsAd();
       cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
       // Defensive: today the chain always ends in location.reload(), which
       // wipes every plume for free — but a plume is drawn at a hull's TRUE
@@ -1907,6 +1957,7 @@ function endSession(g: Game): void {
   }
   g.disposers.length = 0;
   hideResults(); // an elimination modal must not survive the teardown
+  destroyResultsAd(); // ...nor the ad column beside it (this exit has no reload)
   hideBanner();
   g.upgradeMenu.hide();
   g.settingsOverlay.close();
@@ -2501,7 +2552,7 @@ function buildGame(
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, lastResultsView: null, pendingElimination: false, pendingFounder: false, resumeDeathCheck: false, resumeCueSeed: false, analyticsEndSent: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     hullSoftness: NO_SOFTENING,
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
@@ -4466,23 +4517,12 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     void startGame(shell, home, stopAmbient, name, cls, mode);
     return;
   }
-  // THE CONSENT BAR (Story 7.2, Eric rulings R2/R7) — mounted in PORT, not at
-  // boot, and only when the choice is genuinely open.
-  //
-  // Port rather than boot because a refresh-resume never comes through here: a
-  // player put back into a live match should not get a consent strip across the
-  // bottom of their HUD, and nothing is measured while they are undecided
-  // anyway (Basic mode — no Google script exists until an Accept). They are
-  // asked when they next reach port, which is the moment the question is about.
-  //
-  // Not on the `autoQueue` branch below, for the same reason `home` is not:
-  // that port exists for a fraction of a frame and re-deploys itself.
-  if (analytics.consentState() === 'undecided') {
-    showConsentBar({
-      onAccept: () => analytics.grantConsent(),
-      onDecline: () => analytics.denyConsent(),
-    });
-  }
+  // THE CONSENT CARD IS DELETED (Story 7.4, Eric ruling 2026-08-19). Nothing is
+  // mounted here any more: Google's own certified CMP is the single consent
+  // dialog now, it covers ads AND analytics, and it is delivered by the ad
+  // script rather than by anything this file constructs. Outside the EEA/UK/CH
+  // no dialog appears at all. The settings PRIVACY row is the surviving local
+  // analytics door, wired at the SettingsOverlay construction site below.
   // FUNNEL: home (Story 7.2). Deliberately NOT a page load — a refresh-resume
   // goes straight into the match and never builds a home at all — and
   // deliberately not on the `autoQueue` branch above, which returns before this
@@ -4632,19 +4672,9 @@ async function startGame(
   // `stopLivenessPoll` rather than `stopHomeLiveness`: the handle is already torn
   // down, and painting a dead home would be the one thing hide() exists to end.
   stopLivenessPoll();
-  // THE CONSENT CARD LEAVES WITH THE PORT (review gate, edge-case pass).
-  // Nothing else took it down: `home.hide()` does not know about it and the
-  // in-place requeue only replaces `#app`'s children, so an UNANSWERED card sat
-  // at z-1250 — above every rung — and rode through the queue modal into the
-  // live HUD and the results modal. Its policy link is deliberately same-tab
-  // (the player is standing in port with nothing in flight), an assumption that
-  // stops being true the moment the card outlives the port: one click would
-  // have navigated out of a live match.
-  //
-  // Taking it down does NOT record an answer. The choice stays open and the card
-  // is offered again the next time the player reaches port, which is where R2
-  // says the question belongs.
-  hideConsentBar();
+  // (Story 7.2's consent-card teardown stood here. The card is deleted — Story
+  // 7.4 — so there is nothing left to take down: Google's CMP owns its own
+  // lifetime and never rides the port into a live match.)
   stopAmbient(); // tear down the pre-join CIC scene now that we're joining
   hideBanner();
   launchSession(shell, conn, cls);
@@ -4874,15 +4904,51 @@ function makeAmbient(stage: Stage): { start: () => void; stop: () => void } {
   };
 }
 
+/**
+ * THE ONE PORTAL CONSTRUCTION SITE (Story 7.4).
+ *
+ * The real AdSense adapter is built only when a publisher ID was configured at
+ * BUILD time. Without one there is no loader in the page and no `ads.txt` on the
+ * site, so the null adapter is not a fallback but the honest answer: this build
+ * has no ad layer. Either way the result is `safeAdapter`-wrapped, which is what
+ * guarantees a misbehaving vendor can never block boot or strand a player — its
+ * 35 s cap is the ONLY backstop for a blocked ad script, because a blocked
+ * `adsbygoogle.js` fires no callback at all, not even `adBreakDone`.
+ *
+ * THE AUDIO DUCK IS WIRED BY CALLBACK, both ways: `ads/` never imports the audio
+ * module and `audio/` never imports `ads/`. `audioAt` is a getter because the
+ * boot ORDER is a portal contract (init → loadingProgress(0) → stage →
+ * loadingProgress(1)) and the audio engine is built after the stage; an ad break
+ * cannot happen until a match has ended, so it is always resolved by the time
+ * either hook can fire.
+ *
+ * `muted` reads the SETTINGS STORE rather than the audio engine because
+ * `adConfig({ sound })` is sent during `init()`, before the engine exists — and
+ * the store is where that value lives anyway.
+ */
+function buildPortal(audioAt: () => Audio | null): PortalAdapter {
+  return safeAdapter(
+    isAdsConfigured()
+      ? createAdsAdapter({
+          muted: () => settings.current.muted,
+          onBreakStart: () => audioAt()?.duck(),
+          onBreakEnd: () => audioAt()?.unduck(),
+        })
+      : createNullAdapter(),
+  );
+}
+
 async function main(): Promise<void> {
   // Design tokens first: inject the --hc-* CSS custom properties + type registers
   // before any DOM chrome (the menu below) builds, so every overlay resolves its
   // colors/fonts from the single token source (Story 1.11).
   injectTheme();
-  // Resolve stored consent before anything else can fire a funnel event. For a
-  // returning player who already accepted this also builds the tag; for
-  // everyone else it does nothing at all — under Consent Mode BASIC (ruling R7)
-  // no Google script is requested until an explicit Accept.
+  // Build the tag and resolve any stored local override before anything else can
+  // fire a funnel event. Since Story 7.4 this ALWAYS builds the tag (Consent
+  // Mode ADVANCED — Google's CMP is delivered by the ad script, so there is no
+  // pre-consent window left to withhold it across); the player's decision rides
+  // consent signals, and the EEA/UK/CH region default is what holds until their
+  // CMP answer arrives.
   analytics.boot();
   // Portal seam: a real SDK requires init before any loading/gameplay events, so
   // encode that ordering now (init → loadingProgress(0) → stage load →
@@ -4890,7 +4956,9 @@ async function main(): Promise<void> {
   // timing is unchanged; Epic 7 swaps only the inner adapter here. The
   // safeAdapter wrap guarantees a misbehaving portal can never block boot or
   // any later lifecycle moment.
-  const portal = safeAdapter(createNullAdapter());
+  // STORY 7.4 SWAPS THE INNER ADAPTER — see `buildPortal`.
+  let audioRef: Audio | null = null;
+  const portal = buildPortal(() => audioRef);
   await portal.init();
   portal.loadingProgress(0);
   const stage = await createStage();
@@ -4898,6 +4966,7 @@ async function main(): Promise<void> {
   document.getElementById('app')?.replaceChildren(stage.app.canvas);
 
   const audio = new Audio();
+  audioRef = audio;
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
 
   // The settings overlay outlives the join — and, since Story 6.3, it outlives
@@ -4917,9 +4986,11 @@ async function main(): Promise<void> {
     onAbandon: abandonMatch,
     viewportWidth: () => shellRef?.stage.app.screen.width ?? 0,
     onVisibility: (visible) => homeRef?.setYielded(visible),
-    // The second door to the consent decision (review gate). `null` while the
-    // question is open, which the row renders as OFF — the truthful reading
-    // under Basic mode, where nothing is measured until an explicit grant.
+    // THE ONLY IN-PRODUCT ANALYTICS DOOR since Story 7.4 deleted the consent
+    // card. `null` means no LOCAL override, which the row renders as ON — under
+    // Consent Mode ADVANCED the global default grants analytics, so a player who
+    // has set nothing is being measured and OFF would be a lie. It has no
+    // authority over the three ad signals; those are Google's CMP's.
     consent: {
       granted: () => {
         const state = analytics.consentState();
@@ -4928,8 +4999,6 @@ async function main(): Promise<void> {
       set: (granted) => {
         if (granted) analytics.grantConsent();
         else analytics.denyConsent();
-        // An answer given here answers the card too.
-        hideConsentBar();
       },
     },
   });

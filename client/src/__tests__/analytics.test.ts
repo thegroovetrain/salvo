@@ -1,9 +1,15 @@
-// Story 7-2's analytics layer, tested against the spec's own I/O matrix.
+// Story 7-2's analytics layer, tested against the spec's own I/O matrix — moved
+// to Consent Mode ADVANCED by Story 7-4 (Eric rulings 2026-08-19).
 //
-// THE LOAD-BEARING ASSERTION IN THIS FILE IS A NEGATIVE ONE: under Consent Mode
-// BASIC (Eric ruling R7) nothing third-party may exist before an Accept, so
-// "no script element, no dataLayer, no gtag" is the first-visit contract and
-// the decline contract, not a nice-to-have.
+// THE LOAD-BEARING ASSERTION MOVED, AND THAT MOVE IS THE STORY. Under BASIC the
+// contract was a NEGATIVE one — "no script element, no dataLayer, no gtag before
+// an Accept" — because a self-built card gated the tag. 7-4 deleted that card
+// and adopted Google's own certified CMP, which has no standalone script and is
+// delivered BY the ad script, so the tag now loads for everyone and the player's
+// decision travels as consent SIGNALS instead. The contract is therefore now:
+// the GLOBAL default grants, the REGION-SCOPED EEA/UK/CH default denies, and an
+// update is sent ONLY when a real decision exists. Every test that asserted the
+// old negative is retired below, each with the ruling that retired it.
 //
 // NOTHING HERE TOUCHES THE NETWORK. jsdom does not fetch external scripts
 // (`resources` is left at its default), so the injected <script> is inspected as
@@ -112,13 +118,19 @@ describe('consent persistence (hullcracker.consent)', () => {
 });
 
 describe('Consent Mode v2 payloads', () => {
-  it('sets ALL FOUR v2 signals, denied, in the global default', () => {
+  it('sets ALL FOUR v2 signals, GRANTED, in the global default', () => {
+    // INVERTED BY STORY 7.4. It used to assert all four DENIED, which was right
+    // under Basic mode where the tag only ever existed after a grant. Under
+    // Advanced the global default governs every visitor Google's CMP never asks
+    // — Eric ruled that outside the EEA/UK/CH no dialog appears and analytics
+    // simply runs — so a denied global default would mean "measure nobody,
+    // anywhere, forever". The EEA is protected by the region default below.
     const d = consentDefaults();
     expect(d).toEqual({
-      ad_storage: 'denied',
-      ad_user_data: 'denied',
-      ad_personalization: 'denied',
-      analytics_storage: 'denied',
+      ad_storage: 'granted',
+      ad_user_data: 'granted',
+      ad_personalization: 'granted',
+      analytics_storage: 'granted',
     });
     expect(d.region).toBeUndefined();
   });
@@ -137,14 +149,26 @@ describe('Consent Mode v2 payloads', () => {
     }
   });
 
-  it('grants ONLY analytics_storage — the three ad signals stay denied (7.4 owns ads)', () => {
-    expect(consentUpdate('granted')).toEqual({
-      ad_storage: 'denied',
-      ad_user_data: 'denied',
-      ad_personalization: 'denied',
-      analytics_storage: 'granted',
-    });
-    expect(consentUpdate('denied').analytics_storage).toBe('denied');
+  it('the region default STILL denies all four — it is what protects the EEA now', () => {
+    // 7.2 shipped this inert and said so; 7.4 makes it the only thing standing
+    // between an EEA visitor and a granted global default until the CMP updates.
+    const r = consentRegionDefaults();
+    expect(r.ad_storage).toBe('denied');
+    expect(r.ad_user_data).toBe('denied');
+    expect(r.ad_personalization).toBe('denied');
+    expect(r.analytics_storage).toBe('denied');
+  });
+
+  it('the local override NAMES ONLY analytics_storage — it may not touch an ad signal', () => {
+    // REPLACES 7.2's "the three ad signals stay denied even on accept". They are
+    // not ours to write any more: Google's CMP asks for them and issues its own
+    // update, and a `consent update` leaves every signal it OMITS alone. Writing
+    // 'denied' here would stamp on a consent the player gave Google's dialog;
+    // writing 'granted' would forge one they never gave. Absence is the point,
+    // so this asserts the exact key set rather than three denied values.
+    expect(Object.keys(consentUpdate('granted'))).toEqual(['analytics_storage']);
+    expect(consentUpdate('granted')).toEqual({ analytics_storage: 'granted' });
+    expect(consentUpdate('denied')).toEqual({ analytics_storage: 'denied' });
   });
 });
 
@@ -167,53 +191,82 @@ describe('the measurement ID is build-time config, never a literal', () => {
 
 // --- the seam: the I/O matrix -------------------------------------------------
 
-describe('first visit, no stored consent', () => {
-  it('loads NOTHING third-party — no script, no dataLayer, no gtag', () => {
+describe('first visit, no stored local override', () => {
+  // RETIRED BY STORY 7.4: "loads NOTHING third-party — no script, no dataLayer,
+  // no gtag". That was Consent Mode BASIC's whole posture, and BASIC is gone —
+  // Google's CMP is delivered by the ad script, so the tag cannot sit behind a
+  // gate of ours. The assertion is INVERTED rather than weakened: the tag is
+  // built at boot, and what protects an EEA visitor is the region-scoped default
+  // in the dataLayer, not the script's absence.
+  it('builds the tag at boot and sends NO update — the defaults alone govern', () => {
+    const seam = bootedSeam();
+    expect(seam.consentState()).toBe('undecided');
+    expect(injectedScripts()).toHaveLength(1);
+    const verbs = commands().map((c) => `${c[0]}${c[0] === 'consent' ? `:${c[1]}` : ''}`);
+    expect(verbs).toEqual(['consent:default', 'consent:default', 'js', 'config']);
+    // An update here would OVERRIDE the EEA/UK/CH denial before the CMP asked.
+    expect(commands().some((c) => c[0] === 'consent' && c[1] === 'update')).toBe(false);
+  });
+
+  it('dispatches the funnel — under Advanced, no local override means measured', () => {
     const seam = bootedSeam();
     seam.home();
     seam.modePick('standard');
     seam.matchStart();
-    expect(seam.consentState()).toBe('undecided');
-    expect(injectedScripts()).toHaveLength(0);
-    expect((globalThis as Record<string, unknown>).dataLayer).toBeUndefined();
-    expect((globalThis as Record<string, unknown>).gtag).toBeUndefined();
+    expect(eventNames()).toEqual(['home', 'mode_pick', 'match_start']);
   });
 });
 
-describe('accept', () => {
-  it('persists granted and injects the tag exactly once, however many times ACCEPT lands', () => {
+describe('boot', () => {
+  it('injects the tag exactly once, however many times boot lands', () => {
     const seam = bootedSeam();
+    seam.boot();
     seam.grantConsent();
     seam.grantConsent();
-    seam.grantConsent();
-    expect(localStorage.getItem(CONSENT_KEY)).toBe('granted');
     expect(injectedScripts()).toHaveLength(1);
     expect(injectedScripts()[0].src).toBe(`${GA_SCRIPT_SRC}?id=${TEST_ID}`);
     expect(injectedScripts()[0].async).toBe(true);
   });
 
-  it('sends both consent defaults, then the update, then js, then config — in that order', () => {
-    const seam = bootedSeam();
-    seam.grantConsent();
-    const verbs = commands().map((c) => `${c[0]}${c[1] === 'default' || c[1] === 'update' ? `:${c[1]}` : ''}`);
-    expect(verbs.slice(0, 5)).toEqual(['consent:default', 'consent:default', 'consent:update', 'js', 'config']);
+  it('sends the EEA/UK/CH default, then the global default, then js, then config', () => {
+    // The `consent:update` that used to sit between the defaults and `js` is
+    // RETIRED (Story 7.4) — see the first-visit block above for why.
+    //
+    // REGION FIRST, matching `ads/adsHead.ts`'s injected block exactly (review
+    // gate). Google resolves a `default` by SPECIFICITY, so either order works —
+    // but these are two statements of ONE contract, and two that disagree are
+    // how a later reader concludes one of them is wrong.
+    bootedSeam();
+    const verbs = commands().map((c) => `${c[0]}${c[0] === 'consent' ? `:${c[1]}` : ''}`);
+    expect(verbs.slice(0, 4)).toEqual(['consent:default', 'consent:default', 'js', 'config']);
     const defaults = commands().filter((c) => c[0] === 'consent' && c[1] === 'default');
-    expect((defaults[0][2] as Record<string, unknown>).region).toBeUndefined();
-    expect((defaults[1][2] as Record<string, unknown>).region).toBe(EEA_UK_CH_REGIONS);
-    expect(commands().find((c) => c[0] === 'consent' && c[1] === 'update')?.[2]).toEqual(consentUpdate('granted'));
+    expect((defaults[0][2] as Record<string, unknown>).region).toBe(EEA_UK_CH_REGIONS);
+    expect((defaults[1][2] as Record<string, unknown>).region).toBeUndefined();
   });
 
   it('configures the property with page_view and google signals OFF (NFR19: five events, nothing else)', () => {
-    const seam = bootedSeam();
-    seam.grantConsent();
+    bootedSeam();
     const config = commands().find((c) => c[0] === 'config');
     expect(config?.[1]).toBe(TEST_ID);
     expect(config?.[2]).toEqual({ send_page_view: false, allow_google_signals: false });
   });
 });
 
-describe('decline', () => {
-  it('persists denied and never injects anything, then or later', () => {
+describe('the settings ANALYTICS row', () => {
+  it('ON persists granted and sends a granting update naming only analytics_storage', () => {
+    const seam = bootedSeam();
+    seam.grantConsent();
+    expect(localStorage.getItem(CONSENT_KEY)).toBe('granted');
+    const updates = commands().filter((c) => c[0] === 'consent' && c[1] === 'update');
+    expect(updates).toHaveLength(1);
+    expect(updates[0][2]).toEqual({ analytics_storage: 'granted' });
+  });
+
+  it('OFF persists denied, sends a denying update, and stops dispatching', () => {
+    // RETIRED BY STORY 7.4: "persists denied and never injects anything". The
+    // tag is already up by the time this row can be pressed, so a denial is a
+    // consent SIGNAL, not a withheld script. What still holds — and is what the
+    // player asked for — is that no further funnel event leaves.
     const seam = bootedSeam();
     seam.denyConsent();
     seam.home();
@@ -222,8 +275,19 @@ describe('decline', () => {
     seam.matchEnd();
     seam.requeue();
     expect(localStorage.getItem(CONSENT_KEY)).toBe('denied');
-    expect(injectedScripts()).toHaveLength(0);
-    expect((globalThis as Record<string, unknown>).dataLayer).toBeUndefined();
+    const updates = commands().filter((c) => c[0] === 'consent' && c[1] === 'update');
+    expect(updates).toHaveLength(1);
+    expect(updates[0][2]).toEqual({ analytics_storage: 'denied' });
+    expect(eventNames()).toEqual([]);
+  });
+
+  it('never names an ad signal in either direction — those are the CMP\'s', () => {
+    const seam = bootedSeam();
+    seam.grantConsent();
+    seam.denyConsent();
+    for (const c of commands().filter((x) => x[0] === 'consent' && x[1] === 'update')) {
+      expect(Object.keys(c[2] as Record<string, unknown>)).toEqual(['analytics_storage']);
+    }
   });
 });
 
@@ -237,13 +301,41 @@ describe('return visits', () => {
     expect(eventNames()).toEqual(['home']);
   });
 
-  it('denied: nothing loads, ever', () => {
+  it('granted: RE-ASSERTS the stored grant on every fresh boot', () => {
+    // Every RETURN TO PORT ends in a `location.reload()`, so this is the common
+    // path, not an edge case. Only the DENIAL used to be re-sent, which meant a
+    // player who turned ANALYTICS ON got it for one page life and then silently
+    // reverted to the region default forever — with the settings row still
+    // reading ON, and the privacy policy still saying the stored choice
+    // overrides the region default.
+    localStorage.setItem(CONSENT_KEY, 'granted');
+    bootedSeam();
+    const verbs = commands().map((c) => `${c[0]}${c[0] === 'consent' ? `:${c[1]}` : ''}`);
+    expect(verbs).toEqual(['consent:default', 'consent:default', 'js', 'config', 'consent:update']);
+    expect(commands().at(-1)?.[2]).toEqual({ analytics_storage: 'granted' });
+  });
+
+  it('undecided: NO update at boot \u2014 the defaults and the CMP govern', () => {
+    localStorage.removeItem(CONSENT_KEY);
+    bootedSeam();
+    expect(commands().some((c) => c[0] === 'consent' && c[1] === 'update')).toBe(false);
+  });
+
+  it('denied: the tag loads, a denying update follows it, and nothing dispatches', () => {
+    // RETIRED BY STORY 7.4: "denied: nothing loads, ever". The stored record is
+    // a LOCAL ANALYTICS OVERRIDE now, not a gate on the script — and the update
+    // must land AFTER activation, because an update is only meaningful once the
+    // defaults are in the dataLayer ahead of it.
     localStorage.setItem(CONSENT_KEY, 'denied');
     const seam = bootedSeam();
     expect(seam.consentState()).toBe('denied');
     seam.home();
     seam.matchStart();
-    expect(injectedScripts()).toHaveLength(0);
+    expect(injectedScripts()).toHaveLength(1);
+    const verbs = commands().map((c) => `${c[0]}${c[0] === 'consent' ? `:${c[1]}` : ''}`);
+    expect(verbs).toEqual(['consent:default', 'consent:default', 'js', 'config', 'consent:update']);
+    expect(commands().at(-1)?.[2]).toEqual({ analytics_storage: 'denied' });
+    expect(eventNames()).toEqual([]);
   });
 
   it('boot() is idempotent — a second call cannot re-inject', () => {
@@ -256,7 +348,7 @@ describe('return visits', () => {
 });
 
 describe('localStorage unavailable (private mode / hostile shim)', () => {
-  it('reads as undecided, nothing throws, and the bar logic still gets an answer', () => {
+  it('reads as undecided, nothing throws, and the settings row still gets an answer', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('blocked');
     });
@@ -266,10 +358,12 @@ describe('localStorage unavailable (private mode / hostile shim)', () => {
     const seam = __createAnalyticsForTests();
     expect(() => seam.boot()).not.toThrow();
     expect(seam.consentState()).toBe('undecided');
-    expect(injectedScripts()).toHaveLength(0);
-    // an in-session accept still works; it simply will not survive the reload
-    expect(() => seam.grantConsent()).not.toThrow();
+    // The tag builds regardless — a blocked store means no LOCAL override, and
+    // the region defaults are what protect the EEA either way (Story 7.4).
     expect(injectedScripts()).toHaveLength(1);
+    // an in-session opt-out still works; it simply will not survive the reload
+    expect(() => seam.denyConsent()).not.toThrow();
+    expect(seam.consentState()).toBe('denied');
   });
 });
 
@@ -288,7 +382,10 @@ describe('no measurement ID configured (a fork, or a local build with no .env)',
     expect((globalThis as Record<string, unknown>).dataLayer).toBeUndefined();
   });
 
-  it('does not accumulate a queue it can never flush', () => {
+  it('accumulates nothing, so an ID appearing later replays no backlog', () => {
+    // Was "does not accumulate a queue it can never flush" — the queue is gone
+    // (Story 7.4), so this now pins the stronger property: events sent while the
+    // build was inert are simply lost, and a configured build starts clean.
     vi.stubEnv('VITE_GA_MEASUREMENT_ID', '');
     const seam = bootedSeam();
     for (let i = 0; i < 500; i++) seam.home();
@@ -298,40 +395,45 @@ describe('no measurement ID configured (a fork, or a local build with no .env)',
   });
 });
 
-describe('queue-then-flush across the undecided window', () => {
-  it('flushes queued events, in order, when consent is granted', () => {
+// THE PRE-CONSENT QUEUE SUITE IS RETIRED (Story 7.4, Eric rulings 2026-08-19).
+//
+// Three tests went with it — flush-on-grant, discard-on-decline, and the
+// drop-newest cap — because the queue itself is deleted, not adapted. It existed
+// solely to survive the undecided window Consent Mode BASIC created between
+// `home` firing and an Accept arriving, and Advanced mode has no such window:
+// the tag is built at boot, and `dataLayer` buffers every command until the
+// remote script drains it. What the queue guaranteed — that `home` is never lost
+// — is now guaranteed by construction, and is covered by the first-visit block
+// above ("dispatches the funnel"). Retired rather than kept green against a
+// mechanism that no longer exists.
+describe('there is no pre-consent queue left to fill', () => {
+  it('emits straight through from the first call, with no flush step', () => {
     const seam = bootedSeam();
     seam.home();
+    expect(eventNames()).toEqual(['home']);
     seam.modePick('soloVsAi');
-    expect(injectedScripts()).toHaveLength(0);
-    seam.grantConsent();
     expect(eventNames()).toEqual(['home', 'mode_pick']);
     expect(events()[1].params).toEqual({ mode: 'soloVsAi' });
   });
 
-  it('DISCARDS the queue on decline — a queued event is not a deferred consent', () => {
+  it('is unbounded by construction — a cap that can never bind is not kept', () => {
+    // The old suite proved a 8-event cap dropped the newest. Nothing is held any
+    // more, so the honest replacement is that nothing is dropped either.
+    const seam = bootedSeam();
+    seam.home();
+    for (let i = 0; i < 40; i++) seam.matchStart();
+    expect(eventNames()).toHaveLength(41);
+    expect(eventNames()[0]).toBe('home');
+  });
+
+  it('a local opt-out stops the stream from that moment, and does not rewrite the past', () => {
     const seam = bootedSeam();
     seam.home();
     seam.modePick('standard');
     seam.denyConsent();
-    expect(injectedScripts()).toHaveLength(0);
-    // even if a later grant somehow arrives, the declined events are gone
-    seam.grantConsent();
-    expect(eventNames()).toEqual([]);
-  });
-
-  it('is bounded, and past the cap it drops the NEWEST so the funnel keeps its head', () => {
-    // Reversed at the review gate. Drop-oldest evicted `home` — the first event
-    // queued and the whole reason the queue exists — so a player who cycled mode
-    // picks before answering would have flushed a funnel with no beginning. A
-    // funnel reads forwards; the earliest events are the ones worth keeping.
-    const seam = bootedSeam();
-    seam.home();
-    for (let i = 0; i < 40; i++) seam.matchStart();
-    seam.grantConsent();
-    const names = eventNames();
-    expect(names.length).toBeLessThanOrEqual(8);
-    expect(names[0]).toBe('home'); // the head survives
+    seam.matchStart();
+    // Already-sent events are gone to Google; the denial governs what follows.
+    expect(eventNames()).toEqual(['home', 'mode_pick']);
   });
 });
 
@@ -408,10 +510,11 @@ describe('requeue must outlive the reload', () => {
     expect((config?.[2] as Record<string, unknown>).transport_type).toBeUndefined();
   });
 
-  it('a queued requeue still gets beacon transport when it is flushed', () => {
-    // The transport now rides the config that `activate()` sends BEFORE draining
-    // the queue, so a pre-consent requeue is covered by construction rather than
-    // by carrying the directive around with it.
+  it('a requeue from a player with no local override still gets beacon transport', () => {
+    // Was "a queued requeue still gets beacon transport when it is flushed".
+    // There is no queue and no flush since Story 7.4 — the transport rides the
+    // config `activate()` sends at BOOT, so every hit is covered from the first
+    // one, whatever the player's override says later.
     Object.defineProperty(navigator, 'sendBeacon', { value: () => true, configurable: true });
     const seam = bootedSeam();
     seam.requeue();
@@ -456,14 +559,21 @@ describe('nothing in the analytics graph may reach the game', () => {
   });
 });
 
-// --- THE SHIPPED PAGE ITSELF (Story 7.2, Eric ruling R7) --------------------
+// --- THE SOURCE PAGES THEMSELVES (Story 7.2, Eric ruling R7) ----------------
 //
 // Every other test in this file proves the RUNTIME contract. This one proves
-// the STATIC one, and it is the cheaper half to break: the whole "nothing loads
-// until Accept" posture is undone the moment somebody pastes Google's stock
-// snippet into the head, and no runtime assertion here would notice. Read off
-// disk, in the style foghorn/projectiles/resumeWiring already use for main.ts.
-describe('EVERY shipped page carries no third-party script (Consent Mode BASIC)', () => {
+// the STATIC one, and it is the cheaper half to break: no runtime assertion here
+// would notice somebody pasting a vendor's stock snippet into a page head.
+// Read off disk, in the style foghorn/projectiles/resumeWiring use for main.ts.
+//
+// WHAT IT MEANS AFTER STORY 7.4, WHICH IS NOT WHAT IT MEANT BEFORE. Under Basic
+// mode it enforced "nothing loads until Accept". That posture is retired, and
+// this guard is NOT: it now enforces that every third-party origin on a shipped
+// page arrives through a REVIEWED PATH — a module that owns its vendor, or a
+// build step that only fires when configured — rather than by being typed into
+// source HTML where an unconfigured fork would inherit it too. A NEW origin
+// appearing here should still fail, and still force a disclosure decision.
+describe('EVERY source page carries no third-party script', () => {
   // EVERY entry, not just the game's (review gate). The guard originally read
   // `index.html` alone, which left `privacy/index.html` — the NEWER, less-watched
   // page, and the natural place somebody would paste a CMP snippet — outside the

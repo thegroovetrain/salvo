@@ -1,5 +1,5 @@
 {
-  "story": "7.1",
+  "story": "7.1 (instrument) — re-run by any story that adds page weight",
   "what": "NFR2 cold-load verdict against the SHIPPED production build",
   "device": {
     "model": "MacBookPro16,1",
@@ -9,26 +9,31 @@
     "arch": "x64"
   },
   "budgetMs": 10000,
-  "notMeasuredYet": "Ad, analytics and consent script cost — none exist yet (Stories 7.2/7.4). They must fit inside the same 10 s budget and be re-measured when they land.",
+  "scriptCostMeasured": "Third-party script cost is included only to the extent the MEASURED BUILD carried it. Both the AdSense loader (`VITE_ADSENSE_CLIENT`, Story 7.4) and the GA4 tag (`VITE_GA_MEASUREMENT_ID`, Story 7.2) are BUILD-GATED, so a run with neither set measures neither. Do not read this field as a claim — read each run's `thirdPartyOrigins`, which is the only evidence of what was actually fetched.",
   "fontsDoNotBlockFirstPaint": {
     "demonstratedBy": "residential-24mbps-fonts-blocked",
-    "firstContentfulPaintMs": 984,
-    "interactiveHomeMs": 3793,
+    "firstContentfulPaintMs": 1240,
+    "interactiveHomeMs": 3070,
     "pass": true
   },
   "bundle": {
-    "totalBytes": 1003549,
-    "totalGzipBytes": 318263,
+    "totalBytes": 1011092,
+    "totalGzipBytes": 321729,
     "byExt": {
+      ".txt": {
+        "files": 1,
+        "bytes": 59,
+        "gzip": 59
+      },
       ".js": {
-        "files": 11,
-        "bytes": 999071,
-        "gzip": 315925
+        "files": 13,
+        "bytes": 1003508,
+        "gzip": 317823
       },
       ".html": {
-        "files": 2,
-        "bytes": 4478,
-        "gzip": 2338
+        "files": 3,
+        "bytes": 7525,
+        "gzip": 3847
       }
     }
   },
@@ -36,70 +41,98 @@
     {
       "profile": "residential-24mbps",
       "fontsBlocked": false,
-      "firstPaintMs": 84,
-      "firstContentfulPaintMs": 1028,
-      "interactiveHomeMs": 3289,
+      "firstPaintMs": 60,
+      "firstContentfulPaintMs": 1184,
+      "interactiveHomeMs": 2531,
       "withinBudget": true,
       "navigation": {
-        "domContentLoadedMs": 354.4,
-        "loadMs": 484.7
+        "domContentLoadedMs": 391.4,
+        "loadMs": 800.8
       },
       "fontRequests": [
         {
           "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
-          "startMs": 42.9,
-          "endMs": 319.2
+          "startMs": 40.8,
+          "endMs": 186.3
         }
       ],
-      "lastFontEndMs": 319.2,
+      "lastFontEndMs": 186.3,
       "fcpPrecededLastFontResponse": false,
-      "requestCount": 13,
+      "requestCount": 26,
+      "thirdPartyOrigins": [
+        "https://ep1.adtrafficquality.google",
+        "https://ep2.adtrafficquality.google",
+        "https://fonts.googleapis.com",
+        "https://fonts.gstatic.com",
+        "https://googleads.g.doubleclick.net",
+        "https://pagead2.googlesyndication.com",
+        "https://www.google.com",
+        "https://www.googletagmanager.com"
+      ],
       "image": "nfr2-home-residential-24mbps.png"
     },
     {
       "profile": "residential-24mbps-fonts-blocked",
       "fontsBlocked": true,
-      "firstPaintMs": 128,
-      "firstContentfulPaintMs": 984,
-      "interactiveHomeMs": 3793,
+      "firstPaintMs": 76,
+      "firstContentfulPaintMs": 1240,
+      "interactiveHomeMs": 3070,
       "withinBudget": true,
       "navigation": {
-        "domContentLoadedMs": 368.3,
-        "loadMs": 368.8
+        "domContentLoadedMs": 407,
+        "loadMs": 753.7
       },
       "fontRequests": [
         {
           "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
-          "startMs": 44.8,
-          "endMs": 56.2
+          "startMs": 45,
+          "endMs": 56.4
         }
       ],
-      "lastFontEndMs": 56.2,
+      "lastFontEndMs": 56.4,
       "fcpPrecededLastFontResponse": false,
-      "requestCount": 10,
+      "requestCount": 23,
+      "thirdPartyOrigins": [
+        "https://ep1.adtrafficquality.google",
+        "https://ep2.adtrafficquality.google",
+        "https://googleads.g.doubleclick.net",
+        "https://pagead2.googlesyndication.com",
+        "https://www.google.com",
+        "https://www.googletagmanager.com"
+      ],
       "image": "nfr2-home-residential-24mbps-fonts-blocked.png"
     },
     {
       "profile": "unthrottled",
       "fontsBlocked": false,
-      "firstPaintMs": 116,
-      "firstContentfulPaintMs": 560,
-      "interactiveHomeMs": 3270,
+      "firstPaintMs": 104,
+      "firstContentfulPaintMs": 1144,
+      "interactiveHomeMs": 2725,
       "withinBudget": true,
       "navigation": {
-        "domContentLoadedMs": 111,
-        "loadMs": 113.5
+        "domContentLoadedMs": 84.4,
+        "loadMs": 757.7
       },
       "fontRequests": [
         {
           "url": "https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
-          "startMs": 9.3,
-          "endMs": 227.3
+          "startMs": 6.7,
+          "endMs": 288.7
         }
       ],
-      "lastFontEndMs": 227.3,
+      "lastFontEndMs": 288.7,
       "fcpPrecededLastFontResponse": false,
-      "requestCount": 16,
+      "requestCount": 26,
+      "thirdPartyOrigins": [
+        "https://ep1.adtrafficquality.google",
+        "https://ep2.adtrafficquality.google",
+        "https://fonts.googleapis.com",
+        "https://fonts.gstatic.com",
+        "https://googleads.g.doubleclick.net",
+        "https://pagead2.googlesyndication.com",
+        "https://www.google.com",
+        "https://www.googletagmanager.com"
+      ],
       "image": "nfr2-home-unthrottled.png"
     }
   ]

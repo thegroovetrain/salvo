@@ -69,6 +69,21 @@ import { CLASS_DISPLAY_NAMES } from './classSelect.js';
 import { fmtBarClock, fmtElapsedClock } from './chromeBar.js';
 
 const RESULTS_ID = 'results-overlay';
+
+/**
+ * THE PANEL'S HANDLE, and the ONLY hook the ad layer has into this module.
+ *
+ * The display unit (Eric ruling 2026-08-19, *"you can move the results screen
+ * over to make room for the ad unit to the right if needed"*) centres the PANEL
+ * AND THE AD COLUMN as one group rather than centring the panel alone, which
+ * pulls the unit's breakpoint down from ~1352px to ~1002px — every 1024- and
+ * 1280-wide laptop. `ads/resultsAd.ts` reads this id and offsets the panel with
+ * a TRANSFORM, so nothing in this file's own layout (the width, the bed, the
+ * `max-height`/scroll cap, the `max-width:100%` narrow fallback) is touched and
+ * an ads-less build renders byte-identically to before.
+ */
+export const RESULTS_PANEL_ID = 'results-panel';
+
 /** Stable ids for the modal's actions — pinned by results.test.ts, so a future
  *  third button in the panel can't silently repoint those pins. */
 const RETURN_BUTTON_ID = 'results-return';
@@ -831,6 +846,7 @@ export function showResults(view: ResultsView, h: ResultsHandlers): void {
   overlay.style.cssText = OVERLAY_CSS;
 
   const panel = document.createElement('div');
+  panel.id = RESULTS_PANEL_ID;
   panel.style.cssText = PANEL_CSS;
   applyViewportCap(panel); // amendment 47 — border-box + a real scroll surface (ui/fit.ts)
   const fieldSize = fieldSizeOf(view);

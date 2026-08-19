@@ -23,8 +23,27 @@
 //   * Server logs: an ephemeral per-connection session id plus match aggregates
 //     on stdout. No names, no IP addresses in our own logs. Render keeps its own
 //     edge logs, outside our control.
-//   * GA4: loaded ONLY after Accept (Consent Mode BASIC, R7), first-party
-//     cookie, exactly five events, `mode` the only parameter (NFR19).
+//   * GA4: loaded at boot for everyone (Consent Mode ADVANCED, Story 7.4 —
+//     `analytics/index.ts` `boot()` always calls `startGa`), first-party cookie,
+//     exactly five events, `mode` the only parameter (NFR19). The GLOBAL consent
+//     default grants all four v2 signals; a REGION-SCOPED default denies all
+//     four across the EEA, the UK and Switzerland until Google's CMP updates it
+//     (`analytics/consent.ts`, `EEA_UK_CH_REGIONS` — 32 codes).
+//   * Google AdSense: the ad script loads on the game page and delivers BOTH the
+//     ads and Google's certified consent dialog (it has no standalone script).
+//     Exactly ONE ad surface exists — a full-screen interstitial at
+//     death → RETURN TO PORT, never during play (`app/returnToPort.ts`).
+//   * `hullcracker.consent` is no longer "the answer to our banner"; there is no
+//     banner. It is a LOCAL ANALYTICS OVERRIDE set from the ANALYTICS row in
+//     SETTINGS, and absent means "follow Google's dialog and the region defaults".
+//
+// WHAT STORY 7.4 CHANGED HERE AND WHY IT HAD TO: the previous text promised
+// "nothing is requested from Google Analytics until you press ACCEPT" and "there
+// is no advertising, no ad network". Both became FALSE the day the ad script
+// shipped, and amendment 14's standing rule is that a policy which misstates
+// collection is a defect rather than a wording preference. Google additionally
+// REQUIRES the third-party-cookie disclosure and the Ads Settings opt-out
+// pointer that now sit in ADVERTISING (support.google.com/adsense/answer/1348695).
 //
 // A POLICY SAYING "WE COLLECT NOTHING" WOULD BE FALSE. That is why this file is
 // long enough to be honest and no longer.
@@ -52,7 +71,7 @@ export const POLICY_CONTACT = 'contact@hullcracker.io';
 
 /** Stamped, not computed: a policy's date is the date its CONTENTS were last
  *  changed, so it must not tick with the build. */
-export const POLICY_UPDATED = 'Last updated 18 August 2026';
+export const POLICY_UPDATED = 'Last updated 19 August 2026';
 
 export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
@@ -62,9 +81,14 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       + 'and settings live in your own browser and are never sent to us as a profile, and nothing '
       + 'about you is stored on our servers once your match is over — beyond ordinary server logs, '
       + 'which are described below.',
-      'Two things do involve other companies, and both are set out in full below: the page loads '
-      + 'its typefaces from Google Fonts, and — only if you accept — it uses Google Analytics to '
-      + 'count how the game is used.',
+      'Three things do involve other companies, and all three are set out in full below: the page '
+      + 'loads its typefaces from Google Fonts, it uses Google Analytics to count how the game is '
+      + 'used, and it shows advertising through Google AdSense — a full-screen ad when you return '
+      + 'to port after a match, and one boxed ad beside your score screen once you have been sunk. '
+      + 'Never while you are playing.',
+      'If you are in the European Economic Area, the United Kingdom or Switzerland, Google shows '
+      + 'you its own consent dialog and asks you there. Wherever you are, you can turn analytics '
+      + 'off at any time using the ANALYTICS row in SETTINGS.',
     ],
   },
   {
@@ -90,7 +114,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'hullcracker.helm — whether you have already been shown the helm hints',
       'hullcracker.session, hullcracker.session.handoff — how the game keeps you to one match at '
       + 'a time in this browser, and hands that place over when you move to another tab',
-      'hullcracker.consent — your answer to the analytics question on this page',
+      'hullcracker.consent — your analytics setting, if you have changed it using the '
+      + 'ANALYTICS row in SETTINGS. When it is absent, Google’s own consent dialog and its '
+      + 'regional defaults decide',
       'hullcracker-muted — a mute setting kept by older versions of the game, still read if your '
       + 'browser has one from before',
       'hullcracker.resume, hullcracker.tab — per-tab values that live only as long as the tab is '
@@ -113,7 +139,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'The page loads the Geist typefaces from fonts.googleapis.com and fonts.gstatic.com, which '
       + 'are run by Google. That means Google receives your IP address every time you load the '
-      + 'page, including before you answer the analytics question. We do not control what Google '
+      + 'page, including before any consent dialog is shown or answered. We do not control what Google '
       + 'does with that request; their handling is covered by the Google Privacy Policy at '
       + 'https://policies.google.com/privacy.',
       'This is a consequence of how the fonts are delivered rather than something the game asks '
@@ -145,15 +171,18 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     ],
   },
   {
-    heading: 'ANALYTICS, ONLY IF YOU ACCEPT',
+    heading: 'ANALYTICS (GOOGLE ANALYTICS)',
     paragraphs: [
-      'If — and only if — you press ACCEPT on the analytics bar, the game loads Google Analytics '
-      + '(GA4). Until you do, nothing is requested from Google Analytics at all, and if you press '
-      + 'DECLINE nothing ever will be. Your answer is remembered in your browser so you are not '
-      + 'asked again.',
-      'Google Analytics sets a first-party cookie that recognises your browser on later visits, '
-      + 'and records your IP address as part of the request. The game itself reports five moments '
-      + 'and nothing else:',
+      'The game uses Google Analytics (GA4) to count how it is used. The Google tag loads when '
+      + 'the page loads, and what it is allowed to store depends on your consent: if you are in '
+      + 'the European Economic Area, the United Kingdom or Switzerland, everything is withheld '
+      + 'until you answer Google’s consent dialog, and Google reports only anonymous, '
+      + 'cookie-less signals in the meantime. Everywhere else, analytics is on unless you turn it '
+      + 'off — see CHANGING YOUR MIND below, which is one press on the ANALYTICS row in SETTINGS and is '
+      + 'remembered in your browser.',
+      'When it is allowed to, Google Analytics sets a first-party cookie that recognises your '
+      + 'browser on later visits, and records your IP address as part of the request. The game '
+      + 'itself reports five moments and nothing else:',
     ],
     bullets: [
       'reaching the home screen',
@@ -176,19 +205,61 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'WHAT ANALYTICS NEVER SEES',
     paragraphs: [
       'It never receives your callsign, your colour, your kills, your placement, your damage, the '
-      + 'match or room you were in, or anything else about what happened on the water. There is no '
-      + 'advertising, no ad network, and no sharing of any of this with anyone other than Google as '
-      + 'the analytics provider.',
+      + 'match or room you were in, or anything else about what happened on the water. None of it '
+      + 'is shared with anyone other than Google as the analytics provider. We never send Google '
+      + 'anything about your match for advertising purposes — nothing about how you played can '
+      + 'reach the advertising side, because we never send it in the first place.',
       'Google processes this data as our provider and under its own terms; see '
       + 'https://policies.google.com/privacy. Data may be processed outside your country, including '
       + 'in the United States.',
     ],
   },
   {
+    heading: 'ADVERTISING (GOOGLE ADSENSE)',
+    paragraphs: [
+      'The game is paid for by advertising, served by Google AdSense. There are exactly two places '
+      + 'an advertisement can appear. The first is a single full-screen ad shown when you leave a '
+      + 'match and return to port — whether your match ended or you chose to abandon it. The second '
+      + 'is one ordinary boxed advertisement beside your score screen after you have been sunk, '
+      + 'which disappears the moment you go back to watching the match and returns if you reopen '
+      + 'the score screen.',
+      'No advertisement is ever shown while you are playing, and there are none on the home screen, '
+      + 'the how-to-play page or this page. Both places above are moments when your own match is '
+      + 'already over.',
+      'Google’s advertising script loads with the page, before any advertisement is shown, because '
+      + 'it is also what presents Google’s consent dialog to visitors in the European Economic '
+      + 'Area, the United Kingdom and Switzerland. If you are in one of those places, nothing is '
+      + 'stored on your device for advertising until you answer that dialog, and any ad you see '
+      + 'before then is not personalised.',
+      'If you are anywhere else, no dialog is shown and advertising cookies may be used from your '
+      + 'first visit, which is what makes the advertising personalised. You can opt out at any '
+      + 'time using the links below; opting out does not remove the advertisement.',
+      'Because that script loads with the page, Google receives your IP address on every visit to '
+      + 'the game page, whether or not an advertisement is ever shown to you. Loading it also '
+      + 'contacts several other Google advertising and ad-quality servers. This is the same kind '
+      + 'of disclosure as the fonts described above, and it applies before you answer any dialog.',
+      'Third-party vendors, including Google, use cookies to serve ads based on your prior visits '
+      + 'to this website or other websites. Google’s use of advertising cookies enables it and its '
+      + 'partners to serve ads to you based on your visit to this site and/or other sites on the '
+      + 'Internet.',
+      'You can opt out of personalised advertising by visiting Google’s Ads Settings at '
+      + 'https://www.google.com/settings/ads. You can also opt out of a third-party vendor’s use of '
+      + 'cookies for personalised advertising at https://www.aboutads.info/choices. Opting out does '
+      + 'not remove the advertisement — it makes it non-personalised.',
+      'Advertising is handled entirely by Google. We never send Google your callsign, your '
+      + 'settings, or anything about what happened in your match, and we receive no information '
+      + 'about you back from it — only aggregate earnings figures. Google’s handling is covered by '
+      + 'https://policies.google.com/technologies/ads.',
+    ],
+  },
+  {
     heading: 'WHY WE ARE ALLOWED TO DO THIS',
     paragraphs: [
-      'Analytics runs on your consent, and on nothing else — that is what the bar is for, and you '
-      + 'may refuse without losing any part of the game.',
+      'Analytics and advertising cookies run on your consent, and on nothing else. In the European '
+      + 'Economic Area, the United Kingdom and Switzerland that consent is collected by Google’s '
+      + 'own consent dialog before anything is stored; everywhere else you may withdraw it for '
+      + 'analytics at any time using the ANALYTICS row in SETTINGS, and for personalised advertising through '
+      + 'Google’s Ads Settings. Refusing costs you no part of the game.',
       'Everything else described here is what it takes to run the game you asked to play: '
       + 'connecting you to a match, remembering your own preferences on your own device, showing '
       + 'how many people are online, and keeping operational logs so the service can be maintained. '
@@ -210,15 +281,19 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'CHANGING YOUR MIND',
     paragraphs: [
-      'You can change your answer at any time, and it is no harder than giving it was: open '
-      + 'SETTINGS from the gear on the home screen and use the ANALYTICS row. Turning it off stops '
-      + 'any further measurement immediately; turning it on starts it. Your choice is remembered '
-      + 'in your browser.',
-      'Clearing site data for hullcracker.io also clears the answer and the Google Analytics '
-      + 'cookie — but it removes your saved callsign, class, colour and settings along with them, '
+      'For ANALYTICS: open SETTINGS from the gear on the home screen and use the ANALYTICS row. '
+      + 'Turning it off stops any further measurement immediately; turning it on starts it. Your '
+      + 'choice is remembered in your browser, and it overrides whatever the default for your '
+      + 'region would otherwise be.',
+      'For ADVERTISING: use Google’s Ads Settings at https://www.google.com/settings/ads, or '
+      + 'https://www.aboutads.info/choices. If Google showed you its consent dialog, you can '
+      + 'reopen it from the privacy or consent control Google places on the page.',
+      'Clearing site data for hullcracker.io also clears your analytics setting and the Google '
+      + 'cookies — but it removes your saved callsign, class, colour and settings along with them, '
       + 'so the settings row is the easier route.',
-      'If your browser blocks Google Analytics itself — an extension, a content blocker, a '
-      + 'tracker-blocking setting — the game keeps working normally and simply measures nothing.',
+      'If your browser blocks Google’s scripts itself — an extension, a content blocker, a '
+      + 'tracker-blocking setting — the game keeps working normally, measures nothing, and simply '
+      + 'shows no advertisement.',
     ],
   },
   {
@@ -237,9 +312,10 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Depending on where you live, you may have rights to access, correct, delete or object to '
       + 'the use of personal data about you, and to withdraw consent at any time.',
       'In practice there is very little for us to act on: we hold no accounts and no player '
-      + 'records, so there is no profile to retrieve or delete. Withdrawing consent for analytics '
-      + 'is done by clearing site data, as described above. For anything else — including a '
-      + 'request about the Google Analytics data associated with your browser — write to '
+      + 'records, so there is no profile to retrieve or delete. Withdrawing consent is done in '
+      + 'the ANALYTICS row in SETTINGS, and in Google’s Ads Settings for personalised '
+      + 'advertising, as described above. For anything else — including a request about the '
+      + 'Google Analytics or Google advertising data associated with your browser — write to '
       + POLICY_CONTACT + ' and we will do what we can.',
     ],
   },

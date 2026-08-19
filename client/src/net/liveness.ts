@@ -76,9 +76,11 @@ const DEFAULT_TIMEOUT_MS = 4000;
  * THIS IS A STATEMENT ABOUT THIS ENDPOINT, NOT A PROJECT-WIDE VOW (Story 7.2,
  * Eric ruling R3). Story 7.2 ships consent-gated GA4, whose `client_id` IS a
  * persisted device identifier — the exact thing this comment refuses. The two
- * do not contradict: nothing here changed, this counter still persists nothing,
- * and GA4 loads only after a player explicitly accepts (Consent Mode BASIC —
- * no Google tag is requested before that). What the ruling settled is that the
+ * do not contradict: nothing here changed and this counter still persists
+ * nothing. (Since Story 7.4 the GA4 tag loads at boot under Consent Mode
+ * ADVANCED, and what it may STORE is governed by consent signals — Google's own
+ * CMP in the EEA/UK/CH, the settings ANALYTICS row everywhere. That widened what
+ * GA4 does, and left this endpoint byte-identical.) What the ruling settled is that the
  * player may choose to be identified for analytics; what this paragraph settles
  * is that the population counter never asks. See the privacy policy, which
  * names the GA4 cookie explicitly, and epic-7 amendment 14.

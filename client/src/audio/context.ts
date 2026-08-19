@@ -104,9 +104,48 @@ export class Audio {
     this.unsubscribe = settings.subscribe((s) => this.applySettings(s));
   }
 
+  /**
+   * THE TRANSIENT AD-BREAK DUCK (Story 7.4) — deliberately NOT the mute setting.
+   *
+   * The only mute lever this class had was `toggleMute()`, which goes through
+   * `settings.set({ muted })` and therefore PERSISTS TO localStorage. Using it
+   * for an ad break breaks in both directions: a page that dies between
+   * `beforeAd` and `afterAd` would strand the player muted forever (and
+   * `returnToPort` ends in a real `location.reload()`, so a break is exactly
+   * where that happens), while restoring to a constant `false` would un-mute a
+   * player who muted themselves.
+   *
+   * So the duck lives HERE, one field above the store, and `applySettings`
+   * respects it. There is nothing to save and restore: the pre-break value is
+   * still sitting in the settings store untouched, so `unduck()` simply
+   * re-applies the live settings and the player lands exactly where they were.
+   */
+  private breakDuck = false;
+
   /** Master mute (the single persisted value, shared with the M key). */
   get muted(): boolean {
     return settings.current.muted;
+  }
+
+  /** Whether anything would be audible right now — the persisted mute OR the
+   *  transient ad-break duck. Every play path early-outs on this. */
+  private get silenced(): boolean {
+    return this.muted || this.breakDuck;
+  }
+
+  /** Silence the game for an ad break. Idempotent; writes nothing persistent. */
+  duck(): void {
+    if (this.breakDuck) return;
+    this.breakDuck = true;
+    this.applySettings(settings.current);
+  }
+
+  /** Restore the pre-break audio state. Idempotent — and because the store was
+   *  never written, "pre-break" is simply whatever the settings say now. */
+  unduck(): void {
+    if (!this.breakDuck) return;
+    this.breakDuck = false;
+    this.applySettings(settings.current);
   }
 
   /** Lazily create + resume the AudioContext and its bus chain. Call from a
@@ -146,13 +185,25 @@ export class Audio {
   private applySettings(s: Settings): void {
     const b = this.buses;
     if (!b) return;
-    b.master.gain.value = s.muted ? 0 : volumeGain(s.masterVolume);
+    // The ad-break duck rides the SAME gain as mute (see `breakDuck`): one
+    // write, no second node, and no way for the two to disagree.
+    b.master.gain.value = s.muted || this.breakDuck ? 0 : volumeGain(s.masterVolume);
     b.effects.gain.value = volumeGain(s.effectsVolume);
     b.mono.channelCount = s.monoAudio ? 1 : 2;
   }
 
-  /** Toggle master mute through the store (persisted, live, shared with M). */
+  /**
+   * Toggle master mute through the store (persisted, live, shared with M).
+   *
+   * INERT WHILE AN AD BREAK IS DUCKING. The break holds master gain at 0, so a
+   * press during it produces no audible change whatsoever — while still
+   * FLIPPING AND PERSISTING the setting, leaving the player muted (or unmuted)
+   * after the break with nothing having told them. `M` is bound on the results
+   * screen, which is exactly where the break happens. A control that cannot be
+   * heard must not be recorded either.
+   */
   toggleMute(): void {
+    if (this.breakDuck) return;
     settings.set({ muted: !settings.current.muted });
   }
 
@@ -175,7 +226,7 @@ export class Audio {
    * today's, so not one existing call site moves.
    */
   play(id: ToneId, opts?: { detune?: number; pan?: number; gain?: number }): void {
-    if (this.muted || !this.ctx || !this.buses) return;
+    if (this.silenced || !this.ctx || !this.buses) return;
     this.playSpec(TONES[id], opts?.detune ?? 0, opts?.pan, opts?.gain);
   }
 
@@ -200,7 +251,7 @@ export class Audio {
    * survives a crowded room even when the mix cannot (amendment 56).
    */
   playHorn(hornId: string, gain: number): void {
-    if (this.muted || !this.ctx || !this.buses) return;
+    if (this.silenced || !this.ctx || !this.buses) return;
     if (this.liveHorns >= HORN_MAX_CONCURRENT) return;
     const voice = this.resolveHornVoice(hornVoice(hornId));
     const peak = hornGain(voice, gain);

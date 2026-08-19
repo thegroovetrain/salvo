@@ -249,6 +249,31 @@ describe('escapeAction — ESC closes the TOPMOST surface, never returns to port
     expect(escapeAction({ results: true, refit: true, settings: true })).toBe('closeResults');
     expect(escapeAction({ ...none, results: true })).toBe('closeResults');
   });
+
+  // ERIC RULING 2026-08-19 — from spectate, ESC puts the SCORE SCREEN back,
+  // not the settings overlay. The pair below is the whole toggle: nothing open
+  // while spectating reopens it, and the reopened modal still closes to the
+  // water, so ESC alternates instead of latching either way.
+  it('SPECTATING with nothing open, ESC REOPENS THE SCORE SCREEN — not settings', () => {
+    expect(escapeAction(none, true)).toBe('reopenResults');
+  });
+
+  it('and the reopened modal still closes back to the water, so ESC is a toggle', () => {
+    expect(escapeAction({ ...none, results: true }, true)).toBe('closeResults');
+  });
+
+  it('the spectating flag defaults to false, so every pre-existing caller is unchanged', () => {
+    expect(escapeAction(none)).toBe('openSettings');
+    expect(escapeAction(none, false)).toBe('openSettings');
+  });
+
+  // Not a style preference: while ALIVE the refit modal and the helm are live,
+  // and a stray ESC that threw a full-screen score overlay over a moving ship
+  // would be a combat hazard rather than a convenience.
+  it('a LIVE player is untouched — ESC still opens settings, never a score screen', () => {
+    expect(escapeAction({ ...none, refit: true }, false)).toBe('closeRefit');
+    expect(escapeAction({ ...none, settings: true }, false)).toBe('closeSettings');
+  });
 });
 
 describe('canOpenSurface — nothing ever stacks, in either direction', () => {
@@ -625,11 +650,25 @@ describe('the analytics consent row', () => {
     overlay.destroy();
   });
 
-  it('renders an UNANSWERED choice as OFF, which is the truth under Basic mode', () => {
-    // Nothing is measured while the question is open — no Google script exists
-    // until an explicit grant — so OFF is honest rather than a placeholder.
+  it('renders an UNANSWERED choice as ON, which is the truth under Advanced mode', () => {
+    // INVERTED BY STORY 7.4 (Eric rulings 2026-08-19), and the old assertion is
+    // RETIRED rather than weakened. 7.2 asserted OFF because Consent Mode BASIC
+    // meant no Google script existed until an explicit grant, so OFF was the
+    // literal truth. 7.4 deleted the consent card, adopted Google's own CMP and
+    // moved to ADVANCED with a GRANTED global default — a player with no local
+    // override IS being measured, so OFF would now be a lie about shipped
+    // behaviour. `null` means "no local override", not "unanswered question".
     const m = mount(null);
     expect(m.text()).toContain('ANALYTICS');
+    expect(isSelected(analyticsButton('ON'))).toBe(true);
+    m.overlay.destroy();
+  });
+
+  it('only an EXPLICIT local denial reads as OFF', () => {
+    // The other half of the inversion: `null` sits with granted, `false` alone
+    // is off. Pinned separately so a future `=== true` regression cannot pass by
+    // making both cases agree.
+    const m = mount(false);
     expect(isSelected(analyticsButton('OFF'))).toBe(true);
     m.overlay.destroy();
   });

@@ -1495,54 +1495,23 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE CONSENT BAR (Story 7.2, Eric ruling R2 — *"a NON-BLOCKING bottom bar"*;
-   * home stays fully usable while it is up).
+   * THE PRIVACY POLICY'S ADDRESS — and, since Story 7.4, nothing else.
    *
-   * THE Z RUNG IS THE ONE REAL DECISION HERE, AND IT SITS AT THE TOP OF THE
-   * LADDER. The ratified ladder is toasts 900 < refit 1000 < settings 1050 <
-   * home 1100 < queue modal 1150 < class bay 1200; this takes **1250**, above
-   * every one of them. The reason is that the rungs above the home are all
-   * `position:fixed;inset:0` elements that HIT-TEST EVERY PIXEL even when they
-   * paint nothing (see `ui/queueModal.ts`'s own note on exactly this) — so any
-   * rung below them would leave the consent choice visible but unclickable for
-   * as long as one of them was open, which for a queue wait is legitimately
-   * minutes. A legal control that cannot be answered is a worse outcome than
-   * one that overlaps a footer for a few seconds.
+   * Story 7.2 shipped a whole consent-card geometry block here (a z-1250 rung,
+   * a fade, padding, gap, inset, width cap and two radii). Eric deleted the card
+   * itself on 2026-08-19 — Google's own certified CMP is the single consent
+   * dialog now, covering ads and analytics together — so the geometry went with
+   * it in the cycle-69 grey-NO-DATA style: no dead knob survives a deleted
+   * surface. The z-1250 rung is retired from the ladder; the ladder's own note
+   * lives on `settings.zIndex`.
    *
-   * It is the only surface in the port allowed above the class bay, and it earns
-   * that by being a bottom-anchored strip that occludes no centred content and
-   * by leaving the instant it is answered.
+   * `policyHref` SURVIVES BECAUSE IT IS LOAD-BEARING, and by more than one
+   * reader. `ui/home.ts` builds the port's PRIVACY link from it and the
+   * How-to-Play page footers to it, and that anchor has to be a real, crawlable
+   * URL for AdSense's site review — which is exactly why Story 7.2 built it as
+   * an `<a>` rather than a click handler.
    */
   consent: {
-    /** Above every port rung — see the ladder note above. */
-    zIndex: 1250,
-    /**
-     * ms — the entrance opacity fade.
-     *
-     * AN OPACITY FADE IS THE ONLY DOM ANIMATION THAT SHIPS ANYWHERE in this
-     * client (`ui/upgradeToast.ts` 600ms, `ui/killFeed.ts` 1.2s), and it is the
-     * only entrance that can be safe UNCONDITIONALLY: the bar appears before a
-     * first-time player has had any chance to set a motion preference, so it may
-     * not read that setting and it may not slide, pulse or flash. 600ms is the
-     * toast's own figure.
-     */
-    fadeMs: 600,
-    /** Card padding (`y x`). */
-    pad: '18px 20px',
-    /** Gap (px) between the card's stacked blocks. */
-    gap: 14,
-    /** Distance (px) from the two viewport edges it hugs. Matches the
-     *  population register's own 22/26 corner insets so the two bottom corners
-     *  read as a pair rather than as two unrelated floats. */
-    inset: 24,
-    /** Card width cap (px). Narrow enough that it never shares horizontal space
-     *  with the centred port column at the 1366px floor viewport — which is the
-     *  whole reason it is a corner card and not a full-width strip. */
-    maxWidth: 380,
-    /** {rounded.lg} — panel corner, matching results/settings. */
-    radius: 12,
-    /** {rounded.md} — the two actions' corner radius, matching results'. */
-    controlRadius: 8,
     /** Where the policy link points. Eric ruling R8: the policy lives at
      *  `/privacy`, and `client/privacy/index.html` is the Rollup entry that puts
      *  it there. */
@@ -1822,16 +1791,18 @@ export const CLIENT_CONFIG = {
      *
      * THE FULL RATIFIED LADDER, stated once here: toast stacks 900 < refit modal
      * 1000 < settings 1050 < home 1100 < queue modal 1150 (ui/queueModal.ts,
-     * Eric 2026-08-18) < class bay 1200 < consent bar 1250 (`consent.zIndex`,
-     * Story 7.2). The queue modal takes the rung ABOVE the home because it
-     * covers the port while a join is in flight; the class bay is above it in
-     * turn but unreachable then (`openLayer` refuses while busy); the consent
-     * bar tops the ladder because every rung above the home hit-tests the whole
-     * viewport, and a consent choice that cannot be clicked is worse than one
-     * that overlaps (see `consent.zIndex` for the full argument).
+     * Eric 2026-08-18) < class bay 1200. The queue modal takes the rung ABOVE
+     * the home because it covers the port while a join is in flight; the class
+     * bay is above it in turn but unreachable then (`openLayer` refuses while
+     * busy). The class bay is the top of the ladder.
      *
-     * Two of these rungs are config values — this one and `consent.zIndex`. The
-     * rest are literals at their call sites, each carrying a pointer back here.
+     * STORY 7.2's CONSENT BAR HELD A 1250 RUNG ABOVE ALL OF THEM, AND IT IS
+     * RETIRED (Story 7.4): Eric deleted the self-built consent card in favour of
+     * Google's own CMP, which manages its own stacking. No client rung replaces
+     * it, and nothing may claim 1250 without a fresh cut of this register.
+     *
+     * This is now the ONLY rung that is a config value. The rest are literals at
+     * their call sites, each carrying a pointer back here.
      */
     zIndex: 1050,
     /** Panel geometry (px) — the DOM port-chrome register (panel bed, 1px
