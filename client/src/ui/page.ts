@@ -123,6 +123,37 @@ export function makePageNote(text: string): HTMLElement {
   return el;
 }
 
+/**
+ * An inline link — the body register in phosphor, underlined.
+ *
+ * `makePageParagraph` and friends set `textContent`, so before this helper NO
+ * page could render a clickable anything: the privacy policy's contact address
+ * and both Google policy URLs shipped as dead text (Story 7.2 review gate).
+ * Returns an `<a>` that composes either way — spliced into a paragraph beside
+ * text nodes, or stood up on its own as a page block.
+ *
+ * UNDERLINED, not colour-only: phosphor-on-panel is also the page's HEADING
+ * colour, so hue alone would not distinguish a link from a system line (and
+ * would carry nothing at all for a colour-blind reader). `rel` is set because a
+ * page's links point off-site by construction; the target is deliberately NOT
+ * forced to a new tab — that is the visitor's call, and a page reached by
+ * navigation always has the browser's own way back.
+ */
+export function makePageLink(text: string, href: string): HTMLElement {
+  const el = document.createElement('a');
+  el.textContent = text;
+  el.href = href;
+  el.rel = 'noopener noreferrer';
+  el.style.cssText = [
+    registerCss('body'),
+    'color:var(--hc-phosphor)',
+    'text-decoration:underline',
+    'text-underline-offset:2px',
+    'cursor:pointer',
+  ].join(';');
+  return el;
+}
+
 /** A bulleted list of prose items — same register as a paragraph. */
 export function makePageList(items: readonly string[]): HTMLElement {
   const ul = document.createElement('ul');
@@ -142,6 +173,94 @@ export function makePageSection(heading: string, ...children: HTMLElement[]): HT
   el.style.cssText = 'display:flex;flex-direction:column;gap:10px';
   el.append(makePageHeading(heading), ...children);
   return el;
+}
+
+// --- the controls table -------------------------------------------------------
+//
+// ERIC RULING (2026-08-19): keys on a page render as KEYCAP BOXES, matching the
+// in-game treatment — never as plain text.
+//
+// The canonical DOM keycap is the refit card's digit chip (ui/upgradeMenu.ts's
+// `KEY_CHIP_CSS`): a 22px square, a 1px `currentColor` hairline, `400 14px` mono,
+// flex-centred. It is RESTATED here rather than imported, exactly as this module
+// already restates the results button chip (see `makeKeyChip` below) — a page
+// must not pull the spend window in to draw a box, and the two chips answer to
+// different owners. The 22px/14px figures are the ones that module carries in
+// `CLIENT_CONFIG.upgrade`; they are literals here because config.ts's `page`
+// block has no keycap token and a page may not read the refit block.
+
+/** One row of the controls table. */
+export interface KeyBinding {
+  /** One or more keycaps for this row, e.g. ['W','S'] or ['TAB'] or ['1','2','3','4']. */
+  keys: readonly string[];
+  /** What the key does, in sentence case. */
+  action: string;
+}
+
+const KEYCAP_SIZE_PX = 22;
+
+/** The keycap square. Border goes on through `applyHairline` as longhands, never
+ *  the shorthand — CSSOM hazard 1 above, and the geometry has to stay
+ *  assertable. */
+const KEYCAP_CSS = [
+  'display:inline-flex',
+  'align-items:center',
+  'justify-content:center',
+  // `min-width` rather than `width`: a wide cap (TAB, ENTER, SHIFT) grows
+  // sideways, but the HEIGHT and the type never move, so a mixed row still
+  // reads as one family of boxes sitting on one line.
+  `min-width:${KEYCAP_SIZE_PX}px`,
+  `height:${KEYCAP_SIZE_PX}px`,
+  'padding:0 5px',
+  'box-sizing:border-box',
+  'flex:none',
+  'color:var(--hc-phosphor)',
+  'font:400 14px var(--hc-font-mono)',
+  'white-space:nowrap',
+].join(';');
+
+/** A single keycap box. Internal: pages get keys through `makeKeyTable`, so a
+ *  cap and its row can never drift apart. */
+function makeKeycap(label: string): HTMLElement {
+  const cap = document.createElement('span');
+  cap.textContent = label;
+  cap.style.cssText = KEYCAP_CSS;
+  applyHairline(cap, 'currentColor');
+  return cap;
+}
+
+/**
+ * The controls table — one row per binding: its keycaps, then what they do.
+ *
+ * A real `<table>`, not a grid of divs: this IS tabular data, the column
+ * alignment comes free, and assistive tech gets the row/cell structure for
+ * nothing. The keys cell is `nowrap` and content-sized (`width:1%`) while the
+ * action cell takes the rest, so the table can never widen past the 1100px
+ * column — the action text wraps instead, which is what keeps the panel free of
+ * a horizontal scrollbar at the ratified 1366x768 floor.
+ */
+export function makeKeyTable(rows: readonly KeyBinding[]): HTMLElement {
+  const table = document.createElement('table');
+  table.style.cssText = 'border-collapse:collapse;width:100%;max-width:100%';
+  const tbody = document.createElement('tbody');
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    const keys = document.createElement('td');
+    keys.style.cssText = 'padding:5px 16px 5px 0;vertical-align:top;white-space:nowrap;width:1%';
+    const caps = document.createElement('div');
+    caps.style.cssText = 'display:flex;align-items:center;gap:6px';
+    for (const key of row.keys) caps.appendChild(makeKeycap(key));
+    keys.appendChild(caps);
+    const action = document.createElement('td');
+    action.textContent = row.action;
+    action.style.cssText =
+      `${registerCss('body')};color:var(--hc-text-primary);line-height:1.6;` +
+      'padding:5px 0;vertical-align:top';
+    tr.append(keys, action);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
 }
 
 // --- the chrome ---------------------------------------------------------------
@@ -257,6 +376,26 @@ function makeHeader(opts: PageOptions): HTMLElement {
 }
 
 /**
+ * THE ONE LIVE MOUNT. The page chrome is a SINGLETON, and a second `renderPage`
+ * tears the previous one down rather than refusing.
+ *
+ * Why a singleton at all: the root is `position:fixed;inset:0` and the ESC
+ * binding is document-level and capture-phase, so two simultaneous mounts are
+ * never a composition — they are two full-viewport sheets with duplicate ids
+ * firing `onBack` twice per key press. There is no arrangement in which the
+ * second one is anything but a bug.
+ *
+ * Why TEAR DOWN rather than REFUSE: the caller that actually hits this is one
+ * that discarded its handle (`src/privacy/main.ts` does exactly that, which is
+ * how the undisposed capture-phase listener got ledgered at the 7.2 review
+ * gate), so refusing would leave the stale page on screen and the fresh call
+ * silently doing nothing — a failure the caller cannot see and cannot fix
+ * without the handle it already threw away. Replacing is the behaviour that is
+ * correct WITHOUT the caller's cooperation, which is the whole point.
+ */
+let liveMount: MountedPage | null = null;
+
+/**
  * Build and mount the page. Returns its root plus the ONE teardown path, which
  * is also the only place the ESC binding is removed — a page that outlived its
  * listener would keep answering a key for a screen that is no longer there.
@@ -265,8 +404,16 @@ function makeHeader(opts: PageOptions): HTMLElement {
  * may have its own document-level bindings, and the page that is actually on top
  * should get the key first. `destroy()` unbinds with the same flag, or the
  * removal silently does nothing.
+ *
+ * Two ways the binding can no longer outlive its page: mounting again replaces
+ * the previous mount (see `liveMount`), and the handler DISOWNS ITSELF if its
+ * root has left the document — a host that drops the root without calling
+ * `destroy()` would otherwise leave a capture-phase key that navigates home
+ * behind a screen that is gone.
  */
 export function renderPage(opts: PageOptions): MountedPage {
+  liveMount?.destroy();
+
   const root = document.createElement('div');
   if (opts.id !== undefined) root.id = opts.id;
   root.style.cssText = ROOT_CSS;
@@ -284,20 +431,26 @@ export function renderPage(opts: PageOptions): MountedPage {
   (opts.host ?? document.body).appendChild(root);
 
   let live = true;
-  const onKey = (e: KeyboardEvent): void => {
+  const destroy = (): void => {
+    if (!live) return;
+    live = false;
+    document.removeEventListener('keydown', onKey, true);
+    root.remove();
+    if (liveMount === mount) liveMount = null;
+  };
+  function onKey(e: KeyboardEvent): void {
     if (e.key !== 'Escape') return;
+    // The page left the DOM without a teardown: unbind instead of navigating.
+    if (!root.isConnected) {
+      destroy();
+      return;
+    }
     e.preventDefault();
     opts.onBack();
-  };
+  }
   document.addEventListener('keydown', onKey, true);
 
-  return {
-    root,
-    destroy(): void {
-      if (!live) return;
-      live = false;
-      document.removeEventListener('keydown', onKey, true);
-      root.remove();
-    },
-  };
+  const mount: MountedPage = { root, destroy };
+  liveMount = mount;
+  return mount;
 }
