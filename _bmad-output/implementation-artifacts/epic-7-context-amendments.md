@@ -506,3 +506,85 @@ covering bug into an overflow bug without fixing anything. This is the container
   catch somebody pasting Google's stock snippet into the head.
 - `npm run check` green at **5 202 tests** (746 shared / 1 505 server / 2 951 client), up from 5 127.
   `--verify-bundle` still passes, so NFR17's dead-strip is intact.
+
+### R15-R16 — two ERIC RULINGS taken AT THE REVIEW GATE
+
+- **R15 — CONSENT IS WITHDRAWABLE IN-PRODUCT.** The shipped answer to "how do I change my mind"
+  was *clear site data*, which also destroys the callsign, class, colour and every accessibility
+  setting — **strictly harder than the single ACCEPT press that granted it**, which is the specific
+  asymmetry GDPR Art. 7(3) names. A **PRIVACY section with an ANALYTICS on/off row** now sits in the
+  settings overlay. It is wired by **CALLBACK, not by import**, following `ui/consentBar.ts`: the
+  overlay stays renderable with no analytics layer, `analytics/ga.ts` remains the only module that
+  knows GA4 exists, and every pre-7.2 construction site is byte-identical because the dep is
+  optional. An **unanswered** player renders as OFF, which is the truth under Basic mode rather than
+  a placeholder — nothing is measured until an explicit grant — so the row is a real second door
+  INTO consent as well as out of it, and is the only route left for a player who declined on day one
+  and later changes their mind, since the card is gone by then.
+- **R16 — GA4'S ENHANCED MEASUREMENT STAYS ON; THE POLICY WIDENS INSTEAD.** The review found a claim
+  the story would otherwise have shipped wrong: `send_page_view: false` suppresses `page_view` and
+  NOTHING else, while gtag.js independently emits `session_start` / `first_visit` /
+  `user_engagement`, and a GA4 web stream ships with **Enhanced Measurement ON by default** —
+  property-side settings **no code in this repo can control or test**. `analytics.test.ts` is
+  structurally blind to it: it can only ever observe what this client sends. Offered the choice,
+  Eric kept the data and took the longer disclosure. The policy now names scroll depth, outbound
+  clicks, file downloads, site search and embedded video explicitly, and states which of them this
+  game can realistically produce (scrolling and outbound clicks; it has no downloads, no site search
+  and no video). **NFR19's "five events" is therefore a statement about what THE GAME REPORTS, not
+  about what the property records** — the policy now says exactly that, and so does this ledger.
+
+### The review gate's own findings (2 adversarial passes, both at session model capability)
+
+Both passes independently found the same two highest-severity defects, and **one of them was in the
+fix this story wrote**:
+
+- **THE CONSENT CARD WAS NEVER TORN DOWN ON DEPLOY.** `showConsentBar` had exactly one caller and
+  `hideConsentBar` had none outside its own module, so an UNANSWERED card at z-1250 — above every
+  rung — rode out of port, through the queue modal, into the live HUD, the death banner and the
+  results modal, dismissible only by answering it mid-combat. It also **falsified the card's own
+  same-tab rationale**: the policy link is same-tab because "the player is standing in port with
+  nothing in flight", which stops being true the moment the card outlives the port. Fixed at the
+  deploy door; taking it down records no answer, so the question is simply asked again at the next
+  port.
+- **R13's ONE-SHOT WAS SPENT ON THE FIRST FRAME, NOT THE FIRST KNOWN PHASE — so R13 did not work.**
+  `publicState` is `g.room.state ?? {}` and every read falls back to `'waiting'`, so on a
+  refresh-resume the flag was consumed by a frame rendered before the schema first synced, and the
+  real `waiting -> active` edge a few frames later fired the horn and `portal.matchStart()` anyway.
+  The guard now waits for `matchPhase !== undefined`. **The failure was one-directional** — it could
+  never swallow a REAL start — which is exactly why it survived the tests: every test drove
+  `audioCues` directly with known phases, and the defect lived in the caller.
+  Also corrected: the original rationale claimed the funnel hung on that edge. It does not —
+  `analytics.matchStart()` lives in `startGame`, which the resume path never calls.
+
+**THE FUNNEL DID NOT RECONCILE, AND NOW IT DOES.** `match_end` fired only from the results modal, so
+ABANDON MATCH produced `match_start -> requeue` with no end; and a refresh-resume could report an
+`end` for a match this page never saw begin. Both close on one module-level `funnelStartSent` latch
+plus a shared `sendMatchEndOnce()` reached from both real exits. The two reloads that reach port with
+**no player action** (the passive 45s room disposal, the disconnect timeout) enter neither path, so
+they stay excluded structurally rather than by a check that could rot.
+
+**`transport_type` MOVED OFF THE EVENT AND ONTO THE CONFIG.** It shipped as a second parameter with a
+comment arguing it was a directive rather than payload. gtag.js accepts it on `config`, so **NFR19's
+"the only parameter that ships is `mode`" is now literally true with no exception to document** —
+which is strictly better than a well-argued exception.
+
+**THE STATIC GUARD HAD A BLIND SPOT AT THE EXACT PAGE THAT MATTERS MOST.** It read `index.html` only,
+leaving `privacy/index.html` — the newer, less-watched entry, and the natural place to paste a CMP
+snippet — unguarded. Both pages are now scanned, and the privacy page's single-script shape is pinned
+too. Today's build was clean, so this was a guard gap rather than a live leak.
+
+Also fixed: the pre-consent queue evicted its OLDEST entry, which is `home` — the first event queued
+and the reason the queue exists — so an overflowing funnel flushed with no beginning; it now drops
+the newest. `activate()` cleared the queue BEFORE knowing the tag would build, so a `startGa` throw
+discarded `home`/`mode_pick` with no retry. The dev-server redirect dropped the query string (a
+policy link is exactly the kind that carries `?utm_source=`) and did not cover `vite preview`.
+
+**Three policy misstatements were caught and corrected, and this is the class of defect worth
+naming**: the policy claimed *"do not track" and cookie-blocking settings are respected* when **no
+code reads either signal** (deleted — a GPC signal is a binding opt-out in several US states, and
+the controller is US-based, so a future GPC read is a real candidate rather than a nicety); it
+claimed GA4 *"measures five moments and nothing else"* (R16); and its short version said *nothing is
+kept on our servers after your match ends* while its own SERVER LOGS section correctly described
+per-connection ids and Render's edge logs. Separately, and found before the gate: the storage
+inventory described `hullcracker.session` as a match-resume token when it is the single-session
+LOCK, and omitted the legacy `hullcracker-muted` key entirely. **A privacy policy that misstates
+collection is a defect, not a wording preference** — every claim in it is now checked against code.

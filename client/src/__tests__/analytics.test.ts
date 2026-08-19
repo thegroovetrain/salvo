@@ -320,14 +320,18 @@ describe('queue-then-flush across the undecided window', () => {
     expect(eventNames()).toEqual([]);
   });
 
-  it('is bounded — past the cap the OLDEST is dropped, so it can never leak', () => {
+  it('is bounded, and past the cap it drops the NEWEST so the funnel keeps its head', () => {
+    // Reversed at the review gate. Drop-oldest evicted `home` — the first event
+    // queued and the whole reason the queue exists — so a player who cycled mode
+    // picks before answering would have flushed a funnel with no beginning. A
+    // funnel reads forwards; the earliest events are the ones worth keeping.
     const seam = bootedSeam();
-    for (let i = 0; i < 40; i++) seam.matchStart();
     seam.home();
+    for (let i = 0; i < 40; i++) seam.matchStart();
     seam.grantConsent();
     const names = eventNames();
     expect(names.length).toBeLessThanOrEqual(8);
-    expect(names[names.length - 1]).toBe('home'); // newest survives
+    expect(names[0]).toBe('home'); // the head survives
   });
 });
 
@@ -358,7 +362,12 @@ describe('the funnel is exactly five events, and `mode` is the only parameter', 
     expect(matchEnd.params).toEqual({});
   });
 
-  it('carries no key other than `mode` (and requeue`s transport directive) anywhere', () => {
+  it('carries NO key other than `mode`, anywhere — literally, with no exception', () => {
+    // This used to allow `transport_type` as a second key and call it a
+    // directive rather than payload. The review gate was right that a documented
+    // exception to NFR19 is worse than not needing one: gtag.js takes the
+    // transport on `config`, so every parameter bag is now empty except
+    // `mode_pick`'s. See the config assertion in the beacon suite below.
     localStorage.setItem(CONSENT_KEY, 'granted');
     Object.defineProperty(navigator, 'sendBeacon', { value: () => true, configurable: true });
     const seam = bootedSeam();
@@ -368,7 +377,8 @@ describe('the funnel is exactly five events, and `mode` is the only parameter', 
     seam.matchEnd();
     seam.requeue();
     const keys = new Set(events().flatMap((e) => Object.keys(e.params)));
-    expect([...keys].sort()).toEqual(['mode', 'transport_type']);
+    expect([...keys]).toEqual(['mode']);
+    Reflect.deleteProperty(navigator, 'sendBeacon');
   });
 });
 
@@ -377,12 +387,15 @@ describe('requeue must outlive the reload', () => {
     Reflect.deleteProperty(navigator, 'sendBeacon');
   });
 
-  it('asks for beacon transport when the browser has sendBeacon', () => {
+  it('asks for beacon transport ON THE CONFIG, so every hit gets it', () => {
     Object.defineProperty(navigator, 'sendBeacon', { value: () => true, configurable: true });
     localStorage.setItem(CONSENT_KEY, 'granted');
     const seam = bootedSeam();
     seam.requeue();
-    expect(events()).toEqual([{ name: 'requeue', params: { transport_type: 'beacon' } }]);
+    const config = commands().find((c) => c[0] === 'config');
+    expect((config?.[2] as Record<string, unknown>).transport_type).toBe('beacon');
+    // …and the event itself stays empty, which is what NFR19 asks for.
+    expect(events()).toEqual([{ name: 'requeue', params: {} }]);
   });
 
   it('still sends — and never throws — on a browser with no sendBeacon (jsdom has none)', () => {
@@ -391,14 +404,21 @@ describe('requeue must outlive the reload', () => {
     const seam = bootedSeam();
     expect(() => seam.requeue()).not.toThrow();
     expect(events()).toEqual([{ name: 'requeue', params: {} }]);
+    const config = commands().find((c) => c[0] === 'config');
+    expect((config?.[2] as Record<string, unknown>).transport_type).toBeUndefined();
   });
 
-  it('a queued requeue keeps beacon transport when it is flushed', () => {
+  it('a queued requeue still gets beacon transport when it is flushed', () => {
+    // The transport now rides the config that `activate()` sends BEFORE draining
+    // the queue, so a pre-consent requeue is covered by construction rather than
+    // by carrying the directive around with it.
     Object.defineProperty(navigator, 'sendBeacon', { value: () => true, configurable: true });
     const seam = bootedSeam();
     seam.requeue();
     seam.grantConsent();
-    expect(events()[0].params).toEqual({ transport_type: 'beacon' });
+    const config = commands().find((c) => c[0] === 'config');
+    expect((config?.[2] as Record<string, unknown>).transport_type).toBe('beacon');
+    expect(events()[0]).toEqual({ name: 'requeue', params: {} });
   });
 });
 
@@ -443,8 +463,15 @@ describe('nothing in the analytics graph may reach the game', () => {
 // until Accept" posture is undone the moment somebody pastes Google's stock
 // snippet into the head, and no runtime assertion here would notice. Read off
 // disk, in the style foghorn/projectiles/resumeWiring already use for main.ts.
-describe('index.html carries no third-party script (Consent Mode BASIC)', () => {
-  const indexHtml = (): string => readFileSync(join(process.cwd(), 'index.html'), 'utf8');
+describe('EVERY shipped page carries no third-party script (Consent Mode BASIC)', () => {
+  // BOTH entries, not just the game's (review gate). The guard originally read
+  // `index.html` alone, which left `privacy/index.html` — the NEWER, less-watched
+  // page, and the natural place somebody would paste a CMP snippet — outside the
+  // net. A leak there would be on the one page whose whole job is to say there
+  // isn't one.
+  const PAGES = ['index.html', 'privacy/index.html'] as const;
+  const pageHtml = (rel: string): string => readFileSync(join(process.cwd(), rel), 'utf8');
+  const indexHtml = (): string => pageHtml('index.html');
 
   it('has exactly one script element, and it is our own module entry', () => {
     const tags = indexHtml().match(/<script\b[^>]*>/g) ?? [];
@@ -452,20 +479,30 @@ describe('index.html carries no third-party script (Consent Mode BASIC)', () => 
     expect(tags[0]).toContain('src="/src/main.ts"');
   });
 
-  it('names no analytics or tag-manager origin anywhere', () => {
-    const html = indexHtml();
-    for (const host of ['googletagmanager.com', 'google-analytics.com', 'gtag/js', 'dataLayer']) {
-      expect(html).not.toContain(host);
+  it('names no analytics or tag-manager origin anywhere, on either page', () => {
+    for (const page of PAGES) {
+      const html = pageHtml(page);
+      for (const host of ['googletagmanager.com', 'google-analytics.com', 'gtag/js', 'dataLayer']) {
+        expect(html, `${page} names ${host}`).not.toContain(host);
+      }
     }
   });
 
-  it('the ONLY third-party origins it may name are the font CDN', () => {
+  it('the privacy page has exactly one script element, and it is its own entry', () => {
+    const tags = pageHtml('privacy/index.html').match(/<script\b[^>]*>/g) ?? [];
+    expect(tags).toHaveLength(1);
+    expect(tags[0]).toContain('/src/privacy/main.ts');
+  });
+
+  it('the ONLY third-party origins EITHER page may name are the font CDN', () => {
     // Pre-existing and disclosed in the privacy policy rather than removed —
     // Google Fonts receives every visitor's IP on page load, which is exactly
     // why the policy names it. A NEW third-party origin appearing here should
     // fail this test and force the same disclosure decision.
-    const origins = indexHtml().match(/https:\/\/[a-z0-9.-]+/g) ?? [];
-    const hosts = [...new Set(origins.map((o) => o.replace('https://', '')))];
-    expect(hosts.sort()).toEqual(['fonts.googleapis.com', 'fonts.gstatic.com']);
+    for (const page of PAGES) {
+      const origins = pageHtml(page).match(/https:\/\/[a-z0-9.-]+/g) ?? [];
+      const hosts = [...new Set(origins.map((o) => o.replace('https://', '')))];
+      expect(hosts.sort(), page).toEqual(['fonts.googleapis.com', 'fonts.gstatic.com']);
+    }
   });
 });

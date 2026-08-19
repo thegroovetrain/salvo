@@ -8,11 +8,30 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-
 
 /** The connect-style middleware shape the dev server's `use()` takes. Declared
  *  locally so this config needs no `@types/connect` dependency. */
+type DevServer = { middlewares: { use: (fn: DevMiddleware) => void } };
+
 type DevMiddleware = (
   req: { url?: string },
   res: { statusCode: number; setHeader: (k: string, v: string) => void; end: () => void },
   next: () => void,
 ) => void;
+
+/**
+ * `/privacy` -> `/privacy/`, the same 301 `express.static` issues in production.
+ * The QUERY STRING IS CARRIED (review gate): dropping it made a dev redirect
+ * diverge from prod for any link carrying `?utm_source=`, which is exactly the
+ * kind of link a privacy policy gets shared with. Matches the bare path ONLY, so
+ * `/privacyfoo` and every asset under `/privacy/` fall straight through.
+ */
+const privacyRedirect: DevMiddleware = (req, res, next) => {
+  const url = req.url ?? '';
+  const q = url.indexOf('?');
+  const path = q === -1 ? url : url.slice(0, q);
+  if (path !== '/privacy') return next();
+  res.statusCode = 301;
+  res.setHeader('Location', q === -1 ? '/privacy/' : `/privacy/${url.slice(q)}`);
+  res.end();
+};
 
 // THE FUNCTION FORM IS LOAD-BEARING (Story 7.1). This took a plain object until
 // this cycle; the perf build needs `mode`, which is the ONE input separating a
@@ -111,14 +130,15 @@ export default defineConfig(({ mode }) => ({
        */
       name: 'hc-privacy-dev-url',
       apply: 'serve' as const,
-      configureServer(server: { middlewares: { use: (fn: DevMiddleware) => void } }) {
-        server.middlewares.use((req, res, next) => {
-          const path = (req.url ?? '').split('?')[0];
-          if (path !== '/privacy') return next();
-          res.statusCode = 301;
-          res.setHeader('Location', '/privacy/');
-          res.end();
-        });
+      configureServer(server: DevServer) {
+        server.middlewares.use(privacyRedirect);
+      },
+      // `vite preview` serves the BUILT dist and is the closest local stand-in
+      // for production, so it needs the same redirect: `apply: 'serve'` covers
+      // the dev server only, and without this `/privacy` behaved differently in
+      // preview than in either dev or prod (review gate).
+      configurePreviewServer(server: DevServer) {
+        server.middlewares.use(privacyRedirect);
       },
     },
   ],

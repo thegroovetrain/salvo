@@ -39,6 +39,9 @@ export interface PolicySection {
   heading: string;
   paragraphs?: readonly string[];
   bullets?: readonly string[];
+  /** Prose that must read AFTER the bullets — used where a list needs a
+   *  qualification that would be wrong to state before it. */
+  trailing?: readonly string[];
 }
 
 export const POLICY_TITLE = 'PRIVACY POLICY';
@@ -55,9 +58,10 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'THE SHORT VERSION',
     paragraphs: [
-      'Hullcracker.io has no accounts, no sign-up and no player database. Nothing about you is '
-      + 'kept on our servers after your match ends. Your callsign, class and settings live in your '
-      + 'own browser and are never sent to us as a profile.',
+      'Hullcracker.io has no accounts, no sign-up and no player database. Your callsign, class '
+      + 'and settings live in your own browser and are never sent to us as a profile, and nothing '
+      + 'about you is stored on our servers once your match is over — beyond ordinary server logs, '
+      + 'which are described below.',
       'Two things do involve other companies, and both are set out in full below: the page loads '
       + 'its typefaces from Google Fonts, and — only if you accept — it uses Google Analytics to '
       + 'count how the game is used.',
@@ -84,11 +88,14 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       + 'class, launch mode, colour preference and horn',
       'hullcracker.settings — audio, motion, UI scale and other accessibility settings',
       'hullcracker.helm — whether you have already been shown the helm hints',
-      'hullcracker.session, hullcracker.session.handoff — the short-lived tokens that let a '
-      + 'refresh drop you back into a match in progress',
+      'hullcracker.session, hullcracker.session.handoff — how the game keeps you to one match at '
+      + 'a time in this browser, and hands that place over when you move to another tab',
       'hullcracker.consent — your answer to the analytics question on this page',
+      'hullcracker-muted — a mute setting kept by older versions of the game, still read if your '
+      + 'browser has one from before',
       'hullcracker.resume, hullcracker.tab — per-tab values that live only as long as the tab is '
-      + 'open (session storage)',
+      + 'open (session storage). hullcracker.resume is what lets a refresh drop you back into a '
+      + 'match already in progress',
     ],
   },
   {
@@ -120,7 +127,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'So the home screen can tell you whether anyone else is around, your browser asks our server '
       + 'for the current counts every few seconds, sending a random value that identifies the '
       + 'browser tab. That value is generated fresh for each tab, is held in memory only, is never '
-      + 'written to your device, and is discarded by the server 30 seconds after your last request. '
+      + 'written to your device, and stops counting 30 seconds after your last request — the server '
+      + 'clears it out as later requests come through. '
       + 'It is not linked to your callsign or to anything else about you.',
     ],
   },
@@ -144,8 +152,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       + 'DECLINE nothing ever will be. Your answer is remembered in your browser so you are not '
       + 'asked again.',
       'Google Analytics sets a first-party cookie that recognises your browser on later visits, '
-      + 'and records your IP address as part of the request. It measures five moments and nothing '
-      + 'else:',
+      + 'and records your IP address as part of the request. The game itself reports five moments '
+      + 'and nothing else:',
     ],
     bullets: [
       'reaching the home screen',
@@ -153,6 +161,15 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'a match starting',
       'a match ending',
       'returning to port',
+    ],
+    trailing: [
+      'Google Analytics also records some things on its own, without the game asking. Its script '
+      + 'notes that a session started and whether this browser has been here before, and Google’s '
+      + '"enhanced measurement" feature is switched on, which can additionally record how far down '
+      + 'a page you scroll, clicks on links that lead off this site, file downloads, searches made '
+      + 'through a site-search box, and plays of embedded video. In practice this game has no '
+      + 'downloads, no site search and no embedded video, so what it realistically sees is page '
+      + 'scrolling and outbound link clicks. None of it carries anything about your play.',
     ],
   },
   {
@@ -193,12 +210,15 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'CHANGING YOUR MIND',
     paragraphs: [
-      'Your analytics answer is stored in your browser. To change it, clear site data for '
-      + 'hullcracker.io in your browser settings — that removes the stored answer along with your '
-      + 'other saved preferences, and the analytics bar will ask again on your next visit. '
-      + 'Clearing site data also removes the Google Analytics cookie. Your browser’s own '
-      + '"do not track" or cookie-blocking settings are respected by simply never being asked to '
-      + 'load anything you have blocked.',
+      'You can change your answer at any time, and it is no harder than giving it was: open '
+      + 'SETTINGS from the gear on the home screen and use the ANALYTICS row. Turning it off stops '
+      + 'any further measurement immediately; turning it on starts it. Your choice is remembered '
+      + 'in your browser.',
+      'Clearing site data for hullcracker.io also clears the answer and the Google Analytics '
+      + 'cookie — but it removes your saved callsign, class, colour and settings along with them, '
+      + 'so the settings row is the easier route.',
+      'If your browser blocks Google Analytics itself — an extension, a content blocker, a '
+      + 'tracker-blocking setting — the game keeps working normally and simply measures nothing.',
     ],
   },
   {

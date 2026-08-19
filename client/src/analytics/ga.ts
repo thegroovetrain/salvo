@@ -132,7 +132,18 @@ export function startGa(defaults: readonly ConsentDefaultPayload[], update: Cons
     for (const d of defaults) gtag('consent', 'default', { ...d });
     gtag('consent', 'update', { ...update });
     gtag('js', new Date());
-    gtag('config', id, { send_page_view: false, allow_google_signals: false });
+    // `transport_type` rides the CONFIG, not the event (review gate). It was
+    // attached to `requeue`'s parameter bag first, which made NFR19's "the only
+    // parameter that ships is `mode`" true only with a footnote. gtag.js accepts
+    // it here and applies it to every hit, so the parameter bag stays literally
+    // empty for four of the five events and holds nothing but `mode` for the
+    // fifth. Beacon transport matters because `returnToPort` ends in a real
+    // `location.reload()` that would kill an in-flight XHR.
+    gtag('config', id, {
+      send_page_view: false,
+      allow_google_signals: false,
+      ...(hasBeacon() ? { transport_type: 'beacon' } : {}),
+    });
     injectTag(id);
     ready = true;
   } catch {
@@ -184,7 +195,12 @@ function hasBeacon(): boolean {
  * that ships is `mode`" is about measured data, and this is not measured data.
  */
 export function sendGaBeaconEvent(name: string): void {
-  sendGaEvent(name, hasBeacon() ? { transport_type: 'beacon' } : undefined);
+  // Beacon transport is now configured once on the tag (see `startGa`), so this
+  // is an ordinary send. The separate entry point survives because the CALLER's
+  // intent — "this one has to outlive a navigation" — is worth keeping legible
+  // at the call site, and because a future transport that genuinely needs a
+  // per-event directive has an obvious home.
+  sendGaEvent(name);
 }
 
 /** Test-only reset of this module's two latches and the globals it plants.

@@ -172,7 +172,22 @@ import { createNullAdapter } from './portal/nullAdapter.js';
 // since Story 0.4, and for the same reason: a blocked domain or a thrown
 // initialiser must never be able to reach the render loop.
 import { analytics } from './analytics/index.js';
-import { showConsentBar } from './ui/consentBar.js';
+import { hideConsentBar, showConsentBar } from './ui/consentBar.js';
+
+/**
+ * Did THIS page load report a `match_start`? (Story 7.2, review gate.)
+ *
+ * The funnel has to reconcile, and two paths broke it. A refresh-resume rejoins
+ * a match already in flight WITHOUT calling `startGame`, so it never reports a
+ * start — and would then have reported the `match_end` for a match this page
+ * never saw begin. And ABANDON MATCH leaves without ever opening the results
+ * modal, so the end went unreported entirely while `requeue` still fired.
+ *
+ * Module scope is the right lifetime: every exit from a match ends in a real
+ * `location.reload()` except the cohort-collapse auto-requeue, which genuinely
+ * does start a new match in the same page.
+ */
+let funnelStartSent = false;
 import { safeAdapter } from './portal/safeAdapter.js';
 import type { PortalAdapter } from './portal/portalAdapter.js';
 
@@ -1266,11 +1281,25 @@ function updateMatchAudioCues(g: Game, now: number): void {
   const sec = secondsUntil(s.countdownEndT ?? 0, now);
   // R13: a resumed page has not observed the match plane before this frame, so
   // any start edge here is an artifact of the seed, not a match starting. The
-  // flag is consumed by the first update that could have fired — the tick is
-  // deliberately left alone (see audioCues).
+  // tick is deliberately left alone (see audioCues).
+  //
+  // THE ONE-SHOT IS SPENT ON THE FIRST *KNOWN* PHASE, NOT THE FIRST FRAME, and
+  // the difference is the whole correctness of this guard. `publicState` is
+  // `g.room.state ?? {}`, so `matchPhase` reads `undefined` until the schema
+  // first syncs and every read on the plane falls back to `'waiting'`
+  // (`atStartLine` documents the same fail-safe). Clearing the flag on frame one
+  // therefore burnt it on a fallback that could never have fired, and the real
+  // `waiting -> active` edge a few frames later fired the horn and
+  // `portal.matchStart()` anyway — defeating R13 in the ORDINARY case, which is
+  // exactly the case it exists for. Found by the review gate's edge-case pass.
+  //
+  // Waiting for a known phase also keeps the honest half working: a resume into
+  // a match that has NOT started yet spends the flag on a real `'waiting'`, so
+  // the start that genuinely follows is heard.
+  const known = publicState(g).matchPhase !== undefined;
   const result = audioCues(g.audioCueState, phase, sec, g.resumeCueSeed);
   g.audioCueState = result.state;
-  g.resumeCueSeed = false;
+  if (known) g.resumeCueSeed = false;
   if (result.tick) g.audio.play('tick');
   if (result.matchStart) {
     g.audio.play('matchStart');
@@ -1639,16 +1668,25 @@ function showMatchResults(g: Game, msg: ResultsMsg): void {
  * and the key-arming grace restarts so a keypress aimed at whatever was on
  * screen a frame ago can't instantly dismiss it.
  */
+/**
+ * Report the player's own exit from play, at most once per match (Eric ruling
+ * R5), and ONLY if this page load reported the start. Both real exits route
+ * here: the results/elimination modal, and a deliberate leave that never opens
+ * one. The two reloads that reach port with no player action never call it.
+ */
+function sendMatchEndOnce(g: Game): void {
+  if (!funnelStartSent || g.analyticsEndSent) return;
+  g.analyticsEndSent = true;
+  analytics.matchEnd();
+}
+
 function presentResults(g: Game, view: ResultsView): void {
   // FUNNEL: match_end (Eric ruling R5 — "the player's own exit from play,
   // elimination or results, whichever comes first, once per match"). This is
   // the ONE point both openers pass through (`showEliminationResults` and
   // `showMatchResults`), so a single latch here needs no second detector to
   // drift against. Latched because a spectating survivor reaches it twice.
-  if (!g.analyticsEndSent) {
-    g.analyticsEndSent = true;
-    analytics.matchEnd();
-  }
+  sendMatchEndOnce(g);
   g.upgradeMenu.hide();
   g.settingsOverlay.close();
   g.keyboard.clearKeys();
@@ -1761,6 +1799,10 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // the disconnect timeout) never enter this chain, so they are excluded
       // structurally rather than by a check that could rot. ABANDON MATCH does
       // arrive here, deliberately: it is a player choosing to return to port.
+      // ABANDON MATCH reaches here without ever opening a results modal, so the
+      // end is reported here too — latched, so the ordinary results path that
+      // already reported it does not double-fire.
+      sendMatchEndOnce(g);
       analytics.requeue();
       g.returning = true; // handleRoomLeave: the reload is already on its way
       // A DELIBERATE LEAVE IS NEVER UNDONE BY A LATER REFRESH (Story 6.7). This
@@ -4601,6 +4643,19 @@ async function startGame(
   // `stopLivenessPoll` rather than `stopHomeLiveness`: the handle is already torn
   // down, and painting a dead home would be the one thing hide() exists to end.
   stopLivenessPoll();
+  // THE CONSENT CARD LEAVES WITH THE PORT (review gate, edge-case pass).
+  // Nothing else took it down: `home.hide()` does not know about it and the
+  // in-place requeue only replaces `#app`'s children, so an UNANSWERED card sat
+  // at z-1250 — above every rung — and rode through the queue modal into the
+  // live HUD and the results modal. Its policy link is deliberately same-tab
+  // (the player is standing in port with nothing in flight), an assumption that
+  // stops being true the moment the card outlives the port: one click would
+  // have navigated out of a live match.
+  //
+  // Taking it down does NOT record an answer. The choice stays open and the card
+  // is offered again the next time the player reaches port, which is where R2
+  // says the question belongs.
+  hideConsentBar();
   stopAmbient(); // tear down the pre-join CIC scene now that we're joining
   hideBanner();
   launchSession(shell, conn, cls);
@@ -4608,6 +4663,7 @@ async function startGame(
   // not the countdown ending). It sits HERE rather than in `launchSession`
   // because the refresh-resume calls that function too, and a resume is not a
   // match starting: that match predates the page. Same reason R13 exists.
+  funnelStartSent = true;
   analytics.matchStart();
 }
 
@@ -4872,6 +4928,21 @@ async function main(): Promise<void> {
     onAbandon: abandonMatch,
     viewportWidth: () => shellRef?.stage.app.screen.width ?? 0,
     onVisibility: (visible) => homeRef?.setYielded(visible),
+    // The second door to the consent decision (review gate). `null` while the
+    // question is open, which the row renders as OFF — the truthful reading
+    // under Basic mode, where nothing is measured until an explicit grant.
+    consent: {
+      granted: () => {
+        const state = analytics.consentState();
+        return state === 'undecided' ? null : state === 'granted';
+      },
+      set: (granted) => {
+        if (granted) analytics.grantConsent();
+        else analytics.denyConsent();
+        // An answer given here answers the card too.
+        hideConsentBar();
+      },
+    },
   });
   const shell: Shell = { stage, audio, portal, settingsOverlay, version };
   shellRef = shell;

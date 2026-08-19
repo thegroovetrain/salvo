@@ -34,6 +34,7 @@ import { POLICY_SECTIONS, POLICY_TITLE, POLICY_UPDATED, type PolicySection } fro
 function sectionBlock(section: PolicySection): HTMLElement {
   const children: HTMLElement[] = (section.paragraphs ?? []).map(makePageParagraph);
   if (section.bullets !== undefined) children.push(makePageList(section.bullets));
+  for (const t of section.trailing ?? []) children.push(makePageParagraph(t));
   return makePageSection(section.heading, ...children);
 }
 

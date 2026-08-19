@@ -6,7 +6,7 @@ status: 'done'
 baseline_revision: '02f68a6'
 review_loop_iteration: 0
 final_revision: '79b293a339a05462ffafc8888bc6f1e1828507c5'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context-amendments.md'
@@ -146,6 +146,31 @@ inherits, and the whole thing is re-measured against NFR2 with the instrument St
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-18 — Review pass
+
+- intent_gap: 2: (high 1, medium 1)
+- bad_spec: 0
+- patch: 15: (high 4, medium 5, low 6)
+- defer: 5
+- reject: 2
+- addressed_findings:
+  - `[high]` `[intent_gap]` GA4's Enhanced Measurement and gtag.js's own `session_start`/`first_visit`/`user_engagement` are property-side and uncontrollable by this repo, so the policy's "five moments and nothing else" was untrue and NFR19's pin is structurally blind to it. RESOLVED IN-PASS by Eric ruling R16 rather than by halting: Enhanced Measurement stays ON and the policy widens to name scroll depth, outbound clicks, file downloads, site search and embedded video, stating which this game can realistically produce.
+  - `[medium]` `[intent_gap]` No in-product consent withdrawal; the policy directed readers to clear site data, which also destroys callsign/class/colour/settings — the asymmetry GDPR Art. 7(3) names. RESOLVED IN-PASS by Eric ruling R15: a PRIVACY section with an ANALYTICS row in the settings overlay, wired by callback so the overlay stays renderable with no analytics layer.
+  - `[high]` `[patch]` The consent card was never torn down on deploy — `hideConsentBar` had no caller outside its own module — so an unanswered card at z-1250 rode into the live HUD and results, and falsified its own same-tab policy-link rationale. Now taken down at the deploy door, recording no answer.
+  - `[high]` `[patch]` R13's one-shot was consumed by the first FRAME rather than the first KNOWN phase (`publicState` is `g.room.state ?? {}`, falling back to `'waiting'`), so the guard did not work on a real refresh-resume. Now waits for `matchPhase !== undefined`. The stale rationale claiming the funnel hung on that edge was corrected too.
+  - `[high]` `[patch]` The policy claimed "do not track"/cookie-blocking settings are respected; no code reads either signal. Clause deleted and replaced with a true statement about blocked scripts.
+  - `[high]` `[patch]` The policy's short version claimed nothing is kept on our servers after a match, contradicting its own SERVER LOGS section. Reworded to carry the exception.
+  - `[medium]` `[patch]` `transport_type` shipped as a second event parameter under a documented NFR19 exception; moved onto `config`, so "only `mode` ships" is now literally true.
+  - `[medium]` `[patch]` The static third-party-script guard read `index.html` only, leaving `privacy/index.html` unguarded — the newer page and the natural place to paste a CMP snippet. Both pages now scanned; the privacy page's single-script shape pinned.
+  - `[medium]` `[patch]` `match_end` never fired on ABANDON MATCH (`match_start -> requeue` with no end). Both real exits now route through a shared latched `sendMatchEndOnce()`.
+  - `[medium]` `[patch]` `match_end` could fire on a refresh-resumed match that never reported a `match_start`. Gated on a module-level `funnelStartSent`.
+  - `[medium]` `[patch]` The dev-server `/privacy` redirect dropped the query string, diverging from `express.static` for any shared link carrying `?utm_source=`.
+  - `[low]` `[patch]` The redirect did not cover `vite preview`, the closest local stand-in for production. `configurePreviewServer` added.
+  - `[low]` `[patch]` The pre-consent queue evicted its OLDEST entry — `home`, the reason the queue exists — so an overflowing funnel flushed with no beginning. Now drops the newest.
+  - `[low]` `[patch]` `activate()` cleared the queue before knowing the tag would build, so a `startGa` throw discarded queued events with no retry. Reordered.
+  - `[low]` `[patch]` The policy overstated liveness expiry as a hard 30s delete; expiry is lazy (fields clear as later polls walk the hash). Reworded to "stops counting".
+  - `[low]` `[patch]` (found before the gate) The storage inventory described `hullcracker.session` as a match-resume token when it is the single-session lock, and omitted the legacy `hullcracker-muted` key.
 
 ## Design Notes
 

@@ -129,8 +129,13 @@ function createAnalytics(): Analytics {
     // undecided: hold it. Nothing is queued when there is no measurement ID —
     // an inert build must not accumulate objects for a flush that can never come.
     if (!isGaConfigured()) return;
+    // PAST THE CAP, DROP THE NEWEST — not the oldest (review gate). A funnel
+    // reads forwards, and `home` is both the first event queued and the one the
+    // queue exists for, so drop-oldest evicted precisely the wrong end: a player
+    // who cycled mode picks before answering would have flushed a funnel with no
+    // beginning. Keeping the earliest events preserves the shape that matters.
+    if (queue.length >= QUEUE_CAP) return;
     queue.push(ev);
-    if (queue.length > QUEUE_CAP) queue.shift();
   }
 
   /**
@@ -141,9 +146,13 @@ function createAnalytics(): Analytics {
    * changes nothing; see `consent.ts` for why it is sent anyway.
    */
   function activate(): void {
+    // The queue is drained ONLY once the tag is known to be built (review gate).
+    // Clearing it first meant a `startGa` that failed — a frozen window, no
+    // document head, a CSP — silently threw away the queued `home`/`mode_pick`
+    // with no possibility of a later retry.
+    if (!startGa([consentDefaults(), consentRegionDefaults()], consentUpdate('granted'))) return;
     const pending = queue;
     queue = [];
-    if (!startGa([consentDefaults(), consentRegionDefaults()], consentUpdate('granted'))) return;
     for (const ev of pending) emit(ev);
   }
 
