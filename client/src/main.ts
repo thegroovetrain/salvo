@@ -49,7 +49,7 @@ import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './re
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
-import { weaponArcHit, weaponRangeHit, weaponRangeU } from './render/weaponArc.js';
+import { weaponArcHit, weaponRangeHit, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
@@ -2703,19 +2703,20 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
  * of our mines trips or blasts), stamped with the FRAME's own time so the
  * arming window is measured on the clock that owns it — an estimated local
  * serverNow() charges the mine for the transport delay and holds the dim late.
- * The acquisition ring is UNFED as of Story 7-5 wave 2: SELF-PROPELLED MINES —
- * the flag that was its only source — is deleted with its card (R2.6), and
- * CAPTIVE MINES, the card that replaces it, is a LATER SLICE of this story. The
- * ring channel is left in place rather than torn out because that slice is the
- * one that decides whether a captive mine draws one; nothing may re-derive it
- * from a stat here in the meantime.
+ * CAPTIVE MINES (R2.12) rides through as the raw VERB FLAG, never as a radius:
+ * the swap-and-triple that makes a captive mine's rings 144u/32u is derived
+ * inside `effectiveStats`, so `blastRadius`/`triggerRadius` are already the
+ * captive numbers by the time they are read here. What the flag decides is
+ * which rings are DRAWN (render/mines.ts ownMineRings) — a captive mine never
+ * detonates on contact, so it draws no blast circle about itself. The old
+ * `acquire` channel is gone with the SELF-PROPELLED doctrine that fed it.
  */
 function ownMineRingParams(g: Game, t: number): OwnMineRings {
   const mine = g.ownStats.mine;
   return {
     blast: mine.blastRadius,
     trigger: mine.triggerRadius,
-    acquire: null,
+    captive: mine.captive,
     now: t,
   };
 }
@@ -2903,6 +2904,7 @@ function renderOwn(
   inStorm: boolean,
   bar: ChromeBarView,
   match: MatchUx,
+  ownZones: readonly OwnZone[],
   frameDt: number,
   now: number,
   nowMs: number,
@@ -2945,7 +2947,7 @@ function renderOwn(
   g.lastOwn = { x: pose.x, y: pose.y };
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
-  renderFiring(g, pose, status, aim, cursor, nowMs);
+  renderFiring(g, pose, status, aim, cursor, ownZones, nowMs);
   // ONE attention read per frame, taken AFTER renderFiring drove the denied
   // pulses and shared by every consumer (the chrome bar's amber ring segment and
   // the HP rail here, the storm vignette back in renderAlive, the XP bank chip
@@ -3151,7 +3153,15 @@ function drivePulses(g: Game, nowMs: number): void {
   );
 }
 
-function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }, nowMs: number): void {
+function renderFiring(
+  g: Game,
+  pose: RenderPose,
+  status: OwnStatus,
+  aim: number,
+  cursor: { x: number; y: number },
+  ownZones: readonly OwnZone[],
+  nowMs: number,
+): void {
   const clicked = g.mouse.clickCount !== g.prevClickCount;
   g.prevClickCount = g.mouse.clickCount;
   drivePulses(g, nowMs);
@@ -3210,6 +3220,13 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   g.deniedDegraded = claimPulseFlash(
     g, FLASH_ELEMENTS.deniedArc, g.deniedPulse, g.deniedFlash, nowMs, g.deniedDegraded,
   );
+  // ONE reach for this aim, feeding BOTH the range-clamp marker and the aim
+  // preview (R2.15): the gun's clamp LIFTS to the click when the click lands
+  // inside one of our own live lit zones — you may shell what your own flare is
+  // lighting — and every other id keeps its own weaponRangeU byte-for-byte. Two
+  // derivations of one reach would let the marker and the burst circle disagree
+  // about where the shell stops.
+  const reachU = weaponReachU(status.stats, primedId, pose, aim, aimDist, g.mapRadius, ownZones);
   g.firing.update(
     pose,
     aim,
@@ -3217,9 +3234,9 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
     { hasAmmo, reloadFrac },
     cursor,
     g.deniedFlash,
-    weaponRangeU(status.stats, primedId), // gun family: radar-derived clamp ring; mine: its placement reach
+    reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
   );
-  renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc);
+  renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc, reachU);
 }
 
 /**
@@ -3238,6 +3255,7 @@ function renderAimPreview(
   status: OwnStatus,
   primedId: EquipmentId | null,
   legal: boolean,
+  gunReachU: number,
 ): void {
   const model = computeAimPreview({
     id: primedId,
@@ -3248,6 +3266,7 @@ function renderAimPreview(
     mapRadius: g.mapRadius,
     islands: g.islands,
     legal,
+    gunReachU,
   });
   g.aimPreview.update(model, previewTint(primedId));
 }
@@ -3654,7 +3673,7 @@ function renderAlive(
   // that one value. The payload is built with a provisional `false`, which
   // renderOwn overwrites with the real read before the HUD draws it.
   let tier1: boolean;
-  if (pose) tier1 = renderOwn(g, pose, status, inStorm, chromeBarView(g, zv, now, false), mu, frameDt, now, nowMs);
+  if (pose) tier1 = renderOwn(g, pose, status, inStorm, chromeBarView(g, zv, now, false), mu, ownZones, frameDt, now, nowMs);
   else {
     // No own frame this tick (forceSnap gap): nothing drove the denied pulse, so
     // the vignette reads the Tier-1 state directly.

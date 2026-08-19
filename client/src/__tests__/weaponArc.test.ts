@@ -21,12 +21,15 @@ import { BOON_CATALOG, CONFIG, arcFor, effectiveStats, loadoutFor, resolveBoons 
 import type { EquipmentId } from '@salvo/shared';
 import {
   fireArcKind,
+  pointInLitZone,
   sectorOutline,
   twinSectorSide,
   weaponArcHit,
   weaponRangeHit,
   weaponRangeU,
+  weaponReachU,
 } from '../render/weaponArc.js';
+import { ownActiveZones } from '../render/litZones.js';
 
 /** The fitted equipment id at a slot for a hull (the client's slotIdsFor path). */
 function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
@@ -258,6 +261,109 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(intel, 'broadside')).toBeGreaterThan(weaponRangeU(stats, 'broadside'));
     expect(weaponRangeU(intel, 'broadside')).toBe(intel.radarRange * CONFIG.vision.muzzleFlashFactor);
     expect(weaponRangeU(intel, 'mine')).toBe(CONFIG.mine.placeRange); // untouched
+  });
+});
+
+// --- THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) ----------------------
+//
+// A GUN click whose target point lies inside a LIVE lit zone the CLICKING PLAYER
+// OWNS is legal beyond `stats.gun.rangeU`. The server owns that legality gate;
+// weaponReachU is the client's mirror of it, and it feeds BOTH the range-clamp
+// marker and the aim preview's burst point from ONE evaluation — the project's
+// guarantee is that the previewed circle IS where the shell bursts, so a
+// preview that allows a click the server denies is a defect, not a cosmetic.
+//
+// The two halves that must NOT widen are asserted head-on: the extension is
+// GUN-ONLY, and it is OWN-FLARES-ONLY.
+describe('weaponReachU — the gun reaches into its own flare (R2.15)', () => {
+  const reachStats = effectiveStats(CONFIG.shipClasses.battleship);
+  const RANGE = reachStats.gun.rangeU;
+  /** A live own flare centred 200u past the gun's own horizon. */
+  const FAR_ZONE = [{ x: RANGE + 200, y: 0, r: 150 }];
+  const SHIP = { x: 0, y: 0 };
+  const MAP_R = 2400;
+  /** The reach for a click `d` units dead ahead of a ship at the origin. */
+  const reach = (id: Parameters<typeof weaponReachU>[1], d: number, zones: { x: number; y: number; r: number }[]) =>
+    weaponReachU(reachStats, id, SHIP, 0, d, MAP_R, zones);
+
+  it('is weaponRangeU for every id while the click is inside the base range', () => {
+    for (const id of ['gun', 'broadside', 'starShells', 'torpedo', 'mine', null] as const) {
+      expect(reach(id, 10, FAR_ZONE), `${id}`).toBe(weaponRangeU(reachStats, id));
+    }
+  });
+
+  it('LIFTS the gun clamp to the click when the click lands inside an own live zone', () => {
+    const d = RANGE + 200; // the zone centre, well past the horizon
+    expect(reach('gun', d, FAR_ZONE)).toBe(d);
+  });
+
+  it('does NOT lift for a beyond-range click that misses the zone', () => {
+    const d = RANGE + 600; // past the flare entirely
+    expect(reach('gun', d, FAR_ZONE)).toBe(RANGE);
+    // The boundary is inclusive, exactly like the server's circle test: the
+    // zone edge is lit water.
+    const edge = RANGE + 200 + 150;
+    expect(reach('gun', edge, FAR_ZONE)).toBe(edge);
+    expect(reach('gun', edge + 0.001, FAR_ZONE)).toBe(RANGE);
+  });
+
+  it('GUN ONLY: the broadside, the flare and the torpedo are never lifted', () => {
+    const d = RANGE + 200;
+    expect(reach('broadside', d, FAR_ZONE)).toBe(reachStats.broadside.rangeU);
+    expect(reach('starShells', d, FAR_ZONE)).toBe(reachStats.starShells.rangeU);
+    expect(reach('torpedo', d, FAR_ZONE)).toBe(reachStats.gun.rangeU);
+    expect(reach('mine', d, FAR_ZONE)).toBe(CONFIG.mine.placeRange);
+  });
+
+  it('no zones at all is the pre-wave-2 clamp, byte for byte', () => {
+    const d = RANGE + 200;
+    expect(reach('gun', d, [])).toBe(RANGE);
+  });
+
+  // OWN FLARES ONLY. The gate is structurally incapable of seeing an enemy's
+  // light because the list it reads is built by ownActiveZones, which is where
+  // "owned" and "live" are both enforced — so this is asserted THROUGH that
+  // builder rather than against a hand-made list, which is the property that
+  // actually protects the feature.
+  it('an ENEMY flare over the same water lifts NOTHING', () => {
+    const d = RANGE + 200;
+    const zones = [
+      { id: 'z1', x: d, y: 0, r: 150, until: 10_000, by: 'foe' },
+      { id: 'z2', x: d, y: 0, r: 150, until: 10_000, by: 'me' },
+    ];
+    const ours = ownActiveZones(zones, 'me', 0);
+    const theirs = ownActiveZones(zones, 'nobody', 0);
+    expect(reach('gun', d, ours)).toBe(d);
+    expect(theirs).toEqual([]);
+    expect(reach('gun', d, theirs)).toBe(RANGE);
+  });
+
+  it('an EXPIRED own flare lifts nothing either — the zone has to be live', () => {
+    const d = RANGE + 200;
+    const zones = [{ id: 'z1', x: d, y: 0, r: 150, until: 10_000, by: 'me' }];
+    expect(reach('gun', d, ownActiveZones(zones, 'me', 9_999))).toBe(d);
+    expect(reach('gun', d, ownActiveZones(zones, 'me', 10_000))).toBe(RANGE);
+  });
+
+  // THE POINT TESTED IS THE MAP-CLAMPED BURST POINT, not the raw cursor — the
+  // server tests `burstPointAlong(...)`, and at the rim those are different
+  // water. Testing the cursor would license shots the server refuses on exactly
+  // the clicks a player makes while pinned against the boundary.
+  it('tests the CLAMPED burst point, so a zone out past the rim licenses nothing', () => {
+    const d = MAP_R + 600; // a click out over the edge
+    const pastRim = [{ x: d, y: 0, r: 50 }]; // contains the CURSOR, not the burst
+    expect(reach('gun', d, pastRim)).toBe(RANGE);
+    const atRim = [{ x: MAP_R - 2, y: 0, r: 6 }]; // contains the clamped burst point
+    expect(reach('gun', d, atRim)).toBe(d);
+  });
+
+  it('pointInLitZone is inclusive at the rim and true for ANY zone in the list', () => {
+    const zones = [{ x: 0, y: 0, r: 10 }, { x: 100, y: 0, r: 5 }];
+    expect(pointInLitZone({ x: 10, y: 0 }, zones)).toBe(true);
+    expect(pointInLitZone({ x: 10.001, y: 0 }, zones)).toBe(false);
+    expect(pointInLitZone({ x: 103, y: 0 }, zones)).toBe(true);
+    expect(pointInLitZone({ x: 50, y: 0 }, zones)).toBe(false);
+    expect(pointInLitZone({ x: 0, y: 0 }, [])).toBe(false);
   });
 });
 

@@ -47,8 +47,21 @@ const DOT_R = 3.5; // u
  * server reads these same owner stats when a mine trips or blasts, so the rings
  * ARE the mine's ground truth, not a decoration of it.
  *
- * `acquire` is the SELF-PROPELLED doctrine's acquisition reach, or null when
- * the owner does not hold that doctrine (no doctrine, no ring).
+ * `captive` is the CAPTIVE MINES verb (Story 7-5 wave 2, R2.12), read straight
+ * off `stats.mine.captive`. It does NOT carry a radius of its own: the captive
+ * transform (swap trigger/blast, then trigger x3) is DERIVED inside
+ * effectiveStats, so `blast`/`trigger` above already arrive transformed
+ * (144u/32u at base, 210.8u/46.9u at a maxed MINES ladder). Nothing here may
+ * re-derive them.
+ *
+ * THE `acquire` CHANNEL IS DELETED. It carried the SELF-PROPELLED doctrine's
+ * hunting reach, and that verb left the game with its card (R2.6), so the field
+ * could only ever be null. It was NOT repurposed for the captive trip ring:
+ * that ring IS `trigger` (it is literally `stats.mine.triggerRadius`), so a
+ * second field carrying the same number would be two names for one radius —
+ * exactly the drift a single derivation exists to prevent. What the channel's
+ * GRAMMAR is inherited by is the line STYLE: dotted has always meant "the water
+ * this mine hunts", which is precisely what a captive mine's trip ring is.
  *
  * `now` is THE FRAME'S OWN TIMESTAMP (`FrameMsg.t`), not a local clock reading,
  * and that distinction is the whole accuracy of the arming dim: `armedAt` is
@@ -60,7 +73,7 @@ const DOT_R = 3.5; // u
 export interface OwnMineRings {
   blast: number;
   trigger: number;
-  acquire: number | null;
+  captive: boolean;
   now: number;
 }
 
@@ -73,19 +86,30 @@ export interface MineRing {
 }
 
 /**
- * Pure: the rings an OWN mine draws. Solid blast (the killing area), dashed
- * trigger (what sets it off), sparse-dotted acquisition (only under the
- * SELF-PROPELLED doctrine — the water it hunts). `armed` false dims every ring
- * by `armingScale`: a mine that cannot trip yet must not draw a live trip ring.
+ * Pure: the rings an OWN mine draws. `armed` false dims every ring by
+ * `armingScale`: a mine that cannot trip yet must not draw a live trip ring.
+ *
+ * AN ORDINARY MINE draws two: solid blast (the killing area it detonates in)
+ * and dashed trigger (what sets it off).
+ *
+ * A CAPTIVE MINE draws exactly ONE, and the difference is a statement of fact
+ * rather than a style choice (R2.12): a captive mine NEVER detonates on
+ * contact, so a solid ring around the casing would promise a contact blast that
+ * cannot happen — the one affordance this verb has to stop. Its `blast` is the
+ * radius the LAUNCHED TORPEDO bursts in, wherever that torpedo eventually
+ * connects, so it is not a circle centred on the mine at all and is not drawn
+ * as one. What IS true of the water around the mine is the trip ring, and it is
+ * drawn DOTTED — the acquisition grammar the retired SELF-PROPELLED ring used —
+ * because that is what this ring now means: the water the mine hunts, and the
+ * line the first hostile crosses to eat a torpedo.
  */
 export function ownMineRings(p: OwnMineRings, armed: boolean): MineRing[] {
   const scale = armed ? 1 : R.armingScale;
-  const rings: MineRing[] = [
+  if (p.captive) return [{ r: p.trigger, style: 'dotted', alpha: R.triggerAlpha * scale }];
+  return [
     { r: p.blast, style: 'solid', alpha: R.blastAlpha * scale },
     { r: p.trigger, style: 'dashed', alpha: R.triggerAlpha * scale },
   ];
-  if (p.acquire !== null) rings.push({ r: p.acquire, style: 'dotted', alpha: R.acquireAlpha * scale });
-  return rings;
 }
 
 /** Pure: has a mine we first saw at `seenAt` finished arming by `now`? Both are

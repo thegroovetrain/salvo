@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, type MineView } from '@salvo/shared';
+import { CONFIG, effectiveStats, resolveBoons, type MineView } from '@salvo/shared';
 import {
   reconcileMines,
   mineArmed,
@@ -204,9 +204,9 @@ describe('Mines — firer-hue tint (Story 1.12) + own/enemy layer split', () => 
 // the mine is still arming. An enemy observer gets none of it.
 
 describe('ownMineRings — the owner-private radius set', () => {
-  const base = { blast: 48, trigger: 32, acquire: null, now: 10_000 };
+  const base = { blast: 48, trigger: 32, captive: false, now: 10_000 };
 
-  it('is blast-solid + trigger-dashed, and NO acquisition ring without the doctrine', () => {
+  it('is blast-solid + trigger-dashed for an ORDINARY mine', () => {
     const rings = ownMineRings(base, true);
     expect(rings.map((r) => [r.r, r.style])).toEqual([
       [48, 'solid'],
@@ -214,14 +214,47 @@ describe('ownMineRings — the owner-private radius set', () => {
     ]);
   });
 
-  it('adds the sparse-dotted acquisition ring only under SELF-PROPELLED', () => {
-    const rings = ownMineRings({ ...base, acquire: CONFIG.mine.creepAcquireRange }, true);
-    expect(rings).toHaveLength(3);
-    expect(rings[2]).toMatchObject({ r: CONFIG.mine.creepAcquireRange, style: 'dotted' });
+  // RETIRED with SELF-PROPELLED MINES (R2.6): the sparse-dotted ACQUISITION
+  // ring had exactly one source — the creeping mine's hunting reach — and that
+  // verb left the game with its card, taking `OwnMineRings.acquire` with it.
+  // The dotted STYLE survives, inherited by the captive trip ring below,
+  // because "the water this mine hunts" is exactly what that ring now means.
+
+  // CAPTIVE MINES (R2.12): the numbers arrive ALREADY transformed off
+  // effectiveStats (trigger and blast swap, then trigger triples), so the ring
+  // set reads them and never re-derives them. The tell that matters is which
+  // rings exist: a captive mine draws its wide TRIP ring and NO blast circle,
+  // because it never detonates on contact and a solid ring around the casing
+  // would promise a kill it cannot deliver.
+  it('CAPTIVE: draws the 144u trip ring alone — no 32u contact-blast ring', () => {
+    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons(['mineCaptive']));
+    expect(stats.mine.captive).toBe(true);
+    expect(stats.mine.triggerRadius).toBeCloseTo(144, 9);
+    expect(stats.mine.blastRadius).toBeCloseTo(32, 9);
+    const rings = ownMineRings(
+      { blast: stats.mine.blastRadius, trigger: stats.mine.triggerRadius, captive: true, now: 0 },
+      true,
+    );
+    expect(rings.map((r) => [r.r, r.style])).toEqual([[144, 'dotted']]);
+    // ...and specifically NOT the blast radius, in any style.
+    expect(rings.some((r) => r.r === stats.mine.blastRadius)).toBe(false);
+  });
+
+  it('CAPTIVE: the trip ring follows the MINES ladder without re-deriving it', () => {
+    const maxed = effectiveStats(
+      CONFIG.shipClasses.mineLayer,
+      resolveBoons(['mineCaptive', 'mineBlast', 'mineBlast', 'mineBlast', 'mineBlast']),
+    );
+    const [ring] = ownMineRings(
+      { blast: maxed.mine.blastRadius, trigger: maxed.mine.triggerRadius, captive: true, now: 0 },
+      true,
+    );
+    expect(ring.r).toBe(maxed.mine.triggerRadius);
+    expect(ring.r).toBeCloseTo(210.8, 1);
   });
 
   it('every radius carries a DISTINCT line style — the rings never rely on hue', () => {
-    const styles = ownMineRings({ ...base, acquire: 150 }, true).map((r) => r.style);
+    const styles = ownMineRings(base, true).map((r) => r.style);
     expect(new Set(styles).size).toBe(styles.length);
   });
 
@@ -253,17 +286,19 @@ describe('mineArmed / ringsKey — the client-inferred arming window', () => {
   });
 
   it('keys a ring set so an unchanged set never redraws, and any change does', () => {
-    const p = { blast: 48, trigger: 32, acquire: null, now: 0 };
+    const p = { blast: 48, trigger: 32, captive: false, now: 0 };
     expect(ringsKey(ownMineRings(p, true))).toBe(ringsKey(ownMineRings(p, true)));
     expect(ringsKey(ownMineRings(p, true))).not.toBe(ringsKey(ownMineRings(p, false)));
+    // Fitting CAPTIVE MINES mid-match rewrites the set, so the key must move —
+    // otherwise a live field keeps drawing contact-blast rings it no longer has.
     expect(ringsKey(ownMineRings(p, true))).not.toBe(
-      ringsKey(ownMineRings({ ...p, acquire: 150 }, true)),
+      ringsKey(ownMineRings({ ...p, captive: true }, true)),
     );
   });
 });
 
 describe('Mines — rings are drawn for OWN mines only', () => {
-  const rings = { blast: 48, trigger: 32, acquire: 150, now: 0 };
+  const rings = { blast: 48, trigger: 32, captive: false, now: 0 };
 
   it('draws nothing extra when no owner stats are supplied (the pre-feature path)', () => {
     const mines = new Mines(new Container(), new Container());
@@ -274,7 +309,7 @@ describe('Mines — rings are drawn for OWN mines only', () => {
   it('gives an OWN mine its rings and an ENEMY mine none', () => {
     const mines = new Mines(new Container(), new Container());
     mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')], () => 0x00ff00, rings);
-    expect(mines.ringsAt('m1')).toHaveLength(3);
+    expect(mines.ringsAt('m1')).toHaveLength(2);
     expect(mines.ringsAt('m2')).toEqual([]);
   });
 

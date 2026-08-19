@@ -821,15 +821,21 @@ export const CLIENT_CONFIG = {
 
   /**
    * OWN-MINE RINGS (render/mines.ts) — always-on, owner-private radii drawn in
-   * the dropper's personal hue on the fog-immune chart layer: solid blast,
-   * dashed trigger, sparse-dotted acquisition (SELF-PROPELLED only). Enemies
-   * see exactly today's marker and nothing else.
+   * the dropper's personal hue on the fog-immune chart layer: solid blast +
+   * dashed trigger for an ordinary mine, and for a CAPTIVE one (Story 7-5 wave
+   * 2, R2.12) a single sparse-DOTTED trip ring — it never detonates on contact,
+   * so it draws no blast circle about itself. Enemies see exactly today's
+   * marker and nothing else.
+   *
+   * `acquireAlpha` is DELETED with the SELF-PROPELLED acquisition ring (R2.6):
+   * the captive trip ring inherits that ring's dotted STYLE but is the primary
+   * (and only) ring on the mine, so it takes `triggerAlpha`, the weight the
+   * trip radius has always had.
    */
   mineRings: {
     width: 1, // ring stroke width
     blastAlpha: 0.3,
     triggerAlpha: 0.34,
-    acquireAlpha: 0.16,
     /** Multiplier applied to every ring alpha while the mine is still ARMING
      *  (client-inferred: first-seen + CONFIG.mine.armDelay). Dim = "not live
      *  yet"; it snaps to full the moment it arms. */

@@ -32,7 +32,7 @@ import { FIT_CATEGORIES, TONES, fitTone } from '../audio/tones.js';
 import { boonEffectLine, boonFitToastLine } from '../ui/boonCopy.js';
 import { SHIPWIDE_CATEGORIES, slotForBoonCategory } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
-import { reconcileMines, type MinePos } from '../render/mines.js';
+import { ownMineRings, reconcileMines, type MinePos } from '../render/mines.js';
 import { LitZones, zoneVerbs } from '../render/litZones.js';
 import { tellLine } from '../render/hud.js';
 
@@ -160,6 +160,20 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
   minePropFouling: () => {
     expect(tellLine('SLOWED', 2000)).toBe('SLOWED 2s');
   },
+  // CAPTIVE MINES: the own-mine ring set says what this mine actually is — the
+  // WIDE trip ring it hunts with, drawn in the acquisition (dotted) grammar,
+  // and NO blast circle about the casing, because it never detonates on
+  // contact. The identity is the RING SET, not a radius: both radii are derived
+  // inside effectiveStats, so this reads them and asserts the shape.
+  mineCaptive: () => {
+    const s = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons(['mineCaptive']));
+    const rings = ownMineRings(
+      { blast: s.mine.blastRadius, trigger: s.mine.triggerRadius, captive: true, now: 0 },
+      true,
+    );
+    expect(rings.map((r) => [r.r, r.style])).toEqual([[s.mine.triggerRadius, 'dotted']]);
+    expect(rings.some((r) => r.style === 'solid')).toBe(false);
+  },
   // PHOSPHOR SHELLS: the zone carries the burn verb (not the bare flare) and
   // the burning ember breathes above zero alpha.
   starIncendiary: () => {
@@ -181,8 +195,9 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
 
 /**
  * DOCTRINE LINES WHOSE CLIENT IDENTITY CHANNEL IS NOT BUILT YET — the Story 7-5
- * wave-2 lines whose behaviour lands in a LATER slice of the same story (captive
- * mines; the radar buoy's gun and jamming displays). They are in the catalog, so
+ * wave-2 lines whose behaviour lands in a LATER slice of the same story (the
+ * radar buoy's gun and jamming displays; CAPTIVE MINES left this list when its
+ * ring set shipped). They are in the catalog, so
  * they must be listed SOMEWHERE rather than silently missing from the registry,
  * and this list is deliberately EXACT (not a `>=`): the agent that builds one of
  * them has to delete its line here, which is what turns "pending" back into a
@@ -191,7 +206,7 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
  * PLUNGING FIRE / ARMOR-PIERCING / SELF-PROPELLED MINES are NOT here — their
  * registrations are RETIRED with the lines themselves (R2.6).
  */
-const PENDING_IDENTITY: readonly string[] = ['mineCaptive', 'buoyGun', 'buoyJamming'];
+const PENDING_IDENTITY: readonly string[] = ['buoyGun', 'buoyJamming'];
 
 describe('fit-check — DOCTRINE IDENTITY (every doctrine boon registers an on-water tell)', () => {
   // Story 7-5 wave 2: still SEVEN doctrine lines — the cannon pair and

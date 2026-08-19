@@ -135,6 +135,90 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
     expect(m.bursts[1].y).toBeCloseTo(truth.y, 9);
     expect(m.bursts[0].y + m.bursts[2].y).toBeCloseTo(2 * truth.y, 9);
   });
+
+  // The OTHER half of the straddle law (R2.16), and the half a fan and a
+  // parallel volley agree on: an EVEN count leaves the crosshair EMPTY. Asserted
+  // separately from the odd case because "one shell is on the click" and "no
+  // shell is on the click" are different promises to the player, and only one of
+  // them can be true at a time.
+  it('EVEN barrel count: the shells STRADDLE the click, none on it', () => {
+    const inp = input({ stats: stats('gunBarrel') });
+    expect(inp.stats.gun.barrels).toBe(2);
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(2);
+    const truth = burstPointAlong(SHIP, 300, MAP_R, inp.stats.gun.rangeU, 0);
+    for (const b of m.bursts) expect(b.y).not.toBeCloseTo(truth.y, 6);
+    // Symmetric about the click, exactly one spacing apart.
+    expect(m.bursts[0].y + m.bursts[1].y).toBeCloseTo(2 * truth.y, 9);
+    expect(Math.abs(m.bursts[1].y - m.bursts[0].y)).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+  });
+
+  // THE PROPERTY THAT DISCRIMINATES PARALLEL FROM FANNED, stated as a
+  // measurement rather than as a shape: a fan's lateral separation GROWS with
+  // range, a parallel volley's does not. Measured at two ranges and off-axis, so
+  // an implementation that happened to look parallel along +x cannot pass.
+  it('lateral separation is CONSTANT with range (parallel, never a cone)', () => {
+    const s = stats('gunBarrel', 'gunBarrel');
+    const bearing = 0.7; // off-axis on purpose
+    const sep = (aimDist: number): number => {
+      const m = computeAimPreview(input({ stats: s, aim: bearing, aimDist }));
+      const [a, , c] = m.bursts;
+      return Math.hypot(c.x - a.x, c.y - a.y);
+    };
+    expect(sep(500)).toBeCloseTo(sep(120), 9);
+    expect(sep(500)).toBeCloseTo(2 * CONFIG.gun.barrelSpacingU, 9);
+    // ...and each track keeps its offset from muzzle to burst (that IS parallel).
+    const m = computeAimPreview(input({ stats: s, aim: bearing, aimDist: 400 }));
+    const nx = -Math.sin(bearing);
+    const ny = Math.cos(bearing);
+    m.lines.forEach((l, i) => {
+      const at0 = l.x1 * nx + l.y1 * ny;
+      const at1 = l.x2 * nx + l.y2 * ny;
+      expect(at1 - at0, `line ${i} lateral drift`).toBeCloseTo(0, 6);
+    });
+  });
+});
+
+// --- THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) ----------------------
+//
+// The preview must AGREE EXACTLY with the server's legality gate: the guarantee
+// is that the previewed circle IS where the shell bursts, so a preview that
+// draws a burst the server would refuse (or clamps one it would allow) is a
+// defect. `gunReachU` is that agreement made structural — main.ts resolves the
+// reach ONCE through weaponArc.weaponReachU and hands the SAME number to the
+// range-clamp marker and to this preview.
+describe('the gun reaches into its own flare — the preview agrees with the gate', () => {
+  const RANGE = stats().gun.rangeU;
+
+  it('bursts AT the click when the reach was lifted, instead of clamping short', () => {
+    const d = RANGE + 200;
+    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: d })).bursts;
+    expect(Math.hypot(b.x, b.y)).toBeCloseTo(d, 6);
+    // ...which is exactly the shared burst point at the lifted reach.
+    const truth = burstPointAlong(SHIP, d, MAP_R, d, 0);
+    expect(b.x).toBeCloseTo(truth.x, 9);
+  });
+
+  it('clamps at the base range when the reach was NOT lifted', () => {
+    const d = RANGE + 200;
+    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: RANGE })).bursts;
+    expect(Math.hypot(b.x, b.y)).toBeCloseTo(RANGE, 6);
+    // Omitting the field is that same clamp — the pre-wave-2 geometry.
+    const [plain] = computeAimPreview(input({ aimDist: d })).bursts;
+    expect(plain.x).toBeCloseTo(b.x, 9);
+  });
+
+  it('a lifted reach never leaks into another weapon', () => {
+    const d = RANGE + 200;
+    const b = computeAimPreview(
+      input({ id: 'broadside', aim: Math.PI / 2, aimDist: d, gunReachU: d }),
+    ).bursts;
+    for (const shot of b) {
+      expect(Math.hypot(shot.x, shot.y)).toBeCloseTo(stats().broadside.rangeU, 6);
+    }
+    const star = computeAimPreview(input({ id: 'starShells', aimDist: d, gunReachU: d })).bursts;
+    expect(Math.hypot(star[0].x, star[0].y)).toBeCloseTo(stats().starShells.rangeU, 6);
+  });
 });
 
 // --- THE BROADSIDE BARRAGE (Story 7-5 wave 2, R2.3) --------------------------
@@ -312,6 +396,37 @@ describe('mine placement — both rings at the drop point', () => {
       input({ id: 'mine', ship: { ...SHIP, x: MAP_R - 10 }, aimDist: 60 }),
     );
     expect(offMap.place!.blocked).toBe(true);
+  });
+
+  // CAPTIVE MINES (Story 7-5 wave 2, R2.12). The rings are DERIVED inside
+  // effectiveStats (trigger and blast swap, then trigger triples), so the whole
+  // job on this side is to READ them and to draw the honest set: the wide trip
+  // ring the mine watches, and NOT a blast circle around the casing — a captive
+  // mine never detonates on contact, so a solid ring there would promise a kill
+  // it cannot deliver.
+  it('CAPTIVE: previews the 144u trip ring, not the 32u contact-blast ring', () => {
+    const s = stats('mineCaptive');
+    const m = computeAimPreview(input({ id: 'mine', stats: s, aim: 0, aimDist: 60 }));
+    expect(m.place!.captive).toBe(true);
+    expect(m.place!.trigger).toBeCloseTo(144, 9);
+    expect(m.place!.blast).toBeCloseTo(32, 9);
+    // The numbers are the firewall's, never re-derived here.
+    expect(m.place!.trigger).toBe(s.mine.triggerRadius);
+    expect(m.place!.blast).toBe(s.mine.blastRadius);
+    // ...and the transform really did invert the ordinary mine's ring pair.
+    const plain = computeAimPreview(input({ id: 'mine', aim: 0, aimDist: 60 }));
+    expect(plain.place!.captive).toBe(false);
+    expect(plain.place!.trigger).toBeLessThan(plain.place!.blast);
+    expect(m.place!.trigger).toBeGreaterThan(m.place!.blast);
+  });
+
+  it('CAPTIVE: the MINES ladder scales the previewed rings, in any pick order', () => {
+    const late = stats('mineBlast', 'mineBlast', 'mineBlast', 'mineBlast', 'mineCaptive');
+    const early = stats('mineCaptive', 'mineBlast', 'mineBlast', 'mineBlast', 'mineBlast');
+    const m = computeAimPreview(input({ id: 'mine', stats: late, aimDist: 60 }));
+    expect(m.place!.trigger).toBeCloseTo(210.8, 1);
+    expect(m.place!.blast).toBeCloseTo(46.9, 1);
+    expect(computeAimPreview(input({ id: 'mine', stats: early, aimDist: 60 })).place).toEqual(m.place);
   });
 });
 

@@ -286,7 +286,7 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
  */
 const DOCTRINE_TEXT: Readonly<Record<string, string>> = {
   torpedoHoming: 'Torpedoes slowly steer to the nearest enemy hull in their acquisition band.',
-  mineCaptive: 'A mine no longer blasts on contact. It fires one torpedo at the first hostile in range.',
+  mineCaptive: 'Mines stop blasting on contact. Each fires one torpedo at the first hostile to trip its wide ring.',
   buoyGun: 'Your buoy shoots at hostile hulls inside its radar circle: 5 damage every 5 seconds.',
   buoyJamming: 'Your buoy fills its radar circle with false returns on every scan but your own.',
   minePropFouling: 'Hulls caught in a mine blast are fouled: 25% slower for 5 seconds. Damage unchanged.',

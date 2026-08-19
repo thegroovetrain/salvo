@@ -21,7 +21,17 @@
 // shape's only user, and the radar buoy replacing it is click-placed in the
 // mine's rear SECTOR. Nothing here may re-add a branch for it.
 
-import { CONFIG, arcFor, inArc, wrapAngle, type EffectiveStats, type EquipmentId } from '@salvo/shared';
+import {
+  CONFIG,
+  arcFor,
+  burstPointAlong,
+  inArc,
+  pointInCircle,
+  wrapAngle,
+  type EffectiveStats,
+  type EquipmentId,
+  type Vec2,
+} from '@salvo/shared';
 
 /**
  * The firing-arc behavior class of a fitted equipment id. Drives every id-keyed
@@ -120,6 +130,87 @@ export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): num
   if (id === 'starShells') return stats.starShells.rangeU;
   if (id === 'mine') return CONFIG.mine.placeRange;
   return stats.gun.rangeU; // gun (radar-derived) — and the default
+}
+
+/**
+ * A LIVE lit zone the local player OWNS, as the star-shell reach gate reads it:
+ * centre + lit radius. Built by render/litZones.ts `ownActiveZones`, which is
+ * where both halves of "live" and "owned" are enforced (`by === ownId` and
+ * `until > serverNow`) — an ENEMY's flare never reaches this list, so no test
+ * here can accidentally lend you their light.
+ */
+export interface LitCircle {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/**
+ * Pure: does a clicked point lie inside ANY of the player's own live lit zones?
+ *
+ * Uses the shared `pointInCircle` primitive rather than a hand-rolled distance
+ * test, and INCLUSIVELY (`d² ≤ r²`), because this is one half of a
+ * server-authoritative legality gate: the server refuses or accepts the click,
+ * and if the two sides disagree on the boundary case the preview lies about a
+ * shot the player is about to take.
+ */
+export function pointInLitZone(p: Vec2, zones: readonly LitCircle[]): boolean {
+  for (const z of zones) {
+    if (pointInCircle(p, z, z.r)) return true;
+  }
+  return false;
+}
+
+/**
+ * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the reach the primed
+ * system actually has FOR THIS AIM, which is `weaponRangeU` except where the
+ * flare extension applies.
+ *
+ * A GUN click whose target point lies inside a LIVE lit zone the clicking
+ * player OWNS is legal beyond `stats.gun.rangeU` — you can shell what your own
+ * flare is lighting. Everything else is unchanged, and deliberately so:
+ *
+ *  - GUN ONLY. Never the broadside (its 5/8 rung is a weapon identity, not a
+ *    horizon), never the star shell itself, never the torpedo, never the mine.
+ *    The id gate lives HERE rather than at the call sites so nothing can forget
+ *    it and quietly widen a second weapon.
+ *  - OWN FLARES ONLY. The gate never sees an enemy zone (see LitCircle).
+ *  - The clamp only ever LIFTS to the click's own distance, never past it, so a
+ *    click 40u inside your flare does not silently become a map-edge shot.
+ *
+ * This is the number BOTH the range-clamp marker (render/firing.ts) and the aim
+ * preview's burst point (render/aimPreview.ts) are driven from — ONE evaluation
+ * in main.ts feeding both — because the project's guarantee is that the
+ * previewed circle IS where the shell bursts. A marker that says "clamped here"
+ * beside a preview that bursts somewhere else is the same defect as a preview
+ * that disagrees with the server.
+ *
+ * SERVER PARITY: the server owns the legality gate; this is the client's mirror
+ * of it. The predicate is deliberately trivial (own + live + `d² ≤ r²` + gun)
+ * so the two implementations cannot drift on anything but the zone list, which
+ * the server itself supplies. It belongs in `shared/` the moment that workspace
+ * unfreezes — see the report — exactly as `blockedWater` was promoted.
+ */
+export function weaponReachU(
+  stats: EffectiveStats,
+  id: EquipmentId | null,
+  ship: Vec2,
+  aim: number,
+  aimDist: number,
+  mapRadius: number,
+  ownLitZones: readonly LitCircle[],
+): number {
+  const base = weaponRangeU(stats, id);
+  // `!(aimDist > base)` rather than `aimDist <= base`, matching the server
+  // literally: a NaN-ish aimDist takes the unchanged-range branch on both sides.
+  if (id !== 'gun' || !(aimDist > base)) return base;
+  // The point tested is the MAP-CLAMPED one, not the raw cursor — the server
+  // tests `burstPointAlong(ship, mapRadius, want, aim)`, and at the rim a click
+  // out over the edge and its clamped burst point are different water. Testing
+  // the cursor instead would license a shot the server refuses on exactly the
+  // clicks a player makes when they are pinned against the boundary.
+  const far = burstPointAlong(ship, aimDist, mapRadius, aimDist, aim);
+  return pointInLitZone(far, ownLitZones) ? aimDist : base;
 }
 
 /**

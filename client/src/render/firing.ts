@@ -57,9 +57,13 @@ export interface FiringAmmo {
 export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
-  /** Effective max range (u) of the primed weapon, fed each frame by update();
-   *  base = radar range. Drives the gun-family range-clamp burst marker AND the
-   *  mine's placement-arc radius (weaponArc.weaponRangeU is the one source). */
+  /** Effective max range (u) of the primed weapon FOR THIS AIM, fed each frame
+   *  by update(); base = radar range. Drives the gun-family range-clamp burst
+   *  marker AND the mine's placement-arc radius. weaponArc.weaponReachU is the
+   *  one source, and it is the SAME number the aim preview bursts at — including
+   *  the star-shell lift (R2.15), where a gun click inside one of our own live
+   *  lit zones raises the reach to the click and the clamp marker correctly
+   *  stops drawing. */
   private rangeU: number = CONFIG.vision.radar;
 
   /**
@@ -86,7 +90,9 @@ export class FiringUX {
    * point. `denied` (default false) briefly overrides the marker to a red pulse —
    * driven by render/deniedFire.ts's rate-limited predicate. `rangeU` is the
    * primed weapon's EFFECTIVE range (weaponArc.weaponRangeU) for the gun-family
-   * range-clamp burst marker. The gun family draws no arc sector (360°).
+   * range-clamp burst marker — since Story 7-5 wave 2 that is weaponReachU, so
+   * the marker lifts with the gun inside our own flare. The gun family draws no
+   * arc sector (360°).
    */
   update(
     pose: FiringPose,

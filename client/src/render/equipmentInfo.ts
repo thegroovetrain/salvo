@@ -49,6 +49,29 @@ export const EQUIPMENT_DESCRIPTION: Record<EquipmentId, string> = {
   radarBuoy: 'Drops an anchored buoy that runs its own radar sweep and relays what it finds back to you.',
 };
 
+/**
+ * THE MINE'S TOOLTIP UNDER CAPTIVE MINES (Story 7-5 wave 2, R2.12). The shipped
+ * line ends "takes the whole blast out of whoever found it", which is a straight
+ * statement of contact detonation — the ONE thing this verb deletes. A captive
+ * mine never detonates on contact; it launches a torpedo and is expended. The
+ * rest of the sentence is unchanged, deliberately: placement, the arming wait
+ * and the silence are all still true, and rewording settled copy that a ruling
+ * did not touch is exactly what the naming law forbids.
+ */
+const CAPTIVE_MINE_DESCRIPTION =
+  'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then spends itself firing one torpedo at it.';
+
+/**
+ * The tooltip description for a fitted piece of equipment, against the OWNER's
+ * effective stats — the one path, so a verb that changes what a weapon DOES
+ * cannot leave the tooltip describing the weapon it replaced. Only the mine
+ * forks today (CAPTIVE MINES); every other id reads its static line.
+ */
+export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): string {
+  if (id === 'mine' && stats.mine.captive) return CAPTIVE_MINE_DESCRIPTION;
+  return EQUIPMENT_DESCRIPTION[id];
+}
+
 /** The label a slot's tooltip uses for how the equipment is operated: the gun is
  *  keyless and permanently selected, weapons switch-to on their key, abilities
  *  activate immediately. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON. */
@@ -136,7 +159,7 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
   return {
     id,
     name: EQUIPMENT_NAME[id],
-    description: EQUIPMENT_DESCRIPTION[id],
+    description: equipmentDescription(stats, id),
     isWeapon: EQUIPMENT_IS_WEAPON[id],
     damage: equipmentDamage(stats, id),
     reloadMs: equipmentReloadMs(stats, id),

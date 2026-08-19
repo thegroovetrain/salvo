@@ -66,6 +66,21 @@ export interface AimPreviewInput {
   mapRadius: number;
   islands: readonly Island[];
   legal: boolean;
+  /**
+   * THE GUN'S RESOLVED REACH FOR THIS AIM (Story 7-5 wave 2, R2.15) — normally
+   * `stats.gun.rangeU`, but LIFTED to the click's own distance when the clicked
+   * point lies inside a live lit zone the player owns. Computed ONCE by the
+   * caller through weaponArc.weaponReachU and handed to the range-clamp marker
+   * (render/firing.ts) and to this preview as the SAME NUMBER, so the marker
+   * that says "the shell stops here" and the circle that says "it bursts here"
+   * cannot disagree.
+   *
+   * GUN ONLY: no other branch reads it, because no other system has the
+   * extension (R2.15 names the gun and excludes the broadside and the torpedo
+   * explicitly). Omitted = `stats.gun.rangeU`, i.e. the pre-wave-2 clamp
+   * byte-for-byte, which is what every non-main caller (tests) wants.
+   */
+  gunReachU?: number;
 }
 
 /** One travel line, already island-clipped (except where the shot overflies). */
@@ -92,12 +107,23 @@ export interface PreviewBurst {
   effect: boolean;
 }
 
-/** The mine's placement preview: both rings at the clicked drop point. */
+/**
+ * The mine's placement preview at the clicked drop point.
+ *
+ * `captive` is the CAPTIVE MINES verb (R2.12) and it changes WHAT IS DRAWN, not
+ * just how: a captive mine never detonates on contact, so its `blast` is the
+ * radius the launched TORPEDO bursts in — wherever that torpedo connects — and
+ * is NOT a circle around the drop point. Carried on the model anyway (it is the
+ * honest number for the verb, and a later tooltip may print it), but the
+ * renderer draws only the trip ring for it. Both radii arrive ALREADY
+ * transformed off `stats.mine`; nothing here re-derives the swap-and-triple.
+ */
 export interface PreviewPlacement {
   x: number;
   y: number;
   blast: number;
   trigger: number;
+  captive: boolean;
   blocked: boolean; // inside a rock / off the water — the server refuses it
 }
 
@@ -345,9 +371,12 @@ function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
   };
 }
 
-/** Mine placement: both rings at the clicked drop point (the server places the
+/** Mine placement: the rings at the clicked drop point (the server places the
  *  mine AT the click). Radii are the OWNER's effective ones — the same numbers
- *  the server reads off owner stats when the mine trips. */
+ *  the server reads off owner stats when the mine trips — READ, never
+ *  re-derived: `effectiveStats` already applied the captive swap-and-triple, so
+ *  a captive build arrives here at 144u/32u (210.8u/46.9u at a maxed MINES
+ *  ladder) with no arithmetic on this side of the wire. */
 function minePreview(inp: AimPreviewInput): AimPreviewModel {
   const dist = Math.max(0, inp.aimDist);
   const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
@@ -360,6 +389,7 @@ function minePreview(inp: AimPreviewInput): AimPreviewModel {
       y: p.y,
       blast: inp.stats.mine.blastRadius,
       trigger: inp.stats.mine.triggerRadius,
+      captive: inp.stats.mine.captive,
       blocked: blockedWater(p, inp.islands, inp.mapRadius),
     },
   };
@@ -378,7 +408,7 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   if (inp.id === 'gun') {
     const g = inp.stats.gun;
     return parallelVolley(inp, {
-      rangeU: g.rangeU,
+      rangeU: inp.gunReachU ?? g.rangeU,
       burstRadius: g.burstRadius,
       shellRadius: CONFIG.gun.shellRadius,
       barrels: g.barrels,
@@ -474,13 +504,26 @@ export class AimPreview {
     g.stroke({ width: P.lineWidth, color: tint, alpha: P.bandEdgeAlpha });
   }
 
-  /** Mine placement: the blast ring solid, the trigger ring dashed (dual-coded
-   *  by LINE STYLE, never by hue alone — DESIGN.md), both at the drop point. */
+  /**
+   * Mine placement at the drop point, dual-coded by LINE STYLE and never by hue
+   * alone (DESIGN.md).
+   *
+   * ORDINARY: solid blast ring (what it kills in) + dashed trigger ring (what
+   * sets it off).
+   *
+   * CAPTIVE (R2.12): the DOTTED trip ring alone, matching the own-mine ring set
+   * (render/mines.ts ownMineRings) exactly — so the circle a captain places is
+   * the circle they then see on the water. No solid ring is drawn, because a
+   * captive mine never detonates on contact and a blast circle around the
+   * casing would promise a kill it cannot deliver.
+   */
   private drawPlacement(p: PreviewPlacement, tint: number): void {
     const alpha = p.blocked ? P.blockedAlpha : P.burstAlpha;
     const g = this.g;
-    g.circle(p.x, p.y, p.blast).stroke({ width: P.burstWidth, color: tint, alpha });
-    for (const [a0, a1] of dashArcs(P.dashSegments, P.dashDuty)) {
+    if (!p.captive) g.circle(p.x, p.y, p.blast).stroke({ width: P.burstWidth, color: tint, alpha });
+    const segs = p.captive ? P.dotSegments : P.dashSegments;
+    const duty = p.captive ? P.dotDuty : P.dashDuty;
+    for (const [a0, a1] of dashArcs(segs, duty)) {
       g.moveTo(p.x + Math.cos(a0) * p.trigger, p.y + Math.sin(a0) * p.trigger);
       g.arc(p.x, p.y, p.trigger, a0, a1);
     }
