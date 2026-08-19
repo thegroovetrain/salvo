@@ -392,7 +392,7 @@ findings have already been fixed; here is the live state.
 |---|---|---|
 | `mineDamage` × `minePropFouling` pick-order dependence | ✅ **FIXED** (cycle 95) | Identical cards gave 53 or 45 hp depending on pick order. The ×0.6 multiplier was deleted. |
 | `mineTrigger` 5th copy ~75% clamped away | ✅ **FIXED** (cycle 95) | Card merged into `mineBlast`; trip ring is now a fixed 2/3 of blast and can't be clamped. |
-| At most 1 of 6 acquisition cards can ever fire | ❌ **OPEN** | One slot, and picking one purges the rest. 3 of your 4 sit dead in the pool. **Needs your ruling.** |
+| At most 1 acquisition card can ever fire | ❌ **OPEN** | 6 lines exist; 4 are in any one deck. One slot, and picking one purges the rest — so 3 of your 4 sit dead in the pool. **Needs your ruling.** |
 | `minePropFouling` card text says "hit softer" | ❌ **OPEN** | Copy went stale when the damage penalty was deleted. The card lies to the player today. |
 | `cannon.burstRadius` whitelisted with no card | ⚪ By design | Established shape — same as `gun.burstRadius`, `gun.contactDamage`, `cannon.contactDamage`, and all seven `reloadMs` paths. Ready for a future card. |
 
