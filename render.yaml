@@ -7,6 +7,22 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # THE GA4 MEASUREMENT ID (Story 7.2). Build-time config rather than a
+      # literal in source, on the mechanism `VITE_WS_URL` already proves: Vite
+      # inlines `VITE_`-prefixed vars at BUILD time, and Render exposes envVars
+      # to the build, so this reaches `import.meta.env` in the bundle.
+      #
+      # THE POINT IS THE ABSENCE ELSEWHERE. A fork, a contributor's `npm run
+      # dev`, or any preview build has no ID, so `isGaConfigured()` is false and
+      # the entire analytics layer is inert — it cannot report into this property
+      # by accident. Setting it HERE is what turns measurement on, and it is the
+      # only place it is turned on.
+      #
+      # Not a secret: a GA4 measurement ID is served in the page to every visitor
+      # of any site that uses one. It is committed deliberately, so that "which
+      # property does production report to" is answerable by reading the repo.
+      - key: VITE_GA_MEASUREMENT_ID
+        value: G-LLCR4XRZGG
       # THE RADAR REALISM CYCLE (cycle 51, amendments 62-75). Both flags default
       # to the shipped Story 4.2 behavior in code — deliberately, so a bad build
       # can never silently change the sensor. Production opts IN here, which is
