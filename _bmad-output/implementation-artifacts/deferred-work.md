@@ -1316,3 +1316,28 @@ and the next reader will again mistake a marker count for an open-work count.
   status: OPEN — mechanism gap, Story 7.8 territory
   summary: NFR17's DEAD-STRIP CHECK IS REAL BUT WIRED INTO NOTHING. `client/scripts/readabilityCapture.mjs --verify-bundle` greps the built assets for `HC_STAGED_WORSTCASE_4_8`, `__hcStage`, `worstcase` and `worstCase`, and it passes — but it is a manual invocation documented in a README, absent from `npm run check`, from `npm run build`, and from `render.yaml`'s buildCommand. Four separate comments in the codebase claim the dead-strip is "CHECKED rather than asserted"; it is checked only when a human remembers to check it. Cheap fix: add it to `npm run check` or to the build script. Related and already ledgered separately: the ungated production `P` toggle means the shipped bundle violates NFR17 TODAY, so this is not a hypothetical.
   evidence: verified during cycle 103 — the script exists and passes; `grep -n verify-bundle package.json render.yaml` finds nothing.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-analytics-consent-and-privacy.md`
+  status: OPEN — Story 7.3 inherits the component
+  summary: `renderPage`'s document-level CAPTURE-phase ESC listener is never removed on the privacy page, because `mountPrivacyPage()` discards the returned handle and so `destroy()` is unreachable. Harmless for a standalone document that is only left by navigation — but `ui/page.ts` was built in this story explicitly so Story 7.3's How-to-Play can reuse it, and an undisposed capture-phase handler that navigates to `/` is a live hazard the moment the chrome is used as an in-app overlay rather than a whole page. Related and same file: `renderPage` has no guard against being called twice without `destroy()`, which would stack two `inset:0` roots with duplicate ids and fire `onBack` twice per ESC.
+  evidence: `client/src/privacy/main.ts` discards the `MountedPage`; `client/src/ui/page.ts`'s ESC binding is added at capture phase on `document` and unbound only by `destroy()`. Review gate, Story 7.2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-analytics-consent-and-privacy.md`
+  status: OPEN — needs an Eric ruling, legally shaped
+  summary: NO GLOBAL PRIVACY CONTROL / DO-NOT-TRACK SIGNAL IS READ. The privacy policy originally claimed those settings were "respected"; that claim was FALSE and has been deleted rather than implemented. It is worth a deliberate decision rather than silence: `navigator.globalPrivacyControl` is a legally binding opt-out in several US states, and the data controller is a US individual operator. Reading it as a pre-emptive `denied` is a handful of lines in `analytics/consent.ts` and would compose cleanly with Consent Mode BASIC (nothing loads anyway until an explicit grant), but it changes who gets measured and so is not an implementer's call.
+  evidence: `grep -rn "doNotTrack|globalPrivacyControl|DNT" client/src server/src` returns nothing. Review gate, Story 7.2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-analytics-consent-and-privacy.md`
+  status: OPEN — presentation, cheap
+  summary: The privacy policy renders its contact address and both Google policy URLs as PLAIN TEXT, because `makePageParagraph` uses `textContent`. For a document whose only stated remedy is "write to us", an unclickable address is real friction — and the same limitation means the page cannot link onward to Google's own policy, which it cites twice. Adding a small link helper to `ui/page.ts` would serve Story 7.3's How-to-Play page too.
+  evidence: `client/src/ui/page.ts` (`makePageParagraph` sets `textContent`); `client/src/privacy/policyCopy.ts` cites `https://policies.google.com/privacy` and `POLICY_CONTACT` as bare strings. Review gate, Story 7.2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-analytics-consent-and-privacy.md`
+  status: OPEN — sub-floor viewports only
+  summary: The consent card has no `max-height` and no scroll surface, and its width floor is `calc(100vw - 48px)` with no minimum. Below the ratified 1366x768 floor — a short landscape phone, a large OS font scale, or a viewport narrower than 48px — the card can outgrow the viewport with its head unreachable, or collapse toward zero width leaving consent unanswerable and the state stuck `undecided` forever. Not a breach of any ratified target, which is why it is ledgered rather than fixed: UX-DR39 sets the floor at 1366x768 and the card is correct there.
+  evidence: `client/src/ui/consentBar.ts` `BAR_CSS`. Review gate, Story 7.2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-7-2-analytics-consent-and-privacy.md`
+  status: OPEN — inherent to any tag loader, worth knowing
+  summary: `ga.ts` sets `ready = true` immediately after appending the script element, which is synchronous and cannot know the remote script actually loaded. With `googletagmanager.com` blocked by an extension or a firewall, `ready` stays true forever, `window.gtag` remains the local queue shim, and events accumulate on `window.dataLayer` with nothing draining them. Bounded in practice (five events per match cycle, and every cycle ends in a page reload), and unfixable without an `onload`/`onerror` handshake that would add its own failure modes — but it means the seam's "no unflushable queue" property does not extend below the shim.
+  evidence: `client/src/analytics/ga.ts` `startGa`/`injectTag`. Review gate, Story 7.2.

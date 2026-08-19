@@ -6,9 +6,19 @@
 //
 // Everything spatial/gameplay stays out of this file by construction: it
 // only ever receives whatever plain-object fields the caller (room/adapter
-// layer) hands it. See CONFIG/CLAUDE.md — zero PII (player names, session
-// ids) belongs in a telemetry line; that discipline is enforced by callers,
-// not here.
+// layer) hands it. NO PLAYER NAME may ever appear in a log line; that
+// discipline is enforced by callers, not here.
+//
+// CORRECTED (Story 7.2, cycle 104). This comment used to bar "player names,
+// SESSION IDS" — and the callers have always logged `sessionId` on join,
+// joiningKick, drop, resume and leave (ArenaRoom, StandardQueueRoom). The
+// callers are right and the comment was wrong: a Colyseus `sessionId` is an
+// ephemeral per-connection value, minted fresh on every join, never persisted
+// and not linkable to a person, so it is an ops correlator rather than PII —
+// and without it a disconnect cannot be tied to its own join. The rule that
+// actually holds is the one now stated above. Corrected here rather than in the
+// callers because writing an accurate privacy policy required knowing which of
+// the two was the real discipline; see epic-7 amendment 14.
 
 export type LogFields = Record<string, unknown>;
 

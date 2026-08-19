@@ -295,6 +295,53 @@ describe('audioCues — countdown tick + match-start edge detection', () => {
     const state: AudioCueState = { lastPhase: 'active', lastTickSec: null };
     expect(audioCues(state, 'active', 0).matchStart).toBe(false);
   });
+
+  // --- Story 7.2, Eric ruling R13: the refresh-resume false start ----------
+  //
+  // The defect these pin: INITIAL_CUE_STATE.lastPhase is 'connecting', meaning
+  // "the match plane has not been observed yet" — but the edge rule reads it as
+  // an ordinary previous phase, so resuming INTO a live match manufactured a
+  // match-start for a match that began minutes ago. It fired the horn and
+  // portal.matchStart(); Story 7.2 hangs a funnel event on the same edge.
+
+  it('WITHOUT the suppressor, a resume seed manufactures a false match start', () => {
+    // This is the shipped defect, pinned so the fix cannot be quietly undone by
+    // "simplifying" the caller: the seed alone still produces the bad edge.
+    expect(audioCues(INITIAL_CUE_STATE, 'active', 0).matchStart).toBe(true);
+  });
+
+  it('suppressStart kills that edge', () => {
+    expect(audioCues(INITIAL_CUE_STATE, 'active', 0, true).matchStart).toBe(false);
+  });
+
+  it('suppressStart does NOT swallow the countdown tick', () => {
+    // A player who resumes mid-countdown should still hear it. This is why the
+    // fix is a parameter on the start edge and not an early return in the caller.
+    const r = audioCues(INITIAL_CUE_STATE, 'countdown', 3, true);
+    expect(r.tick).toBe(true);
+    expect(r.matchStart).toBe(false);
+  });
+
+  it('suppressStart leaves the returned state byte-identical', () => {
+    // The suppressor must not corrupt the edge detector it is protecting: the
+    // NEXT frame has to behave exactly as if nothing had been suppressed.
+    const plain = audioCues(INITIAL_CUE_STATE, 'active', 0);
+    const held = audioCues(INITIAL_CUE_STATE, 'active', 0, true);
+    expect(held.state).toEqual(plain.state);
+  });
+
+  it('a real start still fires on the frame AFTER the seed is consumed', () => {
+    // Resume into a waiting room, then the match genuinely starts. The one-shot
+    // is spent on the first frame, so the real transition is unaffected.
+    const seeded = audioCues(INITIAL_CUE_STATE, 'waiting', 0, true);
+    expect(seeded.matchStart).toBe(false);
+    expect(audioCues(seeded.state, 'active', 0).matchStart).toBe(true);
+  });
+
+  it('defaults to the shipped behaviour when the parameter is omitted', () => {
+    const state: AudioCueState = { lastPhase: 'countdown', lastTickSec: 1 };
+    expect(audioCues(state, 'active', 0).matchStart).toBe(true);
+  });
 });
 
 describe('stormEnterEdge', () => {

@@ -517,3 +517,100 @@ describe('canAbandon — where the leave button belongs (amendment 19)', () => {
     expect(canAbandon('active', false, true)).toBe(false);
   });
 });
+
+// --- THE ANALYTICS WITHDRAWAL ROW (Story 7.2, review gate) -------------------
+//
+// WHY THIS ROW EXISTS AT ALL: GDPR Art. 7(3) requires withdrawing consent to be
+// as easy as giving it. The shipped answer was "clear site data", which also
+// destroys the callsign, class, colour and every accessibility setting — i.e.
+// strictly harder than the single ACCEPT press that granted it. Eric ruled the
+// row in at the review gate.
+//
+// It is wired by CALLBACK, not by importing the analytics layer, so this suite
+// drives it with plain spies and the overlay stays renderable with no GA4.
+
+describe('the analytics consent row', () => {
+  function mount(initial: boolean | null): {
+    overlay: SettingsOverlay;
+    sets: boolean[];
+    text: () => string;
+  } {
+    let granted = initial;
+    const sets: boolean[] = [];
+    const overlay = new SettingsOverlay({
+      store: new SettingsStore({ ...DEFAULT_SETTINGS }),
+      inMatch: () => false,
+      onAbandon: () => undefined,
+      viewportWidth: () => 1920,
+      consent: {
+        granted: () => granted,
+        set: (v) => {
+          granted = v;
+          sets.push(v);
+        },
+      },
+    });
+    overlay.open();
+    return {
+      overlay,
+      sets,
+      text: () => document.getElementById('hc-settings')?.textContent ?? '',
+    };
+  }
+
+  function analyticsButton(label: 'ON' | 'OFF'): HTMLButtonElement {
+    const rows = [...document.querySelectorAll('div')].filter((d) =>
+      d.textContent?.startsWith('ANALYTICS'),
+    );
+    const row = rows[rows.length - 1] as HTMLElement;
+    return [...row.querySelectorAll('button')].find((b) => b.textContent === label)!;
+  }
+
+  /** The segmented control marks its selection with the amber accent — the same
+   *  grammar every other settings row uses (`makeChoiceRow`), not aria-pressed. */
+  function isSelected(b: HTMLButtonElement): boolean {
+    return b.style.color === 'var(--hc-amber)';
+  }
+
+  it('is absent entirely when no consent wiring is supplied', () => {
+    // Every pre-7.2 construction site passes no `consent`, so the overlay must
+    // be byte-identical for them.
+    const overlay = new SettingsOverlay({
+      store: new SettingsStore({ ...DEFAULT_SETTINGS }),
+      inMatch: () => false,
+      onAbandon: () => undefined,
+      viewportWidth: () => 1920,
+    });
+    overlay.open();
+    expect(document.getElementById('hc-settings')?.textContent).not.toContain('ANALYTICS');
+    overlay.destroy();
+  });
+
+  it('renders an UNANSWERED choice as OFF, which is the truth under Basic mode', () => {
+    // Nothing is measured while the question is open — no Google script exists
+    // until an explicit grant — so OFF is honest rather than a placeholder.
+    const m = mount(null);
+    expect(m.text()).toContain('ANALYTICS');
+    expect(isSelected(analyticsButton('OFF'))).toBe(true);
+    m.overlay.destroy();
+  });
+
+  it('reflects a stored grant, and withdrawing is ONE press', () => {
+    const m = mount(true);
+    expect(isSelected(analyticsButton('ON'))).toBe(true);
+    analyticsButton('OFF').click();
+    expect(m.sets).toEqual([false]);
+    // …and the control repaints to the new truth rather than going stale.
+    expect(isSelected(analyticsButton('OFF'))).toBe(true);
+    m.overlay.destroy();
+  });
+
+  it('is a real second door INTO consent too, not just out of it', () => {
+    // A player who declined on day one can opt in later without clearing
+    // storage — the card is gone by then, so this is the only route.
+    const m = mount(false);
+    analyticsButton('ON').click();
+    expect(m.sets).toEqual([true]);
+    m.overlay.destroy();
+  });
+});

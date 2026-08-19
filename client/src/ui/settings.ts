@@ -392,6 +392,23 @@ export interface SettingsOverlayDeps {
    * (1050 < 1100), so without the yield the home swallows every click.
    */
   onVisibility?: (visible: boolean) => void;
+  /**
+   * THE ANALYTICS CONSENT ROW (Story 7.2, Eric ruling 2026-08-18 at the review
+   * gate). GDPR Art. 7(3) requires withdrawing consent to be as easy as giving
+   * it, and the shipped answer was "clear site data" — which also destroys the
+   * callsign, class, colour and every accessibility setting, i.e. strictly
+   * harder than the single ACCEPT press that granted it.
+   *
+   * CALLBACKS, NOT AN IMPORT, following ui/consentBar.ts: this overlay stays
+   * renderable with no analytics layer at all, and `analytics/ga.ts` remains
+   * the only module in the client that knows GA4 exists. Omitted ⇒ no row, so
+   * every existing construction site and test is unaffected.
+   */
+  consent?: {
+    /** `true` granted, `false` denied, `null` not yet answered. */
+    granted: () => boolean | null;
+    set: (granted: boolean) => void;
+  };
 }
 
 /**
@@ -514,9 +531,32 @@ export class SettingsOverlay {
         makeToggleRow('MONO AUDIO', s.monoAudio, (v) => this.set({ monoAudio: v })),
         makeToggleRow('MUTE (M)', s.muted, (v) => this.set({ muted: v })),
       ),
+      ...this.makePrivacySection(),
       makeSection('CONTROLS — REFERENCE ONLY', makeBindings()),
       this.makeDangerRow(),
     );
+  }
+
+  /**
+   * The PRIVACY section, or nothing when no consent wiring was supplied.
+   *
+   * An UNANSWERED player shows as OFF and nothing is measured — which is the
+   * truth under Consent Mode BASIC, where no Google script exists until an
+   * explicit grant. Pressing ON here is therefore a real grant, and is the
+   * second door to the same decision the card offers.
+   */
+  private makePrivacySection(): HTMLElement[] {
+    const c = this.deps.consent;
+    if (c === undefined) return [];
+    return [
+      makeSection(
+        'PRIVACY',
+        makeToggleRow('ANALYTICS', c.granted() === true, (v) => {
+          c.set(v);
+          this.render();
+        }),
+      ),
+    ];
   }
 
   private makeHeader(): HTMLElement {

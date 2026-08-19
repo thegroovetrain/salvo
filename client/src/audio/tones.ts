@@ -475,14 +475,30 @@ export interface AudioCueResult {
  * fire THIS frame, and return the updated state to carry into next frame.
  * `secondsRemaining` is precomputed by the caller (ui/phase.ts's
  * secondsUntil) so this module stays clock-agnostic.
+ *
+ * `suppressStart` (Story 7.2, Eric ruling R13) forces the match-start edge low
+ * for ONE call while leaving everything else — the countdown tick, and the
+ * returned state — byte-identical. It exists for the fresh-page resume, where
+ * `INITIAL_CUE_STATE.lastPhase` (`'connecting'`, i.e. *not yet observed*) reads
+ * to this function as an ordinary previous phase and manufactures a start edge
+ * for a match that began minutes ago. It is a PARAMETER rather than a rule
+ * about `'connecting'` because a fresh join whose first observed frame is
+ * already `'active'` is a real start, and only the caller knows which it is.
+ * It must not suppress the tick: a player who resumes mid-countdown should
+ * still hear it.
  */
-export function audioCues(prev: AudioCueState, phase: string, secondsRemaining: number): AudioCueResult {
+export function audioCues(
+  prev: AudioCueState,
+  phase: string,
+  secondsRemaining: number,
+  suppressStart = false,
+): AudioCueResult {
   // 'countdown' only, deliberately: the gathering join window also renders big
   // center seconds but stays silent — the audible tick is reserved for "locked,
   // really starting" (spec design note for the 30s join window).
   const inTickWindow = phase === 'countdown' && secondsRemaining <= TICK_WINDOW_S;
   const tick = inTickWindow && secondsRemaining !== prev.lastTickSec;
-  const matchStart = phase === 'active' && prev.lastPhase !== 'active';
+  const matchStart = !suppressStart && phase === 'active' && prev.lastPhase !== 'active';
   return {
     tick,
     matchStart,

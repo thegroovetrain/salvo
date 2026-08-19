@@ -213,7 +213,7 @@ development_status:
   # epic-7: Beta Launch Readiness (RESCOPED 2026-08-18; sprint-change-proposal-2026-08-18.md)
   epic-7: in-progress
   7-1-performance-and-load-pass: done  # 2026-08-18 cycle 103 (0.17.103) NFR1 live play PASSES (headroom 10.2-10.9ms, 0 dropped frames); omniscient reveal BREACHES render leg 11.7ms vs 10ms (open); powerPreference fix; NFR2 3.1s of ~10s; epic-7 amendments 1-13; PV unchanged at 40
-  7-2-analytics-consent-and-privacy: backlog
+  7-2-analytics-consent-and-privacy: done  # 2026-08-18 cycle 104 (0.17.104); PV unchanged at 40; epic-7 amendment 14 (R1-R16); own consent card + Consent Mode v2 BASIC, /privacy page, reusable page chrome; certified CMP DEFERRED to 7-4 (Google requires the AdSense site+code first)
   7-3-how-to-play-page: backlog
   7-4-adsense-h5-games-ads: backlog
   7-5-upgrade-cards-v2: backlog
