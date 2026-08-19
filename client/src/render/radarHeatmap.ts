@@ -1,7 +1,7 @@
 // The `return` grammar's BUFFER: a world-anchored quantized intensity bitmap,
 // the seeds and grain that texture it, and the stamp that puts one marched slice
 // into it. Pure math, no Pixi — the adapter (render/radar.ts) only anchors the
-// grid, uploads the bytes and positions one sprite, the same seam blipMarks.ts
+// grid, uploads the bytes and positions one sprite, the same seam phosphor.ts
 // holds for the `silhouette` grammar.
 //
 // THE PRIMITIVE THIS FILE SERVES CHANGED IN CYCLE 62 (amendment 138). It used to

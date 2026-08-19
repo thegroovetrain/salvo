@@ -53,13 +53,10 @@ function honks(events: readonly GameEvent[]): FoghornEvent[] {
 const subject = (x: number, y: number, id: string): FoghornEvent =>
   ({ k: 'fh', h: 'standard', x, y, id }) as FoghornEvent;
 
-/** The radar-mode half of a SignalContext (cycle 51). The foghorn row reads
- *  none of it — `fh` has no wire shape that varies by radar grammar — but the
- *  context type carries it for every row, so these tests pass the World's own
- *  values through rather than hardcoding a grammar. */
+/** The context rows the foghorn row never reads — the SignalContext type
+ *  carries them for every row, so these tests pass the World's own values
+ *  through rather than hardcoding anything. */
 const radarCtx = (w: World) => ({
-  radarGrammar: w.radarGrammar,
-  radarIdentity: w.radarIdentity,
   pseudonymOf: (id: string) => w.pseudonymFor(id),
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.

@@ -200,11 +200,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 39→40 bump (PV 40: THE MINE RING CARDS MERGE — mineTrigger leaves the catalog and the trip ring becomes a fixed fraction of the blast, so a stale bundle would offer a card the server no longer knows) is enforced at matchmake', () => {
-  it('rejects pv-39 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(40);
+describe('pv join gate — the 40→41 bump (PV 41: THE ONE RADAR — WelcomeMsg loses its two radar-mode fields and BlipEvent collapses to the coverage footprint, so a stale bundle would wait on welcome fields that never arrive and mis-narrow every paint) is enforced at matchmake', () => {
+  it('rejects pv-40 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(41);
+    expect(protocolVersionError(40)).toMatch(/refresh/);
     expect(protocolVersionError(39)).toMatch(/refresh/);
-    expect(protocolVersionError(35)).toMatch(/refresh/);
     expect(protocolVersionError(34)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();

@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  41: THE ONE RADAR (cycle 105, Eric ruling 2026-08-19: "the radar on prod
+ *  is the ONLY radar") — the `silhouette` grammar and the `roster` identity
+ *  are DELETED, not defaulted away. Production has run `return`/`pseudonym`
+ *  since the radar realism cycle shipped (render.yaml set the two radar env
+ *  flags), while the code still carried the retired Story 4.2
+ *  pose-on-the-wire grammar as its DEFAULT; Eric believed it was already
+ *  gone. Wire break: WelcomeMsg LOSES its two required radar-mode fields
+ *  (the room-wide grammar + id-namespace announcement — there is no mode
+ *  left to announce), SilhouetteBlipEvent leaves the contract, and BlipEvent
+ *  collapses from the tagless two-member union to ReturnBlipEvent alone. A
+ *  stale client would wait on welcome fields that never arrive and fall back
+ *  to narrowing blips as the silhouette shape, mis-reading every paint. The
+ *  behavior a production room emits is byte-identical (the RETURN golden
+ *  frames pin it); what died is the road not taken. The per-match pseudonym
+ *  track-id stream survives on the server (World.pseudonymFor — the `return`
+ *  payload carries no id at all, so identity never leaves the server).
  *  37: THE REQUEUE SIGNAL RIDES THE ARENA (Story 6.3, epic-6 amendments
  *  15/17/18). New server->client channel MSG.requeue ('rq') carrying
  *  RequeueMsg { reason: 'cohortLost' }: a queue-formed room that falls below
@@ -181,8 +197,9 @@
  *  world units, no range term; amendment 66's anti-cheat bound: never boons,
  *  hp, damage state, or any range-derivable flight quantity). The server
  *  picks ONE grammar per room and announces it in the welcome — WelcomeMsg
- *  gains required radarGrammar ('silhouette'|'return') and radarIdentity
- *  ('roster'|'pseudonym'), both defaulting to today's behavior so production
+ *  gains required radar-mode fields (grammar 'silhouette'|'return', identity
+ *  'roster'|'pseudonym' — both deleted again by PV 41's ONE-RADAR ruling),
+ *  both defaulting to today's behavior so production
  *  is byte-identical until a server flag flips (amendment 63). CONFIG is
  *  untouched (CONFIG.vision gains no new constant).
  *  26: THE FOGHORN (Story 4.5, Eric rulings 2026-08-05, amendments 51-58) —
@@ -374,7 +391,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 40;
+export const PROTOCOL_VERSION = 41;
 
 // Tunables
 export * from './constants.js';

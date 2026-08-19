@@ -156,7 +156,7 @@ describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
   const radarFor = (): { radar: Radar; layer: Container } => {
     const layer = new Container();
     baked.calls.length = 0;
-    const radar = new Radar(layer, new Container(), () => null, 'return');
+    const radar = new Radar(layer, new Container());
     return { radar, layer };
   };
 

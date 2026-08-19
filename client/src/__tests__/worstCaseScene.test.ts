@@ -18,7 +18,6 @@ import {
   OWN_CLASS,
   SCENE,
   SCENE_EPOCH_MS,
-  SCENE_RADAR_GRAMMAR,
   STAGE_SEED,
   bankedPointsAt,
   buildSceneWorld,
@@ -142,32 +141,18 @@ describe('staged worst-case scene — Tier 2 (the storm closing)', () => {
   });
 });
 
-describe('staged worst-case scene — the RADAR GRAMMAR it stages', () => {
-  // Eric ruling 2026-08-11: `silhouette` (Story 4.2's hull outlines + ARPA
-  // vector) is being removed wholesale — *"I am going to be completely removing
-  // all radar shit that existed before that. Its too good."* A readability gate
-  // captured against a doomed grammar is evidence about the wrong game, so the
-  // staged value is PINNED here rather than left as a literal in the shell.
-  it('stages `return`, the physical model that ships — never `silhouette`', () => {
-    expect(SCENE_RADAR_GRAMMAR).toBe('return');
-    expect(sceneWelcome(MAP_RADIUS, SCENE_EPOCH_MS).radarGrammar).toBe('return');
-  });
-
-  it('emits return-grammar echoes: a cell rect and a mask, and NO identity', () => {
+describe('staged worst-case scene — the radar wire it stages', () => {
+  it('emits identity-free echoes: a cell rect and a mask, and NO identity', () => {
     const blips = sceneEvents(world, 200, SCENE_EPOCH_MS).filter((e) => e.k === 'blip');
     expect(blips.length).toBeGreaterThan(0);
     for (const b of blips) {
       expect(Object.keys(b).sort()).toEqual(['bits', 'gx', 'gy', 'h', 'k', 't', 'w']);
-      if (!('bits' in b)) throw new Error('staged blip is not a return-grammar echo');
+      if (!('bits' in b)) throw new Error('staged blip is not a coverage-footprint echo');
       // The mask is the SHIPPED shaper's (paintCoverage), so the wire's own
       // structural gate holds: bits sized exactly to the rect.
       expect(b.bits).toHaveLength(Math.ceil((b.w * b.h) / 32));
       expect(b.bits.some((word) => word !== 0)).toBe(true);
     }
-  });
-
-  it('leaves identity alone — `roster`, which `return` never consults', () => {
-    expect(sceneWelcome(MAP_RADIUS, SCENE_EPOCH_MS).radarIdentity).toBe('roster');
   });
 });
 
@@ -265,7 +250,7 @@ describe('staged worst-case scene — the population', () => {
       expect(blips).toHaveLength(SCENE.farContacts);
       for (const b of blips) {
         // `BlipEvent` is a TAGLESS union (silhouette | return); the scene speaks
-        // `return` (SCENE_RADAR_GRAMMAR), so a blip is a cell rect — its world
+        // A blip is a cell rect — its world
         // position is the rect's centre on the shipped lattice.
         if (!('gx' in b)) throw new Error('staged blip is not a return-grammar echo');
         const cell = CONFIG.vision.radarCellU;

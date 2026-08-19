@@ -107,7 +107,7 @@ function harness(): { radar: Radar; layer: Container; chart: Container } {
   const chart = new Container();
   const layer = new Container();
   chart.addChild(layer);
-  const radar = new Radar(layer, new Container(), () => null, 'return');
+  const radar = new Radar(layer, new Container());
   radar.onSweepSample(0, 0);
   return { radar, layer, chart };
 }
@@ -558,7 +558,7 @@ describe('the camera cannot touch what is painted or when it is retired', () => 
    *  source of paints in the grammar. */
   function run(view: (own: { x: number; y: number }) => ViewRect | null, times: number[]): Radar {
     const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => null, 'return');
+    const radar = new Radar(layer, new Container());
     const contacts = new ContactStore();
     contacts.pushFrame(0, [{ id: 'ship-7', x: 200, y: 0, heading: 0, speed: 0, cls: 'battleship' }]);
     radar.setHeightRaster(RASTER);
@@ -1009,32 +1009,6 @@ describe('anything the server blips paints (amendment 127), at any range', () =>
   });
 });
 
-// --- 7. `silhouette` is untouched (amendment 99) ---------------------------------
-
-describe('`silhouette` mode never grows a buffer, camera or not', () => {
-  it('allocates no heatmap even when a view rect is supplied every frame', () => {
-    const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
-    const cam = camera(USER_ZOOM_MIN);
-    radar.setHeightRaster(rasterFrom(600, slab(350, 0, 70, 90, 255)));
-    radar.onSweepSample(-0.6, 0);
-    frame(radar, cam, { x: 0, y: 0 }, 0);
-    frame(radar, cam, { x: 0, y: 0 }, 900);
-    radar.onBlip({
-      k: 'blip', id: 'trk-s', x: 0, y: 500, t: 900, cls: 'battleship', heading: 0, speed: 20,
-    });
-    frame(radar, cam, { x: 0, y: 0 }, 1000);
-    expect(radar.heatDims, 'no buffer at all').toBeNull();
-    expect(radar.livePaints).toBe(0);
-    expect(radar.bandAt(0, 500)).toBe(-1);
-    expect(radar.liveBlips, 'and the 4.2 outline still paints').toBe(1);
-    expect(
-      layer.children.some((c) => c instanceof Sprite && c.label !== DIM_MASK_LABEL),
-      'no heatmap sprite',
-    ).toBe(false);
-  });
-});
-
 // --- 8. THE NEAR-RANGE DIM MASK (Story 4.11, amendment 181) ----------------------
 //
 // PINNED AT THE ADAPTER, BECAUSE NOTHING ELSE CAN SEE IT. The mask is a DISPLAY
@@ -1091,7 +1065,7 @@ describe('the near-range dim mask', () => {
     // `paintHeat` takes its `paints.length === 0` early return on every frame,
     // which is precisely the path a placement hung off it would miss.
     const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => null, 'return');
+    const radar = new Radar(layer, new Container());
     const cam = camera(1);
     frame(radar, cam, { x: 0, y: 0 }, 0);
     expect(radar.livePaints, 'the fixture really paints nothing').toBe(0);
@@ -1174,16 +1148,6 @@ describe('the near-range dim mask', () => {
     // ...and a finite pose puts it straight back.
     frame(radar, cam, { x: 300, y: 300 }, 900);
     expect(layer.mask, 'recovered').toBe(radar.dimMask);
-  });
-
-  it('MASKS THE `silhouette` GRAMMAR TOO — it is a property of the display, not '
-    + 'of the return grammar', () => {
-    const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
-    radar.onSweepSample(0, 0);
-    radar.render({ x: 10, y: 20 }, 100, null, null);
-    expect(layer.mask).toBe(radar.dimMask);
-    expect(radar.dimMask.position.x).toBeCloseTo(10, 9);
   });
 
   it('NEVER DRAWS ITSELF: the mask is non-renderable, so it can never appear as '

@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
@@ -49,7 +49,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, decoys: w.decoys, me, wakes: w.wakeRibbons,
-    radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
+    pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
 }
@@ -59,7 +59,7 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
     litZones: w.litZones, decoys: w.decoys, me: undefined, wakes: w.wakeRibbons,
-    radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
+    pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
 }
@@ -126,9 +126,8 @@ const REGISTRY_KEYS = [
   // 1..8 volume band as of Story 4.9; islands muffle to max(5, band + 2)).
   'fh',
   // Story 4.12 — radar wakes: disturbed water disclosed segment by segment
-  // on the blipGate clause order, per-source inner bound, `return` grammar
-  // only (NOT a declared fog exception; identity-free
-  // {k,t,a,gx,gy,w,h,bits} coverage masks).
+  // on the blipGate clause order, per-source inner bound (NOT a declared fog
+  // exception; identity-free {k,t,a,gx,gy,w,h,bits} coverage masks).
   'wk',
 ];
 
@@ -168,19 +167,20 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls']);
   });
 
-  it('blip row: [k,id,x,y,t,cls,heading,speed] — Story 4.2 appends the LIVE pose after t', () => {
+  it('blip row: [k,t,gx,gy,w,h,bits] — the identity-free coverage footprint (cycle 63)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', RADAR, 0, 1.2); // beyond sight, at the radar boundary, bearing 0
-    b.state.speed = -4; // astern — the raw SIGNED scalar rides the wire
+    b.state.speed = -4; // speed never rides the wire — the mask is pose geometry only
     a.prevSweepAngle = wrapPositive(-0.02);
     a.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
     const row = signalFor('blip')!;
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
-    expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 't', 'cls', 'heading', 'speed']);
-    expect(wire).toEqual({ k: 'blip', id: 'b', x: RADAR, y: 0, t: w.now, cls: 'torpedoBoat', heading: 1.2, speed: -4 });
+    expect(Object.keys(wire as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
+    const c = paintCoverage('torpedoBoat', RADAR, 0, 1.2, CONFIG.vision.radarCellU, w.now);
+    expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
   it('shell row: [k,id,x,y,vx,vy,t]', () => {
@@ -206,7 +206,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   });
 
   it('wk row (Story 4.12): [k,t,a,gx,gy,w,h,bits] — the ReturnBlipEvent order with the age bucket after t, and NO identity key of any kind', () => {
-    const w = bareWorld(1, { radarGrammar: 'return' }); // the row exists only in `return` (review-gate P1)
+    const w = bareWorld(1);
     const me = place(w, 'a', 0, 0);
     me.prevSweepAngle = wrapPositive(-0.02);
     me.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
@@ -222,21 +222,13 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire.a).toBe(2); // the quantized water-age bucket rides verbatim
   });
 
-  it('wk row fails closed: the default grammar (P1), spectators (no radar), the sight bubble, an unswept bearing, and a world-emitted wire shape (no `ax`)', () => {
-    const w = bareWorld(1, { radarGrammar: 'return' });
+  it('wk row fails closed: spectators (no radar), the sight bubble, an unswept bearing, and a world-emitted wire shape (no `ax`)', () => {
+    const w = bareWorld(1);
     const me = place(w, 'a', 0, 0);
     me.prevSweepAngle = wrapPositive(-0.02);
     me.sweepAngle = wrapPositive(0.02);
     const row = signalFor('wk')!;
     const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 0, widthU: 9, torp: false };
-    // THE GRAMMAR CLAUSE (cycle-69 review gate, P1): the identical gated
-    // segment is INERT in a default (silhouette) room — the client's wake
-    // path only exists under `return`, so a default room must pay no wire.
-    const silhouette = bareWorld(1);
-    const silhouetteMe = place(silhouette, 'a', 0, 0);
-    silhouetteMe.prevSweepAngle = wrapPositive(-0.02);
-    silhouetteMe.sweepAngle = wrapPositive(0.02);
-    expect(row.visible(foggedCtx(silhouette, silhouetteMe), seg)).toBe(false);
     expect(row.visible(specCtx(w), seg)).toBe(false); // spectators have no radar
     // Inside the sight bubble: the annulus' sight exclusion is inherited from
     // blipGate verbatim for SHIP water (the row's documented in-bubble
@@ -277,7 +269,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000, own: true, by: 'a' });
   });
 
-  it('blip row counterIntel: the SAME [k,id,x,y,t,cls,heading,speed] shape — OWNER\'s ship id at the BUOY\'s position, FROZEN drop-time pose at speed 0', () => {
+  it('blip row counterIntel: the SAME [k,t,gx,gy,w,h,bits] shape — the OWNER hull\'s footprint at the BUOY\'s position, FROZEN drop-time heading', () => {
     const w = bareWorld();
     const b = place(w, 'b', 0, 0); // fogged non-owner observer
     // hullId/heading are the drop-time snapshot ON the record (Story 4.2,
@@ -288,8 +280,9 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const row = SIGNAL_REGISTRY.blip;
     const lie = row.counterIntel!(foggedCtx(w, b), w.decoys.get('d1')!);
     expect(lie).not.toBeNull();
-    expect(Object.keys(lie as object)).toEqual(['k', 'id', 'x', 'y', 't', 'cls', 'heading', 'speed']); // byte-identical to a real paint
-    expect(lie).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now, cls: 'mineLayer', heading: 0.9, speed: 0 });
+    expect(Object.keys(lie as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']); // byte-identical to a real paint
+    const c = paintCoverage('mineLayer', 400, 0, 0.9, CONFIG.vision.radarCellU, w.now);
+    expect(lie).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
   it('blip row counterIntel: SUPPRESSED while the owner is contact-visible (the FR10 coexistence guard)', () => {
@@ -306,7 +299,8 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     // Owner out of contact reach: the same call lies again (control).
     a.state.x = -400; // annulus, bearing π — invisible to the window around 0
     expect(SIGNAL_REGISTRY.contact.visible(ctx, a)).toBe(false);
-    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now, cls: 'mineLayer', heading: 0, speed: 0 });
+    const c = paintCoverage('mineLayer', 400, 0, 0, CONFIG.vision.radarCellU, w.now);
+    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
   it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {

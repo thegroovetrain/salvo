@@ -3,28 +3,12 @@
 // (fog-immune, camera-transformed), so the scope stays readable over the fogged
 // ocean while remaining in world coordinates.
 //
-// TWO RADAR GRAMMARS LIVE HERE (cycle 51, amendments 62-70 + 63), selected by the
-// SERVER and announced once in the welcome handshake. The room picks one for the
-// whole match, so `BlipEvent` is a TAGLESS union and this file narrows on the
-// announced mode — never by probing which fields an event carries.
+// ONE RADAR GRAMMAR LIVES HERE (cycle 105, Eric ruling 2026-08-19: "the radar
+// on prod is the ONLY radar"). The retired `silhouette` grammar (Story 4.2's
+// true-scale hull outlines + ARPA vector) is deleted end to end — no mode flag,
+// no welcome announcement, no Graphics pool; every blip is a `ReturnBlipEvent`.
 //
-// `silhouette` — THE SHIPPED STORY 4.2 GRAMMAR (FR14, amendments 7-13), the
-// default, the fail-safe, and byte-identical to the pre-cycle build. A paint is
-// not an anonymous dot: each blip draws the contact's TRUE-SCALE hull silhouette
-// at its true position and heading, using the SHARED `hullSilhouette()` polygon
-// verbatim (the same one the hull renderer draws and the server hit-tests:
-// UX-DR9, the silhouette IS the hitbox). No blip-specific geometry exists — no
-// per-class pixel table, no floor-clamp, no exaggerated notch; at true scale a
-// 124u battleship and a 100u torpedo boat are unmistakable without them. Three
-// grammars ride on that outline:
-//   • a NON-SCALING 1px hairline (`pixelLine`), so the outline reads the same
-//     at every camera zoom while the FOOTPRINT scales like the real hull;
-//   • the owner's LUMINANCE-FLOORED personal hue (drone grey for the roster
-//     sentinel, amber on a roster miss — the FALLBACK_STYLE grammar);
-//   • an ARPA speed vector (render/blipMarks.ts), astern for a reversing hull.
-// Cycle 52 does not touch one line of it.
-//
-// `return` — THE REALISM GRAMMAR, a QUANTIZED INTENSITY BITMAP PAINTED BY A BEAM
+// THE REALISM GRAMMAR: a QUANTIZED INTENSITY BITMAP PAINTED BY A BEAM
 // MARCH (cycle 62, amendments 138-144, superseding the per-object bakes of cycles
 // 52-61). There are no per-paint Graphics in this mode at all, and as of this
 // cycle there are no per-object paints either: every frame the sweep advances,
@@ -67,9 +51,9 @@
 // own hull in WORLD space and updated every frame. It is a presentation
 // transform over the composited layer: no paint record is read back, recomputed
 // or mutated, which is the distinction amendment 83 actually draws. It masks
-// everything the radar DRAWS — the heat buffer and the `silhouette` grammar's
-// Graphics alike — and deliberately not the sweep wedge or the range rings,
-// which live in `sweepLayer` and are chrome rather than returns.
+// everything the radar DRAWS — the heat buffer — and deliberately not the
+// sweep wedge or the range rings, which live in `sweepLayer` and are chrome
+// rather than returns.
 //
 // THE RAMP IS ANCHORED TO TRUESIGHT AND OBSERVER-SCALED (this cycle, correcting
 // the shipped 1/8 → 5/8 anchoring). Amendment 181's stated reason is a statement
@@ -135,18 +119,16 @@
 // break was in this adapter's PLACEMENT. Hence amendment 98: placement is pinned
 // here, at both zoom extremes and with the camera moving.
 //
-// Persistence is unchanged in both grammars: alpha is a pure function of
-// serverNow − paint time (phosphor.ts), three sweeps deep (amendment 9). In
-// `return` mode that now means the last three revolutions of SLICES, so the scope
-// carries a fading trail behind the beam rather than a fixed number of marks per
-// track.
+// Persistence: alpha is a pure function of serverNow − paint time
+// (phosphor.ts), three sweeps deep (amendment 9) — the last three revolutions
+// of SLICES, so the scope carries a fading trail behind the beam rather than a
+// fixed number of marks per track.
 //
 // Range rings (documented choice): the plan calls for CIC-style range rings;
 // own-ship-centered beats map-centered for readability, so ONE ring at
 // exactly sightRange and ONE at exactly radarRange follow the own ship here
 // (kept subtle). The faint map-centered rings in map.ts remain as the chart
-// grid. Thin Pixi adapter; the math lives in phosphor.ts, blipMarks.ts and
-// radarHeatmap.ts.
+// grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
 
 import { BufferImageSource, Graphics, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
@@ -158,28 +140,19 @@ import {
   mapRadius,
   polygonMaxRadius,
   sampleHeight,
-  transformPolygon,
   wrapPositive,
   type BlipEvent,
   type HeightRaster,
   type HullCoverage,
-  type HullId,
   type Island,
-  type RadarGrammar,
-  type ReturnBlipEvent,
-  type SilhouetteBlipEvent,
-  type Vec2,
   type WakeBlipEvent,
   WAKE_AGE_BUCKETS,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { ContactStore } from '../net/snapshots.js';
 import { settings } from '../settings/store.js';
-import { Pool, capOldest, capOldestByKey } from '../util/pool.js';
-import { extentAlong, luminanceFloor, speedVector, type SpeedVector } from './blipMarks.js';
 import { fogHoleRadiusU } from './fog.js';
-import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
-import { blipAlpha, blipCool, blipLifeMs, sweepRotation } from './phosphor.js';
+import { blipAlpha, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
   FULL_TURN,
   anchorGrid,
@@ -213,21 +186,13 @@ import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
-export type { HueFor };
-
 /**
- * Hard cap on live (decaying) blips. Radar paints arrive from network
- * messages regardless of render-loop cadence — a backgrounded tab (rAF
- * throttled/paused) can otherwise accumulate blips faster than they age out,
- * growing the pool unbounded. Oldest-inserted is evicted first.
- *
- * Sized for the worst legitimate case under 3-sweep persistence. Note the
- * per-contact cap keys on blip `id`, and a decoy buoy paints under its OWNER's
- * ship id (amendment 11) — so a hull and its own buoy SHARE one 3-paint budget
- * rather than holding two. The true ceiling is therefore 19 distinct ids × 3 =
- * 57, not the 114 a per-source reading would suggest. 128 keeps the backstop
- * comfortably above that: it stays a backstop, never the thing that trims a
- * legitimate scope (the per-contact cap does that).
+ * Hard cap on the pending echo/wake parks. Radar paints arrive from network
+ * messages regardless of render-loop cadence — a join gap (own pose still
+ * null) can otherwise accumulate parked masks unboundedly. Oldest-parked is
+ * dropped first: by the time a pose finally exists, the oldest echoes are the
+ * stalest history anyway. 128 keeps the backstop comfortably above the worst
+ * legitimate case under 3-sweep persistence (19 sources × 3 paints = 57).
  */
 const MAX_LIVE_BLIPS = 128;
 
@@ -255,29 +220,6 @@ export const DIM_MASK_LABEL = 'radarDimMask';
 
 const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
 const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral linework
-
-/** The `silhouette`-grammar payload of a paint: everything the 4.2 outline
- *  needs. Absent (null) on a `return`-grammar echo, whose whole point is that
- *  none of it reaches the client. */
-interface BlipPose {
-  cls: HullId; // hull id at paint time (drones carry a drone hull id)
-  heading: number; // rad — at paint time
-  speed: number; // u/s, signed — at paint time
-  /** Firer-hue latch (render/hueLatch.ts): a paint whose owner is not on the
-   *  roster yet boots amber and repaints once the hue resolves — and repaints
-   *  again on a colorblind-assist table swap. */
-  hue: HueState;
-}
-
-interface LiveBlip {
-  gfx: Graphics;
-  /** Contact id — the TRACK key (3 paints per id) and the hue lookup key. */
-  id: string;
-  t: number; // ms — server paint time (drives decay)
-  /** `silhouette` pose + hue latch. Never null: `return`-grammar paints do not
-   *  live in this list at all any more — they are bitmap cells, not Graphics. */
-  pose: BlipPose;
-}
 
 /** A `return` echo whose OBSERVER-RELATIVE geometry (the range its intensity
  *  attenuates over) is not resolved yet: the wire coverage footprint alone,
@@ -338,24 +280,9 @@ export interface ViewRect {
 // material that no longer exists. The storm's on-water rendering (render/zone.ts)
 // is untouched and is where the ring is legible.
 
-/** The decay inputs shared by every live mark for one frame. */
-interface DecayFrame {
-  life: number;
-  floor: number;
-  cool: number;
-}
-
 export class Radar {
   private readonly sweep: Sprite;
   private readonly rings: Graphics;
-  private readonly pool: Pool<Graphics>;
-  private readonly blips: LiveBlip[] = [];
-  /** Resolve a contact id → its paint color, or null on a roster miss (amber).
-   *  Unused in `return` mode: an echo carries no identity to color. */
-  private readonly hueFor: HueFor;
-  /** The room's radar grammar, from the welcome handshake. Constant for the
-   *  match — the server picks it, the client never infers it. */
-  private readonly grammar: RadarGrammar;
   /** THE ELEVATION AUTHORITY (cycle 59 ruling; amendment 129) — and, since cycle
    *  62, the whole of the client's terrain knowledge on this path: its land/water
    *  truth is the shipped coastline's own mask (`height > 0 ⟺ LAND`), so the
@@ -363,8 +290,8 @@ export class Radar {
    *  and never on the wire, so it carries ZERO disclosure. Null until
    *  `setHeightRaster` runs, in which case the field simply carries no terrain. */
   private heightRaster: HeightRaster | null = null;
-  /** THE `return` PAINT LIST (ruling R1) — marched slices, re-rasterized in full
-   *  every frame. Empty in `silhouette` mode. */
+  /** THE PAINT LIST (ruling R1) — marched slices, re-rasterized in full
+   *  every frame. */
   private readonly paints: MarchSlice[] = [];
   /** Echoes waiting for a real own pose before their geometry can be resolved. */
   private readonly pending: PendingEcho[] = [];
@@ -379,8 +306,7 @@ export class Radar {
    *  function of the sweep rate, not of the frame rate. Null whenever the sweep is
    *  hidden, so resuming cannot replay a revolution of arc into one frame. */
   private sliceFrom: number | null = null;
-  /** The heatmap surface — created ONLY in `return` mode, so `silhouette` mode
-   *  allocates no buffer, uploads no texture and adds no child. */
+  /** The heatmap surface — allocated lazily on the first painted frame. */
   private heat: { grid: HeatGrid; rgba: Uint8Array; source: BufferImageSource; sprite: Sprite } | null =
     null;
   private readonly blipLayer: Container;
@@ -393,10 +319,9 @@ export class Radar {
    * IT HANGS ON `blipLayer`, NEVER ON `heat.sprite`, and that is not a
    * preference: `fitHeat` DESTROYS the heat sprite and adds a new one whenever
    * the buffer resizes, so a mask assigned there would silently disappear on the
-   * next zoom change. `blipLayer` also covers the `silhouette` grammar's
-   * Graphics pool, which is correct — the rule is a property of the display, so
-   * it applies to everything the radar draws — while the sweep wedge and the
-   * range rings sit in `sweepLayer` and stay unmasked as chrome.
+   * next zoom change. The rule is a property of the display, so it applies to
+   * everything the radar draws — while the sweep wedge and the range rings sit
+   * in `sweepLayer` and stay unmasked as chrome.
    *
    * IT IS A CHILD OF THE LAYER IT MASKS, which is what keeps its world transform
    * updated (Pixi's `AlphaMask` sets `renderable = false` on a sprite mask, so it
@@ -409,9 +334,6 @@ export class Radar {
    *  compare sits on the per-frame placement path rather than on the stat and
    *  dazzle setters, which are two ways in for one number. */
   private dimBakedAtU: number;
-  /** Scratch for the pose transform — consumed synchronously by the trace, so
-   *  one array serves every blip (the 20Hz loop stays allocation-light). */
-  private readonly scratch: Vec2[] = [];
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
   /** Beam angle at the PREVIOUS frame — the arc the march walks is measured
@@ -471,17 +393,10 @@ export class Radar {
   private wakeIslands: readonly Island[] = [];
   private readonly wakeCache = new WakeStampCache();
 
-  constructor(
-    blipLayer: Container,
-    sweepLayer: Container,
-    hueFor: HueFor,
-    grammar: RadarGrammar = 'silhouette',
-  ) {
-    this.hueFor = hueFor;
-    this.grammar = grammar;
+  constructor(blipLayer: Container, sweepLayer: Container) {
     this.blipLayer = blipLayer;
-    // BEFORE the Graphics pool and before any heat sprite, so the mask is the
-    // layer's first child and nothing depends on where it lands in the list.
+    // BEFORE any heat sprite, so the mask is the layer's first child and
+    // nothing depends on where it lands in the list.
     this.dimBakedAtU = this.sightHoleU;
     this.dim = new Sprite(bakeDimMaskTexture(this.dimBakedAtU));
     this.dim.label = DIM_MASK_LABEL;
@@ -497,7 +412,6 @@ export class Radar {
     // is deliberately NOT used: it drops the node out of the build entirely.
     this.dim.renderable = false;
     blipLayer.addChild(this.dim);
-    this.pool = new Pool<Graphics>(() => this.makeBlipGraphics(blipLayer));
 
     this.rings = new Graphics();
     this.rings.visible = false;
@@ -634,12 +548,7 @@ export class Radar {
     this.heightRaster = raster;
   }
 
-  /** How many blips are currently decaying (debug/tests). `silhouette` only. */
-  get liveBlips(): number {
-    return this.blips.length;
-  }
-
-  /** How many `return` slices are live in the list (debug/tests). */
+  /** How many slices are live in the list (debug/tests). */
   get livePaints(): number {
     return this.paints.length;
   }
@@ -689,23 +598,11 @@ export class Radar {
     return this.heat === null ? null : { cols: this.heat.grid.cols, rows: this.heat.grid.rows };
   }
 
-  private makeBlipGraphics(layer: Container): Graphics {
-    const g = new Graphics();
-    g.blendMode = 'add';
-    g.visible = false;
-    layer.addChild(g);
-    return g;
-  }
-
   /** The live colorblind-assist state, read STRAIGHT from the store rather than
    *  cached per frame: a paint can arrive between frames (network cadence is
-   *  not render cadence), and a cached flag would draw it at the wrong floor and
-   *  then latch there. The assist no longer swaps a blip TEXTURE (the soft dot
-   *  it existed for is gone): it raises the decayed alpha floor and the hue
-   *  luminance floor — the only two channels a 1px `pixelLine` hairline has,
-   *  since `pixelLine` IGNORES stroke width. A hue-table swap bumps
-   *  `hueRevision()`, which is what repaints the already-live blips at the new
-   *  floor (via `retryHue` in updateBlips). */
+   *  not render cadence), and a cached flag would price it at the wrong floor
+   *  and then latch there. The assist raises the heatmap's decayed alpha floor
+   *  (`assistMinAlpha`) — amendment 18's intent carried onto the bitmap. */
   private get assist(): boolean {
     return settings.current.colorblind;
   }
@@ -716,58 +613,31 @@ export class Radar {
   }
 
   /**
-   * A radar paint arrived.
-   *
-   * `BlipEvent` is a TAGLESS union — the server picks one grammar for the whole
-   * room and announces it in the welcome, so a per-event discriminator would be
-   * dead weight on a 20Hz channel. The cast below is therefore keyed on the
-   * ANNOUNCED mode and never on which fields happen to be present: field-probing
-   * would be a second source of truth for the same question.
+   * A radar paint arrived — an identity-free coverage footprint (the one wire
+   * shape; the retired `silhouette` grammar went with cycle 105's ONE-RADAR
+   * ruling).
    */
   onBlip(e: BlipEvent): void {
-    if (this.grammar === 'return') this.addReturnPaint(e as ReturnBlipEvent);
-    else this.addSilhouetteBlip(e as SilhouetteBlipEvent);
+    this.addReturnPaint(e);
   }
 
   /** The latest authoritative server time this radar can judge a paint's `t`
    *  against, plus slack — Infinity before the first sweep sample, when there
-   *  is no clock reference at all. Both grammar validators use it: a
-   *  far-future `t` makes `blipAlpha`'s age negative, a full-brightness paint
-   *  that never decays or prunes (cycle-63 review gate). */
+   *  is no clock reference at all. Both validators use it: a far-future `t`
+   *  makes `blipAlpha`'s age negative, a full-brightness paint that never
+   *  decays or prunes (cycle-63 review gate). */
   private get maxPaintT(): number {
     return this.lastSweep === null ? Infinity : this.lastSweep.t + MAX_FUTURE_T_MS;
   }
 
-  /** The `silhouette` (Story 4.2) acquire path — outline + hue + ARPA vector.
-   *  Structurally validated FIRST, exactly like the `return` branch (cycle-63
-   *  review gate): a malformed payload is dropped whole, never fed into
-   *  `acquireBlip`/`resolveHue` as NaN/undefined. */
-  private addSilhouetteBlip(e: SilhouetteBlipEvent): void {
-    if (!validSilhouette(e, this.maxPaintT)) return;
-    const { color, colored, rev } = resolveHue(e.id, this.hueFor);
-    const pose: BlipPose = {
-      cls: e.cls,
-      heading: e.heading,
-      speed: e.speed,
-      hue: { by: e.id, colored, rev },
-    };
-    const b = this.acquireBlip(e.x, e.y, e.id, e.t, pose);
-    this.drawBlip(b, pose, color);
-    // Per-track cap first (this id's 4th paint releases its oldest), then the
-    // global backstop — so a flood on one contact can never evict another's.
-    this.blips.push(b);
-    this.retire(capOldestByKey(this.blips, keyOf, b.id, CLIENT_CONFIG.blip.paintsPerContact));
-    this.retire(capOldest(this.blips, MAX_LIVE_BLIPS));
-  }
-
-  /** The `return` acquire path: park the wire coverage footprint until a real
+  /** The acquire path: park the wire coverage footprint until a real
    *  own pose can price its cells, then march it. The wire fields are
    *  structurally validated FIRST — `w`/`h` bound two loops and `bits` sizes
    *  an array, and while a conforming server can only send real hull masks
    *  (≤ ~22 cells a side), a scalar off the network that bounds a loop is
    *  finiteness-checked on this path like everywhere else (the cycle-62
    *  `radarRange = Infinity` lesson). A malformed footprint is dropped whole. */
-  private addReturnPaint(e: ReturnBlipEvent): void {
+  private addReturnPaint(e: BlipEvent): void {
     if (!validCoverage(e, this.maxPaintT)) return;
     this.pending.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, t: e.t });
     // CAP THE PARK (cycle-63 review gate): paints arrive on network cadence
@@ -1000,64 +870,8 @@ export class Radar {
     while (this.paints.length > cap) this.paints.shift();
   }
 
-  /** Hide + pool a batch of retired blips. */
-  private retire(gone: readonly LiveBlip[]): void {
-    for (const b of gone) {
-      b.gfx.visible = false;
-      this.pool.release(b.gfx);
-    }
-  }
-
-  /** Pool a Graphics for a fresh paint and reset the state a previous life left
-   *  on it. `updateBlips` overwrites alpha/tint before the stage draws (our
-   *  render callback runs at ticker priority NORMAL, Pixi's own render at LOW),
-   *  so this is not reachable today — but resetting here makes "a fresh paint is
-   *  fresh" a local invariant of acquire instead of a silent dependency on that
-   *  ordering, which nothing else in this file would notice breaking. */
-  private acquireBlip(x: number, y: number, id: string, t: number, pose: BlipPose): LiveBlip {
-    const gfx = this.pool.acquire();
-    gfx.position.set(x, y);
-    gfx.visible = true;
-    gfx.alpha = 1;
-    gfx.tint = CLIENT_CONFIG.colors.white; // the un-cooled multiplier
-    return { gfx, id, t, pose };
-  }
-
-  /** Draw one paint: the true-scale silhouette rotated to its heading, plus the
-   *  ARPA speed vector, as ONE path stroked in a single non-scaling hairline.
-   *  The Graphics carries no rotation of its own — the polygon is pre-rotated
-   *  through the shared `transformPolygon`, which keeps the silhouette and the
-   *  vector in one frame of reference and the stroke free of any node
-   *  transform. Called once at acquire (and again only if the hue resolves or
-   *  the hue table swaps), never per frame. */
-  private drawBlip(b: LiveBlip, pose: BlipPose, color: number): void {
-    const g = b.gfx;
-    g.clear();
-    // `hullSilhouette` is a plain record lookup and returns undefined for an
-    // id outside the registry, which would throw one frame later inside a
-    // Colyseus message handler and take blip ingest down for the session. A
-    // conforming server can't send one (the PV-20 gate gives both sides the
-    // same HullId union), so this is purely a fail-soft on the ingest path:
-    // draw SOMETHING readable rather than lose the scope.
-    const local = hullSilhouette(pose.cls) ?? hullSilhouette('torpedoBoat');
-    tracePolygon(g, transformPolygon(local, 0, 0, pose.heading, this.scratch));
-    const mark = this.speedMark(local, pose.heading, pose.speed);
-    if (mark !== null) traceVector(g, mark);
-    const floor = this.assist ? CLIENT_CONFIG.blip.assistLumaFloor : CLIENT_CONFIG.blip.lumaFloor;
-    g.stroke({ width: 1, pixelLine: true, color: luminanceFloor(color, floor), alpha: 1 });
-  }
-
-  /** The speed vector for a paint, rooted on the hull outline in the direction
-   *  of travel (astern for a reversing hull), or null when it is stopped. */
-  private speedMark(local: readonly Vec2[], heading: number, speed: number): SpeedVector | null {
-    const root = extentAlong(local, speed < 0 ? Math.PI : 0);
-    return speedVector(heading, speed, root, CLIENT_CONFIG.blip.vector);
-  }
-
   /** Drop every live mark at once (entering spectate: contacts go live/unfogged). */
   clearBlips(): void {
-    this.retire(this.blips);
-    this.blips.length = 0;
     this.paints.length = 0;
     this.pending.length = 0;
     this.pendingWake.length = 0;
@@ -1069,15 +883,13 @@ export class Radar {
    *  swept, then decay every live mark and re-rasterize the heatmap.
    *
    *  `contacts` is the truesight contact store (net/snapshots.ts) — the
-   *  inside-truesight source of hull returns (amendment 89). Optional and unread
-   *  in `silhouette` mode, where a sighted hull has never painted and does not
-   *  start now.
+   *  inside-truesight source of hull returns (amendment 89).
    *
    *  `view` is the world rectangle the camera is showing (amendment 96) — the
    *  heatmap buffer's extent, used by `paintHeat` and by NOTHING else on this
    *  path. Omitting it falls back to a radar-ring-sized window on the own ship,
    *  which is the pre-cycle-58 behaviour and covers any caller that has no
-   *  camera (tests, and the `silhouette` grammar, which has no buffer at all).
+   *  camera (tests).
    */
   render(
     own: OwnPoint | null,
@@ -1094,12 +906,11 @@ export class Radar {
     // then the next paint would appear through a stale ramp.
     this.updateDimMask(own);
     const rot = this.updateSweep(own, serverNow);
-    if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts);
+    this.renderReturn(own, rot, serverNow, contacts);
     this.lastRotation = rot;
-    this.updateBlips(serverNow);
   }
 
-  /** The whole `return` frame: resolve parked echoes, march the swept arc, drop
+  /** The whole frame: resolve parked echoes, march the swept arc, drop
    *  dead slices, re-rasterize the buffer from the survivors, upload. */
   private renderReturn(
     own: OwnPoint | null,
@@ -1183,9 +994,9 @@ export class Radar {
    *
    * A NON-FINITE POSE IS THE SAME CASE, AND IT HAS TO BE HANDLED HERE (review
    * gate). This is a mask, so it does not DEGRADE under a NaN: a sprite whose
-   * position is NaN has no frame, and Pixi clips the whole layer away — the heat
-   * buffer and the `silhouette` grammar's Graphics alike. So one non-finite own
-   * coordinate would blank the entire radar layer rather than mis-dim it. The
+   * position is NaN has no frame, and Pixi clips the whole layer away. So one
+   * non-finite own coordinate would blank the entire radar layer rather than
+   * mis-dim it. The
    * rest of this file already treats a non-finite observer as reachable rather
    * than impossible (`marchSlice`'s `marchable` guard checks `obs.x + obs.y` for
    * exactly this reason), and the degradation is chosen deliberately: an UNDIMMED
@@ -1495,51 +1306,6 @@ export class Radar {
     heat.source.update();
   }
 
-  private updateBlips(serverNow: number): void {
-    // A paint lives persistSweeps periods now, not one (amendment 9).
-    const life = blipLifeMs(this.sweepPeriodMs);
-    // Colorblind assist raises the minimum decayed-blip opacity (amendment 18):
-    // a cooling contact stays readable instead of dimming into the fog. This
-    // half of the assist survives into `return` mode (it feeds the heatmap's
-    // alpha floor); the outline-boost half is inert there (amendment 71 — a
-    // quantized bitmap has no outline).
-    const assist = this.assist;
-    this.decay(this.blips, serverNow, {
-      life,
-      floor: assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha,
-      // The assist cools on a shallower ramp so the luminance floor baked into
-      // the stroke color survives the paint's whole life (see config comment).
-      cool: assist ? CLIENT_CONFIG.blip.assistCoolFloor : CLIENT_CONFIG.blip.coolFloor,
-    });
-  }
-
-  /** Age one list of live marks: alpha, tint, and release at end of life.
-   *
-   *  COOLING RUNS THROUGH THE HUE-PRESERVING GREY MULTIPLIER. A blip's color is
-   *  an information channel (the owner's personal hue), so its cooling has to
-   *  preserve hue: greyscale multiplies every channel equally and leaves the hue
-   *  exact. The color-SETTING `blipTint` would overwrite it with phosphor green
-   *  inside the first ~30% of every paint — the Story 4.2 trap. */
-  private decay(list: LiveBlip[], serverNow: number, d: DecayFrame): void {
-    for (let i = list.length - 1; i >= 0; i--) {
-      const b = list[i];
-      const age = serverNow - b.t;
-      const alpha = blipAlpha(age, d.life, d.floor);
-      if (alpha <= 0) {
-        this.retire([b]);
-        list.splice(i, 1);
-        continue;
-      }
-      b.gfx.alpha = alpha;
-      b.gfx.tint = blipCool(age, d.life, d.cool);
-      retryHue(b.pose.hue, this.hueFor, (color) => this.drawBlip(b, b.pose, color));
-    }
-  }
-}
-
-/** Track key for the per-track caps (contact id). */
-function keyOf(b: LiveBlip): string {
-  return b.id;
 }
 
 /**
@@ -1584,7 +1350,7 @@ const MAX_FUTURE_T_MS = 10_000;
  *  is dropped whole — never clamped into something half-drawable. `tMax` is
  *  the caller's latest authoritative server-time reference (Infinity before
  *  the first sweep sample, when the client has no clock to judge by). */
-function validCoverage(e: ReturnBlipEvent, tMax: number): boolean {
+function validCoverage(e: BlipEvent, tMax: number): boolean {
   if (!Number.isFinite(e.t) || e.t > tMax) return false;
   if (![e.gx, e.gy, e.w, e.h].every(Number.isInteger)) return false;
   if (Math.abs(e.gx) > MAX_CELL_INDEX || Math.abs(e.gy) > MAX_CELL_INDEX) return false;
@@ -1592,7 +1358,7 @@ function validCoverage(e: ReturnBlipEvent, tMax: number): boolean {
 }
 
 /** The rect half of `validCoverage`: sane spans, bits sized exactly to them. */
-function validRect(e: ReturnBlipEvent): boolean {
+function validRect(e: BlipEvent): boolean {
   if (e.w < 1 || e.h < 1 || e.w > MAX_COVERAGE_SPAN || e.h > MAX_COVERAGE_SPAN) return false;
   return Array.isArray(e.bits) && e.bits.length === Math.ceil((e.w * e.h) / 32);
 }
@@ -1646,30 +1412,3 @@ const MAX_WAKE_SPAN = ((): number => {
   for (const id of HULL_IDS) beam = Math.max(beam, hullEnvelope(id).hull.beam);
   return 2 * (Math.ceil((CONFIG.vision.wakeSampleU + beam) / CONFIG.vision.radarCellU) + 1);
 })();
-
-/** Structural gate on a `silhouette` wire blip (cycle-63 review gate: the
- *  return branch was hardened and this one was left raw, so a malformed
- *  payload put `undefined`/NaN into `acquireBlip`/`resolveHue`). Same
- *  posture: every numeric field finite, the paint time not far-future, the id
- *  a string, the class one the silhouette registry can actually draw. */
-function validSilhouette(e: SilhouetteBlipEvent, tMax: number): boolean {
-  if (typeof e.id !== 'string') return false;
-  if (![e.x, e.y, e.t, e.heading, e.speed].every(Number.isFinite)) return false;
-  if (e.t > tMax) return false;
-  return hullSilhouette(e.cls) !== undefined;
-}
-
-/** Trace a closed world-frame polygon (offsets from the blip position). */
-function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
-  g.moveTo(poly[0].x, poly[0].y);
-  for (let i = 1; i < poly.length; i++) g.lineTo(poly[i].x, poly[i].y);
-  g.closePath();
-}
-
-/** Trace the speed vector as two open subpaths: the shaft, then the arrowhead
- *  (barb → tip → barb). Open subpaths and a closed hull outline are different
- *  line grammars, which is what stops the vector reading as another hull edge. */
-function traceVector(g: Graphics, v: SpeedVector): void {
-  g.moveTo(v.from.x, v.from.y).lineTo(v.to.x, v.to.y);
-  g.moveTo(v.barbs[0].x, v.barbs[0].y).lineTo(v.to.x, v.to.y).lineTo(v.barbs[1].x, v.barbs[1].y);
-}

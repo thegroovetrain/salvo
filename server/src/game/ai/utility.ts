@@ -17,9 +17,7 @@
 //    track across sensor gaps (a radar paint lands once per sweep
 //    revolution) instead of forgetting the world between paints.
 //
-// 2. BOTH BLIP GRAMMARS (the room picks one for the whole match, so a bot
-//    must work under either). `SilhouetteBlipEvent` carries id/cls/heading/
-//    speed and folds like a stale contact. `ReturnBlipEvent` carries ONLY a
+// 2. THE BLIP GRAMMAR (identity-free by ruling). A blip carries ONLY a
 //    world-anchored cell rect and a packed coverage mask — no id, no class,
 //    no heading, no speed — so the position is DERIVED as the centroid of the
 //    lit cells and the track is stored identity-free (`id: null`, `heading:
@@ -285,12 +283,8 @@ function returnBlipCenter(e: ReturnBlipEvent): { x: number; y: number } | null {
   return n === 0 ? null : { x: sx / n, y: sy / n };
 }
 
-/** Fold one radar paint, under EITHER grammar. */
+/** Fold one radar paint — an identity-free coverage footprint. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, now: number): void {
-  if ('id' in e) {
-    writeTrack(tracks, e.id, { id: e.id, x: e.x, y: e.y, heading: e.heading, speed: e.speed, cls: e.cls }, now, false);
-    return;
-  }
   const c = returnBlipCenter(e);
   if (c !== null) foldAnonymous(tracks, c.x, c.y, now);
 }

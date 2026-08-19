@@ -10,8 +10,9 @@ import {
   isAfloat,
   CONFIG,
   hullSilhouette,
+  paintCoverage,
   transformPolygon,
-  type SilhouetteBlipEvent,
+  type BlipEvent,
   type FrameMsg,
   type InputMsg,
   type HullTarget,
@@ -61,8 +62,8 @@ const windowAround = (me: ShipRecord, brg: number, h = 0.02): void => {
   me.prevSweepAngle = ((brg - h) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
   me.sweepAngle = ((brg + h) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
 };
-// Silhouette-grammar worlds only (the default) — narrow straight to the 4.2 shape.
-const blipsOf = (f: FrameMsg): SilhouetteBlipEvent[] => f.events.filter((e): e is SilhouetteBlipEvent => e.k === 'blip');
+// Radar paints — the identity-free coverage footprint (the one grammar).
+const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 
 describe('torpedoes — single-round pool reload', () => {
   it('one launch drains the pool; a second is denied until it reloads', () => {
@@ -544,7 +545,13 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     });
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));
-    expect(blips.map((e) => e.id)).toEqual(['b']); // the ship, and ONLY the ship
-    expect(blips.some((e) => e.id === 'trp')).toBe(false);
+    // The ship, and ONLY the ship: one footprint, and it is b's own raster
+    // (the torpedo entity never paints — its 3/8 detect gate is a different
+    // channel entirely).
+    expect(blips).toHaveLength(1);
+    const ship = w.ships.get('b')!;
+    expect({ gx: blips[0].gx, gy: blips[0].gy, w: blips[0].w, h: blips[0].h, bits: blips[0].bits }).toEqual(
+      paintCoverage(ship.hullId, ship.state.x, ship.state.y, ship.state.heading, CONFIG.vision.radarCellU, w.now),
+    );
   });
 });
