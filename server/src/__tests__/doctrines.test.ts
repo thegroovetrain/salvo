@@ -1,10 +1,17 @@
-// THE FOUR EXCLUSIVE DOCTRINE PAIRS on the water (Story 2.8, amendments 38/44
-// — the ratified behavior contracts), end-to-end through the REAL fire/step
-// seams against the production BOON_CATALOG: PLUNGING FIRE ⚔ ARMOR-PIERCING
-// (cannon), ACOUSTIC HOMING ⚔ COMMAND DETONATION (torpedo, incl. the 'torpU'
-// wire rules), SELF-PROPELLED ⚔ PROP-FOULING (mines, incl. the pinned
-// boost→slow→hooks composition), INCENDIARY ⚔ DAZZLE (star shells, incl. the
-// dazzled observer's shrunken sight) — plus the vacated-owner CONFIG fallback.
+// THE DOCTRINE VERBS on the water (Story 2.8 amendments 38/44 — the ratified
+// behavior contracts — as retooled by Story 7-5 wave 1), end-to-end through the
+// REAL fire/step seams against the production BOON_CATALOG: PLUNGING FIRE ⚔
+// ARMOR-PIERCING (cannon — THE LAST EXCLUSIVE PAIR), ACOUSTIC HOMING (torpedo,
+// incl. the 'torpU' wire rules), SELF-PROPELLED + PROP-FOULING (mines, incl.
+// the pinned boost→slow→hooks composition), PHOSPHOR + DAZZLE (star shells,
+// incl. the dazzled observer's shrunken sight) — plus the vacated-owner CONFIG
+// fallback.
+//
+// WAVE 1 CHANGED THE SHAPE OF THIS FILE'S SUBJECT: outside the cannon, doctrine
+// stopped being an either/or `mode` and became INDEPENDENT BOOLEAN VERBS, so
+// the pairs are no longer pairs and BOTH verbs of a weapon may be held at once.
+// COMMAND DETONATION is deleted outright. See the both-verbs stacking suites
+// below, which the old enum model could not have expressed.
 
 import { describe, it, expect } from 'vitest';
 import { isAfloat, transitionLifecycle, CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
@@ -163,7 +170,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyBoon(a, 'torpedoHoming');
-    expect(a.stats.torpedo.mode).toBe('homing');
+    expect(a.stats.torpedo.homing).toBe(true);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
     setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
     return { w, a, b };
@@ -305,75 +312,41 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
   });
 });
 
-describe('COMMAND DETONATION (torpedoCommand) — point-detonation at the click, radar-capped reach', () => {
-  it('bursts at the clicked point with the big command blast; a bystander outside it is untouched', () => {
+// COMMAND DETONATION is DELETED (Story 7-5 wave 1). Its four behaviour pins
+// (bursts at the click, radar-capped reach, the point-blank floor, and the
+// ordinary contact hit en route) are RETIRED with the mechanic — there is no
+// point-detonating torpedo to assert about. What survives is the STRUCTURAL
+// consequence, which the old suite never had to state because a `mode` enum
+// made it conditional: every fish is now contact-only, whatever the build.
+describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
+  it('a fish carries no target point and no burst radius, homing or not', () => {
+    for (const boons of [[], ['torpedoHoming'] as const]) {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0);
+      for (const id of boons) w.applyBoon(a, id);
+      setInput(a, { aim: 0, aimDist: 400, slot: 1, fireSeq: 1, seq: 2 });
+      w.step();
+      const [torp] = [...w.shells.values()];
+      expect(torp.kind).toBe('torp');
+      expect(torp.targetX).toBeNull();
+      expect(torp.targetY).toBeNull();
+      expect(torp.burstRadius).toBe(0);
+    }
+  });
+
+  it('a clicked point far short of a hull never detonates early — the fish runs on to contact', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    expect(a.stats.torpedo.mode).toBe('command');
-    const inBlast = place(w, 'in', 200, 50); // within 60u of the click
-    const outBlast = place(w, 'out', 200, 200);
+    const bystander = place(w, 'by', 200, 50); // would have been inside the old 60u command blast
+    const blocker = place(w, 'blocker', 500, 0); // dead on the track, past the click
     setInput(a, { aim: 0, aimDist: 200, slot: 1, fireSeq: 1, seq: 2 });
     const seen: GameEvent[] = [];
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 200 && blocker.hp === blocker.stats.maxHp; i++) {
       w.step();
       seen.push(...w.tickEvents);
-      if (seen.some((e) => e.k === 'burst')) break;
     }
-    const burst = seen.find((e) => e.k === 'burst')! as { x: number; y: number };
-    expect(burst).toBeDefined();
-    expect(burst.x).toBeCloseTo(200, 4);
-    expect(inBlast.hp).toBe(inBlast.stats.maxHp - a.stats.torpedo.damage);
-    expect(outBlast.hp).toBe(outBlast.stats.maxHp);
-  });
-
-  it('the commanded point is capped by the OWNER’s effective radar range along the aim ray', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    setInput(a, { aim: 0, aimDist: 5000, slot: 1, fireSeq: 1, seq: 2 });
-    w.step();
-    const [torp] = [...w.shells.values()];
-    expect(torp.targetX).toBeCloseTo(a.stats.radarRange, 6);
-    expect(torp.targetY).toBeCloseTo(0, 6);
-    expect(torp.burstRadius).toBe(CONFIG.torpedo.commandBurstRadius);
-  });
-
-  // Story 2.8 review, P7: a click INSIDE the bow spawn clearance put the burst
-  // point BEHIND the just-spawned fish — distToTarget is measured forward along
-  // the track, so the fish never reached it and ran to the map edge instead.
-  // RULING: clamp the commanded distance to at least (spawn offset + epsilon).
-  it('a POINT-BLANK command click bursts just past the tube instead of running away', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    setInput(a, { aim: 0, aimDist: 1, slot: 1, fireSeq: 1, seq: 2 }); // 1u — inside the clearance
-    w.step();
-    const [torp] = [...w.shells.values()];
-    // The commanded point sits just AHEAD of the spawn point, never behind it.
-    const spawnDist = Math.hypot(torp.x - a.state.x, torp.y - a.state.y);
-    expect(torp.targetX!).toBeGreaterThan(spawnDist);
-    expect(torp.targetX!).toBeLessThan(spawnDist + 5);
-
-    const seen: GameEvent[] = [];
-    for (let i = 0; i < 120; i++) {
-      w.step();
-      seen.push(...w.tickEvents);
-      if (seen.some((e) => e.k === 'burst')) break;
-    }
-    const burst = seen.find((e) => e.k === 'burst')! as { x: number; y: number };
-    expect(burst).toBeDefined(); // it DETONATED...
-    expect(burst.x).toBeLessThan(spawnDist + 5); // ...right off the bow, not at the rim
-    expect(w.shells.size).toBe(0);
-  });
-
-  it('a contact hit en route stays an ORDINARY full-damage torpedo hit', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    const blocker = place(w, 'blocker', 200, 0); // dead on the track, far short of the click
-    setInput(a, { aim: 0, aimDist: 600, slot: 1, fireSeq: 1, seq: 2 });
-    for (let i = 0; i < 120 && blocker.hp === blocker.stats.maxHp; i++) w.step();
+    expect(seen.some((e) => e.k === 'burst')).toBe(false); // no point-detonation, ever
+    expect(bystander.hp).toBe(bystander.stats.maxHp);
     expect(blocker.hp).toBe(blocker.stats.maxHp - a.stats.torpedo.damage);
   });
 });
@@ -387,7 +360,7 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer'); // far from the action
     w.applyBoon(o, 'mineSelfPropelled');
-    expect(o.stats.mine.mode).toBe('selfPropelled');
+    expect(o.stats.mine.selfPropelled).toBe(true);
     return { w, o };
   }
 
@@ -596,7 +569,7 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     w.applyBoon(o, 'minePropFouling');
-    expect(o.stats.mine.mode).toBe('propFouling');
+    expect(o.stats.mine.propFouling).toBe(true);
     const b = place(w, 'b', 0, 10); // trips the mine below on the first step
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     return { w, o, b };
@@ -659,18 +632,28 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
   });
 });
 
+// RE-KEYED IN STORY 7-5 WAVE 1. The pin was written against `mineDamage`,
+// which is DELETED — and with no card writing `mine.damage` any more, a
+// damage-only version of this test would be vacuous (the owner's effective
+// damage IS the CONFIG base). BLAST CASING (`mineBlast`) is the surviving mine
+// stat ladder, so the fallback is pinned on the ring it grows instead; the
+// damage assertion is kept alongside it, now as the free half.
 describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
-  it('a boosted-damage owner leaves; the orphan mine detonates at CONFIG.mine.damage', () => {
+  it('a blast-booned owner leaves; the orphan mine uses the CONFIG blast ring and CONFIG damage', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineDamage'); // 55 → 75 (base retuned 2026-08-04)
-    expect(o.stats.mine.damage).toBe(CONFIG.mine.damage + 20);
+    for (let i = 0; i < 4; i++) w.applyBoon(o, 'mineBlast'); // 48 → 48 × 1.1^4 ≈ 70.3u
+    expect(o.stats.mine.blastRadius).toBeGreaterThan(CONFIG.mine.blastRadius);
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.removeShip('o'); // the owner VACATES; the mine survives
-    const b = place(w, 'b', 0, 10);
+    const b = place(w, 'b', 0, 10); // trips it (silhouette ~5u out)
+    // Bow-on at x=110: its nearest hull point is 60u from the mine — OUTSIDE
+    // the CONFIG 48u blast, INSIDE the booned ~70u one. The orphan must miss it.
+    const edge = place(w, 'edge', 110, 0);
     w.step();
     expect(w.mines.size).toBe(0); // still trips
-    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage); // base damage, not the booned 75
+    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage); // base damage
+    expect(edge.hp).toBe(edge.stats.maxHp); // base BLAST RING — the booned reach vacated with the owner
   });
 });
 
@@ -679,7 +662,7 @@ describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
 // ---------------------------------------------------------------------------
 
 describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to non-owners', () => {
-  it('the fired flare lights a zone shrunk by incendiaryRadiusFactor, tagged with the mode', () => {
+  it('the fired flare lights a zone shrunk by incendiaryRadiusFactor, tagged with the phosphor verb', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyBoon(a, 'starIncendiary');
@@ -687,7 +670,8 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
-    expect(zone.mode).toBe('incendiary');
+    expect(zone.phosphor).toBe(true);
+    expect(zone.dazzle).toBe(false);
     expect(zone.r).toBeCloseTo(CONFIG.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor, 6);
   });
 
@@ -696,7 +680,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const a = place(w, 'a', 400, 0, 0, 'battleship'); // owner INSIDE its own zone
     const b = place(w, 'b', 420, 30); // enemy inside
     const c = place(w, 'c', 900, 900); // far outside
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
     const ticks = 20; // one second
     for (let i = 0; i < ticks; i++) w.step();
     expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.starShells.incendiaryDps, 4); // 1s of DoT
@@ -730,7 +714,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
     const hp0 = b.hp;
     const seen: { amount: number }[] = [];
     for (let i = 0; i < 40; i++) {
@@ -756,7 +740,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     const a = place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
     const hp0 = b.hp;
     b.hp = 0.2; // a couple of bites from death, mid-window
     const seen: { amount: number }[] = [];
@@ -781,7 +765,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999, mode: 'standard' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999, phosphor: false, dazzle: false });
     for (let i = 0; i < 20; i++) w.step();
     expect(b.hp).toBe(b.stats.maxHp);
   });
@@ -793,7 +777,7 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
     const a = place(w, 'a', 900, 900, 0, 'battleship'); // zone owner, far away
     const b = place(w, 'b', 0, 0); // the dazzled victim
     const t = place(w, 't', 250, 0); // inside base sight (330), OUTSIDE dazzled sight (165)
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, mode: 'dazzle' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
     return { w, a, b, t };
   }
 
@@ -812,7 +796,7 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
     place(w, 'a', 900, 900, 0, 'battleship');
     const b = place(w, 'b', 0, 0);
     place(w, 't', 250, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 600, y: 600, r: 100, until: 999_999, mode: 'dazzle' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 600, y: 600, r: 100, until: 999_999, phosphor: false, dazzle: true });
     w.step();
     expect(b.dazzledUntil).toBe(0);
     expect(buildFrame(w, 'b').contacts.map((c) => c.id)).toContain('t');
@@ -836,7 +820,7 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
   it('the OWNER inside its own dazzle zone is never dazzled', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, mode: 'dazzle' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
     w.step();
     expect(a.dazzledUntil).toBe(0);
   });
@@ -858,5 +842,106 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
     expect(w.now).toBeGreaterThan(b.dazzledUntil);
     expect(buildFrame(w, 'b').contacts.map((c) => c.id)).toContain('t');
     void t;
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// STORY 7-5 WAVE 1: THE VERBS STACK.
+//
+// Doctrine stopped being an either/or `mode` on torpedoes, mines and star
+// shells and became INDEPENDENT BOOLEAN VERBS, so a firer may hold BOTH cards
+// of what used to be an exclusive pair. Every suite below is UNEXPRESSIBLE in
+// the old model: an enum could only ever hold the last-granted verb, and the
+// zone-effect scan was an `if (dazzle) … else if (incendiary) …` chain that
+// structurally could not burn and blind the same hull.
+// ---------------------------------------------------------------------------
+
+describe('PHOSPHOR + DAZZLE stack on one star shell', () => {
+  /** A Battleship holding BOTH star-shell verbs, granted in `order`. */
+  function bothStars(order: readonly string[]): { w: World; a: ShipRecord } {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    for (const id of order) w.applyBoon(a, id);
+    return { w, a };
+  }
+
+  it('holding both cards sets both flags — and pick ORDER cannot erase either', () => {
+    for (const order of [['starIncendiary', 'starDazzle'], ['starDazzle', 'starIncendiary']]) {
+      const { a } = bothStars(order);
+      expect(a.stats.starShells.phosphor).toBe(true);
+      expect(a.stats.starShells.dazzle).toBe(true);
+    }
+  });
+
+  it('the fired flare stamps BOTH verbs on its zone, at the phosphor-shrunk radius', () => {
+    const { w, a } = bothStars(['starIncendiary', 'starDazzle']);
+    setInput(a, { aim: 0, aimDist: 400, slot: 2, fireSeq: 1, seq: 2 });
+    for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
+    const zone = [...w.litZones.values()][0];
+    expect(zone.phosphor).toBe(true);
+    expect(zone.dazzle).toBe(true);
+    // Only the phosphor half moves the radius; dazzle never did.
+    expect(zone.r).toBeCloseTo(CONFIG.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor, 6);
+  });
+
+  // THE REGRESSION PIN. Pre-7-5 markZoneEffects ran `if (dazzle) … else if
+  // (incendiary) …`, so a both-verb zone dazzled and NEVER burned. This fails
+  // outright against that chain.
+  it('a both-verb zone BURNS and BLINDS the same hull in the same tick', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 900, 900, 0, 'battleship'); // owner, far from its own zone
+    const b = place(w, 'b', 0, 0); // the victim, inside
+    place(w, 't', 250, 0); // inside base sight (330), outside dazzled sight (165)
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: true });
+    for (let i = 0; i < 20; i++) w.step(); // one second
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.starShells.incendiaryDps, 4); // it burned
+    expect(b.dazzledUntil).toBe(w.now + 250); // and it is blind
+    expect(buildFrame(w, 'b').contacts.map((c) => c.id)).not.toContain('t');
+  });
+
+  it('the two flags ride the wire independently, omitted when false', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0, 0, 'battleship');
+    w.litZones.set('plain', { id: 'plain', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: false });
+    w.litZones.set('burn', { id: 'burn', ownerId: 'a', x: 10, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: false });
+    w.litZones.set('blind', { id: 'blind', ownerId: 'a', x: 20, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
+    w.litZones.set('both', { id: 'both', ownerId: 'a', x: 30, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: true });
+    const wire = new Map(buildFrame(w, 'a').litZones!.map((z) => [z.id, z]));
+    expect(wire.get('plain')).toEqual({ id: 'plain', x: 0, y: 0, r: 100, until: 999_999, by: 'a' });
+    expect(wire.get('burn')!.phos).toBe(true);
+    expect(wire.get('burn')!.daz).toBeUndefined();
+    expect(wire.get('blind')!.phos).toBeUndefined();
+    expect(wire.get('blind')!.daz).toBe(true);
+    expect(wire.get('both')!.phos).toBe(true);
+    expect(wire.get('both')!.daz).toBe(true);
+  });
+});
+
+describe('PROP-FOULING + SELF-PROPELLED stack on one mine', () => {
+  it('holding both cards sets both flags — and pick ORDER cannot erase either', () => {
+    for (const order of [['minePropFouling', 'mineSelfPropelled'], ['mineSelfPropelled', 'minePropFouling']]) {
+      const w = bareWorld();
+      const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+      for (const id of order) w.applyBoon(o, id);
+      expect(o.stats.mine.propFouling).toBe(true);
+      expect(o.stats.mine.selfPropelled).toBe(true);
+    }
+  });
+
+  it('a both-verb owner lays a mine that CREEPS and, when it blows, FOULS', () => {
+    const w = bareWorld();
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyBoon(o, 'minePropFouling');
+    w.applyBoon(o, 'mineSelfPropelled');
+    // Beam-on prey well inside acquire reach, well outside the trip ring.
+    const prey = place(w, 'prey', 55, 0, Math.PI / 2);
+    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    expect(w.mines.get('m')!.x).toBeCloseTo(CONFIG.mine.creepSpeed * (DT / 1000), 6); // it crept
+    // Walk the prey onto it and confirm the blast still carries the slow.
+    for (let i = 0; i < 200 && w.mines.size > 0; i++) w.step();
+    expect(w.mines.size).toBe(0); // it tripped
+    expect(prey.slowedUntil).toBeGreaterThan(0); // and it fouled
   });
 });

@@ -104,7 +104,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     // The zone: centered on the clicked point, lit radius, natural expiry.
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
-    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, mode: 'standard' });
+    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, phosphor: false, dazzle: false });
   });
 
   it('an early interceptor takes ZERO, stops the flare — and the zone spawns AT THE STOP POINT (Story 2.8 flip of the no-zone pin)', () => {
@@ -123,22 +123,25 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400);
   });
 
-  it("the zone's wire mode is stamped AT ZONE SPAWN, not fire time — a mid-flight doctrine fit rides the landing zone (Story 2.9)", () => {
+  it("the zone's wire VERBS are stamped AT ZONE SPAWN, not fire time — a mid-flight doctrine fit rides the landing zone (Story 2.9)", () => {
     // Deliberate at-land semantics: the burn/dazzle zone EFFECTS key off the
-    // record's spawn-time mode, so stamping the wire from the same lookup
+    // record's spawn-time verbs, so stamping the wire from the same lookup
     // guarantees presentation can never disagree with what the zone does.
     const w = bareWorld();
     const a = place(w, 'a', 'battleship', 0, 0);
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
-    w.step(); // consumes the click; the flare is airborne, fired UNDER 'standard'
+    w.step(); // consumes the click; the flare is airborne, fired with NO verbs held
     expect(w.shells.size).toBe(1);
-    expect(a.stats.starShells.mode).toBe('standard');
+    expect(a.stats.starShells.phosphor).toBe(false);
+    expect(a.stats.starShells.dazzle).toBe(false);
     w.applyBoon(a, 'starIncendiary'); // the doctrine lands while the flare flies
     for (let i = 0; i < 120 && w.litZones.size === 0; i++) w.step();
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
-    expect(zone.mode).toBe('incendiary'); // owner's doctrine at zone spawn
-    expect(buildFrame(w, 'a').litZones?.[0].mode).toBe('incendiary'); // and the wire agrees
+    expect(zone.phosphor).toBe(true); // owner's doctrine at zone spawn
+    expect(zone.dazzle).toBe(false);
+    expect(buildFrame(w, 'a').litZones?.[0].phos).toBe(true); // and the wire agrees
+    expect(buildFrame(w, 'a').litZones?.[0].daz).toBeUndefined();
   });
 
   it('the zone expires naturally after litDurationMs (the step() sweep)', () => {
@@ -187,12 +190,12 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
       id: 'e', x: hidden.state.x, y: hidden.state.y, heading: hidden.state.heading, speed: 0, cls: 'torpedoBoat',
     });
     expect(fa.litZones).toEqual([
-      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a', mode: 'standard' },
+      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
     ]);
     // THIRD PARTY in radar range: the tagged circle and NOTHING else from it.
     const fc = buildFrame(w, 'c');
     expect(fc.litZones).toEqual([
-      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a', mode: 'standard' },
+      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
     ]);
     expect(fc.contacts.map((x) => x.id)).not.toContain('e'); // someone else's zone reveals nothing
     // BEYOND radar: frames byte-free of the zone (key absent, not []).

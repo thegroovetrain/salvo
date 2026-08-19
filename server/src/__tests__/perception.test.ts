@@ -126,8 +126,11 @@ function effSight(me: ShipRecord, now: number): number {
   return now < me.dazzledUntil ? base * CONFIG.starShells.dazzleSightFactor : base;
 }
 
+// STORY 7-5 WAVE 1 made RANGE (`intelRange`) an ADDITIVE +50u/card line, 4
+// copies, replacing the ×1.15 multiplicative ladder. Re-derived here as a
+// LITERAL, independently of the catalog, per this file's reimplementation rule.
 function effRadar(me: ShipRecord): number {
-  return RADAR * 1.15 ** stacksOf(me, 'intelRange');
+  return RADAR + 50 * stacksOf(me, 'intelRange');
 }
 
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
@@ -360,9 +363,9 @@ function injectZone(
   y: number,
   r = CONFIG.starShells.litRadius,
   until = 999_999,
-  mode: 'standard' | 'incendiary' | 'dazzle' = 'standard',
+  verbs: { phosphor?: boolean; dazzle?: boolean } = {},
 ): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until, mode });
+  w.litZones.set(id, { id, ownerId, x, y, r, until, phosphor: verbs.phosphor === true, dazzle: verbs.dazzle === true });
 }
 
 /** Drop a decoy buoy directly into world state (Story 1.8; far-future expiry).
@@ -1159,7 +1162,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     const fc = buildFrame(w, 'c');
     // b stays hidden from c (a, 100u away, is c's ordinary sight contact).
     expect(fc.contacts.map((x) => x.id)).toEqual(['a']);
-    expect(fc.litZones).toEqual([{ id: 'z1', x: 500, y: 0, r: LIT_R, until: 999_999, by: 'a', mode: 'standard' }]);
+    expect(fc.litZones).toEqual([{ id: 'z1', x: 500, y: 0, r: LIT_R, until: 999_999, by: 'a' }]);
   });
 
   it("an enemy mine inside the firer's zone becomes a mine view (mines never radar-paint otherwise)", () => {
@@ -1201,7 +1204,7 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
     injectZone(w, 'z1', 'a', RADAR + 500, 0, CONFIG.starShells.litRadius, 42_000);
     const fa = buildFrame(w, 'a');
     expect(fa.litZones).toEqual([
-      { id: 'z1', x: RADAR + 500, y: 0, r: CONFIG.starShells.litRadius, until: 42_000, by: 'a', mode: 'standard' },
+      { id: 'z1', x: RADAR + 500, y: 0, r: CONFIG.starShells.litRadius, until: 42_000, by: 'a' },
     ]);
     // Beyond-radar third party: byte-free — the litZones key is ABSENT, not [].
     const ffar = buildFrame(w, 'far');
@@ -1227,25 +1230,28 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
     expect(buildFrame(w, 'c').litZones?.map((z) => z.id)).toEqual(['z1']);
   });
 
-  it('spectators see every zone, doctrine mode included', () => {
+  it('spectators see every zone, doctrine verbs included', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectZone(w, 'z1', 'b', 9_000, 9_000, CONFIG.starShells.litRadius, 999_999, 'incendiary');
+    injectZone(w, 'z1', 'b', 9_000, 9_000, CONFIG.starShells.litRadius, 999_999, { phosphor: true });
     const zones = buildFrame(w, 'a', 'finished').litZones;
     expect(zones?.map((z) => z.id)).toEqual(['z1']);
-    expect(zones?.[0].mode).toBe('incendiary');
+    expect(zones?.[0].phos).toBe(true);
+    expect(zones?.[0].daz).toBeUndefined();
   });
 
-  it("every legitimate observer of the circle sees its doctrine mode (Story 2.9, amendment 50)", () => {
+  it("every legitimate observer of the circle sees its doctrine verbs (Story 2.9, amendment 50)", () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the firer (owner)
     place(w, 'c', 100, 0); // third party: zone center within radar
-    injectZone(w, 'zd', 'a', 500, 0, CONFIG.starShells.litRadius, 999_999, 'dazzle');
-    // Owner, radar-gated non-owner, and spectator all read the same mode —
+    // Story 7-5 wave 1: the verbs are INDEPENDENT, so this zone carries BOTH.
+    injectZone(w, 'zd', 'a', 500, 0, CONFIG.starShells.litRadius, 999_999, { phosphor: true, dazzle: true });
+    // Owner, radar-gated non-owner, and spectator all read the same verbs —
     // the zone's nature is observable behavior, never a build leak.
-    expect(buildFrame(w, 'a').litZones?.[0].mode).toBe('dazzle');
-    expect(buildFrame(w, 'c').litZones?.[0].mode).toBe('dazzle');
-    expect(buildFrame(w, 'c', 'finished').litZones?.[0].mode).toBe('dazzle');
+    for (const f of [buildFrame(w, 'a'), buildFrame(w, 'c'), buildFrame(w, 'c', 'finished')]) {
+      expect(f.litZones?.[0].phos).toBe(true);
+      expect(f.litZones?.[0].daz).toBe(true);
+    }
   });
 
   it("a dead firer's zone persists and keeps revealing nothing to others (natural expiry only)", () => {
@@ -1858,13 +1864,28 @@ function verifyDecoy(
 function verifyLitZone(
   w: World,
   me: ShipRecord,
-  z: { id: string; x: number; y: number; r: number; until: number; by: string; mode?: string },
+  z: { id: string; x: number; y: number; r: number; until: number; by: string; phos?: true; daz?: true },
 ): void {
   const zone = w.litZones.get(z.id)!;
   expect(zone).toBeDefined();
   expect(w.now).toBeLessThan(zone.until); // expired zones never materialize
-  expect(Object.keys(z).sort()).toEqual(['by', 'id', 'mode', 'r', 'until', 'x', 'y']);
-  expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId, mode: zone.mode });
+  // The two doctrine verbs are INDEPENDENT optional flags (Story 7-5 wave 1),
+  // present as `true` only when the record carries them — re-derived here by
+  // hand rather than read off the row, per this file's oracle rule.
+  const expectedKeys = ['by', 'id', 'r', 'until', 'x', 'y'];
+  if (zone.phosphor) expectedKeys.push('phos');
+  if (zone.dazzle) expectedKeys.push('daz');
+  expect(Object.keys(z).sort()).toEqual(expectedKeys.sort());
+  expect(z).toEqual({
+    id: zone.id,
+    x: zone.x,
+    y: zone.y,
+    r: zone.r,
+    until: zone.until,
+    by: zone.ownerId,
+    ...(zone.phosphor ? { phos: true } : {}),
+    ...(zone.dazzle ? { daz: true } : {}),
+  });
   if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar(me));
 }
 

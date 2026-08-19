@@ -85,7 +85,8 @@ describe('cannon — server loadout + shell construction', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     w.applyBoon(bb, 'intelRange');
-    const grown = CONFIG.vision.radar * 1.15;
+    // Wave 1 made RANGE additive: +50u of radar range per card.
+    const grown = CONFIG.vision.radar + 50;
     expect(bb.stats.radarRange).toBeCloseTo(grown, 9);
     expect(bb.stats.gun.rangeU).toBeCloseTo(grown, 9);
     expect(bb.stats.cannon.rangeU).toBeCloseTo(grown, 9);

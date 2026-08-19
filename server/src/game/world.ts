@@ -97,7 +97,6 @@ import {
   type ShipClassId,
   type ShipLifecycle,
   type ShipState,
-  type StarShellsMode,
   type SunkEvent,
   type Vec2,
   type WakeRibbon,
@@ -244,8 +243,8 @@ function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): EquipmentId
  * (the reveal rules live in signals.ts — "lit from above", no island LOS).
  * Server-owned, NO per-ship state — a zone survives its owner's death and
  * dies only by natural expiry (expireLitZones). The wire shape is LitZoneView
- * ({id,x,y,r,until,by,mode}), materialized per observer by the litzone signal
- * row.
+ * ({id,x,y,r,until,by,phos?,daz?}), materialized per observer by the litzone
+ * signal row.
  */
 export interface LitZone {
   id: string;
@@ -255,17 +254,22 @@ export interface LitZone {
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
   /**
-   * The firer's star-shell DOCTRINE at zone-spawn time (Story 2.8): 'standard'
-   * unless the owner held INCENDIARY/DAZZLE when the flare stopped (owner
-   * lookup at spawn; a vacated owner falls back to 'standard' — the CONFIG-base
-   * rule). As of Story 2.9 (amendment 50) this rides the wire on LitZoneView
-   * to EVERY observer who sees the circle — counterplay over concealment: the
-   * zone's nature is observable behavior of the fired shell, not a build
-   * leak. Zone-spawn stamping (not fire-time) is deliberate — the burn/dazzle
-   * zone effects key off this same field, so the wire mode can never disagree
+   * The firer's star-shell DOCTRINE VERBS at zone-spawn time, stamped
+   * INDEPENDENTLY (Story 7-5 wave 1 — PHOSPHOR and DAZZLE stopped being an
+   * either/or pair, so a zone may burn AND blind, and `markZoneEffects` runs
+   * the two as two separate checks rather than one if/else). Both false unless
+   * the owner held the verb when the flare stopped (owner lookup at spawn; a
+   * vacated owner falls back to both-false — the CONFIG-base rule).
+   *
+   * As of Story 2.9 (amendment 50) these ride the wire on LitZoneView to EVERY
+   * observer who sees the circle — counterplay over concealment: the zone's
+   * nature is observable behavior of the fired shell, not a build leak.
+   * Zone-spawn stamping (not fire-time) is deliberate — the burn/dazzle zone
+   * effects key off these same fields, so the wire flags can never disagree
    * with what the zone actually does.
    */
-  mode: StarShellsMode;
+  phosphor: boolean;
+  dazzle: boolean;
 }
 
 /**
@@ -2833,7 +2837,7 @@ export class World {
     for (const mine of this.mines.values()) {
       if (this.now < mine.armedAt) continue; // unarmed mines never move
       const owner = this.ships.get(mine.ownerId);
-      if (owner === undefined || owner.stats.mine.mode !== 'selfPropelled') continue;
+      if (owner === undefined || !owner.stats.mine.selfPropelled) continue;
       const target = this.nearestEnemyHull(mine, mine.ownerId, hulls, CONFIG.mine.creepAcquireRange);
       if (target === null) continue;
       const d = Math.hypot(target.x - mine.x, target.y - mine.y);
@@ -2993,7 +2997,7 @@ export class World {
       return { damage: CONFIG.mine.damage, blastRadius: CONFIG.mine.blastRadius, fouls: false };
     }
     const mine = owner.stats.mine;
-    return { damage: mine.damage, blastRadius: mine.blastRadius, fouls: mine.mode === 'propFouling' };
+    return { damage: mine.damage, blastRadius: mine.blastRadius, fouls: mine.propFouling };
   }
 
   /** One mine's blast damage + prop-fouling debuff (owner-stats-driven with
@@ -3294,10 +3298,13 @@ export class World {
 
   /** Spawn a lit zone where a star shell stopped (burst point, or the
    *  interception stop point — amendment 39's damageless flare always lights).
-   *  `mode` is the OWNER's star-shell doctrine at spawn time (owner lookup; a
-   *  vacated owner falls back to 'standard' — the CONFIG-base rule, pinned). */
+   *  The two doctrine verbs are read INDEPENDENTLY off the OWNER's stats at
+   *  spawn time (owner lookup; a vacated owner falls back to both-false — the
+   *  CONFIG-base rule, pinned), so a firer holding BOTH stamps a zone that
+   *  burns and blinds. */
   private spawnLitZone(shell: ShellState, at: Vec2): void {
     const id = this.nextLitZoneId();
+    const stars = this.ships.get(shell.ownerId)?.stats.starShells;
     this.litZones.set(id, {
       id,
       ownerId: shell.ownerId,
@@ -3305,7 +3312,8 @@ export class World {
       y: at.y,
       r: shell.lit!.radius,
       until: this.now + shell.lit!.durationMs,
-      mode: this.ships.get(shell.ownerId)?.stats.starShells.mode ?? 'standard',
+      phosphor: stars?.phosphor ?? false,
+      dazzle: stars?.dazzle ?? false,
     });
   }
 
@@ -3393,8 +3401,13 @@ export class World {
   }
 
   /** The per-ship zone scan: refresh the dazzle mark for every covering
-   *  non-owned dazzle zone and collect the owners of covering incendiary
-   *  zones (deduped — at most one burn per owner per tick). */
+   *  non-owned DAZZLE zone and collect the owners of covering PHOSPHOR zones
+   *  (deduped — at most one burn per owner per tick).
+   *
+   *  THE TWO VERBS ARE INDEPENDENT CHECKS, NOT AN if/else (Story 7-5 wave 1):
+   *  a firer holding both cards stamps a zone that is phosphor AND dazzle, and
+   *  that zone must BOTH burn and blind. The pre-7-5 chain (`if dazzle … else
+   *  if incendiary …`) structurally could not say that. */
   private markZoneEffects(ship: ShipRecord): Set<string> {
     const burnedBy = new Set<string>();
     for (const zone of this.litZones.values()) {
@@ -3402,8 +3415,8 @@ export class World {
       const dx = ship.state.x - zone.x;
       const dy = ship.state.y - zone.y;
       if (dx * dx + dy * dy > zone.r * zone.r) continue;
-      if (zone.mode === 'dazzle') ship.dazzledUntil = this.now + DAZZLE_GRACE_MS;
-      else if (zone.mode === 'incendiary') burnedBy.add(zone.ownerId);
+      if (zone.dazzle) ship.dazzledUntil = this.now + DAZZLE_GRACE_MS;
+      if (zone.phosphor) burnedBy.add(zone.ownerId);
     }
     return burnedBy;
   }

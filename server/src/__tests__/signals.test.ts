@@ -66,7 +66,7 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
 
 /** Drop a lit zone directly into world state (Story 1.7). */
 function injectZone(w: World, id: string, ownerId: string, x: number, y: number, r = CONFIG.starShells.litRadius, until = 999_999): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until, mode: 'standard' });
+  w.litZones.set(id, { id, ownerId, x, y, r, until, phosphor: false, dazzle: false });
 }
 
 function makeShell(overrides: Partial<ShellState> = {}): ShellState {
@@ -312,22 +312,32 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const zone = w.litZones.get('z1')!;
     expect(row.visible(ctx, zone)).toBe(true);
     const wire = row.materialize(ctx, zone);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'r', 'until', 'by', 'mode']);
-    expect(wire).toEqual({ id: 'z1', x: 400, y: 0, r: 110, until: 12_345, by: 'a', mode: 'standard' });
+    // A plain (verb-less) zone omits BOTH optional flags — the established
+    // optional-flag wire style, so it costs the bytes it always did.
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+    expect(wire).toEqual({ id: 'z1', x: 400, y: 0, r: 110, until: 12_345, by: 'a' });
     expect('ownerId' in (wire as object)).toBe(false); // the wire key is `by`, never the internal name
   });
 
-  it('litzone row carries the zone\'s DOCTRINE mode verbatim (Story 2.9, amendment 50)', () => {
+  it('litzone row carries the zone\'s DOCTRINE VERBS verbatim and INDEPENDENTLY (Story 2.9 amendment 50, Story 7-5 wave 1)', () => {
     const w = bareWorld();
     const b = place(w, 'b', 0, 0); // a NON-owner observer within radar range
-    w.litZones.set('zi', { id: 'zi', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
-    w.litZones.set('zd', { id: 'zd', ownerId: 'a', x: 0, y: 400, r: 165, until: 999_999, mode: 'dazzle' });
+    w.litZones.set('zi', { id: 'zi', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
+    w.litZones.set('zd', { id: 'zd', ownerId: 'a', x: 0, y: 400, r: 165, until: 999_999, phosphor: false, dazzle: true });
+    w.litZones.set('zb', { id: 'zb', ownerId: 'a', x: 0, y: -400, r: 165, until: 999_999, phosphor: true, dazzle: true });
     const row = SIGNAL_REGISTRY.litzone;
     const ctx = foggedCtx(w, b);
-    for (const [id, mode] of [['zi', 'incendiary'], ['zd', 'dazzle']] as const) {
+    const cases = [
+      ['zi', true, undefined],
+      ['zd', undefined, true],
+      ['zb', true, true], // BOTH verbs on one zone — unrepresentable pre-7-5
+    ] as const;
+    for (const [id, phos, daz] of cases) {
       const zone = w.litZones.get(id)!;
       expect(row.visible(ctx, zone)).toBe(true); // radar-gated non-owner sees the circle
-      expect((row.materialize(ctx, zone) as { mode: string }).mode).toBe(mode);
+      const wire = row.materialize(ctx, zone) as { phos?: true; daz?: true };
+      expect(wire.phos).toBe(phos);
+      expect(wire.daz).toBe(daz);
     }
   });
 
@@ -617,7 +627,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
   function zoneWorld(): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
     return { w, a };
   }
 
@@ -702,7 +712,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     a.sweepAngle = wrapPositive(0.02); // beam crossing bearing 0 this tick
     const row = signalFor('blip')!;
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // sanity: paints without a zone
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
     expect(row.visible(foggedCtx(w, a), b)).toBe(false); // contact tier now — never a blip
   });
 });

@@ -285,7 +285,7 @@ function scnPtBn(g: Golden): void {
   place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
-  a.offer = ['gunDamage', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed non-heal hand
+  a.offer = ['gunBarrel', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
   expect(a.hp).toBe(hpBefore); // a non-heal spend never heals
@@ -554,7 +554,7 @@ function scnZoneKill(g: Golden): void {
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 500, 0);
   b.hp = 15; // the next hit sinks it
-  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
+  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
   injectShell(w, 'ks', 'a', 480, 0, 0, 100); // a's shell, point-blank on b, far outside a's sight
   w.step(); // strikes b -> boom + dmg (victim-private) + sunk + pt
   const fa = cap(g, w, 'a');
@@ -773,7 +773,7 @@ function scnDebuffs(g: Golden): void {
   const b = place(w, 'b', 0, 10); // trips the fouling mine below on the first step
   place(w, 'watcher', 100, 60); // sees b as a contact
   injectMine(w, 'fm', 'o', 0, 0);
-  w.litZones.set('dz', { id: 'dz', ownerId: 'o', x: 0, y: 0, r: 100, until: 999_999, mode: 'dazzle' });
+  w.litZones.set('dz', { id: 'dz', ownerId: 'o', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
   w.step(); // blast + dazzle both land on b
   const fb = cap(g, w, 'b');
   const fw = cap(g, w, 'watcher');
@@ -914,7 +914,7 @@ function scnHeal(g: Golden): void {
   place(w, 'z', 900, 900); // far away; sunk to bank `a` a level
   w.sinkShip('z', 'a');
   a.hp -= 60;
-  a.offer = ['gunDamage', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed hand (content-stable)
+  a.offer = ['gunBarrel', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed hand (content-stable)
   expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
   w.step();
   const fa = cap(g, w, 'a');

@@ -200,9 +200,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 40→41 bump (PV 41: THE ONE RADAR — WelcomeMsg loses its two radar-mode fields and BlipEvent collapses to the coverage footprint, so a stale bundle would wait on welcome fields that never arrive and mis-narrow every paint) is enforced at matchmake', () => {
-  it('rejects pv-40 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(41);
+describe('pv join gate — the 41→42 bump (PV 42: UPGRADE CARDS v2 wave 1 — the catalog is rebuilt (17 lines, COMMAND DETONATION deleted) and doctrine becomes independent verb flags, so LitZoneView trades `mode` for `phos`/`daz`; a stale bundle would read a card list that no longer exists and a zone field that never arrives) is enforced at matchmake', () => {
+  it('rejects pv-41 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(42);
+    expect(protocolVersionError(41)).toMatch(/refresh/);
     expect(protocolVersionError(40)).toMatch(/refresh/);
     expect(protocolVersionError(39)).toMatch(/refresh/);
     expect(protocolVersionError(34)).toMatch(/refresh/);

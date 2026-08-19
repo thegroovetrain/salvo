@@ -28,7 +28,7 @@
 // msgpack key order follows object insertion order. Every materialize() below
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
-// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
+// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,phos,daz;
 // DecoyView: id,x,y,until,own,by; SplashEvent/HitCallEvent: k,id,x,y;
 // MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
 // FoghornEvent: k,h then self? (honker) / x,y (spectator) / b,v (fogged
@@ -550,11 +550,24 @@ const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
     return dx * dx + dy * dy <= radar * radar; // no LOS, no sweep gate
   },
   materialize(_ctx, zone) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by,mode. `mode`
-    // (Story 2.9, amendment 50) is the zone's doctrine — stamped on the
-    // record at zone-spawn time and delivered to EVERY observer who sees the
-    // circle (counterplay over concealment), appended LAST.
-    return { id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId, mode: zone.mode };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by,phos,daz. The two
+    // doctrine flags (Story 2.9 amendment 50, split into INDEPENDENT verbs by
+    // Story 7-5 wave 1) are stamped on the record at zone-spawn time and
+    // delivered to EVERY observer who sees the circle (counterplay over
+    // concealment), appended LAST. They are written INDEPENDENTLY — a zone
+    // that both burns and blinds carries both — and OMITTED when false, the
+    // established optional-flag wire style, so a plain flare costs what it
+    // always did.
+    return {
+      id: zone.id,
+      x: zone.x,
+      y: zone.y,
+      r: zone.r,
+      until: zone.until,
+      by: zone.ownerId,
+      ...(zone.phosphor ? { phos: true as const } : {}),
+      ...(zone.dazzle ? { daz: true as const } : {}),
+    };
   },
 };
 

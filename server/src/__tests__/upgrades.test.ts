@@ -123,18 +123,18 @@ const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineRelo
 
 describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', () => {
   // Per-hull expected line totals against the production catalog: universal
-  // (guns 8 + intel 15 + ship 15 = 38) + carried subdecks + ONE acquisition
-  // card per absent equipment. (Global cooldown reduction, Eric ruling
-  // 2026-08-04: the seven per-equipment *Reload lines died and ONE universal
-  // `shipCooldown` line — 5 copies, `ship` category — replaced them, so every
-  // subdeck thinned by its 5 reload copies and `ship` grew by 5.)
+  // (guns 3 + intel 9 + ship 13 = 25) + carried subdecks + ONE acquisition
+  // card per absent equipment. STORY 7-5 WAVE 1 rebuilt the catalog — 33 lines
+  // to 22, every deck roughly a third thinner — so these totals moved with it
+  // (TB 53 -> 41, BS 55 -> 42, ML 58 -> 40); the SHAPE of the assertion, and
+  // the acquisition rules it pins, are unchanged.
   const CASES: [ShipClassId, number, string[]][] = [
-    // TB: torpedo 12 + boost 5 + acquisitions (mine/cannon/star/decoy) 4 = 53.
-    ['torpedoBoat', 32 + 12 + 5 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
-    // BS: cannon 7 + starShells 12 + acquisitions (torpedo/mine/decoy/boost) 4 = 55.
-    ['battleship', 32 + 7 + 12 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
-    // ML: mine 17 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 58.
-    ['mineLayer', 32 + 17 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
+    // TB: torpedo 6 + boost 6 + acquisitions (mine/cannon/star/decoy) 4 = 41.
+    ['torpedoBoat', 25 + 6 + 6 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
+    // BS: cannon 7 + starShells 6 + acquisitions (torpedo/mine/decoy/boost) 4 = 42.
+    ['battleship', 25 + 7 + 6 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
+    // ML: mine 6 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 40.
+    ['mineLayer', 25 + 6 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
   ];
 
   for (const [hull, total, acquisitions] of CASES) {
@@ -150,8 +150,9 @@ describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', 
         if (!isAcquisitionDef(BOON_CATALOG[id])) continue;
         if (!acquisitions.includes(id)) expect(copiesInDeck(rec, id)).toBe(0);
       }
-      // Copy counts mirror the catalog for every present line.
-      expect(copiesInDeck(rec, 'gunDamage')).toBe(5);
+      // Copy counts mirror the catalog for every present line. (HEAVY SHELLS
+      // was deleted in wave 1; BARREL is the surviving multi-copy gun line.)
+      expect(copiesInDeck(rec, 'gunBarrel')).toBe(2);
       expect(copiesInDeck(rec, 'gunTurret')).toBe(1);
       // The ONE global cooldown line is universal — every hull's deck carries
       // all 5 copies, and no per-equipment reload line survives anywhere.
@@ -346,7 +347,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const buildSize = a.deck.cards.length;
-    expect(buildSize).toBe(53); // the TB build
+    expect(buildSize).toBe(41); // the TB build (wave-1 catalog)
     const hands: string[][] = [];
     for (let i = 0; i < 20; i++) {
       bank(w, a, 1);
@@ -786,7 +787,7 @@ describe('acquisitions — R fills once, purge (amendments 38/41)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.bankedLevels = 1 + extraLevels;
-    a.offer = ['acquireMine', 'gunDamage', 'shipHull', 'intelSweep'];
+    a.offer = ['acquireMine', 'gunBarrel', 'shipHull', 'intelSweep'];
     return { w, a };
   }
 
@@ -799,10 +800,10 @@ describe('acquisitions — R fills once, purge (amendments 38/41)', () => {
 
   it('the acquired subdeck shuffles in and EVERY remaining acquisition card purges — R can never fill again', () => {
     const { w, a } = acquisitionBoard();
-    expect(copiesInDeck(a, 'mineDamage')).toBe(0); // no mine lines before the fit
+    expect(copiesInDeck(a, 'mineBlast')).toBe(0); // no mine lines before the fit
     expect(w.spendPoint('a', 0)).toBe(true);
     // The mine subdeck joined the pool at catalog copy counts.
-    expect(copiesInDeck(a, 'mineDamage')).toBe(5);
+    expect(copiesInDeck(a, 'mineBlast')).toBe(4);
     expect(copiesInDeck(a, 'mineSelfPropelled')).toBe(1);
     // Every acquisition card is GONE from the deck — permanently.
     for (const id of Object.keys(BOON_CATALOG)) {
@@ -816,9 +817,12 @@ describe('acquisitions — R fills once, purge (amendments 38/41)', () => {
   // because the next hand is not drawn until the acquisition pick has already
   // purged the deck. This is the pin that replaces both.
   it('the NEXT offer is drawn from the CLEANED deck — a stale acquisition card is unreachable', () => {
-    const { w, a } = acquisitionBoard(60); // a deep bank behind the acquisition pick
+    // 25, not the pre-wave-1 60: the wave-1 catalog is a third smaller, so a
+    // TB's post-acquisition pool no longer holds 60 spendable cards and the
+    // deep bank would simply run the deck dry. Still far past the purge.
+    const { w, a } = acquisitionBoard(25); // a deep bank behind the acquisition pick
     expect(w.spendPoint('a', 0)).toBe(true); // fit acquireMine: purge + subdeck
-    expect(a.bankedLevels).toBe(60);
+    expect(a.bankedLevels).toBe(25);
     // Every subsequent hand, all the way down the bank, is acquisition-free —
     // and the mine subdeck that just joined IS drawable.
     let sawMineLine = false;
@@ -843,44 +847,62 @@ describe('acquisitions — R fills once, purge (amendments 38/41)', () => {
 
 // ---------- doctrine swaps ---------------------------------------------------
 
+// STORY 7-5 WAVE 1 RE-KEYED THIS SUITE ONTO THE CANNON. The swap MECHANISM
+// (exclusiveWith, boonReplacesLine, the returned card) is untouched and still
+// needs coverage — but its subject moved: the torpedo pair it used to be
+// written against is gone (COMMAND DETONATION deleted, ACOUSTIC HOMING now an
+// independent verb with no rival), and PLUNGING FIRE ⚔ ARMOR-PIERCING is the
+// LAST exclusive pair in the game. Same assertions, same seam, a battleship
+// board so the cannon subdeck is in the deck.
 describe('doctrine swap — free replace, rival card returns, ping-pong (amendment 44)', () => {
   it('fitting the rival removes ONE occurrence of the held doctrine and returns its card to the deck', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    // Direct the front hand at the homing card (a draw takes nothing out — the
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    // Direct the front hand at the arcing card (a draw takes nothing out — the
     // FIT does, so the deck loses the copy only when the spend lands).
     a.bankedLevels = 1;
-    a.offer = ['torpedoHoming', 'gunDamage', 'shipHull', 'intelSweep'];
+    a.offer = ['cannonArcing', 'gunBarrel', 'shipHull', 'intelSweep'];
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.boons).toEqual(['torpedoHoming']);
-    expect(a.stats.torpedo.mode).toBe('homing');
-    expect(copiesInDeck(a, 'torpedoHoming')).toBe(0); // held — its only copy is out of the pool
+    expect(a.boons).toEqual(['cannonArcing']);
+    expect(a.stats.cannon.mode).toBe('arcing');
+    expect(copiesInDeck(a, 'cannonArcing')).toBe(0); // held — its only copy is out of the pool
     // Now the rival is drawn and picked: a free swap.
     a.bankedLevels = 1;
-    a.offer = ['torpedoCommand', 'gunDamage', 'shipHull', 'intelSweep'];
+    a.offer = ['cannonAp', 'gunBarrel', 'shipHull', 'intelSweep'];
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.boons).toEqual(['torpedoCommand']); // the homing id LEFT boons
-    expect(a.stats.torpedo.mode).toBe('command');
-    expect(copiesInDeck(a, 'torpedoHoming')).toBe(1); // the rival's card is BACK in the deck
-    expect(copiesInDeck(a, 'torpedoCommand')).toBe(0);
+    expect(a.boons).toEqual(['cannonAp']); // the arcing id LEFT boons
+    expect(a.stats.cannon.mode).toBe('ap');
+    expect(copiesInDeck(a, 'cannonArcing')).toBe(1); // the rival's card is BACK in the deck
+    expect(copiesInDeck(a, 'cannonAp')).toBe(0);
   });
 
   it('doctrine can ping-pong across a match; stat stacks apply under either doctrine', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    stack(w, a, 'torpedoDamage', 2); // stat stacks fitted first
-    w.applyBoon(a, 'torpedoHoming');
-    expect(a.stats.torpedo.mode).toBe('homing');
-    // Two HEAVY WARHEAD copies at the retuned +1/card step (Eric ruling
-    // 2026-08-04, the weapon balance pass; was +2/card).
-    expect(a.stats.torpedo.damage).toBe(CONFIG.torpedo.damage + 2);
-    w.applyBoon(a, 'torpedoCommand'); // swap...
-    expect(a.boons).toEqual(['torpedoDamage', 'torpedoDamage', 'torpedoCommand']);
-    expect(a.stats.torpedo.mode).toBe('command');
-    w.applyBoon(a, 'torpedoHoming'); // ...and back (ping-pong legal)
-    expect(a.boons).toEqual(['torpedoDamage', 'torpedoDamage', 'torpedoHoming']);
-    expect(a.stats.torpedo.mode).toBe('homing');
-    expect(a.stats.torpedo.damage).toBe(CONFIG.torpedo.damage + 2); // stacks survive every swap
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    stack(w, a, 'cannonDamage', 2); // stat stacks fitted first
+    w.applyBoon(a, 'cannonArcing');
+    expect(a.stats.cannon.mode).toBe('arcing');
+    // Two HEAVY CHARGE copies at +2/card.
+    expect(a.stats.cannon.damage).toBe(CONFIG.cannon.damage + 4);
+    w.applyBoon(a, 'cannonAp'); // swap...
+    expect(a.boons).toEqual(['cannonDamage', 'cannonDamage', 'cannonAp']);
+    expect(a.stats.cannon.mode).toBe('ap');
+    w.applyBoon(a, 'cannonArcing'); // ...and back (ping-pong legal)
+    expect(a.boons).toEqual(['cannonDamage', 'cannonDamage', 'cannonArcing']);
+    expect(a.stats.cannon.mode).toBe('arcing');
+    expect(a.stats.cannon.damage).toBe(CONFIG.cannon.damage + 4); // stacks survive every swap
+  });
+
+  // Story 7-5 wave 1: the OTHER weapons stopped being either/or. Fitting both
+  // verbs must NOT swap — nothing returns to the deck, and both flags stand.
+  it('a non-cannon verb has no rival: fitting both keeps both, and returns nothing', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+    w.applyBoon(a, 'minePropFouling');
+    w.applyBoon(a, 'mineSelfPropelled');
+    expect(a.boons).toEqual(['minePropFouling', 'mineSelfPropelled']);
+    expect(a.stats.mine.propFouling).toBe(true);
+    expect(a.stats.mine.selfPropelled).toBe(true);
   });
 });
 
@@ -892,9 +914,9 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     const a = place(w, 'a', 0, 0);
     const baseMax = a.stats.maxHp;
     a.hp = baseMax - 50;
-    w.applyBoon(a, 'shipHull'); // +20 maxHp, healOnGrant
-    expect(a.stats.maxHp).toBe(baseMax + 20);
-    expect(a.hp).toBe(baseMax - 50 + 20); // healed by the delta, not to full
+    w.applyBoon(a, 'shipHull'); // +25 maxHp, healOnGrant
+    expect(a.stats.maxHp).toBe(baseMax + 25);
+    expect(a.hp).toBe(baseMax - 50 + 25); // healed by the delta, not to full
     // Near-full: the heal is still exactly the delta (the raise moves the cap
     // by the same amount, so the defensive clamp can never bind for shipHull —
     // hp tracks the same distance below the new cap).
@@ -911,14 +933,14 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     w.sinkShip('a');
     w.applyBoon(a, 'shipHull');
     expect(a.hp).toBe(0);
-    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 20); // the cap still moved
+    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 25); // the cap still moved
   });
 
   it('a NON-heal fit never heals (only shipHull carries healOnGrant in v1)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.hp = 40;
-    w.applyBoon(a, 'gunDamage');
+    w.applyBoon(a, 'gunBarrel');
     expect(a.hp).toBe(40);
   });
 
@@ -1013,7 +1035,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.boons).toEqual(['shipHull', 'shipHull']);
-    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
+    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 50);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp
     expect(a.deck.cards).toEqual(deckBefore);
     expect(a.bankedLevels).toBe(bankBefore);
@@ -1028,10 +1050,10 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     const a = place(w, 'a', 0, 0);
     // Fit an acquisition so the live deck diverges hard from a fresh build.
     a.bankedLevels = 1;
-    a.offer = ['acquireMine', 'gunDamage', 'shipHull', 'intelSweep'];
+    a.offer = ['acquireMine', 'gunBarrel', 'shipHull', 'intelSweep'];
     w.spendPoint('a', 0);
     bank(w, a, 2);
-    expect(copiesInDeck(a, 'mineDamage')).toBeGreaterThan(0);
+    expect(copiesInDeck(a, 'mineBlast')).toBeGreaterThan(0);
     w.resetForMatchStart();
     expect(a.boons).toEqual([]);
     expect(a.bankedLevels).toBe(0);
@@ -1042,9 +1064,9 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
     // The fresh deck is the fresh-fit composition: mine lines gone, the
     // absent-equipment acquisitions back.
-    expect(copiesInDeck(a, 'mineDamage')).toBe(0);
+    expect(copiesInDeck(a, 'mineBlast')).toBe(0);
     expect(copiesInDeck(a, 'acquireMine')).toBe(1);
-    expect(a.deck.cards).toHaveLength(53); // the TB composition (suite above)
+    expect(a.deck.cards).toHaveLength(41); // the TB composition (suite above)
   });
 });
 
@@ -1119,9 +1141,10 @@ describe('per-observer intel range (intelRange)', () => {
   });
 
   it('a sight-booned observer sees an enemy MINE at the wider DETECT radius (Story 4.9: mines ride 0.75×sight, so the boon widens detect too — amendment 121)', () => {
-    // Between base detect (330 × 0.75 = 247.5) and one-stack detect
-    // (330 × 1.12 × 0.75 = 277.2) — factors re-derived as literals.
-    const mineAt = SIGHT * 0.75 + 20;
+    // Wave 1 made intelRange ADDITIVE (+50 radar range/card), so one stack
+    // takes radar 660 -> 710 and detect (0.375 × radar) 247.5 -> 266.25. The
+    // mine sits between them — factors re-derived as literals.
+    const mineAt = SIGHT * 0.75 + 10;
     const w = bareWorld();
     const up = place(w, 'up', 0, 0);
     place(w, 'base', 0, 0);
@@ -1323,9 +1346,9 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const a = place(w, 'a', 0, 0);
     gunAtHalfReload(w, a);
     const before = a.loadout[SLOT_GUN].state!.reloadMsLeft;
-    w.applyBoon(a, 'shipHull'); // +20 maxHp, heal-on-grant: ratio 1
+    w.applyBoon(a, 'shipHull'); // +25 maxHp, heal-on-grant: ratio 1
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
-    w.applyBoon(a, 'gunDamage'); // a GUN card that is not a reload card: ratio 1
+    w.applyBoon(a, 'gunBarrel'); // a GUN card that is not a reload card: ratio 1
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
     expect(a.stats.gun.reloadMs).toBe(CONFIG.gun.reloadMs); // untouched base
   });
@@ -1346,16 +1369,22 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.loadout[SLOT_GUN].state!.n).toBe(a.stats.gun.maxAmmo);
   });
 
-  it('gunDamage: the spawned shell carries the effective damage (HEAVY SHELLS), never raw CONFIG', () => {
+  // HEAVY SHELLS (`gunDamage`) is DELETED in wave 1 (Eric: the gun needs no
+  // damage bonuses), so its ladder pin is RETIRED. What the pin was really
+  // guarding — the fire path reads EFFECTIVE stats, never raw CONFIG — is kept
+  // by asserting the seam itself: with no writer left, the effective number IS
+  // the CONFIG base, and the shell must carry the effective one.
+  it('gun damage rides the EFFECTIVE stat, and no catalog line writes it any more', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stack(w, a, 'gunDamage', 3); // +3/card
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
     w.step();
     const [shell] = [...w.shells.values()];
-    expect(shell.damage).toBe(CONFIG.gun.damage + 9);
+    expect(shell.damage).toBe(a.stats.gun.damage);
+    expect(shell.damage).toBe(CONFIG.gun.damage); // no writer left: effective === base
     expect(shell.contactDamage).toBe(CONFIG.gun.contactDamage);
     expect(shell.burstRadius).toBe(CONFIG.gun.burstRadius);
+    expect(BOON_CATALOG['gunDamage']).toBeUndefined();
   });
 
   it('torpedoSpeed: the launched fish is faster (+5/card), and ONLY vx/vy change on the wire event', () => {
@@ -1379,12 +1408,17 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect({ x: fast.x, y: fast.y }).toEqual({ x: base.x, y: base.y }); // same muzzle offset
   });
 
-  it("mine maxLive comes from the OWNER's stats: a mineMax fit keeps one more mine live", () => {
+  // `mineMax` is DELETED in wave 1, so the "a fit keeps one more mine live"
+  // half of this pin is RETIRED. `mine.maxLive` is still a whitelisted stat
+  // path with no card behind it (the established shape), so what survives is
+  // that the cap is read off the OWNER'S EFFECTIVE STATS rather than CONFIG —
+  // asserted against `a.stats.mine.maxLive`, not the constant.
+  it("mine maxLive comes from the OWNER's effective stats (no card writes it any more)", () => {
     const SLOT_MINE_ML = 1; // ML fit: [gun, mine, decoyBuoy, empty]
-    const dropMines = (stacks: number, drops: number): number => {
+    const dropMines = (drops: number): number => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-      stack(w, a, 'mineMax', stacks);
+      expect(a.stats.mine.maxLive).toBe(CONFIG.mine.maxLive);
       w.step();
       for (let i = 0; i < drops; i++) {
         a.loadout[SLOT_MINE_ML].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
@@ -1397,23 +1431,22 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       }
       return w.mines.size;
     };
-    const drops = CONFIG.mine.maxLive + 2; // enough to overflow BOTH caps
-    expect(dropMines(0, drops)).toBe(CONFIG.mine.maxLive); // base cap: oldest evicted
-    expect(dropMines(1, drops)).toBe(CONFIG.mine.maxLive + 1); // booned owner's cap
+    const drops = CONFIG.mine.maxLive + 2; // enough to overflow the cap
+    expect(dropMines(drops)).toBe(CONFIG.mine.maxLive); // cap holds: oldest evicted
+    expect(BOON_CATALOG['mineMax']).toBeUndefined();
   });
 
   it('shipSpeed: a booned hull out-runs an identical base twin', () => {
     const w = bareWorld();
     const up = place(w, 'up', 0, -200);
     place(w, 'base', 0, 200);
-    stack(w, up, 'shipSpeed', 2); // ×1.05 each
+    stack(w, up, 'shipSpeed', 2); // +2.5 each (wave 1 made SPEED additive)
     for (let tick = 1; tick <= 200; tick++) {
       w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
       w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
       w.step();
     }
-    const f = 1.05 ** 2;
-    expect(w.ships.get('up')!.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * f, 6);
+    expect(w.ships.get('up')!.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 5, 6);
     expect(w.ships.get('base')!.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed, 6);
   });
 });

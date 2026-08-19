@@ -588,7 +588,7 @@ describe('ai/spending — the boon policy', () => {
   }
 
   it('returns null with nothing banked, and null with a healthy hull + no offer', () => {
-    expect(chooseSpend(profileOf('raider'), spendState({ bankedLevels: 0, offer: ['gunDamage'] }))).toBeNull();
+    expect(chooseSpend(profileOf('raider'), spendState({ bankedLevels: 0, offer: ['gunBarrel'] }))).toBeNull();
     expect(chooseSpend(profileOf('raider'), spendState())).toBeNull();
   });
 
@@ -598,11 +598,11 @@ describe('ai/spending — the boon policy', () => {
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBe(-1); // HEAL_CHOICE
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['torpedoHoming'] }))).toBe(-1);
     // At the threshold exactly, it builds.
-    expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['gunDamage'] }))).toBe(0);
+    expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['gunBarrel'] }))).toBe(0);
   });
 
   it('picks the profile\'s highest-weighted line out of the offered hand', () => {
-    const offer = ['gunDamage', 'torpedoHoming', 'shipHull'];
+    const offer = ['gunBarrel', 'torpedoHoming', 'shipHull'];
     expect(chooseSpend(profileOf('raider'), spendState({ offer }))).toBe(1); // torpedoHoming 3.0
     expect(chooseSpend(profileOf('bulwark'), spendState({ offer }))).toBe(2); // shipHull 3.0
   });
@@ -614,22 +614,36 @@ describe('ai/spending — the boon policy', () => {
     expect(chooseSpend(profileOf('siege'), spendState({ offer: ['cannonArcing', 'cannonDamage'] }))).toBe(1);
   });
 
+  // RE-KEYED IN STORY 7-5 WAVE 1. `pairResolved` keys on `exclusiveWith`, and
+  // the torpedo pair this pin was written against is gone (COMMAND DETONATION
+  // deleted, ACOUSTIC HOMING now an independent verb with no rival). The
+  // demotion MECHANISM is untouched and its last user is the cannon pair, so
+  // the pin follows it there — bulwark, whose `cannon` category (2.0) outranks
+  // its `starDazzle` line (1.6) fresh, and loses to it at the resolved score.
   it('demotes an exclusive whose PAIR IS ALREADY RESOLVED (no doctrine ping-pong)', () => {
-    const raider = profileOf('raider');
-    const offer = ['torpedoHoming', 'gunDamage'];
-    // Fresh: homing is the top line in the whole raider table.
-    expect(chooseSpend(raider, spendState({ offer }))).toBe(0);
+    const bulwark = profileOf('bulwark');
+    const offer = ['cannonArcing', 'starDazzle'];
+    // Fresh: the cannon exclusive outranks the star-shell line.
+    expect(chooseSpend(bulwark, spendState({ offer }))).toBe(0);
     // Holding it already — re-buying is a no-op, so it drops below a real card.
-    expect(chooseSpend(raider, spendState({ offer, boons: ['torpedoHoming'] }))).toBe(1);
+    expect(chooseSpend(bulwark, spendState({ offer, boons: ['cannonArcing'] }))).toBe(1);
     // Holding the RIVAL — taking it would swap the doctrine back and forth
     // forever, which is exactly the ping-pong the demotion exists to stop.
-    expect(chooseSpend(raider, spendState({ offer, boons: ['torpedoCommand'] }))).toBe(1);
-    expect(boonWeightFor('raider', 'torpedoHoming', ['torpedoCommand']))
-      .toBeLessThan(boonWeightFor('raider', 'torpedoHoming', []));
+    expect(chooseSpend(bulwark, spendState({ offer, boons: ['cannonAp'] }))).toBe(1);
+    expect(boonWeightFor('bulwark', 'cannonArcing', ['cannonAp']))
+      .toBeLessThan(boonWeightFor('bulwark', 'cannonArcing', []));
+  });
+
+  // Wave 1's counterpart: a verb line with NO rival is never demoted, because
+  // there is no pair to resolve. Holding one star-shell verb must not push the
+  // other down — they stack now.
+  it('a non-exclusive doctrine verb is NEVER demoted by holding its former rival', () => {
+    expect(boonWeightFor('bulwark', 'starDazzle', ['starIncendiary']))
+      .toBe(boonWeightFor('bulwark', 'starDazzle', []));
   });
 
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
-    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['decoyDuration', 'boostMax'] }));
+    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['decoyDuration', 'boostSpeed'] }));
     expect(idx).not.toBeNull();
     expect(idx).toBeGreaterThanOrEqual(0);
   });
