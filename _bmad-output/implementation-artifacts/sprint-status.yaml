@@ -217,7 +217,7 @@ development_status:
   7-2-analytics-consent-and-privacy: done  # 2026-08-18 cycle 104 (0.17.104); PV unchanged at 40; epic-7 amendment 14 (R1-R16); own consent card + Consent Mode v2 BASIC, /privacy page, reusable page chrome; certified CMP DEFERRED to 7-4 (Google requires the AdSense site+code first)
   7-3-how-to-play-page: done  # 2026-08-19 cycle 106 (0.17.106); PV 40->41; epic-7 amendment 15 (R1-R3); /how-to-play page (basics only - Eric struck the boon glossary and the AC coverage list), win condition stated, home link made real, settings binding reference fixed; the OLD silhouette radar DELETED end to end (prod return grammar is now the only radar)
   7-4-adsense-h5-games-ads: in-review  # 2026-08-19 cycle 107 (0.17.107); PV unchanged at 41; epic-7 amendments 16-18; interstitial at return-to-port + ONE responsive display unit beside the score screen (A18 supersedes A16 R2's "no display units" - home was unbuildable, the score screen is not); Google's certified CMP adopted, own consent card DELETED, Consent Mode BASIC->ADVANCED; ads.txt verification; display slot id gated and unset pending an inter-epic job, interstitial pending H5 approval. Also A17: ESC while spectating reopens the score screen
-  7-5-upgrade-cards-v2: backlog
+  7-5-upgrade-cards-v2: in-progress  # wave 1 landed 2026-08-19: verb-flag stat model, catalog 33->28, SPEED/RANGE additive, COMMAND DETONATION deleted, prop-fouling 25%/5s, PV 41->42; waves 2 (broadside, radar buoy, captive mines, star-shell gun reach) pending
   7-6-design-and-doc-reconciliation: backlog
   7-7-frontend-backend-split-and-versioning: backlog
   7-8-the-release-gate: backlog

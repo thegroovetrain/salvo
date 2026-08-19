@@ -1072,10 +1072,6 @@ export const CONFIG = {
     // burst). DRAFT HANDWAVE (Story 2.8 review P1x; 2.10's evidence pass
     // tunes): 1300u ≈ just under two full crossings of base radar range (660u).
     homingMaxRangeU: 1300,
-    // --- COMMAND DETONATION doctrine (Story 2.8, exclusive boon) — DRAFT.
-    // u — blast radius of the point-detonation at the click (reuses the
-    // gun-pattern targetX/targetY + burstRadius shell fields; range is capped
-    // by radar range server-side; contact hits stay ordinary torpedo hits).
     // u — extra spawn-offset margin ON TOP of hitRadius (see hullClearOffset)
     // so the fish spawns genuinely CLEAR of the firer's own hull, not merely
     // touching it — clean spawn geometry only. Own weapons NEVER damage the
