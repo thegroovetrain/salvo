@@ -2,7 +2,7 @@
 title: 'Story 7-3: How-to-Play Page'
 type: 'feature'
 created: '2026-08-19'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '362e7e7'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -83,10 +83,10 @@ library that merely shares a name with the deleted grammar mode.
 - [x] `client/vite.config.ts` -- third entry + generalized redirect -- so a fourth page is one row
 - [x] `client/src/ui/home.ts` -- real anchor, stub deleted -- the link finally means something
 - [x] `client/src/ui/settings.ts` -- complete the binding reference -- the two controls surfaces must agree
-- [ ] `client/src/ui/page.ts` -- `makePageLink`, keycap `makeKeyTable`, mount-lifetime fix -- the AC needs a link; Eric ruled keycaps
-- [ ] radar deletion across `shared/`, `server/`, `client/`, `render.yaml` -- one radar, PV 40 -> 41
+- [x] `client/src/ui/page.ts` -- `makePageLink`, keycap `makeKeyTable`, mount-lifetime fix -- the AC needs a link; Eric ruled keycaps
+- [x] radar deletion across `shared/`, `server/`, `client/`, `render.yaml` -- one radar, PV 40 -> 41
 - [x] tests -- new page tests; the home stub pin inverted; the script guard generalized
-- [ ] `VERSION` + `package.json` -> `0.17.105`; both tracker files; epic-7 amendments entry
+- [x] `VERSION` + `package.json` -> `0.17.105`; both tracker files; epic-7 amendments entry
 
 **Acceptance Criteria:**
 - Given a new player on home, when they click HOW TO PLAY, then a real page loads at
