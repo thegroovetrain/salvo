@@ -652,23 +652,23 @@ export const CLIENT_CONFIG = {
    * ON-WATER ORDNANCE IDENTITY (Story 2.9) — render-only feel knobs for what a
    * doctrine LOOKS like in flight / on the chart. Nothing here is gameplay
    * authoritative: the sim numbers (speeds, radii, damage) all live in shared
-   * CONFIG, and the wire stays mode-blind for ballistics. The OWN-side cannon
-   * weights (`cannon*`) are the ratified "the cannon must read heavier than the
-   * gun" tester fix — own-side only, because the constant-free ballistic wire
-   * shape cannot (and must not) say "cannon" to an onlooker.
+   * CONFIG, and the wire stays mode-blind for ballistics. The OWN-side
+   * BROADSIDE weights (`broadside*`) are the ratified "a main-battery shell
+   * must read heavier than the gun" tester fix, inherited BYTE-FOR-BYTE from
+   * the cannon look the broadside replaced (Story 7-5 wave 2) — own-side only,
+   * because the constant-free ballistic wire shape cannot (and must not) say
+   * which weapon fired to an onlooker.
+   *
+   * `apStretch` / `arcSwell` / `arcSwellMs` are DELETED with ARMOR-PIERCING and
+   * PLUNGING FIRE (R2.6): the BROADSIDE BARRAGE has no doctrine cards at all, so
+   * the dart and height-as-size channels had no user left. Nothing may re-add a
+   * knob here without a look that consumes it.
    */
   ordnance: {
-    /** Own CANNON shell: a visibly bigger, heavier dot than the gun's (2.2/6). */
-    cannonCoreR: 3.4, // u
-    cannonGlowR: 9, // u
-    cannonGlowAlpha: 0.3,
-    /** ARMOR-PIERCING: the core is stretched into a dart along its bearing. */
-    apStretch: 2.6,
-    /** PLUNGING FIRE: peak extra scale at the top of the arc, and the time the
-     *  swell takes to rise and fall back (ms). Motion-scaled at the callsite —
-     *  the shell's POSITION (the information) never moves with it. */
-    arcSwell: 0.45,
-    arcSwellMs: 900,
+    /** Own BROADSIDE shell: a visibly bigger, heavier dot than the gun's (2.2/6). */
+    broadsideCoreR: 3.4, // u
+    broadsideGlowR: 9, // u
+    broadsideGlowAlpha: 0.3,
     /** ACOUSTIC HOMING: a steering fish reads BRIGHTER-HEADED than a
      *  straight-runner. It no longer reads as a tighter WAKE — the paired
      *  `homingTrailSpacing` was deleted at the cycle-69 review gate (P10) when

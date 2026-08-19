@@ -5,16 +5,21 @@
 //
 // Keyed by the fitted EQUIPMENT ID (Story 1.7), NOT the loadout slot index: the
 // slot-index == equipment coupling died when the fit went per-hull (BB slot 1 is
-// the cannon, TB slot 1 is the torpedo), so a slot-number branch would light the
+// the broadside, TB slot 1 is the torpedo), so a slot-number branch would light the
 // wrong marker. As of Story 1.10 the classification DERIVES from the shared
 // arcFor descriptor (sim/arcs.ts — the single arc-shape source both sides
 // consume), so the rendered arc and the server's enforced arc can never
-// diverge: the gun FAMILY (gun / cannon / star shells) declares `full` (360° —
-// always in arc, never denied for bearing, aimed to the clicked point); the
-// torpedo declares its bow `sector` and — as of Story 2.8 (amendment 45) — the
-// MINE declares its rear placement `sector`; the decoy's stern drop and the
-// speedBoost aim nothing (`stern-drop`/`none` → not an aimed weapon). Callers
+// diverge: the gun FAMILY (gun / star shells) declares `full` (360° — always in
+// arc, never denied for bearing, aimed to the clicked point); the torpedo
+// declares its bow `sector` and — as of Story 2.8 (amendment 45) — the MINE and
+// (Story 7-5 wave 2) the RADAR BUOY declare their rear placement `sector`; the
+// BROADSIDE BARRAGE declares `twin-sector`, two mirrored beam sectors at
+// `heading ± 90°` each 60° wide; the speedBoost aims nothing (`none`). Callers
 // derive the id from the own loadout (main.ts's slotIdsFor / shared loadoutFor).
+//
+// STORY 7-5 WAVE 2 RETIRED the `stern-drop` branch: the decoy buoy was that
+// shape's only user, and the radar buoy replacing it is click-placed in the
+// mine's rear SECTOR. Nothing here may re-add a branch for it.
 
 import { CONFIG, arcFor, inArc, wrapAngle, type EffectiveStats, type EquipmentId } from '@salvo/shared';
 
@@ -24,30 +29,36 @@ import { CONFIG, arcFor, inArc, wrapAngle, type EffectiveStats, type EquipmentId
  * - `gunLike` — a `full` (360°) descriptor: aimed to the clicked point,
  *   range-clamped, no arc sector drawn.
  * - `sector`  — a `sector` descriptor: an AIM-GATED weapon that draws its wedge
- *   (the torpedo's bow arc; the mine's rear placement arc as of Story 2.8 —
- *   PIN FLIPPED from 'none' knowingly, amendment 45).
- * - `none`    — `stern-drop`/`none` descriptors (the decoy rack, the speed
- *   boost) or the empty slot: not an aimed weapon, no marker, no reticle.
+ *   (the torpedo's bow arc; the mine's and radar buoy's rear placement arc as of
+ *   Story 2.8 — PIN FLIPPED from 'none' knowingly, amendment 45).
+ * - `twin`    — a `twin-sector` descriptor (the BROADSIDE BARRAGE, R2.1): TWO
+ *   mirrored aim-gated wedges at `heading ± offset`. A click inside EITHER is
+ *   legal and fires THAT side (R2.2); a click in neither — the bow and stern
+ *   dead zones — is denied exactly like a `sector` miss.
+ * - `none`    — the `none` descriptor (the speed boost) or the empty slot: not
+ *   an aimed weapon, no marker, no reticle.
  */
-export type FireArcKind = 'gunLike' | 'sector' | 'none';
+export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
 
 /** Pure: classify a fitted equipment id (or null empty slot) by firing-arc
  *  kind — a straight projection of the shared arcFor descriptor. */
 export function fireArcKind(id: EquipmentId | null): FireArcKind {
   if (id === null) return 'none'; // empty slot 3 / defensive null
   const arc = arcFor(id);
-  if (arc.kind === 'full') return 'gunLike'; // gun / cannon / starShells
-  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine rear arc
-  return 'none'; // stern-drop (decoyBuoy) + none (speedBoost)
+  if (arc.kind === 'full') return 'gunLike'; // gun / starShells
+  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + buoy rear arc
+  if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
+  return 'none'; // none (speedBoost)
 }
 
 /**
  * Does `aim` (world bearing) fall within the fitted weapon `id`'s firing arc,
  * given the hull's `heading`? Driven by the shared arcFor descriptor: a `full`
  * arc is always true; a `sector` checks heading + offset ± halfArc via shared
- * `inArc` (the exact server gate — the torpedo's bow sector, and the mine's
- * rear placement sector as of Story 2.8). An instant ability (stern-drop /
- * none) or the empty slot is NOT a firing weapon, so it is never "in arc".
+ * `inArc` (the exact server gate — the torpedo's bow sector, and the mine's and
+ * radar buoy's rear placement sector); a `twin-sector` is in arc when EITHER
+ * mirrored beam contains the aim (the broadside, R2.1/R2.2). An instant ability
+ * (`none`) or the empty slot is NOT a firing weapon, so it is never "in arc".
  *
  * NOTE: this is the BEARING gate only. The mine additionally requires the
  * clicked point to lie within CONFIG.mine.placeRange — an out-of-range click
@@ -61,25 +72,51 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
   if (arc.kind === 'sector') {
     return inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc);
   }
+  if (arc.kind === 'twin-sector') return twinSectorSide(heading, aim, arc) !== null;
   return false; // ability / empty slot: not a weapon, never in arc
 }
 
 /**
+ * Pure: WHICH beam of a `twin-sector` descriptor contains `aim` — `+1` for the
+ * `heading + offset` sector, `-1` for the mirrored `heading - offset` one, and
+ * `null` when the aim falls in neither (the bow/stern dead zones, which are
+ * DENIED — R2.1).
+ *
+ * This is the client's reading of R2.2 ("the side whose sector contains the
+ * click is the side that fires"), used by the firing UX to light exactly one
+ * wedge. The two sectors cannot overlap at the ratified 90°/60° geometry, and
+ * the `+` side is tested first so a hypothetical retune that made them overlap
+ * would still resolve to ONE side rather than an ambiguous both.
+ */
+export function twinSectorSide(
+  heading: number,
+  aim: number,
+  arc: { offset: number; halfArc: number },
+): 1 | -1 | null {
+  if (inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc)) return 1;
+  if (inArc(aim, wrapAngle(heading - arc.offset), arc.halfArc)) return -1;
+  return null;
+}
+
+/**
  * The effective range (u) at which an AIMED weapon's shot lands / clamps. The
- * gun family reads its OWN stats block — and as of Story 2.8 all three ride the
- * folded radarRange (Intel is a stealth offense category), so an intelRange
- * stack grows every one of them together. The MINE reads the ratified
+ * gun family reads its OWN stats block — and as of Story 2.8 all of them ride
+ * the folded radarRange (Intel is a stealth offense category), so an intelRange
+ * stack grows every one together. The BROADSIDE reads `stats.broadside.rangeU`,
+ * THE 5/8 RUNG (R2.4) — the one weapon that does not reach the radar horizon,
+ * so the shared gun-range fallback would over-promise it by 247.5u. The MINE
+ * reads the ratified
  * CONFIG.mine.placeRange: its placement reach is a fixed short leash, NOT radar
  * range, and no boon moves it.
  *
- * CONTRACT — MEANINGFUL FOR `gunLike` IDS AND THE MINE ONLY. For a torpedo /
- * ability / empty slot there is NO range ring, and this returns
+ * CONTRACT — MEANINGFUL FOR `gunLike` IDS, THE BROADSIDE AND THE MINE ONLY.
+ * For a torpedo / ability / empty slot there is NO range ring, and this returns
  * `stats.gun.rangeU` purely as a non-crashing fallback — it is NOT that
  * weapon's range (a torpedo runs to the map edge). Do NOT consult this for
  * those ids; gate on the id first, as firing.ts's markers do.
  */
 export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
-  if (id === 'cannon') return stats.cannon.rangeU;
+  if (id === 'broadside') return stats.broadside.rangeU;
   if (id === 'starShells') return stats.starShells.rangeU;
   if (id === 'mine') return CONFIG.mine.placeRange;
   return stats.gun.rangeU; // gun (radar-derived) — and the default

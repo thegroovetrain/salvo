@@ -21,7 +21,7 @@ export type ToneId =
   | 'fireGun'
   | 'fireTorp'
   | 'fireMine'
-  | 'fireCannon'
+  | 'fireBroadside'
   | 'fireStarShells'
   | 'placeDecoy'
   | 'denied'
@@ -75,9 +75,10 @@ export const TONES: Record<ToneId, ToneSpec> = {
   fireTorp: { freqStart: 180, freqMid: 140, freqEnd: 90, duration: 0.14, volume: 0.4, type: 'sawtooth', noise: true },
   // Mine: soft low plop, no noise layer (a drop, not a launch).
   fireMine: { freqStart: 220, freqMid: 150, freqEnd: 90, duration: 0.12, volume: 0.4, type: 'sine' },
-  // Cannon (Story 1.7): a HEAVIER gun report — lower + more body than the gun
-  // crack, with a bigger noise transient (the Battleship's big shell).
-  fireCannon: { freqStart: 520, freqMid: 200, freqEnd: 80, duration: 0.14, volume: 0.55, type: 'square', noise: true },
+  // Broadside barrage (Story 7-5 wave 2, inherited from the cannon it replaced):
+  // a HEAVIER gun report — lower + more body than the gun crack, with a bigger
+  // noise transient (the Battleship's big shells, several at once).
+  fireBroadside: { freqStart: 520, freqMid: 200, freqEnd: 80, duration: 0.14, volume: 0.55, type: 'square', noise: true },
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
@@ -374,18 +375,18 @@ export function telegraphTone(dir: number): ToneId {
 
 /** Equipment with a discrete own-fire/placement cue routed through fireTone. The
  *  instant abilities that have NO such cue here are excluded at the type level:
- *  speedBoost (a pure speed window) and decoyBuoy (its placement cue is played
- *  as 'placeDecoy' from the Decoys reconcile own-spawn hook, not via fireTone).
+ *  speedBoost (a pure speed window) and radarBuoy (its placement cue is played
+ *  as 'placeDecoy' from the buoy reconcile own-spawn hook, not via fireTone).
  *  The MINE stays included even though it is now an ability (Story 1.8) — its
  *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
- *  (main.ts); the decoy's cue rides the same hook shape on Decoys. */
-type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'decoyBuoy'>;
+ *  (main.ts); the buoy's cue rides the same hook shape. */
+type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'radarBuoy'>;
 
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',
   torpedo: 'fireTorp',
   mine: 'fireMine',
-  cannon: 'fireCannon',
+  broadside: 'fireBroadside',
   starShells: 'fireStarShells',
 };
 
@@ -426,14 +427,14 @@ const SEMITONE_CENTS = 100;
  */
 const FIT_CATEGORY_CENTS: Readonly<Record<string, number>> = {
   guns: -4 * SEMITONE_CENTS,
-  cannon: -3 * SEMITONE_CENTS,
+  broadside: -3 * SEMITONE_CENTS,
   torpedoes: -2 * SEMITONE_CENTS,
   mines: -1 * SEMITONE_CENTS,
   ship: 0,
   intel: 1 * SEMITONE_CENTS,
   speedBoost: 2 * SEMITONE_CENTS,
   starShells: 3 * SEMITONE_CENTS,
-  decoyBuoy: 4 * SEMITONE_CENTS,
+  radarBuoy: 4 * SEMITONE_CENTS,
 };
 
 /**

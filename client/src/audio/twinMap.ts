@@ -33,7 +33,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   fireGun: 'muzzle flash on the firing hull + the shell leaving under dead reckoning (render/effects, projectiles)',
   fireTorp: 'the fish itself + its wake trail on the water (render/projectiles, effects torpwake)',
   fireMine: 'the armed mine marker appearing on the chart (render/mines)',
-  fireCannon: 'muzzle flash + the heavier cannon shell in flight (render/effects, projectiles)',
+  fireBroadside: 'muzzle flash + the heavier broadside shells in flight (render/effects, projectiles)',
   fireStarShells: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',
   placeDecoy: 'the buoy topmark appearing on the chart (render/decoys)',
   denied: '80ms denied-red edge pulse on the weapon arc/reticle and the slot (render/deniedFire, hotbar)',

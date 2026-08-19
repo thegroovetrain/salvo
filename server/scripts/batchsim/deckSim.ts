@@ -1,17 +1,18 @@
 // Deck-only fast mode (spec task: amendment 38's pity evidence at scale).
 //
 // A pure loop over the exported shared deck seam — buildDeck / drawOffer /
-// consumeCard / returnCards / consumeAcquisition on a mulberry32 stream — with
-// the server-side behavior the pure seam lacks replicated from world.ts
-// spendPoint/settleSpend (read before writing this):
-//   1. doctrine-rival return-to-deck: fitting a card whose exclusiveWith rival
-//      is currently held removes ONE occurrence of the rival and returns its
-//      card to the deck (applyBoon swapOutRival + settleSpend returnCards).
-// The lazy-draw bugfix retired the other two (the amendment-43 scrub and its
-// scrubbed-to-empty drop, and the banked-offer FIFO): a DRAW now takes nothing
-// out of the deck and only the FIT does, and only the front level ever holds a
-// hand — so depletion is unchanged at one card per fit, which is exactly what
-// this harness measured before.
+// consumeCard / consumeAcquisition on a mulberry32 stream.
+//
+// IT NO LONGER REPLICATES ANY SERVER-SIDE BEHAVIOUR THE PURE SEAM LACKS.
+// It used to model exactly one: doctrine-rival return-to-deck (fitting a card
+// whose `exclusiveWith` rival was held returned the rival's card). Story 7-5
+// wave 2 DELETED exclusivity outright (R2.6 — the cannon pair was its last
+// user), so nothing ever re-enters a deck: a card leaves at the FIT and never
+// comes back. That also retires this harness's stopping rule, which existed
+// only to stop degenerate doctrine ping-pong; a deck now simply empties.
+// The lazy-draw bugfix had already retired the other two models (the
+// amendment-43 scrub and its scrubbed-to-empty drop, and the banked-offer
+// FIFO): a DRAW takes nothing out of the deck and only the FIT does.
 // Spends use the SAME deterministic policy as the scripted pilots
 // (pickSpendChoice) — one spend per level, immediately after the draw, exactly
 // like a captain who refits as soon as TAB glows.
@@ -56,7 +57,6 @@ import {
   loadoutFor,
   mulberry32,
   consumeCard,
-  returnCards,
   type BoonDef,
   type DeckState,
   type EquipmentId,
@@ -140,14 +140,6 @@ function spendFront(st: EconomyState, front: readonly string[], rng: Rng): strin
   const chosen = front[choice];
   st.deck = consumeCard(st.deck, chosen);
   const def = BOON_CATALOG[chosen];
-  // (1) doctrine-rival return-to-deck (applyBoon swapOutRival).
-  if (def?.exclusiveWith !== undefined) {
-    const at = st.fitted.indexOf(def.exclusiveWith);
-    if (at >= 0) {
-      st.fitted.splice(at, 1);
-      st.deck = returnCards(st.deck, [def.exclusiveWith]);
-    }
-  }
   st.fitted.push(chosen);
   if (def !== undefined && isAcquisitionDef(def)) {
     const target = acquisitionTarget(def);
@@ -161,20 +153,11 @@ function spendFront(st: EconomyState, front: readonly string[], rng: Rng): strin
 const hasExclusive = (ids: readonly string[]): boolean =>
   ids.some((id) => BOON_CATALOG[id]?.rarity === 'exclusive');
 
-/** A card that can never permanently leave the deck: the doctrine rival of a
- *  currently-fitted exclusive (picking it swaps and returns the other side). */
-const isTerminalRival = (id: string, fitted: readonly string[]): boolean => {
-  const def = BOON_CATALOG[id];
-  return def?.exclusiveWith !== undefined && fitted.includes(def.exclusiveWith);
-};
-
-/** THE HARNESS STOPPING RULE (module header): empty, or only terminal rival
- *  cards — every further draw would be a net-zero doctrine ping-pong (found
- *  empirically: without this, every doctrine-fitted economy burns the draw cap
- *  and floods the pity table with degenerate tail draws). Production has no
- *  such stop; this is a modeling choice applied identically to every variant. */
-const deckExhausted = (st: EconomyState): boolean =>
-  st.deck.cards.every((id) => isTerminalRival(id, st.fitted));
+/** THE HARNESS STOPPING RULE: the deck is EMPTY. The old "or only terminal
+ *  doctrine rivals" clause is retired with exclusivity itself (Story 7-5
+ *  wave 2) — no card can return to a deck any more, so a net-zero ping-pong
+ *  is unreachable and an empty deck is the only terminal state. */
+const deckExhausted = (st: EconomyState): boolean => st.deck.cards.length === 0;
 
 /** One level's draw + immediate spend; false = deck could not draw (done).
  *  Split from playEconomy for the complexity budget. */

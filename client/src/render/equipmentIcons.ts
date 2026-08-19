@@ -51,8 +51,8 @@ const speedBoost: Glyph = (g, cx, cy, r) => {
   }
 };
 
-/** Heavy cannon: twin barrels over a turret block. */
-const cannon: Glyph = (g, cx, cy, r) => {
+/** Broadside barrage: twin barrels over a turret block. */
+const broadside: Glyph = (g, cx, cy, r) => {
   const by = cy + r * 0.6;
   g.moveTo(cx - r * 0.7, by).lineTo(cx + r * 0.7, by).lineTo(cx + r * 0.5, by - r * 0.55).lineTo(cx - r * 0.5, by - r * 0.55).lineTo(cx - r * 0.7, by);
   g.moveTo(cx - r * 0.32, by - r * 0.55).lineTo(cx - r * 0.32, cy - r * 0.95);
@@ -84,9 +84,9 @@ const GLYPHS: Record<EquipmentId, Glyph> = {
   torpedo,
   mine,
   speedBoost,
-  cannon,
+  broadside,
   starShells,
-  decoyBuoy,
+  radarBuoy,
 };
 
 /** The empty (offer) slot's centered `+` — the same linework family. */

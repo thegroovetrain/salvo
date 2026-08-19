@@ -13,9 +13,9 @@
 // The claim is ONE-SHOT. A latch describes ONE round leaving ONE barrel, so at
 // most one reveal may wear it: the first claimant consumes it and every later
 // reveal inside the same window falls back to the generic read. Without that,
-// a single cannon click dressed EVERY own-looking reveal for the next 400ms —
+// a single broadside click dressed EVERY own-looking reveal for the next 400ms —
 // including an enemy shell that happened to materialize on our bow — as our
-// cannon shot, which is exactly the misinformation the latch exists to avoid.
+// barrage, which is exactly the misinformation the latch exists to avoid.
 
 import type { EquipmentId } from '@salvo/shared';
 import type { OwnFire } from '../render/projectiles.js';
@@ -35,7 +35,7 @@ export const OWN_FIRE_WINDOW_MS = 400;
  *  ever produce a `shell`/`torp` event. An ability (boost/decoy) and the mine
  *  (placed, never revealed as a track) can never leak through into a
  *  projectile's identity, so they are rejected at the claim. */
-const BALLISTIC: readonly EquipmentId[] = ['gun', 'cannon', 'torpedo', 'starShells'];
+const BALLISTIC: readonly EquipmentId[] = ['gun', 'broadside', 'torpedo', 'starShells'];
 
 /** Pure: is this equipment id one a `shell`/`torp` reveal could have come from? */
 export function isBallisticFire(id: EquipmentId): boolean {

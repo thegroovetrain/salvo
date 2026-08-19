@@ -12,7 +12,6 @@
 // the World owns shell storage + event emission.
 
 import {
-  BARREL_FAN_STEP_RAD,
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   angleDiff,
@@ -29,6 +28,23 @@ import { consume, tickReload } from './ammo.js';
 import { makeBallistic } from './ballistics.js';
 
 /**
+ * rad — INTERIM angular step between adjacent barrels of a multi-barrel gun
+ * click, held at the value the retired shared `BARREL_FAN_STEP_RAD` carried
+ * (3°) so this cycle's behaviour is byte-identical to what shipped.
+ *
+ * IT IS A SHIM, AND IT IS TEMPORARY. Story 7-5 wave 2 R2.16 replaces the
+ * angular fan outright: BARREL's extra shells are to fly on PARALLEL tracks
+ * `CONFIG.gun.barrelSpacingU` apart under the broadside's straddle law (shared
+ * sim/spread.ts `parallelOffsets`), which is why the shared constant was
+ * deleted. That geometry — server fire control AND the client's per-shell aim
+ * preview, which must agree exactly — is owned by a later agent in this story
+ * and is deliberately NOT built here. This constant exists only so the gun row
+ * keeps compiling and behaving unchanged in the meantime; the agent who lands
+ * R2.16 deletes it along with the fan loop below.
+ */
+const BARREL_FAN_STEP_RAD = (3 * Math.PI) / 180;
+
+/**
  * Clamp `angle` into the arc `[center - halfArc, center + halfArc]`. Returns the
  * nearest in-arc bearing (equal to `angle`, wrapped, when already inside).
  * The 360° gun no longer uses it — torpedoes clamp into their bow arc with it.
@@ -41,8 +57,8 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
 }
 
 /**
- * The clicked burst point for ANY point-burst system (gun / cannon / star
- * shells — the Story 1.7 rows reuse the gun's exact flow): along the aim
+ * The clicked burst point for ANY point-burst system (gun / broadside / star
+ * shells — those rows reuse the gun's exact flow): along the aim
  * bearing at the clicked distance (input.aimDist), clamped to the system's
  * EFFECTIVE max range `rangeU` AND to the water disk (an in-range rim shot
  * still bursts in-bounds instead of expiring at the map edge). BOTH distances
@@ -86,7 +102,7 @@ export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
  * Spawn AT the target instead, so next tick's stepShell bursts there
  * immediately (distToTarget 0). Eric ruling 2026-07-21: no dead ring, inner or
  * outer. `shellRadius` is the firing system's collision radius (shared with
- * the cannon/star-shell rows, Story 1.7).
+ * the broadside/star-shell rows).
  */
 export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shellRadius: number): Vec2 {
   return sharedMuzzleOrTarget(ship.state, ship.hullId, dir, target, shellRadius);

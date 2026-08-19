@@ -51,11 +51,9 @@ import {
   hullEnvelope,
   hullSilhouette,
   mulberry32,
-  pierceDamage,
   pointPolygonDistance,
   resolveBoons,
   resolveShipPose,
-  returnCards,
   slowedKinematics,
   stepShell,
   stepShip,
@@ -270,36 +268,6 @@ export interface LitZone {
    */
   phosphor: boolean;
   dazzle: boolean;
-}
-
-/**
- * A live decoy buoy (Story 1.8): a STATIONARY server entity dropped astern of
- * its Mine Layer owner. To any fogged non-owner it radar-paints EXACTLY like
- * the owner's own ship (the blip row's counterIntel in signals.ts — same gate,
- * same wire shape, id = the OWNER's ship id); the truth (the buoy for what it
- * is) travels as the contact-like `decoys` frame channel (DecoyView) to the
- * owner / truesighted enemies / spectators. ONE live per owner (spawnDecoy
- * silently replaces); survives its owner's death (litZone precedent) and dies
- * only by natural expiry (expireDecoys). NEVER a collision subject: shells and
- * bursts pass through it, it never trips mines, the storm ignores it.
- */
-export interface Decoy {
-  id: string;
-  ownerId: string; // the Mine Layer that dropped it — the ship id its blips impersonate
-  x: number; // u — fixed drop point (stationary forever after)
-  y: number; // u
-  /**
-   * FROZEN drop-time snapshot of the owner (Story 4.2, amendment 11): the
-   * buoy is a radar reflector reporting TRUE stationary values, so its
-   * counterIntel blips carry THIS hull id and heading with speed exactly 0 —
-   * never a live `ships.get(ownerId)` read. A live read would leak the
-   * owner's current course/speed at a false position while they are fogged,
-   * and is undefined for the up-to-30s window a buoy legitimately outlives
-   * its owner (owner death never clears it — the litZone precedent).
-   */
-  hullId: HullId;
-  heading: number; // rad — the owner's heading at drop time
-  until: number; // ms — server time the buoy expires
 }
 
 /** Everything the server tracks per ship, on top of the shared kinematic state. */
@@ -731,9 +699,6 @@ export class World {
   readonly mines = new Map<string, MineState>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
-  /** All live decoy buoys (static points), in drop order — max one per owner
-   *  (spawnDecoy evicts the owner's previous buoy) (Story 1.8). */
-  readonly decoys = new Map<string, Decoy>();
   /**
    * LIVE TORPEDO wake ribbons, keyed by shell id (Story 4.12, amendment 196):
    * a running torpedo (`ShellState.kind === 'torp'`) lays a one-cell-wide
@@ -883,14 +848,13 @@ export class World {
   private readonly dotBuckets = new Map<string, { victimId: string; amount: number; since: number }>();
   private mineSeq = 0;
   private litZoneSeq = 0;
-  private decoySeq = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
    * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
    * the zone-nonce posture: never derivable from the client-known map seed).
-   * Entries are assigned at addShip and NEVER pruned — a decoy buoy outlives
-   * its owner by up to 30s and must keep painting under the OWNER's pseudonym
-   * even after removeShip (the Story 1.8 indistinguishability law), so the map
+   * Entries are assigned at addShip and NEVER pruned — a paint may legitimately
+   * outlive the ship it belongs to (a return sitting in phosphor after a sink)
+   * and must keep resolving to the same pseudonym after removeShip, so the map
    * is append-only for the room's lifetime (bounded by joins per room).
    *
    * HONEST BOUND (do not overclaim): a stable pseudonym does NOT make tracks
@@ -1008,10 +972,9 @@ export class World {
 
   /**
    * The stable per-match track id for `shipId` (R3), rolling one on first
-   * request. Roll-on-demand (not only at addShip) covers the decoy edge: a
-   * buoy's ownerId can name a ship whose record predates this room's map (or
-   * was injected by a test) — its counterIntel paint must still emit a
-   * pseudonym, never fall open to the roster id.
+   * request. Roll-on-demand (not only at addShip) covers an ownerId that names
+   * a ship whose record predates this room's map (or was injected by a test) —
+   * its paint must still emit a pseudonym, never fall open to the roster id.
    */
   pseudonymFor(shipId: string): string {
     let track = this.trackIds.get(shipId);
@@ -1406,7 +1369,6 @@ export class World {
     this.shells.clear();
     this.mines.clear();
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
-    this.decoys.clear(); // practice-field buoys never lie into the real match (Story 1.8)
     this.pending = [];
     // The throne dies at the match boundary (Story 4.6): redeployShip below
     // zeroes every hull's `kills`, so the vacated throne cannot be re-claimed
@@ -1793,12 +1755,6 @@ export class World {
    * ammo/reload state; behavior effects execute per-tick in stepShips via the
    * cached boonBehaviors). NO event is queued (spendPoint owns the spend UX).
    *
-   * DOCTRINE SWAP (amendments 38/44): when the def names an exclusiveWith
-   * rival CURRENTLY held, ONE occurrence of the rival id leaves `boons` before
-   * the new id lands (stat stacks apply under either doctrine — only the
-   * doctrine card itself swaps). The removed id is RETURNED to the caller so
-   * spendPoint can put the rival's card back in the deck (ping-pong legal).
-   *
    * HEAL-ON-GRANT (amendment 38, shipHull — the ONLY heal path): a
    * healOnGrant def heals exactly the maxHp DELTA this fit produced (clamped
    * to the new cap, never negative; only a LIVING hull heals — a corpse gets
@@ -1814,16 +1770,21 @@ export class World {
    * ratio, preserving the progress fraction — never a free round
    * (rescaleReloadTimers).
    *
+   * EXCLUSIVITY IS DELETED (Story 7-5 wave 2, R2.6): the cannon's AP/PLUNGING
+   * pair was the last user of `exclusiveWith`, and it died with the weapon. No
+   * grant removes anything any more — every doctrine is an independent verb
+   * that stacks — so applyBoon returns nothing and the deck has no give-back
+   * path (`returnCards` left the shared barrel with the mechanism).
+   *
    * Fail-closed: an id the world's catalog cannot resolve appends (the wire
    * mirrors it; clients drop it at resolve) but applies nothing. Public so
    * directed tests (and the spend path) can drive it.
    */
-  applyBoon(ship: ShipRecord, boonId: string): string | null {
+  applyBoon(ship: ShipRecord, boonId: string): void {
     // Own-property gate (fail-closed): a plain-object catalog answers
     // `this.boonCatalog['constructor']` with Object.prototype.constructor —
     // not undefined, and with no `effects` to iterate.
     const def = Object.hasOwn(this.boonCatalog, boonId) ? this.boonCatalog[boonId] : undefined;
-    const swappedOut = World.swapOutRival(ship, def);
     ship.boons.push(boonId);
     ship.boonDefs = resolveBoons(ship.boons, this.boonCatalog);
     ship.boonBehaviors = ship.boonDefs.length === 0 ? NO_BEHAVIORS : boonBehaviors(ship.boonDefs);
@@ -1843,18 +1804,6 @@ export class World {
     // A speed card raises the true attainable top speed the wake ring was
     // provisioned for (Story 4.12) — upsize in place, live samples preserved.
     this.reprovisionWake(ship);
-    return swappedOut;
-  }
-
-  /** The doctrine-swap half of applyBoon (amendments 38/44): when `def` names
-   *  an exclusiveWith rival CURRENTLY held, remove ONE occurrence of the rival
-   *  id and report it (the caller returns its card to the deck). */
-  private static swapOutRival(ship: ShipRecord, def: BoonDef | undefined): string | null {
-    if (def?.exclusiveWith === undefined) return null;
-    const at = ship.boons.indexOf(def.exclusiveWith);
-    if (at < 0) return null;
-    ship.boons.splice(at, 1); // ONE occurrence — the rival's single card
-    return def.exclusiveWith;
   }
 
   /**
@@ -2014,9 +1963,9 @@ export class World {
   }
 
   /** The spend's application half: take the CHOSEN card out of the deck, fit
-   *  the pick (returning a swapped-out doctrine rival to the deck), queue the
-   *  self-private `bn`, and run the acquisition bookkeeping when the pick
-   *  filled the R slot. Split from spendPoint (complexity budget). */
+   *  the pick, queue the self-private `bn`, and run the acquisition
+   *  bookkeeping when the pick filled the R slot. Split from spendPoint
+   *  (complexity budget). */
   private settleSpend(ship: ShipRecord, front: BoonOffer, choice: number): void {
     const boon = front[choice];
     // THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
@@ -2024,10 +1973,7 @@ export class World {
     // so the deck thins over a match by exactly the cards FITTED, and a
     // passed-on line is at full copies for the very next draw.
     ship.deck = consumeCard(ship.deck, boon);
-    const swappedOut = this.applyBoon(ship, boon);
-    // Doctrine swap (amendment 44): the swapped-out rival's card returns to
-    // the deck — doctrine can ping-pong across a match.
-    if (swappedOut !== null) ship.deck = returnCards(ship.deck, [swappedOut]);
+    this.applyBoon(ship, boon);
     this.pending.push({ k: 'bn', id: ship.id, boon });
     // Acquisition pick (amendment 38): the R slot is PERMANENT — the acquired
     // subdeck shuffles in and every remaining acquisition card purges. The
@@ -2127,10 +2073,6 @@ export class World {
     // ctx.hulls() materializes the tick's ONE snapshot here, on first access
     // (see stepContext()), and the two mine rows below reuse it as-is.
     { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hulls()) },
-    // Self-propelled mines creep BEFORE the trigger scan (Story 2.8) — a
-    // deliberate step-order position: a mine that crawls into trigger range
-    // this tick trips this tick, against the same post-move hulls.
-    { name: 'creepMines', run: (w, ctx) => w.creepMines(ctx.dt, ctx.hulls()) },
     { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hulls()) },
     // Star-shell doctrine zone effects (Story 2.8): incendiary DoT + dazzle
     // marking, against post-move centers, BEFORE the expiry sweep so a zone
@@ -2162,11 +2104,6 @@ export class World {
     // stepShells (resolveBurst on a star shell) and deliberately survive their
     // owner's death — expiry is the only way out.
     { name: 'expireLitZones', run: (w) => w.expireLitZones() },
-    // Decoy buoys (Story 1.8): the same natural-expiry law, swept beside the
-    // zones. Buoys are SPAWNED by the decoy ability row (activationControl) and
-    // survive their owner's death — expiry (or owner replacement) is the only
-    // way out.
-    { name: 'expireDecoys', run: (w) => w.expireDecoys() },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
@@ -2247,7 +2184,7 @@ export class World {
    * — which the pinned order guarantees is stepShells, the exact position the
    * old inline `const hulls = this.aliveHulls()` statement occupied. It is
    * DELIBERATELY STALE from then on: a hull sunk by stepShells remains in the
-   * array for creepMines/stepMines, each of which re-checks liveness per
+   * array for stepMines, which re-checks liveness per
    * victim — the damage semantics live in those re-checks, NOT in the
    * snapshot (amendment 5). It is not a STEP_ORDER row because a row would
    * advertise an insertable slot right after it, and anything inserted there
@@ -2799,133 +2736,12 @@ export class World {
       // never paints; only its water does (amendment 196).
       if (shell.kind === 'torp') this.sampleTorpWake(shell);
       if (outcome.kind === 'travel') continue;
-      // An AP shell that pierced but is NOT spent keeps flying (Story 2.8):
-      // its hits resolve now, the projectile stays in flight for next tick.
-      if (outcome.kind === 'pierced' && !outcome.spent) {
-        this.resolveShell(shell, outcome, targets);
-        continue;
-      }
       this.shells.delete(id);
       this.forgetBallistic(id);
       // The spent fish's water outlives it (amendment 200) — detach, never drop.
       this.orphanTorpWake(id);
       this.resolveShell(shell, outcome, targets);
     }
-  }
-
-  /**
-   * SELF-PROPELLED MINES (Story 2.8 doctrine): every ARMED mine whose owner
-   * currently holds the selfPropelled doctrine creeps at CONFIG.mine.creepSpeed
-   * toward the nearest NON-OWNER alive hull whose SILHOUETTE is within
-   * creepAcquireRange. Owner lookup at step time (a vacated/doctrine-less
-   * owner's mines sit still — the CONFIG-base fallback rule). A creeping mine
-   * never leaves the water disk and never enters an island circle (stopped at
-   * the rim — mines float). Position changes flow to clients automatically:
-   * MineViews are re-materialized per tick.
-   *
-   * THE METRIC IS THE SILHOUETTE (Eric ruling 2026-08-02, the tracking fix):
-   * acquisition measures mine→hull POLYGON exactly like the trip does
-   * (pointPolygonDistance, against THIS tick's post-move hulls). The original
-   * center-distance ring could not work at any radius the doctrine could
-   * afford: hulls are 85–124u long, so a ship's silhouette reaches the 32u+
-   * trip ring while its CENTER is still 74–94u out — every approach tripped the
-   * mine before the old 60u center ring ever acquired it, and a trigger boon
-   * widened the pre-empting ring further. Same metric on both rings is the only
-   * shape in which "acquire, then close, then trip" can be true.
-   */
-  private creepMines(dt: number, hulls: readonly HullTarget[]): void {
-    for (const mine of this.mines.values()) {
-      if (this.now < mine.armedAt) continue; // unarmed mines never move
-      const owner = this.ships.get(mine.ownerId);
-      if (owner === undefined || !owner.stats.mine.selfPropelled) continue;
-      const target = this.nearestEnemyHull(mine, mine.ownerId, hulls, CONFIG.mine.creepAcquireRange);
-      if (target === null) continue;
-      const d = Math.hypot(target.x - mine.x, target.y - mine.y);
-      if (d <= 0) continue;
-      const step = Math.min(CONFIG.mine.creepSpeed * dt, d);
-      const p = this.clampMinePoint(
-        { x: mine.x + ((target.x - mine.x) / d) * step, y: mine.y + ((target.y - mine.y) / d) * step },
-        mine,
-      );
-      mine.x = p.x;
-      mine.y = p.y;
-    }
-  }
-
-  /**
-   * The nearest ALIVE non-`ownerId` hull whose SILHOUETTE lies within `range`
-   * of `p` — the trigger's own metric (pointPolygonDistance, 0 inside,
-   * concave-safe) against this tick's post-move hull polygons. Returns that
-   * ship's CENTER, which is what the mine steers for: the closest silhouette
-   * POINT slides along the hull as the target turns, so homing on it would make
-   * a crawling mine chase a moving tangent; the center is the stable heading
-   * and lies inside the hull either way. Null when nothing is in reach.
-   *
-   * Deterministic: strict `<` keeps the earliest hull-list entry on ties, and
-   * `hulls` is built in ships-map order (aliveHulls), so the choice is the same
-   * ordering guarantee the old center-metric scan gave.
-   */
-  private nearestEnemyHull(
-    p: Vec2,
-    ownerId: string,
-    hulls: readonly HullTarget[],
-    range: number,
-  ): Vec2 | null {
-    let best: Vec2 | null = null;
-    let bestD = Infinity;
-    for (const hull of hulls) {
-      if (hull.id === ownerId) continue; // a mine never hunts its own owner
-      const ship = this.ships.get(hull.id);
-      if (ship === undefined) continue; // defensive: hulls come from alive ships
-      const d = pointPolygonDistance(p, hull.poly);
-      if (d > range || d >= bestD) continue;
-      bestD = d;
-      best = ship.state;
-    }
-    return best;
-  }
-
-  /**
-   * Clamp a creeping mine's candidate point: never outside the water disk
-   * (scaled back to the rim) and never ashore (projected to the NEAREST point
-   * on that island's coastline; a degenerate projection keeps `prev`).
-   *
-   * REJECT-ON-FAILURE (Story 2.8 review, P10): the clamp is a SINGLE pass, so
-   * in a pinch (two islands, or an island hard against the rim) a push-out can
-   * land inside the NEXT island or back outside the disk. Rather than iterate
-   * to a fixed point that may not exist, the step is REJECTED — the mine holds
-   * its previous position this tick. Creep is a slow crawl; a held tick is
-   * invisible, an illegal rest position is not.
-   */
-  private clampMinePoint(p: Vec2, prev: Vec2): Vec2 {
-    let x = p.x;
-    let y = p.y;
-    const r = Math.hypot(x, y);
-    if (r > this.map.radius) {
-      x = (x / r) * this.map.radius;
-      y = (y / r) * this.map.radius;
-    }
-    for (const isle of this.map.islands) {
-      if (!pointInIsland({ x, y }, isle)) continue;
-      const coast = nearestCoastPoint({ x, y }, isle);
-      if (coast.dist <= 0) return { x: prev.x, y: prev.y }; // degenerate: hold position
-      x = coast.x;
-      y = coast.y;
-    }
-    return this.minePointLegal(x, y) ? { x, y } : { x: prev.x, y: prev.y };
-  }
-
-  /** Is a mine point legal to REST at: inside the water disk and off every
-   *  island's land? A hair of float tolerance so a point the clamp above placed
-   *  exactly ON the rim / the coastline reads as legal (islandDistance is
-   *  signed — negative ashore — and broadphase-gated). */
-  private minePointLegal(x: number, y: number): boolean {
-    const EPS = 1e-6;
-    if (Math.hypot(x, y) > this.map.radius + EPS) return false;
-    for (const isle of this.map.islands) {
-      if (islandDistance({ x, y }, isle) < -EPS) return false;
-    }
-    return true;
   }
 
   /**
@@ -3115,21 +2931,19 @@ export class World {
    * FALL OF SHOT (Story 4.3, amendment 16): one self-private `sp` to the
    * shooter at the true termination point of a shell that resolved NO victim.
    * GUN-FAMILY ONLY — the wire-kind predicate (`kind === 'shell'`) selects
-   * gun + cannon + star shells and excludes 'torp' exactly: a torpedo that
+   * gun + broadside + star shells and excludes 'torp' exactly: a torpedo that
    * misses or expires produces NOTHING (the quiet weapon), and mines never
-   * route here at all. The pierce guard keeps "exactly one of hc/sp per
-   * shell": an AP shell that pierced earlier in its life already sent its
-   * Hit Call, so its eventual island/edge/range stop is not also a splash.
+   * route here at all. ONE PER SHELL, and every shell of a broadside barrage
+   * is its own shell (R2.5) — a barrage that misses with three of five splashes
+   * three times, which is the fall-of-shot readout bracket-and-walk needs.
    */
   private emitSplash(shell: ShellState, x: number, y: number): void {
     if (shell.kind !== 'shell') return; // gun family only (amendment 16)
-    if (shell.pierce !== undefined && shell.pierce.hitIds.length > 0) return; // hc already sent
     this.pending.push({ k: 'sp', id: shell.ownerId, x, y });
   }
 
   /** Turn a spent ballistic's outcome into its events, per the projectile's
    *  OWN hit rule (Story 1.4 seam): `burst` detonates at the target point;
-   *  `pierced` applies the AP falloff per hull in hit order (Story 2.8);
    *  `hitShip` is an early interception OUTSIDE the blast — the interceptor
    *  takes the smaller contactDamage (torpedoes set contactDamage = damage, so
    *  their behavior is unchanged; a damageless star shell deals 0 and still
@@ -3141,15 +2955,10 @@ export class World {
       this.resolveBurst(shell, outcome, hulls);
       return;
     }
-    if (outcome.kind === 'pierced') {
-      this.resolvePierce(shell, outcome.hits, outcome.spent);
-      return;
-    }
     if (outcome.kind !== 'hitShip') {
       this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
       // hitIsland / expired: a MISS — fall of shot to the shooter (Story 4.3;
-      // gun family only, and never after an earlier pierce Hit Call — the
-      // guards live in emitSplash).
+      // gun family only — the guard lives in emitSplash).
       this.emitSplash(shell, outcome.x, outcome.y);
       return;
     }
@@ -3170,46 +2979,6 @@ export class World {
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
     // not a single click (the same-click salvo ledger is deleted).
     this.hitShip(victim, shell.contactDamage, shell.ownerId, false);
-  }
-
-  /**
-   * ARMOR-PIERCING resolution (Story 2.8): each pierced hull, in hit order,
-   * takes pierceDamage(shell.damage, order) — the 100/50/25% falloff by GLOBAL
-   * hit index across the shell's life — through the hitShip choke, with one
-   * boom per pierce point (hit = the pierced hull, victim-stripping stays with
-   * the boom row). No burst ever; the shell's island/edge stop needs no extra
-   * splash boom (the per-hit booms carry the projectile id).
-   *
-   * BOOM IDS (Story 2.8 review, P2): the client removes a dead-reckoned track
-   * when a boom carrying ITS id arrives, so a NON-TERMINAL pierce (the shell
-   * flew on through) must not reuse the live projectile id — the still-flying
-   * shell would vanish for every observer. A non-terminal hit's boom carries a
-   * DERIVED id (`<shellId>#p<order>`, unique per hit and unknown to every
-   * client track, which makes it a pure impact spark); the TERMINAL hit (the
-   * one that ends the flight — `spent`) keeps the REAL id so the track is
-   * removed exactly once. Nothing else correlates boom ids: signals.ts's boom
-   * row keys only on position/`hit`, and seenBallistics/torpDirs are keyed by
-   * the real projectile id alone (forgetBallistic).
-   */
-  private resolvePierce(
-    shell: ShellState,
-    hits: readonly { victimId: string; x: number; y: number; order: number }[],
-    spent: boolean,
-  ): void {
-    // EXACTLY ONE Hit Call per SHELL LIFE (Story 4.3): only the FIRST pierce
-    // ever recorded (global hit order 0) carries it, at that first pierce
-    // point. A per-pierce (or per-tick) Hit Call would leak the hull count —
-    // severity information the `hc` wire shape deliberately cannot carry. The
-    // terminal splash for an AP shell that pierced is likewise suppressed
-    // (emitSplash's pierce guard): one of hc/sp per shell, never both.
-    if (hits.length > 0 && hits[0].order === 0) this.emitHitCall(shell.ownerId, hits[0].x, hits[0].y);
-    for (const [i, h] of hits.entries()) {
-      const terminal = spent && i === hits.length - 1;
-      const id = terminal ? shell.id : `${shell.id}#p${h.order}`;
-      this.pending.push({ k: 'boom', id, hit: h.victimId, x: h.x, y: h.y });
-      const victim = this.ships.get(h.victimId);
-      if (victim && isAfloat(victim.lifecycle)) this.hitShip(victim, pierceDamage(shell.damage, h.order), shell.ownerId, false);
-    }
   }
 
   /**
@@ -3427,39 +3196,6 @@ export class World {
     for (const [id, zone] of this.litZones) {
       if (this.now >= zone.until) this.litZones.delete(id);
     }
-  }
-
-  /** Drop every decoy buoy whose lifetime has elapsed (Story 1.8 — the litZone
-   *  expiry law: no per-ship state, owner death never clears it; the only other
-   *  way out is owner replacement in spawnDecoy). */
-  private expireDecoys(): void {
-    for (const [id, decoy] of this.decoys) {
-      if (this.now >= decoy.until) this.decoys.delete(id);
-    }
-  }
-
-  /**
-   * Store a newly-dropped decoy buoy (Story 1.8). ONE live per owner: placing
-   * a second SILENTLY deletes the first (no boom, no event — the mines
-   * oldest-eviction precedent). Lifetime comes from the owner's effective
-   * stats (a pure CONFIG.decoyBuoy pass-through today).
-   */
-  private spawnDecoy(owner: ShipRecord, x: number, y: number): void {
-    for (const [id, decoy] of this.decoys) {
-      if (decoy.ownerId === owner.id) this.decoys.delete(id);
-    }
-    const id = this.nextDecoyId();
-    // hullId/heading frozen HERE, at drop time (Story 4.2, amendment 11) — the
-    // buoy's blips report this snapshot forever, live owner state never read.
-    this.decoys.set(id, {
-      id,
-      ownerId: owner.id,
-      x,
-      y,
-      hullId: owner.hullId,
-      heading: owner.state.heading,
-      until: this.now + owner.stats.decoyBuoy.durationMs,
-    });
   }
 
   /**
@@ -3691,9 +3427,8 @@ export class World {
       mapRadius: this.map.radius,
       islands: this.map.islands,
       mkId: () => this.nextBallisticId(),
-      spawnBallistic: (shell) => this.spawnBallistic(shell),
+      spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
-      dropDecoy: (x, y) => this.spawnDecoy(ship, x, y),
     };
   }
 
@@ -3708,14 +3443,14 @@ export class World {
    * revealed further along its flight — exactly AR3's "materializes slightly
    * ahead of the muzzle".
    */
-  private spawnBallistic(shell: ShellState): void {
+  private spawnBallistic(shell: ShellState, perShellFlash = false): void {
     // MUZZLE FLASH (Story 4.3) — emitted BEFORE the D1 pre-step below runs,
     // while (shell.x, shell.y) is still the TRUE MUZZLE (the pre-pre-step
     // origin). This is the Epic 1 D1 latency mask: the flash marks the hull
     // the shell left, while the back-dated shell materializes further along
     // its flight. NEVER compute a flash from a reveal point — that is the
     // exact anti-cheat leak the Story 1.5 review closed.
-    this.emitMuzzleFlash(shell);
+    this.emitMuzzleFlash(shell, perShellFlash);
     this.shells.set(shell.id, shell);
     this.pending.push(this.ballisticEvent(shell));
     if (shell.bornAt < this.now) this.preStepShell(shell);
@@ -3724,14 +3459,14 @@ export class World {
   /**
    * One `mz` per owner per tick for GUN-FAMILY spawns only (Story 4.3,
    * amendments 19/20): the wire-kind predicate `kind === 'shell'` selects gun
-   * + cannon + star shells and excludes 'torp' exactly — torpedoes are the
+   * + broadside + star shells and excludes 'torp' exactly — torpedoes are the
    * ratified quiet weapon, and no per-weapon flash table exists for a weapon
-   * identity to leak through. Mines and decoys never call spawnBallistic at
-   * all. The event carries position ONLY — no shooter id for anyone, including
-   * the shooter (amendment 19).
+   * identity to leak through. Mines never call spawnBallistic at all. The
+   * event carries position ONLY — no shooter id for anyone, including the
+   * shooter (amendment 19).
    *
    * THE DEDUPE IS PER TICK PER OWNER, NOT PER SALVO — say it precisely, because
-   * the two differ. Its headline job is collapsing a multi-barrel salvo's N
+   * the two differ. Its headline job is collapsing a multi-barrel gun salvo's N
    * shells into ONE flash (per-shell flashes would leak the barrel count, a
    * build tell the wire deliberately does not carry). But it ALSO collapses two
    * SEPARATE gun-family launches by the same ship in one 50ms tick — a gun
@@ -3740,11 +3475,22 @@ export class World {
    * hull at the same tick, so the second flash would draw on top of the first,
    * and emitting two would tell an observer the ship fired twice, which is a
    * weapon-activity tell amendment 19 keeps off this row.
+   *
+   * `perShellFlash` IS THE ONE DECLARED OPT-OUT, and it is the BROADSIDE
+   * BARRAGE's (Story 7-5 wave 2, R2.5 — Eric A2): every shell of a barrage
+   * emits its OWN mz, so a 5-turret broadside lights five muzzles along the
+   * engaged beam rather than one. That deliberately discloses the turret count
+   * to anyone inside the flash halo, which is the ruling: the barrage IS the
+   * spectacle, and the row still carries no shooter id, no hue and no weapon
+   * type. A per-shell spawn neither reads nor writes the per-owner set, so a
+   * gun click in the same tick still gets its own single flash.
    */
-  private emitMuzzleFlash(shell: ShellState): void {
+  private emitMuzzleFlash(shell: ShellState, perShellFlash: boolean): void {
     if (shell.kind !== 'shell') return; // gun family only — the wire kind IS the predicate
-    if (this.mzOwnersThisTick.has(shell.ownerId)) return; // per tick per owner (see above)
-    this.mzOwnersThisTick.add(shell.ownerId);
+    if (!perShellFlash) {
+      if (this.mzOwnersThisTick.has(shell.ownerId)) return; // per tick per owner (see above)
+      this.mzOwnersThisTick.add(shell.ownerId);
+    }
     this.pending.push({ k: 'mz', x: shell.x, y: shell.y });
   }
 
@@ -3779,31 +3525,8 @@ export class World {
         dt: dtMs / 1000,
         mapRadius: this.map.radius,
       });
-      if (outcome.kind === 'pierced') {
-        this.rollBackPierce(shell, outcome.hits);
-        return;
-      }
       if (outcome.kind !== 'travel') return; // terminal: defer to next tick's sweep
     }
-  }
-
-  /**
-   * A back-dated AP shell pierced during its pre-step (Story 2.8): pre-stepping
-   * NEVER resolves damage (the fireControl no-damage invariant above), but
-   * stepPierce already recorded the hit ids — which would silently immunize
-   * those hulls when the next tick's sweep re-steps. UNDO the pierce: pop this
-   * call's hits off the shell's pierce bookkeeping and park the shell AT the
-   * FIRST pierce point, so next tick's sweep re-pierces there against
-   * then-live hulls and resolves normally (the same one-tick-deferred
-   * semantics as every other pre-step terminal). The shell forfeits at most
-   * one tick's already-decremented distLeft — range only ever shortens.
-   */
-  private rollBackPierce(shell: ShellState, hits: readonly { x: number; y: number }[]): void {
-    const pierce = shell.pierce!;
-    pierce.hitIds.length -= hits.length; // this call's ids are the trailing entries
-    pierce.remaining += hits.length;
-    shell.x = hits[0].x;
-    shell.y = hits[0].y;
   }
 
   /** Store a newly-dropped mine at an already-validated point. Per-player cap =
@@ -3831,11 +3554,6 @@ export class World {
   private nextLitZoneId(): string {
     this.litZoneSeq += 1;
     return `z${this.litZoneSeq}`;
-  }
-
-  private nextDecoyId(): string {
-    this.decoySeq += 1;
-    return `d${this.decoySeq}`;
   }
 
   /**

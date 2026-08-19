@@ -147,3 +147,32 @@ CHECKOUT's build — run `npm run build -w shared` after any shared change; and
 `server/tsconfig.tsbuildinfo` caches a stale pass — `rm -f` it before type-checking.
 Do NOT run root `npm run check` while a parallel agent is live. Complexity ≤ 10. NEVER commit.
 NEVER `git stash`. Report files touched, test counts, deviations with reasons.
+
+## R2.17 — CARD FACE IS MINIMAL; THE EXPLANATION MOVES TO A HOVER TOOLTIP
+**Eric ruling 2026-08-19.** *"I want the card itself to be pretty minimal in the upgrade tab, just
+the name and stat change as before (previous -> new) if applicable. But hovering one with the mouse
+should give a tooltip explaining the card, so that there are no questions like 'what the fuck does
+a captive mine do?'"*
+
+**The card face carries EXACTLY:** the ladder name at its stack position, the lineage marker where
+one applies, the rarity tag, and — only where the line moves a number — the `current → next`
+sentence computed through the existing `effectiveStats` preview diff. **Nothing else.** A verb card
+(PHOSPHOR SHELLS, DAZZLE SHELLS, PROP FOULING, CAPTIVE MINES, GUN BUOY, JAMMING BUOY) moves no
+number, so its face is name + tag only.
+
+**The hover tooltip carries the EXPLANATION** — what the card actually does, in plain terms. Every
+line gets one, stat lines included (a `current → next` number does not tell a new player what
+`cooldownScale` or a trip ring IS). Reuse the EXISTING tooltip machinery (`tooltipFit.test.ts`, the
+hotbar's accrued-boon tooltip) rather than inventing a second one; keyboard selection must reach it
+too, since the refit window is driven by CTRL+1/2/3 and a mouse-only affordance would strand that path.
+
+**CONSEQUENCE — epic-4 amendment 47's container-fit law is RELAXED for this text, and that is the
+point.** That ~90-character / ~5-wrapped-line budget exists because Story 2.8's doctrine text
+OVERFLOWED THE CARD BOX by 50–97px on the live site. Once the explanation is no longer inside that
+box, the budget no longer governs it: the tooltip may be as long as it needs to actually answer
+Eric's question. The pin must be RE-AIMED at whatever now sits on the card face (the stat sentence),
+not deleted — the face still has to fit.
+
+**DOCTRINE_TEXT becomes tooltip copy** rather than card copy. Wave-1's compressed doctrine wordings
+were squeezed to fit the old budget; they may now be rewritten to be genuinely explanatory. Eric's
+verbatim card NAMES are unchanged and remain canon.
