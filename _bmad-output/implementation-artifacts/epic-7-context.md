@@ -63,12 +63,16 @@ Epic 7 (GDD E7) takes the game to a public, **self-published** beta: measured pe
 The durable record lives in `epic-7-context-amendments.md` and WINS over anything in this
 regenerable file on any conflict. Read it before acting on this document.
 
-- **1** — the reference device is stamped: MacBook Pro 16,1 / i7-9750H / 32 GB / Radeon Pro 5300M + UHD 630, switchable. Any NFR1 run that does not name the adapter is not a verdict.
-- **2** — the perf build (`vite build --mode perf`) is how NFR1 became measurable; the shipped bundle stays clean and NFR17 is intact. There is NO client perf overlay.
-- **3** — `powerPreference` was unset and worth ~40 FPS on switchable graphics; fixed to `high-performance`.
-- **4** — NFR1 PASSES on the discrete GPU with 10.9-13.8 ms headroom, reveal included. The integrated-only case (~12-15 FPS) is OPEN and needs Eric.
-- **5** — the risk was FILL RATE, not entity growth; population does not move the frame, pixels do. This reframes three retrospectives.
+- **1** — the reference device is stamped and READ OFF THE MACHINE at run time: MacBook Pro 16,1 / i7-9750H / 32 GB / Radeon Pro 5300M + UHD 630, switchable, dpr 2. Any NFR1 run that does not name the adapter is not a verdict.
+- **2** — the perf build (`vite build --mode perf`) is how NFR1 became measurable; the shipped bundle stays clean and NFR17 is intact. It is NOT "one define different" — it also carries the instrument's own chunk. There is NO client perf overlay.
+- **3** — `powerPreference` was unset and worth ~4x the frame time on switchable graphics; fixed to `high-performance`. A probe context created with the DEFAULT preference can report a different adapter than the game's own on the same page.
+- **4** — NFR1 PASSES in live play (frame 5.7-6.4 ms, headroom 10.2-10.9 ms, zero dropped frames) and the OMNISCIENT REVEAL BREACHES the render leg at 11.7 ms vs 10 ms. The integrated-only case (~12-15 FPS) is OPEN and needs Eric.
+- **5** — the risk was FILL RATE, not entity growth; population does not move the frame, pixels do. This reframes three retrospectives, and it means pooling/batching cannot fix the integrated case.
 - **6** — the cadence trust flag must key off the interval FLOOR, never the median; keying on the median failed OPEN and hid a real 30 FPS behind a refusal.
-- **7** — NFR2 passes at ~2.3 s of a ~10 s budget; ~7.7 s of headroom remains for ad/analytics/consent. The font fix claims no measured improvement.
-- **8** — Story 4.8's readability gate is untouched; NFR1 is a second scene profile, with two disclosed modelling choices.
+- **7** — NFR2 passes at ~3.1 s of a ~10 s budget; ~7 s of headroom remains for ad/analytics/consent. The font fix claims no measured improvement.
+- **8** — Story 4.8's readability gate is untouched; NFR1 is a second scene profile, with disclosed modelling choices.
 - **9** — `npm run check` is 5127 tests (746/1505/2876). The "4309" and "7980" figures are both wrong.
+- **10** — THE FRAME DOES NOT END WHERE OUR CODE ENDS: Pixi's renderer is a later ticker callback, so the harness must bracket HIGH..UTILITY. NFR1's render leg is `renderTotal`, never `render`. A trustworthy cadence VETOES the budget arithmetic.
+- **11** — the staged reveal must `resetUserZoom()` first, exactly as the live path does, or it measures a framing no player sees (this alone moved the reveal 5.6 -> 11.7 ms).
+- **12** — evidence hygiene: output names derive from the configuration, the basis records every knob, and the capture reads the staged profile BACK from the harness before trusting it.
+- **13** — "60 FPS sustains" is a dropped-frame test, not a p95 threshold.

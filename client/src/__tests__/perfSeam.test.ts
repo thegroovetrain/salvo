@@ -227,16 +227,36 @@ describe('PRESENT CADENCE — a frame rate that declares when it is a lie', () =
 });
 
 describe('FrameStats carries NO `fps` field, and must never grow one', () => {
-  it('has exactly the four cost keys', () => {
+  it('pins the exact cost-key set, in both directions', () => {
     // The prohibition is the 2026-08-11 ruling (see the struct's own comment):
-    // `FrameStats` measures WORK inside our callbacks, and a frame rate cannot
-    // be derived from it. Cadence lives in `PresentStats`, which carries its own
-    // validity flag. A TYPE-LEVEL pin, because the struct has no runtime value
-    // to inspect — this stops compiling the moment an `fps` key is added.
+    // `FrameStats` measures WORK, and a frame rate cannot be derived from it.
+    // Cadence lives in `PresentStats`, which carries its own validity flag.
+    // TYPE-LEVEL pins, because the struct has no runtime value to inspect —
+    // these stop COMPILING when the shape drifts.
     const noFps: 'fps' extends keyof FrameStats ? never : true = true;
     expect(noFps).toBe(true);
-    const keys: Array<keyof FrameStats> = ['frames', 'total', 'sim', 'render'];
-    expect(keys).toHaveLength(4);
+
+    // AND THE SET IS PINNED EXHAUSTIVELY, BOTH WAYS. The first draft asserted
+    // `expect(['frames','total','sim','render']).toHaveLength(4)` on a
+    // hand-written literal — an assertion that can never fail, under a title
+    // claiming to pin the shape. A fifth key named anything other than `fps`
+    // sailed straight past it.
+    type Expected = 'frames' | 'total' | 'sim' | 'render' | 'draw' | 'renderTotal';
+    const missing: Exclude<Expected, keyof FrameStats> extends never ? true : never = true;
+    const extra: Exclude<keyof FrameStats, Expected> extends never ? true : never = true;
+    expect([missing, extra]).toEqual([true, true]);
+  });
+
+  it('keeps `render` and `draw` distinct, because conflating them hid the frame', () => {
+    // `render` is the scene-graph update; `draw` is Pixi's own pass, which runs
+    // in a LATER ticker callback (app/loop.ts:14-16) and was outside the timer
+    // entirely until Story 7.1's review. Adjudicating NFR1's render leg on
+    // `render` alone passed a machine measured at 15 FPS, so `renderTotal`
+    // exists to be the leg and the two halves stay separately visible.
+    type R = FrameStats['render'];
+    type D = FrameStats['draw'];
+    const sameShape: R extends D ? (D extends R ? true : never) : never = true;
+    expect(sameShape).toBe(true);
   });
 });
 

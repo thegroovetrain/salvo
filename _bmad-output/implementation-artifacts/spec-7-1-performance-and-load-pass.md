@@ -2,10 +2,11 @@
 title: 'Story 7-1: Performance & Load Pass'
 type: 'chore'
 created: '2026-08-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'e850507585856ad8e5ac8c5a4b567ed38649bd98'
 review_loop_iteration: 0
-followup_review_recommended: false
+final_revision: 'PENDING'
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
 warnings: ['oversized']
@@ -98,6 +99,38 @@ warnings: ['oversized']
 
 ## Review Triage Log
 
+### 2026-08-18 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 19: (high 4, medium 7, low 8)
+- defer: 3: (high 1, medium 1, low 1)
+- reject: 4
+- addressed_findings:
+  - `[high]` `[patch]` THE FRAME WAS TIMED HALF-WAY. `app/loop.ts:14-16` records that our ticker listener runs at `UPDATE_PRIORITY.NORMAL` while Pixi's renderer sits at LOW, so `driveFrame` measured the scene-graph update and excluded every draw call, filter, mask and full-screen composite. The draft's own output proved it: a three-leg PASS (render 6.9 ms, headroom 9.5 ms) on a run whose cadence field read 66.9 ms and 156 dropped frames. Harness now brackets HIGH..UTILITY; `FrameSample` gains `draw`, `FrameStats` gains `renderTotal`; NFR1's render leg is the sum, and a trustworthy cadence can veto the arithmetic. Every published figure re-taken.
+  - `[high]` `[patch]` THE REVEAL WAS MEASURED AT THE WRONG FRAMING. The live path calls `resetUserZoom()` before `beginReveal()`; `applyReveal` did not, and the reveal runs last — so it was measured 1.5x tighter than any player sees, and was order-dependent. Fixed; `composedZoom` now recorded beside `userZoom`; `setZoom` leaves the reveal first. Cost 5.6 -> 11.7 ms, which surfaced a real breach that had been hidden.
+  - `[high]` `[patch]` `REFERENCE_DEVICE` was a hardcoded literal under a docstring claiming it was measured — the first run by anyone else would have stamped this machine's identity onto their record. Now read from `os`/`sysctl` at run time, with `isRatifiedReferenceDevice` distinguishing a run elsewhere.
+  - `[high]` `[patch]` Fixed output filenames meant any variant run overwrote the ratified record (the cycle had resorted to hand-renaming and a "this is a copy of that" note). Output names now derive from the configuration.
+  - `[medium]` `[patch]` The record hardcoded `profile=nfr1` while reading the profile from the environment, and recorded none of the other knobs. Basis now carries every knob, and the capture reads the staged profile BACK from the harness and refuses on mismatch — without which a typo files a 20-hull run as the 68-hull verdict.
+  - `[medium]` `[patch]` A software renderer was detected, printed as "verdict invalid", and then allowed to record a PASS. It now refuses the verdict; `ok:false` (no WebGL at all) no longer slips past the software regex.
+  - `[medium]` `[patch]` "60 FPS sustains" was a bare `p95 <= 18.0`, which failed runs that dropped ZERO frames. Replaced with the harness's own dropped-frame definition (median at the period + <=0.5% dropped), in `CADENCE` beside `BUDGET`.
+  - `[medium]` `[patch]` `SAMPLE_CAP` 600 truncated the advertised 12 s window to ~10 s and capped `frames` at 601. Raised to 1200.
+  - `[medium]` `[patch]` `firstPaintPrecededFonts` was computed from FCP and read `false` in every run including the fonts-blocked one. Renamed `fcpPrecededLastFontResponse` and demoted to context.
+  - `[medium]` `[patch]` A refusal discarded its samples, making a refused run indistinguishable from a clean one. It now records what it observed.
+  - `[medium]` `[patch]` `client/scripts/**/*.mjs` was entirely unlinted (ESLint scoped to `**/*.ts`), which is how a duplicate `devicePixelRatio` key reached the audit record's basis block. Now linted; duplicate removed.
+  - `[medium]` `[patch]` The `fps` pin asserted `['frames','total','sim','render'].toHaveLength(4)` on a hand-written literal — an assertion that cannot fail. Replaced with an exhaustive two-way type pin.
+  - `[low]` `[patch]` Static server: path traversal via a sibling directory sharing the prefix (dist/dist-perf), a `URIError` on malformed percent-encoding that killed the capture process, and a 404 served as index.html so a broken build measured as a slow load. All three fixed.
+  - `[low]` `[patch]` `loadCapture.runProfile` had no try/finally, leaking a Chromium on any throw; `homeCadence` lacked the dist guard, the `HC_GPU=low` parity and the backgrounding flags its siblings pass — and it produced the GPU comparison, so an unfocused-window confound sat under exactly the measurement it settled.
+  - `[low]` `[patch]` `withinBudget` could read true with a null FCP; NaN `HC_DPR`/`HC_VIEWPORT` reached Playwright silently; `HC_FRAMINGS` matching nothing wrote an empty record and exited 0.
+  - `[low]` `[patch]` Dead export `sceneSlotIsDrone` (zero consumers, wrong answer for the nfr1 profile) deleted with a note; a 17-line reveal doc block orphaned onto `stageConnection` moved to `applyReveal`; the `vsyncTrusted` doc still described the median it no longer uses.
+  - `[low]` `[patch]` The "differs by one define" claim was false — the perf build also carries the instrument's own chunk. Corrected everywhere it appeared (5 sites).
+  - `[low]` `[patch]` "one chunk" in the load record was the main chunk mistaken for the build: 9 JS files, 982 kB / 309 kB gzipped.
+  - `[low]` `[patch]` `setZoom` while the reveal framing was active composed both zooms silently; it now leaves the reveal first.
+
+Deferred (see `deferred-work.md`): the reveal render-leg breach itself (needs per-subsystem timing to attribute); NFR17's dead-strip check being wired into no pipeline; fonts arriving after the bounded wait never re-rasterizing existing Pixi Text.
+
+Rejected as noise or hypothetical-only: latent guards for scene profiles that do not exist (roster < 2 captains, a bounty index landing on a fleet hull), `near(0)` semantics differing per profile, and the `.env.perf` mode-file risk (inert today, and named in the deferred notes for Story 7-2 rather than guarded speculatively).
+
 ## Design Notes
 
 **Why a perf build rather than measuring the dev build.** Eric ruled the dev build an invalid NFR1 basis, and he is right: Vite dev serves unbundled ES modules, skips minification and keeps every dev branch live. But the instrument lives behind `import.meta.env.DEV`, so "valid basis" and "has an instrument" were mutually exclusive. `--mode perf` breaks the deadlock: identical Rollup pipeline, identical minification, identical folded-away dev branches, one extra define. The shipped artifact is unchanged and provably so — `STAGE_MARKER` exists precisely so the dead-strip claim is checked rather than asserted.
@@ -116,3 +149,54 @@ warnings: ['oversized']
 - `node client/scripts/readabilityCapture.mjs --verify-bundle` -- expected: the existing Story 4.8 bundle check still passes.
 - `npm run build:perf -w client` then `node client/scripts/perfCapture.mjs` -- expected: JSON audit record under `_bmad-output/implementation-artifacts/perf-gate/` with a stated verdict per framing.
 - `node client/scripts/loadCapture.mjs` -- expected: cold-load waterfall + FCP/interactive-home timings in the same directory.
+
+## Auto Run Result
+
+Status: done
+
+**Implemented.** The NFR1 whole-frame verdict is obtained for the first time and the NFR2
+load verdict with it. Live play PASSES every leg at every zoom (frame 5.6-6.6 ms, headroom
+10.0-11.0 ms, zero dropped frames, sim at ~3% of its allowance) on the fully populated
+reference scenario; the OMNISCIENT REVEAL breaches the render leg at 11.8 ms against 10 ms,
+which is recorded as an open finding rather than closed. NFR2 reaches interactive home in
+~3.1 s of a ~10 s budget. One real shipped defect was found and fixed (`powerPreference`
+unset), and the standing premise about where the risk lay was corrected: cost is fill rate,
+not entity growth.
+
+**Files changed.** `client/vite.config.ts` + `vitest.config.ts` + `vite-env.d.ts` (the
+`__HC_PERF__` define); `client/package.json` + `.gitignore` (`build:perf`, `bench`,
+`dist-perf`); `client/src/main.ts` (stage gate widened, profile parsed);
+`client/src/stage/worstCaseScene.ts` (second scene profile, readability profile byte-identical,
+dead export removed); `client/src/stage/worstCase.ts` (whole-ticker frame bracketing, present
+cadence, entity counts, reveal framing, composed zoom); `client/src/render/stage.ts`
+(`powerPreference: 'high-performance'`, bounded font wait); `client/src/config.ts`
+(`boot.fontWaitMs`); `client/index.html` (non-blocking font stylesheet); `eslint.config.js`
+(lint the capture scripts); `client/scripts/{perfLib,perfCapture,loadCapture,homeCadence}.mjs`
+(new); `client/src/__tests__/perfSeam.test.ts` (new, 22 tests); `VERSION` + `package.json` +
+`package-lock.json` (0.17.103); `CLAUDE.md` (stale test count); both trackers; the audit
+record, amendments file and ledger.
+
+**Review findings.** 19 patched, 3 deferred, 4 rejected — see the Review Triage Log. Two were
+CRITICAL and both had flattered the result: the harness timed only half the frame (Pixi's
+renderer is a later ticker callback), and the staged reveal was measured at the wrong framing.
+Every published figure was re-taken after fixing them.
+
+**Verification.** `npm run check` exit 0 — 5 128 tests (746 shared / 1 505 server / 2 877
+client), 0 lint errors, 2 pre-existing `max-lines-per-function` warnings.
+`npm run build` green and `readabilityCapture.mjs --verify-bundle` PASSES, so the shipped
+bundle still carries no trace of the staged scene. `npm run build:perf -w client` green with
+the marker present. All measurements re-run on the reference device after the final refactor.
+
+**Residual risks.**
+1. The reveal render-leg breach is real, reproducible and UNATTRIBUTED — naming the
+   responsible system needs per-subsystem timing that exists nowhere in the client. Ledgered.
+2. Integrated-only hardware runs ~12-15 FPS. Outside NFR1 as amended, so recorded and flagged
+   for an Eric ruling rather than treated as a breach or silently accepted.
+3. The bounded font wait means a font arriving after 1500 ms never re-rasterizes Pixi Text
+   created before it. Deferred; the measured font load is well under the bound.
+4. NFR2's ad/analytics/consent cost is unmeasured because none of it exists yet; ~7 s of
+   headroom is what Stories 7.2 and 7.4 must fit inside.
+5. `--verify-bundle` is wired into no pipeline, so NFR17's dead-strip is checked only when a
+   human remembers. Ledgered for Story 7.8.
+
+`PROTOCOL_VERSION` unchanged at 40. Client-only; `shared/` and `server/` untouched.

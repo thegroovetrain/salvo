@@ -258,10 +258,13 @@ export function sceneHullFor(i: number): HullId {
   return CONTACT_HULLS[i % CONTACT_HULLS.length];
 }
 
-/** True for a scene slot that stages a PvE fleet hull rather than a captain. */
-export function sceneSlotIsDrone(i: number): boolean {
-  return i > 0 && isDroneHull(sceneHullFor(i));
-}
+// `sceneSlotIsDrone(i)` USED TO LIVE HERE AND WAS DELETED (Story 7.1 review).
+// It answered "is this slot a fleet hull" against the READABILITY hull cycle
+// only, and once profiles arrived it became a public helper that returns the
+// wrong answer for the `nfr1` profile while looking like the obvious one to
+// reach for. Its own docstring warned that these two sides "disagree at their
+// peril". Use `slotIsDrone(profile, i)` below, which cannot be asked the
+// question without naming the profile it is about.
 
 /** The same question against an arbitrary profile — the form every internal
  *  reader uses. Slot 0 is always the local captain and is never a fleet hull. */

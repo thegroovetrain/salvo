@@ -16,9 +16,16 @@ NFR1 as amended names "Eric's Intel i7 MacBook" and the ledger carried an open i
 for the exact model/year "so the bar is reproducible by someone other than Eric". Read off
 the machine rather than typed in:
 
-**MacBook Pro 16,1 (2019) · Intel Core i7-9750H @ 2.60 GHz, 6 cores / 12 threads · 32 GB ·
-AMD Radeon Pro 5300M (discrete) + Intel UHD 630 (integrated), switchable · macOS Darwin
-25.4.0 · Retina panel, client renders at `devicePixelRatio` 2.**
+**MacBook Pro 16,1 (2019) · Intel Core i7-9750H @ 2.60 GHz, 12 logical cores · 32 GB ·
+AMD Radeon Pro 5300M (discrete) + Intel UHD 630 (integrated), switchable · Darwin 25.4.0 ·
+Retina panel, client renders at `devicePixelRatio` 2 (a 3200x1800 backing store).**
+
+READ OFF THE MACHINE AT RUN TIME, not typed in — `perfLib.mjs` reads `os.cpus()`,
+`os.totalmem()` and `sysctl hw.model`. The first draft was a hardcoded literal under a
+docstring claiming it was measured, which would have stamped this machine's identity onto
+any other person's run — the exact failure the docstring said it existed to prevent. The
+record also carries `isRatifiedReferenceDevice`, so a run on other hardware is still a
+measurement but is never mistaken for THE bar.
 
 **The switchable GPU pair is part of the stamp, not a footnote** — amendment 3 is entirely
 about which half of it draws the frame. Any future NFR1 run that does not name the adapter is
@@ -39,8 +46,12 @@ and the deadlock is worth stating because anyone who removes either half re-crea
 
 So "has an instrument" and "is a valid basis" were mutually exclusive. The resolution is
 `vite build --mode perf` (`__HC_PERF__`): the identical Rollup pipeline, identical
-minification, identical folded-away dev branches, differing from the shipped artifact by one
-define, written to a separate `client/dist-perf`. **The shipped `client/dist` is unchanged and
+minification, identical folded-away dev branches, written to a separate `client/dist-perf`.
+**It is NOT "one define different" and this file will not say so** — the phrase appeared five
+times in the first draft and the bytes contradict it: the perf build carries the define AND an
+additional `worstCase` chunk that is fetched and executed on the measured page. That chunk IS
+the instrument. What legitimises the verdict is that everything else — bundling, minification,
+dead-branch folding — is the production path, not that the two builds are identical. **The shipped `client/dist` is unchanged and
 provably so** — Story 4.8's existing `--verify-bundle` greps the built assets for
 `HC_STAGED_WORSTCASE_4_8`, `__hcStage`, `worstcase` and `worstCase`, and still passes.
 
@@ -63,12 +74,15 @@ the adapter differing:
 
 | adapter | frame interval p50 | implied |
 |---|---|---|
-| Intel UHD 630 (integrated) | **50.8 ms** | ~20 FPS |
+| Intel UHD 630 (integrated) | **64.9 ms** | ~15 FPS |
 | AMD Radeon Pro 5300M (discrete) | **16.7 ms** | ~60 FPS |
 
-Fixed by setting `powerPreference: 'high-performance'`, verified end to end: after the change,
-with **no** GPU flag forced, the shipped build's home screen went 50.8 ms → 16.7 ms p50
-(max 17.7 ms).
+Fixed by setting `powerPreference: 'high-performance'`, verified end to end: with **no** GPU
+flag forced the shipped build now lands on the discrete adapter and holds 16.7 ms p50 /
+18.5 ms p95, and every NFR1 figure in amendment 4 was taken unforced. (The pre-fix
+observation was 50.8 ms; the 64.9 ms above is the post-fix controlled re-measurement forcing
+the integrated adapter, which is the honest comparison now that the default no longer lands
+there.)
 
 **It is a hint, not a guarantee, and nothing may depend on it** — a machine with no discrete
 GPU keeps the one it has, which is exactly the case amendment 4 is about. The cost is battery
@@ -83,35 +97,45 @@ reason.
 
 ---
 
-## Amendment 4 — NFR1 PASSES on the discrete GPU; the integrated case is OPEN (Eric question)
+## Amendment 4 — NFR1 PASSES in live play; the omniscient reveal BREACHES the render leg
 
-**The verdict, taken on the perf build, headful, at dpr 2, in the fully populated reference
-scenario (20 contestants + the 48-hull peak PvE fleet + in-flight ordnance + all shipped
-effects = 68 hulls), against 16.6 ms = sim ≤ 3 + render ≤ 10 + headroom ≥ 3.6:**
+**The verdict, taken on the perf build, headful, dpr 2, GPU unforced, in the fully populated
+reference scenario (20 contestants + the 48-hull peak PvE fleet + ordnance + all shipped
+effects = 68 hulls), against 16.6 ms = sim <= 3 + render <= 10 + headroom >= 3.6:**
 
-| framing | sim p95 | render p95 | headroom | long frames | verdict |
-|---|---|---|---|---|---|
-| alive 0.5× | 0.1 ms | 3.8 ms | 12.7 ms | 0 | 60 FPS sustains |
-| alive 1.0× | 0.1 ms | 3.0 ms | 13.5 ms | 2 | 60 FPS sustains |
-| alive 1.5× | 0.1 ms | 2.7 ms | 13.8 ms | 0 | 60 FPS sustains |
-| omniscient reveal | 0.1 ms | 5.6 ms | 10.9 ms | 0 | 60 FPS sustains |
+| framing | frame p95 | sim | render (scene-graph + draw) | headroom | dropped | verdict |
+|---|---|---|---|---|---|---|
+| alive 0.5x | 6.6 ms | 0.1 ms | **6.5** (3.9 + 2.8) | 10.0 ms | 0 / 720 | PASS |
+| alive 1.0x | 5.7 ms | 0.1 ms | **5.7** (2.9 + 3.0) | 10.9 ms | 0 / 720 | PASS |
+| alive 1.5x | 5.6 ms | 0.1 ms | **5.6** (2.9 + 3.1) | 11.0 ms | 0 / 720 | PASS |
+| omniscient reveal | 11.8 ms | 0.1 ms | **11.8** (9.1 + 2.9) | 4.8 ms | 0 / 720 | **FAIL — render** |
 
-Every leg passes in every framing. **The omniscient reveal — the ledger's "largest
-unquantified risk in the project" — costs 5.6 ms and holds a locked 60 FPS.** Simulation
-runs at ~3 % of its 3 ms allowance.
+**Live play passes every leg at every zoom**, with a measured 60 FPS and ZERO dropped frames.
+Simulation runs at ~3% of its allowance, so the sim half of the budget is not a live concern.
 
-**OPEN, NEEDS ERIC — the integrated-hardware case.** Forced onto the UHD 630 the same build in
-the same scenario does not hold 60 FPS: p50 66.8–83.6 ms (~12–15 FPS), and the reveal breaches
-render (14.3 ms) and headroom (2.1 ms). This is neither a regression nor a failure of
-amendment 3's fix — it is the honest answer for a player whose machine has **no discrete GPU
-to ask for**, and a large share of laptops are exactly that. NFR1 as amended pins the bar to
-the reference MacBook and explicitly retires the low-end device, so this is **outside the
-ratified bar** and is recorded rather than treated as a breach. The beta-scope question Eric
-owns: does integrated-only hardware need a supported path (a resolution cap, a reduced-effects
-mode) or is it out of scope for beta? Evidence:
-`perf-gate/nfr1-frame-budget-integrated-stress.json`.
+**THE REVEAL BREACHES THE RENDER LEG — 11.8 ms against 10 ms.** Two qualifications, neither
+of which excuses it: the FRAME still holds (11.8 ms inside 16.6, headroom 4.8 ms, zero
+dropped frames — what is breached is the ratified ALLOCATION, not 60 FPS); and it is the
+FRAMING, not the roster — re-run at the same framing with the 20-hull readability population
+it still costs 11.0 ms against 11.8, so whole-disc drawing is the cost and the number is nearly
+independent of how many ships are afloat.
 
----
+**NO ATTRIBUTION IS CLAIMED.** The cost is CPU-side scene-graph (9.1 of the 11.8 ms) and the
+map layer is already cached — `MapChart.update` re-strokes only on a meaningful zoom change,
+so it is NOT a per-frame terrain redraw. Naming the responsible system needs per-subsystem
+timing, which exists nowhere in the client. Ledgered rather than guessed, and the guess most
+likely to be wrong is the tempting one (wakes), which the 20-hull control already argues
+against.
+
+**OPEN, NEEDS ERIC — the integrated-hardware case.** Forced onto the UHD 630 the same build
+fails everywhere: alive framings 16-20 ms/frame at cadence p50 66.9-83.4 ms (~12-15 FPS), the
+reveal at 29.4 ms with headroom -12.8 ms. This is neither a regression nor a failure of
+amendment 3's fix — it is what a player gets whose machine has NO discrete GPU to ask for,
+and a large share of laptops are exactly that. NFR1 as amended pins the bar to the reference
+MacBook and explicitly retired the low-end device, so this sits OUTSIDE the ratified bar. The
+beta-scope question Eric owns: does integrated-only hardware get a supported path (a
+resolution cap, a reduced-effects mode, a stated hardware floor) or is it out of scope?
+Evidence: `perf-gate/nfr1-frame-budget-gpu-low.json`.
 
 ## Amendment 5 — The risk was FILL RATE, not entity growth (MEASURED, reframes three retros)
 
@@ -158,22 +182,24 @@ level so it stops compiling if anyone adds one.
 
 ---
 
-## Amendment 7 — NFR2 passes at a quarter of budget; the font fix claims no improvement (MEASURED)
+## Amendment 7 — NFR2 passes at about a third of budget; the font fix claims no improvement (MEASURED)
 
 Against the **shipped** `client/dist`, cold cache every run, interactive defined as
-`#main-menu button` present: **2 310 ms** to interactive home on a throttled residential
-profile (24 Mbps / 30 ms RTT) against the ~10 s budget, FCP 948 ms. Bundle 959.1 kB on disk,
-**301.8 kB gzipped**, one main chunk.
+`#main-menu button` present: **3 076 ms** to interactive home on a throttled residential
+profile (24 Mbps / 30 ms RTT) against the ~10 s budget, FCP 1 264 ms. Bundle **982 kB on disk,
+309 kB gzipped**, across 9 JS files — a 737 kB main chunk plus eight Pixi sub-chunks. (An
+earlier draft called it "one chunk"; that was the main chunk mistaken for the whole build.)
 
 **"Fonts do not block first paint" is demonstrated by experiment, not inferred from
 timings**: a profile that *blocks* `fonts.googleapis.com` and `fonts.gstatic.com` outright
-reaches first paint at 824 ms and interactive home at 2 306 ms — unchanged. Supported by two
+reaches first paint at 836 ms and interactive home at 2 688 ms — unchanged, indeed slightly
+faster than the unblocked run. Supported by two
 changes: the font stylesheet loads via `rel="preload" … onload="this.rel='stylesheet'"`, and
 `createStage()` races the font wait against `CLIENT_CONFIG.boot.fontWaitMs` (1500 ms) so
 `app.init()` cannot be held hostage by a third-party CDN.
 
-**Recorded honestly: that fix did not move the measured number** (2 359 ms before, 2 310 ms
-after — inside the ±~350 ms run-to-run variance observed). The font CDN was never the
+**Recorded honestly: that fix did not move the measured number.** Run-to-run variance on the
+same build spans 2.3-3.1 s, which is larger than any change it made. The font CDN was never the
 bottleneck at this connection speed. The change is still correct, and it is what makes the
 blocked profile pass, but **no improvement is claimed from it.**
 
@@ -212,3 +238,109 @@ Two figures in circulation are wrong and should not be propagated: **CLAUDE.md's
 stale** (corrected in this cycle), and the **"7 980" reported mid-cycle by an implementation
 subagent is simply incorrect** — it was never true of any workspace split. Verified by
 stripping ANSI from the run log rather than by reading a summary line.
+
+---
+
+## Amendment 10 — THE FRAME DOES NOT END WHERE OUR CODE ENDS (review catch, cycle 103)
+
+The first draft of this cycle's instrument timed the wrong thing, and it is the single most
+important trap in this whole area.
+
+`app/loop.ts:14-16` has recorded since cycle 91 that the client's ticker listener runs at the
+default `UPDATE_PRIORITY.NORMAL` **while Pixi's own renderer sits at LOW** — a separate
+callback, afterwards. So timing our own callbacks measures the SCENE-GRAPH UPDATE and excludes
+every batch, draw call, filter, mask and full-screen composite: most of the frame, and exactly
+the fill-rate work amendment 5 concludes dominates.
+
+**The evidence of the flaw was sitting in the draft's own output.** An integrated-GPU run
+reported a three-leg **PASS** — render 6.9 ms, headroom 9.5 ms — on a machine whose measured
+cadence in the same record was 66.9 ms per frame with 156 dropped frames. A budget that passes
+at 15 FPS is not measuring the frame.
+
+Fixed structurally: the harness brackets the WHOLE ticker with two callbacks, opening at
+`HIGH` and closing at `UTILITY` (below `LOW`), so `total` includes Pixi's draw pass.
+`FrameSample` gains `draw`, `FrameStats` gains `renderTotal = render + draw` **summed per
+frame and then reduced** — never by adding two percentiles, since `p95(a) + p95(b)` is not
+`p95(a+b)` unless the peaks coincide, and here they do not.
+
+**Two rules that follow, and that a future edit must not quietly undo:**
+1. **NFR1's render leg is `renderTotal`, never `render`.** The split is kept visible because
+   it is diagnostic (the reveal's breach is 9.0 ms scene-graph against 2.9 ms draw), but the
+   leg is the sum.
+2. **A trustworthy cadence VETOES the budget arithmetic.** Where a real display is observed it
+   is ground truth and the budget legs are the explanation; a refused cadence cannot veto,
+   because absence of evidence is not evidence.
+
+Neither `render` nor `draw` is GPU execution time — no browser API exposes that. The cadence
+is what observes the GPU.
+
+---
+
+## Amendment 11 — The staged reveal must reset the user zoom, or it measures a view nobody sees
+
+The live reveal path (`main.ts`) calls `camera.resetUserZoom()` immediately before
+`beginReveal()`, and its own comment calls the ordering deliberate. The staged path did not.
+
+Because the capture runs framings in order with the reveal **last**, the alive 1.5× user zoom
+was still composed into `baseZoom × zoomFactor × userZoom` — so the reveal was measured
+**1.5× tighter than any player can see**, with the map disc running off all four edges when
+the entire point of the framing is that the ocean fits WITH margin. Optimistic in exactly the
+direction that mattered, and **order-dependent**: measured alone it framed differently than
+measured fourth, inside a script whose own comment lectures the reader that measurement order
+is a confound.
+
+Cost of the correction: the reveal went **5.6 ms → 11.8 ms**, which is how amendment 4's
+breach surfaced at all. The record now carries `composedZoom` (0.1531) beside `userZoom` so
+the framing is visible rather than inferred, and `setZoom()` leaves the reveal framing first
+so the two zooms can never compound.
+
+**The general rule:** a staged scene that reproduces a live camera mode must reproduce its
+whole entry sequence, not the one call that names the mode.
+
+---
+
+## Amendment 12 — Evidence hygiene: a record must describe itself (review catch)
+
+Three defects in the first draft's audit record, all the same shape — the evidence did not
+carry enough about itself to stay true:
+
+- **Fixed output filenames.** Every run wrote `nfr1-frame-budget.json` and fixed-name PNGs, so
+  a subset run, a stress run or a different dpr silently replaced the gate evidence with
+  something not comparable to it. The cycle ended up hand-renaming files and writing "this one
+  is a copy of that one" into the README — a claim that rots on the next run. Output names now
+  derive from the configuration, so a run can only overwrite a run of the SAME configuration.
+- **A hardcoded basis.** The record stated `profile=nfr1` as a literal while reading the
+  profile from the environment, and recorded none of `HC_GPU` / `HC_DPR` / `HC_FRAMINGS`. The
+  basis block now carries every knob, and the capture **reads the staged profile back from the
+  harness** and refuses to continue if it differs from the one requested — an unknown
+  `profile=` value falls back to the readability population by design, and without the
+  read-back a typo would file a 20-hull run as the ratified 68-hull verdict.
+- **A field that was wrong in every row.** `firstPaintPrecededFonts` was computed from FCP, not
+  first paint, and read `false` in all six runs *including the one that aborts every font
+  request* — inside a record whose thesis is "demonstrated, not argued". Renamed to
+  `fcpPrecededLastFontResponse` and demoted to context; the decisive evidence is the
+  fonts-blocked profile landing inside budget.
+
+Also: a refusal now records what it observed (a refused run was previously indistinguishable
+from a clean one), a software renderer refuses the verdict instead of passing it, and
+`client/scripts/**/*.mjs` is now linted — 400+ lines of script that decides what the perf
+evidence says had landed with no static analysis, and shipped a duplicate object key in the
+basis block that nothing could have caught.
+
+---
+
+## Amendment 13 — "60 FPS sustains" is a dropped-frame test, not a p95 threshold
+
+The first cadence criterion was a bare `p95 <= 18.0 ms` sitting outside the budget constants.
+It failed runs that dropped **zero** frames, because ordinary vsync jitter puts p95 at
+18.3-18.6 ms on a perfectly healthy 60 Hz present — so the instrument reported "60 FPS DOES
+NOT SUSTAIN" for a display that never missed once.
+
+The criterion now reuses the definition the harness already had: `LONG_PRESENT_MS` (25 ms, one
+and a half 60 Hz periods) IS a dropped frame. **60 FPS sustains when the median sits at the
+refresh period (<= 18 ms) and dropped frames are <= 0.5% of presents.** Jitter around the
+period is not a miss. Both figures live in `CADENCE` beside `BUDGET` rather than inline.
+
+Related, same cycle: `SAMPLE_CAP` rose 600 → 1200 because a 12 s dwell at 60 Hz presents ~720
+frames — the ring silently reported the last ~10 s while the record claimed a 12 s window, and
+`frames` could never exceed 601.

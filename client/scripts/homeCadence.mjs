@@ -22,19 +22,27 @@
 // the audit record as if they were the gate.
 
 import { join } from 'node:path';
-import { REPO, serveDir, loadPlaywright, series, round } from './perfLib.mjs';
+import { existsSync } from 'node:fs';
+import { REPO, serveDir, loadPlaywright, series, round, envInt } from './perfLib.mjs';
 
 const DIST = join(REPO, 'client', 'dist');
-const DPR = Number(process.env.HC_DPR ?? 2);
-const VIEWPORT = process.env.HC_VIEWPORT
-  ? { width: Number(process.env.HC_VIEWPORT.split('x')[0]), height: Number(process.env.HC_VIEWPORT.split('x')[1]) }
-  : { width: 1600, height: 900 };
+const DPR = envInt('HC_DPR', 2);
+const VIEWPORT = (() => {
+  const [w, h] = (process.env.HC_VIEWPORT ?? '').split('x').map(Number);
+  if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) return { width: w, height: h };
+  if (process.env.HC_VIEWPORT) console.warn(`HC_VIEWPORT="${process.env.HC_VIEWPORT}" is not WxH — using 1600x900`);
+  return { width: 1600, height: 900 };
+})();
 const SAMPLE_MS = 8000;
 
 async function main() {
   const pw = await loadPlaywright();
   if (!pw) {
     console.error('playwright-core not found.');
+    return 2;
+  }
+  if (!existsSync(DIST)) {
+    console.error(`No production build at ${DIST.slice(REPO.length + 1)}.\nRun:  npm run build`);
     return 2;
   }
   const { server, port } = await serveDir(DIST);
@@ -46,7 +54,20 @@ async function main() {
   // verdict that does not say which GPU drew it is not a verdict.
   const browser = await pw.mod.chromium.launch({
     headless: false,
-    args: process.env.HC_GPU === 'high' ? ['--force_high_performance_gpu'] : [],
+    args: [
+      // THE SAME FLAGS THE CAPTURE USES. This control produced the integrated-
+      // versus-discrete comparison that justified the `powerPreference` change,
+      // and an unfocused headful window is subject to Chromium's renderer
+      // backgrounding — an uncontrolled confound sitting underneath exactly the
+      // measurement it was asked to settle.
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      ...(process.env.HC_GPU === 'high'
+        ? ['--force_high_performance_gpu']
+        : process.env.HC_GPU === 'low'
+          ? ['--force_low_power_gpu']
+          : []),
+    ],
   });
   const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: DPR });
 
@@ -90,6 +111,10 @@ async function main() {
     }, SAMPLE_MS);
 
     const s = series(intervals);
+    if (!s || !(s.p50 > 0)) {
+      console.error('no usable present intervals sampled — is the window visible?');
+      return 2;
+    }
     console.log(`\nHOME SCREEN cadence — shipped build, no staged scene`);
     console.log(`  renderer : ${gpu.renderer}`);
     console.log(`  dpr      : ${gpu.dpr}  viewport ${VIEWPORT.width}x${VIEWPORT.height}  canvas ${gpu.canvas?.w}x${gpu.canvas?.h}`);

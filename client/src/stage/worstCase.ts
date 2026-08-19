@@ -24,7 +24,7 @@
 // capture script drives: set the zoom, read the frame-cost samples, know when the
 // scene has warmed up.
 
-import type { Container } from 'pixi.js';
+import { UPDATE_PRIORITY, type Container } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import { CONFIG, generateMap, type GameMap, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -63,14 +63,23 @@ import {
  */
 const WARMUP_TICKS = 120; // 6 s of scene time
 
-/** How many recent frame-cost samples the harness keeps per measurement run. */
-const SAMPLE_CAP = 600;
+/**
+ * How many recent samples each measurement ring keeps.
+ *
+ * IT MUST EXCEED THE LONGEST DWELL THE CAPTURE USES, or the record's stated
+ * window is a fiction: at 60 Hz a 12 s dwell presents ~720 frames, so a 600-cap
+ * ring silently reported the last ~10 s while `dwellMsPerFraming` claimed 12 s,
+ * and `frames` could never exceed 601. 1200 covers 20 s at 60 Hz with room to
+ * spare, at a cost of a few tens of kB.
+ */
+const SAMPLE_CAP = 1200;
 
 /** Spiral-of-death clamp, the same one app/loop.ts applies (s). */
 const MAX_FRAME_DT = 0.25;
 
 /**
- * PLAUSIBLE MEDIAN PRESENT INTERVALS for a real display (ms). Outside this band
+ * PLAUSIBLE CADENCE FLOOR for a real display (ms) — tested against the
+ * 5th-percentile interval, never the median (see `vsyncPlausible`). Outside this band
  * `PresentStats.vsyncTrusted` goes false and the cadence leg of the verdict must
  * be refused rather than reported.
  *
@@ -109,14 +118,35 @@ const REVEAL_ARRIVE_NOW = 0;
 
 const SIM_DT = CONFIG.tick.simDtMs / 1000; // s
 
-/** One frame's measured cost (ms), split the way the loop already splits work. */
+/**
+ * One frame's measured cost (ms).
+ *
+ * `total` CLOSES AFTER PIXI'S OWN RENDER PASS, and that is not a detail — it was
+ * the difference between a verdict and a number that looked like one (Story 7.1
+ * review). `app/loop.ts:14-16` records that our ticker listener runs at the
+ * default `UPDATE_PRIORITY.NORMAL` while **Pixi's renderer sits at LOW**, i.e.
+ * in a separate callback afterwards. Timing only our own callbacks therefore
+ * measured the scene-graph update and excluded every batch, draw call, filter,
+ * mask and full-screen composite — which is most of the frame, and precisely the
+ * fill-rate work this story concluded dominates.
+ *
+ * The first draft did exactly that, and the evidence of the flaw was sitting in
+ * its own output: an integrated-GPU run reported a three-leg PASS (render 6.9 ms,
+ * headroom 9.5 ms) on a machine whose measured cadence was 66.9 ms per frame and
+ * 156 long frames. A budget that passes at 15 FPS is not measuring the frame.
+ *
+ * So the harness now brackets the WHOLE ticker: a mark at `HIGH` before anything
+ * runs, and the close at `UTILITY` (which is below `LOW`) after Pixi has drawn.
+ */
 export interface FrameSample {
-  /** Total time inside the loop callbacks for this frame (sim + render). */
+  /** Whole in-ticker frame cost: sim + scene-graph update + Pixi's draw pass. */
   total: number;
   /** Time inside `simTick` this frame (0..N fixed steps). */
   sim: number;
-  /** Time inside `render`. */
+  /** Time inside the game's `render` callback — the SCENE-GRAPH UPDATE only. */
   render: number;
+  /** Time inside Pixi's own renderer callback — batching and draw submission. */
+  draw: number;
 }
 
 export interface SeriesStats {
@@ -143,9 +173,15 @@ export interface SeriesStats {
  */
 export interface FrameStats {
   frames: number;
+  /** Whole in-ticker frame — the number the 16.6 ms budget is about. */
   total: SeriesStats;
   sim: SeriesStats;
+  /** Scene-graph update only. Do NOT adjudicate NFR1's render leg on this. */
   render: SeriesStats;
+  /** Pixi's own draw pass. */
+  draw: SeriesStats;
+  /** `render + draw`, per frame — NFR1's render leg. */
+  renderTotal: SeriesStats;
 }
 
 /**
@@ -175,8 +211,11 @@ export interface PresentStats {
   /** Presents that overran `LONG_PRESENT_MS` — i.e. a dropped frame, not jitter. */
   longFrames: number;
   /**
-   * False when the median interval is implausible for a real display, which is
-   * the headless-throttle signature. See `vsyncPlausible`.
+   * False when the cadence FLOOR (5th-percentile interval) is implausible for a
+   * real display — the headless-throttle signature. Deliberately NOT the median:
+   * keying on the median conflated "no vsync source" with "a real one being
+   * missed", so a genuine 30 FPS was refused and the bad news vanished behind a
+   * flag that reads like a clean run. See `vsyncPlausible`.
    */
   vsyncTrusted: boolean;
 }
@@ -219,7 +258,18 @@ export interface StageHarness {
   /** Set the alive user-zoom factor (clamped [0.5, 1.5] by the camera) and
    *  re-bake the fog for it, exactly as the live zoom path does. */
   setZoom(z: number): void;
+  /** The alive USER zoom factor. Unchanged for Story 4.8's readability gate,
+   *  which records it beside its requested value. */
   zoom(): number;
+  /**
+   * The COMPOSED zoom actually being rendered (`baseZoom x zoomFactor x
+   * userZoom`). Under the reveal framing this differs from `zoom()` by roughly
+   * 4x, and it is the number that decides how much ocean is on screen — so it
+   * is what a frame-cost record has to carry. Added rather than folded into
+   * `zoom()` so the ratified 4.8 capture keeps reporting exactly what it always
+   * has.
+   */
+  composedZoom(): number;
   /**
    * The hot flash cluster's CURRENT screen position (px), for the degrade
    * close-up. The cluster rides a fixed offset off the own bow and the own hull
@@ -281,6 +331,10 @@ export interface StagedGameHandle {
     tickZoom(dtMs: number, motionScale: number): void;
     /** Leaves the reveal framing and returns the factor to 1. */
     resetZoomFactor(): void;
+    /** Clears the alive USER zoom. The live reveal path calls this immediately
+     *  before `beginReveal` and says the ordering is deliberate; the staged
+     *  reveal must do the same or it frames a view no player ever sees. */
+    resetUserZoom(): void;
   };
   fog: { rebake(w: number, h: number, zoom: number): void };
   /** The one-shot layer, for its budget seam (`liveShots`) — see `shots()`. */
@@ -571,6 +625,12 @@ class SampleStore {
       total: series(this.items.map((s) => s.total)),
       sim: series(this.items.map((s) => s.sim)),
       render: series(this.items.map((s) => s.render)),
+      draw: series(this.items.map((s) => s.draw)),
+      // NFR1's "render" leg is everything in the frame that is not simulation:
+      // the scene-graph update AND the draw pass. Summed PER FRAME and then
+      // reduced, never by adding two percentiles — p95(a) + p95(b) is not
+      // p95(a+b) unless the peaks coincide, and here they do not.
+      renderTotal: series(this.items.map((s) => s.render + s.draw)),
     };
   }
 }
@@ -580,9 +640,9 @@ class SampleStore {
  * only so the sim and render halves can be timed separately. The cadence, the dt
  * clamp and the interpolation alpha are identical to the shipped loop.
  */
-function driveFrame(cb: LoopCallbacks, acc: number, frameDt: number, store: SampleStore): number {
+function driveFrame(cb: LoopCallbacks, acc: number, frameDt: number, open: OpenFrame): number {
   let rest = acc + Math.min(frameDt, MAX_FRAME_DT);
-  const t0 = performance.now();
+  open.startedAt = performance.now();
   let sim = 0;
   while (rest >= SIM_DT) {
     const s0 = performance.now();
@@ -592,9 +652,25 @@ function driveFrame(cb: LoopCallbacks, acc: number, frameDt: number, store: Samp
   }
   const r0 = performance.now();
   cb.render(rest / SIM_DT, frameDt);
-  const r1 = performance.now();
-  store.push({ total: r1 - t0, sim, render: r1 - r0 });
+  open.sim = sim;
+  open.render = performance.now() - r0;
+  open.live = true;
   return rest;
+}
+
+/**
+ * The frame currently in flight, handed between the two ticker callbacks.
+ *
+ * IT EXISTS BECAUSE THE FRAME DOES NOT END WHERE OUR CODE ENDS. The sim and
+ * scene-graph halves are timed at `UPDATE_PRIORITY.HIGH`; Pixi draws at `LOW`
+ * afterwards; the sample is only complete once a `UTILITY` callback closes it.
+ * See `FrameSample`.
+ */
+interface OpenFrame {
+  live: boolean;
+  startedAt: number;
+  sim: number;
+  render: number;
 }
 
 /** Resolve once `done()` reports true, polled once per presented frame. */
@@ -631,23 +707,6 @@ function sceneCounts(stage: Stage, world: SceneWorld, game: StagedGameHandle): S
 }
 
 /**
- * Enter or leave the OMNISCIENT REVEAL framing (Story 5.3) — the whole-ocean
- * pull-back, and the frame budget's known-worst never-measured case: at ~0.275x
- * every island coastline and every contour band on the disc is on screen at once.
- *
- * Driven through the camera's OWN reveal path rather than a second zoom rule
- * invented here. `beginReveal` derives the factor from the camera's live
- * radarRange and the map radius (epic-5 amendment 25 exempts the mode from the
- * 0.5x spectate clamp, which is what lets it reach that framing at all), and
- * `tickZoom` at motion scale 0 is the shipped `motion: off` branch — so the
- * framing ARRIVES on this call. That is deliberate for measurement: a window
- * opened while the zoom was still travelling would average frames drawn at
- * several different terrain loads, which is the one thing this leg exists to
- * measure. Amendment 26's law still holds, because motion scales the DURATION
- * and never the destination — this lands exactly where a `motion: full` player
- * eventually arrives.
- */
-/**
  * The staged `Connection` — a stub room plus a synthesized welcome, in the exact
  * shape `buildGame` reads. Split out of `runWorstCaseScene` so the boot sequence
  * there stays one readable list of steps.
@@ -669,13 +728,80 @@ function stageConnection(
   return { conn, sink, state };
 }
 
+/**
+ * Enter or leave the OMNISCIENT REVEAL framing (Story 5.3) — the whole-ocean
+ * pull-back, and the frame budget's known-worst never-measured case: at ~0.275x
+ * every island coastline and every contour band on the disc is on screen at once.
+ *
+ * Driven through the camera's OWN reveal path rather than a second zoom rule
+ * invented here. `beginReveal` derives the factor from the camera's live
+ * radarRange and the map radius (epic-5 amendment 25 exempts the mode from the
+ * 0.5x spectate clamp, which is what lets it reach that framing at all), and
+ * `tickZoom` at motion scale 0 is the shipped `motion: off` branch — so the
+ * framing ARRIVES on this call. That is deliberate for measurement: a window
+ * opened while the zoom was still travelling would average frames drawn at
+ * several different terrain loads, which is the one thing this leg exists to
+ * measure. Amendment 26's law still holds, because motion scales the DURATION
+ * and never the destination — this lands exactly where a `motion: full` player
+ * eventually arrives.
+ */
 function applyReveal(game: StagedGameHandle, world: SceneWorld, on: boolean): void {
   if (!on) {
     game.camera.resetZoomFactor();
     return;
   }
+  // RESET THE USER ZOOM FIRST — mirroring the live path in main.ts, whose own
+  // comment calls the ordering deliberate. Omitting it was a real measurement
+  // defect caught at the Story 7.1 review gate: the capture runs framings in
+  // order with the reveal LAST, so the alive 1.5x zoom was still composed into
+  // `baseZoom x zoomFactor x userZoom` and the reveal was measured 1.5x TIGHTER
+  // than any player can see — the map disc running off all four edges, when the
+  // whole point of the framing is that the ocean fits WITH margin. That is
+  // optimistic in exactly the fill-rate direction this story concluded
+  // dominates, and it made the result order-dependent: measured alone it framed
+  // differently than measured fourth.
+  game.camera.resetUserZoom();
   game.camera.beginReveal(world.mapRadius, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
   game.camera.tickZoom(0, REVEAL_ARRIVE_NOW);
+}
+
+/**
+ * Register the measured driver as TWO ticker callbacks that BRACKET PIXI'S OWN
+ * RENDERER — see `FrameSample` for why half a frame is not a frame.
+ *
+ * Ours must open ABOVE the renderer's `LOW` priority and close BELOW it, or the
+ * draw pass — most of the frame, and all of the fill-rate cost — is never inside
+ * the timer. Split out of `runWorstCaseScene` so the bracketing has a name and
+ * the boot sequence there stays one readable list of steps.
+ */
+function bracketTicker(stage: Stage, game: StagedGameHandle, pump: ScenePump, store: SampleStore): void {
+  const open: OpenFrame = { live: false, startedAt: 0, sim: 0, render: 0 };
+  let acc = 0;
+  stage.app.ticker.add(
+    (ticker) => {
+      pump.advance(performance.now());
+      acc = driveFrame(game.callbacks, acc, ticker.deltaMS / 1000, open);
+    },
+    undefined,
+    UPDATE_PRIORITY.HIGH,
+  );
+  stage.app.ticker.add(
+    () => {
+      if (!open.live) return;
+      open.live = false;
+      const total = performance.now() - open.startedAt;
+      // Floor the residual at 0: both marks come from the same clock, but a
+      // negative draw would be arithmetic noise reported as a measurement.
+      store.push({
+        total,
+        sim: open.sim,
+        render: open.render,
+        draw: Math.max(0, total - open.sim - open.render),
+      });
+    },
+    undefined,
+    UPDATE_PRIORITY.UTILITY,
+  );
 }
 
 /**
@@ -697,11 +823,7 @@ export function runWorstCaseScene(deps: StageDeps): StageHarness {
   pump.primeFirst();
   const store = new SampleStore();
   const presents = new PresentSampler();
-  let acc = 0;
-  deps.stage.app.ticker.add((ticker) => {
-    pump.advance(performance.now());
-    acc = driveFrame(game.callbacks, acc, ticker.deltaMS / 1000, store);
-  });
+  bracketTicker(deps.stage, game, pump, store);
 
   /** Re-bake the fog composite for whatever the camera's zoom is NOW — the same
    *  thing the live zoom path does, and required after ANY zoom change, the
@@ -718,10 +840,16 @@ export function runWorstCaseScene(deps: StageDeps): StageHarness {
     warmedUp: () => pump.tick >= WARMUP_TICKS,
     tick: () => pump.tick,
     setZoom: (z) => {
+      // Leave the reveal framing first. The two zooms COMPOSE
+      // (`baseZoom x zoomFactor x userZoom`), so setting a user zoom while the
+      // reveal owns the factor silently measures a third framing that is
+      // neither — and `zoom()` would report only the user half of it.
+      applyReveal(game, world, false);
       game.camera.setUserZoom(z);
       rebakeFog();
     },
     zoom: () => game.camera.userZoom,
+    composedZoom: () => game.camera.zoom,
     clusterScreen: () => game.camera.worldToScreen(clusterCentre(world, pump.tick)),
     shots: () => game.effects.liveShots.map((s) => ({ kind: s.kind, degraded: s.degraded, alpha: s.alpha })),
     resetSamples: () => {

@@ -97,74 +97,86 @@ function bundleWeight(dir) {
 
 async function runProfile(pw, base, profile) {
   const browser = await pw.mod.chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
-  const page = await context.newPage();
+  // EVERY EXIT PATH CLOSES THE BROWSER. Without this, any throw between launch
+  // and close leaks a headless Chromium for the life of the shell and abandons
+  // the remaining profiles with no record written.
+  try {
+    const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
+    const page = await context.newPage();
 
-  if (profile.blockFonts) {
-    await context.route((url) => FONT_HOSTS.test(url.href), (route) => route.abort());
-  }
+    if (profile.blockFonts) {
+      await context.route((url) => FONT_HOSTS.test(url.href), (route) => route.abort());
+    }
 
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('Network.enable');
-  await cdp.send('Network.clearBrowserCache');
-  await cdp.send('Network.emulateNetworkConditions', profile.net);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.clearBrowserCache');
+    await cdp.send('Network.emulateNetworkConditions', profile.net);
 
-  let requestCount = 0;
-  page.on('requestfinished', () => {
-    requestCount += 1;
-  });
+    let requestCount = 0;
+    page.on('requestfinished', () => {
+      requestCount += 1;
+    });
 
-  const t0 = Date.now();
-  await page.goto(base, { waitUntil: 'commit', timeout: 120000 });
+    const t0 = Date.now();
+    await page.goto(base, { waitUntil: 'commit', timeout: 120000 });
 
-  // INTERACTIVE HOME is the honest end point, not `load`: the player can act
-  // when the home overlay exists and carries its buttons. `#main-menu` is the
-  // stable id ui/home.ts has always used.
-  await page.waitForSelector('#main-menu button', { timeout: 120000 });
-  const interactiveMs = Date.now() - t0;
+    // INTERACTIVE HOME is the honest end point, not `load`: the player can act
+    // when the home overlay exists and carries its buttons. `#main-menu` is the
+    // stable id ui/home.ts has always used.
+    await page.waitForSelector('#main-menu button', { timeout: 120000 });
+    const interactiveMs = Date.now() - t0;
 
-  const timings = await page.evaluate((hostPattern) => {
-    const re = new RegExp(hostPattern);
-    const paints = performance.getEntriesByType('paint').map((e) => ({ name: e.name, startTime: e.startTime }));
-    const nav = performance.getEntriesByType('navigation')[0] ?? null;
-    const fonts = performance
-      .getEntriesByType('resource')
-      .filter((e) => re.test(e.name))
-      .map((e) => ({ url: e.name, startMs: e.startTime, endMs: e.responseEnd, durationMs: e.duration }));
+    const timings = await page.evaluate((hostPattern) => {
+      const re = new RegExp(hostPattern);
+      const paints = performance.getEntriesByType('paint').map((e) => ({ name: e.name, startTime: e.startTime }));
+      const nav = performance.getEntriesByType('navigation')[0] ?? null;
+      const fonts = performance
+        .getEntriesByType('resource')
+        .filter((e) => re.test(e.name))
+        .map((e) => ({ url: e.name, startMs: e.startTime, endMs: e.responseEnd, durationMs: e.duration }));
+      return {
+        paints,
+        nav: nav ? { domContentLoadedMs: nav.domContentLoadedEventEnd, loadMs: nav.loadEventEnd } : null,
+        fonts,
+      };
+    }, FONT_HOSTS.source);
+
+    const shot = join(OUT_DIR, `nfr2-home-${profile.name}.png`);
+    await page.screenshot({ path: shot, type: 'png' });
+
+    const fcp = timings.paints.find((p) => p.name === 'first-contentful-paint')?.startTime ?? null;
+    const fp = timings.paints.find((p) => p.name === 'first-paint')?.startTime ?? null;
+    const lastFontEnd = timings.fonts.length ? Math.max(...timings.fonts.map((f) => f.endMs)) : null;
+
     return {
-      paints,
-      nav: nav ? { domContentLoadedMs: nav.domContentLoadedEventEnd, loadMs: nav.loadEventEnd } : null,
-      fonts,
+      profile: profile.name,
+      fontsBlocked: profile.blockFonts,
+      firstPaintMs: round(fp),
+      firstContentfulPaintMs: round(fcp),
+      interactiveHomeMs: interactiveMs,
+      // A run that never recorded a contentful paint has not demonstrated a
+      // load, however fast the selector appeared.
+      withinBudget: interactiveMs <= BUDGET_MS && fcp !== null,
+      navigation: timings.nav && {
+        domContentLoadedMs: round(timings.nav.domContentLoadedMs),
+        loadMs: round(timings.nav.loadMs),
+      },
+      fontRequests: timings.fonts.map((f) => ({ url: f.url, startMs: round(f.startMs), endMs: round(f.endMs) })),
+      lastFontEndMs: round(lastFontEnd),
+      // NAMED FOR WHAT IT ACTUALLY COMPARES. The first draft called this
+      // `firstPaintPrecededFonts` while computing it from FCP, and it read
+      // `false` in every run INCLUDING the one that aborts every font request —
+      // a field that is wrong in 100% of observed cases, shipped inside a record
+      // whose thesis is "demonstrated, not argued". The DECISIVE answer is the
+      // fonts-blocked profile landing inside budget; this is context only.
+      fcpPrecededLastFontResponse: fcp !== null && lastFontEnd !== null ? fcp < lastFontEnd : null,
+      requestCount,
+      image: `nfr2-home-${profile.name}.png`,
     };
-  }, FONT_HOSTS.source);
-
-  const shot = join(OUT_DIR, `nfr2-home-${profile.name}.png`);
-  await page.screenshot({ path: shot, type: 'png' });
-  await browser.close();
-
-  const fcp = timings.paints.find((p) => p.name === 'first-contentful-paint')?.startTime ?? null;
-  const fp = timings.paints.find((p) => p.name === 'first-paint')?.startTime ?? null;
-  const lastFontEnd = timings.fonts.length ? Math.max(...timings.fonts.map((f) => f.endMs)) : null;
-
-  return {
-    profile: profile.name,
-    fontsBlocked: profile.blockFonts,
-    firstPaintMs: round(fp),
-    firstContentfulPaintMs: round(fcp),
-    interactiveHomeMs: interactiveMs,
-    withinBudget: interactiveMs <= BUDGET_MS,
-    navigation: timings.nav && {
-      domContentLoadedMs: round(timings.nav.domContentLoadedMs),
-      loadMs: round(timings.nav.loadMs),
-    },
-    fontRequests: timings.fonts.map((f) => ({ url: f.url, startMs: round(f.startMs), endMs: round(f.endMs) })),
-    lastFontEndMs: round(lastFontEnd),
-    // Descriptive only in the unblocked runs; the DECISIVE answer is the
-    // fonts-blocked profile landing inside budget.
-    firstPaintPrecededFonts: fcp !== null && lastFontEnd !== null ? fcp < lastFontEnd : null,
-    requestCount,
-    image: `nfr2-home-${profile.name}.png`,
-  };
+  } finally {
+    await browser.close();
+  }
 }
 
 async function main() {

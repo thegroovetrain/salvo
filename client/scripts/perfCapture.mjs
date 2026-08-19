@@ -14,18 +14,23 @@
 // So "has an instrument" and "is a valid basis" were mutually exclusive. The
 // PERF BUILD breaks the deadlock — `vite build --mode perf` runs the identical
 // Rollup pipeline with identical minification and identical folded-away dev
-// branches, and differs from the shipped artifact by one define. This script
-// serves THOSE BYTES and drives them HEADFUL on the reference device, so the
-// browser presents against a real vsync source and the cadence is an
-// observation rather than an artifact.
+// branches. It is NOT byte-identical to the shipped artifact and this file will
+// not claim it is: the perf build carries one extra define AND an additional
+// `worstCase` chunk, fetched and executed on the measured page. That chunk is
+// the instrument; what matters for the verdict's legitimacy is that everything
+// ELSE — bundling, minification, dead-branch folding — is the production path,
+// not that the two builds are the same bytes. This script serves those bytes
+// and drives them HEADFUL on the reference device, so the browser presents
+// against a real vsync source and the cadence is an observation rather than an
+// artifact.
 //
-// WHAT IT REFUSES TO DO. If the rAF cadence is implausible for a real display
-// the harness reports `vsyncTrusted: false` and this script records the cadence
-// leg as REFUSED rather than printing a number. A refusal is evidence; a
-// fabricated frame rate is not. The per-callback cost figures remain valid in
-// either case — they are `performance.now()` around real work — and the frame
-// BUDGET (sim <= 3 ms, render <= 10 ms, headroom >= 3.6 ms) is a cost budget,
-// which is why a cost-only run still produces a real verdict.
+// WHAT IT REFUSES TO DO. A verdict is refused, not fudged, when the run cannot
+// support one: an implausible rAF cadence (`vsyncTrusted: false`) or a software
+// rasteriser both produce a recorded refusal rather than a number. And a
+// trustworthy cadence can VETO the budget arithmetic — a three-leg PASS
+// alongside a measured 15 FPS is not a verdict, and an earlier draft of this
+// script emitted exactly that, because it adjudicated only the callbacks it
+// timed while Pixi's own draw pass ran in a later ticker callback it did not.
 //
 //   npm run build:perf -w client
 //   node client/scripts/perfCapture.mjs              (headful — the ratified run)
@@ -36,8 +41,8 @@
 import { writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  REPO, OUT_DIR, REFERENCE_DEVICE, BUDGET,
-  serveDir, loadPlaywright, ensureOutDir, round,
+  REPO, OUT_DIR, REFERENCE_DEVICE, BUDGET, CADENCE,
+  serveDir, loadPlaywright, ensureOutDir, round, isRatifiedReference, envInt,
 } from './perfLib.mjs';
 
 const DIST = join(REPO, 'client', 'dist-perf');
@@ -54,10 +59,13 @@ const DIST = join(REPO, 'client', 'dist-perf');
  * at all. The default here is 2 for that reason; HC_DPR=1 exists only to make
  * the fill-rate hypothesis testable by halving the linear resolution.
  */
-const DPR = Number(process.env.HC_DPR ?? 2);
-const VIEWPORT = process.env.HC_VIEWPORT
-  ? { width: Number(process.env.HC_VIEWPORT.split('x')[0]), height: Number(process.env.HC_VIEWPORT.split('x')[1]) }
-  : { width: 1600, height: 900 };
+const DPR = envInt('HC_DPR', 2);
+const VIEWPORT = (() => {
+  const [w, h] = (process.env.HC_VIEWPORT ?? '').split('x').map(Number);
+  if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) return { width: w, height: h };
+  if (process.env.HC_VIEWPORT) console.warn(`HC_VIEWPORT="${process.env.HC_VIEWPORT}" is not WxH — using 1600x900`);
+  return { width: 1600, height: 900 };
+})();
 
 /** ms of settling after a framing change (the fog re-bake is debounced ~150ms). */
 const SETTLE_MS = 1500;
@@ -65,6 +73,31 @@ const SETTLE_MS = 1500;
 const DWELL_MS = 12000;
 
 const HEADLESS = process.argv.includes('--headless');
+const PROFILE = process.env.HC_PROFILE ?? 'nfr1';
+
+/**
+ * A TAG THAT MAKES OFF-CONFIG RUNS UNABLE TO OVERWRITE THE RATIFIED RECORD.
+ *
+ * The first draft always wrote `nfr1-frame-budget.json` and fixed-name PNGs, so
+ * a subset run (`HC_FRAMINGS=...`), a stress run (`HC_GPU=low`) or a different
+ * dpr silently replaced the gate evidence with something not comparable to it —
+ * and the cycle ended up hand-renaming files and writing "this one is a copy of
+ * that one" into the README, a claim that rots on the next run. The tag is
+ * derived from the configuration, so a run can only ever overwrite a run of the
+ * SAME configuration.
+ */
+const RUN_TAG = [
+  PROFILE === 'nfr1' ? null : PROFILE,
+  process.env.HC_GPU ? `gpu-${process.env.HC_GPU}` : null,
+  process.env.HC_DPR ? `dpr${process.env.HC_DPR}` : null,
+  process.env.HC_VIEWPORT ? process.env.HC_VIEWPORT : null,
+  process.env.HC_FRAMINGS ? 'subset' : null,
+  HEADLESS ? 'headless' : null,
+]
+  .filter(Boolean)
+  .join('-');
+
+const RECORD_NAME = RUN_TAG ? `nfr1-frame-budget-${RUN_TAG}` : 'nfr1-frame-budget';
 
 /**
  * The framings measured. The alive band (0.5x-1.5x) is the camera's documented
@@ -115,13 +148,15 @@ async function measure(page, f) {
     present: window.__hcStage.presentStats(),
     counts: window.__hcStage.counts(),
     zoom: window.__hcStage.zoom(),
+    composedZoom: window.__hcStage.composedZoom(),
     tick: window.__hcStage.tick(),
   }));
 
-  const shot = join(OUT_DIR, `nfr1-${f.name}.png`);
+  const shotName = `${RECORD_NAME}-${f.name}.png`;
+  const shot = join(OUT_DIR, shotName);
   await page.screenshot({ path: shot, type: 'png' });
 
-  return { framing: f.name, image: `nfr1-${f.name}.png`, ...read };
+  return { framing: f.name, image: shotName, ...read };
 }
 
 /**
@@ -129,19 +164,31 @@ async function measure(page, f) {
  * p95 rather than the mean: a 60 FPS claim that holds on average and misses one
  * frame in ten is not a 60 FPS claim.
  */
-function verdict(m) {
+function verdict(m, gpu) {
   const s = m.stats;
   if (!s) return { obtained: false, reason: 'fewer than 2 frames sampled' };
+  // A SOFTWARE RASTERISER CANNOT PRODUCE AN NFR1 VERDICT. The first draft
+  // detected the fallback, printed "verdict invalid", and then recorded a
+  // three-leg PASS anyway.
+  if (gpu && gpu.hardwareAccelerated === false) {
+    return { obtained: false, reason: `software renderer (${gpu.renderer}) — no hardware verdict is possible` };
+  }
   const sim = s.sim.p95;
-  const render = s.render.p95;
-  const headroom = BUDGET.frameMs - sim - render;
+  // NFR1's render leg is the scene-graph update PLUS Pixi's draw pass, summed
+  // per frame upstream. Adjudicating `s.render` alone measured about a tenth of
+  // the frame and passed a machine running at 15 FPS.
+  const render = s.renderTotal.p95;
+  const headroom = BUDGET.frameMs - s.total.p95;
   const cadence = m.present?.vsyncTrusted
     ? {
         obtained: true,
         p50IntervalMs: round(m.present.intervalMs.p50),
         p95IntervalMs: round(m.present.intervalMs.p95),
         longFrames: m.present.longFrames,
-        sustains60: m.present.intervalMs.p95 <= 18.0,
+        droppedRatio: round(m.present.longFrames / m.present.frames, 4),
+        sustains60:
+          m.present.intervalMs.p50 <= CADENCE.medianMaxMs &&
+          m.present.longFrames / m.present.frames <= CADENCE.droppedMaxRatio,
       }
     : {
         obtained: false,
@@ -157,17 +204,28 @@ function verdict(m) {
           longFrames: m.present.longFrames,
         },
       };
+  const pass = {
+    sim: sim <= BUDGET.simMs,
+    render: render <= BUDGET.renderMs,
+    headroom: headroom >= BUDGET.headroomMs,
+  };
+  // THE CADENCE CAN VETO. A budget arithmetic that passes while the display is
+  // measurably missing 60 FPS is not a verdict, and the first draft emitted
+  // exactly that. Where a trustworthy cadence exists it is the ground truth and
+  // the budget legs are the explanation; a refused cadence cannot veto, because
+  // absence of evidence is not evidence.
+  const sustains = cadence.obtained ? cadence.sustains60 : null;
   return {
     obtained: true,
+    frameP95Ms: round(s.total.p95),
     simP95Ms: round(sim),
     renderP95Ms: round(render),
+    sceneGraphP95Ms: round(s.render.p95),
+    drawP95Ms: round(s.draw.p95),
     headroomMs: round(headroom),
-    pass: {
-      sim: sim <= BUDGET.simMs,
-      render: render <= BUDGET.renderMs,
-      headroom: headroom >= BUDGET.headroomMs,
-    },
+    pass,
     cadence,
+    verdict: sustains === false ? 'FAIL' : pass.sim && pass.render && pass.headroom ? 'PASS' : 'FAIL',
   };
 }
 
@@ -179,6 +237,12 @@ async function main() {
   const pw = await loadPlaywright();
   if (!pw) {
     console.error('playwright-core not found. Set HC_PLAYWRIGHT=/path/to/playwright-core/index.mjs');
+    return 2;
+  }
+  if (FRAMINGS.length === 0) {
+    // A subset that matches nothing would otherwise write a record with zero
+    // framings and exit 0 — a silent no-op reported as a clean run.
+    console.error(`HC_FRAMINGS="${process.env.HC_FRAMINGS}" matched no framing. Known: ${ALL_FRAMINGS.map((f) => f.name).join(', ')}`);
     return 2;
   }
   ensureOutDir();
@@ -214,6 +278,7 @@ async function main() {
 
   const results = [];
   let gpu = null;
+  let stagedProfile = PROFILE;
   try {
     // HC_PROFILE swaps the staged population. It exists to answer one question
     // the frame-time split cannot: is the cost coming from the SCENE or from
@@ -251,8 +316,19 @@ async function main() {
     });
     const soft = /swiftshader|software|llvmpipe|angle \(google/i.test(gpu.renderer ?? '');
     console.log(`\nrenderer: ${gpu.renderer} (dpr ${gpu.devicePixelRatio})${soft ? '  <-- SOFTWARE, verdict invalid' : ''}`);
-    gpu.hardwareAccelerated = !soft;
+    // `ok:false` means no WebGL context at all — which must not slip through a
+    // regex that only matches KNOWN software renderer names.
+    gpu.hardwareAccelerated = gpu.ok === true && !soft;
     await page.waitForFunction(() => window.__hcStage?.warmedUp?.() === true, null, { timeout: 120000 });
+
+    // READ BACK WHICH PROFILE ACTUALLY STAGED. An unknown `profile=` value falls
+    // back to the readability population client-side — by design, so a typo
+    // cannot break the scene — but that same fallback would otherwise file a
+    // 20-hull readability run as the ratified 68-hull `nfr1` verdict.
+    stagedProfile = await page.evaluate(() => window.__hcStage.profile());
+    if (stagedProfile !== PROFILE) {
+      throw new Error(`requested profile "${PROFILE}" but the scene staged "${stagedProfile}"`);
+    }
     for (const f of FRAMINGS) results.push(await measure(page, f));
   } finally {
     await browser.close();
@@ -261,23 +337,34 @@ async function main() {
 
   const record = {
     story: '7.1',
-    what: 'NFR1 frame-budget verdict, staged NFR1 population on the perf build',
+    what: 'NFR1 frame-budget verdict, staged population on the perf build',
     device: REFERENCE_DEVICE,
+    isRatifiedReferenceDevice: isRatifiedReference(),
     basis: {
       build: 'client/dist-perf (vite build --mode perf) — production pipeline, production minification',
       headless: HEADLESS,
       gpu,
       viewport: VIEWPORT,
       devicePixelRatio: DPR,
-      devicePixelRatio: DPR,
       dwellMsPerFraming: DWELL_MS,
-      scene: '?stage=worstcase&profile=nfr1',
+      // EVERY KNOB THAT SHAPES THE RUN, RECORDED. The first draft hardcoded the
+      // scene string while reading the profile from the environment, so an
+      // `HC_PROFILE=readability` run wrote a record claiming it staged `nfr1` —
+      // and none of the other knobs appeared at all.
+      scene: `?stage=worstcase&profile=${stagedProfile}`,
+      profileRequested: PROFILE,
+      profileStaged: stagedProfile,
+      gpuPreference: process.env.HC_GPU ?? 'browser default',
+      framings: FRAMINGS.map((f) => f.name),
+      runTag: RUN_TAG,
     },
     budget: BUDGET,
+    cadenceCriterion: CADENCE,
     framings: results.map((m) => ({
       framing: m.framing,
       image: m.image,
-      zoom: round(m.zoom, 3),
+      userZoom: round(m.zoom, 3),
+      composedZoom: round(m.composedZoom, 4),
       sceneTick: m.tick,
       counts: m.counts,
       frameCostMs: m.stats && {
@@ -286,14 +373,14 @@ async function main() {
         sim: { p50: round(m.stats.sim.p50), p95: round(m.stats.sim.p95), max: round(m.stats.sim.max) },
         render: { p50: round(m.stats.render.p50), p95: round(m.stats.render.p95), max: round(m.stats.render.max) },
       },
-      verdict: verdict(m),
+      verdict: verdict(m, gpu),
     })),
   };
 
-  const out = join(OUT_DIR, 'nfr1-frame-budget.json');
+  const out = join(OUT_DIR, `${RECORD_NAME}.json`);
   writeFileSync(out, JSON.stringify(record, null, 2) + '\n');
 
-  console.log(`\nNFR1 frame budget — ${REFERENCE_DEVICE.model}, ${HEADLESS ? 'headless' : 'HEADFUL'}`);
+  console.log(`\nNFR1 frame budget — ${REFERENCE_DEVICE.model ?? 'unknown machine'}${isRatifiedReference() ? '' : '  <-- NOT the ratified reference device'}, ${HEADLESS ? 'headless' : 'HEADFUL'}`);
   console.log(`budget: sim <= ${BUDGET.simMs}ms, render <= ${BUDGET.renderMs}ms, headroom >= ${BUDGET.headroomMs}ms\n`);
   for (const f of record.framings) {
     const v = f.verdict;
@@ -303,9 +390,14 @@ async function main() {
     }
     const mark = (ok) => (ok ? 'ok  ' : 'FAIL');
     console.log(
-      `  ${f.framing.padEnd(20)} sim ${String(v.simP95Ms).padStart(6)}ms ${mark(v.pass.sim)}  ` +
+      `  ${f.framing.padEnd(20)} ${v.verdict.padEnd(4)}  frame ${String(v.frameP95Ms).padStart(6)}ms  ` +
+        `sim ${String(v.simP95Ms).padStart(5)}ms ${mark(v.pass.sim)}  ` +
         `render ${String(v.renderP95Ms).padStart(6)}ms ${mark(v.pass.render)}  ` +
         `headroom ${String(v.headroomMs).padStart(6)}ms ${mark(v.pass.headroom)}`,
+    );
+    console.log(
+      `  ${''.padEnd(20)} of which scene-graph ${v.sceneGraphP95Ms}ms + draw ${v.drawP95Ms}ms; ` +
+        `zoom ${f.composedZoom} (user ${f.userZoom})`,
     );
     console.log(
       `  ${''.padEnd(20)} cadence: ` +

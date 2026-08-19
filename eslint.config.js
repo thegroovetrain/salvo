@@ -14,6 +14,22 @@ export default tseslint.config(
     },
   },
   {
+    // THE MEASUREMENT SCRIPTS GET STATIC ANALYSIS TOO (Story 7.1 review).
+    // The config scoped to `**/*.ts` only, so `client/scripts/*.mjs` landed
+    // entirely unlinted — and shipped a duplicate object key in the audit
+    // record's own basis block that nothing could have caught. These files
+    // decide what the perf evidence says, so they get at least the correctness
+    // rules; `complexity` stays off here because a capture script is a linear
+    // recipe and splitting one for a metric would make it harder to read.
+    files: ['client/scripts/**/*.mjs'],
+    languageOptions: { ecmaVersion: 2023, sourceType: 'module' },
+    rules: {
+      'no-dupe-keys': 'error',
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-undef': 'off', // node globals; no env plugin is installed and none is worth adding
+    },
+  },
+  {
     // THE COMBAT-BOT PERCEPTION BOUNDARY (Story 6.4, tightened at the review
     // gate): server/src/game/ai/ may import inputs.js, participants.js,
     // signals.js (types), @salvo/shared and its own files — and may NOT
