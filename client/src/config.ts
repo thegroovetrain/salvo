@@ -529,6 +529,32 @@ export const CLIENT_CONFIG = {
   colors: COLORS,
   type: TYPE,
 
+  /** BOOT (Story 7.1) — what the client is allowed to wait for before it puts
+   *  anything on screen. */
+  boot: {
+    /**
+     * Ceiling on the webfont wait before `app.init()` runs anyway (ms).
+     *
+     * render/stage.ts preloads the ratified faces and then awaits
+     * `document.fonts.ready` so the first Pixi `Text` rasterizes in Geist Mono
+     * rather than in a system face it would have to re-lay out. That is worth a
+     * short wait and NOT worth an unbounded one: `document.fonts.ready` settles
+     * only when every pending font has resolved, so a Google Fonts CDN that is
+     * slow, throttled or blocked used to hold the whole boot — no canvas, no
+     * menu, nothing — for as long as the network took to give up. NFR2's budget
+     * is cold-load → interactive home, and a third-party host must never be
+     * able to spend it.
+     *
+     * 1500 ms is generous against a warm CDN (the sheet is preconnected and
+     * fetched non-blocking from index.html, so on any working connection the
+     * faces land far inside it) and short enough that a blocked CDN costs a
+     * pause rather than a dead page. On timeout boot simply proceeds: Pixi falls
+     * back to a system mono face, exactly as it already does when the preload
+     * throws, and the real faces swap in whenever they arrive.
+     */
+    fontWaitMs: 1500,
+  },
+
   /** Camera follow + look-ahead lead (the "does it feel like a ship" knobs). */
   camera: {
     /** Exponential follow rate (1/s). Larger = camera catches the ship faster. */

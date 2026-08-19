@@ -1,0 +1,276 @@
+{
+  "story": "7.1",
+  "what": "NFR1 frame-budget verdict, staged population on the perf build",
+  "device": {
+    "model": "MacBookPro16,1",
+    "cpu": "Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz (12 logical cores)",
+    "memoryGB": 32,
+    "platform": "darwin 25.4.0",
+    "arch": "x64"
+  },
+  "isRatifiedReferenceDevice": true,
+  "basis": {
+    "build": "client/dist-perf (vite build --mode perf) — production pipeline, production minification",
+    "headless": false,
+    "gpu": {
+      "ok": true,
+      "renderer": "ANGLE (AMD, ANGLE Metal Renderer: AMD Radeon Pro 5300M, Unspecified Version)",
+      "vendor": "Google Inc. (AMD)",
+      "devicePixelRatio": 2,
+      "hardwareAccelerated": true
+    },
+    "viewport": {
+      "width": 1600,
+      "height": 900
+    },
+    "devicePixelRatio": 2,
+    "dwellMsPerFraming": 12000,
+    "scene": "?stage=worstcase&profile=nfr1",
+    "profileRequested": "nfr1",
+    "profileStaged": "nfr1",
+    "gpuPreference": "browser default",
+    "framings": [
+      "alive-zoom-0.5x",
+      "alive-zoom-1.0x",
+      "alive-zoom-1.5x",
+      "omniscient-reveal"
+    ],
+    "runTag": ""
+  },
+  "budget": {
+    "frameMs": 16.6,
+    "simMs": 3,
+    "renderMs": 10,
+    "headroomMs": 3.6
+  },
+  "cadenceCriterion": {
+    "medianMaxMs": 18,
+    "droppedMaxRatio": 0.005
+  },
+  "framings": [
+    {
+      "framing": "alive-zoom-0.5x",
+      "image": "nfr1-frame-budget-alive-zoom-0.5x.png",
+      "userZoom": 0.5,
+      "composedZoom": 0.3409,
+      "sceneTick": 390,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 70,
+        "sprites": 619
+      },
+      "frameCostMs": {
+        "frames": 720,
+        "total": {
+          "p50": 5.2,
+          "p95": 6.6,
+          "max": 10.1
+        },
+        "sim": {
+          "p50": 0,
+          "p95": 0.1,
+          "max": 0.2
+        },
+        "render": {
+          "p50": 2.7,
+          "p95": 3.9,
+          "max": 6.2
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "frameP95Ms": 6.6,
+        "simP95Ms": 0.1,
+        "renderP95Ms": 6.5,
+        "sceneGraphP95Ms": 3.9,
+        "drawP95Ms": 2.8,
+        "headroomMs": 10,
+        "pass": {
+          "sim": true,
+          "render": true,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 16.6,
+          "p95IntervalMs": 17.3,
+          "longFrames": 0,
+          "droppedRatio": 0,
+          "sustains60": true
+        },
+        "verdict": "PASS"
+      }
+    },
+    {
+      "framing": "alive-zoom-1.0x",
+      "image": "nfr1-frame-budget-alive-zoom-1.0x.png",
+      "userZoom": 1,
+      "composedZoom": 0.6818,
+      "sceneTick": 672,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 70,
+        "sprites": 623
+      },
+      "frameCostMs": {
+        "frames": 720,
+        "total": {
+          "p50": 4.4,
+          "p95": 5.7,
+          "max": 7.2
+        },
+        "sim": {
+          "p50": 0,
+          "p95": 0.1,
+          "max": 0.2
+        },
+        "render": {
+          "p50": 1.8,
+          "p95": 2.9,
+          "max": 4.3
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "frameP95Ms": 5.7,
+        "simP95Ms": 0.1,
+        "renderP95Ms": 5.7,
+        "sceneGraphP95Ms": 2.9,
+        "drawP95Ms": 3,
+        "headroomMs": 10.9,
+        "pass": {
+          "sim": true,
+          "render": true,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 16.6,
+          "p95IntervalMs": 17.4,
+          "longFrames": 0,
+          "droppedRatio": 0,
+          "sustains60": true
+        },
+        "verdict": "PASS"
+      }
+    },
+    {
+      "framing": "alive-zoom-1.5x",
+      "image": "nfr1-frame-budget-alive-zoom-1.5x.png",
+      "userZoom": 1.5,
+      "composedZoom": 1.0227,
+      "sceneTick": 954,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 60,
+        "sprites": 631
+      },
+      "frameCostMs": {
+        "frames": 720,
+        "total": {
+          "p50": 4.3,
+          "p95": 5.6,
+          "max": 7.1
+        },
+        "sim": {
+          "p50": 0,
+          "p95": 0.1,
+          "max": 0.2
+        },
+        "render": {
+          "p50": 1.7,
+          "p95": 2.9,
+          "max": 4.1
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "frameP95Ms": 5.6,
+        "simP95Ms": 0.1,
+        "renderP95Ms": 5.6,
+        "sceneGraphP95Ms": 2.9,
+        "drawP95Ms": 3.1,
+        "headroomMs": 11,
+        "pass": {
+          "sim": true,
+          "render": true,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 16.7,
+          "p95IntervalMs": 17.5,
+          "longFrames": 0,
+          "droppedRatio": 0,
+          "sustains60": true
+        },
+        "verdict": "PASS"
+      }
+    },
+    {
+      "framing": "omniscient-reveal",
+      "image": "nfr1-frame-budget-omniscient-reveal.png",
+      "userZoom": 1,
+      "composedZoom": 0.1531,
+      "sceneTick": 1238,
+      "counts": {
+        "hulls": 68,
+        "contacts": 17,
+        "blips": 2,
+        "projectiles": 9,
+        "effects": 73,
+        "sprites": 631
+      },
+      "frameCostMs": {
+        "frames": 720,
+        "total": {
+          "p50": 10.6,
+          "p95": 11.8,
+          "max": 13.3
+        },
+        "sim": {
+          "p50": 0,
+          "p95": 0.1,
+          "max": 0.2
+        },
+        "render": {
+          "p50": 8,
+          "p95": 9.1,
+          "max": 10.5
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "frameP95Ms": 11.8,
+        "simP95Ms": 0.1,
+        "renderP95Ms": 11.8,
+        "sceneGraphP95Ms": 9.1,
+        "drawP95Ms": 2.9,
+        "headroomMs": 4.8,
+        "pass": {
+          "sim": true,
+          "render": false,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 16.7,
+          "p95IntervalMs": 17.6,
+          "longFrames": 0,
+          "droppedRatio": 0,
+          "sustains60": true
+        },
+        "verdict": "FAIL"
+      }
+    }
+  ]
+}

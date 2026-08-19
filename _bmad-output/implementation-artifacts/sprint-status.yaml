@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-18  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; interstitial cycle 100 (0.17.100) STORY 6-6 mode select & queue liveness, epic-6 amendments 33-39; interstitial cycle 101 (0.17.101) 6-6 FOLLOW-UP on Eric playtest: home-screen presence in PLAYERS ONLINE, queue becomes a MODAL, SOLO sub-line is a bare count, register moves bottom-left, epic-6 amendments 40-45 (44/45: register survives the door, ESC cancels); PV unchanged at 40; STORY 6-7 cycle 102 (0.17.102) RECONNECTION UX: refresh-resume, the departure scuttle, client-synthesized elimination, epic-6 amendments 46-49 (46: match URL withdrawn by Eric mid-gate); PV unchanged at 40. EPIC 6 CLOSED 2026-08-18 — retro epic-6-retro-2026-08-18.md; 6/7 landed, 6-2 cancelled; 1 significant-discovery alert (Epic 7 plan change) EPIC 7 RESCOPED 2026-08-18 (PR #165, ed3ba5a): portal launch -> self-published beta; 6 -> 8 stories renumbered to execution order; Chromebook retired, split/versioning last (beta cuts 0.1.0/0.1.0); NFR1/2/8/9/10 amended, NFR18/19 + FR39/40 added, AR1/AR11 superseded in part; no code, no version bump, PV unchanged at 40. Full record: planning-artifacts/sprint-change-proposal-2026-08-18.md
+# last_updated: 2026-08-18  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; interstitial cycle 100 (0.17.100) STORY 6-6 mode select & queue liveness, epic-6 amendments 33-39; interstitial cycle 101 (0.17.101) 6-6 FOLLOW-UP on Eric playtest: home-screen presence in PLAYERS ONLINE, queue becomes a MODAL, SOLO sub-line is a bare count, register moves bottom-left, epic-6 amendments 40-45 (44/45: register survives the door, ESC cancels); PV unchanged at 40; STORY 6-7 cycle 102 (0.17.102) RECONNECTION UX: refresh-resume, the departure scuttle, client-synthesized elimination, epic-6 amendments 46-49 (46: match URL withdrawn by Eric mid-gate); PV unchanged at 40. EPIC 6 CLOSED 2026-08-18 — retro epic-6-retro-2026-08-18.md; 6/7 landed, 6-2 cancelled; 1 significant-discovery alert (Epic 7 plan change) EPIC 7 RESCOPED 2026-08-18 (PR #165, ed3ba5a): portal launch -> self-published beta; 6 -> 8 stories renumbered to execution order; Chromebook retired, split/versioning last (beta cuts 0.1.0/0.1.0); NFR1/2/8/9/10 amended, NFR18/19 + FR39/40 added, AR1/AR11 superseded in part; no code, no version bump, PV unchanged at 40. Full record: planning-artifacts/sprint-change-proposal-2026-08-18.md EPIC 7 OPEN; STORY 7-1 cycle 103 (0.17.103) PERFORMANCE & LOAD PASS: first-ever NFR1 whole-frame verdict — live play PASSES at every zoom with 0 dropped frames, omniscient reveal BREACHES the render leg (11.7ms vs 10ms, open, framing-driven not roster-driven); powerPreference was unset; cost is FILL-RATE not entities; integrated-only hardware ~12-15 FPS needs an Eric ruling; NFR2 3.1s of ~10s; epic-7 amendments 1-13; PV unchanged at 40.
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -211,8 +211,8 @@ development_status:
   epic-6-retrospective: done  # 2026-08-18 epic-6-retro-2026-08-18.md; unattended run; 1 significant-discovery alert (Epic 7 plan change: loadTest.mjs absent, solo-create cost vector unruled, 7-5 list widened)
 
   # epic-7: Beta Launch Readiness (RESCOPED 2026-08-18; sprint-change-proposal-2026-08-18.md)
-  epic-7: backlog
-  7-1-performance-and-load-pass: backlog
+  epic-7: in-progress
+  7-1-performance-and-load-pass: done  # 2026-08-18 cycle 103 (0.17.103) NFR1 live play PASSES (headroom 10.2-10.9ms, 0 dropped frames); omniscient reveal BREACHES render leg 11.7ms vs 10ms (open); powerPreference fix; NFR2 3.1s of ~10s; epic-7 amendments 1-13; PV unchanged at 40
   7-2-analytics-consent-and-privacy: backlog
   7-3-how-to-play-page: backlog
   7-4-adsense-h5-games-ads: backlog
@@ -419,7 +419,7 @@ action_items:
   - epic: 6
     action: "TAKE A CHEAP NFR1 WHOLE-FRAME READ against 16.6ms rather than waiting for Story 7-1's reference device — now carrying THREE epics of unmeasured growth including 20-hull bot lobbies and the liveness poll. A rough read now is worth more than a perfect one at 7-1"
     owner: "interstitial spike"
-    status: open
+    status: done  # 2026-08-18 cycle 103: superseded by the full read. PASSES with 10.9-13.8ms headroom; the growth premise was WRONG — cost is fill-rate, not entities (epic-7 amendment 5)
   - epic: 6
     action: "ACQUIRE THE REFERENCE CHROMEBOOK — Story 7-1's AC makes it the permanent reference device, replacing the 4x-throttle proxy, and both 7-1 and 7-2 are gated on having it in hand. This is Epic 7's true critical path: hardware, not code"
     owner: "Eric"
@@ -431,7 +431,7 @@ action_items:
   - epic: 7
     action: "STAMP THE REFERENCE MACBOOK model/year into Story 7-1's spec so the NFR1 bar is reproducible by someone other than Eric"
     owner: "Eric"
-    status: open
+    status: done  # 2026-08-18 cycle 103: read off the machine rather than asked for — MacBook Pro 16,1 (2019), i7-9750H 6c/12t, 32GB, Radeon Pro 5300M + UHD 630 switchable. The GPU PAIR is part of the stamp (epic-7 amendment 1)
   - epic: 7
     action: "DELIVER THE STORY 7-5 CARD PLAN when the story is reached — four rulings already made (cannon REMOVED; Battleship gets a BROADSIDE BARRAGE; mutual exclusivity REMOVED; SOME cards retooled as 'added verbs', specifically the formerly-exclusive cards that STAY). The forge sessions are IRRELEVANT and must not be mined for direction. Full record: sprint-change-proposal-2026-08-18.md Story 7.5"
     owner: "Eric"
