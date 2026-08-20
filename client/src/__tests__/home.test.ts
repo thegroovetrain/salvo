@@ -783,13 +783,24 @@ describe('showHome — wordmark tagline (cycle 87: random pun, not a fixed line)
 
   it('wordmark is still exactly [mark, tagline, ver], style untouched', () => {
     showHome('0.0.0-test', vi.fn());
-    const [mark, tagline, ver] = wordmarkChildren();
+    const [mark, tagline] = wordmarkChildren();
     expect(wordmarkChildren().length).toBe(3);
     expect(mark.textContent).toContain('HULLCRACKER');
-    expect(ver.textContent).toContain('RT PROTOTYPE');
     expect(tagline.style.letterSpacing).toBe('0.44em');
     expect(tagline.style.marginTop).toBe('8px');
     expect(tagline.style.color).toBe('var(--hc-phosphor)');
+  });
+
+  // Cycle 118 — Eric ruled the `RT PROTOTYPE // ` prefix off the version
+  // register: "get rid of the 'RT PROTPTYPE //' on the homepage. Just leave
+  // the version." The register carries the version and nothing else. The
+  // retirement pin lives here, in the test that owns the ruling, rather than
+  // riding the structure test above (whose scope is the cycle-87 tagline).
+  it('version register is the bare version — the RT PROTOTYPE prefix is retired', () => {
+    showHome('0.0.0-test', vi.fn());
+    const [, , ver] = wordmarkChildren();
+    expect(ver.textContent).toBe('v0.0.0-test');
+    expect(home().textContent).not.toMatch(/rt\s*prototype/i);
   });
 });
 

@@ -1723,3 +1723,45 @@ look** instead, because implementing the proposal would mint a SECOND wreck look
 **Eric can reverse this**: if he wants the 45 %-personal-hue treatment, it is a change to the terminal
 value this ramp walks toward, not a rewrite, and it would need a ruling on whether a second wreck
 look is acceptable. Recorded so the choice is visibly his rather than silently the implementer's.
+
+## Amendment 30 — THE HOME VERSION REGISTER IS THE BARE VERSION (ERIC RULING, 2026-08-20, cycle 118)
+
+*"get rid of the 'RT PROTPTYPE //' on the homepage. Just leave the version."*
+
+The wordmark's third line has read `RT PROTOTYPE // v{version}` since the pre-rebrand menu (the string
+is recorded in the UX extract of 2026-07-16, when it lived in `ui/menu.ts`). It now reads `v{version}`
+and nothing else. `client/src/ui/home.ts:427` is the ONLY site that composes it.
+
+**This is a COPY ruling and nothing else moved.** The `ver` element keeps its styling byte-for-byte
+(`registerCss('hudMicro')`, `color:var(--hc-phosphor)`, `letter-spacing:0.2em`), the wordmark is still
+exactly the three children `[mark, tagline, ver]`, and the version VALUE is untouched — it still arrives
+as `showHome`'s `version` argument, sourced from `__APP_VERSION__` = the root `package.json` version
+that `client/vite.config.ts` single-sources at build time. No layout, layer, hue, or register-scale
+change; no wire field; `PROTOCOL_VERSION` unchanged at **45**. Client text only.
+
+**The retirement pin got its own test rather than riding the structure test.** The shipped pin
+(`expect(ver.textContent).toContain('RT PROTOTYPE')`) sat inside `wordmark is still exactly
+[mark, tagline, ver], style untouched`, under a describe header documenting only the cycle-87 tagline
+ruling. Bending it in place would have left this ruling's only guard inside a test whose name and
+comments name a DIFFERENT ruling — so a future re-scope of the structure test silently drops it. The
+new `version register is the bare version — the RT PROTOTYPE prefix is retired` test carries a dated
+comment naming this ruling, asserts the exact rendered string, and matches
+`/rt\s*prototype/i` negatively so a case- or spacing-variant of the retired copy cannot drift back.
+This follows the file's own established pattern, two tests above, where the `LAST HULL FLOATING WINS`
+retirement pin lives in the test that owns ITS ruling.
+
+**Deliberately NOT changed, and both are ledgered in deferred-work.md for Story 7-6** (design & doc
+reconciliation): `README.md:1` still titles the build *"Hullcracker — Real-Time Prototype"*, and the
+dated UX mockup `mockups/home-class-picker-1.html:309` still renders `RT PROTOTYPE // v0.16.0`. Eric's
+ruling was scoped to the homepage; the mockup is a dated record of what the UI looked like in July and
+is not a live contract, and rewording settled artifacts alongside a change signal is exactly what the
+minimal-design-doc-edits rule forbids. But Epic 7 was rescoped PORTAL LAUNCH -> SELF-PUBLISHED BETA, so
+whether this build still calls itself a prototype anywhere is a live release question rather than a
+tidy-up — hence the ledger entry rather than silence.
+
+**Environmental note for the next agent, not a defect:** `shared/dist/` is gitignored, and BOTH the
+server and client type-checks resolve `@salvo/shared` to it. A fresh worktree therefore fails
+`npm run check` with dozens of errors naming `broadside`, `radarBuoy` and `turretMuzzles` — Story 7-5
+and cycle-113 symbols that exist in `shared/src` but not in an unbuilt `dist`. The fix is
+`npm install && npm run build -w shared`, and it is now recorded in this cycle's spec Verification
+section so the next reproducer does not chase stale-artifact noise as if it were a regression.
