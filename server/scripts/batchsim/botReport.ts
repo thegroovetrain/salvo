@@ -21,7 +21,7 @@
 import { CONFIG, zoneClosedAtMs } from '@salvo/shared';
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import type { BatchResult, MatchSample } from './runner.js';
-import type { BotSample } from './botMetrics.js';
+import { lifeSamples, type BotSample } from './botMetrics.js';
 
 /** The spec's Verification bars, as data (one place to read them off). */
 const BARS = {
@@ -78,6 +78,21 @@ export interface BotGroup {
   damagePerShot: number;
 }
 
+/** A per-CLASS slice: a BotGroup plus the RAW life column. The documented
+ *  `--json` contract is `bots.byClass[].lifeSamples` and nothing else, so the
+ *  field lives on its own type rather than on BotGroup — `byProfile` and
+ *  `byClass` are built by the same code, so a field on the shared type is
+ *  emitted TWICE, doubling the JSON for a column only one of them contracts to
+ *  carry. JSON-ONLY either way: never rendered by `renderBotReport`/
+ *  `groupTable`, so the deterministic text body stays byte-identical. It exists
+ *  for `/balance-sim`'s attrition curve, which needs the true alive-at-T
+ *  reading rather than a quantile-pooled one. */
+export interface BotClassGroup extends BotGroup {
+  /** Raw per-bot-match `lifeS` values, sorted ascending — the EXACT sibling of
+   *  `BotGroup.lifeS` (see botMetrics.lifeSamples). */
+  lifeSamples: number[];
+}
+
 export interface BotAggregate {
   matches: number;
   botsPerMatch: number;
@@ -105,7 +120,7 @@ export interface BotAggregate {
   participantKills: number;
   pveKills: number;
   byProfile: BotGroup[];
-  byClass: BotGroup[];
+  byClass: BotClassGroup[];
   bars: BotBar[];
 }
 
@@ -163,8 +178,8 @@ function spentRate(rows: readonly BotSample[]): number {
   return ratio(earned - unspent, earned);
 }
 
-/** Slice bot-matches by a key, returning groups in sorted key order. */
-function groupBy(rows: readonly BotSample[], key: (r: BotSample) => string): BotGroup[] {
+/** Bucket bot-matches by a key, in sorted key order. */
+function bucket(rows: readonly BotSample[], key: (r: BotSample) => string): [string, BotSample[]][] {
   const buckets = new Map<string, BotSample[]>();
   for (const r of rows) {
     const k = key(r);
@@ -172,7 +187,18 @@ function groupBy(rows: readonly BotSample[], key: (r: BotSample) => string): Bot
     if (list === undefined) buckets.set(k, [r]);
     else list.push(r);
   }
-  return [...buckets.keys()].sort().map((k) => groupOf(k, buckets.get(k)!));
+  return [...buckets.keys()].sort().map((k) => [k, buckets.get(k)!]);
+}
+
+/** Slice bot-matches by a key, returning groups in sorted key order. */
+function groupBy(rows: readonly BotSample[], key: (r: BotSample) => string): BotGroup[] {
+  return bucket(rows, key).map(([k, list]) => groupOf(k, list));
+}
+
+/** The per-CLASS slice — groupBy plus the raw life column, which the `--json`
+ *  contract carries on THIS axis only (see BotClassGroup). */
+function groupByClass(rows: readonly BotSample[]): BotClassGroup[] {
+  return bucket(rows, (r) => r.cls).map(([k, list]) => ({ ...groupOf(k, list), lifeSamples: lifeSamples(list) }));
 }
 
 export function buildBotAggregate(result: BatchResult, botsPerMatch: number): BotAggregate {
@@ -215,7 +241,7 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     participantKills: rows.reduce((a, r) => a + r.kills, 0),
     pveKills: rows.reduce((a, r) => a + r.pveKills, 0),
     byProfile: groupBy(rows, (r) => r.profile),
-    byClass: groupBy(rows, (r) => r.cls),
+    byClass: groupByClass(rows),
     bars: [],
   };
   agg.bars = buildBars(agg);

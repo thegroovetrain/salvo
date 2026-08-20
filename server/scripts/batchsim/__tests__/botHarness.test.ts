@@ -16,7 +16,7 @@ import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
-import { BotCollector, hullTouchesLand, type BotSample } from '../botMetrics.js';
+import { BotCollector, hullTouchesLand, lifeSamples, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
 import { runMatch, type BatchResult, type MatchSample } from '../runner.js';
 
@@ -233,6 +233,49 @@ describe('botReport — the quality bars', () => {
     const b = renderBotReport('baseline', buildBotAggregate(r, 2));
     expect(a).toEqual(b);
     expect(a.join('\n')).toContain('QUALITY BAR');
+    // JSON-only (spec R3): lifeSamples must never surface in the rendered
+    // text body, or the determinism contract this test guards is moot.
+    expect(a.join('\n')).not.toContain('lifeSamples');
+  });
+
+  it('lifeSamples is the RAW per-bot-match lifeS column, sorted ascending, one group at a time', () => {
+    const agg = buildBotAggregate(
+      result([
+        [
+          sample({ id: 'b1', cls: 'torpedoBoat', lifeS: 42.3 }),
+          sample({ id: 'b2', cls: 'torpedoBoat', lifeS: 10.5 }),
+          sample({ id: 'b3', cls: 'battleship', lifeS: 200 }),
+        ],
+      ]),
+      3,
+    );
+    const tb = agg.byClass.find((g) => g.key === 'torpedoBoat')!;
+    const bs = agg.byClass.find((g) => g.key === 'battleship')!;
+    // Present, an array of raw numbers, length === the group's n.
+    expect(Array.isArray(tb.lifeSamples)).toBe(true);
+    expect(tb.lifeSamples).toHaveLength(tb.n);
+    expect(bs.lifeSamples).toHaveLength(bs.n);
+    // Values correspond to the input rows' lifeS exactly (not re-summarized
+    // or re-quantized), sorted ascending.
+    expect(tb.lifeSamples).toEqual([10.5, 42.3]);
+    expect(bs.lifeSamples).toEqual([200]);
+    // The existing quantile summary is untouched and lives alongside it.
+    expect(tb.lifeS.mean).toBeCloseTo((42.3 + 10.5) / 2, 6);
+    // BY CLASS ONLY. groupOf builds both slices, so populating it there emitted
+    // every value TWICE; the documented --json contract is byClass[].lifeSamples.
+    expect(agg.byProfile.length).toBeGreaterThan(0);
+    for (const g of agg.byProfile) expect(g).not.toHaveProperty('lifeSamples');
+  });
+
+  it('the lifeSamples helper (botMetrics.ts) is what reaches the report groups', () => {
+    const rows: BotSample[] = [sample({ lifeS: 5 }), sample({ id: 'b2', lifeS: 1 }), sample({ id: 'b3', lifeS: 3 })];
+    // Both sides assert a HAND-WRITTEN literal. Comparing the helper's output
+    // against another call of the same helper would pass even if groupOf were
+    // wired to something else entirely — the expectation has to be independent
+    // of the code under test to be able to fail at all.
+    expect(lifeSamples(rows)).toEqual([1, 3, 5]);
+    const agg = buildBotAggregate(result([rows.map((r) => ({ ...r, cls: 'mineLayer' }))]), 3);
+    expect(agg.byClass.find((g) => g.key === 'mineLayer')!.lifeSamples).toEqual([1, 3, 5]);
   });
 });
 
