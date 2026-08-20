@@ -114,7 +114,7 @@ hull once at the authoritative `ownWreckPose` so hull and nameplate share one da
 - [x] `client/src/__tests__/nameplates.test.ts` -- correct the stale `updateOwnPlate NOT running while spectating` comment -- it does run, for the wreck.
 - [x] `_bmad-output/implementation-artifacts/epic-7-context-amendments.md` -- add amendment 29 recording the collision, the ruling (complete to the one wreck look), and the LEDGERED unratified alternative (the mockup's 45%-opacity personal-hue proposal) as Eric's call.
 - [x] `_bmad-output/implementation-artifacts/deferred-work.md` -- annotate the open 5-2/5-3 "shipped with no visual verification" entries: this is the defect they predicted, now found by eye and fixed.
-- [x] `VERSION`, `package.json`, `package-lock.json` -- bump to 0.17.115 (lockfile was stale at 0.17.108; `npm install` synced it to match).
+- [x] `VERSION`, `package.json`, `package-lock.json` -- bump to 0.17.116 (lockfile was stale at 0.17.108; `npm install` synced it to match).
 - [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` + `_bmad-output/gds-workflow-status.yaml` -- stamp cycle 115, and BACK-FILL the missing cycles 110-114 stamps -- the standing both-trackers-same-PR rule.
 
 **Acceptance Criteria:**

@@ -236,7 +236,9 @@ development_status:
   #     shared turretMuzzles() feeds server fire path and client preview. PV 44.
   #   cycle 114 (0.17.114) PR #180 — each broadside turret gets its OWN firing
   #     arc; the designed fan is deleted and the spread EMERGES. PV 44->45.
-  #   cycle 115 (0.17.115) — the own wreck finishes going down: spectateSettle
+  #   cycle 115 (0.17.115) PR #181 — broadside convergence is rarer at level 1
+  #     (Eric playtest); the dial is the OVERLAP, not the arc. PV unchanged at 45.
+  #   cycle 116 (0.17.116) — the own wreck finishes going down: spectateSettle
   #     completes the capped ramp to setSink(1). A29. PV unchanged at 45.
   7-6-design-and-doc-reconciliation: backlog
   7-7-frontend-backend-split-and-versioning: backlog
