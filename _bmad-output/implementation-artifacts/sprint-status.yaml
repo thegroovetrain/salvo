@@ -219,6 +219,19 @@ development_status:
   7-3-how-to-play-page: done  # 2026-08-19 cycle 106 (0.17.106); PV 40->41; epic-7 amendment 15 (R1-R3); /how-to-play page (basics only - Eric struck the boon glossary and the AC coverage list), win condition stated, home link made real, settings binding reference fixed; the OLD silhouette radar DELETED end to end (prod return grammar is now the only radar)
   7-4-adsense-h5-games-ads: in-review  # 2026-08-19 cycle 107 (0.17.107); PV unchanged at 41; epic-7 amendments 16-18; interstitial at return-to-port + ONE responsive display unit beside the score screen (A18 supersedes A16 R2's "no display units" - home was unbuildable, the score screen is not); Google's certified CMP adopted, own consent card DELETED, Consent Mode BASIC->ADVANCED; ads.txt verification; display slot id gated and unset pending an inter-epic job, interstitial pending H5 approval. Also A17: ESC while spectating reopens the score screen
   7-5-upgrade-cards-v2: in-review  # 2026-08-19 cycle 109 (0.17.109); PV 41->43 (42 wave 1, 43 wave 2); epic-7 amendments 20-28; Eric's catalog v2 — 33->29 lines, every acquirable subdeck 6, every hull deck 41; cannon->BROADSIDE BARRAGE (5/8 rung), decoy->RADAR BUOY (decoy role deleted), CAPTIVE MINES, star-shell gun reach, exclusivity DELETED (verb flags); jamming emits server-side FALSE blips, declared exceptions stay at SIX; batch-sim-evidence-7-5-2026-08-19.md
+  # POST-LANDING PLAYTEST FIXES (Eric, 2026-08-20). Cycles 110 and 111 were
+  # MERGED WITHOUT A VERSION BUMP — recorded here so no number is silently lost:
+  #   cycle 110 (0.17.110) PR #176 — RETURN TO PORT / ABANDON MATCH stranded the
+  #     player ~37s: display AdSense with no H5 placement API means no ad callback
+  #     ever fires, and isAdsReady() called that ready. Leaving is now NEVER gated
+  #     on an ad (Eric ruling: no cap of any length). PV unchanged at 43.
+  #   cycle 111 (0.17.111) PR #177 — the RADAR BUOY gets its OWN scope (Eric:
+  #     "It gets its own returns. I just get to see them as the owner"); the gun
+  #     buoy fires a real shell. PV 43->44.
+  #   cycle 112 (0.17.112) — the placement wedge: the buoy was drawn at the
+  #     torpedo's indicative ARC_R instead of its 150u leash, and the reload
+  #     sweep-back drew a SECOND wedge at half radius on a true-radius placement
+  #     arc. Both click-placed ids now share one grammar. PV unchanged at 44.
   7-6-design-and-doc-reconciliation: backlog
   7-7-frontend-backend-split-and-versioning: backlog
   7-8-the-release-gate: backlog

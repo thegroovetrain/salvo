@@ -501,3 +501,47 @@ describe('sectorOutline — the placement wedge boundary', () => {
     expect(arc.r).toBe(0);
   });
 });
+
+// ---- THE PLACEMENT WEDGE (Eric playtest 2026-08-20) --------------------------
+//
+// *"The buoy's targeting range indicator isn't correct"* and *"the mine's
+// targeting indicator seems to show two stacked indicators?"*, with the reason
+// both matter: *"with this rear facing, place-in-short-range arc style weapon,
+// its important that I as a captain can clearly see where I can place my
+// stuff."*
+//
+// Two defects, one root cause — the two CLICK-PLACED ids were not sharing a
+// grammar. `render/firing.ts` special-cased `id === 'mine'` for radius, tint and
+// boundary, so the RADAR BUOY fell to the torpedo branch: drawn at the
+// indicative ARC_R (72u) instead of its real 150u leash. And `sector()` drew a
+// SECOND wedge at HALF the radius to show reloading, which on a true-radius
+// placement wedge is a second "you can place here" boundary.
+//
+// These pin the INVARIANT rather than the pixels: both click-placed ids answer
+// the same leash, and that leash is the placement range — never the buoy's own
+// 330u radar set, which is a different circle entirely.
+describe('the click-placed pair share ONE placement leash (Eric 2026-08-20)', () => {
+  it('mine and radarBuoy report the SAME reach, and it is the placement range', () => {
+    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons([]));
+    expect(weaponRangeU(stats, 'mine')).toBe(CONFIG.mine.placeRange);
+    expect(weaponRangeU(stats, 'radarBuoy')).toBe(CONFIG.mine.placeRange);
+    expect(weaponRangeU(stats, 'radarBuoy')).toBe(weaponRangeU(stats, 'mine'));
+  });
+
+  it("the buoy's placement leash is NOT its radar set — the bug was showing a different circle", () => {
+    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons([]));
+    expect(weaponRangeU(stats, 'radarBuoy')).not.toBe(stats.radarBuoy.radarRange);
+    expect(weaponRangeU(stats, 'radarBuoy')).toBeLessThan(stats.radarBuoy.radarRange);
+  });
+
+  it('both are aim-gated SECTOR weapons sharing the rear arc — so both draw a wedge at all', () => {
+    expect(fireArcKind('mine')).toBe('sector');
+    expect(fireArcKind('radarBuoy')).toBe('sector');
+    const m = arcFor('mine');
+    const b = arcFor('radarBuoy');
+    expect(b.kind).toBe('sector');
+    if (m.kind !== 'sector' || b.kind !== 'sector') throw new Error('both must be sectors');
+    expect(b.offset).toBe(m.offset);
+    expect(b.halfArc).toBe(m.halfArc);
+  });
+});
