@@ -53,7 +53,7 @@ describe('ladder coverage — every catalog line, every stack position', () => {
     // for the SEVEN deleted lines (HEAVY SHELLS, HEAVY WARHEAD, COMMAND
     // DETONATION, TNT FILLER, DECK RACKS, WIDE BURST, CLEAN BOILERS) are
     // RETIRED with their catalog lines, as are the RANGE I..IV checks (the
-    // INTEL RANGE line was deleted in cycle 118 — the `intel` category
+    // INTEL RANGE line was deleted in cycle 119 — the `intel` category
     // survives on INTEL I..V below).
     expect(boonName('shipHull', 0)).toBe('HULL I');
     expect(boonName('shipHull', 3)).toBe('HULL IV');
@@ -152,7 +152,7 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   // that moves no number carries no prose at all.
   it('prints a live current → next sentence for every STAT line', () => {
     // A NON-DEGENERACY FLOOR, deliberately slack — not a catalog count pin. The
-    // set is derived from the catalog, so a card deletion moves it (cycle 118's
+    // set is derived from the catalog, so a card deletion moves it (cycle 119's
     // INTEL RANGE removal took it 16 → 15); its only job is to prove the filter
     // did not return an empty set and make the loop below vacuous. The
     // authoritative counts live in shared/src/__tests__/{boons,deck}.test.ts.

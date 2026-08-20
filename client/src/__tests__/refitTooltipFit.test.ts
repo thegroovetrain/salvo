@@ -67,7 +67,7 @@ const PANELS = everyPanel();
 
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
   it('covers every catalog line at every stack position', () => {
-    // 22 upgrade lines + 6 acquisitions (cycle 118 deleted the INTEL RANGE line).
+    // 22 upgrade lines + 6 acquisitions (cycle 119 deleted the INTEL RANGE line).
     expect(LINES.length).toBeGreaterThanOrEqual(28);
     expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.copies, 0));
   });

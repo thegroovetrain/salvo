@@ -678,8 +678,8 @@ export const CONFIG = {
     // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it,
     // with island LOS applied unchanged. Nothing WIDENS it any more: the card
     // that once did (intelTruesight, merged into intelRange in cycle 92) was
-    // deleted in cycle 118, so the only live scale is dazzle. The resolver
-    // stays observer-scaled rather than flat — see epic-7 amendment 30.
+    // deleted in cycle 119, so the only live scale is dazzle. The resolver
+    // stays observer-scaled rather than flat — see epic-7 amendment 31.
     detect: SIGHT * 0.75,
     // The runtime scale the detect gate multiplies an observer's own
     // dazzle-scaled, boon-widened sight by. It is the SAME number as detect's
@@ -1401,7 +1401,7 @@ export const CONFIG = {
    * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`), which is
    * why it is a WEAPON in EQUIPMENT_IS_WEAPON rather than the 1.8 stern-drop
    * ability. `radarRange` is a FLAT SET — the buoy's own equipment, NOT the
-   * owner's intel range — and its sweep is its own too. (Since cycle 118 the
+   * owner's intel range — and its sweep is its own too. (Since cycle 119 the
    * owner's radar range is itself fixed at base, no card moves it; the buoy's
    * independence is still the point, and still what a future radar card would
    * have to respect.)

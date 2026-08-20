@@ -64,7 +64,7 @@ function stats(...boons: string[]): EffectiveStats {
 }
 
 /** An INJECTED def that widens the owner's radar range. No shipped card writes
- *  `radarRange` since cycle 118 deleted the INTEL RANGE line, but the path is
+ *  `radarRange` since cycle 119 deleted the INTEL RANGE line, but the path is
  *  still whitelisted on BOON_STAT_PATHS precisely so a future card can land on
  *  it — and the R2.7 contrast case below is only meaningful if the owner's
  *  scope and the buoy's flat set are DIFFERENT numbers. Same shape as the

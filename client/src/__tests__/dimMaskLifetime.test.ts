@@ -22,7 +22,7 @@
 // precisely that. So the pin is: A REBAKE MUST REDRAW THE LIVE TEXTURE IN PLACE
 // AND NEVER DESTROY IT. Both triggers are covered, because they are independent
 // inputs to the same radius (`fogHoleRadiusU(sightRange, dazzled)`): a radar-range
-// change via `setRanges`, and a dazzle flip via `setDazzled`. Since cycle 118
+// change via `setRanges`, and a dazzle flip via `setDazzled`. Since cycle 119
 // deleted the INTEL RANGE line, DAZZLE is the only trigger left in production —
 // the `setRanges` half is pinned anyway, because that setter is the seam a future
 // radar card would arrive through and the lifetime bug is silent until it fires.

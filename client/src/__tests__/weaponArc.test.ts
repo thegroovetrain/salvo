@@ -258,7 +258,7 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
   });
 
   // A WIDER `radarRange` grows gun, star shells AND the broadside together.
-  // RETARGETED in cycle 118: this pin was written against a three-card INTEL
+  // RETARGETED in cycle 119: this pin was written against a three-card INTEL
   // RANGE stack, and that line is deleted — no shipped card writes `radarRange`
   // any more. Its SUBJECT is the derivation, not the card, so it is driven by an
   // INJECTED def on the still-whitelisted `radarRange` path (the server suite's

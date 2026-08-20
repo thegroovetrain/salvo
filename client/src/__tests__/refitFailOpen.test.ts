@@ -60,7 +60,7 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
     const stats = Object.values(BOON_CATALOG).filter((d) => Object.hasOwn(STAT_LINES_WITH_NUMBERS, d.id));
     // A NON-DEGENERACY FLOOR, deliberately slack — not a catalog count pin.
     // The set is derived from the catalog, so a card deletion moves it (cycle
-    // 118's INTEL RANGE removal took it from 16 to 15, measured); its only job is to
+    // 119's INTEL RANGE removal took it from 16 to 15, measured); its only job is to
     // prove the filter did not silently return an empty or near-empty set and
     // make the loop below vacuous. The authoritative catalog/deck counts live
     // in shared/src/__tests__/{boons,deck}.test.ts.
@@ -75,7 +75,7 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
   });
 
   // ...and the riders really did land on the hover tooltip rather than being
-  // deleted. RETARGETED in cycle 118: this pin was authored around INTEL RANGE,
+  // deleted. RETARGETED in cycle 119: this pin was authored around INTEL RANGE,
   // whose catalog line is now deleted, so it runs on `shipHull` — a SURVIVING
   // line that carried a standing rider ("Repairs the hull it adds.") which the
   // same R2.17 move pushed into the hover explanation.

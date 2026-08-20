@@ -820,7 +820,7 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
     expect(roomy.panelH).toBeLessThanOrEqual(TOOLTIP_MAX_PANEL_H);
     // 420px of screen is well under the 614px floor the model was fitted to:
     // rows come off until the panel fits the screen it is actually on. It used
-    // to read 500px; cycle 118's INTEL RANGE deletion took a whole LINE out of
+    // to read 500px; cycle 119's INTEL RANGE deletion took a whole LINE out of
     // the gun+shipwide build, and the shorter panel now fits 500px without
     // dropping a row — so the pin moved to a viewport where trimming still
     // bites rather than asserting a trim that no longer has to happen.

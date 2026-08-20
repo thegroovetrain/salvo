@@ -69,7 +69,7 @@ warnings: []
 - Tests (counts/pins, RETARGET): `shared/src/__tests__/boons.test.ts` (`:115`, `:130-136`, `:148`, `:243-253` orphaned list), `shared/src/__tests__/barrel.test.ts` (`:170-180`, `:438`), `shared/src/__tests__/deck.test.ts` (`:74-146` incl. the `gone` deletion pin), `server/src/__tests__/perception.test.ts` (`:113-139` oracle, `:3084-3089` fuzz)
 - Tests (incidental widener, SWAP the id or drive stats directly): `server/src/__tests__/radarWire.test.ts` (`:149`), `client/src/__tests__/{aimPreview,buoys,upgradeMenu,boonStats,hotbar,roomBindings,zone}.test.ts`
 - Docs: `CLAUDE.md`, `_bmad-output/implementation-artifacts/7-5-upgrade-catalog.md`, `epic-7-context-amendments.md` (new amendment 30), `deferred-work.md`, `sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml`, `_bmad-output/planning-artifacts/epics.md`
-- `VERSION` + `package.json` -- 0.17.117 → 0.17.118
+- `VERSION` + `package.json` -- 0.17.117 → 0.17.119
 
 ## Tasks & Acceptance
 
@@ -85,9 +85,9 @@ warnings: []
 - [ ] `server/src/__tests__/{upgrades,broadside,perception,radarWire,bots}.test.ts` -- retire the per-observer intel-range describe block and the broadside stacking test; collapse the perception `effRadar` oracle to the constant and drop the fuzz's `intelRange` stack; swap the incidental id in `radarWire` -- retire rather than adapt
 - [ ] `client/src/__tests__/*.test.ts` -- retire the card-subject tests (`boonCopy` rows, `refitFailOpen`'s intelRange-authored case) and swap the incidental id in `upgradeMenu`/`boonStats`/`hotbar`/`roomBindings`; give `aimPreview`/`buoys`/`weaponArc` a stats-override escape hatch so the buoy-vs-owner-radar contrast case survives -- those tests are about buoy geometry, not about the card
 - [ ] `CLAUDE.md`, `7-5-upgrade-catalog.md`, `_bmad-output/planning-artifacts/epics.md` -- record the removal where those docs state the card as current; leave every historical amendment/investigation/evidence file verbatim -- minimal design-doc edits
-- [ ] `epic-7-context-amendments.md` -- add **Amendment 30** recording both Eric rulings (base does not compensate; `intel` category survives) and the consequence that the eighths ladder is now frozen for every observer -- durable home for rulings
+- [ ] `epic-7-context-amendments.md` -- add **Amendment 31** recording both Eric rulings (base does not compensate; `intel` category survives) and the consequence that the eighths ladder is now frozen for every observer -- durable home for rulings
 - [ ] `deferred-work.md` -- ledger the follow-ons this removal creates: `siege`/`forager` `cat.intel` appetite now buys sweep only (untuned); the radar dim-mask rebake has ONE live production trigger (dazzle) so `spec-radar-dim-mask-render-freeze.md`'s manual QA step is stale; the "ladder ordering holds at every stack level" invariant is now vacuous -- track rather than lose
-- [ ] `VERSION`, `package.json`, `sprint-status.yaml`, `gds-workflow-status.yaml` -- bump to 0.17.118 and stamp both trackers one line each -- every landed PR updates both
+- [ ] `VERSION`, `package.json`, `sprint-status.yaml`, `gds-workflow-status.yaml` -- bump to 0.17.119 and stamp both trackers one line each -- every landed PR updates both
 
 **Acceptance Criteria:**
 - Given a fresh build, when `BOON_CATALOG` is enumerated, then it holds 28 lines and no key named `intelRange`.
@@ -146,7 +146,7 @@ and PV 46 is sufficient because catalog content is the only wire-shaped thing th
 
 ## Auto Run Result
 
-Status: **done**. Cycle 118, version 0.17.118, `PROTOCOL_VERSION` 45 → 46, epic-7 amendment 30.
+Status: **done**. Cycle 119, version 0.17.119, `PROTOCOL_VERSION` 45 → 46, epic-7 amendment 31.
 
 Baseline `7157dc4` → `3b28a21` (shared + docs) → `7114c3c` (server + client) → review-gate patch.
 

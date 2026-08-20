@@ -11,11 +11,11 @@ INTEL I, II, III, IV, V (copies 5), [ increases radar sweep ]
 
 ~~RANGE I, II, III, IV (copies 4), [ increases intel range and all things derived from this ]~~
 ~~+ 50 units to intel range~~
-> DELETED cycle 118 (0.17.118), 2026-08-20, Eric ruling: "remove the intel range
+> DELETED cycle 119 (0.17.119), 2026-08-20, Eric ruling: "remove the intel range
 > upgrade cards from the game." Base intel range does NOT compensate (holds at
 > 660u) and the INTEL category survives on INTEL I-V alone. This was the only
 > card that wrote radarRange, so the eighths ladder is now fixed at base for
-> every player. Full record: epic-7-context-amendments.md Amendment 30.
+> every player. Full record: epic-7-context-amendments.md Amendment 31.
 
 RELOAD I, II, III, IV, V (copies 5), [ reduces cooldown time ]
 + 10%

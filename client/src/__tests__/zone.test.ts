@@ -119,7 +119,7 @@ describe('strokeWorldWidth — the SCREEN-LOCKED stroke (zoom invariance)', () =
 describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
   const MAP_R = CONFIG.map.baseRadius;
   /** The maximum effective radar range. No card writes `radarRange` (the boon
-   *  line that did was deleted in cycle 118), so the ceiling IS the base — and
+   *  line that did was deleted in cycle 119), so the ceiling IS the base — and
    *  the camera fits 2 x radar on the SHORT axis, so this is the widest view a
    *  player's own sensors ever give the fill to cover. */
   const MAX_RADAR = CONFIG.vision.radar;

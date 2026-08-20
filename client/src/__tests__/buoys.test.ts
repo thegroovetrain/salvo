@@ -37,7 +37,7 @@ function ownState(boons: readonly string[] = [], now = 0): OwnBuoyState {
 }
 
 /** An INJECTED def that widens the OWNER's radar range. No shipped card writes
- *  `radarRange` since cycle 118 deleted the INTEL RANGE line, but the path is
+ *  `radarRange` since cycle 119 deleted the INTEL RANGE line, but the path is
  *  still whitelisted on BOON_STAT_PATHS for exactly this reason — and R2.7's
  *  contrast case is only meaningful while the owner's scope and the buoy's flat
  *  set are DIFFERENT numbers. Same shape as the server suite's `OMNI_BOON`. */

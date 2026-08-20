@@ -114,7 +114,7 @@ const FACES = everyFace();
 
 describe('refit card container fit (amendment 47)', () => {
   // Story 7-5 wave 2 settled the catalog at 23 upgrade lines + 6 acquisitions =
-  // 29; cycle 118 deleted the INTEL RANGE line, so it is 22 + 6 = 28.
+  // 29; cycle 119 deleted the INTEL RANGE line, so it is 22 + 6 = 28.
   it('covers every catalog line at every stack position', () => {
     expect(LINES.length).toBeGreaterThanOrEqual(28);
     expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.copies, 0) * CLASSES.length * 2);
