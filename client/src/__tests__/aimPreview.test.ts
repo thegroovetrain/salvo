@@ -304,10 +304,14 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
   });
 
   it('every turret that BEARS previews a circle EXACTLY on the crosshair', () => {
-    // Near max reach, dead abeam: all three arcs contain the click.
-    const inp = broadside({ aimDist: 400 });
+    // Near max reach, dead abeam: all three arcs contain the click. 410u rather
+    // than 400u since Eric's 2026-08-20 retune pushed the base convergence
+    // threshold ~303u → ~386u; making this shot rarer was the point of the
+    // ruling, so the preview test stands further out to find it — the same move
+    // its server twin made, and they must agree.
+    const inp = broadside({ aimDist: 410 });
     const b = inp.stats.broadside;
-    const click = burstPointAlong(SHIP, 400, MAP_R, b.rangeU, Math.PI / 2);
+    const click = burstPointAlong(SHIP, 410, MAP_R, b.rangeU, Math.PI / 2);
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(3);
     for (const burst of m.bursts) {

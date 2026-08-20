@@ -331,8 +331,13 @@ describe('shared barrel', () => {
       damage: 20, // Eric: "lets say 20 damage"
       burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,
-      turretMountSpreadDeg: 27, // [DRAFT] mount half-spread about the beam
-      traverseDeg: [34, 40, 46, 52, 58], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
+      // RETUNED on Eric's playtest 2026-08-20 (*"the convergence is slightly too
+      // high at level 1"*): mounts widened 27 -> 28 while arcs narrowed 34 ->
+      // 33.5, which tightens the OVERLAP (traverse - mountSpread, what
+      // convergence needs) without shrinking the SUM (what keeps a gun on every
+      // legal click). Base abeam convergence ~303u -> ~386u.
+      turretMountSpreadDeg: 28, // [DRAFT] mount half-spread about the beam
+      traverseDeg: [33.5, 39.5, 45.5, 51.5, 57.5], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
     });
     // NO range field — it is derived from radarRange × muzzleFlashFactor, and
     // NO arc field either: the beams are a twin-sector descriptor, not 'full'.

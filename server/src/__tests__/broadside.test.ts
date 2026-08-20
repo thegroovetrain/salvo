@@ -178,9 +178,12 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     // Near max reach, dead abeam: the parallax between muzzle bearings is small
-    // enough that every turret's own arc contains the click.
-    setInput(bb, { aim: ABEAM, aimDist: 400, slot: SLOT_BROADSIDE });
-    const click = burstPointAlong(bb.state, 400, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    // enough that every turret's own arc contains the click. 410u rather than
+    // 400u since Eric's 2026-08-20 retune pushed the base convergence threshold
+    // ~303u → ~386u — the point of that ruling was to make this shot rarer, so
+    // the test has to stand further out to find it.
+    setInput(bb, { aim: ABEAM, aimDist: 410, slot: SLOT_BROADSIDE });
+    const click = burstPointAlong(bb.state, 410, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     const targets = [...w.shells.values()].map((s) => ({ x: s.targetX!, y: s.targetY! }));
     expect(targets).toHaveLength(CONFIG.broadside.turrets);
@@ -223,7 +226,14 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
       setInput(bb, { aim: ABEAM, aimDist, slot: SLOT_BROADSIDE });
       return broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick).length;
     };
-    expect(onClick(400)).toBe(CONFIG.broadside.turrets); // the lined-up long shot
+    // RETUNED on Eric's playtest 2026-08-20 (*"the convergence is slightly too
+    // high at level 1"*): the base threshold moved ~303u → ~386u, so a lined-up
+    // salvo now converges only in the outermost ~6% of the weapon's 412.5u
+    // reach rather than its outer quarter. 400u still converges; 350u — which
+    // DID under the old tuning — no longer does, and that case is pinned so a
+    // retune back cannot pass silently.
+    expect(onClick(410)).toBe(CONFIG.broadside.turrets); // the lined-up long shot
+    expect(onClick(350)).toBe(1); // was convergence before the retune; now it is not
     expect(onClick(250)).toBe(1); // mid range: parallax defeats the outer arcs
     expect(onClick(100)).toBe(1); // close: worse still — never MORE convergence up close
   });
