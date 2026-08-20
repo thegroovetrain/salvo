@@ -38,15 +38,19 @@ import { BOT_PROFILES, engagementBand, profileOf } from '../game/ai/profiles.js'
 import {
   choosePosture,
   foldView,
+  hasPersistence,
   isActionable,
+  pullBand,
   ringDeadband,
   scoreTrack,
   selectTarget,
+  TRACK_PERSIST_MS,
   tracksOf,
   type BotSituation,
   type BotTrack,
 } from '../game/ai/utility.js';
 import { boonWeightFor, chooseSpend, type BotSpendState } from '../game/ai/spending.js';
+import { APPETITE_EAGER, APPETITE_NEUTRAL, appetiteFor } from '../game/ai/equipment.js';
 
 // --- builders ---------------------------------------------------------------
 
@@ -155,9 +159,42 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
 
   it('siege stands off, duelist knife-fights, bulwark trades longest', () => {
     expect(profileOf('siege').bandMinFrac).toBeGreaterThan(profileOf('duelist').bandMaxFrac);
-    expect(profileOf('siege').usesStarShells).toBe(true); // Eric ruling C2
+    // Eric ruling C2, carried by the appetite table since the doctrine pass:
+    // siege reaches for flares EAGERLY (the shipped staleness trigger).
+    expect(appetiteFor(profileOf('siege'), 'starShells')).toBeGreaterThanOrEqual(APPETITE_EAGER);
     for (const id of ['raider', 'duelist', 'forager', 'trapper'] as const) {
       expect(profileOf('bulwark').disengageHpFrac).toBeLessThan(profileOf(id).disengageHpFrac);
+    }
+  });
+
+  it('siege\'s band stays inside the broadside rung (ruled: bandMaxFrac <= 0.625)', () => {
+    // `broadside.rangeU` is the 5/8 rung (radarRange x muzzleFlashFactor), so
+    // a band max past 0.625 would stand siege's heavy weapon out of range of
+    // its own preferred water.
+    expect(profileOf('siege').bandMaxFrac).toBeLessThanOrEqual(CONFIG.vision.muzzleFlashFactor);
+  });
+
+  it('the appetite table is the ONLY weapon word a profile carries, and every entry is positive', () => {
+    // The retired capability flags may not regrow: capability comes from the
+    // LOADOUT, appetite only modulates proactivity.
+    for (const p of Object.values(BOT_PROFILES)) {
+      const row = p as unknown as Record<string, unknown>;
+      expect(row.usesStarShells).toBeUndefined();
+      expect(row.usesMinesProactively).toBeUndefined();
+      expect(row.usesBoost).toBeUndefined();
+      for (const v of Object.values(p.appetite)) expect(v).toBeGreaterThan(0);
+    }
+    // Temperament modulates PROACTIVITY only: trapper lays as a standing plan
+    // (eager), siege only reacts (neutral base for an acquired mine).
+    expect(appetiteFor(profileOf('trapper'), 'mine')).toBeGreaterThanOrEqual(APPETITE_EAGER);
+    expect(appetiteFor(profileOf('siege'), 'mine')).toBeLessThan(APPETITE_EAGER);
+    expect(appetiteFor(profileOf('siege'), 'mine')).toBeGreaterThanOrEqual(APPETITE_NEUTRAL);
+    // The gun is the fallback: no profile ranks anything below it.
+    for (const p of Object.values(BOT_PROFILES)) {
+      for (const [id, v] of Object.entries(p.appetite)) {
+        if (id === 'gun') continue;
+        expect(v).toBeGreaterThan(appetiteFor(p, 'gun'));
+      }
     }
   });
 
@@ -662,36 +699,72 @@ describe('ai/spending — the boon policy', () => {
 
   // THE PROOF THAT PROFILES MATTER -------------------------------------------
   it('the two Mine Layer profiles rank the mine DOCTRINES differently', () => {
-    // WEAKENED DELIBERATELY at the cycle-95 merge, and the history matters.
-    // This test used to assert a hard split (forager < 1, trapper > 4x) on an
-    // arithmetic mechanism: prop-fouling carried mult 0.6 on mine.damage, which
-    // dropped a 55-damage mine to 33 and BROKE the one-shot on a 45 hp fleet
-    // hull — the thing forager lives on. Amendment 25 DELETED that multiplier
-    // (Eric: "remove damage decrease for the fouling mines"), so the penalty is
-    // gone and prop-fouling is a pure add. The weights were retired rather than
-    // defended: a bot avoiding a card for a reason the game no longer contains
-    // is a stale rationale, not a profile.
-    //
-    // What remains is real but softer — trapper's whole plan is dragging a
-    // victim INTO its field, forager merely has no use for a slow (a fleet hull
-    // dies to one mine either way) and prefers the mine that closes by itself.
-    const forager = boonWeightFor('forager', 'minePropFouling');
-    const trapper = boonWeightFor('trapper', 'minePropFouling');
-    expect(trapper).toBeGreaterThan(forager);
+    // RE-CUT AT THE DOCTRINE PASS (Eric ruling 2026-08-20). The first-pass
+    // table gave FORAGER a 2.4 CAPTIVE want on the CONFIG-comment claim that a
+    // captive mine "farms without re-positioning" — contradicted by the
+    // shipped mechanics: a captive mine's trip gate is HOSTILE-ONLY
+    // (isCaptiveMineHostile), a neutral PvE fleet drone walks straight over
+    // it, so CAPTIVE disarms exactly the fleet-farming forager exists to do.
+    // The want moved to TRAPPER, whose whole game is trapping hostiles.
+    const foragerFoul = boonWeightFor('forager', 'minePropFouling');
+    const trapperFoul = boonWeightFor('trapper', 'minePropFouling');
+    expect(trapperFoul).toBeGreaterThan(foragerFoul);
 
-    // Forager prefers CAPTIVE over prop-fouling; trapper is the reverse.
-    // (Re-keyed in wave 2: `mineSelfPropelled` is deleted and `mineCaptive` is
-    // its direct successor — a mine that reaches the target itself.)
-    expect(boonWeightFor('forager', 'mineCaptive')).toBeGreaterThan(forager);
-    expect(boonWeightFor('trapper', 'mineCaptive')).toBeLessThan(trapper);
+    // CAPTIVE is NOT a wanted line for forager: at most the held-line neutral
+    // (0.9), i.e. below every card the profile genuinely wants.
+    expect(boonWeightFor('forager', 'mineCaptive')).toBeLessThanOrEqual(0.9);
+    expect(boonWeightFor('forager', 'mineCaptive')).toBeLessThan(foragerFoul);
+    // Trapper WANTS it (its home since the ruling) — well above the junk
+    // floor, while fouling stays its signature.
+    expect(boonWeightFor('trapper', 'mineCaptive')).toBeGreaterThan(2);
+    expect(boonWeightFor('trapper', 'mineCaptive')).toBeGreaterThan(boonWeightFor('forager', 'mineCaptive'));
+    expect(boonWeightFor('trapper', 'mineCaptive')).toBeLessThan(trapperFoul);
 
-    // Neither profile REFUSES a doctrine any more — both are pure adds.
-    expect(forager).toBeGreaterThan(0);
+    // Neither profile REFUSES a doctrine — both stay legal picks.
+    expect(boonWeightFor('forager', 'mineCaptive')).toBeGreaterThan(0);
 
-    // And the ranking still changes the actual pick on a shared hand.
+    // And the ranking changes the actual pick on a shared hand: BOTH now
+    // take fouling over captive, but forager only because captive is parked
+    // at neutral — against a genuinely wanted line it never wins.
     const offer = ['minePropFouling', 'mineCaptive'];
-    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(1);
+    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(0);
     expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(0);
+    const vsWanted = ['mineCaptive', 'mineBlast'];
+    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer: vsWanted, boons: [], hp: 100, maxHp: 100 })).toBe(1);
+  });
+
+  // THE ACQUISITION RANKING (Eric ruling 2026-08-20) ---------------------------
+  const ACQUISITIONS = [
+    'acquireTorpedo',
+    'acquireMine',
+    'acquireStarShells',
+    'acquireBroadside',
+    'acquireRadarBuoy',
+    'acquireBoost',
+  ] as const;
+
+  it('every profile ranks ALL SIX acquisition cards above the unlisted floor', () => {
+    // Acquisition cards inherit their TARGET equipment's category, which no
+    // profile's cat table names — so before the ruling all six scored the 0.5
+    // unlisted default and the extra slot stayed empty by accident. 0.5 here
+    // IS spending.ts's UNLISTED_SCORE, restated so a drift fails loudly.
+    for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
+      for (const card of ACQUISITIONS) {
+        expect(Object.hasOwn(BOON_CATALOG, card)).toBe(true);
+        expect(boonWeightFor(id, card), `${id} ${card}`).toBeGreaterThan(0.5);
+      }
+    }
+  });
+
+  it('a bot SETTLES: its preferred acquisition absent, it takes the best one present', () => {
+    // Raider's ranking bottoms out at acquireBroadside (0.7) — still above
+    // every unlisted junk card, so a hand of [3rd-choice acquisition, junk]
+    // is spent on the acquisition, never passed out of pickiness.
+    expect(boonWeightFor('raider', 'acquireBroadside')).toBeGreaterThan(0.5);
+    const idx = chooseSpend(profileOf('raider'), spendState({ offer: ['buoyDuration', 'acquireMine'] }));
+    expect(idx).toBe(1); // buoyDuration is unlisted (0.5) for a raider
+    // And a genuinely wanted normal card still outranks a settled pickup.
+    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['acquireMine', 'torpedoHoming'] }))).toBe(1);
   });
 
   // RETIRED at the cycle-95 merge: "the mineDamage x minePropFouling PICK-ORDER
@@ -702,4 +775,62 @@ describe('ai/spending — the boon policy', () => {
   // writes the path and order cannot matter." The test is retired rather than
   // adapted, per the project's standing rule; the spec's matching "Never"
   // clause is discharged, not overruled.
+});
+
+// --- track persistence: the structural jamming counter -----------------------
+
+describe('ai/utility — track persistence (the jamming-buoy counter)', () => {
+  // A jamming buoy scatters 10 fakes per revolution, wire-indistinguishable
+  // from real blips and folded into memory as ordinary tracks — but fakes
+  // RE-SCATTER WHOLESALE each revolution, so no fake persists as one coherent
+  // track across a full sweep period. Persistence is therefore the honest
+  // discriminator, and it gates ONLY the 30s-reload commits (torpedo /
+  // broadside want gates in ai/equipment.ts) — never the gun, because
+  // shooting at radar blips is a ruled skill (Eric, cycle 99).
+  const NOW = 50000;
+
+  function anonAt(now: number, firstSeenAt: number): BotTrack {
+    return {
+      id: null, x: 400, y: 0, heading: null, speed: null, seenAt: now,
+      live: false, cls: null, fleet: false, firstSeenAt, hits: 0,
+    };
+  }
+
+  it('derives the bar from one BASE sweep revolution', () => {
+    expect(TRACK_PERSIST_MS).toBeCloseTo(60000 / CONFIG.vision.sweepRpm, 6);
+  });
+
+  it('a freshly scattered plot has no persistence; a held track does', () => {
+    expect(hasPersistence(anonAt(NOW, NOW - TRACK_PERSIST_MS + 1), NOW)).toBe(false);
+    expect(hasPersistence(anonAt(NOW, NOW - TRACK_PERSIST_MS), NOW)).toBe(true);
+  });
+
+  it('a LIVE truesight contact passes instantly — fakes never appear in the bubble', () => {
+    const t = { ...anonAt(NOW, NOW), live: true };
+    expect(hasPersistence(t, NOW)).toBe(true);
+  });
+});
+
+// --- the band pull -----------------------------------------------------------
+
+describe('ai/utility — the band pull is bounded (Eric ruling 2026-08-20)', () => {
+  it('a ready short-reach weapon tugs the NEAR edge exactly halfway, never further', () => {
+    const band = { min: 264, max: 396 };
+    const pulled = pullBand(band, [250]);
+    expect(pulled.min).toBeCloseTo((264 + 250) / 2, 6); // halfway — the cap IS the move
+    expect(pulled.max).toBe(396); // the far edge never moves
+  });
+
+  it('a reach already usable in the band pulls nothing; long reaches pull nothing', () => {
+    const band = { min: 264, max: 396 };
+    expect(pullBand(band, [300, 412.5, 660])).toEqual(band); // gun/broadside never re-band a hull
+    expect(pullBand(band, [])).toEqual(band); // an empty tube reverts the band
+  });
+
+  it('several short reaches: the strongest pull wins, still capped at halfway', () => {
+    const band = { min: 264, max: 396 };
+    const pulled = pullBand(band, [250, 150]);
+    expect(pulled.min).toBeCloseTo((264 + 150) / 2, 6);
+    expect(pulled.min).toBeGreaterThan(150); // identity survives: never AT the reach
+  });
 });

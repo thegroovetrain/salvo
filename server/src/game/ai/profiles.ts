@@ -44,7 +44,7 @@
 // class. The only kind distinction any profile draws is participant-vs-PvE
 // fleet hull, which is a real difference in what the target is worth.
 
-import { CONFIG, type EffectiveStats, type ShipClassId } from '@salvo/shared';
+import { CONFIG, type EffectiveStats, type EquipmentId, type ShipClassId } from '@salvo/shared';
 import type { BotProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
@@ -88,13 +88,25 @@ export interface BotProfile {
   /** hp fraction below which a banked level buys DAMAGE CONTROL instead of a
    *  card. Defaults to CONFIG.bots.healHpFrac. */
   healHpFrac: number;
-  /** Fires star shells to resolve stale contacts into live sight (C2). */
-  usesStarShells: boolean;
-  /** Lays mines as a plan (ahead of a withdrawal, across a likely track)
-   *  rather than only when cornered. */
-  usesMinesProactively: boolean;
-  /** Spends boost to open or close range as a tactic. */
-  usesBoost: boolean;
+  /**
+   * THE APPETITE TABLE (Eric ruling 2026-08-20) — how PROACTIVELY this
+   * captain reaches for each equipment, and the ONLY thing a profile may say
+   * about a weapon. It replaces the retired usesStarShells /
+   * usesMinesProactively / usesBoost capability flags, which keyed weapon
+   * knowledge by HULL (a Battleship acquiring mines knew nothing about mines;
+   * `bulwark` carried star shells it was flagged never to fire). HOW a weapon
+   * is used — placement geometry, doctrine branches, target selection — lives
+   * with the weapon in ai/equipment.ts and may NOT be overridden here.
+   *
+   * Consumers (every entry has at least one — the deleted-`aggression` rule):
+   * the slot ORDERING in tactics.ts (all entries) and each tactic's want()
+   * PROACTIVITY gate against equipment.ts's APPETITE_NEUTRAL (1) /
+   * APPETITE_EAGER (2) thresholds (mine, starShells, radarBuoy, speedBoost).
+   * Unlisted equipment resolves to the neutral base (gun deliberately lowest:
+   * the fallback weapon is tried last). Values are eagerness, NEVER ranges —
+   * ranges stay fractions of the bot's own stats in the tactics.
+   */
+  appetite: Partial<Record<EquipmentId, number>>;
 }
 
 /** CONFIG defaults, named once so a profile row reads as "the default" rather
@@ -120,9 +132,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.0, fleet: 0.8, damaged: 1.6, isolated: 1.8 },
     disengageHpFrac: 0.5, // leaves EARLY — a hit torpedo boat is a dead one
     healHpFrac: DEFAULT_HEAL,
-    usesStarShells: false,
-    usesMinesProactively: false,
-    usesBoost: true,
+    // The opener weapon leads every tick; boost is spent eagerly on the way
+    // out (the old usesBoost: true, now a number the ordering also reads).
+    appetite: { torpedo: 2.5, speedBoost: 2.0 },
   },
   duelist: {
     id: 'duelist',
@@ -135,9 +147,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.4, fleet: 0.6, damaged: 0.9, isolated: 0.5 },
     disengageHpFrac: 0.3,
     healHpFrac: DEFAULT_HEAL,
-    usesStarShells: false,
-    usesMinesProactively: false,
-    usesBoost: true,
+    // Gun-led by BAND, not by ordering: the tube is still tried first when a
+    // credible opening exists (mid appetite), and the boost breaks a bad fight.
+    appetite: { torpedo: 1.5, speedBoost: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
@@ -148,9 +160,11 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.2, fleet: 0.9, damaged: 1.0, isolated: 0.4 },
     disengageHpFrac: 0.22, // trades far longer than any other profile
     healHpFrac: 0.6, // and tops off sooner, because HP IS its plan
-    usesStarShells: false,
-    usesMinesProactively: false,
-    usesBoost: false,
+    // Bulwark CARRIES star shells and now genuinely uses them — reluctantly
+    // (above neutral, below eager: it waits for a plot to go properly cold
+    // before spending a 20s flare). The old usesStarShells: false was the
+    // capability-keyed-by-hull defect the equipment axis retires.
+    appetite: { broadside: 2.0, starShells: 1.2 },
   },
   siege: {
     id: 'siege',
@@ -168,9 +182,11 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.2, fleet: 0.8, damaged: 1.1, isolated: 0.6 },
     disengageHpFrac: 0.4,
     healHpFrac: DEFAULT_HEAL,
-    usesStarShells: true, // C2 — the BS DOES use star shells
-    usesMinesProactively: false,
-    usesBoost: false,
+    // EAGER flares (C2 — the BS DOES use star shells: the eager tier keeps
+    // the shipped 1.5s staleness trigger) leading the broadside; an acquired
+    // mine stays at the neutral base, so siege lays only against something
+    // CLOSING — never as trapper's standing plan.
+    appetite: { starShells: 2.4, broadside: 2.2 },
   },
   forager: {
     id: 'forager',
@@ -182,9 +198,10 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 0.5, fleet: 2.0, damaged: 0.8, isolated: 0.6 },
     disengageHpFrac: 0.4,
     healHpFrac: DEFAULT_HEAL,
-    usesStarShells: false,
-    usesMinesProactively: false,
-    usesBoost: false,
+    // A farmer, not a layer: the mine sits barely above neutral (reactive —
+    // it answers a closing chaser, never a standing plan), and the buoy is
+    // plain recon between fleet groups.
+    appetite: { mine: 1.4, radarBuoy: 1.1 },
   },
   trapper: {
     id: 'trapper',
@@ -196,9 +213,10 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 0.8 },
     disengageHpFrac: DEFAULT_DISENGAGE,
     healHpFrac: DEFAULT_HEAL,
-    usesStarShells: false,
-    usesMinesProactively: true,
-    usesBoost: false,
+    // EAGER mines — the standing plan (the old usesMinesProactively: true,
+    // now the eager tier of the ONE shared mine tactic) — and the mine
+    // outranks the buoy, so a threatened tick answers with the trap first.
+    appetite: { mine: 2.6, radarBuoy: 1.6 },
   },
 });
 

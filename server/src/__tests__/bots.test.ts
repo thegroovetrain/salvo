@@ -316,7 +316,11 @@ describe('input emission — the same validated path a human uses, same-tick con
       // input is already acked — never a 50ms-stale echo.
       expect(rec.lastAckSeq).toBe(1);
       expect(rec.input.throttle).toBeGreaterThan(0); // the helm is live
-      expect(rec.input.fireSeq).toBe(0); // nothing in sight on tick one
+      // Nothing in SIGHT on tick one, so no track-targeted shot exists — but
+      // since the doctrine pass a Mine Layer may legitimately site its recon
+      // BUOY with an empty scope (a placement, no target needed), so fireSeq
+      // is 0 or 1 here, never more (one click per tick, by construction).
+      expect(rec.input.fireSeq).toBeLessThanOrEqual(1);
       expect(rec.input.hornSeq).toBe(0); // bots never honk (B5)
       expect(rec.input.fireT).toBe(0); // server-driven shooters never back-date
     }
