@@ -3,6 +3,21 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  44: THE BUOY'S OWN SCOPE (Story 7-5 fix cycle, Eric playtest 2026-08-19/20 —
+ *  *"It gets its own returns. I just get to see them as the owner."*). The R2.8
+ *  relay-into-the-owner's-blips model is REPLACED: a radar buoy is a
+ *  first-class second radar whose returns belong to ITS scope. Two wire moves,
+ *  one bump. (a) `ReturnBlipEvent` gains OPTIONAL `src` — the id of the
+ *  receiving observer's OWN buoy whose antenna made the return, present ONLY in
+ *  the owner's frames (enemy frames never carry it; R2.9 holds). It says WHICH
+ *  OF YOUR SENSORS returned it, NEVER whether the subject is real: an enemy
+ *  jamming buoy's fakes that pass your buoy's own gate arrive tagged with your
+ *  buoy's `src` exactly as a real hull does, so fake-vs-real stays
+ *  wire-indistinguishable inside every scope. The client prices a tagged
+ *  return from the BUOY's position and the untagged rest from its own, which
+ *  is the whole point of the field. (b) `BuoyView` gains `sweep` — the buoy's
+ *  live antenna angle, so the owner's client can draw the buoy's own rotating
+ *  wedge (physically observable on a sighted buoy; carries no owner identity).
  *  43: UPGRADE CARDS v2, WAVE 2 (Story 7-5) — TWO EQUIPMENTS REPLACED OUTRIGHT,
  *  and the catalog reaches its FINAL shape. Four independent wire breaks.
  *  (a) TWO EquipmentId VALUES CHANGE: `cannon` → `broadside` and `decoyBuoy` →
@@ -469,7 +484,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 43;
+export const PROTOCOL_VERSION = 44;
 
 // Tunables
 export * from './constants.js';

@@ -24,7 +24,7 @@ import {
 } from '../render/buoys.js';
 import { Mines } from '../render/mines.js';
 
-const buoy = (id: string, own = false, until = 5000, by = 'p1'): BuoyView => ({ id, x: 0, y: 0, until, own, by });
+const buoy = (id: string, own = false, until = 5000, by = 'p1'): BuoyView => ({ id, x: 0, y: 0, until, own, by, sweep: 0 });
 
 /** Stub owner-hue resolver for the render harness (Story 1.12). */
 const HUE = (): number => 0x123456;

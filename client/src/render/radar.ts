@@ -142,6 +142,7 @@ import {
   sampleHeight,
   wrapPositive,
   type BlipEvent,
+  type BuoyView,
   type HeightRaster,
   type HullCoverage,
   type Island,
@@ -232,7 +233,40 @@ const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral 
 interface PendingEcho {
   cov: HullCoverage;
   t: number;
+  /** PV 44 sensor attribution: the OWN radar buoy whose antenna made this
+   *  return (`ReturnBlipEvent.src`), or undefined for the own set. A tagged
+   *  echo is priced from the BUOY — its position, its range falloff, its
+   *  terrain shadow — which is the whole point of the buoy's own scope. */
+  src?: string;
 }
+
+/**
+ * One OWN radar buoy the scope knows about (Story 7-5 fix cycle — Eric: *"It
+ * gets its own returns. I just get to see them as the owner."*): the observer
+ * point tagged echoes are priced from, and the anchor of the buoy's own sweep
+ * wedge. Fed per frame from `FrameMsg.buoys` (setOwnBuoys). `live` is false
+ * once the buoy leaves the frame list (expired/destroyed): the wedge comes
+ * down at once, but the SENSOR ENTRY is retained a while (`lastSeen` +
+ * BUOY_SENSOR_RETAIN_MS) so a tagged echo that raced the despawn by a frame
+ * still prices from the right point instead of falling back to the own hull.
+ */
+interface OwnBuoySensor {
+  x: number;
+  y: number;
+  /** rad — the buoy's antenna angle at server time `t` (BuoyView.sweep). */
+  sweep: number;
+  /** ms — server time of the frame that carried `sweep`. */
+  t: number;
+  lastSeen: number;
+  live: boolean;
+}
+
+/** ms — how long a despawned buoy's sensor entry keeps pricing stragglers. */
+const BUOY_SENSOR_RETAIN_MS = 30_000;
+
+/** ms per revolution of a buoy's OWN antenna — the fixed CONFIG rate (R2.20:
+ *  no card writes it), used to extrapolate the wedge between 20Hz frames. */
+const BUOY_SWEEP_PERIOD_MS = 60000 / CONFIG.radarBuoy.sweepRpm;
 
 /** A `wk` wake segment waiting on an own pose, exactly as `PendingEcho` is —
  *  same park, same reason (intensity is frozen at resolve, so a guessed
@@ -344,6 +378,14 @@ export class Radar {
    *  own pose is unknown), in which case an echo's geometry is DEFERRED rather
    *  than guessed. */
   private own: OwnPoint | null = null;
+  /** The OWN radar buoys this scope prices tagged echoes from and draws
+   *  wedges for (Story 7-5 fix cycle). Keyed by buoy id. */
+  private readonly ownBuoys = new Map<string, OwnBuoySensor>();
+  /** One sweep-wedge sprite per LIVE own buoy, in `sweepLayer` beside the own
+   *  wedge — same baked texture, scaled to the buoy's flat 330u set. */
+  private readonly buoyWedges = new Map<string, Sprite>();
+  /** The chrome layer the wedges live in (held for late wedge creation). */
+  private readonly sweepLayerRef: Container;
   /** The world rect the camera is showing this frame (amendment 96), or null
    *  when the caller has no camera. READ IN EXACTLY ONE PLACE — `paintHeat` —
    *  and never by anything that creates or retires a paint (amendment 97). */
@@ -395,6 +437,7 @@ export class Radar {
 
   constructor(blipLayer: Container, sweepLayer: Container) {
     this.blipLayer = blipLayer;
+    this.sweepLayerRef = sweepLayer;
     // BEFORE any heat sprite, so the mask is the layer's first child and
     // nothing depends on where it lands in the list.
     this.dimBakedAtU = this.sightHoleU;
@@ -613,6 +656,89 @@ export class Radar {
   }
 
   /**
+   * Ingest this frame's buoy views (Story 7-5 fix cycle): the OWN entries
+   * become sensors — the observer points tagged echoes are priced from and the
+   * anchors of the buoys' own sweep wedges. Called once per FrameMsg with the
+   * frame's server time, right beside the sweep sample above.
+   *
+   * A buoy that leaves the list goes dark at once (wedge down, no longer
+   * `live`) but its SENSOR entry is retained for BUOY_SENSOR_RETAIN_MS: a
+   * tagged echo that raced the despawn by a frame still prices from the right
+   * point rather than falling back to the own hull. Enemy views are ignored —
+   * an enemy buoy is a subject on this scope, never a sensor of it.
+   */
+  setOwnBuoys(views: readonly BuoyView[], t: number): void {
+    if (!Number.isFinite(t)) return;
+    for (const s of this.ownBuoys.values()) s.live = false;
+    for (const v of views) {
+      if (v.own !== true || !Number.isFinite(v.x + v.y + v.sweep)) continue;
+      this.ownBuoys.set(v.id, { x: v.x, y: v.y, sweep: v.sweep, t, lastSeen: t, live: true });
+    }
+    for (const [id, s] of this.ownBuoys) {
+      if (s.live) {
+        s.lastSeen = t;
+        continue;
+      }
+      if (t - s.lastSeen > BUOY_SENSOR_RETAIN_MS) {
+        this.ownBuoys.delete(id);
+        this.dropWedge(id);
+      }
+    }
+  }
+
+  /** Remove one buoy's wedge sprite (despawn/retention-expiry teardown). */
+  private dropWedge(id: string): void {
+    const w = this.buoyWedges.get(id);
+    if (w === undefined) return;
+    this.buoyWedges.delete(id);
+    // The sprite shares the baked sweep TEXTURE with the own wedge, so only
+    // the sprite dies here — never the texture (the cycle-98 lifetime rule:
+    // a shared texture is not this sprite's to destroy).
+    w.destroy({ texture: false });
+  }
+
+  /**
+   * Position/rotate every LIVE own buoy's sweep wedge — the visible half of
+   * Eric's complaint (*"Its supposed to have its own radar sweep that paints
+   * around it, where the fuck is that?"*). Each wedge is the SAME baked
+   * texture as the own sweep, scaled to the buoy's flat 330u set, rotating at
+   * the fixed CONFIG rate extrapolated from the frame-carried antenna angle —
+   * chrome in `sweepLayer`, so the near-range dim mask never touches it,
+   * exactly like the own wedge. Hidden whenever the own sweep is (start line,
+   * spectate, no pose): a dark scope shows no beams at all.
+   */
+  private updateBuoyWedges(visible: boolean, serverNow: number): void {
+    for (const [id, s] of this.ownBuoys) {
+      let w = this.buoyWedges.get(id);
+      if (!s.live || !visible) {
+        if (w !== undefined) w.visible = false;
+        continue;
+      }
+      if (w === undefined) {
+        w = new Sprite(this.sweep.texture);
+        w.anchor.set(0.5);
+        w.blendMode = 'add';
+        w.scale.set(CONFIG.radarBuoy.radarRange / SWEEP_TEXTURE_RADIUS);
+        this.sweepLayerRef.addChild(w);
+        this.buoyWedges.set(id, w);
+      }
+      w.visible = true;
+      w.position.set(s.x, s.y);
+      w.rotation = sweepRotation(s.sweep, s.t, serverNow, BUOY_SWEEP_PERIOD_MS);
+    }
+  }
+
+  /** The live own-buoy sensor ids (tests/debug). */
+  get buoySensors(): readonly string[] {
+    return [...this.ownBuoys.keys()];
+  }
+
+  /** The wedge sprite for one own buoy, if mounted (tests/debug). */
+  buoyWedge(id: string): Sprite | undefined {
+    return this.buoyWedges.get(id);
+  }
+
+  /**
    * A radar paint arrived — an identity-free coverage footprint (the one wire
    * shape; the retired `silhouette` grammar went with cycle 105's ONE-RADAR
    * ruling).
@@ -639,7 +765,11 @@ export class Radar {
    *  `radarRange = Infinity` lesson). A malformed footprint is dropped whole. */
   private addReturnPaint(e: BlipEvent): void {
     if (!validCoverage(e, this.maxPaintT)) return;
-    this.pending.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, t: e.t });
+    // PV 44 sensor attribution: adopt `src` only as a sane short string — it
+    // is a Map key into the own-buoy sensors and nothing else; anything odd
+    // off the network degrades to own-set pricing rather than being trusted.
+    const src = typeof e.src === 'string' && e.src.length > 0 && e.src.length <= 32 ? e.src : undefined;
+    this.pending.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, t: e.t, src });
     // CAP THE PARK (cycle-63 review gate): paints arrive on network cadence
     // while own pose can stay null indefinitely (the join gap, or a server
     // withholding own frames), and each parked entry holds a whole mask — so
@@ -672,15 +802,32 @@ export class Radar {
   private resolvePending(): void {
     const own = this.own;
     if (own === null || this.pending.length === 0) return;
-    if (this.aground(own)) {
-      this.pending.length = 0; // an aground set makes no paints, from any source
-      return;
-    }
     for (const e of this.pending) {
-      const slice = this.marchEcho(own, e);
+      const obs = this.echoObserver(e, own);
+      if (obs === null) continue; // an aground set makes no paints
+      const slice = this.marchEcho(obs.at, e, obs.rangeU);
       if (slice !== null) this.enrollSlice(slice);
     }
     this.pending.length = 0;
+  }
+
+  /**
+   * Which SENSOR an echo is priced from (Story 7-5 fix cycle): a `src`-tagged
+   * echo is the named OWN BUOY's return — observer point = the buoy, range =
+   * its flat 330u set — so its intensity, its falloff and its terrain shadow
+   * are the BUOY's picture, not the owner's. An untagged echo is the own set's
+   * as ever (and an aground own set makes no paints — a buoy is never aground:
+   * placement refuses land, so no aground clause exists on that arm). A tag
+   * naming a sensor this scope no longer knows falls back to own-set pricing —
+   * degraded, never dropped: anything the server disclosed paints at least a
+   * speck (amendment 127).
+   */
+  private echoObserver(e: PendingEcho, own: OwnPoint): { at: OwnPoint; rangeU: number } | null {
+    if (e.src !== undefined) {
+      const b = this.ownBuoys.get(e.src);
+      if (b !== undefined) return { at: { x: b.x, y: b.y }, rangeU: CONFIG.radarBuoy.radarRange };
+    }
+    return this.aground(own) ? null : { at: own, rangeU: this.radarRange };
   }
 
   /**
@@ -715,17 +862,18 @@ export class Radar {
    * amendment 127 intact through the change: a disclosed echo can be dimmed to
    * its speck and no further, ever.
    */
-  private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
+  private marchEcho(own: OwnPoint, e: PendingEcho, rangeU: number = this.radarRange): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const stamp: ShipStamp = new Map();
     stampCoverage(stamp, e.cov, hullSample(cfg.model));
     const c = coverageCentre(e.cov, cfg.cellU);
     // The footprint's own reach: half its rect diagonal covers every covered
     // cell at any orientation — echoArc turns it into the bearing window and
-    // the radial slab the march has to walk.
+    // the radial slab the march has to walk. `rangeU` is the PRICING SENSOR's
+    // reach (the own set, or a tagged echo's buoy — echoObserver).
     const arc = echoArc(own, c.x, c.y, Math.hypot(e.cov.w, e.cov.h) * cfg.cellU);
     const pad = arc.reach + 2 * cfg.cellU;
-    const reach = Math.max(this.radarRange, arc.dist + pad);
+    const reach = Math.max(rangeU, arc.dist + pad);
     return marchSlice(
       own,
       arc.centre - arc.half,
@@ -1203,6 +1351,7 @@ export class Radar {
     const visible = own !== null && this.lastSweep !== null;
     this.sweep.visible = visible;
     this.rings.visible = visible;
+    this.updateBuoyWedges(visible, serverNow); // the buoys' own beams ride the same visibility
     if (!visible || own === null || this.lastSweep === null) {
       this.sliceFrom = null;
       return null;

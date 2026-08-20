@@ -2,9 +2,11 @@
 // OUTRIGHT. The decoy's deception is deleted end to end: nothing in the game
 // fakes a SHIP CONTACT any more. What this file drops on the water is a real
 // sensor — a stationary, destructible buoy carrying its OWN radar set whose
-// returns RELAY into its owner's frame (R2.8), painting on enemy radar with
-// its OWN small profile and no owner identity (R2.9), with the GUN (R2.10)
-// and JAMMING (R2.11) doctrines on top.
+// returns are the buoy's OWN SCOPE, shown to its owner (Story 7-5 fix cycle,
+// superseding R2.8's relay — Eric: "It gets its own returns. I just get to
+// see them as the owner."; wire-tagged `src`, PV 44), painting on enemy radar
+// with its OWN small profile and no owner identity (R2.9), with the GUN
+// (R2.10) and JAMMING (R2.11) doctrines on top.
 //
 // This module owns the buoy's WORLD-STATE SHAPE (BuoyState), its placement
 // row (the mine's click-placed rear-sector pattern, verbatim — R2.7), its
@@ -12,8 +14,9 @@
 // ballistic/blast target list so "destructible by anything that damages a
 // ship" is literally the same code path a ship takes), and the JAMMING
 // SCATTER — the deterministic per-(buoy, sweep-revolution) fake-return set.
-// The perception-side rules (relay gate, self-paint, fake emission and the
-// carve-out they need) live in signals.ts beside the blip row; the per-tick
+// The perception-side rules (the buoy's own gate + scope, self-paint, fake
+// emission and the carve-out they need) live in signals.ts beside the blip
+// row; the per-tick
 // driving (expiry, sweep advance, epoch refresh, gun fire) lives in
 // World.tickBuoys.
 
@@ -66,7 +69,7 @@ export interface JamFake {
  */
 export interface BuoyState {
   id: string;
-  ownerId: string; // the placing captain — relay recipient; NEVER on the blip wire (R2.9)
+  ownerId: string; // the placing captain — the scope's one recipient; enemies never learn it (R2.9)
   x: number; // u — fixed at drop; a buoy never moves
   y: number; // u
   until: number; // ms — server time it expires (drop + owner's effective durationMs)

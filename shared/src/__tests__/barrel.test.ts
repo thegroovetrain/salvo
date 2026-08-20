@@ -192,7 +192,13 @@ describe('shared barrel', () => {
     // starShells become INDEPENDENT VERB BOOLEANS (verbs stack now, which one
     // enum field cannot express); and LitZoneView trades `mode` for the two
     // optional flags `phos`/`daz`, which is the payload shape of that change.
-    expect(PROTOCOL_VERSION).toBe(43);
+    // 43 -> 44: THE BUOY'S OWN SCOPE (Story 7-5 fix cycle, Eric playtest —
+    // "It gets its own returns. I just get to see them as the owner.").
+    // ReturnBlipEvent gains the OPTIONAL `src` sensor attribution (present
+    // only in the owning observer's frames; says which of YOUR sensors made
+    // the return, never whether the subject is real) and BuoyView gains
+    // `sweep` (the buoy's live antenna angle, the owner's wedge render input).
+    expect(PROTOCOL_VERSION).toBe(44);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
