@@ -1757,3 +1757,50 @@ it was written to prevent, one ruling later.
   deployed**, 108 captive torpedoes, and `bulwark` fitting star-shell cards it could never use.
 - Card ledger: **`NEVER OFFERED: (none)`** and **`OFFERED BUT NEVER FITTED: (none)`** — every one of
   the 29 catalog lines is both offered and fitted under bot policy.
+
+### THE RIG'S FIRST FINDING (measured, NOT acted on — full record `bot-evidence-2026-08-20.md`)
+
+A controlled A/B at MATCHED seed and roster (`--bots 18 --matches 30 --seed 11`), differing only in
+spend policy, splits into two claims that must not be conflated:
+
+| class | wins WEIGHTED | wins RANDOM | kills w → r |
+|---|---|---|---|
+| Torpedo Boat | 15/30 | 5/30 | 1.15 → 0.53 |
+| Battleship | 11/30 | 13/30 | 0.90 → 1.26 |
+| Mine Layer | 4/30 | 12/30 | 0.68 → 0.92 |
+
+**(a) The Torpedo Boat is the BUILD-SENSITIVE hull** — best with a curated build, worst with a random
+one. That is a statement about the HULL and the CATALOG and is **Eric's to rule on**; nothing was
+changed for it here.
+
+**(b) The Mine Layer's bots build it WORSE THAN CHANCE**, nearly tripling its win share when its
+weight tables are ignored. A profile that underperforms a coin flip is evidence about the WEIGHT
+TABLE, not the hull — a BOT-POLICY finding, and the first thing a follow-up should chase.
+**Deliberately NOT acted on in this cycle**: retuning `forager`/`trapper` off a single 30-match A/B
+is the tune-first-measure-later mistake the rig exists to prevent, and the ruled scope was to teach
+behaviour, not to re-balance profiles.
+
+Bounds of honesty on both: one seed pair, 30 matches per arm, and BOT behaviour rather than human —
+a person's build is neither weighted-table nor uniform.
+
+### A FOURTH AND FIFTH DOWNGRADE, FOUND BY THE CROSS-MODEL PASS
+
+The Codex arm of the review gate found two defects the in-family Fable pass did not, which is the
+argument for running both:
+
+4. **`mineWant` bypassed PROP-FOULING's widened window for a CAPTIVE holder.** `mineWant` hands the
+   whole decision to the captive branch the moment `mine.captive` is set, but the two verbs STACK by
+   design and the captive torpedo carries the foul. A neutral-appetite layer holding both, facing a
+   pursuer closing astern at 450u, laid nothing where fouling ALONE laid.
+5. **`alreadyHeld` demoted EVERY held line, not just one-copy ones** — PRE-EXISTING since Story 6-4.
+   Its docstring said *"the ONE-COPY line this def names"*; the implementation tested only
+   `fitted.includes(id)`. So a bot that bought one `intelRange` scored the next at the held-line 0.9
+   instead of its profile's 2.4 and STOPPED CLIMBING the ladder its doctrine rests on — likewise
+   `shipCooldown` (×5), `mineBlast` (×4) and every other stackable line. A multi-copy line needs no
+   demotion at all, because the deck stops offering it once its copies are spent. Not a regression
+   from this cycle, but precisely the failure this cycle exists to fix.
+
+**LEDGERED, NOT BUILT:** Codex also flagged that `enroll()` accepts a `TestProfileId` with no RUNTIME
+guard. Containment today is the type split + table disjointness + a structural test, and no
+production caller passes one. A runtime guard would require a "test mode" flag, which is itself a new
+production surface defending against a caller that does not exist. Recorded as accepted.

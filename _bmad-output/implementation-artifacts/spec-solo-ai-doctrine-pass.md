@@ -2,9 +2,10 @@
 title: 'Solo vs AI: the doctrine pass — bots that use the finalized cards, and a blind-vacuum test rig'
 type: 'feature'
 created: '2026-08-20'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'd12ca0a0da95649e5a3b0871573b6115e517a2aa'
-review_loop_iteration: 0
+review_loop_iteration: 1
+final_revision: '5bac4bf'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context-amendments.md'
@@ -89,44 +90,44 @@ warnings: ['oversized']
 **Execution:**
 
 *Wave 1 — retire the omniscient pilot (no behaviour change to bots)*
-- [ ] `server/scripts/batchsim/spendPolicy.ts` -- NEW: move `SPEND_TOP_P`, `RARITY_RANK`, `preferenceRank`, `pickSpendChoice` verbatim out of `pilots.ts` -- `--deck-only` builds no World and must outlive the pilots.
-- [ ] `server/scripts/batchsim/deckSim.ts` -- re-point the import to `spendPolicy.js` -- no behaviour change.
-- [ ] `server/scripts/batchsim/controls.ts` -- RENAME from `pilots.ts`; delete `gunner` and `endgame` from the registry and delete the hunt-policy plumbing they alone used; keep `pacifist` and the shared un-beach seamanship it exercises; rewrite the header to state it is a frozen storm-pacing CONTROL, not an AI -- its omniscience is inert because it never targets.
-- [ ] `server/scripts/batchsim/{runner,main,args}.ts` -- default becomes `pacifist`; `--pilot` becomes `--control`; USAGE rewritten -- `runner.ts:322` executes on every run including bot-only.
-- [ ] `server/scripts/batchsim/catalogReport.ts` -- update the printed policy sentence at `:124` -- it lands in the deterministic report body, so it is a deliberate golden change.
+- [x] `server/scripts/batchsim/spendPolicy.ts` -- NEW: move `SPEND_TOP_P`, `RARITY_RANK`, `preferenceRank`, `pickSpendChoice` verbatim out of `pilots.ts` -- `--deck-only` builds no World and must outlive the pilots.
+- [x] `server/scripts/batchsim/deckSim.ts` -- re-point the import to `spendPolicy.js` -- no behaviour change.
+- [x] `server/scripts/batchsim/controls.ts` -- RENAME from `pilots.ts`; delete `gunner` and `endgame` from the registry and delete the hunt-policy plumbing they alone used; keep `pacifist` and the shared un-beach seamanship it exercises; rewrite the header to state it is a frozen storm-pacing CONTROL, not an AI -- its omniscience is inert because it never targets.
+- [x] `server/scripts/batchsim/{runner,main,args}.ts` -- default becomes `pacifist`; `--pilot` becomes `--control`; USAGE rewritten -- `runner.ts:322` executes on every run including bot-only.
+- [x] `server/scripts/batchsim/catalogReport.ts` -- update the printed policy sentence at `:124` -- it lands in the deterministic report body, so it is a deliberate golden change.
 
 *Wave 2 — the equipment axis (Eric ruling: profiles live on the equipment as well as the ship)*
-- [ ] `server/src/game/ai/equipment.ts` -- NEW: an `EquipmentTactic` interface + `EQUIPMENT_TACTICS: Record<EquipmentId, EquipmentTactic>` registry, mirroring the server's own one-interface-one-registry pattern in `game/equipment/index.ts`. Each tactic owns `want()` (spend it now?), `solve()` (the `Shot`), and `reachU(stats)` (its effective reach, for the band pull). A `Record<EquipmentId, …>` is the completeness gate -- a new equipment cannot ship without a bot tactic.
-- [ ] `server/src/game/ai/tactics.ts` -- `chooseShot` iterates the bot's ACTUAL fitted slots through the registry instead of a hardcoded weapon ladder -- this is what makes an acquired R-slot weapon work at all. Ordering comes from the ship profile's appetite table, with the flare/mine/buoy class of placements still resolved ABOVE the `target === null` guard at `:533`.
-- [ ] `server/src/game/ai/equipment.ts` -- the RADAR BUOY tactic (there is none today). Re-derive placement from `CONFIG.mine.placeRange` + `sectorArcFor('radarBuoy')`; the equipment row is import-banned.
-- [ ] `server/src/game/ai/profiles.ts` -- replace `usesStarShells`/`usesMinesProactively`/`usesBoost` with `appetite: Partial<Record<EquipmentId, number>>`. RULED (Eric, 2026-08-20): temperament modulates **PROACTIVITY ONLY** -- one mine tactic shared by everyone, with `trapper` laying as a plan and `siege` laying only when something is closing. A profile may NOT override placement, doctrine choice or target selection; that is the flat table this replaces. Every appetite entry is consumed by `want()` and by the ordering, satisfying the deleted-`aggression` rule.
-- [ ] `server/src/game/ai/utility.ts` -- the BAND PULL. RULED (Eric, 2026-08-20): a fitted weapon that is READY and whose `reachU` lies outside the hull's band tugs the relevant band edge toward its reach, and only while loaded. BOUNDED so identity survives: the edge moves at most halfway toward the weapon's reach, and `engagementBand`'s profile fractions remain the anchor. A `siege` BS closes somewhat with a loaded torpedo and drifts back out after firing; it never becomes a `duelist`.
-- [ ] `shared/src/constants.ts` -- give every profile a FULL RANKING over all six acquisition cards, every entry scored ABOVE `UNLISTED_SCORE`. RULED (Eric, 2026-08-20): a bot prefers its favourite pickup but SETTLES for the best on offer -- it never passes out of pickiness. Today all six inherit the target equipment's category, which no profile's `cat` table names, so they all score the 0.5 unlisted default and the R slot stays empty by accident.
+- [x] `server/src/game/ai/equipment.ts` -- NEW: an `EquipmentTactic` interface + `EQUIPMENT_TACTICS: Record<EquipmentId, EquipmentTactic>` registry, mirroring the server's own one-interface-one-registry pattern in `game/equipment/index.ts`. Each tactic owns `want()` (spend it now?), `solve()` (the `Shot`), and `reachU(stats)` (its effective reach, for the band pull). A `Record<EquipmentId, …>` is the completeness gate -- a new equipment cannot ship without a bot tactic.
+- [x] `server/src/game/ai/tactics.ts` -- `chooseShot` iterates the bot's ACTUAL fitted slots through the registry instead of a hardcoded weapon ladder -- this is what makes an acquired R-slot weapon work at all. Ordering comes from the ship profile's appetite table, with the flare/mine/buoy class of placements still resolved ABOVE the `target === null` guard at `:533`.
+- [x] `server/src/game/ai/equipment.ts` -- the RADAR BUOY tactic (there is none today). Re-derive placement from `CONFIG.mine.placeRange` + `sectorArcFor('radarBuoy')`; the equipment row is import-banned.
+- [x] `server/src/game/ai/profiles.ts` -- replace `usesStarShells`/`usesMinesProactively`/`usesBoost` with `appetite: Partial<Record<EquipmentId, number>>`. RULED (Eric, 2026-08-20): temperament modulates **PROACTIVITY ONLY** -- one mine tactic shared by everyone, with `trapper` laying as a plan and `siege` laying only when something is closing. A profile may NOT override placement, doctrine choice or target selection; that is the flat table this replaces. Every appetite entry is consumed by `want()` and by the ordering, satisfying the deleted-`aggression` rule.
+- [x] `server/src/game/ai/utility.ts` -- the BAND PULL. RULED (Eric, 2026-08-20): a fitted weapon that is READY and whose `reachU` lies outside the hull's band tugs the relevant band edge toward its reach, and only while loaded. BOUNDED so identity survives: the edge moves at most halfway toward the weapon's reach, and `engagementBand`'s profile fractions remain the anchor. A `siege` BS closes somewhat with a loaded torpedo and drifts back out after firing; it never becomes a `duelist`.
+- [x] `shared/src/constants.ts` -- give every profile a FULL RANKING over all six acquisition cards, every entry scored ABOVE `UNLISTED_SCORE`. RULED (Eric, 2026-08-20): a bot prefers its favourite pickup but SETTLES for the best on offer -- it never passes out of pickiness. Today all six inherit the target equipment's category, which no profile's `cat` table names, so they all score the 0.5 unlisted default and the R slot stays empty by accident.
 
 *Wave 3 — doctrine changes behaviour (one consumer per verb, inside its equipment's tactic)*
-- [ ] `server/src/game/ai/equipment.ts` -- `mine.captive`: lay at full `placeRange` (trip ring is 144u) and proactively; `mine.propFouling`: prefer laying against a closing pursuer.
-- [ ] `server/src/game/ai/equipment.ts` -- `torpedo.homing`: widen the credible-range gate, bounded by `homingMaxRangeU` and the 120u turn radius.
-- [ ] `server/src/game/ai/equipment.ts` -- `starShells.dazzle`: flare becomes offensive (live contact in sight); `starShells.phosphor`: prefer a slow/engaged target, and account for the ×0.8 lit-radius cost.
-- [ ] `server/src/game/ai/equipment.ts` -- `radarBuoy.jamming`/`.gun`: siting preference differs from a plain sensor buoy.
-- [ ] `server/src/game/ai/equipment.ts` -- `broadside.spreadRung`: a wide fan may be spent on a less certain plot; a tight fan demands a live track.
-- [ ] `server/src/game/ai/utility.ts` -- add track persistence and require it before committing a 30s-reload weapon -- the honest counter to jamming fakes, which re-scatter wholesale each buoy revolution.
-- [ ] `shared/src/constants.ts` -- re-tune `boonWeights`. RULED: `forager.mineCaptive` drops from 2.4 to at most the held-line neutral (it must not be a *wanted* line) and `trapper` becomes its home, because captive mines trip on HOSTILES ONLY — a neutral fleet drone walks over them and CAPTIVE disarms the fleet-farming forager exists to do. Delete the CONFIG comment claiming forager "prefers CAPTIVE… and so farms without re-positioning": that rationale is contradicted by `isCaptiveMineHostile`.
-- [ ] `server/src/game/ai/profiles.ts` -- re-band against the finalized reaches. RULED: `siege.bandMaxFrac` must stay at or below 0.625 (`broadside.rangeU` = 0.625R) so its heavy weapon reaches its own preferred water; every other band moves only if a doctrine branch makes it wrong, and any move is recorded in the spec change log with its reason.
+- [x] `server/src/game/ai/equipment.ts` -- `mine.captive`: lay at full `placeRange` (trip ring is 144u) and proactively; `mine.propFouling`: prefer laying against a closing pursuer.
+- [x] `server/src/game/ai/equipment.ts` -- `torpedo.homing`: widen the credible-range gate, bounded by `homingMaxRangeU` and the 120u turn radius.
+- [x] `server/src/game/ai/equipment.ts` -- `starShells.dazzle`: flare becomes offensive (live contact in sight); `starShells.phosphor`: prefer a slow/engaged target, and account for the ×0.8 lit-radius cost.
+- [x] `server/src/game/ai/equipment.ts` -- `radarBuoy.jamming`/`.gun`: siting preference differs from a plain sensor buoy.
+- [x] `server/src/game/ai/equipment.ts` -- `broadside.spreadRung`: a wide fan may be spent on a less certain plot; a tight fan demands a live track.
+- [x] `server/src/game/ai/utility.ts` -- add track persistence and require it before committing a 30s-reload weapon -- the honest counter to jamming fakes, which re-scatter wholesale each buoy revolution.
+- [x] `shared/src/constants.ts` -- re-tune `boonWeights`. RULED: `forager.mineCaptive` drops from 2.4 to at most the held-line neutral (it must not be a *wanted* line) and `trapper` becomes its home, because captive mines trip on HOSTILES ONLY — a neutral fleet drone walks over them and CAPTIVE disarms the fleet-farming forager exists to do. Delete the CONFIG comment claiming forager "prefers CAPTIVE… and so farms without re-positioning": that rationale is contradicted by `isCaptiveMineHostile`.
+- [x] `server/src/game/ai/profiles.ts` -- re-band against the finalized reaches. RULED: `siege.bandMaxFrac` must stay at or below 0.625 (`broadside.rangeU` = 0.625R) so its heavy weapon reaches its own preferred water; every other band moves only if a doctrine branch makes it wrong, and any move is recorded in the spec change log with its reason.
 
 *Wave 4 — the test-only rig*
-- [ ] `server/src/game/ai/types.ts` + `profiles.ts` -- add `TestProfileId` in a SEPARATE id space with `AnyProfileId = BotProfileId | TestProfileId`; keep `BOT_PROFILES`'s `Record<BotProfileId, …>` completeness gate intact; add `BotProfile.spend: 'weighted' | 'random'`.
-- [ ] `server/src/game/ai/profiles.ts` -- three test rows, one per hull. RULED, so the read is not shaped by a doctrine preference: band `0.15`–`0.55` (spanning knife range to just inside the broadside rung) for all three; `targetWeights` flat at `{ captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 }`; `disengageHpFrac`/`healHpFrac` at the CONFIG defaults; every preference flag ON so every verb is exercised; `spend: 'random'`.
-- [ ] `server/src/game/ai/spending.ts` -- random mode: uniform pick over the offer; heal still fires at `healHpFrac`; weighted path byte-identical and still rng-free.
-- [ ] `server/src/game/ai/botDriver.ts` + `server/src/game/world.ts` -- optional profile override threaded `addBot(hull?, profile?) → enroll`, drawing and DISCARDING the class roll to preserve stream position; mint the spend rng on a distinct multiplier.
-- [ ] `server/src/game/ai/types.ts` + `world.ts` -- `BotWorldPort.zoneEndgameReached` (parity: the client already receives ring state via `ArenaState`) and a controller-level engage gate.
-- [ ] `server/scripts/batchsim/args.ts` + `runner.ts` -- `--bot-profile NAME` (test ids only) and `--bot-engage always|endgame`.
-- [ ] `server/scripts/batchsim/catalogMetrics.ts` + `catalogReport.ts` -- slice fits by class/profile and print the deck-composition block in batch mode -- gives the structural denominator beside the observed one.
+- [x] `server/src/game/ai/types.ts` + `profiles.ts` -- add `TestProfileId` in a SEPARATE id space with `AnyProfileId = BotProfileId | TestProfileId`; keep `BOT_PROFILES`'s `Record<BotProfileId, …>` completeness gate intact; add `BotProfile.spend: 'weighted' | 'random'`.
+- [x] `server/src/game/ai/profiles.ts` -- three test rows, one per hull. RULED, so the read is not shaped by a doctrine preference: band `0.15`–`0.55` (spanning knife range to just inside the broadside rung) for all three; `targetWeights` flat at `{ captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 }`; `disengageHpFrac`/`healHpFrac` at the CONFIG defaults; every preference flag ON so every verb is exercised; `spend: 'random'`.
+- [x] `server/src/game/ai/spending.ts` -- random mode: uniform pick over the offer; heal still fires at `healHpFrac`; weighted path byte-identical and still rng-free.
+- [x] `server/src/game/ai/botDriver.ts` + `server/src/game/world.ts` -- optional profile override threaded `addBot(hull?, profile?) → enroll`, drawing and DISCARDING the class roll to preserve stream position; mint the spend rng on a distinct multiplier.
+- [x] `server/src/game/ai/types.ts` + `world.ts` -- `BotWorldPort.zoneEndgameReached` (parity: the client already receives ring state via `ArenaState`) and a controller-level engage gate.
+- [x] `server/scripts/batchsim/args.ts` + `runner.ts` -- `--bot-profile NAME` (test ids only) and `--bot-engage always|endgame`.
+- [x] `server/scripts/batchsim/catalogMetrics.ts` + `catalogReport.ts` -- slice fits by class/profile and print the deck-composition block in batch mode -- gives the structural denominator beside the observed one.
 
 *Wave 5 — tests + evidence*
-- [ ] `server/src/__tests__/{bots,botPolicy,botTactics}.test.ts` -- extend for the new profile field, the test-id space, `buoyShot`'s ladder position, and each doctrine branch; keep `botTactics.test.ts:1288` determinism green.
-- [ ] `server/scripts/batchsim/__tests__/batchSim.test.ts` -- retarget the un-beach block and the determinism block onto `pacifist`; retire the gunner/endgame pins; keep the `pickSpendChoice` pins against the new module.
-- [ ] `_bmad-output/implementation-artifacts/bot-evidence-2026-08-20.md` -- NEW: a MODEST campaign (see Verification), reporting the six quality bars and the blind-vacuum card table.
-- [ ] `_bmad-output/implementation-artifacts/epic-7-context-amendments.md` -- append Amendment 19; `sprint-status.yaml` + `gds-workflow-status.yaml` one-line stamps; `VERSION`/`package.json` → 0.17.110.
+- [x] `server/src/__tests__/{bots,botPolicy,botTactics}.test.ts` -- extend for the new profile field, the test-id space, `buoyShot`'s ladder position, and each doctrine branch; keep `botTactics.test.ts:1288` determinism green.
+- [x] `server/scripts/batchsim/__tests__/batchSim.test.ts` -- retarget the un-beach block and the determinism block onto `pacifist`; retire the gunner/endgame pins; keep the `pickSpendChoice` pins against the new module.
+- [x] `_bmad-output/implementation-artifacts/bot-evidence-2026-08-20.md` -- NEW: a MODEST campaign (see Verification), reporting the six quality bars and the blind-vacuum card table.
+- [x] `_bmad-output/implementation-artifacts/epic-7-context-amendments.md` -- append Amendment 19; `sprint-status.yaml` + `gds-workflow-status.yaml` one-line stamps; `VERSION`/`package.json` → 0.17.110.
 
 **Acceptance Criteria:**
 - Given a bot holding any doctrine verb, when it acts, then at least one decision differs from the same bot without the verb — proven per verb by a unit test that fails when the branch is removed.
@@ -138,6 +139,31 @@ warnings: ['oversized']
 - Given identical `--seed` and roster, when the harness runs twice, then the report bodies are byte-identical excluding the `meta:` line.
 - Given `npm run check`, when it runs, then lint, all three type-checks and the whole suite pass.
 - Given the batch campaign, when the six quality bars are computed, then each is reported with PASS/FAIL and any regression against the 7-5 baseline is explained rather than absorbed.
+
+## Review Triage Log
+
+**Pass 1 — 2026-08-20, two reviewers in parallel (Fable adversarial + Codex cross-model).**
+
+Counts: intent_gap 0 · bad_spec 0 · patch 4 · defer 1 · reject 0.
+
+| Finding | Source | Severity | Decision |
+|---|---|---|---|
+| PHOSPHOR closed the sensor-flare window entirely for non-eager holders (floor 3000ms > cap 2933ms) | Fable, CONFIRMED | high | patch — cap wins, reluctance degrades to the eager floor |
+| CAPTIVE deleted the base mine's unconditional withdrawal lay | Fable, CONFIRMED | medium | patch, NARROWED — the fleet-only refusal is deliberate and kept; only the no-target case moved |
+| `alreadyHeld` demoted every held line, not just one-copy (pre-existing since 6-4) | Codex, CONFIRMED | high | patch — `copies === 1`; a stackable ladder must stay climbable |
+| `mineWant` bypassed PROP-FOULING's widened window for a CAPTIVE holder | Codex, CONFIRMED | medium | patch — the two verbs stack by design |
+| Track persistence gate does not test persistence-of-association | Fable, PLAUSIBLE | low | defer — redundant against its stated adversary today (anon tracks carry no pose, and both long-reload solves refuse a poseless plot); the documented rationale is wrong, the behaviour is not |
+| No RUNTIME guard on `enroll` accepting a `TestProfileId` | Codex, PLAUSIBLE | low | defer — containment is the type split + table disjointness + a structural test; a runtime guard needs a "test mode" flag, itself a new production surface |
+| Land-contact bar 1.9% in a 2-match smoke | Fable, PLAUSIBLE | low | reject at n=30 — measured 0.6% (PASS), and improved on the 6-4 baseline of 0.9%. n=2 was noise |
+
+Every patch carries a regression test **proven** to fail without its fix, by reverting each fix in
+turn and confirming only that test went red.
+
+**Process note of record:** the buoy-recon downgrade was caught by the orchestrator before the gate,
+PHOSPHOR and CAPTIVE by Fable, and the remaining two by Codex — five instances of ONE defect class
+(*a doctrine branch written as a replacement for the base behaviour rather than an addition*), found
+by three different readers. No single reviewer found more than two. That is the argument for the
+cross-model gate, and the class is now stated as a rule in the code and in amendment 29.
 
 ## Design Notes
 
