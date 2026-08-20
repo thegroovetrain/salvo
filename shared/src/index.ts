@@ -3,6 +3,20 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  45: PER-TURRET FIRING ARCS (Eric ruling 2026-08-20) — the BROADSIDE
+ *  BARRAGE's designed angular fan is DELETED and replaced by per-turret aim:
+ *  each turret owns a mount bearing (straddled across
+ *  ±CONFIG.broadside.turretMountSpreadDeg about the beam) and a traverse
+ *  half-angle (the authored CONFIG.broadside.traverseDeg ladder, indexed by
+ *  the SPREAD rung), fires EXACTLY at the click when its own arc bears and at
+ *  its arc limit at the click's range when it cannot (shared sim/aim.ts
+ *  turretAimPoints — one derivation, both sides). CONFIG.broadside loses
+ *  `fanHalfAngleDeg` and gains the two fields above (rides the welcome config
+ *  snapshot); `EffectiveStats.broadside.fanHalfAngleRad` becomes
+ *  `traverseRad`. Same wire SHAPES, but a stale client's aim preview would
+ *  draw a fan the server no longer fires, breaking "the previewed circle IS
+ *  where the shell bursts" — the same class of break as a catalog content
+ *  change.
  *  44: THE BUOY'S OWN SCOPE (Story 7-5 fix cycle, Eric playtest 2026-08-19/20 —
  *  *"It gets its own returns. I just get to see them as the owner."*). The R2.8
  *  relay-into-the-owner's-blips model is REPLACED: a radar buoy is a
@@ -484,7 +498,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 44;
+export const PROTOCOL_VERSION = 45;
 
 // Tunables
 export * from './constants.js';

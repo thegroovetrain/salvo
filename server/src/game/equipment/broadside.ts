@@ -13,23 +13,22 @@
 //      denial path (FR12: never silent). The pool is NOT consumed by an arc
 //      miss, exactly as the torpedo's bow arc behaves.
 //
-//   2. ONE CLICK FIRES `turrets` SHELLS ON AN ARC (R2.3). Every shell ends its
-//      run at the CLICK'S OWN RANGE — the pattern is an arc at constant radius
-//      from the ship, spread ANGULARLY about the click bearing, NOT a cone.
-//      The geometry is NOT re-derived here: shared sim/aim.ts `fanBurstPoints`
-//      (spread.ts's straddle law + the water-disk clamp) owns it, so an ODD
-//      turret count puts one shell exactly on the click bearing, an EVEN count
-//      straddles it with none on it, a fan extreme that would swing off the
-//      water disk is pulled back rather than expiring unfired, and the server
-//      and the client's aim preview cannot disagree about where the shells go.
-//
-//      AND EACH SHELL FIRES FROM ITS OWN TURRET (Eric's correction
-//      2026-08-19): `turrets` separate, evenly-spaced muzzle points along the
-//      hull's midship section on the engaged beam, from shared sim/aim.ts
-//      `turretMuzzles`. Extra turrets RE-SPACE that fixed span into 4 then 5
-//      points — the same ship with more guns, not a longer line of guns. The
-//      client's aim preview calls the same function, so the muzzle flashes it
-//      draws are the muzzles the server fires from.
+//   2. ONE CLICK FIRES `turrets` SHELLS, EACH FROM ITS OWN TURRET AND EACH AS
+//      CLOSE TO THE CLICK AS ITS OWN ARC ALLOWS (Eric ruling 2026-08-20,
+//      replacing the designed fan of R2.3). Every turret has its own muzzle —
+//      evenly-spaced along the hull's midship section on the engaged beam
+//      (Eric's correction 2026-08-19; extra turrets RE-SPACE the fixed span
+//      into 4 then 5 points) — AND its own firing arc: a mount bearing
+//      straddled across the beam sector, ± the boon-scaled traverse. A turret
+//      whose arc contains the click fires EXACTLY at it; one that cannot bear
+//      fires at its arc LIMIT at the click's range, so the pattern stays an
+//      arc at constant radius and the salvo's spread EMERGES from geometry
+//      instead of being designed. None of it is re-derived here: shared
+//      sim/aim.ts `turretAimPoints` (muzzles + mounts + the parallax-true
+//      bearing clamp + the water-disk clamp) owns it, so the server and the
+//      client's aim preview cannot disagree about where the shells go, and a
+//      limit shot that would swing off the water disk is pulled back rather
+//      than expiring unfired.
 //
 // SIGNALS ARE PER SHELL (R2.5, Eric A2): each shell is an ordinary gun-family
 // `shell` and emits its OWN mz / sp / hc through the unchanged World paths.
@@ -45,13 +44,12 @@
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
-  fanBurstPoints,
-  turretMuzzles,
+  turretAimPoints,
   twinSectorArcFor,
   twinSectorSide,
   type EquipmentState,
   type ShellState,
-  type Vec2,
+  type TurretAim,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
@@ -64,51 +62,38 @@ import { burstPointAlong } from './guns.js';
 const BEAMS = twinSectorArcFor('broadside');
 
 /**
- * The barrage's per-shell target points: the CLICKED burst point (aim bearing,
- * clicked distance, clamped to the broadside's effective range AND to the water
- * disk — the gun's own `burstPointAlong`) fanned into `turrets` points at that
- * SAME range by shared `fanBurstPoints`. Exported for tests: the fan is the
- * feature, so its geometry is directly assertable without spawning shells.
- *
- * `fanBurstPoints` — not the raw `fanTargets` — because a fan EXTREME can swing
- * out of the water disk on a shot whose click stayed inside it, and a target
- * outside the disk expires with no burst and no damage. The shared helper pulls
- * every point back exactly as the click was pulled back, so the client's aim
- * preview and this fire path read ONE answer (wave-2 review gate).
+ * The barrage's full aim solution: the CLICKED burst point (aim bearing,
+ * clicked distance, clamped to the broadside's effective range AND to the
+ * water disk — the gun's own `burstPointAlong`) resolved per turret by shared
+ * `turretAimPoints` (sim/aim.ts): muzzle `i`, arc `i`, and the target that
+ * turret can actually reach — the click exactly when its arc bears, its arc
+ * limit at the click's range when it cannot. The ShipRecord-shaped wrapper;
+ * `side` is `twinSectorSide`'s answer, never re-derived here. Exported for
+ * tests: the returned array IS the barrage's geometry, directly assertable
+ * without spawning shells, and it is the same call the client's aim preview
+ * makes (one answer, never two).
  */
-export function broadsideTargets(ship: ShipRecord, mapRadius: number): Vec2[] {
+export function broadsideAim(ship: ShipRecord, side: 1 | -1, mapRadius: number): TurretAim[] {
   const bs = ship.stats.broadside;
   const click = burstPointAlong(ship, mapRadius, bs.rangeU, ship.input.aim);
-  return fanBurstPoints(ship.state, click, bs.turrets, bs.fanHalfAngleRad, mapRadius);
-}
-
-/**
- * The barrage's per-shell MUZZLE POINTS — `turrets` separate, evenly-spaced
- * guns along the hull on the FIRING beam (Eric's correction 2026-08-19). The
- * ShipRecord-shaped wrapper around shared `turretMuzzles` (sim/aim.ts, where
- * the span/straddle/pairing rules live); `side` is `twinSectorSide`'s answer,
- * never re-derived here. Exported for tests beside `broadsideTargets`: muzzle
- * `i` fires at target `i`, so the two arrays ARE the barrage's geometry.
- */
-export function broadsideMuzzles(ship: ShipRecord, side: 1 | -1): Vec2[] {
-  return turretMuzzles(ship.state, ship.hullId, ship.stats.broadside.turrets, side);
+  return turretAimPoints(ship.state, ship.hullId, bs.turrets, side, click, bs.traverseRad, mapRadius);
 }
 
 /**
  * Broadside fire control against one slot pool: the ARC IS TESTED FIRST (an
  * arc miss consumes nothing), then one consumed round launches `turrets`
- * shells, each a REAL gun-pattern shell flying to its own point on the fan arc
- * and bursting there in `burstRadius`. Damage/blast/turret count/fan angle all
- * come from the OWNER'S effective stats (the BROADSIDE TURRETS and BROADSIDE
- * SPREAD ladders), never raw CONFIG. distLeft slack mirrors fireGunShells
- * (guards float drift, never extends reach).
+ * shells, each a REAL gun-pattern shell flying to the point ITS OWN turret arc
+ * can reach and bursting there in `burstRadius`. Damage/blast/turret
+ * count/traverse all come from the OWNER'S effective stats (the BROADSIDE
+ * TURRETS and BROADSIDE SPREAD ladders), never raw CONFIG. distLeft slack
+ * mirrors fireGunShells (guards float drift, never extends reach).
  *
  * EACH SHELL LEAVES ITS OWN TURRET (Eric's correction 2026-08-19). Shell `i`
  * spawns at muzzle `i` and its bearing is MUZZLE→target, not centre→target —
  * which is what actually puts the round on its point from an off-centre gun.
- * The clicked shell of an odd barrage still lands EXACTLY on the click: its
- * target is the click (fan offset 0) and stepShell stops it there; only the
- * line it flies in on moved, from the shared muzzle to the middle turret.
+ * Every shell whose turret BEARS lands EXACTLY on the click: its target IS the
+ * click (turretAimPoints returns it byte-identical) and stepShell stops it
+ * there; a turret that cannot bear flies to its arc limit instead.
  *
  * `muzzleOrTarget` is GONE from this path and its absence is deliberate: it
  * existed to stop a point-blank click spawning the shell PAST its own target
@@ -130,10 +115,8 @@ function fireBroadside(
   }
   if (!consume(pool, ship.stats.broadside.reloadMs)) return { shells: [], denial: 'no-ammo' };
   const bs = ship.stats.broadside;
-  const muzzles = broadsideMuzzles(ship, side);
   const shells: ShellState[] = [];
-  broadsideTargets(ship, mapRadius).forEach((target, i) => {
-    const origin = muzzles[i];
+  broadsideAim(ship, side, mapRadius).forEach(({ muzzle: origin, target }) => {
     const dir = Math.atan2(target.y - origin.y, target.x - origin.x);
     shells.push(
       makeBallistic(mkId(), ship, dir, now, {

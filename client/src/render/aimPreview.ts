@@ -27,13 +27,12 @@ import {
   blockedWater,
   burstPointAlong,
   clampInsideMap,
-  fanBurstPoints,
   hullEnvelope,
   islandSegHit,
   muzzleOrTarget,
   parallelOffsets,
   torpedoSpawn,
-  turretMuzzles,
+  turretAimPoints,
   twinSectorArcFor,
   twinSectorSide,
   type EffectiveStats,
@@ -261,29 +260,25 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
 }
 
 /**
- * THE BROADSIDE BARRAGE (R2.3). Every turret on the firing side sends one shell,
- * and every shell ends its run at the CLICK'S OWN RANGE — so the pattern is an
- * ARC AT CONSTANT RADIUS about the ship, spread angularly about the click
- * bearing, never a cone that widens with distance.
+ * THE BROADSIDE BARRAGE (Eric ruling 2026-08-20 — per-turret firing arcs).
+ * Every turret on the firing side sends one shell AS CLOSE TO THE CLICK AS ITS
+ * OWN ARC ALLOWS: a turret that bears previews a circle exactly on the
+ * crosshair; one that cannot previews its arc-limit shot at the click's range.
+ * The salvo's spread is EMERGENT — what the preview shows is precisely how the
+ * geometry resolved, which is the whole aiming conversation of the weapon.
  *
- * The per-shell target points come from the SHARED helper (sim/aim.ts
- * fanBurstPoints), called with the ship position, the range-clamped click point,
- * `stats.broadside.turrets` and `stats.broadside.fanHalfAngleRad` — the exact
- * call the server's barrage makes. Re-deriving the geometry here is forbidden:
- * the project's guarantee is that the previewed circle IS where the shell
- * bursts, and two derivations of one fan is precisely the desync class
- * effectiveStats() exists to prevent. An ODD turret count therefore puts one
- * circle exactly on the crosshair and an EVEN count leaves the crosshair empty
- * — the straddle law, visible.
+ * The per-shell muzzles AND targets come from the ONE shared helper
+ * (sim/aim.ts `turretAimPoints`), called with the ship pose, the range-clamped
+ * click point, `stats.broadside.turrets`, the side and
+ * `stats.broadside.traverseRad` — the exact call the server's `broadsideAim`
+ * makes. Re-deriving the geometry here is forbidden: the project's guarantee
+ * is that the previewed circle IS where the shell bursts, and two derivations
+ * of one aim solution is precisely the desync class effectiveStats() exists to
+ * prevent.
  *
- * Each shell gets its OWN TURRET (Eric's correction 2026-08-19) and its own
- * island clip, because each is a real independent shell that leaves its own gun,
- * bursts at its own point and emits its own signals (R2.5). The muzzle points
- * come from the SHARED helper too (sim/aim.ts `turretMuzzles`, index-paired with
- * the fan) — the exact call the server's `broadsideMuzzles` makes — so the lines
- * this draws start where the shells actually start and where the muzzle flashes
- * actually appear. A hand-rolled hull offset here would be the same
- * two-derivations defect the fan already forbids.
+ * Each shell gets its own island clip, because each is a real independent
+ * shell that leaves its own gun, bursts at its own point and emits its own
+ * signals (R2.5).
  */
 function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
   const b = inp.stats.broadside;
@@ -302,14 +297,12 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
   const side = twinSectorSide(inp.ship.heading, inp.aim, twinSectorArcFor('broadside'));
   if (side === null) return model;
   const click = burstPointAlong(inp.ship, inp.aimDist, inp.mapRadius, b.rangeU, inp.aim);
-  // fanBurstPoints, not the raw fanTargets: a fan extreme can swing past the rim
-  // on a shot the CLICK itself kept inside it, and the shared helper pulls it
-  // back exactly as the click was pulled back — the SAME call the server's
-  // broadsideTargets makes, so there is one answer and not two.
-  const muzzles = turretMuzzles(inp.ship, inp.ship.cls, b.turrets, side);
-  fanBurstPoints(inp.ship, click, b.turrets, b.fanHalfAngleRad, inp.mapRadius).forEach((target, i) => {
-    shellPreview(inp, muzzles[i], target, spec, model);
-  });
+  // turretAimPoints — the SAME call the server's broadsideAim makes, so there
+  // is one answer and not two: an arc-limit shot swung past the rim is pulled
+  // back exactly as the click itself was.
+  for (const t of turretAimPoints(inp.ship, inp.ship.cls, b.turrets, side, click, b.traverseRad, inp.mapRadius)) {
+    shellPreview(inp, t.muzzle, t.target, spec, model);
+  }
   return model;
 }
 

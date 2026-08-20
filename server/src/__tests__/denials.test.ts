@@ -196,9 +196,9 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 43→44 bump (PV 44: THE BUOY\'S OWN SCOPE — ReturnBlipEvent gains the optional `src` sensor attribution and BuoyView gains `sweep`, so a stale client would drop tagged returns as malformed and read a buoy view one field short) is enforced at matchmake', () => {
-  it('rejects pv-43 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(44);
+describe('pv join gate — the 44→45 bump (PV 45: PER-TURRET FIRING ARCS — CONFIG.broadside drops `fanHalfAngleDeg` for `turretMountSpreadDeg`/`traverseDeg` and EffectiveBroadside reshapes, so a stale client would preview a designed fan the server no longer fires) is enforced at matchmake', () => {
+  it('rejects pv-44 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(45);
     expect(protocolVersionError(43)).toMatch(/refresh/);
     expect(protocolVersionError(42)).toMatch(/refresh/);
     expect(protocolVersionError(41)).toMatch(/refresh/);

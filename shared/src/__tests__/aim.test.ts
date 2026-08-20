@@ -11,16 +11,18 @@ import { describe, it, expect } from 'vitest';
 import {
   burstPointAlong,
   clampInsideMap,
-  fanBurstPoints,
   gunReachU,
   hullClearOffset,
   muzzleOrTarget,
   muzzleSpawn,
   pointInLitZone,
   torpedoSpawn,
+  turretAimPoints,
+  turretMountBearings,
   turretMuzzles,
 } from '../sim/aim.js';
 import { hullSilhouette, pointPolygonDistance, transformPolygon } from '../sim/silhouette.js';
+import { wrapAngle } from '../math/angle.js';
 import { CONFIG, hullEnvelope, type HullId } from '../constants.js';
 
 const HULLS: HullId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
@@ -85,31 +87,130 @@ describe('clampInsideMap', () => {
   });
 });
 
-describe('fanBurstPoints — the broadside fan, on the water', () => {
-  const R = 1000;
+describe('turretAimPoints — per-turret firing arcs (Eric ruling 2026-08-20)', () => {
+  const MAP_R = 5000;
+  // Battleship at the origin, bow along +x: the side-(+1) beam faces +y, so a
+  // click "phi deg off the beam toward the bow" is (r·sin phi, r·cos phi).
+  const POSE = { x: 0, y: 0, heading: 0 };
+  const TAU = CONFIG.broadside.traverseDeg.map((d) => (d * Math.PI) / 180);
+  const clickAt = (r: number, phiDeg: number): { x: number; y: number } => {
+    const phi = (phiDeg * Math.PI) / 180;
+    return { x: r * Math.sin(phi), y: r * Math.cos(phi) };
+  };
+  const aims = (r: number, phiDeg: number, tau = TAU[0], count = 3) =>
+    turretAimPoints(POSE, 'battleship', count, 1, clickAt(r, phiDeg), tau, MAP_R);
+  const bearing = (r: number, phiDeg: number, tau = TAU[0], count = 3): number =>
+    aims(r, phiDeg, tau, count).filter((t) => t.onClick).length;
 
-  it('is exactly the straddle fan when nothing leaves the disk', () => {
-    const ship = { x: 0, y: 0 };
-    const pts = fanBurstPoints(ship, { x: 300, y: 0 }, 3, 0.2, R);
-    for (const p of pts) expect(Math.hypot(p.x, p.y)).toBeCloseTo(300, 9);
-    expect(pts[1]).toEqual({ x: 300, y: 0 }); // odd count: one shell dead on the click
+  it('a turret whose arc bears fires EXACTLY at the click — byte-identical, never approximately', () => {
+    const click = clickAt(412.5, 0); // max reach, dead abeam: every arc bears
+    const out = turretAimPoints(POSE, 'battleship', 3, 1, click, TAU[0], MAP_R);
+    expect(out).toHaveLength(3);
+    for (const t of out) {
+      expect(t.onClick).toBe(true);
+      expect(t.target).toEqual({ x: click.x, y: click.y });
+    }
   });
 
-  it('pulls a fan EXTREME back inside the water on a rim shot the CLICK survived', () => {
-    // 0.9R out along +x, beam bearing 60° off it: the click clamps to the rim
-    // and the near extreme of a ±12° fan swings past it.
-    const ship = { x: R * 0.9, y: 0 };
-    const bearing = Math.PI / 3;
-    const click = burstPointAlong(ship, 4000, R, 5000, bearing);
-    expect(Math.hypot(click.x, click.y)).toBeLessThanOrEqual(R);
-    const half = (12 * Math.PI) / 180;
-    const pts = fanBurstPoints(ship, click, 3, half, R);
-    for (const p of pts) expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(R);
-    // ...and it really was a clamp: the outer shell is now SHORTER than the
-    // click's own range, which is the whole visible difference.
-    expect(Math.hypot(pts[0].x - ship.x, pts[0].y - ship.y)).toBeLessThan(
-      Math.hypot(click.x - ship.x, click.y - ship.y) - 1,
+  it('a turret that CANNOT bear fires at its arc LIMIT, still at the click\'s range from its muzzle', () => {
+    // 150u dead abeam: parallax swings the outer turrets\' muzzle→click
+    // bearings outside their own arcs — only the midship gun bears.
+    const click = clickAt(150, 0);
+    const out = turretAimPoints(POSE, 'battleship', 3, 1, click, TAU[0], MAP_R);
+    const mounts = turretMountBearings(POSE.heading, 3, 1);
+    expect(out.filter((t) => t.onClick)).toHaveLength(1);
+    expect(out[1].onClick).toBe(true); // the midship gun is the one on the click
+    out.forEach((t, i) => {
+      if (t.onClick) return;
+      expect(t.target).not.toEqual(click); // the limit shot is NOT on the click...
+      const dist = Math.hypot(t.target.x - t.muzzle.x, t.target.y - t.muzzle.y);
+      expect(dist).toBeCloseTo(Math.hypot(click.x - t.muzzle.x, click.y - t.muzzle.y), 9); // ...but at its range
+      const b = Math.atan2(t.target.y - t.muzzle.y, t.target.x - t.muzzle.x);
+      const offEdge = Math.min(
+        Math.abs(wrapAngle(b - (mounts[i] + TAU[0]))),
+        Math.abs(wrapAngle(b - (mounts[i] - TAU[0]))),
+      );
+      expect(offEdge).toBeLessThan(1e-9); // pinned to the arc edge, not somewhere inside
+    });
+  });
+
+  it('BROADSIDE SPREAD widens each traverse: MORE guns bear on the SAME click, monotonically', () => {
+    // A fixed mid-range abeam click: 1 gun at base, all 3 at the ladder cap.
+    expect(bearing(150, 0, TAU[0])).toBe(1);
+    expect(bearing(150, 0, TAU[TAU.length - 1])).toBe(3);
+    for (let rung = 1; rung < TAU.length; rung += 1) {
+      expect(bearing(150, 0, TAU[rung])).toBeGreaterThanOrEqual(bearing(150, 0, TAU[rung - 1]));
+    }
+  });
+
+  it('full convergence is RARE at base: near max range AND near-perfect geometry only', () => {
+    expect(bearing(412.5, 0)).toBe(3); // the lined-up shot: max reach, dead abeam — all guns converge
+    expect(bearing(412.5, 15)).toBeLessThan(3); // same range, 15° off the beam: geometry breaks it
+    expect(bearing(250, 0)).toBe(1); // same bearing, mid range: parallax breaks it
+    expect(bearing(100, 0)).toBe(1); // close: parallax defeats every outer arc
+  });
+
+  it('COVERAGE: at least one gun bears on EVERY sector click past point-blank water', () => {
+    // The structural guarantee behind "one shell will absolutely hit at the
+    // target point": the outermost arcs reach the sector edge at base...
+    expect(CONFIG.broadside.turretMountSpreadDeg + CONFIG.broadside.traverseDeg[0]).toBeGreaterThanOrEqual(
+      CONFIG.broadside.arcHalfArcDeg,
     );
+    // ...and it holds parallax-true across the whole sector at every count.
+    // (Inside ~70u — water alongside the hull itself — muzzle-relative
+    // bearings degenerate and no arc may contain the click; known, accepted.)
+    for (const count of [3, 4, 5]) {
+      for (const r of [80, 150, 300, 412.5]) {
+        for (let phi = -59; phi <= 59; phi += 2) {
+          expect(bearing(r, phi, TAU[0], count), `count=${count} r=${r} phi=${phi}`).toBeGreaterThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('mounts pair UNCROSSED with muzzles on BOTH beams: the bow-most gun owns the bow-most arc', () => {
+    for (const side of [1, -1] as const) {
+      const muzzles = turretMuzzles(POSE, 'battleship', 3, side);
+      const mounts = turretMountBearings(POSE.heading, 3, side);
+      const bowness = mounts.map((m) => Math.abs(wrapAngle(m - POSE.heading)));
+      for (let i = 1; i < 3; i += 1) {
+        // As the muzzle moves toward the stern (x falls), its mount swings
+        // toward the stern (bow-distance rises) — never the reverse.
+        expect(Math.sign(bowness[i] - bowness[i - 1]), `side=${side}`).toBe(-Math.sign(muzzles[i].x - muzzles[i - 1].x));
+      }
+    }
+  });
+
+  it('the mount spread is FIXED as turrets are added — extra guns densify the same covered sector', () => {
+    const m3 = turretMountBearings(0.4, 3, 1);
+    const m5 = turretMountBearings(0.4, 5, 1);
+    expect(m5).toHaveLength(5);
+    expect(m5[0]).toBeCloseTo(m3[0], 12);
+    expect(m5[4]).toBeCloseTo(m3[2], 12);
+    // A lone turret sits dead on the beam.
+    expect(turretMountBearings(0.4, 1, 1)).toEqual([0.4 + Math.PI / 2]);
+  });
+
+  it('an arc-limit shot swung past the rim is pulled back inside the water disk', () => {
+    const R = 1000;
+    // Bow +y near the rim; the starboard (side -1) beam faces the rim. The
+    // click clamps to the rim along its own bearing (burstPointAlong), and the
+    // two non-bearing turrets\' limit shots would land OUTSIDE the disk.
+    const pose = { x: 940, y: 0, heading: Math.PI / 2 };
+    const dir = (55 * Math.PI) / 180;
+    const click = burstPointAlong(pose, 5000, R, 412.5, dir);
+    expect(Math.hypot(click.x, click.y)).toBeLessThanOrEqual(R);
+    const out = turretAimPoints(pose, 'battleship', 3, -1, click, TAU[0], R);
+    expect(out.some((t) => t.onClick)).toBe(true); // coverage holds even here
+    let pulled = 0;
+    for (const t of out) {
+      expect(Math.hypot(t.target.x, t.target.y)).toBeLessThanOrEqual(R); // nothing bursts off the water
+      if (t.onClick) continue;
+      const dist = Math.hypot(t.target.x - t.muzzle.x, t.target.y - t.muzzle.y);
+      const clickDist = Math.hypot(click.x - t.muzzle.x, click.y - t.muzzle.y);
+      if (dist < clickDist - 0.5) pulled += 1; // visibly shorter than the click's range = the clamp bit
+    }
+    expect(pulled).toBeGreaterThan(0);
   });
 });
 
@@ -339,9 +440,9 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
     const port = turretMuzzles(POSE, 'battleship', 3, 1);
     const stbd = turretMuzzles(POSE, 'battleship', 3, -1);
     for (const q of stbd) expect(abeam(q)).toBeCloseTo(-BEAM / 2, 9);
-    // Index-for-index the two sides run opposite ways along the hull: the
-    // pairing with fanBurstPoints must mirror with the beam, or the shell paths
-    // would cross over the hull.
+    // Index-for-index the two sides run opposite ways along the hull: that is
+    // what keeps the pairing with turretMountBearings UNCROSSED on both beams
+    // (the bow-most gun owns the bow-most arc, whichever side fires).
     port.forEach((q, i) => expect(along(q)).toBeCloseTo(-along(stbd[i]), 9));
   });
 

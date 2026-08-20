@@ -110,7 +110,7 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         burstRadius: CONFIG.broadside.burstRadius,
         turrets: CONFIG.broadside.turrets,
         spreadRung: 1,
-        fanHalfAngleRad: (CONFIG.broadside.fanHalfAngleDeg[0] * Math.PI) / 180,
+        traverseRad: (CONFIG.broadside.traverseDeg[0] * Math.PI) / 180,
       },
       starShells: {
         reloadMs: CONFIG.starShells.reloadMs,
@@ -180,17 +180,17 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
       expect(s.broadside.rangeU).toBeCloseTo(s.radarRange * CONFIG.vision.muzzleFlashFactor, 9);
     }
     expect(effectiveStats(BASE).broadside.rangeU).toBeCloseTo(412.5, 9); // the ratified base
-    // 0..4 SPREAD copies walk the authored ladder 12 -> 9 -> 6.5 -> 4.5 -> 3.
+    // 0..4 SPREAD copies walk the authored traverse ladder 34 -> 40 -> 46 -> 52 -> 58.
     for (let n = 0; n <= 4; n++) {
       const s = effectiveStats(BASE, stack('broadsideSpread', n));
       expect(s.broadside.spreadRung, `${n} copies`).toBe(n + 1);
-      expect(s.broadside.fanHalfAngleRad, `${n} copies`).toBeCloseTo((CONFIG.broadside.fanHalfAngleDeg[n] * Math.PI) / 180, 12);
+      expect(s.broadside.traverseRad, `${n} copies`).toBeCloseTo((CONFIG.broadside.traverseDeg[n] * Math.PI) / 180, 12);
     }
     // Over-stacking past the physical copy cap CLAMPS rather than running off
     // the table (the gun.barrels precedent) — a hostile boon list cannot NaN it.
     const over = effectiveStats(BASE, stack('broadsideSpread', 9));
-    expect(over.broadside.spreadRung).toBe(CONFIG.broadside.fanHalfAngleDeg.length);
-    expect(Number.isFinite(over.broadside.fanHalfAngleRad)).toBe(true);
+    expect(over.broadside.spreadRung).toBe(CONFIG.broadside.traverseDeg.length);
+    expect(Number.isFinite(over.broadside.traverseRad)).toBe(true);
   });
 
   it('broadsideTurrets adds a shell per card, 3 -> 5, and moves nothing else', () => {

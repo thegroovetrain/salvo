@@ -1,19 +1,19 @@
-// sim/spread.ts — THE straddle rule, shared by the BROADSIDE BARRAGE's angular
-// fan (R2.3) and BARREL's parallel tracks (R2.16). Both sides call these: the
-// server resolves the shells, the client draws one preview line + burst circle
-// per shell, so a second derivation on either side is exactly the class of
-// desync sim/aim.ts was promoted to prevent.
+// sim/spread.ts — THE straddle rule, shared by BARREL's parallel tracks
+// (R2.16) and the broadside's turret muzzle/mount placement (sim/aim.ts).
+// Both sides call these: the server resolves the shells, the client draws one
+// preview line + burst circle per shell, so a second derivation on either
+// side is exactly the class of desync sim/aim.ts was promoted to prevent.
 //
-// The behaviour Eric ruled, stated as properties rather than per-count cases:
-// an ODD count puts one shell EXACTLY on the click ("One shell will
-// *absolutely* hit at the target point"), an EVEN count straddles it with NONE
-// on it ("when there are 4 turrets specifically, there is no middle turret"),
-// and the shells are evenly spaced across the full fan.
+// THE BROADSIDE'S DESIGNED ANGULAR FAN IS GONE (Eric's 2026-08-20 per-turret
+// arc ruling): `fanBearings`/`fanTargets` are deleted and their pins retired
+// with them — the odd/even SHELL straddle was a property of the designed fan
+// and no longer applies to the broadside (every turret that bears fires
+// exactly at the click; see aim.test.ts turretAimPoints). BARREL keeps the
+// straddle law for its tracks: an ODD barrel count puts one shell EXACTLY on
+// the click ("One shell will *absolutely* hit at the target point").
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, effectiveStats, fanBearings, fanTargets, parallelOffsets, straddleOffsets } from '../index.js';
-
-const deg = (d: number): number => (d * Math.PI) / 180;
+import { CONFIG, parallelOffsets, straddleOffsets } from '../index.js';
 
 describe('straddleOffsets — the one ladder', () => {
   it('an ODD count includes an exact 0; an EVEN count never does', () => {
@@ -38,98 +38,6 @@ describe('straddleOffsets — the one ladder', () => {
     // A non-finite STEP still fires the right number of shells, all on the
     // bearing, rather than emitting NaN positions into the sim.
     expect(straddleOffsets(3, Number.NaN)).toEqual([0, 0, 0]);
-  });
-});
-
-describe('fanBearings — the broadside fan (R2.3)', () => {
-  it('the extremes sit at exactly ±halfAngle and the shells are evenly spaced across it', () => {
-    const b = fanBearings(1, 5, deg(12));
-    expect(b).toHaveLength(5);
-    expect(b[0]).toBeCloseTo(1 - deg(12), 12);
-    expect(b[4]).toBeCloseTo(1 + deg(12), 12);
-    expect(b[2]).toBeCloseTo(1, 12); // odd count: the middle shell IS the click
-    for (let i = 1; i < b.length; i += 1) expect(b[i] - b[i - 1]).toBeCloseTo(deg(6), 12);
-  });
-
-  it('THE STRADDLE RULE at the three reachable turret counts (3 base, 4, 5 maxed)', () => {
-    const half = deg(12);
-    // 3 turrets — odd: one shell absolutely on the click.
-    expect(fanBearings(0, 3, half).filter((x) => Math.abs(x) < 1e-12)).toHaveLength(1);
-    // 4 turrets — EVEN: the two centre shells straddle, none on the bearing.
-    const four = fanBearings(0, 4, half);
-    expect(four.filter((x) => Math.abs(x) < 1e-12)).toHaveLength(0);
-    expect(four[1]).toBeCloseTo(-four[2], 12);
-    // 5 turrets — odd again, the middle shell is back on the click.
-    expect(fanBearings(0, 5, half).filter((x) => Math.abs(x) < 1e-12)).toHaveLength(1);
-  });
-
-  it('a single shell flies exactly on the bearing whatever the fan width', () => {
-    expect(fanBearings(2.5, 1, deg(30))).toEqual([2.5]);
-  });
-});
-
-describe('fanTargets — every shell ends at the CLICK\'S RANGE (an arc, not a cone)', () => {
-  const origin = { x: 100, y: -40 };
-  const target = { x: 400, y: -40 }; // 300u due east
-
-  it('every target point is the same distance from the ship as the click', () => {
-    for (const p of fanTargets(origin, target, 5, deg(12))) {
-      expect(Math.hypot(p.x - origin.x, p.y - origin.y)).toBeCloseTo(300, 9);
-    }
-  });
-
-  it('an ODD count puts one shell EXACTLY on the clicked point', () => {
-    const pts = fanTargets(origin, target, 3, deg(12));
-    expect(pts[1].x).toBeCloseTo(target.x, 9);
-    expect(pts[1].y).toBeCloseTo(target.y, 9);
-    // ...and an EVEN count puts none there, straddling it instead.
-    const four = fanTargets(origin, target, 4, deg(12));
-    for (const p of four) expect(Math.hypot(p.x - target.x, p.y - target.y)).toBeGreaterThan(1);
-  });
-
-  it('a degenerate click ON the ship centre returns that point, never NaN', () => {
-    for (const p of fanTargets(origin, origin, 3, deg(12))) {
-      expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
-      expect(p).toEqual({ x: origin.x, y: origin.y });
-    }
-  });
-
-  it('the LIVE fan width comes from effectiveStats, tightening as SPREAD stacks', () => {
-    const wide = effectiveStats(CONFIG.shipClasses.battleship).broadside;
-    const pts = fanTargets(origin, target, wide.turrets, wide.fanHalfAngleRad);
-    expect(pts).toHaveLength(3);
-    // The widest and tightest reachable patterns, measured as the arc the
-    // extreme shells span — this is the "spread, then parallel-ish, then near
-    // the clicked point" progression Eric described, in units.
-    const span = (halfAngle: number): number => {
-      const [a, , c] = fanTargets(origin, target, 3, halfAngle);
-      return Math.hypot(c.x - a.x, c.y - a.y);
-    };
-    const tightest = (CONFIG.broadside.fanHalfAngleDeg[4] * Math.PI) / 180;
-    // SPREAD still tightens meaningfully...
-    expect(span(wide.fanHalfAngleRad)).toBeGreaterThan(span(tightest) * 1.5);
-    // ...but the ladder must NOT tighten so far that it removes the need to
-    // catch a hull broadside-on. This pins ERIC'S OWN CONSTRAINT on the weapon
-    // — *"you definitely can't hit a single ship with all the shots from this
-    // unless they are close and exposing their broadside to you"* — rather than
-    // an arbitrary ratio, which is what the retired `* 3` was.
-    //
-    // The measure is the pattern's SPAN against how much of it one hull can
-    // catch: its silhouette plus a burst radius either side. A Battleship
-    // bow-on shows its 32u BEAM; broadside-on it shows its 124u LENGTH.
-    const bs = CONFIG.shipClasses.battleship.hull;
-    const burst = CONFIG.broadside.burstRadius;
-    // The span grows with FIRING RANGE, so measure it at the weapon's own base
-    // reach — the 5/8 rung, derived exactly as clampStats derives it.
-    const reachU = CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor; // 412.5u
-    const atTightest = 2 * tightest * reachU;
-    expect(atTightest).toBeGreaterThan(bs.beam + 2 * burst); // bow-on CANNOT take them all
-    expect(atTightest).toBeLessThan(bs.length + 2 * burst); // broadside-on CAN
-    // The retired ladder failed the first clause: its 3° cap spanned 43.2u at
-    // that same reach, NARROWER than a bow-on battleship's 62u catch, so every
-    // shell landed regardless of aspect — a guaranteed point strike.
-    const retiredCap = (3 * Math.PI) / 180;
-    expect(2 * retiredCap * reachU).toBeLessThan(bs.beam + 2 * burst);
   });
 });
 

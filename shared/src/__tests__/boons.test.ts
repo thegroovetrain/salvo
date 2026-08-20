@@ -263,10 +263,10 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     expect(BOON_STAT_PATHS).not.toContain('gun.rangeU');
     expect(BOON_STAT_PATHS).not.toContain('starShells.rangeU');
     // The broadside's rangeU is derived too — at the 5/8 rung rather than 8/8
-    // (Story 7-5 wave 2) — and so is its fan half-angle, which reads the
+    // (Story 7-5 wave 2) — and so is its per-turret traverse, which reads the
     // authored ladder off the stat-addressable SPREAD rung.
     expect(BOON_STAT_PATHS).not.toContain('broadside.rangeU');
-    expect(BOON_STAT_PATHS).not.toContain('broadside.fanHalfAngleRad');
+    expect(BOON_STAT_PATHS).not.toContain('broadside.traverseRad');
     expect(BOON_STAT_PATHS).toContain('broadside.spreadRung');
   });
 
