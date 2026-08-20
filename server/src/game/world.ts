@@ -102,6 +102,7 @@ import {
   type ZoneTimeline,
 } from '@salvo/shared';
 import {
+  BUOY_SIZE_U,
   EQUIPMENT,
   addBuoy,
   addMine,
@@ -3164,8 +3165,10 @@ export class World {
     // EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05): a later
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
-    // not a single click (the same-click salvo ledger is deleted).
-    this.hitShip(victim, shell.contactDamage, shell.ownerId, false);
+    // not a single click (the same-click salvo ledger is deleted). `noAggro`
+    // (the GUN BUOY's R2.21a tag) rides the fromMine seat: its rationale is
+    // the mine exception's, verbatim.
+    this.hitShip(victim, shell.contactDamage, shell.ownerId, shell.noAggro === true);
   }
 
   /**
@@ -3211,7 +3214,9 @@ export class World {
           continue;
         }
         resolved += 1;
-        this.hitShip(victim, shell.damage, shell.ownerId, false);
+        // `noAggro` (the GUN BUOY's R2.21a tag) rides the fromMine seat here
+        // exactly as on the contact path above.
+        this.hitShip(victim, shell.damage, shell.ownerId, shell.noAggro === true);
       }
     }
     // Story 4.3: exactly one of hc/sp per shell resolution — a burst that
@@ -3858,25 +3863,66 @@ export class World {
     if (buoy.gunReloadMsLeft > 0) return;
     const target = this.nearestBuoyTarget(buoy);
     if (target === null) return;
-    // THE BUOY'S GUN FLASHES LIKE ANY OTHER GUN (Eric ruling 2026-08-19). It
-    // was silent as first built, because emitMuzzleFlash is keyed off a
-    // ShellState and this turret is hitscan — it never spawns one, so it never
-    // reached that path. That was an omission, not a stealth property: a gun
-    // fires, a gun flashes, and an observer inside the halo is owed the cue.
+    // THE TURRET FIRES A REAL SHELL (Story 7-5 fix cycle — Eric playtest:
+    // *"It fires a muzzle flash, but even if its in LOS range there is no
+    // projectile and it deals no damage to anything."*). As first built the
+    // gun was HITSCAN: hitShip() ran and hp genuinely fell, but nothing was
+    // observable — no projectile on any scope, no Hit Call to the owner, and
+    // `dmg` is victim-private, so from the owner's seat the flash was the
+    // whole weapon and "deals no damage" was the honest reading. A weapon the
+    // game cannot show is not a weapon; the fix routes the shot through the
+    // ONE ballistics pipeline everything else fires on, which buys the visible
+    // tracer, the boom, the owner's `hc`/`sp` feedback, kill credit and the
+    // burst mechanics for free — no new information channel exists, only the
+    // ordinary ordnance disclosure rules every shell already obeys.
     //
-    // Emitted RAW rather than through emitMuzzleFlash for two reasons. There is
-    // no shell to hand it, and its per-tick dedupe is keyed on OWNER — sharing
-    // that key would let a buoy shot and its owner's own gun click in the same
-    // tick collapse into ONE flash drawn at only one of two DIFFERENT places,
-    // which would put a flash where nothing fired. A buoy fires at most once
-    // per gunReloadMs, so it needs no dedupe of its own.
-    //
-    // The row's contract is unchanged and carries the disclosure honestly: {k,x,y}
-    // with no shooter id, no hue, no weapon type. An observer inside the 5/8 halo
-    // learns "something fired there" — the buoy's position, which its own radar
-    // profile already discloses to anyone in range (R2.9) — and nothing more.
-    this.pending.push({ k: 'mz', x: buoy.x, y: buoy.y });
-    this.hitShip(target, owner.stats.radarBuoy.gunDamage, buoy.ownerId, true);
+    // The shell wears the GUN's physical envelope (shellSpeed/shellRadius/
+    // burstRadius — the universal gun's identity: fly to the point, burst
+    // there) with the BUOY's ruled damage on both the burst and the contact
+    // path, lead-solved from the buoy by the shared solver. `noAggro` keeps
+    // R2.21a intact through the pipeline: an autonomous turret's hit must not
+    // hand its owner a fight (hitShip reads it as the mine exception).
+    const s = target.state;
+    const vx = Math.cos(s.heading) * s.speed;
+    const vy = Math.sin(s.heading) * s.speed;
+    const at = leadIntercept(buoy, s, vx, vy, CONFIG.gun.shellSpeed);
+    const dist = Math.hypot(at.x - buoy.x, at.y - buoy.y);
+    const dir = Math.atan2(at.y - buoy.y, at.x - buoy.x);
+    // BOW CLEARANCE, the torpedo precedent — and fail-proven, not theoretical:
+    // the buoy is itself a ballistic target (withBuoyTargets, R2.7), so a
+    // shell spawned AT its center sweeps out through its OWN 12u square and
+    // self-intercepts on the first step — the turret shoots itself, emits an
+    // honest-looking Hit Call, and the enemy takes nothing (exactly the
+    // regression test caught). Clear the square's worst-case half-diagonal
+    // plus the shell's own hit radius; the min() keeps a point-blank target
+    // in front of the muzzle rather than behind it.
+    const clear = Math.min(BUOY_SIZE_U + CONFIG.gun.shellRadius, dist / 2);
+    // PER-SHELL FLASH, deliberately: emitMuzzleFlash's per-owner dedupe would
+    // collapse a same-tick owner gun click and buoy shot into ONE flash at one
+    // of two DIFFERENT muzzles — putting a flash where nothing fired and
+    // hiding one where something did. A buoy fires one shell per gunReloadMs,
+    // so the barrage's salvo-count disclosure concern cannot arise.
+    this.spawnBallistic(
+      {
+        id: this.nextBallisticId(),
+        ownerId: buoy.ownerId,
+        x: buoy.x + Math.cos(dir) * clear,
+        y: buoy.y + Math.sin(dir) * clear,
+        vx: Math.cos(dir) * CONFIG.gun.shellSpeed,
+        vy: Math.sin(dir) * CONFIG.gun.shellSpeed,
+        distLeft: dist - clear + CONFIG.gun.shellRadius,
+        bornAt: this.now,
+        kind: 'shell',
+        damage: owner.stats.radarBuoy.gunDamage,
+        hitRadius: CONFIG.gun.shellRadius,
+        targetX: at.x,
+        targetY: at.y,
+        burstRadius: CONFIG.gun.burstRadius,
+        contactDamage: owner.stats.radarBuoy.gunDamage,
+        noAggro: true,
+      },
+      true,
+    );
     buoy.gunReloadMsLeft = owner.stats.radarBuoy.gunReloadMs;
   }
 

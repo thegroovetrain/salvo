@@ -53,6 +53,27 @@ if (process.env.HC_DEV_OPTIONS !== '1') {
   process.exit(1);
 }
 
+// SECOND GATE: --tune edits COMBAT numbers (gun/broadside/torpedo/mine/
+// starShells/speedBoost/radarBuoy/shipClasses), not harness dials, so it
+// carries its own env var on top of the dev gate above. Scanned off argv here —
+// args.ts stays pure over argv and reads no process.env — and re-checked in
+// batchsim/main.ts, which a direct tsx invocation can reach without passing
+// through this file at all.
+if (process.argv.includes('--tune') && process.env.HC_BALANCE !== '1') {
+  console.error(
+    'batchSim: refusing --tune without HC_BALANCE=1 — --tune mutates COMBAT ' +
+      'CONFIG (gun.*, broadside.*, torpedo.*, mine.*, starShells.*, ' +
+      'speedBoost.*, radarBuoy.*, shipClasses.*), ' +
+      'a separate surface from the --set/--sweep harness dials.\n' +
+      'Run: HC_DEV_OPTIONS=1 HC_BALANCE=1 node server/scripts/batchSim.mjs --tune key=value [options]',
+  );
+  // EXIT 2, matching batchsim/main.ts's documented codes and its own HC_BALANCE
+  // re-check: the flags were legal, the invocation was not — that is a command
+  // line failure. The HC_DEV_OPTIONS gate above deliberately keeps exiting 1,
+  // so a wrapper can still tell "not a dev box" from "usage error".
+  process.exit(2);
+}
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
 const tsx = path.join(repo, 'node_modules/.bin/tsx');

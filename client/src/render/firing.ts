@@ -135,15 +135,25 @@ export class FiringUX {
     const t = arcFor(id);
     if (t.kind !== 'sector') return; // descriptor law: only a sector draws a wedge
     const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ammo.hasAmmo;
-    const tint = id === 'mine' ? AMBER : TORP_TINT;
-    const radius = id === 'mine' ? this.rangeU : ARC_R;
+    // A PLACEMENT weapon's wedge IS the reachable water (Eric 2026-08-20:
+    // *"with this rear facing, place-in-short-range arc style weapon, its
+    // important that I as a captain can clearly see where I can place my
+    // stuff"*). Both click-placed ids share the ONE leash (CONFIG.mine.placeRange
+    // — see weaponRangeU) so they must share the whole grammar: true radius,
+    // armed amber, and a stroked boundary that is a real line on the chart.
+    //
+    // THE RADAR BUOY USED TO FALL TO THE ELSE and was drawn as a TORPEDO —
+    // indicative ARC_R (72u, less than half its real 150u reach), torpedo green,
+    // no boundary. That is Eric's "the buoy's targeting range indicator isn't
+    // correct": it was not the buoy's range at all.
+    const placement = id === 'mine' || id === 'radarBuoy';
+    const tint = placement ? AMBER : TORP_TINT;
+    const radius = placement ? this.rangeU : ARC_R;
     const color = denied ? DENIED_RED : tint;
-    this.sector(t.offset, t.halfArc, color, denied || lit, ammo.reloadFrac, radius);
-    // THE MINE'S wedge alone gets a stroked boundary (see sectorEdge): its
-    // radius is the reachable water, so the edge is a real line on the chart.
+    this.sector(t.offset, t.halfArc, color, denied || lit, ammo.reloadFrac, radius, placement);
     // The torpedo's ARC_R is indicative — outlining it would draw a hard border
     // around a distance that means nothing.
-    if (id === 'mine') this.sectorEdge(t.offset, t.halfArc, radius, color, denied || lit);
+    if (placement) this.sectorEdge(t.offset, t.halfArc, radius, color, denied || lit);
   }
 
   /**
@@ -212,13 +222,24 @@ export class FiringUX {
     lit: boolean,
     reloadFrac: number,
     radius: number = ARC_R,
+    placement = false,
   ): void {
     const g = this.arcs;
+    const reloading = reloadFrac > 0 && reloadFrac < 1;
     g.moveTo(0, 0);
     g.arc(0, 0, radius, offset - halfArc, offset + halfArc);
     g.lineTo(0, 0);
-    g.fill({ color: lit ? color : DIM, alpha: lit ? 0.5 : 0.14 });
-    if (reloadFrac > 0 && reloadFrac < 1) {
+    // A PLACEMENT wedge carries its reload in the ONE wedge's own fill, never as
+    // a second shape (Eric 2026-08-20: *"the mine's targeting indicator seems to
+    // show two stacked indicators?"*). It did: the sweep-back below drew a
+    // SECOND wedge at HALF the radius, which on the torpedo's indicative 72u arc
+    // reads as a reload hint but on a TRUE-RADIUS placement wedge reads as a
+    // second placement boundary — 75u of "you can place here" inside 150u of the
+    // same thing, while reloading only, which is why it looked intermittent.
+    // Exactly one boundary may ever be on screen for a placement weapon.
+    const fillAlpha = lit ? 0.5 : 0.14;
+    g.fill({ color: lit ? color : DIM, alpha: placement && reloading ? fillAlpha * 0.45 : fillAlpha });
+    if (reloading && !placement) {
       g.moveTo(0, 0);
       g.arc(0, 0, radius * 0.5, offset - halfArc, offset + halfArc);
       g.lineTo(0, 0);

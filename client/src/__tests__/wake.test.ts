@@ -640,12 +640,12 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
     expect(FASTEST_AFLOAT_SPEED).toBeGreaterThan(FASTEST_HULL_SPEED);
   });
 
-  // P6 — THE SIGHT RADIUS IS PART OF THE KEY. Dazzle onset/end and an
-  // `intelRange` grant all move `sightHoleU` with nothing else changing:
+  // P6 — THE SIGHT RADIUS IS PART OF THE KEY. A dazzle onset/end moves
+  // `sightHoleU` with nothing else changing:
   // same observer, same segment set, same clock. Without it in the key, a
   // stationary observer double-painted (or blanked) the sight-delta band for up
   // to a full rebuild interval. It is checked AHEAD of the rate floor because a
-  // step function of dazzle+boons cannot churn.
+  // step function of dazzle cannot churn.
   it('rebuilds the instant the sight radius moves, even inside the rate floor', () => {
     const sources = new WakeSources();
     const h = hull('a', 'battleship', 200, 30);

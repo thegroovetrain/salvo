@@ -1617,7 +1617,237 @@ of these is resolved by this cycle.**
 
 ---
 
-## Amendment 29 — BOT POLICY SPLITS ONTO TWO AXES (ERIC RULINGS, 2026-08-20, cycle 110)
+## Amendment 29 — THE OWN WRECK FINISHES GOING DOWN: two correct rulings collided and a stale doc comment hid it (ERIC REPORT + RULING, 2026-08-20)
+
+Eric, watching the reveal after his own hull went down: ***"my ship should be sunk, not visible in
+full-color motionless in the middle of the map."*** He was looking at a hull frozen at exactly
+`sink = 0.3` — tint ≈ `0xDCB3B3`, alpha 0.82, scale 0.955 — parked on the water for the entire
+spectate/results period while every hull it had been fighting wore the crimson wreck look.
+
+**NEITHER RULING WAS WRONG. THE GAP BETWEEN THEM WAS.** Epic-5 amendment 21 (Story 5.2) capped the
+own hull's settle at `CLIENT_CONFIG.ship.ownSettleMax` = 0.3 and made it **hold at the cap past
+founder rather than completing** — correctly, because `sunkTint` has zero green and blue and a Pixi
+tint MULTIPLIES, so completing the ramp on a live hull costs a cyan/lime/spring captain the ship they
+are still steering and shooting with, and popping to full wreck across the ~½ RTT gap before the
+`spec` frame would flash on the way out. Epic-5 amendment 31 (Story 5.3, correction #1) then ruled
+that **your own wreck STAYS on screen** through the omniscient reveal, with its callsign plate on it
+— also correct, and the reason it was defensible to hide it before was that "the reveal was a curtain
+nobody saw through". Put the two together and the hold-at-the-cap, written for a gap measured in
+frames, silently became the treatment for a gap measured in the whole results period.
+
+**THE STALE DOC CLAIM IS WHAT HID IT, and that is the transferable lesson.** `ownSettle`'s block
+justified the cap with *"this one only tints a view that `renderOwn` does not draw at all while
+spectating."* That was TRUE when amendment 21 was written and became FALSE at Story 5.3. Nothing
+re-read it, and a reader auditing the death beat would have been told in as many words that the case
+could not arise. `renderOwn` (`main.ts`) held the client's ONLY `setSink` call for the own view and
+stops running at founder; `renderSpectate` re-projects the wreck's nameplate every frame and never
+touched the sprite. The claim is CORRECTED in place rather than deleted, so the next reader sees the
+seam instead of a clean-looking comment.
+
+**THE RULING: the own wreck completes to the ONE wreck look the game already has.** `setSink(1)` —
+byte-for-byte what every enemy hull gets, per `render/ships.ts`'s own sentence (*"There is one wreck
+look and one function that produces it"*). No second own-wreck treatment is minted. Identity in death
+is carried by the NAMEPLATE, which Story 5.3 ratified as riding the wreck, and Eric's own epic-5
+amendment 32 sentence — *"Slowly fading to black is indication enough that it has sunk"* — names
+exactly this ramp.
+
+**THE DURATION IS DERIVED, NOT A FEEL KNOB: 3500 ms.** An enemy hull travels 0 → 1 across
+`CONFIG.ship.sinkingWindowMs`; ours travels 0 → cap across the same window and stops. Covering the
+remaining `(1 - cap)` at the ENEMY's rate is `sinkingWindowMs * (1 - cap)` = 5000 × 0.7 = **3500 ms**,
+so the own hull finishes going down at exactly the canonical rate and the number moves automatically
+if either shipped constant does. The continuation STARTS at the cap, so the founder→spectate handover
+is continuous — the value at `nowMs === you.sinkingUntil` is exactly `ownSettle`'s terminal value and
+cannot pop, however many frames of ½ RTT sit in the seam. Fail-closed keeps the module's stated
+direction: a missing window, a NaN clock or a degenerate duration renders the TERMINAL wreck, never a
+live-looking hull that is actually gone (`clamp01` passes NaN through unchanged, so EVERY way of
+minting one — the subtraction and the division alike — is headed off before the clamp).
+
+**SPECTATE CAN BEGIN BEFORE FOUNDER, AND THE FIRST CUT GOT THAT BACKWARDS (review-gate correction,
+caught by both reviewers independently).** The continuation was written as though founder always came
+first, and clamped a negative elapsed to zero — which returns the CAP. It does not always come first:
+`frames.ts` `spectates()` returns true for **everyone** the instant `phase === 'finished'`, with no
+lifecycle test at all, and `match.ts` `holdsForSinkingCaptain()` is bypassed once the safety-net
+`finishDeadline` passes. So a **revenge kill in a 1v1** — the ending Story 5.2 calls the entire point
+of the sinking window — drops the winner into spectate with seconds of window still to run. Under the
+clamp their hull would jump UPWARD from wherever the linear ramp had reached (~0.06 two ticks in) to
+the 0.3 cap in one frame, and then sit frozen there until founder: **this cycle's own defect, in
+miniature, introduced by the fix for it.** Corrected by handing straight back to `ownSettle` for any
+pre-founder instant, which makes the seam continuous IN BOTH DIRECTIONS rather than at one point. The
+regression pin was proven to discriminate (reverting the branch fails it), and the accompanying
+whole-span sweep carries a written note that it does NOT catch this class — a clamped continuation is
+flat, hence smooth, in its own output; the pop is only visible when the two functions are compared.
+The lesson is the amendment's own: *"only clock skew can land here"* was a stale premise written in
+the same breath as a correction of one.
+
+**IT LATCHES, and that is a budget requirement rather than tidiness.** Amendment 4 records the
+omniscient reveal already **BREACHING** its render leg at 11.8 ms against a 10 ms bar, so no unbounded
+per-frame work may be added to it. Once the ramp reaches 1 the sprite is at its terminal look and
+`setSink` is never called again. **The latch is never RESET, and the amendment says so rather than
+claiming the tidy version**: `sinkSettled` is only ever initialised in the per-join `Game` literal and
+written true, exactly like its neighbour `visualsSet`, which nothing resets either. It survives a
+requeue because `requeue` rebuilds `Game` wholesale, and it cannot go stale within a join because
+`state.spectating` is itself a one-way latch — there is no second life after a sinking. If
+`spectating` ever becomes resettable, both flags rot together, and the in-code comment carries that
+warning. The wreck HULL is likewise seated **once**, at spectate entry, at the authoritative
+`ownWreckPose` — which also closes a smaller defect nobody had reported: the hull sat where
+PREDICTION last put it while its plate was placed from the last SERVER pose every frame, so the two
+could disagree by the whole prediction error, and the reveal's pull-back makes any such gap read as a
+callsign floating off its mark. One datum, two consumers. **The seat also had to MAKE the sprite
+visible, not merely leave it visible** (second review-gate correction): `renderOwn` holds the only
+`gfx.visible = true` in the client, and `renderAlive`'s null-own-pose branch sets it FALSE — reachable
+on the last frames before the handover, since a reconnect force-snaps the predictor and drains
+`ownBuffer`, and the `P` toggle does the same. Spectator frames carry no `you`, so the pose never
+returns and the one-shot never runs again: without that line the wreck is simply ABSENT for the whole
+reveal while the plate keeps re-showing its callsign over open water — precisely the failure the
+seating exists to prevent.
+
+**WHAT DID NOT MOVE.** `ownSettle` is behaviourally byte-identical (only its doc block changed) and
+its hold-at-the-cap pin stays GREEN, with its rationale narrowed to the ½-RTT gap it actually
+governs. `CLIENT_CONFIG.ship.ownSettleMax` is untouched — amendment 21 binds it *"may shrink, never
+grow"* and this fix needed neither. The enemy settle path (`net/roomBindings.ts`
+`presentWreck`/`driveSettle`/`markSunk`) and `render/ships.ts` are untouched. The sinking WINDOW's
+look is untouched: mockup F1's DECIDED *"hull stays full personal hue"* row governs the five seconds
+you are still fighting, and this change begins at founder. No on-water death register, no new beat,
+no key surface — amendment 24's *"the reveal is the backdrop"* holds. No layer restack. **Client
+presentation only: no wire field, no server change, no `shared/` change, `PROTOCOL_VERSION` stays
+45.**
+
+**LEDGERED AS OPEN FOR ERIC — THE UNRATIFIED ALTERNATIVE.** The ratified mockup
+`death-reveal-results-1.html` (F2/F3 legend, row 4) tags the wreck-marker treatment as a **`PROPOSAL`**,
+not a decision: *"'Your wreck marked' is decided; the treatment is mine: own hull held at 45% opacity
+in personal Cyan (identity persists in death), sink rings continuing at {colors.damage-marker}, last
+smoke, callsign plate above. Alternative if too quiet at this zoom: a ring-buoy glyph in Cyan."* That
+proposal was never ratified and has never been implemented. This cycle takes the **crimson wreck
+look** instead, because implementing the proposal would mint a SECOND wreck look — the thing
+`ships.ts` forbids in as many words — and because identity in death is already carried by the plate.
+**Eric can reverse this**: if he wants the 45 %-personal-hue treatment, it is a change to the terminal
+value this ramp walks toward, not a rewrite, and it would need a ruling on whether a second wreck
+look is acceptable. Recorded so the choice is visibly his rather than silently the implementer's.
+
+## Amendment 30 — THE HOME VERSION REGISTER IS THE BARE VERSION (ERIC RULING, 2026-08-20, cycle 118)
+
+*"get rid of the 'RT PROTPTYPE //' on the homepage. Just leave the version."*
+
+The wordmark's third line has read `RT PROTOTYPE // v{version}` since the pre-rebrand menu (the string
+is recorded in the UX extract of 2026-07-16, when it lived in `ui/menu.ts`). It now reads `v{version}`
+and nothing else. `client/src/ui/home.ts:427` is the ONLY site that composes it.
+
+**This is a COPY ruling and nothing else moved.** The `ver` element keeps its styling byte-for-byte
+(`registerCss('hudMicro')`, `color:var(--hc-phosphor)`, `letter-spacing:0.2em`), the wordmark is still
+exactly the three children `[mark, tagline, ver]`, and the version VALUE is untouched — it still arrives
+as `showHome`'s `version` argument, sourced from `__APP_VERSION__` = the root `package.json` version
+that `client/vite.config.ts` single-sources at build time. No layout, layer, hue, or register-scale
+change; no wire field; `PROTOCOL_VERSION` unchanged at **45**. Client text only.
+
+**The retirement pin got its own test rather than riding the structure test.** The shipped pin
+(`expect(ver.textContent).toContain('RT PROTOTYPE')`) sat inside `wordmark is still exactly
+[mark, tagline, ver], style untouched`, under a describe header documenting only the cycle-87 tagline
+ruling. Bending it in place would have left this ruling's only guard inside a test whose name and
+comments name a DIFFERENT ruling — so a future re-scope of the structure test silently drops it. The
+new `version register is the bare version — the RT PROTOTYPE prefix is retired` test carries a dated
+comment naming this ruling, asserts the exact rendered string, and matches
+`/rt\s*prototype/i` negatively so a case- or spacing-variant of the retired copy cannot drift back.
+This follows the file's own established pattern, two tests above, where the `LAST HULL FLOATING WINS`
+retirement pin lives in the test that owns ITS ruling.
+
+**Deliberately NOT changed, and both are ledgered in deferred-work.md for Story 7-6** (design & doc
+reconciliation): `README.md:1` still titles the build *"Hullcracker — Real-Time Prototype"*, and the
+dated UX mockup `mockups/home-class-picker-1.html:309` still renders `RT PROTOTYPE // v0.16.0`. Eric's
+ruling was scoped to the homepage; the mockup is a dated record of what the UI looked like in July and
+is not a live contract, and rewording settled artifacts alongside a change signal is exactly what the
+minimal-design-doc-edits rule forbids. But Epic 7 was rescoped PORTAL LAUNCH -> SELF-PUBLISHED BETA, so
+whether this build still calls itself a prototype anywhere is a live release question rather than a
+tidy-up — hence the ledger entry rather than silence.
+
+**Environmental note for the next agent, not a defect:** `shared/dist/` is gitignored, and BOTH the
+server and client type-checks resolve `@salvo/shared` to it. A fresh worktree therefore fails
+`npm run check` with dozens of errors naming `broadside`, `radarBuoy` and `turretMuzzles` — Story 7-5
+and cycle-113 symbols that exist in `shared/src` but not in an unbuilt `dist`. The fix is
+`npm install && npm run build -w shared`, and it is now recorded in this cycle's spec Verification
+section so the next reproducer does not chase stale-artifact noise as if it were a regression.
+
+---
+---
+
+## Amendment 31 — INTEL RANGE IS DELETED AND THE EIGHTHS LADDER IS NOW FROZEN (TWO ERIC RULINGS, 2026-08-20)
+
+Eric: *"remove the intel range upgrade cards from the game."* The `intelRange` line — category `intel`,
+common ×4, `radarRange` **+50 u per card**, player copy IMPROVED OPTICS → HIGH-GAIN ANTENNA → DIRECTOR
+TOWER → CAVITY MAGNETRON — leaves the catalog entirely: **29 → 28 lines**, intel subdeck **9 → 5**, the
+universal floor (intel + ship + guns) **25 → 21**, and every hull's deck **41 → 37**. `PROTOCOL_VERSION`
+**45 → 46**, because catalog content IS wire contract (`shared/src/index.ts`, `shared/src/sim/boons.ts`)
+and the client resolves boon ids FAIL-CLOSED, so the PV join gate is the only desync guard.
+
+**THE CONSEQUENCE IS THE WHOLE FEATURE, AND IT WAS PUT TO ERIC BEFORE ANY CODE MOVED.** `intelRange`
+was the ONLY card in the catalog that wrote `stats.radarRange` — not the buoy (`radarBuoy.radarRange`
+is the buoy's own flat field), not star shells or dazzle (which scale `sightRange` at read time through
+`sightOf`), no hook. So deleting it does not merely remove a card: **it freezes the entire eighths
+ladder at its base for every observer, permanently.** Detect 247.5, sight 330, muzzle/smoke 412.5,
+farRadar 577.5, radar 660 — one set of numbers, the same for everyone, all match. A maxed build
+previously reached radar 860 / sight 430.
+
+**RULING 1 — THE BASE DOES NOT COMPENSATE.** Offered the choice between leaving `CONFIG.vision.radar`
+at `SIGHT * 2` = 660 and raising it toward the old mid-stack, Eric took 660. So this is a **pure
+removal**: zero-boon play is byte-identical to 0.17.117 in every field, and no combat, sensor, storm or
+economy tunable moves. The ceiling is simply gone. Every Story 3.4 pillar pin (radar = 2×sight,
+radar ≥ terminal ring radius, sight < terminal ring radius) passes untouched because none of its inputs
+moved.
+
+**RULING 2 — THE `intel` CATEGORY SURVIVES.** It now holds exactly ONE line, `intelSweep` ×5 (a rate,
+not a range — epic-6 amendment 22 already kept it separate for that reason). `UNIVERSAL_CATEGORIES`
+stays `['intel','ship','guns']`, offers still roll three distinct categories, and the `INTEL` label and
+`SHIPWIDE_CATEGORIES` are untouched. The alternative — folding `intelSweep` into `ship` and retiring the
+category — was offered and declined; it would have left only two universal categories feeding
+offer-distinctness for a card nobody asked to move.
+
+**WHAT WAS KEPT ON PURPOSE, AND WHY THE NEXT AGENT MUST NOT "CLEAN IT UP".** Epic-6 amendment 22
+anchored the 5/8 muzzle/smoke rung on `me.stats.radarRange` — `muzzleFlashReach(me)` — so the ladder
+scaled with the observer's build, and called that *"removing the odd one out"* rather than adding an
+exception. **Every observer now resolves that anchor to the same 412.5 u, so the rung is EFFECTIVELY
+flat again — but it is reached through the same single derivation seam, not a re-introduced literal.**
+The anchor stays. So do the foghorn band divisor and the radar dim ramp. Reverting them to constants
+would re-litigate amendment 22's mechanism without a ruling, fork `effectiveStats()` as the sole
+derivation path, and cost real work back if a radar card ever lands. **The master perception invariant
+still has exactly SIX declared exceptions** (`sp`, `hc`, `mz`, `sunk`, `sm`, `fh`) — that count is about
+which signal rows bypass the invariant, never about whether a reach is observer-scaled, so nothing about
+it moves. Likewise the four post-fold re-pins (`gun.rangeU`, `starShells.rangeU`, `broadside.rangeU`,
+`sightRange = radarRange / 2`) stay in BOTH `applyBoonStats` and `clampStats`: they still build base
+stats, and only their *"a mid-list fold would leave this stale"* comments needed rewording, since the
+thing that could fold is now a future card rather than a shipped one.
+
+**`'radarRange'` STAYS ON `BOON_STAT_PATHS`, UNWRITTEN.** The established shape — `gun.burstRadius`,
+`gun.contactDamage`, the seven `<equipment>.reloadMs` paths, `radarBuoy.sweepRpm`,
+`kinematics.reverseSpeed` all already sit there with no card behind them — so a future radar line lands
+without touching the whitelist. It is added to the `orphaned` list in `shared/src/__tests__/boons.test.ts`,
+which is where this project records that fact. It also keeps the injected-def test escape hatch
+(`OMNI_BOON`) legal, which matters because several tests legitimately need a widened radar to exercise
+something that is NOT the card.
+
+**TESTS WERE RETIRED, NOT ADAPTED** — the style of cycle 93 (`cannonBlast`) and cycle 95 (`mineTrigger`),
+so no vestigial assertion survives. Tests whose SUBJECT was the card are gone (the per-observer
+intel-range block in `upgrades.test.ts`, the stacking cases in `stats.test.ts`, the broadside stacking
+test, the `boonCopy` rows). Tests that merely used the card as a convenient WIDENER kept their subject
+and changed their scaffolding — and several never needed the card at all: `foghorn.test.ts` already
+pokes `stats.radarRange` directly, `dimMaskLifetime.test.ts` and `hullOverRadar.test.ts` already drive
+raw numbers into `setRanges`. One real casualty is named rather than hidden: **the "ladder ordering
+holds by ARITHMETIC at every stack level" invariant is now vacuous** — there is only one stack level —
+so it is pinned once, at base, instead of across a loop.
+
+**TWO THINGS THAT WOULD HAVE BROKEN LOUDLY AND ARE FIXED HERE, WORTH KNOWING BECAUSE THEY ARE THE SHAPE
+OF EVERY FUTURE CARD DELETION:** `server/scripts/batchsim/balanceProbe.ts` derefs
+`BOON_CATALOG[id].copies` over a hand-written `universal` id array, so a deleted id is an undefined
+deref at runtime, not a type error; and `shared/src/constants.ts`'s bot profile `lines` maps carry
+per-card weight keys (`siege.intelRange` 2.4, `forager.intelRange` 2.2) that `bots.test.ts` asserts must
+all exist in the catalog. **The two profiles' `cat.intel` appetites were deliberately NOT retuned** —
+they now buy sweep RPM only, which is a balance question and not part of a removal; ledgered in
+`deferred-work.md`.
+
+**ALSO LEDGERED, NOT FIXED:** the radar dim-mask rebake (the cycle-98 `TextureSource` freeze) had TWO
+production triggers and now has ONE — a star-shell dazzle. `spec-radar-dim-mask-render-freeze.md`'s
+acceptance criterion and manual QA step are written on *"fit an `intelRange` boon"*, which is no longer
+reachable in play; the lifetime guard itself is unchanged and still pinned by tests that drive
+`setRanges` numerically.
+## Amendment 32 — BOT POLICY SPLITS ONTO TWO AXES (ERIC RULINGS, 2026-08-20, cycle 110)
 
 Story 7-5 finalized the weapons and the 23-line catalog, but the combat bots were only
 MECHANICALLY re-pointed at the surviving card ids — no behaviour was ever taught. Measured at the
@@ -1839,9 +2069,9 @@ the balance pass is going to be for! But it still needs to play intelligently."*
 
 ---
 
-## Amendment 30 — THE MINE LAYER HANGS BACK, AND THE CONTROL IS NOT CROSS-CYCLE (ERIC RULINGS, 2026-08-20, cycle 111)
+## Amendment 33 — THE MINE LAYER HANGS BACK, AND THE CONTROL IS NOT CROSS-CYCLE (ERIC RULINGS, 2026-08-20, cycle 111)
 
-The follow-up amendment 29 scheduled. Cycle 110's blind-vacuum A/B found the ML's bots building and
+The follow-up amendment 32 scheduled. Cycle 110's blind-vacuum A/B found the ML's bots building and
 sailing it WORSE THAN CHANCE (4/30 wins weighted vs 12/30 random) and the orchestrator initially
 misread the cause as target choice. Eric played the hull and named it correctly:
 

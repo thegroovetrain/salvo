@@ -924,7 +924,7 @@ So that "how far can I see it" has a single answer I can hold in my head instead
 
 **Given** `CONFIG.vision`
 **When** the ladder lands
-**Then** INTEL RANGE is the whole ruler and radar range is its full extent (8/8); every sensor boundary derives as an eighth of it and stays SIGHT-anchored exactly as `radar` and `muzzleFlash` already are — 7/8 = `SIGHT * 1.75` (577.5u), 5/8 = `SIGHT * 1.25` (412.5u), 4/8 = `SIGHT` (330u), 3/8 = `SIGHT * 0.75` (247.5u)
+**Then** INTEL RANGE is the whole ruler and radar range is its full extent (8/8); every sensor boundary derives as an eighth of it and stays SIGHT-anchored exactly as `radar` and `muzzleFlash` already are — 7/8 = `SIGHT * 1.75` (577.5u), 5/8 = `SIGHT * 1.25` (412.5u), 4/8 = `SIGHT` (330u), 3/8 = `SIGHT * 0.75` (247.5u) *(superseded in part, epic-7 amendment 31, cycle 119: the `intelRange` card that scaled this ruler is deleted — the ladder and its fractions here are unchanged, but radar range is now fixed at base for every player, not player-widenable)*
 **And** muzzle-flash carry MOVES from 6/8 to 5/8 (`SIGHT * 1.5` → `SIGHT * 1.25`, 495u → 412.5u), and because amendment 42 deliberately reuses that one constant rather than forking a fourth, WOUNDED SMOKE reach moves with it — this is intended, Eric ruled the band as "muzzle/smoke"
 **And** the foghorn's volume tiers, which derive from `max(1.5 * sight, muzzleFlash)` (amendment 53), are re-examined against the new value so an intel build still hears farther and a dazzle still cannot deafen
 **And** mines and incoming torpedoes gain their own DETECT range at 3/8 (247.5u), replacing the truesight gate they share today via `pointSighted` in `server/src/game/signals.ts` — Eric's rationale of record is that both weapons need the buff, and a per-weapon `detectRange` stat is a possible future, not this story
@@ -945,7 +945,7 @@ So that a strong echo looks strong for a reason, and objects nobody wrote a rule
 **Given** the `return`-grammar heatmap
 **When** a paint is stamped
 **Then** intensity comes from ONE model — a per-material reflectivity coefficient × a falloff chosen by the target's GEOMETRY (point 1/d⁴, surface 1/d³, volume 1/d²) — and colour stays INTENSITY, never category (amendment 105); the coefficient table in amendment 106 is an explicit handwave and is expected to be tuned, not adopted
-**And** the falloff is CALIBRATED so a mid-size hull crosses red→blue at 7/8 intel range (577.5u), with the crossover emerging from the curve — a range threshold branch anywhere in the paint path fails this AC (amendment 118)
+**And** the falloff is CALIBRATED so a mid-size hull crosses red→blue at 7/8 intel range (577.5u), with the crossover emerging from the curve — a range threshold branch anywhere in the paint path fails this AC (amendment 118) *(the `intelRange` card that once varied radar range is deleted — epic-7 amendment 31 — so this crossover is now a fixed 577.5u for every player, not a per-build target)*
 **And** coastline return strength reads terrain HEIGHT from the cycle-59 raster, so a low mudflat and a steep headland no longer paint identically
 **And** surf paints a weak fringe along the seaward face of the coastline polygon — pure client presentation, no server involvement and no wire field, the same posture island returns already hold
 **And** sea clutter paints as a weak near-ship haze, its near-field concentration falling out of the surface falloff rather than a hand-placed radius
@@ -965,7 +965,7 @@ So that terrain is something I read and use, not a wall that deletes contacts.
 
 **Given** the cycle-59 height raster and max-height pyramid
 **When** shadowing lands
-**Then** occlusion stops being binary: `shadowLength = (radarRange² / 4) · (1 − h₀/H) / d₀`, infinite when `h₀ ≥ H`, with `R` and `H` FIXED tuning constants chosen so the horizon lands on intel range — never derived from a map's terrain distribution (amendment 114)
+**Then** occlusion stops being binary: `shadowLength = (radarRange² / 4) · (1 − h₀/H) / d₀`, infinite when `h₀ ≥ H`, with `R` and `H` FIXED tuning constants chosen so the horizon lands on intel range — never derived from a map's terrain distribution (amendment 114) *(the `intelRange` card that once widened this horizon is deleted — epic-7 amendment 31 — so the horizon is now fixed at base radar range for every player)*
 **And** the formula lives in exactly ONE shared pure function, called by BOTH `server/src/game/signals.ts` and `client/src/render/radarHeatmap.ts`; a second implementation is a desync or a leak, and this is the story's central architectural constraint
 **And** the shadow edge is SOFT: a hull is masked from the waterline up, so returns fade through the weakest band rather than cutting at a line (amendment 104)
 **And** the shadow RENDERS, and renders as NO DATA rather than as empty water — a wedge drawn as clear sea is a lie that can hide a battleship in a region the player was shown as safe

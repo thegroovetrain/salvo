@@ -623,12 +623,19 @@ export const CONFIG = {
         },
       },
       // BS siege — standoff, broadside-led, star shells to resolve stale
-      // contacts into live sight (C2). Intel range IS its reach: gun, broadside
-      // and star-shell rangeU all ride radarRange (the broadside at the 5/8 rung).
+      // contacts into live sight (C2). Its reach is FIXED: gun, broadside and
+      // star-shell rangeU all ride radarRange (the broadside at the 5/8 rung),
+      // and no card moves that number since RANGE I–IV was deleted
+      // (2026-08-20), so `intel` now buys sweep rate only. The appetite is
+      // deliberately LEFT UNTUNED here — a bot retune belongs to a balance
+      // pass, not to a card removal (ledgered in deferred-work.md).
       siege: {
         cat: { broadside: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
         lines: {
-          broadsideTurrets: 2.8, intelRange: 2.4, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6,
+          // `intelRange` was dropped here when RANGE I–IV left the catalog
+          // (2026-08-20, cycle 118) — the key would name a card that no
+          // longer exists, which a pin refuses.
+          broadsideTurrets: 2.8, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6,
           // Acquisitions: sensors for standoff fire first, then a torpedo the
           // band pull can ease it in behind.
           acquireRadarBuoy: 1.5, acquireStarShells: 1.3, acquireTorpedo: 1.2, acquireMine: 1.1, acquireBoost: 0.9, acquireBroadside: 0.8,
@@ -639,7 +646,8 @@ export const CONFIG = {
       forager: {
         cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, radarBuoy: 1.0 },
         lines: {
-          gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineBlast: 2.0,
+          // `intelRange` dropped with RANGE I–IV (cycle 118) — see siege.
+          gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0,
           // CAPTIVE restored as a WANTED line (Eric playtest, 2026-08-20):
           // a survival-and-payoff tool for a hull that hangs back — its
           // hostile-only trip still cannot farm fleet, but that was never
@@ -755,8 +763,11 @@ export const CONFIG = {
     // constraint tests and the weapons smoke and by NO production code: at
     // RUNTIME the gate is OBSERVER-SCALED (amendment 121) and multiplies by
     // `detectFactor` below, never by this. The server resolves it as
-    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it and
-    // an intelTruesight boon widens it, with island LOS applied unchanged.
+    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it,
+    // with island LOS applied unchanged. Nothing WIDENS it any more: the card
+    // that once did (intelTruesight, merged into intelRange in cycle 92) was
+    // deleted in cycle 119, so the only live scale is dazzle. The resolver
+    // stays observer-scaled rather than flat — see epic-7 amendment 31.
     detect: SIGHT * 0.75,
     // The runtime scale the detect gate multiplies an observer's own
     // dazzle-scaled, boon-widened sight by. It is the SAME number as detect's
@@ -1313,10 +1324,11 @@ export const CONFIG = {
   /**
    * BROADSIDE BARRAGE (Battleship slot 1, Story 7-5 wave 2) — REPLACES the
    * long-range cannon outright (Eric's `7-5-decks.md`). A click to either BEAM
-   * fires every broadside turret on THAT side in one barrage: one shell runs
-   * to the clicked point exactly, the rest fan out ANGULARLY about the click
-   * bearing and end their run at the SAME range (an arc at constant radius —
-   * sim/spread.ts fanTargets). Each shell is a real gun-pattern shell that
+   * fires every broadside turret on THAT side in one barrage: every turret
+   * whose OWN firing arc contains the click fires exactly at it, every turret
+   * that cannot bear fires at its arc LIMIT at the click's range (an arc at
+   * constant radius — sim/aim.ts turretAimPoints; see the per-turret arc
+   * fields below). Each shell is a real gun-pattern shell that
    * BURSTS at its own point and emits its OWN mz/sp/hc signals — there is no
    * salvo aggregation (R2.5).
    *
@@ -1332,9 +1344,11 @@ export const CONFIG = {
    * `radarRange × CONFIG.vision.muzzleFlashFactor` — THE 5/8 RUNG of the
    * eighths ladder, 412.5u at base. It is the FIRST weapon in the game that
    * does not reach the full radar horizon (Eric: *"This weapon's range is
-   * limited to 5/8"*), so it rides the ladder rather than a literal and moves
-   * with `intelRange` like everything else. Every number is a DESIGN TARGET,
-   * tunable.
+   * limited to 5/8"*), so it rides the ladder rather than a literal — ONE
+   * derivation of the rung, which is what keeps it correct if a card ever
+   * writes `radarRange` again (none does since RANGE I–IV was deleted
+   * 2026-08-20, so 412.5u is the value for every observer). Every number is a
+   * DESIGN TARGET, tunable.
    */
   broadside: {
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
@@ -1345,37 +1359,82 @@ export const CONFIG = {
     maxAmmo: 1, // one barrage in the pool — presented as a pure cooldown
     reloadMs: 30000, // ms — cooldown between barrages (Eric: "lets set the cooldown to 30 seconds")
     turrets: 3, // shells per barrage at base; BROADSIDE TURRETS ×2 takes it to 5
+    /**
+     * [DRAFT] The BATTERY'S ALONG-HULL SPAN, as a fraction of hull length —
+     * Eric's correction 2026-08-19: *"It is supposed to be three separate,
+     * evenly-spaced points on the ship that they fire from. When you get an
+     * extra turret, this is represented as the three evenly-spaced points
+     * changing to four or five."*
+     *
+     * The turrets are spread evenly across `length × this` on the firing beam
+     * (sim/aim.ts `turretMuzzles`, straddled about midships by the SAME
+     * sim/spread.ts law the fan uses), and out to the half-BEAM so a muzzle
+     * sits on the hull's edge rather than its centreline. 0.6 puts a
+     * battleship's battery across the middle 74.4u of its 124u hull — a real
+     * midship section, clear of the bow and stern tips where a turret would
+     * read as a bowsprit.
+     *
+     * MORE GUNS DO NOT MAKE A LONGER SHIP: the span is FIXED, so BROADSIDE
+     * TURRETS re-spaces the same 74.4u into 4 then 5 points (37.2u → 24.8u →
+     * 18.6u apart). DRAFT — Eric tunes it on the water.
+     */
+    turretSpanFactor: 0.6,
     damage: 20, // hp per burst victim, per shell (Eric: "lets say 20 damage")
     // u — blast radius around each shell's own point. DRAFT (the gun's own
     // burstRadius): Eric ruled the shells "burst like the gun" without naming
     // a radius, so the gun's number is the handwave until it is tuned.
     burstRadius: 15,
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
-    // deg — HALF-ANGLE of the full fan, indexed by BROADSIDE SPREAD copies
-    // held (index 0 = no cards, index 4 = the ×4 cap). The extreme shells sit
-    // at ±this; the rest are evenly spaced across it, so an ODD turret count
-    // puts one shell exactly on the click bearing and an EVEN count straddles
-    // it (sim/spread.ts). Read through EffectiveStats.broadside.fanHalfAngleRad,
-    // never indexed at a call site.
+    // PER-TURRET FIRING ARCS (Eric ruling 2026-08-20) — THE DESIGNED FAN IS
+    // DELETED. Eric: *"each of these turrets actually has its own firing arc
+    // ... all turrets WILL fire as close to the clicked point as they are able
+    // given their firing arc. And its not that the upgrade increases their
+    // precision/cohesion, its that it increases each individual turret's
+    // firing arc so they can each cover more area, and thus depending on where
+    // is clicked, more guns can get nearer to that point."* Nobody designs a
+    // spread any more — it EMERGES from guns that cannot all bear on one
+    // point. `fanHalfAngleDeg` (the fan-width ladder) is gone with the model.
     //
-    // RETUNED from [12, 9, 6.5, 4.5, 3] by the Story 7-5 batch-sim evidence pass
-    // (batch-sim-evidence-7-5-2026-08-19.md). The old 3° cap VIOLATED Eric's own
-    // ratified constraint on this weapon — *"you definitely can't hit a single
-    // ship with all the shots from this unless they are close and exposing their
-    // broadside to you"* — because at ×4 SPREAD + ×2 TURRETS the five shells
-    // separated by only 2.6–14.1u, well under the 30u burst DIAMETER, so every
-    // burst merged into one crater on ANY hull at ANY aspect out to the full
-    // 537.5u reach: a guaranteed 100 hp point strike, 80% of a Torpedo Boat.
-    // That is the opposite of the "unless they are close and broadside-on"
-    // clause, so this is enforcing his ruling rather than re-balancing past it.
+    // Each turret's arc is its MOUNT BEARING ± its TRAVERSE half-angle. The
+    // mounts are straddled across ±turretMountSpreadDeg about the firing beam
+    // (index-paired with turretMuzzles, UNCROSSED: the bow-most gun owns the
+    // bow-most arc — sim/aim.ts turretAimPoints), so together the battery
+    // covers the whole ±60° sector while each gun stays individually narrow:
+    // mountSpread + base traverse = 61.5° ≥ arcHalfArcDeg, pinned, which is what
+    // guarantees at least ONE gun always bears on any legal click ("one shell
+    // will absolutely hit at the target point" survives structurally).
     //
-    // The BASE 12° is UNCHANGED and stays deliberately: the same pass measured it
-    // as matching his brief exactly (about 1 of 3 shells lands on a broadside-on
-    // hull past ~300u). Only the tightening half of the ladder moved, so SPREAD
-    // still reads as "spread → parallel-ish → near the point" while the top rung
-    // now REWARDS the close broadside-on shot instead of removing the need for it.
-    // Still a DRAFT ladder — Eric tunes it on the water.
-    fanHalfAngleDeg: [12, 10.5, 9, 7.75, 6.5],
+    // CONVERGENCE IS PARALLAX. A gun that bears fires EXACTLY at the click; to
+    // put ALL guns on one point their muzzle→click bearings (which differ by
+    // atan(hullOffset/R) — ~5° at max reach, ~14° at 150u) must each fit their
+    // OWN arc, and the mounts are 28° apart. At base that closes only past
+    // ~386u — 94% of the weapon's own 412.5u reach — within ~±2° of abeam.
+    // Eric: *"IF you happen to click a point that can be perfectly lined up,
+    // then yes, all guns should converge. But that should be very rare without
+    // upgrades and aiming close to max range."*
+    //
+    // RETUNED on his playtest (2026-08-20): *"the convergence is slightly too
+    // high at level 1 imo. I am okay with there being some dead space when
+    // closer to the ship that none of the shots can actually hit."* Base
+    // convergence moved ~303u → ~386u. THE DIAL IS THE OVERLAP
+    // (traverse − mountSpread), which is what convergence needs; COVERAGE is
+    // their SUM, which is what keeps a gun on every legal click. Widening the
+    // mounts while narrowing the arcs tightens the first WITHOUT opening
+    // angular gaps in the second — so the dead space Eric accepted is the
+    // CLOSE-RANGE kind (parallax too wide for the outer guns to bear), never a
+    // bearing that no gun can ever reach.
+    //
+    // [DRAFT] deg — half-spread of the outermost mount bearings about the
+    // beam. FIXED as turrets increase: extra guns densify the SAME covered
+    // sector (the turretSpanFactor rule applied to bearings).
+    turretMountSpreadDeg: 28,
+    // [DRAFT] deg — each turret's TRAVERSE half-angle about its own mount,
+    // indexed by BROADSIDE SPREAD copies held (index 0 = no cards, index 4 =
+    // the ×4 cap). The card WIDENS every gun's arc (+6°/card), so more guns
+    // can swing onto a given click and full convergence becomes reachable at
+    // closer ranges (386 → 183 → 118 → 86 → 66u, abeam). Read through
+    // EffectiveStats.broadside.traverseRad, never indexed at a call site.
+    traverseDeg: [33.5, 39.5, 45.5, 51.5, 57.5],
   },
 
   /**
@@ -1430,7 +1489,10 @@ export const CONFIG = {
    * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`), which is
    * why it is a WEAPON in EQUIPMENT_IS_WEAPON rather than the 1.8 stern-drop
    * ability. `radarRange` is a FLAT SET — the buoy's own equipment, NOT the
-   * owner's boon-scaled intel range — and its sweep is its own too.
+   * owner's intel range — and its sweep is its own too. (Since cycle 119 the
+   * owner's radar range is itself fixed at base, no card moves it; the buoy's
+   * independence is still the point, and still what a future radar card would
+   * have to respect.)
    *
    * ONE BUOY, AND A GAP — AT BASE COOLDOWN (Eric ruling 2026-08-19, amending
    * R2.7 mid-flight): the base life is SHORTER than the base reload, so out of

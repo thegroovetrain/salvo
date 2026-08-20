@@ -1,6 +1,6 @@
 # Bot evidence — cycle 111, the Mine Layer posture pass (2026-08-20)
 
-Companion to `spec-ml-posture-and-prepared-placement.md` and epic-7 amendment 30. Follows
+Companion to `spec-ml-posture-and-prepared-placement.md` and epic-7 amendment 33. Follows
 `bot-evidence-2026-08-20.md` (cycle 110), whose blind-vacuum A/B produced the hypothesis this cycle
 tests.
 
@@ -59,7 +59,7 @@ move** (ML 12/30 → 8/30 wins; match length 529.1s → 598.6s).
 
 It is not a leak. The test-profile rows are byte-identical (`testRow` / `TEST_APPETITE` untouched,
 verified by diff). What moved is the **EQUIPMENT AXIS** — the churn bound and the prepared lay both
-live in `EQUIPMENT_TACTICS`, which by the two-axis design (epic-7 amendment 29) is shared by every
+live in `EQUIPMENT_TACTICS`, which by the two-axis design (epic-7 amendment 32) is shared by every
 profile carrying that equipment. The test rows run every appetite at EAGER, so they pick up prepared
 laying too. The control was only ever going to hold if the cycle were confined to profile rows and
 weights.

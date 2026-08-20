@@ -28,6 +28,7 @@ import {
   SHIP_CLASS_IDS,
   zoneClosedAtMs,
   zoneGroups,
+  type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
@@ -79,6 +80,24 @@ export interface RunSpec {
   /** Scripted captain control factory; defaults to the storm-pacing pacifist
    *  (CONTROL_REGISTRY.pacifist — the only row there is). */
   control?: ControlFactory;
+  /**
+   * LOBBY HULL POLICY (see rotate/botHull). 'rolled' — the default and the
+   * shipped behaviour — lets each bot roll its own class off the controller's
+   * stream, and deals captains the un-offset `i % 3` rotation they have always
+   * had. 'even' deals SHIP_CLASS_IDS round-robin across BOTH halves of the
+   * lobby, OFFSET BY MATCH INDEX, so per-class win share measures balance
+   * rather than representation.
+   *
+   * THE GUARANTEE, exactly: within one match the per-class spread is at most 1
+   * (it cannot be better — 20 hulls over 3 classes is 7/7/6). Campaign totals
+   * are EXACTLY even when the match count or the hull count is a multiple of 3;
+   * otherwise the offset carries the shortfall around the classes and the
+   * totals land within one hull per class (e.g. 20 bots x 4 matches = 27/27/26,
+   * and at --matches 1 the offset buys nothing at all: 7/7/6).
+   *
+   * Undefined => 'rolled' => every existing run key is byte-identical.
+   */
+  roster?: 'even' | 'rolled';
 }
 
 /** The forced test profile for bot ordinal `i`, or undefined for the shipped
@@ -94,10 +113,19 @@ export function botProfileFor(spec: Pick<RunSpec, 'botProfile'>, i: number): Tes
  *  seeded stream and the brain drives itself from World's `botsTick` row.
  *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
  *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
-function buildBotLobby(world: World, spec: RunSpec, botCount: number): string[] {
+function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   const ids: string[] = [];
-  for (let i = 0; i < botCount; i += 1) ids.push(world.addBot(undefined, botProfileFor(spec, i)).id);
+  for (let i = 0; i < botCount; i += 1) {
+    const profile = botProfileFor(spec, i);
+    // WHICH DEALER WINS THE HULL. A forced TEST profile is per-hull
+    // (randomTorpedoBoat / randomBattleship / randomMineLayer), so it governs
+    // the class and the roster policy must not fight it — passing a hull too
+    // would let `--roster even` silently put a randomMineLayer row on a
+    // battleship. On the rolled path (no forcing) the roster policy deals as
+    // it does for captains.
+    ids.push(world.addBot(profile === undefined ? botHull(spec, index, i) : undefined, profile).id);
+  }
   return ids;
 }
 
@@ -311,6 +339,39 @@ function harnessHooks(): MatchHooks {
   };
 }
 
+/**
+ * The hull for lobby slot `i` of match `index`.
+ *
+ * `undefined` under the default 'rolled' policy — passing undefined to
+ * World.addBot is behaviourally identical to omitting the argument (the roll
+ * comes off the same stream position), so the default run key is unchanged.
+ *
+ * THE `+ index` OFFSET IS LOAD-BEARING under 'even': 20 bots over 3 classes is
+ * 7/7/6 at best, so without rotating by match index the SAME class is short in
+ * every match and a campaign stays ~14% skewed — which is precisely the
+ * representation artefact the even roster exists to remove.
+ */
+/** THE ONE ROUND-ROBIN DEAL, shared by both halves of the lobby: slot `i` of
+ *  the SHIP_CLASS_IDS rotation, started at `offset`. A match-index offset is
+ *  what makes the campaign totals even — without it the SAME class is short in
+ *  every match and a 20-hull lobby stays ~14% skewed forever, which is the
+ *  representation artefact --roster even exists to remove. */
+function rotate(offset: number, i: number): ShipClassId {
+  return SHIP_CLASS_IDS[(i + offset) % SHIP_CLASS_IDS.length];
+}
+
+/** The rotation offset for this match: the match index under 'even', and ZERO
+ *  under 'rolled' — which is what keeps the captain deal (`i % 3`, dealt since
+ *  the harness shipped) byte-identical on every pre-existing run key. */
+function rosterOffset(spec: RunSpec, index: number): number {
+  return spec.roster === 'even' ? index : 0;
+}
+
+function botHull(spec: RunSpec, index: number, i: number): ShipClassId | undefined {
+  if (spec.roster !== 'even') return undefined;
+  return rotate(index, i);
+}
+
 /** Run ONE match and collect its sample: to `finished`, or to the tick budget
  *  (full storm timeline via the shared zoneClosedAtMs + endgame slack), which
  *  collects an honest endedBy 'unresolved' sample instead. Throws only on the
@@ -357,15 +418,24 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const factory = spec.control ?? CONTROL_REGISTRY.pacifist;
   const controls: CaptainControl[] = [];
   const captainIds: string[] = [];
+  // CAPTAINS TAKE THE SAME ROTATION AS THE BOTS under 'even'. Dealing them the
+  // un-offset `i % 3` while the bots rotate leaves the captain half of a mixed
+  // lobby (`--captains 2 --bots 18`) short the SAME class in every single
+  // match — the exact representation artefact the flag exists to remove, and
+  // it matters because BatchAggregate.winnerClass pools captains and bots into
+  // one tally. Under 'rolled' rosterOffset is 0, so this line deals exactly
+  // what it always dealt.
+  const offset = rosterOffset(spec, index);
   for (let i = 0; i < spec.captains; i += 1) {
     const id = `cap-${i + 1}`;
     captainIds.push(id);
-    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]);
+    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i));
     controls.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
   }
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
-  // bot-shaped in the per-tick loop below.
-  const botIds = buildBotLobby(world, spec, botCount);
+  // bot-shaped in the per-tick loop below. The roster policy deals the hull
+  // and the test rig deals the profile; buildBotLobby resolves which wins.
+  const botIds = buildBotLobby(world, spec, botCount, index);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);

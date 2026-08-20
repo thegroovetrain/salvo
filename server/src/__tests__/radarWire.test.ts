@@ -146,7 +146,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     b.hp = b.stats.maxHp * 0.1;
     w.applyBoon(b, 'shipHull');
     w.applyBoon(b, 'gunBarrel');
-    w.applyBoon(b, 'intelRange');
+    w.applyBoon(b, 'shipSpeed');
     windowAround(a, 0);
     const after = blipsOf(buildFrame(w, 'a'))[0];
     expect(maskOf(after)).toEqual(maskOf(before));

@@ -77,7 +77,7 @@ function setup() {
     clock: { addSample: vi.fn() },
     ownBuffer: { clear: ownBufferClear, push: vi.fn() },
     predictor: { forceSnap, onServerState: vi.fn() },
-    radar: { onSweepSample: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     // The own-private preview seams (aim-preview cycle): the burst ring's
@@ -396,7 +396,7 @@ describe('bindRoom own sunk', () => {
       ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
-      radar: { onSweepSample: vi.fn() },
+      radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetPrime,
@@ -459,7 +459,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
-      radar: { onSweepSample: vi.fn() },
+      radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
       predictor: { onServerState: vi.fn() },
       resetThrottle: vi.fn(),
       resetPrime: vi.fn(),
@@ -1073,7 +1073,7 @@ function setupToasts(spectating = false) {
     buoys: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
-    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
+    radar: { onSweepSample: vi.fn(), onBlip: vi.fn(), setOwnBuoys: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play },
     names: (id: string) => id,
@@ -1159,7 +1159,7 @@ describe('bindRoom reward toasts', () => {
     const { sink, onBoonFitted } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
     expect(onBoonFitted).toHaveBeenCalledWith('mines');
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intelRange' }, { alive: true, boons: ['intelRange'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intelSweep' }, { alive: true, boons: ['intelSweep'] }));
     expect(onBoonFitted).toHaveBeenCalledWith('intel'); // shipwide -> the rank-wide flash
   });
 
@@ -1323,7 +1323,7 @@ function setupWater(
     clock: { addSample: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
-    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
+    radar: { onSweepSample: vi.fn(), onBlip: vi.fn(), setOwnBuoys: vi.fn() },
     contacts: { pushFrame: vi.fn(), ids: () => [], get: () => null },
     contactViews: { flash, sinkFlash: vi.fn(), setSink: vi.fn() },
     mines: { sync: vi.fn() },
@@ -1958,7 +1958,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       ownBuoy: () => undefined,
-      radar: { onSweepSample: vi.fn(), onBlip },
+      radar: { onSweepSample: vi.fn(), onBlip, setOwnBuoys: vi.fn() },
       smoke: { onSmoke },
       foghorn: { onHonk },
       cameraCenter: () => ({ x: 0, y: 0 }),
@@ -2462,7 +2462,7 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     clock: { addSample },
     ownBuffer: { clear: vi.fn(), push: vi.fn() },
     predictor: { forceSnap: vi.fn(), onServerState: vi.fn() },
-    radar: { onSweepSample: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     ownBurstRadius: () => undefined,

@@ -20,7 +20,8 @@ export interface Point {
 
 export interface CameraOptions {
   /** Radar range (u) that must fit the screen's short axis at this zoom.
-   *  Upgradeable at runtime via setRadarRange() (Stage D radarRange stacks). */
+   *  Re-settable at runtime via setRadarRange(): no card writes `radarRange`
+   *  today, but the camera reads the folded stat rather than a literal. */
   radarRange: number;
   /** Exponential follow rate (1/s). */
   followRate: number;
@@ -60,7 +61,7 @@ const REVEAL_SETTLE_EPS = 1e-4;
  * why amendment 25 exempts this mode from that clamp.
  *
  * Both inputs are already derived quantities (the camera's live radarRange,
- * which follows a radarRange upgrade; and the Game's mapRadius, itself derived
+ * which follows the folded stat; and the Game's mapRadius, itself derived
  * from shared CONFIG.map), so a map-size or sensor retune moves the reveal with
  * it. Story 6.2 makes map sizing roster-dynamic — this must not need touching
  * then.
@@ -164,7 +165,7 @@ export class Camera {
   /**
    * Enter the REVEAL framing (Story 5.3): pull back until the whole ocean is in
    * frame. The factor is computed from the camera's OWN live radarRange, so a
-   * radarRange upgrade or a map-size retune moves the framing with it and no
+   * sensor or map-size retune moves the framing with it and no
    * caller has to re-derive anything. Feed `margin` and `rate` from
    * CLIENT_CONFIG.reveal (this module imports no config by design).
    */
@@ -290,8 +291,8 @@ export class Camera {
 
   /**
    * Adopt a new (effective) radar range and recompute the base zoom against the
-   * current viewport — a radarRange upgrade zooms the camera out so the full
-   * radar diameter keeps fitting the short axis ("your world grows"). Callers
+   * current viewport, so the full radar diameter keeps fitting the short axis.
+   * No card moves `radarRange` today; this stays the seam that would carry one. Callers
    * must re-bake the fog (fog.rebake) after this, same as the resize path.
    */
   setRadarRange(radarRange: number): void {

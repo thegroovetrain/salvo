@@ -21,8 +21,11 @@
 // `syncDimMask` used to swap in a new texture and destroy the old one, which is
 // precisely that. So the pin is: A REBAKE MUST REDRAW THE LIVE TEXTURE IN PLACE
 // AND NEVER DESTROY IT. Both triggers are covered, because they are independent
-// inputs to the same radius (`fogHoleRadiusU(sightRange, dazzled)`): an
-// `intelRange` boon via `setRanges`, and a dazzle flip via `setDazzled`.
+// inputs to the same radius (`fogHoleRadiusU(sightRange, dazzled)`): a radar-range
+// change via `setRanges`, and a dazzle flip via `setDazzled`. Since cycle 119
+// deleted the INTEL RANGE line, DAZZLE is the only trigger left in production —
+// the `setRanges` half is pinned anyway, because that setter is the seam a future
+// radar card would arrive through and the lifetime bug is silent until it fires.
 //
 // The bake is stubbed here for the same reason the other radar suites stub it —
 // jsdom has no 2d canvas — but the stub MIRRORS the real reuse contract (hand a
@@ -63,7 +66,7 @@ const radarFor = (): Radar => {
 };
 
 describe('a dim-mask rebake never destroys the bound TextureSource', () => {
-  it('keeps ONE texture and source across an intelRange boon', () => {
+  it('keeps ONE texture and source across a radar-range change', () => {
     const radar = radarFor();
     const first = radar.dimMask.texture;
     const destroyed = vi.spyOn(first, 'destroy');

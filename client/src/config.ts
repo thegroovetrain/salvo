@@ -1274,10 +1274,10 @@ export const CLIENT_CONFIG = {
      *   needed = dist(camera center → ring center) + half the visible diagonal
      *
      * No CONSTANT factor can bound that: the camera fits 2 × radar range on the
-     * SHORT axis, so a short-wide viewport at the widest user zoom with a maxed
-     * radar stack (intelRange ×4 = 1.15⁴) already needs ~17.8k u on a 3440×720
-     * screen (this factor gives 16.8k), and spectate free-pan is UNCLAMPED — the
-     * camera can travel arbitrarily far from any ring. So the renderer computes
+     * SHORT axis, so a short-wide viewport at the widest user zoom already sees
+     * a very wide slice of ocean on a 3440×720 screen, and spectate free-pan is
+     * UNCLAMPED — the camera can travel arbitrarily far from any ring, so no
+     * fixed multiple of the map radius is provably enough. So the renderer computes
      * `needed` per frame and draws max(this floor, needed), bucketed up by
      * `fillBucketU`. The floor still earns its keep: it is what ordinary play
      * sits at, so the bucket never moves and the shape is never re-tessellated.
@@ -2780,7 +2780,8 @@ export const CLIENT_CONFIG = {
         /** Flat `minScale` at and inside this multiple of the observer's
          *  EFFECTIVE truesight — 1.0, i.e. the whole sight bubble (the ladder's
          *  4/8 rung). A MULTIPLE and not a radius, because a dazzle burst shrinks
-         *  the bubble and an `intelRange` boon widens it. */
+         *  the bubble at read time (no boon widens radar range any more, but the
+         *  dazzle path still moves it, so the ramp stays observer-resolved). */
         innerFactor: 1,
         /** Full painted opacity from this multiple of effective truesight out:
          *  the 5/8 rung expressed against the 4/8 one (= 1.25), so it stays a

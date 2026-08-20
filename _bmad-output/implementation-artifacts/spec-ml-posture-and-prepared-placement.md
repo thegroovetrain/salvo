@@ -26,7 +26,7 @@ warnings: []
 - `ai/` may import ONLY `@salvo/shared`, `../inputs.js`, `../participants.js`, `../signals.js` (types), `import type` from `../perception.js`, and siblings. `world.js` banned including type imports; the token `observeSpectator` may not appear under `ai/` (pinned `bots.test.ts:269-300`).
 - A bot's world knowledge stays `perception.observe()` + its own ship record. Own live mines/buoys are read from `mind.view.mines` / `.buoys` via the `own` flag — the SAME data a client receives. No new port members.
 - Bands stay fractions of the bot's own `stats.radarRange`. No literal ranges in `profiles.ts`.
-- THE TWO AXES STAY SEPARATED (epic-7 amendment 29): weapon geometry, arcs, placement and doctrine handling live ONLY in `EQUIPMENT_TACTICS`; the ship profile may express appetite, targeting, band, posture and nothing else.
+- THE TWO AXES STAY SEPARATED (epic-7 amendment 32): weapon geometry, arcs, placement and doctrine handling live ONLY in `EQUIPMENT_TACTICS`; the ship profile may express appetite, targeting, band, posture and nothing else.
 - A DOCTRINE MAY ADD AN OCCASION, NEVER SILENTLY REMOVE ONE — the rule five defects produced last cycle. A prepared lay must ADD to the reactive lays, never replace one.
 - No rng in any `want()`. Determinism pin `botTactics.test.ts` must stay green.
 - Every per-line key in `CONFIG.bots.boonWeights` must name a real catalog line (pinned `botPolicy.test.ts`).

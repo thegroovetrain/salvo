@@ -3,8 +3,9 @@
 // completeness extension, the leak-catch pin) lives in perception.test.ts
 // with the other independently-reimplemented oracles; THIS file pins the
 // buoy's world behaviour through the production APIs: placement lifecycle,
-// the R2.8 relay (radar returns only, never vision), buoy-position island
-// shadowing, the R2.9 anonymous self-paint, the R2.11 jamming rules (adds
+// the buoy's OWN SCOPE (Story 7-5 fix cycle, supersedes the R2.8 relay —
+// radar returns only, never vision, tagged `src` for the owner), buoy-position
+// island shadowing, the R2.9 anonymous self-paint, the R2.11 jamming rules (adds
 // fakes, never deletes; owner exempt; deterministic per (buoy, sweep)), the
 // R2.10 gun buoy, and R2.7's destructible-for-free rule (no XP, no feed
 // line).
@@ -165,10 +166,10 @@ describe('radar buoy — placement + the one-buoy lifecycle (R2.7)', () => {
   });
 });
 
-// ---------- R2.8: the relay is radar returns ONLY, from the buoy's position ---
+// ---------- The buoy's OWN SCOPE (Story 7-5 fix cycle; supersedes R2.8's relay) ---
 
-describe('radar buoy — the relay (R2.8)', () => {
-  it('(a) the owner receives a RETURN for a contact only the buoy can see — and NO contact/vision for it', () => {
+describe('radar buoy — the buoy\'s own scope (radar returns only, from the buoy\'s position)', () => {
+  it('(a) the owner receives the buoy\'s RETURN for a contact only the buoy can see — TAGGED with the buoy\'s id, and NO contact/vision for it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const e = place(w, 'e', 700, 0, 1.1); // 700u from a: beyond radar (660) AND sight
@@ -179,13 +180,16 @@ describe('radar buoy — the relay (R2.8)', () => {
     const blips = blipsOf(f);
     expect(blips).toHaveLength(1);
     expect(hasMask(blips, shipMask(w, e))).toBe(true); // the identical anonymous footprint
-    // Close the buoy's window: the relay stops — proving the return came
+    // PV 44: the return is ATTRIBUTED to the buoy that made it, so the client
+    // prices it from the buoy and paints it on the buoy's scope.
+    expect(blips[0].src).toBe('b1');
+    // Close the buoy's window: the scope goes quiet — proving the return came
     // through the BUOY's own sweep, not any observer-side gate.
     buoyWindowAround(b, Math.PI);
     expect(blipsOf(buildFrame(w, 'a'))).toEqual([]);
   });
 
-  it('a relay never reaches anyone but the buoy\'s OWNER', () => {
+  it('a buoy\'s scope never reaches anyone but its OWNER', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'v', 0, 2000); // a bystander, far from everything
@@ -233,11 +237,13 @@ describe('radar buoy — the anonymous self-paint (R2.9)', () => {
     const v = place(w, 'v', 0, 0);
     const j = place(w, 'j', 2000, 2000);
     const b = addBuoy(w.buoys, j, 100, 0, w.now, 'b1', 1); // inside v's truesight
+    // PV 44: `sweep` rides every view — the buoy's live antenna angle, the
+    // owner's wedge-render input (physically observable on a sighted buoy).
     expect(buildFrame(w, 'j').buoys).toEqual([
-      { id: 'b1', x: 100, y: 0, until: b.until, own: true, by: 'j' }, // owner: always, at any range
+      { id: 'b1', x: 100, y: 0, until: b.until, own: true, by: 'j', sweep: b.sweepAngle }, // owner: always, at any range
     ]);
     expect(buildFrame(w, 'v').buoys).toEqual([
-      { id: 'b1', x: 100, y: 0, until: b.until, own: false, by: 'j' }, // sighted enemy: attributed
+      { id: 'b1', x: 100, y: 0, until: b.until, own: false, by: 'j', sweep: b.sweepAngle }, // sighted enemy: attributed
     ]);
     v.state.x = -600; // now 700u away — out of sight, out of the channel
     expect(buildFrame(w, 'v').buoys).toBeUndefined();
@@ -278,6 +284,7 @@ describe('radar buoy — jamming (R2.11)', () => {
     const jBlips = blipsOf(buildFrame(w, 'j'));
     expect(jBlips).toHaveLength(1);
     expect(hasMask(jBlips, shipMask(w, h))).toBe(true);
+    expect(jBlips[0].src).toBe('b1'); // the buoy's own scope, attributed (PV 44)
   });
 
   it('(d) fakes are DETERMINISTIC per (buoy, sweep revolution) and re-scatter on each completed revolution', () => {
@@ -322,23 +329,28 @@ describe('radar buoy — jamming (R2.11)', () => {
 // ---------- R2.10: the gun buoy ------------------------------------------------
 
 describe('radar buoy — the GUN BUOY (R2.10)', () => {
-  it('auto-fires 5 damage on a 5s cooldown at a hostile inside its own 330u set, crediting kills to the OWNER', () => {
+  it('auto-fires a REAL 5-damage SHELL on a 5s cooldown at a hostile inside its own 330u set, crediting kills to the OWNER', () => {
+    // THE TURRET IS NOT HITSCAN ANY MORE (Story 7-5 fix cycle — Eric: "there
+    // is no projectile and it deals no damage to anything"): the shot is an
+    // ordinary ballistic on the one shell pipeline, so it is VISIBLE in
+    // flight, lands after real travel time, and pays hc/sp/boom like any gun.
     const w = bareWorld();
     const j = place(w, 'j', 2000, 2000, 0, 'mineLayer');
     fitBoons(j, ['buoyGun']);
     addBuoy(w.buoys, j, 0, 0, w.now, 'b1', 1);
     const e = place(w, 'e', 200, 0); // an enemy captain inside the buoy's set
     const hp0 = e.hp;
-    w.step();
-    expect(e.hp).toBe(hp0 - CONFIG.radarBuoy.gunDamage); // first shot lands at once
-    w.step();
-    expect(e.hp).toBe(hp0 - CONFIG.radarBuoy.gunDamage); // cooling: no second shot next tick
-    for (let t = 0; t < 100; t++) w.step(); // 5s later…
+    w.step(); // the shot leaves the buoy…
+    expect(w.shells.size).toBe(1); // …as a REAL projectile (this line fails on the hitscan build)
+    expect(e.hp).toBe(hp0); // still in flight: no instant damage
+    for (let t = 0; t < 10; t++) w.step(); // 200u at 500 u/s = 0.4s of flight
+    expect(e.hp).toBe(hp0 - CONFIG.radarBuoy.gunDamage); // the shell connected
+    for (let t = 0; t < 100; t++) w.step(); // one full cooldown later…
     expect(e.hp).toBe(hp0 - 2 * CONFIG.radarBuoy.gunDamage); // …exactly one more
     // The kill pays the OWNER through the ordinary sink path.
     e.hp = 1;
     w.respawnEnabled = false;
-    for (let t = 0; t < 101; t++) w.step();
+    for (let t = 0; t < 120; t++) w.step();
     expect(e.hp).toBeLessThanOrEqual(0);
     expect(j.kills).toBe(1); // credited like any of the owner's ordnance
   });
@@ -355,9 +367,13 @@ describe('radar buoy — the GUN BUOY (R2.10)', () => {
     w.step();
     const flashes = buildFrame(w, 'w').events.filter((e) => e.k === 'mz');
     expect(flashes).toHaveLength(1);
-    // At the BUOY's position — the shot came from there, not from the captain
+    // At the BUOY's muzzle — within the shell's bow clearance of the buoy's
+    // own footprint (the shot spawns just clear of the 12u square so it does
+    // not intercept its own silhouette), never anywhere near the captain
     // sitting 2000u away. And the row stays identity-free.
-    expect(flashes[0]).toEqual({ k: 'mz', x: 0, y: 0 });
+    const f0 = flashes[0] as { k: string; x: number; y: number };
+    expect(Object.keys(f0).sort()).toEqual(['k', 'x', 'y']);
+    expect(Math.hypot(f0.x, f0.y)).toBeLessThanOrEqual(BUOY_SIZE_U + CONFIG.gun.shellRadius);
     // Cooling: no target-less or repeat flash while the gun reloads.
     w.step();
     expect(buildFrame(w, 'w').events.filter((e) => e.k === 'mz')).toHaveLength(0);
@@ -377,12 +393,13 @@ describe('radar buoy — the GUN BUOY (R2.10)', () => {
     // the owner's own gun click, same tick (SLOT_GUN = 0)
     w.submitInput('j', { seq: 1, throttle: 0, rudder: 0, aim: -Math.PI / 2, fireSeq: 1, aimDist: 200, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
-    const flashes = buildFrame(w, 'w').events.filter((e) => e.k === 'mz');
+    const flashes = buildFrame(w, 'w').events.filter((e) => e.k === 'mz') as { x: number; y: number }[];
     expect(flashes).toHaveLength(2);
-    // One of them is the buoy's, at the buoy.
-    expect(flashes.some((f) => f.x === 0 && f.y === 0)).toBe(true);
+    const reach = BUOY_SIZE_U + CONFIG.gun.shellRadius; // the turret's bow clearance
+    // One of them is the buoy's, at the buoy (within its muzzle clearance).
+    expect(flashes.some((f) => Math.hypot(f.x, f.y) <= reach)).toBe(true);
     // The other is NOT at the buoy — it is the captain's own muzzle.
-    expect(flashes.some((f) => f.x !== 0 || f.y !== 0)).toBe(true);
+    expect(flashes.some((f) => Math.hypot(f.x, f.y) > reach)).toBe(true);
   });
 
   it('R2.21: fires on a NEUTRAL drone it can see (autonomous — no aggro gate), aggroing NOBODY at the owner', () => {
@@ -397,15 +414,21 @@ describe('radar buoy — the GUN BUOY (R2.10)', () => {
     const dHp = drone.hp;
     const fHp = far.hp;
     w.step();
-    expect(drone.hp).toBe(dHp); // no verb: nothing fires
+    expect(w.shells.size).toBe(0); // no verb: nothing fires
+    expect(drone.hp).toBe(dHp);
     expect(far.hp).toBe(fHp);
     fitBoons(j, ['buoyGun']);
-    w.step();
     // R2.10's aggro-gated hostile would have refused this NEUTRAL drone —
     // R2.21 shoots anything the buoy's own radar sees that isn't the owner.
+    // The shot is a REAL shell now (Story 7-5 fix cycle), so give it its
+    // ~0.3s of flight before asserting the hit.
+    for (let t = 0; t < 10; t++) w.step();
     expect(drone.hp).toBe(dHp - CONFIG.radarBuoy.gunDamage);
     expect(far.hp).toBe(fHp); // the set is the buoy's own radar range, not the map
-    // R2.21a: the hit aggros nobody — the owner never inherits the turret's fight.
+    // R2.21a: the hit aggros nobody — the owner never inherits the turret's
+    // fight (ShellState.noAggro threads the mine exception through the shell
+    // pipeline; without it this line fails, because an ordinary shell hit
+    // aggros a fleet victim onto its shooter).
     expect(w.drones.isTargeting('fleet-1', 'j')).toBe(false);
   });
 
@@ -418,14 +441,14 @@ describe('radar buoy — the GUN BUOY (R2.10)', () => {
     const farther = place(w, 'f', 0, 250);
     const nHp = near.hp;
     const fHp = farther.hp;
-    w.step();
+    for (let t = 0; t < 8; t++) w.step(); // fire + ~0.24s of real shell flight
     expect(near.hp).toBe(nHp - CONFIG.radarBuoy.gunDamage); // nearest-to-buoy wins
     expect(farther.hp).toBe(fHp);
     // Hard cover between buoy and the near target: its radar is blind on that
     // bearing, so the gun retargets what it CAN see — perception bounds the
     // weapon, not bare distance.
     w.map.heightRaster = rasterFrom(1200, ridgeField(60, 0, 20, 40));
-    for (let t = 0; t < 100; t++) w.step(); // through the next cooldown
+    for (let t = 0; t < 110; t++) w.step(); // through the next cooldown + flight
     expect(near.hp).toBe(nHp - CONFIG.radarBuoy.gunDamage); // never shot through the ridge
     expect(farther.hp).toBe(fHp - CONFIG.radarBuoy.gunDamage); // the visible one takes the round
   });

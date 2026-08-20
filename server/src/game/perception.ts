@@ -71,7 +71,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     // Story 7-5 wave 2: the live radar buoys — the buoy channel's subjects,
-    // the blip row's relay sources, and the self-paint/jamming-fake sources.
+    // the own-scope blip sources, and the self-paint/jamming-fake sources.
     buoys: world.buoys,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
@@ -98,7 +98,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     // Story 7-5 wave 2: the buoy channel's subjects (spectators see every
-    // buoy); the relay/fake blip sources are inert on this path (no blips).
+    // buoy); the own-scope/fake blip sources are inert on this path (no blips).
     buoys: world.buoys,
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
@@ -310,11 +310,30 @@ function blipOrder(a: BlipEvent, b: BlipEvent): number {
   if (a.t !== b.t) return a.t - b.t;
   if (a.w !== b.w) return a.w - b.w;
   if (a.h !== b.h) return a.h - b.h;
-  if (a.bits.length !== b.bits.length) return a.bits.length - b.bits.length;
-  for (let i = 0; i < a.bits.length; i++) {
-    if (a.bits[i] !== b.bits[i]) return a.bits[i] - b.bits[i];
+  const byBits = maskBitsOrder(a.bits, b.bits);
+  return byBits !== 0 ? byBits : blipSrcOrder(a, b);
+}
+
+/** The mask-words half of `blipOrder`'s key: length first, then each signed
+ *  int32 word — total up to byte-identical masks. */
+function maskBitsOrder(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== b.length) return a.length - b.length;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
   }
   return 0;
+}
+
+/** The closing term of `blipOrder`'s key: `src` (PV 44 — the buoy's-own-scope
+ *  sensor attribution) is PUBLIC payload to its one receiver, so it belongs in
+ *  the payload-only key — untagged before tagged, then lexicographic. It keeps
+ *  the order a pure function of what the observer receives, the property the
+ *  comparator exists for. */
+function blipSrcOrder(a: BlipEvent, b: BlipEvent): number {
+  const sa = a.src ?? '';
+  const sb = b.src ?? '';
+  if (sa < sb) return -1;
+  return sa > sb ? 1 : 0;
 }
 
 

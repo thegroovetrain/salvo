@@ -77,15 +77,17 @@ export interface EffectiveBroadside {
   burstRadius: number; // u — blast radius around each shell's own point
   turrets: number; // shells per barrage (3 base .. 5 at the BROADSIDE TURRETS cap)
   // The SPREAD LADDER RUNG: 1 = no BROADSIDE SPREAD cards held, 5 = the ×4 cap.
-  // This is the stat-addressable field the card writes (+1/card); the fan angle
+  // This is the stat-addressable field the card writes (+1/card); the traverse
   // itself is derived from it, because the ladder is a table of authored
   // degrees rather than a multiplicative step. 1-based so every whitelisted
   // stat stays strictly positive, the law applyStatEffect enforces.
   spreadRung: number;
-  // rad — HALF-ANGLE of the full fan about the click bearing. DERIVED post-fold
-  // from `spreadRung` against CONFIG.broadside.fanHalfAngleDeg; never
-  // stat-addressable (a card writing it would be a second derivation).
-  fanHalfAngleRad: number;
+  // rad — EACH TURRET'S TRAVERSE half-angle about its own mount bearing (Eric
+  // ruling 2026-08-20: the SPREAD card widens every gun's arc; the salvo's
+  // spread is emergent, not designed). DERIVED post-fold from `spreadRung`
+  // against CONFIG.broadside.traverseDeg; never stat-addressable (a card
+  // writing it would be a second derivation).
+  traverseRad: number;
 }
 
 // STORY 7-5 WAVE 1 — DOCTRINE IS A SET OF INDEPENDENT VERBS, NOT ONE ENUM.
@@ -207,8 +209,8 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'broadside' | 'starShel
       burstRadius: CONFIG.broadside.burstRadius,
       turrets: CONFIG.broadside.turrets,
       spreadRung: 1, // no BROADSIDE SPREAD cards held
-      // fanHalfAngleRad base — re-derived from spreadRung post-fold, same law.
-      fanHalfAngleRad: broadsideFanHalfAngle(1),
+      // traverseRad base — re-derived from spreadRung post-fold, same law.
+      traverseRad: broadsideTraverse(1),
     },
     starShells: {
       reloadMs: CONFIG.starShells.reloadMs,
@@ -237,7 +239,7 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'broadside' | 'starShel
   };
 }
 
-/** deg -> rad (CONFIG.broadside.fanHalfAngleDeg is authored in degrees).
+/** deg -> rad (CONFIG.broadside.traverseDeg is authored in degrees).
  *  SAME ASSOCIATION as sim/arcs.ts's `deg` — `(d * PI) / 180`, never
  *  `d * (PI / 180)`: the two round differently in the last bit, and both sides
  *  must land on the identical double. */
@@ -245,21 +247,21 @@ const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
  * The BROADSIDE SPREAD rung, clamped to the authored ladder: 1 (no cards) ..
- * fanHalfAngleDeg.length (the ×4 cap). Integer — the card adds exactly 1, so a
+ * traverseDeg.length (the ×4 cap). Integer — the card adds exactly 1, so a
  * fractional value can only come from malformed effect data.
  */
 export function clampSpreadRung(rung: number): number {
-  const top = CONFIG.broadside.fanHalfAngleDeg.length;
+  const top = CONFIG.broadside.traverseDeg.length;
   return Math.min(top, Math.max(1, Math.round(rung)));
 }
 
 /**
- * rad — the broadside fan's HALF-ANGLE at a given SPREAD rung (1-based). THE
- * single derivation of the authored ladder; both re-pin sites call it, and no
- * consumer indexes CONFIG.broadside.fanHalfAngleDeg directly.
+ * rad — each broadside turret's TRAVERSE half-angle at a given SPREAD rung
+ * (1-based). THE single derivation of the authored ladder; both re-pin sites
+ * call it, and no consumer indexes CONFIG.broadside.traverseDeg directly.
  */
-export function broadsideFanHalfAngle(rung: number): number {
-  return deg(CONFIG.broadside.fanHalfAngleDeg[clampSpreadRung(rung) - 1]);
+export function broadsideTraverse(rung: number): number {
+  return deg(CONFIG.broadside.traverseDeg[clampSpreadRung(rung) - 1]);
 }
 
 /**
@@ -343,18 +345,23 @@ function clampStats(stats: EffectiveStats): void {
   // THE BROADSIDE IS THE 5/8 RUNG (Story 7-5 wave 2, Eric: "This weapon's range
   // is limited to 5/8") — the same re-pin law as its two siblings above, one
   // rung short of the horizon. It rides `radarRange` rather than a literal, so
-  // an intelRange stack carries it out with everything else.
+  // there is ONE derivation of the rung rather than two — and a future card on
+  // the whitelisted `radarRange` path would carry it out for free.
   stats.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
-  // and the angle is derived from it (clamped inside the helper) — the
+  // and the traverse is derived from it (clamped inside the helper) — the
   // sweepPeriodMs pattern applied to an authored ladder.
   stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
-  stats.broadside.fanHalfAngleRad = broadsideFanHalfAngle(stats.broadside.spreadRung);
+  stats.broadside.traverseRad = broadsideTraverse(stats.broadside.spreadRung);
   // TRUESIGHT IS THE 4/8 RUNG OF INTEL RANGE (Eric ruling 2026-08-16) — derived,
-  // never stat-addressable. `sightRange` left BOON_STAT_PATHS with the two intel
-  // cards it used to have, so this is the firewall's authoritative answer and
-  // applyBoonStats holds the sibling copy. At zero boons this is byte-identical
-  // to the old CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*2.
+  // never stat-addressable. `sightRange` left BOON_STAT_PATHS, so this is the
+  // firewall's authoritative answer and applyBoonStats holds the sibling copy.
+  // No card writes `radarRange` since RANGE I–IV was deleted (2026-08-20), so
+  // today this resolves the BASE ladder for every observer; it stays derived so
+  // there is one derivation rather than two, and so a future card on that
+  // whitelisted path needs no re-scaling work. At zero boons it is
+  // byte-identical to the old CONFIG.vision.sight seed, because
+  // CONFIG.vision.radar IS SIGHT*2.
   stats.sightRange = stats.radarRange / 2;
   // THE TRIP RING IS A FIXED FRACTION OF THE BLAST (Eric ruling 2026-08-16) —
   // derived, not clamped. This REPLACES the old

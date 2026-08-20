@@ -1,7 +1,8 @@
 // BALANCE PROBE (Story 7-5 evidence pass) — the calibration instrument for the
-// things a campaign cannot see: the two [DRAFT] spread numbers (the BROADSIDE
-// BARRAGE's fan half-angle ladder `CONFIG.broadside.fanHalfAngleDeg` and
-// BARREL's lateral spacing `CONFIG.gun.barrelSpacingU`), and the MAX-STACK STAT
+// things a campaign cannot see: the [DRAFT] broadside arc numbers (the
+// BROADSIDE BARRAGE's per-turret `turretMountSpreadDeg`/`traverseDeg` — Eric's
+// 2026-08-20 per-turret-arc model) and BARREL's lateral spacing
+// `CONFIG.gun.barrelSpacingU`, and the MAX-STACK STAT
 // ENVELOPE each hull can now reach under the ADDITIVE speed/range ladders.
 //
 // WHY A PROBE AND NOT A BATCH RUN. A campaign reports how much damage landed;
@@ -10,7 +11,7 @@
 // answers the design question directly and exactly: place one stationary hull
 // at range R, aim the barrage at its centre, and count how many of the shells
 // the sim would actually resolve onto it — using the SHIPPED functions
-// (`fanTargets` / `parallelOffsets` / `burstVictims` / `hullSilhouette`), never
+// (`turretAimPoints` / `parallelOffsets` / `burstVictims` / `hullSilhouette`), never
 // a re-derivation, so the answer cannot drift from what the weapon does.
 //
 // Deterministic, no rng, no World. Run:
@@ -27,8 +28,8 @@ import {
   HULL_IDS,
   SHIP_CLASS_IDS,
   burstVictims,
-  fanTargets,
   hullSilhouette,
+  turretAimPoints,
   parallelOffsets,
   transformPolygon,
   type HullId,
@@ -51,18 +52,30 @@ function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: str
   return n;
 }
 
-const ORIGIN: Vec2 = { x: 0, y: 0 };
-
 function broadsideBlock(): void {
   const b = CONFIG.broadside;
-  console.log('== BROADSIDE FAN (DRAFT fanHalfAngleDeg = [' + b.fanHalfAngleDeg.join(', ') + '], burstRadius ' + b.burstRadius + 'u) ==');
-  console.log('shell separation at range R = 2*halfAngle*R / (turrets-1); bursts MERGE below ' + b.burstRadius * 2 + 'u');
-  console.log('turrets | spread | halfDeg |    R=100 |    R=200 |    R=300 |  R=412.5 |  R=537.5   (adjacent separation, u)');
+  console.log(
+    `== BROADSIDE PER-TURRET ARCS (DRAFT mountSpread ±${b.turretMountSpreadDeg}°, traverseDeg = [${b.traverseDeg.join(', ')}], burstRadius ${b.burstRadius}u) ==`,
+  );
+  console.log('Each turret fires exactly at the click when its own arc bears, else at its arc limit');
+  console.log('at the click\'s range (sim/aim.ts turretAimPoints — the shipped function, no re-derivation).');
+  console.log('');
+  console.log('GUNS ON THE CLICK (battleship battery, port beam; click at bearing phi off abeam):');
+  const pose = { x: 0, y: 0, heading: 0 };
   for (const turrets of [3, 4, 5]) {
-    for (let s = 0; s < b.fanHalfAngleDeg.length; s += 1) {
-      const half = deg(b.fanHalfAngleDeg[s]);
-      const cells = [100, 200, 300, 412.5, 537.5].map((r) => fmt((2 * half * r) / (turrets - 1)).padStart(8));
-      console.log(`${String(turrets).padStart(7)} | ${String(s).padStart(6)} | ${fmt(b.fanHalfAngleDeg[s]).padStart(7)} | ${cells.join(' | ')}`);
+    console.log(`turrets=${turrets}: rows = spread rung (traverse), cols = phi; cell = "bear" counts at R=100/200/300/412.5`);
+    for (let s = 0; s < b.traverseDeg.length; s += 1) {
+      const tau = deg(b.traverseDeg[s]);
+      const cells: string[] = [];
+      for (const phiDeg of [0, 15, 30, 45, 60]) {
+        const phi = deg(phiDeg);
+        const counts = [100, 200, 300, 412.5].map((r) => {
+          const click = { x: r * Math.sin(phi), y: r * Math.cos(phi) };
+          return turretAimPoints(pose, 'battleship', turrets, 1, click, tau, 5000).filter((t) => t.onClick).length;
+        });
+        cells.push(`${String(phiDeg).padStart(2)}°:${counts.join('/')}`);
+      }
+      console.log(`  ±${fmt(b.traverseDeg[s]).padStart(4)}° | ${cells.join(' | ')}`);
     }
   }
   console.log('');
@@ -71,11 +84,13 @@ function broadsideBlock(): void {
   for (const hullId of HULL_IDS) {
     for (const [aspectName, head] of [['broadside', Math.PI / 2] as const, ['bow-on', 0] as const]) {
       for (const turrets of [3, 5]) {
-        for (const R of [150, 300, 412.5, 537.5]) {
+        for (const R of [150, 300, 412.5]) {
           const cells: string[] = [];
-          for (let s = 0; s < b.fanHalfAngleDeg.length; s += 1) {
-            const targets = fanTargets(ORIGIN, { x: R, y: 0 }, turrets, deg(b.fanHalfAngleDeg[s]));
-            cells.push(String(shellsOn(targets, b.burstRadius, hullAt(hullId, { x: R, y: 0 }, head))).padStart(7));
+          for (let s = 0; s < b.traverseDeg.length; s += 1) {
+            const click = { x: 0, y: R }; // dead abeam of the firing battleship
+            const aims = turretAimPoints(pose, 'battleship', turrets, 1, click, deg(b.traverseDeg[s]), 5000);
+            const targets = aims.map((t) => t.target);
+            cells.push(String(shellsOn(targets, b.burstRadius, hullAt(hullId, click, head))).padStart(7));
           }
           console.log(
             `${hullId.padEnd(12)} | ${aspectName.padEnd(9)} | ${String(turrets).padStart(7)} | ${fmt(R).padStart(5)} | ${cells.join(' | ')}`,
@@ -119,9 +134,17 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  const universal = ['shipHull', 'shipSpeed', 'shipCooldown', 'intelRange', 'intelSweep'];
+  const universal = ['shipHull', 'shipSpeed', 'shipCooldown', 'intelSweep'];
   const maxBoons: string[] = [];
-  for (const id of universal) maxBoons.push(...new Array<string>(BOON_CATALOG[id].copies).fill(id));
+  for (const id of universal) {
+    // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept
+    // and a deleted line reads back as `undefined.copies` — a bare TypeError
+    // that says nothing about which id went away (INTEL RANGE's removal on
+    // 2026-08-20 landed exactly here).
+    const def = BOON_CATALOG[id];
+    if (def === undefined) throw new Error(`balanceProbe: '${id}' is not in BOON_CATALOG (deleted line?)`);
+    maxBoons.push(...new Array<string>(def.copies).fill(id));
+  }
   console.log(`stack: ${universal.map((id) => `${id}x${BOON_CATALOG[id].copies}`).join(' ')}`);
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the

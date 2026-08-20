@@ -1,32 +1,34 @@
-// A RADAR RETURN HAS NO PROVENANCE, AND THE CLIENT MUST NEVER GAIN ONE.
+// A RADAR RETURN CARRIES ITS SENSOR, NEVER ITS TRUTH — the client must know
+// WHICH of its own antennas made a return and must never learn whether the
+// subject is REAL.
 //
-// Story 7-5 wave 2 gave the server two new ways to emit a blip into an
-// observer's frame, on top of the observer's own sweep:
+// Story 7-5's fix cycle replaced the R2.8 relay with THE BUOY'S OWN SCOPE
+// (Eric: "It gets its own returns. I just get to see them as the owner."):
+// a return made by a buoy the observer OWNS arrives tagged `src: <buoy id>`
+// (PV 44) and is priced from the BUOY — its position, its falloff, its
+// terrain shadow. That tag is SENSOR ATTRIBUTION, and this file pins the line
+// it must never cross:
 //
-//   • THE RELAY (R2.8) — a radar buoy the observer OWNS returned the point, so
-//     the hull paints in the owner's frame from the BUOY's position, its island
-//     shadowing and its sweep window rather than the ship's.
-//   • THE JAMMING FAKE (R2.11) — a fabricated (pose, hull) scattered on the
-//     buoy's server-private jam stream, shaped by the SAME `blipShape` and gated
-//     by the SAME `blipGate` every genuine ship paint goes through.
+//   • WITHIN EVERY SCOPE, FAKE-VS-REAL STAYS INDISTINGUISHABLE. An untagged
+//     jamming fake (your own set swept an enemy jam circle) is byte-identical
+//     to an untagged real hull at that pose; a TAGGED fake (your BUOY's gate
+//     passed an enemy jamming buoy's fabrication — the server routes fakes
+//     through the buoy gate precisely so this holds) is byte-identical to a
+//     tagged real hull at that pose. The tag says which of your sensors
+//     returned it, never whether anything is there.
+//   • THE DRAW IS A PURE FUNCTION of the wire payload `{t,gx,gy,w,h,bits,src?}`
+//     and the observer's sensor poses (own hull + own buoys). Nothing else is
+//     consulted — no suspicious-mask filter, no fake heuristic, no dimming.
 //
-// The fakes are wire-indistinguishable BY CONSTRUCTION, and that is the entire
-// feature: jamming's purpose is DENYING information, so a client that could drop
-// the fakes (or dim them, or mark them, or sort them last) would gain a decisive
-// advantage and the doctrine would be worth nothing. This file is the structural
-// pin on the client half of that guarantee — the server's own carve-out is
-// declared in `server/src/game/signals.ts` and re-derived in its perception
-// oracle, and neither is worth anything if the RENDERER learns to tell them
-// apart.
+// The server's own carve-out is declared in `server/src/game/signals.ts`
+// (ownBuoyScopeBlips — the fakes-through-the-buoy-gate clause is the proof
+// obligation) and re-derived in its perception oracle; this file is the
+// renderer half.
 //
-// THE PROPERTY: everything the radar draws is a pure function of the wire
-// payload `{ t, gx, gy, w, h, bits }` and the observer's own pose. Nothing else
-// is consulted, so two returns carrying the same payload are the same return —
-// whoever generated them, and whatever they claim to be.
-//
-// PROVEN TO BITE: adding any provenance branch to `Radar.onBlip` (an ignored
-// field consulted, a source tag honored, a suspicious-mask filter) breaks the
-// deep-equality assertions below, because the two radars would stop agreeing.
+// PROVEN TO BITE: any fake-vs-real branch in `Radar.onBlip` (a suspicious-mask
+// filter, a fake heuristic, honoring any field beyond the payload + `src`)
+// breaks the deep-equality assertions below, because the two radars would stop
+// agreeing.
 
 import { describe, expect, it, vi } from 'vitest';
 import { Container, Texture } from 'pixi.js';
@@ -98,34 +100,23 @@ describe('the harness actually paints (otherwise every equality below is vacuous
   });
 });
 
-describe('a relayed return renders identically to a directly-observed one (R2.8)', () => {
-  // The SAME hull at the SAME pose. One reached the observer off their own
-  // sweep; the other was returned by a buoy they own, 300u away, and relayed —
-  // so it crossed the BUOY's beam and the BUOY's terrain shadow, not the ship's.
-  // The server merges it into the one blip subsequence with no marking of any
-  // kind, and here it must draw the same pixels.
-  const direct = blip(420, 180);
-  const relayed = blip(420, 180);
-
-  it('the wire payloads are byte-identical — there is nothing to tell apart', () => {
-    expect(relayed).toEqual(direct);
-    expect([...relayed.bits]).toEqual([...direct.bits]);
+describe('the untagged payload and the sensor tag (PV 44)', () => {
+  it('an untagged payload — the common case — carries exactly the six keys it always did', () => {
+    expect(Object.keys(blip(420, 180)).sort()).toEqual(['bits', 'gx', 'gy', 'h', 'k', 't', 'w']);
   });
 
-  it('the payload carries NO provenance field of any kind', () => {
-    expect(Object.keys(direct).sort()).toEqual(['bits', 'gx', 'gy', 'h', 'k', 't', 'w']);
-  });
-
-  it('the draw is identical: same slices, same cells, same intensities', () => {
-    expect(paintedBy([relayed])).toEqual(paintedBy([direct]));
-  });
-
-  it('a relay from ACROSS the map paints exactly where its cells say, not near the observer', () => {
-    // The whole value of the relay is seeing water your own hull is nowhere
-    // near. The paint is placed off `gx/gy`, so this lands out at the buoy.
+  it('a return from ACROSS the map paints exactly where its cells say, not near the observer', () => {
     const far = blip(1400, -900);
     expect(paintedBy([far])).toEqual(paintedBy([blip(1400, -900)]));
-    expect(paintedBy([far])).not.toEqual(paintedBy([direct]));
+    expect(paintedBy([far])).not.toEqual(paintedBy([blip(420, 180)]));
+  });
+
+  it('a tag naming a sensor this scope does not know degrades to own-set pricing — never a drop, never a crash', () => {
+    // Fail-safe on the wire input: anything the server disclosed paints at
+    // least a speck (amendment 127), whatever its tag resolves to.
+    const clean = blip(420, 180);
+    const orphaned = { ...blip(420, 180), src: 'b999' };
+    expect(paintedBy([orphaned])).toEqual(paintedBy([clean]));
   });
 });
 
@@ -152,14 +143,14 @@ describe('a JAMMING fake renders identically to a real return (R2.11)', () => {
     expect(paintedBy(fakes)).toEqual(paintedBy(reals));
   });
 
-  it('the renderer IGNORES any field it was not given — a marked fake still paints the same', () => {
-    // Belt and braces on the property rather than the payload: even if some
-    // future wire change smuggled a tag through, `onBlip` reads six fields and
-    // consults nothing else, so the tag could not reach the scope. This is the
-    // assertion that fails the moment anyone adds a provenance branch.
+  it('the renderer consults the payload and `src` and NOTHING else — a smuggled fake-marker changes no pixel', () => {
+    // The line the PV 44 tag must never cross: `src` selects a SENSOR, and no
+    // other extra field is consulted at all. A wire that smuggled `fake: true`
+    // through paints byte-identically to one that did not — this is the
+    // assertion that fails the moment anyone adds a truth-provenance branch.
     const clean = blip(310, 90);
-    const tagged = { ...blip(310, 90), fake: true, relayed: true, src: 'buoy-7' } as ReturnBlipEvent;
-    expect(paintedBy([tagged])).toEqual(paintedBy([clean]));
+    const marked = { ...blip(310, 90), fake: true, relayed: true } as ReturnBlipEvent;
+    expect(paintedBy([marked])).toEqual(paintedBy([clean]));
   });
 
   it('a fake and a real return in the SAME frame are indistinguishable in the paint list', () => {
@@ -170,5 +161,39 @@ describe('a JAMMING fake renders identically to a real return (R2.11)', () => {
     expect(paintedBy([blip(a.x, a.y), blip(b.x, b.y)])).toEqual(
       paintedBy([blip(a.x, a.y), blip(b.x, b.y)]),
     );
+  });
+});
+
+describe('the TAGGED scope keeps the guarantee (PV 44): src says WHICH SENSOR, never WHETHER REAL', () => {
+  // The observer owns a buoy at (500, 0). The server routes an enemy jamming
+  // buoy's fakes through the BUOY's gate precisely so that a tagged fake and a
+  // tagged real hull are the same wire shape — re-proven here at the renderer.
+  const BUOY = { id: 'b7', x: 500, y: 0, until: 99_000, own: true, by: 'me', sweep: 0 };
+
+  function paintedByOwnBuoy(returns: readonly ReturnBlipEvent[]): unknown {
+    const radar = harness();
+    const cam = camera();
+    radar.setOwnBuoys([BUOY], 900);
+    radar.render(OWN, 900, null, cam.worldView);
+    for (const e of returns) radar.onBlip(e);
+    radar.render(OWN, 1000, null, cam.worldView);
+    return JSON.parse(JSON.stringify(radar.paintList));
+  }
+
+  it('a tagged FAKE draws byte-identically to a tagged REAL hull at that pose', () => {
+    const real = { ...blip(560, 80, 'battleship', 1.1), src: BUOY.id };
+    const fake = { ...blip(560, 80, 'battleship', 1.1), src: BUOY.id };
+    expect(fake).toEqual(real);
+    expect(paintedByOwnBuoy([fake])).toEqual(paintedByOwnBuoy([real]));
+  });
+
+  it('tag-vs-no-tag differs by SENSOR GEOMETRY alone — both members of each pair paint, neither is dropped or marked', () => {
+    // The tag legitimately changes the picture (buoy-priced vs own-priced) —
+    // that is its whole job — but it does so identically for a fake and a
+    // real return, so nothing about truth is recoverable from the difference.
+    const tagged = paintedByOwnBuoy([{ ...blip(560, 80), src: BUOY.id }]);
+    const untagged = paintedByOwnBuoy([blip(560, 80)]);
+    expect((tagged as unknown[]).length).toBeGreaterThan(0);
+    expect((untagged as unknown[]).length).toBeGreaterThan(0);
   });
 });

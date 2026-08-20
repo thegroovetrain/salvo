@@ -594,8 +594,8 @@ export interface ReturnModelOpts {
 export interface DimOpts {
   /** Flat `minScale` at and inside this multiple of the observer's EFFECTIVE
    *  truesight — 1.0, the whole sight bubble (the ladder's 4/8 rung). A
-   *  MULTIPLE, not a radius: the bubble shrinks under dazzle and widens on an
-   *  `intelRange` boon, and the ramp rides it (render/radarDim.ts). */
+   *  MULTIPLE, not a radius: the bubble shrinks under dazzle at read time, and
+   *  the ramp rides it (render/radarDim.ts). */
   innerFactor: number;
   /** Full painted opacity from this multiple of effective truesight out — the
    *  5/8 rung expressed against the 4/8 one. */

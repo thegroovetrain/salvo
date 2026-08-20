@@ -21,7 +21,7 @@
 import { afterEach, describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { ownSettle, settleProgress, settleToDeadline } from '../render/sinkSettle.js';
+import { ownSettle, settleProgress, settleToDeadline, spectateSettle } from '../render/sinkSettle.js';
 import { FALLBACK_STYLE, ShipView, hullLook, setHullFlashGate } from '../render/ships.js';
 import { WorldFlashGate } from '../render/effects.js';
 import { createFlashBudget } from '../render/flashBudget.js';
@@ -269,9 +269,12 @@ describe('ownSettle — the hull the player is still fighting from', () => {
   });
 
   it('holds AT the cap past founder — no pop in the gap before the spec frame', () => {
-    // Our founder tick and the `spec` frame that hides the own view are ~½ RTT
-    // apart; completing the ramp there would flash the hull to full wreck on the
-    // way out.
+    // Our founder tick and the `spec` frame that hands the screen to the
+    // spectate path are ~½ RTT apart; completing the ramp there would flash the
+    // hull to full wreck on the way out. The spectate path picks the ramp back
+    // up from this exact value (see `spectateSettle` below) — since Story 5.3
+    // the own wreck STAYS drawn, so nothing hides it and this hold is the whole
+    // gap, not the whole spectate period (epic-7 amendment 29).
     const at = ownSettle(sinking(FOUNDER), FOUNDER);
     expect(ownSettle(sinking(FOUNDER), FOUNDER + 500)).toBe(at);
     expect(ownSettle({ alive: false }, FOUNDER)).toBe(CAP); // dead with no window
@@ -292,5 +295,127 @@ describe('ownSettle — the hull the player is still fighting from', () => {
   it('a missing own ship settles nothing — an absent hull is not a dying one', () => {
     expect(ownSettle(null, SINCE)).toBe(0);
     expect(ownSettle(undefined, SINCE)).toBe(0);
+  });
+});
+
+// THE CONTINUATION (Eric ruling 2026-08-20, epic-7 amendment 29) — the own hull
+// finishing what `ownSettle`'s cap deliberately stopped short of. Two correct
+// rulings collided: epic-5 amendment 21 capped the own ramp and held it there
+// past founder on a justification that assumed the view was about to be hidden,
+// and epic-5 amendment 31 (correction #1) then made the own wreck STAY on
+// screen. Nothing drove `setSink` from the spectate path, so the hull sat at
+// exactly 0.3 forever. Eric: *"my ship should be sunk, not visible in
+// full-color motionless in the middle of the map."*
+//
+// The properties that matter here, and why each is pinned:
+//   • CONTINUOUS AT THE HANDOVER. The continuation starts AT the cap, so the
+//     founder→spectate seam cannot pop however many ½-RTT frames sit in it.
+//   • TERMINAL IS THE ONE WRECK LOOK. Exactly 1, byte-for-byte what every enemy
+//     wreck wears — `ships.ts`: "There is one wreck look and one function that
+//     produces it". A second own-wreck treatment is what this must never mint.
+//   • THE DURATION IS DERIVED. `sinkingWindowMs * (1 - cap)` = 3500 ms, i.e. the
+//     enemy ramp's own rate, not a feel literal.
+//   • FAILS CLOSED TO THE WRECK. Module doctrine: a corrupt clock or a missing
+//     window renders the terminal truth, never a live-looking hull.
+describe('spectateSettle — the wreck the player is watching from outside', () => {
+  const sinking = (until: number): { alive: boolean; sinkingUntil: number } => ({ alive: false, sinkingUntil: until });
+  const CAP = SHIP.ownSettleMax;
+  const COMPLETION = WINDOW * (1 - CAP); // 3500 ms — derived, never typed in
+
+  it('is 0 while alive — a winner spectating at `finished` draws no wreck', () => {
+    expect(spectateSettle({ alive: true }, FOUNDER)).toBe(0);
+    expect(spectateSettle({ alive: true, sinkingUntil: FOUNDER }, FOUNDER + 9_999)).toBe(0);
+  });
+
+  it('starts at EXACTLY the cap at founder — continuous with ownSettle, no pop', () => {
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER)).toBe(CAP);
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER)).toBe(ownSettle(sinking(FOUNDER), FOUNDER));
+  });
+
+  // REGRESSION (review finding): the first cut clamped a negative elapsed to 0
+  // and therefore returned the CAP for every pre-founder instant, on the written
+  // rationale that only clock skew could land there and that `ownSettle` "has
+  // already reached the cap" anyway. BOTH halves were false. `ownSettle` is a
+  // LINEAR ramp, so mid-window it is well below the cap — and spectate genuinely
+  // begins mid-window on a reachable ending: `frames.ts` `spectates()` is true
+  // for EVERYONE at `phase === 'finished'`, and `match.ts`'s safety-net deadline
+  // lands a finish regardless of lifecycle, so a revenge kill in a 1v1 puts the
+  // winner into spectate with seconds of window left. Clamping popped the hull
+  // UPWARD to the cap and then froze it there — this cycle's own defect, in
+  // miniature. The values below are deliberately mid-window, where cap-clamping
+  // and the correct answer differ by ~5x.
+  it('hands BACK to ownSettle before founder — the handover is continuous in both directions', () => {
+    for (const t of [SINCE, SINCE + 1_000, FOUNDER - 2_000, FOUNDER - 500, FOUNDER - 1]) {
+      expect(spectateSettle(sinking(FOUNDER), t), `at ${t}`).toBe(ownSettle(sinking(FOUNDER), t));
+      expect(spectateSettle(sinking(FOUNDER), t), `at ${t}`).toBeLessThan(CAP);
+    }
+    // ...and it meets the cap exactly at founder from below, so there is no seam.
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER - 1)).toBeLessThan(CAP);
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER)).toBe(CAP);
+  });
+
+  it('is halfway between cap and wreck at half the derived duration', () => {
+    expect(COMPLETION).toBe(3_500);
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER + COMPLETION / 2)).toBeCloseTo(CAP + (1 - CAP) * 0.5, 12);
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER + 1_750)).toBeCloseTo(0.65, 12);
+  });
+
+  // The whole span in one sweep, sink-entry through completion, at the client's
+  // own 50 ms tick. WHAT IT DOES NOT CATCH, said plainly so nobody trusts it for
+  // more than it proves: the cap-clamping defect above is INVISIBLE here, because
+  // a clamped `spectateSettle` is simply FLAT at the cap pre-founder — smooth and
+  // monotonic in its own output. The pop was between the two FUNCTIONS (what
+  // `renderOwn` last drew vs what the spectate path draws next), which is why the
+  // handback test, not this one, is the regression pin. This sweep guards the
+  // post-founder ramp's own smoothness and the exact landing on 1.
+  it('never jumps: across sink-entry → founder → completion, no 50 ms step exceeds one tick of the faster ramp', () => {
+    const STEP = 50;
+    const maxTick = (STEP / COMPLETION) * (1 - CAP) * 1.000001; // the post-founder (faster) rate
+    let prev = spectateSettle(sinking(FOUNDER), SINCE);
+    for (let t = SINCE + STEP; t <= FOUNDER + COMPLETION + 2_000; t += STEP) {
+      const v = spectateSettle(sinking(FOUNDER), t);
+      expect(v, `at ${t}`).toBeGreaterThanOrEqual(prev);
+      expect(v - prev, `step at ${t}`).toBeLessThanOrEqual(maxTick);
+      prev = v;
+    }
+    expect(prev).toBe(1);
+  });
+
+  it('rises monotonically from the cap to 1 and never overshoots', () => {
+    let prev = -1;
+    for (let t = FOUNDER; t <= FOUNDER + COMPLETION + 5_000; t += 50) {
+      const v = spectateSettle(sinking(FOUNDER), t);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      expect(v).toBeGreaterThanOrEqual(CAP);
+      expect(v).toBeLessThanOrEqual(1);
+      prev = v;
+    }
+  });
+
+  it('reaches EXACTLY 1 at completion and holds there for the whole results period', () => {
+    // Exactness is load-bearing: `0.3 + 0.7 * 1` is 0.9999999999999999 in IEEE
+    // doubles, which is NOT the value `hullLook` special-cases as the wreck.
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER + COMPLETION)).toBe(1);
+    expect(spectateSettle(sinking(FOUNDER), FOUNDER + COMPLETION + 60_000)).toBe(1);
+  });
+
+  it('at 1 the own wreck IS the enemy wreck look, byte for byte', () => {
+    // One wreck look, one function (`render/ships.ts`). The mockup's unratified
+    // 45%-personal-hue PROPOSAL would have minted a second one; amendment 29
+    // ledgers it as Eric's to take rather than building it here.
+    const own = hullLook(0, spectateSettle(sinking(FOUNDER), FOUNDER + COMPLETION), 1);
+    expect(own).toEqual(hullLook(0, 1, 1));
+  });
+
+  it('fails CLOSED: no window and a NaN clock both render the wreck, not a live hull', () => {
+    expect(spectateSettle({ alive: false }, FOUNDER)).toBe(1); // past founder / never opened
+    expect(spectateSettle(sinking(FOUNDER), NaN)).toBe(1);
+    expect(spectateSettle(sinking(NaN), FOUNDER)).toBe(1);
+    expect(spectateSettle(sinking(FOUNDER), Infinity)).toBe(1);
+  });
+
+  it('a missing own ship settles nothing — an absent hull is not a wreck', () => {
+    expect(spectateSettle(null, FOUNDER)).toBe(0);
+    expect(spectateSettle(undefined, FOUNDER)).toBe(0);
   });
 });

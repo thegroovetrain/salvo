@@ -2,7 +2,7 @@
 // `--flag value` pairs, fail-fast with a usage message on anything unknown).
 // Pure over argv — unit-testable without a process.
 
-import { validateTunableKey, validateTunableValue } from './overrides.js';
+import { validateTunableKey, validateTunableValue, validateTuneKey, validateTuneValue } from './overrides.js';
 import { CONTROL_REGISTRY } from './controls.js';
 import { BOT_PROFILES, TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
 
@@ -38,6 +38,18 @@ export interface CliOptions {
   botEngage: 'always' | 'endgame';
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
+  /** EQUIPMENT CONFIG overrides (--tune), applied alongside `set` before any
+   *  World is built. A SEPARATE surface from --set/--sweep with its own env
+   *  gate (HC_BALANCE=1) enforced in batchSim.mjs and re-checked in main.ts —
+   *  this module stays pure over argv and reads no process.env. */
+  tune: Record<string, number>;
+  /** LOBBY HULL POLICY. 'rolled' (default) lets every bot roll its own class
+   *  off the controller's stream — the shipped behaviour, and the reason every
+   *  existing bot-mode run key stays byte-identical. 'even' round-robins
+   *  SHIP_CLASS_IDS across bots AND captains OFFSET BY MATCH INDEX, so
+   *  per-class win share measures BALANCE instead of representation. See
+   *  RunSpec.roster for the exact evenness guarantee. */
+  roster: 'even' | 'rolled';
   /** Each sweep multiplies the variant grid (cartesian across repeats). */
   sweeps: SweepSpec[];
   deckOnly: boolean;
@@ -57,12 +69,26 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      their own class/profile/callsign and drive themselves;
                      --control does not apply to them. A bot-only lobby drops
                      minHumans to 0 so the match can actually start
+  --roster MODE      hull policy for the lobby: rolled (default; each bot rolls
+                     its own class) | even (round-robin SHIP_CLASS_IDS across
+                     bots AND captains, offset by match index, so per-class win
+                     share measures BALANCE rather than representation). Within
+                     one match the per-class spread is at most 1; campaign
+                     totals are exactly even when either --matches or --bots is
+                     a multiple of 3, and otherwise even to within one hull per
+                     class. Not valid with --deck-only
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
                      xp.*, deck.*, offer.size, match.fillTo, map.baseRadius,
                      zone.* (phased shape: beatMs, ringSteps.N, offsetCap,
                      terminalSightFactor, stormDps)
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
+  --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
+                     gun.*, broadside.*, torpedo.*, mine.*, starShells.*,
+                     speedBoost.*, radarBuoy.*, shipClasses.*. Requires
+                     HC_BALANCE=1 as well as HC_DEV_OPTIONS=1 — this edits
+                     combat numbers, not harness dials. Not sweepable (one
+                     labelled arm per candidate)
   --control NAME     scripted captain control: pacifist (default, and the only
                      one) — sails the storm ring rhythm, spends its levels, and
                      never targets or fires. Lethal AI is a BOT (--bots), which
@@ -91,6 +117,8 @@ function defaults(): CliOptions {
     botProfile: null,
     botEngage: 'always',
     set: {},
+    tune: {},
+    roster: 'rolled',
     sweeps: [],
     deckOnly: false,
     draws: 20000,
@@ -131,6 +159,24 @@ function parseSet(opts: CliOptions, raw: string): void {
   const value = parseNumber(raw.slice(eq + 1), `--set ${key}`);
   validateTunableValue(key, value); // per-key floor (see overrides.MIN_ONE_KEYS)
   opts.set[key] = value;
+}
+
+/** `key=value` for --tune: EQUIPMENT dial key, finite numeric value. The
+ *  mirror of parseSet against the separately-gated tune surface — never
+ *  sweepable, so there is no --sweep sibling. */
+function parseTune(opts: CliOptions, raw: string): void {
+  const eq = raw.indexOf('=');
+  if (eq <= 0) throw new UsageError(`--tune: expected key=value, got '${raw}'`);
+  const key = raw.slice(0, eq);
+  validateTuneKey(key); // throws TunableError outside the equipment families
+  // A REPEATED KEY IS A FABRICATED ARM, exactly as parseSweep has it: the later
+  // value silently last-wins, so `--tune gun.damage=20 --tune gun.damage=30`
+  // runs one sim while the operator believes they asked for two values. The
+  // sweep guard exists for that reason and this is the same failure.
+  if (Object.hasOwn(opts.tune, key)) throw new UsageError(`duplicate tune key: ${key}`);
+  const value = parseNumber(raw.slice(eq + 1), `--tune ${key}`);
+  validateTuneValue(key, value); // reload/cooldown floor (see overrides)
+  opts.tune[key] = value;
 }
 
 /** `key=v1,v2,...` for --sweep: same key rules, >= 1 numeric values, and the
@@ -187,6 +233,13 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
   },
   '--set': parseSet,
   '--sweep': parseSweep,
+  '--tune': parseTune,
+  '--roster': (o, v) => {
+    if (v !== 'even' && v !== 'rolled') {
+      throw new UsageError(`--roster: expected 'even' or 'rolled', got '${v}'`);
+    }
+    o.roster = v;
+  },
   // A dropped path (`--json --quiet`) would otherwise write the report to a
   // file literally named '--quiet' and swallow the flag.
   '--json': (o, v) => {
@@ -217,18 +270,40 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     handler(opts, value);
     i += 1;
   }
+  assertCoherent(opts);
+  return opts;
+}
+
+/** Post-loop coherence checks — the flags parse, but the COMBINATION cannot
+ *  produce evidence. Lives here, where CliOptions is fully known and the module
+ *  is still pure over argv (no process.env), so every refusal is a usage error
+ *  (exit 2) rather than a structural one. */
+function assertCoherent(opts: CliOptions): void {
   // An EMPTY LOBBY is a run key that can never produce evidence: with no
   // captains and no bots the match activates on its first tick against nothing
-  // and every row reads zero. Caught here rather than in the runner so the
-  // failure is a usage error (exit 2) instead of a structural one.
+  // and every row reads zero.
   if (!opts.deckOnly && opts.captains + opts.bots === 0) {
     throw new UsageError('--captains 0 needs --bots N: a lobby needs at least one participant');
   }
   // A forced profile with no bots is a run key that silently measures nothing.
+  // MUST sit above the deck-only early return, or it is skipped for every
+  // ordinary run — which is the only kind of run it applies to.
   if (opts.botProfile !== null && opts.bots === 0) {
     throw new UsageError('--bot-profile needs --bots N: there is no bot to force it onto');
   }
-  return opts;
+  if (!opts.deckOnly) return;
+  // DECK-ONLY BUILDS NO WORLD. runDeckSim simulates the draw economy alone — it
+  // reads no roster and no combat value — so both of these would be stamped
+  // into the run key and then change nothing at all: two provably different run
+  // keys producing byte-identical bodies, which is the same false-evidence
+  // failure the derived-key refusal in overrides.ts exists to prevent. Refused
+  // rather than ignored, so the operator finds out before the campaign runs.
+  if (opts.roster !== 'rolled') {
+    throw new UsageError('--roster does not apply to --deck-only: the deck economy builds no lobby (drop one of the two flags)');
+  }
+  if (Object.keys(opts.tune).length > 0) {
+    throw new UsageError('--tune does not apply to --deck-only: the deck economy reads no combat CONFIG (drop one of the two flags)');
+  }
 }
 
 export interface Variant {
