@@ -23,6 +23,14 @@
 //      water disk is pulled back rather than expiring unfired, and the server
 //      and the client's aim preview cannot disagree about where the shells go.
 //
+//      AND EACH SHELL FIRES FROM ITS OWN TURRET (Eric's correction
+//      2026-08-19): `turrets` separate, evenly-spaced muzzle points along the
+//      hull's midship section on the engaged beam, from shared sim/aim.ts
+//      `turretMuzzles`. Extra turrets RE-SPACE that fixed span into 4 then 5
+//      points — the same ship with more guns, not a longer line of guns. The
+//      client's aim preview calls the same function, so the muzzle flashes it
+//      draws are the muzzles the server fires from.
+//
 // SIGNALS ARE PER SHELL (R2.5, Eric A2): each shell is an ordinary gun-family
 // `shell` and emits its OWN mz / sp / hc through the unchanged World paths.
 // There is no salvo aggregation anywhere — a 5-turret barrage legitimately
@@ -38,9 +46,9 @@ import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   fanBurstPoints,
-  inArc,
+  turretMuzzles,
   twinSectorArcFor,
-  wrapAngle,
+  twinSectorSide,
   type EquipmentState,
   type ShellState,
   type Vec2,
@@ -49,25 +57,11 @@ import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
 import { makeBallistic } from './ballistics.js';
-import { burstPointAlong, muzzleOrTarget } from './guns.js';
+import { burstPointAlong } from './guns.js';
 
 /** The two beam sectors, resolved ONCE at module load — an authoring error in
  *  CONFIG/arcs fails at boot (twinSectorArcFor throws), never mid-tick. */
 const BEAMS = twinSectorArcFor('broadside');
-
-/**
- * Which beam contains the click, as its sector CENTER bearing — or null when
- * the click sits in the bow/stern dead zone (R2.2: the side whose sector holds
- * the bearing is the side that fires; there is no "both sides at once", and
- * `offset` is 90° with a 60° half-arc, so the two sectors cannot overlap).
- */
-function firingBeam(heading: number, aim: number): number | null {
-  for (const sign of [1, -1]) {
-    const center = wrapAngle(heading + sign * BEAMS.offset);
-    if (inArc(aim, center, BEAMS.halfArc)) return center;
-  }
-  return null;
-}
 
 /**
  * The barrage's per-shell target points: the CLICKED burst point (aim bearing,
@@ -89,6 +83,18 @@ export function broadsideTargets(ship: ShipRecord, mapRadius: number): Vec2[] {
 }
 
 /**
+ * The barrage's per-shell MUZZLE POINTS — `turrets` separate, evenly-spaced
+ * guns along the hull on the FIRING beam (Eric's correction 2026-08-19). The
+ * ShipRecord-shaped wrapper around shared `turretMuzzles` (sim/aim.ts, where
+ * the span/straddle/pairing rules live); `side` is `twinSectorSide`'s answer,
+ * never re-derived here. Exported for tests beside `broadsideTargets`: muzzle
+ * `i` fires at target `i`, so the two arrays ARE the barrage's geometry.
+ */
+export function broadsideMuzzles(ship: ShipRecord, side: 1 | -1): Vec2[] {
+  return turretMuzzles(ship.state, ship.hullId, ship.stats.broadside.turrets, side);
+}
+
+/**
  * Broadside fire control against one slot pool: the ARC IS TESTED FIRST (an
  * arc miss consumes nothing), then one consumed round launches `turrets`
  * shells, each a REAL gun-pattern shell flying to its own point on the fan arc
@@ -96,6 +102,20 @@ export function broadsideTargets(ship: ShipRecord, mapRadius: number): Vec2[] {
  * come from the OWNER'S effective stats (the BROADSIDE TURRETS and BROADSIDE
  * SPREAD ladders), never raw CONFIG. distLeft slack mirrors fireGunShells
  * (guards float drift, never extends reach).
+ *
+ * EACH SHELL LEAVES ITS OWN TURRET (Eric's correction 2026-08-19). Shell `i`
+ * spawns at muzzle `i` and its bearing is MUZZLE→target, not centre→target —
+ * which is what actually puts the round on its point from an off-centre gun.
+ * The clicked shell of an odd barrage still lands EXACTLY on the click: its
+ * target is the click (fan offset 0) and stepShell stops it there; only the
+ * line it flies in on moved, from the shared muzzle to the middle turret.
+ *
+ * `muzzleOrTarget` is GONE from this path and its absence is deliberate: it
+ * existed to stop a point-blank click spawning the shell PAST its own target
+ * on a bearing taken from the ship CENTRE, and that failure mode cannot occur
+ * once the bearing is taken from the muzzle itself (the shell always faces its
+ * target, however close). Owner immunity is permanent, so a bow-most turret
+ * whose line grazes the ship's own silhouette can never self-hit.
  */
 function fireBroadside(
   ship: ShipRecord,
@@ -104,15 +124,17 @@ function fireBroadside(
   mapRadius: number,
   mkId: () => string,
 ): { shells: ShellState[]; denial: ActivationDenial | null } {
-  if (firingBeam(ship.state.heading, ship.input.aim) === null) {
+  const side = twinSectorSide(ship.state.heading, ship.input.aim, BEAMS);
+  if (side === null) {
     return { shells: [], denial: 'out-of-arc' }; // bow/stern dead zone — pool untouched
   }
   if (!consume(pool, ship.stats.broadside.reloadMs)) return { shells: [], denial: 'no-ammo' };
   const bs = ship.stats.broadside;
+  const muzzles = broadsideMuzzles(ship, side);
   const shells: ShellState[] = [];
-  for (const target of broadsideTargets(ship, mapRadius)) {
-    const dir = Math.atan2(target.y - ship.state.y, target.x - ship.state.x);
-    const origin = muzzleOrTarget(ship, dir, target, CONFIG.broadside.shellRadius);
+  broadsideTargets(ship, mapRadius).forEach((target, i) => {
+    const origin = muzzles[i];
+    const dir = Math.atan2(target.y - origin.y, target.x - origin.x);
     shells.push(
       makeBallistic(mkId(), ship, dir, now, {
         speed: CONFIG.broadside.shellSpeed,
@@ -130,7 +152,7 @@ function fireBroadside(
         contactDamage: bs.damage,
       }),
     );
-  }
+  });
   return { shells, denial: null };
 }
 

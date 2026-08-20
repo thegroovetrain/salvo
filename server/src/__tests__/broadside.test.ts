@@ -14,9 +14,17 @@
 // deleted, so there is nothing left for them to assert about.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, angleDiff, burstPointAlong, fanBurstPoints, fanTargets, type InputMsg } from '@salvo/shared';
+import {
+  CONFIG,
+  angleDiff,
+  burstPointAlong,
+  fanBurstPoints,
+  fanTargets,
+  turretMuzzles,
+  type InputMsg,
+} from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
-import { broadsideTargets } from '../game/equipment/index.js';
+import { broadsideMuzzles, broadsideTargets } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
 /** Battleship slot indices under the wave-2 fit [gun, broadside, starShells, empty]. */
@@ -439,12 +447,148 @@ describe('broadside — the fan is clamped to the water disk (ONE shared answer)
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     const fired = [...w.shells.values()];
     expect(fired).toHaveLength(bb.stats.broadside.turrets);
-    for (const s of fired) {
+    const muzzles = broadsideMuzzles(bb, 1); // the port beam, per rimBattleship's pose
+    fired.forEach((s, i) => {
       expect(Math.hypot(s.targetX!, s.targetY!)).toBeLessThanOrEqual(w.map.radius);
-      // The bearing is derived from the CLAMPED point, so the muzzle flash and
-      // the burst sit on one line rather than two.
-      const brg = Math.atan2(s.targetY! - bb.state.y, s.targetX! - bb.state.x);
+      // The bearing is derived from the CLAMPED point AND from the shell's OWN
+      // TURRET (Eric's correction 2026-08-19), so the muzzle flash and the burst
+      // sit on one line rather than two. It is deliberately NOT the centre->target
+      // bearing any more: an off-centre gun aimed down the keel line would miss.
+      const brg = Math.atan2(s.targetY! - muzzles[i].y, s.targetX! - muzzles[i].x);
       expect(Math.abs(angleDiff(brg, Math.atan2(s.vy, s.vx)))).toBeLessThan(1e-9);
+    });
+  });
+});
+
+// --- EVERY SHELL LEAVES ITS OWN TURRET (Eric's correction 2026-08-19) --------
+//
+// *"You currently have every cannon firing from the same point on the side of
+// the ship, but this is wrong. It is supposed to be three separate, evenly-
+// spaced points on the ship that they fire from."*
+//
+// The shipped barrage spawned every shell at ONE muzzle (muzzleOrTarget off the
+// ship centre). Each pin below fails against that geometry.
+describe('broadside - every shell fires from its OWN turret', () => {
+  /** A battleship at the origin, heading 0, clicking abeam to port at 300u. */
+  function fired(w: World, bb: ShipRecord): { x: number; y: number }[] {
+    expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
+    return [...w.shells.values()].map((s) => ({ x: s.x, y: s.y }));
+  }
+
+  it('N shells spawn at N DISTINCT points, not N copies of one muzzle', () => {
+    const w = bareWorld();
+    const bb = place(w, 'a', 'battleship', 0, 0);
+    setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
+    const origins = fired(w, bb);
+    expect(origins).toHaveLength(CONFIG.broadside.turrets);
+    const keys = new Set(origins.map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`));
+    expect(keys.size).toBe(CONFIG.broadside.turrets);
+  });
+
+  it('THE ONE-FUNCTION PIN: the spawn points ARE shared turretMuzzles(), index for index', () => {
+    const w = bareWorld();
+    const bb = place(w, 'a', 'battleship', 40, -25, 1.1);
+    setInput(bb, { aim: 1.1 + Math.PI / 2, aimDist: 300, slot: SLOT_BROADSIDE });
+    const origins = fired(w, bb);
+    // The SAME call the client's broadsidePreview makes (render/aimPreview.ts),
+    // with the client's own predicted pose + effectiveStats. Two derivations of
+    // one battery is exactly the desync class shared/ exists to prevent.
+    const truth = turretMuzzles(bb.state, bb.hullId, bb.stats.broadside.turrets, 1);
+    origins.forEach((p, i) => {
+      expect(p.x, `turret ${i} x`).toBeCloseTo(truth[i].x, 9);
+      expect(p.y, `turret ${i} y`).toBeCloseTo(truth[i].y, 9);
+    });
+    expect(broadsideMuzzles(bb, 1)).toEqual(truth); // the wrapper re-derives nothing
+  });
+
+  it('the muzzles are EVENLY SPACED along the hull, on the ENGAGED beam only', () => {
+    for (const [aim, side] of [[ABEAM, 1], [-ABEAM, -1]] as const) {
+      const w = bareWorld();
+      const bb = place(w, 'a', 'battleship', 0, 0);
+      setInput(bb, { aim, aimDist: 300, slot: SLOT_BROADSIDE });
+      const origins = fired(w, bb).sort((p, q) => p.x - q.x);
+      // Heading 0, so the beam offset is pure +/-y and the spacing is pure x.
+      for (const p of origins) {
+        expect(p.y).toBeCloseTo((side * CONFIG.shipClasses.battleship.hull.beam) / 2, 9);
+      }
+      const gaps = origins.slice(1).map((p, i) => p.x - origins[i].x);
+      for (const g of gaps) expect(g).toBeCloseTo(gaps[0], 9);
+      expect(gaps[0]).toBeGreaterThan(0);
     }
+  });
+
+  it('BROADSIDE TURRETS RE-SPACES the same span: 3 -> 4 -> 5 guns, tighter, never longer', () => {
+    const spanAndGap = (boons: number): { span: number; gap: number; n: number } => {
+      const w = bareWorld();
+      const bb = place(w, 'a', 'battleship', 0, 0);
+      for (let i = 0; i < boons; i += 1) w.applyBoon(bb, 'broadsideTurrets');
+      setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
+      const xs = fired(w, bb).map((p) => p.x).sort((a, b) => a - b);
+      return { span: xs[xs.length - 1] - xs[0], gap: xs[1] - xs[0], n: xs.length };
+    };
+    const three = spanAndGap(0);
+    const four = spanAndGap(1);
+    const five = spanAndGap(2);
+    expect([three.n, four.n, five.n]).toEqual([3, 4, 5]);
+    // Same ship: the battery's along-hull span does not move one unit.
+    expect(four.span).toBeCloseTo(three.span, 9);
+    expect(five.span).toBeCloseTo(three.span, 9);
+    // More guns on the same span = tighter spacing.
+    expect(four.gap).toBeLessThan(three.gap);
+    expect(five.gap).toBeLessThan(four.gap);
+  });
+
+  it('EACH TURRET GETS ITS OWN MUZZLE FLASH, at the turret (R2.5, now per POINT)', () => {
+    const w = bareWorld();
+    const bb = place(w, 'a', 'battleship', 0, 0);
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.step();
+    const flashes = w.tickEvents.filter((e) => e.k === 'mz') as { x: number; y: number }[];
+    expect(flashes).toHaveLength(CONFIG.broadside.turrets);
+    const key = (p: { x: number; y: number }): string => `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
+    // The flash rides the shell's PRE-PRE-STEP origin, which is now the turret:
+    // a barrage lights the whole battery, gun by gun, not one point N times.
+    const truth = turretMuzzles(bb.state, bb.hullId, bb.stats.broadside.turrets, 1);
+    expect(new Set(flashes.map(key))).toEqual(new Set(truth.map(key)));
+  });
+
+  it('THE ODD CENTRE SHOT STILL LANDS EXACTLY ON THE CLICK, from the middle turret', () => {
+    const w = bareWorld();
+    const bb = place(w, 'a', 'battleship', 0, 0);
+    setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
+    expect(bb.stats.broadside.turrets % 2).toBe(1);
+    const click = burstPointAlong(bb.state, 300, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    // Its target is the click...
+    const targets = broadsideTargets(bb, w.map.radius);
+    const mid = (targets.length - 1) / 2;
+    expect(targets[mid].x).toBeCloseTo(click.x, 9);
+    expect(targets[mid].y).toBeCloseTo(click.y, 9);
+    // ...it leaves the MIDDLE turret (amidships on the engaged beam), NOT the
+    // ship centre and NOT a shared muzzle...
+    const muzzles = broadsideMuzzles(bb, 1);
+    expect(muzzles[mid].x).toBeCloseTo(bb.state.x, 9); // amidships (heading 0)
+    expect(muzzles[mid].y).toBeCloseTo(CONFIG.shipClasses.battleship.hull.beam / 2, 9);
+    // ...and end to end, a shell's fall of shot lands ON the clicked point.
+    // Eric: "One shell will *absolutely* hit at the target point."
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    const splashes: { x: number; y: number }[] = [];
+    for (let i = 0; i < 60 && splashes.length === 0; i += 1) {
+      w.step();
+      for (const e of w.tickEvents) if (e.k === 'sp') splashes.push({ x: e.x, y: e.y });
+    }
+    expect(splashes).toHaveLength(CONFIG.broadside.turrets);
+    const onClick = splashes.filter((p) => Math.hypot(p.x - click.x, p.y - click.y) < 1e-6);
+    expect(onClick).toHaveLength(1);
+  });
+
+  it('a bow-most turret firing across the hull never self-hits (owner immunity is permanent)', () => {
+    // A point-blank click abeam: every turret is aimed at a target only ~20u
+    // off the hull, so the forward gun's line grazes the ship's own silhouette.
+    const w = bareWorld();
+    const bb = place(w, 'a', 'battleship', 0, 0);
+    const before = bb.hp;
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 20, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    for (let i = 0; i < 40; i += 1) w.step();
+    expect(bb.hp).toBe(before);
   });
 });

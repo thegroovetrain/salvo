@@ -14,13 +14,13 @@
 // these need. Nothing here reads CONFIG for a BOON-SCALABLE value — every
 // range/radius arrives as an argument from the caller's effectiveStats().
 
-import { CONFIG, type HullId } from '../constants.js';
+import { CONFIG, hullEnvelope, type HullId } from '../constants.js';
 import { pointInCircle, segCircleExit } from '../math/geom.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island } from '../types.js';
 import { pointInIsland } from './island.js';
 import { hullSilhouette, polygonMaxRadius, segPolygonHit, transformPolygon } from './silhouette.js';
-import { fanTargets } from './spread.js';
+import { fanTargets, straddleOffsets } from './spread.js';
 
 /** The minimum a firing pose needs to be: world position + heading. */
 export interface AimPose {
@@ -172,6 +172,63 @@ export function fanBurstPoints(
   mapRadius: number,
 ): Vec2[] {
   return fanTargets(center, target, count, halfAngle).map((p) => clampInsideMap(center, p, mapRadius));
+}
+
+/**
+ * THE BROADSIDE BATTERY'S MUZZLE POINTS — `count` SEPARATE, EVENLY-SPACED guns
+ * along the hull's fore-aft axis, on the firing beam (Eric's correction
+ * 2026-08-19: *"You currently have every cannon firing from the same point on
+ * the side of the ship, but this is wrong. It is supposed to be three separate,
+ * evenly-spaced points on the ship that they fire from. When you get an extra
+ * turret, this is represented as the three evenly-spaced points changing to
+ * four or five."*).
+ *
+ * MORE GUNS, NOT A LONGER SHIP. The battery spans a FIXED
+ * `hull.length × CONFIG.broadside.turretSpanFactor` whatever `count` is, so
+ * BROADSIDE TURRETS re-spaces the SAME midship section into 4 then 5 points —
+ * tighter spacing, never a longer line of guns.
+ *
+ * The along-hull distribution is the SAME straddle law the fan itself uses
+ * (`sim/spread.ts straddleOffsets`), not new spacing maths: an odd count puts
+ * one turret exactly amidships (offset 0) and an even count straddles midships
+ * with none on it, falling out of the formula rather than being special-cased
+ * per turret count. Each muzzle is then pushed out to the half-BEAM on the
+ * firing side, so it sits on the hull's edge rather than its centreline — at or
+ * outside the silhouette everywhere, since `hull.beam` IS the silhouette's
+ * maximum beam.
+ *
+ * `side` is `twinSectorSide`'s answer (sim/arcs.ts) and MUST NOT be re-derived
+ * by a caller: `+1` is the `heading + offset` beam, the direction
+ * `(-sin heading, cos heading)`.
+ *
+ * ORDER MATCHES `fanBurstPoints` INDEX FOR INDEX, and that is the whole point
+ * of returning an ordered array: shell `i` flies from muzzle `i` to fan target
+ * `i`, so the pairing lives HERE (one function, both sides) instead of in two
+ * call sites that could zip them differently. The along-hull offset carries a
+ * `-side` factor precisely to make that pairing NON-CROSSING — `fanBearings`
+ * runs its first shell to the bow-ward extreme on the `+1` beam and to the
+ * stern-ward extreme on the `-1` beam, so the turret order must mirror with the
+ * side or the shell paths would cross over the hull.
+ *
+ * Pure over a pose + a hull id + a count + a side. It reads CONFIG only for
+ * `turretSpanFactor`, which no boon scales (BROADSIDE TURRETS moves the COUNT,
+ * which is an argument); the boon-scalable turret count arrives from the
+ * caller's `effectiveStats().broadside.turrets`, never from CONFIG.
+ */
+export function turretMuzzles(pose: AimPose, hullId: HullId, count: number, side: 1 | -1): Vec2[] {
+  const { length, beam } = hullEnvelope(hullId).hull;
+  const n = Math.max(0, Math.floor(count));
+  const span = length * CONFIG.broadside.turretSpanFactor;
+  const step = n > 1 ? span / (n - 1) : 0;
+  const fx = Math.cos(pose.heading);
+  const fy = Math.sin(pose.heading);
+  // The firing beam's unit normal, already scaled to the half-beam.
+  const bx = -fy * side * (beam / 2);
+  const by = fx * side * (beam / 2);
+  return straddleOffsets(n, step).map((d) => ({
+    x: pose.x + fx * -side * d + bx,
+    y: pose.y + fy * -side * d + by,
+  }));
 }
 
 /**

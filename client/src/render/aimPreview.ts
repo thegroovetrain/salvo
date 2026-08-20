@@ -33,6 +33,9 @@ import {
   muzzleOrTarget,
   parallelOffsets,
   torpedoSpawn,
+  turretMuzzles,
+  twinSectorArcFor,
+  twinSectorSide,
   type EffectiveStats,
   type EquipmentId,
   type HullId,
@@ -273,9 +276,14 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
  * circle exactly on the crosshair and an EVEN count leaves the crosshair empty
  * — the straddle law, visible.
  *
- * Each shell gets its own muzzle (its own bearing off the hull silhouette) and
- * its own island clip, because each is a real independent shell that bursts at
- * its own point and emits its own signals (R2.5).
+ * Each shell gets its OWN TURRET (Eric's correction 2026-08-19) and its own
+ * island clip, because each is a real independent shell that leaves its own gun,
+ * bursts at its own point and emits its own signals (R2.5). The muzzle points
+ * come from the SHARED helper too (sim/aim.ts `turretMuzzles`, index-paired with
+ * the fan) — the exact call the server's `broadsideMuzzles` makes — so the lines
+ * this draws start where the shells actually start and where the muzzle flashes
+ * actually appear. A hand-rolled hull offset here would be the same
+ * two-derivations defect the fan already forbids.
  */
 function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
   const b = inp.stats.broadside;
@@ -287,16 +295,21 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
     spacingU: 0,
   };
   const model: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
+  // WHICH BEAM, from the shared descriptor + the shared side rule — the server's
+  // own gate. A dead-zone aim previews nothing: that click is denied out-of-arc
+  // and no turret would fire (`legal` normally catches it first; this is the
+  // structural guarantee, not a second opinion).
+  const side = twinSectorSide(inp.ship.heading, inp.aim, twinSectorArcFor('broadside'));
+  if (side === null) return model;
   const click = burstPointAlong(inp.ship, inp.aimDist, inp.mapRadius, b.rangeU, inp.aim);
   // fanBurstPoints, not the raw fanTargets: a fan extreme can swing past the rim
   // on a shot the CLICK itself kept inside it, and the shared helper pulls it
   // back exactly as the click was pulled back — the SAME call the server's
   // broadsideTargets makes, so there is one answer and not two.
-  for (const target of fanBurstPoints(inp.ship, click, b.turrets, b.fanHalfAngleRad, inp.mapRadius)) {
-    const dir = Math.atan2(target.y - inp.ship.y, target.x - inp.ship.x);
-    const origin = muzzleOrTarget(inp.ship, inp.ship.cls, dir, target, spec.shellRadius);
-    shellPreview(inp, origin, target, spec, model);
-  }
+  const muzzles = turretMuzzles(inp.ship, inp.ship.cls, b.turrets, side);
+  fanBurstPoints(inp.ship, click, b.turrets, b.fanHalfAngleRad, inp.mapRadius).forEach((target, i) => {
+    shellPreview(inp, muzzles[i], target, spec, model);
+  });
   return model;
 }
 

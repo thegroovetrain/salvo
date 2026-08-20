@@ -20,6 +20,7 @@ import {
   effectiveStats,
   fanBurstPoints,
   fanTargets,
+  turretMuzzles,
   hullEnvelope,
   islandFromPolygon,
   parallelOffsets,
@@ -39,6 +40,8 @@ import {
 
 const SHIP = { x: 0, y: 0, heading: 0, cls: 'battleship' as const };
 const MAP_R = 2400;
+/** The model a preview returns when there is nothing honest to draw. */
+const EMPTY_MODEL = { lines: [], bursts: [], place: null, band: null };
 
 /** A test "rock" fixture built as a real Island polygon: an axis-aligned
  *  square of half-width `half` centered at (cx, cy). Every clipping test
@@ -596,10 +599,24 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
   });
 
   it('...and the same for the broadside, while an in-bounds muzzle stays confident', () => {
-    const off = computeAimPreview(input({ id: 'broadside', ship: rimShip, aim: Math.PI / 2 }));
+    // Far enough out that EVERY turret of the battery is past the rim: since
+    // Eric's 2026-08-19 correction the guns are separate points spread along
+    // the hull, so a ship merely STRADDLING the rim honestly has some muzzles
+    // on the water and some off it (asserted in its own case below).
+    const off = computeAimPreview(
+      input({ id: 'broadside', ship: { ...SHIP, x: MAP_R + 120, y: 0 }, aim: Math.PI / 2 }),
+    );
     expect(off.bursts.every((b) => b.blocked)).toBe(true);
     const on = computeAimPreview(input({ id: 'broadside', aim: Math.PI / 2 }));
     expect(on.bursts.every((b) => b.blocked)).toBe(false);
+  });
+
+  it('a battery STRADDLING the rim is honest per TURRET, not per ship', () => {
+    // The one-muzzle geometry could only answer "all blocked" or "none
+    // blocked" here; separate guns give the per-turret truth.
+    const m = computeAimPreview(input({ id: 'broadside', ship: rimShip, aim: Math.PI / 2 }));
+    expect(m.bursts.some((b) => b.blocked)).toBe(true);
+    expect(m.bursts.some((b) => !b.blocked)).toBe(true);
   });
 });
 
@@ -629,5 +646,76 @@ describe('previewTint', () => {
   it('keeps the torpedo on its own identity and everything else on aim amber', () => {
     expect(previewTint('torpedo')).not.toBe(previewTint('gun'));
     expect(previewTint('mine')).toBe(previewTint('gun'));
+  });
+});
+
+// --- THE BATTERY'S MUZZLES ARE PREVIEWED WHERE THE SHELLS ACTUALLY LEAVE ------
+//
+// The companion to the fan pin above. The fan says WHERE the shells land; this
+// says WHERE THEY START. Eric's 2026-08-19 correction made that a real place
+// on the hull (one point per turret), and the same shared function answers it
+// for the server's fire path and for these lines, so the previewed muzzle IS
+// the muzzle that flashes.
+describe('the broadside - one line per TURRET, from the shared muzzle helper', () => {
+  const broadside = (over: Partial<AimPreviewInput> = {}): AimPreviewInput =>
+    input({ id: 'broadside', aim: Math.PI / 2, aimDist: 300, ...over });
+
+  it('every travel line starts at its OWN turret, exactly turretMuzzles()', () => {
+    const inp = broadside({ ship: { ...SHIP, x: 60, y: -30, heading: 1.1 }, aim: 1.1 + Math.PI / 2 });
+    const m = computeAimPreview(inp);
+    const truth = turretMuzzles(inp.ship, inp.ship.cls, inp.stats.broadside.turrets, 1);
+    expect(m.lines).toHaveLength(truth.length);
+    truth.forEach((t, i) => {
+      expect(m.lines[i].x1, `turret ${i} x`).toBeCloseTo(t.x, 9);
+      expect(m.lines[i].y1, `turret ${i} y`).toBeCloseTo(t.y, 9);
+    });
+  });
+
+  it('N turrets are N DISTINCT origins - never N lines from one point', () => {
+    const m = computeAimPreview(broadside());
+    const keys = new Set(m.lines.map((l) => `${l.x1.toFixed(6)},${l.y1.toFixed(6)}`));
+    expect(keys.size).toBe(3);
+  });
+
+  it('BROADSIDE TURRETS re-spaces the SAME hull section: 3 -> 4 -> 5, tighter', () => {
+    const originsOf = (...boons: string[]): number[] =>
+      computeAimPreview(broadside({ stats: stats(...boons) }))
+        .lines.map((l) => l.x1)
+        .sort((a, b) => a - b);
+    const three = originsOf();
+    const four = originsOf('broadsideTurrets');
+    const five = originsOf('broadsideTurrets', 'broadsideTurrets');
+    expect([three.length, four.length, five.length]).toEqual([3, 4, 5]);
+    const span = (xs: number[]): number => xs[xs.length - 1] - xs[0];
+    expect(span(four)).toBeCloseTo(span(three), 9);
+    expect(span(five)).toBeCloseTo(span(three), 9);
+    expect(four[1] - four[0]).toBeLessThan(three[1] - three[0]);
+    expect(five[1] - five[0]).toBeLessThan(four[1] - four[0]);
+  });
+
+  it('the muzzles sit on the ENGAGED beam: clicking to starboard mirrors them', () => {
+    const port = computeAimPreview(broadside()).lines;
+    const stbd = computeAimPreview(broadside({ aim: -Math.PI / 2 })).lines;
+    const beam = CONFIG.shipClasses.battleship.hull.beam / 2;
+    for (const l of port) expect(l.y1).toBeCloseTo(beam, 9);
+    for (const l of stbd) expect(l.y1).toBeCloseTo(-beam, 9);
+  });
+
+  it('the ODD centre shot still runs to the click, now from the middle turret', () => {
+    const inp = broadside();
+    const m = computeAimPreview(inp);
+    const b = inp.stats.broadside;
+    const click = burstPointAlong(SHIP, 300, MAP_R, b.rangeU, Math.PI / 2);
+    expect(m.bursts[1].x).toBeCloseTo(click.x, 9);
+    expect(m.bursts[1].y).toBeCloseTo(click.y, 9);
+    expect(m.lines[1].x1).toBeCloseTo(SHIP.x, 9); // amidships, heading 0
+    expect(m.lines[1].y1).toBeCloseTo(CONFIG.shipClasses.battleship.hull.beam / 2, 9);
+    expect(m.lines[1].x2).toBeCloseTo(click.x, 9);
+    expect(m.lines[1].y2).toBeCloseTo(click.y, 9);
+  });
+
+  it('a DEAD-ZONE aim previews nothing - no beam contains it, so no turret fires', () => {
+    expect(computeAimPreview(broadside({ aim: 0 }))).toEqual(EMPTY_MODEL);
+    expect(computeAimPreview(broadside({ aim: Math.PI }))).toEqual(EMPTY_MODEL);
   });
 });
