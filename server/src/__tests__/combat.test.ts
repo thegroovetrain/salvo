@@ -458,6 +458,162 @@ describe('multi-barrel click — every shell that connects deals its own damage'
   });
 });
 
+// ---------- R2.16: BARREL fires PARALLEL, and straddles -----------------------
+//
+// Story 7-5 wave 2 replaced the 3° angular fan with PARALLEL TRACKS
+// CONFIG.gun.barrelSpacingU apart under the shared straddle law
+// (sim/spread.ts parallelOffsets — the same call the client's aim preview
+// makes). The server FANNED while the client already PREVIEWED parallel for one
+// commit; these cases are what stops that from happening again.
+
+describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
+  /** Fire one gun click of `barrels` shells at range `range` up the +y axis and
+   *  return the live shells (fire control runs AFTER stepShells, so a single
+   *  step leaves the whole volley in the water). */
+  function volley(range: number, barrels: number, seed: number) {
+    const { w, a } = armed(seed);
+    for (let i = 1; i < barrels; i++) w.applyBoon(a, 'gunBarrel');
+    expect(a.stats.gun.barrels).toBe(barrels);
+    w.submitInput('a', gunInput(HALF_PI, range));
+    w.step();
+    return [...w.shells.values()];
+  }
+
+  it('THE TRACKS ARE PARALLEL: lateral separation is CONSTANT with range (a fan is not)', () => {
+    // Aim is +y, so the lateral axis is x and every burst point shares one y.
+    for (const range of [200, 600]) {
+      const shells = volley(range, 3, 21);
+      expect(shells).toHaveLength(3);
+      const xs = shells.map((s) => s.targetX!).sort((p, q) => p - q);
+      const ys = shells.map((s) => s.targetY!);
+      for (const y of ys) expect(y).toBeCloseTo(range, 6); // same range: not a fan arc
+      expect(xs[1] - xs[0]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+      expect(xs[2] - xs[1]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+      // Every shell flies the SAME bearing — the fan's signature is that they
+      // do not, and this is what a re-introduced angular step would break.
+      const dirs = shells.map((s) => Math.atan2(s.vy, s.vx));
+      for (const d of dirs) expect(d).toBeCloseTo(HALF_PI, 9);
+    }
+  });
+
+  it('the MUZZLES are offset with the targets — a track, not a converging cone', () => {
+    const shells = volley(400, 3, 22);
+    const spread = (vals: number[]) => Math.max(...vals) - Math.min(...vals);
+    // The muzzle spread equals the target spread: both are the same straddle
+    // offsets applied to both ends of the track.
+    expect(spread(shells.map((s) => s.x))).toBeCloseTo(spread(shells.map((s) => s.targetX!)), 6);
+    // ...and every shell flies the same distance.
+    const lengths = shells.map((s) => s.distLeft);
+    for (const l of lengths) expect(l).toBeCloseTo(lengths[0], 6);
+  });
+
+  it('ODD count puts one shell EXACTLY on the click; EVEN straddles it with none on it', () => {
+    const odd = volley(300, 3, 23).map((s) => s.targetX!);
+    expect(odd.some((x) => Math.abs(x) < 1e-9)).toBe(true); // the middle shell
+    const even = volley(300, 2, 24).map((s) => s.targetX!).sort((p, q) => p - q);
+    expect(even.every((x) => Math.abs(x) > 1e-9)).toBe(true); // nothing on the click
+    expect(even[1] - even[0]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+    expect(even[0] + even[1]).toBeCloseTo(0, 9); // symmetric about it
+  });
+
+  it('a SINGLE barrel is byte-identical to the pre-wave-2 geometry (one shell, on the click)', () => {
+    const shells = volley(300, 1, 25);
+    expect(shells).toHaveLength(1);
+    expect(shells[0].targetX).toBeCloseTo(0, 9);
+    expect(shells[0].targetY).toBeCloseTo(300, 6);
+  });
+
+  it('SIGNALS DO NOT MOVE: a multi-barrel gun salvo still collapses to ONE mz', () => {
+    const { w, a } = armed(26);
+    w.applyBoon(a, 'gunBarrel');
+    w.applyBoon(a, 'gunBarrel');
+    expect(a.stats.gun.barrels).toBe(3);
+    w.submitInput('a', gunInput(HALF_PI, 300));
+    w.step();
+    expect(w.tickEvents.filter((e) => e.k === 'mz')).toHaveLength(1);
+  });
+});
+
+// ---------- R2.15: the STAR-SHELL GUN REACH ----------------------------------
+
+describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun', () => {
+  const REACH = 900; // well past the 660u base gun range
+
+  /** A world with one gunner and a live lit zone at (0, REACH) owned by `by`. */
+  function litBoard(by: string, seed = 31) {
+    const { w, a } = armed(seed);
+    w.litZones.set('z1', {
+      id: 'z1',
+      ownerId: by,
+      x: 0,
+      y: REACH,
+      r: 120,
+      until: 10 * 60 * 1000,
+      phosphor: false,
+      dazzle: false,
+    });
+    return { w, a };
+  }
+
+  it('a click BEYOND gun range but inside your OWN live zone flies the whole way', () => {
+    const { w, a } = litBoard('a');
+    expect(a.stats.gun.rangeU).toBeLessThan(REACH);
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    const shell = [...w.shells.values()][0];
+    expect(shell.targetY).toBeCloseTo(REACH, 6);
+  });
+
+  it('THE SAME CLICK inside an ENEMY’s zone is clamped to gun range (own flares only)', () => {
+    const { w, a } = litBoard('b'); // the zone belongs to someone else
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    const shell = [...w.shells.values()][0];
+    expect(shell.targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+  });
+
+  it('an out-of-range click with NO zone at all is clamped exactly as before', () => {
+    const { w, a } = armed(32);
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+  });
+
+  it('an EXPIRED own zone licenses nothing (live means live)', () => {
+    const { w, a } = litBoard('a', 33);
+    w.litZones.get('z1')!.until = 0; // already dead when the click resolves
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+  });
+
+  it('the zone extends the GUN ONLY — a beyond-range STAR SHELL still clamps to its own range', () => {
+    const { w, a } = armed(34, 'battleship');
+    const slot = a.loadout.findIndex((s) => s.equipmentId === 'starShells');
+    expect(slot).toBeGreaterThan(0);
+    w.litZones.set('z1', {
+      id: 'z1', ownerId: 'a', x: 0, y: REACH, r: 120, until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+    });
+    w.submitInput('a', { ...gunInput(HALF_PI, REACH), slot: slot as 0 });
+    w.step();
+    const shell = [...w.shells.values()][0];
+    expect(a.stats.starShells.rangeU).toBeLessThan(REACH);
+    expect(shell.targetY).toBeCloseTo(a.stats.starShells.rangeU, 6);
+  });
+
+  it('BARREL still straddles at the extended reach (the two features compose)', () => {
+    const { w, a } = litBoard('a', 35);
+    w.applyBoon(a, 'gunBarrel');
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    const shells = [...w.shells.values()];
+    expect(shells).toHaveLength(2);
+    for (const s of shells) expect(s.targetY).toBeCloseTo(REACH, 6);
+    const xs = shells.map((s) => s.targetX!).sort((p, q) => p - q);
+    expect(xs[1] - xs[0]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+  });
+});
+
 // ---------- World fire control: one shot per click, single-shot pool -----------
 
 describe('World fire control — one shot per click (fireSeq), single-shot pool', () => {

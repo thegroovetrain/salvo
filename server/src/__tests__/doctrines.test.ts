@@ -14,7 +14,7 @@
 // below, which the old enum model could not have expressed.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CONFIG, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland } from './islandFixture.js';
@@ -259,8 +259,158 @@ describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
 // ALL TEN ARE RETIRED WITH THEIR SUBJECT (Story 7-5 wave 2): the
 // `mineSelfPropelled` card and the `mine.selfPropelled` verb are deleted, the
 // World's creep step is deleted with them, and CAPTIVE MINES replace tracking
-// mines entirely (a later agent builds the captive verb and brings its own
-// cases). A mine sits where it was dropped again.
+// mines entirely (their cases are the suites below). A mine sits where it was
+// dropped again.
+
+// ---------------------------------------------------------------------------
+// CAPTIVE MINES (mineCaptive) — Story 7-5 wave 2, R2.12-R2.14
+// ---------------------------------------------------------------------------
+describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack', () => {
+  /** A captive layer far away, its mine at the origin, and a hull sitting
+   *  INSIDE the captive blast radius (32u) so an ordinary contact detonation
+   *  would be plainly visible — the discriminating geometry. */
+  function captiveBoard(extra: readonly string[] = []): { w: World; o: ShipRecord; b: ShipRecord } {
+    const w = bareWorld();
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyBoon(o, 'mineCaptive');
+    for (const id of extra) w.applyBoon(o, id as 'minePropFouling');
+    expect(o.stats.mine.captive).toBe(true);
+    const b = place(w, 'b', 0, 25); // silhouette ~15u out: inside the 32u blast
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    return { w, o, b };
+  }
+
+  it('a hull ON the mine does NOT detonate it — the mine is expended LAUNCHING instead', () => {
+    const { w, b } = captiveBoard();
+    w.step();
+    expect(w.mines.size).toBe(0); // expended
+    // NOT a detonation: no boom at the mine, and the hull standing inside the
+    // blast radius takes nothing this tick. A contact mine would do both.
+    expect(w.tickEvents.filter((e) => e.k === 'boom')).toHaveLength(0);
+    expect(w.tickEvents.filter((e) => e.k === 'dmg')).toHaveLength(0);
+    expect(b.hp).toBe(b.stats.maxHp);
+    // What it did instead: ONE torpedo, in the water, launched from the mine.
+    const fish = [...w.shells.values()];
+    expect(fish).toHaveLength(1);
+    expect(fish[0].kind).toBe('torp');
+    expect(fish[0].ownerId).toBe('o');
+  });
+
+  it('the torpedo is UN-UPGRADED (base CONFIG.torpedo) and deals MINE damage at MINE blast radius', () => {
+    const w = bareWorld();
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    // Torpedo boons the LAYER holds must not reach the mine's fish: it belongs
+    // to the mine, not to the tubes.
+    w.applyBoon(o, 'mineCaptive');
+    w.applyBoon(o, 'torpedoSpeed');
+    expect(o.stats.torpedo.speed).toBeGreaterThan(CONFIG.torpedo.speed);
+    const b = place(w, 'b', 0, 40);
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    const fish = [...w.shells.values()][0];
+    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.torpedo.speed, 6); // BASE speed
+    expect(fish.hitRadius).toBe(CONFIG.torpedo.hitRadius);
+    expect(fish.damage).toBe(o.stats.mine.damage); // MINE damage...
+    expect(fish.burstRadius).toBe(o.stats.mine.blastRadius); // ...at MINE blast radius
+    // It runs home and detonates for the mine's damage.
+    for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.mine.damage, 6);
+  });
+
+  it('leads a MOVING target: the fish is aimed ahead of the hull, not at it', () => {
+    const w = bareWorld();
+    place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyBoon(w.ships.get('o')!, 'mineCaptive');
+    // A hull crossing the trip ring to port at speed, 120u up the y axis.
+    const b = place(w, 'b', 0, 120, Math.PI); // bow -x
+    b.state.speed = b.stats.kinematics.maxSpeed;
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    const fish = [...w.shells.values()][0];
+    // Straight AT the hull would be +y (bearing π/2). A led shot is deflected
+    // toward where the hull is going (−x), so the bearing is past π/2.
+    expect(Math.atan2(fish.vy, fish.vx)).toBeGreaterThan(Math.PI / 2 + 1e-6);
+  });
+
+  it('CAPTIVE + PROP FOULING: the torpedo hit carries the FOUL (Eric A1, R2.14)', () => {
+    const { w, o, b } = captiveBoard(['minePropFouling']);
+    expect([o.stats.mine.captive, o.stats.mine.propFouling]).toEqual([true, true]);
+    for (let i = 0; i < 40 && b.slowedUntil === 0; i++) w.step();
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.mine.damage, 6);
+    expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
+  });
+
+  it('CAPTIVE WITHOUT prop fouling never fouls (the foul rides the OTHER card, not this one)', () => {
+    const { w, b } = captiveBoard();
+    w.step(); // the mine launches
+    for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
+    expect(b.hp).toBeLessThan(b.stats.maxHp); // it connected...
+    expect(b.slowedUntil).toBe(0); // ...and slowed nothing
+  });
+
+  it('a VACATED owner reverts the mine to an ordinary contact mine (no doctrine outlives its build)', () => {
+    const { w } = captiveBoard();
+    w.removeShip('o');
+    w.step();
+    expect(w.mines.size).toBe(0);
+    expect(w.shells.size).toBe(0); // no fish
+    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(true); // it DETONATED
+  });
+});
+
+describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are hunting you', () => {
+  function droneBoard(): { w: World; o: ShipRecord; d: ShipRecord } {
+    const w = bareWorld();
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyBoon(o, 'mineCaptive');
+    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 });
+    w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    return { w, o, d };
+  }
+
+  it('a NEUTRAL fleet drone sails straight over a captive mine — no launch, no detonation', () => {
+    const { w } = droneBoard();
+    expect(w.drones.targetOf('d')).toBeNull();
+    w.step();
+    expect(w.mines.size).toBe(1); // untouched
+    expect(w.shells.size).toBe(0);
+    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(false);
+  });
+
+  it('the SAME drone, once it has acquired the layer, is hostile and takes the fish', () => {
+    const { w } = droneBoard();
+    w.drones.onDamaged('d', 'o', false); // it now hunts the mine's owner
+    expect(w.drones.targetOf('d')).toBe('o');
+    w.step();
+    expect(w.mines.size).toBe(0);
+    expect(w.shells.size).toBe(1);
+  });
+
+  it('a neutral drone sitting on the mine does not MASK the enemy captain behind it', () => {
+    const { w } = droneBoard(); // the drone is registered FIRST, so it is scanned first
+    const cap = place(w, 'cap', 0, -40); // an enemy captain, also inside the trip ring
+    w.step();
+    expect(w.mines.size).toBe(0);
+    const fish = [...w.shells.values()];
+    expect(fish).toHaveLength(1);
+    // Aimed at the CAPTAIN (−y), not at the neutral drone (+y).
+    expect(fish[0].vy).toBeLessThan(0);
+    expect(cap.state.y).toBeLessThan(0); // sanity: the captain is the −y one
+  });
+
+  it('THE GATE IS CAPTIVE-ONLY: an ORDINARY mine still trips on a neutral drone', () => {
+    const w = bareWorld();
+    place(w, 'o', 600, 600, 0, 'mineLayer'); // no captive card
+    w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 });
+    w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    expect(w.mines.size).toBe(0);
+    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(true); // a real detonation
+    expect(w.shells.size).toBe(0);
+  });
+});
 
 // Story 2.8 review, P6: two mines within each other's blast can BOTH trip in
 // one tick. The trigger loop snapshots its trips up front, so a mine an earlier

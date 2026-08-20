@@ -16,6 +16,16 @@
 // silently — no boom); a defensive global cap bounds total growth. Mines never
 // radar-paint; their per-observer visibility is contact-like (the `mine`
 // signal row).
+//
+// CAPTIVE MINES (Story 7-5 wave 2, R2.12-R2.14) change the TRIP and what
+// follows it, and nothing else: the same drop, the same 3000ms arm delay, the
+// same `maxLive` board cap. A captive mine NEVER detonates on contact — it
+// trips only on a HOSTILE (R2.13: an enemy captain or bot, or a fleet drone
+// whose CURRENT acquired target is the layer; a neutral drone may sail straight
+// over it) and answers by LAUNCHING its one torpedo, expending itself. The
+// doctrine is read live off the owner's stats at trip time like every other
+// mine number, so it needs no field on MineState and a vacated owner's mine
+// reverts to an ordinary contact mine.
 
 import {
   CONFIG,
@@ -30,6 +40,7 @@ import {
   wrapAngle,
   type Island,
   type HullTarget,
+  type ShellState,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
@@ -49,7 +60,44 @@ export interface MineState {
 export interface MineTrigger {
   mine: MineState;
   victimId: string;
+  /**
+   * CAPTIVE (Story 7-5 wave 2, R2.12): this mine's owner holds the CAPTIVE
+   * MINES doctrine, so the trip LAUNCHES its torpedo instead of detonating.
+   * Resolved here, at trip time, off the owner's live stats — the same
+   * owner-lookup-with-CONFIG-fallback rule the trip ring and the blast already
+   * use, so a VACATED owner's mine reverts to an ordinary contact mine.
+   */
+  captive: boolean;
 }
+
+/**
+ * The per-owner policy `checkMineTriggers` resolves each mine against. Injected
+ * (rather than read off a World here) so the row stays pure: the World supplies
+ * the owner-stats lookups and the aggro read, tests supply whatever they mean.
+ */
+export interface MineTripRules {
+  /** The owner's EFFECTIVE trip ring (u). */
+  triggerRadius(ownerId: string): number;
+  /** Is the owner running CAPTIVE MINES? */
+  captive(ownerId: string): boolean;
+  /**
+   * CAPTIVE-ONLY (R2.13, Eric): is `victimId` HOSTILE to `ownerId`? An enemy
+   * captain or bot always is; a fleet drone is hostile ONLY while its CURRENT
+   * acquired target is the mine's owner, so a drone that breaks off becomes
+   * safe to sail past again. NEVER consulted for an ordinary or prop-fouling
+   * mine — those still trip on ANY non-owner hull, drones included.
+   */
+  hostile(ownerId: string, victimId: string): boolean;
+}
+
+/** The CONFIG-base policy: base trip ring, nobody captive, everyone hostile.
+ *  The default for direct callers (tests) — byte-identical to the pre-wave-2
+ *  behaviour of the old `triggerRadiusFor` default. */
+const CONFIG_TRIP_RULES: MineTripRules = {
+  triggerRadius: () => CONFIG.mine.triggerRadius,
+  captive: () => false,
+  hostile: () => true,
+};
 
 /** Count a player's currently-live mines. */
 function ownMineCount(mines: Map<string, MineState>, ownerId: string): number {
@@ -126,30 +174,48 @@ export function dropBlocked(p: Vec2, islands: readonly Island[], mapRadius: numb
 }
 
 /**
+ * The first hull that trips `mine`: a non-owner silhouette within `radius`
+ * (pointPolygonDistance — 0 inside, concave-safe), scanned in hull order.
+ * `hostile` is the CAPTIVE-ONLY gate (null for every other mine): a hull it
+ * refuses is SKIPPED, not returned — the scan continues, so a neutral drone
+ * sitting on a captive mine never masks the enemy captain right behind it.
+ */
+function firstTripper(
+  mine: MineState,
+  hulls: readonly HullTarget[],
+  radius: number,
+  hostile: ((victimId: string) => boolean) | null,
+): string | null {
+  for (const hull of hulls) {
+    if (hull.id === mine.ownerId) continue; // owner never trips its own mine
+    if (hostile !== null && !hostile(hull.id)) continue; // captive: not a target
+    if (pointPolygonDistance(mine, hull.poly) <= radius) return hull.id;
+  }
+  return null;
+}
+
+/**
  * Mines that trigger this tick against the given (post-move) hull silhouette
  * polygons: any armed mine within its OWNER's effective trigger radius of a
- * non-owner polygon (pointPolygonDistance — 0 inside, concave-safe;
- * `triggerRadiusFor` is the World's owner-stats lookup with the vacated-owner
- * CONFIG fallback — Story 2.8). One victim per mine (the first ship found).
- * Pure — the World deletes + resolves damage.
+ * qualifying non-owner polygon. `rules` is the World's owner-stats lookup with
+ * the vacated-owner CONFIG fallback (Story 2.8) plus, since Story 7-5 wave 2,
+ * the CAPTIVE doctrine read and its hostile gate (R2.13). One victim per mine
+ * (the first qualifying ship found). Pure — the World deletes the mine and
+ * resolves the detonation or the launch.
  */
 export function checkMineTriggers(
   mines: Map<string, MineState>,
   hulls: readonly HullTarget[],
   now: number,
-  triggerRadiusFor: (ownerId: string) => number = () => CONFIG.mine.triggerRadius,
+  rules: MineTripRules = CONFIG_TRIP_RULES,
 ): MineTrigger[] {
   const triggers: MineTrigger[] = [];
   for (const mine of mines.values()) {
     if (now < mine.armedAt) continue; // still arming
-    const triggerRadius = triggerRadiusFor(mine.ownerId);
-    for (const hull of hulls) {
-      if (hull.id === mine.ownerId) continue; // owner never trips its own mine
-      if (pointPolygonDistance(mine, hull.poly) <= triggerRadius) {
-        triggers.push({ mine, victimId: hull.id });
-        break;
-      }
-    }
+    const captive = rules.captive(mine.ownerId);
+    const hostile = captive ? (victimId: string) => rules.hostile(mine.ownerId, victimId) : null;
+    const victimId = firstTripper(mine, hulls, rules.triggerRadius(mine.ownerId), hostile);
+    if (victimId !== null) triggers.push({ mine, victimId, captive });
   }
   return triggers;
 }
@@ -163,13 +229,74 @@ export function checkMineTriggers(
  * silhouette-in-radius rule (the gun/starShells AoE precedent), so mine blasts
  * and shell bursts can never diverge on what "inside the blast" means. Pure —
  * the World deletes the mine and resolves damage/booms.
+ *
+ * Takes a POINT + owner rather than a MineState (Story 7-5 wave 2): the CAPTIVE
+ * MINE's torpedo blasts on the same rule at its IMPACT point, where no mine
+ * exists any more. A MineState still satisfies the parameter unchanged.
  */
 export function mineBlastVictims(
-  mine: MineState,
+  mine: { x: number; y: number; ownerId: string },
   hulls: readonly HullTarget[],
   blastRadius: number = CONFIG.mine.blastRadius,
 ): string[] {
   return burstVictims(mine, blastRadius, hulls, mine.ownerId);
+}
+
+/**
+ * THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12). A captive mine NEVER
+ * detonates on contact: it holds ONE UN-UPGRADED torpedo — base CONFIG.torpedo
+ * speed, hit radius and run-until-impact range, with NO torpedo boon of any kind
+ * applied, because the fish belongs to the MINE and not to the layer's tubes —
+ * fired along `dir` (the World's lead solution) from the mine's own point. The
+ * mine is EXPENDED on fire.
+ *
+ * IT IS THE GAME'S ONE CONTACT-BLAST PROJECTILE, and it says so entirely through
+ * its per-projectile hit rule (the Story 1.4 seam — nothing about a projectile's
+ * behaviour lives outside its ShellState): point-less (`targetX === null`, so it
+ * is contact-only to stepShell and never seeks a burst point) yet carrying a
+ * non-zero `burstRadius`, a combination NO other projectile in the game has —
+ * every ordinary torpedo sets 0 there, and every burster carries a target point.
+ * `contactBlastRadius` below reads exactly that, so the World needs no side
+ * table, no extra ShellState field and no cleanup path that a reset or a spent
+ * shell could leak through.
+ *
+ * `damage`/`blastRadius` arrive from the OWNER's effective MINE stats at LAUNCH
+ * time; the World re-reads them at detonation exactly as a mine blast does (so
+ * PROP FOULING rides along — R2.14 — and a vacated owner falls back to CONFIG).
+ */
+export function captiveTorpedo(
+  id: string,
+  mine: MineState,
+  dir: number,
+  now: number,
+  p: { damage: number; blastRadius: number },
+): ShellState {
+  return {
+    id,
+    ownerId: mine.ownerId,
+    x: mine.x,
+    y: mine.y,
+    vx: Math.cos(dir) * CONFIG.torpedo.speed,
+    vy: Math.sin(dir) * CONFIG.torpedo.speed,
+    distLeft: Number.POSITIVE_INFINITY, // the base fish runs until impact
+    bornAt: now,
+    kind: 'torp',
+    damage: p.damage,
+    hitRadius: CONFIG.torpedo.hitRadius,
+    targetX: null,
+    targetY: null,
+    burstRadius: p.blastRadius,
+    contactDamage: p.damage,
+  };
+}
+
+/** The CONTACT-BLAST radius of a spent projectile, or 0 if it is not one: a
+ *  point-less projectile carrying a burst radius detonates AT ITS IMPACT POINT
+ *  rather than dealing plain contact damage (see `captiveTorpedo`, its only
+ *  producer). Reading the hit rule off the projectile is what keeps the rule
+ *  with the projectile. */
+export function contactBlastRadius(shell: ShellState): number {
+  return shell.targetX === null && shell.burstRadius > 0 ? shell.burstRadius : 0;
 }
 
 /** The world-space hull target for a ship pose (test/inspection convenience —

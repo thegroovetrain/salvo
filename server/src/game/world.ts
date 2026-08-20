@@ -102,12 +102,15 @@ import {
 import {
   EQUIPMENT,
   addMine,
+  captiveTorpedo,
   checkMineTriggers,
+  contactBlastRadius,
   mineBlastVictims,
   type ActivationContext,
   type ActivationDenial,
   type ActivationResult,
   type MineState,
+  type MineTripRules,
 } from './equipment/index.js';
 import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
@@ -125,6 +128,7 @@ import {
   type IntelDisc,
 } from './spawn.js';
 import { logWarn } from '../log.js';
+import { leadIntercept } from './lead.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
 // The ship-role seam (Story 6.3). ALIASED on import purely to keep them
 // distinct from World's own `isFleetHull(id)` method, which answers the same
@@ -2749,11 +2753,75 @@ export class World {
    * time; a vacated owner falls back to the CONFIG base).
    */
   private stepMines(hulls: HullTarget[]): void {
-    const triggerRadiusFor = (ownerId: string): number =>
-      this.ships.get(ownerId)?.stats.mine.triggerRadius ?? CONFIG.mine.triggerRadius;
-    for (const { mine, victimId } of checkMineTriggers(this.mines, hulls, this.now, triggerRadiusFor)) {
-      this.detonateMine(mine, hulls, victimId);
+    for (const { mine, victimId, captive } of checkMineTriggers(this.mines, hulls, this.now, this.mineTripRules())) {
+      if (captive) this.launchCaptiveTorpedo(mine, victimId);
+      else this.detonateMine(mine, hulls, victimId);
     }
+  }
+
+  /** The per-owner trip policy for this tick's mines: effective trip ring, the
+   *  CAPTIVE doctrine read, and the captive-only hostile gate — each an OWNER
+   *  lookup with the vacated-owner CONFIG fallback, so an orphan mine keeps no
+   *  dead build's numbers and no dead build's doctrine. */
+  private mineTripRules(): MineTripRules {
+    return {
+      triggerRadius: (ownerId) => this.ships.get(ownerId)?.stats.mine.triggerRadius ?? CONFIG.mine.triggerRadius,
+      captive: (ownerId) => this.ships.get(ownerId)?.stats.mine.captive ?? false,
+      hostile: (ownerId, victimId) => this.isCaptiveMineHostile(ownerId, victimId),
+    };
+  }
+
+  /**
+   * "HOSTILE" FOR A CAPTIVE MINE (Story 7-5 wave 2, R2.13 — Eric's ruling). An
+   * enemy CAPTAIN OR BOT always is: they contest the match, and the mine's
+   * owner is already excluded upstream. A FLEET DRONE is hostile ONLY while its
+   * CURRENT acquired target is the mine's owner — read LIVE off the
+   * FleetController's mind, never cached, so a drone that breaks off (target
+   * lost, target sunk, aggro expired) becomes safe to sail past again in the
+   * very next tick.
+   *
+   * THE GATE IS CAPTIVE-ONLY and must not be widened: ordinary and prop-fouling
+   * mines still trip on ANY non-owner hull, drones included, and a mine hit
+   * still causes no aggro (amendment 36, unchanged — see hitShip's `fromMine`).
+   * A vanished victim is not hostile, so a mid-tick teardown cannot launch a
+   * fish at nothing.
+   */
+  private isCaptiveMineHostile(ownerId: string, victimId: string): boolean {
+    const victim = this.ships.get(victimId);
+    if (victim === undefined) return false;
+    if (!roleIsFleetHull(victim)) return true; // an enemy captain or bot
+    return this.drones.isTargeting(victim.id, ownerId); // live aggro, nothing else
+  }
+
+  /**
+   * A CAPTIVE MINE FIRES (R2.12/R2.14). The mine is EXPENDED — deleted first
+   * (the consume-first discipline detonateMine established, so nothing can fire
+   * it twice) — and launches ONE un-upgraded torpedo from its own point along
+   * the lead solution against the tripping hull. No boom, no blast, no chain:
+   * a captive mine never detonates on contact, so none of the detonation path
+   * runs at all.
+   *
+   * THE FISH IS DODGEABLE, AND THAT IS THE DESIGN: it is a base-speed torpedo
+   * fired at where the target WILL be if it holds course, computed by the same
+   * lead solver the fleet gun uses (game/lead.ts). Turn and it misses.
+   *
+   * It carries the OWNER's effective MINE damage and MINE blast radius — read
+   * again at detonation through the ordinary mine-blast path, which is what
+   * makes PROP FOULING ride along when the layer holds both cards (Eric A1:
+   * captive STACKS with prop fouling, and the torpedo's hit carries the foul).
+   * A vacated owner falls back to the CONFIG bases exactly as a mine blast
+   * does; a vanished VICTIM cannot happen here (the hostile gate refuses one).
+   */
+  private launchCaptiveTorpedo(mine: MineState, victimId: string): void {
+    if (!this.mines.delete(mine.id)) return; // already spent this tick
+    const victim = this.ships.get(victimId);
+    if (victim === undefined) return;
+    const { damage, blastRadius } = this.mineBlastParams(mine.ownerId);
+    const vx = Math.cos(victim.state.heading) * victim.state.speed;
+    const vy = Math.sin(victim.state.heading) * victim.state.speed;
+    const led = leadIntercept(mine, victim.state, vx, vy, CONFIG.torpedo.speed);
+    const dir = Math.atan2(led.y - mine.y, led.x - mine.x);
+    this.spawnBallistic(captiveTorpedo(this.nextBallisticId(), mine, dir, this.now, { damage, blastRadius }));
   }
 
   /**
@@ -2820,23 +2888,45 @@ export class World {
    *  Victim RESOLUTION, not dmg emission (the ready-room rule); a victimless
    *  detonation sends NOTHING (mines have no fall-of-shot — amendment 16). */
   private blastMine(m: MineState, hulls: readonly HullTarget[]): number {
-    const { damage, blastRadius, fouls } = this.mineBlastParams(m.ownerId);
+    const { resolved, blastRadius } = this.applyMineBlast(m, m.ownerId, hulls);
+    if (resolved > 0) this.emitHitCall(m.ownerId, m.x, m.y);
+    return blastRadius;
+  }
+
+  /**
+   * ONE MINE-STYLE BLAST at `at`, on `ownerId`'s effective mine numbers: full
+   * damage to every non-owner hull silhouette inside the blast (owner excluded
+   * — the universal AoE convention), plus the PROP FOULING slow when the owner
+   * holds the doctrine. Returns how many hulls it RESOLVED and the radius used.
+   *
+   * Split out of blastMine (Story 7-5 wave 2) with the Hit Call left BEHIND on
+   * purpose: the CAPTIVE MINE's torpedo detonates through here too (R2.14 — the
+   * fish's hit carries the foul, because the foul is read off the owner's live
+   * stats at detonation exactly as a mine's is), and its `hc` is already
+   * emitted by resolveShell's interception branch. Amendment 17's "exactly one
+   * `hc` per shell resolution" is what forbids a second one here.
+   */
+  private applyMineBlast(
+    at: Vec2,
+    ownerId: string,
+    hulls: readonly HullTarget[],
+  ): { resolved: number; blastRadius: number } {
+    const { damage, blastRadius, fouls } = this.mineBlastParams(ownerId);
     let resolved = 0;
-    for (const victimId of mineBlastVictims(m, hulls, blastRadius)) {
+    for (const victimId of mineBlastVictims({ x: at.x, y: at.y, ownerId }, hulls, blastRadius)) {
       const victim = this.ships.get(victimId);
       // Per-victim re-check against the DELIBERATELY STALE `hulls` snapshot: a
       // hull sunk earlier this tick is still in it, and damage semantics live
       // in this re-check rather than in the snapshot (amendment 5).
       if (!victim || !isAfloat(victim.lifecycle)) continue;
       resolved += 1;
-      this.hitShip(victim, damage, m.ownerId, true); // MINE: no aggro (amendment 36)
+      this.hitShip(victim, damage, ownerId, true); // MINE: no aggro (amendment 36)
       // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
       // assignment), never stack. Gated with damage (no fouling in the
       // damage-suppressed ready room).
       if (fouls && this.damageEnabled) victim.slowedUntil = this.now + CONFIG.mine.foulDurationMs;
     }
-    if (resolved > 0) this.emitHitCall(m.ownerId, m.x, m.y);
-    return blastRadius;
+    return { resolved, blastRadius };
   }
 
   /** Queue the SAME-OWNER armed mines whose centers lie within `blastRadius`
@@ -2967,6 +3057,19 @@ export class World {
     // A DAMAGELESS flare still lights where it stopped (Story 2.8, amendment
     // 39): an intercepted star shell spawns its zone at the interception point.
     if (shell.lit) this.spawnLitZone(shell, outcome);
+    // THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12/R2.14) — the game's
+    // one CONTACT-BLAST projectile: it detonates AT ITS IMPACT POINT for the
+    // layer's MINE damage over the layer's MINE blast radius, carrying the PROP
+    // FOULING slow when the layer holds that card too, instead of dealing plain
+    // contact damage to the hull it touched. The struck hull is inside its own
+    // blast by construction, so there is no double-dip to guard: this branch
+    // RETURNS rather than falling through to the contact hit below. The one Hit
+    // Call for this resolution was already emitted above (amendment 17), which
+    // is why applyMineBlast deliberately does not emit one.
+    if (contactBlastRadius(shell) > 0) {
+      this.applyMineBlast(outcome, shell.ownerId, hulls);
+      return;
+    }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !isAfloat(victim.lifecycle)) return;
@@ -3425,7 +3528,31 @@ export class World {
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
+      // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell
+      // gun reach OWN-FLARES-ONLY: a row cannot ask about anyone else's zones.
+      inOwnLitZone: (p) => this.pointInOwnLitZone(ship.id, p),
     };
+  }
+
+  /**
+   * THE STAR-SHELL GUN REACH PREDICATE (Story 7-5 wave 2, R2.15): does `p` lie
+   * inside a LIVE lit zone owned by `ownerId`? Live means not yet expired —
+   * tested explicitly against `now` rather than trusting the store, because
+   * expireLitZones runs at the END of the tick and a zone whose `until` fell
+   * this tick must not license a shot for one last frame.
+   *
+   * Zone membership is the same centre-distance test markZoneEffects uses, so
+   * the water a flare licenses you to shoot into is exactly the water it burns
+   * and blinds in.
+   */
+  private pointInOwnLitZone(ownerId: string, p: Vec2): boolean {
+    for (const zone of this.litZones.values()) {
+      if (zone.ownerId !== ownerId || this.now >= zone.until) continue;
+      const dx = p.x - zone.x;
+      const dy = p.y - zone.y;
+      if (dx * dx + dy * dy <= zone.r * zone.r) return true;
+    }
+    return false;
   }
 
   /**
