@@ -32,7 +32,7 @@ import { FIT_CATEGORIES, TONES, fitTone } from '../audio/tones.js';
 import { boonEffectLine, boonFitToastLine } from '../ui/boonCopy.js';
 import { SHIPWIDE_CATEGORIES, slotForBoonCategory } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
-import { ownMineRings, reconcileMines, type MinePos } from '../render/mines.js';
+import { ownMineRings, reconcileMines } from '../render/mines.js';
 import { LitZones, zoneVerbs } from '../render/litZones.js';
 import { tellLine } from '../render/hud.js';
 

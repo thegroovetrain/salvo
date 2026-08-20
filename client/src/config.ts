@@ -676,14 +676,11 @@ export const CLIENT_CONFIG = {
      *  sample cadence; a per-look spacing override would be exactly the second
      *  wake model amendment 204 forbids. */
     homingCoreR: 4.2, // u
-    /** SELF-PROPELLED mines: drop a faint wake dot every this many units of
-     *  creep, and draw the heading tick this long (u) — the tick is the STATIC
-     *  half of the creep tell, so the doctrine reads at motion=off too. */
-    creepWakeSpacing: 14, // u
-    creepTickLen: 9, // u
-    /** Movement (u) below which a re-synced mine counts as STATIONARY — frame
-     *  positions are exact server values, so this only guards float noise. */
-    creepEpsilon: 0.05, // u
+    // THE CREEP KNOBS ARE DELETED (Story 7-5 wave 2): creepWakeSpacing,
+    // creepTickLen and creepEpsilon drove the SELF-PROPELLED mine's tell — a
+    // heading tick plus a wake dot laid along its crawl. That doctrine left the
+    // game with its card, and CAPTIVE MINES (which replaced it) are MOORED, so
+    // no mine can move and render/mines.ts has no move path left to configure.
   },
 
   /**

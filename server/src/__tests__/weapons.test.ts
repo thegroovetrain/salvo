@@ -435,6 +435,52 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
     expect(w.mines.has('m1')).toBe(true); // only the OWNER's bursts detonate
   });
 
+  // A CAPTIVE MINE CANNOT BE SELF-DETONATED (Story 7-5 wave 2, R2.18 — Eric
+  // ruling 2026-08-19). The burst passes over it and the mine PERSISTS, armed
+  // and waiting: it neither blasts NOR launches, because R2.12 already made the
+  // torpedo its only attack and this was the last path by which a captive mine
+  // could produce a blast centred on its own casing.
+  //
+  // The board is deliberately EMPTY of hostiles: a captive field's trip ring is
+  // 144u at base (the swap-and-triple transform), so `board()`'s enemy parked
+  // 45u off the mine would TRIP it and mask the thing under test. What is being
+  // asserted here is the BURST path alone.
+  function lonely(): { w: World; a: ShipRecord } {
+    const w = bareWorld(17);
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer');
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    return { w, a };
+  }
+
+  it('R2.18: an ARMED CAPTIVE mine under the owner’s own burst survives, un-fired', () => {
+    const { w, a } = lonely();
+    w.applyBoon(a, 'mineCaptive');
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // armed, at the click point
+    shootAt(w, 300);
+    expect(w.mines.has('m1')).toBe(true); // NOT detonated — the burst passed over it
+    expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 'm1')).toBe(false);
+    // And it did not LAUNCH either: no torpedo ever left the casing.
+    expect([...w.shells.values()].some((sh) => sh.kind === 'torp')).toBe(false);
+  });
+
+  it('R2.18 is CAPTIVE-ONLY: the very same burst still detonates an ORDINARY mine', () => {
+    const { w } = lonely(); // no mineCaptive fitted — everything else identical
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 });
+    shootAt(w, 300);
+    expect(w.mines.has('m1')).toBe(false); // detonated exactly as it always has
+    expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 'm1')).toBe(true);
+  });
+
+  it('R2.18: a CAPTIVE field never chains either — a whole cluster survives one burst', () => {
+    const { w, a } = lonely();
+    w.applyBoon(a, 'mineCaptive');
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // under the click
+    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0 }); // the chain neighbour
+    shootAt(w, 300);
+    expect(w.mines.has('m1')).toBe(true);
+    expect(w.mines.has('m2')).toBe(true);
+  });
+
   it('CHAIN THROUGH THE BURST (Story 2.8 flip of the 1.8 no-cascade pin): the burst-detonated mine chains its own neighbour outside the shell burst', () => {
     const { w } = board();
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // under the click (30u burst)

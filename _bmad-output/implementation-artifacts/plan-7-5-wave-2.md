@@ -185,3 +185,26 @@ not deleted — the face still has to fit.
 **DOCTRINE_TEXT becomes tooltip copy** rather than card copy. Wave-1's compressed doctrine wordings
 were squeezed to fit the old budget; they may now be rewritten to be genuinely explanatory. Eric's
 verbatim card NAMES are unchanged and remain canon.
+
+## R2.18 — A CAPTIVE MINE CANNOT BE SELF-DETONATED (Eric ruling 2026-08-19)
+*"the captive mines can no longer be self-detonated."*
+
+The game's existing rule — your own gun/broadside burst detonates YOUR OWN armed mines inside
+`burstRadius`, and the same-owner chain propagates — **does not apply to captive mines**. A captive
+mine is EXCLUDED from `detonateMinesInBurst` and from the same-owner chain entirely.
+
+**It neither blasts NOR launches.** The burst simply passes over it and the mine persists, armed and
+waiting. This is the literal reading of the ruling and the consistent one: R2.12 already says the
+torpedo is its ONLY attack, and self-detonation was the last surviving path by which a captive mine
+could produce a blast centred on its own casing. After this there are none.
+
+Ordinary and prop-fouling mines are UNCHANGED — they still self-detonate exactly as they always
+have. This is a captive-only carve-out, the same shape as R2.13's hostile gate.
+
+## R2.19 — the captive torpedo's UNLIMITED RANGE is ACCEPTED (Eric ruling 2026-08-19)
+*"sounds fine to me, until I start adding torpedo max ranges or shit like that."*
+
+The captive fish inherits base `CONFIG.torpedo` behaviour, which runs until impact — so a missed
+fish crosses the map until it hits something or the rim. **This is accepted as shipped, not an
+oversight**, and is LEDGERED as the first thing to revisit if a torpedo max-range mechanic is ever
+introduced. Do not add a range cap now.

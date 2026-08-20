@@ -1196,23 +1196,15 @@ export const CONFIG = {
     // is linear in the folded blast radius, so MINES cards apply on top and
     // card ORDER CANNOT MATTER.
     captiveTriggerFactor: 3,
-    // --- SELF-PROPELLED MINES doctrine (Story 2.8; the card and the
-    // `mine.selfPropelled` verb were DELETED in Story 7-5 wave 2 — CAPTIVE
-    // MINES replaces the tracking mine). These two knobs are the last of the
-    // creep behaviour still standing: server/src/game/world.ts reads them, so
-    // they are LEFT here to be deleted with that code path rather than ahead of
-    // it. Nothing in shared/ reads them.
-    // Armed mines creep toward the nearest enemy hull within acquire range.
-    // ACQUISITION IS SILHOUETTE-METRIC (Eric ruling 2026-08-02): the range below
-    // is measured mine→hull POLYGON (pointPolygonDistance — the SAME metric the
-    // trigger uses), never mine→ship center. The old 60u center-metric ring was
-    // strictly INSIDE the trip ring for every hull in the game (hulls are
-    // 85–124u long, so a ship trips the mine at 74–94u CENTER distance): the
-    // doctrine could never acquire anything. 150u of silhouette reach clears
-    // even a max-mineTrigger battleship's 51.5u trip ring by a wide margin, and
-    // 14 u/s is a crawl that can still close it before the hull sails past.
-    creepSpeed: 14, // u/s — crawl speed of an armed self-propelled mine
-    creepAcquireRange: 150, // u — SILHOUETTE-distance acquisition radius
+    // SELF-PROPELLED MINES IS GONE, AND SO IS ITS CREEP (Story 7-5 wave 2).
+    // The card, the `mine.selfPropelled` verb, the World's creep step and the
+    // client's creep tell/wake were deleted with it; `creepSpeed` (14 u/s) and
+    // `creepAcquireRange` (150u) outlived them for exactly one cycle, on a
+    // comment claiming `server/src/game/world.ts` still read them — it did not.
+    // Deleted here with the last of that machinery. NO MINE CAN MOVE: a captive
+    // mine is MOORED, and the doctrine that replaced tracking attacks with a
+    // launched torpedo instead. Anything re-adding a moving mine re-derives
+    // these numbers rather than finding them waiting.
   },
 
   /**

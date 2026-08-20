@@ -16,6 +16,7 @@ import {
   EQUIPMENT_IS_WEAPON,
   angleDiff,
   burstPointAlong as sharedBurstPointAlong,
+  gunReachU as sharedGunReachU,
   muzzleOrTarget as sharedMuzzleOrTarget,
   parallelOffsets,
   wrapAngle,
@@ -93,33 +94,38 @@ export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shel
 }
 
 /**
- * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15). A gun click normally
- * clamps to `stats.gun.rangeU`; a click whose burst point lies inside a LIVE lit
- * zone the CLICKING PLAYER owns is legal past it, and the shell flies the whole
- * way. Three clauses, each load-bearing:
- *   * GUN ONLY — no other row calls this. The broadside and the torpedo keep
- *     their own reach; a flare extends the one weapon whose job is reaching.
- *   * OWN FLARES ONLY — `ctx.inOwnLitZone` is keyed on the ACTIVATING ship, so
+ * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) — the ShipRecord-shaped
+ * wrapper around the SHARED predicate (`sim/aim.ts` `gunReachU`, where the full
+ * rationale lives). A gun click normally clamps to `stats.gun.rangeU`; a click
+ * whose burst point lies inside a LIVE lit zone the CLICKING PLAYER owns is
+ * legal past it, and the shell flies the whole way.
+ *
+ * THE RULE ITSELF IS NO LONGER WRITTEN HERE. It was, and the client's aim
+ * preview mirrored it line for line — two implementations of one legality gate,
+ * agreeing by discipline. It is now promoted into `shared/` exactly as
+ * `blockedWater` and `burstPointAlong` were, so the previewed reach and the
+ * enforced reach are one function. Nothing in this file may re-derive it.
+ *
+ * What stays server-side is the two things `shared/` may not see:
+ *   * GUN ONLY — no other row calls this, which is what makes the extension
+ *     gun-only. The broadside and the torpedo keep their own reach.
+ *   * OWN FLARES ONLY — `ctx.ownLitZones()` is keyed on the ACTIVATING ship, so
  *     an enemy's flare hanging over your target lights the water for THEM and
  *     buys you nothing. Illuminating for someone else is never a gift you can
  *     take.
- *   * SERVER-AUTHORITATIVE — this IS the legality answer. The client's aim
- *     preview mirrors it; it is never asked.
- *
- * An in-range click early-outs BEFORE any zone is visited, so the ordinary shot
- * is byte-identical to the pre-R2.15 path and costs nothing per click. An
- * out-of-range click OUTSIDE such a zone is clamped exactly as it always was.
- * The point tested is the point the shell would BURST at (water-disk clamp
- * included), never the raw click, so a zone straddling the rim cannot license a
- * burst outside the map.
+ * SERVER-AUTHORITATIVE: this IS the legality answer; the client's preview is
+ * never asked.
  */
 export function gunReachU(ctx: ActivationContext): number {
   const ship = ctx.ship;
-  const base = ship.stats.gun.rangeU;
-  const want = ship.input.aimDist;
-  if (!(want > base)) return base; // in range (or a NaN-ish click): unchanged
-  const far = burstPointAlong(ship, ctx.mapRadius, want, ship.input.aim);
-  return ctx.inOwnLitZone(far) ? want : base;
+  return sharedGunReachU(
+    ship.state,
+    ship.input.aim,
+    ship.input.aimDist,
+    ship.stats.gun.rangeU,
+    ctx.mapRadius,
+    ctx.ownLitZones(),
+  );
 }
 
 /**

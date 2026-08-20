@@ -17,7 +17,16 @@
 // asserted — the radar buoy is a placement SECTOR like the mine.
 
 import { describe, it, expect } from 'vitest';
-import { BOON_CATALOG, CONFIG, arcFor, effectiveStats, loadoutFor, resolveBoons } from '@salvo/shared';
+import {
+  BOON_CATALOG,
+  CONFIG,
+  arcFor,
+  effectiveStats,
+  gunReachU as sharedGunReachU,
+  loadoutFor,
+  pointInLitZone as sharedPointInLitZone,
+  resolveBoons,
+} from '@salvo/shared';
 import type { EquipmentId } from '@salvo/shared';
 import {
   fireArcKind,
@@ -364,6 +373,33 @@ describe('weaponReachU — the gun reaches into its own flare (R2.15)', () => {
     expect(pointInLitZone({ x: 103, y: 0 }, zones)).toBe(true);
     expect(pointInLitZone({ x: 50, y: 0 }, zones)).toBe(false);
     expect(pointInLitZone({ x: 0, y: 0 }, [])).toBe(false);
+  });
+
+  // THE PROMOTION IS REAL, NOT A MIRROR (Story 7-5 wave 2 cleanup). This rule
+  // shipped implemented TWICE — the server's legality gate and this preview —
+  // agreeing only because an agent copied one into the other. It now lives in
+  // `shared/src/sim/aim.ts` and BOTH sides call it; the server's own parity pin
+  // (server/src/__tests__/combat.test.ts) asserts the same thing from its side,
+  // so the two agree TRANSITIVELY through one function rather than by
+  // discipline. This case fails the moment this file re-grows a private copy.
+  it('IS the shared gunReachU, argument for argument, across the whole domain', () => {
+    const cases: [number, { x: number; y: number; r: number }[]][] = [
+      [10, FAR_ZONE],                       // in range
+      [RANGE, FAR_ZONE],                    // exactly at the horizon
+      [RANGE + 200, FAR_ZONE],              // lifted
+      [RANGE + 200, []],                    // clamped, no zones at all
+      [RANGE + 900, FAR_ZONE],              // beyond the zone, clamped
+      [NaN, FAR_ZONE],                      // the NaN-safe branch
+      [MAP_R + 500, [{ x: MAP_R - 2, y: 0, r: 6 }]], // the rim clamp
+    ];
+    for (const [d, zones] of cases) {
+      expect(weaponReachU(reachStats, 'gun', SHIP, 0, d, MAP_R, zones), `d=${d}`)
+        .toBe(sharedGunReachU(SHIP, 0, d, RANGE, MAP_R, zones));
+    }
+  });
+
+  it('and pointInLitZone is literally the shared function, not a lookalike', () => {
+    expect(pointInLitZone).toBe(sharedPointInLitZone);
   });
 });
 

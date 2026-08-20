@@ -17,9 +17,9 @@
 import {
   type EquipmentId,
   type Island,
+  type LitCircle,
   type LoadoutSlot,
   type ShellState,
-  type Vec2,
   type WeaponAmmo,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
@@ -64,16 +64,20 @@ export interface ActivationContext {
   spawnBallistic: (shell: ShellState, opts?: BallisticSpawnOptions) => void;
   dropMine: (x: number, y: number) => void;
   /**
-   * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): does `p` lie inside a
-   * LIVE lit zone owned by the ACTIVATING ship? The gun row asks before it
-   * clamps an out-of-range click (equipment/guns.ts `gunReachU`); no other row
-   * calls it, which is what makes the extension gun-only.
+   * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the LIVE lit zones owned
+   * by the ACTIVATING ship, as centre+radius circles. The gun row feeds them to
+   * the SHARED reach predicate (`@salvo/shared` `gunReachU`) before it clamps an
+   * out-of-range click; no other row calls it, which is what makes the extension
+   * gun-only.
    *
-   * A CAPABILITY, NOT THE ZONE STORE. Rows get the ANSWER, never the map, so
-   * "own flares only" cannot be widened by a row reading a zone it shouldn't
-   * (the World keys the closure on the activating ship's id).
+   * A CAPABILITY, NOT THE ZONE STORE. Rows get a list already filtered to
+   * OWN + LIVE — never the zone map, never an owner id or expiry they could
+   * re-interpret — so "own flares only" cannot be widened by a row reading a
+   * zone it shouldn't (the World keys the closure on the activating ship's id).
+   * A THUNK rather than a value so a torpedo/mine/boost activation, which never
+   * asks, pays nothing to build the list.
    */
-  inOwnLitZone: (p: Vec2) => boolean;
+  ownLitZones: () => readonly LitCircle[];
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */

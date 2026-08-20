@@ -183,6 +183,92 @@ export function blockedWater(p: Vec2, islands: readonly Island[], mapRadius: num
   return false;
 }
 
+/**
+ * A LIVE lit zone the FIRING player OWNS, reduced to the only three numbers the
+ * gun-reach gate reads: centre + lit radius. Deliberately NOT `LitZoneView` /
+ * the server's `LitZone` — the predicate must not be able to see an owner id,
+ * an expiry, or a doctrine flag, because BOTH halves of "own" and "live" are
+ * the CALLER's to enforce when it builds this list (the World filters its zone
+ * store on the activating ship's id + `now`; the client's
+ * render/litZones.ts `ownActiveZones` filters `by === ownId && until >
+ * serverNow`). An enemy's flare can therefore never reach this function at all,
+ * which is what makes "own flares only" structural rather than a check someone
+ * could forget.
+ */
+export interface LitCircle {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/**
+ * Pure: does `p` lie inside ANY of the supplied lit zones? INCLUSIVE
+ * (`d² ≤ r²`, via the shared `pointInCircle` primitive rather than a
+ * hand-rolled distance test) because this is half of a server-authoritative
+ * legality gate: if the two sides disagreed on the rim case the client's aim
+ * preview would lie about a shot the player is about to take.
+ *
+ * The same centre-distance test the World's `markZoneEffects` uses, so the
+ * water a flare licenses you to shoot into is exactly the water it burns and
+ * blinds in.
+ */
+export function pointInLitZone(p: Vec2, zones: readonly LitCircle[]): boolean {
+  for (const z of zones) {
+    if (pointInCircle(p, z, z.r)) return true;
+  }
+  return false;
+}
+
+/**
+ * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) — ONE derivation, both
+ * sides. A gun click normally clamps to the ship's effective `gun.rangeU`; a
+ * click whose BURST POINT lies inside a LIVE lit zone the CLICKING player owns
+ * is legal past it, and the shell flies the whole way. You can shell what your
+ * own flare is lighting.
+ *
+ * PROMOTED into `shared/` (Story 7-5 wave 2 cleanup) because it had been
+ * implemented twice — the server's legality gate and the client's aim preview —
+ * agreeing only because an agent mirrored one into the other. That is exactly
+ * the desync class `effectiveStats()` and `sim/spread.ts` exist to prevent, and
+ * the same promotion `blockedWater` (above) already made: the server owns the
+ * ANSWER, but there is now only one function that can produce it, so the
+ * previewed reach IS the reach the shot gets.
+ *
+ * Every clause here is load-bearing and none of them may be "improved" in
+ * passing:
+ *  - GUN ONLY. Callers gate on the equipment id before calling; no other row
+ *    reaches for this. The broadside's 5/8 rung is a weapon identity, not a
+ *    horizon; a torpedo runs to the map edge; the star shell keeps its own
+ *    range.
+ *  - OWN FLARES ONLY — enforced by construction in `ownLitZones` (see
+ *    LitCircle). An enemy's flare over your target lights the water for THEM.
+ *  - `!(aimDist > baseRangeU)` rather than `aimDist <= baseRangeU`: deliberately
+ *    NaN-SAFE, so a NaN-ish click takes the unchanged-range branch. Keep the
+ *    branch shape.
+ *  - The point tested is the MAP-CLAMPED burst point, never the raw cursor.
+ *    They differ at the rim, and testing the cursor would license a burst
+ *    outside the map on exactly the clicks a player makes when pinned against
+ *    the boundary.
+ *  - The clamp only ever LIFTS to the click's own distance, never past it.
+ *
+ * An in-range click early-outs before any zone is visited or any geometry is
+ * computed, so the ordinary shot is byte-identical to the pre-R2.15 path.
+ * `baseRangeU` arrives from the caller's `effectiveStats().gun.rangeU` — this
+ * module never reads CONFIG for a boon-scalable value.
+ */
+export function gunReachU(
+  center: Vec2,
+  aim: number,
+  aimDist: number,
+  baseRangeU: number,
+  mapRadius: number,
+  ownLitZones: readonly LitCircle[],
+): number {
+  if (!(aimDist > baseRangeU)) return baseRangeU; // in range (or a NaN-ish click)
+  const far = burstPointAlong(center, aimDist, mapRadius, aimDist, aim);
+  return pointInLitZone(far, ownLitZones) ? aimDist : baseRangeU;
+}
+
 /** Where a TORPEDO leaves the tube: the bow-clear offset along its launch
  *  bearing (the makeBallistic spawn rule for a projectile with no explicit
  *  `origin` — hullClearOffset with hitRadius + spawnClearance). */

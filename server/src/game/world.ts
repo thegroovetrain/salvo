@@ -84,6 +84,7 @@ import {
   type HullId,
   type HullTarget,
   type InputMsg,
+  type LitCircle,
   type LoadoutSlot,
   type Rng,
   type ShellOutcome,
@@ -2766,9 +2767,21 @@ export class World {
   private mineTripRules(): MineTripRules {
     return {
       triggerRadius: (ownerId) => this.ships.get(ownerId)?.stats.mine.triggerRadius ?? CONFIG.mine.triggerRadius,
-      captive: (ownerId) => this.ships.get(ownerId)?.stats.mine.captive ?? false,
+      captive: (ownerId) => this.laysCaptiveMines(ownerId),
       hostile: (ownerId, victimId) => this.isCaptiveMineHostile(ownerId, victimId),
     };
+  }
+
+  /**
+   * Does this owner's field consist of CAPTIVE mines? THE single read of the
+   * doctrine, with the vacated-owner CONFIG fallback (false) every other mine
+   * lookup uses — the verb rides the OWNER's live stats, never a per-mine flag,
+   * so a layer who fits CAPTIVE MINES converts the field already on the water.
+   * Three call sites, all of them a carve-out for the same reason: the trip
+   * (launch instead of blast), the burst (R2.18), and the chain (R2.18).
+   */
+  private laysCaptiveMines(ownerId: string): boolean {
+    return this.ships.get(ownerId)?.stats.mine.captive ?? false;
   }
 
   /**
@@ -2930,9 +2943,13 @@ export class World {
   }
 
   /** Queue the SAME-OWNER armed mines whose centers lie within `blastRadius`
-   *  of detonating mine `m` (amendment 46 — enemy mines never chain). */
+   *  of detonating mine `m` (amendment 46 — enemy mines never chain). A CAPTIVE
+   *  field chains nothing at all (R2.18). */
   private chainMines(m: MineState, blastRadius: number, visited: Set<string>, queue: MineState[]): void {
     const r2 = blastRadius * blastRadius;
+    // R2.18 — a CAPTIVE field never propagates a chain either. The chain is
+    // same-owner by construction, so one read answers for every candidate.
+    if (this.laysCaptiveMines(m.ownerId)) return;
     for (const other of this.mines.values()) {
       if (visited.has(other.id) || other.ownerId !== m.ownerId || this.now < other.armedAt) continue;
       const dx = other.x - m.x;
@@ -3151,8 +3168,18 @@ export class World {
    * then CASCADES same-owner through detonateMine's chain — a deliberate
    * change from the 1.8 no-cascade rule (deletion keeps every mine at most one
    * detonation).
+   *
+   * A CAPTIVE MINE CANNOT BE SELF-DETONATED (Story 7-5 wave 2, R2.18 — Eric
+   * ruling 2026-08-19). It is excluded here outright: the burst passes over it
+   * and the mine PERSISTS, armed and waiting. It does NOT blast and it does NOT
+   * launch — R2.12 already made the torpedo its only attack, and this was the
+   * last path by which a captive mine could produce a blast centred on its own
+   * casing. After this there are none. The carve-out is CAPTIVE-ONLY and must
+   * not be widened: ordinary and prop-fouling fields self-detonate exactly as
+   * they always have (the same shape as R2.13's hostile gate).
    */
   private detonateMinesInBurst(shell: ShellState, at: Vec2, hulls: readonly HullTarget[]): void {
+    if (this.laysCaptiveMines(shell.ownerId)) return; // R2.18 — the burst passes over
     const detonating: MineState[] = [];
     const r2 = shell.burstRadius * shell.burstRadius;
     for (const mine of this.mines.values()) {
@@ -3530,29 +3557,33 @@ export class World {
       dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
       // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell
       // gun reach OWN-FLARES-ONLY: a row cannot ask about anyone else's zones.
-      inOwnLitZone: (p) => this.pointInOwnLitZone(ship.id, p),
+      ownLitZones: () => this.ownLiveLitZones(ship.id),
     };
   }
 
   /**
-   * THE STAR-SHELL GUN REACH PREDICATE (Story 7-5 wave 2, R2.15): does `p` lie
-   * inside a LIVE lit zone owned by `ownerId`? Live means not yet expired —
-   * tested explicitly against `now` rather than trusting the store, because
-   * expireLitZones runs at the END of the tick and a zone whose `until` fell
-   * this tick must not license a shot for one last frame.
+   * THE STAR-SHELL GUN REACH INPUT (Story 7-5 wave 2, R2.15): the lit zones
+   * owned by `ownerId` that are still LIVE, reduced to centre+radius circles.
+   * Live means not yet expired — tested explicitly against `now` rather than
+   * trusting the store, because expireLitZones runs at the END of the tick and
+   * a zone whose `until` fell this tick must not license a shot for one last
+   * frame.
    *
-   * Zone membership is the same centre-distance test markZoneEffects uses, so
+   * BOTH filters live here and nowhere else: the shared predicate
+   * (`@salvo/shared` `gunReachU`, which owns the containment + range rule for
+   * server AND client alike) receives circles with no owner and no expiry, so
+   * it CANNOT lend a row someone else's light or a dead flare's. The membership
+   * test it then runs is the same centre-distance test markZoneEffects uses, so
    * the water a flare licenses you to shoot into is exactly the water it burns
    * and blinds in.
    */
-  private pointInOwnLitZone(ownerId: string, p: Vec2): boolean {
+  private ownLiveLitZones(ownerId: string): LitCircle[] {
+    const out: LitCircle[] = [];
     for (const zone of this.litZones.values()) {
       if (zone.ownerId !== ownerId || this.now >= zone.until) continue;
-      const dx = p.x - zone.x;
-      const dy = p.y - zone.y;
-      if (dx * dx + dy * dy <= zone.r * zone.r) return true;
+      out.push({ x: zone.x, y: zone.y, r: zone.r });
     }
-    return false;
+    return out;
   }
 
   /**

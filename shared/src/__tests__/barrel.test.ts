@@ -383,13 +383,13 @@ describe('shared barrel', () => {
     // weaker slow held longer, and no longer paired with a damage penalty.
     expect(CONFIG.mine.foulFactor).toBe(0.75);
     expect(CONFIG.mine.foulDurationMs).toBe(5000);
-    // The tracking-mine fix (Eric ruling 2026-08-02): acquisition is measured
-    // mine→hull SILHOUETTE (world.ts nearestEnemyHull, the trigger's metric),
-    // so the range is a silhouette reach and must clear the widest trip ring —
-    // a max-mineTrigger 51.5u — with room to close.
-    expect(CONFIG.mine.creepSpeed).toBe(14);
-    expect(CONFIG.mine.creepAcquireRange).toBe(150);
-    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(CONFIG.mine.blastRadius);
+    // RETIRED (Story 7-5 wave 2): the three creep pins — creepSpeed 14 u/s,
+    // creepAcquireRange 150u, and acquire > blast. They pinned the SELF-
+    // PROPELLED doctrine's tuning, and that doctrine left the game with its
+    // card; the constants are deleted, so the pins go with them rather than
+    // being adapted. Their ABSENCE is what is pinned now — a mine cannot move.
+    expect((CONFIG.mine as Record<string, unknown>).creepSpeed).toBeUndefined();
+    expect((CONFIG.mine as Record<string, unknown>).creepAcquireRange).toBeUndefined();
     // CAPTIVE MINES (Story 7-5 wave 2): the swap-and-triple multiplier. Pinned
     // here as a CONFIG value; the transform itself is pinned in stats.test.ts.
     expect(CONFIG.mine.captiveTriggerFactor).toBe(3);

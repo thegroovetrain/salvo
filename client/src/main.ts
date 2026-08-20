@@ -2511,15 +2511,9 @@ function buildGame(
     // beyond the sight bubble, and the preview must not be eaten by fog.
     aimPreview: new AimPreview(stage.layers.aim),
     effects,
-    // The creep wake rides the SAME torpedo-wake dot a fish lays (a mine under
-    // power is making a wake, and it is the one existing marker that already
-    // survives every motion level).
-    mines: new Mines(
-      stage.layers.mineChart,
-      stage.layers.mineWorld,
-      () => audio.play('fireMine'),
-      (x, y) => effects.spawnEffect('torpwake', x, y),
-    ),
+    // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
+    // that laid one is gone, and a captive mine is MOORED — nothing can move.
+    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),

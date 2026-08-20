@@ -21,6 +21,7 @@ import {
   type DamageEvent,
   type GameEvent,
   type HullId,
+  gunReachU as sharedGunReachU,
 } from '@salvo/shared';
 import { clampToArc, gunTarget } from '../game/combat.js';
 import type { ShipRecord } from '../game/world.js';
@@ -599,6 +600,54 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
     const shell = [...w.shells.values()][0];
     expect(a.stats.starShells.rangeU).toBeLessThan(REACH);
     expect(shell.targetY).toBeCloseTo(a.stats.starShells.rangeU, 6);
+  });
+
+  // THE PROMOTION IS REAL, NOT A MIRROR (Story 7-5 wave 2 cleanup). R2.15
+  // shipped implemented TWICE — this legality gate and the client's aim preview
+  // (render/weaponArc.ts weaponReachU) — agreeing only because an agent copied
+  // one into the other, which is exactly the desync class effectiveStats() and
+  // sim/spread.ts exist to prevent. The rule now lives in shared/src/sim/aim.ts
+  // and BOTH sides call it. This case drives a REAL World gun click and asserts
+  // the shell's burst distance is what the SHARED function says; the client has
+  // the matching pin on its side (weaponArc.test.ts), so the two agree
+  // TRANSITIVELY through one function rather than by discipline. It fails the
+  // moment the server re-grows a private copy of the rule.
+  it('the fired reach IS the shared gunReachU, over every branch of the rule', () => {
+    const zone = { x: 0, y: REACH, r: 120 };
+    const cases: [number, { x: number; y: number; r: number }[]][] = [
+      [300, [zone]], // in range — the zone is irrelevant
+      [REACH, [zone]], // lifted
+      [REACH, []], // clamped: no own zone at all
+      [REACH, [{ x: 0, y: REACH, r: 5 }]], // clamped: the click misses the zone
+    ];
+    for (const [aimDist, zones] of cases) {
+      const { w, a } = armed(40 + aimDist + zones.length);
+      for (const [i, z] of zones.entries()) {
+        w.litZones.set(`z${i}`, {
+          id: `z${i}`, ownerId: 'a', x: z.x, y: z.y, r: z.r,
+          until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+        });
+      }
+      // The zone that misses is offset off the aim line so the burst point
+      // falls outside it (same centre distance, wrong bearing).
+      if (zones.length === 1 && zones[0].r === 5) w.litZones.get('z0')!.x = 400;
+      w.submitInput('a', gunInput(HALF_PI, aimDist));
+      w.step();
+      const shell = [...w.shells.values()][0];
+      const want = sharedGunReachU(
+        { x: 0, y: 0 },
+        HALF_PI,
+        aimDist,
+        a.stats.gun.rangeU,
+        w.map.radius,
+        [...w.litZones.values()].map((z) => ({ x: z.x, y: z.y, r: z.r })),
+      );
+      // The shell flies to min(click, reach) — the reach is the CLAMP, so an
+      // in-range click still bursts at the click. Comparing against the shared
+      // reach is what makes this a parity pin rather than a range restatement.
+      expect(shell.targetY, `aimDist=${aimDist} zones=${zones.length}`)
+        .toBeCloseTo(Math.min(aimDist, want), 6);
+    }
   });
 
   it('BARREL still straddles at the extended reach (the two features compose)', () => {
