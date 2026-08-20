@@ -35,8 +35,10 @@
 // engagement band moves with its INTEL RANGE cards exactly as the eighths
 // ladder does (detect 0.375R, sight 0.5R, muzzle/smoke 0.625R, farRadar
 // 0.875R, radar R) — and gun/cannon/star-shell `rangeU` all ARE radarRange,
-// so a band fraction is simultaneously a fraction of weapon reach. A literal
-// here would silently stop tracking a boon-widened hull.
+// so a band fraction is simultaneously a fraction of weapon reach. No card
+// writes `stats.radarRange` today (the INTEL RANGE line was deleted
+// 2026-08-20), but a literal here would silently stop tracking the ruler if
+// one ever lands again.
 //
 // THE HUMAN GETS NO SPECIAL WEIGHT (Eric ruling B3). `targetWeights.captain`
 // covers human captains and other bots IDENTICALLY — a bot cannot even tell
@@ -304,7 +306,7 @@ export function profileOf(id: AnyProfileId): BotProfile {
 
 /** The engagement band in WORLD UNITS for a profile at these stats — the one
  *  place the fractions are resolved. Anchored on `radarRange` (intel range,
- *  the one ruler), so boons widen the band for free. */
+ *  the one ruler), so any future widening of it moves the band for free. */
 export function engagementBand(profile: BotProfile, stats: EffectiveStats): { min: number; max: number } {
   return { min: profile.bandMinFrac * stats.radarRange, max: profile.bandMaxFrac * stats.radarRange };
 }

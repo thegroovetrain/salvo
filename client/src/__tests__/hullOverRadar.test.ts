@@ -8,7 +8,7 @@
 //      when he asked for it (*"less prominent in the near sight range where i am
 //      going to aim based on LOS rather than radar ghosts"*). It now floors
 //      across the bubble and climbs only outside it, and because the bubble is
-//      not a constant (dazzle shrinks it, `intelRange` widens it) the ramp is
+//      not a constant (dazzle shrinks it at read time) the ramp is
 //      OBSERVER-SCALED off `Radar.sightHoleU` — `fogHoleRadiusU`, the same number
 //      the fog hole is baked at and the server gates contacts with.
 //
@@ -137,7 +137,7 @@ describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
     expect(dimScaleAt(SIGHT, dazzled)).toBe(1);
   });
 
-  it('...AND A WIDENED (`intelRange`) ONE, in the other direction', () => {
+  it('...AND A WIDENED BUBBLE, in the other direction', () => {
     const wide = SIGHT * 1.5;
     expect(dimScaleAt(wide, wide), 'the floor followed the bubble out').toBeCloseTo(FLOOR, 12);
     // ...and water that was at full strength for a base hull is quieted for the

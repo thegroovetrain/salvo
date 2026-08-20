@@ -163,7 +163,7 @@ turn and confirming only that test went red.
 PHOSPHOR and CAPTIVE by Fable, and the remaining two by Codex — five instances of ONE defect class
 (*a doctrine branch written as a replacement for the base behaviour rather than an addition*), found
 by three different readers. No single reviewer found more than two. That is the argument for the
-cross-model gate, and the class is now stated as a rule in the code and in amendment 29.
+cross-model gate, and the class is now stated as a rule in the code and in amendment 32.
 
 ## Design Notes
 

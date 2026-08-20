@@ -3,6 +3,46 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  46: RANGE I–IV IS DELETED (Eric ruling 2026-08-20) — the `intelRange` card
+ *  line leaves BOON_CATALOG outright, 29 lines → 28. It was the ONLY card
+ *  writing `radarRange`, so the eighths ladder is now frozen at its base for
+ *  every observer (detect 247.5, sight 330, muzzle/smoke 412.5, farRadar 577.5,
+ *  radar 660); base range does NOT compensate, so zero-boon play is
+ *  byte-identical. Catalog content has been wire contract since PV 13 and the
+ *  client resolves boon ids FAIL-CLOSED, so a stale client would drop the id
+ *  silently and disagree with the authoritative sim about radar, truesight and
+ *  every rangeU. The `intel` category SURVIVES carrying `intelSweep` ×5 (subdeck
+ *  9 cards → 5, every hull's deck 41 → 37); `radarRange` stays on
+ *  BOON_STAT_PATHS with no card behind it.
+ *  45: PER-TURRET FIRING ARCS (Eric ruling 2026-08-20) — the BROADSIDE
+ *  BARRAGE's designed angular fan is DELETED and replaced by per-turret aim:
+ *  each turret owns a mount bearing (straddled across
+ *  ±CONFIG.broadside.turretMountSpreadDeg about the beam) and a traverse
+ *  half-angle (the authored CONFIG.broadside.traverseDeg ladder, indexed by
+ *  the SPREAD rung), fires EXACTLY at the click when its own arc bears and at
+ *  its arc limit at the click's range when it cannot (shared sim/aim.ts
+ *  turretAimPoints — one derivation, both sides). CONFIG.broadside loses
+ *  `fanHalfAngleDeg` and gains the two fields above (rides the welcome config
+ *  snapshot); `EffectiveStats.broadside.fanHalfAngleRad` becomes
+ *  `traverseRad`. Same wire SHAPES, but a stale client's aim preview would
+ *  draw a fan the server no longer fires, breaking "the previewed circle IS
+ *  where the shell bursts" — the same class of break as a catalog content
+ *  change.
+ *  44: THE BUOY'S OWN SCOPE (Story 7-5 fix cycle, Eric playtest 2026-08-19/20 —
+ *  *"It gets its own returns. I just get to see them as the owner."*). The R2.8
+ *  relay-into-the-owner's-blips model is REPLACED: a radar buoy is a
+ *  first-class second radar whose returns belong to ITS scope. Two wire moves,
+ *  one bump. (a) `ReturnBlipEvent` gains OPTIONAL `src` — the id of the
+ *  receiving observer's OWN buoy whose antenna made the return, present ONLY in
+ *  the owner's frames (enemy frames never carry it; R2.9 holds). It says WHICH
+ *  OF YOUR SENSORS returned it, NEVER whether the subject is real: an enemy
+ *  jamming buoy's fakes that pass your buoy's own gate arrive tagged with your
+ *  buoy's `src` exactly as a real hull does, so fake-vs-real stays
+ *  wire-indistinguishable inside every scope. The client prices a tagged
+ *  return from the BUOY's position and the untagged rest from its own, which
+ *  is the whole point of the field. (b) `BuoyView` gains `sweep` — the buoy's
+ *  live antenna angle, so the owner's client can draw the buoy's own rotating
+ *  wedge (physically observable on a sighted buoy; carries no owner identity).
  *  43: UPGRADE CARDS v2, WAVE 2 (Story 7-5) — TWO EQUIPMENTS REPLACED OUTRIGHT,
  *  and the catalog reaches its FINAL shape. Four independent wire breaks.
  *  (a) TWO EquipmentId VALUES CHANGE: `cannon` → `broadside` and `decoyBuoy` →
@@ -469,7 +509,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 43;
+export const PROTOCOL_VERSION = 46;
 
 // Tunables
 export * from './constants.js';

@@ -34,6 +34,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isAfloat,
+  isSinking,
   BOON_CATALOG,
   CONFIG,
   HEAL_CHOICE,
@@ -110,32 +111,35 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 
 // Per-observer EFFECTIVE ranges, recomputed here from the raw fitted-boon id
 // list (deliberately NOT via me.stats / effectiveStats — the reimplementation
-// rule). The ladder factors are the CATALOG's authored steps written out as
-// literals (intelRange ×1.15/card, truesight derived as half of it); the DAZZLE
-// factor (Story 2.8) scales the OBSERVER's own sight while its dazzledUntil
-// mark is live — mirrored independently from signals.sightOf.
+// rule). No card writes radar range any more (the INTEL RANGE line was deleted
+// 2026-08-20), so intel range is the flat constant and truesight is half of it;
+// the DAZZLE factor (Story 2.8) scales the OBSERVER's own sight while its
+// dazzledUntil mark is live — mirrored independently from signals.sightOf.
 function stacksOf(me: ShipRecord, boonId: string): number {
   let n = 0;
   for (const b of me.boons) if (b === boonId) n += 1;
   return n;
 }
 
-// THE INTEL RANGE MERGE (Eric rulings 2026-08-16): `intelTruesight` and
-// `intelRadar` are gone, and truesight is now the 4/8 rung of ONE number.
-// Re-derived here INDEPENDENTLY, as literals, per this file's reimplementation
-// rule: sight is half of intel range, and dazzle still scales sight ONLY —
-// intel range itself is never dazzle-scaled, which is what keeps the 5/8
-// muzzle/smoke halo un-dazzled by construction.
+// TRUESIGHT IS THE 4/8 RUNG OF ONE NUMBER (Eric rulings 2026-08-16, unchanged
+// by the 2026-08-20 INTEL RANGE deletion). Re-derived here INDEPENDENTLY, as
+// literals, per this file's reimplementation rule: sight is half of intel
+// range, and dazzle still scales sight ONLY — intel range itself is never
+// dazzle-scaled, which is what keeps the 5/8 muzzle/smoke halo un-dazzled by
+// construction.
 function effSight(me: ShipRecord, now: number): number {
-  const base = effRadar(me) / 2;
+  const base = effRadar() / 2;
   return now < me.dazzledUntil ? base * CONFIG.starShells.dazzleSightFactor : base;
 }
 
-// STORY 7-5 WAVE 1 made RANGE (`intelRange`) an ADDITIVE +50u/card line, 4
-// copies, replacing the ×1.15 multiplicative ladder. Re-derived here as a
-// LITERAL, independently of the catalog, per this file's reimplementation rule.
-function effRadar(me: ShipRecord): number {
-  return RADAR + 50 * stacksOf(me, 'intelRange');
+// INTEL RANGE IS FLAT AGAIN (Eric ruling 2026-08-20). `intelRange` — the only
+// card that ever wrote `stats.radarRange` — is deleted, so every observer
+// resolves the same number. Kept as a named function rather than folded into
+// its five call sites: production still resolves the ruler through
+// `me.stats.radarRange`, so this is the independent oracle for a value a future
+// radar card could move again, and only this body would change.
+function effRadar(): number {
+  return RADAR;
 }
 
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
@@ -145,8 +149,8 @@ function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean
 // The Story 4.9 DETECT oracle (amendments 119/121), INDEPENDENTLY RE-DERIVED:
 // 0.75 × the observer's effective sight (the 3/8 rung written out as a
 // LITERAL — deliberately NOT CONFIG.vision.detectFactor and NEVER the
-// production pointDetected), dazzle-scaled and boon-widened through effSight
-// exactly as the ruling scales it, island LOS applied unchanged. Binds mines,
+// production pointDetected), dazzle-scaled through effSight exactly as the
+// ruling scales it, island LOS applied unchanged. Binds mines,
 // torpedoes, and torpU updates; NON-VACUOUS by the directed cases below (a
 // mine/torpedo at 300u — inside sight, outside detect — must be excluded).
 function detected(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
@@ -566,7 +570,7 @@ describe('perception — radar paint window (exact)', () => {
       windowAround(a, bearing(a.state, b.state));
       // Non-vacuous: the target really is in the radar annulus, not sighted.
       expect(dist(a.state, b.state)).toBeGreaterThan(effSight(a, w.now));
-      expect(dist(a.state, b.state)).toBeLessThanOrEqual(effRadar(a));
+      expect(dist(a.state, b.state)).toBeLessThanOrEqual(effRadar());
       expect(blipsOf(buildFrame(w, 'a'))).toHaveLength(1);
       expect(shadowVisible(w, a, b.state)).toBe(true); // …and the oracle agrees
     }
@@ -1759,25 +1763,74 @@ function verifyAggro(w: World, me: ShipRecord, c: Contact, target: ShipRecord): 
 }
 
 /** One EXPECTED return: the mask an independent oracle recomputes for a gated
- *  source, plus a label naming that source in the failure message. */
+ *  source, plus a label naming that source in the failure message. `src` is
+ *  the PV 44 sensor attribution the emitted blip must carry EXACTLY —
+ *  undefined for the observer's own radar (the tag must be ABSENT), an OWN
+ *  buoy's id for that buoy's scope. */
 interface ExpectedBlip {
   mask: MaskOracle;
   label: string;
+  src?: string;
 }
 
-/** Gated SHIP paints. Story 7-5 wave 2 (R2.8): a ship is a gated subject
- *  through the observer's OWN gate OR through the relay of an OWNED buoy
- *  (never while it is a contact — the scan's contact-first order). Either way
- *  it earns EXACTLY ONE paint (the scan emits per ship, not per sensor). */
+/** Gated SHIP paints through the observer's OWN radar, untagged. THE RELAY
+ *  CLAUSE THAT LIVED HERE IS GONE (Story 7-5 fix cycle): a buoy's returns are
+ *  no longer merged into the observer's own subsequence — they are the buoy's
+ *  OWN scope, tagged with its id (expectedOwnScopeBlips below). */
 function expectedShipBlips(w: World, me: ShipRecord): ExpectedBlip[] {
   const out: ExpectedBlip[] = [];
   for (const target of w.ships.values()) {
     if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
-    const relayGated =
-      !sighted(w, me, target.state) && !zoneCovers(w, me, target.state) && relayedOracle(w, me, target.state);
-    if (!blipPredicate(w, me, target.state) && !relayGated) continue;
+    if (!blipPredicate(w, me, target.state)) continue;
     const s = target.state;
     out.push({ mask: maskOracle(target.hullId, s.x, s.y, s.heading, w.now), label: `gated ship ${target.id}` });
+  }
+  return out;
+}
+
+/**
+ * THE BUOY'S OWN SCOPE oracle (Story 7-5 fix cycle — Eric: "It gets its own
+ * returns. I just get to see them as the owner."). For every buoy the observer
+ * OWNS, every return its antenna makes this tick, each expected to arrive
+ * tagged `src: buoy.id`. Re-derived by hand: the scope is a PURE FUNCTION of
+ * (buoy, world) — no owner-sight, no owner-annulus, no owner-zone clause —
+ * over three subject kinds: ships (owner's own hull INCLUDED — a sensor
+ * returns what its beam crosses), every OTHER buoy's physical paint, and the
+ * fakes of FOREIGN jamming buoys (the indistinguishability clause: a tag says
+ * which of your sensors returned it, never whether it is real, so the fake
+ * set must pass the buoy's gate exactly as it passes a ship observer's).
+ * Fakes of the observer's OWN buoys never appear — the owner exemption covers
+ * every one of the owner's sensors.
+ */
+function expectedOwnScopeBlips(w: World, me: ShipRecord): ExpectedBlip[] {
+  const out: ExpectedBlip[] = [];
+  for (const b of w.buoys.values()) {
+    if (b.ownerId !== me.id) continue;
+    for (const target of w.ships.values()) {
+      if (!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) continue;
+      if (!buoyGateOracle(w, b, target.state)) continue;
+      const s = target.state;
+      out.push({
+        mask: maskOracle(target.hullId, s.x, s.y, s.heading, w.now),
+        label: `buoy ${b.id} scope: ship ${target.id}`,
+        src: b.id,
+      });
+    }
+    for (const other of w.buoys.values()) {
+      if (other.id === b.id || !buoyGateOracle(w, b, other)) continue;
+      out.push({ mask: buoyMaskOracle(other, w.now), label: `buoy ${b.id} scope: buoy ${other.id}`, src: b.id });
+    }
+    for (const jammer of w.buoys.values()) {
+      if (jammer.ownerId === me.id || !ownerJams(w, jammer)) continue;
+      for (const fake of jamFakesOracle(jammer)) {
+        if (!buoyGateOracle(w, b, fake)) continue;
+        out.push({
+          mask: maskOracle(fake.cls, fake.x, fake.y, fake.heading, w.now),
+          label: `buoy ${b.id} scope: jam fake of ${jammer.id}`,
+          src: b.id,
+        });
+      }
+    }
   }
   return out;
 }
@@ -1831,9 +1884,26 @@ function expectedFakeBlips(w: World, me: ShipRecord): ExpectedBlip[] {
 function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
   if (!isAfloat(me.lifecycle)) return;
   const unmatched = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
-  const expected = [...expectedShipBlips(w, me), ...expectedBuoyBlips(w, me), ...expectedFakeBlips(w, me)];
+  // PV 44 STRUCTURAL PIN, ahead of the pairing: a `src` tag may only ever name
+  // a live buoy the OBSERVER OWNS — an enemy frame carrying any attribution,
+  // or an owner frame naming someone else's buoy, is a leak whatever its mask.
+  for (const b of unmatched) {
+    if (b.src === undefined) continue;
+    const named = w.buoys.get(b.src);
+    expect(named, `src ${b.src} names a live buoy`).toBeDefined();
+    expect(named!.ownerId, `src ${b.src} names a buoy the observer owns`).toBe(me.id);
+  }
+  const expected = [
+    ...expectedShipBlips(w, me),
+    ...expectedBuoyBlips(w, me),
+    ...expectedFakeBlips(w, me),
+    ...expectedOwnScopeBlips(w, me),
+  ];
   for (const exp of expected) {
-    const i = unmatched.findIndex((b) => maskEquals(exp.mask, b));
+    // The pairing consumes on mask AND attribution: an own-radar return must
+    // arrive untagged, a buoy-scope return must wear exactly its buoy's id —
+    // a right mask under the wrong sensor matches nothing and fails.
+    const i = unmatched.findIndex((b) => maskEquals(exp.mask, b) && b.src === exp.src);
     expect(i, `${exp.label} accounted for by its own blip`).toBeGreaterThanOrEqual(0);
     unmatched.splice(i, 1); // CONSUMED — it can never justify a second source
   }
@@ -1872,7 +1942,14 @@ function verifyBlipOrdering(w: World, f: FrameMsg): void {
     const key = (e: ReturnBlipEvent): number[] => [e.gx, e.gy, e.t, e.w, e.h, e.bits.length, ...e.bits];
     const ka = key(a);
     const kb = key(b);
-    const cmp = ka.map((v, j) => v - kb[j]).find((d) => d !== 0) ?? 0;
+    let cmp = ka.map((v, j) => v - kb[j]).find((d) => d !== 0) ?? 0;
+    // PV 44: `src` closes the key — public payload to its one receiver, so
+    // still a payload-only order (untagged before tagged, then lexicographic).
+    if (cmp === 0) {
+      const sa = a.src ?? '';
+      const sb = b.src ?? '';
+      cmp = sa < sb ? -1 : sa > sb ? 1 : 0;
+    }
     expect(cmp).toBeLessThanOrEqual(0);
   }
 }
@@ -1908,12 +1985,12 @@ function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean; by:
 function verifyBuoy(
   w: World,
   me: ShipRecord,
-  b: { id: string; x: number; y: number; until: number; own: boolean; by: string },
+  b: { id: string; x: number; y: number; until: number; own: boolean; by: string; sweep: number },
 ): void {
   const buoy = w.buoys.get(b.id)!;
   expect(buoy).toBeDefined();
   expect(w.now).toBeLessThan(buoy.until); // expired buoys never materialize
-  expect(Object.keys(b).sort()).toEqual(['by', 'id', 'own', 'until', 'x', 'y']);
+  expect(Object.keys(b).sort()).toEqual(['by', 'id', 'own', 'sweep', 'until', 'x', 'y']);
   expect(b).toEqual({
     id: buoy.id,
     x: buoy.x,
@@ -1921,6 +1998,9 @@ function verifyBuoy(
     until: buoy.until,
     own: buoy.ownerId === me.id,
     by: buoy.ownerId,
+    // PV 44: the buoy's live antenna angle (the owner's wedge render input) —
+    // rotation phase only, no owner identity, no doctrine, no return data.
+    sweep: buoy.sweepAngle,
   });
   if (buoy.ownerId !== me.id) expect(sighted(w, me, buoy) || zoneCovers(w, me, buoy)).toBe(true);
 }
@@ -1956,7 +2036,7 @@ function verifyLitZone(
     ...(zone.phosphor ? { phos: true } : {}),
     ...(zone.dazzle ? { daz: true } : {}),
   });
-  if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar(me));
+  if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar());
 }
 
 // ---------- per-kind event verifiers (the independent oracle) ----------------
@@ -1983,7 +2063,7 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
   const d = dist(me.state, p);
   return (
     d > effSight(me, w.now) &&
-    d <= effRadar(me) &&
+    d <= effRadar() &&
     shadowVisible(w, me, p) &&
     inPaintWindow(me, bearing(me.state, p)) &&
     !zoneCovers(w, me, p)
@@ -1992,10 +2072,11 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
 
 // ---------- Story 7-5 wave 2: the RADAR BUOY oracles (independently re-derived) ----------
 //
-// Four sources may now legitimately put a blip in a frame (see verifyBlip's
-// carve-out): the observer's own radar over ships (unchanged), a RELAY from a
-// buoy the observer OWNS (R2.8), an enemy buoy's OWN small paint (R2.9), and
-// a JAMMING buoy's server-generated fakes (R2.11). Every rule below is
+// The sources that may legitimately put a blip in a frame (see verifyBlip's
+// carve-out): UNTAGGED — the observer's own radar over ships (unchanged), an
+// enemy buoy's OWN small paint (R2.9), and a JAMMING buoy's server-generated
+// fakes (R2.11); TAGGED (`src`, PV 44 — the fix cycle's replacement for the
+// R2.8 relay) — an OWN buoy's whole scope. Every rule below is
 // re-derived from the ruling text — ranges as literals, the scatter's
 // geometry by hand — sharing ONLY the entropy primitives (mulberry32 + the
 // documented seed mix and draw order), the paintSeed precedent: the RNG
@@ -2019,15 +2100,9 @@ function buoyGateOracle(w: World, buoy: BuoyState, p: { x: number; y: number }):
   return dist(buoy, p) <= BUOY_RADAR_U && inPaintWindow(buoy, bearing(buoy, p)) && shadowVisibleFrom(w, buoy, p);
 }
 
-/** THE RELAY oracle (R2.8): some live buoy OWNED by this observer returns
- *  `p` this tick. Radar returns only — the caller composes the not-a-contact
- *  exclusion (sighted/zoneCovers), mirroring the scan's contact-first order. */
-function relayedOracle(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  for (const b of w.buoys.values()) {
-    if (b.ownerId === me.id && buoyGateOracle(w, b, p)) return true;
-  }
-  return false;
-}
+// `relayedOracle` (R2.8) is DELETED with the relay itself (Story 7-5 fix
+// cycle): an own buoy's returns are its own tagged scope now, re-derived by
+// expectedOwnScopeBlips above.
 
 /** The buoy's OWN paint mask (R2.9): the degenerate-segment square at its
  *  fixed position through the test-local segment pipeline (wakeMaskOracle
@@ -2260,19 +2335,40 @@ function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return false;
 }
 
-/** True iff `ev` is a legitimate RELAYED ship paint (Story 7-5 wave 2, R2.8):
- *  SOME live non-self ship — not a contact for this observer (the scan's
- *  contact-first order, re-derived: neither sighted nor owned-zone-covered) —
- *  passes the reimplemented gate of a buoy the OBSERVER OWNS and rasterizes
- *  to exactly this footprint. Radar returns only: the mask is the identical
- *  pose rasterization a genuine own-radar paint carries, which is the wire's
- *  whole disclosure. */
-function blipMatchesRelayedShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+/** True iff a `src`-TAGGED blip is a legitimate return of the named OWN
+ *  buoy's scope (Story 7-5 fix cycle, PV 44 — replaces the R2.8 relayed-ship
+ *  arm): the tag must name a live buoy the OBSERVER OWNS, and the mask must
+ *  byte-match one of the scope's three re-derived subject kinds — a ship
+ *  (the owner's own hull included: the scope is a pure function of the buoy,
+ *  no owner-sight/annulus/zone clause exists) through the buoy's gate, some
+ *  OTHER buoy's physical square through it, or a FOREIGN jamming buoy's
+ *  recomputed fake through it (the indistinguishability clause: a tag says
+ *  which sensor, never whether real). */
+function blipMatchesOwnScope(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  const b = ev.src === undefined ? undefined : w.buoys.get(ev.src);
+  if (b === undefined || b.ownerId !== me.id) return false;
   for (const target of w.ships.values()) {
-    if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
-    if (sighted(w, me, target.state) || zoneCovers(w, me, target.state)) continue; // the contact tier won
-    if (!relayedOracle(w, me, target.state)) continue;
+    if (!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) continue;
+    if (!buoyGateOracle(w, b, target.state)) continue;
     if (blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading)) return true;
+  }
+  for (const other of w.buoys.values()) {
+    if (other.id === b.id || !buoyGateOracle(w, b, other)) continue;
+    if (maskEquals(buoyMaskOracle(other, w.now), ev as ReturnBlipEvent)) return true;
+  }
+  return scopeMatchesForeignFake(w, me, b, ev);
+}
+
+/** The jam-fake arm of `blipMatchesOwnScope` (split for the complexity gate):
+ *  some FOREIGN jamming buoy's recomputed fake passes THIS buoy's gate and
+ *  rasterizes to exactly this footprint. */
+function scopeMatchesForeignFake(w: World, me: ShipRecord, scope: BuoyState, ev: BlipEvent): boolean {
+  for (const jammer of w.buoys.values()) {
+    if (jammer.ownerId === me.id || !ownerJams(w, jammer)) continue;
+    for (const fake of jamFakesOracle(jammer)) {
+      if (!buoyGateOracle(w, scope, fake)) continue;
+      if (blipPoseMatches(w, ev, fake.cls, fake, fake.heading)) return true;
+    }
   }
   return false;
 }
@@ -2325,35 +2421,41 @@ const RETURN_FORBIDDEN_KEYS = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed']
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
   expect(ev.t).toBe(w.now);
-  // Shape gate: the exact key set, both directions.
-  expect(Object.keys(ev).sort()).toEqual(RETURN_BLIP_KEYS);
+  // Shape gate: the exact key set, both directions. A TAGGED blip (PV 44 —
+  // the buoy's-own-scope sensor attribution) carries exactly one more key.
+  const tagged = ev.src !== undefined;
+  expect(Object.keys(ev).sort()).toEqual(tagged ? [...RETURN_BLIP_KEYS, 'src'].sort() : RETURN_BLIP_KEYS);
   for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
-  // THE JUSTIFICATION, WITH THE RADAR-BUOY CARVE-OUT (Story 7-5 wave 2 —
-  // R2.8/R2.9/R2.11, the EXPLICIT edit the plan demanded, never a quiet one).
-  // A blip must byte-match exactly ONE of four independently re-derived
-  // sources:
+  // THE JUSTIFICATION, WITH THE RADAR-BUOY CARVE-OUT (Story 7-5 wave 2,
+  // reshaped by the fix cycle — the EXPLICIT edit the plan demanded, never a
+  // quiet one). A TAGGED blip must be a return of the named OWN buoy's scope
+  // (blipMatchesOwnScope — which also proves the tag names a buoy the
+  // observer OWNS: an attribution in any enemy frame fails here whatever its
+  // mask). An UNTAGGED blip must byte-match exactly ONE of three
+  // independently re-derived sources:
   //   1. a GENUINE SHIP PAINT through the observer's own gate (unchanged);
-  //   2. a ship RELAYED by a buoy the OBSERVER OWNS (R2.8 — radar only);
-  //   3. an enemy buoy's OWN small paint through the observer's gate (R2.9);
-  //   4. a JAMMING buoy's fake, recomputed HERE from (jamSeed, jamEpoch) —
+  //   2. an enemy buoy's OWN small paint through the observer's gate (R2.9);
+  //   3. a JAMMING buoy's fake, recomputed HERE from (jamSeed, jamEpoch) —
   //      never read back from production state (R2.11).
-  // Arm 4 is the first deliberately FALSE signal through observe(). It does
-  // NOT weaken the invariant in the leak direction, and it is NOT a seventh
-  // declared exception — the six exceptions disclose something TRUE beyond
-  // sight ∪ paints, while a fake discloses nothing real at all (its pose
-  // comes off a server-private stream, not off any ship); the count stays at
-  // SIX. And the carve-out CANNOT hide a genuine leak: every arm demands
-  // EXACT mask equality against the oracle's own recomputation, so a real
-  // ship's footprint emitted outside every gate — at its true pose, with its
-  // true hull — matches no arm and still fails (pinned by the directed
-  // leak-catch case below the invariant suite). Anything else — a fabricated
-  // footprint, a wrong rect, an unswept bearing, an out-of-annulus point —
-  // fails exactly as it always did.
+  // (The R2.8 relayed-ship arm is DELETED with the relay itself.) The fake
+  // arms are the first deliberately FALSE signals through observe(). They do
+  // NOT weaken the invariant in the leak direction, and they are NOT a
+  // seventh declared exception — the six exceptions disclose something TRUE
+  // beyond sight ∪ paints, while a fake discloses nothing real at all (its
+  // pose comes off a server-private stream, not off any ship); the count
+  // stays at SIX. And the carve-out CANNOT hide a genuine leak: every arm
+  // demands EXACT mask equality against the oracle's own recomputation, so a
+  // real ship's footprint emitted outside every gate — at its true pose,
+  // with its true hull — matches no arm and still fails (pinned by the
+  // directed leak-catch case below the invariant suite). Anything else — a
+  // fabricated footprint, a wrong rect, an unswept bearing, an
+  // out-of-annulus point — fails exactly as it always did.
+  if (tagged) {
+    expect(blipMatchesOwnScope(w, me, ev)).toBe(true);
+    return;
+  }
   expect(
-    blipMatchesShip(w, me, ev) ||
-      blipMatchesRelayedShip(w, me, ev) ||
-      blipMatchesBuoyPaint(w, me, ev) ||
-      blipMatchesJamFake(w, me, ev),
+    blipMatchesShip(w, me, ev) || blipMatchesBuoyPaint(w, me, ev) || blipMatchesJamFake(w, me, ev),
   ).toBe(true);
 }
 
@@ -2522,7 +2624,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
  * at all.
  */
 function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
-  const intel = effRadar(me);
+  const intel = effRadar();
   if (!Number.isFinite(intel) || intel <= 0) return null;
   const d = dist(me.state, p);
   const band = d === 0 ? 1 : Math.ceil((8 * d) / intel);
@@ -2622,7 +2724,7 @@ function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, torp: boole
   const d = dist(me.state, mid);
   const sight = effSight(me, w.now);
   const inner = torp ? 0.75 * sight : sight; // the `detected` oracle's 3/8 literal
-  if (d <= inner || d > effRadar(me)) return false;
+  if (d <= inner || d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;
   return d <= sight ? clearLos(me.state, mid, w.map.islands) : shadowVisible(w, me, mid);
 }
@@ -2976,17 +3078,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.85);
         const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU));
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
-        // Random INTEL boons so the invariant is exercised at WIDENED
-        // per-observer radii too (Story 2.8: the boon economy replaced the
+        // Random INTEL boons so the invariant is exercised at varied
+        // per-observer SWEEP RATES (Story 2.8: the boon economy replaced the
         // legacy counts). Ids are stacked directly and the world-side cache
         // recomputed the way World does (effectiveStats over resolved defs);
         // the CHECKS recompute ranges independently from the raw id list
         // (effSight/effRadar).
         const intel: string[] = [];
-        // ONE intel line since the merge — it drives radar AND truesight, so the
-        // fuzz no longer varies them independently (it never could have produced
-        // the pre-merge ladder overrun anyway; that is what merging fixed).
-        for (let n = rng.int(0, 4); n > 0; n--) intel.push('intelRange'); // 4 copies is the cap
+        // ONE intel line left: SWEEP RATE. The 2026-08-20 deletion of INTEL
+        // RANGE removed the only card that could widen a per-observer RADIUS,
+        // so the fuzz no longer varies radii — every observer runs the base
+        // ladder and the invariant is exercised across rpm instead.
         for (let n = rng.int(0, 5); n > 0; n--) intel.push('intelSweep'); // toward the rpm cap
         rec.boons = intel;
         rec.boonDefs = resolveBoons(intel);

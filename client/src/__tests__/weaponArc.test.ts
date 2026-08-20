@@ -18,7 +18,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
   CONFIG,
   arcFor,
   effectiveStats,
@@ -27,7 +26,7 @@ import {
   pointInLitZone as sharedPointInLitZone,
   resolveBoons,
 } from '@salvo/shared';
-import type { EquipmentId } from '@salvo/shared';
+import type { BoonDef, EquipmentId } from '@salvo/shared';
 import {
   fireArcKind,
   pointInLitZone,
@@ -258,15 +257,28 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(stats, 'radarBuoy')).toBe(CONFIG.mine.placeRange);
   });
 
-  it('an intelRange stack grows gun, star shells AND the broadside together', () => {
+  // A WIDER `radarRange` grows gun, star shells AND the broadside together.
+  // RETARGETED in cycle 119: this pin was written against a three-card INTEL
+  // RANGE stack, and that line is deleted — no shipped card writes `radarRange`
+  // any more. Its SUBJECT is the derivation, not the card, so it is driven by an
+  // INJECTED def on the still-whitelisted `radarRange` path (the server suite's
+  // `OMNI_BOON` shape). Asserting this against zero boons would compare the
+  // ranges with themselves and prove nothing.
+  const WIDE_RADAR: BoonDef = {
+    id: 'testWideRadar',
+    category: 'test',
+    rarity: 'common',
+    copies: 1,
+    effects: [{ kind: 'stat', path: 'radarRange', mult: 1.25 }],
+  };
+
+  it('a widened radarRange grows gun, star shells AND the broadside together', () => {
     // Story 2.8 (brainstorm 2026-07-30): the gun-family ranges are DERIVED from
-    // the folded radarRange — Intel is a stealth offense category. Wave 2 puts
-    // the broadside on the SAME number at the 5/8 rung, so it rides the ladder
-    // too; the mine's placement reach is deliberately NOT part of it.
-    const intel = effectiveStats(
-      CONFIG.shipClasses.battleship,
-      resolveBoons(['intelRange', 'intelRange', 'intelRange'], BOON_CATALOG),
-    );
+    // the folded radarRange. Wave 2 puts the broadside on the SAME number at the
+    // 5/8 rung, so it rides the ladder too; the mine's placement reach is
+    // deliberately NOT part of it.
+    const intel = effectiveStats(CONFIG.shipClasses.battleship, [WIDE_RADAR]);
+    expect(intel.radarRange).toBeGreaterThan(stats.radarRange); // the premise
     expect(weaponRangeU(intel, 'gun')).toBeGreaterThan(CONFIG.vision.radar);
     expect(weaponRangeU(intel, 'starShells')).toBe(weaponRangeU(intel, 'gun'));
     expect(weaponRangeU(intel, 'broadside')).toBeGreaterThan(weaponRangeU(stats, 'broadside'));
@@ -499,5 +511,49 @@ describe('sectorOutline — the placement wedge boundary', () => {
     expect(Math.hypot(rays[0].x, rays[0].y)).toBe(0);
     expect(Math.hypot(rays[1].x, rays[1].y)).toBe(0);
     expect(arc.r).toBe(0);
+  });
+});
+
+// ---- THE PLACEMENT WEDGE (Eric playtest 2026-08-20) --------------------------
+//
+// *"The buoy's targeting range indicator isn't correct"* and *"the mine's
+// targeting indicator seems to show two stacked indicators?"*, with the reason
+// both matter: *"with this rear facing, place-in-short-range arc style weapon,
+// its important that I as a captain can clearly see where I can place my
+// stuff."*
+//
+// Two defects, one root cause — the two CLICK-PLACED ids were not sharing a
+// grammar. `render/firing.ts` special-cased `id === 'mine'` for radius, tint and
+// boundary, so the RADAR BUOY fell to the torpedo branch: drawn at the
+// indicative ARC_R (72u) instead of its real 150u leash. And `sector()` drew a
+// SECOND wedge at HALF the radius to show reloading, which on a true-radius
+// placement wedge is a second "you can place here" boundary.
+//
+// These pin the INVARIANT rather than the pixels: both click-placed ids answer
+// the same leash, and that leash is the placement range — never the buoy's own
+// 330u radar set, which is a different circle entirely.
+describe('the click-placed pair share ONE placement leash (Eric 2026-08-20)', () => {
+  it('mine and radarBuoy report the SAME reach, and it is the placement range', () => {
+    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons([]));
+    expect(weaponRangeU(stats, 'mine')).toBe(CONFIG.mine.placeRange);
+    expect(weaponRangeU(stats, 'radarBuoy')).toBe(CONFIG.mine.placeRange);
+    expect(weaponRangeU(stats, 'radarBuoy')).toBe(weaponRangeU(stats, 'mine'));
+  });
+
+  it("the buoy's placement leash is NOT its radar set — the bug was showing a different circle", () => {
+    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons([]));
+    expect(weaponRangeU(stats, 'radarBuoy')).not.toBe(stats.radarBuoy.radarRange);
+    expect(weaponRangeU(stats, 'radarBuoy')).toBeLessThan(stats.radarBuoy.radarRange);
+  });
+
+  it('both are aim-gated SECTOR weapons sharing the rear arc — so both draw a wedge at all', () => {
+    expect(fireArcKind('mine')).toBe('sector');
+    expect(fireArcKind('radarBuoy')).toBe('sector');
+    const m = arcFor('mine');
+    const b = arcFor('radarBuoy');
+    expect(b.kind).toBe('sector');
+    if (m.kind !== 'sector' || b.kind !== 'sector') throw new Error('both must be sectors');
+    expect(b.offset).toBe(m.offset);
+    expect(b.halfArc).toBe(m.halfArc);
   });
 });

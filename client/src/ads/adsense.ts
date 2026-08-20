@@ -25,17 +25,22 @@
 // not even `adBreakDone`. That is precisely why `returnToPort` may never be
 // gated on an ad callback.
 //
-// AND IT IS WHY `ready` MEANS "THE SDK ARRIVED", NOT "A PUSH SUCCEEDED" (review
-// gate). Pushing into a plain `Array` ALWAYS succeeds, so latching on the push
-// latched `ready` true in exactly the case it exists to exclude — and
-// `adsAdapter.ts`'s "not ready ⇒ resolve now" fast path, whose whole purpose is
-// that nobody pays `portal/safeAdapter.ts`'s 35 s cap, then covered only the
-// UNCONFIGURED build and never the BLOCKED one. Arrival is now read from two
-// independent positive signals, NEITHER of which is a timer: the `onReady`
-// callback the SDK invokes when it drains our `adConfig`, and the queue no
-// longer being a plain `Array` (Google's loader replaces `window.adsbygoogle`
-// with its own command processor). `safeAdapter`'s cap stays the only timeout in
-// the whole layer.
+// AND IT IS WHY `ready` MEANS "THE BREAK API IS LIVE", NOT "A PUSH SUCCEEDED"
+// (review gate) AND NOT "SOME LOADER ARRIVED" (playtest 2026-08-20). Pushing
+// into a plain `Array` ALWAYS succeeds, so latching on the push latched `ready`
+// true in exactly the case it exists to exclude — and `adsAdapter.ts`'s "not
+// ready ⇒ resolve now" fast path, whose whole purpose is that nobody pays
+// `portal/safeAdapter.ts`'s 35 s cap, then covered only the UNCONFIGURED build
+// and never the BLOCKED one. The replacement second signal — "the queue is no
+// longer a plain `Array`" — was ALSO wrong, because ORDINARY DISPLAY ADSENSE
+// replaces it too; production ran in exactly that state and every return to
+// port hung ~37 s (measured; see `isAdsReady`). Arrival is now read from two
+// independent positive signals, NEITHER of which is a timer and BOTH specific
+// to the Ad Placement API: the `onReady` callback the SDK invokes when it drains
+// our `adConfig`, and the loader having installed its own `window.adBreak`.
+// `safeAdapter`'s cap is no longer the only timeout in the layer either —
+// `app/returnToPort.ts` now owns one, because a player asking to leave must
+// never be held by this layer at all.
 //
 // The window/global type is declared LOCALLY and cast at the touch points rather
 // than with `declare global`, exactly as `ga.ts` argues: a global augmentation
@@ -107,6 +112,9 @@ export interface AdConfigOptions {
  *  the same `push`, which is the whole point of the shim. */
 interface AdsWindow {
   adsbygoogle?: { push(cmd: unknown): unknown };
+  /** Installed by the H5 Games Ads loader ONLY — see `isAdsReady`. Never called
+   *  through this reference: every placement still goes through the queue. */
+  adBreak?: unknown;
 }
 
 /** True once `startAds()` has been attempted. Module-scoped because there is
@@ -117,7 +125,7 @@ let started = false;
 /** True once the session config was successfully handed to the queue. `started`
  *  latches on ATTEMPT, `queued` on the push having SUCCEEDED — the same
  *  deliberate split `ga.ts` carries. It says NOTHING about the remote script
- *  having arrived; see `sdkArrived` for that. */
+ *  having arrived; see `isAdsReady` for that. */
 let queued = false;
 
 /** True once the SDK invoked the `onReady` we pushed with the session config —
@@ -216,30 +224,43 @@ export function pushDisplaySlot(): void {
 }
 
 /**
- * Whether the loader ACTUALLY ARRIVED and is processing our commands.
+ * Whether THE AD PLACEMENT API is live — i.e. whether an `adBreak()` we push
+ * can ever produce an `adBreakDone`.
  *
- * Two positive signals, either of which is sufficient and neither of which is a
- * timer: the SDK called the `onReady` pushed with the session config, or it has
- * replaced `window.adsbygoogle` with its own command processor (the array-shaped
- * stub is ours; anything else is theirs). With the script blocked both stay
- * false forever, which is the whole point — `adsAdapter.ts` reads this at break
- * time and resolves AT ONCE rather than waiting on a callback that will never
- * come.
+ * READINESS IS ABOUT THE BREAK API, NOT ABOUT "A LOADER ARRIVED" (playtest
+ * 2026-08-20, measured on live production). The previous second signal was
+ * `window.adsbygoogle` no longer being the plain `Array` our shim plants — but
+ * ORDINARY ADSENSE DISPLAY replaces it too. Production loaded
+ * `adsbygoogle.js?client=ca-pub-…`, which installed the DISPLAY command
+ * processor (`{push, loaded, pageState}`) and left `window.adBreak` /
+ * `window.adConfig` UNDEFINED. So `isAdsReady()` answered true, `adsAdapter`
+ * skipped its resolve-now fast path, the placement was pushed into a processor
+ * that does not implement the Ad Placement API, and `adBreakDone` never fired —
+ * measured at 79s and counting, with no `beforeAd` and no `afterAd`. Every
+ * RETURN TO PORT and ABANDON MATCH then sat on `portal/safeAdapter.ts`'s 35s cap
+ * before reloading (measured end to end: ~37s of a dead button).
+ *
+ * Two positive signals remain, either sufficient, NEITHER a timer, and both
+ * specific to the H5 Games Ads API rather than to AdSense in general: the SDK
+ * called the `onReady` we pushed with the session config (a field only the
+ * placement API reads), or it installed its own `window.adBreak`. Blocked,
+ * unconfigured, and display-only all stay false — which is the whole point:
+ * `adsAdapter.ts` reads this at break time and resolves AT ONCE rather than
+ * waiting on a callback that will never come.
  */
 export function isAdsReady(): boolean {
   if (onReadyFired) return true;
   try {
-    return sdkArrived(globalThis as unknown as AdsWindow);
+    return placementApiInstalled(globalThis as unknown as AdsWindow);
   } catch {
     return false;
   }
 }
 
-/** Whether `window.adsbygoogle` is the SDK's command processor rather than the
- *  plain `Array` our own shim plants. */
-function sdkArrived(win: AdsWindow): boolean {
-  const q = win.adsbygoogle;
-  return q !== undefined && !Array.isArray(q);
+/** Whether the loader installed the Ad Placement API's own global. Google's H5
+ *  loader defines `adBreak`; the display-only loader does not. */
+function placementApiInstalled(win: AdsWindow): boolean {
+  return typeof win.adBreak === 'function';
 }
 
 /** The command queue, created if the loader has not already created it. Google's
@@ -317,4 +338,5 @@ export function __resetAdsForTests(): void {
   onReadyFired = false;
   const win = globalThis as unknown as AdsWindow;
   delete win.adsbygoogle;
+  delete win.adBreak; // the placement API's global — see isAdsReady
 }

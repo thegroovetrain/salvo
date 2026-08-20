@@ -196,9 +196,12 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 42→43 bump (PV 43: UPGRADE CARDS v2 wave 2 — the CANNON is replaced by the BROADSIDE BARRAGE and the DECOY BUOY by the RADAR BUOY, so the equipment ids, the catalog lines and the contact-like buoy frame channel all move; a stale bundle would fit weapons that no longer exist and read a frame channel that never arrives) is enforced at matchmake', () => {
-  it('rejects pv-42 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(43);
+describe('pv join gate — the 45→46 bump (PV 46: the INTEL RANGE line is DELETED from BOON_CATALOG — catalog content IS wire contract, so a stale client would render an offer, a copy ladder and a tooltip for a card the server can no longer resolve) is enforced at matchmake', () => {
+  it('rejects pv-45 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(46);
+    expect(protocolVersionError(45)).toMatch(/refresh/);
+    expect(protocolVersionError(44)).toMatch(/refresh/);
+    expect(protocolVersionError(43)).toMatch(/refresh/);
     expect(protocolVersionError(42)).toMatch(/refresh/);
     expect(protocolVersionError(41)).toMatch(/refresh/);
     expect(protocolVersionError(40)).toMatch(/refresh/);

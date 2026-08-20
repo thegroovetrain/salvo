@@ -177,7 +177,7 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  *
  * IT TAKES THE OBSERVER'S EFFECTIVE TRUESIGHT, not a constant, because the ramp
  * is anchored to the sight bubble and the bubble moves (a dazzle burst shrinks
- * it, an `intelRange` boon widens it). Both stops come from
+ * it; no boon widens radar range any more). Both stops come from
  * render/radarDim.ts — the same pure curve the tests pin — so the drawn ramp and
  * the stated rule cannot drift. Re-baked only when that radius actually changes,
  * exactly as the fog hole is (render/radar.ts `syncDimMask`).

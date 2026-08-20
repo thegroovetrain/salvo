@@ -43,7 +43,7 @@ import { Camera, canUserZoom, type Point } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, isDroneHull, setColorblindAssist, setHullFlashGate } from './render/ships.js';
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
 import { setAggroFlashGate } from './render/aggro.js';
-import { ownSettle } from './render/sinkSettle.js';
+import { ownSettle, spectateSettle } from './render/sinkSettle.js';
 import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
@@ -311,7 +311,7 @@ interface Game {
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */
-  spectate: { freePan: boolean; visualsSet: boolean };
+  spectate: { freePan: boolean; visualsSet: boolean; sinkSettled: boolean };
   /** A trip back to the menu is already scheduled/underway (a reload, or Story
    *  6.3's in-place teardown). Either way this session is over: it is what stops
    *  the socket close behind an exit from starting a second one. */
@@ -2528,7 +2528,7 @@ function buildGame(
     // first frame drawn at a guessed zoom would flash the wrong line weight.
     room: conn.room, mapRadius: map.radius, islands: map.islands, mapChart: buildMap(map, stage.layers, camera.zoom),
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
-    spectate: { freePan: false, visualsSet: false },
+    spectate: { freePan: false, visualsSet: false, sinkSettled: false },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     requeue: makeGameRequeue(() => gRef), disposers: [],
     shake: new ShakeDriver(),
@@ -2583,7 +2583,7 @@ function buildGame(
  * consumer — the predictor's kinematics (re-inits via forceSnap, absorbed by
  * the next reconcile; collision radius stays CLASS-based, hull size does not
  * upgrade), the own-hull visual + wake stern offset, the radar rings/sweep
- * period, the camera base zoom (radarRange upgrade = "your world grows"), and
+ * period, the camera base zoom (derived from radarRange, the one ruler), and
  * the fog sight hole (rebaked via the same path as a resize). Guessed
  * localStorage config was used until here; this is the desync firewall.
  */
@@ -3810,6 +3810,27 @@ function enterSpectateVisuals(g: Game): void {
   if (!wrecked) {
     g.ownView.gfx.visible = false;
     g.nameplates.hide(g.state.net.sessionId);
+  } else {
+    // ONE DATUM, TWO CONSUMERS (epic-7 amendment 29). The hull was left wherever
+    // PREDICTION last put it while its nameplate is placed from `ownWreckPose`
+    // (the last SERVER pose) every frame below — so plate and hull could sit a
+    // whole prediction error apart, and the reveal's pull-back makes any such
+    // gap read as a label floating off its mark. Seated ONCE at the
+    // authoritative pose: a wreck does not move, so re-placing it per frame
+    // would be pure cost on a render leg epic-7 amendment 4 already records as
+    // BREACHING (11.8 ms vs 10 ms).
+    // AND IT MUST BE MADE VISIBLE, not merely left visible (review finding).
+    // `renderOwn` is the ONLY place that sets this true, and `renderAlive`'s
+    // null-own-pose branch sets it FALSE — reachable on the very last frames
+    // before the handover (a reconnect force-snaps the predictor and drains
+    // `ownBuffer`; the `P` toggle does the same). Spectator frames carry no
+    // `you`, so the pose never returns and this one-shot never runs again:
+    // without this line the wreck is simply absent for the whole reveal while
+    // `updateOwnPlate` keeps re-showing its callsign over open water — the exact
+    // failure the seating below exists to prevent.
+    g.ownView.gfx.visible = true;
+    const pose = ownWreckPose(g);
+    if (pose) g.ownView.update(pose.x, pose.y, pose.heading);
   }
   g.firing.hide();
   g.aimPreview.hide(); // nothing is aimed from a sunk hull
@@ -3895,6 +3916,41 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
   if (pose) g.camera.update(frameDt, pose);
 }
 
+/**
+ * THE OWN WRECK FINISHES GOING DOWN (Eric ruling 2026-08-20, epic-7 amendment
+ * 29). `renderOwn` owns the only other `setSink` call in the client and it
+ * stops running at founder, so before this the sprite froze at exactly the
+ * `ownSettleMax` cap — a nearly full-hue hull parked motionless on the water
+ * for the whole spectate/results period. `render/sinkSettle.ts`'s
+ * `spectateSettle` walks it from that cap to `setSink(1)`, the one wreck look
+ * every enemy hull already gets; nothing here invents a second treatment.
+ *
+ * IT LATCHES, and the latch is a budget requirement rather than tidiness: epic-7
+ * amendment 4 records the omniscient reveal already BREACHING its render leg at
+ * 11.8 ms against 10 ms, so no unbounded per-frame work may be added to it. Once
+ * the ramp reaches 1 the sprite is at its terminal look and `setSink` is never
+ * called again.
+ *
+ * THE LATCH IS NEVER RESET, and that is stated plainly because the tidy-sounding
+ * version of this sentence would be false: `sinkSettled` is INITIALISED in the
+ * per-join `Game` literal and only ever written true, exactly like its neighbour
+ * `visualsSet`, which no code resets either. It survives a requeue because
+ * `requeue` rebuilds `Game` wholesale, and it is never wrong within one join
+ * because `state.spectating` is itself a one-way latch — there is no second life
+ * after a sinking. If `spectating` ever becomes resettable, BOTH flags go stale
+ * together and this is the comment that says so.
+ *
+ * `now` is the FRAME's timestamp, passed in rather than re-sampled: the render
+ * loop samples `g.clock.serverNow()` exactly once per frame precisely so a
+ * driver and its readers cannot straddle a clock correction.
+ */
+function driveOwnWreckSettle(g: Game, now: number): void {
+  if (g.spectate.sinkSettled) return;
+  const s = spectateSettle(g.state.net.you, now);
+  g.ownView.setSink(s);
+  if (s >= 1) g.spectate.sinkSettled = true;
+}
+
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
   // A spectator has no hull and no bubble, and the fog overlay is off entirely
@@ -3921,7 +3977,10 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // camera eases away — a callsign floating over open water. Placed AFTER the
   // camera work, exactly as renderOwn orders it, so the projection matches.
   const wreck = ownWreckPose(g);
-  if (wreck) updateOwnPlate(g, wreck);
+  if (wreck) {
+    updateOwnPlate(g, wreck);
+    driveOwnWreckSettle(g, now);
+  }
   // A spectator is never IN the storm and owns no Tier-1 channel (no hull, no
   // fire control) — the plane renders, the vignette does not.
   updateZone(g, zv, false, false, now, nowMs);
@@ -4314,7 +4373,7 @@ let gameRef: Game | null = null;
 function inLiveMatch(): boolean {
   const g = gameRef;
   if (g === null) return false;
-  return canAbandon(publicState(g).matchPhase ?? 'waiting', g.state.matchOver, g.returning);
+  return canAbandon(publicState(g).matchPhase ?? 'waiting', g.state.matchOver);
 }
 
 /**

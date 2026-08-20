@@ -112,7 +112,6 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   buoyDuration: { rarity: 'common', copies: 4 },
   buoyGun: { rarity: 'rare', copies: 1 },
   buoyJamming: { rarity: 'rare', copies: 1 },
-  intelRange: { rarity: 'common', copies: 4 },
   intelSweep: { rarity: 'common', copies: 5 },
   shipSpeed: { rarity: 'common', copies: 4 },
   shipHull: { rarity: 'common', copies: 4 },
@@ -126,26 +125,28 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
 };
 
 describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => {
-  it('ships exactly the 29 card lines of the scarcity table (the FINAL shape)', () => {
+  it('ships exactly the 28 card lines of the scarcity table', () => {
     expect(Object.keys(BOON_CATALOG).sort()).toEqual(Object.keys(SCARCITY).sort());
     // 36 -> 35 (intel merge) -> 34 (cannonBlast deleted) -> 33 (mine ring cards
     // merged) -> 28 (Story 7-5 wave 1: 7 deleted, 2 added) -> 29 (wave 2: 5
-    // deleted, 6 added) = 23 upgrade lines + 6 acquisitions.
-    expect(ALL_DEFS).toHaveLength(29);
-    expect(ALL_DEFS.filter((d) => !isAcquisitionDef(d))).toHaveLength(23);
+    // deleted, 6 added) -> 28 (RANGE I-IV deleted, Eric 2026-08-20)
+    // = 22 upgrade lines + 6 acquisitions.
+    expect(ALL_DEFS).toHaveLength(28);
+    expect(ALL_DEFS.filter((d) => !isAcquisitionDef(d))).toHaveLength(22);
   });
 
   // THE DECK ARITHMETIC, VERIFIED BY EXECUTION rather than by table (Story 7-5
   // wave 2): every EQUIPMENT subdeck is exactly 6 CARDS and every hull's deck is
-  // exactly 41. The `guns` category is UNIVERSAL rather than an equipment
-  // subdeck (it is in every deck regardless of fit) and carries 3.
-  it('every equipment subdeck totals exactly 6 cards; the universal three total 25', () => {
+  // exactly 37 (was 41 before RANGE I-IV was deleted). The `guns` category is
+  // UNIVERSAL rather than an equipment subdeck (it is in every deck regardless
+  // of fit) and carries 3.
+  it('every equipment subdeck totals exactly 6 cards; the universal three total 21', () => {
     const cardsIn = (category: string): number =>
       ALL_DEFS.filter((d) => d.category === category && !isAcquisitionDef(d)).reduce((n, d) => n + d.copies, 0);
     for (const category of ['torpedoes', 'mines', 'speedBoost', 'starShells', 'broadside', 'radarBuoy']) {
       expect(cardsIn(category), category).toBe(6);
     }
-    expect(cardsIn('intel') + cardsIn('ship') + cardsIn('guns')).toBe(25);
+    expect(cardsIn('intel') + cardsIn('ship') + cardsIn('guns')).toBe(21);
   });
 
   it('spans exactly the 9 categories', () => {
@@ -238,11 +239,12 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
   });
 
   // The established shape (the cycle-93 FRAGMENTATION CASING precedent), now
-  // load-bearing for SEVEN paths rather than the seven reloads alone: a stat
+  // load-bearing for EIGHT paths rather than the seven reloads alone: a stat
   // whose card was deleted keeps its whitelisted path so a future line can land
   // without touching the whitelist. Only a stat that became DERIVED leaves.
-  it('the deleted lines\' stat paths STAY whitelisted, unwritten (Story 7-5 wave 1)', () => {
-    const orphaned = ['gun.damage', 'torpedo.damage', 'mine.damage', 'mine.maxLive', 'starShells.litRadius', 'boost.maxAmmo', 'kinematics.reverseSpeed'];
+  // `radarRange` joined the list when RANGE I-IV was deleted (Eric 2026-08-20).
+  it('the deleted lines\' stat paths STAY whitelisted, unwritten', () => {
+    const orphaned = ['radarRange', 'gun.damage', 'torpedo.damage', 'mine.damage', 'mine.maxLive', 'starShells.litRadius', 'boost.maxAmmo', 'kinematics.reverseSpeed'];
     for (const path of orphaned) {
       expect(BOON_STAT_PATHS as readonly string[], path).toContain(path);
       const writers = ALL_DEFS.filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path === path));
@@ -263,10 +265,10 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     expect(BOON_STAT_PATHS).not.toContain('gun.rangeU');
     expect(BOON_STAT_PATHS).not.toContain('starShells.rangeU');
     // The broadside's rangeU is derived too — at the 5/8 rung rather than 8/8
-    // (Story 7-5 wave 2) — and so is its fan half-angle, which reads the
+    // (Story 7-5 wave 2) — and so is its per-turret traverse, which reads the
     // authored ladder off the stat-addressable SPREAD rung.
     expect(BOON_STAT_PATHS).not.toContain('broadside.rangeU');
-    expect(BOON_STAT_PATHS).not.toContain('broadside.fanHalfAngleRad');
+    expect(BOON_STAT_PATHS).not.toContain('broadside.traverseRad');
     expect(BOON_STAT_PATHS).toContain('broadside.spreadRung');
   });
 

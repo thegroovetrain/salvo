@@ -18,15 +18,17 @@ import {
   CONFIG,
   burstPointAlong,
   effectiveStats,
-  fanBurstPoints,
-  fanTargets,
+  turretAimPoints,
+  turretMuzzles,
   hullEnvelope,
   islandFromPolygon,
   parallelOffsets,
   resolveBoons,
   torpedoSpawn,
+  type BoonDef,
   type EffectiveStats,
   type Island,
+  type TurretAim,
 } from '@salvo/shared';
 import {
   clipAtIslands,
@@ -39,6 +41,8 @@ import {
 
 const SHIP = { x: 0, y: 0, heading: 0, cls: 'battleship' as const };
 const MAP_R = 2400;
+/** The model a preview returns when there is nothing honest to draw. */
+const EMPTY_MODEL = { lines: [], bursts: [], place: null, band: null };
 
 /** A test "rock" fixture built as a real Island polygon: an axis-aligned
  *  square of half-width `half` centered at (cx, cy). Every clipping test
@@ -57,6 +61,25 @@ function squareIsland(cx: number, cy: number, half: number): Island {
 
 function stats(...boons: string[]): EffectiveStats {
   return effectiveStats(CONFIG.shipClasses.battleship, resolveBoons(boons));
+}
+
+/** An INJECTED def that widens the owner's radar range. No shipped card writes
+ *  `radarRange` since cycle 119 deleted the INTEL RANGE line, but the path is
+ *  still whitelisted on BOON_STAT_PATHS precisely so a future card can land on
+ *  it — and the R2.7 contrast case below is only meaningful if the owner's
+ *  scope and the buoy's flat set are DIFFERENT numbers. Same shape as the
+ *  server suite's `OMNI_BOON`. */
+const WIDE_RADAR: BoonDef = {
+  id: 'testWideRadar',
+  category: 'test',
+  rarity: 'common',
+  copies: 1,
+  effects: [{ kind: 'stat', path: 'radarRange', mult: 1.25 }],
+};
+
+/** Battleship stats with the owner's radar widened by the injected def. */
+function wideRadarStats(): EffectiveStats {
+  return effectiveStats(CONFIG.shipClasses.battleship, [WIDE_RADAR]);
 }
 
 function input(over: Partial<AimPreviewInput> = {}): AimPreviewInput {
@@ -101,9 +124,11 @@ describe('radar buoy placement — the water the buoy will watch (R2.7)', () => 
     const s = stats();
     expect(buoy({ stats: s }).bursts[0].r).toBe(s.radarBuoy.radarRange);
     expect(buoy({ stats: s }).bursts[0].r).toBe(CONFIG.radarBuoy.radarRange);
-    // An intelRange stack widens the OWNER's scope and must leave the buoy's set
-    // exactly where it was (R2.7 — flat by ruling, no card writes it).
-    const wide = stats('intelRange', 'intelRange');
+    // Widening the OWNER's scope must leave the buoy's set exactly where it was
+    // (R2.7 — flat by ruling, no card writes it). Driven by an injected def
+    // rather than a catalog id: nothing shipped moves `radarRange` any more, and
+    // the pin is worthless unless the two numbers actually differ.
+    const wide = wideRadarStats();
     expect(wide.radarRange).toBeGreaterThan(s.radarRange);
     expect(buoy({ stats: wide }).bursts[0].r).toBe(s.radarBuoy.radarRange);
   });
@@ -268,88 +293,123 @@ describe('the gun reaches into its own flare — the preview agrees with the gat
   });
 });
 
-// --- THE BROADSIDE BARRAGE (Story 7-5 wave 2, R2.3) --------------------------
+// --- THE BROADSIDE BARRAGE (Eric ruling 2026-08-20 — per-turret arcs) --------
 //
 // THE LOAD-BEARING PIN OF THIS FEATURE. The project's guarantee is that the
 // previewed circle IS where the shell bursts, which holds only because BOTH
 // sides call ONE helper. These assert the preview's burst centres are EXACTLY
-// `fanTargets(...)` — so a future edit that re-derives the geometry here (a
-// hand-rolled loop over bearings, a cone that widens with range, a different
-// straddle convention) fails, even if it happens to look plausible on screen.
-describe('the broadside — the fan comes from the SHARED helper, not a re-derivation', () => {
+// `turretAimPoints(...)` — so a future edit that re-derives the geometry here
+// (a hand-rolled bearing clamp, a designed fan, a different mount pairing)
+// fails, even if it happens to look plausible on screen.
+describe('the broadside — per-turret aim comes from the SHARED helper, not a re-derivation', () => {
   const broadside = (over: Partial<AimPreviewInput> = {}): AimPreviewInput =>
     input({ id: 'broadside', aim: Math.PI / 2, aimDist: 300, ...over });
-
-  it('ODD turret count: every circle is exactly fanTargets(), one dead on the click', () => {
-    const inp = broadside();
+  /** The shared truth for a given input — the exact call broadsidePreview and
+   *  the server's broadsideAim both make. */
+  const truthFor = (inp: AimPreviewInput): TurretAim[] => {
     const b = inp.stats.broadside;
-    expect(b.turrets).toBe(3); // base fit, odd
+    const click = burstPointAlong(inp.ship, inp.aimDist, MAP_R, b.rangeU, inp.aim);
+    return turretAimPoints(inp.ship, inp.ship.cls, b.turrets, 1, click, b.traverseRad, MAP_R);
+  };
+
+  it('THE ONE-ANSWER PIN: every circle and every line IS turretAimPoints(), index for index', () => {
+    const inp = broadside();
     const m = computeAimPreview(inp);
-    const click = burstPointAlong(SHIP, 300, MAP_R, b.rangeU, Math.PI / 2);
-    const truth = fanTargets(SHIP, click, b.turrets, b.fanHalfAngleRad);
+    const truth = truthFor(inp);
     expect(m.bursts).toHaveLength(truth.length);
     truth.forEach((t, i) => {
-      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.x, 9);
-      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.y, 9);
+      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.target.x, 9);
+      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.target.y, 9);
+      expect(m.lines[i].x1, `muzzle ${i} x`).toBeCloseTo(t.muzzle.x, 9);
+      expect(m.lines[i].y1, `muzzle ${i} y`).toBeCloseTo(t.muzzle.y, 9);
     });
-    // Eric: "One shell will *absolutely* hit at the target point."
-    expect(m.bursts[1].x).toBeCloseTo(click.x, 9);
-    expect(m.bursts[1].y).toBeCloseTo(click.y, 9);
   });
 
-  it('EVEN turret count: still exactly fanTargets(), and NO shell on the click', () => {
-    const inp = broadside({ stats: stats('broadsideTurrets') });
+  it('every turret that BEARS previews a circle EXACTLY on the crosshair', () => {
+    // Near max reach, dead abeam: all three arcs contain the click. 410u rather
+    // than 400u since Eric's 2026-08-20 retune pushed the base convergence
+    // threshold ~303u → ~386u; making this shot rarer was the point of the
+    // ruling, so the preview test stands further out to find it — the same move
+    // its server twin made, and they must agree.
+    const inp = broadside({ aimDist: 410 });
     const b = inp.stats.broadside;
-    expect(b.turrets).toBe(4); // even
+    const click = burstPointAlong(SHIP, 410, MAP_R, b.rangeU, Math.PI / 2);
     const m = computeAimPreview(inp);
-    const click = burstPointAlong(SHIP, 300, MAP_R, b.rangeU, Math.PI / 2);
-    const truth = fanTargets(SHIP, click, b.turrets, b.fanHalfAngleRad);
-    expect(m.bursts).toHaveLength(4);
-    truth.forEach((t, i) => {
-      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.x, 9);
-      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.y, 9);
-    });
-    // Eric: "there is no middle turret that will absolutely hit the target
-    // location" — the two centre shells straddle it.
+    expect(m.bursts).toHaveLength(3);
     for (const burst of m.bursts) {
-      expect(Math.hypot(burst.x - click.x, burst.y - click.y)).toBeGreaterThan(1);
+      expect(burst.x).toBeCloseTo(click.x, 9);
+      expect(burst.y).toBeCloseTo(click.y, 9);
     }
   });
 
-  it('near the rim it is fanBurstPoints — the CLAMPED fan the server fires (one answer)', () => {
-    // 0.9R out along +x with the port beam bearing 60° off it: the click clamps
-    // to the rim and the fan's near extreme swings past it. The server's
-    // broadsideTargets makes exactly this call, so a preview built on the raw
-    // fanTargets would draw circles no shell can burst in (an off-disk target
-    // expires: splash, no burst, no damage).
-    const ship = { ...SHIP, x: MAP_R * 0.9, y: 0, heading: -Math.PI / 6 };
-    const inp = broadside({ ship, aim: Math.PI / 3, aimDist: 4000 });
+  it('a turret that CANNOT bear previews its arc-limit shot, at the click\'s range from its own gun', () => {
+    // Close abeam: parallax leaves only the midship gun on the click. Eric:
+    // "One shell will *absolutely* hit at the target point" — and it does.
+    const inp = broadside({ aimDist: 150 });
     const b = inp.stats.broadside;
-    const click = burstPointAlong(ship, 4000, MAP_R, b.rangeU, Math.PI / 3);
-    const truth = fanBurstPoints(ship, click, b.turrets, b.fanHalfAngleRad, MAP_R);
-    expect(truth).not.toEqual(fanTargets(ship, click, b.turrets, b.fanHalfAngleRad)); // the clamp bites
+    const click = burstPointAlong(SHIP, 150, MAP_R, b.rangeU, Math.PI / 2);
     const m = computeAimPreview(inp);
-    expect(m.bursts).toHaveLength(truth.length);
+    expect(m.bursts[1].x).toBeCloseTo(click.x, 9);
+    expect(m.bursts[1].y).toBeCloseTo(click.y, 9);
+    for (const i of [0, 2]) {
+      // Off the click — the emergent spread the player is being shown…
+      expect(Math.hypot(m.bursts[i].x - click.x, m.bursts[i].y - click.y)).toBeGreaterThan(1);
+      // …but still at the click's range from that turret's own muzzle.
+      const dist = Math.hypot(m.bursts[i].x - m.lines[i].x1, m.bursts[i].y - m.lines[i].y1);
+      expect(dist).toBeCloseTo(Math.hypot(click.x - m.lines[i].x1, click.y - m.lines[i].y1), 6);
+    }
+  });
+
+  it('4 turrets: every gun that bears STACKS exactly on the click — the designed straddle is gone', () => {
+    const inp = broadside({ stats: stats('broadsideTurrets') });
+    expect(inp.stats.broadside.turrets).toBe(4);
+    const click = burstPointAlong(SHIP, 300, MAP_R, inp.stats.broadside.rangeU, Math.PI / 2);
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(4);
+    const onClick = m.bursts.filter((p) => Math.hypot(p.x - click.x, p.y - click.y) < 1e-9);
+    // The two inner mounts bear at this range and both land ON the click; the
+    // outer pair clamp. (The old designed fan guaranteed an even count NEVER
+    // put a shell on the click — that rule died with the fan.)
+    expect(onClick).toHaveLength(2);
+  });
+
+  it('a SPREAD stack WIDENS each turret\'s arc: the same click gains guns, not a tighter fan', () => {
+    const base = computeAimPreview(broadside({ aimDist: 150 }));
+    const maxed = computeAimPreview(
+      broadside({ aimDist: 150, stats: stats('broadsideSpread', 'broadsideSpread', 'broadsideSpread', 'broadsideSpread') }),
+    );
+    const click = burstPointAlong(SHIP, 150, MAP_R, stats().broadside.rangeU, Math.PI / 2);
+    const onClick = (m: ReturnType<typeof computeAimPreview>): number =>
+      m.bursts.filter((p) => Math.hypot(p.x - click.x, p.y - click.y) < 1e-9).length;
+    expect(onClick(base)).toBe(1);
+    expect(onClick(maxed)).toBe(3); // every widened arc now bears
+  });
+
+  it('near the rim the limit shots are CLAMPED to the water — the same answer the server fires', () => {
+    // Pressed against the rim clicking dead abeam at the boundary: the click
+    // pins to the rim and the bow gun's raw limit point would land OUTSIDE the
+    // disk (an off-disk target expires: splash, no burst, no damage).
+    const ship = { ...SHIP, x: MAP_R * 0.98, y: 0, heading: -Math.PI / 6 };
+    const inp = broadside({ ship, aim: Math.PI / 3, aimDist: MAP_R });
+    const m = computeAimPreview(inp);
+    const truth = truthFor(inp);
+    expect(truth.some((t) => !t.onClick)).toBe(true); // limit shots exist here
+    expect(truth.some((t) => t.onClick)).toBe(true); // and one gun is still ON the click
     truth.forEach((t, i) => {
-      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.x, 9);
-      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.y, 9);
-      expect(Math.hypot(t.x, t.y)).toBeLessThanOrEqual(MAP_R);
+      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.target.x, 9);
+      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.target.y, 9);
+      expect(Math.hypot(t.target.x, t.target.y)).toBeLessThanOrEqual(MAP_R);
     });
   });
 
-  it('is an ARC AT CONSTANT RADIUS, never a cone that widens with range', () => {
-    const inp = broadside();
+  it('is an ARC AT CONSTANT RADIUS about each gun, never a cone that widens with range', () => {
+    const inp = broadside({ aimDist: 150 });
     const m = computeAimPreview(inp);
-    const r = Math.hypot(m.bursts[1].x, m.bursts[1].y);
-    for (const burst of m.bursts) expect(Math.hypot(burst.x, burst.y)).toBeCloseTo(r, 6);
-  });
-
-  it('a SPREAD stack tightens the fan (the same helper, a narrower half-angle)', () => {
-    const wide = computeAimPreview(broadside());
-    const tight = computeAimPreview(broadside({ stats: stats('broadsideSpread', 'broadsideSpread') }));
-    const spanOf = (m: ReturnType<typeof computeAimPreview>): number =>
-      Math.hypot(m.bursts[0].x - m.bursts[2].x, m.bursts[0].y - m.bursts[2].y);
-    expect(spanOf(tight)).toBeLessThan(spanOf(wide));
+    const click = burstPointAlong(SHIP, 150, MAP_R, inp.stats.broadside.rangeU, Math.PI / 2);
+    m.bursts.forEach((burst, i) => {
+      const fromGun = Math.hypot(burst.x - m.lines[i].x1, burst.y - m.lines[i].y1);
+      expect(fromGun).toBeCloseTo(Math.hypot(click.x - m.lines[i].x1, click.y - m.lines[i].y1), 6);
+    });
   });
 
   it('clamps to the 5/8 RUNG, not the radar horizon (R2.4)', () => {
@@ -359,15 +419,13 @@ describe('the broadside — the fan comes from the SHARED helper, not a re-deriv
     expect(inp.stats.broadside.rangeU).toBeLessThan(inp.stats.gun.rangeU);
   });
 
-  it('every shell bursts at the EFFECTIVE broadside radius and clips on its own', () => {
-    // A small rock on the CENTRE shell's bearing only: at 300u the ±12° outer
-    // shells are ~62u off-axis, so they clear a 40u-wide rock the middle one
-    // runs straight into.
-    const inp = broadside({ islands: [squareIsland(0, 280, 20)] });
+  it('every shell clips on islands on its OWN line (per-shell independence survives)', () => {
+    // A narrow rock on the CENTRE shell's line only: at 150u the limit shells
+    // land ~20u off-axis and their lines from the outer turrets never cross it.
+    const inp = broadside({ aimDist: 150, islands: [squareIsland(0, 130, 10)] });
     const m = computeAimPreview(inp);
     expect(m.bursts[1].r).toBe(inp.stats.broadside.burstRadius);
-    // The middle shell runs straight into the rock; the outer two pass it.
-    expect(m.bursts[1].blocked).toBe(true);
+    expect(m.bursts[1].blocked).toBe(true); // the midship gun fires straight into it
     expect(m.bursts[0].blocked).toBe(false);
     expect(m.bursts[2].blocked).toBe(false);
   });
@@ -596,10 +654,24 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
   });
 
   it('...and the same for the broadside, while an in-bounds muzzle stays confident', () => {
-    const off = computeAimPreview(input({ id: 'broadside', ship: rimShip, aim: Math.PI / 2 }));
+    // Far enough out that EVERY turret of the battery is past the rim: since
+    // Eric's 2026-08-19 correction the guns are separate points spread along
+    // the hull, so a ship merely STRADDLING the rim honestly has some muzzles
+    // on the water and some off it (asserted in its own case below).
+    const off = computeAimPreview(
+      input({ id: 'broadside', ship: { ...SHIP, x: MAP_R + 120, y: 0 }, aim: Math.PI / 2 }),
+    );
     expect(off.bursts.every((b) => b.blocked)).toBe(true);
     const on = computeAimPreview(input({ id: 'broadside', aim: Math.PI / 2 }));
     expect(on.bursts.every((b) => b.blocked)).toBe(false);
+  });
+
+  it('a battery STRADDLING the rim is honest per TURRET, not per ship', () => {
+    // The one-muzzle geometry could only answer "all blocked" or "none
+    // blocked" here; separate guns give the per-turret truth.
+    const m = computeAimPreview(input({ id: 'broadside', ship: rimShip, aim: Math.PI / 2 }));
+    expect(m.bursts.some((b) => b.blocked)).toBe(true);
+    expect(m.bursts.some((b) => !b.blocked)).toBe(true);
   });
 });
 
@@ -629,5 +701,76 @@ describe('previewTint', () => {
   it('keeps the torpedo on its own identity and everything else on aim amber', () => {
     expect(previewTint('torpedo')).not.toBe(previewTint('gun'));
     expect(previewTint('mine')).toBe(previewTint('gun'));
+  });
+});
+
+// --- THE BATTERY'S MUZZLES ARE PREVIEWED WHERE THE SHELLS ACTUALLY LEAVE ------
+//
+// The companion to the fan pin above. The fan says WHERE the shells land; this
+// says WHERE THEY START. Eric's 2026-08-19 correction made that a real place
+// on the hull (one point per turret), and the same shared function answers it
+// for the server's fire path and for these lines, so the previewed muzzle IS
+// the muzzle that flashes.
+describe('the broadside - one line per TURRET, from the shared muzzle helper', () => {
+  const broadside = (over: Partial<AimPreviewInput> = {}): AimPreviewInput =>
+    input({ id: 'broadside', aim: Math.PI / 2, aimDist: 300, ...over });
+
+  it('every travel line starts at its OWN turret, exactly turretMuzzles()', () => {
+    const inp = broadside({ ship: { ...SHIP, x: 60, y: -30, heading: 1.1 }, aim: 1.1 + Math.PI / 2 });
+    const m = computeAimPreview(inp);
+    const truth = turretMuzzles(inp.ship, inp.ship.cls, inp.stats.broadside.turrets, 1);
+    expect(m.lines).toHaveLength(truth.length);
+    truth.forEach((t, i) => {
+      expect(m.lines[i].x1, `turret ${i} x`).toBeCloseTo(t.x, 9);
+      expect(m.lines[i].y1, `turret ${i} y`).toBeCloseTo(t.y, 9);
+    });
+  });
+
+  it('N turrets are N DISTINCT origins - never N lines from one point', () => {
+    const m = computeAimPreview(broadside());
+    const keys = new Set(m.lines.map((l) => `${l.x1.toFixed(6)},${l.y1.toFixed(6)}`));
+    expect(keys.size).toBe(3);
+  });
+
+  it('BROADSIDE TURRETS re-spaces the SAME hull section: 3 -> 4 -> 5, tighter', () => {
+    const originsOf = (...boons: string[]): number[] =>
+      computeAimPreview(broadside({ stats: stats(...boons) }))
+        .lines.map((l) => l.x1)
+        .sort((a, b) => a - b);
+    const three = originsOf();
+    const four = originsOf('broadsideTurrets');
+    const five = originsOf('broadsideTurrets', 'broadsideTurrets');
+    expect([three.length, four.length, five.length]).toEqual([3, 4, 5]);
+    const span = (xs: number[]): number => xs[xs.length - 1] - xs[0];
+    expect(span(four)).toBeCloseTo(span(three), 9);
+    expect(span(five)).toBeCloseTo(span(three), 9);
+    expect(four[1] - four[0]).toBeLessThan(three[1] - three[0]);
+    expect(five[1] - five[0]).toBeLessThan(four[1] - four[0]);
+  });
+
+  it('the muzzles sit on the ENGAGED beam: clicking to starboard mirrors them', () => {
+    const port = computeAimPreview(broadside()).lines;
+    const stbd = computeAimPreview(broadside({ aim: -Math.PI / 2 })).lines;
+    const beam = CONFIG.shipClasses.battleship.hull.beam / 2;
+    for (const l of port) expect(l.y1).toBeCloseTo(beam, 9);
+    for (const l of stbd) expect(l.y1).toBeCloseTo(-beam, 9);
+  });
+
+  it('the ODD centre shot still runs to the click, now from the middle turret', () => {
+    const inp = broadside();
+    const m = computeAimPreview(inp);
+    const b = inp.stats.broadside;
+    const click = burstPointAlong(SHIP, 300, MAP_R, b.rangeU, Math.PI / 2);
+    expect(m.bursts[1].x).toBeCloseTo(click.x, 9);
+    expect(m.bursts[1].y).toBeCloseTo(click.y, 9);
+    expect(m.lines[1].x1).toBeCloseTo(SHIP.x, 9); // amidships, heading 0
+    expect(m.lines[1].y1).toBeCloseTo(CONFIG.shipClasses.battleship.hull.beam / 2, 9);
+    expect(m.lines[1].x2).toBeCloseTo(click.x, 9);
+    expect(m.lines[1].y2).toBeCloseTo(click.y, 9);
+  });
+
+  it('a DEAD-ZONE aim previews nothing - no beam contains it, so no turret fires', () => {
+    expect(computeAimPreview(broadside({ aim: 0 }))).toEqual(EMPTY_MODEL);
+    expect(computeAimPreview(broadside({ aim: Math.PI }))).toEqual(EMPTY_MODEL);
   });
 });

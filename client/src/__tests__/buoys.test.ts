@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, effectiveStats, resolveBoons, type BuoyView } from '@salvo/shared';
+import { CONFIG, effectiveStats, resolveBoons, type BoonDef, type BuoyView } from '@salvo/shared';
 import {
   BUOY_MARKER,
   Buoys,
@@ -24,7 +24,7 @@ import {
 } from '../render/buoys.js';
 import { Mines } from '../render/mines.js';
 
-const buoy = (id: string, own = false, until = 5000, by = 'p1'): BuoyView => ({ id, x: 0, y: 0, until, own, by });
+const buoy = (id: string, own = false, until = 5000, by = 'p1'): BuoyView => ({ id, x: 0, y: 0, until, own, by, sweep: 0 });
 
 /** Stub owner-hue resolver for the render harness (Story 1.12). */
 const HUE = (): number => 0x123456;
@@ -34,6 +34,30 @@ const HUE = (): number => 0x123456;
 function ownState(boons: readonly string[] = [], now = 0): OwnBuoyState {
   const s = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons([...boons])).radarBuoy;
   return { radarRange: s.radarRange, gun: s.gun, jamming: s.jamming, durationMs: s.durationMs, now };
+}
+
+/** An INJECTED def that widens the OWNER's radar range. No shipped card writes
+ *  `radarRange` since cycle 119 deleted the INTEL RANGE line, but the path is
+ *  still whitelisted on BOON_STAT_PATHS for exactly this reason — and R2.7's
+ *  contrast case is only meaningful while the owner's scope and the buoy's flat
+ *  set are DIFFERENT numbers. Same shape as the server suite's `OMNI_BOON`. */
+const WIDE_RADAR: BoonDef = {
+  id: 'testWideRadar',
+  category: 'test',
+  rarity: 'common',
+  copies: 1,
+  effects: [{ kind: 'stat', path: 'radarRange', mult: 1.25 }],
+};
+
+/** The owner readout built on a WIDENED owner radar, alongside the folded owner
+ *  radar range itself so the contrast can be asserted rather than assumed. */
+function wideOwnState(): { own: OwnBuoyState; ownRadarRange: number } {
+  const full = effectiveStats(CONFIG.shipClasses.mineLayer, [WIDE_RADAR]);
+  const s = full.radarBuoy;
+  return {
+    own: { radarRange: s.radarRange, gun: s.gun, jamming: s.jamming, durationMs: s.durationMs, now: 0 },
+    ownRadarRange: full.radarRange,
+  };
 }
 
 describe('reconcileBuoys — buoy list → sprite lifecycle diff', () => {
@@ -254,9 +278,13 @@ describe('ownBuoyRing — the owner-only coverage ring and its doctrine channels
   it('reads the BUOY’s own flat radar reach, not the owner’s radar range', () => {
     const ring = ownBuoyRing(ownState());
     expect(ring.r).toBe(CONFIG.radarBuoy.radarRange);
-    // The buoy's set is flat by ruling (R2.7): an intelRange stack widens the
-    // OWNER's scope and must not touch the buoy's circle.
-    expect(ownBuoyRing(ownState(['intelRange', 'intelRange'])).r).toBe(ring.r);
+    // The buoy's set is flat by ruling (R2.7): widening the OWNER's scope must
+    // not touch the buoy's circle. Driven by an injected def, and the widening
+    // is asserted first — otherwise the pin degenerates into comparing a number
+    // with itself.
+    const wide = wideOwnState();
+    expect(wide.ownRadarRange).toBeGreaterThan(effectiveStats(CONFIG.shipClasses.mineLayer).radarRange);
+    expect(ownBuoyRing(wide.own).r).toBe(ring.r);
   });
 
   it('draws DASHED with no fill on a plain buoy (a sensor circle, nothing more)', () => {

@@ -174,7 +174,7 @@ export {
   type BuoyState,
   type JamFake,
 } from './radarBuoy.js';
-export { broadsideEquipment, broadsideTargets } from './broadside.js';
+export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
 export { torpedoEquipment, fireTorpedo } from './torpedoes.js';

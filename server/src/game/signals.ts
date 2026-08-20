@@ -107,8 +107,9 @@ interface SignalContextBase {
    *  source (ownZoneCovers) and the litzone row's scan subjects. */
   litZones: ReadonlyMap<string, LitZone>;
   /** All LIVE radar buoys (Story 7-5 wave 2) — the `buoy` frame channel's
-   *  scan subjects, the blip row's RELAY sources (R2.8 — an OWN buoy is a
-   *  second radar observer), and the buoy self-paint + jamming-fake sources
+   *  scan subjects, the OWN-SCOPE sources (the fix cycle's replacement for
+   *  the R2.8 relay: an own buoy is a second radar observer whose returns
+   *  arrive tagged), and the buoy self-paint + jamming-fake sources
    *  (R2.9/R2.11, buoyRadarBlips). Rides the context like litZones does. */
   buoys: ReadonlyMap<string, BuoyState>;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
@@ -258,9 +259,11 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], now: 
  * spawns — stays on truesight, byte-identical (SHELLS DO NOT MOVE: a shell is
  * in the air; a torpedo is a wake just under the surface and a mine sits in
  * the water). Observer-scaled exactly as sight is (amendment 121): a
- * star-shell dazzle halves it, an intelRange boon widens it, and island
- * LOS applies unchanged — sensor upgrades buy REACH here like everywhere
- * else optical.
+ * star-shell dazzle halves it and island LOS applies unchanged. The rung is
+ * resolved through `sightOf`, never a literal, so it keeps ONE derivation
+ * path: no card writes `stats.radarRange` today (the INTEL RANGE line was
+ * deleted 2026-08-20), so every observer resolves the same 247.5u — but a
+ * future radar card would move this rung for free.
  */
 function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[], now: number): boolean {
   const dx = p.x - me.state.x;
@@ -275,7 +278,11 @@ function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[], now:
  * resolver — both the `mz` and `sm` rows call it, because a second hand-rolled
  * copy of a sight tier is exactly the desync class this file exists to prevent.
  *
- * Anchored on `me.stats.radarRange`, NEVER on `sightOf`. That is what keeps the
+ * Anchored on `me.stats.radarRange`, NEVER on `sightOf`. No card writes that
+ * field today — the INTEL RANGE line was deleted 2026-08-20, so the rung
+ * resolves to the same 412.5u for every observer — but the anchor STAYS,
+ * because it keeps ONE derivation path and a future radar card would scale
+ * the rung with no change here. That is also what keeps the
  * ratified reading — *a flash is a light source, not an illuminated object, so
  * dazzle does not change how far it carries* — true BY CONSTRUCTION: `sightOf`
  * is the sole dazzle entry point in perception, so a radar-anchored rung cannot
@@ -408,22 +415,10 @@ function buoyGate(buoy: BuoyState, p: Vec2, raster: HeightRaster): boolean {
   return sweptThisTick(buoy, bearing(buoy, p)) && visibilityTo(raster, buoy.x, buoy.y, p.x, p.y) > 0;
 }
 
-/**
- * THE RELAY (R2.8): does a live buoy OWNED BY THIS OBSERVER return point `p`
- * this tick? RADAR RETURNS ONLY, never vision: what a relayed pass buys the
- * owner is one more anonymous blip in the same subsequence — never a contact,
- * never truesight, never LOS. Deliberately NO annulus term against the
- * OWNER's ranges: a hull inside the owner's sight radius but island-blocked
- * is exactly the target a buoy is placed to watch (the contact row already
- * won for anything the owner can genuinely see — the scan's contact-first
- * ordering — so the relay can never double a contact).
- */
-function relayedByOwnBuoy(ctx: FoggedSignalContext, p: Vec2): boolean {
-  for (const buoy of ctx.buoys.values()) {
-    if (buoy.ownerId === ctx.me.id && buoyGate(buoy, p, ctx.heightRaster)) return true;
-  }
-  return false;
-}
+// THE RELAY PREDICATE `relayedByOwnBuoy` IS DELETED (Story 7-5 fix cycle): the
+// R2.8 relay merged a buoy's returns into the observer's own blip row, which
+// left the client no way to price them from the buoy. The buoy's returns are
+// now emitted as its OWN scope — see ownBuoyScopeBlips below.
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
  *  indistinguishability by construction). KEY ORDER IS LOAD-BEARING: the wire
@@ -640,8 +635,11 @@ const buoySignal: SignalSpec<BuoyState, BuoyView> = {
     );
   },
   materialize(ctx, buoy) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until,own,by — the shared
-    // BuoyView declaration order, the mine row's discipline.
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until,own,by,sweep — the
+    // shared BuoyView declaration order, the mine row's discipline. `sweep`
+    // (PV 44) is the buoy's live antenna angle, for the owner's wedge render;
+    // it rides every view (a sighted buoy's rotation is physically observable)
+    // and carries no owner identity, no doctrine, no return data.
     return {
       id: buoy.id,
       x: buoy.x,
@@ -649,6 +647,7 @@ const buoySignal: SignalSpec<BuoyState, BuoyView> = {
       until: buoy.until,
       own: buoy.ownerId === ctx.observerId,
       by: buoy.ownerId,
+      sweep: buoy.sweepAngle,
     };
   },
 };
@@ -690,13 +689,15 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     // payload carries pose only, so nothing discloses the window here either.
     if ((!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) || target.id === me.id) return false;
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
-    // The observer's own radar, OR a relay from a buoy the observer OWNS
-    // (Story 7-5 wave 2, R2.8): the buoy is a SECOND OBSERVER for this one
-    // gate and nothing else. Either way the wire shape below is identical —
-    // one anonymous coverage footprint; the scan's contact-first ordering
-    // caps a ship at one paint per observer per tick regardless of how many
-    // sensors returned it.
-    return blipGate(me, target.state, ctx.heightRaster, ctx.now) || relayedByOwnBuoy(ctx, target.state);
+    // The observer's OWN radar, and nothing else. THE RELAY OR THAT LIVED HERE
+    // IS GONE (Story 7-5 fix cycle): merging a buoy's returns into this row
+    // made them wire-indistinguishable from the observer's own — so the client
+    // priced them from the OWNER's position, shadowed them by the OWNER's
+    // terrain, and the feature rendered at speck intensity exactly where it
+    // existed to work. Eric: "It gets its own returns. I just get to see them
+    // as the owner." A buoy's returns now ride ownBuoyScopeBlips (below),
+    // tagged with the buoy's id, priced by the client from the BUOY.
+    return blipGate(me, target.state, ctx.heightRaster, ctx.now);
   },
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
@@ -794,17 +795,79 @@ function jamFakeBlips(ctx: FoggedSignalContext, buoy: BuoyState, out: BlipEvent[
 }
 
 /**
+ * THE BUOY'S OWN SCOPE (Story 7-5 fix cycle, supersedes R2.8's relay — Eric:
+ * *"It gets its own returns. I just get to see them as the owner."*): every
+ * return one OWN buoy's antenna makes this tick, each tagged `src: buoy.id` so
+ * the client prices it from the BUOY — its range falloff, its terrain shadow,
+ * its wedge — instead of the owner's.
+ *
+ * THE SCOPE IS A PURE FUNCTION OF (BUOY, WORLD): no clause reads the OWNER's
+ * sight, annulus, zones or beam. It is a separate instrument, and what your
+ * other senses know does not change what its antenna returns — so a hull you
+ * can plainly SEE still paints on the buoy scope when its beam crosses it, and
+ * the owner's OWN hull paints too (drop a buoy and watch its first revolution
+ * find you: the immediate proof the sensor works). Three subject kinds, all
+ * through the ONE buoyGate and the ONE shared shaper:
+ *
+ *   • SHIPS — every afloat/sinking hull, owner included (radar returns only,
+ *     never vision/truesight: the gate is range ∧ beam ∧ shadow march, R2.8's
+ *     surviving clause);
+ *   • OTHER BUOYS — a buoy is a physical radar subject (R2.9) to any antenna,
+ *     this one included (never ITSELF: an antenna does not paint its own mast);
+ *   • ENEMY JAM FAKES — an enemy jamming buoy's fabricated returns fool a
+ *     REAL RADAR exactly as they fool yours, so they pass through the buoy's
+ *     gate and arrive wearing the same `src` tag a real hull earns. THIS
+ *     CLAUSE IS THE INDISTINGUISHABILITY PROOF: the tag says which of your
+ *     sensors returned it, never whether it is real — if the buoy scope
+ *     excluded fakes, a tagged return would CERTIFY its subject real and a
+ *     buoy dropped near a jam circle would disambiguate the whole doctrine.
+ *     (Fakes of a buoy the observer OWNS never appear — the owner exemption
+ *     covers every one of the owner's sensors: the owner sees the truth.)
+ */
+function ownBuoyScopeBlips(ctx: FoggedSignalContext, buoy: BuoyState, out: BlipEvent[]): void {
+  for (const ship of ctx.ships.values()) {
+    if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) continue;
+    if (!buoyGate(buoy, ship.state, ctx.heightRaster)) continue;
+    out.push({ ...blipShape(ctx, ship.state, ship.hullId, ship.state.heading), src: buoy.id });
+  }
+  for (const other of ctx.buoys.values()) {
+    if (other.id === buoy.id || !buoyGate(buoy, other, ctx.heightRaster)) continue;
+    out.push({ ...buoyPaintBlip(ctx, other), src: buoy.id });
+  }
+  buoyScopeFakeBlips(ctx, buoy, out);
+}
+
+/** The jam-fake clause of ownBuoyScopeBlips (split for the complexity gate):
+ *  every FOREIGN jamming buoy's fakes through THIS buoy's gate, tagged with
+ *  THIS buoy's id — the indistinguishability clause documented above. */
+function buoyScopeFakeBlips(ctx: FoggedSignalContext, buoy: BuoyState, out: BlipEvent[]): void {
+  for (const jammer of ctx.buoys.values()) {
+    if (jammer.ownerId === ctx.me.id || !buoyJams(ctx, jammer)) continue;
+    for (const fake of jammer.jamFakes) {
+      if (!buoyGate(buoy, fake, ctx.heightRaster)) continue;
+      out.push({ ...blipShape(ctx, fake, fake.cls, fake.heading), src: buoy.id });
+    }
+  }
+}
+
+/**
  * All buoy-sourced additions to one observer's blip subsequence this tick
  * (perception's buoyRadarScan body — exported so the rules stay in this
- * file): the buoy's own anonymous paint through the observer's OWN blipGate
- * (an enemy's radar returns the buoy like anything else afloat — R2.9), plus
- * the jamming fakes above. The OWNER gets NEITHER: it always holds its own
- * buoy's truth (the `buoy` frame channel) and is exempt from its fakes.
+ * file). For a buoy the observer does NOT own: the buoy's own anonymous paint
+ * through the observer's OWN blipGate (an enemy's radar returns the buoy like
+ * anything else afloat — R2.9), plus the jamming fakes above — both UNTAGGED,
+ * exactly as before. For a buoy the observer OWNS: its whole scope, tagged
+ * (ownBuoyScopeBlips — the Story 7-5 fix cycle's replacement for the relay).
+ * The owner is still exempt from its own buoy's fakes and still holds the
+ * `buoy` frame channel's truth about the buoy itself.
  */
 export function buoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
   const out: BlipEvent[] = [];
   for (const buoy of ctx.buoys.values()) {
-    if (buoy.ownerId === ctx.me.id) continue; // owner: truth channel only, fakes never
+    if (buoy.ownerId === ctx.me.id) {
+      ownBuoyScopeBlips(ctx, buoy, out);
+      continue;
+    }
     if (!ownZoneCovers(ctx, buoy) && blipGate(ctx.me, buoy, ctx.heightRaster, ctx.now)) {
       out.push(buoyPaintBlip(ctx, buoy));
     }
@@ -1017,9 +1080,10 @@ function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
  * 3/8 rung, pointDetected), so its water must disclose down to THAT radius —
  * with the ship bound, the (detect, sight] band was a dead band with no
  * entity, no disclosed wake, and no synthesized wake, killing amendment 196's
- * tell exactly in the terminal approach. Dazzle-scaled and boon-widened
- * exactly as the tier each bound mirrors (sightOf / pointDetected's own
- * derivation).
+ * tell exactly in the terminal approach. Dazzle-scaled exactly as the tier
+ * each bound mirrors (sightOf / pointDetected's own derivation), and it rides
+ * `stats.radarRange` through them, so a future intel card moves both bounds
+ * with no work here.
  */
 function wakeInnerBound(me: ShipRecord, torp: boolean, now: number): number {
   const sight = sightOf(me, now);
@@ -1719,8 +1783,8 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * 4.9, amendment 122 — supersedes amendment 53's three tiers) — THE one band
  * resolver: visible() and materialize() both call this, so the gate and the
  * wire can never drift. The band is which EIGHTH of the LISTENER'S own INTEL
- * RANGE (`stats.radarRange` — boon-widened, NEVER dazzle-scaled) the honker
- * sits in: `band = ceil(8 × d / intelRange)`, d == 0 resolving to band 1,
+ * RANGE (`stats.radarRange` — the one ruler, NEVER dazzle-scaled) the honker
+ * sits in: `band = ceil(8 × d / intel range)`, d == 0 resolving to band 1,
  * boundaries inclusive (at base stats band 4 ends exactly at truesight 330u —
  * full volume — and band 8 at the 660u radar edge, 50%; gain is a CLIENT-side
  * lookup, never on the wire). Beyond band 8: inaudible, no event at all.
@@ -1742,8 +1806,9 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * chevron weight is the identical {22, 3, 0.95} for all four (…chevron.bands).
  * Sending WHICH of bands 1-4 a honker sits in would hand a MODIFIED client two
  * extra bits of range resolution — an 82.5u annulus rather than the 330u
- * plateau, and worst for a DAZZLED or intelRange-boosted listener who can
- * receive a low band for a hull they cannot see — with NO honest consumer at
+ * plateau, and worst for a DAZZLED listener (or any listener whose intel
+ * range a future card widens) who can receive a low band for a hull they
+ * cannot see — with NO honest consumer at
  * all. That is precisely the disclosure amendment 51 bounds (BEARING AND VOLUME
  * TIER ONLY, no position, no correlation handle). So the wire carries the band
  * floor-clamped to the COARSEST value that reproduces the ratified gain curve

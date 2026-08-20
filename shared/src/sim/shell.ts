@@ -82,6 +82,17 @@ export interface ShellState {
    * (BallisticEvent), and the perception shape guards pin that.
    */
   lit?: { radius: number; durationMs: number };
+  /**
+   * SERVER-INTERNAL no-aggro tag (Story 7-5 fix cycle, R2.21a): a hit by this
+   * shell must aggro NOBODY at its owner — the GUN BUOY's shells carry it,
+   * because "the layer may be dead or across the map, so there is nothing to
+   * chase" (the mine exception's own rationale, which the buoy turret adopted
+   * when Eric ruled it autonomous). The World's hitShip call sites read it as
+   * the `fromMine` argument; stepShell never reads it, and it is NEVER on the
+   * wire (the ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit` tag's
+   * exact posture).
+   */
+  noAggro?: true;
   // PLUNGING FIRE (`arcing`) and ARMOR-PIERCING (`pierce`) are DELETED with the
   // cannon (Story 7-5 wave 2, R2.6): they were the cannon's two doctrine cards
   // and nothing else ever set either field. The BROADSIDE BARRAGE that replaces

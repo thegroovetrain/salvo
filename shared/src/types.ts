@@ -572,6 +572,24 @@ export interface ReturnBlipEvent {
   w: number; // rect width in cells
   h: number; // rect height in cells
   bits: number[]; // packed row-major coverage mask (32 bits/word, LSB-first, signed int32 words)
+  /**
+   * THE SENSOR ATTRIBUTION (PV 44 — the buoy's-own-scope fix; Eric: *"It gets
+   * its own returns. I just get to see them as the owner."*): the id of the
+   * RECEIVING OBSERVER'S OWN radar buoy whose antenna made this return. Absent
+   * on every return the observer's own set made (the overwhelmingly common
+   * case), and NEVER present in any frame whose observer does not own the named
+   * buoy — an enemy learns nothing (R2.9 holds; the id resolves against the
+   * owner's own `FrameMsg.buoys` truth channel). The client prices a tagged
+   * return from the BUOY's position — its range falloff, its terrain shadow,
+   * its scope — which is the entire reason the field exists.
+   *
+   * IT SAYS WHICH OF YOUR SENSORS RETURNED IT, NEVER WHETHER THE SUBJECT IS
+   * REAL. An enemy jamming buoy's fakes that pass your buoy's own gate arrive
+   * tagged with your buoy's `src` exactly as a real hull does (signals.ts,
+   * ownBuoyScopeBlips), so fake-vs-real stays wire-indistinguishable INSIDE
+   * every scope — the jamming guarantee survives attribution by construction.
+   */
+  src?: string;
 }
 
 /**
@@ -1138,6 +1156,14 @@ export interface BuoyView {
   until: number; // ms — server time the buoy expires
   own: boolean; // true iff the receiving observer OWNS this buoy (per-observer, the mines precedent)
   by: string; // the owner's ship id (personal-hue + roster attribution)
+  /** rad — the buoy's OWN radar antenna angle this tick (PV 44, the buoy's-own-
+   *  scope fix: Eric — "It gets its own returns. I just get to see them as the
+   *  owner."). The owner's client draws the buoy's rotating sweep wedge from it
+   *  (extrapolated at the fixed CONFIG.radarBuoy.sweepRpm between frames). It
+   *  rides EVERY BuoyView, sighted-enemy ones included: an antenna's rotation
+   *  phase is physically observable on a buoy you can see, and it carries no
+   *  owner identity, no doctrine and no return data — R2.9 stands. */
+  sweep: number;
 }
 
 /**

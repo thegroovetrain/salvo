@@ -27,6 +27,7 @@ import {
   gunReachU,
   inArc,
   pointInLitZone,
+  twinSectorSide,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
@@ -88,32 +89,24 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
 }
 
 /**
- * Pure: WHICH beam of a `twin-sector` descriptor contains `aim` — `+1` for the
- * `heading + offset` sector, `-1` for the mirrored `heading - offset` one, and
- * `null` when the aim falls in neither (the bow/stern dead zones, which are
- * DENIED — R2.1).
+ * R2.2's "the side whose sector contains the click is the side that fires",
+ * RE-EXPORTED from `shared/` (sim/arcs.ts) rather than implemented here.
  *
- * This is the client's reading of R2.2 ("the side whose sector contains the
- * click is the side that fires"), used by the firing UX to light exactly one
- * wedge. The two sectors cannot overlap at the ratified 90°/60° geometry, and
- * the `+` side is tested first so a hypothetical retune that made them overlap
- * would still resolve to ONE side rather than an ambiguous both.
+ * It lived in this file until Eric's 2026-08-19 turret correction, which gave
+ * the side a GEOMETRIC consequence — the broadside's muzzle points sit on the
+ * firing beam — so the server now needs the same answer to place them. Two
+ * copies of one rule is the desync class `shared/` exists to prevent, so the
+ * implementation moved and this export stays for the client callers (firing.ts's
+ * wedge lighting, the aim preview) that already read it by this name.
  */
-export function twinSectorSide(
-  heading: number,
-  aim: number,
-  arc: { offset: number; halfArc: number },
-): 1 | -1 | null {
-  if (inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc)) return 1;
-  if (inArc(aim, wrapAngle(heading - arc.offset), arc.halfArc)) return -1;
-  return null;
-}
+export { twinSectorSide };
 
 /**
  * The effective range (u) at which an AIMED weapon's shot lands / clamps. The
  * gun family reads its OWN stats block — and as of Story 2.8 all of them ride
- * the folded radarRange (Intel is a stealth offense category), so an intelRange
- * stack grows every one together. The BROADSIDE reads `stats.broadside.rangeU`,
+ * the folded radarRange, so they move together with it (no boon writes
+ * `radarRange` today, but the derivation seam is what keeps them one number).
+ * The BROADSIDE reads `stats.broadside.rangeU`,
  * THE 5/8 RUNG (R2.4) — the one weapon that does not reach the radar horizon,
  * so the shared gun-range fallback would over-promise it by 247.5u. The MINE and
  * — since Story 7-5 wave 2 — the RADAR BUOY read the ratified

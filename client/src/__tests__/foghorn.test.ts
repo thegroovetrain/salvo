@@ -774,6 +774,7 @@ function setupHonk(over: Record<string, unknown> = {}) {
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
     buoys: { sync: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     ownBuoy: () => undefined,

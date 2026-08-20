@@ -686,6 +686,9 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.state.spectating = true;
     deps.onSpectate();
   }
+  // Frames OMIT the buoys key when the observer sees none — one shared
+  // empty-list default for the sensor hand-off and the marker sync below.
+  const buoys = f.buoys ?? [];
   if (f.you) {
     // Trust the server's class + fitted boons over any local guess: on the
     // first frame (or any change to either) recompute the effective stats and
@@ -707,6 +710,13 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
+    // The radar's OWN-BUOY SENSORS (Story 7-5 fix cycle): the frame's buoy
+    // list, handed to the scope so `src`-tagged returns price from the buoy
+    // and the buoy's own sweep wedge turns at its frame-carried antenna
+    // angle. Under the `you` guard beside the sweep anchor deliberately:
+    // sensors exist only for a live own scope — tagged blips only ever
+    // arrive in frames that carry `you`, and a spectator's scope is cleared.
+    deps.radar.setOwnBuoys(buoys, f.t);
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
     if (s.pendingSnap) {
@@ -730,7 +740,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   deps.litZones.sync(litZones, deps.ordnanceHue);
   // Buoys, same reconcile. Frames OMIT the key when the observer sees no
   // buoys, so treat a missing key as an empty list.
-  deps.buoys.sync(f.buoys ?? [], deps.ordnanceHue, deps.ownBuoy(f.t));
+  deps.buoys.sync(buoys, deps.ordnanceHue, deps.ownBuoy(f.t));
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).

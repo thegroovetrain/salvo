@@ -146,7 +146,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('bands are ordered fractions of INTEL RANGE, so boons widen them', () => {
+  it('bands are ordered fractions of INTEL RANGE, so they move with the ruler rather than a literal', () => {
     for (const p of Object.values(BOT_PROFILES)) {
       expect(p.bandMinFrac).toBeGreaterThan(0);
       expect(p.bandMaxFrac).toBeGreaterThan(p.bandMinFrac);

@@ -70,19 +70,19 @@ const common = (id: string, copies = 5): BoonDef => ({
 describe('buildDeck — composition per hull loadout', () => {
   // EVERY DECK GOT SMALLER (Story 7-5 wave 1): Eric's rewrite trades long
   // ladders of small steps for short ladders of big ones, so a hull now draws
-  // 40-42 cards rather than 53-58. The composition RULE is unchanged — three
+  // 37 cards rather than 53-58. The composition RULE is unchanged — three
   // universal subdecks + the carried equipment's subdecks + one acquisition per
   // un-carried equipment — and these pins are the same pins at the new counts.
-  it('Torpedo Boat: universal (guns 3, intel 9, ship 13) + torpedo 6 + boost 6 + 4 acquisitions = 41', () => {
+  it('Torpedo Boat: universal (guns 3, intel 5, ship 13) + torpedo 6 + boost 6 + 4 acquisitions = 37', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
     expect(categoryCount(deck.cards, 'guns')).toBe(3); // 2 barrel + 1 turret (HEAVY SHELLS deleted)
-    expect(categoryCount(deck.cards, 'intel')).toBe(9); // 4 intelRange + 5 intelSweep
+    expect(categoryCount(deck.cards, 'intel')).toBe(5); // 5 intelSweep (RANGE I-IV deleted 2026-08-20)
     expect(categoryCount(deck.cards, 'ship')).toBe(13); // 4 speed + 4 hull + 5 cooldown
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(6); // 4 speed + 1 tube + 1 homing
     expect(categoryCount(deck.cards, 'speedBoost')).toBe(6); // 4 duration + 2 speed (boostMax split)
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBroadside', 'acquireMine', 'acquireRadarBuoy', 'acquireStarShells']);
-    expect(deck.cards).toHaveLength(41);
+    expect(deck.cards).toHaveLength(37);
     expect(deck.levelsSinceRare).toBe(0);
   });
 
@@ -93,7 +93,7 @@ describe('buildDeck — composition per hull loadout', () => {
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(0);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireMine', 'acquireRadarBuoy', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(3 + 9 + 13 + 6 + 6 + 4); // 41
+    expect(deck.cards).toHaveLength(3 + 5 + 13 + 6 + 6 + 4); // 37
   });
 
   it('Mine Layer: mines + radarBuoy subdecks; torpedo/broadside/star/boost acquisitions', () => {
@@ -102,19 +102,19 @@ describe('buildDeck — composition per hull loadout', () => {
     expect(categoryCount(deck.cards, 'radarBuoy')).toBe(6); // 4 sweep + gun + jamming
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireBroadside', 'acquireStarShells', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(3 + 9 + 13 + 6 + 6 + 4); // 41
+    expect(deck.cards).toHaveLength(3 + 5 + 13 + 6 + 6 + 4); // 37
   });
 
-  // THE FINAL DECK ARITHMETIC (Story 7-5 wave 2), asserted BY EXECUTION over
-  // every hull rather than by three hand-written sums: 25 universal + 6 + 6
-  // subdeck + 4 acquisitions = 41, the same on all three. Wave 2 is the first
-  // time the three decks are the SAME SIZE — the cannon's 7 and the decoy's 5
-  // were the two odd ones out.
-  it('EVERY hull deck is exactly 41 cards, and the three are now equal', () => {
+  // THE DECK ARITHMETIC, asserted BY EXECUTION over every hull rather than by
+  // three hand-written sums: 21 universal + 6 + 6 subdeck + 4 acquisitions =
+  // 37, the same on all three. Wave 2 was the first time the three decks were
+  // the SAME SIZE — the cannon's 7 and the decoy's 5 were the two odd ones out
+  // — and deleting RANGE I-IV took all three down together (41 -> 37).
+  it('EVERY hull deck is exactly 37 cards, and the three are equal', () => {
     const sizes = (['torpedoBoat', 'battleship', 'mineLayer'] as const).map(
       (cls) => buildDeck(BOON_CATALOG, CARRIED[cls]).cards.length,
     );
-    expect(sizes).toEqual([41, 41, 41]);
+    expect(sizes).toEqual([37, 37, 37]);
   });
 
   it('the 7 deleted reload lines are in NO hull deck; ship contributes 13 (Eric rulings 2026-08-04)', () => {
@@ -132,11 +132,12 @@ describe('buildDeck — composition per hull loadout', () => {
     }
   });
 
-  // Wave 1 deleted SEVEN lines outright. Their ids ride the wire, so proving
-  // they are unreachable in every deck is the deck-side half of the fail-closed
+  // Wave 1 deleted SEVEN lines outright and Eric's 2026-08-20 ruling deleted an
+  // EIGHTH (`intelRange`). Their ids ride the wire, so proving they are
+  // unreachable in every deck is the deck-side half of the fail-closed
   // guarantee the PV bump exists to back up.
-  it('the 7 lines Story 7-5 wave 1 DELETED are in no hull deck and not in the catalog', () => {
-    const gone = ['gunDamage', 'torpedoDamage', 'torpedoCommand', 'mineDamage', 'mineMax', 'starRadius', 'boostMax'];
+  it('the DELETED lines are in no hull deck and not in the catalog', () => {
+    const gone = ['gunDamage', 'torpedoDamage', 'torpedoCommand', 'mineDamage', 'mineMax', 'starRadius', 'boostMax', 'intelRange'];
     for (const id of gone) expect(BOON_CATALOG[id], id).toBeUndefined();
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       const deck = buildDeck(BOON_CATALOG, CARRIED[cls]);

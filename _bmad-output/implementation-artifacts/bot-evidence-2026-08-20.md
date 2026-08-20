@@ -1,6 +1,6 @@
 # Bot evidence — cycle 110, the Solo vs AI doctrine pass (2026-08-20)
 
-Companion to `spec-solo-ai-doctrine-pass.md` and epic-7 amendment 29. Campaign scale is
+Companion to `spec-solo-ai-doctrine-pass.md` and epic-7 amendment 32. Campaign scale is
 deliberately modest per Eric's instruction (*"you don't need to do a metric fuckton of them, just
 enough"*): 30-match legs, against the 50/200/250-match campaigns of prior cycles.
 
