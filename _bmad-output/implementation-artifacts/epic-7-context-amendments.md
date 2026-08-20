@@ -1804,3 +1804,35 @@ argument for running both:
 guard. Containment today is the type split + table disjointness + a structural test, and no
 production caller passes one. A runtime guard would require a "test mode" flag, which is itself a new
 production surface defending against a caller that does not exist. Recorded as accepted.
+
+### SAME-DAY CORRECTION — ERIC'S PLAYTEST OVERTURNS ONE READING AND ONE WEIGHT
+
+Recorded here rather than left to be rediscovered, because it partly reverses this amendment's own
+`forager.mineCaptive` demotion and retracts an orchestrator hypothesis stated above.
+
+**THE HYPOTHESIS IS RETRACTED.** The orchestrator read the ML's 4/30-vs-12/30 result as
+`forager` declining the fights that decide matches (`captain: 0.5`). Eric played the hull the same
+day and describes that avoidance as the CORRECT play: *"hanging back to avoid getting killed in the
+first minute, and then slowly trying to find a PvE fleet to farm on… ML is more of a, hang back and
+be safe/strategic sort of class."* **The measurement corroborates HIM, not the hypothesis** — the
+weighted ML lives 181.1s against the random ML's 264.0s (+46%), fits 1.97 boons against 2.96 (+50%)
+and earns 4.29 levels against 6.58 (+53%). The failure is SURVIVAL, not target choice, and neither ML
+profile actually hangs back: `forager` bands at 0.20–0.45R and `trapper` at 0.12–0.35R, the closest
+band of any profile in the game.
+
+**THE `mineCaptive` DEMOTION WAS OVER-CORRECTED.** The mechanical fact this amendment records is
+still true — a captive mine's trip is hostile-only, so it cannot farm neutral fleet drones — but the
+conclusion drawn from it was wrong. Eric ran CAPTIVE MINES and GUN BUOY together early and reports
+both as *"REALLY powerful… you just have to be lined up well and prepare."* Captive is not a FARMING
+tool, it is a SURVIVAL-AND-PAYOFF tool, which is exactly what a hull whose problem is staying alive
+should want. `buoyGun` is likewise named by NEITHER ML table and falls through to a bare category
+weight, despite being half of the combo Eric calls a powerhouse.
+
+**RULED AND SCHEDULED AS CYCLE 111** (Eric, 2026-08-20), deliberately NOT folded into this cycle's PR
+so its campaign evidence keeps describing the code it shipped: re-band both ML profiles outward and
+raise both disengage thresholds; restore `forager.mineCaptive` as a wanted line; give `buoyGun` an
+explicit override in both ML tables. Eric's *"lined up well and prepare"* additionally points at the
+captive/buoy PLACEMENT tactics being prepared ahead of an engagement rather than sited reactively —
+equipment-axis work, not a weight change. Hull and catalog balance stays OUT: *"A lot of this is what
+the balance pass is going to be for! But it still needs to play intelligently."* Full record:
+`deferred-work.md`, the 2026-08-20 section.

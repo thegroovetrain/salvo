@@ -1448,3 +1448,59 @@ and the next reader will again mistake a marker count for an open-work count.
   status: OPEN — a ratified tunable that no longer does what it was tuned to do
   summary: `deck.rareWeightPerDryLevel = 0.7` WAS TUNED AGAINST A 53–58 CARD DECK AND THE DECK IS NOW 41. Deck lifetime fell 39 % — an economy played to exhaustion runs exactly 44 draws AFTER against 72.2 (55–105) BEFORE, with zero variance, because 44 is arithmetic rather than luck. The escalating soft pity now INVERTS past dry=3: rare-landing rate runs 46 / 51 / 48 / 35 / 21 / 9 / 3 % as dry levels climb, where BEFORE it ROSE 57 % → 68 %. A 41-card deck simply runs out of rare copies. Real matches rarely reach that far (gunner picks p50 3 / mean 4.5; bots mean 2.4), so this is a tail property of the deck-only MODEL rather than a live problem today — but the constant is ratified (cycle 39) and its premise is gone, so it should be re-derived rather than left to be rediscovered.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Finding #7 and Q1's deck-only rows; `CONFIG.deck.rareWeightPerDryLevel`. Story 7-5 evidence pass, 2026-08-19.
+
+## 2026-08-20 — Cycle 110 (Solo vs AI doctrine pass): the Mine Layer follow-up, RULED
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-solo-ai-doctrine-pass.md`
+  status: RULED BY ERIC 2026-08-20, SCHEDULED as cycle 111 — deliberately NOT folded into PR #184, so
+    that PR's campaign evidence keeps describing the code it actually shipped and the retune gets its
+    own before/after baseline.
+  summary: THE MINE LAYER'S BOTS BUILD AND SAIL IT WORSE THAN CHANCE, AND THE CAUSE IS SURVIVAL, NOT
+    TARGET CHOICE. Cycle 110's controlled A/B (matched seed 11, 18 bots, 30 matches, spend policy the
+    only difference) put the ML at 4/30 wins under `forager`/`trapper` against 12/30 under RANDOM
+    picks. The orchestrator's first hypothesis — that `forager`'s `captain: 0.5` weight loses matches
+    by declining the fights that decide them — is **WRONG and is retracted**: Eric's playtest report
+    the same day describes exactly that avoidance as the CORRECT Mine Layer play (*"hanging back to
+    avoid getting killed in the first minute, and then slowly trying to find a PvE fleet to farm
+    on"*). The measurement that matters is SURVIVAL, and it corroborates him rather than the
+    hypothesis: the weighted ML lives **181.1s** against the random ML's **264.0s** (+46%), fitting
+    1.97 boons against 2.96 (+50%) and earning 4.29 levels against 6.58 (+53%). Eric's thesis —
+    *"It wants certain things, and when it gets them it is a powerhouse, it just needs to survive
+    until then"* — names precisely the thing the profiles fail at. NEITHER ML PROFILE ACTUALLY HANGS
+    BACK: `forager`'s band is 0.20–0.45R and `trapper`'s is 0.12–0.35R, the CLOSEST band of any
+    profile in the game. They are written as brawlers with a farming preference.
+    THE RULED CHANGE (Eric, 2026-08-20): re-band BOTH ML profiles OUTWARD and raise BOTH disengage
+    thresholds so they break off sooner — `forager` out toward the truesight boundary and beyond so
+    it farms at reach and sees trouble coming, `trapper` closer but off knife range (its mine's
+    astern ±60° arc genuinely needs something following it, so it may not be re-banded as far).
+    ALSO IN SCOPE, and a CORRECTION OF THIS CYCLE'S OWN WORK: amendment 29 demoted
+    `forager.mineCaptive` 2.4 → 0.9 on the reasoning that a captive mine's hostile-only trip cannot
+    farm fleet drones. The MECHANICAL FACT STANDS, but the conclusion drawn from it does not — Eric
+    ran CAPTIVE MINES and GUN BUOY together early and reports both as *"REALLY powerful"*. Captive is
+    not a FARMING tool, it is a SURVIVAL-AND-PAYOFF tool, which is exactly what a hull whose problem
+    is staying alive should want. Restore it as a wanted line for `forager`, and give `buoyGun` an
+    explicit line override in both ML tables — today it is named by NEITHER and falls through to a
+    bare category weight (forager 1.0 / trapper 2.0) despite being half of the combo Eric calls a
+    powerhouse. Eric's *"you just have to be lined up well and prepare"* additionally suggests the
+    captive/buoy PLACEMENT tactics should be prepared ahead of an engagement rather than sited
+    reactively; that is equipment-axis work in `ai/equipment.ts`, not a weight change.
+    NOT IN SCOPE HERE: hull/catalog balance. Eric: *"A lot of this is what the balance pass is going
+    to be for! But it still needs to play intelligently."* This entry is the INTELLIGENCE half only.
+  evidence: `bot-evidence-2026-08-20.md` §4 (the controlled A/B and both readings);
+    `server/src/game/ai/profiles.ts` `forager`/`trapper` rows (bands, appetite);
+    `shared/src/constants.ts` `CONFIG.bots.boonWeights.forager/.trapper`; epic-7 amendment 29's
+    "correction of record" section, which this entry PARTLY REVERSES on the `mineCaptive` weight;
+    Eric's playtest report, 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-solo-ai-doctrine-pass.md`
+  status: OPEN — orchestrator hypothesis, UNVERIFIED, offered for the same follow-up
+  summary: `trapper` MAY UNDER-BUY THE DOMINANT DAMAGE SOURCE. In cycle 110's 30-match campaign the
+    GUN dealt ~198k hp of ~272k total participant damage (~73%), while mines dealt ~24k (under 9%).
+    `trapper` weights its `guns` CATEGORY at 1.6 — the lowest of its five categories — in favour of a
+    mine rack accounting for roughly a twelfth of the damage in the game. Random building, which buys
+    gun cards as readily as anything else, outperforms it. This is a SEPARATE hypothesis from the
+    survival finding above and was NOT ruled on; it may also dissolve entirely once the balance pass
+    moves mine numbers, since a mine rack worth more damage would justify the weighting. Do not act
+    on it without its own measurement.
+  evidence: `bot-evidence-2026-08-20.md` §3 ordnance ledger (damage by source);
+    `CONFIG.bots.boonWeights.trapper.cat.guns`.
