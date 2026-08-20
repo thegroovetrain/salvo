@@ -111,32 +111,35 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 
 // Per-observer EFFECTIVE ranges, recomputed here from the raw fitted-boon id
 // list (deliberately NOT via me.stats / effectiveStats — the reimplementation
-// rule). The ladder factors are the CATALOG's authored steps written out as
-// literals (intelRange ×1.15/card, truesight derived as half of it); the DAZZLE
-// factor (Story 2.8) scales the OBSERVER's own sight while its dazzledUntil
-// mark is live — mirrored independently from signals.sightOf.
+// rule). No card writes radar range any more (the INTEL RANGE line was deleted
+// 2026-08-20), so intel range is the flat constant and truesight is half of it;
+// the DAZZLE factor (Story 2.8) scales the OBSERVER's own sight while its
+// dazzledUntil mark is live — mirrored independently from signals.sightOf.
 function stacksOf(me: ShipRecord, boonId: string): number {
   let n = 0;
   for (const b of me.boons) if (b === boonId) n += 1;
   return n;
 }
 
-// THE INTEL RANGE MERGE (Eric rulings 2026-08-16): `intelTruesight` and
-// `intelRadar` are gone, and truesight is now the 4/8 rung of ONE number.
-// Re-derived here INDEPENDENTLY, as literals, per this file's reimplementation
-// rule: sight is half of intel range, and dazzle still scales sight ONLY —
-// intel range itself is never dazzle-scaled, which is what keeps the 5/8
-// muzzle/smoke halo un-dazzled by construction.
+// TRUESIGHT IS THE 4/8 RUNG OF ONE NUMBER (Eric rulings 2026-08-16, unchanged
+// by the 2026-08-20 INTEL RANGE deletion). Re-derived here INDEPENDENTLY, as
+// literals, per this file's reimplementation rule: sight is half of intel
+// range, and dazzle still scales sight ONLY — intel range itself is never
+// dazzle-scaled, which is what keeps the 5/8 muzzle/smoke halo un-dazzled by
+// construction.
 function effSight(me: ShipRecord, now: number): number {
-  const base = effRadar(me) / 2;
+  const base = effRadar() / 2;
   return now < me.dazzledUntil ? base * CONFIG.starShells.dazzleSightFactor : base;
 }
 
-// STORY 7-5 WAVE 1 made RANGE (`intelRange`) an ADDITIVE +50u/card line, 4
-// copies, replacing the ×1.15 multiplicative ladder. Re-derived here as a
-// LITERAL, independently of the catalog, per this file's reimplementation rule.
-function effRadar(me: ShipRecord): number {
-  return RADAR + 50 * stacksOf(me, 'intelRange');
+// INTEL RANGE IS FLAT AGAIN (Eric ruling 2026-08-20). `intelRange` — the only
+// card that ever wrote `stats.radarRange` — is deleted, so every observer
+// resolves the same number. Kept as a named function rather than folded into
+// its five call sites: production still resolves the ruler through
+// `me.stats.radarRange`, so this is the independent oracle for a value a future
+// radar card could move again, and only this body would change.
+function effRadar(): number {
+  return RADAR;
 }
 
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
@@ -146,8 +149,8 @@ function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean
 // The Story 4.9 DETECT oracle (amendments 119/121), INDEPENDENTLY RE-DERIVED:
 // 0.75 × the observer's effective sight (the 3/8 rung written out as a
 // LITERAL — deliberately NOT CONFIG.vision.detectFactor and NEVER the
-// production pointDetected), dazzle-scaled and boon-widened through effSight
-// exactly as the ruling scales it, island LOS applied unchanged. Binds mines,
+// production pointDetected), dazzle-scaled through effSight exactly as the
+// ruling scales it, island LOS applied unchanged. Binds mines,
 // torpedoes, and torpU updates; NON-VACUOUS by the directed cases below (a
 // mine/torpedo at 300u — inside sight, outside detect — must be excluded).
 function detected(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
@@ -567,7 +570,7 @@ describe('perception — radar paint window (exact)', () => {
       windowAround(a, bearing(a.state, b.state));
       // Non-vacuous: the target really is in the radar annulus, not sighted.
       expect(dist(a.state, b.state)).toBeGreaterThan(effSight(a, w.now));
-      expect(dist(a.state, b.state)).toBeLessThanOrEqual(effRadar(a));
+      expect(dist(a.state, b.state)).toBeLessThanOrEqual(effRadar());
       expect(blipsOf(buildFrame(w, 'a'))).toHaveLength(1);
       expect(shadowVisible(w, a, b.state)).toBe(true); // …and the oracle agrees
     }
@@ -2033,7 +2036,7 @@ function verifyLitZone(
     ...(zone.phosphor ? { phos: true } : {}),
     ...(zone.dazzle ? { daz: true } : {}),
   });
-  if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar(me));
+  if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar());
 }
 
 // ---------- per-kind event verifiers (the independent oracle) ----------------
@@ -2060,7 +2063,7 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
   const d = dist(me.state, p);
   return (
     d > effSight(me, w.now) &&
-    d <= effRadar(me) &&
+    d <= effRadar() &&
     shadowVisible(w, me, p) &&
     inPaintWindow(me, bearing(me.state, p)) &&
     !zoneCovers(w, me, p)
@@ -2621,7 +2624,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
  * at all.
  */
 function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
-  const intel = effRadar(me);
+  const intel = effRadar();
   if (!Number.isFinite(intel) || intel <= 0) return null;
   const d = dist(me.state, p);
   const band = d === 0 ? 1 : Math.ceil((8 * d) / intel);
@@ -2721,7 +2724,7 @@ function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, torp: boole
   const d = dist(me.state, mid);
   const sight = effSight(me, w.now);
   const inner = torp ? 0.75 * sight : sight; // the `detected` oracle's 3/8 literal
-  if (d <= inner || d > effRadar(me)) return false;
+  if (d <= inner || d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;
   return d <= sight ? clearLos(me.state, mid, w.map.islands) : shadowVisible(w, me, mid);
 }
@@ -3075,17 +3078,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.85);
         const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU));
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
-        // Random INTEL boons so the invariant is exercised at WIDENED
-        // per-observer radii too (Story 2.8: the boon economy replaced the
+        // Random INTEL boons so the invariant is exercised at varied
+        // per-observer SWEEP RATES (Story 2.8: the boon economy replaced the
         // legacy counts). Ids are stacked directly and the world-side cache
         // recomputed the way World does (effectiveStats over resolved defs);
         // the CHECKS recompute ranges independently from the raw id list
         // (effSight/effRadar).
         const intel: string[] = [];
-        // ONE intel line since the merge — it drives radar AND truesight, so the
-        // fuzz no longer varies them independently (it never could have produced
-        // the pre-merge ladder overrun anyway; that is what merging fixed).
-        for (let n = rng.int(0, 4); n > 0; n--) intel.push('intelRange'); // 4 copies is the cap
+        // ONE intel line left: SWEEP RATE. The 2026-08-20 deletion of INTEL
+        // RANGE removed the only card that could widen a per-observer RADIUS,
+        // so the fuzz no longer varies radii — every observer runs the base
+        // ladder and the invariant is exercised across rpm instead.
         for (let n = rng.int(0, 5); n > 0; n--) intel.push('intelSweep'); // toward the rpm cap
         rec.boons = intel;
         rec.boonDefs = resolveBoons(intel);

@@ -129,7 +129,6 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   buoyGun: ['GUN BUOY'],
   buoyJamming: ['JAMMING BUOY'],
   // --- INTEL ---------------------------------------------------------------
-  intelRange: ['RANGE I', 'RANGE II', 'RANGE III', 'RANGE IV'],
   intelSweep: ['INTEL I', 'INTEL II', 'INTEL III', 'INTEL IV', 'INTEL V'],
   // --- SHIP ----------------------------------------------------------------
   shipSpeed: ['SPEED I', 'SPEED II', 'SPEED III', 'SPEED IV'],
@@ -260,7 +259,6 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   // R2.20 (Eric ruling 2026-08-19) replaced the sweep-rate line with this one:
   // +2.5s of buoy life per card.
   buoyDuration: { label: 'Buoy lifetime', read: (s) => s.radarBuoy.durationMs, fmt: secs },
-  intelRange: { label: 'Radar range', read: (s) => s.radarRange },
   intelSweep: { label: 'Radar sweep', read: (s) => s.sweepRpm, fmt: (v) => `${num(v)} RPM` },
   shipSpeed: { label: 'Top speed', read: (s) => s.kinematics.maxSpeed },
   shipHull: { label: 'Max hull', read: (s) => s.maxHp },
@@ -392,8 +390,6 @@ const BOON_EXPLAIN: Readonly<Record<string, string>> = {
   buoyJamming:
     'Your buoys flood their own circle with false radar returns. Every other scope fills with contacts that are not there; real returns still paint, they are simply one candidate among many. Sight sees the truth.',
   // --- intel ---------------------------------------------------------------
-  intelRange:
-    'Intel range is the one ruler every sensor is measured against. Pushing it out moves your radar, your true sight, and the reach of your gun, broadside and star shells, all together.',
   intelSweep:
     'Spins your radar faster. A contact paints only as the beam crosses its bearing, so a quicker sweep refreshes what you know more often and leaves a target less water to cross between paints.',
   // --- ship ----------------------------------------------------------------

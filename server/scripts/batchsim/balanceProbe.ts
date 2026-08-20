@@ -134,9 +134,17 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  const universal = ['shipHull', 'shipSpeed', 'shipCooldown', 'intelRange', 'intelSweep'];
+  const universal = ['shipHull', 'shipSpeed', 'shipCooldown', 'intelSweep'];
   const maxBoons: string[] = [];
-  for (const id of universal) maxBoons.push(...new Array<string>(BOON_CATALOG[id].copies).fill(id));
+  for (const id of universal) {
+    // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept
+    // and a deleted line reads back as `undefined.copies` — a bare TypeError
+    // that says nothing about which id went away (INTEL RANGE's removal on
+    // 2026-08-20 landed exactly here).
+    const def = BOON_CATALOG[id];
+    if (def === undefined) throw new Error(`balanceProbe: '${id}' is not in BOON_CATALOG (deleted line?)`);
+    maxBoons.push(...new Array<string>(def.copies).fill(id));
+  }
   console.log(`stack: ${universal.map((id) => `${id}x${BOON_CATALOG[id].copies}`).join(' ')}`);
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the

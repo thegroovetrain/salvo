@@ -665,7 +665,7 @@ describe('the ◆n accrued mark compresses the build into the row', () => {
   });
 
   it('folds the shipwide lines into the GUN slot only (the ship card)', () => {
-    const boons = ['intelRange', 'shipHull', 'shipCooldown'];
+    const boons = ['intelSweep', 'shipHull', 'shipCooldown'];
     const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
     expect(rows[0].boonCount).toBe(3);
     expect(rows[1].boonCount).toBe(0);
@@ -816,10 +816,14 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
   it('re-trims against a viewport SHORTER than the design floor', () => {
     const model = tooltipModel(0, 'gun', stats, maxedGunBuild)!;
     const roomy = tooltipRenderGeom(model, 0, 1080);
-    const cramped = tooltipRenderGeom(model, 0, 500);
+    const cramped = tooltipRenderGeom(model, 0, 420);
     expect(roomy.panelH).toBeLessThanOrEqual(TOOLTIP_MAX_PANEL_H);
-    // 500px of screen is less than the 614px floor the model was fitted to:
-    // rows come off until the panel fits the screen it is actually on.
+    // 420px of screen is well under the 614px floor the model was fitted to:
+    // rows come off until the panel fits the screen it is actually on. It used
+    // to read 500px; cycle 118's INTEL RANGE deletion took a whole LINE out of
+    // the gun+shipwide build, and the shorter panel now fits 500px without
+    // dropping a row — so the pin moved to a viewport where trimming still
+    // bites rather than asserting a trim that no longer has to happen.
     expect(cramped.boons.length).toBeLessThan(roomy.boons.length);
     expect(cramped.panelH).toBeLessThanOrEqual(500 - 2 * H.tooltip.margin);
   });

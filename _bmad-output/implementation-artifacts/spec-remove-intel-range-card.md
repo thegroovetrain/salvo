@@ -95,7 +95,7 @@ warnings: []
 - Given a ship with every reachable boon stacked to its copy cap, when `effectiveStats()` resolves it, then `radarRange` is exactly `CONFIG.vision.radar` (660) and `sightRange` is exactly 330.
 - Given zero boons, when `effectiveStats()` resolves any hull, then every field is byte-identical to the pre-change result (pure removal — nothing base moved).
 - Given a client reporting `pv: 45`, when it attempts to matchmake, then the join is refused by the existing protocol gate.
-- Given `npm run lint` and the three workspace test suites, when they run, then they pass with no reference to `intelRange` anywhere under `shared/src`, `server/src`, `server/scripts`, or `client/src`.
+- Given `npm run lint` and the three workspace test suites, when they run, then they pass with no LIVE reference to `intelRange` anywhere under `shared/src`, `server/src`, `server/scripts`, or `client/src` — no catalog entry, no stat write, no bot weight key, no test scaffolding. **AMENDED during implementation (the original "zero grep matches" wording was unsatisfiable):** three classes of reference legitimately survive and are required — the `gone` deletion pin in `deck.test.ts` (which cannot assert an id's absence without naming it), the NEW `PROTOCOL_VERSION` 45 → 46 history entry (which must say what broke), and the HISTORICAL PV entries naming the card (precedent: `boostMax`, `torpedoCommand`, `gunDamage`, `mineDamage` all still appear there from prior deletions; rewriting them would falsify a record).
 
 ## Spec Change Log
 

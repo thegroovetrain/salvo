@@ -52,15 +52,15 @@ describe('ladder coverage — every catalog line, every stack position', () => {
     // (_bmad-output/implementation-artifacts/7-5-decks.md). The v1 spot checks
     // for the SEVEN deleted lines (HEAVY SHELLS, HEAVY WARHEAD, COMMAND
     // DETONATION, TNT FILLER, DECK RACKS, WIDE BURST, CLEAN BOILERS) are
-    // RETIRED with their catalog lines.
+    // RETIRED with their catalog lines, as are the RANGE I..IV checks (the
+    // INTEL RANGE line was deleted in cycle 118 — the `intel` category
+    // survives on INTEL I..V below).
     expect(boonName('shipHull', 0)).toBe('HULL I');
     expect(boonName('shipHull', 3)).toBe('HULL IV');
     expect(boonName('shipSpeed', 0)).toBe('SPEED I');
     expect(boonName('shipSpeed', 3)).toBe('SPEED IV');
     expect(boonName('intelSweep', 0)).toBe('INTEL I');
     expect(boonName('intelSweep', 4)).toBe('INTEL V');
-    expect(boonName('intelRange', 0)).toBe('RANGE I');
-    expect(boonName('intelRange', 3)).toBe('RANGE IV');
     expect(boonName('shipCooldown', 0)).toBe('RELOAD I');
     expect(boonName('shipCooldown', 4)).toBe('RELOAD V');
     expect(boonName('gunBarrel', 0)).toBe('BARREL I');
@@ -151,7 +151,12 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   // applicable."* So the face's ONE text row is the stat sentence, and a card
   // that moves no number carries no prose at all.
   it('prints a live current → next sentence for every STAT line', () => {
-    expect(STAT_CARDS.length).toBeGreaterThanOrEqual(16);
+    // A NON-DEGENERACY FLOOR, deliberately slack — not a catalog count pin. The
+    // set is derived from the catalog, so a card deletion moves it (cycle 118's
+    // INTEL RANGE removal took it 16 → 15); its only job is to prove the filter
+    // did not return an empty set and make the loop below vacuous. The
+    // authoritative counts live in shared/src/__tests__/{boons,deck}.test.ts.
+    expect(STAT_CARDS.length).toBeGreaterThanOrEqual(12);
     for (const def of STAT_CARDS) {
       const text = boonDescription(def, TB);
       expect(text.length, def.id).toBeGreaterThan(0);
@@ -174,7 +179,6 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
     const moved: [string, string][] = [
       ['shipHull', 'repairs'],
       ['mineBlast', 'trip ring'],
-      ['intelRange', 'star shells'],
       ['shipCooldown', 'every weapon'],
       ['broadsideTurrets', 'its own arc'],
       ['gunBarrel', 'parallel'],

@@ -39,7 +39,7 @@ const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['intelSweep', 'shipHull', 'intelRange', 'mineBlast'];
+const OFFER = ['intelSweep', 'shipHull', 'gunBarrel', 'mineBlast'];
 const OFFER_B = ['shipCooldown', 'shipSpeed', 'intelSweep', 'mineBlast'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {

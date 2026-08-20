@@ -2583,7 +2583,7 @@ function buildGame(
  * consumer — the predictor's kinematics (re-inits via forceSnap, absorbed by
  * the next reconcile; collision radius stays CLASS-based, hull size does not
  * upgrade), the own-hull visual + wake stern offset, the radar rings/sweep
- * period, the camera base zoom (radarRange upgrade = "your world grows"), and
+ * period, the camera base zoom (derived from radarRange, the one ruler), and
  * the fog sight hole (rebaked via the same path as a resize). Guessed
  * localStorage config was used until here; this is the desync firewall.
  */

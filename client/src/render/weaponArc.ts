@@ -104,8 +104,9 @@ export { twinSectorSide };
 /**
  * The effective range (u) at which an AIMED weapon's shot lands / clamps. The
  * gun family reads its OWN stats block — and as of Story 2.8 all of them ride
- * the folded radarRange (Intel is a stealth offense category), so an intelRange
- * stack grows every one together. The BROADSIDE reads `stats.broadside.rangeU`,
+ * the folded radarRange, so they move together with it (no boon writes
+ * `radarRange` today, but the derivation seam is what keeps them one number).
+ * The BROADSIDE reads `stats.broadside.rangeU`,
  * THE 5/8 RUNG (R2.4) — the one weapon that does not reach the radar horizon,
  * so the shared gun-range fallback would over-promise it by 247.5u. The MINE and
  * — since Story 7-5 wave 2 — the RADAR BUOY read the ratified

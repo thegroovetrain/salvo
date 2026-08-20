@@ -1159,7 +1159,7 @@ describe('bindRoom reward toasts', () => {
     const { sink, onBoonFitted } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
     expect(onBoonFitted).toHaveBeenCalledWith('mines');
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intelRange' }, { alive: true, boons: ['intelRange'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intelSweep' }, { alive: true, boons: ['intelSweep'] }));
     expect(onBoonFitted).toHaveBeenCalledWith('intel'); // shipwide -> the rank-wide flash
   });
 

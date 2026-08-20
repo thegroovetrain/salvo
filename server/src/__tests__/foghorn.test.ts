@@ -3,7 +3,7 @@
 // life-boundary resets (EMISSION tests, the smoke.test.ts pattern), plus the
 // `fh` registry row's per-observer delivery: the honker's self copy, the
 // EIGHT volume bands resolved as eighths of the LISTENER'S own INTEL range
-// (stats.radarRange — boon-widened, never dazzle-scaled), the one-step
+// (stats.radarRange — the one ruler, never dazzle-scaled), the one-step
 // island muffle (max(5, band + 2)), and the spectator position payload. The
 // perception invariant suite re-verifies delivery with its own independently
 // reimplemented oracle (the header rule).
@@ -346,7 +346,7 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
     }
   });
 
-  it('an intelRange-widened listener hears farther — the bands stretch with stats.radarRange (the listener\'s OWN intel range, never the constant)', () => {
+  it('a listener with a widened intel range hears farther — the bands stretch with stats.radarRange, never the CONFIG constant (driven by poking stats directly: no card writes radarRange since the 2026-08-20 INTEL RANGE deletion, and the row must still read the field)', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);
     l.stats = { ...l.stats, radarRange: 1200 }; // band width becomes 150u
@@ -357,7 +357,7 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
     expect(row.visible(ctx, subject(1200.01, 0, 'h4'))).toBe(false);
   });
 
-  it('poking sightRange directly does NOT move the bands — the horn reads stats.radarRange, and since the Intel Range merge one card moves both (amendment 122 trade retired)', () => {
+  it('poking sightRange directly does NOT move the bands — the horn reads stats.radarRange, of which sight is merely the 4/8 rung (amendment 122 trade retired)', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);
     l.stats = { ...l.stats, sightRange: 600 }; // widened truesight — irrelevant to the horn
@@ -376,8 +376,8 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
 // honker sits in therefore hands a MODIFIED client two extra bits of range
 // resolution — localising the honker to an 82.5u annulus instead of the 330u
 // plateau — with no honest consumer whatsoever, and it bites hardest for a
-// DAZZLED or intelRange-boosted listener who can receive a low band for a
-// honker they cannot see. That is exactly the disclosure amendment 51 exists
+// DAZZLED listener (or one whose intel range a future card widens) who can
+// receive a low band for a honker they cannot see. That is exactly the disclosure amendment 51 exists
 // to bound (BEARING AND VOLUME TIER ONLY). The fogged path therefore emits
 // `max(band, 4)`: the COARSEST value that reproduces the ratified gain curve
 // EXACTLY, so honest output is byte-identical and only the cheat-readable
@@ -418,7 +418,7 @@ describe('SIGNAL_REGISTRY — fh row: the wire carries no band resolution an hon
     expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(4);
   });
 
-  it('an intelRange-widened listener cannot either — a 1200u intel range still floors its first four bands', () => {
+  it('a listener with a widened intel range cannot either — a 1200u intel range still floors its first four bands', () => {
     const w = bareWorld();
     const l = place(w, 'l', 500, 0); // ceil(8×500/1200) = 4 by distance...
     l.stats = { ...l.stats, radarRange: 1200 };

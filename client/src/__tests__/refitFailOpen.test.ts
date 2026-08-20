@@ -45,11 +45,11 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
   });
 
   // RE-AIMED BY R2.17 (Story 7-5 wave 2). This pin used to guard a DANGLING
-  // NOTE: `intelRange` carried a standing rider, so an unresolvable hull that
-  // skipped the guard printed " Sight, gun, broadside and star shells reach with
-  // it." with a leading space and no numbers. The riders left the card face
-  // entirely — the face is now the stat sentence alone — so that exact shape is
-  // unreachable and its subject is gone.
+  // NOTE: the deleted INTEL RANGE line carried a standing rider, so an
+  // unresolvable hull that skipped the guard printed " Sight, gun, broadside and
+  // star shells reach with it." with a leading space and no numbers. The riders
+  // left the card face entirely — the face is now the stat sentence alone — so
+  // that exact shape is unreachable and its subject is gone.
   //
   // What survives is the CLAUSE the guard actually protects, which R2.17 makes
   // sharper rather than weaker: a stat card's face is ALL numbers, so an
@@ -58,7 +58,13 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
   // because there is no longer a note to make one line special.
   it('never prints a fragment of the diff template when the numbers cannot be computed', () => {
     const stats = Object.values(BOON_CATALOG).filter((d) => Object.hasOwn(STAT_LINES_WITH_NUMBERS, d.id));
-    expect(stats.length).toBeGreaterThanOrEqual(16);
+    // A NON-DEGENERACY FLOOR, deliberately slack — not a catalog count pin.
+    // The set is derived from the catalog, so a card deletion moves it (cycle
+    // 118's INTEL RANGE removal took it from 16 to 15, measured); its only job is to
+    // prove the filter did not silently return an empty or near-empty set and
+    // make the loop below vacuous. The authoritative catalog/deck counts live
+    // in shared/src/__tests__/{boons,deck}.test.ts.
+    expect(stats.length).toBeGreaterThanOrEqual(12);
     for (const def of stats) {
       // The control: on a real hull the line prints a label and two numbers.
       expect(boonDescription(def, KNOWN as never), def.id).toMatch(/^[^.]+: .+ → .+\.$/);
@@ -69,13 +75,16 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
   });
 
   // ...and the riders really did land on the hover tooltip rather than being
-  // deleted. `intelRange`'s is the one this pin was originally written about.
+  // deleted. RETARGETED in cycle 118: this pin was authored around INTEL RANGE,
+  // whose catalog line is now deleted, so it runs on `shipHull` — a SURVIVING
+  // line that carried a standing rider ("Repairs the hull it adds.") which the
+  // same R2.17 move pushed into the hover explanation.
   it('moved the standing riders to the hover explanation, which needs no hull', () => {
-    expect(boonTooltipText('intelRange')).toContain('star shells');
     expect(boonTooltipText('shipHull')).toContain('repairs');
+    expect(boonTooltipText('mineBlast')).toContain('trip ring');
     // The explanation is keyed on the id alone, so an unresolvable hull cannot
     // silence it — the tooltip is the surface that always has something to say.
-    expect(boonTooltipText('intelRange').length).toBeGreaterThan(100);
+    expect(boonTooltipText('shipHull').length).toBeGreaterThan(100);
   });
 
   it('never substitutes a fabricated hull — every catalog line is SILENT, not merely non-throwing', () => {

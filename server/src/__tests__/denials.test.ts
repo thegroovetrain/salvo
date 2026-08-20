@@ -196,9 +196,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 44→45 bump (PV 45: PER-TURRET FIRING ARCS — CONFIG.broadside drops `fanHalfAngleDeg` for `turretMountSpreadDeg`/`traverseDeg` and EffectiveBroadside reshapes, so a stale client would preview a designed fan the server no longer fires) is enforced at matchmake', () => {
-  it('rejects pv-44 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(45);
+describe('pv join gate — the 45→46 bump (PV 46: the INTEL RANGE line is DELETED from BOON_CATALOG — catalog content IS wire contract, so a stale client would render an offer, a copy ladder and a tooltip for a card the server can no longer resolve) is enforced at matchmake', () => {
+  it('rejects pv-45 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(46);
+    expect(protocolVersionError(45)).toMatch(/refresh/);
+    expect(protocolVersionError(44)).toMatch(/refresh/);
     expect(protocolVersionError(43)).toMatch(/refresh/);
     expect(protocolVersionError(42)).toMatch(/refresh/);
     expect(protocolVersionError(41)).toMatch(/refresh/);
