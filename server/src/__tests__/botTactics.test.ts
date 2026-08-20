@@ -1354,6 +1354,24 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(cap, capMind, port).fireSlot).toBe(slotOf(cap, 'mine'));
   });
 
+  it('mine.captive + mine.propFouling still gets the WIDENED closing window', () => {
+    // REGRESSION (cross-model review, cycle 110). The two verbs stack by
+    // design, but `mineWant` hands the whole decision to the captive branch, so
+    // the fouling widening was unreachable for a holder of both: at 450u astern
+    // and closing — inside fouling's 4x placeRange, outside captive's 2x — a
+    // bot with BOTH laid nothing where fouling alone laid. Adding a card made
+    // it worse. Without the fix this fires the gun.
+    const w = openWorld(416);
+    const port = fakePort(w);
+    const chase = { x: -450, y: 0, heading: 0, speed: 20 };
+    const both = mkBot(w, 'mineLayer', 0, 0, 0);
+    both.stats.mine.captive = true;
+    both.stats.mine.propFouling = true;
+    const bothMind = mkMind('forager'); // NEUTRAL appetite: the reactive branch
+    plot(bothMind, track(port.now, chase));
+    expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'mine'));
+  });
+
   it('broadside.spreadRung: the wide base fan may take a just-lost plot; a tight fan demands live', () => {
     const w = openWorld(410);
     const port = fakePort(w);

@@ -404,7 +404,17 @@ function captiveMineWant(ctx: TacticContext): boolean {
   if (ctx.posture === 'disengage') return true;
   if (t === null) return false;
   if (appetiteFor(ctx.sit.profile, 'mine') < APPETITE_NEUTRAL) return false;
-  return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
+  // PROP-FOULING WIDENS THE CLOSING WINDOW HERE TOO (cross-model review, cycle
+  // 110). The two verbs STACK by design — the catalog says so, and the captive
+  // torpedo carries the foul — but `mineWant` hands the whole decision to this
+  // function the moment `captive` is set, so the base path's fouling widening
+  // was unreachable for a holder of BOTH. A neutral-appetite layer with both
+  // verbs, facing a pursuer closing astern at 450u, laid nothing where fouling
+  // ALONE would have laid: adding a card made the bot worse. Same class as the
+  // buoy, phosphor and captive-disengage downgrades.
+  const mult =
+    ctx.sit.stats.mine.propFouling && isClosing(ctx.sit, t) ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
+  return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * mult;
 }
 
 /**

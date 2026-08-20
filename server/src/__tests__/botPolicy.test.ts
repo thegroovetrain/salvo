@@ -660,6 +660,26 @@ describe('ai/spending — the boon policy', () => {
   // survives — and is what the demotion was always for — is that a line the
   // bot ALREADY HOLDS drops below a real card, so a one-copy doctrine is never
   // re-bought as a no-op.
+  it('NEVER demotes a STACKABLE line — a ladder is meant to be climbed', () => {
+    // REGRESSION (cross-model review, cycle 110). The demotion tested only
+    // `fitted.includes(id)` with no copy test, so it hit the deliberately
+    // stackable ladders too: a `siege` bot that bought one `intelRange` (x4)
+    // scored the next at the held-line 0.9 instead of its profile's 2.4 and
+    // stopped building the line its whole doctrine rests on. Same for
+    // `shipCooldown` (x5) and every other ladder. Without the fix the weight
+    // collapses after one copy and the stacked card loses to its sibling.
+    expect(boonWeightFor('siege', 'intelRange', ['intelRange'])).toBe(
+      boonWeightFor('siege', 'intelRange', []),
+    );
+    expect(boonWeightFor('duelist', 'shipCooldown', ['shipCooldown', 'shipCooldown'])).toBe(
+      boonWeightFor('duelist', 'shipCooldown', []),
+    );
+    // And the one-copy demotion it was always FOR still fires.
+    expect(boonWeightFor('bulwark', 'starDazzle', ['starDazzle'])).toBeLessThan(
+      boonWeightFor('bulwark', 'starDazzle', []),
+    );
+  });
+
   it('demotes a line this bot ALREADY HOLDS (re-buying a one-copy doctrine is a no-op)', () => {
     const bulwark = profileOf('bulwark');
     const offer = ['starIncendiary', 'starDazzle'];

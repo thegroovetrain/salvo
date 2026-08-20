@@ -112,9 +112,19 @@ function defOf(catalog: BoonCatalog, id: string): BoonDef | null {
  *  line whose `exclusiveWith` RIVAL was held, because the cannon's AP/PLUNGING
  *  pair could only ever resolve one way. Doctrine verbs now stack, so there is
  *  no rival to be pre-empted by — only the card's own copies matter, and the
- *  deck already stops re-offering an exhausted line. */
+ *  deck already stops re-offering an exhausted line.
+ *
+ *  THE `copies === 1` TEST IS THE FIX, NOT A NARROWING (cross-model review,
+ *  cycle 110). This read `fitted.includes(def.id)` with no copy test, so it
+ *  demoted EVERY held line — including the deliberately stackable ones. A
+ *  `siege` bot that bought one `intelRange` scored the next at 0.9 instead of
+ *  its profile's 2.4 and stopped building the stacked line its whole doctrine
+ *  is about; the same held for `shipCooldown` (×5), `mineBlast` (×4) and
+ *  every other ladder. The docstring above always said ONE-COPY; only the
+ *  implementation disagreed. A multi-copy line needs no demotion at all — the
+ *  deck stops offering it once its copies are spent. */
 function alreadyHeld(def: BoonDef, fitted: readonly string[]): boolean {
-  return fitted.includes(def.id);
+  return def.copies === 1 && fitted.includes(def.id);
 }
 
 /**
