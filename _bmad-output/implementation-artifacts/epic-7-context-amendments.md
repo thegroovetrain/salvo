@@ -1020,9 +1020,17 @@ blanket *"no fact moved"* was over-broad and is corrected here — an over-broad
 stops the next reviewer re-checking. What is true: `policyCopy.ts`'s own standing rule governs, so
 a voice rewrite may not weaken, strengthen or blur a claim about shipped behaviour, and that set is
 identical before and after. What was deliberately removed is the operator's name, entity type and
-country. *"There is no company behind it"* went with them in the first pass and is **RESTORED** —
-it names no person and no place, and a reader is entitled to know that no corporate entity stands
-behind the game.
+country — and *"There is no company behind it"* goes with them, **permanently**.
+
+**THAT SENTENCE IS ENTITY DISCLOSURE, AND THE REVIEW GATE GOT IT WRONG.** Two reviewers flagged its
+deletion as collateral damage; the orchestrator agreed and restored it; **Eric struck it again
+immediately** — *"Remove the 'there is no company behind it' line, wtf dude? I gave you clear
+instructions."* He is right, and the reasoning error is worth recording because it is easy to
+repeat: **saying no company exists says a person does.** It is the same disclosure as *"individual
+operator"*, one inference further along, and it is exactly what the ruling removes. The reviewers
+were reasoning about what a READER is owed; the ruling is about what the OPERATOR discloses, and
+the ruling governs. It is now pinned by name (`/no company behind/i`) so the next well-meaning
+review cannot argue it back in.
 
 **THE PASSIVE VOICE IS THE TRAP, AND IT BIT TWICE BEFORE THE GATE CAUGHT IT.** A pronoun swap looks
 mechanical and is not, because dropping the actor changes the SCOPE of a claim. (a) *"**We never

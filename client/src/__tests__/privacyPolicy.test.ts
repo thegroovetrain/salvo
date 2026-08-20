@@ -64,9 +64,8 @@ describe('privacy policy — no operator identity', () => {
   // on why a denylist cannot do this job.
   it('WHO RUNS THIS says only that Hullcracker.io runs it, and where to write', () => {
     expect(bodyText([section('WHO RUNS THIS')])).toBe(
-      'This site and the game on it are run by Hullcracker.io. There is no company behind it. '
-      + 'For anything in this policy — questions, requests, complaints — write to '
-      + POLICY_CONTACT + '.',
+      'This site and the game on it are run by Hullcracker.io. For anything in this policy — '
+      + 'questions, requests, complaints — write to ' + POLICY_CONTACT + '.',
     );
   });
 
@@ -86,6 +85,10 @@ describe('privacy policy — no operator identity', () => {
     expect(allText()).not.toMatch(/sole propriet|sole trad|unincorporated/i);
     expect(allText()).not.toMatch(/\bindividual (?:operator|trader)\b/i);
     expect(allText()).not.toMatch(/\b(?:LLC|Ltd|GmbH|Inc)\b/i);
+    // "There is no company behind it" is an entity-status statement too: saying
+    // no company exists says a person does. Eric ruled it out (cycle 108) after
+    // a review pass argued for restoring it — the ruling is the requirement.
+    expect(allText()).not.toMatch(/no company behind/i);
   });
 
   it('states no residence for the operator, in any section', () => {

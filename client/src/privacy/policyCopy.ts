@@ -109,9 +109,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'WHO RUNS THIS',
     paragraphs: [
-      'This site and the game on it are run by Hullcracker.io. There is no company behind it. '
-      + 'For anything in this policy — questions, requests, complaints — write to '
-      + POLICY_CONTACT + '.',
+      'This site and the game on it are run by Hullcracker.io. For anything in this policy — '
+      + 'questions, requests, complaints — write to ' + POLICY_CONTACT + '.',
     ],
   },
   {

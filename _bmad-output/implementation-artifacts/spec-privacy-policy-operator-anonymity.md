@@ -162,9 +162,12 @@ and IDENTITY DISCLOSURE only, never of what the policy claims the code does.
     into a tracked file of a public repo — the guard republishing what the ruling removes. Name
     denylist deleted; `WHO RUNS THIS` and `CONTACT` pinned VERBATIM instead, which admits no name
     because it admits no other text. A standing "do not add one" note ships with it.
-  - `[medium]` `[patch]` "There is no company behind it" was collateral damage of the identity
-    deletion — it names no person and no place, and a reader is entitled to it. Restored, which also
-    resolves the circularity of "run by Hullcracker.io" as the whole answer to WHO RUNS THIS.
+  - `[medium]` `[REVERSED BY ERIC]` Both reviewers flagged the deletion of "There is no company
+    behind it" as collateral damage, and it was restored on that basis. Eric struck it again the
+    same day: saying no company exists says a PERSON does, which is the entity disclosure the ruling
+    removes, one inference further along. Deleted permanently and pinned by name. The lesson for the
+    next pass: the reviewers were reasoning about what a reader is owed; the ruling is about what
+    the operator discloses.
   - `[medium]` `[patch]` The residence sweep was scoped to two sections, so a location reintroduced
     into any other section passed. Now swept policy-wide by PHRASING (`based in`, `located in`,
     `operated from`, `resident in`), which also catches a city or a different country.
@@ -261,6 +264,6 @@ touched.
 2. **No named data controller.** GDPR Art. 13(1)(a) expects one; "Hullcracker.io" is a trading name.
    Flagged for Eric, ruled on by Eric, recorded in amendment 19 so a future compliance pass finds a
    decision rather than an oversight. An LLC would resolve it without a personal name.
-3. **`There is no company behind it` was restored** after being cut in the first pass. It names no
-   person and no place, but it does disclose that no corporate entity exists — a one-sentence
-   revert if Eric would rather it stayed out.
+3. **`There is no company behind it` is gone for good.** Restored mid-gate on reviewer argument,
+   struck again by Eric, now pinned against reintroduction. No residual risk — recorded because the
+   restoration was a real misreading of the ruling and the reasoning is worth not repeating.
