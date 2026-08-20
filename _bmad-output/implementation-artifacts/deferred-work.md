@@ -1468,3 +1468,37 @@ and the next reader will again mistake a marker count for an open-work count.
   status: OPEN — coverage shape, not a defect
   summary: THREE OF CYCLE 115's SIX ACCEPTANCE CRITERIA LIVE ENTIRELY IN `main.ts` AND HAVE NO TESTS. The new pure `spectateSettle` is thoroughly covered (33 cases), but the latch ("`setSink` is not called again"), the winner path ("no own wreck drawn, no second copy") and the wreck seating the nameplate AC depends on are all wiring in a 4000-line module with no harness. The irony is on the record: this same cycle annotated two ledger entries observing that a defect of exactly this class was missed by 4305 unit tests and found only by eye. The latch is extractable as a pure `(settled, s) => {call, settled}` if someone wants the cheapest possible bite.
   evidence: `client/src/main.ts` `driveOwnWreckSettle` / `enterSpectateVisuals`; `client/src/__tests__/` has no `main.ts` render-path harness. Blind Hunter, cycle 116 gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
+  status: OPEN — surfaced by the cycle-115 review gate, not caused by it
+  summary: `--tune` HAS NO INTEGER OR UPPER BOUND. Values are checked only for `Number.isFinite` and a per-leaf floor, so `--tune broadside.turrets=1e9` builds a billion-element straddle array per barrage (OOM/hang, and the harness has no timeout), and a FRACTIONAL count is the quieter case — `--tune gun.maxAmmo=0.5` leaves a pool that never reaches a whole round, so the weapon is permanently dead and the run reports zero gun activity as if it were a balance result. Not fixed because enumerating the integer-domain leaves is guesswork that could wrongly reject legitimate large ms values; wants a deliberate pass over which leaves are counts.
+  evidence: `server/scripts/batchsim/overrides.ts` `validateTuneValue`; `shared/src/sim/aim.ts` straddleOffsets. Review gate 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
+  status: OPEN — a real limit on what the attrition curve can claim
+  summary: `lifeSamples` IS RIGHT-CENSORED AND CARRIES NO CENSORING CHANNEL. `botMetrics.ts` sets `track.lifeS = tS` on every afloat observe tick, so a bot ALIVE at the match end and a bot SUNK at the match end are the same number, and `lifeSamples` strips the `end` field that would tell them apart. Alive-at-T computed from it alone reads a mass death spike at the cap — worst in exactly the unresolved cap-out runs where several bots survive at once. The raw values still make the curve strictly better than the pooled quantiles they replaced (which is what prep item 4 asked for), but "exact alive-at-T" is not yet true. Cheapest honest fix: emit a parallel sunk-only sample array so alive-at-T = n - count(sunk <= T).
+  evidence: `server/scripts/batchsim/botMetrics.ts` (afloat tick sets lifeS; sinking sets the identical field); `botReport.ts` `BotClassGroup.lifeSamples`. Review gate 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
+  status: OPEN — degenerate lobby sizes only
+  summary: A CLASS WITH NO BOTS GETS NO `byClass` ROW AT ALL, rather than a zero row. `groupBy` only creates buckets for keys present in the rows, so under `--roster even --bots 1` or `--bots 2` the missing class is missing from EVERY match and the JSON simply has 2 rows (or 1) instead of 3. A consumer doing `byClass.find(g => g.key === cls)` gets `undefined`, with no signal distinguishing "no bots of this class" from "this key was dropped". Not fixed because emitting zero rows changes `groupBy`, which also builds `byProfile`, and no balance campaign runs at 1-2 bots.
+  evidence: `server/scripts/batchsim/botReport.ts` `bucket`/`groupBy`. Review gate 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
+  status: OPEN — silent, and only under an already-failing run
+  summary: A FAILED MATCH SILENTLY UNBALANCES AN `--roster even` CAMPAIGN. A throwing match lands in `result.failures` and the roster it was dealt contributes nothing, so the surviving campaign drifts off even with no signal in the report — the evenness guarantee is stated over matches ATTEMPTED, not matches COLLECTED. Low priority because a failing match is already a loud structural problem, but the interaction is undocumented.
+  evidence: `server/scripts/batchsim/runner.ts` `runBatch` failure path. Review gate 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
+  status: OPEN — cross-key invariant, unenforced
+  summary: `--tune` CAN BREAK A STATED DESIGN INVARIANT ACROSS TWO KEYS. `CONFIG.speedBoost` documents `reloadMs >= durationMs` "by design", but both leaves are independently tunable and validated only against their own floor, so `--tune speedBoost.durationMs=60000` (or `speedBoost.reloadMs=1`) yields a permanently-active boost and kinematics evidence taken from a state the design forbids. No cross-key validation exists on either the `--set` or `--tune` surface.
+  evidence: `shared/src/constants.ts` speedBoost block ("reloadMs >= durationMs by design"); `server/scripts/batchsim/overrides.ts` per-key-only validation. Review gate 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
+  status: OPEN — cosmetic until a large campaign is run with --json
+  summary: `lifeSamples` IS UNBOUNDED IN THE JSON with no cap, downsample or opt-out, and is computed and retained even when `--json` is not passed. One number per bot-match per class group, multiplied by the sweep grid: `--matches 500 --bots 20` writes ~10k pretty-printed values per variant. Acceptable at the campaign sizes used today; wants a cap or a flag before anyone runs a large sweep with `--json`.
+  evidence: `server/scripts/batchsim/botReport.ts` `groupByClass`; `main.ts` per-variant push. Review gate 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
+  status: OPEN — PRE-EXISTING, surfaced incidentally; blocks a clean `npm run check` on this machine
+  summary: THE SHARED MAP GENERATION TIMING GUARD IS LOAD-FLAKY AND SITS RIGHT ON ITS OWN BAR. `shared/src/__tests__/map.test.ts` "a production map generates within budget" asserts `elapsed < 500`ms; measured 499ms standalone (a 0.2% margin) and 529.9ms — FAILING — under `npm run check`, which runs three workspace suites concurrently. Reproduced twice under load and passing twice standalone. The test's own comment says it exists to catch an order-of-magnitude regression "without failing the build because three workspaces happened to run their suites at the same time", which is precisely what it now does. Not caused by cycle 115 (`git diff HEAD -- shared/ client/ server/src/` is empty); wants a wider budget or a load-independent measure.
+  evidence: `shared/src/__tests__/map.test.ts:554`; `npm run check` runs 2026-08-20 (529.9ms fail x2, 499ms pass x2 standalone). Review gate 2026-08-20.

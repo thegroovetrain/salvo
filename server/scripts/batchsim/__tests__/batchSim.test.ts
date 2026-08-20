@@ -13,6 +13,7 @@ import { CONFIG, LIFECYCLE_ALIVE, SHIP_CLASS_IDS, angleDiff, sunkAt, zoneEndgame
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
+import { buildBotAggregate } from '../botReport.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
 import { PILOT_REGISTRY, pickSpendChoice } from '../pilots.js';
 import { Match } from '../../../src/game/match.js';
@@ -24,20 +25,67 @@ import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
 describe('args — CLI parsing', () => {
   it('parses the full flag set', () => {
+    // BATCH mode carries the two balance-sim surfaces; --deck-only is asserted
+    // separately below because parseArgs now REFUSES it alongside either of
+    // them (a deck run builds no World, so both would be inert).
     const opts = parseArgs([
       '--matches', '20', '--seed', '7', '--captains', '2',
       '--set', 'xp.levelMs=45000', '--sweep', 'deck.rareWeightPerDryLevel=0.2,0.35',
-      '--deck-only', '--draws', '5000', '--json', '/tmp/x.json', '--quiet',
+      '--roster', 'even', '--tune', 'gun.reloadMs=4000',
+      '--json', '/tmp/x.json', '--quiet',
     ]);
     expect(opts.matches).toBe(20);
     expect(opts.seed).toBe(7);
     expect(opts.captains).toBe(2);
     expect(opts.set).toEqual({ 'xp.levelMs': 45000 });
     expect(opts.sweeps).toEqual([{ key: 'deck.rareWeightPerDryLevel', values: [0.2, 0.35] }]);
-    expect(opts.deckOnly).toBe(true);
-    expect(opts.draws).toBe(5000);
+    expect(opts.roster).toBe('even');
+    expect(opts.tune).toEqual({ 'gun.reloadMs': 4000 });
+    expect(opts.deckOnly).toBe(false);
     expect(opts.json).toBe('/tmp/x.json');
     expect(opts.quiet).toBe(true);
+
+    const deck = parseArgs(['--deck-only', '--draws', '5000', '--set', 'xp.levelMs=45000']);
+    expect(deck.deckOnly).toBe(true);
+    expect(deck.draws).toBe(5000);
+  });
+
+  it('refuses --roster / --tune alongside --deck-only (both would be INERT)', () => {
+    // runDeckSim builds no World and reads no roster or combat value, so either
+    // flag would be stamped into the run key and then change nothing at all:
+    // two different run keys, byte-identical bodies. Refused, not ignored.
+    expect(() => parseArgs(['--deck-only', '--roster', 'even'])).toThrow(UsageError);
+    expect(() => parseArgs(['--deck-only', '--roster', 'even'])).toThrow(/--roster does not apply to --deck-only/);
+    expect(() => parseArgs(['--roster', 'even', '--deck-only'])).toThrow(/--roster does not apply to --deck-only/);
+    expect(() => parseArgs(['--deck-only', '--tune', 'gun.reloadMs=4000'])).toThrow(UsageError);
+    expect(() => parseArgs(['--deck-only', '--tune', 'gun.reloadMs=4000'])).toThrow(/--tune does not apply to --deck-only/);
+    // The explicit default is still legal — refusing that would break the
+    // documented no-op, and every pre-existing deck run key passes 'rolled'.
+    expect(parseArgs(['--deck-only', '--roster', 'rolled']).deckOnly).toBe(true);
+  });
+
+  it('refuses a DUPLICATE --tune key rather than silently last-winning', () => {
+    // The parseSweep precedent, for the same reason: a repeat fabricates a
+    // comparison — the operator asked for two values and got one sim.
+    expect(() => parseArgs(['--tune', 'gun.damage=20', '--tune', 'gun.damage=30'])).toThrow(UsageError);
+    expect(() => parseArgs(['--tune', 'gun.damage=20', '--tune', 'gun.damage=30'])).toThrow(/duplicate tune key: gun\.damage/);
+    // Two DIFFERENT keys are the ordinary case and must still compose.
+    expect(parseArgs(['--tune', 'gun.damage=20', '--tune', 'mine.damage=30']).tune).toEqual({
+      'gun.damage': 20,
+      'mine.damage': 30,
+    });
+  });
+
+  it('defaults the two balance-sim surfaces OFF (every prior run key is unchanged)', () => {
+    const opts = parseArgs([]);
+    expect(opts.roster).toBe('rolled');
+    expect(opts.tune).toEqual({});
+  });
+
+  it('rejects a --roster value that is neither even nor rolled', () => {
+    expect(() => parseArgs(['--roster', 'spread'])).toThrow(UsageError);
+    expect(() => parseArgs(['--roster', 'spread'])).toThrow(/expected 'even' or 'rolled'/);
+    expect(parseArgs(['--roster', 'rolled']).roster).toBe('rolled');
   });
 
   it('rejects unknown flags, malformed pairs, and bad numbers', () => {
@@ -183,6 +231,319 @@ describe('overrides — tunable CONFIG dials', () => {
     expect(() => validateTunableKey('xp.nope')).toThrow(TunableError); // dial family, no such leaf
     expect(() => validateTunableKey('xp.droneTierLevels')).toThrow(TunableError); // object, not a number
     expect(() => applyOverrides({ 'match.countdown': 1 })).toThrow(TunableError); // match.* is NOT open — only fillTo
+  });
+});
+
+describe('overrides — the --tune equipment surface (balance-sim harness prep)', () => {
+  it('reaches an equipment dial and restores it through the SAME closure as --set', () => {
+    const beforeReload = CONFIG.gun.reloadMs;
+    const beforeXp = CONFIG.xp.levelMs;
+    const restore = applyOverrides({ 'xp.levelMs': 45000 }, { 'gun.reloadMs': 4000 });
+    expect(CONFIG.gun.reloadMs).toBe(4000);
+    expect(CONFIG.xp.levelMs).toBe(45000);
+    // ONE restore closure, not two: a sweep grid / labelled arm restores both
+    // surfaces between variants exactly as it always has.
+    restore();
+    expect(CONFIG.gun.reloadMs).toBe(beforeReload);
+    expect(CONFIG.xp.levelMs).toBe(beforeXp);
+  });
+
+  it('reaches a nested equipment dial (shipClasses.*)', () => {
+    const before = CONFIG.shipClasses.battleship.hp;
+    const restore = applyOverrides({}, { 'shipClasses.battleship.hp': 200 });
+    expect(CONFIG.shipClasses.battleship.hp).toBe(200);
+    restore();
+    expect(CONFIG.shipClasses.battleship.hp).toBe(before);
+  });
+
+  it('parses --tune key=value and rejects a malformed pair', () => {
+    expect(parseArgs(['--tune', 'mine.damage=60']).tune).toEqual({ 'mine.damage': 60 });
+    expect(() => parseArgs(['--tune', 'gun.reloadMs'])).toThrow(UsageError);
+    expect(() => parseArgs(['--tune', 'gun.reloadMs='])).toThrow(/empty value/);
+  });
+
+  it('rejects a NON-EQUIPMENT key with a message naming every live tune family', () => {
+    // xp.* is a legitimate --set dial; on the --tune surface it is not.
+    expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
+    expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
+      /gun\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, speedBoost\.\*, radarBuoy\.\*, shipClasses\.\*/,
+    );
+    expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
+  });
+
+  it('reaches the BATTLESHIP main weapon: broadside.* is live, cannon.* is extinct', () => {
+    // The prep note that specced --tune named `cannon.`, which Story 7-5 wave 2
+    // deleted outright in favour of the BROADSIDE BARRAGE. Shipping the doc's
+    // list verbatim would have left the battleship's main weapon untunable —
+    // the exact thing /balance-sim needs to move. This pins the live catalog.
+    const before = CONFIG.broadside.reloadMs;
+    const restore = applyOverrides({}, { 'broadside.reloadMs': 20000 });
+    expect(CONFIG.broadside.reloadMs).toBe(20000);
+    restore();
+    expect(CONFIG.broadside.reloadMs).toBe(before);
+    // The dead family must not linger as a family that passes the gate and then
+    // dies on the CONFIG walk — it is refused up front, naming the live set.
+    expect(() => parseArgs(['--tune', 'cannon.reloadMs=20000'])).toThrow(/not an equipment dial/);
+  });
+
+  it('refuses to walk off CONFIG through the prototype chain or an array internal', () => {
+    // Both of these used to be ACCEPTED and applied silently: the first mutates
+    // Array.prototype outside CONFIG entirely, the second TRUNCATES a live
+    // CONFIG array. Either produces a run whose report reads ordinary while the
+    // sim underneath it is wrong — the one failure a balance harness may not have.
+    const lenBefore = CONFIG.broadside.traverseDeg.length;
+    expect(() => parseArgs(['--tune', 'broadside.traverseDeg.length=1'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'broadside.traverseDeg.__proto__.length=1'])).toThrow(TunableError);
+    expect(() => parseArgs(['--set', 'xp.__proto__.levelMs=1'])).toThrow(TunableError);
+    expect(() => applyOverrides({}, { 'broadside.traverseDeg.length': 1 })).toThrow(TunableError);
+    expect(CONFIG.broadside.traverseDeg.length).toBe(lenBefore);
+    expect(Array.prototype.length).toBe(0);
+    // The legitimate array dial still works — the rule is "index only", not
+    // "no arrays". zone.ringSteps.N is documented and must keep resolving.
+    expect(() => validateTunableKey('zone.ringSteps.0')).not.toThrow();
+  });
+
+  it('applies ALL-OR-NOTHING: a throw mid-apply leaves CONFIG untouched', () => {
+    // A partial apply used to survive with no closure returned to undo it, so
+    // the next sweep variant would run on a poisoned CONFIG and report happily.
+    const xpBefore = CONFIG.xp.levelMs;
+    const gunBefore = CONFIG.gun.reloadMs;
+    // The tune value trips the reload floor AFTER the --set key has been written.
+    expect(() => applyOverrides({ 'xp.levelMs': 45000 }, { 'gun.reloadMs': 0 })).toThrow(TunableError);
+    expect(CONFIG.xp.levelMs).toBe(xpBefore);
+    expect(CONFIG.gun.reloadMs).toBe(gunBefore);
+  });
+
+  it('rejects a MISSING equipment path as not a numeric CONFIG entry', () => {
+    expect(() => parseArgs(['--tune', 'gun.nope=1'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'gun.nope=1'])).toThrow(/not a numeric CONFIG entry/);
+    // A family prefix with no object behind it fails on the walk, not the gate.
+    expect(() => parseArgs(['--tune', 'gun.nope.deeper=1'])).toThrow(/does not exist in CONFIG/);
+  });
+
+  it('floors reload/cooldown at 1 (divide-or-spin) and everything else at 0', () => {
+    expect(() => parseArgs(['--tune', 'gun.reloadMs=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'gun.reloadMs=0'])).toThrow(/'gun\.reloadMs'.*>= 1/);
+    expect(() => parseArgs(['--tune', 'mine.damage=-1'])).toThrow(/'mine\.damage'.*>= 0/);
+    // A ZERO burst radius is what ARMOR-PIERCING already does — a real arm.
+    expect(parseArgs(['--tune', 'gun.burstRadius=0']).tune).toEqual({ 'gun.burstRadius': 0 });
+    // Apply-time too, for programmatic callers that bypass the CLI.
+    expect(() => applyOverrides({}, { 'gun.reloadMs': 0 })).toThrow(TunableError);
+  });
+
+  it('matches the reload floor by SUFFIX, so radarBuoy.gunReloadMs is covered', () => {
+    // An exact `leaf === 'reloadMs'` test let this one through at floor 0 — it
+    // is a real reload in the same divide-or-spin class, just not named that.
+    expect(() => parseArgs(['--tune', 'radarBuoy.gunReloadMs=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'radarBuoy.gunReloadMs=0'])).toThrow(/'radarBuoy\.gunReloadMs'.*>= 1/);
+    expect(parseArgs(['--tune', 'radarBuoy.gunReloadMs=1']).tune).toEqual({ 'radarBuoy.gunReloadMs': 1 });
+  });
+
+  it('floors the leaves the SIM DIVIDES BY: a 0 there NaNs or inerts the campaign', () => {
+    // steerageSpeed: shared/src/sim/ship.ts computes speed/steerageSpeed, so 0
+    // is 0/0 = NaN straight into heading and position.
+    expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
+    // turnRate: the AI divides by it; the resulting Infinity/NaN steer fails
+    // the finite check in game/inputs.ts and is SILENTLY DROPPED — the harness
+    // would print an ordinary report of a campaign whose bots were inert.
+    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(/>= 1/);
+    // shellSpeed / torpedo.speed: the lead solve divides by the ordnance speed.
+    expect(() => parseArgs(['--tune', 'gun.shellSpeed=0'])).toThrow(/>= 1/);
+    expect(() => parseArgs(['--tune', 'torpedo.speed=0'])).toThrow(/>= 1/);
+    // hp seeds EffectiveStats.maxHp, which world.ts divides by unguarded.
+    expect(() => parseArgs(['--tune', 'shipClasses.mineLayer.hp=0'])).toThrow(/>= 1/);
+    // Apply-time too, and a legitimate low value still passes.
+    expect(() => applyOverrides({}, { 'shipClasses.battleship.kinematics.turnRate': 0 })).toThrow(TunableError);
+    const restore = applyOverrides({}, { 'shipClasses.battleship.kinematics.turnRate': 1 });
+    expect(CONFIG.shipClasses.battleship.kinematics.turnRate).toBe(1);
+    restore();
+  });
+
+  it('refuses a DERIVED path that the stats firewall re-pins post-fold', () => {
+    // These are accepted-and-ignored: shared/src/sim/stats.ts clampStats (and
+    // sim/boons.ts applyBoonStats) overwrite them after the boon fold, so the
+    // run key would claim a change the sim never saw — false evidence, the one
+    // failure this harness exists to prevent.
+    expect(() => parseArgs(['--tune', 'mine.triggerRadius=40'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'mine.triggerRadius=40'])).toThrow(/tune mine\.blastRadius instead/);
+    for (const key of ['gun.rangeU', 'starShells.rangeU', 'broadside.rangeU']) {
+      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/DERIVED/);
+      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/derived from radar range/i);
+    }
+    // Apply-time too, and CONFIG is left exactly as it was found.
+    const before = CONFIG.mine.triggerRadius;
+    expect(() => applyOverrides({}, { 'mine.triggerRadius': 40 })).toThrow(/DERIVED/);
+    expect(CONFIG.mine.triggerRadius).toBe(before);
+    // The dial the message points at is REACHABLE — a refusal that named an
+    // equally-dead path would be worse than the silence it replaced.
+    const restore = applyOverrides({}, { 'mine.blastRadius': 60 });
+    expect(CONFIG.mine.blastRadius).toBe(60);
+    restore();
+  });
+
+  it('leaves the --set/--sweep whitelist BYTE-IDENTICAL: gun.* is still refused there', () => {
+    // The pin at the top of this file says the same thing for --set; this is
+    // the fail-proof that adding --tune did not quietly widen the other surface.
+    expect(() => parseArgs(['--set', 'gun.damage=5'])).toThrow(TunableError);
+    expect(() => parseArgs(['--set', 'gun.damage=5'])).toThrow(/not a tunable dial/);
+    expect(() => parseArgs(['--sweep', 'gun.reloadMs=3000,4000'])).toThrow(/not a tunable dial/);
+    expect(() => validateTunableKey('gun.reloadMs')).toThrow(/not a tunable dial/);
+  });
+});
+
+describe('roster — even bot hulls (balance-sim harness prep)', () => {
+  /** 20 bots x 3 matches. The hull deal happens at LOBBY CONSTRUCTION, so the
+   *  campaign only has to activate for it to be observable; an instantly lethal
+   *  storm keeps the run bounded (the same device the endedBy tests use). */
+  function campaign(roster: 'even' | 'rolled', matches = 3): Record<string, number>[] {
+    const restore = applyOverrides({
+      'zone.beatMs': 1,
+      'zone.terminalSightFactor': 0,
+      'zone.stormDps': 100000,
+    });
+    try {
+      const result = runBatch({ seed: 7, matches, captains: 0, bots: 20, roster });
+      expect(result.failures).toEqual([]);
+      return result.matches.map((m) => {
+        const counts: Record<string, number> = {};
+        for (const cls of SHIP_CLASS_IDS) counts[cls] = 0;
+        for (const b of m.bots ?? []) counts[b.cls] += 1;
+        return counts;
+      });
+    } finally {
+      restore();
+    }
+  }
+
+  const totals = (perMatch: Record<string, number>[]): number[] =>
+    SHIP_CLASS_IDS.map((c) => perMatch.reduce((a, m) => a + m[c], 0));
+
+  // THE GUARANTEE AS STATED (RunSpec.roster / USAGE), not the one lucky case.
+  // `(i + index) % 3` is exactly even only when the match count OR the hull
+  // count is a multiple of 3 — with 20 bots, --matches 1 is 7/7/6 and the
+  // offset buys nothing at all. What holds ALWAYS is a spread of at most 1,
+  // both inside one match and across the campaign, so that is what is pinned
+  // across several match counts rather than asserting exactness at the single
+  // value where it happens to be true.
+  it.each([1, 2, 3, 4])('spreads <= 1 within every match AND across a %i-match campaign', (matches) => {
+    const perMatch = campaign('even', matches);
+    expect(perMatch).toHaveLength(matches);
+    for (const counts of perMatch) {
+      const n = SHIP_CLASS_IDS.map((c) => counts[c]);
+      expect(n.reduce((a, b) => a + b, 0)).toBe(20);
+      expect(Math.max(...n) - Math.min(...n)).toBeLessThanOrEqual(1);
+    }
+    const total = totals(perMatch);
+    expect(total.reduce((a, b) => a + b, 0)).toBe(20 * matches);
+    expect(Math.max(...total) - Math.min(...total)).toBeLessThanOrEqual(1);
+  });
+
+  it('is EXACTLY even when the match count is a multiple of 3', () => {
+    // 20 bots x 3 matches = 60 = 20 per class, thanks to the `+ index` offset.
+    expect(totals(campaign('even', 3))).toEqual([20, 20, 20]);
+  });
+
+  it('the pin discriminates: the DEFAULT rolled roster is measurably SKEWED', () => {
+    // FAIL-PROOF for the assertions above — a runner that ignored spec.roster
+    // would pass a bare "not exactly even" only by coincidence, and could fail
+    // it for an unrelated reason. The discriminating PROPERTY is the skew
+    // itself: the rolled roster misses the <= 1 spread the even roster
+    // guarantees, which is the representation artefact the flag removes.
+    const total = totals(campaign('rolled', 3));
+    expect(total.reduce((a, b) => a + b, 0)).toBe(60);
+    expect(Math.max(...total) - Math.min(...total)).toBeGreaterThan(1);
+  });
+
+  it('deals CAPTAINS the same rotation, so a mixed lobby is not skewed either', () => {
+    // The captain loop used to deal a bare `i % 3` with no match-index offset,
+    // so `--captains 2` was short the SAME class in every match — and
+    // BatchAggregate.winnerClass pools captains and bots into one tally.
+    const restore = applyOverrides({ 'zone.beatMs': 1, 'zone.terminalSightFactor': 0, 'zone.stormDps': 100000 });
+    try {
+      const even = runBatch({ seed: 5, matches: 3, captains: 2, bots: 0, roster: 'even' });
+      const cls = even.matches.map((m) => m.captains.map((c) => c.cls));
+      expect(cls).toEqual([
+        [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[1]],
+        [SHIP_CLASS_IDS[1], SHIP_CLASS_IDS[2]],
+        [SHIP_CLASS_IDS[2], SHIP_CLASS_IDS[0]],
+      ]);
+      // ...and the DEFAULT captain deal is byte-identical to the shipped one
+      // (`i % 3`, no offset), which is what preserves every existing run key.
+      const rolled = runBatch({ seed: 5, matches: 3, captains: 2, bots: 0, roster: 'rolled' });
+      expect(rolled.matches.map((m) => m.captains.map((c) => c.cls))).toEqual([
+        [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[1]],
+        [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[1]],
+        [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[1]],
+      ]);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('--json contract pin (the shape /balance-sim reads)', () => {
+  // buildAggregate / buildBotAggregate return EXACTLY the objects main.ts
+  // stringifies as variants[].aggregate and variants[].bots. Tests may not
+  // import main.ts (it runs the CLI at import time), so this is the closest
+  // exercisable surface to the envelope itself.
+  it('pins the frozen keys on aggregate and bots', () => {
+    const restore = applyOverrides({
+      'zone.beatMs': 1,
+      'zone.terminalSightFactor': 0,
+      'zone.stormDps': 100000,
+    });
+    let result;
+    try {
+      result = runBatch({ seed: 9, matches: 2, captains: 0, bots: 4, roster: 'even' });
+    } finally {
+      restore();
+    }
+    const aggregate = buildAggregate(result, 0);
+    expect(typeof aggregate.matches).toBe('number');
+    expect(typeof aggregate.durationS).toBe('object');
+    expect(aggregate.durationS.n).toBe(2);
+    // NOT toBeTypeOf('object'): `typeof null` IS 'object', so that assertion
+    // passes for a nulled field and cannot catch the breakage it is here for.
+    expect(aggregate.winnerClass).not.toBeNull();
+    expect(typeof aggregate.winnerClass).toBe('object');
+
+    const bots = buildBotAggregate(result, 4);
+    expect(bots.botsPerMatch).toBe(4);
+    expect(bots.endedBy).not.toBeNull();
+    expect(typeof bots.endedBy).toBe('object');
+    expect(Object.values(bots.endedBy).reduce((a, b) => a + b, 0)).toBe(2);
+    expect(bots.byClass.length).toBeGreaterThan(0);
+    for (const g of bots.byClass) {
+      // REQUIRED keys, not an exact key set: byClass rows legitimately GAIN
+      // fields (lifeSamples arrived with the attrition-curve work), and a
+      // frozen exact set would fail on an additive change that breaks nothing.
+      expect(typeof g.key).toBe('string');
+      expect(typeof g.n).toBe('number');
+      expect(g.lifeS).not.toBeNull();
+      expect(typeof g.lifeS.p50).toBe('number');
+      // lifeSamples is part of the contract now, and it is a byClass-ONLY
+      // column: one raw value per bot-match in the group.
+      expect(Array.isArray(g.lifeSamples)).toBe(true);
+      expect(g.lifeSamples).toHaveLength(g.n);
+      for (const v of g.lifeSamples) expect(Number.isFinite(v)).toBe(true);
+    }
+    // ...and it must NOT be duplicated onto the profile axis (the two slices
+    // are built by the same code, so a field on the shared type rides both).
+    for (const g of bots.byProfile) expect(g).not.toHaveProperty('lifeSamples');
+    expect(bots.byClass.reduce((a, g) => a + g.n, 0)).toBe(8);
+  });
+
+  it("winnerClass tallies 'none' for an unresolved match", () => {
+    // Hand-built samples: the tally must survive a batch with no winner at all,
+    // which is what a pacifist / cap-out campaign hands /balance-sim.
+    const base: MatchSample = {
+      index: 0, seed: 1, durationS: 100, endedBy: 'unresolved', winnerClass: null,
+      stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [],
+    };
+    const agg = buildAggregate({ matches: [base, { ...base, index: 1 }], failures: [] }, 0);
+    expect(agg.winnerClass).toEqual({ none: 2 });
   });
 });
 

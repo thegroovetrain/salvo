@@ -276,6 +276,28 @@ export class BotCollector {
   }
 }
 
+/**
+ * Raw per-bot `lifeS` values off a list of BotSample rows, sorted ascending.
+ *
+ * This is the EXACT sibling of `summarize(rows.map((r) => r.lifeS))` —
+ * `botReport.ts`'s `groupOf` already pools that quantile summary; this
+ * returns the same underlying values UNSUMMARIZED so a downstream consumer
+ * (the `/balance-sim` attrition curve) can read the true alive-at-T curve
+ * instead of an approximation reconstructed from p25/p50/p75/p95.
+ *
+ * Sorted ascending rather than left in row order: the values already carry
+ * no positional meaning (a row is one bot-match, and BotCollector iterates
+ * its tracks Map in insertion order, which is an implementation detail of
+ * lobby construction, not a report contract) and a sorted array is directly
+ * usable for the curve's own percentile/threshold reads without forcing the
+ * consumer to re-sort. Values are emitted exactly as stored on the row (see
+ * BotSample.lifeS: already rounded to 1 decimal by `samples()`) — no
+ * re-rounding here.
+ */
+export function lifeSamples(rows: readonly BotSample[]): number[] {
+  return rows.map((r) => r.lifeS).sort((a, b) => a - b);
+}
+
 /** Classify a sinking by its killer: none = the storm, a fleet hull = PvE,
  *  anything else = a participant. A killer whose record has already gone is
  *  treated as a participant — only fleet hulls are ever removed early. */
