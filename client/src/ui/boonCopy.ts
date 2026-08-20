@@ -94,9 +94,9 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   gunBarrel: ['BARREL I', 'BARREL II'],
   gunTurret: ['EXTRA TURRET'],
   // --- BROADSIDE BARRAGE (WAVE 2 — replaces the cannon outright) ------------
-  // Eric's names, verbatim. SPREAD is the only ladder in the catalog whose
-  // number goes DOWN as it climbs (the fan tightens), which is why its rules
-  // text prints the fan's half-angle rather than the rung the card writes.
+  // Eric's names, verbatim. SPREAD widens each turret's own firing arc (the
+  // 2026-08-20 per-turret-arc ruling), which is why its rules text prints the
+  // traverse half-angle rather than the rung the card writes.
   broadsideSpread: ['BROADSIDE SPREAD I', 'BROADSIDE SPREAD II', 'BROADSIDE SPREAD III', 'BROADSIDE SPREAD IV'],
   broadsideTurrets: ['BROADSIDE TURRETS I', 'BROADSIDE TURRETS II'],
   // --- TORPEDOES -----------------------------------------------------------
@@ -206,10 +206,9 @@ function secs(ms: number): string {
   return `${num(ms / 1000)}s`;
 }
 
-/** Radians as a signed half-angle in whole-ish degrees — "±12°". The one
- *  ladder whose printed number falls as it climbs (the broadside fan tightens),
- *  so the ± is doing real work: it says the number is a HALF-WIDTH about the
- *  click, not a distance. */
+/** Radians as a signed half-angle in whole-ish degrees — "±34°". The ± is
+ *  doing real work: it says the number is a HALF-WIDTH about each turret's own
+ *  mount bearing (its traverse), not a distance. */
 function halfAngleDeg(rad: number): string {
   return `±${num((rad * 180) / Math.PI)}°`;
 }
@@ -249,7 +248,7 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   // DERIVED half-angle instead, straight off the same effectiveStats preview
   // diff every other line uses: the firewall does the ladder lookup and the ×4
   // clamp, so a maxed stack honestly prints "±3° → ±3°".
-  broadsideSpread: { label: 'Barrage spread', read: (s) => s.broadside.fanHalfAngleRad, fmt: halfAngleDeg },
+  broadsideSpread: { label: 'Turret traverse', read: (s) => s.broadside.traverseRad, fmt: halfAngleDeg },
   broadsideTurrets: { label: 'Shells per barrage', read: (s) => s.broadside.turrets },
   torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },
   torpedoTube: { label: 'Torpedoes loaded', read: (s) => s.torpedo.maxAmmo },
@@ -356,9 +355,9 @@ const BOON_EXPLAIN: Readonly<Record<string, string>> = {
     'Keeps a second gun round ready, so you can fire twice back to back instead of waiting out the whole reload between shots. The reload is unchanged — you simply have somewhere to keep the spare.',
   // --- broadside -----------------------------------------------------------
   broadsideSpread:
-    'A barrage throws its shells in a fan around the point you clicked, every one stopping at that range. Each card narrows the fan, so more of the salvo lands near your aim instead of sweeping wide.',
+    'Each turret in the battery has its own firing arc and fires as close to your click as that arc can swing. Each card widens every arc, so more of the salvo can train onto the point you clicked.',
   broadsideTurrets:
-    'Adds a turret to each side, so every barrage throws one more shell. An odd number of shells puts one exactly on your click; an even number straddles it with none on the bearing itself.',
+    'Adds a turret to each side, so every barrage throws one more shell — one more gun, with its own arc, that can bear on the point you click. Every gun that bears lands its shell exactly there.',
   // --- torpedoes -----------------------------------------------------------
   torpedoSpeed:
     'A faster fish reaches the target sooner and leaves less water for them to turn out of. It does not hit harder: speed buys shots that are harder to dodge, not shots that hurt more.',

@@ -176,7 +176,7 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
       ['mineBlast', 'trip ring'],
       ['intelRange', 'star shells'],
       ['shipCooldown', 'every weapon'],
-      ['broadsideTurrets', 'straddles'],
+      ['broadsideTurrets', 'its own arc'],
       ['gunBarrel', 'parallel'],
     ];
     for (const [id, phrase] of moved) {
@@ -223,20 +223,21 @@ describe('rules text — the contract, with live values', () => {
     expect(boonDescription(BOON_CATALOG.shipCooldown, TB)).toBe('All cooldowns: 100% → 90%.');
   });
 
-  // STORY 7-5 WAVE 2 — the BROADSIDE pair. SPREAD is the ONE line in the catalog
-  // whose printed number falls as the card climbs, and the number it prints is
-  // NOT the stat the card writes: `broadside.spreadRung` is an index into a
-  // ladder of authored degrees, so "1 → 2" would say nothing. It prints the
-  // DERIVED fan half-angle instead, through the same preview diff.
-  it('BROADSIDE SPREAD prints the fan TIGHTENING, not the rung it writes', () => {
+  // STORY 7-5 WAVE 2 + the 2026-08-20 per-turret-arc ruling — the BROADSIDE
+  // pair. The number SPREAD prints is NOT the stat the card writes:
+  // `broadside.spreadRung` is an index into a ladder of authored degrees, so
+  // "1 → 2" would say nothing. It prints the DERIVED per-turret traverse
+  // half-angle instead, through the same preview diff.
+  it('BROADSIDE SPREAD prints the traverse WIDENING, not the rung it writes', () => {
     const text = boonDescription(BOON_CATALOG.broadsideSpread, TB);
-    expect(text).toContain('Barrage spread');
+    expect(text).toContain('Turret traverse');
     expect(text).toContain('°');
     expect(text).not.toMatch(/\b1 → 2\b/); // never the raw rung
-    // The half-angle really falls, and it is the firewall's own number.
+    // The traverse really WIDENS (each gun's own arc — the card brings more
+    // guns onto a click), and it is the firewall's own number.
     const before = effectiveStats(CONFIG.shipClasses.battleship);
     const after = effectiveStats(CONFIG.shipClasses.battleship, resolveBoons(['broadsideSpread'], BOON_CATALOG));
-    expect(after.broadside.fanHalfAngleRad).toBeLessThan(before.broadside.fanHalfAngleRad);
+    expect(after.broadside.traverseRad).toBeGreaterThan(before.broadside.traverseRad);
   });
 
   it('BROADSIDE TURRETS prints shells per barrage, and nothing else', () => {

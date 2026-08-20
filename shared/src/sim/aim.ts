@@ -15,12 +15,13 @@
 // range/radius arrives as an argument from the caller's effectiveStats().
 
 import { CONFIG, hullEnvelope, type HullId } from '../constants.js';
+import { wrapAngle } from '../math/angle.js';
 import { pointInCircle, segCircleExit } from '../math/geom.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island } from '../types.js';
 import { pointInIsland } from './island.js';
 import { hullSilhouette, polygonMaxRadius, segPolygonHit, transformPolygon } from './silhouette.js';
-import { fanTargets, straddleOffsets } from './spread.js';
+import { straddleOffsets } from './spread.js';
 
 /** The minimum a firing pose needs to be: world position + heading. */
 export interface AimPose {
@@ -142,36 +143,107 @@ export function burstPointAlong(
   return clampInsideMap(center, target, mapRadius);
 }
 
+/** deg -> rad — CONFIG.broadside's arc fields are authored in degrees. SAME
+ *  ASSOCIATION as sim/arcs.ts's `deg` (`(d * PI) / 180`), so a mount bearing
+ *  and the twin-sector gate land on identical doubles. */
+const degToRad = (d: number): number => (d * Math.PI) / 180;
+
 /**
- * THE BROADSIDE FAN'S BURST POINTS — the ONE answer both sides read (Story 7-5
- * wave 2, R2.3 + the wave-2 review gate).
+ * THE BROADSIDE TURRETS' MOUNT BEARINGS (Eric ruling 2026-08-20) — each turret
+ * owns a FIRING ARC of its own: this mount bearing ± the traverse half-angle
+ * (`EffectiveStats.broadside.traverseRad`). The mounts are straddled across
+ * ±`CONFIG.broadside.turretMountSpreadDeg` about the firing beam by the SAME
+ * straddle law that spaces the muzzles, so together the battery covers the
+ * whole ±60° sector while each gun stays individually narrow.
  *
- * `sim/spread.ts fanTargets` owns the straddle law, but its output is RAW
- * geometry: swinging the click bearing by ±`halfAngle` at a CONSTANT radius can
- * push a fan extreme OUT of the water disk on a shot whose click was itself
- * inside it (the click is clamped along its own bearing; the extremes are not
- * on that bearing). A target outside the disk is not a long shot — `stepShell`
- * resolves it `expired`, so it splashes with NO burst and NO damage. So every
- * fan point takes the SAME pull-back the click already takes (`clampInsideMap`),
- * which is the consistent rule and the one that keeps the shell doing something.
+ * INDEX-PAIRED WITH `turretMuzzles`, AND UNCROSSED — the bow-most muzzle gets
+ * the bow-most mount. The pairing falls out of one sign identity: muzzle `i`
+ * sits at `-side × d_i` along the heading, and the world mount is
+ * `heading + side × (arcOffset + side × m_i)` = `heading + side·arcOffset +
+ * m_i` — the side factors cancel, so BOTH arrays read the same ascending
+ * straddle and no per-side branch exists to get wrong. Uncrossed matters
+ * beyond tidiness: it is what makes parallax work AGAINST convergence up
+ * close (a near click overshoots each gun's own arc) and FOR it near max
+ * range, which is the whole "rare without upgrades, close to max range"
+ * mechanism.
  *
- * It lives HERE, not in spread.ts, because the water disk is aim geometry
- * (clampInsideMap's home) rather than straddle geometry, and it is a FUNCTION
- * rather than two agreeing call sites because the project's guarantee is that
- * the previewed circle IS where the shell bursts: the server's `broadsideTargets`
- * and the client's `broadsidePreview` both call this and can no longer diverge.
- * Callers must derive each shell's BEARING and MUZZLE from the returned
- * (clamped) point too — a clamped point on an unclamped bearing would put the
- * muzzle flash and the burst on different lines.
+ * The mount spread is FIXED as `count` grows (the turretSpanFactor rule
+ * applied to bearings): extra turrets densify the same covered sector, so
+ * more guns bear on any given click — never a wider battery.
  */
-export function fanBurstPoints(
-  center: Vec2,
-  target: Vec2,
+export function turretMountBearings(heading: number, count: number, side: 1 | -1): number[] {
+  const n = Math.max(0, Math.floor(count));
+  const spread = degToRad(CONFIG.broadside.turretMountSpreadDeg);
+  const step = n > 1 ? (2 * spread) / (n - 1) : 0;
+  const beam = heading + side * degToRad(CONFIG.broadside.arcOffsetDeg);
+  return straddleOffsets(n, step).map((m) => beam + m);
+}
+
+/** One turret's resolved shot: where it fires FROM, where its shell BURSTS,
+ *  and whether its own arc bears on the click (target === the click exactly). */
+export interface TurretAim {
+  muzzle: Vec2;
+  target: Vec2;
+  onClick: boolean;
+}
+
+/**
+ * THE BROADSIDE BARRAGE'S AIM SOLUTION — the ONE answer both sides read
+ * (Eric ruling 2026-08-20, replacing the designed fan of R2.3).
+ *
+ * Every turret fires AS CLOSE TO THE CLICK AS ITS OWN ARC ALLOWS: if the
+ * bearing from THAT turret's muzzle to the click lies inside its arc
+ * (`turretMountBearings[i] ± traverseRad`) it fires EXACTLY at the click —
+ * the returned target IS the click point, byte-identical, so "one shell will
+ * absolutely hit at the target point" holds for every gun that bears.
+ * Otherwise it fires at its arc LIMIT, still at the click's RANGE (measured
+ * muzzle→click), so the pattern stays an arc at constant radius rather than a
+ * cone — and the spread of a salvo is EMERGENT geometry, not a designed fan.
+ *
+ * The bearing test is PARALLAX-TRUE — measured from each muzzle, never the
+ * ship centre. That is the mechanism, not a nicety: muzzle→click bearings
+ * differ by ~atan(hullOffset/R), so a distant click can sit in every arc at
+ * once while a close one overshoots them all, which is exactly Eric's
+ * "convergence is very rare without upgrades and aiming close to max range".
+ * BROADSIDE SPREAD widens `traverseRad`, bringing more guns onto a click.
+ *
+ * `click` MUST arrive already range- and map-clamped (`burstPointAlong`) —
+ * both callers do exactly that. A clamped limit shot takes the same
+ * `clampInsideMap` pull-back the click itself took, so a limit target swung
+ * off the water disk still bursts in-bounds (an off-disk target expires with
+ * no burst); an on-click target is inside the disk by contract and the clamp
+ * is a no-op on it. It is a FUNCTION rather than two agreeing call sites
+ * because the previewed circle IS where the shell bursts: the server's
+ * `broadsideAim` and the client's `broadsidePreview` both call this and
+ * cannot diverge. COVERAGE GUARANTEE (pinned in aim.test.ts): mountSpread +
+ * base traverse ≥ the ±60° sector, so any legal click beyond point-blank
+ * water has at least one gun ON it.
+ *
+ * Degenerate click on a muzzle: distance 0 — the shell "flies" nowhere and
+ * bursts at the click; onClick by construction.
+ */
+export function turretAimPoints(
+  pose: AimPose,
+  hullId: HullId,
   count: number,
-  halfAngle: number,
+  side: 1 | -1,
+  click: Vec2,
+  traverseRad: number,
   mapRadius: number,
-): Vec2[] {
-  return fanTargets(center, target, count, halfAngle).map((p) => clampInsideMap(center, p, mapRadius));
+): TurretAim[] {
+  const mounts = turretMountBearings(pose.heading, count, side);
+  return turretMuzzles(pose, hullId, count, side).map((muzzle, i) => {
+    const dx = click.x - muzzle.x;
+    const dy = click.y - muzzle.y;
+    const off = wrapAngle(Math.atan2(dy, dx) - mounts[i]);
+    if (Math.abs(off) <= traverseRad || (dx === 0 && dy === 0)) {
+      return { muzzle, target: { x: click.x, y: click.y }, onClick: true };
+    }
+    const dir = mounts[i] + Math.sign(off) * traverseRad;
+    const dist = Math.hypot(dx, dy);
+    const limit = { x: muzzle.x + Math.cos(dir) * dist, y: muzzle.y + Math.sin(dir) * dist };
+    return { muzzle, target: clampInsideMap(muzzle, limit, mapRadius), onClick: false };
+  });
 }
 
 /**
@@ -201,14 +273,13 @@ export function fanBurstPoints(
  * by a caller: `+1` is the `heading + offset` beam, the direction
  * `(-sin heading, cos heading)`.
  *
- * ORDER MATCHES `fanBurstPoints` INDEX FOR INDEX, and that is the whole point
- * of returning an ordered array: shell `i` flies from muzzle `i` to fan target
- * `i`, so the pairing lives HERE (one function, both sides) instead of in two
- * call sites that could zip them differently. The along-hull offset carries a
- * `-side` factor precisely to make that pairing NON-CROSSING — `fanBearings`
- * runs its first shell to the bow-ward extreme on the `+1` beam and to the
- * stern-ward extreme on the `-1` beam, so the turret order must mirror with the
- * side or the shell paths would cross over the hull.
+ * ORDER MATCHES `turretMountBearings` INDEX FOR INDEX, and that is the whole
+ * point of returning an ordered array: turret `i` fires from muzzle `i` inside
+ * arc `i`, so the pairing lives HERE (one function, both sides) instead of in
+ * two call sites that could zip them differently. The along-hull offset
+ * carries a `-side` factor so the same ascending straddle reads UNCROSSED on
+ * both beams — the bow-most muzzle pairs with the bow-most mount (see
+ * turretMountBearings for why the side factors cancel).
  *
  * Pure over a pose + a hull id + a count + a side. It reads CONFIG only for
  * `turretSpanFactor`, which no boon scales (BROADSIDE TURRETS moves the COUNT,

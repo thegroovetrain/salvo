@@ -12,8 +12,6 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   burstVictims,
-  fanBearings,
-  fanTargets,
   parallelOffsets,
   straddleOffsets,
   mapRadius,
@@ -198,7 +196,13 @@ describe('shared barrel', () => {
     // only in the owning observer's frames; says which of YOUR sensors made
     // the return, never whether the subject is real) and BuoyView gains
     // `sweep` (the buoy's live antenna angle, the owner's wedge render input).
-    expect(PROTOCOL_VERSION).toBe(44);
+    // 44 -> 45: PER-TURRET FIRING ARCS (Eric ruling 2026-08-20). The
+    // broadside's designed fan is deleted for per-turret aim: CONFIG.broadside
+    // loses `fanHalfAngleDeg` and gains `turretMountSpreadDeg` + `traverseDeg`
+    // (rides the welcome config snapshot), and the firewall's
+    // `broadside.fanHalfAngleRad` becomes `traverseRad` — a stale client's
+    // preview would draw a fan the server no longer fires.
+    expect(PROTOCOL_VERSION).toBe(45);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -327,14 +331,15 @@ describe('shared barrel', () => {
       damage: 20, // Eric: "lets say 20 damage"
       burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,
-      fanHalfAngleDeg: [12, 10.5, 9, 7.75, 6.5], // DRAFT ladder, index = SPREAD copies
+      turretMountSpreadDeg: 27, // [DRAFT] mount half-spread about the beam
+      traverseDeg: [34, 40, 46, 52, 58], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
     });
     // NO range field — it is derived from radarRange × muzzleFlashFactor, and
     // NO arc field either: the beams are a twin-sector descriptor, not 'full'.
     expect('rangeU' in CONFIG.broadside).toBe(false);
     expect('arc' in CONFIG.broadside).toBe(false);
     // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card.
-    expect(CONFIG.broadside.fanHalfAngleDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
+    expect(CONFIG.broadside.traverseDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
   });
 
   it('CONFIG.radarBuoy carries the buoy\'s OWN sensor set (Story 7-5 wave 2)', () => {
@@ -436,7 +441,7 @@ describe('shared barrel', () => {
     expect(Object.keys(EQUIPMENT_CATEGORY)).toHaveLength(7);
     expect(Object.keys(DOCTRINE_MODES)).toHaveLength(4);
     // sim/spread.ts — the ONE straddle rule both sides call (Story 7-5 wave 2).
-    for (const fn of [straddleOffsets, fanBearings, fanTargets, parallelOffsets]) {
+    for (const fn of [straddleOffsets, parallelOffsets]) {
       expect(typeof fn).toBe('function');
     }
     for (const fn of [

@@ -1229,10 +1229,11 @@ export const CONFIG = {
   /**
    * BROADSIDE BARRAGE (Battleship slot 1, Story 7-5 wave 2) — REPLACES the
    * long-range cannon outright (Eric's `7-5-decks.md`). A click to either BEAM
-   * fires every broadside turret on THAT side in one barrage: one shell runs
-   * to the clicked point exactly, the rest fan out ANGULARLY about the click
-   * bearing and end their run at the SAME range (an arc at constant radius —
-   * sim/spread.ts fanTargets). Each shell is a real gun-pattern shell that
+   * fires every broadside turret on THAT side in one barrage: every turret
+   * whose OWN firing arc contains the click fires exactly at it, every turret
+   * that cannot bear fires at its arc LIMIT at the click's range (an arc at
+   * constant radius — sim/aim.ts turretAimPoints; see the per-turret arc
+   * fields below). Each shell is a real gun-pattern shell that
    * BURSTS at its own point and emits its OWN mz/sp/hc signals — there is no
    * salvo aggregation (R2.5).
    *
@@ -1287,31 +1288,44 @@ export const CONFIG = {
     // a radius, so the gun's number is the handwave until it is tuned.
     burstRadius: 15,
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
-    // deg — HALF-ANGLE of the full fan, indexed by BROADSIDE SPREAD copies
-    // held (index 0 = no cards, index 4 = the ×4 cap). The extreme shells sit
-    // at ±this; the rest are evenly spaced across it, so an ODD turret count
-    // puts one shell exactly on the click bearing and an EVEN count straddles
-    // it (sim/spread.ts). Read through EffectiveStats.broadside.fanHalfAngleRad,
-    // never indexed at a call site.
+    // PER-TURRET FIRING ARCS (Eric ruling 2026-08-20) — THE DESIGNED FAN IS
+    // DELETED. Eric: *"each of these turrets actually has its own firing arc
+    // ... all turrets WILL fire as close to the clicked point as they are able
+    // given their firing arc. And its not that the upgrade increases their
+    // precision/cohesion, its that it increases each individual turret's
+    // firing arc so they can each cover more area, and thus depending on where
+    // is clicked, more guns can get nearer to that point."* Nobody designs a
+    // spread any more — it EMERGES from guns that cannot all bear on one
+    // point. `fanHalfAngleDeg` (the fan-width ladder) is gone with the model.
     //
-    // RETUNED from [12, 9, 6.5, 4.5, 3] by the Story 7-5 batch-sim evidence pass
-    // (batch-sim-evidence-7-5-2026-08-19.md). The old 3° cap VIOLATED Eric's own
-    // ratified constraint on this weapon — *"you definitely can't hit a single
-    // ship with all the shots from this unless they are close and exposing their
-    // broadside to you"* — because at ×4 SPREAD + ×2 TURRETS the five shells
-    // separated by only 2.6–14.1u, well under the 30u burst DIAMETER, so every
-    // burst merged into one crater on ANY hull at ANY aspect out to the full
-    // 537.5u reach: a guaranteed 100 hp point strike, 80% of a Torpedo Boat.
-    // That is the opposite of the "unless they are close and broadside-on"
-    // clause, so this is enforcing his ruling rather than re-balancing past it.
+    // Each turret's arc is its MOUNT BEARING ± its TRAVERSE half-angle. The
+    // mounts are straddled across ±turretMountSpreadDeg about the firing beam
+    // (index-paired with turretMuzzles, UNCROSSED: the bow-most gun owns the
+    // bow-most arc — sim/aim.ts turretAimPoints), so together the battery
+    // covers the whole ±60° sector while each gun stays individually narrow:
+    // mountSpread + base traverse = 61° ≥ arcHalfArcDeg, pinned, which is what
+    // guarantees at least ONE gun always bears on any legal click ("one shell
+    // will absolutely hit at the target point" survives structurally).
     //
-    // The BASE 12° is UNCHANGED and stays deliberately: the same pass measured it
-    // as matching his brief exactly (about 1 of 3 shells lands on a broadside-on
-    // hull past ~300u). Only the tightening half of the ladder moved, so SPREAD
-    // still reads as "spread → parallel-ish → near the point" while the top rung
-    // now REWARDS the close broadside-on shot instead of removing the need for it.
-    // Still a DRAFT ladder — Eric tunes it on the water.
-    fanHalfAngleDeg: [12, 10.5, 9, 7.75, 6.5],
+    // CONVERGENCE IS PARALLAX. A gun that bears fires EXACTLY at the click; to
+    // put ALL guns on one point their muzzle→click bearings (which differ by
+    // atan(hullOffset/R) — ~5° at max reach, ~14° at 150u) must each fit their
+    // OWN arc, and the mounts are 27° apart. At base that closes only past
+    // ~300u within ~±2° of abeam — Eric: *"IF you happen to click a point that
+    // can be perfectly lined up, then yes, all guns should converge. But that
+    // should be very rare without upgrades and aiming close to max range."*
+    //
+    // [DRAFT] deg — half-spread of the outermost mount bearings about the
+    // beam. FIXED as turrets increase: extra guns densify the SAME covered
+    // sector (the turretSpanFactor rule applied to bearings).
+    turretMountSpreadDeg: 27,
+    // [DRAFT] deg — each turret's TRAVERSE half-angle about its own mount,
+    // indexed by BROADSIDE SPREAD copies held (index 0 = no cards, index 4 =
+    // the ×4 cap). The card WIDENS every gun's arc (+6°/card), so more guns
+    // can swing onto a given click and full convergence becomes reachable at
+    // closer ranges (~300u base → ~65u maxed, abeam). Read through
+    // EffectiveStats.broadside.traverseRad, never indexed at a call site.
+    traverseDeg: [34, 40, 46, 52, 58],
   },
 
   /**

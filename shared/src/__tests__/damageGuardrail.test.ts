@@ -215,7 +215,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   // deleted with the cannon, so there is no falloff left to bound.
 
   it('a max-stacked BROADSIDE obeys the per-shell law at every turret count', () => {
-    // The broadside's two cards move shell COUNT and fan WIDTH, never damage,
+    // The broadside's two cards move shell COUNT and turret TRAVERSE, never damage,
     // so the per-shell number is its base at every build — the strongest form
     // the law can take. The BARRAGE total (5 × 20 = 100) legitimately exceeds
     // the 45hp drone and still lands under the 125hp class floor, but that is
