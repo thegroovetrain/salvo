@@ -1504,3 +1504,53 @@ and the next reader will again mistake a marker count for an open-work count.
     on it without its own measurement.
   evidence: `bot-evidence-2026-08-20.md` §3 ordnance ledger (damage by source);
     `CONFIG.bots.boonWeights.trapper.cat.guns`.
+
+## 2026-08-20 — Cycle 111 (Mine Layer posture pass): a flaky gate, a method limit, a weak profile
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ml-posture-and-prepared-placement.md`
+  status: OPEN — A REAL DEFECT IN THE PROJECT GATE, measured, deliberately not fixed in-cycle
+  summary: `client/src/__tests__/radarHeatmap.test.ts` IS FLAKY AND PREDATES THIS WORK. Measured in
+    ISOLATION on a QUIET machine: **1 of 5 runs failed on cycle-111 code, and 3 of 6 runs failed on
+    cycle-110 code** (`fcfcffe`, before any of cycle 111's changes) — always the same pair, *"every
+    class at every aspect reads the SAME register at the same range"* and its companion about no
+    mask-derived quantity feeding intensity, occasionally a third. It was first mistaken for CPU
+    contention from concurrent batch sims (a plausible reading, since a load-hit run failed a
+    DIFFERENT set) and only resolved by running the file alone, repeatedly, on both commits. WHY IT
+    MATTERS BEYOND ONE FILE: `npm run check` is the project's stated ship gate ("it must pass before
+    any ship"), and it currently has a material chance of failing on a CLEAN TREE for reasons
+    unrelated to the change under test. That trains re-run-until-green, which is the habit by which a
+    genuine regression eventually rides through — and it is why two readers of the same tree
+    disagreed about whether cycle 111 was green. NOT fixed here: it is client rendering code
+    untouched by this cycle, and diagnosing a rasterization flake needs its own evidence and its own
+    cycle. Whoever takes it should first determine whether the nondeterminism is in the RASTERIZER or
+    in the test's sampling of it.
+  evidence: repeated isolated runs on both commits, 2026-08-20; `npm run check` vs `npm test -w client`
+    disagreeing on the same tree; epic-7 amendment 30's gate section.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ml-posture-and-prepared-placement.md`
+  status: STANDING METHOD RULE — record, do not re-derive
+  summary: THE BLIND-VACUUM RIG'S CONTROL IS NOT VALID ACROSS CYCLES. Cycle 111 instructed that the
+    random-spend control must return UNCHANGED from cycle 110 and that any movement was a defect.
+    That instruction was WRONG and the control moved (ML 12/30 → 8/30 wins, match length 529.1s →
+    598.6s). It is not a leak — the test-profile rows are byte-identical (`testRow`/`TEST_APPETITE`
+    verified by diff) — but the churn bound and the prepared lay live in `EQUIPMENT_TACTICS`, which
+    the two-axis design (amendment 29) SHARES with every profile carrying that equipment, and the
+    test rows run every appetite at EAGER so they pick up prepared laying too. **The control is
+    stable across cycles ONLY for PROFILE and WEIGHT changes; any EQUIPMENT-AXIS change moves both
+    arms and the control MUST be re-run in the same cycle.** Cycle 111's headline uses the
+    within-cycle comparison for exactly this reason. Anyone reaching for the rig again must re-run
+    its control rather than quoting a prior cycle's number.
+  evidence: `bot-evidence-2026-08-20-ml.md` §2; epic-7 amendment 30's method-correction section.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ml-posture-and-prepared-placement.md`
+  status: OPEN — carried forward from cycle 111, candidate for the balance pass
+  summary: `trapper` IS STILL THE WEAK PROFILE. The re-band let it LIVE (181.1s class-wide → 228.1s
+    for trapper) but has not made it DANGEROUS: it kills least of any of the six profiles (0.41 per
+    bot-match) and finished the 30-match campaign at **0% alive**. `forager`, on the same hull and the
+    same cycle's changes, became the longest-lived profile in the game (296.6s, 3.79 boons, 8.7%
+    alive). So the survival fix worked for one ML profile and only half-worked for the other, which
+    points at `trapper`'s own identity — its weight table, its appetite mix, or the value of a mine
+    rack at current numbers — rather than at posture. Composes with the still-unverified
+    "trapper under-buys the gun" entry above; both may dissolve once the balance pass moves mine
+    damage, and neither should be acted on without its own measurement.
+  evidence: `bot-evidence-2026-08-20-ml.md` §1 and §6 (BY PROFILE rows).

@@ -1836,3 +1836,96 @@ captive/buoy PLACEMENT tactics being prepared ahead of an engagement rather than
 equipment-axis work, not a weight change. Hull and catalog balance stays OUT: *"A lot of this is what
 the balance pass is going to be for! But it still needs to play intelligently."* Full record:
 `deferred-work.md`, the 2026-08-20 section.
+
+---
+
+## Amendment 30 — THE MINE LAYER HANGS BACK, AND THE CONTROL IS NOT CROSS-CYCLE (ERIC RULINGS, 2026-08-20, cycle 111)
+
+The follow-up amendment 29 scheduled. Cycle 110's blind-vacuum A/B found the ML's bots building and
+sailing it WORSE THAN CHANCE (4/30 wins weighted vs 12/30 random) and the orchestrator initially
+misread the cause as target choice. Eric played the hull and named it correctly:
+
+> *"My best performance so far was hanging back to avoid getting killed in the first minute, and then
+> slowly trying to find a PvE fleet to farm on. I got captive mines and gun buoy pretty early and
+> those are actually REALLY powerful weapons, you just have to be lined up well and prepare… It
+> wants certain things, and when it gets them it is a powerhouse, it just needs to survive until
+> then."*
+
+### THE RULINGS
+
+**BANDS AND THRESHOLDS, ruled verbatim.** `forager` 0.45–0.80R, disengage 0.55, heal 0.60;
+`trapper` 0.25–0.50R, disengage 0.45, heal 0.60. Before: `forager` 0.20–0.45 / 0.40 / 0.50 and
+`trapper` 0.12–0.35 / 0.35 / 0.50 — **the closest band of any profile in the game, on the hull that
+most needs distance.** Neither ML profile had ever actually hung back; both were written as brawlers
+with a farming preference. Pinned as literals so a "tuning" drift is a reviewed edit.
+
+**PREPARED PLACEMENT, pulled INTO scope by Eric** over an orchestrator recommendation to defer it. A
+mine may be laid with NO target when the posture is safe and the bot's own live-mine count is under
+`CONFIG.bots.preparedMineReserve` (3 of `maxLive` 5). The gate is DOCTRINE-SHAPED, not
+profile-shaped — eager appetite OR holding `mine.captive` at neutral — because a CONTACT mine needs
+something following you while a CAPTIVE mine is a 144u-trip torpedo launcher that fires at the first
+hostile into range and therefore works with nobody chasing. That is exactly why it suits a hull that
+is hanging back, and why Eric's build worked. Keeping the branch on the doctrine preserves the
+two-axis separation: the profile still only says how eager it is.
+
+**THE `mineCaptive` DEMOTION IS REVERSED**, as amendment 29's same-day correction ruled: restored to
+2.0 for `forager` (deliberately under `trapper`'s 2.4 signature). `buoyGun` gains an explicit override
+in BOTH ML tables (2.0 / 2.2) where it was named by NEITHER and fell through to a bare category
+weight, despite being half the combo Eric calls a powerhouse.
+
+**A SHIPPED DEFECT CLOSED ON THE WAY.** No lay — reactive or otherwise — ever consulted
+`stats.mine.maxLive`, and `addMine` SILENTLY EVICTS the owner's oldest mine at the cap. Prepared
+laying every 15s reload would have demolished the field it had just built; the feature would have
+destroyed itself. Own live mines are counted through `MineView.own` — the same data a client
+receives, so no port change and no perception widening.
+
+### MEASURED — parity with chance, from well below it
+
+| Mine Layer | weighted | random control | gap |
+|---|---|---|---|
+| cycle 110 | 181.1s · 4/30 · 1.97 boons | 264.0s · 12/30 · 2.96 boons | 82.9s · 8 wins |
+| cycle 111 | **264.4s · 8/30 · 2.89 boons** | 268.1s · 8/30 · 2.62 boons | **3.7s · 0 wins** |
+
+PvE kills rose 3.19 → 4.32 while participant kills edged DOWN 0.68 → 0.62 — it hangs back and farms,
+exactly as reported. `forager` is now the longest-lived profile in the game (296.6s).
+
+### THE METHOD CORRECTION — THE CONTROL IS NOT CROSS-CYCLE (durable)
+
+The orchestrator instructed that the random control **must return unchanged** from cycle 110 and that
+any movement was a defect. **That instruction was WRONG.** The control did move (ML 12/30 → 8/30), and
+it is not a leak: the test-profile rows are byte-identical, but the churn bound and the prepared lay
+live in `EQUIPMENT_TACTICS`, which the two-axis design SHARES with every profile carrying that
+equipment — and the test rows run every appetite at EAGER, so they pick up prepared laying too.
+
+**THE BLIND-VACUUM RIG'S CONTROL IS STABLE ACROSS CYCLES ONLY FOR PROFILE AND WEIGHT CHANGES. ANY
+EQUIPMENT-AXIS CHANGE MOVES BOTH ARMS, SO THE CONTROL MUST BE RE-RUN IN THE SAME CYCLE.** This
+cycle's headline uses the within-cycle comparison for that reason. Anyone reaching for the rig again
+must re-run its control rather than quoting a prior cycle's.
+
+**Ruled not worth chasing (Eric):** the random arm's ML win shift is ~1.5σ on a binomial at n=30 —
+*"its fine. its random. nothing really changed on stats in this time. we know the behavior is an
+improvement."*
+
+### THE PROJECT GATE IS FLAKY, AND IT PREDATES THIS WORK (measured)
+
+`client/src/__tests__/radarHeatmap.test.ts` fails intermittently in isolation on a quiet machine:
+**1 of 5 runs on cycle-111 code, 3 of 6 runs on cycle-110 code** (`fcfcffe`, before any of this
+cycle's changes). Always the same pair of register/intensity assertions. `npm run check` is the
+project's stated ship gate and currently has a material chance of failing on a clean tree for reasons
+unrelated to the change under test — which trains re-run-until-green, the habit by which a real
+regression eventually rides through. NOT fixed here (client rendering, untouched by this cycle);
+ledgered in `deferred-work.md` as a real defect rather than left as folklore.
+
+### WHAT DID NOT MOVE
+
+`PROTOCOL_VERSION` **43**. No `client/` file. No hull stat, card magnitude or combat constant. The
+four non-ML profiles, `CONFIG.bots.profiles` and all three test-only rows are untouched. 5446 tests
+(shared 768 / server 1558 / client 3120).
+
+### CARRIED FORWARD
+
+`trapper` is still the weak profile — survival improved (228.1s) but it kills least of any profile
+(0.41) and finished **0% alive**. The re-band let it live; it has not made it dangerous. The
+unverified "trapper under-buys the gun" hypothesis from cycle 110 remains open and may dissolve
+once the balance pass moves mine numbers. Match length rose 29% in the weighted arm because the ML
+stops dying early — a real pacing consequence worth feeling on the water.

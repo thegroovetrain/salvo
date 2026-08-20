@@ -2,8 +2,9 @@
 title: 'The Mine Layer hangs back and prepares — posture, payoff cards, and pre-positioned traps'
 type: 'feature'
 created: '2026-08-20'
-status: 'ready-for-dev'
-review_loop_iteration: 0
+status: 'done'
+review_loop_iteration: 1
+final_revision: 'pending-codex'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context-amendments.md'
@@ -69,13 +70,13 @@ warnings: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `server/src/game/ai/profiles.ts` -- RULED (Eric, 2026-08-20): `forager` band `0.45`–`0.80`, `disengageHpFrac` `0.55`, `healHpFrac` `0.60`; `trapper` band `0.25`–`0.50`, `disengageHpFrac` `0.45`, `healHpFrac` `0.60` -- the ML dies before it reaches its payoff, and neither profile hangs back today.
-- [ ] `shared/src/constants.ts` -- restore `forager.mineCaptive` as a WANTED line and add an explicit `buoyGun` override to BOTH ML tables -- cycle 110 demoted captive on a farming argument that was the wrong frame (it is a survival/payoff tool), and `buoyGun` is named by neither table despite being half the combo Eric calls a powerhouse. Record the corrected rationale in the block comment; do NOT leave the retracted one.
-- [ ] `server/src/game/ai/utility.ts` -- add `ownLiveMines(mind)` reading `mind.view.mines` through the `own` flag -- the same data a client receives, no port change.
-- [ ] `server/src/game/ai/equipment.ts` -- the PREPARED LAY: a mine may be laid with NO target when the posture is safe (`reposition` / `farm`) and `ownLiveMines < CONFIG.bots.preparedMineReserve`. Gate: appetite ≥ EAGER, OR the bot holds `mine.captive` at ≥ NEUTRAL — a captive mine is a ranged trap that works without a pursuer, which is exactly why it suits a hull that is hanging back. Prepared ADDS an occasion; every reactive lay still fires.
-- [ ] `server/src/game/ai/equipment.ts` -- bound EVERY lay (prepared and reactive) by `stats.mine.maxLive` -- closes a shipped defect ledgered during the cycle-110 investigation: `addMine` silently evicts the owner's OLDEST mine at the cap, so a bot could churn its own field.
-- [ ] `shared/src/constants.ts` -- add `CONFIG.bots.preparedMineReserve` -- the headroom kept under `maxLive` so a reactive lay is always possible. This is a deliberate edit to the `CONFIG.bots` key-set pin (`bots.test.ts:45`).
-- [ ] `server/src/__tests__/botPolicy.test.ts` + `botTactics.test.ts` -- pin the new bands/thresholds, the restored weights, the prepared lay, the field-churn bound, and that a reactive lay still fires with the field at reserve.
+- [x] `server/src/game/ai/profiles.ts` -- RULED (Eric, 2026-08-20): `forager` band `0.45`–`0.80`, `disengageHpFrac` `0.55`, `healHpFrac` `0.60`; `trapper` band `0.25`–`0.50`, `disengageHpFrac` `0.45`, `healHpFrac` `0.60` -- the ML dies before it reaches its payoff, and neither profile hangs back today.
+- [x] `shared/src/constants.ts` -- restore `forager.mineCaptive` as a WANTED line and add an explicit `buoyGun` override to BOTH ML tables -- cycle 110 demoted captive on a farming argument that was the wrong frame (it is a survival/payoff tool), and `buoyGun` is named by neither table despite being half the combo Eric calls a powerhouse. Record the corrected rationale in the block comment; do NOT leave the retracted one.
+- [x] `server/src/game/ai/utility.ts` -- add `ownLiveMines(mind)` reading `mind.view.mines` through the `own` flag -- the same data a client receives, no port change.
+- [x] `server/src/game/ai/equipment.ts` -- the PREPARED LAY: a mine may be laid with NO target when the posture is safe (`reposition` / `farm`) and `ownLiveMines < CONFIG.bots.preparedMineReserve`. Gate: appetite ≥ EAGER, OR the bot holds `mine.captive` at ≥ NEUTRAL — a captive mine is a ranged trap that works without a pursuer, which is exactly why it suits a hull that is hanging back. Prepared ADDS an occasion; every reactive lay still fires.
+- [x] `server/src/game/ai/equipment.ts` -- bound EVERY lay (prepared and reactive) by `stats.mine.maxLive` -- closes a shipped defect ledgered during the cycle-110 investigation: `addMine` silently evicts the owner's OLDEST mine at the cap, so a bot could churn its own field.
+- [x] `shared/src/constants.ts` -- add `CONFIG.bots.preparedMineReserve` -- the headroom kept under `maxLive` so a reactive lay is always possible. This is a deliberate edit to the `CONFIG.bots` key-set pin (`bots.test.ts:45`).
+- [x] `server/src/__tests__/botPolicy.test.ts` + `botTactics.test.ts` -- pin the new bands/thresholds, the restored weights, the prepared lay, the field-churn bound, and that a reactive lay still fires with the field at reserve.
 
 **Acceptance Criteria:**
 - Given a `forager` with a fleet target at 400u, when it deliberates, then it holds its band rather than closing to the old 132–297u window.
