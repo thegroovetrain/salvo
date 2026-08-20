@@ -1303,29 +1303,41 @@ export const CONFIG = {
     // (index-paired with turretMuzzles, UNCROSSED: the bow-most gun owns the
     // bow-most arc — sim/aim.ts turretAimPoints), so together the battery
     // covers the whole ±60° sector while each gun stays individually narrow:
-    // mountSpread + base traverse = 61° ≥ arcHalfArcDeg, pinned, which is what
+    // mountSpread + base traverse = 61.5° ≥ arcHalfArcDeg, pinned, which is what
     // guarantees at least ONE gun always bears on any legal click ("one shell
     // will absolutely hit at the target point" survives structurally).
     //
     // CONVERGENCE IS PARALLAX. A gun that bears fires EXACTLY at the click; to
     // put ALL guns on one point their muzzle→click bearings (which differ by
     // atan(hullOffset/R) — ~5° at max reach, ~14° at 150u) must each fit their
-    // OWN arc, and the mounts are 27° apart. At base that closes only past
-    // ~300u within ~±2° of abeam — Eric: *"IF you happen to click a point that
-    // can be perfectly lined up, then yes, all guns should converge. But that
-    // should be very rare without upgrades and aiming close to max range."*
+    // OWN arc, and the mounts are 28° apart. At base that closes only past
+    // ~386u — 94% of the weapon's own 412.5u reach — within ~±2° of abeam.
+    // Eric: *"IF you happen to click a point that can be perfectly lined up,
+    // then yes, all guns should converge. But that should be very rare without
+    // upgrades and aiming close to max range."*
+    //
+    // RETUNED on his playtest (2026-08-20): *"the convergence is slightly too
+    // high at level 1 imo. I am okay with there being some dead space when
+    // closer to the ship that none of the shots can actually hit."* Base
+    // convergence moved ~303u → ~386u. THE DIAL IS THE OVERLAP
+    // (traverse − mountSpread), which is what convergence needs; COVERAGE is
+    // their SUM, which is what keeps a gun on every legal click. Widening the
+    // mounts while narrowing the arcs tightens the first WITHOUT opening
+    // angular gaps in the second — so the dead space Eric accepted is the
+    // CLOSE-RANGE kind (parallax too wide for the outer guns to bear), never a
+    // bearing that no gun can ever reach.
     //
     // [DRAFT] deg — half-spread of the outermost mount bearings about the
     // beam. FIXED as turrets increase: extra guns densify the SAME covered
     // sector (the turretSpanFactor rule applied to bearings).
-    turretMountSpreadDeg: 27,
+    turretMountSpreadDeg: 28,
     // [DRAFT] deg — each turret's TRAVERSE half-angle about its own mount,
     // indexed by BROADSIDE SPREAD copies held (index 0 = no cards, index 4 =
     // the ×4 cap). The card WIDENS every gun's arc (+6°/card), so more guns
     // can swing onto a given click and full convergence becomes reachable at
-    // closer ranges (~300u base → ~65u maxed, abeam). Read through
+    // closer ranges (386 → 183 → 118 → 86 → 66u, abeam). Read through
     // EffectiveStats.broadside.traverseRad, never indexed at a call site.
-    traverseDeg: [34, 40, 46, 52, 58],
+    traverseDeg: [33.5, 39.5, 45.5, 51.5, 57.5],
   },
 
   /**
