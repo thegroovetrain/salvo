@@ -2,7 +2,7 @@
 title: 'Remove the INTEL RANGE upgrade card line'
 type: 'chore'
 created: '2026-08-20'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '7157dc42f959bb05b496d9f22e4954eb19156656'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -101,6 +101,32 @@ warnings: []
 
 ## Review Triage Log
 
+### Pass 1 — 2026-08-20 (Fable adversarial + Codex cross-model, run in parallel)
+
+Counts: intent_gap 0, bad_spec 0, patch 1 (low), defer 1 (low), reject 0.
+
+- **Codex (cross-model): ZERO findings.** No `[P1]`, no `[P2]`. It independently ran
+  representative shared/server/client suites and concluded the only production logic change
+  is the catalog deletion plus the PV bump. Gate: PASS.
+- **Fable (adversarial): 1 CONFIRMED, 1 PLAUSIBLE-informational. Verdict: build-on-it.**
+- PATCH (confirmed, test-only): `client/src/__tests__/hotbar.test.ts` moved its cramped
+  viewport 500 → 420 but its closing assertion still bounded `panelH` against `500 - 2*margin`,
+  so a trim stopping 80px short of fitting would have passed. Tightened to 420; re-run green
+  (79/79), which also proves the trim genuinely fits rather than merely passing on slack.
+- DEFER (informational): with no card able to move `radarRange`, the deliberately-kept
+  observer-anchored resolvers (`muzzleFlashReach`, blip gate, foghorn divisor, dim ramp) are
+  no longer falsifiable by the suite — a refactor hardcoding `CONFIG.vision.radar` would pass
+  green. Not a defect of this change; ledgered in `deferred-work.md` with the cheapest fix.
+
+Both models independently cleared every attack point the gate was seeded with: the injected
+`BoonDef` tests are legal and assert their widening premise before the contrast (no
+tautology); the retired per-observer block's coverage claim checks out rung by rung; the
+golden-frame snapshot moved only its two `offer` arrays with every position, event, blip
+bitfield and timestamp byte-identical; the slackened floors are non-degeneracy guards with
+the exact counts pinned hard elsewhere; bot scoring has no empty-set or divide-by-zero path;
+and PV 46 is sufficient because catalog content is the only wire-shaped thing that moved.
+
+
 ## Design Notes
 
 **Why the observer-scaled resolvers stay.** Epic-6 amendment 22 anchored the 5/8 muzzle/smoke rung on `me.stats.radarRange` so the ladder scaled with the player's build. With no card behind `radarRange`, every observer resolves to the same 412.5u — the rung is *effectively* flat again, but through the same single derivation seam rather than a re-introduced literal. Keeping the anchor is the smaller and safer diff, keeps `effectiveStats()` the sole derivation path, and means a future radar card needs no re-scaling work. This does **not** touch the master perception invariant's declared exceptions: that count is about which signal rows bypass the invariant, not about whether a reach is observer-scaled. It stays at SIX.
@@ -117,3 +143,28 @@ warnings: []
 - `npm run build` -- expected: shared → client → server all build
 - `grep -rn "intelRange" shared/src server/src server/scripts client/src` -- expected: **no matches**
 - Note: `npm run check` is known to exit 1 on this machine from a pre-existing load-flaky map-generation timing guard (cycle 117 finding) — that failure is unrelated and must not be "fixed" here.
+
+## Auto Run Result
+
+Status: **done**. Cycle 118, version 0.17.118, `PROTOCOL_VERSION` 45 → 46, epic-7 amendment 30.
+
+Baseline `7157dc4` → `3b28a21` (shared + docs) → `7114c3c` (server + client) → review-gate patch.
+
+**Verification (run by the orchestrator, not taken on an agent's word):**
+- `npm test -w shared` — 776/776, 34 files
+- `npm test -w server` — 1536/1536, 58 files
+- `npm test -w client` — 3150/3150, 101 files
+- `npm run lint` — 0 errors (3 pre-existing `max-lines-per-function` warnings in functions this
+  diff never touches)
+- `npm run build` — green, shared → client → server
+- `balanceProbe` runs to completion and now fails LOUDLY on a deleted id; its max-stack envelope
+  reads base == maxed on every range (radar 660, sight 330, gun 660, broadside 412.5)
+
+**Environment repair, worth recording because it hid real verification.** This worktree had no
+`node_modules`, so `@salvo/*` resolved to the MAIN checkout: the build was type-checking against
+a stale pre-Story-7-5 `shared/dist`, 12 server suites could not load at all (`colyseus`
+unresolvable, contributing 0 tests), and 9 client suites could not collect. Repaired with
+gitignored symlinks only — no code workaround, no dependency version change. Server coverage went
+from 1266 tests over 46 loadable files to **1536 over 58**. Anyone verifying a worktree on this
+machine should expect the same and repair it the same way rather than reporting the reduced
+numbers as green.

@@ -825,7 +825,7 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
     // dropping a row — so the pin moved to a viewport where trimming still
     // bites rather than asserting a trim that no longer has to happen.
     expect(cramped.boons.length).toBeLessThan(roomy.boons.length);
-    expect(cramped.panelH).toBeLessThanOrEqual(500 - 2 * H.tooltip.margin);
+    expect(cramped.panelH).toBeLessThanOrEqual(420 - 2 * H.tooltip.margin);
   });
 
   it('still accounts for every accrued line it dropped, at any viewport', () => {
