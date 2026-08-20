@@ -7,6 +7,21 @@
 // with it in the SAME change; a policy that has drifted from the code is worse
 // than no policy, because it is a published false statement.
 //
+// THE POLICY SPEAKS AS HULLCRACKER.IO (cycle 108, ERIC RULING 2026-08-19, which
+// SUPERSEDES Story 7.2's R11). The operator's personal identity - legal name,
+// entity type, country of residence - is DELIBERATELY ABSENT, and the
+// first-person voice went with it: no sentence below says "we", "us" or "our",
+// because "we" is a reference to the operator by another name. The actor is
+// Hullcracker.io, or a concrete non-personal noun where that reads better ("the
+// game", "the game server", "the hosting provider"). A LATER AGENT MUST NOT
+// "RESTORE" A NAMED OPERATOR as a missing disclosure - the absence IS the ruling,
+// not an oversight. POLICY_CONTACT (R10) is the route for every request and is
+// unchanged, as is every factual claim: this was a change of VOICE and IDENTITY
+// DISCLOSURE only, never of what the policy says the code does. Section HEADINGS
+// are otherwise frozen; the ONE that moved is 'WHY WE ARE ALLOWED TO DO THIS' ->
+// 'WHY THIS IS ALLOWED', because a first-person heading is the same reference to
+// the operator that the body text just stopped making.
+//
 // THE VERIFIED INVENTORY THIS IS BUILT FROM, with its sources:
 //   * localStorage: `hullcracker.name` `.class` `.mode` `.color` `.horn`
 //     `.settings` `.helm` `.session` `.session.handoff` `.consent`;
@@ -21,8 +36,8 @@
 //     server/src/liveness.ts): held in memory only, never persisted, expires 30s
 //     after the last poll.
 //   * Server logs: an ephemeral per-connection session id plus match aggregates
-//     on stdout. No names, no IP addresses in our own logs. Render keeps its own
-//     edge logs, outside our control.
+//     on stdout. No names, no IP addresses in Hullcracker.io's own logs. Render
+//     keeps its own edge logs, outside Hullcracker.io's control.
 //   * GA4: loaded at boot for everyone (Consent Mode ADVANCED, Story 7.4 —
 //     `analytics/index.ts` `boot()` always calls `startGa`), first-party cookie,
 //     exactly five events, `mode` the only parameter (NFR19). The GLOBAL consent
@@ -33,7 +48,7 @@
 //     ads and Google's certified consent dialog (it has no standalone script).
 //     Exactly ONE ad surface exists — a full-screen interstitial at
 //     death → RETURN TO PORT, never during play (`app/returnToPort.ts`).
-//   * `hullcracker.consent` is no longer "the answer to our banner"; there is no
+//   * `hullcracker.consent` is no longer "the answer to the banner"; there is no
 //     banner. It is a LOCAL ANALYTICS OVERRIDE set from the ANALYTICS row in
 //     SETTINGS, and absent means "follow Google's dialog and the region defaults".
 //
@@ -78,9 +93,9 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'THE SHORT VERSION',
     paragraphs: [
       'Hullcracker.io has no accounts, no sign-up and no player database. Your callsign, class '
-      + 'and settings live in your own browser and are never sent to us as a profile, and nothing '
-      + 'about you is stored on our servers once your match is over — beyond ordinary server logs, '
-      + 'which are described below.',
+      + 'and settings live in your own browser and are never sent to Hullcracker.io as a profile, '
+      + 'and nothing about you is stored on Hullcracker.io’s servers once your match is over — '
+      + 'beyond ordinary server logs, which are described below.',
       'Three things do involve other companies, and all three are set out in full below: the page '
       + 'loads its typefaces from Google Fonts, it uses Google Analytics to count how the game is '
       + 'used, and it shows advertising through Google AdSense — a full-screen ad when you return '
@@ -94,17 +109,17 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'WHO RUNS THIS',
     paragraphs: [
-      'Hullcracker.io is run by Eric Seibt, an individual operator based in the United States. '
-      + 'There is no company behind it. For anything in this policy — questions, requests, '
-      + 'complaints — write to ' + POLICY_CONTACT + '.',
+      'This site and the game on it are run by Hullcracker.io. There is no company behind it. '
+      + 'For anything in this policy — questions, requests, complaints — write to '
+      + POLICY_CONTACT + '.',
     ],
   },
   {
     heading: 'WHAT STAYS ON YOUR DEVICE',
     paragraphs: [
       'The game remembers your preferences in your own browser, using local storage. This never '
-      + 'travels to us as a profile; it is read by the game running on your machine. Clearing site '
-      + 'data for hullcracker.io removes all of it.',
+      + 'travels to Hullcracker.io as a profile; it is read by the game running on your '
+      + 'machine. Clearing site data for hullcracker.io removes all of it.',
     ],
     bullets: [
       'hullcracker.name — the callsign you typed',
@@ -129,7 +144,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'The callsign you type is free text, capped at 14 characters, and it is shown to every '
       + 'other player in your match — on nameplates, in the kill feed, and in the results table. '
-      + 'We do not check it, moderate it, or store it after the match.',
+      + 'Hullcracker.io does not check it, moderate it, or store it after the match.',
       'Because of that: please do not use your real name, an email address, or anything else you '
       + 'would not want strangers to read.',
     ],
@@ -139,20 +154,20 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'The page loads the Geist typefaces from fonts.googleapis.com and fonts.gstatic.com, which '
       + 'are run by Google. That means Google receives your IP address every time you load the '
-      + 'page, including before any consent dialog is shown or answered. We do not control what Google '
-      + 'does with that request; their handling is covered by the Google Privacy Policy at '
-      + 'https://policies.google.com/privacy.',
+      + 'page, including before any consent dialog is shown or answered. Hullcracker.io does not '
+      + 'control what Google does with that request; their handling is covered by the Google '
+      + 'Privacy Policy at https://policies.google.com/privacy.',
       'This is a consequence of how the fonts are delivered rather than something the game asks '
-      + 'for, and we intend to serve the fonts from our own server instead, which would remove the '
-      + 'request entirely.',
+      + 'for, and Hullcracker.io intends to serve the fonts from its own server instead, which '
+      + 'would remove the request entirely.',
     ],
   },
   {
     heading: 'THE PLAYERS-ONLINE COUNTER',
     paragraphs: [
-      'So the home screen can tell you whether anyone else is around, your browser asks our server '
-      + 'for the current counts every few seconds, sending a random value that identifies the '
-      + 'browser tab. That value is generated fresh for each tab, is held in memory only, is never '
+      'So the home screen can tell you whether anyone else is around, your browser asks the game '
+      + 'server for the current counts every few seconds, sending a random value that identifies '
+      + 'the browser tab. That value is generated fresh for each tab, is held in memory only, is never '
       + 'written to your device, and stops counting 30 seconds after your last request — the server '
       + 'clears it out as later requests come through. '
       + 'It is not linked to your callsign or to anything else about you.',
@@ -161,13 +176,13 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'SERVER LOGS',
     paragraphs: [
-      'Our game server writes ordinary operational logs: a short-lived identifier for each '
+      'The game server writes ordinary operational logs: a short-lived identifier for each '
       + 'connection, and aggregate facts about a match such as how many ships were in it, how long '
       + 'it ran, and which classes won. These carry no callsigns and no IP addresses, and they '
-      + 'exist so we can tell whether the game is working.',
-      'Our hosting provider, Render, keeps its own connection logs at the network edge as part of '
-      + 'running the service. Those are outside our control and are governed by Render’s own '
-      + 'privacy policy.',
+      + 'exist so Hullcracker.io can tell whether the game is working.',
+      'The hosting provider, Render, keeps its own connection logs at the network edge as part of '
+      + 'running the service. Those are outside Hullcracker.io’s control and are governed by '
+      + 'Render’s own privacy policy.',
     ],
   },
   {
@@ -206,10 +221,11 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'It never receives your callsign, your colour, your kills, your placement, your damage, the '
       + 'match or room you were in, or anything else about what happened on the water. None of it '
-      + 'is shared with anyone other than Google as the analytics provider. We never send Google '
-      + 'anything about your match for advertising purposes — nothing about how you played can '
-      + 'reach the advertising side, because we never send it in the first place.',
-      'Google processes this data as our provider and under its own terms; see '
+      + 'is shared with anyone other than Google as the analytics provider. Hullcracker.io never '
+      + 'sends Google anything about your match for advertising purposes — nothing about how you '
+      + 'played can reach the advertising side, because Hullcracker.io never sends it in the '
+      + 'first place.',
+      'Google processes this data as Hullcracker.io’s provider and under its own terms; see '
       + 'https://policies.google.com/privacy. Data may be processed outside your country, including '
       + 'in the United States.',
     ],
@@ -246,14 +262,14 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       + 'https://www.google.com/settings/ads. You can also opt out of a third-party vendor’s use of '
       + 'cookies for personalised advertising at https://www.aboutads.info/choices. Opting out does '
       + 'not remove the advertisement — it makes it non-personalised.',
-      'Advertising is handled entirely by Google. We never send Google your callsign, your '
-      + 'settings, or anything about what happened in your match, and we receive no information '
+      'Advertising is handled entirely by Google. Hullcracker.io never sends Google your callsign, '
+      + 'your settings, or anything about what happened in your match, and receives no information '
       + 'about you back from it — only aggregate earnings figures. Google’s handling is covered by '
       + 'https://policies.google.com/technologies/ads.',
     ],
   },
   {
-    heading: 'WHY WE ARE ALLOWED TO DO THIS',
+    heading: 'WHY THIS IS ALLOWED',
     paragraphs: [
       'Analytics and advertising cookies run on your consent, and on nothing else. In the European '
       + 'Economic Area, the United Kingdom and Switzerland that consent is collected by Google’s '
@@ -263,15 +279,17 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'Everything else described here is what it takes to run the game you asked to play: '
       + 'connecting you to a match, remembering your own preferences on your own device, showing '
       + 'how many people are online, and keeping operational logs so the service can be maintained. '
-      + 'Where the law calls for a basis, that is our legitimate interest in operating the game, '
-      + 'and in the case of your saved preferences, your own request to have them remembered.',
+      + 'Where the law calls for a basis, that is Hullcracker.io’s legitimate interest in '
+      + 'operating the game, and in the case of your saved preferences, your own request to have '
+      + 'them remembered.',
     ],
   },
   {
     heading: 'HOW LONG THINGS ARE KEPT',
     paragraphs: [
-      'Nothing about a player survives their match on our servers: match state is discarded when '
-      + 'the room closes, and the players-online value expires 30 seconds after your last request. '
+      'Nothing about a player survives their match on Hullcracker.io’s servers: match state is '
+      + 'discarded when the room closes, and the players-online value expires 30 seconds after '
+      + 'your last request. '
       + 'Operational logs are short-lived and are kept only as long as they are useful for '
       + 'diagnosing problems. What is stored in your browser stays there until you clear it. '
       + 'Analytics data is retained by Google under the retention period set on the property, at '
@@ -300,10 +318,10 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     heading: 'CHILDREN',
     paragraphs: [
       'The game has no age gate and does not ask how old you are. It is not directed at children, '
-      + 'and we do not knowingly collect information from them. Since there are no accounts and no '
-      + 'stored player records, there is nothing about a child for us to hold; if you believe a '
-      + 'child has provided information through the game, write to ' + POLICY_CONTACT + ' and we '
-      + 'will look into it.',
+      + 'and Hullcracker.io does not knowingly collect information from them. Since there are no '
+      + 'accounts and no stored player records, there is nothing about a child for Hullcracker.io '
+      + 'to hold; if you believe a child has provided information through the game, write to '
+      + POLICY_CONTACT + ' and Hullcracker.io will look into it.',
     ],
   },
   {
@@ -311,12 +329,12 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
     paragraphs: [
       'Depending on where you live, you may have rights to access, correct, delete or object to '
       + 'the use of personal data about you, and to withdraw consent at any time.',
-      'In practice there is very little for us to act on: we hold no accounts and no player '
+      'In practice there is very little to act on: Hullcracker.io holds no accounts and no player '
       + 'records, so there is no profile to retrieve or delete. Withdrawing consent is done in '
       + 'the ANALYTICS row in SETTINGS, and in Google’s Ads Settings for personalised '
       + 'advertising, as described above. For anything else — including a request about the '
       + 'Google Analytics or Google advertising data associated with your browser — write to '
-      + POLICY_CONTACT + ' and we will do what we can.',
+      + POLICY_CONTACT + ' and Hullcracker.io will do what it can.',
     ],
   },
   {
@@ -329,7 +347,7 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
     heading: 'CONTACT',
     paragraphs: [
-      'Eric Seibt, individual operator, United States — ' + POLICY_CONTACT + '.',
+      'Hullcracker.io — ' + POLICY_CONTACT + '.',
     ],
   },
 ];

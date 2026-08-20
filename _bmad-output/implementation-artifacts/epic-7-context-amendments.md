@@ -987,3 +987,111 @@ ads layer as a transform. The dependency direction stays ads → ui, so the cont
 unwidened. **Known and accepted:** at viewports 1002–1017 the group's 16px edge margin is inside the
 overlay's own 24px padding, so the panel escapes its padding box by 8px. Raising the edge to 24 would
 have cost that band entirely; the band is worth more than the 8px.
+
+---
+
+## Amendment 19 — The privacy policy speaks as Hullcracker.io (ERIC RULING, 2026-08-19, cycle 108)
+
+**This SUPERSEDES R11** (amendment 14), which ratified *"THE DATA CONTROLLER IS ERIC AS AN
+INDIVIDUAL OPERATOR, UNITED STATES"* and put that identity into the published copy at
+`WHO RUNS THIS` and `CONTACT`. Eric, the day after it shipped:
+
+> *"remove my [name] and information that can be traced to IRL me from the game text (in the
+> privacy policy). When referring to anyone, just refer to 'Hullcracker.io'"*
+
+The legal name, the "individual operator" framing, the country of residence and the
+*"there is no company behind it"* line are DELETED. `WHO RUNS THIS` now says the site and the game
+on it are run by Hullcracker.io and points at the contact address; `CONTACT` is `Hullcracker.io`
+plus that address and nothing else.
+
+**THE WHOLE POLICY CONVERTS TO THIRD PERSON, NOT JUST THE TWO IDENTITY LINES** — and that is the
+half of this ruling most likely to be misread as scope creep. Eric's instruction had two clauses,
+and the second one governs the other ~40 sentences: a policy that deletes the name but keeps saying
+*"we do not check it"*, *"stored on our servers"*, *"outside our control"* is still referring to the
+operator, by a pronoun instead of a noun. Defining "we" once as Hullcracker.io was considered and
+rejected as a dodge of a plainly worded instruction. The actor is now `Hullcracker.io` or a concrete
+non-personal noun where a fourth "Hullcracker.io" in one paragraph would read badly — *"our game
+server"* → *"the game server"*, *"our hosting provider, Render"* → *"the hosting provider, Render"*,
+*"we never send it in the first place"* → *"it is never sent in the first place"*. Register per R9
+is unchanged: plain English prose, nothing terse or naval.
+
+**NO BEHAVIOURAL DISCLOSURE MOVED; THE IDENTITY DISCLOSURES WERE REMOVED BY RULING.** The earlier
+blanket *"no fact moved"* was over-broad and is corrected here — an over-broad safety claim is what
+stops the next reviewer re-checking. What is true: `policyCopy.ts`'s own standing rule governs, so
+a voice rewrite may not weaken, strengthen or blur a claim about shipped behaviour, and that set is
+identical before and after. What was deliberately removed is the operator's name, entity type and
+country. *"There is no company behind it"* went with them in the first pass and is **RESTORED** —
+it names no person and no place, and a reader is entitled to know that no corporate entity stands
+behind the game.
+
+**THE PASSIVE VOICE IS THE TRAP, AND IT BIT TWICE BEFORE THE GATE CAUGHT IT.** A pronoun swap looks
+mechanical and is not, because dropping the actor changes the SCOPE of a claim. (a) *"**We never
+send** Google anything about your match for advertising purposes"* was rewritten as *"**Nothing
+about your match is ever sent** to Google for advertising purposes"* — the first is a promise about
+what the operator transmits, the second an absolute about the data's destination, and the second is
+**unsupported by the shipped code**: five GA4 events do reach Google, and `analytics/consent.ts`
+GRANTS `ad_user_data` and `ad_personalization` by global default (only the EEA/UK/CH region default
+denies). A voice change had silently manufactured a stronger privacy promise than the game can
+keep. (b) The COPPA-adjacent CHILDREN undertaking became *"write to … and **it will be looked
+into**"* — an agentless passive on the one commitment where an accountable party is the entire
+point. **THE RULE, for anyone editing this file again: `Hullcracker.io` is the SUBJECT; never
+reach for the passive to avoid naming an actor.** Three narrower recasts were corrected the same
+way (*"never sent to the game's servers"* → *"never sent to Hullcracker.io"*, twice, since "the
+servers" promises about one recipient where the operator has several routes; and the fonts
+intention and the server-log purpose, both of which had lost the party committing to them). **R10 is untouched** — `contact@hullcracker.io`
+is not personal information and remains the route for every request, named in both identity
+sections. `POLICY_UPDATED` stays `19 August 2026`, which is correct for a contents change made that
+day. Section order, bullet content and the `PolicySection` shape are unchanged, and so is every
+heading **but one**: `WHY WE ARE ALLOWED TO DO THIS` becomes **`WHY THIS IS ALLOWED`**. The
+implementer left it frozen and was right to under its written constraint — Story 7.2 froze the
+headings with the copy — but the constraint was drafted to stop structural drift, not to preserve
+the single first-person token in the document, and **a heading saying WE is the same reference to
+the operator the body text just stopped making**. Eric's instruction governs the constraint that
+was written to serve it. The first-person sweep therefore runs over headings AND body text, with
+nothing exempt. This is the ONE deviation in the cycle from the spec's own `Always` list, taken
+deliberately and recorded here rather than absorbed silently; it is a one-word revert if Eric
+disagrees.
+
+**One trap for a later redaction pass:** *"Data may be processed outside your country, including in
+the United States"* in `WHAT ANALYTICS NEVER SEES` is GOOGLE's processing location, not the
+operator's home, and MUST SURVIVE. A blanket search-and-destroy on the country name would delete a
+required third-party disclosure. It is pinned.
+
+**The copy had zero content coverage before this cycle**, which is why the identity could sit in a
+frozen file and why nothing would have stopped it creeping back. `client/src/__tests__/privacyPolicy.test.ts`
+now pins each row of the matrix. **Two properties of that test are deliberate and each looks like a
+gap until you know why.** (1) **It carries NO NAME DENYLIST, and must never gain one.** A pin
+reading `not.toMatch(/<surname>/)` would write the redacted name into a tracked file of a PUBLIC
+repository — the guard would republish exactly what the ruling removes, and a `grep` for the name
+would still find it. `WHO RUNS THIS` and `CONTACT` are pinned **VERBATIM** instead, which is the
+stronger pin anyway: they admit no name because they admit no other text at all. What is swept by
+pattern is the SHAPE a re-identification takes — entity types, location phrasing (`based in`,
+`located in`, `operated from`, `resident in`, so a city or a different country is caught as well as
+the original), and any email address other than `POLICY_CONTACT`. (2) **First-person SINGULAR is
+pinned alongside the plural** (`I`, `me`, `my`, `mine`, `myself`, plus `ourselves`), because the
+operator is one person and *"I do not store it"* is the likeliest way the voice returns; `us` is
+matched case-SENSITIVELY so the required *"including in the United States"* disclosure can be
+shortened to *"the US"* one day without tripping the voice pin. The heading sweep, the `you`/`your`
+presence check, the Google processing-location sentence and the privacy page's `<head>` (where a
+byline would land with no `POLICY_SECTIONS` pin firing) are pinned too, and the voice regexes carry
+their own positive AND negative controls so they cannot silently stop catching anything.
+
+**WHAT THIS ERASURE DOES AND DOES NOT REACH, stated plainly so nobody over-reads it.** It changes
+the page a player can read, at HEAD. It does NOT reach: prior commits of `policyCopy.ts` (the name
+is in this repository's history and a public remote's history), commit authorship metadata, this
+planning ledger, or any already-deployed build until the next deploy. Erasing those is a different
+and much larger operation — history rewriting on a public remote — and was neither asked for nor
+attempted.
+
+**FLAGGED, NOT BLOCKING — a legal consequence recorded rather than absorbed.** GDPR Art. 13(1)(a)
+and comparable regimes expect a privacy notice to IDENTIFY THE CONTROLLER, and "Hullcracker.io" is a
+trading name rather than a legal identity, so the notice no longer names one. The ruling governs;
+this is recorded so that a future compliance pass finds a decision here rather than an oversight.
+The practical route for any access, deletion or objection request is the working contact address,
+which the policy carries in both identity sections and in `YOUR RIGHTS`. **Anyone tempted to
+"restore" a named operator as a missing disclosure must get an Eric ruling first — the absence IS
+the ruling.**
+
+Text only: no analytics, consent, ads, liveness or runtime behaviour was touched, no other
+player-facing surface carried the identity (a sweep confirmed `policyCopy.ts` was its sole carrier),
+and `PROTOCOL_VERSION` is unchanged at **41**.
