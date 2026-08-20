@@ -44,6 +44,27 @@
 // shell, as are PROP FOULING and CAPTIVE MINES on one mine, so no doctrine
 // card's rules text may imply an either/or any more.
 //
+// STORY 7-5 WAVE 2, R2.17 (Eric ruling 2026-08-19) — THE CARD FACE IS MINIMAL
+// AND THE EXPLANATION MOVES TO A HOVER TOOLTIP. *"I want the card itself to be
+// pretty minimal in the upgrade tab, just the name and stat change as before
+// (previous -> new) if applicable. But hovering one with the mouse should give a
+// tooltip explaining the card, so that there are no questions like 'what the
+// fuck does a captive mine do?'"* That splits this module's copy into THREE
+// surfaces with three different jobs and three different length budgets:
+//
+//   • `boonDescription` — THE CARD FACE. A stat line's `current → next` sentence
+//     and nothing else; a verb or acquisition card returns '' and its face is
+//     name + tag alone. The `note` riders are gone from STAT_LINES entirely.
+//   • `boonTooltipText` — THE EXPLANATION (BOON_EXPLAIN). Total over the
+//     catalog, plain language, and deliberately longer than anything that ever
+//     fitted on a card, because it is no longer inside the card's box.
+//   • `boonEffectLine` — THE HOLDING readout for the hotbar slot tooltip and the
+//     results build list: the live value, or a verb's short HOLDING line.
+//
+// The honesty rules bind ACROSS surfaces, not per string: GUN BUOY may never
+// claim a hostility gate (R2.21) and JAMMING BUOY may never claim concealment
+// (R2.11), on the face, in the holding line, and in the explanation alike.
+//
 // FAIL-OPEN, not fail-closed: an id with no copy renders a readable
 // de-camelCased fallback rather than an empty card, and a stack position past
 // the end of a ladder clamps to its last rung. The fail-CLOSED gate lives
@@ -201,19 +222,26 @@ function pct(v: number): string {
   return `${num(v * 100)}%`;
 }
 
-/** One headline stat of a stat line: what to call it, where to read it, how to
- *  print it, and any second sentence the ladder owes the player. */
+/** One headline stat of a stat line: what to call it, where to read it and how
+ *  to print it.
+ *
+ *  THE `note` FIELD IS DELETED (Story 7-5 wave 2, R2.17). A standing rider —
+ *  "The trip ring widens with it.", "Every weapon and ability reloads faster." —
+ *  is EXPLANATION, and the card face no longer carries explanation: it carries
+ *  the ladder name, the lineage marker, the rarity tag and the `current → next`
+ *  sentence, and nothing else. Every one of those riders was folded into the
+ *  line's hover-tooltip copy (BOON_EXPLAIN) rather than dropped. */
 interface StatLine {
   label: string;
   read: (s: EffectiveStats) => number;
   fmt?: (v: number) => string;
-  note?: string;
 }
 
 /** The headline stat each COMMON/RARE line moves — the number the card prints
- *  as `current → next`. One row per stat line in BOON_CATALOG. */
+ *  as `current → next`, and since R2.17 the WHOLE of what a stat card's face
+ *  says. One row per stat line in BOON_CATALOG. */
 const STAT_LINES: Readonly<Record<string, StatLine>> = {
-  gunBarrel: { label: 'Shells per shot', read: (s) => s.gun.barrels, note: 'Every shell bursts at its own point.' },
+  gunBarrel: { label: 'Shells per shot', read: (s) => s.gun.barrels },
   gunTurret: { label: 'Gun rounds ready', read: (s) => s.gun.maxAmmo },
   // THE BROADSIDE PAIR (Story 7-5 wave 2). SPREAD's stat-addressable field is a
   // RUNG (1..5) — an index into an authored ladder of degrees — and printing
@@ -221,106 +249,174 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   // DERIVED half-angle instead, straight off the same effectiveStats preview
   // diff every other line uses: the firewall does the ladder lookup and the ×4
   // clamp, so a maxed stack honestly prints "±3° → ±3°".
-  broadsideSpread: {
-    label: 'Barrage spread',
-    read: (s) => s.broadside.fanHalfAngleRad,
-    fmt: halfAngleDeg,
-    note: 'Shells land nearer the point you clicked.',
-  },
-  broadsideTurrets: {
-    label: 'Shells per barrage',
-    read: (s) => s.broadside.turrets,
-    note: 'An odd count puts one shell dead on your click.',
-  },
+  broadsideSpread: { label: 'Barrage spread', read: (s) => s.broadside.fanHalfAngleRad, fmt: halfAngleDeg },
+  broadsideTurrets: { label: 'Shells per barrage', read: (s) => s.broadside.turrets },
   torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },
   torpedoTube: { label: 'Torpedoes loaded', read: (s) => s.torpedo.maxAmmo },
-  // The merged mine-ring line (Eric ruling 2026-08-16). The trip ring is a
-  // fixed fraction of the blast, so ONE card grows both and the note says so
-  // rather than making the player infer it from a second number row.
-  mineBlast: { label: 'Mine blast radius', read: (s) => s.mine.blastRadius, note: 'The trip ring widens with it.' },
+  mineBlast: { label: 'Mine blast radius', read: (s) => s.mine.blastRadius },
   // The two halves of the retired `boostMax` line, bought separately now.
   boostDuration: { label: 'Boost duration', read: (s) => s.boost.durationMs, fmt: secs },
   boostSpeed: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
   starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },
   // R2.20 (Eric ruling 2026-08-19) replaced the sweep-rate line with this one:
-  // +2.5s of buoy life per card. The note states the EMERGENT consequence of his
-  // two numbers meeting the 30s rack reload — base life is 10s SHORT of it, so a
-  // fresh buoy is never ready when the last one dies, and a full BUOY IV stack
-  // closes that gap exactly. That is the reward curve this line actually sells;
-  // "the buoy lasts longer" is already in the number above it.
-  buoyDuration: {
-    label: 'Buoy lifetime',
-    read: (s) => s.radarBuoy.durationMs,
-    fmt: secs,
-    note: 'A full stack lasts until the next buoy is ready.',
-  },
-  intelRange: {
-    label: 'Radar range',
-    read: (s) => s.radarRange,
-    // The riders ride the NOTE rather than a second number row (Eric ruling
-    // 2026-08-16), which is the pattern already ratified for gun/broadside/star
-    // reach. `Sight` leads the list deliberately: truesight is now derived from
-    // this card, and it is the half a player would otherwise never see move.
-    note: 'Sight, gun, broadside and star shells reach with it.',
-  },
+  // +2.5s of buoy life per card.
+  buoyDuration: { label: 'Buoy lifetime', read: (s) => s.radarBuoy.durationMs, fmt: secs },
+  intelRange: { label: 'Radar range', read: (s) => s.radarRange },
   intelSweep: { label: 'Radar sweep', read: (s) => s.sweepRpm, fmt: (v) => `${num(v)} RPM` },
   shipSpeed: { label: 'Top speed', read: (s) => s.kinematics.maxSpeed },
-  shipHull: { label: 'Max hull', read: (s) => s.maxHp, note: 'Repairs the hull it adds.' },
+  shipHull: { label: 'Max hull', read: (s) => s.maxHp },
   // The ONE global cooldown lever: `cooldownScale` multiplies every equipment's
   // reload post-fold, so this row reads the scalar itself rather than any single
   // weapon — printed as a percentage of base so 100% → 90% reads downward.
-  shipCooldown: {
-    label: 'All cooldowns',
-    read: (s) => s.cooldownScale,
-    fmt: pct,
-    note: 'Every weapon and ability reloads faster.',
-  },
+  shipCooldown: { label: 'All cooldowns', read: (s) => s.cooldownScale, fmt: pct },
 };
 
 /**
- * The doctrine cards' rules text — each spells out the full behavior change
- * (a doctrine card changes a weapon's NATURE, so the card has to say how).
+ * The verb cards' HOLDING line — the compact "what this line is doing for you
+ * RIGHT NOW" that a hotbar tooltip row and a results-screen build row print
+ * under a `◆ NAME`. A verb moves no number, so `boonEffectLine` has nothing to
+ * read off `EffectiveStats`; this table is what those two surfaces show instead.
  *
- * STORY 7-5 WAVE 1: the verbs STACK now. `torpedoCommand` is gone with COMMAND
- * DETONATION; the star-shell and mine pairs stopped being either/or, so their
- * text says "also" rather than trading one behavior for another, and PROP
- * FOULING no longer claims a damage penalty (cycle 95 deleted it) — it states
- * the real slow instead.
+ * IT IS NEITHER THE CARD FACE NOR THE EXPLANATION (Story 7-5 wave 2, R2.17).
+ * A verb card's FACE is now name + tag only, and the EXPLANATION — the answer
+ * to *"what the fuck does a captive mine do?"* — lives in BOON_EXPLAIN below,
+ * where no container budget compresses it. These stay short deliberately: they
+ * ride INSIDE the hotbar panel, whose own fit pin (__tests__/tooltipFit.test.ts)
+ * starts trimming accrued rows away the moment they grow.
  *
- * AMENDMENT 47 (the container-fit law) governs the LENGTH of every line here.
- * The Story 2.8 drafts ran 111–149 characters, which wrapped to 7–9 lines inside
- * the card's 186px inner box and pushed the doctrine cards 50–97px past the card
- * bottom on the live site. These are the SHORTEST wordings that still state the
- * whole contract. The pin in __tests__/refitCardFit.test.ts fails the build if a
- * future edit re-inflates one: the budget is ~5 wrapped lines (~90 characters)
- * for a doctrine card carrying a REPLACES line under a two-line ladder name.
+ * STORY 7-5 WAVE 1: the verbs STACK now, so no line here may imply an either/or.
+ * PROP FOULING no longer claims a damage penalty (cycle 95 deleted it).
  */
-const DOCTRINE_TEXT: Readonly<Record<string, string>> = {
-  torpedoHoming: 'Torpedoes slowly steer to the nearest enemy hull in their acquisition band.',
-  mineCaptive: 'Mines stop blasting on contact. Each fires one torpedo at the first hostile to trip its wide ring.',
+const DOCTRINE_HOLDING: Readonly<Record<string, string>> = {
+  torpedoHoming: 'Torpedoes steer onto the nearest hull in their acquisition band.',
+  mineCaptive: 'Mines fire one torpedo instead of blasting on contact.',
   // R2.21 (Eric ruling 2026-08-19) SUPERSEDED R2.10's hostile gate: the gun buoy
   // is AUTONOMOUS and shoots anything its own radar sees that is not its owner —
   // enemy captains, bots and NEUTRAL fleet drones alike, nearest to the buoy
   // first. So this line may not say "hostile", "enemy" or "attacker": every one
-  // of those words promises an aggro gate this weapon does not have.
-  buoyGun: 'Your buoy shoots the nearest hull its radar sees — any hull but yours: 5 damage every 5s.',
+  // of those words promises an aggro gate this weapon does not have. The same
+  // ban binds its BOON_EXPLAIN entry, and boonCopy.test.ts checks both.
+  buoyGun: 'Buoys shoot the nearest hull but yours: 5 damage every 5s.',
   // R2.11: it ADDS fakes and never deletes a real return, and it is RADAR ONLY.
   // The line must not imply concealment — the buoy hides nothing, it makes the
   // water unreadable — and must leave the counter standing: sail in and look.
-  buoyJamming: 'Your buoy fills its circle with false radar returns for all but you. Sight sees the truth.',
-  minePropFouling: 'Hulls caught in a mine blast are fouled: 25% slower for 5 seconds. Damage unchanged.',
-  starIncendiary: 'Your lit zones also burn: a smaller circle scorches every hull but yours inside it.',
-  starDazzle: 'Your lit zones also dazzle: every hull but yours inside one has its true sight cut.',
+  buoyJamming: 'Buoys fill their circle with false radar returns for all but you.',
+  minePropFouling: 'Mine blasts foul screws: 25% slower for 5 seconds.',
+  starIncendiary: 'Your lit zones also burn every hull but yours inside them.',
+  starDazzle: 'Your lit zones also cut the true sight of every hull but yours.',
 };
 
-/** The acquisition cards' rules text — what arrives in the open slot. */
-const ACQUISITION_TEXT: Readonly<Record<string, string>> = {
-  acquireTorpedo: 'Fits torpedo tubes to your open slot, loaded. Their upgrade cards join your deck.',
-  acquireMine: 'Fits mine racks to your open slot, loaded. Their upgrade cards join your deck.',
-  acquireStarShells: 'Fits a star shell mortar to your open slot, loaded. Its upgrade cards join your deck.',
-  acquireBroadside: 'Fits a broadside battery to your open slot, loaded. Its upgrade cards join your deck.',
-  acquireRadarBuoy: 'Fits a radar buoy rack to your open slot, loaded. Its upgrade cards join your deck.',
-  acquireBoost: 'Fits an emergency throttle to your open slot, ready. Its upgrade cards join your deck.',
+/** The acquisition cards' HOLDING line — DOCTRINE_HOLDING's sibling for the six
+ *  equipment fits: same job, same two consumers, same brevity budget. */
+const ACQUISITION_HOLDING: Readonly<Record<string, string>> = {
+  acquireTorpedo: 'Torpedo tubes fitted; their cards joined your deck.',
+  acquireMine: 'Mine racks fitted; their cards joined your deck.',
+  acquireStarShells: 'A star shell mortar fitted; its cards joined your deck.',
+  acquireBroadside: 'A broadside battery fitted; its cards joined your deck.',
+  acquireRadarBuoy: 'A radar buoy rack fitted; its cards joined your deck.',
+  acquireBoost: 'An emergency throttle fitted; its cards joined your deck.',
+};
+
+/**
+ * THE EXPLANATIONS (Story 7-5 wave 2, R2.17 — Eric ruling 2026-08-19).
+ *
+ * *"hovering one with the mouse should give a tooltip explaining the card, so
+ * that there are no questions like 'what the fuck does a captive mine do?'"*
+ *
+ * ONE ENTRY PER CATALOG LINE — TOTAL, stat lines included, because a
+ * `current → next` number does not tell a new player what `cooldownScale` or a
+ * trip ring IS. These are plain-language answers to "what does this actually
+ * do", written for somebody who has never seen the mechanic.
+ *
+ * THEY ARE DELIBERATELY LONGER THAN ANYTHING THAT EVER FITTED ON A CARD.
+ * Amendment 47's ~90-character / ~5-wrapped-line budget is a statement about
+ * the 216×236 card BOX (Story 2.8's doctrine text overflowed it by 50–97px on
+ * the live site). This copy does not live in that box, so that budget does not
+ * govern it — but it is not unbounded either: __tests__/refitTooltipFit.test.ts
+ * measures every entry against the hover panel's OWN container, the clear space
+ * above the refit band at the 1280×614 logical floor.
+ *
+ * THE HONESTY PINS SURVIVE THE REWRITE. Two shipped wordings were caught lying
+ * during this story, and their replacements are pinned by forbidden-word lists
+ * on BOTH surfaces: GUN BUOY may not say hostile/enemy/attacker/threat (R2.21
+ * made it autonomous — it shoots neutral fleet drones too), and JAMMING BUOY
+ * may not say hide/conceal/invisible/cloak (R2.11 — it ADDS fakes, removes
+ * nothing, and sailing in to look is the ratified counter).
+ *
+ * WHERE THE OLD `note` RIDERS WENT: every standing rider the card face used to
+ * carry ("The trip ring widens with it.", "Repairs the hull it adds.", the
+ * eighths-ladder list on RANGE, the buoy-gap curve on BUOY) was folded into the
+ * matching entry below rather than dropped.
+ */
+const BOON_EXPLAIN: Readonly<Record<string, string>> = {
+  // --- guns ----------------------------------------------------------------
+  gunBarrel:
+    'Your gun throws extra shells on parallel tracks either side of the one you aimed, each bursting at its own point. An odd number puts one shell exactly on your click; an even number straddles it.',
+  gunTurret:
+    'Keeps a second gun round ready, so you can fire twice back to back instead of waiting out the whole reload between shots. The reload is unchanged — you simply have somewhere to keep the spare.',
+  // --- broadside -----------------------------------------------------------
+  broadsideSpread:
+    'A barrage throws its shells in a fan around the point you clicked, every one stopping at that range. Each card narrows the fan, so more of the salvo lands near your aim instead of sweeping wide.',
+  broadsideTurrets:
+    'Adds a turret to each side, so every barrage throws one more shell. An odd number of shells puts one exactly on your click; an even number straddles it with none on the bearing itself.',
+  // --- torpedoes -----------------------------------------------------------
+  torpedoSpeed:
+    'A faster fish reaches the target sooner and leaves less water for them to turn out of. It does not hit harder: speed buys shots that are harder to dodge, not shots that hurt more.',
+  torpedoTube:
+    'Keeps a second torpedo loaded, so you can put two in the water back to back — a spread at one hull, or one each at two — instead of waiting out a full reload between them.',
+  torpedoHoming:
+    'Your torpedoes listen for hulls. Once one is inside the acquisition band the fish steers slowly onto it, correcting a near miss for you. It is a gentle turn, not a chase: hard helm still shakes it.',
+  // --- mines ---------------------------------------------------------------
+  mineBlast:
+    'Widens the mine blast, and the trip ring with it — the ring that sets a mine off is always two thirds of the blast, so one card grows both. A wider mine denies more water and is harder to thread.',
+  minePropFouling:
+    'Anything caught in one of your mine blasts has its screws fouled: 25% slower for 5 seconds. The damage is unchanged — what you buy is a hull that cannot run while you close on it.',
+  mineCaptive:
+    'A captive mine is a torpedo waiting on a mooring. It never blows up on contact. It sits on a much wider trip ring and, when a hostile crosses that ring, launches one torpedo at where they are heading — then it is spent.',
+  // --- speed boost ---------------------------------------------------------
+  boostDuration:
+    'Holds the emergency throttle open longer, so one press carries you further. It does not raise the speed you boost to — that is the other boost line.',
+  boostSpeed:
+    'Raises the speed the emergency throttle drives you to, over your rated top speed. It does not last any longer — that is the other boost line.',
+  // --- star shells ---------------------------------------------------------
+  starDuration:
+    'A star shell lights a circle of ocean wherever you drop it, and you see into your own lit circle as clearly as into your own sight. It is how you look somewhere you are not. The flare burns longer.',
+  starIncendiary:
+    'Your lit circles catch fire. A slightly smaller ring inside each one burns every hull but yours at 5 hp a second for as long as the flare lasts. It stacks with DAZZLE SHELLS — one flare can do both.',
+  starDazzle:
+    'Your lit circles dazzle. Any hull but yours standing in one has its own true sight cut in half while it stays there: it can still be seen, it just cannot see. It stacks with PHOSPHOR SHELLS.',
+  // --- radar buoy ----------------------------------------------------------
+  buoyDuration:
+    'A radar buoy is a set of eyes you leave behind: it sweeps its own circle and relays what it paints to you alone. Each card keeps one on the water longer, closing the dead gap between one buoy and the next.',
+  buoyGun:
+    'Bolts a light gun to your buoys. Each one fires by itself at the nearest hull its own radar can see — anything at all except yours — for 5 damage every 5 seconds. What it cannot see, it cannot shoot.',
+  buoyJamming:
+    'Your buoys flood their own circle with false radar returns. Every other scope fills with contacts that are not there; real returns still paint, they are simply one candidate among many. Sight sees the truth.',
+  // --- intel ---------------------------------------------------------------
+  intelRange:
+    'Intel range is the one ruler every sensor is measured against. Pushing it out moves your radar, your true sight, and the reach of your gun, broadside and star shells, all together.',
+  intelSweep:
+    'Spins your radar faster. A contact paints only as the beam crosses its bearing, so a quicker sweep refreshes what you know more often and leaves a target less water to cross between paints.',
+  // --- ship ----------------------------------------------------------------
+  shipSpeed:
+    'Raises your top speed ahead. Reverse and rate of turn are untouched — this is straight-line pace, which decides whether you can close a gap or break off a fight you are losing.',
+  shipHull:
+    'Raises your maximum hull, and repairs exactly the amount it adds the moment you fit it — so it is a heal as well as a buffer. Nothing else in the game raises maximum hull.',
+  shipCooldown:
+    'There is one cooldown lever in the game and this is it: every weapon and ability you carry reloads faster by the same fraction. It reads as a percentage of base, so the number falls as you stack it.',
+  // --- acquisitions --------------------------------------------------------
+  acquireTorpedo:
+    'Fits torpedo tubes to your open slot, loaded. Torpedoes run just under the surface and hit hard, but they run straight — you lead the target yourself. Their upgrade cards join your deck.',
+  acquireMine:
+    'Fits mine racks to your open slot, loaded. Mines drop astern and sit armed on the water until something crosses the trip ring around them. Their upgrade cards join your deck.',
+  acquireStarShells:
+    'Fits a star shell mortar to your open slot. A flare lights a circle of ocean you see into as if it were your own sight — the one way to look somewhere you are not. Its upgrade cards join your deck.',
+  acquireBroadside:
+    'Fits a broadside battery to your open slot. It throws a fan of shells off whichever beam you clicked, port or starboard — never over the bow or the stern. Its upgrade cards join your deck.',
+  acquireRadarBuoy:
+    'Fits a radar buoy rack to your open slot. A buoy is a stationary set of eyes you drop astern; it sweeps its own circle and relays the returns to you until it expires or is sunk. Its cards join your deck.',
+  acquireBoost:
+    'Fits an emergency throttle to your open slot. One press drives your hull past its rated top speed for a few seconds — for closing, for breaking off, for stepping out of a torpedo. Its cards join your deck.',
 };
 
 /** The player state a card's live values are computed against. */
@@ -354,24 +450,53 @@ function statSentence(id: string, line: StatLine, you: BoonPreviewShip): string 
 }
 
 /**
- * Pure: the card's RULES TEXT — the contract, not the flavor. A stat line
- * prints its headline number as `current → next` (live, via the preview diff
- * above) plus any standing note; a doctrine card spells out the behavior change;
- * an acquisition card says what it fits. Fail-open: an unwritten line renders ''
- * rather than breaking the card.
+ * Pure: the card FACE's one text row — and, since R2.17 (Eric ruling
+ * 2026-08-19), the ONLY prose a card face carries.
+ *
+ * *"I want the card itself to be pretty minimal in the upgrade tab, just the
+ * name and stat change as before (previous -> new) if applicable."*
+ *
+ * So a STAT line prints its headline number as `current → next` (live, via the
+ * preview diff above) and NOTHING else — no standing note. A VERB card (the
+ * doctrines) and an ACQUISITION card move no number, so they print NOTHING AT
+ * ALL: their face is the ladder name, the lineage marker and the rarity tag,
+ * and their explanation lives in the hover tooltip (`boonTooltipText`).
+ *
+ * An empty string is therefore a LEGITIMATE, EXPECTED answer here, not a
+ * failure — which is a real change from Story 2.8, where blank rules text meant
+ * a broken card. Fail-open still holds for the one case that IS a failure: an
+ * unresolvable hull prints no half-formed number.
  */
 export function boonDescription(def: BoonDef, you: BoonPreviewShip): string {
-  if (Object.hasOwn(DOCTRINE_TEXT, def.id)) return DOCTRINE_TEXT[def.id];
-  if (Object.hasOwn(ACQUISITION_TEXT, def.id)) return ACQUISITION_TEXT[def.id];
   if (!Object.hasOwn(STAT_LINES, def.id)) return '';
-  const line = STAT_LINES[def.id];
-  const head = statSentence(def.id, line, you);
-  // An empty head means statSentence could not resolve the hull — the ONLY way
-  // it returns '' (every other path returns a template with a label and two
-  // numbers). Print nothing at all rather than a note dangling after a leading
-  // space. Fail-proven: reverting this line fails two tests in refitFailOpen.
-  if (head === '') return '';
-  return line.note ? `${head} ${line.note}` : head;
+  // An empty sentence means statSentence could not resolve the hull — the ONLY
+  // way it returns '' (every other path returns a template with a label and two
+  // numbers), and printing nothing beats printing half a diff.
+  return statSentence(def.id, STAT_LINES[def.id], you);
+}
+
+/**
+ * Pure: the card's HOVER-TOOLTIP EXPLANATION — what the card actually does, in
+ * plain terms (Story 7-5 wave 2, R2.17).
+ *
+ * *"hovering one with the mouse should give a tooltip explaining the card, so
+ * that there are no questions like 'what the fuck does a captive mine do?'"*
+ *
+ * TOTAL over BOON_CATALOG — EVERY line gets one, stat lines included, because a
+ * `current → next` number does not tell a new player what `cooldownScale` or a
+ * trip ring IS. Keyed on the id alone and carrying NO live values: the face
+ * already prints the player's own numbers, and a static string is what makes
+ * the tooltip's container-fit pin exact rather than build-dependent.
+ *
+ * HOVER ONLY, BY RULING. There is deliberately no keyboard path to this text:
+ * Tab opens the refit window and 1–4 / 5 pick, and *"an experienced player
+ * knows what they want and will use the shortcut or click faster without
+ * reading"* — the shortcut exists precisely so the reading can be skipped.
+ *
+ * Fail-open to '' on an unwritten id, exactly like every other lookup here.
+ */
+export function boonTooltipText(id: string): string {
+  return Object.hasOwn(BOON_EXPLAIN, id) ? BOON_EXPLAIN[id] : '';
 }
 
 /**
@@ -382,19 +507,21 @@ export function boonDescription(def: BoonDef, you: BoonPreviewShip): string {
  * `current → next`; a tooltip row reports a HOLDING and prints the value the
  * fitted build actually has. So the stat lines read straight off the LIVE
  * effective stats already resolved for the slot (no preview diff, no second
- * resolve — `stats` IS the firewall's output for this hull), and the standing
- * `note` is dropped: it belongs to the sales pitch, not the readout.
+ * resolve — `stats` IS the firewall's output for this hull).
  *
- * Doctrine and acquisition lines have no number to report, so they reuse their
- * card text verbatim — one copy of every string, and the tooltip's container-fit
- * pin (__tests__/tooltipFit.test.ts) is what keeps the long ones honest.
+ * Doctrine and acquisition lines have no number to report, so they print their
+ * HOLDING line (DOCTRINE_HOLDING / ACQUISITION_HOLDING). Since R2.17 that is a
+ * table of its own rather than a share of the card's copy: the card face stopped
+ * carrying prose at all, and the hover EXPLANATION is far too long to ride
+ * inside a panel whose own fit pin (__tests__/tooltipFit.test.ts) trims accrued
+ * rows away as they grow. Two surfaces, two lengths, one set of honesty pins.
  *
  * TOTAL over BOON_CATALOG by construction (every line is a stat, a doctrine or
  * an acquisition); an unwritten id fails open to '' rather than breaking a row.
  */
 export function boonEffectLine(id: string, stats: EffectiveStats): string {
-  if (Object.hasOwn(DOCTRINE_TEXT, id)) return DOCTRINE_TEXT[id];
-  if (Object.hasOwn(ACQUISITION_TEXT, id)) return ACQUISITION_TEXT[id];
+  if (Object.hasOwn(DOCTRINE_HOLDING, id)) return DOCTRINE_HOLDING[id];
+  if (Object.hasOwn(ACQUISITION_HOLDING, id)) return ACQUISITION_HOLDING[id];
   if (!Object.hasOwn(STAT_LINES, id)) return '';
   const line = STAT_LINES[id];
   const fmt = line.fmt ?? num;

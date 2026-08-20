@@ -48,21 +48,27 @@ import {
   type OwnShip,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { cssRgba } from '../util/color.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { REFIT_TYPE } from './refitCardFit.js';
+import { REFIT_TIP, refitTooltipLeft, refitTooltipMaxPanelH } from './refitTooltip.js';
 import {
   boonCategoryLabel,
   boonDescription,
   boonLineageLine,
   boonName,
   boonRarityLabel,
+  boonTooltipText,
 } from './boonCopy.js';
 
 const PANEL_ID = 'upgrade-menu';
 /** The DAMAGE CONTROL rail's element id — a stable handle for the band's one
  *  permanent control (the cards are rebuilt per offer; this never is). */
 const STRIP_ID = 'refit-damage-control';
+/** The hover tooltip's element id (R2.17) — the band's other permanent, never
+ *  rebuilt child, so tests and future callers have a stable handle. */
+const TIP_ID = 'refit-card-tooltip';
 /** The rail's key hint. Digit 5 sits immediately after the four card digits,
  *  and input/keyboard.ts maps BOTH Digit5 and Numpad5 to HEAL_CHOICE. */
 const STRIP_KEY_GLYPH = '5';
@@ -88,6 +94,43 @@ const HAIRLINE = 'var(--hc-hairline)';
  *  denied pulse and the armed edge, and nothing else may claim it. */
 const RARE = 'var(--hc-info)';
 const EXCLUSIVE = 'var(--hc-storm-readout)';
+/** The slot tooltip's ratified surface, reused verbatim for the refit card's
+ *  hover panel (DESIGN.md `components.slot-tooltip`): the `panel` bed at .97 and
+ *  a `silver` edge at .4. Composed from the TOKENS through `cssRgba` rather than
+ *  written as literals — a raw color literal outside config.ts fails the
+ *  token guard scan, and the alpha is the only part DESIGN.md states inline. */
+const TIP_BED = cssRgba(CLIENT_CONFIG.colors.panel, 0.97);
+const TIP_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.4);
+
+/**
+ * THE LADDER-POSITION RAMP (Eric ruling 2026-08-19: *"The cards with many copies
+ * can use a colour to designate which number in the sequence it is, if you want…
+ * I'm pretty flexible here, I just want it to be easy to read."*).
+ *
+ * The rung a card sits at rides the LINEAGE handrail's phosphor INTENSITY —
+ * dimmest at the ladder's first rung, full phosphor at its last — which is
+ * DESIGN.md's own ratified intensity grammar (Listening Ring: *"pure intensity
+ * grammar: more/closer = brighter"*) applied to the one mark on the card whose
+ * whole job is saying where in a line this card sits.
+ *
+ * WHY NOT A HUE RAMP. DESIGN.md's palette leaves no free ordinal hue: amber is
+ * the armed state, denied red is the refusal pulse, `info` is already the RARE
+ * tag, `storm-readout` the EXCLUSIVE tag and purple is storm-only forever, the
+ * blip decay ramp is explicitly *"Never: anything else"*, and the standing rule
+ * is *"keep all HUD chrome phosphor-functional"*. So the compliant colour
+ * channel for five ordered steps is phosphor's own brightness, and inventing a
+ * token would be exactly the deviation the project forbids.
+ *
+ * DUAL-CODED, per the Do's and Don'ts. The Roman numeral the ramp tints ("III/V")
+ * states the same fact in TEXT, and the ladder name states it a third time
+ * ("MINES III") — so the colour is a fast read, never the only read.
+ */
+export function lineageAlpha(stack: number, copies: number): number {
+  if (copies <= 1) return 1;
+  const pos = Math.min(copies, Math.max(1, Math.trunc(stack) + 1));
+  const dimmest = 0.5;
+  return dimmest + ((1 - dimmest) * (pos - 1)) / (copies - 1);
+}
 
 // --- pure core: band geometry ------------------------------------------------
 
@@ -188,8 +231,19 @@ export interface OfferCard {
   name: string;
   /** Lineage handrail for a multi-copy line ("II/V"), null for a single. */
   lineage: string | null;
-  /** Rules text — the contract, with the player's live current → next values. */
+  /** THE FACE'S ONE TEXT ROW (R2.17): a stat line's live `current → next`
+   *  sentence, and '' for a verb or acquisition card — whose face is the ladder
+   *  name and the tags alone. An empty string here is expected, not a fault. */
   description: string;
+  /** The HOVER-ONLY explanation (R2.17) — what the card actually does, in plain
+   *  terms. Never rendered on the face; the band's hover panel shows it. */
+  tooltip: string;
+  /** How many of this line the player already holds, and how many the line has
+   *  in total. Carried so the lineage handrail can tint by ladder POSITION
+   *  (Eric's colour ruling — see `lineageAlpha`) without the DOM layer having to
+   *  re-parse "III/V" back into numbers. */
+  stack: number;
+  copies: number;
 }
 
 // --- pure core: the DAMAGE CONTROL rail ----------------------------------------
@@ -355,6 +409,9 @@ function toCard(def: BoonDef, you: OwnShip): OfferCard {
     name: boonName(def.id, stack),
     lineage: boonLineageLine(def, stack),
     description: boonDescription(def, you),
+    tooltip: boonTooltipText(def.id),
+    stack,
+    copies: def.copies,
   };
 }
 
@@ -595,6 +652,61 @@ const CARD_BODY_CSS = [
 /** Locked (a spend is in flight): dimmed and inert — no hover, no click. */
 const CARD_LOCKED_CSS = `${CARD_CSS};opacity:${R.lockedAlpha};cursor:default`;
 
+// --- THE HOVER TOOLTIP (Story 7-5 wave 2, R2.17) --------------------------------
+//
+// One panel, built once with the band and re-filled per hover — never one per
+// card, so the pointer moving along the row cannot leave a trail of panels.
+//
+// It hangs off the PANEL rather than the row, with `bottom: calc(100% + gap)`:
+// the panel's own box starts at the queue pips, so that one declaration pins the
+// tooltip's BOTTOM edge `gap` above the band's top edge without anybody having
+// to know the tooltip's height. It grows upward from there, into the clear water
+// above the band, which is exactly the container ui/refitTooltip.ts models.
+//
+// `pointer-events:none` is load-bearing: the panel overhangs the cards' hover
+// targets, and a panel that took the pointer would make its own card's
+// `mouseleave` fire and flicker it out from under the cursor.
+const TIP_CSS = [
+  'position:absolute',
+  `bottom:calc(100% + ${REFIT_TIP.gap}px)`,
+  `width:${REFIT_TIP.width}px`,
+  `padding:${REFIT_TIP.pad}px`,
+  'box-sizing:border-box',
+  `border-width:${REFIT_TIP.border}px`,
+  'border-style:solid',
+  'border-radius:0', // square corners (DESIGN.md CIC chrome)
+  'display:none', // toggled to 'flex' on hover
+  'flex-direction:column',
+  'align-items:flex-start',
+  `gap:${REFIT_TIP.rowGap}px`,
+  'text-align:left',
+  'pointer-events:none',
+  'overflow:hidden', // amendment-47 belt and braces; the fit model is the fix
+  'z-index:1',
+].join(';');
+
+/** The panel's heading: the ladder name at the hovered card's rung, in the
+ *  card's own resting text color (this is the card's name repeated, not a new
+ *  register). */
+const TIP_NAME_CSS = [
+  `font:600 ${REFIT_TIP.nameSize}px var(--hc-font-mono)`,
+  `letter-spacing:${REFIT_TIP.nameLetterSpacing}px`,
+  `line-height:${REFIT_TIP.nameLineHeight}`,
+  `color:${REST}`,
+  'overflow-wrap:anywhere',
+].join(';');
+
+/** The explanation paragraph — data, so phosphor rather than grey (amendment
+ *  16), at the card description's own opacity so the two read as one voice. */
+const TIP_BODY_CSS = [
+  `font:400 ${REFIT_TIP.bodySize}px var(--hc-font-mono)`,
+  `letter-spacing:${REFIT_TIP.bodyLetterSpacing}px`,
+  `line-height:${REFIT_TIP.bodyLineHeight}`,
+  `color:${PHOSPHOR}`,
+  'opacity:0.85',
+  'overflow-wrap:anywhere',
+].join(';');
+
 /** The mono key-chip glyph (the ONE key-chip family — hotbar slots and helm
  *  glyphs render the same treatment): a bordered digit OVERHANGING the card's
  *  top-left corner by half its size, riding currentColor so the card's
@@ -732,6 +844,9 @@ const LINEAGE_CSS = [
   `font:400 ${R.lineageSize}px var(--hc-font-mono)`,
   `letter-spacing:${T.lineageLetterSpacing}px`,
   `color:${PHOSPHOR}`,
+  // The flat 0.7 is gone: `lineageEl` writes a per-rung opacity over this (Eric's
+  // ladder-position colour ruling). The declaration stays as the fallback for
+  // any future consumer that renders a handrail without a known stack.
   'opacity:0.7',
   TEXT_ROW,
 ].join(';');
@@ -768,11 +883,21 @@ function rarityEl(rarity: string): HTMLSpanElement {
   return el;
 }
 
-/** One plain text line (lineage / doctrine-swap) at a prepared style. */
+/** One plain text line at a prepared style. */
 function lineEl(css: string, text: string): HTMLSpanElement {
   const el = document.createElement('span');
   el.style.cssText = css;
   el.textContent = text;
+  return el;
+}
+
+/** The lineage handrail ("III/V"), tinted by LADDER POSITION — Eric's colour
+ *  ruling, carried on phosphor's intensity (see `lineageAlpha`). The numeral
+ *  itself is the non-colour channel, so the tint is a fast read and never the
+ *  only one. */
+function lineageEl(text: string, stack: number, copies: number): HTMLSpanElement {
+  const el = lineEl(LINEAGE_CSS, text);
+  el.style.opacity = String(lineageAlpha(stack, copies));
   return el;
 }
 
@@ -782,7 +907,7 @@ function lineEl(css: string, text: string): HTMLSpanElement {
  *  lineage, and current→next numbers, all of which are in here — so no
  *  separate build/stack signature is needed alongside it. */
 function cardSignature(card: OfferCard): string {
-  return [card.id, card.rarity, card.name, card.lineage ?? '', card.description].join('~');
+  return [card.id, card.rarity, card.name, card.lineage ?? '', card.description, card.tooltip].join('~');
 }
 
 /** The DOM handles of one built card. */
@@ -790,6 +915,13 @@ interface RefitCardEls {
   root: HTMLButtonElement;
   category: HTMLSpanElement;
   name: HTMLSpanElement;
+}
+
+/** The DOM handles of the hover tooltip (built once with the panel). */
+interface RefitTipEls {
+  root: HTMLDivElement;
+  name: HTMLSpanElement;
+  body: HTMLSpanElement;
 }
 
 /** The DOM handles of the DAMAGE CONTROL rail (built once, never rebuilt — it
@@ -841,6 +973,14 @@ export class UpgradeMenu {
   private ghostEl: HTMLDivElement | null = null;
   private cards: RefitCardEls[] = [];
   private strip: RefitStripEls | null = null;
+  /** The ONE hover tooltip (R2.17), built with the panel and re-filled per
+   *  hover — never one per card, so a pointer running along the row cannot
+   *  leave a trail of panels behind it. */
+  private tip: RefitTipEls | null = null;
+  /** The last rendered view — the tooltip's copy source. Kept as state rather
+   *  than stamped onto the DOM: the panel shows ONE card's explanation at a
+   *  time, and re-reading it from the view keeps the cards free of copy. */
+  private view: OfferView | null = null;
   private shown = false;
   private sig = '';
   private stripSig = '';
@@ -876,7 +1016,12 @@ export class UpgradeMenu {
     ghost.style.display = 'none';
     row.appendChild(ghost);
     this.strip = this.makeStrip();
-    panel.append(pips, row, this.strip.root);
+    this.tip = this.makeTip();
+    // The tooltip is the panel's LAST child so it paints over the cards, and it
+    // is a sibling of the row rather than a member of it: `render()` rebuilds
+    // the row's children wholesale, and a tooltip inside it would be destroyed
+    // on every offer swap.
+    panel.append(pips, row, this.strip.root, this.tip.root);
     document.body.appendChild(panel);
     this.panel = panel;
     this.pipsEl = pips;
@@ -923,6 +1068,58 @@ export class UpgradeMenu {
       this.onSpend(HEAL_CHOICE);
     });
     return els;
+  }
+
+  /**
+   * The hover tooltip's panel (R2.17), built ONCE with the band: heading row
+   * over explanation paragraph. It takes no pointer events and registers no
+   * listeners of its own — every appearance is driven by a card's mouseenter.
+   */
+  private makeTip(): RefitTipEls {
+    const root = document.createElement('div');
+    root.id = TIP_ID;
+    root.style.cssText = TIP_CSS;
+    root.style.backgroundColor = TIP_BED;
+    root.style.borderColor = TIP_EDGE;
+    const name = document.createElement('span');
+    name.style.cssText = TIP_NAME_CSS;
+    const body = document.createElement('span');
+    body.style.cssText = TIP_BODY_CSS;
+    root.append(name, body);
+    return { root, name, body };
+  }
+
+  /**
+   * Show the explanation for the card in slot `index`, or hide the panel.
+   *
+   * HOVER ONLY, BY RULING (R2.17). The single caller is a card's `mouseenter` /
+   * `mouseleave`; nothing on the keyboard path reaches here, because Tab/1–4/5
+   * exist precisely so an experienced player can skip the reading.
+   *
+   * A card with NO explanation written (fail-open on an unwritten id) shows no
+   * panel at all rather than an empty box — the totality pin in
+   * __tests__/refitTooltipFit.test.ts is what makes that unreachable for any
+   * shipped catalog line.
+   */
+  private showTip(index: number | null): void {
+    const tip = this.tip;
+    if (!tip) return;
+    const card = index === null ? null : this.cards[index];
+    const copy = index === null ? null : this.view?.options[index] ?? null;
+    if (!card || !copy || copy.tooltip === '') {
+      tip.root.style.display = 'none';
+      return;
+    }
+    tip.name.textContent = copy.name;
+    tip.body.textContent = copy.tooltip;
+    tip.root.style.left = `${refitTooltipLeft(index!, this.rowWidth())}px`;
+    tip.root.style.display = 'flex';
+  }
+
+  /** The laid-out card row's width — the ONE place the tooltip's horizontal
+   *  clamp reads it from, derived exactly as `refitBandLayout` derives it. */
+  private rowWidth(): number {
+    return refitBandLayout(window.innerWidth, window.innerHeight).row.w;
   }
 
   /** Hover/focus arm — suppressed while the denied edge is lit on the rail, so
@@ -990,7 +1187,7 @@ export class UpgradeMenu {
     const body = document.createElement('div');
     body.style.cssText = CARD_BODY_CSS;
     body.append(meta, name);
-    if (card.lineage) body.appendChild(lineEl(LINEAGE_CSS, card.lineage));
+    if (card.lineage) body.appendChild(lineageEl(card.lineage, card.stack, card.copies));
     body.appendChild(desc);
     btn.appendChild(body);
     const els: RefitCardEls = { root: btn, category, name };
@@ -1003,15 +1200,32 @@ export class UpgradeMenu {
       btn.disabled = true; // real disabled state, not just opacity — keyboard/AT see it too
       return els;
     }
-    btn.addEventListener('mouseenter', () => paintCard(els, true));
-    btn.addEventListener('mouseleave', () => paintCard(els, false));
+    this.wireCard(els, choice);
+    return els;
+  }
+
+  /**
+   * A live card's listeners. HOVER carries the tooltip; FOCUS deliberately does
+   * NOT (R2.17 — Eric ruled the explanation hover-only, because the Tab / 1–4
+   * keyboard path exists precisely so an experienced player can skip the
+   * reading). The two pairs stay asymmetric on purpose, and a pin asserts it.
+   */
+  private wireCard(els: RefitCardEls, choice: number): void {
+    const btn = els.root;
+    btn.addEventListener('mouseenter', () => {
+      paintCard(els, true);
+      this.showTip(choice);
+    });
+    btn.addEventListener('mouseleave', () => {
+      paintCard(els, false);
+      this.showTip(null);
+    });
     btn.addEventListener('focus', () => paintCard(els, true));
     btn.addEventListener('blur', () => paintCard(els, false));
     btn.addEventListener('click', () => {
       btn.blur(); // belt-and-braces with the mousedown preventDefault above
       this.onSpend(choice);
     });
-    return els;
   }
 
   /** Queue pips: filled = the offer on screen, hollow = each one still waiting. */
@@ -1038,6 +1252,7 @@ export class UpgradeMenu {
    */
   private render(view: OfferView): void {
     this.ensurePanel();
+    this.view = view;
     // The rail first, on its OWN memo: it outlives every offer, so it must be
     // repainted even on the frames the card row memo skips (a hull crossing
     // maxHp mid-window moves nothing about the cards).
@@ -1045,6 +1260,10 @@ export class UpgradeMenu {
     const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}`;
     if (sig === this.sig) return;
     this.sig = sig;
+    // A rebuilt row destroys the buttons the pointer was over, so no mouseleave
+    // can ever arrive for them: drop the tooltip with them or it strands, still
+    // showing the offer that just left.
+    this.showTip(null);
     this.renderPips(view.pts);
     // The dashed ghost edge stands behind the row for the offers still queued.
     this.ghostEl!.style.display = view.pts > 1 ? 'block' : 'none';
@@ -1061,10 +1280,17 @@ export class UpgradeMenu {
     if (this.deniedChoice !== null && this.deniedChoice >= 0) this.deniedChoice = null;
   }
 
-  /** Position the band from the pure layout (never from CSS guesses). */
+  /** Position the band from the pure layout (never from CSS guesses), and hand
+   *  the hover tooltip the container the same layout leaves above the band. */
   private place(): void {
     const layout = refitBandLayout(window.innerWidth, window.innerHeight);
     this.ensurePanel().style.top = `${layout.band.y}px`;
+    // The tooltip grows UPWARD from a bottom edge pinned above the band, so its
+    // container is the clear water between the band's top and the viewport's
+    // margin. The cap is belt-and-braces (the fit pin in refitTooltipFit is the
+    // fix): it guarantees an unforeseen state still cannot lay text over the
+    // queue pips or run off the top of the screen. `band.y` IS the pips' top.
+    if (this.tip) this.tip.root.style.maxHeight = `${refitTooltipMaxPanelH(layout.band.y)}px`;
   }
 
   /** TAB toggle: open with this view, or close if already open. */
@@ -1163,6 +1389,10 @@ export class UpgradeMenu {
   hide(): void {
     if (this.panel) this.panel.style.display = 'none';
     this.shown = false;
+    // A closed band leaves no hover behind it: the pointer never gets a
+    // mouseleave off a hidden button, so a reopened band would inherit a lit
+    // tooltip for a card it may no longer even be offering.
+    this.showTip(null);
     // Repaint (not just forget) any lit edge: the cards outlive the close (a
     // reopen with an unchanged view signature reuses the very same buttons), so
     // dropping the bookkeeping alone would strand a denied border lit forever —

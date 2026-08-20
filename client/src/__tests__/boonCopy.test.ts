@@ -21,6 +21,7 @@ import {
   boonLineageLine,
   boonName,
   boonRarityLabel,
+  boonTooltipText,
 } from '../ui/boonCopy.js';
 
 const TB = { cls: 'torpedoBoat' as const, boons: [] as string[] };
@@ -133,12 +134,60 @@ describe('ladder coverage — every catalog line, every stack position', () => {
   });
 });
 
-describe('rules text — the contract, with live values', () => {
-  it('writes non-empty rules text for EVERY shipped line', () => {
-    for (const def of Object.values(BOON_CATALOG)) {
-      expect(boonDescription(def, TB).length, def.id).toBeGreaterThan(0);
+/** The catalog partition R2.17 draws: a line either moves a NUMBER (its face
+ *  prints `current → next`) or it is a VERB / an ACQUISITION (its face prints
+ *  nothing at all and the hover tooltip does the talking). Derived from the
+ *  EFFECT SHAPE, never from the rarity tier — wave 1 dropped the verbs from
+ *  `exclusive` to `rare`, so a rarity-keyed split would demand a stat sentence
+ *  off a card with no number to print. */
+const VERBS_AND_ACQUISITIONS = Object.values(BOON_CATALOG).filter((d) =>
+  d.effects.some((e) => e.kind === 'doctrine' || e.kind === 'slotFill'),
+);
+const STAT_CARDS = Object.values(BOON_CATALOG).filter((d) => !VERBS_AND_ACQUISITIONS.includes(d));
+
+describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
+  // Eric ruling 2026-08-19: *"I want the card itself to be pretty minimal in the
+  // upgrade tab, just the name and stat change as before (previous -> new) if
+  // applicable."* So the face's ONE text row is the stat sentence, and a card
+  // that moves no number carries no prose at all.
+  it('prints a live current → next sentence for every STAT line', () => {
+    expect(STAT_CARDS.length).toBeGreaterThanOrEqual(16);
+    for (const def of STAT_CARDS) {
+      const text = boonDescription(def, TB);
+      expect(text.length, def.id).toBeGreaterThan(0);
+      expect(text, def.id).toContain('→');
     }
   });
+
+  it('prints NOTHING for a verb or an acquisition — name and tag are the whole face', () => {
+    expect(VERBS_AND_ACQUISITIONS.length).toBeGreaterThanOrEqual(13);
+    for (const def of VERBS_AND_ACQUISITIONS) {
+      expect(boonDescription(def, TB), def.id).toBe('');
+    }
+  });
+
+  // THE RIDERS ARE GONE FROM THE FACE. Every one of these used to trail the
+  // number on the card ("Repairs the hull it adds.", "The trip ring widens with
+  // it.", …) and every one is now in the hover explanation instead — moved, not
+  // dropped, which is what the second half of each assertion proves.
+  it('carries no standing note beside the number — the riders moved to the tooltip', () => {
+    const moved: [string, string][] = [
+      ['shipHull', 'repairs'],
+      ['mineBlast', 'trip ring'],
+      ['intelRange', 'star shells'],
+      ['shipCooldown', 'every weapon'],
+      ['broadsideTurrets', 'straddles'],
+      ['gunBarrel', 'parallel'],
+    ];
+    for (const [id, phrase] of moved) {
+      const face = boonDescription(BOON_CATALOG[id], TB);
+      expect(face, id).toMatch(/^[^.]+: .+ → .+\.$/); // exactly ONE sentence, the diff
+      expect(boonTooltipText(id).toLowerCase(), id).toContain(phrase);
+    }
+  });
+});
+
+describe('rules text — the contract, with live values', () => {
 
   it('prints the canonical current → next sentence off a real preview diff', () => {
     const sweep = boonDescription(BOON_CATALOG.intelSweep, TB);
@@ -167,47 +216,11 @@ describe('rules text — the contract, with live values', () => {
     );
   });
 
-  it('prints durations as seconds, the global cooldown as a PERCENT, and carries the standing notes', () => {
+  it('prints durations as seconds and the global cooldown as a PERCENT', () => {
     expect(boonDescription(BOON_CATALOG.starDuration, TB)).toContain('s →');
     // The one card that scales seven different reloads has no single second
     // count to headline, so it prints the scale itself, reading downward.
-    expect(boonDescription(BOON_CATALOG.shipCooldown, TB)).toContain('All cooldowns: 100% → 90%.');
-    expect(boonDescription(BOON_CATALOG.shipHull, TB)).toContain('Repairs the hull it adds.');
-    expect(boonDescription(BOON_CATALOG.intelRange, TB)).toContain('Sight, gun, broadside and star shells reach with it.');
-    expect(boonDescription(BOON_CATALOG.mineBlast, TB)).toContain('The trip ring widens with it.');
-  });
-
-  it('doctrine cards spell out the behavior change; acquisitions say what they fit', () => {
-    expect(boonDescription(BOON_CATALOG.torpedoHoming, TB)).toContain('steer');
-    expect(boonDescription(BOON_CATALOG.minePropFouling, TB)).toContain('fouled');
-    expect(boonDescription(BOON_CATALOG.starDazzle, TB)).toContain('dazzle');
-    expect(boonDescription(BOON_CATALOG.mineCaptive, TB)).toContain('torpedo');
-    expect(boonDescription(BOON_CATALOG.buoyGun, TB)).toContain('5 damage');
-    expect(boonDescription(BOON_CATALOG.buoyJamming, TB)).toContain('false radar returns');
-    expect(boonDescription(BOON_CATALOG.acquireBroadside, TB)).toContain('open slot');
-    expect(boonDescription(BOON_CATALOG.acquireRadarBuoy, TB)).toContain('open slot');
-    // ...and a doctrine card never prints a bare stat diff instead.
-    expect(boonDescription(BOON_CATALOG.starIncendiary, TB)).not.toContain('→');
-  });
-
-  // THE TWO BUOY VERBS' COPY RULES, pinned because both are easy to "improve"
-  // back into a lie (Story 7-5 wave 2).
-  it('GUN BUOY never claims an aggro or hostility gate — it shoots anything but you (R2.21)', () => {
-    const text = boonDescription(BOON_CATALOG.buoyGun, TB).toLowerCase();
-    // Eric ruling 2026-08-19 SUPERSEDED R2.10: the gun buoy is autonomous and
-    // fires at the nearest hull its own radar sees, NEUTRAL FLEET DRONES
-    // INCLUDED. Every one of these words promises a gate it does not have.
-    for (const word of ['hostile', 'enemy', 'attacker', 'threat']) expect(text).not.toContain(word);
-    expect(text).toContain('nearest'); // the selection rule IS the interesting half
-  });
-
-  it('JAMMING BUOY never claims concealment — it denies reading, it does not hide (R2.11)', () => {
-    const text = boonDescription(BOON_CATALOG.buoyJamming, TB).toLowerCase();
-    // It ADDS fakes and never deletes a real return, and it is RADAR ONLY: the
-    // ratified counter is to sail in and look, so the copy must not sell it as
-    // cover and must leave truesight standing.
-    for (const word of ['hide', 'hides', 'conceal', 'invisible', 'cloak']) expect(text).not.toContain(word);
-    expect(text).toContain('sight'); // the counter stays on the card
+    expect(boonDescription(BOON_CATALOG.shipCooldown, TB)).toBe('All cooldowns: 100% → 90%.');
   });
 
   // STORY 7-5 WAVE 2 — the BROADSIDE pair. SPREAD is the ONE line in the catalog
@@ -224,34 +237,112 @@ describe('rules text — the contract, with live values', () => {
     const before = effectiveStats(CONFIG.shipClasses.battleship);
     const after = effectiveStats(CONFIG.shipClasses.battleship, resolveBoons(['broadsideSpread'], BOON_CATALOG));
     expect(after.broadside.fanHalfAngleRad).toBeLessThan(before.broadside.fanHalfAngleRad);
-    expect(text).toContain('Shells land nearer the point you clicked.');
   });
 
-  it('BROADSIDE TURRETS prints shells per barrage, and the straddle note', () => {
-    const text = boonDescription(BOON_CATALOG.broadsideTurrets, TB);
-    expect(text).toContain('Shells per barrage: 3 → 4.');
-    expect(text).toContain('An odd count puts one shell dead on your click.');
+  it('BROADSIDE TURRETS prints shells per barrage, and nothing else', () => {
+    expect(boonDescription(BOON_CATALOG.broadsideTurrets, TB)).toBe('Shells per barrage: 3 → 4.');
+  });
+});
+
+// --- THE HOVER TOOLTIP (Story 7-5 wave 2, R2.17) --------------------------------
+//
+// *"hovering one with the mouse should give a tooltip explaining the card, so
+// that there are no questions like 'what the fuck does a captive mine do?'"*
+//
+// The explanation left the card face, so the whole "rules text is the contract"
+// law moved with it: these are the pins that keep it honest in its new home.
+describe('the hover explanation — TOTAL over the catalog, and the honest one', () => {
+  it('writes a real explanation for EVERY shipped line, stat lines included', () => {
+    // TOTALITY is the point: a `current → next` number does not tell a new
+    // player what `cooldownScale` or a trip ring IS, so a stat card needs one
+    // exactly as much as CAPTIVE MINES does.
+    for (const def of Object.values(BOON_CATALOG)) {
+      const text = boonTooltipText(def.id);
+      expect(text.trim().length, def.id).toBeGreaterThan(0);
+      // Not a stub, and not the face's sentence copied over: an explanation is
+      // prose, so it runs well past the ~90-character card-face budget.
+      expect(text.length, def.id).toBeGreaterThan(100);
+      expect(text, def.id).not.toContain('→');
+    }
   });
 
-  // STORY 7-5 WAVE 1 — the verbs STACK, so no doctrine card may still sell
-  // itself as a trade against its former rival. Both star-shell cards and both
-  // mine cards are legal to hold together now.
-  // WAVE 2 made this TOTAL: exclusivity is deleted (R2.6), so EVERY doctrine
-  // card in the catalog is a stacking verb and none may sell itself as a trade.
-  it('no doctrine card implies an either/or any more — every verb stacks', () => {
+  it('answers Eric\'s own question — CAPTIVE MINES says what a captive mine does', () => {
+    const text = boonTooltipText('mineCaptive').toLowerCase();
+    expect(text).toContain('torpedo');
+    expect(text).toContain('never blows up on contact'); // the counter-intuitive half
+    expect(text).toContain('trip ring');
+  });
+
+  it('explains the behaviour change of every verb and what every acquisition fits', () => {
+    expect(boonTooltipText('torpedoHoming')).toContain('steers');
+    expect(boonTooltipText('minePropFouling')).toContain('fouled');
+    expect(boonTooltipText('starDazzle')).toContain('dazzle');
+    expect(boonTooltipText('starIncendiary')).toContain('burns');
+    expect(boonTooltipText('buoyGun')).toContain('5 damage');
+    expect(boonTooltipText('buoyJamming')).toContain('false radar returns');
+    expect(boonTooltipText('acquireBroadside')).toContain('open slot');
+    expect(boonTooltipText('acquireRadarBuoy')).toContain('open slot');
+  });
+
+  it('fails open on an unwritten id rather than throwing mid-hover', () => {
+    expect(boonTooltipText('notARealBoon')).toBe('');
+  });
+
+  // THE TWO BUOY VERBS' COPY RULES, pinned because both are easy to "improve"
+  // back into a lie (Story 7-5 wave 2). They now bind BOTH surfaces the words
+  // can reach — the hover explanation and the hotbar's holding line — because
+  // R2.17 split one string into two and a rule that checked only one of them
+  // would let the other drift.
+  const buoySurfaces = (id: string): string[] => [
+    boonTooltipText(id).toLowerCase(),
+    boonEffectLine(id, effectiveStats(CONFIG.shipClasses.torpedoBoat)).toLowerCase(),
+  ];
+
+  it('GUN BUOY never claims an aggro or hostility gate — it shoots anything but you (R2.21)', () => {
+    // Eric ruling 2026-08-19 SUPERSEDED R2.10: the gun buoy is autonomous and
+    // fires at the nearest hull its own radar sees, NEUTRAL FLEET DRONES
+    // INCLUDED. Every one of these words promises a gate it does not have.
+    for (const text of buoySurfaces('buoyGun')) {
+      for (const word of ['hostile', 'enemy', 'attacker', 'threat']) expect(text).not.toContain(word);
+      expect(text).toContain('nearest'); // the selection rule IS the interesting half
+    }
+  });
+
+  it('JAMMING BUOY never claims concealment — it denies reading, it does not hide (R2.11)', () => {
+    // It ADDS fakes and never deletes a real return, and it is RADAR ONLY: the
+    // ratified counter is to sail in and look, so the copy must not sell it as
+    // cover and must leave truesight standing.
+    for (const text of buoySurfaces('buoyJamming')) {
+      for (const word of ['hide', 'hides', 'conceal', 'invisible', 'cloak']) expect(text).not.toContain(word);
+    }
+    // The counter rides the EXPLANATION, which is where there is room to state
+    // it; the holding line has one clause and spends it on what the buoy does.
+    expect(boonTooltipText('buoyJamming').toLowerCase()).toContain('sight sees the truth');
+  });
+
+  // STORY 7-5 WAVE 1 — the verbs STACK, so no verb card may still sell itself as
+  // a trade against its former rival. WAVE 2 made this TOTAL: exclusivity is
+  // deleted (R2.6), so EVERY doctrine card in the catalog is a stacking verb.
+  it('no verb sells itself as a trade against a rival — and the two pairs say so', () => {
     const verbs = Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'doctrine'));
     expect(verbs.length).toBeGreaterThanOrEqual(7);
     for (const def of verbs) {
-      const text = boonDescription(def, TB);
-      expect(text, def.id).not.toMatch(/instead|replaces/i);
+      // "replaces" is the word the retired exclusivity grammar used, on the face
+      // AND in the copy; nothing may reintroduce it. (A verb may of course say
+      // what it changes about its OWN weapon — CAPTIVE MINES has to.)
+      expect(boonTooltipText(def.id), def.id).not.toMatch(/\breplaces?\b/i);
     }
+    // The two former exclusive pairs now state the stacking outright, which is
+    // the strongest form of "this is not an either/or".
+    expect(boonTooltipText('starIncendiary')).toContain('stacks with DAZZLE SHELLS');
+    expect(boonTooltipText('starDazzle')).toContain('stacks with PHOSPHOR SHELLS');
   });
 
   // PROP FOULING is a PURE behaviour verb since cycle 95 deleted its damage
   // penalty — the shipped v1 text still claimed "Mines hit softer", which was a
   // lie on the card. It states the real slow now.
   it('PROP FOULING states the real slow and claims no damage penalty', () => {
-    const text = boonDescription(BOON_CATALOG.minePropFouling, TB);
+    const text = boonTooltipText('minePropFouling');
     expect(text).toContain('25%');
     expect(text).toContain('5 seconds');
     expect(text).not.toMatch(/softer|less damage/i);
@@ -320,18 +411,27 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('shipHull', stacked)).toBe(`Max hull: ${stacked.maxHp}`);
   });
 
-  it('drops the card\'s standing note — the row is a readout, not a pitch', () => {
-    expect(boonDescription(BOON_CATALOG.shipHull, { cls: 'torpedoBoat', boons: [] })).toContain('Repairs');
+  it('reports the value only — never the card\'s sales pitch or its explanation', () => {
+    expect(boonEffectLine('shipHull', bare)).toBe(`Max hull: ${bare.maxHp}`);
     expect(boonEffectLine('shipHull', bare)).not.toContain('Repairs');
   });
 
-  it('reuses the doctrine / acquisition text verbatim (one copy of every string)', () => {
-    expect(boonEffectLine('mineCaptive', bare)).toBe(
-      boonDescription(BOON_CATALOG.mineCaptive, { cls: 'battleship', boons: [] }),
-    );
-    expect(boonEffectLine('acquireTorpedo', bare)).toBe(
-      boonDescription(BOON_CATALOG.acquireTorpedo, { cls: 'battleship', boons: [] }),
-    );
+  // R2.17 SPLIT what used to be one string. A verb card's face now prints
+  // NOTHING, so the holding row cannot reuse it; and the hover EXPLANATION is
+  // prose written for a first-time reader, far too long to ride inside a panel
+  // whose own fit pin trims accrued rows as they grow. So the holding line is
+  // its own short table, and this is the pin that says the three surfaces are
+  // genuinely three.
+  it('is its OWN short line for a verb — not the blank face, not the long explanation', () => {
+    for (const id of ['mineCaptive', 'acquireTorpedo', 'buoyJamming']) {
+      const holding = boonEffectLine(id, bare);
+      expect(holding.trim().length, id).toBeGreaterThan(0);
+      expect(boonDescription(BOON_CATALOG[id], { cls: 'battleship', boons: [] }), id).toBe('');
+      expect(holding, id).not.toBe(boonTooltipText(id));
+      // It stays SHORT: the hotbar panel's budget is what this table exists for.
+      expect(holding.length, id).toBeLessThan(80);
+      expect(boonTooltipText(id).length, id).toBeGreaterThan(holding.length);
+    }
   });
 
   it('is TOTAL over the catalog — no line can be presentation-silent (FR22)', () => {

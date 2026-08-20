@@ -28,7 +28,7 @@ import {
   type SpendLatch,
 } from '../ui/upgradeMenu.js';
 import { refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
-import { boonFitToastLine, boonName } from '../ui/boonCopy.js';
+import { boonFitToastLine, boonName, boonTooltipText } from '../ui/boonCopy.js';
 import { vitalsLayout } from '../render/hud.js';
 import { hotbarLayout } from '../render/hotbar.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -531,6 +531,12 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       name: boonName(id, 0),
       lineage: null,
       description: '',
+      // Story 7-5 wave 2 (R2.17): the face's prose moved to a hover tooltip, so
+      // an OfferCard now carries the explanation and the ladder position the
+      // handrail's colour ramp reads.
+      tooltip: boonTooltipText(id),
+      stack: 0,
+      copies: BOON_CATALOG[id].copies,
     }));
 
   const view = (over: Partial<OfferView> = {}): OfferView => ({
@@ -805,9 +811,12 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(cards()).toHaveLength(4);
     expect(document.querySelectorAll('#refit-damage-control')).toHaveLength(1);
     // The rail is the PANEL's third child (pips, row, rail) — outside the row.
+    // Story 7-5 wave 2 (R2.17) adds a FOURTH: the one hover tooltip, built with
+    // the panel and never rebuilt, deliberately last so it paints over the row.
     const panel = document.getElementById('upgrade-menu')!;
-    expect(panel.children).toHaveLength(3);
+    expect(panel.children).toHaveLength(4);
     expect(panel.children[2]).toBe(strip());
+    expect(panel.children[3]?.id).toBe('refit-card-tooltip');
     expect(strip().parentElement).toBe(panel);
     expect(strip().textContent).toContain(HEAL_LABEL);
     expect(strip().textContent).toContain(healReadout());
