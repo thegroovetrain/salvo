@@ -89,7 +89,7 @@ const ALL_DEFS = Object.values(BOON_CATALOG);
 /** The ratified rarity/copies table — the FINAL 29 lines (Story 7-5 wave 2:
  *  23 upgrade lines + 6 acquisitions). Wave 2 replaced two whole equipments:
  *  `cannonDamage`/`cannonArcing`/`cannonAp` gave way to `broadsideSpread` ×4 +
- *  `broadsideTurrets` ×2, `decoyDuration` to `buoySweep` ×4 + `buoyGun` +
+ *  `broadsideTurrets` ×2, `decoyDuration` to `buoyDuration` ×4 + `buoyGun` +
  *  `buoyJamming`, and `mineSelfPropelled` to `mineCaptive`. NO `exclusive`
  *  rarity survives anywhere in the table: the cannon pair was the tier's last
  *  user, and every doctrine card is now a plain `rare` verb that STACKS. */
@@ -109,7 +109,7 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   starDuration: { rarity: 'common', copies: 4 },
   starIncendiary: { rarity: 'rare', copies: 1 }, // PHOSPHOR SHELLS — display rename, id kept
   starDazzle: { rarity: 'rare', copies: 1 },
-  buoySweep: { rarity: 'common', copies: 4 },
+  buoyDuration: { rarity: 'common', copies: 4 },
   buoyGun: { rarity: 'rare', copies: 1 },
   buoyJamming: { rarity: 'rare', copies: 1 },
   intelRange: { rarity: 'common', copies: 4 },

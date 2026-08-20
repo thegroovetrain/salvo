@@ -104,7 +104,7 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   starIncendiary: ['PHOSPHOR SHELLS'],
   starDazzle: ['DAZZLE SHELLS'],
   // --- RADAR BUOY (WAVE 2 — replaces the decoy buoy outright) ---------------
-  buoySweep: ['BUOY I', 'BUOY II', 'BUOY III', 'BUOY IV'],
+  buoyDuration: ['BUOY I', 'BUOY II', 'BUOY III', 'BUOY IV'],
   buoyGun: ['GUN BUOY'],
   buoyJamming: ['JAMMING BUOY'],
   // --- INTEL ---------------------------------------------------------------
@@ -242,7 +242,7 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   boostDuration: { label: 'Boost duration', read: (s) => s.boost.durationMs, fmt: secs },
   boostSpeed: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
   starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },
-  buoySweep: { label: 'Buoy sweep', read: (s) => s.radarBuoy.sweepRpm, fmt: (v) => `${num(v)} RPM` },
+  buoyDuration: { label: 'Buoy lifetime', read: (s) => s.radarBuoy.durationMs, fmt: secs },
   intelRange: {
     label: 'Radar range',
     read: (s) => s.radarRange,

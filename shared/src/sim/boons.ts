@@ -312,7 +312,7 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
  * WAVE 2 REPLACED TWO WHOLE EQUIPMENTS. The cannon became the BROADSIDE
  * BARRAGE (`cannonDamage`/`cannonArcing`/`cannonAp` out, `broadsideSpread` ×4 +
  * `broadsideTurrets` ×2 in) and the decoy buoy became the RADAR BUOY
- * (`decoyDuration` out, `buoySweep` ×4 + `buoyGun` + `buoyJamming` in), so the
+ * (`decoyDuration` out, `buoyDuration` ×4 + `buoyGun` + `buoyJamming` in), so the
  * `cannon` and `decoyBuoy` CATEGORIES are gone and `broadside`/`radarBuoy` take
  * their places. `mineSelfPropelled` was replaced by `mineCaptive` — the tracking
  * mine becomes a torpedo mine — and the two acquisition cards were renamed with
@@ -433,7 +433,18 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // BUOY I–IV (×4): +1.25 RPM on the BUOY'S OWN sweep, 15 → 20. It moves the
   // buoy's set, never the owner's — `radarBuoy.sweepRpm` is a separate scalar
   // from the ship's `sweepRpm`, and `intelSweep` does not touch it.
-  buoySweep: { id: 'buoySweep', category: 'radarBuoy', rarity: 'common', copies: 4, effects: [stat('radarBuoy.sweepRpm', { add: 1.25 })] },
+  // BUOY I-IV: +2.5s of buoy life per card (Eric ruling 2026-08-19, R2.20 --
+  // SUPERSEDES the sweep-speed version this line originally carried). Base life
+  // is 20s against a 30s reload, so a bare buoy leaves a ~10s gap with no eye on
+  // the water; a full x4 stack reaches exactly 30s and closes that gap entirely.
+  // The ladder therefore sells "plug the hole you started with", and its ceiling
+  // lands on a real boundary rather than an arbitrary number.
+  //
+  // The buoy's SWEEP is now fixed at CONFIG.radarBuoy.sweepRpm with no card
+  // behind it; `radarBuoy.sweepRpm` stays whitelisted-but-unwritten (the
+  // gun.burstRadius / cannon.contactDamage / <equipment>.reloadMs shape) so a
+  // future sweep card can land without touching BOON_STAT_PATHS.
+  buoyDuration: { id: 'buoyDuration', category: 'radarBuoy', rarity: 'common', copies: 4, effects: [stat('radarBuoy.durationMs', { add: 2500 })] },
   // GUN BUOY (rare ×1): the buoy defends itself — 5 damage on a 5s cooldown at
   // hostiles inside its own radar range (CONFIG.radarBuoy.gunDamage/gunReloadMs).
   buoyGun: { id: 'buoyGun', category: 'radarBuoy', rarity: 'rare', copies: 1, effects: [doctrine('radarBuoy', 'gun')] },

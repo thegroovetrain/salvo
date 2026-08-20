@@ -198,10 +198,19 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(effectiveStats(BASE, stack('broadsideTurrets', 2)).broadside.turrets).toBe(5);
   });
 
-  it('buoySweep moves the BUOY sweep only — never the ship sweep, and intelSweep never touches the buoy', () => {
-    const buoy = effectiveStats(BASE, stack('buoySweep', 4));
-    expect(buoy.radarBuoy.sweepRpm).toBeCloseTo(CONFIG.radarBuoy.sweepRpm + 1.25 * 4, 9); // 15 -> 20
-    expect(buoy.sweepRpm).toBe(effectiveStats(BASE).sweepRpm);
+  it('buoyDuration moves the BUOY life only, and its x4 ceiling EXACTLY meets the reload', () => {
+    // R2.20 (Eric): the buoy card is DURATION, not sweep. +2.5s per copy off a
+    // 20s base. The ceiling is load-bearing rather than incidental: at x4 the
+    // buoy lives exactly as long as its own reload, so a maxed build has
+    // CONTINUOUS coverage while a bare one leaves a ~10s gap. If either number
+    // moves, that "the ladder closes the gap it started with" reading breaks.
+    const buoy = effectiveStats(BASE, stack('buoyDuration', 4));
+    expect(buoy.radarBuoy.durationMs).toBeCloseTo(CONFIG.radarBuoy.durationMs + 2500 * 4, 9); // 20s -> 30s
+    expect(buoy.radarBuoy.durationMs).toBe(CONFIG.radarBuoy.reloadMs); // the gap closes EXACTLY
+    expect(effectiveStats(BASE).radarBuoy.durationMs).toBeLessThan(CONFIG.radarBuoy.reloadMs); // ...and is open at base
+    // The buoy's SWEEP now has NO card behind it — fixed at the CONFIG value at
+    // every build, and the ship's own intelSweep still never reaches it.
+    expect(buoy.radarBuoy.sweepRpm).toBe(CONFIG.radarBuoy.sweepRpm);
     const ship = effectiveStats(BASE, stack('intelSweep', 5));
     expect(ship.radarBuoy.sweepRpm).toBe(CONFIG.radarBuoy.sweepRpm);
     // The buoy's radar set is FLAT — the owner's intel build never widens it.

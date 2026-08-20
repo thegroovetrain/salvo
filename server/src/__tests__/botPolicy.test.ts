@@ -643,7 +643,7 @@ describe('ai/spending — the boon policy', () => {
   });
 
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
-    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['buoySweep', 'boostSpeed'] }));
+    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['buoyDuration', 'boostSpeed'] }));
     expect(idx).not.toBeNull();
     expect(idx).toBeGreaterThanOrEqual(0);
   });

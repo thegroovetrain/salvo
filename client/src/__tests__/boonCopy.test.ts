@@ -90,8 +90,8 @@ describe('ladder coverage — every catalog line, every stack position', () => {
     expect(boonName('broadsideSpread', 3)).toBe('BROADSIDE SPREAD IV');
     expect(boonName('broadsideTurrets', 0)).toBe('BROADSIDE TURRETS I');
     expect(boonName('broadsideTurrets', 1)).toBe('BROADSIDE TURRETS II');
-    expect(boonName('buoySweep', 0)).toBe('BUOY I');
-    expect(boonName('buoySweep', 3)).toBe('BUOY IV');
+    expect(boonName('buoyDuration', 0)).toBe('BUOY I');
+    expect(boonName('buoyDuration', 3)).toBe('BUOY IV');
     expect(boonName('buoyGun')).toBe('GUN BUOY');
     expect(boonName('buoyJamming')).toBe('JAMMING BUOY');
     expect(boonName('mineCaptive')).toBe('CAPTIVE MINES');

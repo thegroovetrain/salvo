@@ -528,7 +528,7 @@ export const CONFIG = {
      * want becomes `broadsideTurrets` (the broadside's throughput line, its
      * only damage-shaped card), both Mine Layer profiles' SELF-PROPELLED want
      * becomes `mineCaptive` (its direct successor — a mine that reaches the
-     * target itself), and trapper's decoy want becomes `buoySweep`. The two
+     * target itself), and trapper's decoy want becomes `buoyDuration`. The two
      * `cannon`/`decoyBuoy` CATEGORY weights carry over verbatim onto
      * `broadside`/`radarBuoy`.
      *
@@ -582,7 +582,7 @@ export const CONFIG = {
       // fights near its own field.
       trapper: {
         cat: { mines: 2.6, radarBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
-        lines: { mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.2, shipCooldown: 2.2, buoySweep: 2.0 },
+        lines: { mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.2, shipCooldown: 2.2, buoyDuration: 2.0 },
       },
     },
     /**

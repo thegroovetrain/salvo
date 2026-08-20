@@ -208,3 +208,58 @@ The captive fish inherits base `CONFIG.torpedo` behaviour, which runs until impa
 fish crosses the map until it hits something or the rim. **This is accepted as shipped, not an
 oversight**, and is LEDGERED as the first thing to revisit if a torpedo max-range mechanic is ever
 introduced. Do not add a range cap now.
+
+## R2.20 — THE BUOY CARD IS DURATION, NOT SWEEP (Eric ruling 2026-08-19)
+*"change the upgrade from sweep speed to duration. + 2.5 seconds per level."*
+
+`buoySweep` (BUOY I–IV, `radarBuoy.sweepRpm` +1.25) is REPLACED by **`buoyDuration`** — same
+category (radarBuoy), same rarity (common), same **×4 copies**, effect `radarBuoy.durationMs`
+**add +2500**. Card names stay `BUOY I`–`IV` (Eric's verbatim ladder is unchanged; only the stat
+behind it moves).
+
+**The buoy's sweep is now FIXED at `CONFIG.radarBuoy.sweepRpm` = 15 with no card driving it.**
+Keep `radarBuoy.sweepRpm` on `BOON_STAT_PATHS` as whitelisted-but-unwritten — the established
+shape (`gun.burstRadius`, `cannon.contactDamage`, the seven `reloadMs` paths), so a future sweep
+card can land without touching the whitelist.
+
+**CONSEQUENCE — the ladder closes the gap R2.7 deliberately opened.** Base life 20 000 ms against a
+30 000 ms reload leaves a ~10s window with no buoy. At the full ×4 stack life reaches **30 000 ms =
+exactly the reload**, so a maxed buoy build has continuous coverage with no gap at all. The
+progression is therefore "plug the hole you started with", which is a real and legible reward
+curve. Flagged to Eric as an emergent consequence, not a designed one — it follows from his two
+numbers (20s base, +2.5s ×4) meeting his 30s reload.
+
+## R2.21 — THE GUN BUOY IS AUTONOMOUS: IT SHOOTS ANYTHING IT SEES (Eric ruling 2026-08-19)
+*"It has its own radar and is autonomous, so when it has the gun upgrade, it should target basically
+anything it sees that isn't the owner of the buoy. Closest target proximally to the buoy."*
+
+**SUPERSEDES R2.10's hostile gate.** The gun buoy does NOT share the captive mine's aggro-gated
+definition. Its rule is:
+- **Target set = anything the BUOY'S OWN RADAR can see** within its 330u range — enemy captains,
+  bots, AND neutral fleet drones alike. Island LOS and height-aware shadowing apply, because it is a
+  real radar: **if the buoy cannot see it, it cannot shoot it.**
+- **EXCLUDED: the buoy's owner** and anything belonging to them (their hull, their other buoys).
+- **Selection: NEAREST TO THE BUOY**, not nearest to the owner. The buoy is autonomous; the owner's
+  position is irrelevant to it.
+
+**R2.13's aggro gate stays CAPTIVE-MINE-ONLY and is NOT widened or narrowed by this.** The two
+weapons now deliberately differ: a captive mine is a trap the owner laid and gates on aggro; a gun
+buoy is an autonomous turret and does not.
+
+### R2.21a — a buoy's gun hit does NOT aggro a fleet drone (orchestrator ruling, by precedent)
+Eric did not rule this and it is forced by the change, so it follows the ESTABLISHED PRECEDENT
+rather than inventing one. `drones.ts` already states: *"being hit acquires the attacker (mines
+excepted — a mine's layer may be dead or across the map, so there is nothing to chase)"*. A buoy is
+exactly that case: it is not a ship, it cannot be chased in the way the aggro model means, and its
+owner may be dead or across the map. So **a buoy's gun hit aggros nobody** — it does not acquire the
+buoy's owner, and the drone does not inherit a fight the player never picked.
+The alternative — the drone acquiring the OWNER — was rejected: it would mean an autonomous turret
+picks fights its owner then inherits, which is precisely the "an auto-turret should not start fights
+for you" concern, and it is unreachable under the existing model anyway since the attacker is not a
+ShipRecord. **Flagged to Eric as an orchestrator call, open to reversal.**
+
+### Open, flagged to Eric, defaulted for now
+**Does a gun buoy shoot a RIVAL BUOY?** Buoys are destructible 50 hp entities, so "anything it sees
+that isn't the owner" reads as yes. Defaulted to **NO — buoys do not shoot other buoys**, because
+buoy-vs-buoy turret duels resolve with no player input at all and the buoy's stated job is watching
+water, not area denial. One line to flip if Eric wants it.

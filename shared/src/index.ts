@@ -18,7 +18,7 @@
  *  (b) BOON_CATALOG REACHES ITS FINAL 23 LINES + 6 ACQUISITIONS (28 → 29 defs;
  *  catalog content has been wire contract since PV 13). OUT: `cannonDamage`,
  *  `cannonArcing`, `cannonAp`, `decoyDuration`, `mineSelfPropelled`. IN:
- *  `broadsideSpread` ×4, `broadsideTurrets` ×2, `buoySweep` ×4, `buoyGun`,
+ *  `broadsideSpread` ×4, `broadsideTurrets` ×2, `buoyDuration` ×4, `buoyGun`,
  *  `buoyJamming`, `mineCaptive`. RENAMED: `acquireCannon` → `acquireBroadside`,
  *  `acquireDecoy` → `acquireRadarBuoy`. The `cannon` and `decoyBuoy` CATEGORIES
  *  are replaced by `broadside`/`radarBuoy`, so every equipment subdeck is now
