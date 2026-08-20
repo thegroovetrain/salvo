@@ -4314,7 +4314,7 @@ let gameRef: Game | null = null;
 function inLiveMatch(): boolean {
   const g = gameRef;
   if (g === null) return false;
-  return canAbandon(publicState(g).matchPhase ?? 'waiting', g.state.matchOver, g.returning);
+  return canAbandon(publicState(g).matchPhase ?? 'waiting', g.state.matchOver);
 }
 
 /**
