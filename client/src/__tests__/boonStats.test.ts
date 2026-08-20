@@ -66,7 +66,7 @@ describe('ownStatsChanged — the recompute gate', () => {
     const next = {
       ...ownShip('torpedoBoat'),
       pts: 2,
-      offer: ['intelSweep', 'shipHull', 'intelRange', 'mineBlast'],
+      offer: ['intelSweep', 'shipHull', 'gunBarrel', 'mineBlast'],
     };
     expect(ownStatsChanged(next, prev)).toBe(false);
   });

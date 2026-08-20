@@ -202,7 +202,14 @@ describe('shared barrel', () => {
     // (rides the welcome config snapshot), and the firewall's
     // `broadside.fanHalfAngleRad` becomes `traverseRad` — a stale client's
     // preview would draw a fan the server no longer fires.
-    expect(PROTOCOL_VERSION).toBe(45);
+    // 45 -> 46: RANGE I-IV IS DELETED (Eric ruling 2026-08-20). The
+    // `intelRange` line leaves BOON_CATALOG (29 -> 28); it was the ONLY card
+    // writing `radarRange`, so the eighths ladder is frozen at its base for
+    // every observer and base range does NOT compensate. Catalog content is
+    // wire contract and the client resolves boon ids fail-closed, so a stale
+    // client would silently drop the id and disagree with the sim about radar,
+    // truesight and every rangeU.
+    expect(PROTOCOL_VERSION).toBe(46);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -434,8 +441,9 @@ describe('shared barrel', () => {
   it('re-exports the boon effect engine + Catalog v1 (Stories 2.5/2.8)', () => {
     // 42 - 7 reloads + shipCooldown; 36->35 intel merge; 35->34 cannonBlast
     // deleted; 34->33 mine ring cards merged (Eric 2026-08-16); 33->28 Story
-    // 7-5 wave 1 (7 deleted, 2 new); 28->29 wave 2 (5 deleted, 6 new) — FINAL.
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(29);
+    // 7-5 wave 1 (7 deleted, 2 new); 28->29 wave 2 (5 deleted, 6 new);
+    // 29->28 RANGE I-IV deleted (Eric 2026-08-20).
+    expect(Object.keys(BOON_CATALOG)).toHaveLength(28);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);

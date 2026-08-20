@@ -259,9 +259,11 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], now: 
  * spawns — stays on truesight, byte-identical (SHELLS DO NOT MOVE: a shell is
  * in the air; a torpedo is a wake just under the surface and a mine sits in
  * the water). Observer-scaled exactly as sight is (amendment 121): a
- * star-shell dazzle halves it, an intelRange boon widens it, and island
- * LOS applies unchanged — sensor upgrades buy REACH here like everywhere
- * else optical.
+ * star-shell dazzle halves it and island LOS applies unchanged. The rung is
+ * resolved through `sightOf`, never a literal, so it keeps ONE derivation
+ * path: no card writes `stats.radarRange` today (the INTEL RANGE line was
+ * deleted 2026-08-20), so every observer resolves the same 247.5u — but a
+ * future radar card would move this rung for free.
  */
 function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[], now: number): boolean {
   const dx = p.x - me.state.x;
@@ -276,7 +278,11 @@ function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[], now:
  * resolver — both the `mz` and `sm` rows call it, because a second hand-rolled
  * copy of a sight tier is exactly the desync class this file exists to prevent.
  *
- * Anchored on `me.stats.radarRange`, NEVER on `sightOf`. That is what keeps the
+ * Anchored on `me.stats.radarRange`, NEVER on `sightOf`. No card writes that
+ * field today — the INTEL RANGE line was deleted 2026-08-20, so the rung
+ * resolves to the same 412.5u for every observer — but the anchor STAYS,
+ * because it keeps ONE derivation path and a future radar card would scale
+ * the rung with no change here. That is also what keeps the
  * ratified reading — *a flash is a light source, not an illuminated object, so
  * dazzle does not change how far it carries* — true BY CONSTRUCTION: `sightOf`
  * is the sole dazzle entry point in perception, so a radar-anchored rung cannot
@@ -1074,9 +1080,10 @@ function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
  * 3/8 rung, pointDetected), so its water must disclose down to THAT radius —
  * with the ship bound, the (detect, sight] band was a dead band with no
  * entity, no disclosed wake, and no synthesized wake, killing amendment 196's
- * tell exactly in the terminal approach. Dazzle-scaled and boon-widened
- * exactly as the tier each bound mirrors (sightOf / pointDetected's own
- * derivation).
+ * tell exactly in the terminal approach. Dazzle-scaled exactly as the tier
+ * each bound mirrors (sightOf / pointDetected's own derivation), and it rides
+ * `stats.radarRange` through them, so a future intel card moves both bounds
+ * with no work here.
  */
 function wakeInnerBound(me: ShipRecord, torp: boolean, now: number): number {
   const sight = sightOf(me, now);
@@ -1776,8 +1783,8 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * 4.9, amendment 122 — supersedes amendment 53's three tiers) — THE one band
  * resolver: visible() and materialize() both call this, so the gate and the
  * wire can never drift. The band is which EIGHTH of the LISTENER'S own INTEL
- * RANGE (`stats.radarRange` — boon-widened, NEVER dazzle-scaled) the honker
- * sits in: `band = ceil(8 × d / intelRange)`, d == 0 resolving to band 1,
+ * RANGE (`stats.radarRange` — the one ruler, NEVER dazzle-scaled) the honker
+ * sits in: `band = ceil(8 × d / intel range)`, d == 0 resolving to band 1,
  * boundaries inclusive (at base stats band 4 ends exactly at truesight 330u —
  * full volume — and band 8 at the 660u radar edge, 50%; gain is a CLIENT-side
  * lookup, never on the wire). Beyond band 8: inaudible, no event at all.
@@ -1799,8 +1806,9 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * chevron weight is the identical {22, 3, 0.95} for all four (…chevron.bands).
  * Sending WHICH of bands 1-4 a honker sits in would hand a MODIFIED client two
  * extra bits of range resolution — an 82.5u annulus rather than the 330u
- * plateau, and worst for a DAZZLED or intelRange-boosted listener who can
- * receive a low band for a hull they cannot see — with NO honest consumer at
+ * plateau, and worst for a DAZZLED listener (or any listener whose intel
+ * range a future card widens) who can receive a low band for a hull they
+ * cannot see — with NO honest consumer at
  * all. That is precisely the disclosure amendment 51 bounds (BEARING AND VOLUME
  * TIER ONLY, no position, no correlation handle). So the wire carries the band
  * floor-clamped to the COARSEST value that reproduces the ratified gain curve

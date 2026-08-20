@@ -125,19 +125,20 @@ const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineRelo
 
 describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', () => {
   // Per-hull expected line totals against the production catalog: universal
-  // (guns 3 + intel 9 + ship 13 = 25) + carried subdecks + ONE acquisition
+  // (guns 3 + intel 5 + ship 13 = 21) + carried subdecks + ONE acquisition
   // card per absent equipment. STORY 7-5 WAVE 1 rebuilt the catalog (33 lines
   // to 22); WAVE 2 finished it at 23 lines + 6 acquisitions and made EVERY
-  // equipment subdeck exactly 6, so all three hulls now carry the SAME deck
-  // size: 25 universal + 6 + 6 + 4 acquisitions = 41. The SHAPE of the
+  // equipment subdeck exactly 6, so all three hulls carry the SAME deck size.
+  // The 2026-08-20 INTEL RANGE deletion took the intel subdeck 9 -> 5 and with
+  // it universal 25 -> 21 and every hull's deck 41 -> 37. The SHAPE of the
   // assertion, and the acquisition rules it pins, are unchanged.
   const CASES: [ShipClassId, number, string[]][] = [
-    // TB: torpedo 6 + boost 6 + acquisitions (mine/broadside/star/buoy) 4 = 41.
-    ['torpedoBoat', 25 + 6 + 6 + 4, ['acquireMine', 'acquireBroadside', 'acquireStarShells', 'acquireRadarBuoy']],
-    // BS: broadside 6 + starShells 6 + acquisitions (torpedo/mine/buoy/boost) 4 = 41.
-    ['battleship', 25 + 6 + 6 + 4, ['acquireTorpedo', 'acquireMine', 'acquireRadarBuoy', 'acquireBoost']],
-    // ML: mine 6 + radarBuoy 6 + acquisitions (torpedo/broadside/star/boost) 4 = 41.
-    ['mineLayer', 25 + 6 + 6 + 4, ['acquireTorpedo', 'acquireBroadside', 'acquireStarShells', 'acquireBoost']],
+    // TB: torpedo 6 + boost 6 + acquisitions (mine/broadside/star/buoy) 4 = 37.
+    ['torpedoBoat', 21 + 6 + 6 + 4, ['acquireMine', 'acquireBroadside', 'acquireStarShells', 'acquireRadarBuoy']],
+    // BS: broadside 6 + starShells 6 + acquisitions (torpedo/mine/buoy/boost) 4 = 37.
+    ['battleship', 21 + 6 + 6 + 4, ['acquireTorpedo', 'acquireMine', 'acquireRadarBuoy', 'acquireBoost']],
+    // ML: mine 6 + radarBuoy 6 + acquisitions (torpedo/broadside/star/boost) 4 = 37.
+    ['mineLayer', 21 + 6 + 6 + 4, ['acquireTorpedo', 'acquireBroadside', 'acquireStarShells', 'acquireBoost']],
   ];
 
   for (const [hull, total, acquisitions] of CASES) {
@@ -350,7 +351,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const buildSize = a.deck.cards.length;
-    expect(buildSize).toBe(41); // the TB build (wave-1 catalog)
+    expect(buildSize).toBe(37); // the TB build (post INTEL RANGE deletion)
     const hands: string[][] = [];
     for (let i = 0; i < 20; i++) {
       bank(w, a, 1);
@@ -1023,7 +1024,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     // absent-equipment acquisitions back.
     expect(copiesInDeck(a, 'mineBlast')).toBe(0);
     expect(copiesInDeck(a, 'acquireMine')).toBe(1);
-    expect(a.deck.cards).toHaveLength(41); // the TB composition (suite above)
+    expect(a.deck.cards).toHaveLength(37); // the TB composition (suite above)
   });
 });
 
@@ -1062,88 +1063,16 @@ describe('wire privacy — banked levels and the deck never leak', () => {
 
 // ---------- per-observer vision boons (the intel ladder consumers) -----------
 
-// ONE CARD, THE WHOLE LADDER (Eric rulings 2026-08-16). `intelTruesight` and
-// `intelRadar` merged into `intelRange`, so what used to be two describes is one:
-// a single stack must widen truesight, the detect rung, radar AND the 5/8
-// muzzle/smoke halo together. The distances below are unchanged from the split
-// era because one stack of the merged line still lands between the same bounds:
-// sight 330 -> 379.5 (radarRange/2), detect 247.5 -> 284.6, radar 660 -> 759.
-describe('per-observer intel range (intelRange)', () => {
-  const target = SIGHT + 20; // between base sight and one-stack sight (759/2 = 379.5)
-
-  it('a sight-booned observer sees a CONTACT at a distance a base observer does not', () => {
-    const w = bareWorld();
-    const up = place(w, 'up', 0, 0);
-    const base = place(w, 'base', 0, 0);
-    place(w, 't', target, 0);
-    stack(w, up, 'intelRange', 1);
-    expect(buildFrame(w, 'up').contacts.map((c) => c.id)).toContain('t');
-    expect(buildFrame(w, 'base').contacts.map((c) => c.id)).not.toContain('t');
-  });
-
-  it('a sight-booned observer gets the ballistic first-sight reveal at the wider radius', () => {
-    const w = bareWorld();
-    const up = place(w, 'up', 0, 0);
-    const base = place(w, 'base', 0, 0);
-    place(w, 'shooter', target + 200, 0);
-    stack(w, up, 'intelRange', 1);
-    w.shells.set('s1', {
-      id: 's1', ownerId: 'shooter', x: target, y: 0, vx: -100, vy: 0, distLeft: 500,
-      bornAt: 0, kind: 'shell', damage: 5, hitRadius: 2,
-      targetX: null, targetY: null, burstRadius: 0, contactDamage: 5,
-    });
-    expect(ballisticsOf(buildFrame(w, 'up')).map((e) => e.id)).toEqual(['s1']);
-    expect(ballisticsOf(buildFrame(w, 'base'))).toEqual([]);
-    void base;
-  });
-
-  it('a sight-booned observer sees an enemy MINE at the wider DETECT radius (Story 4.9: mines ride 0.75×sight, so the boon widens detect too — amendment 121)', () => {
-    // Wave 1 made intelRange ADDITIVE (+50 radar range/card), so one stack
-    // takes radar 660 -> 710 and detect (0.375 × radar) 247.5 -> 266.25. The
-    // mine sits between them — factors re-derived as literals.
-    const mineAt = SIGHT * 0.75 + 10;
-    const w = bareWorld();
-    const up = place(w, 'up', 0, 0);
-    place(w, 'base', 0, 0);
-    stack(w, up, 'intelRange', 1);
-    w.mines.set('m1', { id: 'm1', ownerId: 'x', x: mineAt, y: 0, armedAt: 0 });
-    expect(buildFrame(w, 'up').mines.map((m) => m.id)).toEqual(['m1']);
-    expect(buildFrame(w, 'base').mines).toEqual([]);
-  });
-
-  it('paints a blip in the widened annulus that a base observer cannot reach', () => {
-    const far = RADAR + 40; // between base radar and one-stack radar (660×1.15 = 759)
-    const w = bareWorld();
-    const up = place(w, 'up', 0, 0);
-    const base = place(w, 'base', 0, 0);
-    place(w, 'target', far, 0);
-    stack(w, up, 'intelRange', 1);
-    windowAround(up, 0);
-    windowAround(base, 0);
-    expect(blipsOf(buildFrame(w, 'up'))).toHaveLength(1); // the widened annulus paints
-    expect(blipsOf(buildFrame(w, 'base'))).toEqual([]);
-  });
-
-  // THE RUNG THAT USED TO BE FLAT (Eric ruling 2026-08-16). Before the merge the
-  // muzzle/smoke halo was a CONSTANT 412.5u for everyone, so no boon moved it —
-  // and a 2-stack truesight build overran it entirely. Now it is 5/8 of the
-  // observer's own intel range.
-  it('widens the 5/8 muzzle-flash and wounded-smoke halo, which no boon used to move', () => {
-    const at = SIGHT * 1.25 + 20; // 432.5: past the BASE halo, inside 759×0.625 = 474.4
-    const w = bareWorld();
-    const up = place(w, 'up', 0, 0);
-    place(w, 'base', 0, 0);
-    stack(w, up, 'intelRange', 1);
-    // Push straight onto the world's outbound buffer — the same seam the step
-    // uses; private only to production callers.
-    const queue = (w as unknown as { events: unknown[] }).events;
-    queue.push({ k: 'mz', x: at, y: 0 });
-    queue.push({ k: 'sm', x: at, y: 0, tier: 1 });
-    const upKinds = buildFrame(w, 'up').events.filter((e) => e.k === 'mz' || e.k === 'sm').map((e) => e.k).sort();
-    expect(upKinds).toEqual(['mz', 'sm']);
-    expect(buildFrame(w, 'base').events.filter((e) => e.k === 'mz' || e.k === 'sm')).toEqual([]);
-  });
-});
+// THE INTEL RANGE LINE IS GONE (Eric ruling 2026-08-20). `intelRange` was the
+// only card that wrote `stats.radarRange`, so it was the only thing that could
+// move the eighths ladder; its whole describe block RETIRED with it rather
+// than being adapted, in the deletion style of cycle 93 (`cannonBlast`) and
+// cycle 95 (`mineTrigger`). No coverage was lost — every rung it exercised is
+// pinned at BASE elsewhere in perception.test.ts: the mine DETECT gate at 3/8
+// ("mine visibility (owner-always, else DETECT+LOS)", boundary-inclusive and a
+// hair beyond), the mz/sm 5/8 halo ("the mz/sm halo is TIGHT at SIGHT*1.25"),
+// and the contact / ballistic-reveal / blip-annulus gates throughout. What
+// follows is the one surviving intel line: SWEEP RATE, a rate and not a range.
 
 describe('per-observer sweep (intelSweep)', () => {
   it('a booned sweep completes a revolution proportionally faster', () => {

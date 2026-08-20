@@ -149,37 +149,37 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
 
 describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', () => {
   it('N repeats of a mult line compound: base × mult^N', () => {
-    // `mineBlast` is the surviving multiplicative ladder — `intelRange` carried
-    // this pin until Story 7-5 wave 1 made it ADDITIVE (+50 u/card).
+    // `mineBlast` is the surviving multiplicative ladder — the intel-range line
+    // carried this pin until Story 7-5 wave 1 made it additive, and Eric's
+    // 2026-08-20 ruling deleted it outright.
     const s3 = effectiveStats(BASE, stack('mineBlast', 3));
     expect(s3.mine.blastRadius).toBeCloseTo(CONFIG.mine.blastRadius * 1.1 ** 3, 9);
   });
 
-  it('intelRange stacks ALSO grow gun/broadside/starShells rangeU — Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
-    const s4 = effectiveStats(BASE, stack('intelRange', 4)); // ×4 copies
-    // ADDITIVE since Story 7-5 wave 1 (Eric: "+50 units to intel range"); the
-    // cycle-92 merged line was ×1.15 compounding, which topped out at ~1154 u.
-    const grown = CONFIG.vision.radar + 50 * 4;
-    expect(s4.radarRange).toBeCloseTo(grown, 9);
-    expect(s4.gun.rangeU).toBe(s4.radarRange);
-    expect(s4.starShells.rangeU).toBe(s4.radarRange);
-    expect(s4.gun.rangeU).toBeCloseTo(grown, 9);
-    // The BROADSIDE rides the same number one rung short (Story 7-5 wave 2):
-    // the 5/8 muzzle/smoke rung, so it grows with intel range like everything
-    // else while staying inside the horizon at EVERY stack level.
-    expect(s4.broadside.rangeU).toBeCloseTo(grown * CONFIG.vision.muzzleFlashFactor, 9);
-    expect(s4.broadside.rangeU).toBeLessThan(s4.radarRange);
+  // THE INTEL-RANGE STACKING TEST IS RETIRED (Eric ruling 2026-08-20): its
+  // SUBJECT was the card, and no card writes `radarRange` any more. What the
+  // card used to prove — that gun/starShells rangeU IS radarRange and the
+  // broadside is one rung short of it — is still pinned, at the base level,
+  // by the two tests below.
+  it('gun/starShells rangeU IS radarRange; nothing in the catalog moves it', () => {
+    const s = effectiveStats(BASE);
+    expect(s.radarRange).toBe(CONFIG.vision.radar);
+    expect(s.gun.rangeU).toBe(s.radarRange);
+    expect(s.starShells.rangeU).toBe(s.radarRange);
+    const writers = Object.values(BOON_CATALOG).filter((d) =>
+      d.effects.some((e) => e.kind === 'stat' && e.path === 'radarRange'),
+    );
+    expect(writers.map((d) => d.id)).toEqual([]);
   });
 
   // THE BROADSIDE'S TWO DERIVED FIELDS (Story 7-5 wave 2). Both are re-pinned
   // post-fold in clampStats AND applyBoonStats, exactly as the rangeU siblings
   // are, and neither is stat-addressable.
-  it('broadside rangeU is the 5/8 rung at every stack; the SPREAD ladder is read off the rung', () => {
-    for (let n = 0; n <= 4; n++) {
-      const s = effectiveStats(BASE, stack('intelRange', n));
-      expect(s.broadside.rangeU).toBeCloseTo(s.radarRange * CONFIG.vision.muzzleFlashFactor, 9);
-    }
-    expect(effectiveStats(BASE).broadside.rangeU).toBeCloseTo(412.5, 9); // the ratified base
+  it('broadside rangeU is the 5/8 rung of radarRange; the SPREAD ladder is read off the rung', () => {
+    const base = effectiveStats(BASE);
+    expect(base.broadside.rangeU).toBeCloseTo(base.radarRange * CONFIG.vision.muzzleFlashFactor, 9);
+    expect(base.broadside.rangeU).toBeCloseTo(412.5, 9); // the ratified base
+    expect(base.broadside.rangeU).toBeLessThan(base.radarRange);
     // 0..4 SPREAD copies walk the authored traverse ladder 34 -> 40 -> 46 -> 52 -> 58.
     for (let n = 0; n <= 4; n++) {
       const s = effectiveStats(BASE, stack('broadsideSpread', n));
@@ -213,8 +213,8 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(buoy.radarBuoy.sweepRpm).toBe(CONFIG.radarBuoy.sweepRpm);
     const ship = effectiveStats(BASE, stack('intelSweep', 5));
     expect(ship.radarBuoy.sweepRpm).toBe(CONFIG.radarBuoy.sweepRpm);
-    // The buoy's radar set is FLAT — the owner's intel build never widens it.
-    expect(effectiveStats(BASE, stack('intelRange', 4)).radarBuoy.radarRange).toBe(CONFIG.radarBuoy.radarRange);
+    // The buoy's radar set is FLAT at the CONFIG value.
+    expect(effectiveStats(BASE).radarBuoy.radarRange).toBe(CONFIG.radarBuoy.radarRange);
   });
 
   // CAPTIVE MINES (Story 7-5 wave 2, R2.12): trigger and blast SWAP, then the
@@ -240,28 +240,26 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
   });
 
   // THE MERGE'S WHOLE POINT (Eric rulings 2026-08-16). Truesight is the 4/8 rung
-  // of intel range: it is DERIVED, not stat-addressable, so ONE card moves the
-  // whole ladder and the ordering holds by arithmetic at every stack level.
-  it('intelRange drives truesight too — sightRange is DERIVED as radarRange/2 at every stack', () => {
-    for (let n = 0; n <= 4; n++) {
-      const s = effectiveStats(BASE, stack('intelRange', n));
-      expect(s.sightRange).toBeCloseTo(s.radarRange / 2, 9);
-    }
-    // Zero boons is byte-identical to the pre-merge base, because radar IS SIGHT*2.
-    expect(effectiveStats(BASE, []).sightRange).toBe(CONFIG.vision.sight);
+  // of intel range: DERIVED, never stat-addressable, so there is ONE derivation
+  // of the ladder rather than two. The "at every stack level" loops that used to
+  // ride the intel-range card are RETIRED with it (Eric 2026-08-20) — nothing
+  // writes `radarRange`, so the ladder resolves to its base for every observer
+  // and these pins hold it there.
+  it('sightRange is DERIVED as radarRange/2, never stat-addressable', () => {
+    const s = effectiveStats(BASE);
+    expect(s.sightRange).toBeCloseTo(s.radarRange / 2, 9);
+    expect(s.sightRange).toBe(CONFIG.vision.sight); // radar IS SIGHT*2
   });
 
-  it('the eighths ladder ordering now holds by ARITHMETIC at every stack level', () => {
-    for (let n = 0; n <= 4; n++) {
-      const s = effectiveStats(BASE, stack('intelRange', n));
-      const detect = s.sightRange * CONFIG.vision.detectFactor;
-      const muzzle = s.radarRange * CONFIG.vision.muzzleFlashFactor;
-      const farRadar = s.radarRange * 0.875;
-      expect(detect).toBeLessThan(s.sightRange);
-      expect(s.sightRange).toBeLessThan(muzzle);
-      expect(muzzle).toBeLessThan(farRadar);
-      expect(farRadar).toBeLessThan(s.radarRange);
-    }
+  it('the eighths ladder ordering holds by ARITHMETIC off the one number', () => {
+    const s = effectiveStats(BASE);
+    const detect = s.sightRange * CONFIG.vision.detectFactor;
+    const muzzle = s.radarRange * CONFIG.vision.muzzleFlashFactor;
+    const farRadar = s.radarRange * 0.875;
+    expect(detect).toBeLessThan(s.sightRange);
+    expect(s.sightRange).toBeLessThan(muzzle);
+    expect(muzzle).toBeLessThan(farRadar);
+    expect(farRadar).toBeLessThan(s.radarRange);
   });
 
   it('N repeats of an add line stack linearly (shipHull +25/card)', () => {

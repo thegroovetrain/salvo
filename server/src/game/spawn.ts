@@ -155,7 +155,8 @@ const FLEET_ANCHOR_SAMPLES = 256;
 export interface IntelDisc {
   x: number;
   y: number;
-  /** The captain's EFFECTIVE radar range (stats.radarRange — boon-widened). */
+  /** The captain's EFFECTIVE radar range (stats.radarRange — the one ruler;
+   *  no card writes it today, but the disc still reads it, never the constant). */
   r: number;
 }
 

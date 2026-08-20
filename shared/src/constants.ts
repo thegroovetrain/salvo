@@ -567,17 +567,21 @@ export const CONFIG = {
         lines: { shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6 },
       },
       // BS siege — standoff, broadside-led, star shells to resolve stale
-      // contacts into live sight (C2). Intel range IS its reach: gun, broadside
-      // and star-shell rangeU all ride radarRange (the broadside at the 5/8 rung).
+      // contacts into live sight (C2). Its reach is FIXED: gun, broadside and
+      // star-shell rangeU all ride radarRange (the broadside at the 5/8 rung),
+      // and no card moves that number since RANGE I–IV was deleted
+      // (2026-08-20), so `intel` now buys sweep rate only. The appetite is
+      // deliberately LEFT UNTUNED here — a bot retune belongs to a balance
+      // pass, not to a card removal (ledgered in deferred-work.md).
       siege: {
         cat: { broadside: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
-        lines: { broadsideTurrets: 2.8, intelRange: 2.4, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
+        lines: { broadsideTurrets: 2.8, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
       },
       // ML forager — clears PvE fleet groups for the level lead (C3). Guns
       // and rate of fire do that work; see the propFouling note above.
       forager: {
         cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, radarBuoy: 1.0 },
-        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, intelRange: 2.2, mineBlast: 2.0, mineCaptive: 2.4, minePropFouling: 1.2 },
+        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0, mineCaptive: 2.4, minePropFouling: 1.2 },
       },
       // ML trapper — mines astern while withdrawing, a radar buoy for reach,
       // fights near its own field.
@@ -671,8 +675,11 @@ export const CONFIG = {
     // constraint tests and the weapons smoke and by NO production code: at
     // RUNTIME the gate is OBSERVER-SCALED (amendment 121) and multiplies by
     // `detectFactor` below, never by this. The server resolves it as
-    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it and
-    // an intelTruesight boon widens it, with island LOS applied unchanged.
+    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it,
+    // with island LOS applied unchanged. Nothing WIDENS it any more: the card
+    // that once did (intelTruesight, merged into intelRange in cycle 92) was
+    // deleted in cycle 119, so the only live scale is dazzle. The resolver
+    // stays observer-scaled rather than flat — see epic-7 amendment 31.
     detect: SIGHT * 0.75,
     // The runtime scale the detect gate multiplies an observer's own
     // dazzle-scaled, boon-widened sight by. It is the SAME number as detect's
@@ -1249,9 +1256,11 @@ export const CONFIG = {
    * `radarRange × CONFIG.vision.muzzleFlashFactor` — THE 5/8 RUNG of the
    * eighths ladder, 412.5u at base. It is the FIRST weapon in the game that
    * does not reach the full radar horizon (Eric: *"This weapon's range is
-   * limited to 5/8"*), so it rides the ladder rather than a literal and moves
-   * with `intelRange` like everything else. Every number is a DESIGN TARGET,
-   * tunable.
+   * limited to 5/8"*), so it rides the ladder rather than a literal — ONE
+   * derivation of the rung, which is what keeps it correct if a card ever
+   * writes `radarRange` again (none does since RANGE I–IV was deleted
+   * 2026-08-20, so 412.5u is the value for every observer). Every number is a
+   * DESIGN TARGET, tunable.
    */
   broadside: {
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
@@ -1392,7 +1401,10 @@ export const CONFIG = {
    * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`), which is
    * why it is a WEAPON in EQUIPMENT_IS_WEAPON rather than the 1.8 stern-drop
    * ability. `radarRange` is a FLAT SET — the buoy's own equipment, NOT the
-   * owner's boon-scaled intel range — and its sweep is its own too.
+   * owner's intel range — and its sweep is its own too. (Since cycle 119 the
+   * owner's radar range is itself fixed at base, no card moves it; the buoy's
+   * independence is still the point, and still what a future radar card would
+   * have to respect.)
    *
    * ONE BUOY, AND A GAP — AT BASE COOLDOWN (Eric ruling 2026-08-19, amending
    * R2.7 mid-flight): the base life is SHORTER than the base reload, so out of

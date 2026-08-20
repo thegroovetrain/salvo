@@ -18,7 +18,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
   CONFIG,
   arcFor,
   effectiveStats,
@@ -27,7 +26,7 @@ import {
   pointInLitZone as sharedPointInLitZone,
   resolveBoons,
 } from '@salvo/shared';
-import type { EquipmentId } from '@salvo/shared';
+import type { BoonDef, EquipmentId } from '@salvo/shared';
 import {
   fireArcKind,
   pointInLitZone,
@@ -258,15 +257,28 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(stats, 'radarBuoy')).toBe(CONFIG.mine.placeRange);
   });
 
-  it('an intelRange stack grows gun, star shells AND the broadside together', () => {
+  // A WIDER `radarRange` grows gun, star shells AND the broadside together.
+  // RETARGETED in cycle 119: this pin was written against a three-card INTEL
+  // RANGE stack, and that line is deleted — no shipped card writes `radarRange`
+  // any more. Its SUBJECT is the derivation, not the card, so it is driven by an
+  // INJECTED def on the still-whitelisted `radarRange` path (the server suite's
+  // `OMNI_BOON` shape). Asserting this against zero boons would compare the
+  // ranges with themselves and prove nothing.
+  const WIDE_RADAR: BoonDef = {
+    id: 'testWideRadar',
+    category: 'test',
+    rarity: 'common',
+    copies: 1,
+    effects: [{ kind: 'stat', path: 'radarRange', mult: 1.25 }],
+  };
+
+  it('a widened radarRange grows gun, star shells AND the broadside together', () => {
     // Story 2.8 (brainstorm 2026-07-30): the gun-family ranges are DERIVED from
-    // the folded radarRange — Intel is a stealth offense category. Wave 2 puts
-    // the broadside on the SAME number at the 5/8 rung, so it rides the ladder
-    // too; the mine's placement reach is deliberately NOT part of it.
-    const intel = effectiveStats(
-      CONFIG.shipClasses.battleship,
-      resolveBoons(['intelRange', 'intelRange', 'intelRange'], BOON_CATALOG),
-    );
+    // the folded radarRange. Wave 2 puts the broadside on the SAME number at the
+    // 5/8 rung, so it rides the ladder too; the mine's placement reach is
+    // deliberately NOT part of it.
+    const intel = effectiveStats(CONFIG.shipClasses.battleship, [WIDE_RADAR]);
+    expect(intel.radarRange).toBeGreaterThan(stats.radarRange); // the premise
     expect(weaponRangeU(intel, 'gun')).toBeGreaterThan(CONFIG.vision.radar);
     expect(weaponRangeU(intel, 'starShells')).toBe(weaponRangeU(intel, 'gun'));
     expect(weaponRangeU(intel, 'broadside')).toBeGreaterThan(weaponRangeU(stats, 'broadside'));

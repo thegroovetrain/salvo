@@ -97,19 +97,14 @@ describe('broadside — server loadout + barrage construction', () => {
     for (const p of polar(w, { x: 0, y: 0 })) expect(p.range).toBeCloseTo(RUNG_5_8, 6);
   });
 
-  it('intelRange grows the broadside rangeU too — it rides the ladder, at 5/8 of the grown radar range', () => {
-    const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
-    w.applyBoon(bb, 'intelRange');
-    const grown = bb.stats.radarRange;
-    expect(grown).toBeGreaterThan(CONFIG.vision.radar);
-    expect(bb.stats.broadside.rangeU).toBeCloseTo(grown * CONFIG.vision.muzzleFlashFactor, 9);
-    // And it is REAL at the equipment seam: a click past the old rung clamps
-    // to the GROWN rung.
-    setInput(bb, { aim: ABEAM, aimDist: 1200, slot: SLOT_BROADSIDE });
-    expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
-    for (const p of polar(w, { x: 0, y: 0 })) expect(p.range).toBeGreaterThan(RUNG_5_8);
-  });
+  // RETIRED 2026-08-20 with the INTEL RANGE card. This test's subject was the
+  // STACK, not the rung: it granted `intelRange` and checked the broadside's
+  // reach rode the grown radar range. No card writes `stats.radarRange` any
+  // more, so there is nothing to grow. The rung itself — `broadside.rangeU` is
+  // 5/8 of radarRange, 412.5u, strictly inside the gun's reach — is pinned at
+  // BASE by the test directly above AND independently in shared's
+  // stats.test.ts ('broadside rangeU is the 5/8 rung of radarRange'), so no
+  // coverage was lost. Retired rather than adapted, per cycle 93/95 precedent.
 
   it('D1: the validated fire time becomes EVERY shell of the barrage bornAt', () => {
     const w = bareWorld();

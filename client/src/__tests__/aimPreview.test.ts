@@ -25,6 +25,7 @@ import {
   parallelOffsets,
   resolveBoons,
   torpedoSpawn,
+  type BoonDef,
   type EffectiveStats,
   type Island,
   type TurretAim,
@@ -60,6 +61,25 @@ function squareIsland(cx: number, cy: number, half: number): Island {
 
 function stats(...boons: string[]): EffectiveStats {
   return effectiveStats(CONFIG.shipClasses.battleship, resolveBoons(boons));
+}
+
+/** An INJECTED def that widens the owner's radar range. No shipped card writes
+ *  `radarRange` since cycle 119 deleted the INTEL RANGE line, but the path is
+ *  still whitelisted on BOON_STAT_PATHS precisely so a future card can land on
+ *  it — and the R2.7 contrast case below is only meaningful if the owner's
+ *  scope and the buoy's flat set are DIFFERENT numbers. Same shape as the
+ *  server suite's `OMNI_BOON`. */
+const WIDE_RADAR: BoonDef = {
+  id: 'testWideRadar',
+  category: 'test',
+  rarity: 'common',
+  copies: 1,
+  effects: [{ kind: 'stat', path: 'radarRange', mult: 1.25 }],
+};
+
+/** Battleship stats with the owner's radar widened by the injected def. */
+function wideRadarStats(): EffectiveStats {
+  return effectiveStats(CONFIG.shipClasses.battleship, [WIDE_RADAR]);
 }
 
 function input(over: Partial<AimPreviewInput> = {}): AimPreviewInput {
@@ -104,9 +124,11 @@ describe('radar buoy placement — the water the buoy will watch (R2.7)', () => 
     const s = stats();
     expect(buoy({ stats: s }).bursts[0].r).toBe(s.radarBuoy.radarRange);
     expect(buoy({ stats: s }).bursts[0].r).toBe(CONFIG.radarBuoy.radarRange);
-    // An intelRange stack widens the OWNER's scope and must leave the buoy's set
-    // exactly where it was (R2.7 — flat by ruling, no card writes it).
-    const wide = stats('intelRange', 'intelRange');
+    // Widening the OWNER's scope must leave the buoy's set exactly where it was
+    // (R2.7 — flat by ruling, no card writes it). Driven by an injected def
+    // rather than a catalog id: nothing shipped moves `radarRange` any more, and
+    // the pin is worthless unless the two numbers actually differ.
+    const wide = wideRadarStats();
     expect(wide.radarRange).toBeGreaterThan(s.radarRange);
     expect(buoy({ stats: wide }).bursts[0].r).toBe(s.radarBuoy.radarRange);
   });

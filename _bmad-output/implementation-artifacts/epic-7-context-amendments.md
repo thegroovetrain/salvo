@@ -1765,3 +1765,85 @@ server and client type-checks resolve `@salvo/shared` to it. A fresh worktree th
 and cycle-113 symbols that exist in `shared/src` but not in an unbuilt `dist`. The fix is
 `npm install && npm run build -w shared`, and it is now recorded in this cycle's spec Verification
 section so the next reproducer does not chase stale-artifact noise as if it were a regression.
+
+---
+---
+
+## Amendment 31 — INTEL RANGE IS DELETED AND THE EIGHTHS LADDER IS NOW FROZEN (TWO ERIC RULINGS, 2026-08-20)
+
+Eric: *"remove the intel range upgrade cards from the game."* The `intelRange` line — category `intel`,
+common ×4, `radarRange` **+50 u per card**, player copy IMPROVED OPTICS → HIGH-GAIN ANTENNA → DIRECTOR
+TOWER → CAVITY MAGNETRON — leaves the catalog entirely: **29 → 28 lines**, intel subdeck **9 → 5**, the
+universal floor (intel + ship + guns) **25 → 21**, and every hull's deck **41 → 37**. `PROTOCOL_VERSION`
+**45 → 46**, because catalog content IS wire contract (`shared/src/index.ts`, `shared/src/sim/boons.ts`)
+and the client resolves boon ids FAIL-CLOSED, so the PV join gate is the only desync guard.
+
+**THE CONSEQUENCE IS THE WHOLE FEATURE, AND IT WAS PUT TO ERIC BEFORE ANY CODE MOVED.** `intelRange`
+was the ONLY card in the catalog that wrote `stats.radarRange` — not the buoy (`radarBuoy.radarRange`
+is the buoy's own flat field), not star shells or dazzle (which scale `sightRange` at read time through
+`sightOf`), no hook. So deleting it does not merely remove a card: **it freezes the entire eighths
+ladder at its base for every observer, permanently.** Detect 247.5, sight 330, muzzle/smoke 412.5,
+farRadar 577.5, radar 660 — one set of numbers, the same for everyone, all match. A maxed build
+previously reached radar 860 / sight 430.
+
+**RULING 1 — THE BASE DOES NOT COMPENSATE.** Offered the choice between leaving `CONFIG.vision.radar`
+at `SIGHT * 2` = 660 and raising it toward the old mid-stack, Eric took 660. So this is a **pure
+removal**: zero-boon play is byte-identical to 0.17.117 in every field, and no combat, sensor, storm or
+economy tunable moves. The ceiling is simply gone. Every Story 3.4 pillar pin (radar = 2×sight,
+radar ≥ terminal ring radius, sight < terminal ring radius) passes untouched because none of its inputs
+moved.
+
+**RULING 2 — THE `intel` CATEGORY SURVIVES.** It now holds exactly ONE line, `intelSweep` ×5 (a rate,
+not a range — epic-6 amendment 22 already kept it separate for that reason). `UNIVERSAL_CATEGORIES`
+stays `['intel','ship','guns']`, offers still roll three distinct categories, and the `INTEL` label and
+`SHIPWIDE_CATEGORIES` are untouched. The alternative — folding `intelSweep` into `ship` and retiring the
+category — was offered and declined; it would have left only two universal categories feeding
+offer-distinctness for a card nobody asked to move.
+
+**WHAT WAS KEPT ON PURPOSE, AND WHY THE NEXT AGENT MUST NOT "CLEAN IT UP".** Epic-6 amendment 22
+anchored the 5/8 muzzle/smoke rung on `me.stats.radarRange` — `muzzleFlashReach(me)` — so the ladder
+scaled with the observer's build, and called that *"removing the odd one out"* rather than adding an
+exception. **Every observer now resolves that anchor to the same 412.5 u, so the rung is EFFECTIVELY
+flat again — but it is reached through the same single derivation seam, not a re-introduced literal.**
+The anchor stays. So do the foghorn band divisor and the radar dim ramp. Reverting them to constants
+would re-litigate amendment 22's mechanism without a ruling, fork `effectiveStats()` as the sole
+derivation path, and cost real work back if a radar card ever lands. **The master perception invariant
+still has exactly SIX declared exceptions** (`sp`, `hc`, `mz`, `sunk`, `sm`, `fh`) — that count is about
+which signal rows bypass the invariant, never about whether a reach is observer-scaled, so nothing about
+it moves. Likewise the four post-fold re-pins (`gun.rangeU`, `starShells.rangeU`, `broadside.rangeU`,
+`sightRange = radarRange / 2`) stay in BOTH `applyBoonStats` and `clampStats`: they still build base
+stats, and only their *"a mid-list fold would leave this stale"* comments needed rewording, since the
+thing that could fold is now a future card rather than a shipped one.
+
+**`'radarRange'` STAYS ON `BOON_STAT_PATHS`, UNWRITTEN.** The established shape — `gun.burstRadius`,
+`gun.contactDamage`, the seven `<equipment>.reloadMs` paths, `radarBuoy.sweepRpm`,
+`kinematics.reverseSpeed` all already sit there with no card behind them — so a future radar line lands
+without touching the whitelist. It is added to the `orphaned` list in `shared/src/__tests__/boons.test.ts`,
+which is where this project records that fact. It also keeps the injected-def test escape hatch
+(`OMNI_BOON`) legal, which matters because several tests legitimately need a widened radar to exercise
+something that is NOT the card.
+
+**TESTS WERE RETIRED, NOT ADAPTED** — the style of cycle 93 (`cannonBlast`) and cycle 95 (`mineTrigger`),
+so no vestigial assertion survives. Tests whose SUBJECT was the card are gone (the per-observer
+intel-range block in `upgrades.test.ts`, the stacking cases in `stats.test.ts`, the broadside stacking
+test, the `boonCopy` rows). Tests that merely used the card as a convenient WIDENER kept their subject
+and changed their scaffolding — and several never needed the card at all: `foghorn.test.ts` already
+pokes `stats.radarRange` directly, `dimMaskLifetime.test.ts` and `hullOverRadar.test.ts` already drive
+raw numbers into `setRanges`. One real casualty is named rather than hidden: **the "ladder ordering
+holds by ARITHMETIC at every stack level" invariant is now vacuous** — there is only one stack level —
+so it is pinned once, at base, instead of across a loop.
+
+**TWO THINGS THAT WOULD HAVE BROKEN LOUDLY AND ARE FIXED HERE, WORTH KNOWING BECAUSE THEY ARE THE SHAPE
+OF EVERY FUTURE CARD DELETION:** `server/scripts/batchsim/balanceProbe.ts` derefs
+`BOON_CATALOG[id].copies` over a hand-written `universal` id array, so a deleted id is an undefined
+deref at runtime, not a type error; and `shared/src/constants.ts`'s bot profile `lines` maps carry
+per-card weight keys (`siege.intelRange` 2.4, `forager.intelRange` 2.2) that `bots.test.ts` asserts must
+all exist in the catalog. **The two profiles' `cat.intel` appetites were deliberately NOT retuned** —
+they now buy sweep RPM only, which is a balance question and not part of a removal; ledgered in
+`deferred-work.md`.
+
+**ALSO LEDGERED, NOT FIXED:** the radar dim-mask rebake (the cycle-98 `TextureSource` freeze) had TWO
+production triggers and now has ONE — a star-shell dazzle. `spec-radar-dim-mask-render-freeze.md`'s
+acceptance criterion and manual QA step are written on *"fit an `intelRange` boon"*, which is no longer
+reachable in play; the lifetime guard itself is unchanged and still pinned by tests that drive
+`setRanges` numerically.
