@@ -987,3 +987,516 @@ ads layer as a transform. The dependency direction stays ads → ui, so the cont
 unwidened. **Known and accepted:** at viewports 1002–1017 the group's 16px edge margin is inside the
 overlay's own 24px padding, so the panel escapes its padding box by 8px. Raising the edge to 24 would
 have cost that band entirely; the band is worth more than the 8px.
+
+---
+
+## Amendment 19 — UPGRADE CARDS v2: the catalog is Eric's, stated in full (ERIC DESIGN, 2026-08-19, cycle 108)
+
+Story 7-5 does not proceed on an implementer's taste, and it did not. Eric authored
+`_bmad-output/implementation-artifacts/7-5-decks.md` — every card line, its copies, its effect, and
+the three system replacements — after an editing surface (`7-5-upgrade-catalog.md`) printed the
+shipped 33 lines with their real base → max numbers so he could edit against facts rather than
+memory. **`7-5-decks.md` is the content source of truth; `spec-7-5-upgrade-cards-v2.md` is its
+engineering projection, and the two wave plans are the orchestrator's rulings inside his shape.**
+An implementer may not invent a mechanic here; where a scalar he did not state was needed it is
+marked `[DRAFT]` in the plan and named in this ledger.
+
+**The shape of the result.** **33 catalog lines → 29** (23 card lines + 6 acquisitions). **Every
+ACQUIRABLE equipment's subdeck is exactly 6 cards** and **every hull's deck is exactly 41**, down
+from 53 / 55 / 58. One correction of record against the plan's own summary sentence, measured by
+printing `buildDeck` with no simulation involved: **the gun's subdeck is 3** (BARREL ×2 + EXTRA
+TURRET ×1), because the gun is never acquirable and has no acquisition card. 41 = 22 universal +
+3 gun + 6 + 6 (the two carried equipment subdecks) + 4 acquisitions, and the arithmetic works out
+to 41 either way.
+
+**Shipped in two waves.** Wave 1 was the answer-independent half — the stat model, the catalog
+rewrite, the deletions — landed at **`PROTOCOL_VERSION` 41 → 42**. Wave 2 was the three system
+replacements plus the two cross-system mechanics, landed at **42 → 43**. Catalog content IS wire
+contract (epic-6 amendment 23's precedent), so both halves bumped.
+
+**Deleted outright, each removing its only consumer:** `gunDamage`, `torpedoDamage`,
+`torpedoCommand` (COMMAND DETONATION, end to end), `mineDamage`, `mineMax`, `starRadius`,
+`boostMax` (split into `boostDuration` + `boostSpeed`), `cannonDamage`, `cannonArcing`, `cannonAp`,
+`acquireCannon`, `decoyDuration`, `mineSelfPropelled` — and with that last one, the creep machinery
+itself (`creepSpeed`, `creepAcquireRange`, the client mine-movement path). **A mine is moored now.**
+
+**Two ladders changed SHAPE, not just value.** SPEED (`kinematics.maxSpeed`) and RANGE
+(`radarRange`) went MULTIPLICATIVE → **ADDITIVE** (+2.5 and +50 per copy), and `starDuration` went
+additive too (+1250 ms). **SPEED touches `maxSpeed` only** (orchestrator ruling R6, flagged to
+Eric): today's card also scaled `reverseSpeed` ×1.05 to preserve the reverse:forward ratio, and
+under an additive step no constant preserves that ratio across three hulls — a flat +2.5 on reverse
+would take the Battleship 9 → 19 (+111 %) against its top speed's +29 %. Eric's document says
+*"increases ship top speed by this amount"*, so `reverseSpeed` is now addressed by no card at all.
+
+**A copy rename is not an id rename** (R1, the KILL LEADER precedent, epic-4). PHOSPHOR SHELLS
+keeps the id `starIncendiary`; HULL/SPEED/INTEL/RANGE/RELOAD keep `shipHull`/`shipSpeed`/
+`intelSweep`/`intelRange`/`shipCooldown`. Only `boostMax` → `boostDuration` + `boostSpeed` and the
+genuinely new lines mint ids.
+
+**One retune landed mid-wave because the card copy had got ahead of the sim.** Eric's document says
+PROP FOULING is *"25% slower for 5 seconds"*; `CONFIG` still held 50 % / 4 s, so the card shipped in
+wave 1 was describing a weapon the server did not run. `foulFactor` 0.5 → 0.75, `foulDurationMs`
+4000 → 5000; the golden frames moved exactly one value (`slowedUntil` 4050 → 5050) and nothing else.
+
+---
+
+## Amendment 20 — EXCLUSIVITY IS DELETED, and the verb-flag retooling is what made it possible (ERIC RULING 4 + IMPLEMENTER)
+
+Eric's fourth standing ruling for this story was *"mutual exclusivity REMOVED; SOME cards retooled
+as 'added verbs'"*. **The retooling turned out to be load-bearing rather than tidy-up, and that is
+the durable lesson here.**
+
+**The mechanism could not express what he asked for.** A weapon's doctrine was a SINGLE-VALUED
+`mode` enum (`StarShellsMode`, `MineMode`, `TorpedoMode`, `CannonMode`) — a field that physically
+cannot hold two added verbs. Deleting `exclusiveWith` alone would have shipped an incoherent state
+where holding PHOSPHOR and DAZZLE meant whichever card was folded last simply overwrote the other.
+So the enums became **independent VERB FLAGS**: `starShells.phosphor` + `starShells.dazzle`,
+`mine.propFouling` + `mine.captive`, `torpedo.homing`. That single change is what makes
+**PHOSPHOR + DAZZLE** and **CAPTIVE + PROP-FOULING** buildable at all — and Eric's wave-2 answer A1
+then made the second pair explicit, including that a captive mine's torpedo hit CARRIES the foul.
+
+**The fold changed; the firewall did not.** `BoonDoctrineEffect` keeps its `{kind:'doctrine',
+weapon, mode}` shape and the `doctrine()` authoring sugar is unchanged — `applyBoonStats` now SETS
+A BOOLEAN NAMED BY `mode` instead of overwriting an enum, and `DOCTRINE_MODES` stays the
+fail-closed authoring vocabulary. Minimal diff, same `effectiveStats()` derivation path.
+
+**The wire moved with it:** `LitZoneView.mode?: StarShellsMode` → `LitZoneView.phos?: true` +
+`LitZoneView.daz?: true`, both optional and omitted when false (the established optional-flag wire
+style). A lit zone may now carry BOTH.
+
+**A REAL MUTUAL-EXCLUSION BUG WAS HIDING BEHIND THE ENUM, on both sides.** `markZoneEffects` was an
+`else-if` chain, so a both-phosphor-and-dazzle zone could only ever do ONE of the two; the client
+had TEN exclusive-branch sites of the same shape. Both were converted to independent checks and
+pinned by tests proven to discriminate (reverting to the chain fails them). **This is the class of
+defect the deletion existed to remove, and it was already latent the moment the flags could
+co-occur.**
+
+**The mechanism died in two steps, deliberately.** Wave 1 STOPPED USING exclusivity but did not
+delete it (R4), because the `cannonArcing`/`cannonAp` pair genuinely contradicted — AP never bursts,
+arcing bursts on click — and independent flags there would have shipped an incoherent weapon. That
+pair was the mechanism's last user, and wave 2 deleted the cannon and the mechanism together:
+`exclusiveWith`, the `validateBoonDef`/`validateCatalog` symmetry checks, `boonReplacesLine`, the
+doctrine swap-out, `returnCards` and the client's REPLACES grammar are all gone. **The former
+`exclusive` RARITY TIER is extinct**, and the verb cards that used to carry it are now `rare`.
+
+---
+
+## Amendment 21 — The cannon is DELETED; the BROADSIDE BARRAGE replaces it (ERIC DESIGN, wave 2)
+
+`EquipmentId` `'cannon'` → `'broadside'`, not kept alongside. The Battleship fit becomes
+`[gun, broadside, starShells, empty]` — broadside on Q, star shells unchanged on E — and
+`acquireCannon` becomes `acquireBroadside` for the other two hulls.
+
+**The arc is taken VERBATIM from history, not invented.** Eric: *"This will use the old side firing
+arcs that were in one of the older versions of the game, if you still have reference to those."* We
+did: commit **`26318d5`**. `ArcShape` gains a new kind `{ kind: 'twin-sector'; offset; halfArc }`
+meaning two mirrored sectors at `heading ± offset`, with **`offset = 90°`, `halfArc = 60°`** read
+straight off that commit — port covers 30°–150°, starboard −30°–−150°, leaving **60°-wide dead
+zones dead ahead and dead astern**. The side whose sector contains the click bearing is the side
+that fires; there is no "both sides at once". A click outside both sectors is DENIED through the
+existing denial path, never silently (FR12).
+
+**The fan is ANGULAR at the click's range**, which is the geometry that makes it a broadside rather
+than a shotgun: every shell ends its run at the CLICK'S RANGE and the pattern is an arc at constant
+radius, spread about the click bearing. **The straddle rule** — odd turret count puts the middle
+shell exactly on the bearing, even count straddles it with NO shell on it — is Eric's, and it is now
+ONE shared function (`shared/src/sim/spread.ts`) that the broadside fan and BARREL both call,
+replacing a formula that had been duplicated verbatim in server `guns.ts` and client
+`aimPreview.ts`. 20 damage/shell, `burstRadius` 15u `[DRAFT]`, 30 s reload, pool 1, shell speed 500,
+**3 turrets base → 5 at BROADSIDE TURRETS ×2**.
+
+**IT IS THE FIRST WEAPON IN THE GAME NOT AT FULL RADAR REACH.** Eric: *"This weapon's range is
+limited to 5/8."* `broadside.rangeU` is DERIVED as `radarRange × CONFIG.vision.muzzleFlashFactor`
+(0.625) and re-pinned post-fold in `clampStats` exactly as the other `rangeU` paths are — **412.5u
+base, 537.5u at max RANGE** — and is therefore NOT on `BOON_STAT_PATHS`. It is the eighths ladder's
+5/8 rung doing a fourth job, and it scales with `intelRange` by construction (epic-6 amendment 22).
+
+**SIGNALS ARE PER SHELL (Eric A2), and this is a deliberate disclosure widening.** Each shell in a
+barrage emits its OWN `mz`, its own `sp` and its own `hc`, exactly as an ordinary gun shell does.
+No salvo aggregation. **Two supersessions of record:**
+
+- **Epic-4 amendment 17's *"exactly one `hc` per shell resolution"* STILL HOLDS, and now means one
+  per SHELL OF A BARRAGE** — a 5-turret salvo legitimately produces up to five hit calls. The clause
+  was written for the AP shell's multi-hull pierce, and that case is deleted with the cannon; the
+  rule survives its original motivating example.
+- **`emitMuzzleFlash`'s per-owner-per-tick dedupe gains its FIRST declared opt-out** —
+  `perShellFlash`, the broadside's. The dedupe exists so a multi-barrel gun salvo cannot leak the
+  barrel count; the barrage opts out because **the barrage IS the spectacle**, and five muzzles
+  along the engaged beam is the ruling's intent. The row's contract is untouched — still `{k,x,y}`,
+  no shooter id, no hue, no weapon type, gated by the observer-scaled 5/8 halo and island LOS. A
+  gun click in the same tick still gets its own single flash, because a per-shell spawn neither
+  reads nor writes the per-owner set. **The MULTI-BARREL GUN still collapses to one `mz`** — epic-4
+  amendments 19/20 are intact. **A SECOND departure from that dedupe arrives with the gun buoy
+  (amendment 22), by a different route: it bypasses the helper entirely.**
+
+**Deleted with the cannon:** `CannonMode`, `cannon.mode`, `shell.ts`'s plunging-fire branch, the AP
+pierce path, `CONFIG.cannon`, the `bulwark`/`siege` bot profiles' cannon lines, and the whole
+exclusivity mechanism (amendment 20).
+
+**A review-gate defect worth carrying:** the client's fan preview and the server's resolution
+diverged at the map rim — the preview promised bursts the server resolved as expired-at-the-rim.
+Both now go through ONE shared `fanBurstPoints()` that clamps each point inside the water disk, and
+the server derives bearing and muzzle from the same clamped point. **The client's private clamp was
+deleted rather than corrected**, which is the only fix that cannot drift again.
+
+---
+
+## Amendment 22 — The decoy buoy becomes the RADAR BUOY; the DECOY ROLE IS GONE (ERIC DESIGN + FOUR MID-FLIGHT RULINGS, 2026-08-19)
+
+`EquipmentId` `'decoyBuoy'` → `'radarBuoy'`, `acquireDecoy` → `acquireRadarBuoy`. **Nothing in the
+game fakes a ship contact any more** — the decoy role is deleted, and Eric's note is that it may
+return someday. What replaces it is a sensor you leave behind.
+
+**The buoy.** Its own radar at a **flat 330u** (`[DRAFT]`, deliberately NOT observer-scaled — it is
+the buoy's own set, not the owner's build), its own sweep at 15 RPM, 50 HP, click-placed on the
+mine's rear sector (±60° at `placeRange` 150u), pool 1. **It paints on radar with its OWN profile
+and NO owner identity** (Eric A4) — enemies see it like anything else and nothing on the wire says
+whose it is. Killing one pays NO XP and prints NO kill-feed line.
+
+**R2.8 — THE RELAY IS RADAR RETURNS ONLY, NEVER VISION.** The buoy is a second observer for
+`blipGate` and nothing else: no sight bubble, no truesight, no LOS grant. Island shadowing and the
+height-aware `radarShadow.ts` march apply **from the BUOY's position**, because it is a real radar.
+Its returns merge into its owner's frame and are wire-indistinguishable from directly-observed ones
+— pinned client-side by `blipProvenance.test.ts`, which asserts identical paint snapshots, no
+provenance key, and that a deliberately TAGGED blip still paints identically (that last case goes
+red the moment anyone adds a provenance branch).
+
+### The four Eric rulings taken mid-flight, each with its date
+
+**(1) 20s life on a 30s reload (2026-08-19) — SUPERSEDES the earlier 30s/20s ordering.** The
+consequence is ledgered rather than fudged: **at BASE cooldown at most ONE buoy is live**, with a
+~10s dead gap between one expiring and the next being available. No implementer may "helpfully"
+restore overlap by raising `maxAmmo` or shortening `reloadMs`.
+
+**(2) R2.20 — the buoy card is DURATION, not sweep (2026-08-19).** *"change the upgrade from sweep
+speed to duration. + 2.5 seconds per level."* `buoySweep` is replaced by **`buoyDuration`**
+(`radarBuoy.durationMs` +2500, ×4); the card NAMES `BUOY I–IV` are unchanged, only the stat behind
+them moved. The buoy's sweep is now FIXED at `CONFIG` with no card driving it, and `sweepRpm` stays
+**whitelisted-but-unwritten** on `BOON_STAT_PATHS` (the established shape — `gun.burstRadius`, the
+seven `reloadMs` paths) so a future sweep card needs no whitelist change. **The ladder closes the
+gap ruling (1) opened**: a full ×4 stack reaches exactly 30 000 ms = the base reload, so a maxed
+buoy build has continuous coverage. That is an EMERGENT consequence of his two numbers meeting his
+reload, flagged as such, not a designed reward curve — and it is pinned, so if either number moves
+the reading breaks loudly. **The gap also closes from the other end and that is intended too:** the
+buoy is NOT exempted from the global `cooldownScale`, so a full RELOAD stack lands the reload at
+15 000 ms against a 20 000 ms life and puts TWO buoys on the water. Exempting it would have made it
+the odd equipment out.
+
+**(3) R2.21 — THE GUN BUOY IS AUTONOMOUS (2026-08-19), superseding R2.10's hostile gate.** *"It has
+its own radar and is autonomous, so when it has the gun upgrade, it should target basically anything
+it sees that isn't the owner of the buoy. Closest target proximally to the buoy."* 5 damage on a
+5 000 ms cooldown; **target set = anything the BUOY'S OWN RADAR can see** within 330u — enemy
+captains, bots and neutral fleet drones alike, with island LOS and height shadowing applying,
+because **if the buoy cannot see it, it cannot shoot it**. Owner and the owner's other buoys are
+excluded. **Selection is NEAREST TO THE BUOY**, not to the owner. R2.13's aggro gate stays
+CAPTIVE-MINE-ONLY and is neither widened nor narrowed by this: a captive mine is a trap the owner
+laid and gates on aggro; a gun buoy is an autonomous turret and does not.
+  - **R2.21a (orchestrator, by precedent, flagged to Eric and open to reversal): a buoy's gun hit
+    aggros NOBODY.** `drones.ts` already excepts mines from attacker-acquisition because *"a mine's
+    layer may be dead or across the map, so there is nothing to chase"*, and a buoy is exactly that
+    case. The alternative — the drone acquiring the OWNER — was rejected: an autonomous turret must
+    not pick fights its owner then inherits.
+  - **Defaulted, open: a gun buoy does NOT shoot a rival buoy.** Buoy-vs-buoy turret duels resolve
+    with no player input at all, and the buoy's stated job is watching water, not area denial. One
+    line to flip.
+
+**(4) The gun buoy FLASHES when it fires (2026-08-19).** It shipped silent, and that was an
+omission rather than a stealth property: `emitMuzzleFlash` is keyed off a `ShellState` and this
+turret is hitscan, so it never reached that path. **A gun fires, a gun flashes.** It is emitted RAW
+rather than through the helper, deliberately — the helper dedupes per OWNER per tick, so sharing its
+key would let a buoy shot and its owner's own gun click in the same tick collapse into ONE flash
+drawn at only one of two DIFFERENT positions, putting a flash where nothing fired and hiding one
+where something did. A buoy fires at most once per `gunReloadMs` and needs no dedupe of its own. The
+row's contract and its perception oracle needed no change: the oracle never required a backing
+shell, only the payload shape, the halo and LOS.
+
+### Presentation
+
+**The buoy icon shares NO primitive with a mine.** A mine is circles; the buoy is a waterline tick,
+a spar and a diamond daymark, with **zero circles**. The old decoy mark was concentric rings, which
+is precisely why it read as a mine — Eric asked for the distinction by name. No new colours: the
+doctrine channels ride the already-ratified non-colour vocabulary (solid vs dashed, low-alpha fill).
+
+**Two live player-facing lies were fixed in passing, both found by reading rather than by a failing
+test:** class select advertised the Battleship's Q slot as `LONG-RANGE CANNON` (a deleted weapon)
+and the Mine Layer's E as `DECOY BUOY`. And a real parity bug: the client's range gate covered only
+`mine` on `placeRange` while the server also refuses a long `radarBuoy` click, so a far buoy click
+silently consumed the prime for a drop the server denied.
+
+---
+
+## Amendment 23 — CAPTIVE MINES, star-shell gun reach, and BARREL fires PARALLEL (ERIC DESIGN + TWO MID-FLIGHT RULINGS)
+
+**CAPTIVE MINES (`mineCaptive`, mines/rare ×1) fundamentally re-arms the weapon.** Trigger and
+blast SWAP (32 ↔ 48), then trigger ×3 → **trigger 144u, blast 32u**, derived post-fold in
+`clampStats` beside the existing `triggerRadius` re-pin. The swap-and-triple is LINEAR, so MINES
+cards compose on top and **card order cannot matter** (verified 210.83 / 46.85 both orders — the
+same defect class epic-6 amendment 25 fixed on `mine.damage`). It holds ONE **un-upgraded** torpedo
+(base speed, no torpedo boons) dealing MINE damage at MINE blast radius, fired at the first hostile
+to enter range with intelligent lead, dodgeable, mine expended on fire. It keeps the 3 000 ms arm
+delay and still counts against `maxLive`.
+
+**"Hostile" is CAPTIVE-ONLY (R2.13, Eric):** an enemy captain or bot, OR a fleet drone whose CURRENT
+acquired target is the mine's owner — read LIVE off the existing `FleetController` target state, so
+a drone that breaks off becomes safe to sail past again. Neutral drones are ignored. **Ordinary and
+prop-fouling mines still trigger on ANY drone**, and a mine hit still does not aggro a drone.
+
+**R2.18 — A CAPTIVE MINE CANNOT BE SELF-DETONATED (ERIC RULING, 2026-08-19).** *"the captive mines
+can no longer be self-detonated."* The game's standing rule — your own gun/broadside burst detonates
+your own armed mines inside `burstRadius`, and the same-owner chain propagates — **does not apply**.
+A captive mine is excluded from `detonateMinesInBurst` and from the chain entirely, and **it neither
+blasts NOR launches**: the burst passes over and the mine persists, armed and waiting. This is the
+literal reading and the consistent one — R2.12 already says the torpedo is its ONLY attack, and
+self-detonation was the last surviving path by which a captive mine could produce a blast centred on
+its own casing. **After this there are none.** Fail-proven in both directions, including the
+not-widened half: the same burst still detonates an ordinary mine.
+
+**R2.19 — the captive torpedo's UNLIMITED RANGE is ACCEPTED (ERIC RULING, 2026-08-19).** *"sounds
+fine to me, until I start adding torpedo max ranges or shit like that."* The captive fish inherits
+base `CONFIG.torpedo` behaviour, which runs until impact, so a missed fish crosses the map until it
+hits something or the rim. **Accepted as shipped, not an oversight**, and ledgered as the first
+thing to revisit if a torpedo max-range mechanic ever arrives. No cap was added.
+
+**Implementation notes that are load-bearing.** `captive` is read LIVE off owner stats, so a vacated
+owner reverts the mine to an ordinary contact mine. The launched fish is marked by
+`targetX === null && burstRadius > 0` — a combination no other projectile has — so there is **no
+side table a reset could leak through**. It routes through `applyMineBlast`, which is why PROP
+FOULING rides along automatically per Eric's stacking ruling (A1). The hostile gate reads fleet
+aggro LIVE and skips per-hull, so a neutral drone cannot mask the captain behind it.
+
+**STAR-SHELL GUN REACH (R2.15) — the story's one genuinely new cross-system mechanic.** A GUN click
+whose target point lies inside a LIVE lit zone **owned by the clicking player** is legal even beyond
+`gun.rangeU`. Gun ONLY — never broadside, never torpedo — and own flares ONLY, never an enemy's. It
+was implemented twice and agreed only by discipline; it is now ONE shared function in
+`shared/src/sim/aim.ts` that both sides call, beside `blockedWater`, which made the same promotion.
+**The `LitCircle` type carries no owner and no expiry, so "own flares only" and "live only" are
+STRUCTURAL rather than remembered — the type cannot express an enemy or a dead zone.** Both sides
+test containment against the MAP-CLAMPED burst point rather than the raw cursor; they differ at the
+rim, and that was a real bug in the first draft.
+
+**BARREL FIRES PARALLEL (R2.16).** Eric: *"the shots should fire in parallel lines, not spreading."*
+The extra shells fly on parallel tracks at `[DRAFT]` 12u lateral spacing, each bursting at its own
+point, with the SAME straddle rule as the broadside. A server/client divergence was closed here too:
+`BARREL_FAN_STEP_RAD` is deleted and the server now calls the shared `parallelOffsets`, applying each
+vector to BOTH muzzle and target, matching the client shell-for-shell.
+
+---
+
+## Amendment 24 — THE PERCEPTION CARVE-OUT: the server now deliberately emits FALSE blips (ERIC A3 + IMPLEMENTER)
+
+JAMMING BUOY is the first time in this project's history that `perception.observe()` emits a signal
+that is **not true**. It is worth its own amendment because the master perception invariant has been
+the anti-cheat spine since Story 1.1 and this is the first thing that looks like a breach and is not.
+
+**The ruling (Eric A3).** Jamming denies RADAR ONLY; truesight and LOS are untouched, so the counter
+is to sail in and look. It **ADDS false returns rather than deleting real ones** — the real hull
+still paints, it is simply one of many candidates. The buoy's OWNER is exempt and sees the truth,
+and the buoy is concealed among its own fakes. `[DRAFT]` ~10 fakes live in the 330u circle,
+re-scattered each sweep.
+
+**THE FAKES MUST BE SERVER-GENERATED, and this INVERTS the wake-chop precedent.** Chop
+(epic-4 amendment 211) is client-side precisely because it carries no information — *"a channel that
+carries nothing must not cost wire"*. Jamming's entire purpose is DENYING information, so a modified
+client that dropped the fakes would gain a decisive advantage. They are emitted by the server, gated
+through the ONE `blipGate` and shaped through the ONE `blipShape`, so they are
+**wire-indistinguishable from real blips**. They are deterministic per `(jamSeed, revolution)` off a
+server-private decorrelated stream — never `Math.random()`, so tests can reproduce them while a
+client, which never learns `jamSeed`, cannot predict them.
+
+**THE DECLARED EXCEPTION COUNT STAYS AT SIX** (`sp`, `hc`, `mz`, `sunk`, `sm`, `fh`). **This is not
+a seventh, because a fake discloses nothing real.** The invariant is a LEAK rule — nothing outside
+sight ∪ this-tick radar paints may appear in a frame — and adding a signal that corresponds to no
+ship cannot leak a ship. What the invariant's TESTS asserted, however, was the stronger property
+that every blip traces to an actual ship, and that needed an **EXPLICIT, documented carve-out rather
+than a quiet edit**:
+
+- `verifyBlip` becomes a **four-arm OR**, each arm an independently re-derived oracle demanding
+  byte-level mask equality, with the fakes **RECOMPUTED from the seed by a test-local scatter**
+  rather than read back from production code.
+- **SOUNDNESS IS PROVEN, NOT ASSERTED:** a forged blip carrying a hidden real ship's TRUE FOOTPRINT
+  fails `verifyFrame` with fakes present. The carve-out therefore cannot be used as a laundering
+  channel for a real contact.
+- **COMPLETENESS PAIRS BY CONSUMPTION.** A review-gate finding (Codex) noted that a fake and a real
+  return with byte-identical payloads are indistinguishable — which is harmless, since identical
+  payloads carry identical information, and is not catchable by any rule. The REAL hole, found while
+  fixing it, is **one blip justifying TWO expected sources**; the oracle now pairs each expected
+  source to exactly ONE blip by consumption and forges that case to reject it.
+
+**A modified client learns nothing from any of this.** `blipProvenance.test.ts` pins that the client
+cannot tell a fake from a real return, or a relayed one from a direct one.
+
+---
+
+## Amendment 25 — THE CARD FACE IS MINIMAL, THE TOOLTIP CARRIES THE EXPLANATION, AND THE LADDER IS A LOOT-TIER RAMP (TWO ERIC RULINGS, 2026-08-19)
+
+**R2.17 (Eric).** *"I want the card itself to be pretty minimal in the upgrade tab, just the name and
+stat change as before (previous -> new) if applicable. But hovering one with the mouse should give a
+tooltip explaining the card, so that there are no questions like 'what the fuck does a captive mine
+do?'"*
+
+**The face now carries EXACTLY:** the ladder name at its stack position, the lineage marker, the
+rarity tag, and — only where the line moves a number — the `current → next` sentence computed through
+the existing `effectiveStats` preview diff. `StatLine.note` is DELETED outright, so the six standing
+riders leave the card. A verb card (PHOSPHOR, DAZZLE, PROP FOULING, CAPTIVE MINES, GUN BUOY, JAMMING
+BUOY) moves no number, so its face is name + tag only. **All 29 lines gained a plain-language
+explanation on the tooltip**, stat lines included — a `current → next` number does not tell a new
+player what `cooldownScale` or a trip ring IS.
+
+**THE TOOLTIP IS HOVER-ONLY BY RULING**, correcting an earlier orchestrator ruling that demanded a
+keyboard path. *"a new player will probably click and hover and read tooltips. an experienced player
+knows what they want and will use the shortcut or click faster without reading."* **The shortcut
+exists precisely so you can SKIP the reading**; wiring the tooltip into it would put the explanation
+back in front of the player who does not want it. The two paths serve different players and must not
+be collapsed. (The refit window is **Tab** to open, **1–4** to pick, **5** to heal — verified in
+`client/src/input/keyboard.ts`. CLAUDE.md's `CTRL`-based description was STALE and is corrected in
+this cycle.)
+
+**SUPERSESSION OF RECORD — epic-4 amendment 47's container-fit law is RE-AIMED, not deleted, and the
+escape IS the point.** That ~90-character / ~5-wrapped-line budget exists because Story 2.8's
+doctrine text OVERFLOWED THE CARD BOX by 50–97px on the live site. Once the explanation is no longer
+inside that box, the budget no longer governs it: **the tooltip may be as long as it needs to answer
+Eric's question, and gets its own pin against its own container**, while the pin is re-aimed at what
+now sits on the face (the stat sentence). The compression was the reason cards could not answer him
+in the first place. `DOCTRINE_TEXT` becomes tooltip copy rather than card copy; Eric's verbatim card
+NAMES are unchanged and remain canon.
+
+**THE LINEAGE RAMP IS THE LOOT-TIER CONVENTION (ERIC RULING, 2026-08-19), superseding the same day's
+first attempt.** The implementer shipped ladder position as a phosphor INTENSITY ramp, reasoning that
+DESIGN.md reserves every tactical hue. Eric: *"These are cards and the meaning of colors can be
+different from colors on the map. Don't a lot of games use colors like Green -> Blue -> Purple ->
+Red -> Gold for tier/rarity and such?"* **They do, and he is right that the earlier ramp
+over-applied a constraint** — those reservations govern THE WATER, where misreading amber-as-armed or
+red-as-denied gets you sunk; a refit card is chrome in a modal, a different surface with its own
+vocabulary. **Nothing was invented: the five rungs ARE the ratified palette**, which already happens
+to be exactly that ladder — phosphor (green), info (blue), storm-readout (purple), denied (red),
+amber (gold). **ABSOLUTE, not normalised**: rung II is blue on a 2-copy line and on a 5-copy one, and
+a short ladder simply never reaches gold because it has no capstone rung to reach. Still DUAL-CODED
+twice — the Roman numeral and the ladder name each state the rung in text, so colour is a fast read
+and never the only read. **Flagged rather than hidden:** `denied` and `amber` also carry refusal and
+armed state on this same surface; if rung IV ever reads as *"this card is refused"*, that is the
+thing to change.
+
+**A process note worth keeping:** the token guard caught hex values written in a COMMENT. It scans
+comments deliberately, so a literal cannot hide in prose — the tokens were named instead.
+
+---
+
+## Amendment 26 — THE BATCH-SIM EVIDENCE PASS: what moved, what did not, and what it could not see (MEASURED, 2026-08-19)
+
+This pass discharges the story's own acceptance criterion and **pays the cycle-42 debt** — the last
+catalog change shipped explicitly unmeasured and that debt had been ledgered ever since. Full record:
+`batch-sim-evidence-7-5-2026-08-19.md`. 380 AFTER matches across five campaigns against a **real
+BEFORE tree** (`git archive 9a7d37b`, running its own unmodified harness, because the spend policy
+legitimately changed with the catalog and porting the new policy backwards would have measured a
+policy that never shipped). Only rows whose aggregation code is byte-identical across both trees are
+compared.
+
+**The economy resolves, and by a slightly wider margin.** Zero failures, zero `unresolved` cap-outs,
+bot resolution 98 % → **100 %**, gunner `fieldCleared` 200/200, match length p50 −3.5 to −4.2 %
+(shorter, and the longest single match shortened by ~100 s in both campaigns). The Story 3.4 endgame
+guarantee re-verified: the `endgame` pilot resolves **50/50** with **96 % concluding past the 12:00
+endgame ring**. Deleting the gun's damage ladder did NOT lengthen matches, and the reason is picks —
+a captain in these matches fits 4.5 boons across a 41-card deck, so a five-copy damage ladder was
+almost never stacked deep enough to matter. **The deletions moved the damage guardrail the SAFE way:**
+the largest possible single hit vs the lightest class hull widened from 50 to 55 hp, and the largest
+possible CLICK fell from 72 % of a Torpedo Boat to **36 %**.
+
+**No card is dead.** All 29 lines appear in at least one class's deck (structural, no simulation
+involved) and `NEVER OFFERED: (none)` in all five campaigns. Offer rate spans 45.1 % down to 2.7 %,
+entirely explained by copies and class membership.
+
+**THE BATTLESHIP LOST ABOUT A QUARTER, AND THE FIELD GOT FLATTER.** Wins **52 % → 34.6 %** across 130
+bot-matches; kills −26 %, damage −26 %, levels −21 %, life −14 %. The loss is concentrated in the
+broadside-led **`siege`** profile (kills **−44 %**, damage −35 %), whose whole thesis is standoff at
+intel range and whose weight table still buys `intelRange` at 2.4 — but **the broadside no longer
+reaches intel range**: every RANGE card widens its gun by 50u and its main weapon by 31.25u, and the
+weapon the profile is named after reaches 62.5 % of where its gun reaches. **The profile was never
+retuned for the new weapon, so −44 % is an UPPER BOUND on the weapon's own loss** and the instrument
+cannot separate the two. The field is flatter than before — 35/21/45 against a BEFORE where one class
+took 52 % and the Mine Layer was a 12 % also-ran, the exact complaint cycle 96 recorded — which may
+well be the intended trade. **That is Eric's call, not the harness's, and no rebalance was taken.**
+
+**ONE VALUE WAS RETUNED, because it violated Eric's own ratified constraint.** *"You definitely can't
+hit a single ship with all the shots from this unless they are close and exposing their broadside to
+you."* At SPREAD ×4 + TURRETS ×2 the five shells separated by **2.6–14.1u, below the 30u burst
+DIAMETER at every range**, so every burst merged into one crater on ANY hull at ANY aspect out to the
+full 537.5u reach — a guaranteed **100 hp point-strike, 80 % of a Torpedo Boat**, exactly the opposite
+of the ruling. `[12, 9, 6.5, 4.5, 3]` → **`[12, 10.5, 9, 7.75, 6.5]`**. **The BASE 12° is unchanged
+and stays**: the same pass measured it as matching his brief exactly (1 of 3 shells on a broadside-on
+battleship at max range, 1 of 3 bow-on at every range). Only the tightening half moved, so SPREAD
+still reads *spread → parallel-ish → near the point* while the top rung now **rewards** the close
+broadside-on shot instead of removing the need for it.
+
+**Findings recorded and NOT acted on, each because acting would need a ruling:**
+- **`barrelSpacingU` 12u is smaller than the 15u burst RADIUS**, so the three bursts always overlap
+  and a maxed BARREL click is a single 45 hp hit rather than a 12u-wide pattern. That is why the
+  click one-shots a full-health 45 hp small drone **routinely** (168 such kills in the `endgame`
+  campaign) — and why the analytic pin's 45 = 45 equality is the ordinary outcome, not a corner case.
+  **The class-hull guardrail is untouched: 0 one-tick-from-full class kills in 940.** Whether BARREL
+  is a visible spread (needs > 30u) or a damage upgrade that forgives 10–15u of aim error (12u is
+  already right) is a design question.
+- **PHOSPHOR SHELLS contribute 0.08 % of all damage** (369 hp against 472 000). Not necessarily wrong
+  — it is a zone-denial verb, not a damage verb — recorded so nobody has to guess later.
+- **Deck lifetime fell 39 %** (72.2 → exactly 44 draws to exhaustion, zero variance) and the
+  escalating soft pity now **inverts past dry=3**. `deck.rareWeightPerDryLevel = 0.7` was ratified in
+  cycle 39 against a 53–58 card deck and no longer does what it was tuned to do. Real matches rarely
+  reach that far, so it is a tail property of the model rather than a live problem.
+
+**What this pass COULD NOT measure, stated plainly because a stated gap is worth more than a
+fabricated figure:** the RADAR BUOY in its entirety (see amendment 27); CAPTIVE MINES' lead quality
+(it fires and hits — 233/269/155 fish launched — but its hits are indistinguishable from an ordinary
+mine blast, both exactly 55 hp, and `DamageEvent` carries no weapon field); star-shell gun reach
+(nothing reports whether a click was legalised by a lit zone); PROP FOULING's slow, DAZZLE's sight
+halving and HOMING's steering (behaviour changes with no damage signature); and every human-facing
+question. Every duration here is a **lower bound** — these pilots are omniscient and far less
+cautious than people.
+
+**Harness work, all under `server/scripts/` — no `server/src`, `shared/` or `client/` file touched:**
+`catalogMetrics.ts`, `catalogReport.ts` and `balanceProbe.ts` are new, because **the shipped report
+had no per-line resolution at all** — a card never offered, never picked, or picked every time was
+invisible in every existing row, which is exactly what the AC asked about. Damage is attributed BY
+AMOUNT (every source now emits a unique boon-invariant constant, which is itself a consequence of
+deleting the three damage ladders); anything unmatched is bucketed and printed, so a future damage
+card cannot silently corrupt the attribution. The shipped `first exclusive OFFERED/FITTED` rows read
+**0.0 % structurally** once the `exclusive` rarity went extinct, and were replaced by `first doctrine`
+rows rather than left to become a silent dead line.
+
+---
+
+## Amendment 27 — OPEN AND UNRULED, carried out of Story 7-5
+
+Recorded here and entered in `deferred-work.md` so they are tracked rather than lost in prose. **None
+of these is resolved by this cycle.**
+
+- **THE RADAR BUOY IS ENTIRELY UNMEASURED.** Zero deployments in **2 600 bot-matches**. The bot brain
+  has no buoy tactics by design (`ai/tactics.ts` defers them to *"a later agent"*: the buoy is a
+  click-placed weapon on the mine's rear sector, not an `actSeq` ability), and the scripted captain
+  pilots fire slot 0 only. Relay, jamming density, the autonomous gun, the 20s/30s duty cycle and the
+  destructible 50 hp hull are all untested. The Mine Layer's measured numbers are additionally
+  DEPRESSED by ~82 picks per 1 000 bot-matches spent on a weapon it never used. **Anything Eric wants
+  to know about the radar buoy has to come from play.**
+- **BOTS NEVER FIT AN ACQUISITION CARD — 0 of 2 495 offers, and it is a STRUCTURAL POLICY GAP.** An
+  acquisition carries its TARGET equipment's category; a profile's weight table only names categories
+  its hull already carries; an unnamed category scores `UNLISTED_SCORE = 0.5`, below every real
+  weight. So a bot can only take one when the whole hand is unlisted, which the universal lines make
+  almost impossible. **~12 % of every bot offer hand is dead to it and no bot ever fields a third
+  weapon.** Captains convert acquisitions at 50–60 %, which is the control proving the CARDS are
+  fine. This biases every per-class number in the balance read.
+- **A buoy attracts ACOUSTIC HOMING torpedoes, including its OWNER'S**, and **your own shells can
+  intercept your own buoy.** Both follow from R2.7 making a buoy an ordinary collision subject on
+  every ordnance path, and the owner exclusion keying on the SHIP id. Documented in-code, not tuned.
+- **A relayed return renders along the OWNER'S ray.** The client's shadow march runs from the local
+  hull, so a buoy's around-the-island contact — the exact case the relay exists for — can paint at
+  speck intensity for a viewer whose own line to that water is blocked. The DISCLOSURE is correct;
+  the PRESENTATION under-serves it.
+- **`BuoyView` carries no HP channel**, so a KILLED buoy is indistinguishable from an EXPIRED one on
+  the client. Called out in the type's own doc: adding a damage-state channel is a wire decision, not
+  an implementation detail.
+- **Jamming fakes are not water-filtered**, so a false return can land on an island. Nothing else in
+  the return grammar can do that, which makes it a potential tell.
+- **`barrelSpacingU` 12u < the 15u burst radius** — see amendment 26; BARREL is currently a damage
+  multiplier rather than a visible pattern.
+- **R2.19's unlimited captive-torpedo range** stands as accepted, to be revisited only if a torpedo
+  max-range mechanic is introduced.
+- **R2.21a (a buoy's gun hit aggros nobody) and the gun-buoy-vs-rival-buoy default (it does not
+  shoot one)** are orchestrator calls flagged to Eric and open to reversal.

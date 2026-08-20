@@ -106,7 +106,30 @@ describe('fanTargets — every shell ends at the CLICK\'S RANGE (an arc, not a c
       return Math.hypot(c.x - a.x, c.y - a.y);
     };
     const tightest = (CONFIG.broadside.fanHalfAngleDeg[4] * Math.PI) / 180;
-    expect(span(wide.fanHalfAngleRad)).toBeGreaterThan(span(tightest) * 3);
+    // SPREAD still tightens meaningfully...
+    expect(span(wide.fanHalfAngleRad)).toBeGreaterThan(span(tightest) * 1.5);
+    // ...but the ladder must NOT tighten so far that it removes the need to
+    // catch a hull broadside-on. This pins ERIC'S OWN CONSTRAINT on the weapon
+    // — *"you definitely can't hit a single ship with all the shots from this
+    // unless they are close and exposing their broadside to you"* — rather than
+    // an arbitrary ratio, which is what the retired `* 3` was.
+    //
+    // The measure is the pattern's SPAN against how much of it one hull can
+    // catch: its silhouette plus a burst radius either side. A Battleship
+    // bow-on shows its 32u BEAM; broadside-on it shows its 124u LENGTH.
+    const bs = CONFIG.shipClasses.battleship.hull;
+    const burst = CONFIG.broadside.burstRadius;
+    // The span grows with FIRING RANGE, so measure it at the weapon's own base
+    // reach — the 5/8 rung, derived exactly as clampStats derives it.
+    const reachU = CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor; // 412.5u
+    const atTightest = 2 * tightest * reachU;
+    expect(atTightest).toBeGreaterThan(bs.beam + 2 * burst); // bow-on CANNOT take them all
+    expect(atTightest).toBeLessThan(bs.length + 2 * burst); // broadside-on CAN
+    // The retired ladder failed the first clause: its 3° cap spanned 43.2u at
+    // that same reach, NARROWER than a bow-on battleship's 62u catch, so every
+    // shell landed regardless of aspect — a guaranteed point strike.
+    const retiredCap = (3 * Math.PI) / 180;
+    expect(2 * retiredCap * reachU).toBeLessThan(bs.beam + 2 * burst);
   });
 });
 

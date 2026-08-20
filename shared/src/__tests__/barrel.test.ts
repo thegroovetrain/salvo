@@ -317,7 +317,7 @@ describe('shared barrel', () => {
       damage: 20, // Eric: "lets say 20 damage"
       burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,
-      fanHalfAngleDeg: [12, 9, 6.5, 4.5, 3], // DRAFT ladder, index = SPREAD copies
+      fanHalfAngleDeg: [12, 10.5, 9, 7.75, 6.5], // DRAFT ladder, index = SPREAD copies
     });
     // NO range field — it is derived from radarRange × muzzleFlashFactor, and
     // NO arc field either: the beams are a twin-sector descriptor, not 'full'.
