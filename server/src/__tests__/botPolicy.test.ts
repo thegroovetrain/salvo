@@ -175,6 +175,39 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     expect(profileOf('siege').bandMaxFrac).toBeLessThanOrEqual(CONFIG.vision.muzzleFlashFactor);
   });
 
+  it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): ruled bands and thresholds', () => {
+    // Cycle 110's A/B measured the ML dying before its payoff (181.1s afloat
+    // vs the random control's 264.0s); Eric ruled these values verbatim —
+    // hang back to survive to the payoff. Pinned as literals so a "tuning"
+    // drift is a reviewed edit, not an accident.
+    const forager = profileOf('forager');
+    expect(forager.bandMinFrac).toBe(0.45);
+    expect(forager.bandMaxFrac).toBe(0.8);
+    expect(forager.disengageHpFrac).toBe(0.55);
+    expect(forager.healHpFrac).toBe(0.6);
+    const trapper = profileOf('trapper');
+    expect(trapper.bandMinFrac).toBe(0.25);
+    expect(trapper.bandMaxFrac).toBe(0.5);
+    expect(trapper.disengageHpFrac).toBe(0.45);
+    expect(trapper.healHpFrac).toBe(0.6);
+    // Forager is now the EARLIEST break-off in the game — survival IS its
+    // plan — and its whole band stays inside its own gun reach (rangeU is
+    // radarRange), so hanging back costs no firepower.
+    for (const id of ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const) {
+      expect(forager.disengageHpFrac).toBeGreaterThan(profileOf(id).disengageHpFrac);
+    }
+    expect(forager.bandMaxFrac).toBeLessThanOrEqual(1);
+  });
+
+  it('the prepared-lay reserve keeps reactive headroom under the board cap', () => {
+    // preparedMineReserve bounds the PREPARED lays; maxLive bounds every lay.
+    // The gap between them is the room a reactive lay is guaranteed: a full
+    // 2-deep rack of reactive drops on top of a fully-prepared field must
+    // never reach addMine's silent oldest-mine eviction.
+    expect(CONFIG.bots.preparedMineReserve).toBeGreaterThan(0);
+    expect(CONFIG.bots.preparedMineReserve + CONFIG.mine.maxAmmo).toBeLessThanOrEqual(CONFIG.mine.maxLive);
+  });
+
   it('the appetite table is the ONLY weapon word a profile carries, and every entry is positive', () => {
     // The retired capability flags may not regrow: capability comes from the
     // LOADOUT, appetite only modulates proactivity.
@@ -719,39 +752,55 @@ describe('ai/spending — the boon policy', () => {
   });
 
   // THE PROOF THAT PROFILES MATTER -------------------------------------------
-  it('the two Mine Layer profiles rank the mine DOCTRINES differently', () => {
-    // RE-CUT AT THE DOCTRINE PASS (Eric ruling 2026-08-20). The first-pass
-    // table gave FORAGER a 2.4 CAPTIVE want on the CONFIG-comment claim that a
-    // captive mine "farms without re-positioning" — contradicted by the
-    // shipped mechanics: a captive mine's trip gate is HOSTILE-ONLY
-    // (isCaptiveMineHostile), a neutral PvE fleet drone walks straight over
-    // it, so CAPTIVE disarms exactly the fleet-farming forager exists to do.
-    // The want moved to TRAPPER, whose whole game is trapping hostiles.
+  it('CAPTIVE is a wanted line for BOTH ML profiles, and trapper keeps the stronger signature', () => {
+    // RE-CUT AGAIN AT CYCLE 111 (Eric playtest ruling, 2026-08-20). Cycle 110
+    // demoted forager's captive want to 0.9 on a farming argument whose
+    // mechanical half stands (a captive trip is HOSTILE-ONLY, so it cannot
+    // farm neutral fleet drones) but whose conclusion was wrong: captive is a
+    // SURVIVAL-AND-PAYOFF tool — *"REALLY powerful… you just have to be lined
+    // up well and prepare"* — exactly what the hull whose measured problem is
+    // staying alive should buy. Restored as a genuinely reachable want,
+    // WITHOUT displacing trapper's 2.4 signature.
     const foragerFoul = boonWeightFor('forager', 'minePropFouling');
     const trapperFoul = boonWeightFor('trapper', 'minePropFouling');
     expect(trapperFoul).toBeGreaterThan(foragerFoul);
 
-    // CAPTIVE is NOT a wanted line for forager: at most the held-line neutral
-    // (0.9), i.e. below every card the profile genuinely wants.
-    expect(boonWeightFor('forager', 'mineCaptive')).toBeLessThanOrEqual(0.9);
-    expect(boonWeightFor('forager', 'mineCaptive')).toBeLessThan(foragerFoul);
-    // Trapper WANTS it (its home since the ruling) — well above the junk
-    // floor, while fouling stays its signature.
+    // Forager WANTS captive again: above its mines category base and its
+    // fouling want, below its gun ladder (still a gun-led fleet-clearer).
+    const foragerCaptive = boonWeightFor('forager', 'mineCaptive');
+    expect(foragerCaptive).toBe(2.0);
+    expect(foragerCaptive).toBeGreaterThan(foragerFoul);
+    expect(foragerCaptive).toBeGreaterThan(1.8); // its own `mines` category base
+    expect(foragerCaptive).toBeLessThan(boonWeightFor('forager', 'gunBarrel'));
+    // Trapper's want stays the stronger one, and fouling stays its signature.
     expect(boonWeightFor('trapper', 'mineCaptive')).toBeGreaterThan(2);
-    expect(boonWeightFor('trapper', 'mineCaptive')).toBeGreaterThan(boonWeightFor('forager', 'mineCaptive'));
+    expect(boonWeightFor('trapper', 'mineCaptive')).toBeGreaterThan(foragerCaptive);
     expect(boonWeightFor('trapper', 'mineCaptive')).toBeLessThan(trapperFoul);
 
-    // Neither profile REFUSES a doctrine — both stay legal picks.
-    expect(boonWeightFor('forager', 'mineCaptive')).toBeGreaterThan(0);
-
-    // And the ranking changes the actual pick on a shared hand: BOTH now
-    // take fouling over captive, but forager only because captive is parked
-    // at neutral — against a genuinely wanted line it never wins.
+    // The pick moves with the ruling: offered captive against a merely
+    // category-weighted mine card, forager now TAKES the doctrine (weight tie
+    // with mineBlast at 2.0 — the scarcer, nature-changing rare wins the
+    // ruled tiebreak); trapper still leads with its fouling signature.
     const offer = ['minePropFouling', 'mineCaptive'];
-    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(0);
     expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(0);
+    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(1);
     const vsWanted = ['mineCaptive', 'mineBlast'];
-    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer: vsWanted, boons: [], hp: 100, maxHp: 100 })).toBe(1);
+    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer: vsWanted, boons: [], hp: 100, maxHp: 100 })).toBe(0);
+  });
+
+  it('the GUN BUOY is explicitly wanted by BOTH ML tables (cycle 111 — half the powerhouse combo)', () => {
+    // Before the ruling `buoyGun` was named by NEITHER ML table and fell
+    // through to a bare radarBuoy category weight (forager 1.0 / trapper 2.0)
+    // despite being half of the combo Eric calls a powerhouse. Both now name
+    // it, above their own category base.
+    expect(boonWeightFor('forager', 'buoyGun')).toBe(2.0);
+    expect(boonWeightFor('trapper', 'buoyGun')).toBe(2.2);
+    const tables = CONFIG.bots.boonWeights;
+    expect(boonWeightFor('forager', 'buoyGun')).toBeGreaterThan(tables.forager.cat.radarBuoy);
+    expect(boonWeightFor('trapper', 'buoyGun')).toBeGreaterThan(tables.trapper.cat.radarBuoy);
+    // Forager prices the combo as a PAIR: captive and the gun buoy land at
+    // the same want — buy whichever half the deck offers first.
+    expect(boonWeightFor('forager', 'buoyGun')).toBe(boonWeightFor('forager', 'mineCaptive'));
   });
 
   // THE ACQUISITION RANKING (Eric ruling 2026-08-20) ---------------------------

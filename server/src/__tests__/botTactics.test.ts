@@ -125,6 +125,26 @@ function plot(mind: BotMind, t: RememberedContact): void {
   mind.contacts.set(t.id ?? `a:${t.x}:${t.y}`, t);
 }
 
+/**
+ * Hand the mind a perception view whose only content is `n` of the bot's OWN
+ * live mines — the board count the cycle-111 lay bounds read (ownLiveMines).
+ * `viewAt` stays -1 on purpose: ingest() must NOT fold this view (folding
+ * would drop `live` on planted tracks), and ownLiveMines reads `mind.view`
+ * directly exactly as avoidMines does. The mines sit far from every fixture
+ * so no steering term ever sees them (own mines are skipped there anyway).
+ */
+function viewWithOwnMines(mind: BotMind, n: number): void {
+  mind.view = {
+    contacts: [],
+    events: [],
+    mines: Array.from({ length: n }, (_, i) => ({
+      id: `own-${i}`, x: -2000 - i * 30, y: 2000, own: true, by: 'self',
+    })),
+    litZones: [],
+    buoys: [],
+  };
+}
+
 /** The loadout slot fitting an equipment id (the tests name weapons, not
  *  indices — a refit that moved a slot must not silently pass). */
 function slotOf(rec: ShipRecord, id: string): number {
@@ -1372,6 +1392,98 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'mine'));
   });
 
+  // THE PREPARED LAY + THE FIELD-CHURN BOUND (Eric ruling 2026-08-20, cycle
+  // 111): a hull that hangs back seeds its traps BEFORE they are needed, and
+  // no lay of any kind may reach addMine's silent oldest-mine eviction.
+  it('PREPARED LAY: an EAGER layer seeds a thin field with NO target, from a safe posture', () => {
+    const w = openWorld(417);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'mineLayer', 0, 0, 1.1); // off-axis heading on purpose
+    const mind = mkMind('trapper'); // EAGER mines; no contacts -> reposition
+    viewWithOwnMines(mind, 1); // one trap down, reserve (3) not reached
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.fireSlot).toBe(slotOf(rec, 'mine'));
+    // The drop is the ordinary astern placement — geometry is the tactic's,
+    // never the occasion's.
+    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
+    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
+    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange * 0.5, 6);
+  });
+
+  it('PREPARED LAY: CAPTIVE opens the occasion at NEUTRAL appetite — a plain rack stays reactive', () => {
+    const w = openWorld(418);
+    const port = fakePort(w);
+    // Forager (mine appetite 1.4: neutral, NOT eager) holding CAPTIVE: a
+    // 144u-trip torpedo launcher works with nobody following, so it is
+    // seeded while safe — the doctrine ADDS the occasion.
+    const cap = mkBot(w, 'mineLayer', 0, 0, 0);
+    cap.stats.mine.captive = true;
+    const capMind = mkMind('forager'); // no contacts -> reposition
+    viewWithOwnMines(capMind, 0);
+    const d = COMBAT_BRAIN.decide(cap, capMind, port);
+    expect(d.fireSlot).toBe(slotOf(cap, 'mine'));
+    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6); // captive: FULL reach
+    // The same forager WITHOUT the doctrine does not lay into empty water —
+    // a contact mine needs something following you — and sites its recon
+    // buoy instead, exactly as before this cycle.
+    const plain = mkBot(w, 'mineLayer', 0, 0, 0);
+    const plainMind = mkMind('forager');
+    viewWithOwnMines(plainMind, 0);
+    expect(COMBAT_BRAIN.decide(plain, plainMind, port).fireSlot).toBe(slotOf(plain, 'radarBuoy'));
+  });
+
+  it('PREPARED LAY stops at the reserve; the REACTIVE lay still fires there (adds, never removes)', () => {
+    const w = openWorld(419);
+    const port = fakePort(w);
+    // At the reserve, idle: no prepared lay — the headroom under maxLive is
+    // being kept for the reactive occasions.
+    const idle = mkBot(w, 'mineLayer', 0, 0, 0);
+    const idleMind = mkMind('trapper'); // no contacts -> reposition
+    viewWithOwnMines(idleMind, CONFIG.bots.preparedMineReserve);
+    expect(COMBAT_BRAIN.decide(idle, idleMind, port).fireSlot).not.toBe(slotOf(idle, 'mine'));
+    // The SAME board state with a pursuer closing astern: the reactive lay
+    // fires — prepared ADDED an occasion and removed none.
+    const chased = mkBot(w, 'mineLayer', 0, 0, 0);
+    const chasedMind = mkMind('trapper');
+    viewWithOwnMines(chasedMind, CONFIG.bots.preparedMineReserve);
+    plot(chasedMind, track(port.now, { x: -200, y: 0, heading: 0, speed: 20 }));
+    expect(COMBAT_BRAIN.decide(chased, chasedMind, port).fireSlot).toBe(slotOf(chased, 'mine'));
+    // And the unconditional withdrawal lay holds at the reserve too.
+    const fleeing = mkBot(w, 'mineLayer', 0, 0, 0);
+    fleeing.hp = fleeing.stats.maxHp * 0.1;
+    const fleeingMind = mkMind('trapper');
+    viewWithOwnMines(fleeingMind, CONFIG.bots.preparedMineReserve);
+    expect(COMBAT_BRAIN.decide(fleeing, fleeingMind, port).fireSlot).toBe(slotOf(fleeing, 'mine'));
+  });
+
+  it('NO LAY AT maxLive: a bot never evicts its own oldest mine — reactive and captive included', () => {
+    const w = openWorld(420);
+    const port = fakePort(w);
+    const cap = CONFIG.mine.maxLive;
+    // Withdrawing — the strongest reactive occasion there is — with a full
+    // board: the lay is refused, because addMine would silently evict the
+    // oldest trap of the very field this hull is fleeing toward.
+    const flee = mkBot(w, 'mineLayer', 0, 0, 0);
+    flee.hp = flee.stats.maxHp * 0.1;
+    const fleeMind = mkMind('trapper');
+    viewWithOwnMines(fleeMind, cap);
+    expect(COMBAT_BRAIN.decide(flee, fleeMind, port).fireSlot).not.toBe(slotOf(flee, 'mine'));
+    // Same bound on the captive branch.
+    const capFull = mkBot(w, 'mineLayer', 0, 0, 0);
+    capFull.stats.mine.captive = true;
+    capFull.hp = capFull.stats.maxHp * 0.1;
+    const capFullMind = mkMind('trapper');
+    viewWithOwnMines(capFullMind, cap);
+    expect(COMBAT_BRAIN.decide(capFull, capFullMind, port).fireSlot).not.toBe(slotOf(capFull, 'mine'));
+    // One slot of headroom back (the reactive room the reserve guarantees):
+    // the withdrawal lay returns.
+    const room = mkBot(w, 'mineLayer', 0, 0, 0);
+    room.hp = room.stats.maxHp * 0.1;
+    const roomMind = mkMind('trapper');
+    viewWithOwnMines(roomMind, cap - 1);
+    expect(COMBAT_BRAIN.decide(room, roomMind, port).fireSlot).toBe(slotOf(room, 'mine'));
+  });
+
   it('broadside.spreadRung: the wide base fan may take a just-lost plot; a tight fan demands live', () => {
     const w = openWorld(410);
     const port = fakePort(w);
@@ -1421,6 +1533,10 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const port = fakePort(w);
     const rec = mkBot(w, 'mineLayer', 0, 0, 1.1); // off-axis heading on purpose
     const mind = mkMind('trapper'); // no contacts: reposition
+    // Field at the prepared reserve (cycle 111): the prepared MINE lay —
+    // which an eager trapper would otherwise spend this safe tick on —
+    // declines, and the recon buoy gets the tick exactly as before.
+    viewWithOwnMines(mind, CONFIG.bots.preparedMineReserve);
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(slotOf(rec, 'radarBuoy'));
     const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
@@ -1453,7 +1569,11 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     // Buying a card must never make a buoy worse at the job it already had.
     const jamIdle = mkBot(w, 'mineLayer', 0, 0, 0);
     jamIdle.stats.radarBuoy.jamming = true;
-    expect(COMBAT_BRAIN.decide(jamIdle, mkMind('trapper'), port).fireSlot).toBe(
+    const jamIdleMind = mkMind('trapper');
+    // Field at the prepared reserve, so the cycle-111 prepared mine lay
+    // yields the idle tick to the buoy (the behaviour under test here).
+    viewWithOwnMines(jamIdleMind, CONFIG.bots.preparedMineReserve);
+    expect(COMBAT_BRAIN.decide(jamIdle, jamIdleMind, port).fireSlot).toBe(
       slotOf(jamIdle, 'radarBuoy'),
     );
     // Gun buoy: a picket — only when the tracked hull is inside the reach its

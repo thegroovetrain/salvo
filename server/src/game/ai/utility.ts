@@ -383,6 +383,27 @@ export function tracksOf(mind: BotMind): BotTrack[] {
 }
 
 /**
+ * How many of the bot's OWN mines are live on the board — read from the
+ * perception view's `mines` through the `own` flag, the SAME data a human
+ * client in this seat receives (the mine signal row always discloses the
+ * owner's own mines, at any range, so this is a true board count — no port
+ * change, no perception widening). Consumed by the mine tactic's lay bounds
+ * (ai/equipment.ts): `addMine` silently EVICTS the owner's oldest mine at
+ * `stats.mine.maxLive`, so a bot that lays without counting churns the field
+ * it just built. A null view (never observed — a frozen boarding room, or a
+ * hand-built test) reads as an empty board, matching tactics.ts's
+ * `avoidMines` fail-open reading of the same array.
+ */
+export function ownLiveMines(mind: BotMind): number {
+  if (mind.view === null) return 0;
+  let n = 0;
+  for (const m of mind.view.mines) {
+    if (m.own) n += 1;
+  }
+  return n;
+}
+
+/**
  * THE REACTION GATE — the single consumer of CONFIG.bots.reactionMs (E2's
  * second competence knob). A track the bot has only just acquired is not yet
  * something it may act on; it must have persisted this long since first

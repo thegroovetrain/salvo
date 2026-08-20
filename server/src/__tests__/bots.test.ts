@@ -52,6 +52,7 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'decisionCadenceMs',
       'disengageHpFrac',
       'healHpFrac',
+      'preparedMineReserve', // cycle 111: the prepared-lay headroom (a DELIBERATE edit to this pin)
       'profiles',
       'reactionMs',
       'stuckMs',
