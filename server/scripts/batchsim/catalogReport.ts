@@ -14,8 +14,8 @@
 //    possible answer to "is any card unreachable" and it is free.
 //
 // B. OFFERS AND FITS IN PLAY. Offers are policy-free (deck + offer roll); fits
-//    carry whatever the spender's policy is — pilots.pickSpendChoice for
-//    captains, per-profile weights for bots. Both columns are printed side by
+//    carry whatever the spender's policy is — spendPolicy.pickSpendChoice for
+//    the scripted control, per-profile weights for bots. Both columns are printed side by
 //    side and the caveat is printed WITH them.
 //
 // C. THE ORDNANCE + GUARDRAIL LEDGER. See catalogMetrics.ts for how damage is
@@ -121,7 +121,7 @@ export function renderCatalogLines(label: string, agg: CatalogAggregate): string
   const lines: string[] = [`== CATALOG LINES ${label} ==`];
   lines.push(`ledgered matches: ${agg.sampled} | materialized offer hands: ${agg.offerHands}`);
   lines.push('OFFER% is policy-free (deck + offer roll). FIT% carries the spender policy');
-  lines.push('(pilots.pickSpendChoice for captains, profile weights for bots) — never read it as taste.');
+  lines.push('(spendPolicy.pickSpendChoice for the scripted control, profile weights for bots) — never read it as taste.');
   const ids = Object.keys(BOON_CATALOG).sort();
   const idW = Math.max(...ids.map((i) => i.length));
   lines.push(`${'line'.padEnd(idW)} | offers | offer% | fits  | fit/offer`);

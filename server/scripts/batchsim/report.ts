@@ -23,7 +23,7 @@ export interface BatchAggregate {
   captainsPerMatch: number;
   /** Captain-matches excluded from the per-captain rows because the captain's
    *  ship was gone at collection (quit-out path). Always 0 with today's
-   *  never-leaving pilots; reported only when non-zero so the omission from
+   *  never-leaving controls; reported only when non-zero so the omission from
    *  every per-captain statistic below can never be silent. */
   departedCaptains: number;
   durationS: Summary;

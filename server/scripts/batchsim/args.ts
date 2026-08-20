@@ -3,7 +3,7 @@
 // Pure over argv — unit-testable without a process.
 
 import { validateTunableKey, validateTunableValue } from './overrides.js';
-import { PILOT_REGISTRY } from './pilots.js';
+import { CONTROL_REGISTRY } from './controls.js';
 
 /** Bad command line — main prints .message and exits 2. */
 export class UsageError extends Error {}
@@ -17,11 +17,11 @@ export interface CliOptions {
   matches: number;
   seed: number;
   captains: number;
-  /** COMBAT BOTS in the lobby (Story 6.4). Bots have no pilot — they drive
+  /** COMBAT BOTS in the lobby (Story 6.4). Bots have no control — they drive
    *  themselves from World's botsTick row — so this is purely a lobby size. */
   bots: number;
-  /** Captain pilot policy name (PILOT_REGISTRY key); default 'gunner'. */
-  pilot: string;
+  /** Scripted captain control name (CONTROL_REGISTRY key); default 'pacifist'. */
+  control: string;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
   /** Each sweep multiplies the variant grid (cartesian across repeats). */
@@ -41,7 +41,7 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      0 is legal ONLY with --bots (a bot-only lobby)
   --bots N           combat bots (Story 6.4 AI captains; default 0). Bots roll
                      their own class/profile/callsign and drive themselves;
-                     --pilot does not apply to them. A bot-only lobby drops
+                     --control does not apply to them. A bot-only lobby drops
                      minHumans to 0 so the match can actually start
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
                      xp.*, deck.*, offer.size, match.fillTo, map.baseRadius,
@@ -49,10 +49,10 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      terminalSightFactor, stormDps)
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
-  --pilot NAME       captain pilot policy: gunner (default) | pacifist
-                     (no-hunt control — sails the ring rhythm, never fires) |
-                     endgame (pacifist until the zone closes, then hunts —
-                     the Story 3.4 endgame-guarantee evidence instrument)
+  --control NAME     scripted captain control: pacifist (default, and the only
+                     one) — sails the storm ring rhythm, spends its levels, and
+                     never targets or fires. Lethal AI is a BOT (--bots), which
+                     earns its information through perception.observe()
   --deck-only        pure deck-economy fast mode (no World, no Match)
   --draws N          deck-only total draw budget (default 20000)
   --json PATH        also write the machine-readable report to PATH
@@ -65,7 +65,7 @@ function defaults(): CliOptions {
     seed: 1,
     captains: 3,
     bots: 0,
-    pilot: 'gunner',
+    control: 'pacifist',
     set: {},
     sweeps: [],
     deckOnly: false,
@@ -138,12 +138,12 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--bots': (o, v) => void (o.bots = parseCount(v, '--bots', 0)),
   '--draws': (o, v) => void (o.draws = parseCount(v, '--draws', 1)),
   // Validated against the real registry at parse time so a typo fails fast
-  // with the legal names instead of silently running the default pilot.
-  '--pilot': (o, v) => {
-    if (!Object.hasOwn(PILOT_REGISTRY, v)) {
-      throw new UsageError(`--pilot: unknown pilot '${v}' (available: ${Object.keys(PILOT_REGISTRY).sort().join(', ')})`);
+  // with the legal names instead of silently running the default control.
+  '--control': (o, v) => {
+    if (!Object.hasOwn(CONTROL_REGISTRY, v)) {
+      throw new UsageError(`--control: unknown control '${v}' (available: ${Object.keys(CONTROL_REGISTRY).sort().join(', ')})`);
     }
-    o.pilot = v;
+    o.control = v;
   },
   '--set': parseSet,
   '--sweep': parseSweep,

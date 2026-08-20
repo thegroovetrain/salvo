@@ -21,7 +21,7 @@
 //    double counting across the ticks a hand sits open. Fits are read by
 //    diffing `ship.boons`, which is append-only within a life.
 //    READ THE PICK COLUMN AS "POLICY + REACHABILITY", NEVER AS PLAYER TASTE:
-//    captains spend through pilots.pickSpendChoice (rarity-preferring, 75%
+//    captains spend through spendPolicy.pickSpendChoice (rarity-preferring, 75%
 //    top-rank) and bots through their per-profile weights. The OFFER column is
 //    the policy-free half — it is deck composition and the offer roll alone.
 //

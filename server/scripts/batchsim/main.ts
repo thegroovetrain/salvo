@@ -13,7 +13,7 @@
 import { writeFileSync } from 'node:fs';
 import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './args.js';
 import { TunableError, applyOverrides } from './overrides.js';
-import { PILOT_REGISTRY } from './pilots.js';
+import { CONTROL_REGISTRY } from './controls.js';
 import { runBatch, type BatchResult } from './runner.js';
 import { runDeckSim, type DeckAggregate } from './deckSim.js';
 import {
@@ -44,7 +44,7 @@ function headerLines(opts: CliOptions): string[] {
   // the deterministic body's own header must say so. Only printed when there
   // are bots, so every captain-only run key is byte-unchanged.
   const bots = opts.bots > 0 ? ` bots=${opts.bots}` : '';
-  const roster = opts.deckOnly ? '' : ` captains=${opts.captains}${bots} pilot=${opts.pilot}`;
+  const roster = opts.deckOnly ? '' : ` captains=${opts.captains}${bots} control=${opts.control}`;
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
     `run key: seed=${opts.seed} mode=${mode}${roster} overrides=${overridesLine(opts.set)} sweeps=${opts.sweeps.length}`,
@@ -73,7 +73,7 @@ function batchMode(opts: CliOptions): ModeOutput {
           matches: opts.matches,
           captains: opts.captains,
           bots: opts.bots,
-          pilot: PILOT_REGISTRY[opts.pilot],
+          control: CONTROL_REGISTRY[opts.control],
         },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
       );
