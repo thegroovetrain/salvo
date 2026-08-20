@@ -112,6 +112,7 @@
 #   cycle 98 (0.17.98)  the frozen client: a Sprite mask's TextureSource may never be destroyed while bound — dim-mask rebake redraws in place; no amendment (defect); PV unchanged at 40 (client-only)
 #   cycle 99 (0.17.99)  BOT AI PLAYTEST FIXES: bots stop firing through islands (no LOS test existed anywhere in ai/) + the storm ring becomes a CONSTRAINT on every heading rather than a post-hoc override — epic-6 amendment 32; PV unchanged at 40
 #   cycle 105 (0.17.105) home mode-button sub-lines DELETED (N/20 QUEUED, STARTS INSTANTLY): a descendant visibility:visible escaped the settings yield — epic-6 amendment 50; PV unchanged at 40 (client-only)
+#   cycle 108 (0.17.108) THE PRIVACY POLICY SPEAKS AS HULLCRACKER.IO: operator name/entity type/country deleted from WHO RUNS THIS + CONTACT, whole policy converted to third person incl. one heading, no behavioural disclosure moved — epic-7 amendment 19 (supersedes R11); PV unchanged at 41 (client copy only)
 
 generated: 2026-07-17
 last_updated: 2026-08-19
