@@ -1271,11 +1271,27 @@ export const CONFIG = {
     // held (index 0 = no cards, index 4 = the ×4 cap). The extreme shells sit
     // at ±this; the rest are evenly spaced across it, so an ODD turret count
     // puts one shell exactly on the click bearing and an EVEN count straddles
-    // it (sim/spread.ts). DRAFT LADDER (Eric: *"i don't know what scale to set
-    // these to yet, we'll need to tweak"* — spread, then parallel-ish, then
-    // near the clicked point). Read through
-    // EffectiveStats.broadside.fanHalfAngleRad, never indexed at a call site.
-    fanHalfAngleDeg: [12, 9, 6.5, 4.5, 3],
+    // it (sim/spread.ts). Read through EffectiveStats.broadside.fanHalfAngleRad,
+    // never indexed at a call site.
+    //
+    // RETUNED from [12, 9, 6.5, 4.5, 3] by the Story 7-5 batch-sim evidence pass
+    // (batch-sim-evidence-7-5-2026-08-19.md). The old 3° cap VIOLATED Eric's own
+    // ratified constraint on this weapon — *"you definitely can't hit a single
+    // ship with all the shots from this unless they are close and exposing their
+    // broadside to you"* — because at ×4 SPREAD + ×2 TURRETS the five shells
+    // separated by only 2.6–14.1u, well under the 30u burst DIAMETER, so every
+    // burst merged into one crater on ANY hull at ANY aspect out to the full
+    // 537.5u reach: a guaranteed 100 hp point strike, 80% of a Torpedo Boat.
+    // That is the opposite of the "unless they are close and broadside-on"
+    // clause, so this is enforcing his ruling rather than re-balancing past it.
+    //
+    // The BASE 12° is UNCHANGED and stays deliberately: the same pass measured it
+    // as matching his brief exactly (about 1 of 3 shells lands on a broadside-on
+    // hull past ~300u). Only the tightening half of the ladder moved, so SPREAD
+    // still reads as "spread → parallel-ish → near the point" while the top rung
+    // now REWARDS the close broadside-on shot instead of removing the need for it.
+    // Still a DRAFT ladder — Eric tunes it on the water.
+    fanHalfAngleDeg: [12, 10.5, 9, 7.75, 6.5],
   },
 
   /**
