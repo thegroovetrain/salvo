@@ -359,9 +359,13 @@ describe('NameplateLayer — Pixi Text lifecycle state machine', () => {
   });
 
   it('hide() then place(alpha>0) re-shows the plate', () => {
-    // CURRENT behavior: place() re-shows whenever alpha>0, so own-plate discipline
-    // relies on updateOwnPlate NOT running while spectating (main.ts hides the own
-    // plate and drives contacts only). This pins that contract, not a guarantee.
+    // CURRENT behavior: place() re-shows whenever alpha>0, so own-plate
+    // discipline relies on `main.ts` calling `place` only where the plate is
+    // meant to be seen. It is NOT true that updateOwnPlate stops while
+    // spectating (the stale claim this comment used to make): since Story 5.3
+    // `renderSpectate` calls it every frame for the WRECK, and hides the own
+    // plate only where there is no wreck to label. This pins the re-show
+    // behavior, not a guarantee about who calls it.
     const layer = new NameplateLayer(stubLayer());
     layer.set('a', 'X', 0x1);
     const t = textLog[0];
