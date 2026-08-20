@@ -312,6 +312,48 @@ describe('radar buoy — the GUN BUOY (R2.10)', () => {
     expect(j.kills).toBe(1); // credited like any of the owner's ordnance
   });
 
+  it('FLASHES when it fires (Eric ruling 2026-08-19) — at the BUOY, not the owner, and only on a shot', () => {
+    // The turret was silent as first built: emitMuzzleFlash is keyed off a
+    // ShellState and this gun is hitscan, so it never reached that path. A gun
+    // fires, a gun flashes. This fails without the raw mz push in fireBuoyGun.
+    const w = bareWorld();
+    const j = place(w, 'j', 2000, 2000, 0, 'mineLayer');
+    fitBoons(j, ['buoyGun']);
+    addBuoy(w.buoys, j, 0, 0, w.now, 'b1', 1);
+    const watcher = place(w, 'w', 100, 0); // inside the buoy's set AND the halo
+    w.step();
+    const flashes = buildFrame(w, 'w').events.filter((e) => e.k === 'mz');
+    expect(flashes).toHaveLength(1);
+    // At the BUOY's position — the shot came from there, not from the captain
+    // sitting 2000u away. And the row stays identity-free.
+    expect(flashes[0]).toEqual({ k: 'mz', x: 0, y: 0 });
+    // Cooling: no target-less or repeat flash while the gun reloads.
+    w.step();
+    expect(buildFrame(w, 'w').events.filter((e) => e.k === 'mz')).toHaveLength(0);
+  });
+
+  it('a buoy shot and its OWNER\'s own gun click in the same tick produce TWO flashes, one at each muzzle', () => {
+    // Why fireBuoyGun pushes mz RAW instead of calling emitMuzzleFlash: that
+    // helper dedupes per OWNER per tick. Sharing the key would collapse these
+    // two into one flash drawn at only one of two DIFFERENT places — putting a
+    // flash where nothing fired and hiding one where something did.
+    const w = bareWorld();
+    const j = place(w, 'j', 0, 300, 0, 'mineLayer'); // owner, in its own buoy's reach
+    fitBoons(j, ['buoyGun']);
+    addBuoy(w.buoys, j, 0, 0, w.now, 'b1', 1);
+    const watcher = place(w, 'w', 100, 0);
+    place(w, 'e', 200, 0); // something for the buoy to shoot
+    // the owner's own gun click, same tick (SLOT_GUN = 0)
+    w.submitInput('j', { seq: 1, throttle: 0, rudder: 0, aim: -Math.PI / 2, fireSeq: 1, aimDist: 200, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.step();
+    const flashes = buildFrame(w, 'w').events.filter((e) => e.k === 'mz');
+    expect(flashes).toHaveLength(2);
+    // One of them is the buoy's, at the buoy.
+    expect(flashes.some((f) => f.x === 0 && f.y === 0)).toBe(true);
+    // The other is NOT at the buoy — it is the captain's own muzzle.
+    expect(flashes.some((f) => f.x !== 0 || f.y !== 0)).toBe(true);
+  });
+
   it('R2.21: fires on a NEUTRAL drone it can see (autonomous — no aggro gate), aggroing NOBODY at the owner', () => {
     const w = bareWorld();
     const j = place(w, 'j', 2000, 2000, 0, 'mineLayer');

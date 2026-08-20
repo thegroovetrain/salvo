@@ -3847,6 +3847,24 @@ export class World {
     if (buoy.gunReloadMsLeft > 0) return;
     const target = this.nearestBuoyTarget(buoy);
     if (target === null) return;
+    // THE BUOY'S GUN FLASHES LIKE ANY OTHER GUN (Eric ruling 2026-08-19). It
+    // was silent as first built, because emitMuzzleFlash is keyed off a
+    // ShellState and this turret is hitscan — it never spawns one, so it never
+    // reached that path. That was an omission, not a stealth property: a gun
+    // fires, a gun flashes, and an observer inside the halo is owed the cue.
+    //
+    // Emitted RAW rather than through emitMuzzleFlash for two reasons. There is
+    // no shell to hand it, and its per-tick dedupe is keyed on OWNER — sharing
+    // that key would let a buoy shot and its owner's own gun click in the same
+    // tick collapse into ONE flash drawn at only one of two DIFFERENT places,
+    // which would put a flash where nothing fired. A buoy fires at most once
+    // per gunReloadMs, so it needs no dedupe of its own.
+    //
+    // The row's contract is unchanged and carries the disclosure honestly: {k,x,y}
+    // with no shooter id, no hue, no weapon type. An observer inside the 5/8 halo
+    // learns "something fired there" — the buoy's position, which its own radar
+    // profile already discloses to anyone in range (R2.9) — and nothing more.
+    this.pending.push({ k: 'mz', x: buoy.x, y: buoy.y });
     this.hitShip(target, owner.stats.radarBuoy.gunDamage, buoy.ownerId, true);
     buoy.gunReloadMsLeft = owner.stats.radarBuoy.gunReloadMs;
   }
