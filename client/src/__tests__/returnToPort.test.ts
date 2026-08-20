@@ -9,7 +9,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   makeReturnToPort,
-  AD_BREAK_TIMEOUT_MS,
   LEAVE_TIMEOUT_MS,
   type ReturnToPortDeps,
 } from '../app/returnToPort.js';
@@ -120,22 +119,23 @@ describe('makeReturnToPort — the chain always settles to a reload', () => {
     expect(h.reloads).toBe(1);
   });
 
-  it('waits for the ad break before leaving — an ad that answers inside the window is never cut off', async () => {
-    let releaseAd: (() => void) | undefined;
+  it('NEVER waits on the ad break — the leave starts in the same turn (Eric ruling 2026-08-20)', async () => {
+    // This test asserted the OPPOSITE until Eric ruled: *"the kind of ads that
+    // might be truncated shouldn't stop you from leaving the match"*. The ad is
+    // fired and abandoned; a slow ad cannot hold the exit for even one tick.
     const h = harness({
       requestAdBreak: () => {
         h.calls.push('adBreak');
-        return new Promise<void>((resolve) => {
-          releaseAd = resolve;
-        });
+        return never<void>(); // an ad that is still "playing"
       },
     });
     makeReturnToPort(h.deps)();
-    await vi.advanceTimersByTimeAsync(AD_BREAK_TIMEOUT_MS - 1);
-    expect(h.calls).toEqual(['start', 'adBreak']);
-    releaseAd?.();
+    // ZERO time advanced, and a healthy socket's leave resolves at once: the
+    // player is already home while the "ad" is still hanging. Under the old
+    // gate this asserted nothing had happened yet.
     await vi.advanceTimersByTimeAsync(0);
     expect(h.calls).toEqual(['start', 'adBreak', 'leave', 'reload']);
+    expect(h.reloads).toBe(1);
   });
 
   // THE STRANDING (playtest 2026-08-20, measured on live production). The chain
@@ -156,21 +156,14 @@ describe('makeReturnToPort — the chain always settles to a reload', () => {
       },
     });
     makeReturnToPort(h.deps)();
-    await vi.advanceTimersByTimeAsync(AD_BREAK_TIMEOUT_MS - 1);
-    expect(h.reloads).toBe(0); // still inside the window
-    await vi.advanceTimersByTimeAsync(1 + LEAVE_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(LEAVE_TIMEOUT_MS);
     expect(h.calls).toEqual(['start', 'adBreak', 'leave', 'reload']);
-    expect(h.reloads).toBe(1);
+    expect(h.reloads).toBe(1); // bounded ONLY by the leave race — the ad is irrelevant
   });
 
-  it('honors a custom ad-break window', async () => {
-    const h = harness({ requestAdBreak: () => never<void>(), adBreakTimeoutMs: 25 });
-    makeReturnToPort(h.deps)();
-    await vi.advanceTimersByTimeAsync(24);
-    expect(h.reloads).toBe(0);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(h.reloads).toBe(1);
-  });
+  // RETIRED: 'honors a custom ad-break window'. The window itself is gone — the
+  // chain no longer bounds the ad break because it no longer WAITS on it, so
+  // there is no knob left to honor (Eric ruling 2026-08-20).
 
   it('a rejected ad break does not abort the chain', async () => {
     const h = harness({

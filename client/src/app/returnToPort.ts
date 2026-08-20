@@ -11,20 +11,14 @@
 //   2. onStart — synchronous teardown hygiene (main.ts cancels the debounced
 //      fog re-bake and marks the game as returning, so handleRoomLeave knows a
 //      reload is already on its way).
-//   3. requestAdBreak() — raced against `adBreakTimeoutMs`. IT USED TO BE
-//      AWAITED TO COMPLETION on the argument that the adapter is always
-//      safeAdapter-wrapped and therefore already capped at 35s, and that a
-//      shorter cap here would cut a real interstitial off mid-play. Both halves
-//      of that argument were wrong in practice (playtest 2026-08-20): the cap
-//      held, so nobody was stranded FOREVER, but 35s of a dead button is
-//      indistinguishable from broken — Eric: *"return to port no longer works
-//      at all"* — and the interstitial being protected did not exist, because
-//      the page's ad layer had no Ad Placement API to show one with. THE RULE
-//      NOW: a player who has asked to leave is never held by the ad layer, and
-//      this chain owns that guarantee itself rather than borrowing it from a cap
-//      two modules away. `ads/adsense.ts` separately stopped claiming readiness
-//      for a display-only loader, so a break that can never fill is now declined
-//      instantly and this bound is a pure backstop.
+//   3. requestAdBreak() — FIRED AND NOT AWAITED. Leaving is never gated on
+//      the ad layer by any bound (Eric ruling 2026-08-20). It used to be
+//      awaited to completion, trusting a 35s cap two modules away; a 6s cap
+//      briefly replaced that. Both were the same mistake at different lengths.
+//      Measured on production: 36.8s of a dead button, because the page serves
+//      DISPLAY AdSense with no H5 placement API, so no ad callback ever fires.
+//      A truncated ad costs an impression; a gated exit costs the player the
+//      game.
 //   4. leaveRoom() raced against `leaveTimeoutMs` — the fix. `room.leave()`
 //      never settles when the socket is already gone (the server disposes the
 //      room resultsSeconds after the finish), which used to strand the player
@@ -34,8 +28,7 @@
 
 /** The four side-effects the chain drives, injected so tests can observe them. */
 export interface ReturnToPortDeps {
-  /** Portal ad-break seam. May resolve, reject, or NEVER SETTLE — the chain
-   *  bounds it itself (`adBreakTimeoutMs`) rather than trusting any wrapper. */
+  /** Portal ad-break seam. FIRED, NEVER AWAITED — see the header. */
   requestAdBreak: () => Promise<void>;
   /** Colyseus `room.leave()` — may reject, or never settle at all. */
   leaveRoom: () => Promise<unknown>;
@@ -45,8 +38,6 @@ export interface ReturnToPortDeps {
   onStart?: () => void;
   /** ms — the leave() race window. Defaults to LEAVE_TIMEOUT_MS. */
   leaveTimeoutMs?: number;
-  /** ms — the ad-break race window. Defaults to AD_BREAK_TIMEOUT_MS. */
-  adBreakTimeoutMs?: number;
 }
 
 /**
@@ -74,7 +65,6 @@ export const LEAVE_TIMEOUT_MS = 1000;
  * is the one number in this fix that trades a possible impression against
  * responsiveness, and he owns that trade.
  */
-export const AD_BREAK_TIMEOUT_MS = 6000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -99,7 +89,6 @@ function settle(call: () => Promise<unknown>): Promise<void> {
  */
 export function makeReturnToPort(deps: ReturnToPortDeps): () => void {
   const leaveMs = deps.leaveTimeoutMs ?? LEAVE_TIMEOUT_MS;
-  const adMs = deps.adBreakTimeoutMs ?? AD_BREAK_TIMEOUT_MS;
   let returning = false;
   return () => {
     if (returning) return; // second activation: the first chain owns the reload
@@ -112,8 +101,21 @@ export function makeReturnToPort(deps: ReturnToPortDeps): () => void {
     } catch {
       /* teardown hygiene is best-effort; the reload is the real teardown */
     }
-    void Promise.race([settle(() => deps.requestAdBreak()), delay(adMs)])
-      .then(() => Promise.race([settle(() => deps.leaveRoom()), delay(leaveMs)]))
-      .finally(() => deps.reload());
+    // FIRE THE AD BREAK, DO NOT WAIT ON IT (Eric ruling 2026-08-20). Leaving a
+    // match is NEVER gated on the ad layer, by ANY bound: *"the kind of ads that
+    // might be truncated shouldn't stop you from leaving the match"*.
+    //
+    // This supersedes both the original design (await to completion, borrowing a
+    // 35s cap two modules away) and the 6s cap that briefly replaced it. Both
+    // were the same mistake at different lengths — an ad that misbehaves could
+    // still hold a player in a finished match, and Eric measured 36.8s of a dead
+    // button on production. A shorter leash is still a leash.
+    //
+    // Accepted consequence, stated rather than hidden: once the H5 placement API
+    // is actually on the page, an interstitial here will be cut off by the
+    // reload. That is the ruled trade — a truncated ad costs an impression, a
+    // gated exit costs the player the game.
+    void settle(() => deps.requestAdBreak());
+    void Promise.race([settle(() => deps.leaveRoom()), delay(leaveMs)]).finally(() => deps.reload());
   };
 }
