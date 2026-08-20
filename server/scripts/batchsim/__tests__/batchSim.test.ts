@@ -15,7 +15,8 @@ import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
 import { buildBotAggregate } from '../botReport.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
-import { PILOT_REGISTRY, pickSpendChoice } from '../pilots.js';
+import { CONTROL_REGISTRY } from '../controls.js';
+import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
 import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate, renderBatchReport } from '../report.js';
@@ -104,13 +105,16 @@ describe('args — CLI parsing', () => {
     expect(() => parseArgs(['--set', 'map.playerCap=40'])).toThrow(TunableError);
   });
 
-  it('parses --pilot against the real registry and rejects unknowns', () => {
-    expect(parseArgs([]).pilot).toBe('gunner');
-    expect(parseArgs(['--pilot', 'pacifist']).pilot).toBe('pacifist');
-    expect(parseArgs(['--pilot', 'endgame']).pilot).toBe('endgame');
-    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(UsageError);
-    // The error lists the registry SORTED — 'endgame' (Story 3.4) leads it now.
-    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(/available: endgame, gunner, pacifist/);
+  it('parses --control against the real registry and rejects unknowns', () => {
+    expect(parseArgs([]).control).toBe('pacifist');
+    expect(parseArgs(['--control', 'pacifist']).control).toBe('pacifist');
+    expect(() => parseArgs(['--control', 'kamikaze'])).toThrow(UsageError);
+    // The error enumerates the LIVE registry, sorted. The omniscient gunner /
+    // endgame pilots are deleted (cycle 110), so the pacifist storm-pacing
+    // control is the whole list — and the retired '--pilot' spelling is gone
+    // with them rather than aliased.
+    expect(() => parseArgs(['--control', 'kamikaze'])).toThrow(/available: pacifist/);
+    expect(() => parseArgs(['--pilot', 'pacifist'])).toThrow(UsageError);
   });
 
   it('builds the cartesian sweep grid over the base --set', () => {
@@ -566,44 +570,44 @@ describe('stats — aggregation helpers', () => {
   });
 });
 
-describe('pilots — determinism', () => {
-  /** Drive one gunner against a drone target; serialize its accepted inputs. */
-  function inputStream(worldSeed: number, pilotSeed: number, ticks: number, withTarget: boolean): string {
+describe('controls — determinism', () => {
+  /** Drive the pacifist control on its own water; serialize its accepted
+   *  inputs. NO TARGET IS PLACED, and that is now structural rather than a
+   *  parameter: the control never reads an enemy pose, so an enemy in the
+   *  world could not change a single emitted byte (cycle 110 — the omniscient
+   *  gunner this block used to drive is deleted). */
+  function inputStream(worldSeed: number, controlSeed: number, ticks: number): string {
     const w = new World(worldSeed, CONFIG.match.fillTo);
     w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
-    if (withTarget) w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
-    const pilot = PILOT_REGISTRY.gunner('cap-1', pilotSeed);
+    const control = CONTROL_REGISTRY.pacifist('cap-1', controlSeed);
     const lines: string[] = [];
     for (let t = 0; t < ticks; t += 1) {
-      pilot.tick(w);
+      control.tick(w);
       lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
       w.step();
     }
     return lines.join('\n');
   }
 
-  it('same (world seed, pilot seed) => byte-identical input stream', () => {
-    expect(inputStream(7, 42, 120, true)).toBe(inputStream(7, 42, 120, true));
+  it('same (world seed, control seed) => byte-identical input stream', () => {
+    expect(inputStream(7, 42, 120)).toBe(inputStream(7, 42, 120));
   });
 
   it('the pin discriminates: a different world seed changes the stream', () => {
     // Fail-proof for the identity test above — a serializer that ignored the
     // inputs (or a constant stream) would make this assertion fail.
     //
-    // 120 -> 400 TICKS (Eric ruling 2026-08-16, the shared spawn lattice). Two
-    // hulls now come off ONE per-match lattice, so the first two are placed on
-    // exactly opposite slots at exactly 4480u for EVERY seed: the two worlds
-    // start as pure rotations of each other. A gunner cannot see a target that
-    // far off, so for the first ~120 ticks its inputs are driven by the pilot
-    // rng alone and are genuinely identical across world seeds. The seed still
-    // discriminates — through the islands and the absolute rotation the hulls
-    // wander into — it just needs enough ticks to feed back. Same assertion,
-    // longer sample.
-    expect(inputStream(7, 42, 400, true)).not.toBe(inputStream(8, 42, 400, true));
+    // 400 TICKS, deliberately. The per-match spawn lattice places a lone hull
+    // on the same slot for every seed, and the wander goal is drawn against the
+    // ring, so the two worlds start as near-rotations of each other. The seed
+    // discriminates through the ISLANDS (islandAvoid's bias is the control's
+    // only seed-sensitive geometric term) and the absolute pose the hull
+    // wanders into — it just needs enough ticks to feed back.
+    expect(inputStream(7, 42, 400)).not.toBe(inputStream(8, 42, 400));
   });
 
-  it('the pilot rng stream matters: wander differs by pilot seed (no target)', () => {
-    expect(inputStream(7, 42, 200, false)).not.toBe(inputStream(7, 43, 200, false));
+  it('the control rng stream matters: wander differs by control seed', () => {
+    expect(inputStream(7, 42, 200)).not.toBe(inputStream(7, 43, 200));
   });
 
   it('spend policy is deterministic and prefers the highest rarity', () => {
@@ -693,38 +697,65 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   });
 });
 
-describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
-  it('NEVER fires, even with a target alongside; the gunner does (fail-proof)', () => {
-    const fireSeqAfter = (factory: (typeof PILOT_REGISTRY)['gunner'], ticks: number): number => {
-      const w = new World(7, CONFIG.match.fillTo);
-      w.map.islands.length = 0;
-      w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
-      const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
-      const cap = w.ships.get('cap-1')!;
-      // Park a live target right inside comfortable gun range.
-      target.state.x = cap.state.x + 150;
+describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
+  it('NEVER fires, and never even aims, with a target parked alongside', () => {
+    // THE DISCRIMINATING NEGATIVE IS RETIRED, NOT REPLACED (cycle 110). This
+    // pin used to prove itself against the omniscient `gunner` firing under the
+    // identical setup; that pilot is deleted, and inventing a lethal stand-in
+    // purely to fail this assertion would be building the very thing the cycle
+    // removed. What replaces it is STRUCTURE: the control emits aim / aimDist /
+    // fireSeq as literal 0 and holds no target state at all, so the assertions
+    // below are checking a property the type of the emitted input carries,
+    // not a behaviour that happened to be quiet on this seed. Lethality now
+    // comes from BOTS (--bots), which are pinned in server/src/__tests__.
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
+    const cap = w.ships.get('cap-1')!;
+    // Park a live target right inside comfortable gun range.
+    target.state.x = cap.state.x + 150;
+    target.state.y = cap.state.y;
+    const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
+    for (let t = 0; t < 100; t += 1) {
+      target.state.x = cap.state.x + 150; // keep a firing solution trivially held
       target.state.y = cap.state.y;
-      const pilot = factory('cap-1', 42);
-      for (let t = 0; t < ticks; t += 1) {
-        target.state.x = cap.state.x + 150; // keep the solution trivially held
-        target.state.y = cap.state.y;
-        pilot.tick(w);
-        w.step();
-      }
-      return w.inputs.get('cap-1')?.fireSeq ?? 0;
-    };
-    expect(fireSeqAfter(PILOT_REGISTRY.pacifist, 100)).toBe(0);
-    expect(fireSeqAfter(PILOT_REGISTRY.gunner, 100)).toBeGreaterThan(0);
+      control.tick(w);
+      w.step();
+    }
+    const input = w.inputs.get('cap-1');
+    expect(input?.fireSeq ?? 0).toBe(0);
+    expect(input?.aim ?? 0).toBe(0);
+    expect(input?.aimDist ?? 0).toBe(0);
+    // ...and it was genuinely sailing all that while, not idle in a corner:
+    // an inert serializer would pass the three assertions above.
+    expect(input?.throttle).toBeGreaterThan(0);
   });
 
-  it('is deterministic per seed like every pilot', () => {
+  it('still spends every banked level through the REAL spend flow while pacifist', () => {
+    // The control's whole purpose is economy + pacing evidence, so "never
+    // fires" must not read as "never acts". FAIL-PROOF for a control that
+    // stopped calling world.spendPoint when the hunt plumbing came out.
+    const w = new World(7, CONFIG.match.fillTo);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+    const cap = w.ships.get('cap-1')!;
+    const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
+    w.grantXp(cap, 3);
+    for (let t = 0; t < 10; t += 1) {
+      control.tick(w);
+      w.step();
+    }
+    expect(cap.boons.length).toBeGreaterThan(0);
+  });
+
+  it('is deterministic per seed', () => {
     const run = (): string => {
       const w = new World(9, CONFIG.match.fillTo);
       w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
-      const pilot = PILOT_REGISTRY.pacifist('cap-1', 5);
+      const control = CONTROL_REGISTRY.pacifist('cap-1', 5);
       const lines: string[] = [];
       for (let t = 0; t < 150; t += 1) {
-        pilot.tick(w);
+        control.tick(w);
         lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
         w.step();
       }
@@ -734,164 +765,24 @@ describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
   });
 });
 
-describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
-  /** Drive one pilot with a target parked in comfortable gun range while a
-   *  FAST zone timeline runs underneath. Returns the fireSeq as of the last
-   *  tick BEFORE the endgame ring was reached, the final fireSeq, and how many
-   *  endgame ticks ran (so a timeline that never actually got there can't pass
-   *  as a green gate).
-   *
-   *  THE MARKER IS `world.zoneEndgameReached`, NOT `zonePhase === 'closed'`
-   *  (sudden death, 2026-08-14): those were the same instant until the collapse
-   *  group was appended, and the pilot's gate moved with the fact. */
-  function fireGate(
-    factory: (typeof PILOT_REGISTRY)['gunner'],
-    ticks: number,
-  ): { preClosure: number; final: number; endgameTicks: number } {
-    const w = new World(7, CONFIG.match.fillTo);
-    w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
-    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
-    const cap = w.ships.get('cap-1')!;
-    w.startZone();
-    const pilot = factory('cap-1', 42);
-    let preClosure = 0;
-    let endgameTicks = 0;
-    for (let t = 0; t < ticks; t += 1) {
-      target.state.x = cap.state.x + 150; // keep the firing solution trivially held
-      target.state.y = cap.state.y;
-      const reached = w.zoneEndgameReached;
-      pilot.tick(w);
-      if (reached) endgameTicks += 1;
-      else preClosure = w.inputs.get('cap-1')?.fireSeq ?? 0;
-      w.step();
-    }
-    return { preClosure, final: w.inputs.get('cap-1')?.fireSeq ?? 0, endgameTicks };
-  }
-
-  it('holds fire through the whole ring rhythm and opens up once the ENDGAME RING is reached', () => {
-    // stormDps 0 keeps the parked pair alive through the fast timeline; the
-    // gate under test is a pure timeline fact, never geometry (so no
-    // terminalSightFactor override is involved — see pilots.ts header).
-    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
-    try {
-      const endgame = fireGate(PILOT_REGISTRY.endgame, 200);
-      expect(endgame.endgameTicks).toBeGreaterThan(0); // the timeline really got there
-      expect(endgame.preClosure).toBe(0); // pacifist right up to the endgame ring
-      expect(endgame.final).toBeGreaterThan(0); // gunner after it
-      // FAIL-PROOF / discriminating negative: the plain gunner is already
-      // firing before closure under the identical setup, so the assertion
-      // above is measuring the GATE, not an unreachable target.
-      const gunner = fireGate(PILOT_REGISTRY.gunner, 200);
-      expect(gunner.preClosure).toBeGreaterThan(0);
-      // ...and the pacifist never fires at all, closed or not.
-      expect(fireGate(PILOT_REGISTRY.pacifist, 200).final).toBe(0);
-    } finally {
-      restore();
-    }
-  });
-
-  it('is deterministic per seed and diverges on a different seed', () => {
-    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
-    try {
-      const run = (worldSeed: number): string => {
-        const w = new World(worldSeed, CONFIG.match.fillTo);
-        w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
-        w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
-        w.startZone(); // the stream spans BOTH sides of the hunt gate
-        const pilot = PILOT_REGISTRY.endgame('cap-1', 5);
-        const lines: string[] = [];
-        for (let t = 0; t < 200; t += 1) {
-          pilot.tick(w);
-          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
-          w.step();
-        }
-        return lines.join('\n');
-      };
-      expect(run(9)).toBe(run(9));
-      expect(run(9)).not.toBe(run(10)); // the pin discriminates
-    } finally {
-      restore();
-    }
-  });
-
-  it('the pilot seed discriminates too: same world seed, different pilot seed diverges (the seed test above only varies the WORLD seed)', () => {
-    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
-    try {
-      const run = (pilotSeed: number): string => {
-        const w = new World(9, CONFIG.match.fillTo);
-        w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
-        w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
-        w.startZone();
-        const pilot = PILOT_REGISTRY.endgame('cap-1', pilotSeed);
-        const lines: string[] = [];
-        for (let t = 0; t < 200; t += 1) {
-          pilot.tick(w);
-          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
-          w.step();
-        }
-        return lines.join('\n');
-      };
-      expect(run(5)).toBe(run(5));
-      expect(run(5)).not.toBe(run(6)); // the pilot's OWN rng stream discriminates, world seed fixed
-    } finally {
-      restore();
-    }
-  });
-
-  it('steers exactly like the pacifist control before the endgame ring (spec I/O matrix row)', () => {
-    // Same (id, seed) and same fast-zone world evolution: before the endgame
-    // ring both hunt policies collapse to `() => false`, so the emitted input
-    // stream must be byte-identical up to the first tick where
-    // zoneEndgameReached flips true — and must then diverge (endgame opens
-    // fire, pacifist never does), so the identity above is measuring the gate,
-    // not two silent pilots that happen to never fire.
-    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
-    try {
-      const run = (factory: (typeof PILOT_REGISTRY)['gunner']): { lines: string[]; closedAt: number } => {
-        const w = new World(9, CONFIG.match.fillTo);
-        w.map.islands.length = 0;
-        w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
-        const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
-        const cap = w.ships.get('cap-1')!;
-        w.startZone();
-        const pilot = factory('cap-1', 5);
-        const lines: string[] = [];
-        let closedAt = -1;
-        for (let t = 0; t < 200; t += 1) {
-          target.state.x = cap.state.x + 150; // keep a firing solution trivially held once hunting starts
-          target.state.y = cap.state.y;
-          if (closedAt === -1 && w.zoneEndgameReached) closedAt = t;
-          pilot.tick(w);
-          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
-          w.step();
-        }
-        return { lines, closedAt };
-      };
-      const endgame = run(PILOT_REGISTRY.endgame);
-      const pacifist = run(PILOT_REGISTRY.pacifist);
-      expect(endgame.closedAt).toBeGreaterThan(0); // the endgame ring really arrived within the window
-      expect(endgame.closedAt).toBe(pacifist.closedAt); // identical world evolution => identical gate tick
-      expect(endgame.lines.slice(0, endgame.closedAt)).toEqual(pacifist.lines.slice(0, endgame.closedAt));
-      expect(endgame.lines.slice(endgame.closedAt)).not.toEqual(pacifist.lines.slice(endgame.closedAt));
-    } finally {
-      restore();
-    }
-  });
-});
-
-describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
-  /** A STICKY-ROCK fixture: while the pilot orders AHEAD the hull is held at
+describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
+  // RETARGETED, NOT RETIRED (cycle 110): these pins are about STEERING, which
+  // the pacifist control exercises exactly as the deleted gunner did — the
+  // un-beach machinery was always shared by every registry row, and the
+  // pacifist row already proved it drives the burst (see the fireSeq test at
+  // the foot of this block, which predates the retirement). The fixture places
+  // no target, so nothing here ever depended on hunting.
+  /** A STICKY-ROCK fixture: while the control orders AHEAD the hull is held at
    *  the beaching pose with its speed crushed (what the islandSpeedMult damp
    *  does to a hull pushing into rock — no ground made, no rudder authority);
    *  the moment it orders ASTERN the sim runs free (backing off ends contact).
    *  Ordering ahead again re-grounds it on the same rock. That is the exact
    *  metronome the campaign probe diagnosed, reproduced without depending on a
    *  seed that happens to beach a ship. `island` optionally places a rock the
-   *  pilot's turn-sign logic can see, at the given bearing offset from the
+   *  control's turn-sign logic can see, at the given bearing offset from the
    *  hull's heading. */
   function beachTrace(
-    factory: (typeof PILOT_REGISTRY)['gunner'],
+    factory: (typeof CONTROL_REGISTRY)['pacifist'],
     ticks: number,
     opts: { pin: boolean; islandOffsetRad?: number; hull?: HullId } = { pin: true },
   ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
@@ -904,7 +795,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
       const brg = cap.state.heading + opts.islandOffsetRad;
       w.map.islands.push(circleIsland(pose.x + Math.cos(brg) * 100, pose.y + Math.sin(brg) * 100, 40));
     }
-    const pilot = factory('cap-1', 42);
+    const control = factory('cap-1', 42);
     const throttles: number[] = [];
     const rudders: number[] = [];
     const headings: number[] = [];
@@ -915,7 +806,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
         cap.state.y = pose.y;
         cap.state.speed = 0;
       }
-      pilot.tick(w);
+      control.tick(w);
       const input = w.inputs.get('cap-1');
       throttles.push(input?.throttle ?? 0);
       rudders.push(input?.rudder ?? 0);
@@ -933,7 +824,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
   };
 
   it('orders full astern once pinned, then returns to ahead — and never while sailing free', () => {
-    const { throttles } = beachTrace(PILOT_REGISTRY.gunner, 200);
+    const { throttles } = beachTrace(CONTROL_REGISTRY.pacifist, 200);
     const firstAstern = throttles.findIndex((v) => v < 0);
     // Detection is 30 consecutive pinned ticks; allow the first-tick unknown
     // step and one tick of ordering slack, never a whole extra window.
@@ -942,16 +833,16 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     expect(throttles.slice(0, firstAstern).every((v) => v >= 0.5)).toBe(true);
     // The burst is a solid block of full astern (50 ticks), not a flutter.
     expect(throttles.slice(firstAstern, firstAstern + 50).every((v) => v === -1)).toBe(true);
-    // ...and then the pilot sails again rather than backing forever.
+    // ...and then the control sails again rather than backing forever.
     expect(throttles[firstAstern + 50]).toBeGreaterThan(0);
     // FAIL-PROOF: an unpinned hull sails normally and NEVER orders astern, so
-    // the assertions above are measuring the stuck detector, not a pilot that
-    // reverses on a timer.
-    expect(beachTrace(PILOT_REGISTRY.gunner, 300, { pin: false }).throttles.some((v) => v < 0)).toBe(false);
+    // the assertions above are measuring the stuck detector, not a control
+    // that reverses on a timer.
+    expect(beachTrace(CONTROL_REGISTRY.pacifist, 300, { pin: false }).throttles.some((v) => v < 0)).toBe(false);
   });
 
   it('does not metronome: the grace window blocks an immediate re-arm', () => {
-    const bursts = burstStarts(beachTrace(PILOT_REGISTRY.gunner, 400).throttles);
+    const bursts = burstStarts(beachTrace(CONTROL_REGISTRY.pacifist, 400).throttles);
     expect(bursts.length).toBeGreaterThan(1); // still stuck => it keeps trying
     // Burst period: 50 astern ticks + 60 grace ticks + the 30 detection ticks
     // whose LAST one is the next burst's first tick => 139 apart, minimum.
@@ -961,24 +852,24 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
   it('backs off under a NONZERO constant-sign rudder that turns the bow off the rock (v2)', () => {
     // A rock 100u ahead and 30 degrees to STARBOARD: the bow must swing to port.
-    const toStarboard = beachTrace(PILOT_REGISTRY.gunner, 200, { pin: true, islandOffsetRad: -0.5 });
+    const toStarboard = beachTrace(CONTROL_REGISTRY.pacifist, 200, { pin: true, islandOffsetRad: -0.5 });
     const start = burstStarts(toStarboard.throttles)[0];
     const burst = toStarboard.rudders.slice(start, start + 50);
     expect(burst.every((v) => v !== 0)).toBe(true); // v1 backed with rudder 0
     expect(new Set(burst).size).toBe(1); // captured once, held for the burst
     // Mirror the rock to PORT and the sign must flip — the sign is read off the
     // geometry, not a constant (FAIL-PROOF for the fallback masquerading as it).
-    const toPort = beachTrace(PILOT_REGISTRY.gunner, 200, { pin: true, islandOffsetRad: 0.5 });
+    const toPort = beachTrace(CONTROL_REGISTRY.pacifist, 200, { pin: true, islandOffsetRad: 0.5 });
     const mirrored = toPort.rudders[burstStarts(toPort.throttles)[0]];
     expect(Math.sign(mirrored)).toBe(-Math.sign(burst[0]));
   });
 
   it('leaves each burst on a MATERIALLY different heading — the metronome is broken (v2)', () => {
-    const { throttles, headings } = beachTrace(PILOT_REGISTRY.gunner, 500);
+    const { throttles, headings } = beachTrace(CONTROL_REGISTRY.pacifist, 500);
     const bursts = burstStarts(throttles);
     expect(bursts.length).toBeGreaterThanOrEqual(3);
     // Each burst rotates the hull ~39.5 degrees (battleship, measured), and the
-    // heading-hold grace stops target-seek from undoing it before the next run
+    // heading-hold grace stops goal-seek from undoing it before the next run
     // at the rock. FAIL-PROOF: with v1 (rudder 0 astern, target-seek grace) an
     // aground hull leaves every burst on the SAME heading and these are ~0.
     for (let i = 1; i < bursts.length; i += 1) {
@@ -989,18 +880,18 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
   it('the grace window steers back to the stored exit heading, not at a goal (v2)', () => {
     // Run to the first grace tick, then force the hull off the exit heading and
-    // read the rudder the pilot answers with.
+    // read the rudder the control answers with.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
     w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
-    const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
+    const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
     let prev = 0;
     let exitHeading = 0;
     const rudderAt = (offset: number): number => {
       cap.state.heading = exitHeading + offset;
-      pilot.tick(w);
+      control.tick(w);
       return w.inputs.get('cap-1')!.rudder;
     };
     for (let t = 0; t < 200; t += 1) {
@@ -1009,7 +900,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
         cap.state.y = pose.y;
         cap.state.speed = 0;
       }
-      pilot.tick(w);
+      control.tick(w);
       const throttle = w.inputs.get('cap-1')!.throttle;
       if (prev < 0 && throttle >= 0) {
         exitHeading = cap.state.heading; // first grace tick: the heading to hold
@@ -1026,17 +917,17 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     expect(rudderAt(-0.2)).toBeCloseTo(0.6, 10);
   });
 
-  it('the pacifist control still never fires while un-beaching', () => {
-    const pacifist = beachTrace(PILOT_REGISTRY.pacifist, 200);
+  it('the control still never fires while un-beaching', () => {
+    const pacifist = beachTrace(CONTROL_REGISTRY.pacifist, 200);
     expect(pacifist.fireSeq).toBe(0);
     expect(pacifist.throttles.some((v) => v < 0)).toBe(true); // it does back off
   });
 
   it('death mid-burst resets seamanship: drops the stale burst and re-arms detection cleanly', () => {
-    // Locate the reference burst start on the same (world seed, pilot seed,
+    // Locate the reference burst start on the same (world seed, control seed,
     // hull) beachTrace already pins deterministically, so the kill point below
     // is provably mid-burst rather than a guessed tick count.
-    const { throttles: ref } = beachTrace(PILOT_REGISTRY.gunner, 60);
+    const { throttles: ref } = beachTrace(CONTROL_REGISTRY.pacifist, 60);
     const firstAstern = ref.findIndex((v) => v < 0);
     expect(firstAstern).toBeGreaterThan(0); // sanity: the reference run really beached
 
@@ -1045,7 +936,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
-    const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
+    const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
 
     const killTick = firstAstern + 10; // mid-burst: the burst runs firstAstern..firstAstern+49
     const reviveTick = killTick + 5;
@@ -1057,7 +948,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
         cap.state.y = pose.y;
         cap.state.speed = 0;
       }
-      pilot.tick(w);
+      control.tick(w);
       throttles.push(w.inputs.get('cap-1')?.throttle ?? 0);
       w.step();
     }
@@ -1070,7 +961,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // `sinkInstant` from an already-sunk hull is (correctly) illegal.
     for (let t = killTick; t < reviveTick; t += 1) {
       cap.lifecycle = sunkAt(w.now);
-      pilot.tick(w);
+      control.tick(w);
       w.step();
     }
 
@@ -1078,13 +969,13 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // false-positive: if resetSeamanship had NOT nulled lastX/lastY, this
     // tick's displacement read would see moved=0 at the old rock and could
     // misread as an instant stuck tick. stepDistance instead returns Infinity
-    // on an unknown first step (see pilots.ts), so it cannot.
+    // on an unknown first step (see controls.ts), so it cannot.
     cap.lifecycle = LIFECYCLE_ALIVE;
     cap.state.x = pose.x;
     cap.state.y = pose.y;
     cap.state.speed = 0;
-    pilot.tick(w);
-    // The pilot does not resume the stale burst: the next emitted throttle is
+    control.tick(w);
+    // The control does not resume the stale burst: the next emitted throttle is
     // forward, not astern.
     expect(w.inputs.get('cap-1')?.throttle ?? 0).toBeGreaterThan(0);
     w.step();
@@ -1097,7 +988,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
       cap.state.x = pose.x;
       cap.state.y = pose.y;
       cap.state.speed = 0;
-      pilot.tick(w);
+      control.tick(w);
       postReset.push(w.inputs.get('cap-1')?.throttle ?? 0);
       w.step();
     }
@@ -1120,7 +1011,7 @@ describe('runner — winnerClass (Story 3.4 evidence field)', () => {
     const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
     let unresolved;
     try {
-      unresolved = runBatch({ seed: 11, matches: 1, captains: 2, pilot: PILOT_REGISTRY.pacifist });
+      unresolved = runBatch({ seed: 11, matches: 1, captains: 2, control: CONTROL_REGISTRY.pacifist });
     } finally {
       restore();
     }
@@ -1179,7 +1070,7 @@ describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
     const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
     let result;
     try {
-      result = runBatch({ seed: 11, matches: 1, captains: 2, pilot: PILOT_REGISTRY.pacifist });
+      result = runBatch({ seed: 11, matches: 1, captains: 2, control: CONTROL_REGISTRY.pacifist });
     } finally {
       restore();
     }
@@ -1223,12 +1114,12 @@ describe('runner — at-cap classification keeps a real conclusion (review FIX 5
 });
 
 describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', () => {
-  /** A pilot that quits: at `atTick` it removes its own ship exactly the way
+  /** A control that quits: at `atTick` it removes its own ship exactly the way
    *  Match.onPlayerLeave does (world.removeShip), the quit-out path a future
-   *  leave-capable pilot will drive for real. */
+   *  leave-capable control will drive for real. */
   function quitterFactory(quitId: string, atTick: number) {
     return (id: string, seed: number) => {
-      const inner = PILOT_REGISTRY.gunner(id, seed);
+      const inner = CONTROL_REGISTRY.pacifist(id, seed);
       let t = 0;
       return {
         id,
@@ -1245,7 +1136,7 @@ describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', (
   }
 
   it('records the departed captain and excludes it from the aggregates, never throwing', () => {
-    const result = runBatch({ seed: 5, matches: 1, captains: 2, pilot: quitterFactory('cap-2', 60) });
+    const result = runBatch({ seed: 5, matches: 1, captains: 2, control: quitterFactory('cap-2', 60) });
     // FAIL-PROOF: with the old `world.ships.get(id)!` collection this is a
     // recorded failure ("Cannot read properties of undefined"), not a match.
     expect(result.failures).toEqual([]);

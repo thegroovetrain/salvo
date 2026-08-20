@@ -21,7 +21,7 @@
 //    double counting across the ticks a hand sits open. Fits are read by
 //    diffing `ship.boons`, which is append-only within a life.
 //    READ THE PICK COLUMN AS "POLICY + REACHABILITY", NEVER AS PLAYER TASTE:
-//    captains spend through pilots.pickSpendChoice (rarity-preferring, 75%
+//    captains spend through spendPolicy.pickSpendChoice (rarity-preferring, 75%
 //    top-rank) and bots through their per-profile weights. The OFFER column is
 //    the policy-free half — it is deck composition and the offer roll alone.
 //
@@ -89,6 +89,17 @@ export interface CatalogSample {
   offerHands: number;
   /** ship class -> boon id -> offers (deck composition is per class). */
   offersByClass: Record<string, Record<string, number>>;
+  /** ship class -> boon id -> fits (wave 4: the observed numerator beside the
+   *  structural deck-composition denominator). OPTIONAL because sample
+   *  literals predating the field exist in the harness's own tests — read it
+   *  defensively (`?? {}`), like `bots` on MatchSample. */
+  fitsByClass?: Record<string, Record<string, number>>;
+  /** spender label -> boon id -> fits. The label is a bot's PROFILE id (an
+   *  in-game or test-only row), or the ship's role ('captain'; 'fleet' is
+   *  structurally empty — fleet hulls have no decks) — so a blind-vacuum run
+   *  reads per-test-row and a mixed lobby splits policy from policy. Same
+   *  optionality as fitsByClass. */
+  fitsByProfile?: Record<string, Record<string, number>>;
   /** damage source label -> event count / total hp. */
   hits: Record<string, number>;
   hp: Record<string, number>;
@@ -128,6 +139,8 @@ const emptySample = (): CatalogSample => ({
   fits: {},
   offerHands: 0,
   offersByClass: {},
+  fitsByClass: {},
+  fitsByProfile: {},
   hits: {},
   hp: {},
   launched: {},
@@ -173,12 +186,17 @@ export class CatalogCollector {
 
   observe(world: World, active: boolean): void {
     if (!active) return;
-    for (const ship of world.ships.values()) this.observeShip(ship);
+    // The spender label for the fits slices: a bot's profile id (read off the
+    // controller's inspection seam), else the ship's role. Resolved here so
+    // observeShip stays pure over its ship.
+    for (const ship of world.ships.values()) {
+      this.observeShip(ship, world.bots.profileOf(ship.id) ?? ship.role);
+    }
     this.observeOrdnance(world);
     this.observeDamage(world);
   }
 
-  private observeShip(ship: ShipRecord): void {
+  private observeShip(ship: ShipRecord, spender: string): void {
     const offer = ship.offer;
     if (offer !== null && this.seenOffer.get(ship.id) !== offer) {
       this.seenOffer.set(ship.id, offer);
@@ -191,7 +209,13 @@ export class CatalogCollector {
     }
     const seen = this.seenBoons.get(ship.id) ?? 0;
     if (ship.boons.length > seen) {
-      for (let i = seen; i < ship.boons.length; i += 1) bump(this.sample.fits, ship.boons[i]);
+      const byClass = (this.sample.fitsByClass![ship.hullId] ??= {});
+      const byProfile = (this.sample.fitsByProfile![spender] ??= {});
+      for (let i = seen; i < ship.boons.length; i += 1) {
+        bump(this.sample.fits, ship.boons[i]);
+        bump(byClass, ship.boons[i]);
+        bump(byProfile, ship.boons[i]);
+      }
     }
     // Assign unconditionally: redeployShip WIPES boons, and a stale high-water
     // mark would then silently swallow every refit of the next life.

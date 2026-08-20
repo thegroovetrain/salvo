@@ -13,9 +13,9 @@
 // The lazy-draw bugfix had already retired the other two models (the
 // amendment-43 scrub and its scrubbed-to-empty drop, and the banked-offer
 // FIFO): a DRAW takes nothing out of the deck and only the FIT does.
-// Spends use the SAME deterministic policy as the scripted pilots
-// (pickSpendChoice) — one spend per level, immediately after the draw, exactly
-// like a captain who refits as soon as TAB glows.
+// Spends use the SAME deterministic policy the scripted control uses
+// (spendPolicy.pickSpendChoice) — one spend per level, immediately after the
+// draw, exactly like a captain who refits as soon as TAB glows.
 //
 // One "economy" = one class's deck played level-by-level until exhausted.
 // Classes round-robin per economy; `draws` is the TOTAL draw budget across
@@ -63,7 +63,7 @@ import {
   type Rng,
   type ShipClassId,
 } from '@salvo/shared';
-import { pickSpendChoice } from './pilots.js';
+import { pickSpendChoice } from './spendPolicy.js';
 import { mixSeed, summarize, tally, type Summary } from './stats.js';
 
 /** Pity buckets: levelsSinceRare 0..PITY_MAX-1, last bucket = "PITY_MAX+". */

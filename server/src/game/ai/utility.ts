@@ -392,6 +392,53 @@ export function isActionable(t: BotTrack, now: number): boolean {
   return now - t.firstSeenAt >= CONFIG.bots.reactionMs;
 }
 
+/** ms — one full sweep revolution at the BASE rotation rate: the persistence
+ *  bar a fog track must clear before 30s-reload ordnance commits to it. */
+export const TRACK_PERSIST_MS = 60000 / CONFIG.vision.sweepRpm;
+
+/**
+ * TRACK PERSISTENCE — the structural counter to an enemy JAMMING BUOY. A
+ * jamming buoy scatters 10 fakes per revolution, wire-indistinguishable from
+ * real blips and folded into this store as ordinary tracks; but fakes
+ * RE-SCATTER WHOLESALE each revolution, so no fake survives association as
+ * one coherent track across a full sweep period, while a real hull's paints
+ * keep refreshing the same plot. Two clauses:
+ *   - a LIVE truesight contact passes instantly — a fake can never appear
+ *     inside the observer's bubble, structurally;
+ *   - otherwise the track must have persisted one base sweep revolution
+ *     since first acquisition.
+ * Consumed by the torpedo and broadside tactics (30s reloads) and NOTHING
+ * ELSE — the gun is deliberately ungated, because shooting at radar blips is
+ * a ruled skill (Eric, cycle 99) and a staleness budget on it would break
+ * bracket-and-walk fire (FR16).
+ */
+export function hasPersistence(t: BotTrack, now: number): boolean {
+  return t.live || now - t.firstSeenAt >= TRACK_PERSIST_MS;
+}
+
+/**
+ * THE BAND PULL (Eric ruling, 2026-08-20). A fitted weapon that is READY and
+ * whose effective reach lies BELOW the hull's engagement band tugs the band's
+ * near edge toward that reach — CAPPED AT HALFWAY, so the profile fractions
+ * stay the anchor and one card can never erase a profile's identity: a
+ * `siege` Battleship with a loaded torpedo eases in and drifts back out when
+ * the tube empties; it never becomes a `duelist`. `reaches` is the READY shot
+ * weapons' reach list (tactics.ts builds it from EQUIPMENT_TACTICS), so the
+ * pull exists exactly while the weapon is loaded. A reach at or above the
+ * band's near edge never pulls — the weapon is already usable in the band —
+ * and the far edge never moves at all.
+ */
+export function pullBand(
+  band: { min: number; max: number },
+  reaches: readonly number[],
+): { min: number; max: number } {
+  let min = band.min;
+  for (const r of reaches) {
+    if (r < band.min) min = Math.min(min, (band.min + r) / 2);
+  }
+  return min === band.min ? band : { min, max: band.max };
+}
+
 /** Confidence in a track's plot: 1 while live, decaying to a floor as its
  *  last refresh ages out toward the memory horizon. */
 function freshness(t: BotTrack, now: number): number {

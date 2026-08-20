@@ -3,7 +3,12 @@
 // Pure over argv — unit-testable without a process.
 
 import { validateTunableKey, validateTunableValue, validateTuneKey, validateTuneValue } from './overrides.js';
-import { PILOT_REGISTRY } from './pilots.js';
+import { CONTROL_REGISTRY } from './controls.js';
+import { BOT_PROFILES, TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
+
+/** The scheme keyword for --bot-profile: deal the three test rows round-robin
+ *  (TB, BS, ML), so one flag exercises all three hulls in a balanced spread. */
+export const BOT_PROFILE_SCHEME = 'random';
 
 /** Bad command line — main prints .message and exits 2. */
 export class UsageError extends Error {}
@@ -17,11 +22,20 @@ export interface CliOptions {
   matches: number;
   seed: number;
   captains: number;
-  /** COMBAT BOTS in the lobby (Story 6.4). Bots have no pilot — they drive
+  /** COMBAT BOTS in the lobby (Story 6.4). Bots have no control — they drive
    *  themselves from World's botsTick row — so this is purely a lobby size. */
   bots: number;
-  /** Captain pilot policy name (PILOT_REGISTRY key); default 'gunner'. */
-  pilot: string;
+  /** Scripted captain control name (CONTROL_REGISTRY key); default 'pacifist'. */
+  control: string;
+  /** TEST-ONLY bot profile forcing (Story 7-6 wave 4): a TestProfileId, the
+   *  'random' round-robin scheme, or null = the shipped rolled profiles.
+   *  In-game profile ids are REJECTED at parse time — the test rows live in a
+   *  separate id space precisely so they can never reach a real lobby, and
+   *  the harness door only opens toward the test side. */
+  botProfile: string | null;
+  /** The controller-level engage gate: 'endgame' holds every bot's fire until
+   *  the terminal ring is reached (the Story 3.4 evidence instrument). */
+  botEngage: 'always' | 'endgame';
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
   /** EQUIPMENT CONFIG overrides (--tune), applied alongside `set` before any
@@ -53,7 +67,7 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      0 is legal ONLY with --bots (a bot-only lobby)
   --bots N           combat bots (Story 6.4 AI captains; default 0). Bots roll
                      their own class/profile/callsign and drive themselves;
-                     --pilot does not apply to them. A bot-only lobby drops
+                     --control does not apply to them. A bot-only lobby drops
                      minHumans to 0 so the match can actually start
   --roster MODE      hull policy for the lobby: rolled (default; each bot rolls
                      its own class) | even (round-robin SHIP_CLASS_IDS across
@@ -75,10 +89,18 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      HC_BALANCE=1 as well as HC_DEV_OPTIONS=1 — this edits
                      combat numbers, not harness dials. Not sweepable (one
                      labelled arm per candidate)
-  --pilot NAME       captain pilot policy: gunner (default) | pacifist
-                     (no-hunt control — sails the ring rhythm, never fires) |
-                     endgame (pacifist until the zone closes, then hunts —
-                     the Story 3.4 endgame-guarantee evidence instrument)
+  --control NAME     scripted captain control: pacifist (default, and the only
+                     one) — sails the storm ring rhythm, spends its levels, and
+                     never targets or fires. Lethal AI is a BOT (--bots), which
+                     earns its information through perception.observe()
+  --bot-profile NAME force every bot onto a TEST-ONLY profile (blind-vacuum
+                     rig): one of ${TEST_PROFILE_IDS.join(' | ')},
+                     or '${BOT_PROFILE_SCHEME}' to deal all three round-robin (TB, BS, ML).
+                     In-game profile ids are refused — test rows are a separate
+                     id space and cannot reach a real Solo vs AI lobby
+  --bot-engage MODE  'always' (default) or 'endgame': under 'endgame' bots hold
+                     the ring rhythm and never fire until the terminal ring is
+                     reached, then fight normally
   --deck-only        pure deck-economy fast mode (no World, no Match)
   --draws N          deck-only total draw budget (default 20000)
   --json PATH        also write the machine-readable report to PATH
@@ -91,7 +113,9 @@ function defaults(): CliOptions {
     seed: 1,
     captains: 3,
     bots: 0,
-    pilot: 'gunner',
+    control: 'pacifist',
+    botProfile: null,
+    botEngage: 'always',
     set: {},
     tune: {},
     roster: 'rolled',
@@ -184,12 +208,28 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--bots': (o, v) => void (o.bots = parseCount(v, '--bots', 0)),
   '--draws': (o, v) => void (o.draws = parseCount(v, '--draws', 1)),
   // Validated against the real registry at parse time so a typo fails fast
-  // with the legal names instead of silently running the default pilot.
-  '--pilot': (o, v) => {
-    if (!Object.hasOwn(PILOT_REGISTRY, v)) {
-      throw new UsageError(`--pilot: unknown pilot '${v}' (available: ${Object.keys(PILOT_REGISTRY).sort().join(', ')})`);
+  // with the legal names instead of silently running the default control.
+  '--control': (o, v) => {
+    if (!Object.hasOwn(CONTROL_REGISTRY, v)) {
+      throw new UsageError(`--control: unknown control '${v}' (available: ${Object.keys(CONTROL_REGISTRY).sort().join(', ')})`);
     }
-    o.pilot = v;
+    o.control = v;
+  },
+  '--bot-profile': (o, v) => {
+    if (v !== BOT_PROFILE_SCHEME && !TEST_PROFILE_IDS.includes(v as (typeof TEST_PROFILE_IDS)[number])) {
+      const legal = [BOT_PROFILE_SCHEME, ...TEST_PROFILE_IDS].join(', ');
+      const inGame = Object.hasOwn(BOT_PROFILES, v)
+        ? ` ('${v}' is an IN-GAME profile — the harness may only force the test-only rows)`
+        : '';
+      throw new UsageError(`--bot-profile: unknown test profile '${v}'${inGame} (available: ${legal})`);
+    }
+    o.botProfile = v;
+  },
+  '--bot-engage': (o, v) => {
+    if (v !== 'always' && v !== 'endgame') {
+      throw new UsageError(`--bot-engage: expected 'always' or 'endgame', got '${v}'`);
+    }
+    o.botEngage = v;
   },
   '--set': parseSet,
   '--sweep': parseSweep,
@@ -244,6 +284,12 @@ function assertCoherent(opts: CliOptions): void {
   // and every row reads zero.
   if (!opts.deckOnly && opts.captains + opts.bots === 0) {
     throw new UsageError('--captains 0 needs --bots N: a lobby needs at least one participant');
+  }
+  // A forced profile with no bots is a run key that silently measures nothing.
+  // MUST sit above the deck-only early return, or it is skipped for every
+  // ordinary run — which is the only kind of run it applies to.
+  if (opts.botProfile !== null && opts.bots === 0) {
+    throw new UsageError('--bot-profile needs --bots N: there is no bot to force it onto');
   }
   if (!opts.deckOnly) return;
   // DECK-ONLY BUILDS NO WORLD. runDeckSim simulates the draw economy alone — it

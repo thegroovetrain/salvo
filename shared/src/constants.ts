@@ -514,13 +514,31 @@ export const CONFIG = {
      * a card for a reason the game no longer contains, which is exactly the
      * stale-rationale trap this comment block exists to prevent.
      *
-     * What survives is a WEAKER, still-real split: `trapper` keeps 2.0 because
-     * the fouling slow drags a victim INTO its minefield, which is its whole
-     * plan; `forager` merely has no special use for a slow (a fleet hull dies
-     * to one mine either way) and prefers CAPTIVE, whose mine reaches a target
-     * by itself and so farms without re-positioning. Both doctrines are now
-     * pure adds and side-grades to each other, so neither profile refuses one —
-     * they just rank them differently.
+     * What survives is a WEAKER, still-real split: `trapper` keeps the fouling
+     * want because the slow drags a victim INTO its minefield, which is its
+     * whole plan; `forager` merely has no special use for a slow (a fleet hull
+     * dies to one mine either way). Both doctrines are pure adds and
+     * side-grades to each other, so neither profile refuses one.
+     *
+     * CAPTIVE MOVED HOMES (the doctrine pass, Eric ruling 2026-08-20). The
+     * first-pass table gave `forager` a 2.4 CAPTIVE want on the claim that a
+     * captive mine "farms without re-positioning" — a rationale the SHIPPED
+     * MECHANICS contradict: a captive mine's trip gate is HOSTILE-ONLY
+     * (isCaptiveMineHostile), and a neutral PvE fleet drone walks straight
+     * over it, so CAPTIVE disarms exactly the fleet-farming forager exists to
+     * do. Forager's entry drops to the held-line neutral (0.9 — never a
+     * WANTED line, still legal in a junk hand) and the want moves to
+     * `trapper`, whose whole game is trapping hostiles.
+     *
+     * THE SIX ACQUISITION CARDS GET A FULL RANKING PER PROFILE (same ruling).
+     * An acquisition card inherits its TARGET equipment's category
+     * (sim/boons.ts `acquire`), and no profile's `cat` table names a category
+     * its hull does not already carry — so all six scored the 0.5 unlisted
+     * default and the extra slot stayed empty by accident. Every profile now
+     * ranks ALL SIX explicitly, every entry above that floor: a bot PREFERS
+     * its favourite pickup but SETTLES for the best on offer — it never
+     * passes out of pickiness. (Entries for equipment a hull already carries
+     * are undrawable and exist only to make the ranking total.)
      *
      * STORY 7-5 WAVE 2 RE-KEYED FIVE MORE for the same forced reason — the
      * cannon and the decoy buoy were replaced outright, taking `cannonDamage`,
@@ -552,19 +570,34 @@ export const CONFIG = {
       // tubes/homing/speed to make the one opener count, and hull last.
       raider: {
         cat: { torpedoes: 2.2, ship: 2.0, guns: 1.5, speedBoost: 1.8, intel: 1.5 },
-        lines: { torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2 },
+        lines: {
+          torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2,
+          // Acquisitions, ranked: a striker wants more strike (flares to
+          // light a straggler), then intel, then off-identity settles.
+          acquireTorpedo: 1.6, acquireBoost: 1.4, acquireStarShells: 1.2, acquireRadarBuoy: 1.0, acquireMine: 0.8, acquireBroadside: 0.7,
+        },
       },
       // TB duelist — rear-quarter turn-fight, guns through the 30s torpedo
       // reload. Guns and the global cooldown lever come first.
       duelist: {
         cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, speedBoost: 1.6, intel: 1.3 },
-        lines: { gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0 },
+        lines: {
+          gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0,
+          // Acquisitions: knife-range tools first — a beam fan and a dazzle
+          // flare are both decided inside the turn-fight.
+          acquireBroadside: 1.4, acquireStarShells: 1.3, acquireBoost: 1.2, acquireTorpedo: 1.1, acquireMine: 0.9, acquireRadarBuoy: 0.8,
+        },
       },
       // BS bulwark — attrition. Trades on hp, so hull is the top line of any
       // profile's table.
       bulwark: {
         cat: { ship: 2.4, guns: 2.0, broadside: 2.0, starShells: 1.0, intel: 1.0 },
-        lines: { shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6 },
+        lines: {
+          shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6,
+          // Acquisitions: ground-holding tools — a field and a picket buoy
+          // both defend the water it refuses to leave.
+          acquireMine: 1.4, acquireRadarBuoy: 1.2, acquireTorpedo: 1.1, acquireBroadside: 1.0, acquireStarShells: 0.9, acquireBoost: 0.8,
+        },
       },
       // BS siege — standoff, broadside-led, star shells to resolve stale
       // contacts into live sight (C2). Its reach is FIXED: gun, broadside and
@@ -575,19 +608,43 @@ export const CONFIG = {
       // pass, not to a card removal (ledgered in deferred-work.md).
       siege: {
         cat: { broadside: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
-        lines: { broadsideTurrets: 2.8, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6 },
+        lines: {
+          // `intelRange` was dropped here when RANGE I–IV left the catalog
+          // (2026-08-20, cycle 118) — the key would name a card that no
+          // longer exists, which a pin refuses.
+          broadsideTurrets: 2.8, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6,
+          // Acquisitions: sensors for standoff fire first, then a torpedo the
+          // band pull can ease it in behind.
+          acquireRadarBuoy: 1.5, acquireStarShells: 1.3, acquireTorpedo: 1.2, acquireMine: 1.1, acquireBoost: 0.9, acquireBroadside: 0.8,
+        },
       },
       // ML forager — clears PvE fleet groups for the level lead (C3). Guns
       // and rate of fire do that work; see the propFouling note above.
       forager: {
         cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, radarBuoy: 1.0 },
-        lines: { gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0, mineCaptive: 2.4, minePropFouling: 1.2 },
+        lines: {
+          // `intelRange` dropped with RANGE I–IV (cycle 118) — see siege.
+          gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0,
+          // CAPTIVE at the held-line neutral, NOT a wanted line (2026-08-20):
+          // its hostile-only trip cannot farm fleet — see the block comment.
+          mineCaptive: 0.9, minePropFouling: 1.2,
+          // Acquisitions: faster rotation between fleet groups, more
+          // clearing throughput, light for the next group.
+          acquireBoost: 1.4, acquireBroadside: 1.3, acquireStarShells: 1.2, acquireTorpedo: 1.0, acquireMine: 0.9, acquireRadarBuoy: 0.8,
+        },
       },
       // ML trapper — mines astern while withdrawing, a radar buoy for reach,
       // fights near its own field.
       trapper: {
         cat: { mines: 2.6, radarBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
-        lines: { mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.2, shipCooldown: 2.2, buoyDuration: 2.0 },
+        lines: {
+          // CAPTIVE's want lives HERE now (2026-08-20): a hostile-only
+          // torpedo mine is a trap for exactly the hulls a trapper traps.
+          // Fouling stays its signature (drags victims into the field).
+          mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.4, shipCooldown: 2.2, buoyDuration: 2.0,
+          // Acquisitions: ambush weapons that fire FROM the field.
+          acquireTorpedo: 1.5, acquireStarShells: 1.3, acquireBoost: 1.1, acquireMine: 1.0, acquireBroadside: 0.9, acquireRadarBuoy: 0.8,
+        },
       },
     },
     /**

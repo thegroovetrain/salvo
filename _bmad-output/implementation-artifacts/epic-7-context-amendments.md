@@ -1847,3 +1847,222 @@ production triggers and now has ONE — a star-shell dazzle. `spec-radar-dim-mas
 acceptance criterion and manual QA step are written on *"fit an `intelRange` boon"*, which is no longer
 reachable in play; the lifetime guard itself is unchanged and still pinned by tests that drive
 `setRanges` numerically.
+## Amendment 32 — BOT POLICY SPLITS ONTO TWO AXES (ERIC RULINGS, 2026-08-20, cycle 110)
+
+Story 7-5 finalized the weapons and the 23-line catalog, but the combat bots were only
+MECHANICALLY re-pointed at the surviving card ids — no behaviour was ever taught. Measured at the
+start of this cycle: `ai/` read **zero** doctrine verbs (all of `mine.captive`, `mine.propFouling`,
+`torpedo.homing`, `starShells.dazzle`, `starShells.phosphor`, `radarBuoy.gun`, `radarBuoy.jamming`,
+`broadside.spreadRung` were already in scope on `BotSituation.stats` and never accessed), the RADAR
+BUOY had no tactic at all, and every acquisition card scored the 0.5 unlisted default so the extra
+slot filled only by accident.
+
+### THE RULING (Eric, 2026-08-20)
+
+*"I want the bots to be able to semi-intelligently use the weapons they pick up for the R slot, too.
+So perhaps some of these 'profiles' should live on the equipment as well as the ship. Maybe a
+combination (what does BS do if it gets mines?). Perhaps a profile might prefer one pickup over
+another, but may settle if its the best pick?"*
+
+**TWO AXES.** The SHIP profile (`ai/profiles.ts`) owns temperament: engagement band, target weights,
+disengage/heal thresholds, posture, and an APPETITE table. The EQUIPMENT TACTIC (new
+`ai/equipment.ts`) owns weapon knowledge — want/solve/reach and every doctrine branch for ONE
+equipment id — and **travels with the weapon**. `EQUIPMENT_TACTICS` is a total
+`Record<EquipmentId, EquipmentTactic>`, the same completeness gate the server's own
+`game/equipment/index.ts` uses: a future equipment cannot ship without a bot tactic.
+
+**WHY THE SPLIT IS THE FIX, not a refactor.** The flat table keyed weapon knowledge by HULL. Because
+acquisition cards let ANY hull carry ANY equipment in `SLOT_EXTRA`, that was structurally wrong in
+both directions: a Battleship that acquired mines had no idea what a mine was, and `bulwark` — which
+carries star shells NATIVELY — shipped with `usesStarShells: false`, i.e. flagged never to fire a
+weapon it always had. Capability now comes from the loadout (`chooseShot` walks the bot's ACTUAL
+fitted slots through the registry); the profile only says how eager it is.
+
+**TEMPERAMENT MODULATES PROACTIVITY ONLY (ruled).** One mine tactic shared by everyone: `trapper`
+lays as a standing plan, `siege` lays only when something is closing. A profile may NOT override
+placement geometry, doctrine choice or target selection — a per-(profile × equipment) override table
+is the flat model this replaces and is FORBIDDEN. Pinned: two profiles holding the same equipment
+place it byte-identically and differ only in eagerness.
+
+**THE WEAPON MAY PULL THE BAND, BOUNDED (ruled).** A fitted weapon that is READY and whose reach lies
+inside the hull's band tugs the band's NEAR edge toward that reach, **capped at halfway**, and only
+while loaded. So a `siege` Battleship eases in with an acquired torpedo loaded and drifts back out
+when the tube empties — and never becomes a `duelist`. One card must not erase a profile's identity.
+
+**PREFER, BUT SETTLE (ruled).** Every profile carries a FULL RANKING over all six acquisition cards,
+every entry above the `UNLISTED_SCORE` 0.5 floor, so a bot takes its third-choice pickup rather than
+passing out of pickiness. Measured after: every acquisition line is fitted in play (3–13 fits over 30
+matches) where the R slot was previously filled only by an all-junk hand.
+
+### A DOCTRINE MAY ADD AN OCCASION, NEVER SILENTLY REMOVE ONE
+
+The cycle found **three** instances of the same defect class, and this is the durable rule they
+produce. Each was a doctrine branch written as a REPLACEMENT for the base behaviour rather than an
+addition, so BUYING A CARD MADE THE BOT WORSE at a job it already had — which no card in this
+catalog does:
+
+1. **The buoy (orchestrator catch).** `jamming` sited only in contact and `gun` only within gun
+   reach, so a doctrine holder stopped dropping recon buoys with an empty scope. Both verbs are pure
+   ADDS in the sim — a jamming buoy still relays to its owner, and the owner is exempt from its own
+   fakes — so recon is now available to every doctrine.
+2. **PHOSPHOR (review gate, CONFIRMED by arithmetic).** A non-eager holder waits
+   `FLARE_STALE_MS × 2` = **3000ms** before spending a flare, while the phosphor cap refuses any plot
+   staler than `litRadius × 0.8 / fastestHullSpeed` = **2933ms**. The window was EMPTY BY 67ms, so
+   PHOSPHOR silently deleted the C2 sensor-flare role for `bulwark` and for every acquirer at base
+   appetite. It was invisible twice: the blind-vacuum test rows are all EAGER, and every phosphor
+   test in the suite used `siege`. The cap is real geometry and wins; reluctance now degrades to the
+   eager floor rather than to nothing.
+3. **CAPTIVE (review gate, CONFIRMED).** `mineWant` lays astern on `disengage` at any appetite with
+   NO target; the captive branch ran its no-target refusal first, so a low-hp trapper fleeing an
+   attacker LOST IN FOG — the case a rear-facing trap is most for — laid nothing. Fixed NARROWLY: the
+   fleet-only refusal is deliberate and STAYS, because a captive trip is hostile-only and a neutral
+   PvE drone genuinely walks over it. Only the no-target case moved.
+
+### THE OMNISCIENT PILOT IS RETIRED (Eric ruling, same day)
+
+*"the old 'omniscient' bot profile we used for development can be retired."* Resolved against what
+the name actually denoted: not a bot profile at all, but `batchsim/pilots.ts`'s scripted captains.
+The partition Eric ratified after pushback:
+
+- **`gunner` DELETED.** It read `world.ships` to pick and lead targets. Beyond being obsolete since
+  Story 6-4, it is structurally incapable of evaluating the intel/counter-intel half of the
+  finalized catalog — buoys, jamming, dazzle, intel range — because it never uses a sensor. It also
+  carried a 75% rarity bias (`SPEND_TOP_P`) that `catalogReport` already warned readers not to read
+  as taste.
+- **`pacifist` KEPT**, as a frozen storm-pacing CONTROL, and redocumented as such.
+  **Its omniscience was always INERT**: it never targets or fires, so it reads only its own ship
+  record, the live ring and the island list — all of which a real client already holds. The argument
+  for keeping it is that a control's value IS being frozen: rebuild it as a flag on the combat AI and
+  the next bot retune silently moves the storm evidence with it.
+- **`endgame`'s LETHAL half DELETED**; the gate survives as a TEST-ONLY BOT behaviour
+  (`--bot-engage endgame`), because that instrument's lethal half SHOULD track the real game — the
+  opposite of the pacifist case, since it asks whether real combat concludes.
+- `pilots.ts` → `controls.ts`, `PILOT_REGISTRY` → `CONTROL_REGISTRY`, `--pilot` → `--control`
+  (default `pacifist`, no alias). `pickSpendChoice` moved VERBATIM to `batchsim/spendPolicy.ts`
+  because `--deck-only` builds no World at all and depends on it.
+
+### THE BLIND-VACUUM RIG (Eric ruling, same day)
+
+*"we do need one version of each ship (for TESTING ONLY, not for in-game AI opponents) that will take
+random upgrades so that we can see how things are performing in a blind vacuum."*
+
+Three test-only profiles in a **separate id space**. `BotProfileId` is DERIVED from
+`CONFIG.bots.profiles`, which is exactly the table `ArenaRoom.buildBotFleet` rolls from — so putting
+test ids there would deal them to a real human's opponents. `TestProfileId` / `AnyProfileId` keep
+them out, `CONFIG.bots.profiles` is untouched, and unreachability is proven by TABLE DISJOINTNESS
+rather than by sampling. `--bot-profile` refuses an in-game id.
+
+**CARD PICK ONLY is randomized (ruled):** heal still fires by rule at `healHpFrac`, so damage control
+does not become a confound in the survival data. The weighted path stays rng-free and byte-identical
+— pinned by a test that hands it a THROWING rng and demands the same answer. The spend rng is a
+decorrelated per-bot stream minted at enroll, never `mind.rng`, whose only consumer is aim scatter.
+
+### WHAT DID NOT MOVE
+
+`PROTOCOL_VERSION` stays **43**: `CONFIG.bots` rides `WelcomeMsg.config` but has ZERO readers in
+`client/`, the governing precedent being epic-6 amendment 24. No combat constant and no card
+magnitude was retuned — this cycle tuned BOT POLICY only. No file under `client/` changed.
+`BotWorldPort` widened by exactly ONE boolean (`zoneEndgameReached`), authorized as PARITY: it is
+reconstructible client-side from `zoneStartT` + `CONFIG.zone` through the shared `zoneLiveState()`,
+and the gate never reads ring geometry (ring centres stay server-private).
+
+### CORRECTION OF RECORD — `forager` wanted CAPTIVE for a reason the game does not contain
+
+`CONFIG.bots.boonWeights.forager.mineCaptive` was **2.4**, with a CONFIG comment claiming captive
+"farms without re-positioning". The shipped mechanics contradict it: a captive mine's trip is
+HOSTILE-ONLY (`isCaptiveMineHostile`), so a neutral PvE fleet drone walks straight over it, and
+captive mines never contact-detonate. CAPTIVE therefore DISARMS the fleet-farming that `forager`
+exists to do. Demoted to 0.9 (held-line neutral — not a wanted line), the want moved to `trapper`
+(2.4), and the false rationale deleted. This is the same stale-rationale trap the comment block above
+it was written to prevent, one ruling later.
+
+### MEASURED (30-match campaigns, deliberately modest per Eric's *"you don't need to do a metric fuckton"*)
+
+- 5437 tests green (shared 768 / server 1549 / client 3120), up from 5392 at baseline. Lint clean.
+- Bot-vs-bot, 20 bots × 30 matches, seed 7: **4 of 6 quality bars PASS**. The two failures —
+  "bots scoring ≥1 participant kill" 44.8% vs ≥60%, and "storm deaths as a share of deaths" 1.6% vs
+  5–20% — **were already failing at Story 6-4** (45.8% and 3.3%) and were diagnosed there as
+  questionable bars rather than bot defects. NOT regressions. Land contact IMPROVED, 0.9% → 0.6%.
+- The new verbs are live in play where they were structurally impossible before: **655 buoys
+  deployed**, 108 captive torpedoes, and `bulwark` fitting star-shell cards it could never use.
+- Card ledger: **`NEVER OFFERED: (none)`** and **`OFFERED BUT NEVER FITTED: (none)`** — every one of
+  the 29 catalog lines is both offered and fitted under bot policy.
+
+### THE RIG'S FIRST FINDING (measured, NOT acted on — full record `bot-evidence-2026-08-20.md`)
+
+A controlled A/B at MATCHED seed and roster (`--bots 18 --matches 30 --seed 11`), differing only in
+spend policy, splits into two claims that must not be conflated:
+
+| class | wins WEIGHTED | wins RANDOM | kills w → r |
+|---|---|---|---|
+| Torpedo Boat | 15/30 | 5/30 | 1.15 → 0.53 |
+| Battleship | 11/30 | 13/30 | 0.90 → 1.26 |
+| Mine Layer | 4/30 | 12/30 | 0.68 → 0.92 |
+
+**(a) The Torpedo Boat is the BUILD-SENSITIVE hull** — best with a curated build, worst with a random
+one. That is a statement about the HULL and the CATALOG and is **Eric's to rule on**; nothing was
+changed for it here.
+
+**(b) The Mine Layer's bots build it WORSE THAN CHANCE**, nearly tripling its win share when its
+weight tables are ignored. A profile that underperforms a coin flip is evidence about the WEIGHT
+TABLE, not the hull — a BOT-POLICY finding, and the first thing a follow-up should chase.
+**Deliberately NOT acted on in this cycle**: retuning `forager`/`trapper` off a single 30-match A/B
+is the tune-first-measure-later mistake the rig exists to prevent, and the ruled scope was to teach
+behaviour, not to re-balance profiles.
+
+Bounds of honesty on both: one seed pair, 30 matches per arm, and BOT behaviour rather than human —
+a person's build is neither weighted-table nor uniform.
+
+### A FOURTH AND FIFTH DOWNGRADE, FOUND BY THE CROSS-MODEL PASS
+
+The Codex arm of the review gate found two defects the in-family Fable pass did not, which is the
+argument for running both:
+
+4. **`mineWant` bypassed PROP-FOULING's widened window for a CAPTIVE holder.** `mineWant` hands the
+   whole decision to the captive branch the moment `mine.captive` is set, but the two verbs STACK by
+   design and the captive torpedo carries the foul. A neutral-appetite layer holding both, facing a
+   pursuer closing astern at 450u, laid nothing where fouling ALONE laid.
+5. **`alreadyHeld` demoted EVERY held line, not just one-copy ones** — PRE-EXISTING since Story 6-4.
+   Its docstring said *"the ONE-COPY line this def names"*; the implementation tested only
+   `fitted.includes(id)`. So a bot that bought one `intelRange` scored the next at the held-line 0.9
+   instead of its profile's 2.4 and STOPPED CLIMBING the ladder its doctrine rests on — likewise
+   `shipCooldown` (×5), `mineBlast` (×4) and every other stackable line. A multi-copy line needs no
+   demotion at all, because the deck stops offering it once its copies are spent. Not a regression
+   from this cycle, but precisely the failure this cycle exists to fix.
+
+**LEDGERED, NOT BUILT:** Codex also flagged that `enroll()` accepts a `TestProfileId` with no RUNTIME
+guard. Containment today is the type split + table disjointness + a structural test, and no
+production caller passes one. A runtime guard would require a "test mode" flag, which is itself a new
+production surface defending against a caller that does not exist. Recorded as accepted.
+
+### SAME-DAY CORRECTION — ERIC'S PLAYTEST OVERTURNS ONE READING AND ONE WEIGHT
+
+Recorded here rather than left to be rediscovered, because it partly reverses this amendment's own
+`forager.mineCaptive` demotion and retracts an orchestrator hypothesis stated above.
+
+**THE HYPOTHESIS IS RETRACTED.** The orchestrator read the ML's 4/30-vs-12/30 result as
+`forager` declining the fights that decide matches (`captain: 0.5`). Eric played the hull the same
+day and describes that avoidance as the CORRECT play: *"hanging back to avoid getting killed in the
+first minute, and then slowly trying to find a PvE fleet to farm on… ML is more of a, hang back and
+be safe/strategic sort of class."* **The measurement corroborates HIM, not the hypothesis** — the
+weighted ML lives 181.1s against the random ML's 264.0s (+46%), fits 1.97 boons against 2.96 (+50%)
+and earns 4.29 levels against 6.58 (+53%). The failure is SURVIVAL, not target choice, and neither ML
+profile actually hangs back: `forager` bands at 0.20–0.45R and `trapper` at 0.12–0.35R, the closest
+band of any profile in the game.
+
+**THE `mineCaptive` DEMOTION WAS OVER-CORRECTED.** The mechanical fact this amendment records is
+still true — a captive mine's trip is hostile-only, so it cannot farm neutral fleet drones — but the
+conclusion drawn from it was wrong. Eric ran CAPTIVE MINES and GUN BUOY together early and reports
+both as *"REALLY powerful… you just have to be lined up well and prepare."* Captive is not a FARMING
+tool, it is a SURVIVAL-AND-PAYOFF tool, which is exactly what a hull whose problem is staying alive
+should want. `buoyGun` is likewise named by NEITHER ML table and falls through to a bare category
+weight, despite being half of the combo Eric calls a powerhouse.
+
+**RULED AND SCHEDULED AS CYCLE 111** (Eric, 2026-08-20), deliberately NOT folded into this cycle's PR
+so its campaign evidence keeps describing the code it shipped: re-band both ML profiles outward and
+raise both disengage thresholds; restore `forager.mineCaptive` as a wanted line; give `buoyGun` an
+explicit override in both ML tables. Eric's *"lined up well and prepare"* additionally points at the
+captive/buoy PLACEMENT tactics being prepared ahead of an engagement rather than sited reactively —
+equipment-axis work, not a weight change. Hull and catalog balance stays OUT: *"A lot of this is what
+the balance pass is going to be for! But it still needs to play intelligently."* Full record:
+`deferred-work.md`, the 2026-08-20 section.

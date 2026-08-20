@@ -82,64 +82,45 @@
 // Mine Layer sails you up the astern ±60° mine sector, so a `duelist` does not
 // tail one — see wantsRearQuarter().
 //
-// ONE WEAPON PER TICK, and legality is checked in the EQUIPMENT ROWS' OWN
-// ORDER so a shot is never silently eaten: the torpedo's bow arc is tested
-// FIRST (an arc miss consumes nothing but also fires nothing), the mine's
-// astern sector + placeRange + blockedWater before a drop. `fireSlot` is null
-// unless every check for that weapon passed, so the driver's fireSeq advances
-// exactly when a legal shot was requested.
-//
-// AND EVERY FLAT-TRAJECTORY SHOT IS CHECKED AGAINST THE COASTLINE (see
-// shotReaches). The mine always had this — `blockedWater` is why the rack
-// behaves — and the gun family and the tube never did, which is the whole of
-// the "focus-firing drones through an island" defect. PLUNGING FIRE is the one
-// exemption, because it is the one round that overflies terrain.
+// ONE WEAPON PER TICK, THROUGH THE EQUIPMENT AXIS (Eric ruling 2026-08-20):
+// chooseShot iterates the bot's ACTUAL FITTED SLOTS through EQUIPMENT_TACTICS
+// (ai/equipment.ts) — never a hull-keyed weapon ladder — so an equipment
+// ACQUIRED into the extra slot works exactly like a native fit. Ordering
+// comes from the ship profile's APPETITE table (gun lowest: the fallback);
+// the placement class (flare / mine / buoy) is resolved ABOVE the
+// target === null guard, because siting a sensor buoy is most valuable when
+// nothing is tracked. Every legality gate (arcs, ranges, water, the
+// coastline check on every flat-trajectory round) lives with its weapon in
+// the tactic's solve(), so `fireSlot` is null unless every check passed and
+// the driver's fireSeq advances exactly when a legal shot was requested.
 
 import {
   CONFIG,
   angleDiff,
   bearing,
-  blockedWater,
-  inArc,
   nearestCoastPoint,
-  sectorArcFor,
-  twinSectorArcFor,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
   type Island,
-  type Rng,
   type ShipState,
   type Vec2,
 } from '@salvo/shared';
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
+import { EQUIPMENT_TACTICS, appetiteFor, type Shot, type TacticContext } from './equipment.js';
 import {
   choosePosture,
   foldView,
-  isActionable,
-  lineBlocked,
+  pullBand,
   ringDeadband,
   ringEscaping,
   selectTargetKey,
-  tracksOf,
   type BotPosture,
   type BotSituation,
   type BotTrack,
 } from './utility.js';
-
-const TAU = Math.PI * 2;
-
-/** The torpedo's ratified bow sector and the mine's ratified astern sector —
- *  resolved ONCE at module load from the shared single arc-shape source, the
- *  same descriptors the equipment rows enforce with. A bot that computed its
- *  own arc from CONFIG could drift from the row that judges its shot. */
-const BOW_SECTOR = sectorArcFor('torpedo');
-const REAR_SECTOR = sectorArcFor('mine');
-/** The BROADSIDE BARRAGE's two mirrored beam sectors (Story 7-5 wave 2, R2.1),
- *  resolved from the same shared source the equipment row enforces with. */
-const BEAM_SECTORS = twinSectorArcFor('broadside');
 
 /** Proportional gain turning heading error into rudder (the fleet AI's). */
 const RUDDER_GAIN = 2;
@@ -160,23 +141,10 @@ const UNBEACH_THROTTLE = -1;
 /** The astern rudder when no coastline is in reach to turn away from — a FIXED
  *  sign, never an rng pick, so a bow-on beaching still rotates its exit. */
 const UNBEACH_FALLBACK_RUDDER = 1;
-/** Fixed-point iterations for the intercept solve (converges well inside 3). */
-const LEAD_ITERATIONS = 3;
 /** u — how far astern of a peer a `duelist` steers for. Just outside the
  *  Torpedo Boat's 56.3u full-ahead turn radius, so the station is reachable by
  *  a turn rather than an endless spiral. */
 const REAR_QUARTER_U = 90;
-/** u — the range inside which a torpedo intercept is CREDIBLE. A 60 u/s fish
- *  against a 45 u/s hull needs the target inside knife range or the lead
- *  solution is fiction; beyond this the tube is held for a better opening. */
-const TORPEDO_CREDIBLE_U = 250;
-/** Fraction of CONFIG.mine.placeRange a drop is commanded at. Astern of the
- *  hull but well inside the rack's reach, so the aim is legal by construction
- *  and only the water can refuse it. */
-const MINE_DROP_FRAC = 0.5;
-/** ms — how stale a plot must be before `siege` spends a flare to resolve it.
- *  Below this the contact is still fresh enough to shoot at directly. */
-const FLARE_STALE_MS = 1500;
 
 /** The bot's helm intent for this tick. */
 interface Helm {
@@ -184,12 +152,6 @@ interface Helm {
   rudder: number;
 }
 
-/** A legal shot request: one slot, one bearing, one commanded distance. */
-interface Shot {
-  aim: number;
-  aimDist: number;
-  slot: number;
-}
 
 function clampUnit(v: number): number {
   if (v < -1) return -1;
@@ -231,292 +193,69 @@ export function spendStateOf(self: BotSelf): BotSpendState {
   };
 }
 
-/** The loadout slot fitting `id`, or -1. */
-function slotOf(self: BotSelf, id: EquipmentId): number {
+// ---------------------------------------------------------------------------
+// WEAPONS — the EQUIPMENT AXIS. Every weapon's want/solve/reach lives with
+// the weapon in ai/equipment.ts (EQUIPMENT_TACTICS); this file only walks the
+// bot's ACTUAL FITTED SLOTS through that registry, in appetite order.
+// ---------------------------------------------------------------------------
+
+/** One fitted slot, ranked by the profile's appetite for what it holds. */
+interface RankedSlot {
+  slot: number;
+  id: EquipmentId;
+  appetite: number;
+}
+
+/**
+ * The bot's fitted slots in the order this PROFILE reaches for them: appetite
+ * descending, slot index as the deterministic tie-break. Capability is read
+ * from the LOADOUT, never from the hull — an acquired R-slot weapon ranks
+ * exactly like a native fit.
+ */
+function rankedSlots(self: BotSelf, profile: BotProfile): RankedSlot[] {
+  const out: RankedSlot[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
-    if (self.loadout[i].equipmentId === id) return i;
+    const id = self.loadout[i].equipmentId;
+    if (id === null) continue;
+    out.push({ slot: i, id, appetite: appetiteFor(profile, id) });
   }
-  return -1;
+  out.sort((a, b) => b.appetite - a.appetite || a.slot - b.slot);
+  return out;
 }
 
-/**
- * The slot fitting `id` IF it can be used this tick, else -1. Readiness is
- * `n > 0` — the pool, which is exactly what `consume()` tests. For every
- * one-round pool in the game (gun, broadside, star shells, torpedo, boost)
- * that is identically "not reloading"; the mine's 2-round rack is the one
- * place the two differ, and there a bot may legitimately drop its second mine
- * while the first round is still rebuilding — refusing would idle the rack for
- * 15s and neuter the whole `trapper` profile.
- */
-function readySlot(self: BotSelf, id: EquipmentId): number {
-  const i = slotOf(self, id);
-  if (i < 0) return -1;
-  const state = self.loadout[i].state;
-  return state !== null && state.n > 0 ? i : -1;
+/** Readiness is `n > 0` — the pool, which is exactly what `consume()` tests.
+ *  The mine's 2-round rack is why this is the pool and not "not reloading":
+ *  a bot may legitimately drop its second mine while the first rebuilds. */
+function slotReady(self: BotSelf, slot: number): boolean {
+  const state = self.loadout[slot].state;
+  return state !== null && state.n > 0;
 }
 
-// ---------------------------------------------------------------------------
-// AIMING — one lead solve, one scatter, one place.
-// ---------------------------------------------------------------------------
-
-/**
- * The lead-corrected intercept point for a track at `speed` u/s of ordnance,
- * solved by fixed point (the fleet AI's solver, 3 passes is far past
- * convergence at these speeds). A track with no disclosed pose — the
- * identity-free `return`-grammar plot, which carries position and NOTHING else
- * — cannot be led at all, so its last-known point IS the aim point.
- */
-function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  if (t.heading === null || t.speed === null) return { x: t.x, y: t.y };
-  const vx = Math.cos(t.heading) * t.speed;
-  const vy = Math.sin(t.heading) * t.speed;
-  let tof = 0;
-  for (let i = 0; i < LEAD_ITERATIONS; i += 1) {
-    const px = t.x + vx * tof;
-    const py = t.y + vy * tof;
-    tof = Math.hypot(px - sit.x, py - sit.y) / speed;
-  }
-  return { x: t.x + vx * tof, y: t.y + vy * tof };
-}
-
-/**
- * THE ONE PLACE MARKSMANSHIP LIVES (competence knob E2). A uniform disc of
- * `CONFIG.bots.aimScatterU` scaled by range against `aimScatterRefU`, so a
- * long shot wanders proportionally more than a knife-range one. Applied to the
- * lead solution BEFORE any legality check, so an arc/range/water refusal
- * judges the point the bot will actually shoot at.
- */
-function scatter(p: Vec2, sit: BotSituation, rng: Rng): Vec2 {
-  const range = Math.hypot(p.x - sit.x, p.y - sit.y);
-  const r = Math.sqrt(rng.next()) * CONFIG.bots.aimScatterU * (range / CONFIG.bots.aimScatterRefU);
-  const a = rng.float(0, TAU);
-  return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
-}
-
-/** The scattered lead solution for one weapon against one track. */
-function aimPoint(mind: BotMind, sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  return scatter(leadPoint(sit, t, speed), sit, mind.rng);
-}
-
-// ---------------------------------------------------------------------------
-// WEAPONS — one candidate function per system, each returning a LEGAL shot or
-// null. Every one of them re-checks the equipment row's own gate.
-// ---------------------------------------------------------------------------
-
-/**
- * THE TERRAIN CHECK — can this projectile actually REACH the point it is aimed
- * at, or does the coastline stop it first?
- *
- * THIS IS AN OMISSION BEING CLOSED, NOT A NEW RULE. Every other shooter in the
- * game already gets this answer: `stepShell` stops a non-arcing shell dead at
- * the first coastline it meets, and the HUMAN is told so before he pulls the
- * trigger — `client/src/render/aimPreview.ts` runs `clipAtIslands()` on every
- * gun aim and dims the burst circle when the shot will not arrive. The bot was
- * the only shooter never told, and it never self-corrected because the radar
- * gate paints OVER partially-shadowing terrain (Story 4.11 `visibilityTo`)
- * while the shell is stopped by the polygon at any height — so it re-acquired
- * the same unreachable plot once per sweep revolution, indefinitely.
- *
- * IT IS A PHYSICS QUESTION, NOT A VISIBILITY ONE. "Can this shot arrive?" is
- * deliberately NOT "should I shoot at something I cannot see": firing into fog
- * is a ratified feature (FR16 — the self-private `sp` splash exists precisely
- * so bracket-and-walk fire works), and a `return`-grammar plot stays a legal
- * target here exactly as it always was.
- *
- * THE ORIGIN IS THE HULL CENTRE, not the silhouette muzzle the sim spawns
- * from: `BotSelf` carries no hull class (by design — it is the self-read a
- * human client gets), so `muzzleSpawn` is unreachable from ai/. The centre is
- * the strictly LONGER segment, so the check can only ever be conservative, and
- * the extra span is inside the bot's own hull.
- */
-function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
-  return !lineBlocked(self.state, p, sit.islands);
-}
-
-/**
- * A gun-family shot (gun / broadside): aimed to a clicked point at a clamped
- * range, with a coastline that must not be in the way (the cycle-99 fix — a
- * bot may not fire into rock). THE ARCING EXEMPTION IS GONE with PLUNGING
- * FIRE: no shot in the game overflies terrain any more, so every gun-family
- * shot is line-of-fire gated.
- */
-function burstShot(
-  self: BotSelf,
-  mind: BotMind,
-  sit: BotSituation,
-  t: BotTrack,
-  id: 'gun' | 'broadside',
-  rangeU: number,
+/** Run one KIND of tactic over the ranked slots: first ready slot whose
+ *  tactic both wants and legally solves wins the tick. */
+function firePass(
+  kind: 'shot' | 'placement',
+  ranked: readonly RankedSlot[],
+  base: TacticContext,
 ): Shot | null {
-  const slot = readySlot(self, id);
-  if (slot < 0) return null;
-  const p = aimPoint(mind, sit, t, CONFIG[id].shellSpeed);
-  const d = Math.hypot(p.x - sit.x, p.y - sit.y);
-  if (d > rangeU) return null;
-  if (!shotReaches(self, sit, p)) return null;
-  return { aim: bearing(self.state, p), aimDist: d, slot };
-}
-
-/** The gun — every bot's default weapon and the only one a fleet-clearing
- *  `forager` needs (3/4/5 rounds clear a fleet hull by size). */
-function gunShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
-  return burstShot(self, mind, sit, t, 'gun', sit.stats.gun.rangeU);
-}
-
-/**
- * The BROADSIDE BARRAGE (Battleship, Story 7-5 wave 2). Held for a plot worth
- * 30 seconds of reload: a LIVE contact with a disclosed course, so the lead
- * solution is real. An unled ghost gets the gun instead.
- *
- * THE BEAM ARC IS TESTED FIRST, exactly as the equipment row tests it (the
- * torpedo precedent): a click in the bow or stern dead zone is denied and
- * launches nothing, so a bot that requested one would burn its click and look
- * broken. Its reach is the 5/8 rung (`stats.broadside.rangeU`), NOT radar
- * range — the first weapon in the game that does not reach the horizon.
- */
-function broadsideShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
-  if (!t.live || t.heading === null) return null;
-  const shot = burstShot(self, mind, sit, t, 'broadside', sit.stats.broadside.rangeU);
-  if (shot === null) return null;
-  for (const sign of [1, -1]) {
-    const center = wrapAngle(self.state.heading + sign * BEAM_SECTORS.offset);
-    if (inArc(shot.aim, center, BEAM_SECTORS.halfArc)) return shot;
+  for (const r of ranked) {
+    const tactic = EQUIPMENT_TACTICS[r.id];
+    if (tactic.kind !== kind) continue;
+    if (!slotReady(base.self, r.slot)) continue;
+    const ctx: TacticContext = { ...base, slot: r.slot };
+    if (!tactic.want(ctx)) continue;
+    const shot = tactic.solve(ctx);
+    if (shot !== null) return shot;
   }
-  return null; // bow/stern dead zone — the row would deny it
+  return null;
 }
 
 /**
- * The torpedo (Torpedo Boat). THE BOW ARC IS TESTED FIRST, exactly as the
- * equipment row tests it — an arc miss consumes nothing, but it also launches
- * nothing, so a bot that requested one would burn a click for free and look
- * broken. Contact-only in standard/homing mode (aimDist is ignored), and only
- * inside the range where a 60 u/s fish can credibly intercept. A fish runs on
- * the surface and no doctrine arcs it, so the coastline stops it exactly as it
- * stops a shell — and at a 50s reload, launching one into a rock is the
- * single most expensive way a Torpedo Boat can waste a tick.
- */
-function torpedoShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
-  const slot = readySlot(self, 'torpedo');
-  if (slot < 0) return null;
-  if (t.heading === null) return null; // a return-grammar plot cannot be led
-  const d = Math.hypot(t.x - sit.x, t.y - sit.y);
-  if (d > TORPEDO_CREDIBLE_U) return null;
-  const p = aimPoint(mind, sit, t, sit.stats.torpedo.speed);
-  const aim = bearing(self.state, p);
-  const center = wrapAngle(self.state.heading + BOW_SECTOR.offset);
-  if (!inArc(aim, center, BOW_SECTOR.halfArc)) return null; // ARC FIRST
-  if (!shotReaches(self, sit, p)) return null;
-  return { aim, aimDist: d, slot };
-}
-
-/**
- * Does this profile want a mine in the water right now? While WITHDRAWING,
- * always — that is the whole `trapper` idea, and it is the one time `forager`
- * lays one too (to shake a chaser). Otherwise only a proactive layer, and only
- * with something CLOSE and BEHIND it: a mine dropped astern is a trap for
- * whatever is following, and a trap with nothing following is a wasted round.
- */
-export function wantsMine(
-  profile: BotProfile,
-  sit: BotSituation,
-  heading: number,
-  t: BotTrack | null,
-  posture: BotPosture,
-): boolean {
-  if (posture === 'disengage') return true;
-  if (!profile.usesMinesProactively || t === null) return false;
-  if (Math.hypot(t.x - sit.x, t.y - sit.y) > CONFIG.mine.placeRange * 2) return false;
-  const center = wrapAngle(heading + REAR_SECTOR.offset);
-  return inArc(Math.atan2(t.y - sit.y, t.x - sit.x), center, REAR_SECTOR.halfArc);
-}
-
-/**
- * A mine drop (Mine Layer). Commanded DEAD ASTERN — the centre of the ratified
- * rear sector — at half the rack's reach, so the arc and range gates pass by
- * construction and the only thing that can refuse the drop is the water
- * itself: `blockedWater` is the SAME predicate the equipment row denies with
- * (inside a coastline polygon, or off the water disc), so a bot never burns a
- * click dropping a mine on a rock.
- */
-function mineShot(
-  self: BotSelf,
-  sit: BotSituation,
-  port: BotWorldPort,
-  t: BotTrack | null,
-  posture: BotPosture,
-): Shot | null {
-  const slot = readySlot(self, 'mine');
-  if (slot < 0) return null;
-  if (!wantsMine(sit.profile, sit, self.state.heading, t, posture)) return null;
-  const aim = wrapAngle(self.state.heading + REAR_SECTOR.offset);
-  const d = CONFIG.mine.placeRange * MINE_DROP_FRAC;
-  const p = { x: sit.x + Math.cos(aim) * d, y: sit.y + Math.sin(aim) * d };
-  if (blockedWater(p, port.map.islands, port.map.radius)) return null;
-  return { aim, aimDist: d, slot };
-}
-
-/**
- * The stalest plot worth a flare: an actionable track we have LOST (not live),
- * gone quiet for FLARE_STALE_MS, sitting beyond our own truesight bubble (a
- * hull we can already see needs no light) and inside the flare's reach.
- * Nearest wins — the closest lost contact is the one about to matter.
- */
-function flareTarget(mind: BotMind, sit: BotSituation): BotTrack | null {
-  let best: BotTrack | null = null;
-  let bestD = Infinity;
-  for (const t of tracksOf(mind)) {
-    if (t.live || !isActionable(t, sit.now)) continue;
-    if (sit.now - t.seenAt < FLARE_STALE_MS) continue;
-    const d = Math.hypot(t.x - sit.x, t.y - sit.y);
-    if (d <= sit.stats.sightRange || d > sit.stats.starShells.rangeU) continue;
-    if (d < bestD) {
-      bestD = d;
-      best = t;
-    }
-  }
-  return best;
-}
-
-/**
- * STAR SHELLS AS A SENSOR (Eric ruling C2) — the one behaviour in this story
- * that reads as "this thing knows how to play". A `siege` Battleship that has
- * LOST a contact fires a flare at its last known position: the lit zone grants
- * the firer truesight parity inside it, so the plot resolves back into a live
- * contact the broadside can be spent on. It deliberately does not need a lead
- * solution — the flare lights an AREA, which is exactly why it works on the
- * unled plots nothing else here will shoot at.
- *
- * AND IT TAKES THE TERRAIN GATE, on the same physics the gun family took it
- * on: a star shell is a flat-trajectory round with no arcing doctrine, so a
- * coastline stops it exactly as it stops a shell, and a flare that bursts
- * INSIDE AN ISLAND illuminates nothing at all. It was left out of the first
- * pass and measured as 71% of the bot's remaining into-terrain ordnance (10 of
- * 14; 6.17% of all flares) — the single biggest residual, and the most
- * expensive per round of any sensor the bot owns.
- *
- * THE GATE IS ON THE SHOT, NEVER ON `flareTarget`. Filtering inside the
- * selector so it picks the nearest REACHABLE lost plot would change which
- * contact a `siege` bot chooses to resolve, and that choice is Eric-ruled C2
- * behaviour. Here the bot still wants the nearest lost plot; it simply holds
- * the round when the round cannot get there.
- */
-function flareShot(self: BotSelf, mind: BotMind, sit: BotSituation): Shot | null {
-  if (!sit.profile.usesStarShells) return null;
-  const slot = readySlot(self, 'starShells');
-  if (slot < 0) return null;
-  const t = flareTarget(mind, sit);
-  if (t === null) return null;
-  if (!shotReaches(self, sit, t)) return null;
-  const d = Math.min(Math.hypot(t.x - sit.x, t.y - sit.y), sit.stats.starShells.rangeU);
-  return { aim: bearing(self.state, t), aimDist: d, slot };
-}
-
-/**
- * The one weapon this tick, in preference order: the sensor shot first (it is
- * spent on a contact nothing else can engage), then the trap, then the heavy
- * ordnance, then the gun as the always-available fallback. Each candidate
- * returns null unless its own legality gate passed, so this reads as a ladder
- * rather than a pile of conditions.
+ * The one weapon this tick. PLACEMENTS (flare / mine / buoy) are resolved
+ * ABOVE the target guard — siting a sensor buoy is most valuable exactly when
+ * nothing is tracked, and a withdrawing layer's mine wants no target at all.
+ * Shots need a target; the gun's low base appetite keeps it the last resort,
+ * so heavy ordnance is always offered the tick first.
  */
 function chooseShot(
   self: BotSelf,
@@ -526,36 +265,50 @@ function chooseShot(
   target: BotTrack | null,
   posture: BotPosture,
 ): Shot | null {
-  const flare = flareShot(self, mind, sit);
-  if (flare !== null) return flare;
-  const mine = mineShot(self, sit, port, target, posture);
-  if (mine !== null) return mine;
+  const ranked = rankedSlots(self, sit.profile);
+  const base: TacticContext = { self, mind, sit, port, target, posture, slot: -1 };
+  const placed = firePass('placement', ranked, base);
+  if (placed !== null) return placed;
   if (target === null) return null;
-  return (
-    torpedoShot(self, mind, sit, target) ??
-    broadsideShot(self, mind, sit, target) ??
-    gunShot(self, mind, sit, target)
-  );
+  return firePass('shot', ranked, base);
 }
 
 /**
- * The ability press, if any: the boost that opens a `raider`'s range, spent on
- * the way OUT. Abilities ride the actSeq channel, so this composes with a shot
- * in the same tick.
- *
- * THE BUOY PRESS IS GONE (Story 7-5 wave 2): the decoy buoy — the `trapper`'s
- * lock-breaker and the only other ability a profile ever pressed — is deleted,
- * and the RADAR BUOY replacing it is a CLICK-PLACED WEAPON on the mine's rear
- * sector (R2.7), not an actSeq ability. Its tactics belong with the buoy
- * itself and are a later agent's; the boost is the only ability left.
+ * The ability press, if any: the 'ability' rows of the same registry (the
+ * speed boost — spent opening range on the way out). Abilities ride the
+ * actSeq channel, so this composes with a shot in the same tick.
  */
-function chooseAct(self: BotSelf, sit: BotSituation, posture: BotPosture): number | null {
-  if (posture !== 'disengage') return null;
-  if (sit.profile.usesBoost) {
-    const boost = readySlot(self, 'speedBoost');
-    if (boost >= 0) return boost;
+function chooseAct(
+  self: BotSelf,
+  mind: BotMind,
+  port: BotWorldPort,
+  sit: BotSituation,
+  target: BotTrack | null,
+  posture: BotPosture,
+): number | null {
+  for (const r of rankedSlots(self, sit.profile)) {
+    const tactic = EQUIPMENT_TACTICS[r.id];
+    if (tactic.kind !== 'ability') continue;
+    if (!slotReady(self, r.slot)) continue;
+    if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
   }
   return null;
+}
+
+/**
+ * The READY shot-weapon reaches for the band pull: every fitted 'shot' slot
+ * with rounds in the pool contributes its tactic's effective reach. Exported
+ * for the band-pull tests — the "only while loaded" clause is this list.
+ */
+export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < self.loadout.length; i += 1) {
+    const id = self.loadout[i].equipmentId;
+    if (id === null || !slotReady(self, i)) continue;
+    const tactic = EQUIPMENT_TACTICS[id];
+    if (tactic.kind === 'shot') out.push(tactic.reachU(stats));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -756,12 +509,18 @@ export function approachPoint(profile: BotProfile, t: BotTrack): Vec2 {
 
 /** Band-holding geometry: close when outside the band, open when inside its
  *  floor, and hold a beam-on orbit while in it (which is what keeps a bot at
- *  its profile's fighting range instead of ramming through it). */
+ *  its profile's fighting range instead of ramming through it).
+ *
+ *  THE BAND PULL (Eric ruling 2026-08-20) is applied HERE, at the helm: a
+ *  READY fitted weapon whose reach lies below the profile's near edge tugs
+ *  that edge halfway toward its reach (utility.ts pullBand) — so a `siege`
+ *  Battleship eases in with a loaded torpedo and drifts back out the moment
+ *  the tube empties, while the profile fractions stay the anchor. */
 function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
   const aim = approachPoint(sit.profile, t);
   const brg = bearing(self.state, aim);
   const d = Math.hypot(aim.x - sit.x, aim.y - sit.y);
-  const band = engagementBand(sit.profile, sit.stats);
+  const band = pullBand(engagementBand(sit.profile, sit.stats), readyShotReaches(self, sit.stats));
   if (d > band.max) return brg;
   if (d < band.min) return wrapAngle(brg + Math.PI);
   const side = angleDiff(brg, self.state.heading) >= 0 ? 1 : -1;
@@ -1090,8 +849,35 @@ export const COMBAT_BRAIN: BotBrain = {
       aim: shot === null ? idleAim(self, target) : shot.aim,
       aimDist: shot === null ? 0 : shot.aimDist,
       fireSlot: shot === null ? null : shot.slot,
-      actSlot: chooseAct(self, sit, posture),
-      spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self)) : null,
+      actSlot: chooseAct(self, mind, port, sit, target, posture),
+      spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
+    };
+  },
+
+  /**
+   * THE HELD DECISION (Story 7-6 wave 4) — the 'endgame' engage gate's
+   * pre-release tick. Perception still folds (parity: a captain waiting out
+   * the storm still watches the scope, and the memory it builds is what makes
+   * the release competent), the helm runs the FULL every-tick safety stack —
+   * ring escape, un-beaching, island avoidance — through the same helmFor the
+   * live brain uses, and levels are still spent on the decision cadence. What
+   * never happens: a target (targetKey is FORCED null every tick, so the
+   * postures that chase one are unreachable), a shot, or an ability press.
+   */
+  decideHeld(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
+    ingest(mind, port);
+    const sit = situationOf(self, mind, port);
+    mind.targetKey = null; // unconditional: a held bot NEVER carries a target
+    if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);
+    const helm = helmFor(self, mind, port, sit, null, mind.posture);
+    return {
+      throttle: helm.throttle,
+      rudder: helm.rudder,
+      aim: self.state.heading,
+      aimDist: 0,
+      fireSlot: null,
+      actSlot: null,
+      spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
   },
 };

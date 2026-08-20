@@ -22,7 +22,7 @@
 import { writeFileSync } from 'node:fs';
 import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './args.js';
 import { TunableError, applyOverrides } from './overrides.js';
-import { PILOT_REGISTRY } from './pilots.js';
+import { CONTROL_REGISTRY } from './controls.js';
 import { runBatch, type BatchResult } from './runner.js';
 import { runDeckSim, type DeckAggregate } from './deckSim.js';
 import {
@@ -39,6 +39,7 @@ import {
   renderCatalogLines,
   renderDeckComposition,
   renderDeckLines,
+  renderFitSlices,
   renderOrdnanceLedger,
 } from './catalogReport.js';
 
@@ -60,12 +61,18 @@ function headerLines(opts: CliOptions): string[] {
   // the deterministic body's own header must say so. Only printed when there
   // are bots, so every captain-only run key is byte-unchanged.
   const bots = opts.bots > 0 ? ` bots=${opts.bots}` : '';
-  // ROSTER / TUNE JOIN THE RUN KEY on the SAME terms (NFR5 run-key honesty):
-  // an even roster is a different lobby and a tune is a different sim, so both
-  // must be visible in the deterministic body — but ONLY when non-default, so
-  // every run key recorded before these flags existed stays byte-identical.
+  // ROSTER / TUNE / TEST-RIG ALL JOIN THE RUN KEY on the SAME terms (NFR5
+  // run-key honesty): an even roster is a different lobby, a tune is a
+  // different sim, and a forced test profile is a different brain — so each
+  // must be visible in the deterministic body, and each is printed ONLY when
+  // non-default, so every run key recorded before these flags existed stays
+  // byte-identical.
   const hull = opts.roster !== 'rolled' ? ` roster=${opts.roster}` : '';
-  const roster = opts.deckOnly ? '' : ` captains=${opts.captains}${bots}${hull} pilot=${opts.pilot}`;
+  const botProfile = opts.botProfile !== null ? ` botProfile=${opts.botProfile}` : '';
+  const botEngage = opts.botEngage !== 'always' ? ` botEngage=${opts.botEngage}` : '';
+  const roster = opts.deckOnly
+    ? ''
+    : ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage} control=${opts.control}`;
   const tune = Object.keys(opts.tune).length > 0 ? ` tune=${tuneLine(opts.tune)}` : '';
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
@@ -112,8 +119,10 @@ function batchMode(opts: CliOptions): ModeOutput {
           matches: opts.matches,
           captains: opts.captains,
           bots: opts.bots,
+          botProfile: opts.botProfile ?? undefined,
+          botEngage: opts.botEngage,
           roster: opts.roster,
-          pilot: PILOT_REGISTRY[opts.pilot],
+          control: CONTROL_REGISTRY[opts.control],
         },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
       );
@@ -127,8 +136,13 @@ function batchMode(opts: CliOptions): ModeOutput {
       if (botAgg !== null) body.push(...renderBotReport(variant.label, botAgg), '');
       // STORY 7-5 EVIDENCE PASS: per-line catalog reachability + the ordnance /
       // one-hit-kill ledger. Always appended — every run key gains the block.
+      // WAVE 4 (cycle 110): the fits slices and the STRUCTURAL deck-composition
+      // block now print in batch mode too, so the structural denominator sits
+      // beside the observed one — a deliberate golden change to the body.
       const catAgg = buildCatalogAggregate(result);
       body.push(...renderCatalogLines(variant.label, catAgg), '');
+      body.push(...renderFitSlices(variant.label, catAgg), '');
+      body.push(...renderDeckComposition(), '');
       body.push(...renderOrdnanceLedger(variant.label, catAgg), '');
       out.variants.push({
         label: variant.label,

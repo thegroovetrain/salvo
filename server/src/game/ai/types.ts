@@ -48,6 +48,34 @@ export type BotProfileId =
   (typeof CONFIG.bots.profiles)[keyof typeof CONFIG.bots.profiles][number];
 
 /**
+ * TEST-ONLY random-spend profiles (Story 7-6 wave 4) — one per hull, for the
+ * blind-vacuum balance rig. A SEPARATE id space BY CONSTRUCTION, and that
+ * separation is a SAFETY property, not a style choice: the in-game enrollment
+ * path (botDriver.enroll with no override — what ArenaRoom.buildBotFleet
+ * reaches through world.addBot) rolls a profile from CONFIG.bots.profiles,
+ * and these ids are deliberately NOT in that table, so a real Solo vs AI
+ * opponent can never carry one. They are reachable ONLY through the explicit
+ * profile override the batch-sim harness threads through addBot.
+ */
+export type TestProfileId = 'randomTorpedoBoat' | 'randomBattleship' | 'randomMineLayer';
+
+/** Any profile a bot mind may carry: an in-game row or a test-only row. */
+export type AnyProfileId = BotProfileId | TestProfileId;
+
+/**
+ * The controller-level ENGAGE GATE (Story 7-6 wave 4): 'always' is the shipped
+ * behaviour; under 'endgame' a bot holds the ring rhythm — sails, escapes the
+ * storm, spends its levels — and NEVER targets or fires until the world says
+ * the endgame ring has been reached (BotWorldPort.zoneEndgameReached), then
+ * fights as a normal bot. This replaces the retired omniscient `endgame`
+ * batch-sim pilot as the Story 3.4 evidence instrument. Because the gate reads
+ * the zone TIMELINE fact (false while the timeline is idle — before the match
+ * arms), a gated bot never degenerates into a plain always-engage bot in the
+ * ready room.
+ */
+export type BotEngageGate = 'always' | 'endgame';
+
+/**
  * THE SELF-READ, AS A STRUCTURAL VIEW: everything the brain may know about its
  * OWN hull, and nothing else. World's ShipRecord satisfies this structurally
  * (world.ts hands the record itself in each tick's BotTickEntry), but ai/
@@ -109,6 +137,13 @@ export interface BotWorldPort {
   readonly map: GameMap;
   /** The LIVE storm ring — ring escape overrides all other steering (wave 2). */
   readonly zoneLiveRing: ZoneRing;
+  /** Has the terminal ENDGAME ring been reached (Story 3.4 / sudden death)?
+   *  PARITY, not a widening: the client already receives ring state through
+   *  ArenaState every tick, so this boolean discloses nothing a human client
+   *  is not sent (epic-6 amendment 32's parity bar; authorized by the
+   *  cycle-110 spec — and the port may not widen past this one boolean).
+   *  Consumed only by the 'endgame' engage gate (BotEngageGate). */
+  readonly zoneEndgameReached: boolean;
   /** THE BOARDING FREEZE (Story 6.1): false = the helm is dead. The brain
    *  no-ops — no observe, neutral input, fireSeq never advances. */
   readonly helmEnabled: boolean;
@@ -190,14 +225,22 @@ export interface BotMind {
   /** This bot's private decision stream (decorrelated per bot off the
    *  controller seed) — profile rolls, wave-2 scatter draws, waypoints. */
   rng: Rng;
+  /** The RANDOM-SPEND stream (Story 7-6 wave 4) — a sibling of `rng`, minted
+   *  at enroll on its own multiplier, consumed ONLY by a `spend: 'random'`
+   *  test profile's uniform offer pick. NEVER `rng` itself: that stream's one
+   *  consumer is aim scatter, and borrowing it would silently change gunnery
+   *  and make a random-spend bot non-comparable to a weighted one. Weighted
+   *  profiles never draw from it, so it is inert for every in-game row. */
+  spendRng: Rng;
   /** Monotonic input seq (InputStore requires strictly increasing). */
   seq: number;
   /** Monotonic click counter — advanced exactly when a shot is taken. */
   fireSeq: number;
   /** Monotonic ability-activation counter. */
   actSeq: number;
-  /** The priority profile assigned at enroll off the seeded RNG. */
-  profile: BotProfileId;
+  /** The priority profile assigned at enroll off the seeded RNG (or the
+   *  test-only row forced by the harness's explicit override). */
+  profile: AnyProfileId;
   /** Deliberation-stagger slot in [0, cadenceTicks) — botPhase(id,
    *  cadenceTicks). Staggers DECISION work, never perception. */
   phase: number;
@@ -302,4 +345,15 @@ export interface BotDecision {
  */
 export interface BotBrain {
   decide(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate?: boolean): BotDecision;
+  /**
+   * The HELD decision (Story 7-6 wave 4) — the 'endgame' engage gate's
+   * pre-release tick: perception still folds (parity — a human waiting out
+   * the storm still watches their scope), the helm still sails the full ring
+   * rhythm including escape and un-beaching, levels are still spent on the
+   * decision cadence, but the bot NEVER targets, fires, or presses an
+   * ability. The driver calls this instead of decide() while the gate is
+   * closed; the weapons-hold is what makes a gated bot a pacing instrument
+   * rather than a combatant.
+   */
+  decideHeld(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate?: boolean): BotDecision;
 }

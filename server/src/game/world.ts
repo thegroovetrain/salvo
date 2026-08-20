@@ -123,7 +123,7 @@ import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
 import { BotController } from './ai/botDriver.js';
-import type { BotTickEntry } from './ai/types.js';
+import type { AnyProfileId, BotTickEntry } from './ai/types.js';
 import { observe } from './perception.js';
 import {
   insideIntelDisc,
@@ -1294,11 +1294,19 @@ export class World {
    * mode: the room decides the mix, the World just places the hull. Omitted —
    * which is the batch-sim harness and every existing test — the roll is
    * exactly the shipped one, off the same stream position (see enroll).
+   *
+   * `profile` (Story 7-6 wave 4) forces a specific profile row — the batch-sim
+   * harness's door to the TEST-ONLY random-spend rows, which are deliberately
+   * absent from CONFIG.bots.profiles and therefore unreachable through the
+   * rolled path. Same stream discipline as `hull`: the controller still rolls
+   * and discards, so every downstream enrollment is byte-identical whether or
+   * not a profile was forced. A forced profile governs the hull (each row is
+   * hull-bound), so callers pass the profile alone.
    */
-  addBot(hull?: ShipClassId): ShipRecord {
+  addBot(hull?: ShipClassId, profile?: AnyProfileId): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
-    const { name, hullId } = this.bots.enroll(id, hull);
+    const { name, hullId } = this.bots.enroll(id, hull, profile);
     return this.addShip(id, name, 'bot', hullId);
   }
 

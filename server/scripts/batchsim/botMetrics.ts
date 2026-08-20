@@ -2,17 +2,17 @@
 // acceptance criterion ("bot quality is measured, not felt") rests on.
 //
 // WHY A SEPARATE COLLECTOR FROM MatchCollector. The captain collector measures
-// the ECONOMY (levels, boon timing, deck depletion) for a scripted omniscient
-// pilot that never dies of anything interesting. The bot collector measures
-// COMBAT QUALITY for a brain that steers itself: who killed whom, what killed
-// them, how long they lived, whether they spent what they earned, and whether
-// they spent the match scraping a coastline. Mixing the two would have made
-// every captain row conditional on a mode it knows nothing about.
+// the ECONOMY (levels, boon timing, deck depletion) for a scripted control
+// that never fires and never dies of anything interesting. The bot collector
+// measures COMBAT QUALITY for a brain that steers itself: who killed whom,
+// what killed them, how long they lived, whether they spent what they earned,
+// and whether they spent the match scraping a coastline. Mixing the two would
+// have made every captain row conditional on a mode it knows nothing about.
 //
-// NO PILOT FUNCTION EXISTS FOR A BOT, and that is not an omission: bots drive
+// NO CONTROL FUNCTION EXISTS FOR A BOT, and that is not an omission: bots drive
 // themselves from the `botsTick` STEP_ORDER row inside World.step(). The
 // harness's "bot mode" is therefore a LOBBY CONSTRUCTOR (world.addBot() x N)
-// plus this observer — the runner's per-tick pilot loop stays empty for them.
+// plus this observer — the runner's per-tick control loop stays empty for them.
 //
 // EVERY NUMBER HERE IS READ-ONLY OFF ShipRecord AND world.tickEvents. Nothing
 // in this module can influence a bot's behaviour, and nothing in server/src

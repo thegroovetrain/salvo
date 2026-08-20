@@ -14,8 +14,8 @@
 //    possible answer to "is any card unreachable" and it is free.
 //
 // B. OFFERS AND FITS IN PLAY. Offers are policy-free (deck + offer roll); fits
-//    carry whatever the spender's policy is — pilots.pickSpendChoice for
-//    captains, per-profile weights for bots. Both columns are printed side by
+//    carry whatever the spender's policy is — spendPolicy.pickSpendChoice for
+//    the scripted control, per-profile weights for bots. Both columns are printed side by
 //    side and the caveat is printed WITH them.
 //
 // C. THE ORDNANCE + GUARDRAIL LEDGER. See catalogMetrics.ts for how damage is
@@ -34,9 +34,22 @@ const addInto = (into: Record<string, number>, from: Record<string, number> | un
   for (const k of Object.keys(from)) into[k] = (into[k] ?? 0) + from[k];
 };
 
+/** Key-wise sum of a two-level slice (class -> id -> n and friends). */
+const addSlices = (
+  into: Record<string, Record<string, number>>,
+  from: Record<string, Record<string, number>> | undefined,
+): void => {
+  if (from === undefined) return;
+  for (const k of Object.keys(from)) addInto((into[k] ??= {}), from[k]);
+};
+
 export interface CatalogAggregate extends CatalogSample {
   /** Matches that contributed a ledger (samples predating the field are skipped). */
   sampled: number;
+  /** Required on the aggregate (optional on the per-match sample only because
+   *  literals predating the field exist in tests). */
+  fitsByClass: Record<string, Record<string, number>>;
+  fitsByProfile: Record<string, Record<string, number>>;
 }
 
 /** Key-wise sum of every match's ledger. */
@@ -44,6 +57,7 @@ export function buildCatalogAggregate(result: BatchResult): CatalogAggregate {
   const agg: CatalogAggregate = {
     sampled: 0,
     offers: {}, fits: {}, offerHands: 0, offersByClass: {},
+    fitsByClass: {}, fitsByProfile: {},
     hits: {}, hp: {}, launched: {}, minesLaid: 0, buoysDeployed: 0,
     maxEventDamage: 0, maxTickDamage: 0, maxTickByHull: {},
     oneTickKills: {}, oneEventKills: {}, killsByHull: {},
@@ -71,7 +85,9 @@ export function buildCatalogAggregate(result: BatchResult): CatalogAggregate {
     for (const hull of Object.keys(c.maxGunOnlyTick)) {
       agg.maxGunOnlyTick[hull] = Math.max(agg.maxGunOnlyTick[hull] ?? 0, c.maxGunOnlyTick[hull]);
     }
-    for (const cls of Object.keys(c.offersByClass)) addInto((agg.offersByClass[cls] ??= {}), c.offersByClass[cls]);
+    addSlices(agg.offersByClass, c.offersByClass);
+    addSlices(agg.fitsByClass, c.fitsByClass);
+    addSlices(agg.fitsByProfile, c.fitsByProfile);
     for (const hull of Object.keys(c.maxTickByHull)) {
       agg.maxTickByHull[hull] = Math.max(agg.maxTickByHull[hull] ?? 0, c.maxTickByHull[hull]);
     }
@@ -121,7 +137,7 @@ export function renderCatalogLines(label: string, agg: CatalogAggregate): string
   const lines: string[] = [`== CATALOG LINES ${label} ==`];
   lines.push(`ledgered matches: ${agg.sampled} | materialized offer hands: ${agg.offerHands}`);
   lines.push('OFFER% is policy-free (deck + offer roll). FIT% carries the spender policy');
-  lines.push('(pilots.pickSpendChoice for captains, profile weights for bots) — never read it as taste.');
+  lines.push('(spendPolicy.pickSpendChoice for the scripted control, profile weights for bots) — never read it as taste.');
   const ids = Object.keys(BOON_CATALOG).sort();
   const idW = Math.max(...ids.map((i) => i.length));
   lines.push(`${'line'.padEnd(idW)} | offers | offer% | fits  | fit/offer`);
@@ -138,6 +154,32 @@ export function renderCatalogLines(label: string, agg: CatalogAggregate): string
   const unpicked = ids.filter((id) => (agg.offers[id] ?? 0) > 0 && (agg.fits[id] ?? 0) === 0);
   lines.push(`NEVER OFFERED: ${never.length === 0 ? '(none)' : never.join(' ')}`);
   lines.push(`OFFERED BUT NEVER FITTED: ${unpicked.length === 0 ? '(none)' : unpicked.join(' ')}`);
+  return lines;
+}
+
+/** BLOCK B½ (wave 4) — fits sliced by CLASS and by SPENDER (profile id for a
+ *  bot — in-game or test-only row — else the ship's role). Deterministic:
+ *  outer and inner keys both sorted, plain tallies, no wall clock. The class
+ *  slice is the observed numerator the structural deck-composition block is
+ *  the denominator for; the profile slice is the blind-vacuum rig's per-row
+ *  read. */
+export function renderFitSlices(label: string, agg: CatalogAggregate): string[] {
+  const lines: string[] = [`== FITS BY CLASS / SPENDER ${label} ==`];
+  lines.push(...sliceLines('by class', agg.fitsByClass));
+  lines.push(...sliceLines('by spender', agg.fitsByProfile));
+  return lines;
+}
+
+/** One slice: `key: id=n id=n ...` per sorted outer key (sorted inner ids). */
+function sliceLines(title: string, slice: Record<string, Record<string, number>>): string[] {
+  const outer = Object.keys(slice).sort();
+  if (outer.length === 0) return [`${title}: (none)`];
+  const lines: string[] = [`${title}:`];
+  for (const key of outer) {
+    const ids = Object.keys(slice[key]).sort();
+    const cells = ids.map((id) => `${id}=${slice[key][id]}`);
+    lines.push(`  ${key.padEnd(18)} ${cells.length === 0 ? '(none)' : cells.join(' ')}`);
+  }
   return lines;
 }
 

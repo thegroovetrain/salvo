@@ -36,8 +36,27 @@
 // world.js outright and makes perception.js type-only for this directory.
 
 import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
+import { profileOf } from './profiles.js';
 import { COMBAT_BRAIN } from './tactics.js';
-import type { BotBrain, BotDecision, BotMind, BotProfileId, BotTickEntry, BotWorldPort } from './types.js';
+import type {
+  AnyProfileId,
+  BotBrain,
+  BotDecision,
+  BotEngageGate,
+  BotMind,
+  BotTickEntry,
+  BotWorldPort,
+} from './types.js';
+
+/** The MIND-STREAM multiplier — per-enrollment decorrelation of the mind's own
+ *  rng (aim scatter). Named so its sibling below reads as the pair it is. */
+const MIND_STREAM_K = 0x9e3779b9;
+/** The SPEND-STREAM multiplier (Story 7-6 wave 4) — a DISTINCT odd constant
+ *  (unused by any other stream mint in the codebase), so the random-spend
+ *  stream can never collide with the mind stream at any enrollment count:
+ *  `seed + n·K1` and `seed + m·K2` coincide only where n·K1 ≡ m·K2 (mod 2^32),
+ *  unreachable at lobby-sized n, m with these two constants. */
+const SPEND_STREAM_K = 0x7f4a7c15;
 
 /**
  * The deliberation-stagger slot for a bot id: FNV-1a over the id, mod the
@@ -102,6 +121,16 @@ export class BotController {
   private enrollCounter = 0;
   /** The pluggable brain — the real profile-driven tactics since wave 3. */
   private readonly brain: BotBrain = COMBAT_BRAIN;
+  /**
+   * THE ENGAGE GATE (Story 7-6 wave 4) — 'always' is the shipped behaviour
+   * and the default, so nothing in production moves. Under 'endgame' every
+   * bot runs the brain's HELD decision (sail the ring rhythm, spend levels,
+   * never target or fire) until `port.zoneEndgameReached` — which is FALSE
+   * while the zone timeline is idle, so a gated bot can never degenerate into
+   * a plain always-engage bot before the match arms. Set only by the
+   * batch-sim harness (`--bot-engage endgame`), before any tick runs.
+   */
+  engage: BotEngageGate = 'always';
 
   constructor(port: BotWorldPort, seed: number) {
     this.port = port;
@@ -134,7 +163,7 @@ export class BotController {
   }
 
   /** A bot's assigned priority profile (testing/inspection only). */
-  profileOf(id: string): BotProfileId | null {
+  profileOf(id: string): AnyProfileId | null {
     return this.minds.get(id)?.profile ?? null;
   }
 
@@ -157,19 +186,33 @@ export class BotController {
    * identical whether or not a class was supplied: an enrollment count is the
    * only thing that advances the stream, never the caller's choice. NO
    * behaviour change — a bot's brain does not know where its class came from.
+   *
+   * `profile` (Story 7-6 wave 4) is the batch-sim harness's door to the
+   * TEST-ONLY rows and obeys the SAME stream discipline: the profile roll
+   * still happens off the class the roll landed on, and is then discarded —
+   * so every downstream draw (callsign order, every later enrollment's class
+   * and mind seed) is byte-identical whether or not a profile was forced. A
+   * forced profile also governs the HULL (each row is hull-bound by
+   * construction), so a caller passes the profile alone. The in-game path
+   * (ArenaRoom.buildBotFleet) never passes one, and the rolled profile comes
+   * from CONFIG.bots.profiles — which contains no test id — so a real Solo vs
+   * AI opponent can never carry a test row.
    */
-  enroll(id: string, hull?: ShipClassId): { name: string; hullId: ShipClassId } {
+  enroll(id: string, hull?: ShipClassId, profile?: AnyProfileId): { name: string; hullId: ShipClassId } {
     this.enrollCounter += 1;
     const rolled = this.rng.pick(SHIP_CLASS_IDS);
-    const hullId = hull ?? rolled;
-    const profile = this.rng.pick(CONFIG.bots.profiles[hullId]);
+    const rolledHull = hull ?? rolled;
+    const rolledProfile = this.rng.pick(CONFIG.bots.profiles[rolledHull]);
+    const prof: AnyProfileId = profile ?? rolledProfile;
+    const hullId = profile === undefined ? rolledHull : profileOf(profile).hullId;
     const name = this.drawCallsign();
     this.minds.set(id, {
-      rng: mulberry32((this.seed + this.enrollCounter * 0x9e3779b9) >>> 0),
+      rng: mulberry32((this.seed + this.enrollCounter * MIND_STREAM_K) >>> 0),
+      spendRng: mulberry32((this.seed + this.enrollCounter * SPEND_STREAM_K) >>> 0),
       seq: 0,
       fireSeq: 0,
       actSeq: 0,
-      profile,
+      profile: prof,
       phase: botPhase(id, this.cadenceTicks),
       view: null,
       viewAt: -1,
@@ -258,7 +301,14 @@ export class BotController {
     // Deliberation (target reselection, posture, spends) runs on this bot's
     // own stagger slot; steering and firing are emitted every tick.
     const deliberate = (this.tickCount + mind.phase) % this.cadenceTicks === 0;
-    this.submit(e.id, mind, this.brain.decide(e.self, mind, this.port, deliberate));
+    // THE ENGAGE GATE: while closed, the HELD decision — full ring rhythm and
+    // economy, zero weapons. Perception stays per-tick either way (a fairness
+    // gate may hold a bot's fire; it may never delete its perception).
+    const held = this.engage === 'endgame' && !this.port.zoneEndgameReached;
+    const d = held
+      ? this.brain.decideHeld(e.self, mind, this.port, deliberate)
+      : this.brain.decide(e.self, mind, this.port, deliberate);
+    this.submit(e.id, mind, d);
   }
 
   /** Fold a decision into one validated InputMsg (and at most one spend). */

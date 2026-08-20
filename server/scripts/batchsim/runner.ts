@@ -4,13 +4,13 @@
 // collect stats. World + Match are Colyseus-free and wall-clock-free, so the
 // harness constructs them DIRECTLY (the drones.test.ts fillingHooks pattern):
 // no sockets, no rooms, no frame/perception builds anywhere in the hot loop —
-// the loop is exactly `pilots(); world.step(); match.update(); observe()`.
-// The later load-test / bot-vs-bot duties reuse runMatch with a different
-// PilotFactory (see pilots.ts) and their own collectors; nothing here knows
-// what a pilot is beyond the CaptainPilot interface.
+// the loop is exactly `controls(); world.step(); match.update(); observe()`.
+// The later load-test duty reuses runMatch with a different ControlFactory
+// (see controls.ts) and its own collectors; nothing here knows what a control
+// is beyond the CaptainControl interface.
 //
 // Determinism: matchSeed = mixSeed(runSeed, matchIndex); every stream in the
-// match (map, spawns, drones, decks, pilots) derives from it. No Math.random,
+// match (map, spawns, drones, decks, controls) derives from it. No Math.random,
 // no Date.now — wall-clock metadata lives in main.ts, outside the run key.
 //
 // Timings: production CONFIG.match values EXCEPT a short 1000ms countdown,
@@ -33,7 +33,10 @@ import {
 import { World, type ShipRecord } from '../../src/game/world.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
 import { isFleetHull } from '../../src/game/participants.js';
-import { PILOT_REGISTRY, type CaptainPilot, type PilotFactory } from './pilots.js';
+import { CONTROL_REGISTRY, type CaptainControl, type ControlFactory } from './controls.js';
+import { BOT_PROFILE_SCHEME } from './args.js';
+import { TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
+import type { BotEngageGate, TestProfileId } from '../../src/game/ai/types.js';
 import { BotCollector, type BotSample } from './botMetrics.js';
 import { CatalogCollector, type CatalogSample } from './catalogMetrics.js';
 import { mixSeed, tally } from './stats.js';
@@ -57,12 +60,26 @@ export interface RunSpec {
   matches: number;
   captains: number;
   /**
-   * COMBAT BOTS in the lobby (Story 6.4, wave 4). Deliberately NOT a pilot:
+   * COMBAT BOTS in the lobby (Story 6.4, wave 4). Deliberately NOT a control:
    * bots drive themselves from World's `botsTick` STEP_ORDER row, so the lobby
-   * only has to CONSTRUCT them (world.addBot) and the per-tick pilot loop
+   * only has to CONSTRUCT them (world.addBot()) and the per-tick control loop
    * stays empty for them. Default 0 => every existing run key is byte-identical.
    */
   bots?: number;
+  /**
+   * TEST-ONLY profile forcing (Story 7-6 wave 4): a TestProfileId forces every
+   * bot onto that row; the 'random' scheme deals the three test rows
+   * round-robin (TB, BS, ML). Validated upstream by args.ts — only test ids
+   * ever arrive here, so the in-game rolled path (undefined) is the only way
+   * an in-game profile is assigned. A forced profile governs the hull, so
+   * addBot is called with the profile alone.
+   */
+  botProfile?: string;
+  /** The controller-level engage gate; default 'always' (shipped behaviour). */
+  botEngage?: BotEngageGate;
+  /** Scripted captain control factory; defaults to the storm-pacing pacifist
+   *  (CONTROL_REGISTRY.pacifist — the only row there is). */
+  control?: ControlFactory;
   /**
    * LOBBY HULL POLICY (see rotate/botHull). 'rolled' — the default and the
    * shipped behaviour — lets each bot roll its own class off the controller's
@@ -81,8 +98,35 @@ export interface RunSpec {
    * Undefined => 'rolled' => every existing run key is byte-identical.
    */
   roster?: 'even' | 'rolled';
-  /** Pilot factory; defaults to the v1 gunner (PILOT_REGISTRY.gunner). */
-  pilot?: PilotFactory;
+}
+
+/** The forced test profile for bot ordinal `i`, or undefined for the shipped
+ *  rolled path. Pure so the deal order is part of the reproducible run key. */
+export function botProfileFor(spec: Pick<RunSpec, 'botProfile'>, i: number): TestProfileId | undefined {
+  if (spec.botProfile === undefined) return undefined;
+  if (spec.botProfile === BOT_PROFILE_SCHEME) return TEST_PROFILE_IDS[i % TEST_PROFILE_IDS.length];
+  return spec.botProfile as TestProfileId;
+}
+
+/** THE BOT LOBBY (Story 6.4 wave 4; profile/engage forcing in 7-6 wave 4) —
+ *  construction IS the whole job: addBot() enrolls off the controller's own
+ *  seeded stream and the brain drives itself from World's `botsTick` row.
+ *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
+ *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
+function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
+  if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
+  const ids: string[] = [];
+  for (let i = 0; i < botCount; i += 1) {
+    const profile = botProfileFor(spec, i);
+    // WHICH DEALER WINS THE HULL. A forced TEST profile is per-hull
+    // (randomTorpedoBoat / randomBattleship / randomMineLayer), so it governs
+    // the class and the roster policy must not fight it — passing a hull too
+    // would let `--roster even` silently put a randomMineLayer row on a
+    // battleship. On the rolled path (no forcing) the roster policy deals as
+    // it does for captains.
+    ids.push(world.addBot(profile === undefined ? botHull(spec, index, i) : undefined, profile).id);
+  }
+  return ids;
 }
 
 export interface ReachSample {
@@ -137,8 +181,8 @@ export interface MatchSample {
    *  per-captain aggregates (see departedCaptains). */
   captains: CaptainSample[];
   /** Captain ids whose ship was gone at collection time (Match.onPlayerLeave
-   *  removes the ship). Today's scripted pilots never leave, so this is always
-   *  empty; it exists so a leave-capable pilot cannot crash the batch, and so
+   *  removes the ship). Today's scripted control never leaves, so this is
+   *  always empty; it exists so a leave-capable control cannot crash the batch, and so
    *  the exclusion is REPORTED rather than silent. */
   departedCaptains: string[];
   /** One row per COMBAT BOT in the lobby (Story 6.4, wave 4). OPTIONAL for the
@@ -358,8 +402,8 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     // and the sample carries no combat at all. A `--captains 1 --bots N` run
     // is NOT (Story 6.4): bots are participants, so the match runs and the
     // fighting is real — that IS the solo-vs-AI shape. Story 6-5 still owes
-    // the ratified termination rule; until then, PILOT-vs-PILOT batch
-    // evidence needs >= 2 captains or >= 1 bot in the lobby.
+    // the ratified termination rule; until then, batch COMBAT evidence needs
+    // >= 1 bot in the lobby (the scripted control never fires).
     //
     // A BOT-ONLY LOBBY NEEDS ZERO (wave 4). `humanCount()` counts role
     // 'captain' ONLY — by design, FR34 — so a `--captains 0 --bots N` run would
@@ -371,8 +415,8 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     minHumans: spec.captains > 0 ? 1 : 0,
   };
   const match = new Match(world, timings, harnessHooks());
-  const factory = spec.pilot ?? PILOT_REGISTRY.gunner;
-  const pilots: CaptainPilot[] = [];
+  const factory = spec.control ?? CONTROL_REGISTRY.pacifist;
+  const controls: CaptainControl[] = [];
   const captainIds: string[] = [];
   // CAPTAINS TAKE THE SAME ROTATION AS THE BOTS under 'even'. Dealing them the
   // un-offset `i % 3` while the bots rotate leaves the captain half of a mixed
@@ -386,27 +430,23 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     const id = `cap-${i + 1}`;
     captainIds.push(id);
     world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i));
-    pilots.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
+    controls.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
   }
-  // THE BOT LOBBY (wave 4) — construction IS the whole job. World.addBot rolls
-  // the priority profile and callsign off the BotController's own seeded stream
-  // (and the CLASS too, unless botHull deals one) and places the hull through
-  // the same spawn lattice a human uses; the brain then drives itself from
-  // World's `botsTick` STEP_ORDER row. There is no bot pilot and nothing
-  // bot-shaped in the per-tick loop below.
-  const botIds: string[] = [];
-  for (let i = 0; i < botCount; i += 1) botIds.push(world.addBot(botHull(spec, index, i)).id);
+  // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
+  // bot-shaped in the per-tick loop below. The roster policy deals the hull
+  // and the test rig deals the profile; buildBotLobby resolves which wins.
+  const botIds = buildBotLobby(world, spec, botCount, index);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);
   const catalog = new CatalogCollector();
   // Tick budget from the SHARED time-to-closed helper: the full phased
   // timeline (12:00 at production CONFIG — ~14400 ticks) + countdown + endgame
-  // slack. Honest but bounded: a pacifist full run fits comfortably; nothing
+  // slack. Honest but bounded: a full control run fits comfortably; nothing
   // spins forever on a degenerate override (zoneClosedAtMs fails closed to 0).
   const tickCap = Math.ceil((COUNTDOWN_MS + zoneClosedAtMs(CONFIG.zone) + ENDGAME_SLACK_MS) / CONFIG.tick.simDtMs);
   for (let tick = 0; tick < tickCap; tick += 1) {
-    for (const p of pilots) p.tick(world);
+    for (const c of controls) c.tick(world);
     world.step();
     match.update();
     collector.observe(world, match);

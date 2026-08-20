@@ -4,16 +4,17 @@
 // FIRST DUTY of the triple-duty harness: an IN-PROCESS headless batch sim.
 // World + Match are Colyseus-free and wall-clock-free, so N full matches run
 // directly in one node process — no sockets, no rooms, no frames — with
-// scripted captains + drone fill and deterministic seeded pilots. See
-// batchsim/runner.ts (the runner seam) and batchsim/pilots.ts (the pilot
-// seam + spend policy): those two interfaces are the documented reuse points
-// for the later load-test and bot-vs-bot duties (AR12).
+// a scripted storm-pacing control + drone fill, all deterministically seeded.
+// See batchsim/runner.ts (the runner seam) and batchsim/controls.ts (the
+// control seam; the spend policy lives in batchsim/spendPolicy.ts): those
+// interfaces are the documented reuse points for the later load-test and
+// bot-vs-bot duties (AR12).
 //
 // SECOND DUTY, since Story 6.4: the BOT-VS-BOT instrument (`--bots N`). Story
 // 6.4 ships no playable path at all (Eric ruling A1 — Story 6-5 wires the
 // mode), so this harness is the ENTIRE verification instrument for combat-bot
 // quality and its report carries the spec's quality bar with a PASS/FAIL per
-// row. A bot needs NO pilot: it drives itself from World's `botsTick`
+// row. A bot needs NO control: it drives itself from World's `botsTick`
 // STEP_ORDER row, so "bot mode" is a lobby constructor (world.addBot() x N)
 // plus the read-only observer in batchsim/botMetrics.ts. A bot-only lobby
 // drops the harness's dev minHumans to 0 — `humanCount()` counts real captains

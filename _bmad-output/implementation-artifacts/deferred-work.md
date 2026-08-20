@@ -297,10 +297,11 @@ Story 2-10 (spec-2-10-economy-batch-sim-harness.md) shipped the triple-duty harn
   evidence: batch-sim-evidence-2026-07-31.md campaign matrix (roster baselines, levelMs sweeps showing picks mean 0.72–3.80 across all variants; zone sweep showing insensitivity at current pilot lethality); Eric ratified the attribution at the amendment-55 checkpoint.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-10-economy-batch-sim-harness.md`
   summary: Doctrine-rival cards never leave circulation — once a doctrine is fitted, its rival presents as a free REPLACE forever (ratified ping-pong, amendment 44), so decks floor at the rival cards instead of emptying; "deck exhausted" in the harness is defined as empty-or-terminal-rivals-only. Awareness entry, no rule change proposed; revisit only if live play shows late-game offers degenerating to rival spam.
-  evidence: Wave-2 implementation finding (spend-policy loop never terminated under always-prefer-exclusive); documented in server/scripts/batchsim/pilots.ts and deckSim.ts headers; visible in the evidence report's depletion stats.
+  evidence: Wave-2 implementation finding (spend-policy loop never terminated under always-prefer-exclusive); documented in server/scripts/batchsim/controls.ts (renamed from pilots.ts, cycle 110) and deckSim.ts headers; visible in the evidence report's depletion stats.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-10-economy-batch-sim-harness.md`
   summary: Harness pilot fidelity bounds what the evidence can claim — GunnerPilot is omniscient (no fog/perception costs) and near-optimal at gunnery, so match lengths are LOWER bounds and kill rates UPPER bounds on human play; economy conclusions drawn from it should be re-checked once Epic 6's utility-AI bots (perception-honest, staggered) exist — the harness's bot-vs-bot third duty is the natural vehicle.
   evidence: Documented v1 tradeoff in pilots.ts (per the 2-10 spec's "omniscient in-process for v1" ruling); dronesSmoke-lineage hunt logic; Epic 6 / AR12 own the honest-bot evolution.
+  status: RESOLVED 2026-08-20 (cycle 110, epic-7 amendment 29). The omniscient lethal pilot is DELETED rather than re-checked: `gunner` read `world.ships` to pick and lead targets and is obsolete now that perception-honest bots exist (Story 6-4), and it is structurally unable to evaluate the intel/counter-intel half of the finalized catalog because it never uses a sensor. The lethality baseline is now `--bots N`. `pacifist` SURVIVES as a frozen storm-pacing control and is NOT covered by this entry — it never targets or fires, so it reads only its own ship record, the live ring and the island list, all of which a real client already holds; its omniscience was always inert.
 
 ## 2026-08-01 — Home Page Maintenance Patch (spec-home-page-maintenance.md)
 
@@ -363,7 +364,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
   summary: Island pockets inside the terminal ring — islands inside the 660u endgame ring create no-fire LOS shadows with ZERO storm pressure to dislodge a hull sitting in them (island-LOS blocking is Eric-ratified doctrine 2026-08-02, so this is an observation, not a defect claim). The 3-4 probe measured real matches where a beached hull behind such a rock was unhittable from the approach line (perp offsets 18-43u vs island radii 49-88u) until the attacker flanked. Competent movement resolves it (the seamanship-v2 instrument concluded 50/50), but endgame FEEL with rocks-as-final-cover is an Eric review item once humans play the 12:00+ ring — possible future knobs: island budget/size inside the terminal ring at mapgen, or nothing (Rat Covenant: hiding is legal but priced — though inside the ring the storm exacts no price).
   evidence: batch-sim-evidence-2026-08-02.md (probe geometry of endgame seed-4 idx 8/40 and gunner seed-1 idx 80); generateMap has no terminal-ring-aware island rule (rings roll per-match on a server-private stream AFTER the map exists, so mapgen cannot know the final ring today — any fix is design-level).
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-4-the-endgame-guarantee.md`
-  summary: Drones never un-beach — server/src/game/drones.ts drive AI has no astern/stuck-detection behavior, so a drone that grounds on an island is pinned for the rest of the match (speed ×islandSpeedMult every contact tick, rudder authority scales with speed). The 3-4 probes caught beached drones sitting immortal-behind-cover at full HP for 600+s until captains flanked. Harmless-ish today (drones are weaponless piñatas and captains can always finish them), but Epic 6's combat-bot AI (6-4) must ship real seamanship — the scripted-pilot un-beach v2 pattern (stuck-detect → rotate-away astern via islandAvoid cross-product sign, negated for signed sternway authority → heading-hold grace; server/scripts/batchsim/pilots.ts) is the proven reference implementation.
+  summary: Drones never un-beach — server/src/game/drones.ts drive AI has no astern/stuck-detection behavior, so a drone that grounds on an island is pinned for the rest of the match (speed ×islandSpeedMult every contact tick, rudder authority scales with speed). The 3-4 probes caught beached drones sitting immortal-behind-cover at full HP for 600+s until captains flanked. Harmless-ish today (drones are weaponless piñatas and captains can always finish them), but Epic 6's combat-bot AI (6-4) must ship real seamanship — the scripted-pilot un-beach v2 pattern (stuck-detect → rotate-away astern via islandAvoid cross-product sign, negated for signed sternway authority → heading-hold grace; server/scripts/batchsim/controls.ts — RENAMED from pilots.ts in cycle 110; the un-beach machinery survived the pilot retirement intact and is exercised by `pacifist`) is the proven reference implementation.
   evidence: 3-4 probe dumps (drone-12 frozen at one pose hp-flat for 720s; drone-3/drone-9 beached full-HP through the whole endgame); amendment 25 fixed the scripted captains only — production drones.ts deliberately untouched (zero production changes was a 3-4 spec boundary).
   update_2026-08-06: PARTIALLY RELIEVED by the cycle-59 grounding fix (Eric ruling "boundary + directional damp"), NOT closed. The PHYSICS half of this entry is gone: the per-tick `speed ×islandSpeedMult` multiplier that collapsed a grounded hull to 0.083 u/s (and its rudder authority to 0.24 deg/s) is replaced by a DIRECTIONAL, non-compounding speed CAP in `shared/src/sim/collision.ts` (`applyGroundingDamp`) — a grounded hull now holds `islandSpeedMult × rated maxSpeed` (8.75 u/s for a battleship, above its 8 u/s steerage speed), so ANY hull that applies helm turns off a rock in seconds, drones included, through the same input pipeline. A grazing contact now costs no way at all, so a drone brushing a coastline is not slowed at all. What REMAINS open is exactly the AI half this entry names: `drones.ts` still has no stuck-detection and still only orders ahead, so a drone that beaches bow-on with rudder amidships has no reason to apply helm and will sit there — it simply is no longer PHYSICALLY unable to leave. Epic 6-4 still owns real seamanship; the scripted-pilot un-beach v2 pattern is still the reference implementation. Deliberately out of scope for cycle 59 (drone AI was a stated non-goal).
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-4-the-endgame-guarantee.md`
@@ -495,6 +496,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 - source_spec: `_bmad-output/implementation-artifacts/spec-weapon-balance-and-radar-vector-length.md`
   summary: THE BATCH-SIM HARNESS IS BLIND TO THREE OF THE FOUR WEAPONS RETUNED THIS CYCLE. Its `gunner` pilot fires slot 0 only, so the torpedo, mine, and cannon changes are structurally invisible to every before/after column — the measured +30% match length is close to a pure read of the GUN nerf alone. Concretely this made the Mine Layer's win share appear to FALL (31 -> 26 of 200) in the same cycle that buffed the mine hardest, purely because the harness never lays one. A multi-slot pilot (or per-slot pilots) would make future weapon rebalances measurable rather than partially observable. Natural home: whichever cycle next touches `server/scripts/batchsim/pilots.ts`, or a standalone harness chore.
   evidence: `server/scripts/batchsim/pilots.ts` (gunner fires slot 0); `batch-sim-evidence-2026-08-04.md` "Caveats of record" and the ML win-share row, which is explicitly annotated as a harness blind spot rather than a balance finding.
+  status: DISSOLVED 2026-08-20 (cycle 110, epic-7 amendment 29) — the premise is gone rather than the gap closed. `gunner` no longer exists, so there is no slot-0 pilot to make multi-slot. Weapon coverage now comes from `--bots N`, whose bots fire every weapon they carry through `EQUIPMENT_TACTICS` (measured in the cycle-110 campaign: broadside, torpedo, mine, star shell, captive torpedo and buoy all launched, and the card ledger reports NEVER OFFERED (none) / OFFERED BUT NEVER FITTED (none)). Anyone re-reading this entry wanting a multi-slot SCRIPTED pilot should note the surviving script, `pacifist`, is a deliberate no-fire control and must stay that way.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-weapon-balance-and-radar-vector-length.md`
   summary: **matchSmoke step 4 STILL FAILS after this cycle's fixes, and the balance pass AGGRAVATED a pre-existing flake rather than causing it.** This UPDATES the 2026-07-17 "matchSmoke reliability hardening" entry above, which already named "torpedo-connect luck (steps 2/4)" as a failure mode and recorded **0/3 clean passes on the 0.16 baseline on this hardware**. The retune makes that step structurally harder: step 4 must land 2 torpedo hits inside the storm-free window, and the 12s -> 30s reload cuts the number of attempts in that window from roughly 7 to 2-4, so torpedo-connect luck now decides the step far more often. Two real fixes were made and KEPT because both are correct independent of the flake — `ZONE_OVERRIDE.beatMs` 30000 -> 45000 (the storm-free window must scale with the weapon cycle it accommodates; at 30s beats the storm demonstrably sank B before A could, failing `B sunk by undefined, expected A`), and the step-5 endgame budget is now DERIVED from `FULL_CLOSURE_MS` instead of a hardcoded 480000 (a bare beatMs bump had silently stranded it, producing `timeout: results broadcast`). Neither made the step reliably green, and the cycle deliberately STOPPED bumping numbers rather than tuning a documented-flaky harness by trial and error. NOT a regression introduced by the retune: all 2733 unit tests pass, and three of four smokes pass post-retune including TWO that exercise torpedo kills end-to-end (`weaponsSmoke` sinks a 150hp mineLayer with 3 fish; `dronesSmoke` sinks a drone) plus `combatSmoke` (gun kill, 125 -> 5 over 9-10 shells). The real fix remains what the 2026-07-17 entry proposed and no cycle has yet done: deterministic drone seeding, or a step-4 choreography that does not depend on torpedo-connect luck. Now materially more urgent — at a 30s reload this smoke is close to unusable as a gate.
@@ -1525,3 +1527,58 @@ and the next reader will again mistake a marker count for an open-work count.
   status: OPEN — a property the suite can no longer falsify; surfaced by the cycle-118 review gate
   summary: "THE OBSERVER-ANCHORED RESOLVERS READ `me.stats.radarRange`, NEVER `CONFIG`" IS NOW UNENFORCED. Amendment 30 deliberately KEEPS `muzzleFlashReach(me)`, the blip gate, the foghorn band divisor and the client dim ramp anchored on the observer's own stats rather than reverting them to flat literals — but with `intelRange` gone, every observer in every test resolves BASE stats, so a refactor that hardcoded `CONFIG.vision.radar` in those resolvers would pass the whole suite green. The comments assert the property; nothing tests it. Two partial pins survive and are the model for a fix: `foghorn.test.ts` pokes `stats.radarRange` to 1200 directly, and the mine-detect case pokes `sightRange`. Cheapest honest fix: one test per anchored resolver that pokes `stats.radarRange` and asserts the reach moves with it. Same class as the vacuous-ladder entry above.
   evidence: `server/src/game/signals.ts` `muzzleFlashReach`/`blipGate`; `server/src/__tests__/perception.test.ts` fuzz (no longer stacks a radar card). Review gate 2026-08-20, cycle 119.
+## 2026-08-20 — Cycle 110 (Solo vs AI doctrine pass): the Mine Layer follow-up, RULED
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-solo-ai-doctrine-pass.md`
+  status: RULED BY ERIC 2026-08-20, SCHEDULED as cycle 111 — deliberately NOT folded into PR #184, so
+    that PR's campaign evidence keeps describing the code it actually shipped and the retune gets its
+    own before/after baseline.
+  summary: THE MINE LAYER'S BOTS BUILD AND SAIL IT WORSE THAN CHANCE, AND THE CAUSE IS SURVIVAL, NOT
+    TARGET CHOICE. Cycle 110's controlled A/B (matched seed 11, 18 bots, 30 matches, spend policy the
+    only difference) put the ML at 4/30 wins under `forager`/`trapper` against 12/30 under RANDOM
+    picks. The orchestrator's first hypothesis — that `forager`'s `captain: 0.5` weight loses matches
+    by declining the fights that decide them — is **WRONG and is retracted**: Eric's playtest report
+    the same day describes exactly that avoidance as the CORRECT Mine Layer play (*"hanging back to
+    avoid getting killed in the first minute, and then slowly trying to find a PvE fleet to farm
+    on"*). The measurement that matters is SURVIVAL, and it corroborates him rather than the
+    hypothesis: the weighted ML lives **181.1s** against the random ML's **264.0s** (+46%), fitting
+    1.97 boons against 2.96 (+50%) and earning 4.29 levels against 6.58 (+53%). Eric's thesis —
+    *"It wants certain things, and when it gets them it is a powerhouse, it just needs to survive
+    until then"* — names precisely the thing the profiles fail at. NEITHER ML PROFILE ACTUALLY HANGS
+    BACK: `forager`'s band is 0.20–0.45R and `trapper`'s is 0.12–0.35R, the CLOSEST band of any
+    profile in the game. They are written as brawlers with a farming preference.
+    THE RULED CHANGE (Eric, 2026-08-20): re-band BOTH ML profiles OUTWARD and raise BOTH disengage
+    thresholds so they break off sooner — `forager` out toward the truesight boundary and beyond so
+    it farms at reach and sees trouble coming, `trapper` closer but off knife range (its mine's
+    astern ±60° arc genuinely needs something following it, so it may not be re-banded as far).
+    ALSO IN SCOPE, and a CORRECTION OF THIS CYCLE'S OWN WORK: amendment 29 demoted
+    `forager.mineCaptive` 2.4 → 0.9 on the reasoning that a captive mine's hostile-only trip cannot
+    farm fleet drones. The MECHANICAL FACT STANDS, but the conclusion drawn from it does not — Eric
+    ran CAPTIVE MINES and GUN BUOY together early and reports both as *"REALLY powerful"*. Captive is
+    not a FARMING tool, it is a SURVIVAL-AND-PAYOFF tool, which is exactly what a hull whose problem
+    is staying alive should want. Restore it as a wanted line for `forager`, and give `buoyGun` an
+    explicit line override in both ML tables — today it is named by NEITHER and falls through to a
+    bare category weight (forager 1.0 / trapper 2.0) despite being half of the combo Eric calls a
+    powerhouse. Eric's *"you just have to be lined up well and prepare"* additionally suggests the
+    captive/buoy PLACEMENT tactics should be prepared ahead of an engagement rather than sited
+    reactively; that is equipment-axis work in `ai/equipment.ts`, not a weight change.
+    NOT IN SCOPE HERE: hull/catalog balance. Eric: *"A lot of this is what the balance pass is going
+    to be for! But it still needs to play intelligently."* This entry is the INTELLIGENCE half only.
+  evidence: `bot-evidence-2026-08-20.md` §4 (the controlled A/B and both readings);
+    `server/src/game/ai/profiles.ts` `forager`/`trapper` rows (bands, appetite);
+    `shared/src/constants.ts` `CONFIG.bots.boonWeights.forager/.trapper`; epic-7 amendment 29's
+    "correction of record" section, which this entry PARTLY REVERSES on the `mineCaptive` weight;
+    Eric's playtest report, 2026-08-20.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-solo-ai-doctrine-pass.md`
+  status: OPEN — orchestrator hypothesis, UNVERIFIED, offered for the same follow-up
+  summary: `trapper` MAY UNDER-BUY THE DOMINANT DAMAGE SOURCE. In cycle 110's 30-match campaign the
+    GUN dealt ~198k hp of ~272k total participant damage (~73%), while mines dealt ~24k (under 9%).
+    `trapper` weights its `guns` CATEGORY at 1.6 — the lowest of its five categories — in favour of a
+    mine rack accounting for roughly a twelfth of the damage in the game. Random building, which buys
+    gun cards as readily as anything else, outperforms it. This is a SEPARATE hypothesis from the
+    survival finding above and was NOT ruled on; it may also dissolve entirely once the balance pass
+    moves mine numbers, since a mine rack worth more damage would justify the weighting. Do not act
+    on it without its own measurement.
+  evidence: `bot-evidence-2026-08-20.md` §3 ordnance ledger (damage by source);
+    `CONFIG.bots.boonWeights.trapper.cat.guns`.

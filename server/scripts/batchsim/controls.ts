@@ -1,81 +1,64 @@
-// Scripted captain pilots (amendment 54) + the deterministic spend policy.
+// THE SCRIPTED CONTROL — a frozen storm-pacing instrument, NOT an AI.
 //
-// THE PILOT SEAM (AR12 — the reuse contract the later load-test and bot-vs-bot
-// duties build on): a pilot is created per (captain, match) by a PilotFactory
-// out of PILOT_REGISTRY and driven by the runner exactly once per tick, BEFORE
+// WHAT THIS FILE IS NOW (cycle 110). It used to hold three scripted "pilots"
+// (gunner / endgame / pacifist), all of which read `world.ships` directly to
+// pick and lead a target. Perception-honest combat bots exist since Story 6.4
+// (`server/src/game/ai/`, driven from World's own `botsTick` row), so an
+// OMNISCIENT lethal script is no longer a baseline anyone should measure
+// against — it cannot even see the intel/counter-intel half of the catalog,
+// because it never uses a sensor. `gunner` and the lethal half of `endgame`
+// are DELETED. What survives is the one thing bots cannot give you: a frozen,
+// never-changing control that paces a match by the STORM alone.
+//
+// THE CONTROL'S OMNISCIENCE IS INERT. It never targets and never fires, so the
+// only world state it reads is the LIVE STORM RING (`world.zoneLiveRing`) and
+// the ISLAND LIST (`world.map.islands`) — both of which a real client already
+// holds: ring geometry rides ArenaState for the on-water render, and islands
+// are rebuilt client-side from the map seed. It reads no enemy pose, no hp, no
+// contact. That is why it can stay on `world` without being an honesty
+// tradeoff, and why it must stay PACIFIST: the moment anything here targets, it
+// becomes a cheating bot and belongs in `ai/` instead.
+//
+// WHAT IT IS FOR: a lethality-free lower bound on match PACING. A control match
+// runs the full storm timeline, so ~12:00 closure, the sudden-death collapse,
+// storm pressure, and picks-band reachability under long matches are all
+// measurable without a single shot fired. It also exercises the REAL spend
+// flow (world.spendPoint through the deterministic policy in spendPolicy.ts),
+// so the economy accrues and settles exactly as it does in a live match.
+//
+// THE CONTROL SEAM (AR12 — the reuse contract the later load-test duties build
+// on): a control is created per (captain, match) by a ControlFactory out of
+// CONTROL_REGISTRY and driven by the runner exactly once per tick, BEFORE
 // world.step(). Its ONLY channels into the simulation are the real wire entry
 // points a human client uses — world.submitInput(id, rawInputMsg) and
-// world.spendPoint(id, choice) — so swapping in a different factory (an Epic 6
-// perception-honest bot, a load-test firehose pilot) changes nothing in the
-// runner, the Match wiring, or the stats collectors.
-//
-// V1 pilots are deliberately OMNISCIENT: they read world.ships / world.map /
-// world.zoneLiveRing directly instead of a perception frame. That is an honesty
-// tradeoff accepted for ECONOMY tuning (the spec pins it): building
-// perception frames in the hot loop would burn the batch budget, and fog-
-// honest target selection is Epic 6's bot duty, not this story's.
-//
-// PACIFIST CONTROL (Story 3.1, amendment 6): PILOT_REGISTRY.pacifist is the
-// gunner with the hunt policy OFF — it never fires and never seeks targets,
-// but still rides the ring rhythm (live-ring safety + wander) and still spends
-// its levels through the real spend flow. Lethal (gunner) matches remain the
-// LOWER-BOUND baseline on match length; pacifist matches run the full storm
-// timeline so ~12:00 closure, storm pressure, and picks-band reachability
-// under long matches are measurable.
-//
-// ENDGAME INSTRUMENT (Story 3.4, amendment 23): PILOT_REGISTRY.endgame is the
-// SAME gunner with the hunt policy expressed as a world PREDICATE instead of a
-// flag — pacifist behavior (steer the ring rhythm, never target, never fire)
-// until the endgame ring is REACHED, then gunner behavior inside the terminal
-// ring. WHY the gate is not the final ring GROUP's start: gating at a group
-// start lets these omniscient pilots clear the field BEFORE 12:00, which is
-// exactly the evidence the Endgame Guarantee needs; gating at the endgame ring
-// makes every RESOLVED match structurally conclude past 12:00 with the fight
-// staged inside the terminal ring — the Story 3.4 evidence instrument for
-// "matches conclude past 12:00, no stalemate loop" (the geometric bar of
-// amendment 24).
-//
-// THE GATE READS `world.zoneEndgameReached`, NOT `zonePhase === 'closed'`
-// (sudden death, 2026-08-14). Those were the same instant until the collapse
-// group was appended; now full closure is 16:00 and the terminal 660u ring is
-// reached at 12:00 exactly as before. Holding the old equality would leave the
-// instrument pacifist for four more minutes and it would be measuring the
-// collapse instead of the endgame it was built for. The World owns the fact so
-// it is derived once (see world.ts). The gate consumes NO rng
-// (determinism is untouched — the wander branch only draws when there is no
-// target, and the predicate itself never draws), and it never reads
-// world.zoneStartMs (0 while idle) or ring geometry (test overrides run
-// terminalSightFactor 0). While idle the phase is 'idle', so the endgame pilot
-// can never degenerate into a plain gunner before the match arms.
-//
-// The endgame pilot is a MODELING instrument, not a human model: real captains
-// skirmish long before closure. It exists to prove the geometry concludes.
+// world.spendPoint(id, choice) — so swapping in a different factory (a
+// load-test firehose control) changes nothing in the runner, the Match wiring,
+// or the stats collectors.
 //
 // MINIMAL SEAMANSHIP — un-beaching (Story 3.4, amendment 25): "the instrument
-// must be able to reverse off a rock like any human can." Shared by ALL THREE
-// registry pilots, because steering is common to them.
+// must be able to reverse off a rock like any human can." Shared by every
+// registry control, because steering is common to them.
 // THE FAILURE MODE it fixes: a grounded hull takes the islandSpeedMult damp
 // every contact tick, so its speed collapses to a ~0.2 u/s crawl; rudder
-// authority scales with speed, so it cannot turn away either. These pilots
-// only ever ordered AHEAD (0.5 or 1), so a beached pilot was pinned to the
+// authority scales with speed, so it cannot turn away either. These scripts
+// only ever ordered AHEAD (0.5 or 1), so a beached hull was pinned to the
 // rock forever — the diagnosed cause of both cap-outs in the 50-match endgame
 // campaign. Humans have full astern; the instrument did not.
 // THE POLICY (counters only — NO rng anywhere in it, so determinism is
 // untouched; no new world accessors, only the hull's own pose and the island
-// list islandAvoid already reads): if the pilot ordered meaningful AHEAD yet
+// list islandAvoid already reads): if the control ordered meaningful AHEAD yet
 // made no ground for STUCK_TICKS straight, it orders FULL ASTERN for
 // UNBEACH_ASTERN_TICKS and then sails normally again. A forward GRACE window
-// (UNBEACH_GRACE_TICKS) blocks re-arming right after a burst. No targeting or
-// firing happens on astern ticks.
+// (UNBEACH_GRACE_TICKS) blocks re-arming right after a burst.
 //
 // V2 — BREAKING THE METRONOME (same amendment, second iteration). v1 backed
 // off with the rudder amidships, which retraced the SAME line; pickGoal then
-// steered straight back at the target and the hull re-beached on the same
-// rock. The rerun campaign still capped out 3/50 endgame + 1/200 gunner
-// matches, ALL FOUR diagnosed as exactly that loop (inter-burst gaps pinned at
-// the policy's own ~139-158 ticks, 60-97% of the endgame spent immobile),
-// while a lateral shift of only 78-153u would have opened LOS on the last
-// hull. Two changes, both deterministic:
+// steered straight back down it and the hull re-beached on the same rock. The
+// rerun campaign still capped out 3/50 endgame + 1/200 gunner matches, ALL
+// FOUR diagnosed as exactly that loop (inter-burst gaps pinned at the policy's
+// own ~139-158 ticks, 60-97% of the endgame spent immobile), while a lateral
+// shift of only 78-153u would have opened water on the last hull. Two changes,
+// both deterministic:
 //   1. ROTATE AWAY WHILE BACKING. The burst commands a nonzero rudder whose
 //      sign is taken from the same cross-product islandAvoid uses, against the
 //      NEAREST island in its lookahead cone, so the bow swings away from the
@@ -85,18 +68,18 @@
 //      of the forward-sense turn (see asternTurnRudder). Measured swing over a
 //      full burst: 39.5 deg battleship / 65.3 deg mineLayer / 92.8 deg
 //      torpedo boat.
-//   2. HOLD THE EXIT HEADING THROUGH THE GRACE. Target-seek is suppressed for
+//   2. HOLD THE EXIT HEADING THROUGH THE GRACE. Goal-seek is suppressed for
 //      the grace window and the rudder simply steers back onto the heading the
-//      hull left the burst on (same x3 gain), throttle and gunnery as normal.
-//      Without this the rotated approach line never commits — a battleship
-//      undoes the whole 39.5 deg in ~1.7 s of target-seek.
+//      hull left the burst on (same x3 gain), throttle as normal. Without this
+//      the rotated approach line never commits — a battleship undoes the whole
+//      39.5 deg in ~1.7 s of goal-seek.
 //
 // GRACE HOLD, EXACTLY (both reviewers confirmed this tick-by-tick — see
 // wantsAstern): the burst's last astern tick (the exit-heading capture tick)
 // arms graceTicks = UNBEACH_GRACE_TICKS = 60 but is itself still an astern
 // tick. Of the 60 grace ticks that follow, ticks 1-59 hold the captured exit
 // heading (holdRudder); on tick 60, graceTicks counts down to 0, holdHeading
-// is nulled BEFORE buildInput runs, so target-seek (seekRudder) resumes that
+// is nulled BEFORE buildInput runs, so goal-seek (seekRudder) resumes that
 // same tick — one tick before stuck-detection re-arms (the arming guard
 // `asternTicks === 0 && graceTicks === 0` first passes on tick 61). This seam
 // is harmless: detection is still fully suppressed on tick 60 regardless of
@@ -125,27 +108,11 @@
 // honestly as an `unresolved` cap-out (see runner.ts / report.ts). None
 // occurred across 250 campaign matches.
 //
-// Determinism: every pilot decision rides its own mulberry32 stream seeded by
-// the runner from (matchSeed, captain ordinal) — no Math.random, no Date.now.
+// Determinism: every decision rides its own mulberry32 stream seeded by the
+// runner from (matchSeed, captain ordinal) — no Math.random, no Date.now.
 // Same run key => byte-identical input streams (unit-pinned).
-//
-// SPEND POLICY (a measurement instrument, NOT canon AI — documented per the
-// spec): whenever a level is banked, spend immediately on the front offer;
-// with probability SPEND_TOP_P pick uniformly among the offer's HIGHEST-rarity
-// lines (exclusive > rare > common — the "slight preference order"), otherwise
-// uniformly among the whole offer. One refinement keeps the instrument honest:
-// a line ALREADY FITTED on this ship is demoted to common preference, so an
-// always-prefer-exclusive policy cannot fixate on a card it already holds.
-// (Until Story 7-5 wave 2 this clause also covered a fitted doctrine RIVAL,
-// because the swap returned the rival's card for a net-zero deck drain and the
-// policy would ping-pong the pair forever. Exclusivity is deleted — R2.6 — so
-// nothing returns to a deck and only the card's own copies matter.)
-// This exercises the real spendPoint/settleSpend path (acquisition scrub)
-// while keeping picks deterministic per stream.
 
 import {
-  BOON_CATALOG,
-  CONFIG,
   angleDiff,
   isAfloat,
   mulberry32,
@@ -156,64 +123,33 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
+import { pickSpendChoice } from './spendPolicy.js';
 
 /** One scripted captain: drive your ship (and spend your levels) this tick. */
-export interface CaptainPilot {
+export interface CaptainControl {
   readonly id: string;
   tick(world: World): void;
 }
 
-/** Builds a pilot for captain `id` on a deterministic seed. */
-export type PilotFactory = (id: string, seed: number) => CaptainPilot;
+/** Builds a control for captain `id` on a deterministic seed. */
+export type ControlFactory = (id: string, seed: number) => CaptainControl;
 
-/** Should the pilot seek and shoot targets THIS tick? Evaluated once per tick
- *  against the live world. MUST be pure and rng-free (see header). */
-export type HuntPolicy = (world: World) => boolean;
-
-/** Probability the spend policy takes the highest-rarity line (else uniform). */
-export const SPEND_TOP_P = 0.75;
-
-const RARITY_RANK: Record<string, number> = { common: 0, rare: 1, exclusive: 2 };
-
-/** Preference rank of one offer line for `fitted` — the already-held demotion
- *  documented in the header. */
-function preferenceRank(id: string, fitted: readonly string[]): number {
-  const def = BOON_CATALOG[id];
-  if (def === undefined) return 0;
-  if (fitted.includes(id)) return 0;
-  return RARITY_RANK[def.rarity] ?? 0;
-}
-
-/** The deterministic spend policy, shared by pilots AND the deck-only mode.
- *  `fitted` = the ship's currently-applied boon ids (ship.boons). */
-export function pickSpendChoice(offer: readonly string[], rng: Rng, fitted: readonly string[]): number {
-  const ranks = offer.map((id) => preferenceRank(id, fitted));
-  const best = Math.max(...ranks);
-  const top: number[] = [];
-  for (let i = 0; i < offer.length; i += 1) if (ranks[i] === best) top.push(i);
-  if (rng.next() < SPEND_TOP_P) return top[Math.floor(rng.next() * top.length)];
-  return Math.floor(rng.next() * offer.length);
-}
-
-// --- gunner pilot tunables (script behavior, not game balance) ---------------
+// --- control tunables (script behavior, not game balance) -------------------
 const ZONE_SAFETY = 0.8; // steer for the ring center once outside this fraction of the live ring
-const FIRE_RANGE_FACTOR = 0.65; // click only inside this fraction of effective gun range (accuracy over reach)
-const CLOSE_RANGE_U = 150; // throttle down inside this range (hold steerage, keep tracking)
 const WAYPOINT_REACHED_U = 60; // wander waypoint retarget distance
 const ISLAND_LOOKAHEAD_U = 160; // dronesSmoke huntTick avoidance horizon
 
 // --- un-beach seamanship (Story 3.4, amendment 25) ---------------------------
 // All four numbers are TICK/UNIT counters — no rng, no world accessors beyond
 // the ship's own pose. See the header for the ruling and the failure mode.
-/** Ordered-throttle floor that counts as "meaningful ahead" (the pilot only
- *  ever emits 0.5 or 1 forward, so this separates ahead from astern/stop). */
+/** Ordered-throttle floor that counts as "meaningful ahead" (the control only
+ *  ever emits 1 forward, so this separates ahead from astern/stop). */
 const STUCK_THROTTLE_MIN = 0.4;
 /** Per-tick displacement (u) below which a hull ordered AHEAD is not moving.
  *  0.1 u/tick = 2 u/s, which cleanly separates the two regimes: a permalocked
  *  hull crawls at ~0.2-0.25 u/s (~0.01 u/tick — the islandSpeedMult damp
- *  re-crushing speed every contact tick), while the SLOWEST intentional-slow
- *  order in this file (CLOSE_RANGE throttle 0.5 on the 35 u/s battleship) still
- *  makes 17.5 u/s = 0.875 u/tick. ~9x of headroom on both sides. */
+ *  re-crushing speed every contact tick), while even the SLOWEST hull under way
+ *  (the 35 u/s battleship) makes 1.75 u/tick. Wide headroom on both sides. */
 const STUCK_STEP_U = 0.1;
 /** Consecutive sub-threshold ticks before declaring the hull beached (1.5 s).
  *  The slowest hull (battleship, accel 5 u/s^2) passes 2 u/s within 0.4 s of
@@ -229,7 +165,7 @@ const UNBEACH_ASTERN_TICKS = 50;
  *  instead of metronoming between ahead and astern.
  *  EFFECTIVE HOLD (see the header for the full tick trace): of these 60
  *  ticks, 59 (ticks 1-59) are held-steering ticks onto the captured exit
- *  heading; tick 60 resumes target-seek one tick before stuck-detection
+ *  heading; tick 60 resumes goal-seek one tick before stuck-detection
  *  re-arms on tick 61 — harmless, since detection stays suppressed through
  *  tick 60 either way. */
 const UNBEACH_GRACE_TICKS = 60;
@@ -239,22 +175,6 @@ const UNBEACH_FALLBACK_RUDDER = 1;
 /** Proportional gain steering back to a stored heading — the same x3 idiom the
  *  normal goal-bearing rudder uses. */
 const HEADING_GAIN = 3;
-
-/** Nearest ALIVE non-self hull (deterministic: strict `<` keeps the earliest
- *  ships-map entry on ties — the world's own nearestEnemyCenter idiom). */
-function nearestEnemy(world: World, self: ShipRecord): { ship: ShipRecord; d: number } | null {
-  let best: ShipRecord | null = null;
-  let bestD = Infinity;
-  for (const ship of world.ships.values()) {
-    if (!isAfloat(ship.lifecycle) || ship.id === self.id) continue;
-    const d = Math.hypot(ship.state.x - self.state.x, ship.state.y - self.state.y);
-    if (d < bestD) {
-      bestD = d;
-      best = ship;
-    }
-  }
-  return best === null ? null : { ship: best, d: bestD };
-}
 
 /** Signed cross product of the hull's forward vector with the bearing to a
  *  point: > 0 = the point lies to PORT (CCW of the heading). The one geometric
@@ -270,11 +190,11 @@ function forwardCross(self: ShipRecord, px: number, py: number): number {
  * asternTurnRudder (cycle 51): the nearest point on this island's real COAST,
  * with the forward cross sign to it — or null when the island is not a threat
  * ahead. Keying on the coast rather than the bounding-circle centre is what
- * makes a pilot hug the shape of a ridge or a cove mouth instead of arcing
+ * makes the control hug the shape of a ridge or a cove mouth instead of arcing
  * around a phantom circle (a long landmass's tip can be dead ahead while its
  * centre is abeam).
  *
- * BROADPHASE IS MANDATORY (this runs per pilot per island per tick): the
+ * BROADPHASE IS MANDATORY (this runs per control per island per tick): the
  * bounding circle rejects before any polygon edge is visited. The forward
  * HALF-DISC filter both callers share is preserved exactly — dot(heading,
  * bearing) > 0, within ISLAND_LOOKAHEAD_U of the LAND (the old gate
@@ -332,30 +252,17 @@ function islandAvoid(world: World, self: ShipRecord): number {
   return bias;
 }
 
-/** Lead the target by straight-line shell flight time (dronesSmoke leadPoint,
- *  retargeted to the gun's shell speed). */
-function leadPoint(self: ShipRecord, target: ShipRecord, d: number): Vec2 {
-  const t = d / CONFIG.gun.shellSpeed;
-  return {
-    x: target.state.x + Math.cos(target.state.heading) * target.state.speed * t,
-    y: target.state.y + Math.sin(target.state.heading) * target.state.speed * t,
-  };
-}
-
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
 /**
- * The v1 economy pilot: seek the nearest live hull, lead the shot, click the
- * standard gun (slot 0 — 360°, flies to the clicked point) whenever the target
- * is comfortably inside effective range; stay inside the storm; wander a
- * seeded waypoint when nothing is alive nearby. Grown from dronesSmoke's
- * huntTick ideas onto the in-process world.submitInput seam.
+ * THE PACIFIST CONTROL (Story 3.1, amendment 6): stay inside the storm, wander
+ * a seeded waypoint otherwise, spend every banked level through the real spend
+ * flow — and never target, never aim, never fire. `aim`, `aimDist` and
+ * `fireSeq` are emitted as a constant 0 for the whole match, which is what
+ * makes the "never fires" pin structural rather than behavioural.
  */
-class GunnerPilot implements CaptainPilot {
+class PacifistControl implements CaptainControl {
   private seq = 0;
-  private fireSeq = 0;
-  private aim = 0;
-  private aimDist = 0;
   private waypoint: Vec2 | null = null;
   private readonly rng: Rng;
   // --- un-beach seamanship state (amendment 25): pure counters, no rng ---
@@ -374,12 +281,6 @@ class GunnerPilot implements CaptainPilot {
   constructor(
     readonly id: string,
     seed: number,
-    /** The hunt policy, evaluated per tick: `() => false` is the pacifist
-     *  control (never target, never fire); `(w) => w.zoneEndgameReached` is the
-     *  Story 3.4 endgame instrument (NOT `zonePhase === 'closed'` — those were
-     *  the same instant until sudden death appended the collapse group, and the
-     *  phase equality now fires four minutes late). Never consumes rng. */
-    private readonly hunt: HuntPolicy = () => true,
   ) {
     this.rng = mulberry32(seed);
   }
@@ -464,17 +365,16 @@ class GunnerPilot implements CaptainPilot {
   /** Full astern with the burst's captured rudder: back off the rock while
    *  swinging the bow AWAY from it, so the approach line the hull will sail
    *  next is a DIFFERENT one (amendment 25 v2 — rudder amidships retraced the
-   *  same line and metronomed). No targeting and no wander draw happen on
-   *  these ticks, so the pilot never fires while backing and the rng stream
-   *  stays untouched. */
+   *  same line and metronomed). No wander draw happens on these ticks, so the
+   *  rng stream stays untouched. */
   private asternInput(): InputMsg {
     return {
       seq: ++this.seq,
       throttle: -1,
       rudder: this.asternRudder,
-      aim: this.aim,
-      fireSeq: this.fireSeq,
-      aimDist: this.aimDist,
+      aim: 0,
+      fireSeq: 0,
+      aimDist: 0,
       slot: 0,
       fireT: 0,
       actSeq: 0,
@@ -483,27 +383,17 @@ class GunnerPilot implements CaptainPilot {
   }
 
   private buildInput(world: World, ship: ShipRecord): InputMsg {
-    const target = this.hunt(world) ? nearestEnemy(world, ship) : null;
     // Through the grace window the rudder HOLDS the exit heading instead of
-    // seeking; gunnery and throttle are untouched (amendment 25 v2).
-    const rudder = this.holdHeading === null ? this.seekRudder(world, ship, target) : this.holdRudder(ship);
-    const throttle = target !== null && target.d < CLOSE_RANGE_U ? 0.5 : 1;
-    if (target !== null && target.d <= ship.stats.gun.rangeU * FIRE_RANGE_FACTOR) {
-      // Click every tick while the solution holds: clicks are consumed, never
-      // queued, so the reload paces actual shots (dronesSmoke huntTick idiom).
-      const lead = leadPoint(ship, target.ship, target.d);
-      this.aim = Math.atan2(lead.y - ship.state.y, lead.x - ship.state.x);
-      this.aimDist = Math.min(Math.hypot(lead.x - ship.state.x, lead.y - ship.state.y), ship.stats.gun.rangeU);
-      this.fireSeq += 1;
-    }
+    // seeking (amendment 25 v2).
+    const rudder = this.holdHeading === null ? this.seekRudder(world, ship) : this.holdRudder(ship);
     return {
       seq: ++this.seq,
-      throttle,
+      throttle: 1,
       rudder,
-      aim: this.aim,
-      fireSeq: this.fireSeq,
-      aimDist: this.aimDist,
-      slot: 0, // the universal standard gun
+      aim: 0, // never aims: the control is pacifist by construction
+      fireSeq: 0, // never fires
+      aimDist: 0,
+      slot: 0,
       fireT: 0, // in-process: no latency, no claim (zero compensation)
       actSeq: 0,
       actSlot: 0, hornSeq: 0,
@@ -511,27 +401,26 @@ class GunnerPilot implements CaptainPilot {
   }
 
   /** The normal rudder: steer the goal bearing, biased clear of islands. */
-  private seekRudder(world: World, ship: ShipRecord, target: { ship: ShipRecord; d: number } | null): number {
-    const goal = this.pickGoal(world, ship, target);
+  private seekRudder(world: World, ship: ShipRecord): number {
+    const goal = this.pickGoal(world, ship);
     const brg = Math.atan2(goal.y - ship.state.y, goal.x - ship.state.x);
     return clamp(angleDiff(ship.state.heading, brg) * HEADING_GAIN + islandAvoid(world, ship), -1, 1);
   }
 
   /** The grace-window rudder: proportional steering back onto the heading the
    *  hull left the burst on. Nothing else may pull the bow around until the
-   *  window expires — the probe measured target-seek undoing a battleship's
+   *  window expires — the probe measured goal-seek undoing a battleship's
    *  whole 39.5 degree exit turn in ~1.7 s. No wander draw happens here. */
   private holdRudder(ship: ShipRecord): number {
     return clamp(angleDiff(ship.state.heading, this.holdHeading ?? ship.state.heading) * HEADING_GAIN, -1, 1);
   }
 
-  /** Storm first, target second, seeded wander third — all against the LIVE
-   *  ring (offset-center as of Story 3.1), never the map origin. */
-  private pickGoal(world: World, ship: ShipRecord, target: { ship: ShipRecord; d: number } | null): Vec2 {
+  /** Storm first, seeded wander second — all against the LIVE ring
+   *  (offset-center as of Story 3.1), never the map origin. */
+  private pickGoal(world: World, ship: ShipRecord): Vec2 {
     const ring = world.zoneLiveRing;
     const fromRingCenter = Math.hypot(ship.state.x - ring.cx, ship.state.y - ring.cy);
     if (fromRingCenter > ring.r * ZONE_SAFETY) return { x: ring.cx, y: ring.cy };
-    if (target !== null) return target.ship.state;
     if (this.waypoint === null || distTo(ship.state, this.waypoint) < WAYPOINT_REACHED_U) {
       const r = Math.sqrt(this.rng.next()) * ring.r * 0.6;
       const a = this.rng.next() * Math.PI * 2;
@@ -545,14 +434,10 @@ function distTo(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** The pilot registry — the swap point for Epic 6 duties (see header). */
-export const PILOT_REGISTRY: Record<string, PilotFactory> = {
-  gunner: (id, seed) => new GunnerPilot(id, seed, () => true),
-  // The no-hunt control (Story 3.1): same seeded steering/spending instrument,
-  // hunt policy off — proves storm-forced pacing without lethality.
-  pacifist: (id, seed) => new GunnerPilot(id, seed, () => false),
-  // The endgame guarantee instrument (Story 3.4, amendment 23): pacifist until
-  // the ENDGAME RING is reached, gunner after — see the header for why the gate
-  // is the World's own fact rather than a phase equality.
-  endgame: (id, seed) => new GunnerPilot(id, seed, (w) => w.zoneEndgameReached),
+/** The control registry — the swap point for a future load-test duty (see the
+ *  header). One row: there is exactly one scripted control, and anything
+ *  lethal belongs in `server/src/game/ai/` where it has to earn its
+ *  information through `perception.observe()`. */
+export const CONTROL_REGISTRY: Record<string, ControlFactory> = {
+  pacifist: (id, seed) => new PacifistControl(id, seed),
 };

@@ -44,9 +44,9 @@
 // the fix belongs in the boon engine for everyone, with a ruling — not as a
 // lookahead special case in here.
 
-import { BOON_CATALOG, CONFIG, HEAL_CHOICE, type BoonCatalog, type BoonDef } from '@salvo/shared';
+import { BOON_CATALOG, CONFIG, HEAL_CHOICE, type BoonCatalog, type BoonDef, type Rng } from '@salvo/shared';
 import type { BotProfile } from './profiles.js';
-import type { BotProfileId } from './types.js';
+import type { AnyProfileId } from './types.js';
 
 /** Everything the policy needs about the bot's own economy — read by the
  *  driver off the bot's OWN ShipRecord (the sanctioned self-read: its bank,
@@ -82,10 +82,20 @@ interface WeightTable {
   lines: Readonly<Record<string, number>>;
 }
 
+/** The empty table a profile OUTSIDE CONFIG.bots.boonWeights resolves to —
+ *  test-only rows have no doctrine table (they spend at random and only reach
+ *  the weighted scorer through a hand-built call), so every line scores at
+ *  the unlisted default rather than crashing on a missing table. Unreachable
+ *  for the six in-game ids, whose tables always exist. */
+const EMPTY_TABLE: WeightTable = { cat: {}, lines: {} };
+
 /** The CONFIG weight table for a profile (category bases + line overrides). */
-function weightTable(profile: BotProfileId): WeightTable {
-  const t = CONFIG.bots.boonWeights[profile] as { cat: Record<string, number>; lines?: Record<string, number> };
-  return { cat: t.cat, lines: t.lines ?? {} };
+function weightTable(profile: AnyProfileId): WeightTable {
+  const tables = CONFIG.bots.boonWeights as Partial<
+    Record<string, { cat: Record<string, number>; lines?: Record<string, number> }>
+  >;
+  const t = Object.hasOwn(tables, profile) ? tables[profile] : undefined;
+  return t === undefined ? EMPTY_TABLE : { cat: t.cat, lines: t.lines ?? {} };
 }
 
 /** Catalog lookup, own-property only (the engine-wide fail-closed gate: a
@@ -102,9 +112,19 @@ function defOf(catalog: BoonCatalog, id: string): BoonDef | null {
  *  line whose `exclusiveWith` RIVAL was held, because the cannon's AP/PLUNGING
  *  pair could only ever resolve one way. Doctrine verbs now stack, so there is
  *  no rival to be pre-empted by — only the card's own copies matter, and the
- *  deck already stops re-offering an exhausted line. */
+ *  deck already stops re-offering an exhausted line.
+ *
+ *  THE `copies === 1` TEST IS THE FIX, NOT A NARROWING (cross-model review,
+ *  cycle 110). This read `fitted.includes(def.id)` with no copy test, so it
+ *  demoted EVERY held line — including the deliberately stackable ones. A
+ *  `siege` bot that bought one `intelRange` scored the next at 0.9 instead of
+ *  its profile's 2.4 and stopped building the stacked line its whole doctrine
+ *  is about; the same held for `shipCooldown` (×5), `mineBlast` (×4) and
+ *  every other ladder. The docstring above always said ONE-COPY; only the
+ *  implementation disagreed. A multi-copy line needs no demotion at all — the
+ *  deck stops offering it once its copies are spent. */
 function alreadyHeld(def: BoonDef, fitted: readonly string[]): boolean {
-  return fitted.includes(def.id);
+  return def.copies === 1 && fitted.includes(def.id);
 }
 
 /**
@@ -114,7 +134,7 @@ function alreadyHeld(def: BoonDef, fitted: readonly string[]): boolean {
  * future tuning tool) can read the policy without running a spend.
  */
 export function boonWeightFor(
-  profile: BotProfileId,
+  profile: AnyProfileId,
   id: string,
   fitted: readonly string[] = [],
   catalog: BoonCatalog = BOON_CATALOG,
@@ -167,14 +187,26 @@ function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: BoonCata
  * with no materialized offer at all (World.spendPoint routes it before the
  * card path), so a hurt bot holding a degenerate offer-less level still gets
  * its damage control.
+ *
+ * `rng` (Story 7-6 wave 4) is consumed ONLY by a `spend: 'random'` test
+ * profile's uniform offer pick — the WEIGHTED path never touches it (a
+ * weighted spend with an rng in hand is byte-identical to one without), so
+ * every in-game profile's spend stays pure and rng-free exactly as shipped.
+ * The heal rule above fires BEFORE the mode fork in both modes (ruled: the
+ * card pick alone is randomized). A random profile handed no rng — only
+ * reachable from a hand-built test call, never from the driver, which always
+ * threads the mind's spendRng — falls through to the weighted scorer rather
+ * than inventing a fixed pick.
  */
 export function chooseSpend(
   profile: BotProfile,
   s: BotSpendState,
   catalog: BoonCatalog = BOON_CATALOG,
+  rng?: Rng,
 ): number | null {
   if (s.bankedLevels <= 0) return null;
   if (s.maxHp > 0 && s.hp / s.maxHp < profile.healHpFrac) return HEAL_CHOICE;
   if (s.offer === null || s.offer.length === 0) return null;
+  if (profile.spend === 'random' && rng !== undefined) return rng.int(0, s.offer.length - 1);
   return bestOfferIndex(profile, s, catalog);
 }
