@@ -41,9 +41,9 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type Contact, type GameEvent, type LitZoneView, type MineView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BuoyView, type Contact, type GameEvent, type LitZoneView, type MineView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
-import { SIGNAL_REGISTRY, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
+import { SIGNAL_REGISTRY, buoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -51,6 +51,9 @@ export interface PerceptionView {
   events: GameEvent[];
   mines: MineView[];
   litZones: LitZoneView[];
+  /** Per-observer radar-buoy visibility (Story 7-5 wave 2 — contact-like,
+   *  recomputed every tick through the `buoy` row, in drop order). */
+  buoys: BuoyView[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -67,6 +70,9 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
+    // Story 7-5 wave 2: the live radar buoys — the buoy channel's subjects,
+    // the blip row's relay sources, and the self-paint/jamming-fake sources.
+    buoys: world.buoys,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -91,6 +97,9 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
+    // Story 7-5 wave 2: the buoy channel's subjects (spectators see every
+    // buoy); the relay/fake blip sources are inert on this path (no blips).
+    buoys: world.buoys,
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
@@ -204,6 +213,18 @@ function litZoneScan(world: World, ctx: SignalContext): LitZoneView[] {
   const row = SIGNAL_REGISTRY.litzone;
   for (const zone of world.litZones.values()) {
     if (row.visible(ctx, zone)) out.push(row.materialize(ctx, zone));
+  }
+  return out;
+}
+
+/** Per-observer radar-buoy visibility (Story 7-5 wave 2) — contact-like state
+ *  exactly like mines, recomputed every tick through the buoy row, in
+ *  Map-insertion (drop) order. */
+function buoyScan(world: World, ctx: SignalContext): BuoyView[] {
+  const out: BuoyView[] = [];
+  const row = SIGNAL_REGISTRY.buoy;
+  for (const buoy of world.buoys.values()) {
+    if (row.visible(ctx, buoy)) out.push(row.materialize(ctx, buoy));
   }
   return out;
 }
@@ -322,6 +343,14 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   // rather than derived. Everything else — contacts, mines, lit zones,
   // every forwarded event — is UNTOUCHED: truesight is not radar.
   if (world.radarEnabled) {
+    // RADAR-BUOY blip sources (Story 7-5 wave 2), fogged observers only: the
+    // buoy's own anonymous paint (R2.9) plus the jamming buoy's server-
+    // generated false returns (R2.11). (The RELAY — R2.8 — is not here: it
+    // rode the ship scan above, as an OR inside the blip row's gate.) These
+    // join the ONE blip subsequence BEFORE the payload-only sort, so a
+    // frame's blip ordering still carries zero source information — the exact
+    // property the sort was kept for when the decoy died.
+    if (ctx.mode === 'fogged') blips.push(...buoyRadarBlips(ctx));
     events.push(...blips.sort(blipOrder));
     // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
     // — every historical kind keeps its exact position — sorted by wakeOrder
@@ -333,6 +362,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     events,
     mines: mineScan(world, ctx),
     litZones: litZoneScan(world, ctx),
+    buoys: buoyScan(world, ctx),
   };
 }
 
@@ -345,7 +375,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], buoys: [] };
   return view(world, foggedContext(world, me));
 }
 

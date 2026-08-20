@@ -63,6 +63,10 @@ export interface ActivationContext {
    *  a multi-barrel gun salvo still collapses to one. */
   spawnBallistic: (shell: ShellState, opts?: BallisticSpawnOptions) => void;
   dropMine: (x: number, y: number) => void;
+  /** Place a RADAR BUOY at an already-validated point (Story 7-5 wave 2,
+   *  R2.7) — the dropMine sibling: the row validates the rear sector /
+   *  placeRange / water legality and hands the World the clicked point. */
+  dropBuoy: (x: number, y: number) => void;
   /**
    * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the LIVE lit zones owned
    * by the ACTIVATING ship, as centre+radius circles. The gun row feeds them to
@@ -142,7 +146,7 @@ export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRow
   speedBoost: boostEquipment, // Story 1.6: the first non-weapon (ability) row
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
-  radarBuoy: radarBuoyEquipment, // Story 7-5 wave 2: PLACEHOLDER — the buoy itself is a later agent's
+  radarBuoy: radarBuoyEquipment, // Story 7-5 wave 2: the Mine Layer's click-placed radar relay (replaced the decoy)
 });
 
 /**
@@ -160,7 +164,16 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
 
 export { freshAmmo, tickReload, consume } from './ammo.js';
 export { boostEquipment } from './boost.js';
-export { radarBuoyEquipment } from './radarBuoy.js';
+export {
+  BUOY_SIZE_U,
+  addBuoy,
+  buoySilhouette,
+  buoyTarget,
+  radarBuoyEquipment,
+  scatterJamFakes,
+  type BuoyState,
+  type JamFake,
+} from './radarBuoy.js';
 export { broadsideEquipment, broadsideTargets } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';

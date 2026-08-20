@@ -545,11 +545,11 @@ describe('steering — the priority order is the policy', () => {
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], buoys: [] };
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     const dodged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], buoys: [] };
     const own = COMBAT_BRAIN.decide(rec, mind, port);
     expect(own.rudder).toBe(0); // an owner never trips its own rack
   });

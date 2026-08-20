@@ -217,18 +217,28 @@ describe('denial reasons — derived through the gate without changing effects',
     expect(w.mines.size).toBe(0);
   });
 
-  // RETIRED (Story 7-5 wave 2): "decoy empty pool denies no-ammo". The decoy
-  // buoy is deleted; the RADAR BUOY in that slot is an UNIMPLEMENTED
-  // PLACEHOLDER row this cycle (its behaviour is a later agent's), so it has
-  // no denial matrix to pin yet — see the placeholder case below.
-  it('the radarBuoy PLACEHOLDER refuses every activation with blocked, consuming nothing', () => {
+  // The RADAR BUOY's denial matrix (Story 7-5 wave 2, R2.7 — the mine's,
+  // shared sector and placeRange): bow click / past placeRange -> out-of-arc
+  // (nothing consumed); a good astern click places the buoy and consumes.
+  it('the radarBuoy denies out-of-arc on a bow click, keeping the charge; an astern click places it', () => {
     const w = bareWorld();
     const ml = place(w, 'ml');
     expect(ml.loadout[SLOT_BUOY].equipmentId).toBe('radarBuoy');
-    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'blocked' });
-    // 'blocked' is the one denial documented to spend NOTHING: charge and
-    // reload are both untouched.
+    // Default aim (bow, heading 0): outside the rear sector -> out-of-arc.
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'out-of-arc' });
+    // Astern but past the shared placeRange: same aim-denial channel.
+    setInput(ml, { aim: Math.PI, aimDist: CONFIG.mine.placeRange + 1, slot: SLOT_BUOY });
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'out-of-arc' });
     expect(ml.loadout[SLOT_BUOY].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
+    expect(w.buoys.size).toBe(0);
+    // A legal astern click: the buoy is placed AT the clicked point and the
+    // one charge + reload are consumed.
+    setInput(ml, { aim: Math.PI, aimDist: 60, slot: SLOT_BUOY });
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: true });
+    expect(w.buoys.size).toBe(1);
+    expect(ml.loadout[SLOT_BUOY].state).toEqual({ n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs });
+    // Empty pool now: a further click denies no-ammo.
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 });
 

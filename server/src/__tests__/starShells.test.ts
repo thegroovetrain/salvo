@@ -231,13 +231,15 @@ describe('star shells — denials', () => {
     const ml = place(w, 'ml', 'mineLayer', 0, 0);
     expect(ml.loadout[SLOT_STAR].equipmentId).toBe('radarBuoy');
     setInput(ml, { slot: SLOT_STAR });
-    // The buoy itself is an UNIMPLEMENTED PLACEHOLDER this cycle (a later
-    // agent builds it), so the activation is refused — what this case pins is
-    // that the slot is NOT the star shell: no flare, no shell, no zone.
-    expect(w.sinkingActivationGate(ml, SLOT_STAR)).toEqual({ ok: false, reason: 'blocked' });
+    // The buoy is BUILT (this cycle's R2.7): a bow-aimed activation is an
+    // out-of-arc denial (the mine's rear placement sector, shared verbatim) —
+    // what this case pins is that the slot is NOT the star shell: no flare,
+    // no shell, no zone, and no buoy from a bad aim either.
+    expect(w.sinkingActivationGate(ml, SLOT_STAR)).toEqual({ ok: false, reason: 'out-of-arc' });
     expect(w.shells.size).toBe(0);
     expect(w.litZones.size).toBe(0);
     expect(w.mines.size).toBe(0);
+    expect(w.buoys.size).toBe(0);
   });
 
   it('TB slot-2 stays the speedBoost ABILITY: a forged click is inert through the weapon-only wall', () => {

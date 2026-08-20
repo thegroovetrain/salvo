@@ -69,7 +69,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], buoys: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {

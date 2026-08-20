@@ -48,7 +48,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, me, wakes: w.wakeRibbons,
+    litZones: w.litZones, buoys: w.buoys, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -58,7 +58,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, buoys: w.buoys, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -98,6 +98,7 @@ const REGISTRY_KEYS = [
   'contact',
   'mine',
   'litzone',
+  'buoy', // Story 7-5 wave 2: the radar buoy's contact-like frame channel
   'blip',
   'shell',
   'torp',
@@ -133,9 +134,9 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 22 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added)', () => {
+  it('has exactly the 22 known channels (18 event kinds + 4 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; NO row carries a counterIntel seam any more (Story 7-5 wave 2)', () => {

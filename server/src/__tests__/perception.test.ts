@@ -72,6 +72,11 @@ import {
   type WakeRibbon,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+// addBuoy is WORLD-STATE MINTING (the injectMine/createShipWake class), never
+// a visibility rule: the fuzz uses it to lay live buoys exactly as production
+// does, while every rule about them — gate, relay, scatter, masks — is
+// reimplemented below (the header's oracle rule).
+import { addBuoy, type BuoyState } from '../game/equipment/index.js';
 import { buildFrame } from '../game/frames.js';
 // Registry symbols are imported ONLY to ENUMERATE keys/rows for the completeness
 // block below — never as a behavior oracle. Every visibility predicate in this
@@ -159,7 +164,10 @@ function zoneCovers(w: World, me: ShipRecord, p: { x: number; y: number }): bool
   return false;
 }
 
-function inPaintWindow(me: ShipRecord, brg: number): boolean {
+// Structural over anything carrying a sweep window (Story 7-5 wave 2: the
+// radar BUOY's own beam runs the identical half-open-window rule a ship's
+// does, so one reimplementation serves both).
+function inPaintWindow(me: { sweepAngle: number; prevSweepAngle: number }, brg: number): boolean {
   const window = wrapPositive(me.sweepAngle - me.prevSweepAngle);
   return wrapPositive(brg - me.prevSweepAngle) < window;
 }
@@ -266,8 +274,15 @@ function shadowAMinOracle(r: HeightRaster, ox: number, oy: number, ux: number, u
  *  observer→p bearing? Degenerate rays fail OPEN (the ruling's rule — fail
  *  closed would hide legitimate contacts). */
 function shadowVisible(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  const dx = p.x - me.state.x;
-  const dy = p.y - me.state.y;
+  return shadowVisibleFrom(w, me.state, p);
+}
+
+/** The same gate from an arbitrary antenna position (Story 7-5 wave 2: the
+ *  radar BUOY's shadow march runs from the BUOY, not from any ship — same
+ *  law, same K and mast constants, different origin). */
+function shadowVisibleFrom(w: World, o: { x: number; y: number }, p: { x: number; y: number }): boolean {
+  const dx = p.x - o.x;
+  const dy = p.y - o.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (!Number.isFinite(len) || len <= 0) return true;
   // The production one-shot path normalizes dx/len and then re-normalizes the
@@ -276,7 +291,7 @@ function shadowVisible(w: World, me: ShipRecord, p: { x: number; y: number }): b
   const nx = dx / len;
   const ny = dy / len;
   const ul = Math.sqrt(nx * nx + ny * ny);
-  const aMin = shadowAMinOracle(w.map.heightRaster, me.state.x, me.state.y, nx / ul, ny / ul, len);
+  const aMin = shadowAMinOracle(w.map.heightRaster, o.x, o.y, nx / ul, ny / ul, len);
   return aMin === Infinity || len * (aMin - len / SHADOW_K) > 0;
 }
 
@@ -1712,6 +1727,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const e of f.events) verifyEvent(w, me, e);
   for (const m of f.mines) verifyMine(w, me, m);
   for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
+  for (const b of f.buoys ?? []) verifyBuoy(w, me, b);
   for (const d of f.denied ?? []) verifyDenied(me, d);
   verifyBlipOrdering(w, f);
   verifyBlipCompleteness(w, me, f);
@@ -1759,10 +1775,38 @@ function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
   const blips = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
   let gated = 0;
   for (const target of w.ships.values()) {
-    if (!isAfloat(target.lifecycle) || target.id === me.id || !blipPredicate(w, me, target.state)) continue;
+    if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
+    // Story 7-5 wave 2 (R2.8): a ship is a gated subject through the
+    // observer's OWN gate OR through the relay of an OWNED buoy (never while
+    // it is a contact — the scan's contact-first order). Either way it earns
+    // EXACTLY ONE paint (the scan emits per ship, not per sensor).
+    const relayGated =
+      !sighted(w, me, target.state) && !zoneCovers(w, me, target.state) && relayedOracle(w, me, target.state);
+    if (!blipPredicate(w, me, target.state) && !relayGated) continue;
     gated++;
     const expected = maskOracle(target.hullId, target.state.x, target.state.y, target.state.heading, w.now);
     expect(blips.some((b) => maskEquals(expected, b)), `gated ship ${target.id} accounted for`).toBe(true);
+  }
+  // Enemy buoys' own paints (R2.9): one per buoy passing the observer's gate.
+  for (const b of w.buoys.values()) {
+    if (b.ownerId === me.id || !blipPredicate(w, me, b)) continue;
+    gated++;
+    const expected = buoyMaskOracle(b, w.now);
+    expect(blips.some((ev) => maskEquals(expected, ev)), `gated buoy ${b.id} paint accounted for`).toBe(true);
+  }
+  // Jamming fakes (R2.11): one per oracle-recomputed fake passing the
+  // observer's gate — never for the buoy's exempt owner. This is the lower
+  // bound that keeps the carve-out honest in BOTH directions: fakes the
+  // ruling promises must actually be on the wire, and nothing beyond the
+  // recomputed set may ride along.
+  for (const b of w.buoys.values()) {
+    if (b.ownerId === me.id || !ownerJams(w, b)) continue;
+    for (const fake of jamFakesOracle(b)) {
+      if (!blipPredicate(w, me, fake)) continue;
+      gated++;
+      const expected = maskOracle(fake.cls, fake.x, fake.y, fake.heading, w.now);
+      expect(blips.some((ev) => maskEquals(expected, ev)), `gated jam fake of ${b.id} accounted for`).toBe(true);
+    }
   }
   expect(blips.length, 'exactly one blip per gated subject').toBe(gated);
 }
@@ -1818,10 +1862,39 @@ function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean; by:
 
 /* RETIRED (Story 7-5 wave 2): `verifyDecoy`, the decoys-channel oracle. The
  * channel and its subject are DELETED — nothing fakes a ship contact any
- * more, so there is no truth-behind-a-lie channel to gate. The RADAR BUOY's
- * own `buoys` channel arrives with the buoy (a later agent) and needs its own
- * independently-reimplemented oracle here, NOT an adaptation of this one:
- * its visibility rules (R2.7-R2.9) are not the decoy's. */
+ * more, so there is no truth-behind-a-lie channel to gate. verifyBuoy below
+ * is the RADAR BUOY's own independently-reimplemented oracle, NOT an
+ * adaptation of the decoy's: its visibility rules (R2.7-R2.9) are not the
+ * decoy's. */
+
+/** A radar BUOY may reach a frame only if the viewer OWNS it (own field
+ *  awareness, even under fog), it is SIGHTED (truesight + island LOS — the
+ *  BuoyView contract's tier, deliberately NOT the mine's tighter detect), or
+ *  it sits inside a lit zone the viewer OWNS (Story 1.7 parity). Wire shape
+ *  is exactly {id,x,y,until,own,by} with `by` naming the owner (the mine
+ *  row's personal-hue intel grant — this channel, and ONLY this channel, says
+ *  whose the buoy is; the blip subsequence never does, R2.9) and NO hp field
+ *  of any kind (no wire shape carries buoy damage state). The buoy must be
+ *  live (in the world store, unexpired). */
+function verifyBuoy(
+  w: World,
+  me: ShipRecord,
+  b: { id: string; x: number; y: number; until: number; own: boolean; by: string },
+): void {
+  const buoy = w.buoys.get(b.id)!;
+  expect(buoy).toBeDefined();
+  expect(w.now).toBeLessThan(buoy.until); // expired buoys never materialize
+  expect(Object.keys(b).sort()).toEqual(['by', 'id', 'own', 'until', 'x', 'y']);
+  expect(b).toEqual({
+    id: buoy.id,
+    x: buoy.x,
+    y: buoy.y,
+    until: buoy.until,
+    own: buoy.ownerId === me.id,
+    by: buoy.ownerId,
+  });
+  if (buoy.ownerId !== me.id) expect(sighted(w, me, buoy) || zoneCovers(w, me, buoy)).toBe(true);
+}
 
 /** A lit-zone circle may reach a frame only if the viewer OWNS the zone or the
  *  zone CENTER is within the viewer's effective radar range — no LOS term, no
@@ -1886,6 +1959,79 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
     inPaintWindow(me, bearing(me.state, p)) &&
     !zoneCovers(w, me, p)
   );
+}
+
+// ---------- Story 7-5 wave 2: the RADAR BUOY oracles (independently re-derived) ----------
+//
+// Four sources may now legitimately put a blip in a frame (see verifyBlip's
+// carve-out): the observer's own radar over ships (unchanged), a RELAY from a
+// buoy the observer OWNS (R2.8), an enemy buoy's OWN small paint (R2.9), and
+// a JAMMING buoy's server-generated fakes (R2.11). Every rule below is
+// re-derived from the ruling text — ranges as literals, the scatter's
+// geometry by hand — sharing ONLY the entropy primitives (mulberry32 + the
+// documented seed mix and draw order), the paintSeed precedent: the RNG
+// sequence IS the contract, the geometry it drives is reimplemented.
+
+/** The buoy's FLAT radar set as a literal (R2.7: never observer- or
+ *  boon-scaled — deliberately NOT buoy.radarRange or CONFIG.radarBuoy). */
+const BUOY_RADAR_U = 330;
+/** The buoy's physical footprint width as a literal (equipment BUOY_SIZE_U). */
+const BUOY_PAINT_W_U = 12;
+/** CONFIG.radarBuoy.jamFakes as a literal (the oracle rule). */
+const JAM_FAKE_COUNT = 10;
+/** The scatter's class table as literals — all SIX hulls, in HULL_IDS order
+ *  (ships then drones): the draw indexes this list. */
+const JAM_CLS: readonly HullId[] = ['torpedoBoat', 'battleship', 'mineLayer', 'droneSmall', 'droneMedium', 'droneLarge'];
+
+/** The buoy's own radar gate FROM THE BUOY, reimplemented: flat 330u disc (no
+ *  inner exclusion — a buoy has no sight bubble), the BUOY's own half-open
+ *  paint window, and the shadow march from the BUOY's position. */
+function buoyGateOracle(w: World, buoy: BuoyState, p: { x: number; y: number }): boolean {
+  return dist(buoy, p) <= BUOY_RADAR_U && inPaintWindow(buoy, bearing(buoy, p)) && shadowVisibleFrom(w, buoy, p);
+}
+
+/** THE RELAY oracle (R2.8): some live buoy OWNED by this observer returns
+ *  `p` this tick. Radar returns only — the caller composes the not-a-contact
+ *  exclusion (sighted/zoneCovers), mirroring the scan's contact-first order. */
+function relayedOracle(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  for (const b of w.buoys.values()) {
+    if (b.ownerId === me.id && buoyGateOracle(w, b, p)) return true;
+  }
+  return false;
+}
+
+/** The buoy's OWN paint mask (R2.9): the degenerate-segment square at its
+ *  fixed position through the test-local segment pipeline (wakeMaskOracle
+ *  handles the zero-length axis — it degenerates to +x, the documented rule). */
+function buoyMaskOracle(b: BuoyState, t: number): MaskOracle {
+  return wakeMaskOracle(b.x, b.y, b.x, b.y, BUOY_PAINT_W_U, t);
+}
+
+/** The JAMMING verb, re-derived from the owner's RAW fitted-boon list (never
+ *  owner.stats — the effSight/effRadar reimplementation rule). A vacated
+ *  owner jams nothing. */
+function ownerJams(w: World, buoy: BuoyState): boolean {
+  const owner = w.ships.get(buoy.ownerId);
+  return owner !== undefined && stacksOf(owner, 'buoyJamming') > 0;
+}
+
+/** THE SCATTER oracle (R2.11): the fake set re-derived from the documented
+ *  (jamSeed, epoch) contract — seed mix (jamSeed ^ imul(epoch+1, 0x9e3779b9)),
+ *  then per fake exactly four draws: disc radius (R·√u), bearing (2π·a),
+ *  heading (2π·h), class index (⌊c·6⌋). jamSeed/jamEpoch are read off the
+ *  buoy RECORD (server state, like sweep angles) — never buoy.jamFakes, the
+ *  production output this oracle exists to check. */
+function jamFakesOracle(buoy: BuoyState): { x: number; y: number; heading: number; cls: HullId }[] {
+  const rng = mulberry32((buoy.jamSeed ^ Math.imul(buoy.jamEpoch + 1, 0x9e3779b9)) >>> 0);
+  const out: { x: number; y: number; heading: number; cls: HullId }[] = [];
+  for (let i = 0; i < JAM_FAKE_COUNT; i++) {
+    const r = BUOY_RADAR_U * Math.sqrt(rng.next());
+    const theta = TAU * rng.next();
+    const heading = wrapPositive(TAU * rng.next());
+    const cls = JAM_CLS[Math.floor(rng.next() * JAM_CLS.length)];
+    out.push({ x: buoy.x + Math.cos(theta) * r, y: buoy.y + Math.sin(theta) * r, heading, cls });
+  }
+  return out;
 }
 
 // --- the cycle-63 `return`-grammar COVERAGE oracle (amendments 155-157) ------
@@ -2085,6 +2231,57 @@ function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return false;
 }
 
+/** True iff `ev` is a legitimate RELAYED ship paint (Story 7-5 wave 2, R2.8):
+ *  SOME live non-self ship — not a contact for this observer (the scan's
+ *  contact-first order, re-derived: neither sighted nor owned-zone-covered) —
+ *  passes the reimplemented gate of a buoy the OBSERVER OWNS and rasterizes
+ *  to exactly this footprint. Radar returns only: the mask is the identical
+ *  pose rasterization a genuine own-radar paint carries, which is the wire's
+ *  whole disclosure. */
+function blipMatchesRelayedShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  for (const target of w.ships.values()) {
+    if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
+    if (sighted(w, me, target.state) || zoneCovers(w, me, target.state)) continue; // the contact tier won
+    if (!relayedOracle(w, me, target.state)) continue;
+    if (blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading)) return true;
+  }
+  return false;
+}
+
+/** True iff `ev` is a legitimate ENEMY-BUOY self-paint (R2.9): some live buoy
+ *  NOT owned by this observer passes the observer's own point-blip predicate
+ *  at the buoy's position and its small degenerate-square footprint matches
+ *  exactly. The size IS the profile: never any hull's silhouette. */
+function blipMatchesBuoyPaint(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  for (const b of w.buoys.values()) {
+    if (b.ownerId === me.id) continue; // the owner holds the truth channel, never a paint
+    if (!blipPredicate(w, me, b)) continue;
+    if (maskEquals(buoyMaskOracle(b, w.now), ev as ReturnBlipEvent)) return true;
+  }
+  return false;
+}
+
+/** True iff `ev` is a legitimate JAMMING FAKE (R2.11 — THE CARVE-OUT'S ARM):
+ *  some live buoy, NOT the observer's own (the owner is exempt by ruling),
+ *  whose owner holds the JAMMING verb (re-derived from the raw boon list),
+ *  has an oracle-recomputed fake — from (jamSeed, jamEpoch), never from the
+ *  production jamFakes output — that passes the observer's own point-blip
+ *  predicate and rasterizes to EXACTLY this footprint. Exactness is what
+ *  keeps the carve-out from hiding a real leak: a genuine ship's footprint
+ *  emitted outside every gate is at ITS pose with ITS hull, which can never
+ *  byte-match a mask built from a private-stream pose (see the directed
+ *  leak-catch case below the invariant suite). */
+function blipMatchesJamFake(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  for (const b of w.buoys.values()) {
+    if (b.ownerId === me.id || !ownerJams(w, b)) continue;
+    for (const fake of jamFakesOracle(b)) {
+      if (!blipPredicate(w, me, fake)) continue;
+      if (blipPoseMatches(w, ev, fake.cls, fake, fake.heading)) return true;
+    }
+  }
+  return false;
+}
+
 /** The exact blip key set (cycle 63, amendment 152): the coverage footprint
  *  and NOTHING else — pinned as an exact key set, so the deletion of `id`,
  *  the position, `ext` and every pose channel is structural on every blip
@@ -2102,15 +2299,33 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   // Shape gate: the exact key set, both directions.
   expect(Object.keys(ev).sort()).toEqual(RETURN_BLIP_KEYS);
   for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
-  // Every blip in a frame must be JUSTIFIED as a GENUINE SHIP PAINT — the one
-  // legal source now that the decoy's counter-intel lie is deleted (Story 7-5
-  // wave 2). Anything else — a fabricated footprint, a wrong rect, a mask that
-  // disagrees with the hull's true silhouette in either direction, an unswept
-  // bearing, an out-of-annulus point — fails and the invariant fails with it.
-  // THE JAMMING BUOY (R2.11) WILL BREAK THIS DELIBERATELY: its false returns
-  // are server-generated and wire-indistinguishable from real blips, and the
-  // plan requires an EXPLICIT, DOCUMENTED carve-out here — never a quiet edit.
-  expect(blipMatchesShip(w, me, ev)).toBe(true);
+  // THE JUSTIFICATION, WITH THE RADAR-BUOY CARVE-OUT (Story 7-5 wave 2 —
+  // R2.8/R2.9/R2.11, the EXPLICIT edit the plan demanded, never a quiet one).
+  // A blip must byte-match exactly ONE of four independently re-derived
+  // sources:
+  //   1. a GENUINE SHIP PAINT through the observer's own gate (unchanged);
+  //   2. a ship RELAYED by a buoy the OBSERVER OWNS (R2.8 — radar only);
+  //   3. an enemy buoy's OWN small paint through the observer's gate (R2.9);
+  //   4. a JAMMING buoy's fake, recomputed HERE from (jamSeed, jamEpoch) —
+  //      never read back from production state (R2.11).
+  // Arm 4 is the first deliberately FALSE signal through observe(). It does
+  // NOT weaken the invariant in the leak direction, and it is NOT a seventh
+  // declared exception — the six exceptions disclose something TRUE beyond
+  // sight ∪ paints, while a fake discloses nothing real at all (its pose
+  // comes off a server-private stream, not off any ship); the count stays at
+  // SIX. And the carve-out CANNOT hide a genuine leak: every arm demands
+  // EXACT mask equality against the oracle's own recomputation, so a real
+  // ship's footprint emitted outside every gate — at its true pose, with its
+  // true hull — matches no arm and still fails (pinned by the directed
+  // leak-catch case below the invariant suite). Anything else — a fabricated
+  // footprint, a wrong rect, an unswept bearing, an out-of-annulus point —
+  // fails exactly as it always did.
+  expect(
+    blipMatchesShip(w, me, ev) ||
+      blipMatchesRelayedShip(w, me, ev) ||
+      blipMatchesBuoyPaint(w, me, ev) ||
+      blipMatchesJamFake(w, me, ev),
+  ).toBe(true);
 }
 
 // shell AND torp share one verifier — with the Story 4.9 fork: a shell
@@ -2791,6 +3006,24 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.9);
         injectZone(w, `zone${z}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
       }
+      // RADAR BUOYS (Story 7-5 wave 2): random live buoys so the fuzz
+      // exercises the `buoys` channel (verifyBuoy — the owner's row is
+      // guaranteed every frame), the R2.8 relay, the R2.9 self-paint, and the
+      // R2.11 jamming carve-out; ~half the owners take the JAMMING verb as a
+      // raw fitted boon (the oracle re-derives the verb from the same list).
+      // Minted through production addBuoy (world-state setup, like
+      // injectMine's raw write) with a fuzz-drawn private jamSeed.
+      for (let bi = 0; bi < rng.int(0, 2); bi++) {
+        const owner = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
+        if (rng.float(0, 1) < 0.5 && !owner.boons.includes('buoyJamming')) {
+          owner.boons = [...owner.boons, 'buoyJamming'];
+          owner.boonDefs = resolveBoons(owner.boons);
+          owner.stats = effectiveStats(owner.cls, owner.boonDefs);
+        }
+        const ang = rng.float(0, TAU);
+        const r = rng.float(0, w.map.radius * 0.9);
+        addBuoy(w.buoys, owner, Math.cos(ang) * r, Math.sin(ang) * r, w.now, `buoy${bi}`, rng.int(0, 0xffffffff));
+      }
       // Synthetic TORPEDO ribbons (Story 4.12, amendment 196): half-life
       // (6000ms) one-cell (9u) water keyed into the live torpWakes store — the
       // wake scan treats torpedo water exactly as ship water, and the fuzz
@@ -2864,6 +3097,40 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   });
 });
 
+// ---------- Story 7-5 wave 2: the carve-out cannot hide a real leak -----------
+//
+// The plan's hardest requirement on the R2.11 carve-out, pinned directly: the
+// oracle must still catch a GENUINE leak of a REAL ship even though fakes are
+// now legal blips. Justification is exact mask equality against oracle-
+// recomputed sources, so a real hidden ship's true footprint — the exact
+// payload a leaking perception bug would emit — matches no arm and fails.
+
+describe('perception — the jamming carve-out still catches a genuine leak (R2.11)', () => {
+  it('a forged blip carrying a hidden REAL ship\'s true footprint fails verifyFrame, fakes present or not', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0); // observer; place() parks its beam zero-width
+    const j = place(w, 'j', 2000, 2000); // the jamming buoy's owner, far away
+    j.boons = ['buoyJamming'];
+    j.boonDefs = resolveBoons(j.boons);
+    j.stats = effectiveStats(j.cls, j.boonDefs);
+    addBuoy(w.buoys, j, 400, 0, w.now, 'jb1', 0xdead_beef);
+    // The REAL hidden ship: inside the jammed circle and inside a's annulus,
+    // but a's paint window is zero-width, so NO gate passes for it.
+    const h = place(w, 'h', 400, 100, 1.25);
+    const legit = buildFrame(w, 'a');
+    verifyFrame(w, 'a', legit); // the honest frame passes (sanity)
+    // Forge the exact payload a leaking blip path would emit for `h` — its
+    // true pose rasterized+fuzzed for this tick — and assert the oracle
+    // REFUSES it: it matches no gated ship, no relay, no buoy paint, and no
+    // recomputed fake (a private-stream pose can never byte-match h's), so
+    // the carve-out has not opened a laundering channel.
+    const forged = maskOracle(h.hullId, h.state.x, h.state.y, h.state.heading, w.now);
+    const forgedFrame = buildFrame(w, 'a');
+    forgedFrame.events.push({ k: 'blip', t: w.now, gx: forged.gx, gy: forged.gy, w: forged.w, h: forged.h, bits: forged.bits });
+    expect(() => verifyFrame(w, 'a', forgedFrame)).toThrow();
+  });
+});
+
 // ---------- SIGNAL REGISTRY completeness (CI-by-construction) -----------------
 //
 // These assertions make "a signal without a passing invariant case fails CI by
@@ -2873,12 +3140,12 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
 // dev adding a 13th row sees this block fail until they add its verifier.
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
-  // The three contact-like pseudo-rows are verified through the contacts/
-  // mines/litZones frame channels (verifyFrame/verifyMine/verifyLitZone), not
-  // through EVENT_VERIFIERS. The fourth, `decoy`, is DELETED (Story 7-5
-  // wave 2) along with its oracle; the RADAR BUOY's `buoys` channel is a
-  // later agent's and brings its own row AND its own verifier back here.
-  const CONTACT_LIKE = ['contact', 'mine', 'litzone'];
+  // The four contact-like pseudo-rows are verified through the contacts/
+  // mines/litZones/buoys frame channels (verifyFrame/verifyMine/verifyLitZone/
+  // verifyBuoy), not through EVENT_VERIFIERS. The old `decoy` row is DELETED
+  // (Story 7-5 wave 2) along with its oracle; `buoy` is the RADAR BUOY's own
+  // channel on its own R2.7-R2.9 rules, with its own oracle (verifyBuoy).
+  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'buoy'];
   // The 18 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
@@ -2889,9 +3156,9 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 21 expected channel keys (18 event kinds + contact + mine + litzone)', () => {
+  it('has exactly the 22 expected channel keys (18 event kinds + contact + mine + litzone + buoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {
@@ -2900,10 +3167,11 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the three contact-like pseudo-rows exist (verified via the contacts/mines/litZones channels)', () => {
+  it('the four contact-like pseudo-rows exist (verified via the contacts/mines/litZones/buoys channels)', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
+    expect(SIGNAL_REGISTRY.buoy).toBeDefined();
   });
 
   it('every event-kind row has a test-local verifier — a row without one FAILS HERE', () => {

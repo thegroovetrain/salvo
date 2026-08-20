@@ -55,6 +55,7 @@ import {
   stepShip,
   transformPolygon,
   transitionLifecycle,
+  visibilityTo,
   wrapPositive,
   appendWakeSample,
   createShipWake,
@@ -102,14 +103,18 @@ import {
 } from '@salvo/shared';
 import {
   EQUIPMENT,
+  addBuoy,
   addMine,
+  buoyTarget,
   captiveTorpedo,
   checkMineTriggers,
   contactBlastRadius,
   mineBlastVictims,
+  scatterJamFakes,
   type ActivationContext,
   type ActivationDenial,
   type ActivationResult,
+  type BuoyState,
   type MineState,
   type MineTripRules,
 } from './equipment/index.js';
@@ -698,6 +703,15 @@ export class World {
   readonly shells = new Map<string, ShellState>();
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
+  /**
+   * All live RADAR BUOYS (Story 7-5 wave 2, R2.7), in drop order — the
+   * mines/litZones store shape. A buoy is world state, not a ship: it never
+   * enters `ships`, the roster, spawn clearance, or the AI target sets. It
+   * dies by natural expiry or by hp reaching 0 under ordinary weapon damage
+   * (tickBuoys / hitBuoy), paying NO XP and emitting NO event either way — a
+   * despawned buoy simply drops out of the next frame's `buoys` list.
+   */
+  readonly buoys = new Map<string, BuoyState>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
   /**
@@ -849,6 +863,7 @@ export class World {
   private readonly dotBuckets = new Map<string, { victimId: string; amount: number; since: number }>();
   private mineSeq = 0;
   private litZoneSeq = 0;
+  private buoySeq = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
    * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
@@ -869,6 +884,18 @@ export class World {
   private readonly trackIds = new Map<string, string>();
   /** The private pseudonym stream (see trackIds / WorldOptions.pseudonymSeed). */
   private readonly pseudonymRng: Rng;
+  /**
+   * THE JAM STREAM (Story 7-5 wave 2, R2.11): mints each dropped buoy's
+   * server-private jamSeed, from which that buoy's per-revolution fake
+   * scatter derives (scatterJamFakes). Seeded off the SAME private material
+   * as the pseudonym stream (opts.pseudonymSeed in production — never the
+   * client-known map seed alone), decorrelated by its own constant
+   * (0x94d049bb is unused by any other stream here; see the spawnPhase doc
+   * for the roster). NEVER Math.random(): fakes must be deterministic per
+   * (buoy, sweep) so tests can reproduce them, while a client — which never
+   * learns jamSeed — cannot predict them.
+   */
+  private readonly jamRng: Rng;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -957,6 +984,9 @@ export class World {
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
+    // Jam-seed stream (R2.11) — same private material, own decorrelation
+    // constant, so drawing buoy seeds never perturbs the pseudonym sequence.
+    this.jamRng = mulberry32((((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x94d049bb) >>> 0));
     // Fleet steering stream, decorrelated again from mapgen + spawn.
     this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
     // Bot decision stream (Story 6.4), decorrelated from every other stream
@@ -1369,6 +1399,7 @@ export class World {
   resetForMatchStart(holdStartLine = false): void {
     this.shells.clear();
     this.mines.clear();
+    this.buoys.clear(); // practice-field buoys never relay into the real match (mines precedent)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.pending = [];
     // The throne dies at the match boundary (Story 4.6): redeployShip below
@@ -2075,6 +2106,15 @@ export class World {
     // (see stepContext()), and the two mine rows below reuse it as-is.
     { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hulls()) },
     { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hulls()) },
+    // RADAR BUOYS (Story 7-5 wave 2) — DELIBERATE step-order position, with
+    // the other static-entity resolution (the stepMines/expireLitZones band):
+    // expiry, the buoy's own sweep advance + jam-epoch refresh, and the GUN
+    // BUOY's auto-fire. It must sit AFTER the motion block (the gun ranges
+    // post-move hostiles) and BEFORE tickRepairs, whose "after EVERY damage
+    // source this tick" contract the buoy gun now falls under — a hull the
+    // buoy sinks this tick is already sunk before regen runs, so damage keeps
+    // winning the tie by construction.
+    { name: 'tickBuoys', run: (w, ctx) => w.tickBuoys(ctx.dtMs) },
     // Star-shell doctrine zone effects (Story 2.8): incendiary DoT + dazzle
     // marking, against post-move centers, BEFORE the expiry sweep so a zone
     // burns/dazzles through its final tick.
@@ -2709,7 +2749,13 @@ export class World {
    *  spawn pre-step deliberately does NOT resolve outcomes (see preStepShell) —
    *  every projectile funnels through here, one tick after spawn at the
    *  earliest, so all shell damage resolves in exactly one place. */
-  private stepShells(dt: number, hulls: HullTarget[]): void {
+  private stepShells(dt: number, aliveHulls: HullTarget[]): void {
+    // RADAR BUOYS are ordinary collision subjects on every ordnance path
+    // (Story 7-5 wave 2, R2.7 "destructible by anything that damages a ship"):
+    // merged here ONCE per tick, so shell sweeps, interceptions, bursts and
+    // the blasts resolved off `targets` all see them — while checkMineTriggers
+    // (stepMines) keeps the pure hull snapshot and a buoy never TRIPS a mine.
+    const hulls = this.withBuoyTargets(aliveHulls);
     let friendlyFree: HullTarget[] | undefined; // lazy, per-tick (see shellTargets)
     for (const [id, shell] of this.shells) {
       // FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 36). The
@@ -2754,9 +2800,13 @@ export class World {
    * time; a vacated owner falls back to the CONFIG base).
    */
   private stepMines(hulls: HullTarget[]): void {
+    // TRIPPING scans the PURE hull snapshot — a radar buoy never trips a mine
+    // (it is not a hull, and remote minefield clearing is a mechanic nobody
+    // ruled on) — while DETONATION resolves against the buoy-merged list, so
+    // a blast still damages any buoy sitting inside it (R2.7).
     for (const { mine, victimId, captive } of checkMineTriggers(this.mines, hulls, this.now, this.mineTripRules())) {
       if (captive) this.launchCaptiveTorpedo(mine, victimId);
-      else this.detonateMine(mine, hulls, victimId);
+      else this.detonateMine(mine, this.withBuoyTargets(hulls), victimId);
     }
   }
 
@@ -2931,7 +2981,13 @@ export class World {
       // Per-victim re-check against the DELIBERATELY STALE `hulls` snapshot: a
       // hull sunk earlier this tick is still in it, and damage semantics live
       // in this re-check rather than in the snapshot (amendment 5).
-      if (!victim || !isAfloat(victim.lifecycle)) continue;
+      if (!victim || !isAfloat(victim.lifecycle)) {
+        // A RADAR BUOY inside the blast is an ordinary victim (R2.7): damaged,
+        // counted as resolved (the owner's `hc` is honest — something
+        // connected), never fouled (no propeller) and never worth XP.
+        if (!victim && this.hitBuoy(victimId, damage)) resolved += 1;
+        continue;
+      }
       resolved += 1;
       this.hitShip(victim, damage, ownerId, true); // MINE: no aggro (amendment 36)
       // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
@@ -3089,7 +3145,14 @@ export class World {
     }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
     const victim = this.ships.get(outcome.victimId);
-    if (!victim || !isAfloat(victim.lifecycle)) return;
+    if (!victim) {
+      // A RADAR BUOY intercepted the shot (R2.7): it takes the interceptor's
+      // contactDamage exactly as a hull would (the `hc` above already told
+      // the shooter something connected). No XP, no feed line (hitBuoy).
+      this.hitBuoy(outcome.victimId, shell.contactDamage);
+      return;
+    }
+    if (!isAfloat(victim.lifecycle)) return;
     // EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05): a later
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
@@ -3132,7 +3195,13 @@ export class World {
     if (shell.damage > 0) {
       for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
         const victim = this.ships.get(victimId);
-        if (!victim || !isAfloat(victim.lifecycle)) continue;
+        if (!victim || !isAfloat(victim.lifecycle)) {
+          // A RADAR BUOY inside the burst takes the shell's full damage like
+          // any hull (R2.7) — resolved counts it, so the shooter's Hit Call
+          // stays honest; no XP, no feed line, no dmg event (hitBuoy).
+          if (!victim && this.hitBuoy(victimId, shell.damage)) resolved += 1;
+          continue;
+        }
         resolved += 1;
         this.hitShip(victim, shell.damage, shell.ownerId, false);
       }
@@ -3555,6 +3624,9 @@ export class World {
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
+      // R2.7 — the buoy's placement capability, the dropMine sibling. Life,
+      // hp and radar set read off the OWNER's effective stats at drop.
+      dropBuoy: (x, y) => this.spawnBuoy(ship, x, y, fireT),
       // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell
       // gun reach OWN-FLARES-ONLY: a row cannot ask about anyone else's zones.
       ownLitZones: () => this.ownLiveLitZones(ship.id),
@@ -3667,7 +3739,7 @@ export class World {
    * mutual fire can never depend on ships-map iteration order.
    */
   private preStepShell(shell: ShellState): void {
-    const hulls = this.aliveHulls();
+    const hulls = this.withBuoyTargets(this.aliveHulls()); // buoys intercept back-dated shots too
     let remainingMs = this.now - shell.bornAt;
     while (remainingMs > 0) {
       const dtMs = Math.min(remainingMs, CONFIG.tick.simDtMs);
@@ -3693,6 +3765,148 @@ export class World {
    *  armDelay. Caps / oldest-eviction untouched. */
   private spawnMine(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
     addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), owner.stats.mine.maxLive);
+  }
+
+  /** Store a newly-placed RADAR BUOY at an already-validated point (Story 7-5
+   *  wave 2, R2.7) — the spawnMine sibling. The buoy's jamSeed comes off the
+   *  server-private jam stream at this one site, so a buoy's whole fake
+   *  history is fixed at drop and reproducible from (jamSeed, epoch). */
+  private spawnBuoy(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
+    this.buoySeq += 1;
+    addBuoy(this.buoys, owner, x, y, droppedAt, `b${this.buoySeq}`, this.jamRng.int(0, 0xffffffff));
+  }
+
+  /**
+   * Per-tick RADAR BUOY driving (Story 7-5 wave 2): natural expiry, the
+   * buoy's OWN sweep advance (+ the jamming epoch/fake refresh on each
+   * completed revolution), and the GUN BUOY's auto-fire. Deletion during
+   * iteration is safe (Map iteration tolerates delete of the current entry).
+   */
+  private tickBuoys(dtMs: number): void {
+    for (const buoy of this.buoys.values()) {
+      if (this.now >= buoy.until) {
+        this.buoys.delete(buoy.id); // silent expiry — no XP, no event (R2.7)
+        continue;
+      }
+      this.advanceBuoySweep(buoy, dtMs);
+      this.fireBuoyGun(buoy, dtMs);
+    }
+  }
+
+  /**
+   * Advance one buoy's OWN sweep — 15 RPM base, +1.25/BUOY card, read LIVE
+   * off the owner's effective stats each tick (the mine-doctrine precedent:
+   * a card fitted mid-life speeds the live buoy; a vacated owner falls back
+   * to CONFIG). Frozen with every other radar while `radarEnabled` is false
+   * (the advanceSweeps rule — prev === cur means a zero-width paint window,
+   * and perception's explicit radar gate backstops it anyway). Each completed
+   * revolution is one JAMMING EPOCH: the fake set re-scatters exactly then
+   * (R2.11 "re-scattered each sweep"), deterministically from (jamSeed,
+   * epoch) — see scatterJamFakes' draw-order contract.
+   */
+  private advanceBuoySweep(buoy: BuoyState, dtMs: number): void {
+    if (!this.radarEnabled) return;
+    const rpm = this.ships.get(buoy.ownerId)?.stats.radarBuoy.sweepRpm ?? CONFIG.radarBuoy.sweepRpm;
+    const delta = (TAU * dtMs) / (60000 / rpm);
+    buoy.prevSweepAngle = buoy.sweepAngle;
+    buoy.sweepAngle = wrapPositive(buoy.sweepAngle + delta);
+    buoy.sweepTotalRad += delta;
+    const epoch = Math.floor(buoy.sweepTotalRad / TAU);
+    if (epoch !== buoy.jamEpoch) {
+      buoy.jamEpoch = epoch;
+      buoy.jamFakes = scatterJamFakes(buoy.jamSeed, epoch, buoy.x, buoy.y, buoy.radarRange);
+    }
+  }
+
+  /**
+   * THE GUN BUOY (R2.21, Eric ruling 2026-08-19 — REVERSES R2.10's
+   * aggro-gated hostile definition for this weapon ALONE): *"It has its own
+   * radar and is autonomous, so when it has the gun upgrade, it should target
+   * basically anything it sees that isn't the owner of the buoy. Closest
+   * target proximally to the buoy."* Under the owner's `radarBuoy.gun` verb:
+   * 5 damage on a 5000ms cooldown at the NEAREST-TO-THE-BUOY ship its OWN
+   * RADAR can see — enemy captains, bots, and neutral fleet drones alike, NO
+   * aggro test (R2.13's aggro-gated hostile stays CAPTIVE-MINE-ONLY; the two
+   * weapons deliberately differ). The gun is bounded by the buoy's own
+   * PERCEPTION, not a bare distance check: within its flat radar set AND
+   * radar-visible from the buoy (visibilityTo > 0 — a real radar never shoots
+   * what terrain hides from it; the cycle-99 lesson). Excluded: the OWNER
+   * (and, structurally, every buoy — the scan iterates ships only, so buoys
+   * never duel: a defaulted call, flagged to Eric). Damage routes through the
+   * ordinary hitShip choke with byId = the OWNER (kill credit, feed line and
+   * XP pay the captain exactly as a mine kill does) and AGGROS NOBODY
+   * (`fromMine: true` — R2.21a: the mine exception's own rationale verbatim,
+   * "the layer may be dead or across the map, so there is nothing to chase";
+   * the owner must not inherit fights an autonomous turret picked). The
+   * cooldown holds READY at 0 while nothing is in reach and arms on a shot.
+   */
+  private fireBuoyGun(buoy: BuoyState, dtMs: number): void {
+    const owner = this.ships.get(buoy.ownerId);
+    if (owner === undefined || !owner.stats.radarBuoy.gun) return;
+    buoy.gunReloadMsLeft = Math.max(0, buoy.gunReloadMsLeft - dtMs);
+    if (buoy.gunReloadMsLeft > 0) return;
+    const target = this.nearestBuoyTarget(buoy);
+    if (target === null) return;
+    this.hitShip(target, owner.stats.radarBuoy.gunDamage, buoy.ownerId, true);
+    buoy.gunReloadMsLeft = owner.stats.radarBuoy.gunReloadMs;
+  }
+
+  /** The gun buoy's target pick (R2.21): the afloat non-owner ship NEAREST TO
+   *  THE BUOY within its flat radar set and radar-visible from the buoy —
+   *  role-blind (captain, bot, or neutral drone alike). */
+  private nearestBuoyTarget(buoy: BuoyState): ShipRecord | null {
+    let best: ShipRecord | null = null;
+    let bestD2 = buoy.radarRange * buoy.radarRange;
+    for (const ship of this.ships.values()) {
+      if (ship.id === buoy.ownerId || !isAfloat(ship.lifecycle)) continue;
+      const dx = ship.state.x - buoy.x;
+      const dy = ship.state.y - buoy.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > bestD2) continue;
+      if (visibilityTo(this.map.heightRaster, buoy.x, buoy.y, ship.state.x, ship.state.y) <= 0) continue;
+      best = ship;
+      bestD2 = d2;
+    }
+    return best;
+  }
+
+  /**
+   * The ballistic/blast target list: alive hulls PLUS every live buoy's
+   * frozen square silhouette (Story 7-5 wave 2, R2.7 — "destructible by
+   * anything that damages a ship" is delivered by making the buoy an ordinary
+   * collision subject on the ordnance paths: shell contact/interception,
+   * bursts, torpedo hits, and mine/captive-fish blasts). DELIBERATELY NOT fed
+   * to checkMineTriggers: a buoy is not a hull and must not TRIP a mine —
+   * that would be a new mechanic (remote minefield clearing) nobody ruled on;
+   * mine BLASTS still damage it because detonation resolution takes this
+   * merged list. Allocation-free when no buoy is live (the common case).
+   */
+  private withBuoyTargets(hulls: HullTarget[]): HullTarget[] {
+    if (this.buoys.size === 0) return hulls;
+    const merged = hulls.slice();
+    for (const buoy of this.buoys.values()) merged.push(buoyTarget(buoy));
+    return merged;
+  }
+
+  /**
+   * Apply weapon damage to a BUOY victim (the hitShip sibling for the one
+   * non-ship damageable): honors the same phase guard (target practice never
+   * destroys a buoy), and a destroyed buoy is simply DELETED — NO XP, NO
+   * kill-feed line, NO event of any kind (R2.7; the client reads the despawn
+   * from the buoys list emptying, exactly as it reads expiry). Returns true
+   * iff `victimId` named a live buoy (the caller's "victim resolved" answer —
+   * a connected shot on a buoy IS a Hit Call: `hc` means "something of yours
+   * connected", and the decoy's no-Hit-Call oracle died with the decoy).
+   * Deliberately NO damageDealt credit and NO dmg event: the stat and the
+   * channel are about hulls, and no wire shape carries buoy hp at all.
+   */
+  private hitBuoy(victimId: string, amount: number): boolean {
+    const buoy = this.buoys.get(victimId);
+    if (buoy === undefined) return false;
+    if (!this.damageEnabled) return true; // resolved, but target practice breaks nothing
+    buoy.hp -= amount;
+    if (buoy.hp <= 0) this.buoys.delete(buoy.id);
+    return true;
   }
 
   private nextBallisticId(): string {
