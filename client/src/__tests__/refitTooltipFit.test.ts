@@ -34,7 +34,7 @@ import {
   refitTooltipWidestToken,
   type RefitTooltipModel,
 } from '../ui/refitTooltip.js';
-import { UpgradeMenu, lineageAlpha, offerView, refitBandLayout, type OfferView } from '../ui/upgradeMenu.js';
+import { LINEAGE_TIERS, UpgradeMenu, lineageTint, offerView, refitBandLayout, type OfferView } from '../ui/upgradeMenu.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
@@ -233,20 +233,30 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
 // distinctions colour now carries must ALSO be readable with the colour removed.
 
 describe('ladder position and rarity are colour-coded AND dual-coded', () => {
-  it('ramps the lineage handrail monotonically from the first rung to the last', () => {
+  it('walks the loot-tier ramp green->blue->purple->red->gold, a DISTINCT hue per rung', () => {
+    // Eric's ruling: cards are chrome, not the water, so they may carry the
+    // convention every looter has taught players. The rungs must stay DISTINCT
+    // — a repeated hue would make two rungs read as the same tier.
+    expect(new Set(LINEAGE_TIERS).size).toBe(LINEAGE_TIERS.length);
     for (const def of LINES) {
       if (def.copies <= 1) continue;
-      const ramp = Array.from({ length: def.copies }, (_, k) => lineageAlpha(k, def.copies));
-      for (let i = 1; i < ramp.length; i += 1) expect(ramp[i], def.id).toBeGreaterThan(ramp[i - 1]);
-      expect(ramp[ramp.length - 1], def.id).toBe(1);
-      expect(ramp[0], def.id).toBeGreaterThanOrEqual(0.5); // never dimmer than legible
+      const ramp = Array.from({ length: def.copies }, (_, k) => lineageTint(k, def.copies));
+      expect(new Set(ramp).size, def.id).toBe(ramp.length); // no rung repeats a hue
+      expect(ramp[0], def.id).toBe(LINEAGE_TIERS[0]); // every ladder starts green
+      // ABSOLUTE, not normalised: rung II is blue whether the ladder is 2 or 5
+      // long, and a short ladder simply never reaches gold.
+      expect(ramp[1], def.id).toBe(LINEAGE_TIERS[1]);
+      expect(ramp[ramp.length - 1], def.id).toBe(LINEAGE_TIERS[def.copies - 1]);
     }
+    // Only a full five-copy ladder earns the gold capstone.
+    expect(lineageTint(4, 5)).toBe(LINEAGE_TIERS[4]);
+    expect(lineageTint(1, 2)).not.toBe(LINEAGE_TIERS[4]);
   });
 
-  it('clamps the ramp at both ends and reads 1 for a line with no ladder', () => {
-    expect(lineageAlpha(-5, 4)).toBe(lineageAlpha(0, 4));
-    expect(lineageAlpha(99, 4)).toBe(1);
-    expect(lineageAlpha(0, 1)).toBe(1); // a single-copy line renders no handrail at all
+  it('clamps the ramp at both ends and reads the first tier for a line with no ladder', () => {
+    expect(lineageTint(-5, 4)).toBe(lineageTint(0, 4));
+    expect(lineageTint(99, 4)).toBe(LINEAGE_TIERS[3]); // clamped to the ladder's own last rung
+    expect(lineageTint(0, 1)).toBe(LINEAGE_TIERS[0]); // a single-copy line renders no handrail at all
   });
 
   // THE DUAL-CODING HALF. Strip the colour and the ladder position is still
@@ -318,10 +328,11 @@ describe('ladder position and rarity are colour-coded AND dual-coded', () => {
       (el) => el.textContent === 'III/V',
     ) as HTMLElement;
     expect(handrail).toBeDefined();
-    expect(handrail.style.color).toBe('var(--hc-phosphor)');
-    expect(Number(handrail.style.opacity)).toBeCloseTo(lineageAlpha(2, 5), 5);
-    // The ramp really is doing something: this rung is brighter than the first.
-    expect(lineageAlpha(2, 5)).toBeGreaterThan(lineageAlpha(0, 5));
+    // Rung III of V is PURPLE on the loot ramp — not phosphor, which is rung I.
+    expect(handrail.style.color).toBe(lineageTint(2, 5));
+    expect(handrail.style.color).toBe('var(--hc-storm-readout)');
+    // The ramp really is doing something: this rung differs from the first.
+    expect(lineageTint(2, 5)).not.toBe(lineageTint(0, 5));
     menu.hide();
     document.body.replaceChildren();
   });

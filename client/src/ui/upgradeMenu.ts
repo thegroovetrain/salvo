@@ -124,12 +124,46 @@ const TIP_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.4);
  * DUAL-CODED, per the Do's and Don'ts. The Roman numeral the ramp tints ("III/V")
  * states the same fact in TEXT, and the ladder name states it a third time
  * ("MINES III") — so the colour is a fast read, never the only read.
+ *
+ * THE RAMP IS THE LOOT-TIER CONVENTION (Eric ruling 2026-08-19), superseding an
+ * earlier intensity ramp: *"These are cards and the meaning of colors can be
+ * different from colors on the map. Don't a lot of games use colors like...
+ * Green -> Blue -> Purple -> Red -> Gold for tier/rarity and such?"* They do,
+ * and a player decodes it with no legend.
+ *
+ * The earlier ramp declined hue because DESIGN.md reserves every tactical hue —
+ * but those reservations govern THE WATER, where misreading amber-as-armed or
+ * red-as-denied gets you sunk. A refit card is chrome in a modal, a different
+ * surface with its own vocabulary. Nothing is invented: the five rungs ARE the
+ * ratified palette, which already happens to be exactly that ladder — phosphor
+ * (green), info (blue), storm-readout (purple), denied (red), amber (gold).
+ * Values live in DESIGN.md; naming them here would trip the token guard, which
+ * scans comments too — deliberately, so a literal cannot hide in prose.
+ *
+ * ABSOLUTE, not normalised: rung II is blue on a 2-copy line and on a 5-copy
+ * one. A short ladder simply never reaches gold, which is honest — it has no
+ * capstone rung to reach. (Normalising so every line's last copy is gold was
+ * the alternative; it would make the colour mean "progress" rather than "tier",
+ * and the numeral already carries progress as "II/V".)
+ *
+ * KNOWN OVERLAP, flagged rather than hidden: `denied` and `amber` also carry
+ * refusal and armed state ON THIS SAME SURFACE. The numeral is a small mono
+ * glyph and the card's own state rides its border and glow, so they do not
+ * compete for the same pixels — but if rung IV ever reads as "this card is
+ * refused", that is the thing to change.
  */
-export function lineageAlpha(stack: number, copies: number): number {
-  if (copies <= 1) return 1;
+export const LINEAGE_TIERS: readonly string[] = [
+  'var(--hc-phosphor)', // I   — green
+  'var(--hc-info)', // II  — blue
+  'var(--hc-storm-readout)', // III — purple
+  'var(--hc-denied)', // IV  — red
+  'var(--hc-amber)', // V   — gold
+];
+
+export function lineageTint(stack: number, copies: number): string {
+  if (copies <= 1) return LINEAGE_TIERS[0];
   const pos = Math.min(copies, Math.max(1, Math.trunc(stack) + 1));
-  const dimmest = 0.5;
-  return dimmest + ((1 - dimmest) * (pos - 1)) / (copies - 1);
+  return LINEAGE_TIERS[Math.min(LINEAGE_TIERS.length, pos) - 1];
 }
 
 // --- pure core: band geometry ------------------------------------------------
@@ -240,7 +274,7 @@ export interface OfferCard {
   tooltip: string;
   /** How many of this line the player already holds, and how many the line has
    *  in total. Carried so the lineage handrail can tint by ladder POSITION
-   *  (Eric's colour ruling — see `lineageAlpha`) without the DOM layer having to
+   *  (Eric's colour ruling — see `lineageTint`) without the DOM layer having to
    *  re-parse "III/V" back into numbers. */
   stack: number;
   copies: number;
@@ -892,12 +926,12 @@ function lineEl(css: string, text: string): HTMLSpanElement {
 }
 
 /** The lineage handrail ("III/V"), tinted by LADDER POSITION — Eric's colour
- *  ruling, carried on phosphor's intensity (see `lineageAlpha`). The numeral
+ *  ruling, carried on the loot-tier ramp (see `lineageTint`). The numeral
  *  itself is the non-colour channel, so the tint is a fast read and never the
  *  only one. */
 function lineageEl(text: string, stack: number, copies: number): HTMLSpanElement {
   const el = lineEl(LINEAGE_CSS, text);
-  el.style.opacity = String(lineageAlpha(stack, copies));
+  el.style.color = lineageTint(stack, copies);
   return el;
 }
 
