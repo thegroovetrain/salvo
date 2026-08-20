@@ -98,6 +98,17 @@ export interface DeckAggregate {
   deckExhaustedRate: number;
   cappedLines: Summary;
   anyCapRate: number;
+  /** PER-LINE REACHABILITY (Story 7-5 evidence pass) — the policy-free half is
+   *  `lineOffers` (deck composition + the offer roll alone); `linePicks` also
+   *  carries pickSpendChoice's rarity preference and must never be read as
+   *  player taste. `hands` is the offers denominator; `handsByClass` the
+   *  per-class one. Every catalog line is reported, including lines that were
+   *  offered ZERO times — the dead-card question. */
+  lineOffers: Record<string, number>;
+  linePicks: Record<string, number>;
+  lineOffersByClass: Record<string, Record<string, number>>;
+  hands: number;
+  handsByClass: Record<string, number>;
   /** Mean cards remaining AFTER draw k and its immediate spend — give-backs
    *  (losing-option returns + doctrine-rival returns) included, since the spend
    *  resolves inside the same step (k = 1..DEPLETION_MAX, 5-step rows). */
@@ -121,6 +132,32 @@ function carriedFor(cls: ShipClassId): EquipmentId[] {
 interface EconomyState {
   deck: DeckState;
   fitted: string[];
+}
+
+/** Per-line offer/pick accumulation, shared across every economy in a run. */
+export interface LineLedger {
+  hands: number;
+  offers: Record<string, number>;
+  picks: Record<string, number>;
+  byClass: Record<string, Record<string, number>>;
+  handsByClass: Record<string, number>;
+}
+
+const emptyLedger = (): LineLedger => ({ hands: 0, offers: {}, picks: {}, byClass: {}, handsByClass: {} });
+
+const bumpLine = (rec: Record<string, number>, key: string): void => {
+  rec[key] = (rec[key] ?? 0) + 1;
+};
+
+/** Fold one materialized hand into the per-line ledger. */
+function recordHand(ledger: LineLedger, cls: ShipClassId, offer: readonly string[]): void {
+  ledger.hands += 1;
+  ledger.handsByClass[cls] = (ledger.handsByClass[cls] ?? 0) + 1;
+  const byClass = (ledger.byClass[cls] ??= {});
+  for (const id of offer) {
+    bumpLine(ledger.offers, id);
+    bumpLine(byClass, id);
+  }
 }
 
 interface EconomyStats {
@@ -168,6 +205,8 @@ function playOneDraw(
   rng: Rng,
   pityHits: number[],
   pityDraws: number[],
+  ledger: LineLedger,
+  cls: ShipClassId,
 ): boolean {
   const dry = Math.min(st.deck.levelsSinceRare, PITY_MAX);
   const r = drawOffer(st.deck, rng, BOON_CATALOG);
@@ -177,7 +216,9 @@ function playOneDraw(
   pityDraws[dry] += 1;
   if (r.offer.some((id) => BOON_CATALOG[id]?.rarity !== 'common')) pityHits[dry] += 1;
   if (stats.firstExclusiveOffered === null && hasExclusive(r.offer)) stats.firstExclusiveOffered = draw;
+  recordHand(ledger, cls, r.offer);
   const picked = spendFront(st, r.offer, rng);
+  if (picked !== null) bumpLine(ledger.picks, picked);
   if (picked !== null && stats.firstExclusivePicked === null && hasExclusive([picked])) {
     stats.firstExclusivePicked = draw;
   }
@@ -191,6 +232,7 @@ function playEconomy(
   rng: Rng,
   pityHits: number[],
   pityDraws: number[],
+  ledger: LineLedger,
 ): EconomyStats {
   const st: EconomyState = { deck: buildDeck(BOON_CATALOG, carriedFor(cls)), fitted: [] };
   const stats: EconomyStats = {
@@ -203,7 +245,7 @@ function playEconomy(
   };
   for (let draw = 1; draw <= ECONOMY_DRAW_CAP; draw += 1) {
     if (deckExhausted(st)) break; // empty, or terminal-rival ping-pong only
-    if (!playOneDraw(st, stats, draw, rng, pityHits, pityDraws)) break;
+    if (!playOneDraw(st, stats, draw, rng, pityHits, pityDraws, ledger, cls)) break;
   }
   stats.emptied = deckExhausted(st);
   for (const [id, n] of tally(st.fitted)) {
@@ -217,11 +259,12 @@ export function runDeckSim(spec: DeckSimSpec): DeckAggregate {
   const pityHits = new Array<number>(PITY_MAX + 1).fill(0);
   const pityDraws = new Array<number>(PITY_MAX + 1).fill(0);
   const economies: EconomyStats[] = [];
+  const ledger = emptyLedger();
   let totalDraws = 0;
   for (let e = 0; totalDraws < spec.draws; e += 1) {
     const rng = mulberry32(mixSeed(spec.seed, e));
     const cls = SHIP_CLASS_IDS[e % SHIP_CLASS_IDS.length];
-    const stats = playEconomy(cls, rng, pityHits, pityDraws);
+    const stats = playEconomy(cls, rng, pityHits, pityDraws, ledger);
     // ZERO-PROGRESS GUARD (defense in depth behind the --set floors): the budget
     // loop only advances on draws played, so an economy that plays none would
     // spin forever. The known cause is a non-positive offer.size (drawOffer
@@ -236,7 +279,7 @@ export function runDeckSim(spec: DeckSimSpec): DeckAggregate {
     economies.push(stats);
     totalDraws += stats.draws;
   }
-  return buildDeckAggregate(economies, totalDraws, pityHits, pityDraws);
+  return buildDeckAggregate(economies, totalDraws, pityHits, pityDraws, ledger);
 }
 
 function buildDeckAggregate(
@@ -244,6 +287,7 @@ function buildDeckAggregate(
   totalDraws: number,
   pityHits: readonly number[],
   pityDraws: readonly number[],
+  ledger: LineLedger,
 ): DeckAggregate {
   const offered = economies.map((e) => e.firstExclusiveOffered).filter((d): d is number => d !== null);
   const picked = economies.map((e) => e.firstExclusivePicked).filter((d): d is number => d !== null);
@@ -266,5 +310,10 @@ function buildDeckAggregate(
     cappedLines: summarize(economies.map((e) => e.cappedLines)),
     anyCapRate: economies.length === 0 ? 0 : economies.filter((e) => e.cappedLines > 0).length / economies.length,
     depletion,
+    lineOffers: ledger.offers,
+    linePicks: ledger.picks,
+    lineOffersByClass: ledger.byClass,
+    hands: ledger.hands,
+    handsByClass: ledger.handsByClass,
   };
 }

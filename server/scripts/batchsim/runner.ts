@@ -34,6 +34,7 @@ import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '.
 import { isFleetHull } from '../../src/game/participants.js';
 import { PILOT_REGISTRY, type CaptainPilot, type PilotFactory } from './pilots.js';
 import { BotCollector, type BotSample } from './botMetrics.js';
+import { CatalogCollector, type CatalogSample } from './catalogMetrics.js';
 import { mixSeed, tally } from './stats.js';
 
 /** ms of sim time each level-curve sample bucket spans. */
@@ -84,6 +85,9 @@ export interface CaptainSample {
   boonTimesS: (number | null)[];
   firstExclusiveOffered: ReachSample | null;
   firstExclusiveFitted: ReachSample | null;
+  /** Story 7-5: the same two reaches over DOCTRINE lines (see isDoctrineId). */
+  firstDoctrineOffered: ReachSample | null;
+  firstDoctrineFitted: ReachSample | null;
   /** levelCurve[k] = level at k*LEVEL_SAMPLE_MS since activation. */
   levelCurve: number[];
 }
@@ -123,6 +127,10 @@ export interface MatchSample {
    *  literals predating the field exist in the harness's own tests, and a bots=0
    *  run has nothing to say here. Read it as `?? []`. */
   bots?: BotSample[];
+  /** The per-line catalog + ordnance + guardrail ledger (Story 7-5 evidence
+   *  pass). OPTIONAL for the same reason `bots` is: sample literals predating
+   *  the field exist in the harness's own tests. Read it defensively. */
+  catalog?: CatalogSample;
 }
 
 export interface BatchResult {
@@ -131,6 +139,15 @@ export interface BatchResult {
 }
 
 const isExclusiveId = (id: string): boolean => BOON_CATALOG[id]?.rarity === 'exclusive';
+
+/** A DOCTRINE line — a card carrying a `doctrine` effect (Story 7-5 evidence
+ *  pass). The `exclusive` RARITY is extinct as of Story 7-5 wave 2 (R2.6
+ *  deleted exclusivity outright), so both `firstExclusive*` rows above now read
+ *  0% structurally and no longer answer "how long until a build commits". These
+ *  two rows are their honest replacement: a doctrine is still the shape-changing
+ *  pick, it is just an ordinary `rare` now, and doctrines STACK. */
+const isDoctrineId = (id: string): boolean =>
+  BOON_CATALOG[id]?.effects.some((e) => e.kind === 'doctrine') ?? false;
 
 /** Lines whose fitted stack has physically consumed every copy in the catalog. */
 function cappedLineCount(boons: readonly string[]): number {
@@ -147,6 +164,8 @@ class CaptainTracker {
   readonly boonTimesS: (number | null)[] = new Array<number | null>(BOON_N_MAX).fill(null);
   firstExclusiveOffered: ReachSample | null = null;
   firstExclusiveFitted: ReachSample | null = null;
+  firstDoctrineOffered: ReachSample | null = null;
+  firstDoctrineFitted: ReachSample | null = null;
   readonly levelCurve: number[] = [];
   picks = 0;
 
@@ -154,13 +173,19 @@ class CaptainTracker {
     for (let n = 0; n < BOON_N_MAX; n += 1) {
       if (this.boonTimesS[n] === null && ship.boons.length >= n + 1) this.boonTimesS[n] = tS;
     }
-    if (this.firstExclusiveOffered === null && (ship.offer?.some(isExclusiveId) ?? false)) {
-      this.firstExclusiveOffered = { s: tS, level: ship.level };
-    }
-    if (this.firstExclusiveFitted === null && ship.boons.some(isExclusiveId)) {
-      this.firstExclusiveFitted = { s: tS, level: ship.level };
-    }
+    const offer = ship.offer ?? [];
+    const at = { s: tS, level: ship.level };
+    this.firstExclusiveOffered = firstReach(this.firstExclusiveOffered, offer.some(isExclusiveId), at);
+    this.firstExclusiveFitted = firstReach(this.firstExclusiveFitted, ship.boons.some(isExclusiveId), at);
+    this.firstDoctrineOffered = firstReach(this.firstDoctrineOffered, offer.some(isDoctrineId), at);
+    this.firstDoctrineFitted = firstReach(this.firstDoctrineFitted, ship.boons.some(isDoctrineId), at);
   }
+}
+
+/** Latch a reach sample the first time its predicate holds (never re-stamps). */
+function firstReach(cur: ReachSample | null, hit: boolean, at: ReachSample): ReachSample | null {
+  if (cur !== null || !hit) return cur;
+  return at;
 }
 
 /** Per-match stats collection: tick events + captain trackers + level curve.
@@ -228,6 +253,8 @@ export class MatchCollector {
       boonTimesS: t.boonTimesS,
       firstExclusiveOffered: t.firstExclusiveOffered,
       firstExclusiveFitted: t.firstExclusiveFitted,
+      firstDoctrineOffered: t.firstDoctrineOffered,
+      firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,
     };
   }
@@ -311,6 +338,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);
+  const catalog = new CatalogCollector();
   // Tick budget from the SHARED time-to-closed helper: the full phased
   // timeline (12:00 at production CONFIG — ~14400 ticks) + countdown + endgame
   // slack. Honest but bounded: a pacifist full run fits comfortably; nothing
@@ -322,12 +350,13 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     match.update();
     collector.observe(world, match);
     bots.observe(world, match.activatedAt);
-    if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds, bots);
+    catalog.observe(world, match.activatedAt !== 0);
+    if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog);
   }
   if (match.activatedAt === 0) {
     throw new Error(`match ${index} (seed ${matchSeed}) never activated within ${tickCap} ticks`);
   }
-  return capSample(index, matchSeed, world, match, collector, captainIds, bots);
+  return capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog);
 }
 
 /**
@@ -347,9 +376,10 @@ export function capSample(
   collector: MatchCollector,
   captainIds: readonly string[],
   bots?: BotCollector,
+  catalog?: CatalogCollector,
 ): MatchSample {
-  if (match.phase === 'finished') return finishSample(index, seed, world, match, collector, captainIds, bots);
-  return unresolvedSample(index, seed, world, match, collector, captainIds, bots);
+  if (match.phase === 'finished') return finishSample(index, seed, world, match, collector, captainIds, bots, catalog);
+  return unresolvedSample(index, seed, world, match, collector, captainIds, bots, catalog);
 }
 
 /** DEPARTED CAPTAINS: a captain's ship is gone from world.ships if the match
@@ -369,9 +399,10 @@ function finishSample(
   collector: MatchCollector,
   captainIds: readonly string[],
   bots?: BotCollector,
+  catalog?: CatalogCollector,
 ): MatchSample {
   const summary = match.endSummary();
-  return buildSample(index, seed, world, collector, captainIds, bots, {
+  return buildSample(index, seed, world, collector, captainIds, bots, catalog, {
     durationS: summary.durationS,
     endedBy: summary.endedBy,
     // Keep the field HONEST: match.ts today emits `?.hullId ?? null`, so ''
@@ -396,9 +427,10 @@ function unresolvedSample(
   collector: MatchCollector,
   captainIds: readonly string[],
   bots?: BotCollector,
+  catalog?: CatalogCollector,
 ): MatchSample {
   const durationS = Math.round((world.now - match.activatedAt) / 100) / 10;
-  return buildSample(index, seed, world, collector, captainIds, bots, {
+  return buildSample(index, seed, world, collector, captainIds, bots, catalog, {
     durationS,
     endedBy: 'unresolved',
     // No conclusion => no winner, ever. Never borrow a class from the roster.
@@ -422,6 +454,7 @@ function buildSample(
   collector: MatchCollector,
   captainIds: readonly string[],
   bots: BotCollector | undefined,
+  catalog: CatalogCollector | undefined,
   outcome: SampleOutcome,
 ): MatchSample {
   const captains: CaptainSample[] = [];
@@ -440,6 +473,7 @@ function buildSample(
     stormDeaths: outcome.stormDeaths,
     killsByVictimTier: collector.killsByVictimTier,
     bots: bots?.samples(world) ?? [],
+    catalog: catalog?.result(),
     captains,
     departedCaptains,
   };

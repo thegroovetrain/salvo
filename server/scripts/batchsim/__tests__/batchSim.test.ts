@@ -905,7 +905,8 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
       id: 'cap-1', cls: 'torpedoBoat', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
       boonsFitted: 2, deckRemaining: 30, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
-      firstExclusiveOffered: null, firstExclusiveFitted: null, levelCurve: [1, 2],
+      firstExclusiveOffered: null, firstExclusiveFitted: null,
+      firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2],
     };
     const match: MatchSample = {
       index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat', stormDeaths: 0,

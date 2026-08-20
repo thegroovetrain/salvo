@@ -1,0 +1,155 @@
+// BALANCE PROBE (Story 7-5 evidence pass) — the calibration instrument for the
+// things a campaign cannot see: the two [DRAFT] spread numbers (the BROADSIDE
+// BARRAGE's fan half-angle ladder `CONFIG.broadside.fanHalfAngleDeg` and
+// BARREL's lateral spacing `CONFIG.gun.barrelSpacingU`), and the MAX-STACK STAT
+// ENVELOPE each hull can now reach under the ADDITIVE speed/range ladders.
+//
+// WHY A PROBE AND NOT A BATCH RUN. A campaign reports how much damage landed;
+// it cannot tell you WHY a fan misses, and it cannot sweep a value that is not
+// a `--set` tunable (the catalog and the weapon geometry are not). This probe
+// answers the design question directly and exactly: place one stationary hull
+// at range R, aim the barrage at its centre, and count how many of the shells
+// the sim would actually resolve onto it — using the SHIPPED functions
+// (`fanTargets` / `parallelOffsets` / `burstVictims` / `hullSilhouette`), never
+// a re-derivation, so the answer cannot drift from what the weapon does.
+//
+// Deterministic, no rng, no World. Run:
+//   node_modules/.bin/tsx --tsconfig server/scripts/batchsim/tsconfig.json \
+//     server/scripts/batchsim/balanceProbe.ts
+
+import {
+  BOON_CATALOG,
+  CONFIG,
+  effectiveStats,
+  hullEnvelope,
+  resolveBoons,
+  DRONE_HULL_IDS,
+  HULL_IDS,
+  SHIP_CLASS_IDS,
+  burstVictims,
+  fanTargets,
+  hullSilhouette,
+  parallelOffsets,
+  transformPolygon,
+  type HullId,
+  type Vec2,
+} from '@salvo/shared';
+
+const deg = (d: number): number => (d * Math.PI) / 180;
+const fmt = (n: number, d = 1): string => n.toFixed(d);
+
+/** A stationary hull at `pos`, heading `head` (rad). */
+function hullAt(hullId: HullId, pos: Vec2, head: number): { id: string; poly: Vec2[] } {
+  const poly = transformPolygon(hullSilhouette(hullId), pos.x, pos.y, head, []);
+  return { id: 'target', poly };
+}
+
+/** How many of `targets` (burst points) land on the hull. */
+function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: string; poly: Vec2[] }): number {
+  let n = 0;
+  for (const t of targets) if (burstVictims(t, burstRadius, [hull], 'shooter').length > 0) n += 1;
+  return n;
+}
+
+const ORIGIN: Vec2 = { x: 0, y: 0 };
+
+function broadsideBlock(): void {
+  const b = CONFIG.broadside;
+  console.log('== BROADSIDE FAN (DRAFT fanHalfAngleDeg = [' + b.fanHalfAngleDeg.join(', ') + '], burstRadius ' + b.burstRadius + 'u) ==');
+  console.log('shell separation at range R = 2*halfAngle*R / (turrets-1); bursts MERGE below ' + b.burstRadius * 2 + 'u');
+  console.log('turrets | spread | halfDeg |    R=100 |    R=200 |    R=300 |  R=412.5 |  R=537.5   (adjacent separation, u)');
+  for (const turrets of [3, 4, 5]) {
+    for (let s = 0; s < b.fanHalfAngleDeg.length; s += 1) {
+      const half = deg(b.fanHalfAngleDeg[s]);
+      const cells = [100, 200, 300, 412.5, 537.5].map((r) => fmt((2 * half * r) / (turrets - 1)).padStart(8));
+      console.log(`${String(turrets).padStart(7)} | ${String(s).padStart(6)} | ${fmt(b.fanHalfAngleDeg[s]).padStart(7)} | ${cells.join(' | ')}`);
+    }
+  }
+  console.log('');
+  console.log('SHELLS THAT ACTUALLY LAND ON ONE STATIONARY HULL (aim = hull centre, shipped burstVictims):');
+  console.log('hull         | aspect    | turrets |     R | spread0 | spread1 | spread2 | spread3 | spread4');
+  for (const hullId of HULL_IDS) {
+    for (const [aspectName, head] of [['broadside', Math.PI / 2] as const, ['bow-on', 0] as const]) {
+      for (const turrets of [3, 5]) {
+        for (const R of [150, 300, 412.5, 537.5]) {
+          const cells: string[] = [];
+          for (let s = 0; s < b.fanHalfAngleDeg.length; s += 1) {
+            const targets = fanTargets(ORIGIN, { x: R, y: 0 }, turrets, deg(b.fanHalfAngleDeg[s]));
+            cells.push(String(shellsOn(targets, b.burstRadius, hullAt(hullId, { x: R, y: 0 }, head))).padStart(7));
+          }
+          console.log(
+            `${hullId.padEnd(12)} | ${aspectName.padEnd(9)} | ${String(turrets).padStart(7)} | ${fmt(R).padStart(5)} | ${cells.join(' | ')}`,
+          );
+        }
+      }
+    }
+  }
+}
+
+function barrelBlock(): void {
+  const g = CONFIG.gun;
+  console.log('');
+  console.log(`== BARREL PARALLEL TRACKS (DRAFT barrelSpacingU = ${g.barrelSpacingU}u, burstRadius ${g.burstRadius}u) ==`);
+  console.log(`spacing ${g.barrelSpacingU}u vs burst DIAMETER ${g.burstRadius * 2}u: adjacent bursts ${g.barrelSpacingU < g.burstRadius * 2 ? 'OVERLAP' : 'are separate'}`);
+  console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
+  for (const barrels of [1, 2, 3]) {
+    const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
+    const cells: string[] = [];
+    for (const hullId of HULL_IDS) {
+      const targets = offsets.map((o) => ({ x: 300 + o.x, y: o.y }));
+      const hits = shellsOn(targets, g.burstRadius, hullAt(hullId, { x: 300, y: 0 }, 0));
+      cells.push(`${hullId}=${hits}(${hits * g.damage}hp)`);
+    }
+    console.log(`${String(barrels).padStart(7)} | ${String(barrels * g.damage).padStart(12)} | ${cells.join(' ')}`);
+  }
+  console.log('');
+  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (3 barrels, R=300u):');
+  const offsets = parallelOffsets(0, 3, g.barrelSpacingU);
+  for (const hullId of [...SHIP_CLASS_IDS, 'droneSmall' as HullId]) {
+    const row: string[] = [];
+    for (const miss of [0, 10, 20, 30, 40, 60]) {
+      const targets = offsets.map((o) => ({ x: 300 + o.x, y: o.y + miss }));
+      row.push(`${miss}u:${shellsOn(targets, g.burstRadius, hullAt(hullId, { x: 300, y: 0 }, 0))}`);
+    }
+    console.log(`  ${hullId.padEnd(12)} lateral miss -> shells on target: ${row.join('  ')}`);
+  }
+}
+
+/** The stat envelope a class can actually reach: base vs every universal ladder
+ *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
+function statsBlock(): void {
+  console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
+  const universal = ['shipHull', 'shipSpeed', 'shipCooldown', 'intelRange', 'intelSweep'];
+  const maxBoons: string[] = [];
+  for (const id of universal) maxBoons.push(...new Array<string>(BOON_CATALOG[id].copies).fill(id));
+  console.log(`stack: ${universal.map((id) => `${id}x${BOON_CATALOG[id].copies}`).join(' ')}`);
+  // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
+  // the one rung that hangs off sight rather than radar range. Derived here the
+  // same way the server does it so the ladder ordering is checkable by eye.
+  console.log('class        |  maxHp |  speed | radar |  sight | detect | 5/8 rung | gun rangeU | broadside rangeU | cooldownScale');
+  for (const cls of SHIP_CLASS_IDS) {
+    for (const [tag, boons] of [['base', [] as string[]] as const, ['MAXED', maxBoons] as const]) {
+      const st = effectiveStats(hullEnvelope(cls), resolveBoons(boons));
+      const rung = st.radarRange * CONFIG.vision.muzzleFlashFactor;
+      console.log(
+        `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
+          `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
+          `${fmt(rung).padStart(8)} | ${fmt(st.gun.rangeU).padStart(10)} | ${fmt(st.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3)}`,
+      );
+    }
+  }
+  console.log('');
+}
+
+for (const hullId of HULL_IDS) {
+  const poly = hullSilhouette(hullId);
+  const xs = poly.map((p) => p.x);
+  const ys = poly.map((p) => p.y);
+  console.log(
+    `hull ${hullId.padEnd(12)} silhouette length=${fmt(Math.max(...xs) - Math.min(...xs))}u beam=${fmt(Math.max(...ys) - Math.min(...ys))}u`,
+  );
+}
+console.log('HULLS PROBED: ' + HULL_IDS.join(' ') + ` (classes: ${SHIP_CLASS_IDS.join(' ')}; fleet: ${DRONE_HULL_IDS.join(' ')})`);
+statsBlock();
+broadsideBlock();
+barrelBlock();
