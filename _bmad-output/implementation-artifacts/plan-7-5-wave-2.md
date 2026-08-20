@@ -61,10 +61,16 @@ the buoy's own set, not the owner's build]**. Own sweep, 15 RPM base, +1.25/BUOY
 30s/20s)**. **50 HP, destructible by anything that damages a ship**; killing one pays NO XP and
 prints NO kill-feed line. Click-placed like a mine — reuse the mine's rear sector (±60° at
 `placeRange` 150u). Pool 1.
-**CONSEQUENCE, ledgered not fudged:** life is now SHORTER than the reload, so **at most ONE buoy
-can ever be live**, with a ~10s dead gap between one expiring and the next being available. The
-earlier 30s/20s ordering allowed two overlapping; that is now structurally impossible. Nothing may
-"helpfully" restore overlap.
+**CONSEQUENCE, ledgered not fudged:** **at BASE cooldown** life is SHORTER than the reload, so out
+of the box **at most ONE buoy is live**, with a ~10s dead gap between one expiring and the next
+being available. The earlier 30s/20s ordering allowed two overlapping; that is superseded **as the
+base**. No IMPLEMENTER may "helpfully" restore overlap by raising `maxAmmo` or shortening
+`reloadMs` — but **PLAYER CARDS legitimately do**, and that is the reward curve, not a leak:
+BUOY I–IV adds life (R2.20), and the universal RELOAD line scales `radarBuoy.reloadMs` through the
+ONE global `cooldownScale` like every other equipment's reload (15 000 ms at a full stack against a
+20 000 ms life = two buoys overlapping). **The buoy is NOT exempted from the global cooldown lever**
+— exempting it would make it the odd equipment out (wave-2 review gate, orchestrator ruling; pinned
+by `radarBuoy.test.ts`'s "a full RELOAD stack legitimately overlaps two buoys").
 
 **R2.8 — the relay is RADAR RETURNS ONLY, never vision.** The buoy is a second observer for
 `blipGate` purposes and nothing else: it grants no sight bubble, no truesight, no LOS. Its returns
@@ -223,11 +229,16 @@ shape (`gun.burstRadius`, `cannon.contactDamage`, the seven `reloadMs` paths), s
 card can land without touching the whitelist.
 
 **CONSEQUENCE — the ladder closes the gap R2.7 deliberately opened.** Base life 20 000 ms against a
-30 000 ms reload leaves a ~10s window with no buoy. At the full ×4 stack life reaches **30 000 ms =
-exactly the reload**, so a maxed buoy build has continuous coverage with no gap at all. The
-progression is therefore "plug the hole you started with", which is a real and legible reward
-curve. Flagged to Eric as an emergent consequence, not a designed one — it follows from his two
-numbers (20s base, +2.5s ×4) meeting his 30s reload.
+30 000 ms BASE reload leaves a ~10s window with no buoy. At the full ×4 stack life reaches
+**30 000 ms = exactly the base reload**, so a maxed buoy build has continuous coverage with no gap
+at all. The progression is therefore "plug the hole you started with", which is a real and legible
+reward curve. Flagged to Eric as an emergent consequence, not a designed one — it follows from his
+two numbers (20s base, +2.5s ×4) meeting his 30s reload.
+
+**The gap also closes from the OTHER end, and that is intended too** (wave-2 review gate): RELOAD
+scales `radarBuoy.reloadMs` through the global `cooldownScale`, so a full RELOAD stack lands the
+reload at 15 000 ms against a 20 000 ms life and puts TWO buoys on the water at once. R2.7's "at
+most one live" is a statement about the BASE numbers only.
 
 ## R2.21 — THE GUN BUOY IS AUTONOMOUS: IT SHOOTS ANYTHING IT SEES (Eric ruling 2026-08-19)
 *"It has its own radar and is autonomous, so when it has the gun upgrade, it should target basically

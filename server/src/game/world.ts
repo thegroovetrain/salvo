@@ -3794,10 +3794,13 @@ export class World {
   }
 
   /**
-   * Advance one buoy's OWN sweep — 15 RPM base, +1.25/BUOY card, read LIVE
-   * off the owner's effective stats each tick (the mine-doctrine precedent:
-   * a card fitted mid-life speeds the live buoy; a vacated owner falls back
-   * to CONFIG). Frozen with every other radar while `radarEnabled` is false
+   * Advance one buoy's OWN sweep — 15 RPM, FIXED: R2.20 replaced the sweep
+   * card with BUOY I-IV's DURATION ladder, so nothing in the catalog writes
+   * `radarBuoy.sweepRpm` and every buoy turns at the CONFIG rate. The rate is
+   * still read LIVE off the owner's effective stats each tick (the
+   * mine-doctrine precedent), so a future sweep card would speed a buoy
+   * already on the water without touching this; a vacated owner falls back to
+   * CONFIG. Frozen with every other radar while `radarEnabled` is false
    * (the advanceSweeps rule — prev === cur means a zero-width paint window,
    * and perception's explicit radar gate backstops it anyway). Each completed
    * revolution is one JAMMING EPOCH: the fake set re-scatters exactly then

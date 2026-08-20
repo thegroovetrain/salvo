@@ -26,7 +26,6 @@ import {
   SLOT_COUNT,
   type BoonDef,
   type Island,
-  type BuoyView,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
@@ -433,13 +432,6 @@ interface Game {
   /** That rank-wide flash is DEGRADED this frame (over budget on its own
    *  element key) — it still draws, at the flat degraded weight. */
   fitFrameDegraded: boolean;
-  /**
-   * ms (server clock) — the latest OWN radar buoy's expiry, the buoy slot's
-   * ACTIVE window (amendment 48). Latched from the Buoys reconcile's own-spawn
-   * hook, which is the only "you just placed one" signal the client gets; a
-   * replacement buoy simply supersedes it (latest `until` wins).
-   */
-  ownBuoyUntil: number;
   /**
    * THE OWN-FIRE LATCH (Story 2.9, sim/ownFire.ts): the weapon behind the click
    * we just made. The `shell`/`torp` wire shape is deliberately constant-free —
@@ -1619,12 +1611,6 @@ function tickSinkingWindow(g: Game): void {
 function resetOwnOrders(g: Game): void {
   g.keyboard.resetThrottle();
   g.keyboard.clearActivations();
-  // Story 2.9: the buoy slot's ACTIVE window dies at the same hard boundary.
-  // The latch is fed by the reconcile's own-spawn hook, which only ever fires
-  // for a NEW buoy — so a window left standing across death would keep a slot
-  // reading ACTIVE for a buoy the next life does not own. Missing juice beats a
-  // lying slot.
-  g.ownBuoyUntil = 0;
   // Story 2.9: the own-fire latch dies at that same boundary. A claim is a
   // promise about the next reveal on our own bow, and death/respawn breaks it —
   // the shot it describes either splashed unseen or belongs to a hull that no
@@ -2397,13 +2383,16 @@ function abilityFeedbackState(): Pick<
 
 /**
  * An OWN radar buoy just appeared in the reconcile (render/buoys' own-spawn
- * hook): play its placement cue and latch the window the hotbar's ACTIVE state
- * reads. The hook only ever fires for buoys we own, so a truesighted enemy buoy
- * can never light our slot.
+ * hook): play its placement cue. The hook only ever fires for buoys we own, so
+ * a truesighted enemy buoy can never sound our drop.
+ *
+ * It latches NOTHING: the hotbar's ACTIVE window is DERIVED from the reconciled
+ * sprite set (Buoys.ownUntil) rather than from this edge, because a buoy is
+ * destructible and its death is silent on the wire — a latch kept the slot lit
+ * for the full nominal life of a buoy that had already been shot off the water.
  */
-function onOwnBuoy(g: Game | null, audio: Audio, d: BuoyView): void {
+function onOwnBuoy(audio: Audio): void {
   audio.play('placeBuoy');
-  if (g) g.ownBuoyUntil = Math.max(g.ownBuoyUntil, d.until);
 }
 
 /**
@@ -2426,7 +2415,7 @@ function latchFitFlash(g: Game, category: string): void {
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
-  const until = { speedBoost: boostUntilNow(g), radarBuoy: g.ownBuoyUntil };
+  const until = { speedBoost: boostUntilNow(g), radarBuoy: g.buoys.ownUntil() };
   return status.loadout.map((id) => (id === 'speedBoost' || id === 'radarBuoy' ? Math.max(0, until[id] - now) : 0));
 }
 
@@ -2514,7 +2503,7 @@ function buildGame(
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
-    buoys: new Buoys(stage.layers.buoyChart, stage.layers.buoyWorld, (b) => onOwnBuoy(gRef, audio, b)),
+    buoys: new Buoys(stage.layers.buoyChart, stage.layers.buoyWorld, () => onOwnBuoy(audio)),
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
@@ -2554,7 +2543,6 @@ function buildGame(
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
-    ownBuoyUntil: 0,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;

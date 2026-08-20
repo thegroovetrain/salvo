@@ -14,7 +14,7 @@
 // deleted, so there is nothing left for them to assert about.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, angleDiff, type InputMsg } from '@salvo/shared';
+import { CONFIG, angleDiff, burstPointAlong, fanBurstPoints, fanTargets, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { broadsideTargets } from '../game/equipment/index.js';
 
@@ -381,5 +381,70 @@ describe('broadside — denials + cross-hull parity', () => {
     const ml = place(w, 'ml', 'mineLayer', 0, 300);
     expect(ml.loadout[1].equipmentId).toBe('mine');
     expect(ml.loadout.map((s) => s.equipmentId)).not.toContain('broadside');
+  });
+});
+
+// ---------- THE RIM: the fan is pulled back to the water, exactly as the
+// client previews it (wave-2 review gate) -------------------------------------
+//
+// `fanTargets` swings the click bearing by ±`fanHalfAngleRad` at a CONSTANT
+// radius, so a fan EXTREME can land off the water disk on a shot whose click
+// stayed on it — and a target off the disk is not a long shot: stepShell
+// resolves it `expired`, which splashes with NO burst and NO damage. The
+// client's aim preview has always pulled those points back; the server used the
+// raw fan, so near the rim it produced shells that could never do what the
+// previewed circles promised. Both sides now call ONE shared helper
+// (sim/aim.ts fanBurstPoints), pinned here.
+
+describe('broadside — the fan is clamped to the water disk (ONE shared answer)', () => {
+  /** 60° — the port-beam CENTER for the heading `rimBattleship` sets. */
+  const RIM_AIM = Math.PI / 3;
+
+  /** A pose near the rim whose port-beam fan straddles the boundary: the ship
+   *  sits at 0.9R out along +x and the beam bearing runs 60° off it, so the
+   *  click clamps to the rim and the fan's near extreme swings PAST it. Both
+   *  numbers scale with R, so this holds at any roster-derived map size. */
+  function rimBattleship(w: World): ShipRecord {
+    const bb = place(w, 'a', 'battleship', w.map.radius * 0.9, 0, RIM_AIM - Math.PI / 2);
+    setInput(bb, { aim: RIM_AIM, aimDist: 400, slot: SLOT_BROADSIDE });
+    return bb;
+  }
+
+  it('the RAW fan would leave the water — the case is real, not hypothetical', () => {
+    const w = bareWorld();
+    const bb = rimBattleship(w);
+    const b = bb.stats.broadside;
+    const click = burstPointAlong(bb.state, 400, w.map.radius, b.rangeU, RIM_AIM);
+    expect(Math.hypot(click.x, click.y)).toBeLessThanOrEqual(w.map.radius);
+    const raw = fanTargets(bb.state, click, b.turrets, b.fanHalfAngleRad);
+    expect(raw.some((p) => Math.hypot(p.x, p.y) > w.map.radius)).toBe(true);
+  });
+
+  it('every fan target the server fires at is ON the water, and IS the previewed point', () => {
+    const w = bareWorld();
+    const bb = rimBattleship(w);
+    const b = bb.stats.broadside;
+    const targets = broadsideTargets(bb, w.map.radius);
+    for (const p of targets) expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(w.map.radius);
+    // Byte-identical to the shared helper the client's broadsidePreview calls
+    // with the same arguments — the "previewed circle IS where the shell
+    // bursts" guarantee, at the one place it used to break.
+    const click = burstPointAlong(bb.state, 400, w.map.radius, b.rangeU, RIM_AIM);
+    expect(targets).toEqual(fanBurstPoints(bb.state, click, b.turrets, b.fanHalfAngleRad, w.map.radius));
+  });
+
+  it('the shells actually spawned carry those clamped points (bearing and muzzle follow)', () => {
+    const w = bareWorld();
+    const bb = rimBattleship(w);
+    expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
+    const fired = [...w.shells.values()];
+    expect(fired).toHaveLength(bb.stats.broadside.turrets);
+    for (const s of fired) {
+      expect(Math.hypot(s.targetX!, s.targetY!)).toBeLessThanOrEqual(w.map.radius);
+      // The bearing is derived from the CLAMPED point, so the muzzle flash and
+      // the burst sit on one line rather than two.
+      const brg = Math.atan2(s.targetY! - bb.state.y, s.targetX! - bb.state.x);
+      expect(Math.abs(angleDiff(brg, Math.atan2(s.vy, s.vx)))).toBeLessThan(1e-9);
+    }
   });
 });

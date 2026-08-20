@@ -1758,57 +1758,86 @@ function verifyAggro(w: World, me: ShipRecord, c: Contact, target: ShipRecord): 
   }
 }
 
-/**
- * THE RETURN-MODE COMPLETENESS ORACLE (cycle-63 review gate). With no id on
- * the wire, `blipMatchesShip` justifies a blip if SOME gated ship matches —
- * an upper bound only, under which duplicate blips of one hull, or N copies
- * of one mask replacing other hulls' paints, would pass the fuzz. This pins
- * the lower bound and the multiplicity in one stroke: every gated subject's
- * expected mask is present in the frame, and the frame carries EXACTLY one
- * blip per gated subject (ships that pass the reimplemented ship-blip
- * predicate) — so each gated
- * ship is accounted for exactly once per revolution, one paint per beam
- * crossing.
- */
-function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
-  if (!isAfloat(me.lifecycle)) return;
-  const blips = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
-  let gated = 0;
+/** One EXPECTED return: the mask an independent oracle recomputes for a gated
+ *  source, plus a label naming that source in the failure message. */
+interface ExpectedBlip {
+  mask: MaskOracle;
+  label: string;
+}
+
+/** Gated SHIP paints. Story 7-5 wave 2 (R2.8): a ship is a gated subject
+ *  through the observer's OWN gate OR through the relay of an OWNED buoy
+ *  (never while it is a contact — the scan's contact-first order). Either way
+ *  it earns EXACTLY ONE paint (the scan emits per ship, not per sensor). */
+function expectedShipBlips(w: World, me: ShipRecord): ExpectedBlip[] {
+  const out: ExpectedBlip[] = [];
   for (const target of w.ships.values()) {
     if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
-    // Story 7-5 wave 2 (R2.8): a ship is a gated subject through the
-    // observer's OWN gate OR through the relay of an OWNED buoy (never while
-    // it is a contact — the scan's contact-first order). Either way it earns
-    // EXACTLY ONE paint (the scan emits per ship, not per sensor).
     const relayGated =
       !sighted(w, me, target.state) && !zoneCovers(w, me, target.state) && relayedOracle(w, me, target.state);
     if (!blipPredicate(w, me, target.state) && !relayGated) continue;
-    gated++;
-    const expected = maskOracle(target.hullId, target.state.x, target.state.y, target.state.heading, w.now);
-    expect(blips.some((b) => maskEquals(expected, b)), `gated ship ${target.id} accounted for`).toBe(true);
+    const s = target.state;
+    out.push({ mask: maskOracle(target.hullId, s.x, s.y, s.heading, w.now), label: `gated ship ${target.id}` });
   }
-  // Enemy buoys' own paints (R2.9): one per buoy passing the observer's gate.
+  return out;
+}
+
+/** Enemy buoys' own paints (R2.9): one per buoy passing the observer's gate. */
+function expectedBuoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
+  const out: ExpectedBlip[] = [];
   for (const b of w.buoys.values()) {
     if (b.ownerId === me.id || !blipPredicate(w, me, b)) continue;
-    gated++;
-    const expected = buoyMaskOracle(b, w.now);
-    expect(blips.some((ev) => maskEquals(expected, ev)), `gated buoy ${b.id} paint accounted for`).toBe(true);
+    out.push({ mask: buoyMaskOracle(b, w.now), label: `gated buoy ${b.id} paint` });
   }
-  // Jamming fakes (R2.11): one per oracle-recomputed fake passing the
-  // observer's gate — never for the buoy's exempt owner. This is the lower
-  // bound that keeps the carve-out honest in BOTH directions: fakes the
-  // ruling promises must actually be on the wire, and nothing beyond the
-  // recomputed set may ride along.
+  return out;
+}
+
+/** Jamming fakes (R2.11): one per oracle-recomputed fake passing the observer's
+ *  gate — never for the buoy's exempt owner. This is the lower bound that keeps
+ *  the carve-out honest in BOTH directions: fakes the ruling promises must
+ *  actually be on the wire, and nothing beyond the recomputed set may ride
+ *  along. */
+function expectedFakeBlips(w: World, me: ShipRecord): ExpectedBlip[] {
+  const out: ExpectedBlip[] = [];
   for (const b of w.buoys.values()) {
     if (b.ownerId === me.id || !ownerJams(w, b)) continue;
     for (const fake of jamFakesOracle(b)) {
       if (!blipPredicate(w, me, fake)) continue;
-      gated++;
-      const expected = maskOracle(fake.cls, fake.x, fake.y, fake.heading, w.now);
-      expect(blips.some((ev) => maskEquals(expected, ev)), `gated jam fake of ${b.id} accounted for`).toBe(true);
+      out.push({ mask: maskOracle(fake.cls, fake.x, fake.y, fake.heading, w.now), label: `gated jam fake of ${b.id}` });
     }
   }
-  expect(blips.length, 'exactly one blip per gated subject').toBe(gated);
+  return out;
+}
+
+/**
+ * THE RETURN-MODE COMPLETENESS ORACLE (cycle-63 review gate; hardened at the
+ * Story 7-5 wave-2 review gate). With no id on the wire, `blipMatchesShip`
+ * justifies a blip if SOME gated ship matches — an upper bound only, under
+ * which duplicate blips of one hull, or N copies of one mask replacing other
+ * hulls' paints, would pass the fuzz. This pins the lower bound and the
+ * multiplicity in one stroke: every gated subject's expected mask is present in
+ * the frame, and the frame carries EXACTLY one blip per gated subject.
+ *
+ * THE MATCHING IS CONSUMPTION-BASED, and that is the whole hardening. The
+ * earlier shape — `blips.some(...)` per expected source plus a total count —
+ * had a substitution hole: when two expected sources happen to share a mask (two
+ * hulls on the same pose, or a hidden hull colliding with a recomputed jam
+ * fake), ONE emitted blip satisfied BOTH existence checks, leaving room in the
+ * count for an entirely unjustified blip to ride along. Pairing each expected
+ * source with exactly ONE emitted blip and requiring nothing left over closes it
+ * in both directions: an omitted paint fails (nothing to pair with) and a leaked
+ * paint fails (nothing pairs with it).
+ */
+function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
+  if (!isAfloat(me.lifecycle)) return;
+  const unmatched = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
+  const expected = [...expectedShipBlips(w, me), ...expectedBuoyBlips(w, me), ...expectedFakeBlips(w, me)];
+  for (const exp of expected) {
+    const i = unmatched.findIndex((b) => maskEquals(exp.mask, b));
+    expect(i, `${exp.label} accounted for by its own blip`).toBeGreaterThanOrEqual(0);
+    unmatched.splice(i, 1); // CONSUMED — it can never justify a second source
+  }
+  expect(unmatched, 'every blip traces to a gated subject (nothing unaccounted)').toEqual([]);
 }
 
 /** The Story 1.10 denial oracle: a denial in a frame must be the OBSERVER'S
@@ -3128,6 +3157,61 @@ describe('perception — the jamming carve-out still catches a genuine leak (R2.
     const forgedFrame = buildFrame(w, 'a');
     forgedFrame.events.push({ k: 'blip', t: w.now, gx: forged.gx, gy: forged.gy, w: forged.w, h: forged.h, bits: forged.bits });
     expect(() => verifyFrame(w, 'a', forgedFrame)).toThrow();
+  });
+});
+
+// ---------- the completeness oracle CONSUMES its matches ---------------------
+//
+// Story 7-5 wave-2 review gate. The guard used to justify each expected source
+// with `blips.some(...)` and then check a total count. When two expected sources
+// share a mask — two hulls on one pose here; in the wild, a hidden hull landing
+// on a recomputed jam fake — ONE emitted blip satisfied BOTH existence checks,
+// and the count then had room for an entirely unjustified blip. Consumption
+// matching closes it: each expected source pairs with exactly one blip, and
+// anything left over fails.
+
+describe('perception — the completeness oracle cannot be satisfied by substitution', () => {
+  /** Rebuild a frame with a forged blip subsequence, re-sorted into the wire's
+   *  payload-only order so the forgery fails COMPLETENESS rather than tripping
+   *  verifyBlipOrdering first (which would pass the test for the wrong reason). */
+  function withBlips(f: FrameMsg, blips: readonly ReturnBlipEvent[]): FrameMsg {
+    const key = (e: ReturnBlipEvent): number[] => [e.gx, e.gy, e.t, e.w, e.h, e.bits.length, ...e.bits];
+    const sorted = [...blips].sort((a, b) => key(a).map((v, j) => v - key(b)[j]).find((d) => d !== 0) ?? 0);
+    return { ...f, events: [...f.events.filter((e) => e.k !== 'blip'), ...sorted] };
+  }
+
+  it('one blip may justify only ONE gated subject — a twin cannot cover for an omitted paint', () => {
+    const w = bareWorld();
+    const me = place(w, 'a', 0, 0);
+    // Twins: same class, same pose => byte-identical rasterized masks. That
+    // collision is what the old existence-plus-count guard could not tell apart.
+    place(w, 't1', 400, 0);
+    place(w, 't2', 400, 0);
+    // A third gated hull on its own bearing inside the same window, whose mask
+    // differs — the substitute that keeps the count whole.
+    place(w, 't3', 400 * Math.cos(0.015), 400 * Math.sin(0.015), 0.4);
+    windowAround(me, 0);
+    const legit = buildFrame(w, 'a');
+    verifyFrame(w, 'a', legit); // the honest frame passes: two twin paints + one
+    const blips = legit.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
+    expect(blips).toHaveLength(3);
+    const twinMask = maskOracle('torpedoBoat', 400, 0, 0, w.now);
+    const twinBlips = blips.filter((b) => maskEquals(twinMask, b));
+    const other = blips.find((b) => !maskEquals(twinMask, b))!;
+    expect(twinBlips).toHaveLength(2);
+
+    // THE SUBSTITUTION: drop ONE twin's paint (t2 silently loses its return) and
+    // let a duplicate of t3's paint fill the hole in the count.
+    const forged = withBlips(legit, [twinBlips[0], other, { ...other, bits: [...other.bits] }]);
+    // It satisfies every clause of the OLD guard: same blip count, and each
+    // expected mask — both twins' and t3's — is present SOMEWHERE. Every blip
+    // also individually traces to a real gated ship, so the per-blip arm
+    // (verifyBlip) is silent too: only multiplicity can catch this.
+    const forgedBlips = forged.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
+    expect(forgedBlips).toHaveLength(blips.length);
+    expect(forgedBlips.some((b) => maskEquals(twinMask, b))).toBe(true);
+    // ...and the consuming oracle refuses it anyway.
+    expect(() => verifyFrame(w, 'a', forged)).toThrow(/accounted for by its own blip/);
   });
 });
 

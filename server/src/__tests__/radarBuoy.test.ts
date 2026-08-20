@@ -97,6 +97,12 @@ function buoyMask(w: World, b: BuoyState): HullCoverage {
   return paintSegmentCoverage(b.x, b.y, b.x, b.y, BUOY_SIZE_U, CELL, w.now);
 }
 
+/** Click the buoy slot astern and let the tick apply it. */
+function dropBuoy(w: World, id: string, fireSeq: number): void {
+  w.submitInput(id, { seq: fireSeq, throttle: 0, rudder: 0, aim: Math.PI, fireSeq, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.step();
+}
+
 // ---------- placement + lifecycle (R2.7) --------------------------------------
 
 describe('radar buoy — placement + the one-buoy lifecycle (R2.7)', () => {
@@ -115,7 +121,7 @@ describe('radar buoy — placement + the one-buoy lifecycle (R2.7)', () => {
     expect(ml.loadout[SLOT_BUOY].state).toEqual({ n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs });
   });
 
-  it('life < reload: the buoy expires silently ~10s BEFORE the next charge, so a second live buoy is structurally impossible', () => {
+  it('AT BASE COOLDOWN life < reload: the buoy expires silently ~10s before the next charge, so one buoy at a time', () => {
     const w = bareWorld();
     const ml = place(w, 'm', 0, 0, 0, 'mineLayer');
     w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
@@ -131,6 +137,31 @@ describe('radar buoy — placement + the one-buoy lifecycle (R2.7)', () => {
     // The dead gap really existed: at expiry (20s) the reload had ~10s to run.
     expect(CONFIG.radarBuoy.reloadMs - CONFIG.radarBuoy.durationMs).toBe(10000);
     expect(ml.loadout[SLOT_BUOY].state!.n).toBe(1); // recharged by 35s
+  });
+
+  // R2.7's "at most ONE buoy can ever be live" is a statement about the BASE
+  // numbers, and the wave-2 review gate corrected its wording: `radarBuoy.reloadMs`
+  // sits under the ONE global cooldown scale (stats.ts clampStats) exactly like
+  // every other equipment's reload, so a full RELOAD stack legitimately buys back
+  // the overlap. Exempting the buoy would make it the odd equipment out, and the
+  // "do NOT close the gap" note in CONFIG was aimed at IMPLEMENTERS, never at
+  // player cards. Pinned as INTENDED here rather than forbidden.
+  it('a full RELOAD stack legitimately overlaps two buoys — the buoy is not exempt from the global cooldown lever', () => {
+    const w = bareWorld();
+    const ml = place(w, 'm', 0, 0, 0, 'mineLayer');
+    for (let i = 0; i < 5; i++) w.applyBoon(ml, 'shipCooldown');
+    expect(ml.stats.cooldownScale).toBeCloseTo(0.5, 9);
+    expect(ml.stats.radarBuoy.reloadMs).toBe(CONFIG.radarBuoy.reloadMs * 0.5);
+    // The ordering INVERTS: the next charge now arrives while the first buoy is
+    // still on the water.
+    expect(ml.stats.radarBuoy.reloadMs).toBeLessThan(ml.stats.radarBuoy.durationMs);
+    dropBuoy(w, 'm', 1);
+    expect(w.buoys.size).toBe(1);
+    for (let t = 0; t < 600 && ml.loadout[SLOT_BUOY].state!.n < 1; t++) w.step();
+    expect(ml.loadout[SLOT_BUOY].state!.n).toBe(1); // recharged, first buoy still live
+    dropBuoy(w, 'm', 2);
+    expect(w.buoys.size).toBe(2);
+    expect([...w.buoys.values()].every((b) => b.ownerId === 'm')).toBe(true);
   });
 });
 

@@ -279,6 +279,31 @@ export class Buoys {
     this.redraw(s);
   }
 
+  /**
+   * ms — the server-clock expiry of the OWN buoy currently on the water, or 0
+   * when we have none. THE hotbar's buoy ACTIVE window (main.ts activeWindows).
+   *
+   * DERIVED from the reconciled sprite set, deliberately, rather than latched at
+   * drop: a buoy is DESTRUCTIBLE (R2.7, 50 hp) and its removal is silent
+   * server-side — no event, it simply stops appearing in the frame's `buoys`
+   * list — so a latched `until` kept the slot lit for the buoy's full nominal
+   * life after it had been shot off the water a second later. Presence in the
+   * frame IS the liveness signal, and the owner always sees their own buoy
+   * (perception's buoy row: `buoy.ownerId === ctx.me.id`, no fog term), so
+   * "absent from my frame" means "gone" — killed or naturally expired, both of
+   * which must end the ACTIVE state.
+   *
+   * Max, not first: a REPLACE lands as one remove + one add inside a single
+   * sync, and this is read after that reconcile has settled.
+   */
+  ownUntil(): number {
+    let until = 0;
+    for (const s of this.sprites.values()) {
+      if (s.own && s.until > until) until = s.until;
+    }
+    return until;
+  }
+
   /** The ring an own buoy currently draws (null for an enemy buoy, or before
    *  owner stats arrive) — the render-state seam the tests read, without
    *  reaching into the display list. */

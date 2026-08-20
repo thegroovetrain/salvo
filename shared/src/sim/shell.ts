@@ -90,10 +90,19 @@ export interface ShellState {
   // pierceDamage, PierceHit and the 'pierced' outcome go with them.
   /**
    * ACOUSTIC HOMING doctrine (Story 2.8, torpedoHoming): per tick the fish
-   * acquires the nearest non-owner hull whose centroid is within
-   * `acquireRange` (hulls only — decoys never attract it; ctx.hulls carries
-   * only ALIVE hulls) and steers its velocity direction toward it at up to
-   * `turnRate` rad/s. Speed magnitude is never changed; expiry/range semantics
+   * acquires the nearest non-owner TARGET whose centroid is within
+   * `acquireRange` and steers its velocity direction toward it at up to
+   * `turnRate` rad/s.
+   *
+   * "Target" is whatever the caller puts in `ctx.hulls`, and on the server that
+   * is `aliveHulls()` PLUS every live RADAR BUOY (world.ts withBuoyTargets —
+   * Story 7-5 wave 2 made a buoy an ordinary collision subject on every ordnance
+   * path, R2.7). So a homing torpedo DOES lock onto a buoy, including one its
+   * own owner placed (the owner exclusion keys on the SHIP id, and a buoy
+   * carries its own). That is shipped behaviour and an OPEN design question —
+   * do not "fix" it here; it is flagged for a ruling. The comment this replaced
+   * claimed the opposite ("hulls only — decoys never attract it"), which was
+   * written for the deleted decoy buoy and was never true of the radar buoy. Speed magnitude is never changed; expiry/range semantics
    * are untouched. `targetId` is the current lock (re-acquired every tick).
    */
   homing?: { turnRate: number; acquireRange: number; targetId?: string };

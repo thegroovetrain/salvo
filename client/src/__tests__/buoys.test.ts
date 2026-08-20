@@ -136,6 +136,49 @@ describe('Buoys — own/enemy layer split + own-spawn cue hook (mines precedent)
   });
 });
 
+// --- THE HOTBAR'S ACTIVE WINDOW (wave-2 review gate) ------------------------
+//
+// `ownUntil()` is what main.ts's activeWindows reads for the buoy slot. It is
+// DERIVED from the reconciled sprite set rather than latched at drop, because a
+// buoy is destructible (R2.7, 50 hp) and its removal is SILENT on the wire — it
+// simply stops appearing in the frame's list. Latching `until` at placement kept
+// the slot reading ACTIVE for the buoy's full nominal life after it had been
+// shot off the water a second later.
+
+describe('Buoys.ownUntil — the buoy slot’s ACTIVE window follows the water', () => {
+  const buoys = (): Buoys => new Buoys(new Container(), new Container());
+
+  it('is 0 before anything is placed', () => {
+    expect(buoys().ownUntil()).toBe(0);
+  });
+
+  it('reports our own buoy’s expiry while it is on the water', () => {
+    const b = buoys();
+    b.sync([buoy('mine', true, 20000)], HUE);
+    expect(b.ownUntil()).toBe(20000);
+  });
+
+  it('DROPS TO 0 the tick our buoy leaves the frame — destroyed, not just expired', () => {
+    const b = buoys();
+    b.sync([buoy('mine', true, 20000)], HUE); // dropped at t=0, nominal life to 20s
+    b.sync([], HUE); // shot off the water at t≈1s: silent removal, no event
+    expect(b.ownUntil()).toBe(0);
+  });
+
+  it('never lights the slot for somebody ELSE’s buoy we happen to truesight', () => {
+    const b = buoys();
+    b.sync([buoy('theirs', false, 20000)], HUE);
+    expect(b.ownUntil()).toBe(0);
+  });
+
+  it('follows a REPLACE to the new buoy’s expiry (one remove + one add, same sync)', () => {
+    const b = buoys();
+    b.sync([buoy('first', true, 20000)], HUE);
+    b.sync([buoy('second', true, 45000)], HUE);
+    expect(b.ownUntil()).toBe(45000);
+  });
+});
+
 // --- THE SILHOUETTE ---------------------------------------------------------
 //
 // Eric, 7-5-decks.md: *"The icon needs to be distinguished from the mines a bit

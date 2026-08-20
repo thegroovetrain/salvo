@@ -18,6 +18,7 @@ import {
   CONFIG,
   burstPointAlong,
   effectiveStats,
+  fanBurstPoints,
   fanTargets,
   hullEnvelope,
   islandFromPolygon,
@@ -313,6 +314,27 @@ describe('the broadside — the fan comes from the SHARED helper, not a re-deriv
     for (const burst of m.bursts) {
       expect(Math.hypot(burst.x - click.x, burst.y - click.y)).toBeGreaterThan(1);
     }
+  });
+
+  it('near the rim it is fanBurstPoints — the CLAMPED fan the server fires (one answer)', () => {
+    // 0.9R out along +x with the port beam bearing 60° off it: the click clamps
+    // to the rim and the fan's near extreme swings past it. The server's
+    // broadsideTargets makes exactly this call, so a preview built on the raw
+    // fanTargets would draw circles no shell can burst in (an off-disk target
+    // expires: splash, no burst, no damage).
+    const ship = { ...SHIP, x: MAP_R * 0.9, y: 0, heading: -Math.PI / 6 };
+    const inp = broadside({ ship, aim: Math.PI / 3, aimDist: 4000 });
+    const b = inp.stats.broadside;
+    const click = burstPointAlong(ship, 4000, MAP_R, b.rangeU, Math.PI / 3);
+    const truth = fanBurstPoints(ship, click, b.turrets, b.fanHalfAngleRad, MAP_R);
+    expect(truth).not.toEqual(fanTargets(ship, click, b.turrets, b.fanHalfAngleRad)); // the clamp bites
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(truth.length);
+    truth.forEach((t, i) => {
+      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.x, 9);
+      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.y, 9);
+      expect(Math.hypot(t.x, t.y)).toBeLessThanOrEqual(MAP_R);
+    });
   });
 
   it('is an ARC AT CONSTANT RADIUS, never a cone that widens with range', () => {

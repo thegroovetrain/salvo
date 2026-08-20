@@ -27,7 +27,7 @@ import {
   blockedWater,
   burstPointAlong,
   clampInsideMap,
-  fanTargets,
+  fanBurstPoints,
   hullEnvelope,
   islandSegHit,
   muzzleOrTarget,
@@ -263,8 +263,8 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
  * ARC AT CONSTANT RADIUS about the ship, spread angularly about the click
  * bearing, never a cone that widens with distance.
  *
- * The per-shell target points come from the SHARED helper (sim/spread.ts
- * fanTargets), called with the ship position, the range-clamped click point,
+ * The per-shell target points come from the SHARED helper (sim/aim.ts
+ * fanBurstPoints), called with the ship position, the range-clamped click point,
  * `stats.broadside.turrets` and `stats.broadside.fanHalfAngleRad` — the exact
  * call the server's barrage makes. Re-deriving the geometry here is forbidden:
  * the project's guarantee is that the previewed circle IS where the shell
@@ -288,10 +288,11 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
   };
   const model: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
   const click = burstPointAlong(inp.ship, inp.aimDist, inp.mapRadius, b.rangeU, inp.aim);
-  for (const raw of fanTargets(inp.ship, click, b.turrets, b.fanHalfAngleRad)) {
-    // A fan extreme can swing past the rim on a shot the CLICK itself kept
-    // inside it; pull it back exactly as the click was pulled back.
-    const target = clampInsideMap(inp.ship, raw, inp.mapRadius);
+  // fanBurstPoints, not the raw fanTargets: a fan extreme can swing past the rim
+  // on a shot the CLICK itself kept inside it, and the shared helper pulls it
+  // back exactly as the click was pulled back — the SAME call the server's
+  // broadsideTargets makes, so there is one answer and not two.
+  for (const target of fanBurstPoints(inp.ship, click, b.turrets, b.fanHalfAngleRad, inp.mapRadius)) {
     const dir = Math.atan2(target.y - inp.ship.y, target.x - inp.ship.x);
     const origin = muzzleOrTarget(inp.ship, inp.ship.cls, dir, target, spec.shellRadius);
     shellPreview(inp, origin, target, spec, model);

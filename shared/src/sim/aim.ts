@@ -20,6 +20,7 @@ import type { Vec2 } from '../math/vec.js';
 import type { Island } from '../types.js';
 import { pointInIsland } from './island.js';
 import { hullSilhouette, polygonMaxRadius, segPolygonHit, transformPolygon } from './silhouette.js';
+import { fanTargets } from './spread.js';
 
 /** The minimum a firing pose needs to be: world position + heading. */
 export interface AimPose {
@@ -139,6 +140,38 @@ export function burstPointAlong(
   const dist = Math.min(Math.max(aimDist, minU), Math.max(rangeU, minU));
   const target = { x: center.x + Math.cos(dir) * dist, y: center.y + Math.sin(dir) * dist };
   return clampInsideMap(center, target, mapRadius);
+}
+
+/**
+ * THE BROADSIDE FAN'S BURST POINTS — the ONE answer both sides read (Story 7-5
+ * wave 2, R2.3 + the wave-2 review gate).
+ *
+ * `sim/spread.ts fanTargets` owns the straddle law, but its output is RAW
+ * geometry: swinging the click bearing by ±`halfAngle` at a CONSTANT radius can
+ * push a fan extreme OUT of the water disk on a shot whose click was itself
+ * inside it (the click is clamped along its own bearing; the extremes are not
+ * on that bearing). A target outside the disk is not a long shot — `stepShell`
+ * resolves it `expired`, so it splashes with NO burst and NO damage. So every
+ * fan point takes the SAME pull-back the click already takes (`clampInsideMap`),
+ * which is the consistent rule and the one that keeps the shell doing something.
+ *
+ * It lives HERE, not in spread.ts, because the water disk is aim geometry
+ * (clampInsideMap's home) rather than straddle geometry, and it is a FUNCTION
+ * rather than two agreeing call sites because the project's guarantee is that
+ * the previewed circle IS where the shell bursts: the server's `broadsideTargets`
+ * and the client's `broadsidePreview` both call this and can no longer diverge.
+ * Callers must derive each shell's BEARING and MUZZLE from the returned
+ * (clamped) point too — a clamped point on an unclamped bearing would put the
+ * muzzle flash and the burst on different lines.
+ */
+export function fanBurstPoints(
+  center: Vec2,
+  target: Vec2,
+  count: number,
+  halfAngle: number,
+  mapRadius: number,
+): Vec2[] {
+  return fanTargets(center, target, count, halfAngle).map((p) => clampInsideMap(center, p, mapRadius));
 }
 
 /**

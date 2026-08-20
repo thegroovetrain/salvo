@@ -44,7 +44,7 @@ export const EQUIPMENT_DESCRIPTION: Record<EquipmentId, string> = {
   torpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
   mine: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
   speedBoost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
-  broadside: 'Every turret on the aimed beam fires at once. One shell runs to the point you clicked; the rest fan out to either side of it at the same range.',
+  broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
   radarBuoy: 'Drops an anchored buoy that runs its own radar sweep and relays what it finds back to you.',
 };

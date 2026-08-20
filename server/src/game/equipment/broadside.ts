@@ -16,11 +16,12 @@
 //   2. ONE CLICK FIRES `turrets` SHELLS ON AN ARC (R2.3). Every shell ends its
 //      run at the CLICK'S OWN RANGE — the pattern is an arc at constant radius
 //      from the ship, spread ANGULARLY about the click bearing, NOT a cone.
-//      The geometry is NOT re-derived here: shared sim/spread.ts `fanTargets`
-//      owns the straddle law, so an ODD turret count puts one shell exactly on
-//      the click bearing and an EVEN count straddles it with none on it, and
-//      the server and the client's aim preview cannot disagree about where the
-//      shells go.
+//      The geometry is NOT re-derived here: shared sim/aim.ts `fanBurstPoints`
+//      (spread.ts's straddle law + the water-disk clamp) owns it, so an ODD
+//      turret count puts one shell exactly on the click bearing, an EVEN count
+//      straddles it with none on it, a fan extreme that would swing off the
+//      water disk is pulled back rather than expiring unfired, and the server
+//      and the client's aim preview cannot disagree about where the shells go.
 //
 // SIGNALS ARE PER SHELL (R2.5, Eric A2): each shell is an ordinary gun-family
 // `shell` and emits its OWN mz / sp / hc through the unchanged World paths.
@@ -36,7 +37,7 @@
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
-  fanTargets,
+  fanBurstPoints,
   inArc,
   twinSectorArcFor,
   wrapAngle,
@@ -72,13 +73,19 @@ function firingBeam(heading: number, aim: number): number | null {
  * The barrage's per-shell target points: the CLICKED burst point (aim bearing,
  * clicked distance, clamped to the broadside's effective range AND to the water
  * disk — the gun's own `burstPointAlong`) fanned into `turrets` points at that
- * SAME range by shared `fanTargets`. Exported for tests: the fan is the feature,
- * so its geometry is directly assertable without spawning shells.
+ * SAME range by shared `fanBurstPoints`. Exported for tests: the fan is the
+ * feature, so its geometry is directly assertable without spawning shells.
+ *
+ * `fanBurstPoints` — not the raw `fanTargets` — because a fan EXTREME can swing
+ * out of the water disk on a shot whose click stayed inside it, and a target
+ * outside the disk expires with no burst and no damage. The shared helper pulls
+ * every point back exactly as the click was pulled back, so the client's aim
+ * preview and this fire path read ONE answer (wave-2 review gate).
  */
 export function broadsideTargets(ship: ShipRecord, mapRadius: number): Vec2[] {
   const bs = ship.stats.broadside;
   const click = burstPointAlong(ship, mapRadius, bs.rangeU, ship.input.aim);
-  return fanTargets(ship.state, click, bs.turrets, bs.fanHalfAngleRad);
+  return fanBurstPoints(ship.state, click, bs.turrets, bs.fanHalfAngleRad, mapRadius);
 }
 
 /**

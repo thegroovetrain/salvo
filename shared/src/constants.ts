@@ -66,7 +66,8 @@ export const CONFIG = {
    * hull/hp: Torpedo Boat (fast, fragile) — Battleship (slow, armored) —
    * Mine Layer (area denial). Per-class loadouts are now landing: as of Story
    * 1.6 the Torpedo Boat carries its fitted loadout (gun / torpedo / speed
-   * boost); as of Story 1.7 the Battleship carries gun / cannon / star shells;
+   * boost); the Battleship carries gun / broadside / star shells (Story 1.7's
+   * cannon was REPLACED outright by the BROADSIDE BARRAGE — 7-5 wave 2, R2.6);
    * Mine Layer keeps the universal fit (CONFIG.gun/torpedo/mine) until Story
    * 1.8. Only hull dims, hp, and
    * kinematics vary. Hull dims are the exact bow-to-stern length × max beam of
@@ -1331,24 +1332,35 @@ export const CONFIG = {
    * ability. `radarRange` is a FLAT SET — the buoy's own equipment, NOT the
    * owner's boon-scaled intel range — and its sweep is its own too.
    *
-   * ONE BUOY, AND A GAP (Eric ruling 2026-08-19, amending R2.7 mid-flight): the
-   * life is SHORTER than the reload, so at most ONE buoy can ever be live and
-   * there is a ~10s dead window between one expiring and the next becoming
-   * available. That gap is the point — a buoy is a commitment, not permanent
-   * cover. The earlier ordering (30s life on a 20s reload) allowed two
-   * overlapping and is superseded. Do NOT close the gap by raising `maxAmmo` or
-   * shortening `reloadMs`.
+   * ONE BUOY, AND A GAP — AT BASE COOLDOWN (Eric ruling 2026-08-19, amending
+   * R2.7 mid-flight): the base life is SHORTER than the base reload, so out of
+   * the box at most ONE buoy is ever live and there is a ~10s dead window
+   * between one expiring and the next becoming available. That gap is the
+   * starting point — a buoy is a commitment, not permanent cover. The earlier
+   * ordering (30s life on a 20s reload) allowed two overlapping and is
+   * superseded as the BASE.
+   *
+   * CARDS LEGITIMATELY CLOSE IT, and that is a reward curve rather than a leak:
+   * BUOY I-IV adds +2.5s of life per card (to exactly the base reload at ×4),
+   * and RELOAD — the universal `shipCooldown` lever — scales `reloadMs` like it
+   * scales every other piece of equipment (stats.ts clampStats), reaching
+   * 15 000 ms at a full stack against a 20 000 ms life, so a heavy RELOAD build
+   * can hold TWO buoys on the water at once. Neither is an oversight: exempting
+   * the buoy from the one global cooldown lever would make it the odd equipment
+   * out. The instruction below is aimed at IMPLEMENTERS, not at player cards:
+   * do NOT close the BASE gap by raising `maxAmmo` or shortening `reloadMs`.
    * It paints on radar with its OWN profile carrying no owner identity (R2.9),
    * and killing one pays no XP and prints no kill-feed line. Every number is a
    * DESIGN TARGET, tunable.
    */
   radarBuoy: {
     radarRange: 330, // u — the buoy's OWN radar reach (flat; never observer-scaled)
-    sweepRpm: 15, // rev/min — its own sweep; BUOY ×4 adds +1.25/card to 20
+    sweepRpm: 15, // rev/min — its own sweep; FIXED (R2.20 moved BUOY I-IV to durationMs; no card writes it)
     durationMs: 20000, // ms — lifetime before natural expiry
     hp: 50, // hp — destructible by anything that damages a ship
-    // ms — cooldown between placements. LONGER than the life (Eric 2026-08-19),
-    // so one buoy at a time with a ~10s dead gap between them.
+    // ms — cooldown between placements. LONGER than the life at BASE cooldown
+    // (Eric 2026-08-19), so one buoy at a time with a ~10s dead gap between
+    // them; the BUOY and RELOAD ladders both eat into that gap (see above).
     reloadMs: 30000,
     maxAmmo: 1, // single charge in the pool
     // --- GUN BUOY doctrine (buoyGun): the buoy defends itself.

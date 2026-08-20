@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import {
   burstPointAlong,
   clampInsideMap,
+  fanBurstPoints,
   gunReachU,
   hullClearOffset,
   muzzleOrTarget,
@@ -80,6 +81,34 @@ describe('clampInsideMap', () => {
     const p = clampInsideMap({ x: 900, y: 0 }, { x: 1400, y: 0 }, R);
     expect(Math.hypot(p.x, p.y)).toBeLessThan(R);
     expect(Math.hypot(p.x, p.y)).toBeGreaterThan(R - 2); // epsilon, not a big pull-back
+  });
+});
+
+describe('fanBurstPoints — the broadside fan, on the water', () => {
+  const R = 1000;
+
+  it('is exactly the straddle fan when nothing leaves the disk', () => {
+    const ship = { x: 0, y: 0 };
+    const pts = fanBurstPoints(ship, { x: 300, y: 0 }, 3, 0.2, R);
+    for (const p of pts) expect(Math.hypot(p.x, p.y)).toBeCloseTo(300, 9);
+    expect(pts[1]).toEqual({ x: 300, y: 0 }); // odd count: one shell dead on the click
+  });
+
+  it('pulls a fan EXTREME back inside the water on a rim shot the CLICK survived', () => {
+    // 0.9R out along +x, beam bearing 60° off it: the click clamps to the rim
+    // and the near extreme of a ±12° fan swings past it.
+    const ship = { x: R * 0.9, y: 0 };
+    const bearing = Math.PI / 3;
+    const click = burstPointAlong(ship, 4000, R, 5000, bearing);
+    expect(Math.hypot(click.x, click.y)).toBeLessThanOrEqual(R);
+    const half = (12 * Math.PI) / 180;
+    const pts = fanBurstPoints(ship, click, 3, half, R);
+    for (const p of pts) expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(R);
+    // ...and it really was a clamp: the outer shell is now SHORTER than the
+    // click's own range, which is the whole visible difference.
+    expect(Math.hypot(pts[0].x - ship.x, pts[0].y - ship.y)).toBeLessThan(
+      Math.hypot(click.x - ship.x, click.y - ship.y) - 1,
+    );
   });
 });
 
