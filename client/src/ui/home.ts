@@ -424,7 +424,7 @@ function makeWordmark(version: string): HTMLElement {
   tagline.textContent = pickTagline();
   tagline.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);letter-spacing:0.44em;margin-top:8px`;
   const ver = document.createElement('div');
-  ver.textContent = `RT PROTOTYPE // v${version}`;
+  ver.textContent = `v${version}`;
   ver.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.2em`;
   wrap.append(mark, tagline, ver);
   return wrap;
