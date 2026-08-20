@@ -30,6 +30,7 @@ import {
   renderCatalogLines,
   renderDeckComposition,
   renderDeckLines,
+  renderFitSlices,
   renderOrdnanceLedger,
 } from './catalogReport.js';
 
@@ -44,7 +45,11 @@ function headerLines(opts: CliOptions): string[] {
   // the deterministic body's own header must say so. Only printed when there
   // are bots, so every captain-only run key is byte-unchanged.
   const bots = opts.bots > 0 ? ` bots=${opts.bots}` : '';
-  const roster = opts.deckOnly ? '' : ` captains=${opts.captains}${bots} control=${opts.control}`;
+  // The wave-4 test rig joins the run key the same way: printed only when
+  // engaged, so every pre-existing run key stays byte-identical.
+  const botProfile = opts.botProfile !== null ? ` botProfile=${opts.botProfile}` : '';
+  const botEngage = opts.botEngage !== 'always' ? ` botEngage=${opts.botEngage}` : '';
+  const roster = opts.deckOnly ? '' : ` captains=${opts.captains}${bots}${botProfile}${botEngage} control=${opts.control}`;
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
     `run key: seed=${opts.seed} mode=${mode}${roster} overrides=${overridesLine(opts.set)} sweeps=${opts.sweeps.length}`,
@@ -73,6 +78,8 @@ function batchMode(opts: CliOptions): ModeOutput {
           matches: opts.matches,
           captains: opts.captains,
           bots: opts.bots,
+          botProfile: opts.botProfile ?? undefined,
+          botEngage: opts.botEngage,
           control: CONTROL_REGISTRY[opts.control],
         },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
@@ -87,8 +94,13 @@ function batchMode(opts: CliOptions): ModeOutput {
       if (botAgg !== null) body.push(...renderBotReport(variant.label, botAgg), '');
       // STORY 7-5 EVIDENCE PASS: per-line catalog reachability + the ordnance /
       // one-hit-kill ledger. Always appended — every run key gains the block.
+      // WAVE 4 (cycle 110): the fits slices and the STRUCTURAL deck-composition
+      // block now print in batch mode too, so the structural denominator sits
+      // beside the observed one — a deliberate golden change to the body.
       const catAgg = buildCatalogAggregate(result);
       body.push(...renderCatalogLines(variant.label, catAgg), '');
+      body.push(...renderFitSlices(variant.label, catAgg), '');
+      body.push(...renderDeckComposition(), '');
       body.push(...renderOrdnanceLedger(variant.label, catAgg), '');
       out.variants.push({ label: variant.label, overrides: variant.set, aggregate: agg, bots: botAgg });
     } finally {

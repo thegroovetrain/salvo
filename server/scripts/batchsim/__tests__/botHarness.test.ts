@@ -18,7 +18,8 @@ import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
 import { BotCollector, hullTouchesLand, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
-import { runMatch, type BatchResult, type MatchSample } from '../runner.js';
+import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
+import { TEST_PROFILE_IDS } from '../../../src/game/ai/profiles.js';
 
 // --- args --------------------------------------------------------------------
 
@@ -277,5 +278,76 @@ describe('runner — the bot lobby', () => {
 
   it('the collector reports nothing for an empty bot list', () => {
     expect(new BotCollector([]).empty).toBe(true);
+  });
+});
+
+// --- the wave-4 test rig: --bot-profile / --bot-engage -----------------------
+
+describe('args — the --bot-profile and --bot-engage flags (wave 4)', () => {
+  it('defaults leave every existing run key byte-identical', () => {
+    const opts = parseArgs([]);
+    expect(opts.botProfile).toBeNull();
+    expect(opts.botEngage).toBe('always');
+  });
+
+  it('accepts each TEST id and the round-robin scheme — with --bots', () => {
+    for (const id of TEST_PROFILE_IDS) {
+      expect(parseArgs(['--bots', '3', '--bot-profile', id]).botProfile).toBe(id);
+    }
+    expect(parseArgs(['--bots', '3', '--bot-profile', 'random']).botProfile).toBe('random');
+  });
+
+  it('REJECTS an in-game profile id, with a message naming the boundary', () => {
+    // The safety property at the CLI door: the harness can only force the
+    // test-only rows, never deal an in-game row (or vice versa).
+    expect(() => parseArgs(['--bots', '3', '--bot-profile', 'raider'])).toThrow(UsageError);
+    expect(() => parseArgs(['--bots', '3', '--bot-profile', 'raider'])).toThrow(/IN-GAME profile/);
+    expect(() => parseArgs(['--bots', '3', '--bot-profile', 'notAProfile'])).toThrow(/available: random,/);
+  });
+
+  it('rejects --bot-profile without bots, and a bad --bot-engage value', () => {
+    expect(() => parseArgs(['--bot-profile', 'random'])).toThrow(/needs --bots/);
+    expect(() => parseArgs(['--bots', '2', '--bot-engage', 'sometimes'])).toThrow(UsageError);
+    expect(parseArgs(['--bots', '2', '--bot-engage', 'endgame']).botEngage).toBe('endgame');
+    expect(parseArgs(['--bots', '2', '--bot-engage', 'always']).botEngage).toBe('always');
+  });
+});
+
+describe('runner — forced test profiles and the engage gate (wave 4)', () => {
+  it('botProfileFor: a named id forces every bot; the scheme deals round-robin', () => {
+    for (let i = 0; i < 6; i += 1) {
+      expect(botProfileFor({ botProfile: 'randomBattleship' }, i)).toBe('randomBattleship');
+      expect(botProfileFor({ botProfile: 'random' }, i)).toBe(TEST_PROFILE_IDS[i % 3]);
+      expect(botProfileFor({}, i)).toBeUndefined();
+    }
+  });
+
+  it('a forced run carries ONLY test profiles in its bot rows, one hull per row', () => {
+    const restore = applyOverrides({ 'zone.beatMs': 4000 });
+    try {
+      const m = runMatch(0, { seed: 4242, matches: 1, captains: 0, bots: 3, botProfile: 'random' });
+      expect(m.bots).toHaveLength(3);
+      const profiles = m.bots!.map((b) => b.profile).sort();
+      expect(profiles).toEqual([...TEST_PROFILE_IDS].sort());
+      for (const b of m.bots!) {
+        // A test id can NEVER be an in-game id (the disjointness pin lives in
+        // botPolicy.test.ts); here: the forced row governed the hull.
+        expect(Object.values(CONFIG.bots.profiles).flat() as string[]).not.toContain(b.profile);
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it('an endgame-gated bot lobby still RESOLVES (the gate releases and they fight)', () => {
+    const restore = applyOverrides({ 'zone.beatMs': 2000 });
+    try {
+      const m = runMatch(0, { seed: 77, matches: 1, captains: 0, bots: 4, botEngage: 'endgame' });
+      // The match ends: either someone won after the release, or the collapse
+      // sank the field — never a budget cap-out with everyone idling.
+      expect(m.endedBy).not.toBe('unresolved');
+    } finally {
+      restore();
+    }
   });
 });

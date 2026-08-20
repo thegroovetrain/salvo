@@ -381,3 +381,117 @@ describe('state lifecycle — created with the ship, silent while down, released
     expect(w.bots.observesLastTick).toBeLessThanOrEqual(2);
   });
 });
+
+// --- the wave-4 test rig: profile override + the engage gate -----------------
+
+describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => {
+  it('honours a forced test profile, and the profile governs the hull', () => {
+    const w = new World(5);
+    w.map.islands.length = 0;
+    const rec = w.addBot(undefined, 'randomBattleship');
+    expect(rec.hullId).toBe('battleship');
+    expect(w.bots.profileOf(rec.id)).toBe('randomBattleship');
+  });
+
+  it('a forced profile does not shift the stream for the enrollments after it', () => {
+    // The mirror of solo.test.ts's forced-CLASS pin: the controller still
+    // rolls class AND profile and discards both, so callsigns and every later
+    // enrollment land in the same order either way.
+    const a = new World(9);
+    a.map.islands.length = 0;
+    const b = new World(9);
+    b.map.islands.length = 0;
+    a.addBot();
+    b.addBot(undefined, 'randomMineLayer');
+    const nextA = a.addBot();
+    const nextB = b.addBot();
+    expect(nextB.hullId).toBe(nextA.hullId);
+    expect(w2names(a)).toEqual(w2names(b));
+    expect(a.bots.profileOf(nextA.id)).toBe(b.bots.profileOf(nextB.id));
+  });
+
+  it('with NO override the rolled profile is always an in-game id (the safety property, live)', () => {
+    const w = new World(31);
+    w.map.islands.length = 0;
+    for (let i = 0; i < 12; i += 1) {
+      const rec = w.addBot();
+      const table: readonly string[] = CONFIG.bots.profiles[rec.hullId as keyof typeof CONFIG.bots.profiles];
+      expect(table).toContain(w.bots.profileOf(rec.id));
+    }
+  });
+});
+
+function w2names(w: World): string[] {
+  return [...w.ships.values()].map((s) => s.name);
+}
+
+describe('the engage gate — endgame bots hold fire until the terminal ring (wave 4)', () => {
+  /** Four bots staged close and pointed at each other on an open ocean — the
+   *  END-TO-END block's arrangement, minus islands, so acquisition is
+   *  immediate and a held trigger is unambiguous. */
+  function stagedWorld(zone?: ConstructorParameters<typeof World>[2]): { w: World; ids: string[] } {
+    const w = new World(3101, 8, zone);
+    w.map.islands.length = 0;
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i += 1) ids.push(w.addBot().id);
+    ids.forEach((id, i) => {
+      const a = (i / ids.length) * Math.PI * 2;
+      const rec = w.ships.get(id)!;
+      rec.state.x = Math.cos(a) * 300;
+      rec.state.y = Math.sin(a) * 300;
+      rec.state.heading = a + Math.PI;
+      rec.prevPose = { ...rec.state };
+    });
+    return { w, ids };
+  }
+
+  // A fast, concentric, tick-aligned timeline: 250ms beats, closed (= endgame
+  // reached, no sudden death) after 3 groups x 4 beats = 3s = 60 ticks.
+  const FAST_ZONE = { beatMs: 250, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 2 };
+
+  it("never fires while the timeline is IDLE — the gate cannot degenerate pre-match", () => {
+    const { w, ids } = stagedWorld();
+    w.bots.engage = 'endgame';
+    const start = ids.map((id) => ({ ...w.ships.get(id)!.state }));
+    for (let t = 0; t < 400; t += 1) {
+      w.step();
+      expect(w.shells.size).toBe(0);
+    }
+    for (const id of ids) {
+      const rec = w.ships.get(id)!;
+      expect(rec.input.fireSeq).toBe(0); // not one click, ever
+      expect(w.bots.observesLastTick).toBe(ids.length); // perception NEVER gated
+    }
+    // Still sailing the rhythm, not parked: the helm stays live under the gate.
+    const moved = ids.filter((id) => {
+      const rec = w.ships.get(id)!;
+      return Math.hypot(rec.state.x - start[ids.indexOf(id)].x, rec.state.y - start[ids.indexOf(id)].y) > 20;
+    });
+    expect(moved.length).toBeGreaterThan(0);
+  });
+
+  it('releases at zoneEndgameReached and then fights as a normal bot', () => {
+    const { w, ids } = stagedWorld(FAST_ZONE);
+    w.bots.engage = 'endgame';
+    w.startZone(0);
+    // Held through the whole geometric timeline… (the flip tick itself may
+    // legitimately fire — the gate reads the live zone fact mid-step)
+    while (!w.zoneEndgameReached) {
+      w.step();
+      if (!w.zoneEndgameReached) expect(w.shells.size).toBe(0);
+    }
+    // …then released: same bots, same water, and now they shoot.
+    let shellsSeen = 0;
+    for (let t = 0; t < 600; t += 1) {
+      w.step();
+      shellsSeen = Math.max(shellsSeen, w.shells.size);
+    }
+    expect(shellsSeen).toBeGreaterThan(0);
+    expect(ids.some((id) => (w.ships.get(id)?.input.fireSeq ?? 0) > 0)).toBe(true);
+  });
+
+  it("the default gate is 'always' — the shipped behaviour is untouched", () => {
+    const { w } = stagedWorld();
+    expect(w.bots.engage).toBe('always');
+  });
+});

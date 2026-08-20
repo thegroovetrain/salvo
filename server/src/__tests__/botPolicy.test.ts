@@ -34,7 +34,7 @@ import {
 import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
 import type { BotMind, BotPosture, BotProfileId } from '../game/ai/types.js';
-import { BOT_PROFILES, engagementBand, profileOf } from '../game/ai/profiles.js';
+import { BOT_PROFILES, TEST_PROFILES, TEST_PROFILE_IDS, engagementBand, profileOf } from '../game/ai/profiles.js';
 import {
   choosePosture,
   foldView,
@@ -57,6 +57,7 @@ import { APPETITE_EAGER, APPETITE_NEUTRAL, appetiteFor } from '../game/ai/equipm
 function mind(profile: BotProfileId = 'duelist'): BotMind {
   return {
     rng: mulberry32(7),
+    spendRng: mulberry32(11),
     seq: 0,
     fireSeq: 0,
     actSeq: 0,
@@ -832,5 +833,110 @@ describe('ai/utility — the band pull is bounded (Eric ruling 2026-08-20)', () 
     const pulled = pullBand(band, [250, 150]);
     expect(pulled.min).toBeCloseTo((264 + 150) / 2, 6);
     expect(pulled.min).toBeGreaterThan(150); // identity survives: never AT the reach
+  });
+});
+
+// --- the test-only blind-vacuum rig (Story 7-6 wave 4) -----------------------
+
+describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
+  it('lives in a SEPARATE id space: no test id is reachable through in-game enrollment', () => {
+    // STRUCTURAL, not sampled: botDriver.enroll's in-game roll is
+    // `rng.pick(CONFIG.bots.profiles[hull])` and ArenaRoom.buildBotFleet
+    // passes no override, so the ONLY profiles a real Solo vs AI lobby can
+    // deal are the ids in that CONFIG table. Test ids being absent from every
+    // per-class list — and from BOT_PROFILES entirely — is therefore proof of
+    // unreachability, not a probabilistic claim.
+    const testIds = Object.keys(TEST_PROFILES);
+    expect(testIds.sort()).toEqual(['randomBattleship', 'randomMineLayer', 'randomTorpedoBoat']);
+    for (const cls of SHIP_CLASS_IDS) {
+      for (const id of CONFIG.bots.profiles[cls]) expect(testIds).not.toContain(id);
+    }
+    for (const id of testIds) expect(Object.hasOwn(BOT_PROFILES, id)).toBe(false);
+  });
+
+  it('three rows, one per hull, carrying the RULED blind-vacuum values verbatim', () => {
+    const hulls = TEST_PROFILE_IDS.map((id) => TEST_PROFILES[id].hullId);
+    expect([...hulls].sort()).toEqual([...SHIP_CLASS_IDS].sort());
+    for (const id of TEST_PROFILE_IDS) {
+      const row = TEST_PROFILES[id];
+      expect(row.id).toBe(id);
+      expect(row.spend).toBe('random');
+      expect(row.bandMinFrac).toBe(0.15);
+      expect(row.bandMaxFrac).toBe(0.55);
+      expect(row.targetWeights).toEqual({ captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 });
+      expect(row.disengageHpFrac).toBe(CONFIG.bots.disengageHpFrac);
+      expect(row.healHpFrac).toBe(CONFIG.bots.healHpFrac);
+      // Every appetite entry at or above EAGER, so every equipment verb is
+      // exercised and the read is not shaped by a doctrine preference…
+      for (const v of Object.values(row.appetite)) expect(v).toBeGreaterThanOrEqual(APPETITE_EAGER);
+      // …with the gun still the LOWEST entry (the universal fallback order).
+      for (const [eq, v] of Object.entries(row.appetite)) {
+        if (eq !== 'gun') expect(v).toBeGreaterThan(appetiteFor(row, 'gun'));
+      }
+    }
+  });
+
+  it('every in-game row spends WEIGHTED; profileOf resolves both id spaces', () => {
+    for (const p of Object.values(BOT_PROFILES)) expect(p.spend).toBe('weighted');
+    expect(profileOf('raider')).toBe(BOT_PROFILES.raider);
+    expect(profileOf('randomBattleship')).toBe(TEST_PROFILES.randomBattleship);
+  });
+});
+
+describe('ai/spending — random mode (wave 4)', () => {
+  function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
+    return { bankedLevels: 1, offer: null, boons: [], hp: 100, maxHp: 100, ...over };
+  }
+
+  /** An rng that COUNTS its draws and fails the test if the weighted path
+   *  ever touches it. */
+  function trapRng(): never {
+    throw new Error('the weighted spend path drew from the rng');
+  }
+  const TRAP = { float: trapRng, int: trapRng, pick: trapRng } as unknown as Parameters<typeof chooseSpend>[3];
+
+  it('the WEIGHTED path never draws, and is byte-identical with or without an rng in hand', () => {
+    const offer = ['gunBarrel', 'torpedoHoming', 'shipHull'];
+    const bare = chooseSpend(profileOf('raider'), spendState({ offer }));
+    // Handing the weighted path a trap rng must neither change the answer nor
+    // trigger a single draw — the shipped path is pure and rng-free.
+    expect(chooseSpend(profileOf('raider'), spendState({ offer }), undefined, TRAP)).toBe(bare);
+  });
+
+  it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
+    const row = profileOf('randomMineLayer');
+    const offer = ['gunBarrel', 'torpedoHoming', 'shipHull', 'intelRange'];
+    // The policy must be exactly one rng.int(0, offer.length - 1) draw: replay
+    // the same seed independently and demand index equality, draw for draw.
+    const rng = mulberry32(99);
+    const expected = mulberry32(99);
+    const seen = new Set<number>();
+    for (let i = 0; i < 40; i += 1) {
+      const got = chooseSpend(row, spendState({ offer }), undefined, rng);
+      expect(got).toBe(expected.int(0, offer.length - 1));
+      seen.add(got!);
+    }
+    // 40 draws over 4 slots: every index reachable (a fixed pick is not
+    // uniform; the chance of missing a slot honestly is (3/4)^40 ≈ 1e-5 per
+    // slot on this FIXED seed, i.e. this is a deterministic replay, not flake).
+    expect(seen.size).toBe(offer.length);
+  });
+
+  it('the heal rule fires BY RULE for a random profile — never randomized', () => {
+    const row = profileOf('randomTorpedoBoat');
+    const hurt = row.healHpFrac * 100 - 1;
+    const rng = mulberry32(7);
+    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['gunBarrel'] }), undefined, rng)).toBe(-1);
+    // And the heal branch drew NOTHING: the next card pick replays as draw #1.
+    expect(chooseSpend(row, spendState({ offer: ['a1', 'a2'] }), undefined, rng))
+      .toBe(mulberry32(7).int(0, 1));
+  });
+
+  it('nothing banked / no offer stay null in random mode, same as weighted', () => {
+    const row = profileOf('randomBattleship');
+    const rng = mulberry32(3);
+    expect(chooseSpend(row, spendState({ bankedLevels: 0, offer: ['x'] }), undefined, rng)).toBeNull();
+    expect(chooseSpend(row, spendState({ offer: null }), undefined, rng)).toBeNull();
+    expect(chooseSpend(row, spendState({ offer: [] }), undefined, rng)).toBeNull();
   });
 });

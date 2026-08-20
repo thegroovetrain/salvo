@@ -65,6 +65,7 @@ function fakePort(w: World, ring?: { cx: number; cy: number; r: number }): FakeP
     // Default: a ring so large nothing is ever outside it, so a test that is
     // not about the storm never accidentally gets ring-escape steering.
     zoneLiveRing: ring ?? { cx: 0, cy: 0, r: w.map.radius * 4 },
+    zoneEndgameReached: false,
     helmEnabled: true,
     submitInput: () => true,
     spendPoint: () => true,
@@ -74,6 +75,7 @@ function fakePort(w: World, ring?: { cx: number; cy: number; r: number }): FakeP
 function mkMind(profile: BotProfileId, seed = 7): BotMind {
   return {
     rng: mulberry32(seed),
+    spendRng: mulberry32(seed + 1),
     seq: 0,
     fireSeq: 0,
     actSeq: 0,

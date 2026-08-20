@@ -33,6 +33,9 @@ import { World, type ShipRecord } from '../../src/game/world.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
 import { isFleetHull } from '../../src/game/participants.js';
 import { CONTROL_REGISTRY, type CaptainControl, type ControlFactory } from './controls.js';
+import { BOT_PROFILE_SCHEME } from './args.js';
+import { TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
+import type { BotEngageGate, TestProfileId } from '../../src/game/ai/types.js';
 import { BotCollector, type BotSample } from './botMetrics.js';
 import { CatalogCollector, type CatalogSample } from './catalogMetrics.js';
 import { mixSeed, tally } from './stats.js';
@@ -62,9 +65,40 @@ export interface RunSpec {
    * stays empty for them. Default 0 => every existing run key is byte-identical.
    */
   bots?: number;
+  /**
+   * TEST-ONLY profile forcing (Story 7-6 wave 4): a TestProfileId forces every
+   * bot onto that row; the 'random' scheme deals the three test rows
+   * round-robin (TB, BS, ML). Validated upstream by args.ts — only test ids
+   * ever arrive here, so the in-game rolled path (undefined) is the only way
+   * an in-game profile is assigned. A forced profile governs the hull, so
+   * addBot is called with the profile alone.
+   */
+  botProfile?: string;
+  /** The controller-level engage gate; default 'always' (shipped behaviour). */
+  botEngage?: BotEngageGate;
   /** Scripted captain control factory; defaults to the storm-pacing pacifist
    *  (CONTROL_REGISTRY.pacifist — the only row there is). */
   control?: ControlFactory;
+}
+
+/** The forced test profile for bot ordinal `i`, or undefined for the shipped
+ *  rolled path. Pure so the deal order is part of the reproducible run key. */
+export function botProfileFor(spec: Pick<RunSpec, 'botProfile'>, i: number): TestProfileId | undefined {
+  if (spec.botProfile === undefined) return undefined;
+  if (spec.botProfile === BOT_PROFILE_SCHEME) return TEST_PROFILE_IDS[i % TEST_PROFILE_IDS.length];
+  return spec.botProfile as TestProfileId;
+}
+
+/** THE BOT LOBBY (Story 6.4 wave 4; profile/engage forcing in 7-6 wave 4) —
+ *  construction IS the whole job: addBot() enrolls off the controller's own
+ *  seeded stream and the brain drives itself from World's `botsTick` row.
+ *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
+ *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
+function buildBotLobby(world: World, spec: RunSpec, botCount: number): string[] {
+  if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
+  const ids: string[] = [];
+  for (let i = 0; i < botCount; i += 1) ids.push(world.addBot(undefined, botProfileFor(spec, i)).id);
+  return ids;
 }
 
 export interface ReachSample {
@@ -329,13 +363,9 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]);
     controls.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
   }
-  // THE BOT LOBBY (wave 4) — construction IS the whole job. addBot() rolls the
-  // class, priority profile and callsign off the BotController's own seeded
-  // stream and places the hull through the same spawn lattice a human uses; the
-  // brain then drives itself from World's `botsTick` STEP_ORDER row. There is
-  // no bot control and nothing bot-shaped in the per-tick loop below.
-  const botIds: string[] = [];
-  for (let i = 0; i < botCount; i += 1) botIds.push(world.addBot().id);
+  // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
+  // bot-shaped in the per-tick loop below.
+  const botIds = buildBotLobby(world, spec, botCount);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);

@@ -850,7 +850,34 @@ export const COMBAT_BRAIN: BotBrain = {
       aimDist: shot === null ? 0 : shot.aimDist,
       fireSlot: shot === null ? null : shot.slot,
       actSlot: chooseAct(self, mind, port, sit, target, posture),
-      spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self)) : null,
+      spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
+    };
+  },
+
+  /**
+   * THE HELD DECISION (Story 7-6 wave 4) — the 'endgame' engage gate's
+   * pre-release tick. Perception still folds (parity: a captain waiting out
+   * the storm still watches the scope, and the memory it builds is what makes
+   * the release competent), the helm runs the FULL every-tick safety stack —
+   * ring escape, un-beaching, island avoidance — through the same helmFor the
+   * live brain uses, and levels are still spent on the decision cadence. What
+   * never happens: a target (targetKey is FORCED null every tick, so the
+   * postures that chase one are unreachable), a shot, or an ability press.
+   */
+  decideHeld(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
+    ingest(mind, port);
+    const sit = situationOf(self, mind, port);
+    mind.targetKey = null; // unconditional: a held bot NEVER carries a target
+    if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);
+    const helm = helmFor(self, mind, port, sit, null, mind.posture);
+    return {
+      throttle: helm.throttle,
+      rudder: helm.rudder,
+      aim: self.state.heading,
+      aimDist: 0,
+      fireSlot: null,
+      actSlot: null,
+      spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
   },
 };

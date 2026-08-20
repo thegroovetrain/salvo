@@ -45,7 +45,7 @@
 // fleet hull, which is a real difference in what the target is worth.
 
 import { CONFIG, type EffectiveStats, type EquipmentId, type ShipClassId } from '@salvo/shared';
-import type { BotProfileId } from './types.js';
+import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
  *  `captain`/`fleet` are multiplicative weights on the whole score; `damaged`
@@ -73,9 +73,21 @@ export interface BotTargetWeights {
  *  rather than invent behaviour for it late in the cycle; re-adding it means
  *  building its consumer in the same change. */
 export interface BotProfile {
-  id: BotProfileId;
-  /** The hull this profile is only ever assigned to (CONFIG.bots.profiles). */
+  id: AnyProfileId;
+  /** The hull this profile is only ever assigned to (CONFIG.bots.profiles
+   *  for the six in-game rows; the harness's explicit override for the three
+   *  test-only rows). */
   hullId: ShipClassId;
+  /**
+   * HOW A BANKED LEVEL IS SPENT (Story 7-6 wave 4). 'weighted' — the shipped
+   * deterministic, rng-free doctrine-weight scoring in ai/spending.ts; every
+   * in-game row is 'weighted' and that path is byte-identical to before this
+   * field existed. 'random' — a UNIFORM pick over the offer off the mind's
+   * decorrelated spendRng stream, for the blind-vacuum test rows only. The
+   * heal rule is NOT randomized in either mode (Eric ruling: card pick only),
+   * so damage control never becomes a confound in the survival data.
+   */
+  spend: 'weighted' | 'random';
   /** Preferred engagement band, as fractions of the bot's own intel range —
    *  resolve with engagementBand(), never read raw. */
   bandMinFrac: number;
@@ -122,6 +134,7 @@ const DEFAULT_HEAL = CONFIG.bots.healHpFrac;
 export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.freeze({
   raider: {
     id: 'raider',
+    spend: 'weighted',
     hullId: 'torpedoBoat',
     // Strikes from around the truesight boundary (0.5R) and does not loiter
     // inside knife range — the torpedo opener needs run-out room, and a TB
@@ -138,6 +151,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
   },
   duelist: {
     id: 'duelist',
+    spend: 'weighted',
     hullId: 'torpedoBoat',
     // Knife range: inside 0.3R the rear-quarter turn-fight is decided by
     // rudder and gun cooldown, which is exactly where this profile wins.
@@ -153,6 +167,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
   },
   bulwark: {
     id: 'bulwark',
+    spend: 'weighted',
     hullId: 'battleship',
     // Holds ground at gun-trade range and refuses to be kited out of it.
     bandMinFrac: 0.15,
@@ -168,6 +183,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
   },
   siege: {
     id: 'siege',
+    spend: 'weighted',
     hullId: 'battleship',
     // Standoff — RE-BANDED IN STORY 7-5 WAVE 2, forced by the weapon swap
     // rather than chosen: the cannon reached the full radar horizon, so this
@@ -190,6 +206,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
   },
   forager: {
     id: 'forager',
+    spend: 'weighted',
     hullId: 'mineLayer',
     bandMinFrac: 0.2,
     bandMaxFrac: 0.45,
@@ -205,6 +222,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
   },
   trapper: {
     id: 'trapper',
+    spend: 'weighted',
     hullId: 'mineLayer',
     // Fights near its own field, so its band sits close: the mine's astern
     // ±60° arc only pays off with something following you.
@@ -220,10 +238,68 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
   },
 });
 
-/** The profile table for an id. Total by construction (the Record above is
- *  keyed by the same union), so no fallback is needed or offered. */
-export function profileOf(id: BotProfileId): BotProfile {
-  return BOT_PROFILES[id];
+/**
+ * THE THREE TEST-ONLY ROWS (Story 7-6 wave 4, ruled values) — the blind-vacuum
+ * balance instrument, one per hull. Every number here is chosen so the read is
+ * NOT shaped by a doctrine preference: band 0.15–0.55 (knife range to just
+ * inside the broadside rung) for all three, flat target weights, CONFIG
+ * default disengage/heal, EVERY appetite entry at or above APPETITE_EAGER (2)
+ * so every equipment verb is exercised (the gun sits at exactly 2 — still the
+ * lowest entry, preserving the universal fallback ordering without ever
+ * dropping below the ruled floor), and `spend: 'random'` so card performance
+ * is measured with the picker's taste removed.
+ *
+ * SEPARATE ID SPACE, ON PURPOSE (safety, not style): these ids are NOT in
+ * CONFIG.bots.profiles, which is the ONLY table the in-game enrollment roll
+ * draws from — so ArenaRoom.buildBotFleet can never deal one to a real
+ * player's Solo vs AI opponents. They are reachable solely through the
+ * explicit profile override the batch-sim harness passes to world.addBot.
+ */
+const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.freeze({
+  gun: 2.0,
+  torpedo: 2.2,
+  mine: 2.2,
+  speedBoost: 2.2,
+  broadside: 2.2,
+  starShells: 2.2,
+  radarBuoy: 2.2,
+});
+
+const testRow = (id: TestProfileId, hullId: ShipClassId): BotProfile => ({
+  id,
+  spend: 'random',
+  hullId,
+  bandMinFrac: 0.15,
+  bandMaxFrac: 0.55,
+  targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 },
+  disengageHpFrac: DEFAULT_DISENGAGE,
+  healHpFrac: DEFAULT_HEAL,
+  appetite: { ...TEST_APPETITE },
+});
+
+/** `Record<TestProfileId, …>` is the same completeness gate BOT_PROFILES
+ *  uses: a new test id in types.ts cannot ship without a row here. */
+export const TEST_PROFILES: Readonly<Record<TestProfileId, BotProfile>> = Object.freeze({
+  randomTorpedoBoat: testRow('randomTorpedoBoat', 'torpedoBoat'),
+  randomBattleship: testRow('randomBattleship', 'battleship'),
+  randomMineLayer: testRow('randomMineLayer', 'mineLayer'),
+});
+
+/** The test ids in hull-class order (TB, BS, ML) — the harness's round-robin
+ *  deal order for `--bot-profile random`. */
+export const TEST_PROFILE_IDS: readonly TestProfileId[] = Object.freeze([
+  'randomTorpedoBoat',
+  'randomBattleship',
+  'randomMineLayer',
+]);
+
+/** The profile table for an id — in-game or test-only. Total by construction
+ *  (AnyProfileId is exactly the union of the two Records' key sets), so no
+ *  fallback is needed or offered. */
+export function profileOf(id: AnyProfileId): BotProfile {
+  return Object.hasOwn(BOT_PROFILES, id)
+    ? BOT_PROFILES[id as BotProfileId]
+    : TEST_PROFILES[id as TestProfileId];
 }
 
 /** The engagement band in WORLD UNITS for a profile at these stats — the one
