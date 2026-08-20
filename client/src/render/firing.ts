@@ -4,13 +4,15 @@
 //     lives in chartRoot, above the fog and above the radar paint, along with
 //     every hull it draws behind (render/stage.ts). Nothing about the arcs
 //     changes with the lift: they rotate with the own ship and sit inside the
-//     sight bubble, where the fog was already clear. Two ids draw one: the torpedo's BOW arc, and (Story
-//     2.8, amendment 45) the mine's REAR PLACEMENT arc, drawn at its true
-//     CONFIG.mine.placeRange radius so the wedge IS the reachable water. The gun
-//     FAMILY (gun / cannon / star shells) draws NO arc sector: it is 360° and
-//     fires to the clicked point (Eric ruling 2026-07-21), so a broadside wedge
-//     would lie. The remaining instant abilities (speedBoost, decoyBuoy) never
-//     prime and draw no marker at all.
+//     sight bubble, where the fog was already clear. Three ids draw one: the
+//     torpedo's BOW arc; (Story 2.8, amendment 45) the mine's REAR PLACEMENT
+//     arc, drawn at its true CONFIG.mine.placeRange radius so the wedge IS the
+//     reachable water; and (Story 7-5 wave 2, R2.1) the BROADSIDE BARRAGE's TWO
+//     mirrored BEAM sectors, of which exactly the one containing the aim lights.
+//     The gun FAMILY (gun / star shells) draws NO arc sector: it is 360° and
+//     fires to the clicked point (Eric ruling 2026-07-21), so a wedge would lie.
+//     The remaining instant ability (speedBoost) never primes and draws no
+//     marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
 //     because gun range (radar range, 660u) exceeds sight range (330u): aiming
 //     at a radar blip beyond sight must not put the reticle under the fog. Amber
@@ -24,7 +26,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { CONFIG, arcFor, inArc, wrapAngle, type EquipmentId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { fireArcKind, sectorOutline, weaponArcHit } from './weaponArc.js';
+import { fireArcKind, sectorOutline, twinSectorSide, weaponArcHit } from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
@@ -55,9 +57,13 @@ export interface FiringAmmo {
 export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
-  /** Effective max range (u) of the primed weapon, fed each frame by update();
-   *  base = radar range. Drives the gun-family range-clamp burst marker AND the
-   *  mine's placement-arc radius (weaponArc.weaponRangeU is the one source). */
+  /** Effective max range (u) of the primed weapon FOR THIS AIM, fed each frame
+   *  by update(); base = radar range. Drives the gun-family range-clamp burst
+   *  marker AND the mine's placement-arc radius. weaponArc.weaponReachU is the
+   *  one source, and it is the SAME number the aim preview bursts at — including
+   *  the star-shell lift (R2.15), where a gun click inside one of our own live
+   *  lit zones raises the reach to the click and the clamp marker correctly
+   *  stops drawing. */
   private rangeU: number = CONFIG.vision.radar;
 
   /**
@@ -84,7 +90,9 @@ export class FiringUX {
    * point. `denied` (default false) briefly overrides the marker to a red pulse —
    * driven by render/deniedFire.ts's rate-limited predicate. `rangeU` is the
    * primed weapon's EFFECTIVE range (weaponArc.weaponRangeU) for the gun-family
-   * range-clamp burst marker. The gun family draws no arc sector (360°).
+   * range-clamp burst marker — since Story 7-5 wave 2 that is weaponReachU, so
+   * the marker lifts with the gun inside our own flare. The gun family draws no
+   * arc sector (360°).
    */
   update(
     pose: FiringPose,
@@ -100,10 +108,12 @@ export class FiringUX {
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
-    // Only a SECTOR weapon draws a wedge — the torpedo's bow arc, and the
-    // mine's rear placement arc (Story 2.8). The gun family is 360° (no wedge)
-    // and the remaining abilities (speedBoost / decoyBuoy) draw no marker.
+    // Only an AIM-GATED weapon draws a wedge — the torpedo's bow arc and the
+    // mine's rear placement arc (Story 2.8), or the broadside's twin beams
+    // (Story 7-5 wave 2). The gun family is 360° (no wedge) and the remaining
+    // ability (speedBoost) draws no marker.
     if (kind === 'sector' && id !== null) this.drawSectorArc(id, aim, pose.heading, ammo, denied);
+    if (kind === 'twin' && id !== null) this.drawTwinArcs(id, aim, pose.heading, ammo, denied);
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);
   }
 
@@ -134,6 +144,36 @@ export class FiringUX {
     // The torpedo's ARC_R is indicative — outlining it would draw a hard border
     // around a distance that means nothing.
     if (id === 'mine') this.sectorEdge(t.offset, t.halfArc, radius, color, denied || lit);
+  }
+
+  /**
+   * The BROADSIDE BARRAGE's twin beams (R2.1): both mirrored wedges are drawn
+   * every frame — the pair IS the information ("you can fire to either side,
+   * and not fore or aft") — but only the one CONTAINING the aim lights, which
+   * is the client's reading of R2.2's "the side whose sector contains the click
+   * is the side that fires". A denied press reddens BOTH, because an out-of-arc
+   * broadside click missed both beams and neither would have fired.
+   *
+   * Drawn at the indicative ARC_R rather than at the true 5/8 rangeU, exactly
+   * as the torpedo's wedge is: a 412.5u filled wedge on each beam would bury the
+   * chart, and the reach is already told honestly twice — by the range-clamp
+   * marker on the aim bearing and by the aim preview's per-shell burst circles.
+   */
+  private drawTwinArcs(
+    id: EquipmentId,
+    aim: number,
+    heading: number,
+    ammo: FiringAmmo,
+    denied: boolean,
+  ): void {
+    const t = arcFor(id);
+    if (t.kind !== 'twin-sector') return; // descriptor law: only twin sectors draw a pair
+    const firing = twinSectorSide(heading, aim, t);
+    const color = denied ? DENIED_RED : AMBER;
+    for (const side of [1, -1] as const) {
+      const lit = denied || (firing === side && ammo.hasAmmo);
+      this.sector(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
+    }
   }
 
   /**
@@ -196,14 +236,18 @@ export class FiringUX {
     const g = this.reticle;
     g.clear();
     const kind = fireArcKind(id);
-    if (kind !== 'gunLike' && kind !== 'sector') return; // abilities don't aim — no reticle
+    if (kind === 'none') return; // abilities don't aim — no reticle
     const color = this.reticleColor(pose.heading, aim, id, hasAmmo);
     g.moveTo(pose.x, pose.y).lineTo(cursor.x, cursor.y).stroke({ width: 1, color, alpha: 0.25 });
     g.circle(cursor.x, cursor.y, RETICLE_R).stroke({ width: 1.5, color, alpha: 0.8 });
     g.moveTo(cursor.x - RETICLE_R - 3, cursor.y).lineTo(cursor.x + RETICLE_R + 3, cursor.y);
     g.moveTo(cursor.x, cursor.y - RETICLE_R - 3).lineTo(cursor.x, cursor.y + RETICLE_R + 3);
     g.stroke({ width: 1, color, alpha: 0.6 });
-    if (kind === 'gunLike') this.drawRangeClampMarker(pose, aim, cursor, color);
+    // The gun family AND the broadside clamp the aim point to rangeU and fire
+    // anyway, so both owe the player the true burst distance. The broadside is
+    // the one that needs it most: its 5/8 reach is 247.5u shorter than the radar
+    // horizon every other gun-family weapon runs to.
+    if (kind === 'gunLike' || kind === 'twin') this.drawRangeClampMarker(pose, aim, cursor, color);
   }
 
   /**
@@ -231,8 +275,8 @@ export class FiringUX {
   }
 
   /** Reticle tint: bright when the aim is in the primed weapon's arc + has ammo.
-   *  The torpedo keeps its cool-green identity; everything else (gun family and
-   *  the mine's rear placement) is amber. */
+   *  The torpedo keeps its cool-green identity; everything else (gun family, the
+   *  broadside's beams, the mine's rear placement) is amber. */
   private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
     if (!(weaponArcHit(heading, aim, id) && hasAmmo)) return DIM;
     return id === 'torpedo' ? TORP_TINT : AMBER;

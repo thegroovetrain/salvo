@@ -167,9 +167,9 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       // this observer sees none, so zone-free frames stay byte-identical to
       // pre-1.7 frames (same rule on both paths).
       ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
-      // decoys is OPTIONAL the same way (Story 1.8): omitted when none, so
-      // buoy-free frames stay byte-identical to pre-1.8 frames.
-      ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
+      // buoys (Story 7-5 wave 2) is OPTIONAL on the same litZones rule:
+      // omitted when none, so buoy-free frames do not change shape.
+      ...(view.buoys.length > 0 ? { buoys: view.buoys } : {}),
       spec: true,
     };
   }
@@ -187,7 +187,9 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     events: view.events,
     mines: view.mines,
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
-    ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
+    // buoys (Story 7-5 wave 2): the contact-like radar-buoy channel — omitted
+    // when this observer sees none (the litZones rule).
+    ...(view.buoys.length > 0 ? { buoys: view.buoys } : {}),
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

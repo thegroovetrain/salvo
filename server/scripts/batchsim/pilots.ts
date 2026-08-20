@@ -134,13 +134,14 @@
 // with probability SPEND_TOP_P pick uniformly among the offer's HIGHEST-rarity
 // lines (exclusive > rare > common — the "slight preference order"), otherwise
 // uniformly among the whole offer. One refinement keeps the instrument honest:
-// an EXCLUSIVE whose doctrine pair is already resolved on this ship (either
-// side fitted) is demoted to common preference — the doctrine swap returns the
-// rival's card to the deck (net-zero deck drain), so an always-prefer-exclusive
-// policy would ping-pong the pair forever and never let the deck thin (found
-// empirically; the swap stays LEGAL via the uniform branch, just not sought).
-// This exercises the real spendPoint/settleSpend path (give-back, doctrine
-// swap, acquisition scrub) while keeping picks deterministic per stream.
+// a line ALREADY FITTED on this ship is demoted to common preference, so an
+// always-prefer-exclusive policy cannot fixate on a card it already holds.
+// (Until Story 7-5 wave 2 this clause also covered a fitted doctrine RIVAL,
+// because the swap returned the rival's card for a net-zero deck drain and the
+// policy would ping-pong the pair forever. Exclusivity is deleted — R2.6 — so
+// nothing returns to a deck and only the card's own copies matter.)
+// This exercises the real spendPoint/settleSpend path (acquisition scrub)
+// while keeping picks deterministic per stream.
 
 import {
   BOON_CATALOG,
@@ -174,12 +175,12 @@ export const SPEND_TOP_P = 0.75;
 
 const RARITY_RANK: Record<string, number> = { common: 0, rare: 1, exclusive: 2 };
 
-/** Preference rank of one offer line for `fitted` — the doctrine-pair
- *  demotion documented in the header (swapping is legal, never sought). */
+/** Preference rank of one offer line for `fitted` — the already-held demotion
+ *  documented in the header. */
 function preferenceRank(id: string, fitted: readonly string[]): number {
   const def = BOON_CATALOG[id];
   if (def === undefined) return 0;
-  if (def.exclusiveWith !== undefined && (fitted.includes(id) || fitted.includes(def.exclusiveWith))) return 0;
+  if (fitted.includes(id)) return 0;
   return RARITY_RANK[def.rarity] ?? 0;
 }
 

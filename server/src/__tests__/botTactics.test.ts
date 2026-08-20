@@ -545,11 +545,11 @@ describe('steering — the priority order is the policy', () => {
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], decoys: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], buoys: [] };
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     const dodged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], decoys: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], buoys: [] };
     const own = COMBAT_BRAIN.decide(rec, mind, port);
     expect(own.rudder).toBe(0); // an owner never trips its own rack
   });
@@ -873,9 +873,11 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const led = mkMind('bulwark');
     plot(led, track(port.now, { ...at, heading: 0, speed: 45 }));
     expect(Math.abs(angleDiff(direct, COMBAT_BRAIN.decide(rec, led, port).aim))).toBeGreaterThan(0.05);
-    // A 45-second cannon reload is not spent on a plot that cannot be led.
+    // A 30-second BROADSIDE reload is not spent on a plot that cannot be led.
+    // (The target is due north of a bow-east hull, so it is ABEAM — inside
+    // the barrage's beam sector, which is what makes it a candidate at all.)
     expect(blind.fireSlot).toBe(slotOf(rec, 'gun'));
-    expect(COMBAT_BRAIN.decide(rec, led, port).fireSlot).toBe(slotOf(rec, 'cannon'));
+    expect(COMBAT_BRAIN.decide(rec, led, port).fireSlot).toBe(slotOf(rec, 'broadside'));
     // Nor is a torpedo.
     const tb = mkBot(w, 'torpedoBoat', 0, 0, Math.PI / 2);
     const tbMind = mkMind('duelist');
@@ -903,12 +905,17 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const mind = mkMind('bulwark');
-    // Inside the scoring horizon (1.25R) but outside gun/cannon range (R).
+    // Inside the scoring horizon (1.25R) but outside gun range (R) — and the
+    // broadside's 5/8 reach is shorter still.
     plot(mind, track(port.now, { x: rec.stats.gun.rangeU + 100, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
   });
 
-  it('abilities ride the act channel: a raider boosts out, a trapper drops a decoy', () => {
+  it('abilities ride the act channel: a raider boosts out', () => {
+    // The TRAPPER's decoy-drop half is RETIRED (Story 7-5 wave 2): the decoy
+    // buoy is deleted and the RADAR BUOY replacing it is a click-placed WEAPON
+    // (R2.7), not an actSeq ability — so the boost is the only ability any
+    // profile presses, and `usesDecoy` left BotProfile with its consumer.
     const w = openWorld(208);
     const port = fakePort(w);
     const tb = mkBot(w, 'torpedoBoat', 0, 0, 0);
@@ -916,28 +923,42 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'speedBoost'));
+    // A withdrawing MINE LAYER presses nothing — it has no ability fitted.
     const ml = mkBot(w, 'mineLayer', 0, 0, 0);
     ml.hp = ml.stats.maxHp * 0.1;
     const trapper = mkMind('trapper');
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'decoyBuoy'));
+    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBeNull();
     // Healthy: no ability spent.
     const healthy = mkBot(w, 'torpedoBoat', 0, 0, 0);
     expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
   });
 
-  it('the CANNON is not spent on a plot that has gone dark (the `live` gate is a real gate)', () => {
+  it('the BROADSIDE is not spent on a plot that has gone dark (the `live` gate is a real gate)', () => {
     // F2: `live` now means SIGHTED THIS TICK. A plot with a disclosed course
-    // that is no longer in the bubble is a gun target, never a 50s reload.
+    // that is no longer in the bubble is a gun target, never a 30s reload.
+    // The plot sits ABEAM (due north of a bow-east hull) so the beam arc is
+    // satisfied and `live` is the only thing under test.
     const w = openWorld(210);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const seen = mkMind('bulwark');
-    plot(seen, track(port.now, { x: 400, y: 0, heading: 0, speed: 20, live: true }));
-    expect(COMBAT_BRAIN.decide(rec, seen, port).fireSlot).toBe(slotOf(rec, 'cannon'));
+    plot(seen, track(port.now, { x: 0, y: 400, heading: 0, speed: 20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, seen, port).fireSlot).toBe(slotOf(rec, 'broadside'));
     const lost = mkMind('bulwark');
-    plot(lost, track(port.now, { x: 400, y: 0, heading: 0, speed: 20, live: false }));
+    plot(lost, track(port.now, { x: 0, y: 400, heading: 0, speed: 20, live: false }));
     expect(COMBAT_BRAIN.decide(rec, lost, port).fireSlot).toBe(slotOf(rec, 'gun'));
+  });
+
+  it('the BROADSIDE is refused OUT OF ARC: the same plot dead ahead falls through to the gun', () => {
+    // R2.1/R2.2: the bot tests the twin-sector arc exactly as the equipment
+    // row does, so it never burns a click on a bow/stern dead-zone target.
+    const w = openWorld(211);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0); // bow due east
+    const ahead = mkMind('bulwark');
+    plot(ahead, track(port.now, { x: 300, y: 0, heading: 0, speed: 20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, ahead, port).fireSlot).toBe(slotOf(rec, 'gun'));
   });
 
   it('the frozen boarding room is not the brain\'s business — but a bot with no view still sails', () => {
@@ -995,19 +1016,11 @@ describe('weapons — a shot that cannot ARRIVE is not requested', () => {
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'gun'));
   });
 
-  it('PLUNGING FIRE IS EXEMPT: an arcing cannon still shoots over the headland', () => {
-    // stepShell skips en-route collision entirely for an arcing shell, so
-    // gating it would delete the doctrine's whole point.
-    const w = islandWorld(303, circleIsland(200, 0, 60));
-    const port = fakePort(w);
-    const rec = mkBot(w, 'battleship', 0, 0, 0);
-    const mind = mkMind('bulwark');
-    plot(mind, track(port.now, { x: 400, y: 0, heading: 0, speed: 20 }));
-    // Standard doctrine: the rock denies the cannon AND the gun behind it.
-    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
-    rec.stats.cannon.mode = 'arcing';
-    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'cannon'));
-  });
+  // RETIRED (Story 7-5 wave 2): "PLUNGING FIRE IS EXEMPT". The doctrine, the
+  // cannon and `ShellState.arcing` are all deleted — NO shot in the game
+  // overflies terrain any more, so the exemption branch it pinned is gone
+  // from `burstShot` too. The general rule it was the exception to (a bot
+  // never fires into rock, cycle 99) is pinned by the surrounding cases.
 
   it('the TUBE is never launched into a rock', () => {
     const w = islandWorld(304, circleIsland(80, 0, 30));

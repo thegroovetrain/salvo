@@ -12,19 +12,20 @@
 // the World owns shell storage + event emission.
 
 import {
-  BARREL_FAN_STEP_RAD,
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   angleDiff,
   burstPointAlong as sharedBurstPointAlong,
+  gunReachU as sharedGunReachU,
   muzzleOrTarget as sharedMuzzleOrTarget,
+  parallelOffsets,
   wrapAngle,
   type EquipmentState,
   type ShellState,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
-import type { ActivationDenial, Equipment } from './index.js';
+import type { ActivationContext, ActivationDenial, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
 import { makeBallistic } from './ballistics.js';
 
@@ -41,8 +42,8 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
 }
 
 /**
- * The clicked burst point for ANY point-burst system (gun / cannon / star
- * shells — the Story 1.7 rows reuse the gun's exact flow): along the aim
+ * The clicked burst point for ANY point-burst system (gun / broadside / star
+ * shells — those rows reuse the gun's exact flow): along the aim
  * bearing at the clicked distance (input.aimDist), clamped to the system's
  * EFFECTIVE max range `rangeU` AND to the water disk (an in-range rim shot
  * still bursts in-bounds instead of expiring at the map edge). BOTH distances
@@ -86,26 +87,82 @@ export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
  * Spawn AT the target instead, so next tick's stepShell bursts there
  * immediately (distToTarget 0). Eric ruling 2026-07-21: no dead ring, inner or
  * outer. `shellRadius` is the firing system's collision radius (shared with
- * the cannon/star-shell rows, Story 1.7).
+ * the broadside/star-shell rows).
  */
 export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shellRadius: number): Vec2 {
   return sharedMuzzleOrTarget(ship.state, ship.hullId, dir, target, shellRadius);
 }
 
 /**
+ * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) — the ShipRecord-shaped
+ * wrapper around the SHARED predicate (`sim/aim.ts` `gunReachU`, where the full
+ * rationale lives). A gun click normally clamps to `stats.gun.rangeU`; a click
+ * whose burst point lies inside a LIVE lit zone the CLICKING PLAYER owns is
+ * legal past it, and the shell flies the whole way.
+ *
+ * THE RULE ITSELF IS NO LONGER WRITTEN HERE. It was, and the client's aim
+ * preview mirrored it line for line — two implementations of one legality gate,
+ * agreeing by discipline. It is now promoted into `shared/` exactly as
+ * `blockedWater` and `burstPointAlong` were, so the previewed reach and the
+ * enforced reach are one function. Nothing in this file may re-derive it.
+ *
+ * What stays server-side is the two things `shared/` may not see:
+ *   * GUN ONLY — no other row calls this, which is what makes the extension
+ *     gun-only. The broadside and the torpedo keep their own reach.
+ *   * OWN FLARES ONLY — `ctx.ownLitZones()` is keyed on the ACTIVATING ship, so
+ *     an enemy's flare hanging over your target lights the water for THEM and
+ *     buys you nothing. Illuminating for someone else is never a gift you can
+ *     take.
+ * SERVER-AUTHORITATIVE: this IS the legality answer; the client's preview is
+ * never asked.
+ */
+export function gunReachU(ctx: ActivationContext): number {
+  const ship = ctx.ship;
+  return sharedGunReachU(
+    ship.state,
+    ship.input.aim,
+    ship.input.aimDist,
+    ship.stats.gun.rangeU,
+    ctx.mapRadius,
+    ctx.ownLitZones(),
+  );
+}
+
+/**
  * Gun fire control against one slot pool: `stats.gun.barrels` shells (1..3 —
- * TWIN/TRIPLE MOUNT, Story 2.8) for ONE consumed round, fanned
- * BARREL_FAN_STEP_RAD apart centered on the aim bearing, each a REAL shell
- * flying to its OWN range-preserved burst point along its own bearing. The
- * ONLY denial is an empty pool ('no-ammo' — the shot cooldown; single-consume,
- * so the denial mapping is unchanged from the single-barrel era); there is no
- * arc.
+ * TWIN/TRIPLE MOUNT, Story 2.8) for ONE consumed round, each a REAL shell
+ * bursting at its OWN point. The ONLY denial is an empty pool ('no-ammo' — the
+ * shot cooldown; single-consume, so the denial mapping is unchanged from the
+ * single-barrel era); there is no arc.
+ *
+ * BARREL FIRES PARALLEL, AND STRADDLES (Story 7-5 wave 2, R2.16). The extra
+ * shells no longer FAN 3° apart — they fly on PARALLEL TRACKS
+ * `CONFIG.gun.barrelSpacingU` apart, so the volley covers a constant-width band
+ * at EVERY range instead of one that widens with distance. The offsets come
+ * from the SHARED straddle law (sim/spread.ts `parallelOffsets`) — the exact
+ * call the client's aim preview makes — so an ODD barrel count puts one shell
+ * exactly on the click and an EVEN count straddles it with none on it, and the
+ * previewed circles ARE where the shells burst. Re-deriving the geometry on
+ * either side is forbidden: two derivations of one volley is precisely the
+ * desync class effectiveStats() exists to prevent, and until this landed the
+ * server FANNED while the client already PREVIEWED parallel.
+ *
+ * The lateral offset is added to BOTH the muzzle and the target, which is what
+ * makes the tracks parallel; every shell therefore keeps the SAME bearing
+ * (`ship.input.aim`) and the SAME flight length. A single barrel gets the single
+ * zero offset, so the one-shell case is byte-identical to the pre-wave-2
+ * geometry.
+ *
+ * SIGNALS DO NOT MOVE. A multi-barrel gun salvo still collapses to ONE `mz`
+ * (Story 4.3, amendments 19/20 — per-shell flashes would leak the barrel
+ * count). `perShellFlash` is the BROADSIDE BARRAGE's declared opt-out (R2.5) and
+ * this row deliberately does not take it.
  *
  * EVERY BARREL IS A REAL SHELL THAT DEALS FULL DAMAGE (Eric ruling 2026-08-05):
- * the fanned bursts DO overlap at practical ranges (3° apart, 15u burst radius —
- * they separate only past ~573u of a 660u base range), and a hull standing
- * inside two or three of them takes two or three applications. That is the
- * point of the mount cards, not a bug in them: "everything that connects should
+ * parallel tracks 12u apart against a 15u burst radius still OVERLAP, at every
+ * range rather than only close in, and a hull standing inside two or three of
+ * them takes two or three applications. That is the point of the mount cards,
+ * not a bug in them: "everything that connects should
  * deal damage." The one-hit-kill guardrail governs a single SHELL, not a single
  * CLICK — the Story 2.8 review's same-click salvo ledger (a server-internal tag
  * holding a victim to ONE application per click) was an orchestrator invention
@@ -121,32 +178,35 @@ export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shel
  * CONFIG, so the HEAVY SHELLS ladder lands). distLeft is the spawn→target
  * distance plus a shellRadius of slack — the shell stops AT its target
  * (stepShell), so the slack only guards float drift from ever expiring it a
- * hair short of the burst.
+ * hair short of the burst. It is the SAME length for every shell of the volley,
+ * because parallel tracks are equal-length by construction.
  */
 function fireGunShells(
   ship: ShipRecord,
   pool: EquipmentState,
   now: number,
+  reachU: number,
   mapRadius: number,
   mkId: () => string,
 ): { shells: ShellState[]; denial: ActivationDenial | null } {
   if (!consume(pool, ship.stats.gun.reloadMs)) return { shells: [], denial: 'no-ammo' }; // pool empty
   const gun = ship.stats.gun;
+  const dir = ship.input.aim;
+  const center = burstPointAlong(ship, mapRadius, reachU, dir);
+  const muzzle = muzzleOrTarget(ship, dir, center, CONFIG.gun.shellRadius);
+  const range = Math.hypot(center.x - muzzle.x, center.y - muzzle.y) + CONFIG.gun.shellRadius;
   const shells: ShellState[] = [];
-  for (let b = 0; b < gun.barrels; b += 1) {
-    const dir = ship.input.aim + (b - (gun.barrels - 1) / 2) * BARREL_FAN_STEP_RAD;
-    const target = burstPointAlong(ship, mapRadius, gun.rangeU, dir);
-    const origin = muzzleOrTarget(ship, dir, target, CONFIG.gun.shellRadius);
+  for (const off of parallelOffsets(dir, gun.barrels, CONFIG.gun.barrelSpacingU)) {
     shells.push(
       makeBallistic(mkId(), ship, dir, now, {
         speed: CONFIG.gun.shellSpeed,
-        range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.gun.shellRadius,
+        range,
         damage: gun.damage,
         hitRadius: CONFIG.gun.shellRadius,
         kind: 'shell',
-        origin,
-        targetX: target.x,
-        targetY: target.y,
+        origin: { x: muzzle.x + off.x, y: muzzle.y + off.y },
+        targetX: center.x + off.x,
+        targetY: center.y + off.y,
         burstRadius: gun.burstRadius,
         contactDamage: gun.contactDamage,
       }),
@@ -167,7 +227,9 @@ export const gunEquipment: Equipment = {
   activate(ctx, slot) {
     // bornAt = the VALIDATED fire time (D1): a back-dated shell is then
     // pre-stepped by the World to where it belongs this tick.
-    const { shells, denial } = fireGunShells(ctx.ship, slot.state!, ctx.fireT, ctx.mapRadius, ctx.mkId);
+    // R2.15: an own LIVE lit zone over the clicked point extends the reach.
+    const reachU = gunReachU(ctx);
+    const { shells, denial } = fireGunShells(ctx.ship, slot.state!, ctx.fireT, reachU, ctx.mapRadius, ctx.mkId);
     for (const shell of shells) ctx.spawnBallistic(shell);
     return denial === null ? { ok: true } : { ok: false, reason: denial };
   },

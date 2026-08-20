@@ -95,8 +95,6 @@ export interface BotProfile {
   usesMinesProactively: boolean;
   /** Spends boost to open or close range as a tactic. */
   usesBoost: boolean;
-  /** Drops decoy buoys to break a lock. */
-  usesDecoy: boolean;
 }
 
 /** CONFIG defaults, named once so a profile row reads as "the default" rather
@@ -125,7 +123,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     usesStarShells: false,
     usesMinesProactively: false,
     usesBoost: true,
-    usesDecoy: false,
   },
   duelist: {
     id: 'duelist',
@@ -141,7 +138,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     usesStarShells: false,
     usesMinesProactively: false,
     usesBoost: true,
-    usesDecoy: false,
   },
   bulwark: {
     id: 'bulwark',
@@ -155,23 +151,26 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     usesStarShells: false,
     usesMinesProactively: false,
     usesBoost: false,
-    usesDecoy: false,
   },
   siege: {
     id: 'siege',
     hullId: 'battleship',
-    // Standoff: out past the muzzle/smoke rung (0.625R), where the cannon
-    // still reaches (cannon rangeU IS radarRange) and the reply mostly does
-    // not. Star shells are what make a contact out there shootable.
-    bandMinFrac: 0.55,
-    bandMaxFrac: 0.95,
+    // Standoff — RE-BANDED IN STORY 7-5 WAVE 2, forced by the weapon swap
+    // rather than chosen: the cannon reached the full radar horizon, so this
+    // profile stood out past the muzzle/smoke rung (0.625R) where the reply
+    // mostly did not. The BROADSIDE BARRAGE that replaced it is capped AT that
+    // rung (`broadside.rangeU` = 0.625R), so the old 0.55–0.95 band put its
+    // heavy weapon out of range for most of its own preferred water. The band
+    // now sits just INSIDE the rung — still the longest standoff of any
+    // profile, still star-shell-led — and is a TUNING TARGET, not a ruling.
+    bandMinFrac: 0.4,
+    bandMaxFrac: 0.6,
     targetWeights: { captain: 1.2, fleet: 0.8, damaged: 1.1, isolated: 0.6 },
     disengageHpFrac: 0.4,
     healHpFrac: DEFAULT_HEAL,
     usesStarShells: true, // C2 — the BS DOES use star shells
     usesMinesProactively: false,
     usesBoost: false,
-    usesDecoy: false,
   },
   forager: {
     id: 'forager',
@@ -186,7 +185,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     usesStarShells: false,
     usesMinesProactively: false,
     usesBoost: false,
-    usesDecoy: false,
   },
   trapper: {
     id: 'trapper',
@@ -201,7 +199,6 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     usesStarShells: false,
     usesMinesProactively: true,
     usesBoost: false,
-    usesDecoy: true,
   },
 });
 

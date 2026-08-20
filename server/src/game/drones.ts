@@ -77,6 +77,7 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { shipSees } from './signals.js';
+import { leadIntercept } from './lead.js';
 import { isFleetHull } from './participants.js';
 import type { ShipRecord, World } from './world.js';
 
@@ -109,8 +110,6 @@ const STUCK_SPEED = 3;
 const STUCK_TRIP_MS = 1200;
 /** ms the un-beach manoeuvre runs once armed. */
 const UNBEACH_MS = 1500;
-/** Fixed-point iterations for the lead solution (converges well inside 3). */
-const LEAD_ITERATIONS = 3;
 
 function clampUnit(v: number): number {
   if (v < -1) return -1;
@@ -500,19 +499,13 @@ export class FleetController {
   private aimPoint(ship: ShipRecord, target: ShipRecord, mind: FleetMind): Vec2 {
     const vx = Math.cos(target.state.heading) * target.state.speed;
     const vy = Math.sin(target.state.heading) * target.state.speed;
-    let t = 0;
-    for (let i = 0; i < LEAD_ITERATIONS; i += 1) {
-      const px = target.state.x + vx * t;
-      const py = target.state.y + vy * t;
-      t = Math.hypot(px - ship.state.x, py - ship.state.y) / CONFIG.gun.shellSpeed;
-    }
+    // The solver itself now lives in game/lead.ts (extracted verbatim in Story
+    // 7-5 wave 2 so the captive mine's torpedo leads with the SAME answer).
+    const led = leadIntercept(ship.state, target.state, vx, vy, CONFIG.gun.shellSpeed);
     const scatter = CONFIG.fleet.aimScatterU[mind.size];
     const a = mind.rng.float(0, TAU);
     const r = Math.sqrt(mind.rng.next()) * scatter;
-    return {
-      x: target.state.x + vx * t + Math.cos(a) * r,
-      y: target.state.y + vy * t + Math.sin(a) * r,
-    };
+    return { x: led.x + Math.cos(a) * r, y: led.y + Math.sin(a) * r };
   }
 }
 

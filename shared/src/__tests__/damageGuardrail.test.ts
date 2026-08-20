@@ -31,6 +31,7 @@ import {
   SHIP_CLASS_IDS,
   effectiveStats,
   resolveBoons,
+  type EffectiveStats,
 } from '../index.js';
 
 const classHps = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp);
@@ -61,10 +62,14 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
     expect(CONFIG.mine.damage).toBeLessThan(minHullHp);
   });
 
-  it('cannon burst / contact damage cannot one-hit the lightest hull; bodyblock lighter', () => {
-    expect(CONFIG.cannon.damage).toBeLessThan(minHullHp);
-    expect(CONFIG.cannon.contactDamage).toBeLessThan(minHullHp);
-    expect(CONFIG.cannon.contactDamage).toBeLessThanOrEqual(CONFIG.cannon.damage);
+  it('broadside PER-SHELL damage cannot one-hit the lightest hull', () => {
+    // The cannon's separate `contactDamage` clause is RETIRED with the weapon
+    // (Story 7-5 wave 2): the BROADSIDE BARRAGE has no bodyblock number of its
+    // own — every shell bursts like a gun shell — so there is no second scalar
+    // to bound. The per-SHELL law is what governs a barrage; the whole-barrage
+    // total is deliberately outside it, exactly as a multi-barrel gun CLICK is
+    // (see 'THE LAW IS PER SHELL' below).
+    expect(CONFIG.broadside.damage).toBeLessThan(minHullHp);
   });
 
   it('the lightest CLASS hull is the 125hp torpedoBoat; drones sit BELOW it and are no longer floor-eligible', () => {
@@ -112,31 +117,54 @@ describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming e
     // Note this does NOT touch amendment 36 clause 3: a mine hit still does
     // not aggro its victim. The Mine Layer pulls aggro with its GUN and leads
     // hulls over the field, which is that rule working as designed.
-    expect(CONFIG.cannon.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 65 >= 45
+    // The cannon's 65 became the broadside's 20 PER SHELL (Story 7-5 wave 2),
+    // which no longer clears a 45hp small drone on its own — but a BARRAGE of 3
+    // does, and a barrage is the weapon's unit of fire. Pinned as the barrage
+    // so the Battleship's fleet-clearing is still guarded.
+    expect(CONFIG.broadside.damage * CONFIG.broadside.turrets).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 60 >= 45
     expect(CONFIG.torpedo.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 70 >= 45
     expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 55 >= 45 — the ruling
-    expect(stacked('mineDamage').mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp); // 75 >= 45
+    // The `stacked('mineDamage')` half of this pin is RETIRED with the card
+    // (Story 7-5 wave 1): TNT FILLER is deleted, so 55 IS the mine's damage at
+    // every build and the base clause above is now the whole statement.
   });
 });
 
+// NARROWED, NOT WEAKENED (Story 7-5 wave 1, completed by wave 2). ALL FOUR
+// damage ladders this describe was written for are now DELETED — Eric: *"The
+// gun is absurdly powerful and does not need damage bonuses"* took three of
+// them, and `cannonDamage` left with the cannon — so every damage path has NO
+// writer at all and is pinned at its CONFIG base by the first describe in this
+// file. The general form is kept as a CATALOG SWEEP precisely because there is
+// nothing left to sweep: a future damage line lands under the law
+// automatically, on the day it lands, instead of needing a new pin.
 describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; player-classes-only scope per Story 5.6)', () => {
-  it('every damage ladder, stacked to its copy cap, stays UNDER the 125hp lightest CLASS hull', () => {
-    // Computed FROM the catalog defs, so a step retune re-checks automatically.
-    expect(stacked('gunDamage').gun.damage).toBeLessThan(minHullHp);
-    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(minHullHp);
-    expect(stacked('torpedoDamage').torpedo.damage).toBeLessThan(minHullHp);
-    expect(stacked('mineDamage').mine.damage).toBeLessThan(minHullHp);
+  it('EVERY damage path, max-stacked from the catalog, stays UNDER the 125hp lightest CLASS hull', () => {
+    // Swept from the catalog rather than listed, so a new damage card is
+    // covered the day it lands and a deleted one needs no edit here.
+    const damagePaths = ['gun.damage', 'broadside.damage', 'torpedo.damage', 'mine.damage'] as const;
+    const read = (s: EffectiveStats, path: string): number =>
+      (s as unknown as Record<string, Record<string, number>>)[path.split('.')[0]][path.split('.')[1]];
+    for (const path of damagePaths) {
+      const writers = Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path === path));
+      const maxed = writers.flatMap((d) => new Array<string>(d.copies).fill(d.id));
+      const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(maxed));
+      expect(read(s, path), path).toBeLessThan(minHullHp);
+    }
+    // NO weapon carries a damage ladder any more: `cannonDamage` was the last
+    // one and it died with the cannon (Story 7-5 wave 2). The BROADSIDE
+    // BARRAGE's two cards move SHELL COUNT and FAN WIDTH, never damage.
+    expect(Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path.endsWith('.damage'))).map((d) => d.id))
+      .toEqual([]);
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
-    // Endpoints after the 2026-08-04 weapon balance pass. Torpedo and cannon
-    // each got a heavier base AND a SHRUNK step (+2→+1, +3→+2) precisely so the
-    // ladders top at 75 rather than the exactly-80 one-shot the untouched steps
-    // would have produced. Do not "restore" the old steps.
-    expect(stacked('gunDamage').gun.damage).toBe(30); // 15 +3/card ×5
-    expect(stacked('cannonDamage').cannon.damage).toBe(75); // 65 +2/card ×5
-    expect(stacked('torpedoDamage').torpedo.damage).toBe(75); // 70 +1/card ×5
-    expect(stacked('mineDamage').mine.damage).toBe(75); // 55 +4/card ×5
+    // EVERY damage ladder is RETIRED now, so every endpoint IS its base —
+    // pinned here so a silent re-add is visible.
+    expect(effectiveStats(CONFIG.shipClasses.battleship).broadside.damage).toBe(CONFIG.broadside.damage);
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).gun.damage).toBe(CONFIG.gun.damage);
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).torpedo.damage).toBe(CONFIG.torpedo.damage);
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).mine.damage).toBe(CONFIG.mine.damage);
   });
 
   it('THE LAW IS PER SHELL: a max-stacked multi-barrel CLICK may legitimately exceed the floor', () => {
@@ -149,18 +177,28 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // What CI still enforces is the per-shell law, above and here: no single
     // shell of any weapon, max-stacked, reaches the lightest hull.
     const barrels = stacked('gunBarrel').gun.barrels;
-    const perShell = stacked('gunDamage').gun.damage;
+    // HEAVY SHELLS is deleted, so the per-shell number is simply the base now.
+    const perShell = effectiveStats(CONFIG.shipClasses.torpedoBoat).gun.damage;
     expect(barrels).toBe(3); // TWIN + TRIPLE MOUNT, both copies
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
     // And this is the consequence Eric was shown and ACCEPTED: a fully
-    // max-stacked triple mount whose three overlapping bursts all connect deals
-    // 90 and one-clicks an undamaged 60hp small drone (was 80hp pre-Story-5.6;
-    // now ALSO breached at BASE by cannon/torpedo — see the dedicated small-
-    // drone describe above). That is not a breach — it is three hits. No
-    // player hull falls to the SHELLS ALONE: the lightest is the 125hp Torpedo
-    // Boat, which takes 72%. Rejected alternatives (do not re-propose):
-    // falloff on later same-click hits, an aggregate cap below the floor,
-    // shrinking the HEAVY SHELLS step.
+    // max-stacked triple mount whose three overlapping bursts all connect
+    // one-clicks an undamaged small drone. That is not a breach — it is three
+    // hits. No player hull falls to the SHELLS ALONE: the lightest is the 125hp
+    // Torpedo Boat. Rejected alternatives (do not re-propose): falloff on later
+    // same-click hits, an aggregate cap below the floor.
+    //
+    // STORY 7-5 WAVE 1 SHRANK THIS MARGIN TO EXACTLY ZERO, and the pin is
+    // loosened `>` → `>=` to say so rather than to pass. Deleting HEAVY SHELLS
+    // took the max-stacked triple-mount click from 3 × 30 = 90 down to
+    // 3 × 15 = 45, which is EXACTLY the 45hp small drone: the click still kills
+    // it (damage >= hp sinks), but with no headroom at all, where it used to
+    // have double. Nothing about the LAW moved — the per-shell bound above is
+    // untouched and the click still lands far under the 125hp class floor —
+    // but a small-drone hp RISE of even 1, or a gun base-damage CUT, now flips
+    // the Mine Layer's fleet-farming one-click without anything else changing.
+    // Ledgered here because it is the kind of thing a later balance pass moves
+    // by accident.
     //
     // SCOPE, precisely: this bounds the click's GUN SHELLS and nothing else. A
     // burst also detonates the shooter's own armed mines inside burstRadius
@@ -168,14 +206,24 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // click walked over your own field can obviously exceed any hull's hp. That
     // is the minefield paying out, not the gun, and it is deliberately outside
     // this pin.
-    expect(perShell * barrels).toBeGreaterThan(minDroneHp);
+    expect(perShell * barrels).toBeGreaterThanOrEqual(minDroneHp); // exactly equal since wave 1 — see above
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 
-  it('AP falloff can only DECREASE a hit: even the 100% first pierce obeys the max-stacked pin', () => {
-    // The AP doctrine deals 100/50/25% of cannon damage — the first hit equals
-    // the burst number already pinned above; later hits are strictly smaller.
-    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(minHullHp);
+  // RETIRED (Story 7-5 wave 2): 'AP falloff can only DECREASE a hit'. The
+  // ARMOR-PIERCING doctrine, its falloff table and the whole pierce sweep are
+  // deleted with the cannon, so there is no falloff left to bound.
+
+  it('a max-stacked BROADSIDE obeys the per-shell law at every turret count', () => {
+    // The broadside's two cards move shell COUNT and fan WIDTH, never damage,
+    // so the per-shell number is its base at every build — the strongest form
+    // the law can take. The BARRAGE total (5 × 20 = 100) legitimately exceeds
+    // the 45hp drone and still lands under the 125hp class floor, but that is
+    // the multi-shell click case the law deliberately does not govern.
+    const maxed = stacked('broadsideTurrets');
+    expect(maxed.broadside.turrets).toBe(5);
+    expect(maxed.broadside.damage).toBe(CONFIG.broadside.damage);
+    expect(maxed.broadside.damage).toBeLessThan(minHullHp); // the law, per SHELL
   });
 });
 
@@ -216,8 +264,15 @@ describe('star-shell tell guardrail', () => {
     expect(CONFIG.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
 
-  it('even a max-stacked WIDE BURST zone stays inside BASE radar range', () => {
-    expect(stacked('starRadius').starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
+  // WIDE BURST is DELETED (Story 7-5 wave 1), so `starShells.litRadius` has no
+  // writer and the base pin above is the whole guarantee. Kept as a SWEEP so a
+  // future radius card cannot land without re-proving the tell guardrail.
+  it('no catalog line grows litRadius; if one ever does, it must stay inside BASE radar range', () => {
+    const writers = Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path === 'starShells.litRadius'));
+    expect(writers.map((d) => d.id)).toEqual([]);
+    const maxed = writers.flatMap((d) => new Array<string>(d.copies).fill(d.id));
+    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(maxed));
+    expect(s.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
 });
 
@@ -242,10 +297,12 @@ describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
     const torpMax = stacked('torpedoSpeed').torpedo.speed;
     expect(torpMax).toBe(80); // the ratified 60 → 80 ladder
     // The fastest achievable hull: TB with full shipSpeed stacks + full
-    // boostMax stacks, boost active — computed from the catalog defs.
+    // boostSpeed stacks, boost active — computed from the catalog defs.
+    // `boostMax` split into boostDuration + boostSpeed in Story 7-5 wave 1;
+    // only the SPEED half can move this bound, and duration cannot.
     const build = resolveBoons([
       ...new Array<string>(BOON_CATALOG.shipSpeed.copies).fill('shipSpeed'),
-      ...new Array<string>(BOON_CATALOG.boostMax.copies).fill('boostMax'),
+      ...new Array<string>(BOON_CATALOG.boostSpeed.copies).fill('boostSpeed'),
     ]);
     const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, build);
     const maxAchievableHull = s.kinematics.maxSpeed + s.boost.speedBonus;

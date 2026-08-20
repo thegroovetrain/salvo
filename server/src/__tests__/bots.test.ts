@@ -123,7 +123,7 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
     }
     // The class arsenal's own category leads its profiles' tables.
     expect((CONFIG.bots.boonWeights.raider.cat as Record<string, number>).torpedoes).toBeGreaterThan(0);
-    expect((CONFIG.bots.boonWeights.siege.cat as Record<string, number>).cannon).toBeGreaterThan(0);
+    expect((CONFIG.bots.boonWeights.siege.cat as Record<string, number>).broadside).toBeGreaterThan(0);
     expect((CONFIG.bots.boonWeights.trapper.cat as Record<string, number>).mines).toBeGreaterThan(0);
   });
 });

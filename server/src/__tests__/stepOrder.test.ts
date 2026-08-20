@@ -8,8 +8,7 @@
 // construction, with no explicit tie-break code." Move it earlier and regen
 // can un-sink a hull at 0 hp. Others: sampleWakes after resolveCollisions (a
 // wake records the RESOLVED pose, never a rolled-back candidate inside land);
-// creepMines before stepMines (a mine that crawls into trigger range this
-// tick trips this tick); applyZoneEffects before the expiry sweep (a zone
+// applyZoneEffects before the expiry sweep (a zone
 // burns/dazzles through its final tick); processRespawns before tickXp (a
 // hull revived this tick accrues this tick); and founderSinking (Story 5.2)
 // after the motion block but before the damage rows and the activation gates
@@ -40,13 +39,16 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'founderSinking',
       'applyStorm',
       'stepShells',
-      'creepMines',
       'stepMines',
+      // Story 7-5 wave 2's radar buoys — a deliberate insertion in the
+      // static-entity band: expiry, the buoy's own sweep, and the GUN BUOY's
+      // auto-fire, which must land BEFORE tickRepairs (the "after every
+      // damage source" contract). See the row comment in world.ts.
+      'tickBuoys',
       'applyZoneEffects',
       'tickRepairs',
       'tickSmoke',
       'expireLitZones',
-      'expireDecoys',
       'fireControl',
       'activationControl',
       'hornControl',

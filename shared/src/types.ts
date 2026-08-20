@@ -7,7 +7,6 @@
 
 import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
 import type { Vec2 } from './math/vec.js';
-import type { StarShellsMode } from './sim/stats.js';
 
 /** Short message-name tags used on the Colyseus channel. */
 export const MSG = {
@@ -551,7 +550,7 @@ export interface Contact {
  * ANTI-CHEAT BOUND (amendment 66's rule carried forward): the mask derives
  * from hull geometry + pose ONLY — never boons, hp, damage state, or any
  * range-derivable quantity. It is observer-INDEPENDENT: every observer
- * painting this hull this tick receives the identical mask. A decoy buoy's
+ * painting this hull this tick receives the identical mask. A radar buoy's
  * paint is rasterized by the same shared function from its frozen drop-time
  * pose (owner hull, drop heading) — byte-for-byte a genuine footprint by
  * construction (amendment 11).
@@ -717,7 +716,7 @@ export interface BurstEvent {
  * above the fog for the shooter alone, so bracket-and-walk fire works (FR16).
  * `id` is the SHOOTER's ship id: the self-private gate key (perception
  * forwards it ONLY to that observer — the dmg/pt precedent), never a victim
- * reference. GUN-FAMILY ONLY (wire kind 'shell' — gun, cannon, star shells):
+ * reference. GUN-FAMILY ONLY (wire kind 'shell' — gun, broadside, star shells):
  * torpedoes and mines have no fall-of-shot (the quiet weapons stay quiet).
  *
  * ANTI-CHEAT — deliberately omitted: any victim/target identity (a splash IS
@@ -737,12 +736,12 @@ export interface SplashEvent {
  * HIT CALL (Story 4.3, amendments 17/18): something the shooter fired or laid
  * CONNECTED — exactly one per ordnance resolution, at the impact/burst/mine
  * point, delivered ONLY to the owner (self-private; spectator-public like
- * dmg). ALL ORDNANCE: gun, cannon, star shells, torpedo, AND mines (a Mine
+ * dmg). ALL ORDNANCE: gun, broadside, star shells, torpedo, AND mines (a Mine
  * Layer learning remotely that a trap sprung is the intended feature). This
  * KNOWINGLY supersedes the boom row's owner anti-leak rule for the owner-hit
  * case (amendment 17): "something of yours connected out there" is now
- * deliberate — it is what keeps the ratified decoy disambiguation oracle
- * alive ("shooting a decoy produces no Hit Call" only means something if a
+ * deliberate — it is what kept the ratified decoy disambiguation oracle
+ * alive ("shooting a decoy produces no Hit Call" only meant something if a
  * real hit at fog range produces one).
  *
  * ANTI-CHEAT — deliberately omitted: EVERY severity channel. No victim id,
@@ -775,11 +774,11 @@ export interface HitCallEvent {
  * ANTI-CHEAT — deliberately omitted: EVERY identity channel. No shooter id
  * (not even for the shooter — there is no privileged view of this row), no
  * personal hue, no class, no weapon kind, no heading, and no per-weapon
- * weight (a heavier cannon flash would put a class tell on the wire that
+ * weight (a heavier broadside flash would put a class tell on the wire that
  * deliberately does not exist). The flash must create a question, never
  * answer one. GUN FAMILY ONLY by the wire-kind predicate ('shell' selects
- * gun + cannon + star shells and excludes 'torp' exactly — no per-weapon
- * table exists to leak through); mine/decoy stern-drops never spawn a
+ * gun + broadside + star shells and excludes 'torp' exactly — no per-weapon
+ * table exists to leak through); mine/buoy placements never spawn a
  * ballistic at all. KEY ORDER IS LOAD-BEARING (msgpack): k,x,y.
  */
 export interface MuzzleEvent {
@@ -1086,12 +1085,17 @@ export interface MineView {
  * `until` is the server-clock expiry (drives the client's fade); a zone
  * dropping out of the list means expired OR out of radar range — the client
  * cannot tell, and that ambiguity is the point (the mines precedent).
- * `mode` is the firer's star-shell DOCTRINE stamped on the zone record at
- * zone-spawn time — delivered to EVERY legitimate observer (Story 2.9,
- * amendment 50: counterplay over concealment — the zone's nature is
- * observable behavior of the fired shell, not a build leak). Optional on the
- * TYPE only so pre-2.9 client fixtures keep compiling — the server always
- * emits it; a missing mode renders as 'standard'.
+ * `phos`/`daz` are the firer's star-shell DOCTRINE VERBS stamped on the zone
+ * record at zone-spawn time — delivered to EVERY legitimate observer (Story
+ * 2.9, amendment 50: counterplay over concealment — the zone's nature is
+ * observable behavior of the fired shell, not a build leak).
+ *
+ * STORY 7-5 WAVE 1 replaced the single `mode` field with these TWO INDEPENDENT
+ * OPTIONAL FLAGS, because PHOSPHOR and DAZZLE stopped being an either/or pair:
+ * one zone may now burn AND blind, which a single-valued mode cannot say. They
+ * follow the established optional-flag wire style (`aggro`, `slowedUntil`) —
+ * present as `true` only when set, OMITTED entirely when false, so a plain
+ * star-shell zone costs the same bytes it always did.
  */
 export interface LitZoneView {
   id: string;
@@ -1100,30 +1104,35 @@ export interface LitZoneView {
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
   by: string; // the firer's ship id
-  mode?: StarShellsMode; // the zone's doctrine (amendment 50); server-emitted always
+  phos?: true; // PHOSPHOR verb — the zone burns; omitted when false
+  daz?: true; // DAZZLE verb — the zone blinds; omitted when false
 }
 
 /**
- * A decoy buoy visible to this viewer, synced as CONTACT-LIKE state (not an
- * event): FrameMsg.decoys is recomputed per observer every tick, exactly like
- * mines. This carries the TRUTH — the buoy for what it is — and is delivered
- * only to the OWNER (always sees own buoy), to enemies whose sight/lit-zone
- * covers it (truesight reveals the lie), and to spectators. The DECEPTION — the
- * buoy painting as the owner's ship — never rides this shape: it travels as an
- * ordinary `blip` event carrying the owner's ship id (perception.ts /
- * signals.ts counterIntel), wire-indistinguishable from a real ship blip.
- * `until` is the server-clock expiry (informational — the current client
- * renders a static marker and removes it on despawn; a near-expiry fade is a
- * possible future use). A decoy dropping out of the list means expired OR out
- * of view — the client cannot tell (the mines/litZones precedent).
- * `by` is the OWNER'S ship id (roster-resolvable — the truth marker renders in
- * the owner's personal hue for EVERY observer come Story 1.12, a deliberate intel
- * grant, Eric 2026-07-23; amber only when the owner has left the roster). This
- * rides ONLY the truesight truth channel — the deceiving radar blip still carries
- * the owner's id through its own path (counterIntel), unchanged.
+ * A RADAR BUOY visible to this viewer, synced as CONTACT-LIKE state (not an
+ * event): FrameMsg.buoys is recomputed per observer every tick, exactly like
+ * mines. Delivered to the OWNER (always sees own buoy), to enemies whose
+ * sight/lit-zone covers it, and to spectators.
+ *
+ * STORY 7-5 WAVE 2 REPLACED `DecoyView` WITH THIS, and the rename is the point:
+ * the DECEPTION is gone. The decoy's whole purpose was painting on enemy radar
+ * as the owner's own ship (the `counterIntel` blip lie), and nothing in the game
+ * fakes a ship contact any more. What paints now is the buoy itself, on its OWN
+ * radar profile carrying NO owner identity (R2.9) — so this shape is no longer
+ * the "truth channel" behind a lie, it is simply the buoy seen up close.
+ *
+ * `until` is the server-clock expiry (informational — the current client renders
+ * a static marker and removes it on despawn). A buoy dropping out of the list
+ * means expired, DESTROYED, or out of view — the client cannot tell (the
+ * mines/litZones precedent). `by` is the OWNER'S ship id (roster-resolvable —
+ * the marker renders in the owner's personal hue for every observer, the
+ * deliberate intel grant of Eric 2026-07-23; amber when the owner has left the
+ * roster). NOTE: the buoy's 50 hp does NOT ride this shape — no damage-state
+ * channel is specified for it, and adding one is a wire decision, not an
+ * implementation detail.
  */
-export interface DecoyView {
-  id: string; // the decoy's own id (NOT the owner's ship id the blip lie carries)
+export interface BuoyView {
+  id: string; // the buoy's own id
   x: number; // u
   y: number; // u
   until: number; // ms — server time the buoy expires
@@ -1138,8 +1147,8 @@ export interface DecoyView {
  *   'cooling'    — a WEAPON click against an empty pool (the round is
  *                  reloading; the weapon channel's empty-pool vocabulary).
  *   'no-ammo'    — an ABILITY press against an empty pool (no charge).
- *   'blocked'    — a stern drop (mine/decoyBuoy) whose drop point lands
- *                  inside an island or outside the water — nothing consumed.
+ *   'blocked'    — a placement (mine/radarBuoy) whose point lands inside an
+ *                  island or outside the water — nothing consumed.
  * The gate's 'dead'/'empty-slot' refusals never ride the wire: they are
  * either perfectly client-predictable (dead) or unreachable for an honest
  * client (empty-slot), and both spend nothing.
@@ -1197,7 +1206,7 @@ export interface FrameMsg {
   events: GameEvent[];
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   litZones?: LitZoneView[]; // per-observer lit-zone visibility (contact-like; omitted when none)
-  decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
+  buoys?: BuoyView[]; // per-observer radar-buoy visibility (contact-like; omitted when none)
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */

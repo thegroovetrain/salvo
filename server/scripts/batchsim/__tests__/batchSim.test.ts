@@ -246,7 +246,7 @@ describe('pilots — determinism', () => {
   });
 
   it('spend policy is deterministic and prefers the highest rarity', () => {
-    const offer = ['gunDamage', 'gunBarrel', 'intelSweep', 'shipHull']; // one rare among commons
+    const offer = ['shipSpeed', 'gunBarrel', 'intelSweep', 'shipHull']; // one rare among commons
     const picks = new Set<number>();
     for (let i = 0; i < 50; i += 1) picks.add(pickSpendChoice(offer, mulberry32(i), []));
     expect(picks.has(1)).toBe(true); // the rare gets picked
@@ -905,7 +905,8 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
       id: 'cap-1', cls: 'torpedoBoat', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
       boonsFitted: 2, deckRemaining: 30, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
-      firstExclusiveOffered: null, firstExclusiveFitted: null, levelCurve: [1, 2],
+      firstExclusiveOffered: null, firstExclusiveFitted: null,
+      firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2],
     };
     const match: MatchSample = {
       index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat', stormDeaths: 0,
@@ -960,8 +961,15 @@ describe('deck-only mode', () => {
       restore();
     }
     // With an absurd escalation, one dry level makes a rare landing near
-    // certain — the dry=1 rate must exceed the production dial's.
+    // certain — the dry=1 rate must exceed the production dial's. The absolute
+    // bar moved 0.95 -> 0.94 with the wave-1 catalog and 0.94 -> 0.88 with
+    // wave 2: the rare/common MIX shifted again (the cannon's 5-copy common
+    // ladder left, three rare doctrines arrived), and — the bigger mover — the
+    // harness's doctrine-ping-pong stopping rule went with exclusivity, so an
+    // economy now plays on to a genuinely empty deck and the long common tail
+    // is measured instead of truncated. It now measures ~0.888. The relative
+    // assertion above is the load-bearing one.
     expect(boosted.pity[1].rareRate).toBeGreaterThan(base.pity[1].rareRate);
-    expect(boosted.pity[1].rareRate).toBeGreaterThan(0.95);
+    expect(boosted.pity[1].rareRate).toBeGreaterThan(0.85);
   });
 });

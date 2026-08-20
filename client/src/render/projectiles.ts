@@ -37,12 +37,9 @@ import {
   type BallisticEvent,
   type BoomEvent,
   type BurstEvent,
-  type CannonMode,
-  type TorpedoMode,
   type TorpedoUpdateEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { motionScaled, settings } from '../settings/store.js';
 import { Pool } from '../util/pool.js';
 import type { WakeHull } from './wake.js';
 
@@ -62,12 +59,18 @@ export type Kind = BallisticEvent['k'];
  *   torpHoming     the track has taken a `torpU` steer — observable behavior,
  *                  the same evidence a player watching the fish turn has (any
  *                  observer); OWN fish are styled from launch off own stats
- *   cannon*        OWN fire only, keyed off `g.ownStats.cannon.mode` (self-
- *                  private). The ballistic wire shape cannot say "cannon" and
- *                  must not — an onlooker sees the ordinary shell look, which
- *                  is the correct amount of information.
+ *   broadside      OWN fire only, correlated by roomBindings' own-fire
+ *                  heuristic (self-private). The ballistic wire shape cannot
+ *                  say "broadside" and must not — an onlooker sees the ordinary
+ *                  shell look, which is the correct amount of information.
+ *
+ * STORY 7-5 WAVE 2 retired `cannon`/`cannonArcing`/`cannonAp` with the weapon
+ * (R2.6). The BROADSIDE BARRAGE that replaces it has NO doctrine cards at all,
+ * so it takes ONE look rather than a family of three — and with PLUNGING FIRE
+ * and ARMOR-PIERCING went the `swell` (height-as-size) and `stretch` (dart)
+ * channels, which had no other user.
  */
-export type ProjectileLookId = 'shell' | 'torp' | 'torpHoming' | 'cannon' | 'cannonArcing' | 'cannonAp';
+export type ProjectileLookId = 'shell' | 'torp' | 'torpHoming' | 'broadside';
 
 /** Per-look sprite paint. Torpedoes read slower + fatter with a cooler tint. */
 interface ProjectileLook {
@@ -76,11 +79,6 @@ interface ProjectileLook {
   coreR: number; // u
   glowR: number; // u
   glowAlpha: number;
-  /** Core stretched this many times along the travel bearing (1 = round dot).
-   *  The ARMOR-PIERCING dart — a SHAPE channel, so it reads without color. */
-  stretch?: number;
-  /** Peak extra scale at the top of a plunging arc (0 = flat trajectory). */
-  swell?: number;
 }
 
 const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
@@ -103,34 +101,28 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
     glowR: 9,
     glowAlpha: 0.3,
   },
-  // The OWN cannon, at every doctrine: bigger and heavier than the gun's dot.
-  cannon: { core: C.legacy.shellCore, glow: C.amber, coreR: O.cannonCoreR, glowR: O.cannonGlowR, glowAlpha: O.cannonGlowAlpha },
-  // PLUNGING FIRE: the same heavy shell, swelling as it climbs and settling as
-  // it falls — height, read as size.
-  cannonArcing: {
+  // The OWN BROADSIDE BARRAGE (Story 7-5 wave 2): a visibly bigger, heavier dot
+  // than the gun's, on the SAME amber warning glow — it inherits the ratified
+  // "a main-battery shell must read heavier than the gun" weights from the
+  // cannon look it replaces, and no new hue is invented for it (DESIGN.md owns
+  // the palette; SIZE is the channel that was ratified for this read).
+  broadside: {
     core: C.legacy.shellCore,
     glow: C.amber,
-    coreR: O.cannonCoreR,
-    glowR: O.cannonGlowR,
-    glowAlpha: O.cannonGlowAlpha,
-    swell: O.arcSwell,
-  },
-  // ARMOR-PIERCING: the heavy shell drawn out into a dart along its bearing.
-  cannonAp: {
-    core: C.legacy.shellCore,
-    glow: C.amber,
-    coreR: O.cannonCoreR,
-    glowR: O.cannonGlowR,
-    glowAlpha: O.cannonGlowAlpha,
-    stretch: O.apStretch,
+    coreR: O.broadsideCoreR,
+    glowR: O.broadsideGlowR,
+    glowAlpha: O.broadsideGlowAlpha,
   },
 };
 
-/** The OWN loadout's doctrine modes — the self-private half of the identity
- *  split (main.applyOwnStats fans them in, mirroring setSightRange). */
+/** The OWN loadout's doctrine state — the self-private half of the identity
+ *  split (main.applyOwnStats fans them in, mirroring setSightRange).
+ *
+ *  STORY 7-5 WAVE 1 turned every doctrine into an independent verb FLAG, and
+ *  WAVE 2 deleted the last enum with the cannon (R2.6). ACOUSTIC HOMING is the
+ *  only verb the water styles, so this is now a single boolean. */
 export interface OwnModes {
-  cannon: CannonMode;
-  torpedo: TorpedoMode;
+  torpedoHoming: boolean;
 }
 
 /** Which own weapon a `shell`/`torp` reveal came out of, when the client can
@@ -139,7 +131,7 @@ export interface OwnModes {
  *  so it is claimable — it earns its OWN report (fireStarShells) while keeping
  *  the generic shell LOOK, because a flare in flight is just a shell until it
  *  bursts. */
-export type OwnFire = 'gun' | 'cannon' | 'torpedo' | 'starShells' | null;
+export type OwnFire = 'gun' | 'broadside' | 'torpedo' | 'starShells' | null;
 
 /**
  * Pure: the look a newly-revealed track paints with.
@@ -147,32 +139,13 @@ export type OwnFire = 'gun' | 'cannon' | 'torpedo' | 'starShells' | null;
  * A torpedo is `torpHoming` from LAUNCH only when it is OUR fish and our own
  * torpedo doctrine is homing (self-private knowledge); an enemy's homing fish
  * earns the same look the moment it visibly steers (onBallisticUpdate). A shell
- * is a cannon look only when it is OUR cannon shot — the wire is mode-blind for
+ * is a broadside look only when it is OUR barrage — the wire is weapon-blind for
  * ballistics and stays that way, and an own STAR SHELL (which rides the same
  * wire kind) falls through to the generic shell look on the same clause.
  */
 export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): ProjectileLookId {
-  if (kind === 'torp') return own === 'torpedo' && modes.torpedo === 'homing' ? 'torpHoming' : 'torp';
-  if (own !== 'cannon') return 'shell';
-  if (modes.cannon === 'arcing') return 'cannonArcing';
-  return modes.cannon === 'ap' ? 'cannonAp' : 'cannon';
-}
-
-/**
- * Pure: split a boom id into the TRACK it belongs to and its pierce ORDER.
- *
- * ARMOR-PIERCING emits a boom per hull it punches through while the shell keeps
- * flying, so world.ts sends those under a DERIVED id — `<shellId>#p<order>` —
- * and keeps the real id for the terminal event. Both halves matter to the
- * client: the derived id must not retire the still-flying track (it never
- * matches a tracked id — the Story 2.8 contract), and the pierce ORDER is the
- * one legal enemy-side tell that a build carries AP. A missing/garbled suffix
- * reads as an ordinary boom (`null`), which is the fail-open branch: an
- * unrecognized id can only ever cost the pierce styling, never the impact.
- */
-export function pierceOrder(id: string): number | null {
-  const m = /#p(\d+)$/.exec(id);
-  return m ? Number(m[1]) : null;
+  if (kind === 'torp') return own === 'torpedo' && modes.torpedoHoming ? 'torpHoming' : 'torp';
+  return own === 'broadside' ? 'broadside' : 'shell';
 }
 
 /** Extra map crossings' worth of slack on the lifetime backstop (u). */
@@ -308,32 +281,12 @@ interface LiveShell {
   vx: number;
   vy: number;
   t0: number;
-  /** Server time (ms) the track was first REVEALED — the arc-swell clock, which
-   *  must survive a mid-flight re-anchor (`t0` moves with every steer). */
-  launchedAt: number;
   expiresAt: number; // server time (ms) the shell self-terminates
   /** Which OWN weapon this track was DRESSED as (roomBindings' near-own-hull
    *  heuristic, including its ratified 'gun' fallback for an unclaimed reveal)
    *  — the LOOK/audio channel only. NOT the burst-ring authority: see the
    *  `claims` tombstone map, which holds only genuine latch claims. */
   own: OwnFire;
-}
-
-/**
- * Pure: the scale a PLUNGING FIRE shell renders at, `elapsed` ms after launch —
- * one smooth swell from 1 up to `1 + amp` and back, over `periodMs`, holding at
- * 1 thereafter. Height read as size: the shell climbs, tops out, comes down.
- *
- * `amp` is motion-scaled by the caller (halved at `reduced`, 0 at `off`), which
- * is what makes this legal as juice: the shell's POSITION — the only thing that
- * carries information — is untouched at every motion level, and at `off` the
- * dart/dot simply holds its size.
- */
-export function arcSwellScale(elapsedMs: number, amp: number, periodMs: number = O.arcSwellMs): number {
-  if (amp <= 0 || periodMs <= 0) return 1;
-  const k = elapsedMs / periodMs;
-  if (k <= 0 || k >= 1) return 1;
-  return 1 + amp * Math.sin(Math.PI * k);
 }
 
 /** How many own-shot claim tombstones are retained (oldest evicted). One entry
@@ -408,7 +361,7 @@ export class Projectiles {
   /** The OWN doctrine modes, fanned in from applyOwnStats (Story 2.9) — the
    *  seam setSightRange established, for the self-private half of ordnance
    *  identity. Stock until the first authoritative `you` lands. */
-  private ownModes: OwnModes = { cannon: 'standard', torpedo: 'standard' };
+  private ownModes: OwnModes = { torpedoHoming: false };
 
   /** Track the own ship's boon-widened sight range so reveals don't pop early.
    *  ONE plumbed value, THREE rings — the enemy-torpedo ring is `detectFactor`
@@ -461,11 +414,6 @@ export class Projectiles {
     return this.live.get(id)?.look ?? null;
   }
 
-  /** The live scale of a tracked sprite (test seam for the plunging-fire swell). */
-  scaleOf(id: string): number {
-    return this.live.get(id)?.gfx.scale.x ?? 1;
-  }
-
   private makeBlank(): Graphics {
     const g = new Graphics();
     g.blendMode = 'add';
@@ -474,30 +422,22 @@ export class Projectiles {
     return g;
   }
 
-  /** Paint a track's identity onto its sprite. A stretched core (the AP dart) is
-   *  drawn as an ellipse and the sprite is ROTATED onto its bearing by the
-   *  caller, so the dart always points where the shell is going. */
+  /** Paint a track's identity onto its sprite: a round core inside its glow.
+   *  Every shipped look is a DOT — the AP dart's `stretch` channel died with
+   *  ARMOR-PIERCING (Story 7-5 wave 2, R2.6). */
   private paint(g: Graphics, id: ProjectileLookId): void {
     const look = LOOKS[id];
     g.clear();
     g.circle(0, 0, look.glowR).fill({ color: look.glow, alpha: look.glowAlpha });
-    if (look.stretch) g.ellipse(0, 0, look.coreR * look.stretch, look.coreR).fill({ color: look.core, alpha: 1 });
-    else g.circle(0, 0, look.coreR).fill({ color: look.core, alpha: 1 });
+    g.circle(0, 0, look.coreR).fill({ color: look.core, alpha: 1 });
   }
 
   /** Re-paint a live track (a look CHANGED — an enemy fish just revealed itself
-   *  as a steering one) and re-apply the bearing rotation the new look wants. */
+   *  as a steering one). */
   private restyle(s: LiveShell, look: ProjectileLookId): void {
     if (s.look === look) return;
     s.look = look;
     this.paint(s.gfx, look);
-    this.orient(s);
-  }
-
-  /** Point a stretched (dart) sprite along its travel bearing; round looks keep
-   *  rotation 0 so a pooled sprite never inherits a previous track's angle. */
-  private orient(s: LiveShell): void {
-    s.gfx.rotation = LOOKS[s.look].stretch ? Math.atan2(s.vy, s.vx) : 0;
   }
 
   /**
@@ -532,12 +472,10 @@ export class Projectiles {
       vx: ev.vx,
       vy: ev.vy,
       t0: ev.t,
-      launchedAt: ev.t,
       expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
       own,
     };
     this.live.set(ev.id, s);
-    this.orient(s);
   }
 
   /**
@@ -549,7 +487,7 @@ export class Projectiles {
    * It reads the tombstone map, NOT the live track, because the two ways a
    * track dies before it bursts are exactly the cases the effective radius
    * matters most for: the sight-bubble cull (~370u) and the lifetime backstop
-   * both fire long before a boosted gun/cannon shell reaches its 660u+ burst
+   * both fire long before a boosted gun shell reaches its 660u+ burst
    * point. Consulting `live` alone handed every long shot the CONFIG default —
    * i.e. it failed precisely for the upgraded blasts it exists to draw.
    */
@@ -608,7 +546,6 @@ export class Projectiles {
     // already on screen (the fish visibly turns), so styling it only names what
     // the player can see. Own fish were already styled at launch off own stats.
     this.restyle(s, 'torpHoming');
-    this.orient(s);
   }
 
   /** Register a track from a `torpU` for an id we hold no track for (see
@@ -636,7 +573,6 @@ export class Projectiles {
       vx: ev.vx,
       vy: ev.vy,
       t0: ev.t,
-      launchedAt: ev.t,
       expiresAt: ev.t,
       own: this.claims.get(ev.id) ?? null, // ours only on a genuine launch claim
     };
@@ -677,10 +613,6 @@ export class Projectiles {
    * draws.
    */
   render(serverNow: number, ownPos?: { x: number; y: number }, keepZones: readonly OwnZone[] = []): void {
-    // Resolved ONCE per frame, not per shell: the plunging-fire swell is juice,
-    // so it rides the accessibility motion level (halved at `reduced`, gone at
-    // `off` — where the shell simply holds its size and keeps its position).
-    const swellAmp = motionScaled(1, settings.current.motion);
     for (const [id, s] of this.live) {
       if (serverNow >= s.expiresAt) {
         this.remove(id);
@@ -693,8 +625,6 @@ export class Projectiles {
         continue;
       }
       s.gfx.position.set(p.x, p.y);
-      const swell = LOOKS[s.look].swell;
-      if (swell) s.gfx.scale.set(arcSwellScale(serverNow - s.launchedAt, swell * swellAmp));
     }
   }
 
@@ -702,8 +632,6 @@ export class Projectiles {
     const s = this.live.get(id);
     if (!s) return;
     s.gfx.visible = false;
-    s.gfx.scale.set(1); // a swollen arcing shell must not hand its scale on
-    s.gfx.rotation = 0;
     this.pool.release(s.gfx);
     this.live.delete(id);
   }

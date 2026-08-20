@@ -13,14 +13,30 @@
 //   • both build extremes: a bare hull (smallest numbers) AND a maximally
 //     stacked build (largest numbers — 1136.9 → 1307.4 is four more glyphs than
 //     330 → 369.6),
-//   • the rival doctrine HELD, so every exclusive card carries its REPLACES line
 // — and asserts the rendered content fits the card's inner box.
 //
-// It also guards the two laws that constrain the FIX, so a future "fix" cannot
+// STORY 7-5 WAVE 2 dropped the REPLACES row from the model: exclusivity is
+// deleted (R2.6), so no card can carry a fourth text line and the "rival held"
+// dimension of the sweep is retired with it. That FREES a wrapped line of the
+// fit budget rather than spending one — the headroom pin below still guards it.
+//
+// STORY 7-5 WAVE 2 ALSO RE-AIMED THIS SUITE (R2.17 — Eric ruling 2026-08-19).
+// The card face went minimal: ladder name, lineage marker, rarity tag, and a
+// `current → next` sentence ONLY where the line moves a number. The explanation
+// moved to a hover tooltip with a container of its own
+// (__tests__/refitTooltipFit.test.ts). So amendment 47's ~90-character budget is
+// NOT relaxed — it is re-pointed at WHAT NOW SITS ON THE FACE, which is the stat
+// sentence. Two boxes, two pins, one law; this file owns the 216×236 card.
+//
+// The knock-on for the "laws that constrain the fix" block below is that its
+// "every line still prints rules text" clause CHANGED SUBJECT rather than
+// dying: a verb card printing nothing on the face is now CORRECT, so the pin
+// asks the two questions that are still failures — a stat line that has gone
+// silent, and a verb card that has crept prose back onto the face.
+//
+// It also guards the law that constrains the FIX, so a future "fix" cannot
 // simply delete its way out of a failure: amendment 15's legibility floor (the
-// rules text never crashes back below 14px) and "rules text is the contract"
-// (every line still prints its behavior; every stat line still prints its live
-// current → next).
+// rules text never crashes back below 14px).
 
 import { describe, expect, it } from 'vitest';
 import { BOON_CATALOG, CONFIG, type BoonDef, type ShipClassId } from '@salvo/shared';
@@ -30,7 +46,7 @@ import {
   boonLineageLine,
   boonName,
   boonRarityLabel,
-  boonReplacesLine,
+  boonTooltipText,
 } from '../ui/boonCopy.js';
 import {
   MONO_ADVANCE_EM,
@@ -53,13 +69,11 @@ const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
  *  `current → next` sentence can print, which is exactly what a fit pin wants. */
 const MAXED = LINES.filter((d) => d.rarity !== 'exclusive').flatMap((d) => Array<string>(d.copies).fill(d.id));
 
-/** The fitted-boon list a worst case is measured against: the rival doctrine is
- *  always held (so exclusives carry their REPLACES line) and the line under test
- *  sits at `stack` copies. */
+/** The fitted-boon list a worst case is measured against: the line under test
+ *  sits at `stack` copies, on top of a bare or a maximally stacked build. */
 function heldBoons(def: BoonDef, stack: number, maxed: boolean): string[] {
   const base = maxed ? MAXED.filter((id) => id !== def.id) : [];
-  const rival = def.exclusiveWith ? [def.exclusiveWith] : [];
-  return [...base, ...rival, ...Array<string>(stack).fill(def.id)];
+  return [...base, ...Array<string>(stack).fill(def.id)];
 }
 
 /** The card face exactly as ui/upgradeMenu.ts's toCard() builds it. */
@@ -70,19 +84,25 @@ function faceOf(def: BoonDef, stack: number, cls: ShipClassId, maxed: boolean): 
     rarity: boonRarityLabel(def.rarity),
     name: boonName(def.id, stack),
     lineage: boonLineageLine(def, stack),
-    replaces: boonReplacesLine(def, boons),
     description: boonDescription(def, { cls, boons }),
   };
 }
 
+interface FaceCase {
+  id: string;
+  label: string;
+  face: RefitCardCopy;
+}
+
 /** Every worst-case presentation state of every catalog line, labelled. */
-function everyFace(): { label: string; face: RefitCardCopy }[] {
-  const out: { label: string; face: RefitCardCopy }[] = [];
+function everyFace(): FaceCase[] {
+  const out: FaceCase[] = [];
   for (const def of LINES) {
     for (let stack = 0; stack < def.copies; stack += 1) {
       for (const cls of CLASSES) {
         for (const maxed of [false, true]) {
-          out.push({ label: `${def.id}@${stack}/${cls}${maxed ? '/maxed' : ''}`, face: faceOf(def, stack, cls, maxed) });
+          const label = `${def.id}@${stack}/${cls}${maxed ? '/maxed' : ''}`;
+          out.push({ id: def.id, label, face: faceOf(def, stack, cls, maxed) });
         }
       }
     }
@@ -93,8 +113,10 @@ function everyFace(): { label: string; face: RefitCardCopy }[] {
 const FACES = everyFace();
 
 describe('refit card container fit (amendment 47)', () => {
+  // Story 7-5 wave 2 settles the catalog at its FINAL shape: 23 upgrade lines +
+  // 6 acquisitions = 29.
   it('covers every catalog line at every stack position', () => {
-    expect(LINES.length).toBeGreaterThanOrEqual(33);
+    expect(LINES.length).toBeGreaterThanOrEqual(29);
     expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.copies, 0) * CLASSES.length * 2);
   });
 
@@ -143,26 +165,39 @@ describe('the laws that constrain the fix', () => {
     expect(smallest * 0.9).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
   });
 
-  it('keeps the contract: EVERY catalog line still prints rules text', () => {
-    const blank = LINES.filter((def) => faceOf(def, 0, 'torpedoBoat', false).description.trim() === '').map((d) => d.id);
-    expect(blank).toEqual([]);
-  });
+  // Keyed off the EFFECT SHAPE, not the rarity tier: Story 7-5 wave 1 dropped
+  // the verb cards from `exclusive` to `rare` (they stopped being either/or), so
+  // a rarity-keyed partition would start demanding a `current → next` sentence
+  // off a doctrine card that has no number to print.
+  const VERBS = new Set(
+    LINES.filter((d) => d.effects.some((e) => e.kind === 'doctrine' || e.kind === 'slotFill')).map((d) => d.id),
+  );
 
   it('keeps the contract: every STAT line still prints its live current → next', () => {
-    const doctrineOrAcquire = new Set(
-      LINES.filter((d) => d.rarity === 'exclusive' || d.effects.some((e) => e.kind === 'slotFill')).map((d) => d.id),
-    );
-    const missing = LINES.filter((d) => !doctrineOrAcquire.has(d.id))
+    const missing = LINES.filter((d) => !VERBS.has(d.id))
       .filter((def) => !faceOf(def, 0, 'torpedoBoat', false).description.includes('→'))
       .map((d) => d.id);
     expect(missing).toEqual([]);
   });
 
-  it('keeps the contract: no doctrine card was tightened down to a stub', () => {
-    const stubs = LINES.filter((d) => d.rarity === 'exclusive')
-      .filter((def) => faceOf(def, 0, 'torpedoBoat', false).description.length < 60)
-      .map((d) => d.id);
-    expect(stubs).toEqual([]);
+  // THE RE-AIMED HALF (R2.17). The old pin here demanded ≥60 characters of
+  // rules text off every doctrine card; that requirement is what the ruling
+  // deleted. Its replacement is the OPPOSITE failure — a verb card that has
+  // crept prose back onto the face — checked in EVERY presentation state, so a
+  // future edit cannot reintroduce the overflow this suite exists to stop.
+  it('keeps the face MINIMAL: a verb or acquisition card carries no prose at all', () => {
+    const talkative = FACES.filter(({ id, face }) => VERBS.has(id) && face.description !== '').map(
+      ({ label, face }) => `${label}: "${face.description}"`,
+    );
+    expect(talkative).toEqual([]);
+  });
+
+  // ...and the explanation really did land somewhere, rather than being cut.
+  // The tooltip's OWN container pin lives in __tests__/refitTooltipFit.test.ts;
+  // this is the seam check that the two halves of R2.17 both happened.
+  it('keeps the contract: what left the face is on the hover tooltip, for EVERY line', () => {
+    const silent = LINES.filter((def) => boonTooltipText(def.id).trim() === '').map((d) => d.id);
+    expect(silent).toEqual([]);
   });
 });
 
@@ -171,8 +206,8 @@ describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['cannonAp', 'gunDamage'], boostUntil: 0,
-      boons: ['cannonArcing'], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['mineCaptive', 'intelSweep'], boostUntil: 0,
+      boons: [], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false, false)!);
     const card = document.querySelector('#upgrade-menu button') as HTMLElement;

@@ -330,19 +330,19 @@ describe('showResults — the elimination modal', () => {
   // mockup, and a pure subtraction to cut on sight.
   it('draws the accrued boons and the unspent last offer from the own build', () => {
     showResults(
-      view({ own: own({ boons: ['gunDamage', 'gunDamage'], offer: ['shipHull'], pts: 1 }) }),
+      view({ own: own({ boons: ['intelSweep', 'intelSweep'], offer: ['shipHull'], pts: 1 }) }),
       { onSpectate: () => undefined, onReturn: () => undefined },
     );
     const text = document.getElementById('results-overlay')?.textContent ?? '';
     expect(text).toContain('BOONS ACCRUED');
-    expect(text).toContain('◆ HEAVY SHELLS Mk II'); // stacked copies COLLAPSE to the rung held
+    expect(text).toContain('◆ INTEL II'); // stacked copies COLLAPSE to the rung held
     expect(text).toContain('LAST OFFER — 1 LEVEL UNSPENT');
     expect(text).toContain('SHIP'); // the card's category tag
-    expect(text).toContain('REINFORCED HULL');
+    expect(text).toContain('HULL I');
   });
 
   it('draws no LAST OFFER block when nothing is banked', () => {
-    showResults(view({ own: own({ boons: ['gunDamage'] }) }), { onSpectate: () => undefined, onReturn: () => undefined });
+    showResults(view({ own: own({ boons: ['intelSweep'] }) }), { onSpectate: () => undefined, onReturn: () => undefined });
     const text = document.getElementById('results-overlay')?.textContent ?? '';
     expect(text).toContain('BOONS ACCRUED');
     expect(text).not.toContain('LAST OFFER');
@@ -528,7 +528,7 @@ describe('updateResultsScore — an open elimination modal re-renders in place',
   // exactly once, in order, and leave the section order alone.
   it('a MATCH LOG line landing after the modal opened is appended once, in place', () => {
     const first = [log(161_000, 'sank', 'SALT SHAKER'), log(387_000, 'sunkBy', 'KRAKENS BANE')];
-    showResults(view({ score: score({ matchLog: first }), own: own({ boons: ['gunDamage'] }) }), {
+    showResults(view({ score: score({ matchLog: first }), own: own({ boons: ['intelSweep'] }) }), {
       onSpectate: () => undefined,
       onReturn: () => undefined,
     });

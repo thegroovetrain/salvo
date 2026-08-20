@@ -38,11 +38,11 @@
 // on-water FOAM is drawn at the stern instead (that is where foam physically
 // is); the ribbon is the geometry, the foam is a rendering of it.
 //
-// AMENDMENT 201 — NO DECOY SPECIAL-CASING, IN EITHER DIRECTION. A decoy is
-// frozen at its drop pose, so it never travels one sample cadence and
-// `appendWakeSample` stores nothing after its first sample: no segments, no
-// foam, no chop, BY CONSTRUCTION. There is deliberately no decoy branch here to
-// delete when the decoy rework lands.
+// AMENDMENT 201 — NO BUOY SPECIAL-CASING, IN EITHER DIRECTION. A radar buoy is
+// anchored at its drop point (as the decoy this rule was written for was), so it
+// never travels one sample cadence and `appendWakeSample` stores nothing after
+// its first sample: no segments, no foam, no chop, BY CONSTRUCTION. There is
+// deliberately no buoy branch here to delete.
 //
 // AMENDMENT 83 — a paint is a historical record. Nothing in this module is read
 // back into a paint after the fact: `WakeStampCache` hands the radar a stamp,

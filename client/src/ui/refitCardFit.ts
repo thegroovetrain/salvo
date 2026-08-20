@@ -57,7 +57,6 @@ export const REFIT_TYPE = {
   rarityLetterSpacing: 1,
   nameLetterSpacing: 1,
   lineageLetterSpacing: 2,
-  replacesLetterSpacing: 1,
   descriptionLetterSpacing: 0,
   /** Line-height MULTIPLIER for every card row except the rules text. */
   lineHeight: 1.2,
@@ -206,7 +205,6 @@ export interface RefitCardCopy {
   rarity: string;
   name: string;
   lineage: string | null;
-  replaces: string | null;
   description: string;
 }
 
@@ -257,13 +255,11 @@ export function refitCardMetrics(card: RefitCardCopy): RefitCardMetrics {
   const nameLines = monoWrapLines(card.name, R.nameSize, T.nameLetterSpacing, innerW);
   const descLines = monoWrapLines(card.description, R.descSize, T.descriptionLetterSpacing, innerW);
   const lineageH = card.lineage ? rowHeight(card.lineage, R.lineageSize, T.lineageLetterSpacing, innerW, T.lineHeight) : 0;
-  const replacesH = card.replaces ? rowHeight(card.replaces, R.raritySize, T.replacesLetterSpacing, innerW, T.lineHeight) : 0;
-  const rows = 3 + (card.lineage ? 1 : 0) + (card.replaces ? 1 : 0); // meta + name + rules text always
+  const rows = 3 + (card.lineage ? 1 : 0); // meta + name + rules text always
   const height =
     metaLines * lineBox(R.categorySize, T.lineHeight) +
     nameLines * lineBox(R.nameSize, T.lineHeight) +
     lineageH +
-    replacesH +
     descLines * lineBox(R.descSize, T.descLineHeight) +
     (rows - 1) * T.rowGap;
   return { innerW, innerH, metaWidth, metaLines, nameLines, descLines, height, overflow: height - innerH };

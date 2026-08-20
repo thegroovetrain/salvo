@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PIERCE_FALLOFF,
   burstVictims,
-  pierceDamage,
   stepShell,
-  type PierceHit,
   type ShellOutcome,
   type ShellState,
   type HullTarget,
@@ -487,127 +484,20 @@ describe('burstVictims — blast membership (silhouette within burstRadius, owne
   });
 });
 
-// --- Story 2.8 doctrines: arcing (PLUNGING FIRE) ----------------------------
-
-describe('stepShell — arcing shells overfly everything and burst at the click', () => {
-  it('an island AND a hull between muzzle and target never intercept — burst exactly at the target', () => {
-    const s = gunShell(300, { arcing: true });
-    const out = stepToOutcome(s, ctx({ islands: [rock(150, 0, 20)], hulls: [hullAt(220, 0, Math.PI / 2, 'blocker')] }));
-    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
-    expect(s.x).toBe(300);
-  });
-
-  it('the SAME geometry without arcing is intercepted (the flag is the whole difference)', () => {
-    const out = stepToOutcome(gunShell(300), ctx({ islands: [rock(150, 0, 20)] }));
-    expect(out.kind).toBe('hitIsland');
-  });
-
-  it('a hull sitting ON the target point is not an interception — the burst resolves as a burst', () => {
-    const out = stepToOutcome(
-      gunShell(300, { arcing: true }),
-      ctx({ hulls: [hullAt(310, 0, Math.PI / 2, 'atTarget')] }),
-    );
-    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 }); // burstVictims picks the hull up AFTER
-  });
-});
-
-// --- Story 2.8 doctrines: pierce (ARMOR-PIERCING SHELLS) --------------------
-
-/** An AP cannon shell: full-range direction shot, no target, no burst,
- *  pierces up to 3 hulls (the server builds it exactly like this). */
-function apShell(overrides: Partial<ShellState> = {}): ShellState {
-  return shell({
-    damage: CONFIG.cannon.damage,
-    contactDamage: CONFIG.cannon.damage,
-    hitRadius: CONFIG.cannon.shellRadius,
-    pierce: { remaining: 3, hitIds: [] },
-    ...overrides,
-  });
-}
-
-/** Step an AP shell to its end, collecting every pierce hit on the way. */
-function stepPierceToEnd(s: ShellState, c: ShellContext, cap = 200): { hits: PierceHit[]; last: ShellOutcome } {
-  const hits: PierceHit[] = [];
-  for (let i = 0; i < cap; i += 1) {
-    const out = stepShell(s, c);
-    if (out.kind === 'pierced') {
-      hits.push(...out.hits);
-      if (out.spent) return { hits, last: out };
-    } else if (out.kind !== 'travel') {
-      return { hits, last: out };
-    }
-  }
-  throw new Error('AP shell never resolved');
-}
-
-describe('stepShell — AP pierce (falloff order, island stop, max 3, no re-hit)', () => {
-  it('pierces 3 hulls in line, in order, with falloff orders 0/1/2, and is spent on the third', () => {
-    const hulls = [hullAt(100, 0, Math.PI / 2, 'h1'), hullAt(200, 0, Math.PI / 2, 'h2'), hullAt(300, 0, Math.PI / 2, 'h3')];
-    const { hits, last } = stepPierceToEnd(apShell(), ctx({ hulls }));
-    expect(hits.map((h) => h.victimId)).toEqual(['h1', 'h2', 'h3']);
-    expect(hits.map((h) => h.order)).toEqual([0, 1, 2]);
-    expect(last.kind).toBe('pierced');
-    if (last.kind === 'pierced') expect(last.spent).toBe(true);
-    // The falloff helper the server applies: 100 / 50 / 25%.
-    expect(PIERCE_FALLOFF).toEqual([1, 0.5, 0.25]);
-    // Base cannon damage 65 (RETUNED 50 -> 65, Eric ruling 2026-08-04).
-    expect(hits.map((h) => pierceDamage(CONFIG.cannon.damage, h.order))).toEqual([65, 32.5, 16.25]);
-    expect(pierceDamage(CONFIG.cannon.damage, 3)).toBe(0); // past the table: nothing
-  });
-
-  it('a FOURTH hull is never reached (max 3 hulls)', () => {
-    const hulls = [
-      hullAt(100, 0, Math.PI / 2, 'h1'),
-      hullAt(200, 0, Math.PI / 2, 'h2'),
-      hullAt(300, 0, Math.PI / 2, 'h3'),
-      hullAt(400, 0, Math.PI / 2, 'h4'),
-    ];
-    const { hits } = stepPierceToEnd(apShell(), ctx({ hulls }));
-    expect(hits.map((h) => h.victimId)).toEqual(['h1', 'h2', 'h3']);
-  });
-
-  it('never re-hits the same hull: one pierce per hull even while the segment starts inside it', () => {
-    const { hits, last } = stepPierceToEnd(apShell(), ctx({ hulls: [hullAt(100, 0, Math.PI / 2, 'once')] }));
-    expect(hits).toHaveLength(1);
-    expect(hits[0]).toMatchObject({ victimId: 'once', order: 0 });
-    expect(last.kind).toBe('expired'); // flew on to range end — no burst, ever
-  });
-
-  it('two hulls then open water: both pierced, shell splashes at range end (no burst)', () => {
-    const hulls = [hullAt(100, 0, Math.PI / 2, 'h1'), hullAt(220, 0, Math.PI / 2, 'h2')];
-    const { hits, last } = stepPierceToEnd(apShell(), ctx({ hulls }));
-    expect(hits.map((h) => h.victimId)).toEqual(['h1', 'h2']);
-    expect(last.kind).toBe('expired');
-    if (last.kind === 'expired') expect(last.x).toBeCloseTo(GUN_RANGE, 4);
-  });
-
-  it('an island STOPS an AP shell dead (after any earlier pierces)', () => {
-    const hulls = [hullAt(100, 0, Math.PI / 2, 'h1')];
-    const islands = [rock(250, 0, 30)];
-    const { hits, last } = stepPierceToEnd(apShell(), ctx({ hulls, islands }));
-    expect(hits.map((h) => h.victimId)).toEqual(['h1']);
-    // The stop arrives either as a plain hitIsland tick or as the spent flag
-    // of a same-tick pierced outcome; either way the shell never passes 250.
-    expect(last.kind === 'hitIsland' || (last.kind === 'pierced' && last.spent)).toBe(true);
-  });
-
-  it('a hull and island in the SAME tick sweep resolve in segment order (hull first, island stops)', () => {
-    // Broadside at x = 85, island surface at x = 90: one 25u tick crosses both.
-    const s = apShell({ x: 80 });
-    const out = stepShell(s, ctx({ hulls: [hullAt(100, 0, Math.PI / 2, 'h1')], islands: [rock(120, 0, 30)] }));
-    expect(out.kind).toBe('pierced');
-    if (out.kind === 'pierced') {
-      expect(out.hits.map((h) => h.victimId)).toEqual(['h1']);
-      expect(out.spent).toBe(true); // island stopped it in the same tick
-      expect(out.x).toBeLessThanOrEqual(90.001);
-    }
-  });
-
-  it('the owner is never pierced (permanent owner immunity)', () => {
-    const { hits } = stepPierceToEnd(apShell(), ctx({ hulls: [hullAt(100, 0, Math.PI / 2, 'owner'), hullAt(200, 0, Math.PI / 2, 'enemy')] }));
-    expect(hits.map((h) => h.victimId)).toEqual(['enemy']);
-  });
-});
+// RETIRED, two whole describe blocks (Story 7-5 wave 2, R2.6): 'stepShell —
+// arcing shells overfly everything and burst at the click' (3 tests) and
+// 'stepShell — AP pierce (falloff order, island stop, max 3, no re-hit)' (7
+// tests), plus the PIERCE_FALLOFF/pierceDamage unit pins. They tested the
+// cannon's two doctrine cards, PLUNGING FIRE and ARMOR-PIERCING, and the cannon
+// was replaced outright by the BROADSIDE BARRAGE — which has no doctrines and
+// fires ordinary gun-pattern shells. `ShellState.arcing`, `ShellState.pierce`,
+// the `'pierced'` outcome, PierceHit, PIERCE_FALLOFF and pierceDamage are all
+// deleted from sim/shell.ts, so these are pins on machinery that no longer
+// exists rather than tests that merely changed shape. Nothing that survived
+// moved: the ordinary interception, burst, island-stop and owner-immunity pins
+// above are byte-identical, and one of them ('the SAME geometry without arcing
+// is intercepted') was the arcing block's own control case, already covered by
+// 'an island far from the target stops the shell dead'.
 
 // --- Story 2.8 doctrines: homing (ACOUSTIC HOMING) --------------------------
 

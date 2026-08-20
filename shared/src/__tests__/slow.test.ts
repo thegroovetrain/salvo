@@ -53,9 +53,12 @@ describe('slowedKinematics — active scales BOTH speed caps', () => {
     expect(kin).toEqual(before);
   });
 
-  it('the CONFIG draft: foulFactor halves speed for foulDurationMs', () => {
-    expect(CONFIG.mine.foulFactor).toBe(0.5);
-    expect(CONFIG.mine.foulDurationMs).toBe(4000);
+  it('the ratified values: foulFactor cuts speed 25% for foulDurationMs', () => {
+    // Eric ruling 2026-08-19 (Story 7-5): *"simply slows affected ships by 25%
+    // for 5 seconds"* — was 0.5 / 4000ms. The slow got WEAKER and LONGER, and
+    // the doctrine stopped costing damage entirely.
+    expect(CONFIG.mine.foulFactor).toBe(0.75);
+    expect(CONFIG.mine.foulDurationMs).toBe(5000);
   });
 });
 

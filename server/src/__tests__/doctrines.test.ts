@@ -1,13 +1,20 @@
-// THE FOUR EXCLUSIVE DOCTRINE PAIRS on the water (Story 2.8, amendments 38/44
-// — the ratified behavior contracts), end-to-end through the REAL fire/step
-// seams against the production BOON_CATALOG: PLUNGING FIRE ⚔ ARMOR-PIERCING
-// (cannon), ACOUSTIC HOMING ⚔ COMMAND DETONATION (torpedo, incl. the 'torpU'
-// wire rules), SELF-PROPELLED ⚔ PROP-FOULING (mines, incl. the pinned
-// boost→slow→hooks composition), INCENDIARY ⚔ DAZZLE (star shells, incl. the
-// dazzled observer's shrunken sight) — plus the vacated-owner CONFIG fallback.
+// THE DOCTRINE VERBS on the water (Story 2.8 amendments 38/44 — the ratified
+// behavior contracts — as retooled by Story 7-5 wave 1), end-to-end through the
+// REAL fire/step seams against the production BOON_CATALOG: PLUNGING FIRE ⚔
+// ARMOR-PIERCING (cannon — THE LAST EXCLUSIVE PAIR), ACOUSTIC HOMING (torpedo,
+// incl. the 'torpU' wire rules), SELF-PROPELLED + PROP-FOULING (mines, incl.
+// the pinned boost→slow→hooks composition), PHOSPHOR + DAZZLE (star shells,
+// incl. the dazzled observer's shrunken sight) — plus the vacated-owner CONFIG
+// fallback.
+//
+// WAVE 1 CHANGED THE SHAPE OF THIS FILE'S SUBJECT: outside the cannon, doctrine
+// stopped being an either/or `mode` and became INDEPENDENT BOOLEAN VERBS, so
+// the pairs are no longer pairs and BOTH verbs of a weapon may be held at once.
+// COMMAND DETONATION is deleted outright. See the both-verbs stacking suites
+// below, which the old enum model could not have expressed.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CONFIG, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland } from './islandFixture.js';
@@ -35,122 +42,20 @@ const dmgFor = (events: readonly GameEvent[], id: string) =>
   events.filter((e) => e.k === 'dmg' && e.id === id);
 
 // ---------------------------------------------------------------------------
-// CANNON: PLUNGING FIRE (arcing) ⚔ ARMOR-PIERCING (ap)
+// CANNON DOCTRINES — RETIRED (Story 7-5 wave 2, R2.6)
 // ---------------------------------------------------------------------------
-
-describe('PLUNGING FIRE (cannonArcing) — overflight, always bursts at the click', () => {
-  it('overflies an island AND a bodyblocking hull and bursts exactly at the clicked point (spec matrix row)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.applyBoon(a, 'cannonArcing');
-    expect(a.stats.cannon.mode).toBe('arcing');
-    w.map.islands.push(circleIsland(150, 0, 30)); // a rock on the flight path
-    const blocker = place(w, 'blocker', 250, 0); // a hull on the flight path
-    const victim = place(w, 'victim', 400, 20); // inside the 30u burst at the click
-    setInput(a, { aim: 0, aimDist: 400, slot: 1, fireSeq: 1, seq: 2 });
-    const seen: GameEvent[] = [];
-    for (let i = 0; i < 60; i++) {
-      w.step();
-      seen.push(...w.tickEvents);
-      if (seen.some((e) => e.k === 'burst')) break;
-    }
-    const burst = seen.find((e) => e.k === 'burst')!;
-    expect(burst).toBeDefined();
-    expect((burst as { x: number }).x).toBeCloseTo(400, 6); // exactly the click — un-interceptable
-    expect(blocker.hp).toBe(blocker.stats.maxHp); // overflown, never contact-hit
-    expect(victim.hp).toBe(victim.stats.maxHp - a.stats.cannon.damage); // full burst damage
-  });
-});
-
-describe('ARMOR-PIERCING (cannonAp) — pierce order, 100/50/25 falloff, island stop', () => {
-  /** BS at the origin with `n` torpedo boats parked in a firing line on +x. */
-  function line(n: number, withIsland = false): { w: World; a: ShipRecord; targets: ShipRecord[] } {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.applyBoon(a, 'cannonAp');
-    expect(a.stats.cannon.mode).toBe('ap');
-    if (withIsland) w.map.islands.push(circleIsland(150, 0, 20));
-    const targets: ShipRecord[] = [];
-    for (let i = 0; i < n; i++) targets.push(place(w, `t${i}`, 220 + i * 120, 0));
-    setInput(a, { aim: 0, aimDist: 100, slot: 1, fireSeq: 1, seq: 2 }); // aimDist deliberately ignored by AP
-    return { w, a, targets };
-  }
-
-  function run(w: World, ticks = 80): GameEvent[] {
-    const seen: GameEvent[] = [];
-    for (let i = 0; i < ticks; i++) {
-      w.step();
-      seen.push(...w.tickEvents);
-    }
-    return seen;
-  }
-
-  it('pierces up to 3 hulls in hit order at 100/50/25% of effective damage; the 4th is untouched; no burst ever', () => {
-    const { w, a, targets } = line(4);
-    const seen = run(w);
-    const dmg = a.stats.cannon.damage;
-    expect(targets[0].hp).toBeCloseTo(targets[0].stats.maxHp - dmg, 6); // 100%
-    expect(targets[1].hp).toBeCloseTo(targets[1].stats.maxHp - dmg * 0.5, 6); // 50%
-    expect(targets[2].hp).toBeCloseTo(targets[2].stats.maxHp - dmg * 0.25, 6); // 25%
-    expect(targets[3].hp).toBe(targets[3].stats.maxHp); // max 3 hulls — spent
-    expect(seen.some((e) => e.k === 'burst')).toBe(false); // AP never bursts
-    // One boom per pierce, each naming its hull (world-side; per-observer
-    // stripping stays with the boom row).
-    const booms = seen.filter((e) => e.k === 'boom');
-    expect(booms.map((e) => (e as { hit?: string }).hit)).toEqual(['t0', 't1', 't2']);
-    expect(w.shells.size).toBe(0); // spent on the third hull
-  });
-
-  it('a pierced hull is never re-hit, and the shell KEEPS FLYING between pierces (not spent early)', () => {
-    const { w, targets } = line(2);
-    run(w);
-    // Two pierces only — each hull hit exactly once despite the shell crossing
-    // its whole silhouette; the shell then flew on to range end.
-    // Base cannon 65 (RETUNED 50 -> 65, Eric ruling 2026-08-04) at 100% / 50%.
-    expect(targets[0].hp).toBeCloseTo(targets[0].stats.maxHp - 65, 6);
-    expect(targets[1].hp).toBeCloseTo(targets[1].stats.maxHp - 32.5, 6);
-    expect(w.shells.size).toBe(0); // ran out its full range
-  });
-
-  // Story 2.8 review, P2: the client removes a dead-reckoned track when a boom
-  // carrying ITS id arrives. A non-terminal pierce boom reusing the live
-  // projectile id therefore made a still-flying AP shell VANISH for everyone.
-  // RULING: non-terminal pierce booms carry a DERIVED id; the terminal event
-  // keeps the real one.
-  it('non-terminal pierce booms carry DERIVED ids; the TERMINAL event keeps the real projectile id', () => {
-    const { w, targets } = line(4);
-    const seen = run(w);
-    const booms = seen.filter((e) => e.k === 'boom') as { id: string; hit?: string }[];
-    expect(booms.map((b) => b.hit)).toEqual(['t0', 't1', 't2']); // three pierces, one boom each
-    // The shell was SPENT on the third hull: only that last boom may carry the
-    // real id (the client's track dies exactly once, at the true end of flight).
-    const realId = booms[2].id;
-    expect(realId).not.toContain('#');
-    expect(booms[0].id).toBe(`${realId}#p0`);
-    expect(booms[1].id).toBe(`${realId}#p1`);
-    expect(new Set(booms.map((b) => b.id)).size).toBe(3); // every boom id distinct
-    expect(targets[3].hp).toBe(targets[3].stats.maxHp);
-  });
-
-  it('a shell that pierces and FLIES ON emits only derived ids until its real terminal boom', () => {
-    const { w } = line(2); // two hulls, then the shell runs out its range
-    const seen = run(w);
-    const booms = seen.filter((e) => e.k === 'boom') as { id: string; hit?: string }[];
-    expect(booms).toHaveLength(3); // two pierces + the range-end splash
-    const realId = booms[2].id;
-    expect(booms[2].hit).toBeUndefined(); // the splash names no victim
-    expect(booms.map((b) => b.id)).toEqual([`${realId}#p0`, `${realId}#p1`, realId]);
-  });
-
-  it('an island stops an AP shell DEAD (no pierce beyond it)', () => {
-    const { w, targets } = line(2, true); // rock at x=150, first hull at 220
-    const seen = run(w);
-    expect(targets[0].hp).toBe(targets[0].stats.maxHp); // shielded by the rock
-    expect(targets[1].hp).toBe(targets[1].stats.maxHp);
-    expect(seen.some((e) => e.k === 'boom')).toBe(true); // the island stop splash
-    expect(w.shells.size).toBe(0);
-  });
-});
+// PLUNGING FIRE (overflight of islands AND hulls, always bursting at the
+// click) and ARMOR-PIERCING (the direction shot, 100/50/25 falloff across up
+// to three hulls, derived non-terminal boom ids, the island hard stop) were
+// pinned here across six cases. ALL SIX ARE RETIRED WITH THEIR SUBJECT: the
+// CANNON is deleted, both doctrine cards left the catalog, and the shared
+// machinery that made them possible — ShellState.arcing, ShellState.pierce,
+// the 'pierced' outcome and PIERCE_FALLOFF — is gone from `shared/`. Nothing
+// in the game overflies terrain or pierces a second hull any more.
+//
+// The BROADSIDE BARRAGE that replaced the cannon has NO doctrine cards at
+// all (its two lines are throughput and spread), so nothing lands here in
+// their place; the weapon itself is pinned end-to-end in broadside.test.ts.
 
 // ---------------------------------------------------------------------------
 // TORPEDO: ACOUSTIC HOMING (homing + torpU) ⚔ COMMAND DETONATION (command)
@@ -163,7 +68,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyBoon(a, 'torpedoHoming');
-    expect(a.stats.torpedo.mode).toBe('homing');
+    expect(a.stats.torpedo.homing).toBe(true);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
     setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
     return { w, a, b };
@@ -305,247 +210,205 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
   });
 });
 
-describe('COMMAND DETONATION (torpedoCommand) — point-detonation at the click, radar-capped reach', () => {
-  it('bursts at the clicked point with the big command blast; a bystander outside it is untouched', () => {
+// COMMAND DETONATION is DELETED (Story 7-5 wave 1). Its four behaviour pins
+// (bursts at the click, radar-capped reach, the point-blank floor, and the
+// ordinary contact hit en route) are RETIRED with the mechanic — there is no
+// point-detonating torpedo to assert about. What survives is the STRUCTURAL
+// consequence, which the old suite never had to state because a `mode` enum
+// made it conditional: every fish is now contact-only, whatever the build.
+describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
+  it('a fish carries no target point and no burst radius, homing or not', () => {
+    for (const boons of [[], ['torpedoHoming'] as const]) {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0);
+      for (const id of boons) w.applyBoon(a, id);
+      setInput(a, { aim: 0, aimDist: 400, slot: 1, fireSeq: 1, seq: 2 });
+      w.step();
+      const [torp] = [...w.shells.values()];
+      expect(torp.kind).toBe('torp');
+      expect(torp.targetX).toBeNull();
+      expect(torp.targetY).toBeNull();
+      expect(torp.burstRadius).toBe(0);
+    }
+  });
+
+  it('a clicked point far short of a hull never detonates early — the fish runs on to contact', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    expect(a.stats.torpedo.mode).toBe('command');
-    const inBlast = place(w, 'in', 200, 50); // within 60u of the click
-    const outBlast = place(w, 'out', 200, 200);
+    const bystander = place(w, 'by', 200, 50); // would have been inside the old 60u command blast
+    const blocker = place(w, 'blocker', 500, 0); // dead on the track, past the click
     setInput(a, { aim: 0, aimDist: 200, slot: 1, fireSeq: 1, seq: 2 });
     const seen: GameEvent[] = [];
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 200 && blocker.hp === blocker.stats.maxHp; i++) {
       w.step();
       seen.push(...w.tickEvents);
-      if (seen.some((e) => e.k === 'burst')) break;
     }
-    const burst = seen.find((e) => e.k === 'burst')! as { x: number; y: number };
-    expect(burst).toBeDefined();
-    expect(burst.x).toBeCloseTo(200, 4);
-    expect(inBlast.hp).toBe(inBlast.stats.maxHp - a.stats.torpedo.damage);
-    expect(outBlast.hp).toBe(outBlast.stats.maxHp);
-  });
-
-  it('the commanded point is capped by the OWNER’s effective radar range along the aim ray', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    setInput(a, { aim: 0, aimDist: 5000, slot: 1, fireSeq: 1, seq: 2 });
-    w.step();
-    const [torp] = [...w.shells.values()];
-    expect(torp.targetX).toBeCloseTo(a.stats.radarRange, 6);
-    expect(torp.targetY).toBeCloseTo(0, 6);
-    expect(torp.burstRadius).toBe(CONFIG.torpedo.commandBurstRadius);
-  });
-
-  // Story 2.8 review, P7: a click INSIDE the bow spawn clearance put the burst
-  // point BEHIND the just-spawned fish — distToTarget is measured forward along
-  // the track, so the fish never reached it and ran to the map edge instead.
-  // RULING: clamp the commanded distance to at least (spawn offset + epsilon).
-  it('a POINT-BLANK command click bursts just past the tube instead of running away', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    setInput(a, { aim: 0, aimDist: 1, slot: 1, fireSeq: 1, seq: 2 }); // 1u — inside the clearance
-    w.step();
-    const [torp] = [...w.shells.values()];
-    // The commanded point sits just AHEAD of the spawn point, never behind it.
-    const spawnDist = Math.hypot(torp.x - a.state.x, torp.y - a.state.y);
-    expect(torp.targetX!).toBeGreaterThan(spawnDist);
-    expect(torp.targetX!).toBeLessThan(spawnDist + 5);
-
-    const seen: GameEvent[] = [];
-    for (let i = 0; i < 120; i++) {
-      w.step();
-      seen.push(...w.tickEvents);
-      if (seen.some((e) => e.k === 'burst')) break;
-    }
-    const burst = seen.find((e) => e.k === 'burst')! as { x: number; y: number };
-    expect(burst).toBeDefined(); // it DETONATED...
-    expect(burst.x).toBeLessThan(spawnDist + 5); // ...right off the bow, not at the rim
-    expect(w.shells.size).toBe(0);
-  });
-
-  it('a contact hit en route stays an ORDINARY full-damage torpedo hit', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoCommand');
-    const blocker = place(w, 'blocker', 200, 0); // dead on the track, far short of the click
-    setInput(a, { aim: 0, aimDist: 600, slot: 1, fireSeq: 1, seq: 2 });
-    for (let i = 0; i < 120 && blocker.hp === blocker.stats.maxHp; i++) w.step();
+    expect(seen.some((e) => e.k === 'burst')).toBe(false); // no point-detonation, ever
+    expect(bystander.hp).toBe(bystander.stats.maxHp);
     expect(blocker.hp).toBe(blocker.stats.maxHp - a.stats.torpedo.damage);
   });
 });
 
 // ---------------------------------------------------------------------------
-// MINES: SELF-PROPELLED (creep) ⚔ PROP-FOULING (slow debuff)
+// MINES: PROP-FOULING (slow debuff) — SELF-PROPELLED is RETIRED
 // ---------------------------------------------------------------------------
+// SELF-PROPELLED MINES (armed creep toward the nearest enemy silhouette) was
+// pinned here across ten cases: the creep itself, bow-on acquisition past the
+// old centre ring, closing-before-tripping, the boon-stacked trigger ring, the
+// island-rim stop, the two-island pinch rejection and the water-disk clamp.
+// ALL TEN ARE RETIRED WITH THEIR SUBJECT (Story 7-5 wave 2): the
+// `mineSelfPropelled` card and the `mine.selfPropelled` verb are deleted, the
+// World's creep step is deleted with them, and CAPTIVE MINES replace tracking
+// mines entirely (their cases are the suites below). A mine sits where it was
+// dropped again.
 
-describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the nearest enemy', () => {
-  function creepBoard(): { w: World; o: ShipRecord } {
+// ---------------------------------------------------------------------------
+// CAPTIVE MINES (mineCaptive) — Story 7-5 wave 2, R2.12-R2.14
+// ---------------------------------------------------------------------------
+describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack', () => {
+  /** A captive layer far away, its mine at the origin, and a hull sitting
+   *  INSIDE the captive blast radius (32u) so an ordinary contact detonation
+   *  would be plainly visible — the discriminating geometry. */
+  function captiveBoard(extra: readonly string[] = []): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer'); // far from the action
-    w.applyBoon(o, 'mineSelfPropelled');
-    expect(o.stats.mine.mode).toBe('selfPropelled');
-    return { w, o };
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyBoon(o, 'mineCaptive');
+    for (const id of extra) w.applyBoon(o, id as 'minePropFouling');
+    expect(o.stats.mine.captive).toBe(true);
+    const b = place(w, 'b', 0, 25); // silhouette ~15u out: inside the 32u blast
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    return { w, o, b };
   }
 
-  it('an ARMED mine creeps at creepSpeed toward an enemy hull inside acquireRange; unarmed and doctrine-less mines sit still', () => {
-    const { w } = creepBoard();
-    // Beam-on prey: silhouette ~48u off the mine — well inside the 150u acquire
-    // reach, well outside the 32u trigger ring. It attracts, it does not trip.
-    place(w, 'prey', 55, 0, Math.PI / 2);
-    w.mines.set('armed', { id: 'armed', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
-    w.mines.set('cold', { id: 'cold', ownerId: 'o', x: 0, y: 30, armedAt: 999_999 }); // still arming
-    w.mines.set('plain', { id: 'plain', ownerId: 'x', x: 0, y: -30, armedAt: 0 }); // ghost owner: no doctrine
+  it('a hull ON the mine does NOT detonate it — the mine is expended LAUNCHING instead', () => {
+    const { w, b } = captiveBoard();
     w.step();
-    const armed = w.mines.get('armed')!;
-    expect(armed.x).toBeCloseTo(CONFIG.mine.creepSpeed * (DT / 1000), 6); // one tick of crawl toward +x
-    expect(armed.y).toBeCloseTo(0, 6);
-    expect(w.mines.get('cold')!.x).toBe(0); // unarmed mines never move
-    expect(w.mines.get('plain')!.x).toBe(0); // a vacated/doctrine-less owner's mines sit still
+    expect(w.mines.size).toBe(0); // expended
+    // NOT a detonation: no boom at the mine, and the hull standing inside the
+    // blast radius takes nothing this tick. A contact mine would do both.
+    expect(w.tickEvents.filter((e) => e.k === 'boom')).toHaveLength(0);
+    expect(w.tickEvents.filter((e) => e.k === 'dmg')).toHaveLength(0);
+    expect(b.hp).toBe(b.stats.maxHp);
+    // What it did instead: ONE torpedo, in the water, launched from the mine.
+    const fish = [...w.shells.values()];
+    expect(fish).toHaveLength(1);
+    expect(fish[0].kind).toBe('torp');
+    expect(fish[0].ownerId).toBe('o');
   });
 
-  // THE TRACKING FIX (Eric ruling 2026-08-02). PRE-FIX this test FAILS: with
-  // acquisition measured mine→ship CENTRE at 60u, a battleship whose bow is 78u
-  // off the mine (centre 140u) is invisible to the doctrine — and by the time
-  // its centre reaches 60u the hull is 62u long, so its silhouette crossed the
-  // 32u trip ring at centre ≈94u and the mine already detonated. Every hull in
-  // the game is 88–124u long, so the old acquire ring lived strictly INSIDE the
-  // trip ring: self-propelled mines could never acquire anything, ever.
-  it('acquires a BOW-ON hull whose CENTRE is far outside the old 60u ring (the tracking fix)', () => {
-    const { w } = creepBoard();
-    // Battleship bearing down bow-first: centre 140u out (>60), silhouette 78u
-    // (<150), trip ring 32u — acquisition must precede the trip by design.
-    place(w, 'prey', 140, 0, Math.PI, 'battleship');
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+  it('the torpedo is UN-UPGRADED (base CONFIG.torpedo) and deals MINE damage at MINE blast radius', () => {
+    const w = bareWorld();
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    // Torpedo boons the LAYER holds must not reach the mine's fish: it belongs
+    // to the mine, not to the tubes.
+    w.applyBoon(o, 'mineCaptive');
+    w.applyBoon(o, 'torpedoSpeed');
+    expect(o.stats.torpedo.speed).toBeGreaterThan(CONFIG.torpedo.speed);
+    const b = place(w, 'b', 0, 40);
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.step();
-    const m = w.mines.get('m')!;
-    expect(m.x).toBeCloseTo(CONFIG.mine.creepSpeed * (DT / 1000), 6); // under way toward the bow
-    expect(m.y).toBeCloseTo(0, 6);
+    const fish = [...w.shells.values()][0];
+    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.torpedo.speed, 6); // BASE speed
+    expect(fish.hitRadius).toBe(CONFIG.torpedo.hitRadius);
+    expect(fish.damage).toBe(o.stats.mine.damage); // MINE damage...
+    expect(fish.burstRadius).toBe(o.stats.mine.blastRadius); // ...at MINE blast radius
+    // It runs home and detonates for the mine's damage.
+    for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.mine.damage, 6);
   });
 
-  it('on a real approach the mine is CLOSING before the hull ever trips it', () => {
-    const { w } = creepBoard();
-    // A battleship steaming at the minefield from 400u out, full ahead.
-    const prey = place(w, 'prey', 400, 0, Math.PI, 'battleship');
-    setInput(prey, { throttle: 1, aim: Math.PI, seq: 2 });
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
-    let travelled = 0;
-    for (let i = 0; i < 400 && w.mines.has('m'); i++) {
-      w.step();
-      const m = w.mines.get('m');
-      if (m) travelled = m.x;
-    }
-    expect(w.mines.has('m')).toBe(false); // it tripped (the hull reached it)
-    // ...and it did REAL closing work first — several seconds of creep, not the
-    // zero units the pre-fix acquisition managed on every approach.
-    expect(travelled).toBeGreaterThan(20);
-  });
-
-  it('a BOON-STACKED trigger ring still cannot pre-empt acquisition', () => {
-    const { w, o } = creepBoard();
-    // BLAST CASING now grows the trip ring too (the fuze line merged into it,
-    // Eric ruling 2026-08-16). The widest reachable ring is unchanged: it was
-    // 32 x 1.1^5 = 51.54u, and is now (48 x 1.1^5) x 2/3 = 51.54u.
-    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineBlast'); // max stack
-    const trigger = o.stats.mine.triggerRadius;
-    expect(trigger).toBeGreaterThan(CONFIG.mine.triggerRadius); // the ring really grew
-    // The invariant the fix has to hold: acquisition reach outranges the widest
-    // trip ring plus the LONGEST hull's half-length, so no approach on any
-    // aspect can trip before it is acquired. Computed over every hull in the
-    // game (drone envelopes included) rather than pinned to today's battleship,
-    // so a longer hull shipping later fails this instead of silently reopening
-    // the bug.
-    const longestHull = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
-    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(trigger + longestHull / 2);
-    // And on the water: a battleship bow-on at 140u centre is acquired even
-    // with the widened ring standing.
-    place(w, 'prey', 140, 0, Math.PI, 'battleship');
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+  it('leads a MOVING target: the fish is aimed ahead of the hull, not at it', () => {
+    const w = bareWorld();
+    place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyBoon(w.ships.get('o')!, 'mineCaptive');
+    // A hull crossing the trip ring to port at speed, 120u up the y axis.
+    const b = place(w, 'b', 0, 120, Math.PI); // bow -x
+    b.state.speed = b.stats.kinematics.maxSpeed;
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.step();
-    expect(w.mines.get('m')!.x).toBeCloseTo(CONFIG.mine.creepSpeed * (DT / 1000), 6);
+    const fish = [...w.shells.values()][0];
+    // Straight AT the hull would be +y (bearing π/2). A led shot is deflected
+    // toward where the hull is going (−x), so the bearing is past π/2.
+    expect(Math.atan2(fish.vy, fish.vx)).toBeGreaterThan(Math.PI / 2 + 1e-6);
   });
 
-  it('no enemy inside acquireRange ⇒ the mine holds position', () => {
-    const { w } = creepBoard();
-    // Beam-on at 400u: silhouette ~384u off the mine, far outside the 150u reach.
-    place(w, 'far', 400, 0, Math.PI / 2);
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
-    for (let i = 0; i < 10; i++) w.step();
-    expect(w.mines.get('m')!.x).toBe(0);
+  it('CAPTIVE + PROP FOULING: the torpedo hit carries the FOUL (Eric A1, R2.14)', () => {
+    const { w, o, b } = captiveBoard(['minePropFouling']);
+    expect([o.stats.mine.captive, o.stats.mine.propFouling]).toEqual([true, true]);
+    for (let i = 0; i < 40 && b.slowedUntil === 0; i++) w.step();
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.mine.damage, 6);
+    expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
   });
 
-  it('acquisition uses the SILHOUETTE metric — the nearest HULL wins, not the nearest centre', () => {
-    const { w } = creepBoard();
-    // A battleship END-ON up the +y axis: centre 150u, silhouette ~88u (its
-    // 124u hull lies along the bearing).
-    place(w, 'broad', 0, 150, Math.PI / 2, 'battleship');
-    // A torpedo boat up the +x axis, BEAM-ON: centre 140u — CLOSER by centre —
-    // but only its 9u beam faces the mine, so its silhouette is ~135u out.
-    // Under the old centre metric the mine would have chased this one.
-    place(w, 'thin', 140, 0, Math.PI / 2, 'torpedoBoat');
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+  it('CAPTIVE WITHOUT prop fouling never fouls (the foul rides the OTHER card, not this one)', () => {
+    const { w, b } = captiveBoard();
+    w.step(); // the mine launches
+    for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
+    expect(b.hp).toBeLessThan(b.stats.maxHp); // it connected...
+    expect(b.slowedUntil).toBe(0); // ...and slowed nothing
+  });
+
+  it('a VACATED owner reverts the mine to an ordinary contact mine (no doctrine outlives its build)', () => {
+    const { w } = captiveBoard();
+    w.removeShip('o');
     w.step();
-    const m = w.mines.get('m')!;
-    expect(m.y).toBeGreaterThan(0); // heading for the broadside battleship
-    expect(m.x).toBeCloseTo(0, 6);
+    expect(w.mines.size).toBe(0);
+    expect(w.shells.size).toBe(0); // no fish
+    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(true); // it DETONATED
+  });
+});
+
+describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are hunting you', () => {
+  function droneBoard(): { w: World; o: ShipRecord; d: ShipRecord } {
+    const w = bareWorld();
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyBoon(o, 'mineCaptive');
+    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 });
+    w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    return { w, o, d };
+  }
+
+  it('a NEUTRAL fleet drone sails straight over a captive mine — no launch, no detonation', () => {
+    const { w } = droneBoard();
+    expect(w.drones.targetOf('d')).toBeNull();
+    w.step();
+    expect(w.mines.size).toBe(1); // untouched
+    expect(w.shells.size).toBe(0);
+    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(false);
   });
 
-  it('a creeping mine STOPS at an island rim — mines float, they never climb rocks', () => {
-    const { w } = creepBoard();
-    place(w, 'prey', 55, 0, Math.PI / 2); // beam-on: attracts without tripping
-    w.map.islands.push(circleIsland(8, 0, 5)); // a rock between mine and prey (rim at x=3)
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
-    for (let i = 0; i < 40; i++) w.step();
-    const m = w.mines.get('m')!;
-    expect(m.x).toBeCloseTo(3, 6); // parked exactly at the rim
-    expect(m.y).toBeCloseTo(0, 6);
+  it('the SAME drone, once it has acquired the layer, is hostile and takes the fish', () => {
+    const { w } = droneBoard();
+    w.drones.onDamaged('d', 'o', false); // it now hunts the mine's owner
+    expect(w.drones.targetOf('d')).toBe('o');
+    w.step();
+    expect(w.mines.size).toBe(0);
+    expect(w.shells.size).toBe(1);
   });
 
-  // Story 2.8 review, P10: the clamp is a SINGLE pass — one rim clamp, then one
-  // push-out per island in map order. A push-out can land inside ANOTHER island
-  // (or, near the rim, back outside the water disk), and the pass is over: the
-  // mine RESTS somewhere the clamp itself calls illegal. RULING: reject the
-  // step — the mine holds its previous position for the tick.
-  //
-  // The reachable setup is a mine CLICKED onto a rock (placement has no island
-  // check): from there the push-out is a real, repeated operation.
-  it('a two-island PINCH rejects the step instead of shoving the mine to an illegal rest point', () => {
-    const { w } = creepBoard();
-    place(w, 'prey', 55, 0, Math.PI / 2); // pulls the mine toward +x
-    w.map.islands.push(circleIsland(-5, 0, 8)); // A — the rock the mine sits on
-    w.map.islands.push(circleIsland(6, 0, 4)); // B — shoves A's exit point back INTO A
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
-    for (let i = 0; i < 10; i++) {
-      w.step();
-      const m = w.mines.get('m')!;
-      // Held, every tick: the single pass would have parked it at (2, 0) —
-      // still inside island A, and a visible sideways jump.
-      expect([m.x, m.y], `tick ${i}`).toEqual([0, 0]);
-    }
+  it('a neutral drone sitting on the mine does not MASK the enemy captain behind it', () => {
+    const { w } = droneBoard(); // the drone is registered FIRST, so it is scanned first
+    const cap = place(w, 'cap', 0, -40); // an enemy captain, also inside the trip ring
+    w.step();
+    expect(w.mines.size).toBe(0);
+    const fish = [...w.shells.values()];
+    expect(fish).toHaveLength(1);
+    // Aimed at the CAPTAIN (−y), not at the neutral drone (+y).
+    expect(fish[0].vy).toBeLessThan(0);
+    expect(cap.state.y).toBeLessThan(0); // sanity: the captain is the −y one
   });
 
-  it('a rim-straddling rock never pushes a mine OUT of the water disk', () => {
-    const { w } = creepBoard();
-    const r = w.map.radius;
-    // A rock hard against the rim, the mine sitting on it: the push-out ray
-    // points straight out of the map.
-    w.map.islands.push(circleIsland(r - 20, 0, 25));
-    // Inside acquire range, outside the trigger ring, so it pulls the mine
-    // about without tripping it. Pinned at r − 50 explicitly: pre-cycle-59 this
-    // read `r − 30` and relied on the boundary clamp yanking the hull 20u
-    // inward (the heading-independent `radius − polygonMaxRadius` wall). The
-    // clamp is heading-aware now — a hull lying parallel to the rim is barely
-    // held off at all — so the fixture states the geometry it always meant.
-    place(w, 'prey', r - 50, 40, Math.PI / 2);
-    w.mines.set('m', { id: 'm', ownerId: 'o', x: r - 10, y: 0, armedAt: 0 });
-    for (let i = 0; i < 20; i++) {
-      w.step();
-      const m = w.mines.get('m')!;
-      expect(Math.hypot(m.x, m.y), `tick ${i}`).toBeLessThanOrEqual(r + 1e-6);
-    }
+  it('THE GATE IS CAPTIVE-ONLY: an ORDINARY mine still trips on a neutral drone', () => {
+    const w = bareWorld();
+    place(w, 'o', 600, 600, 0, 'mineLayer'); // no captive card
+    w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 });
+    w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    expect(w.mines.size).toBe(0);
+    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(true); // a real detonation
+    expect(w.shells.size).toBe(0);
   });
 });
 
@@ -596,7 +459,7 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     w.applyBoon(o, 'minePropFouling');
-    expect(o.stats.mine.mode).toBe('propFouling');
+    expect(o.stats.mine.propFouling).toBe(true);
     const b = place(w, 'b', 0, 10); // trips the mine below on the first step
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     return { w, o, b };
@@ -659,18 +522,28 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
   });
 });
 
+// RE-KEYED IN STORY 7-5 WAVE 1. The pin was written against `mineDamage`,
+// which is DELETED — and with no card writing `mine.damage` any more, a
+// damage-only version of this test would be vacuous (the owner's effective
+// damage IS the CONFIG base). BLAST CASING (`mineBlast`) is the surviving mine
+// stat ladder, so the fallback is pinned on the ring it grows instead; the
+// damage assertion is kept alongside it, now as the free half.
 describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
-  it('a boosted-damage owner leaves; the orphan mine detonates at CONFIG.mine.damage', () => {
+  it('a blast-booned owner leaves; the orphan mine uses the CONFIG blast ring and CONFIG damage', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineDamage'); // 55 → 75 (base retuned 2026-08-04)
-    expect(o.stats.mine.damage).toBe(CONFIG.mine.damage + 20);
+    for (let i = 0; i < 4; i++) w.applyBoon(o, 'mineBlast'); // 48 → 48 × 1.1^4 ≈ 70.3u
+    expect(o.stats.mine.blastRadius).toBeGreaterThan(CONFIG.mine.blastRadius);
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.removeShip('o'); // the owner VACATES; the mine survives
-    const b = place(w, 'b', 0, 10);
+    const b = place(w, 'b', 0, 10); // trips it (silhouette ~5u out)
+    // Bow-on at x=110: its nearest hull point is 60u from the mine — OUTSIDE
+    // the CONFIG 48u blast, INSIDE the booned ~70u one. The orphan must miss it.
+    const edge = place(w, 'edge', 110, 0);
     w.step();
     expect(w.mines.size).toBe(0); // still trips
-    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage); // base damage, not the booned 75
+    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage); // base damage
+    expect(edge.hp).toBe(edge.stats.maxHp); // base BLAST RING — the booned reach vacated with the owner
   });
 });
 
@@ -679,7 +552,7 @@ describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
 // ---------------------------------------------------------------------------
 
 describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to non-owners', () => {
-  it('the fired flare lights a zone shrunk by incendiaryRadiusFactor, tagged with the mode', () => {
+  it('the fired flare lights a zone shrunk by incendiaryRadiusFactor, tagged with the phosphor verb', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyBoon(a, 'starIncendiary');
@@ -687,7 +560,8 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
-    expect(zone.mode).toBe('incendiary');
+    expect(zone.phosphor).toBe(true);
+    expect(zone.dazzle).toBe(false);
     expect(zone.r).toBeCloseTo(CONFIG.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor, 6);
   });
 
@@ -696,7 +570,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const a = place(w, 'a', 400, 0, 0, 'battleship'); // owner INSIDE its own zone
     const b = place(w, 'b', 420, 30); // enemy inside
     const c = place(w, 'c', 900, 900); // far outside
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
     const ticks = 20; // one second
     for (let i = 0; i < ticks; i++) w.step();
     expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.starShells.incendiaryDps, 4); // 1s of DoT
@@ -730,7 +604,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
     const hp0 = b.hp;
     const seen: { amount: number }[] = [];
     for (let i = 0; i < 40; i++) {
@@ -756,7 +630,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     const a = place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
     const hp0 = b.hp;
     b.hp = 0.2; // a couple of bites from death, mid-window
     const seen: { amount: number }[] = [];
@@ -781,7 +655,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999, mode: 'standard' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999, phosphor: false, dazzle: false });
     for (let i = 0; i < 20; i++) w.step();
     expect(b.hp).toBe(b.stats.maxHp);
   });
@@ -793,7 +667,7 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
     const a = place(w, 'a', 900, 900, 0, 'battleship'); // zone owner, far away
     const b = place(w, 'b', 0, 0); // the dazzled victim
     const t = place(w, 't', 250, 0); // inside base sight (330), OUTSIDE dazzled sight (165)
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, mode: 'dazzle' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
     return { w, a, b, t };
   }
 
@@ -812,7 +686,7 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
     place(w, 'a', 900, 900, 0, 'battleship');
     const b = place(w, 'b', 0, 0);
     place(w, 't', 250, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 600, y: 600, r: 100, until: 999_999, mode: 'dazzle' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 600, y: 600, r: 100, until: 999_999, phosphor: false, dazzle: true });
     w.step();
     expect(b.dazzledUntil).toBe(0);
     expect(buildFrame(w, 'b').contacts.map((c) => c.id)).toContain('t');
@@ -836,7 +710,7 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
   it('the OWNER inside its own dazzle zone is never dazzled', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, mode: 'dazzle' });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
     w.step();
     expect(a.dazzledUntil).toBe(0);
   });
@@ -860,3 +734,83 @@ describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', (
     void t;
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// STORY 7-5 WAVE 1: THE VERBS STACK.
+//
+// Doctrine stopped being an either/or `mode` on torpedoes, mines and star
+// shells and became INDEPENDENT BOOLEAN VERBS, so a firer may hold BOTH cards
+// of what used to be an exclusive pair. Every suite below is UNEXPRESSIBLE in
+// the old model: an enum could only ever hold the last-granted verb, and the
+// zone-effect scan was an `if (dazzle) … else if (incendiary) …` chain that
+// structurally could not burn and blind the same hull.
+// ---------------------------------------------------------------------------
+
+describe('PHOSPHOR + DAZZLE stack on one star shell', () => {
+  /** A Battleship holding BOTH star-shell verbs, granted in `order`. */
+  function bothStars(order: readonly string[]): { w: World; a: ShipRecord } {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    for (const id of order) w.applyBoon(a, id);
+    return { w, a };
+  }
+
+  it('holding both cards sets both flags — and pick ORDER cannot erase either', () => {
+    for (const order of [['starIncendiary', 'starDazzle'], ['starDazzle', 'starIncendiary']]) {
+      const { a } = bothStars(order);
+      expect(a.stats.starShells.phosphor).toBe(true);
+      expect(a.stats.starShells.dazzle).toBe(true);
+    }
+  });
+
+  it('the fired flare stamps BOTH verbs on its zone, at the phosphor-shrunk radius', () => {
+    const { w, a } = bothStars(['starIncendiary', 'starDazzle']);
+    setInput(a, { aim: 0, aimDist: 400, slot: 2, fireSeq: 1, seq: 2 });
+    for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
+    const zone = [...w.litZones.values()][0];
+    expect(zone.phosphor).toBe(true);
+    expect(zone.dazzle).toBe(true);
+    // Only the phosphor half moves the radius; dazzle never did.
+    expect(zone.r).toBeCloseTo(CONFIG.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor, 6);
+  });
+
+  // THE REGRESSION PIN. Pre-7-5 markZoneEffects ran `if (dazzle) … else if
+  // (incendiary) …`, so a both-verb zone dazzled and NEVER burned. This fails
+  // outright against that chain.
+  it('a both-verb zone BURNS and BLINDS the same hull in the same tick', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 900, 900, 0, 'battleship'); // owner, far from its own zone
+    const b = place(w, 'b', 0, 0); // the victim, inside
+    place(w, 't', 250, 0); // inside base sight (330), outside dazzled sight (165)
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: true });
+    for (let i = 0; i < 20; i++) w.step(); // one second
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.starShells.incendiaryDps, 4); // it burned
+    expect(b.dazzledUntil).toBe(w.now + 250); // and it is blind
+    expect(buildFrame(w, 'b').contacts.map((c) => c.id)).not.toContain('t');
+  });
+
+  it('the two flags ride the wire independently, omitted when false', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0, 0, 'battleship');
+    w.litZones.set('plain', { id: 'plain', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: false });
+    w.litZones.set('burn', { id: 'burn', ownerId: 'a', x: 10, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: false });
+    w.litZones.set('blind', { id: 'blind', ownerId: 'a', x: 20, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
+    w.litZones.set('both', { id: 'both', ownerId: 'a', x: 30, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: true });
+    const wire = new Map(buildFrame(w, 'a').litZones!.map((z) => [z.id, z]));
+    expect(wire.get('plain')).toEqual({ id: 'plain', x: 0, y: 0, r: 100, until: 999_999, by: 'a' });
+    expect(wire.get('burn')!.phos).toBe(true);
+    expect(wire.get('burn')!.daz).toBeUndefined();
+    expect(wire.get('blind')!.phos).toBeUndefined();
+    expect(wire.get('blind')!.daz).toBe(true);
+    expect(wire.get('both')!.phos).toBe(true);
+    expect(wire.get('both')!.daz).toBe(true);
+  });
+});
+
+// RETIRED (Story 7-5 wave 2): "PROP-FOULING + SELF-PROPELLED stack on one
+// mine". Both cases assert about the deleted `mineSelfPropelled` verb. The
+// PROPERTY they were written for — independent verb flags STACK on one
+// weapon, and pick ORDER cannot erase either — is re-established by R2.14
+// (CAPTIVE stacks with PROP FOULING, and the captive torpedo's hit carries
+// the foul), which the agent building captive mines pins here in their place.

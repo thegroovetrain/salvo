@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { BOON_CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
-import { boonDescription } from '../ui/boonCopy.js';
+import { boonDescription, boonTooltipText } from '../ui/boonCopy.js';
 import { healView } from '../ui/upgradeMenu.js';
 import { makeOffer } from '../ui/results.js';
 
@@ -32,33 +32,50 @@ const STAT_LINES_WITH_NUMBERS: Record<string, true> = Object.fromEntries(
 
 describe('boonDescription — an unresolvable hull renders nothing, never throws', () => {
   it('returns rules text for a real hull (the control)', () => {
-    const def = BOON_CATALOG['gunDamage'];
+    const def = BOON_CATALOG['shipCooldown'];
     const text = boonDescription(def, KNOWN as never);
     expect(text.length).toBeGreaterThan(0);
     expect(text).toContain('→');
   });
 
   it('returns empty text for an unknown hull instead of throwing', () => {
-    const def = BOON_CATALOG['gunDamage'];
+    const def = BOON_CATALOG['shipCooldown'];
     expect(() => boonDescription(def, UNKNOWN as never)).not.toThrow();
     expect(boonDescription(def, UNKNOWN as never)).toBe('');
   });
 
-  // NAMED EXPLICITLY, not discovered by `find` (review gate): the original
-  // version searched the catalog and got `gunDamage`, which carries NO note —
-  // so `line.note ? … : head` already produced '' and the test passed with the
-  // production guard reverted. `intelRange` DOES carry a standing note, so
-  // without the guard this returns " Gun, cannon and star shells reach with it."
-  // with a leading space. That is the regression this pins.
-  it('does not leave a note dangling when the numbers cannot be computed', () => {
-    const noted = BOON_CATALOG['intelRange'];
-    expect(noted).toBeDefined();
-    // The control: on a real hull the line prints BOTH a number and its note.
-    const good = boonDescription(noted, KNOWN as never);
-    expect(good).toContain('→');
-    expect(good).toContain('reach with it');
-    // On an unresolvable hull it must print nothing at all.
-    expect(boonDescription(noted, UNKNOWN as never)).toBe('');
+  // RE-AIMED BY R2.17 (Story 7-5 wave 2). This pin used to guard a DANGLING
+  // NOTE: `intelRange` carried a standing rider, so an unresolvable hull that
+  // skipped the guard printed " Sight, gun, broadside and star shells reach with
+  // it." with a leading space and no numbers. The riders left the card face
+  // entirely — the face is now the stat sentence alone — so that exact shape is
+  // unreachable and its subject is gone.
+  //
+  // What survives is the CLAUSE the guard actually protects, which R2.17 makes
+  // sharper rather than weaker: a stat card's face is ALL numbers, so an
+  // unresolvable hull must print the empty string and never a fragment of the
+  // template. Checked over EVERY stat line rather than one named example,
+  // because there is no longer a note to make one line special.
+  it('never prints a fragment of the diff template when the numbers cannot be computed', () => {
+    const stats = Object.values(BOON_CATALOG).filter((d) => Object.hasOwn(STAT_LINES_WITH_NUMBERS, d.id));
+    expect(stats.length).toBeGreaterThanOrEqual(16);
+    for (const def of stats) {
+      // The control: on a real hull the line prints a label and two numbers.
+      expect(boonDescription(def, KNOWN as never), def.id).toMatch(/^[^.]+: .+ → .+\.$/);
+      // On an unresolvable hull it must print nothing at all — not a label, not
+      // a colon, not a lone arrow.
+      expect(boonDescription(def, UNKNOWN as never), def.id).toBe('');
+    }
+  });
+
+  // ...and the riders really did land on the hover tooltip rather than being
+  // deleted. `intelRange`'s is the one this pin was originally written about.
+  it('moved the standing riders to the hover explanation, which needs no hull', () => {
+    expect(boonTooltipText('intelRange')).toContain('star shells');
+    expect(boonTooltipText('shipHull')).toContain('repairs');
+    // The explanation is keyed on the id alone, so an unresolvable hull cannot
+    // silence it — the tooltip is the surface that always has something to say.
+    expect(boonTooltipText('intelRange').length).toBeGreaterThan(100);
   });
 
   it('never substitutes a fabricated hull — every catalog line is SILENT, not merely non-throwing', () => {
@@ -80,7 +97,7 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
 describe('results LAST OFFER — an unresolvable boon id drops its card, never the block', () => {
   const own = {
     name: 'ERIC', cls: 'torpedoBoat', hue: 0, boons: [] as string[],
-    offer: ['gunDamage', 'notARealBoon', 'shipHull'] as string[],
+    offer: ['intelSweep', 'notARealBoon', 'shipHull'] as string[],
     pts: 3,
   };
 

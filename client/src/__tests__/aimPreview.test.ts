@@ -2,19 +2,27 @@
 //
 // The whole point of the feature is that the preview is not an approximation:
 // it is the SHOT's geometry, computed with the same shared helpers the server
-// fires with (sim/aim.ts). So these tests check parity against those helpers
-// directly, and the rules that cannot be read off a single number: the barrel
-// fan, island clipping (and PLUNGING FIRE's exemption from it), the AP shot
-// that ignores click distance and has no blast at all, the torpedo's real tube
-// exit, the homing acquisition band, and the mine's placement rings.
+// fires with (sim/aim.ts + sim/spread.ts). So these tests check parity against
+// those helpers directly, and the rules that cannot be read off a single number:
+// BARREL's parallel tracks, the BROADSIDE BARRAGE's constant-radius fan, island
+// clipping, the torpedo's real tube exit, the homing acquisition band, and the
+// mine's placement rings.
+//
+// STORY 7-5 WAVE 2 RETIRED three whole suites with the cannon (R2.6): PLUNGING
+// FIRE's island exemption, ARMOR-PIERCING's blast-less direction shot, and the
+// cannon's own clip/rim pins. Nothing overflies terrain any more and nothing
+// pierces, so those are not adapted — the weapon they described is gone.
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   burstPointAlong,
   effectiveStats,
+  fanBurstPoints,
+  fanTargets,
   hullEnvelope,
   islandFromPolygon,
+  parallelOffsets,
   resolveBoons,
   torpedoSpawn,
   type EffectiveStats,
@@ -72,9 +80,55 @@ describe('computeAimPreview — nothing is previewed that cannot be fired', () =
   });
 
   it('an ABILITY slot (and an empty slot) previews nothing', () => {
-    expect(computeAimPreview(input({ id: 'speedBoost' })).lines).toEqual([]);
-    expect(computeAimPreview(input({ id: 'decoyBuoy' })).lines).toEqual([]);
-    expect(computeAimPreview(input({ id: null })).lines).toEqual([]);
+    // The speed boost aims nothing and the empty slot holds nothing. The RADAR
+    // BUOY is NOT here any more: it is click-placed, so it previews its drop
+    // (see the buoy suite below).
+    expect(computeAimPreview(input({ id: 'speedBoost' }))).toEqual({ lines: [], bursts: [], place: null, band: null });
+    expect(computeAimPreview(input({ id: null }))).toEqual({ lines: [], bursts: [], place: null, band: null });
+  });
+});
+
+describe('radar buoy placement — the water the buoy will watch (R2.7)', () => {
+  const buoy = (over: Partial<AimPreviewInput> = {}) =>
+    computeAimPreview(input({ id: 'radarBuoy', aim: 0, aimDist: 120, ...over }));
+
+  it('draws the coverage circle AT the drop point, not at the ship', () => {
+    const [c] = buoy().bursts;
+    expect({ x: c.x, y: c.y }).toEqual({ x: SHIP.x + 120, y: SHIP.y });
+  });
+
+  it('the circle is the BUOY’s own flat radar set, never the owner’s radar range', () => {
+    const s = stats();
+    expect(buoy({ stats: s }).bursts[0].r).toBe(s.radarBuoy.radarRange);
+    expect(buoy({ stats: s }).bursts[0].r).toBe(CONFIG.radarBuoy.radarRange);
+    // An intelRange stack widens the OWNER's scope and must leave the buoy's set
+    // exactly where it was (R2.7 — flat by ruling, no card writes it).
+    const wide = stats('intelRange', 'intelRange');
+    expect(wide.radarRange).toBeGreaterThan(s.radarRange);
+    expect(buoy({ stats: wide }).bursts[0].r).toBe(s.radarBuoy.radarRange);
+  });
+
+  it('renders in the QUIET effect register — it is coverage, not a kill circle', () => {
+    expect(buoy().bursts[0].effect).toBe(true);
+  });
+
+  it('draws no travel line, no band and no mine placement ring', () => {
+    const m = buoy();
+    expect(m.lines).toEqual([]);
+    expect(m.band).toBeNull();
+    expect(m.place).toBeNull();
+  });
+
+  it('marks a drop into a rock BLOCKED — the server refuses it and the circle must not promise coverage', () => {
+    const rock = squareIsland(120, 0, 30);
+    expect(buoy({ islands: [rock] }).bursts[0].blocked).toBe(true);
+    expect(buoy({ islands: [rock], aimDist: 20 }).bursts[0].blocked).toBe(false);
+  });
+
+  it('an ILLEGAL aim (outside the rear sector / past the placement reach) previews nothing', () => {
+    expect(computeAimPreview(input({ id: 'radarBuoy', legal: false }))).toEqual({
+      lines: [], bursts: [], place: null, band: null,
+    });
   });
 });
 
@@ -101,20 +155,225 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
     expect(l.y1).toBeCloseTo(0, 6);
   });
 
-  it('draws one line AND one circle per barrel, fanned (TWIN/TRIPLE MOUNT)', () => {
+  // PIN FLIPPED (Story 7-5 wave 2, R2.16): BARREL's extra shells fly on PARALLEL
+  // tracks now, not a spreading fan. The old pin only asserted "off the axis,
+  // opposite ways", which a parallel volley also satisfies — so what is asserted
+  // here is the property that DISCRIMINATES the two shapes, and it is asserted
+  // against the shared helper the server offsets with.
+  it('draws one line AND one circle per barrel, on PARALLEL tracks (BARREL)', () => {
     const inp = input({ stats: stats('gunBarrel', 'gunBarrel') });
     expect(inp.stats.gun.barrels).toBe(3);
     const m = computeAimPreview(inp);
     expect(m.lines).toHaveLength(3);
     expect(m.bursts).toHaveLength(3);
-    // The fan really fans: the outer barrels sit off the aim axis, opposite ways.
-    expect(m.bursts[0].y).toBeLessThan(0);
-    expect(m.bursts[1].y).toBeCloseTo(0, 6);
-    expect(m.bursts[2].y).toBeGreaterThan(0);
+    const offs = parallelOffsets(0, 3, CONFIG.gun.barrelSpacingU);
+    const truth = burstPointAlong(SHIP, 300, MAP_R, inp.stats.gun.rangeU, 0);
+    m.bursts.forEach((b, i) => {
+      expect(b.x, `burst ${i} x`).toBeCloseTo(truth.x + offs[i].x, 9);
+      expect(b.y, `burst ${i} y`).toBeCloseTo(truth.y + offs[i].y, 9);
+    });
+    // PARALLEL, not fanned: every track sits at the SAME lateral offset at the
+    // muzzle as at the burst, so the volley's width does not grow with range.
+    m.lines.forEach((l, i) => {
+      expect(l.y2 - l.y1, `line ${i} stays parallel`).toBeCloseTo(0, 9);
+    });
+    // ...and the straddle law is visible: an ODD count puts one shell on the
+    // click, with the other two symmetric about it.
+    expect(m.bursts[1].y).toBeCloseTo(truth.y, 9);
+    expect(m.bursts[0].y + m.bursts[2].y).toBeCloseTo(2 * truth.y, 9);
+  });
+
+  // The OTHER half of the straddle law (R2.16), and the half a fan and a
+  // parallel volley agree on: an EVEN count leaves the crosshair EMPTY. Asserted
+  // separately from the odd case because "one shell is on the click" and "no
+  // shell is on the click" are different promises to the player, and only one of
+  // them can be true at a time.
+  it('EVEN barrel count: the shells STRADDLE the click, none on it', () => {
+    const inp = input({ stats: stats('gunBarrel') });
+    expect(inp.stats.gun.barrels).toBe(2);
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(2);
+    const truth = burstPointAlong(SHIP, 300, MAP_R, inp.stats.gun.rangeU, 0);
+    for (const b of m.bursts) expect(b.y).not.toBeCloseTo(truth.y, 6);
+    // Symmetric about the click, exactly one spacing apart.
+    expect(m.bursts[0].y + m.bursts[1].y).toBeCloseTo(2 * truth.y, 9);
+    expect(Math.abs(m.bursts[1].y - m.bursts[0].y)).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+  });
+
+  // THE PROPERTY THAT DISCRIMINATES PARALLEL FROM FANNED, stated as a
+  // measurement rather than as a shape: a fan's lateral separation GROWS with
+  // range, a parallel volley's does not. Measured at two ranges and off-axis, so
+  // an implementation that happened to look parallel along +x cannot pass.
+  it('lateral separation is CONSTANT with range (parallel, never a cone)', () => {
+    const s = stats('gunBarrel', 'gunBarrel');
+    const bearing = 0.7; // off-axis on purpose
+    const sep = (aimDist: number): number => {
+      const m = computeAimPreview(input({ stats: s, aim: bearing, aimDist }));
+      const [a, , c] = m.bursts;
+      return Math.hypot(c.x - a.x, c.y - a.y);
+    };
+    expect(sep(500)).toBeCloseTo(sep(120), 9);
+    expect(sep(500)).toBeCloseTo(2 * CONFIG.gun.barrelSpacingU, 9);
+    // ...and each track keeps its offset from muzzle to burst (that IS parallel).
+    const m = computeAimPreview(input({ stats: s, aim: bearing, aimDist: 400 }));
+    const nx = -Math.sin(bearing);
+    const ny = Math.cos(bearing);
+    m.lines.forEach((l, i) => {
+      const at0 = l.x1 * nx + l.y1 * ny;
+      const at1 = l.x2 * nx + l.y2 * ny;
+      expect(at1 - at0, `line ${i} lateral drift`).toBeCloseTo(0, 6);
+    });
   });
 });
 
-describe('island clipping — and the PLUNGING FIRE exemption', () => {
+// --- THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) ----------------------
+//
+// The preview must AGREE EXACTLY with the server's legality gate: the guarantee
+// is that the previewed circle IS where the shell bursts, so a preview that
+// draws a burst the server would refuse (or clamps one it would allow) is a
+// defect. `gunReachU` is that agreement made structural — main.ts resolves the
+// reach ONCE through weaponArc.weaponReachU and hands the SAME number to the
+// range-clamp marker and to this preview.
+describe('the gun reaches into its own flare — the preview agrees with the gate', () => {
+  const RANGE = stats().gun.rangeU;
+
+  it('bursts AT the click when the reach was lifted, instead of clamping short', () => {
+    const d = RANGE + 200;
+    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: d })).bursts;
+    expect(Math.hypot(b.x, b.y)).toBeCloseTo(d, 6);
+    // ...which is exactly the shared burst point at the lifted reach.
+    const truth = burstPointAlong(SHIP, d, MAP_R, d, 0);
+    expect(b.x).toBeCloseTo(truth.x, 9);
+  });
+
+  it('clamps at the base range when the reach was NOT lifted', () => {
+    const d = RANGE + 200;
+    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: RANGE })).bursts;
+    expect(Math.hypot(b.x, b.y)).toBeCloseTo(RANGE, 6);
+    // Omitting the field is that same clamp — the pre-wave-2 geometry.
+    const [plain] = computeAimPreview(input({ aimDist: d })).bursts;
+    expect(plain.x).toBeCloseTo(b.x, 9);
+  });
+
+  it('a lifted reach never leaks into another weapon', () => {
+    const d = RANGE + 200;
+    const b = computeAimPreview(
+      input({ id: 'broadside', aim: Math.PI / 2, aimDist: d, gunReachU: d }),
+    ).bursts;
+    for (const shot of b) {
+      expect(Math.hypot(shot.x, shot.y)).toBeCloseTo(stats().broadside.rangeU, 6);
+    }
+    const star = computeAimPreview(input({ id: 'starShells', aimDist: d, gunReachU: d })).bursts;
+    expect(Math.hypot(star[0].x, star[0].y)).toBeCloseTo(stats().starShells.rangeU, 6);
+  });
+});
+
+// --- THE BROADSIDE BARRAGE (Story 7-5 wave 2, R2.3) --------------------------
+//
+// THE LOAD-BEARING PIN OF THIS FEATURE. The project's guarantee is that the
+// previewed circle IS where the shell bursts, which holds only because BOTH
+// sides call ONE helper. These assert the preview's burst centres are EXACTLY
+// `fanTargets(...)` — so a future edit that re-derives the geometry here (a
+// hand-rolled loop over bearings, a cone that widens with range, a different
+// straddle convention) fails, even if it happens to look plausible on screen.
+describe('the broadside — the fan comes from the SHARED helper, not a re-derivation', () => {
+  const broadside = (over: Partial<AimPreviewInput> = {}): AimPreviewInput =>
+    input({ id: 'broadside', aim: Math.PI / 2, aimDist: 300, ...over });
+
+  it('ODD turret count: every circle is exactly fanTargets(), one dead on the click', () => {
+    const inp = broadside();
+    const b = inp.stats.broadside;
+    expect(b.turrets).toBe(3); // base fit, odd
+    const m = computeAimPreview(inp);
+    const click = burstPointAlong(SHIP, 300, MAP_R, b.rangeU, Math.PI / 2);
+    const truth = fanTargets(SHIP, click, b.turrets, b.fanHalfAngleRad);
+    expect(m.bursts).toHaveLength(truth.length);
+    truth.forEach((t, i) => {
+      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.x, 9);
+      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.y, 9);
+    });
+    // Eric: "One shell will *absolutely* hit at the target point."
+    expect(m.bursts[1].x).toBeCloseTo(click.x, 9);
+    expect(m.bursts[1].y).toBeCloseTo(click.y, 9);
+  });
+
+  it('EVEN turret count: still exactly fanTargets(), and NO shell on the click', () => {
+    const inp = broadside({ stats: stats('broadsideTurrets') });
+    const b = inp.stats.broadside;
+    expect(b.turrets).toBe(4); // even
+    const m = computeAimPreview(inp);
+    const click = burstPointAlong(SHIP, 300, MAP_R, b.rangeU, Math.PI / 2);
+    const truth = fanTargets(SHIP, click, b.turrets, b.fanHalfAngleRad);
+    expect(m.bursts).toHaveLength(4);
+    truth.forEach((t, i) => {
+      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.x, 9);
+      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.y, 9);
+    });
+    // Eric: "there is no middle turret that will absolutely hit the target
+    // location" — the two centre shells straddle it.
+    for (const burst of m.bursts) {
+      expect(Math.hypot(burst.x - click.x, burst.y - click.y)).toBeGreaterThan(1);
+    }
+  });
+
+  it('near the rim it is fanBurstPoints — the CLAMPED fan the server fires (one answer)', () => {
+    // 0.9R out along +x with the port beam bearing 60° off it: the click clamps
+    // to the rim and the fan's near extreme swings past it. The server's
+    // broadsideTargets makes exactly this call, so a preview built on the raw
+    // fanTargets would draw circles no shell can burst in (an off-disk target
+    // expires: splash, no burst, no damage).
+    const ship = { ...SHIP, x: MAP_R * 0.9, y: 0, heading: -Math.PI / 6 };
+    const inp = broadside({ ship, aim: Math.PI / 3, aimDist: 4000 });
+    const b = inp.stats.broadside;
+    const click = burstPointAlong(ship, 4000, MAP_R, b.rangeU, Math.PI / 3);
+    const truth = fanBurstPoints(ship, click, b.turrets, b.fanHalfAngleRad, MAP_R);
+    expect(truth).not.toEqual(fanTargets(ship, click, b.turrets, b.fanHalfAngleRad)); // the clamp bites
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(truth.length);
+    truth.forEach((t, i) => {
+      expect(m.bursts[i].x, `shell ${i} x`).toBeCloseTo(t.x, 9);
+      expect(m.bursts[i].y, `shell ${i} y`).toBeCloseTo(t.y, 9);
+      expect(Math.hypot(t.x, t.y)).toBeLessThanOrEqual(MAP_R);
+    });
+  });
+
+  it('is an ARC AT CONSTANT RADIUS, never a cone that widens with range', () => {
+    const inp = broadside();
+    const m = computeAimPreview(inp);
+    const r = Math.hypot(m.bursts[1].x, m.bursts[1].y);
+    for (const burst of m.bursts) expect(Math.hypot(burst.x, burst.y)).toBeCloseTo(r, 6);
+  });
+
+  it('a SPREAD stack tightens the fan (the same helper, a narrower half-angle)', () => {
+    const wide = computeAimPreview(broadside());
+    const tight = computeAimPreview(broadside({ stats: stats('broadsideSpread', 'broadsideSpread') }));
+    const spanOf = (m: ReturnType<typeof computeAimPreview>): number =>
+      Math.hypot(m.bursts[0].x - m.bursts[2].x, m.bursts[0].y - m.bursts[2].y);
+    expect(spanOf(tight)).toBeLessThan(spanOf(wide));
+  });
+
+  it('clamps to the 5/8 RUNG, not the radar horizon (R2.4)', () => {
+    const inp = broadside({ aimDist: 99999 });
+    const m = computeAimPreview(inp);
+    expect(Math.hypot(m.bursts[1].x, m.bursts[1].y)).toBeCloseTo(inp.stats.broadside.rangeU, 6);
+    expect(inp.stats.broadside.rangeU).toBeLessThan(inp.stats.gun.rangeU);
+  });
+
+  it('every shell bursts at the EFFECTIVE broadside radius and clips on its own', () => {
+    // A small rock on the CENTRE shell's bearing only: at 300u the ±12° outer
+    // shells are ~62u off-axis, so they clear a 40u-wide rock the middle one
+    // runs straight into.
+    const inp = broadside({ islands: [squareIsland(0, 280, 20)] });
+    const m = computeAimPreview(inp);
+    expect(m.bursts[1].r).toBe(inp.stats.broadside.burstRadius);
+    // The middle shell runs straight into the rock; the outer two pass it.
+    expect(m.bursts[1].blocked).toBe(true);
+    expect(m.bursts[0].blocked).toBe(false);
+    expect(m.bursts[2].blocked).toBe(false);
+  });
+});
+
+describe('island clipping', () => {
   const rock: Island[] = [squareIsland(150, 0, 30)];
 
   it('clips the line at the rock and DIMS the burst circle (the blocked tell)', () => {
@@ -124,57 +383,22 @@ describe('island clipping — and the PLUNGING FIRE exemption', () => {
     expect(m.bursts[0].blocked).toBe(true); // ...but flagged as unreachable
   });
 
-  it('a standard CANNON shell clips the same way', () => {
-    const m = computeAimPreview(input({ id: 'cannon', islands: rock, aimDist: 400 }));
-    expect(m.bursts[0].blocked).toBe(true);
-    expect(m.bursts[0].r).toBe(stats().cannon.burstRadius);
-  });
-
-  it('PLUNGING FIRE overflies the rock: full-length line, un-dimmed circle', () => {
-    const m = computeAimPreview(
-      input({ id: 'cannon', islands: rock, aimDist: 400, stats: stats('cannonArcing') }),
-    );
-    expect(m.lines[0].x2).toBeCloseTo(400, 6); // no clip — it arcs over
-    expect(m.bursts[0].blocked).toBe(false);
-  });
-
-  // No CARD moves a cannon burst radius any more — FRAGMENTATION CASING was
-  // deleted (Eric ruling 2026-08-16) because it was a total no-op under AP. The
-  // claim under test was never about that card though: it is that the preview
-  // reads the EFFECTIVE stats it is handed rather than reaching for CONFIG. So
-  // hand it a stats object whose burst differs from CONFIG and assert it follows
-  // — which tests the claim more directly than routing through a boon did.
+  // NOTHING OVERFLIES TERRAIN ANY MORE (Story 7-5 wave 2, R2.6): the PLUNGING
+  // FIRE exemption pin is RETIRED with the doctrine. What survives is the claim
+  // that was never about the cannon — the preview reads the EFFECTIVE stats it
+  // is handed rather than reaching for CONFIG.
   it('burst radii come from EFFECTIVE stats, never raw CONFIG', () => {
     const base = stats();
-    const boosted = { ...base, cannon: { ...base.cannon, burstRadius: base.cannon.burstRadius * 2 } };
-    expect(boosted.cannon.burstRadius).toBeGreaterThan(CONFIG.cannon.burstRadius);
-    const m = computeAimPreview(input({ id: 'cannon', stats: boosted }));
-    expect(m.bursts[0].r).toBe(boosted.cannon.burstRadius);
-    expect(m.bursts[0].r).not.toBe(CONFIG.cannon.burstRadius);
+    const boosted = { ...base, gun: { ...base.gun, burstRadius: base.gun.burstRadius * 2 } };
+    expect(boosted.gun.burstRadius).toBeGreaterThan(CONFIG.gun.burstRadius);
+    const m = computeAimPreview(input({ stats: boosted }));
+    expect(m.bursts[0].r).toBe(boosted.gun.burstRadius);
+    expect(m.bursts[0].r).not.toBe(CONFIG.gun.burstRadius);
   });
 
   it('clipAtIslands reports a clean path untouched', () => {
     const clip = clipAtIslands({ x: 0, y: 0 }, { x: 100, y: 0 }, [squareIsland(0, 500, 40)]);
     expect(clip).toEqual({ point: { x: 100, y: 0 }, clipped: false });
-  });
-});
-
-describe('ARMOR-PIERCING — a direction shot with no blast', () => {
-  const ap = () => input({ id: 'cannon', stats: stats('cannonAp'), aimDist: 50 });
-
-  it('previews NO circle (there is nothing to burst)', () => {
-    expect(computeAimPreview(ap()).bursts).toEqual([]);
-  });
-
-  it('ignores the clicked distance and runs the full effective range', () => {
-    const inp = ap();
-    const [l] = computeAimPreview(inp).lines;
-    expect(Math.hypot(l.x2 - l.x1, l.y2 - l.y1)).toBeCloseTo(inp.stats.cannon.rangeU, 3);
-  });
-
-  it('is still stopped dead by an island', () => {
-    const [l] = computeAimPreview({ ...ap(), islands: [squareIsland(300, 0, 40)] }).lines;
-    expect(l.x2).toBeCloseTo(260, 3);
   });
 });
 
@@ -207,29 +431,15 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(m.lines[0].x2 - m.lines[0].x1).toBeCloseTo(CONFIG.torpedo.homingMaxRangeU, 3);
   });
 
-  it('no band on a straight-runner or a command fish (only homing steers)', () => {
+  // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): the three commanded-
+  // point pins and the command half of the no-band pin are gone with the weapon
+  // behavior — there is no longer a torpedo that bursts at a clicked point.
+  it('no band on a straight-runner (only ACOUSTIC HOMING steers)', () => {
     expect(computeAimPreview(input({ id: 'torpedo' })).band).toBeNull();
-    expect(computeAimPreview(input({ id: 'torpedo', stats: stats('torpedoCommand') })).band).toBeNull();
   });
 
-  it('COMMAND DETONATION previews its blast at the commanded point', () => {
-    const inp = input({ id: 'torpedo', stats: stats('torpedoCommand'), aimDist: 500 });
-    const [b] = computeAimPreview(inp).bursts;
-    expect(b.r).toBe(CONFIG.torpedo.commandBurstRadius);
-    expect(b.x).toBeCloseTo(500, 6);
-  });
-
-  it('...honoring the minimum commanded distance on a point-blank click', () => {
-    const inp = input({ id: 'torpedo', stats: stats('torpedoCommand'), aimDist: 0 });
-    const [b] = computeAimPreview(inp).bursts;
-    const tube = torpedoSpawn(SHIP, hullEnvelope('battleship').hull.length, 0);
-    expect(b.x).toBeGreaterThan(tube.x); // never BEHIND the fish it just launched
-  });
-
-  it('...and capping the commanded point at the owner’s effective radar reach', () => {
-    const inp = input({ id: 'torpedo', stats: stats('torpedoCommand'), aimDist: 99999 });
-    const [b] = computeAimPreview(inp).bursts;
-    expect(Math.hypot(b.x, b.y)).toBeCloseTo(inp.stats.radarRange, 6);
+  it('no torpedo previews a point burst any more — contact only', () => {
+    expect(computeAimPreview(input({ id: 'torpedo', stats: stats('torpedoHoming') })).bursts).toEqual([]);
   });
 });
 
@@ -255,6 +465,37 @@ describe('mine placement — both rings at the drop point', () => {
     );
     expect(offMap.place!.blocked).toBe(true);
   });
+
+  // CAPTIVE MINES (Story 7-5 wave 2, R2.12). The rings are DERIVED inside
+  // effectiveStats (trigger and blast swap, then trigger triples), so the whole
+  // job on this side is to READ them and to draw the honest set: the wide trip
+  // ring the mine watches, and NOT a blast circle around the casing — a captive
+  // mine never detonates on contact, so a solid ring there would promise a kill
+  // it cannot deliver.
+  it('CAPTIVE: previews the 144u trip ring, not the 32u contact-blast ring', () => {
+    const s = stats('mineCaptive');
+    const m = computeAimPreview(input({ id: 'mine', stats: s, aim: 0, aimDist: 60 }));
+    expect(m.place!.captive).toBe(true);
+    expect(m.place!.trigger).toBeCloseTo(144, 9);
+    expect(m.place!.blast).toBeCloseTo(32, 9);
+    // The numbers are the firewall's, never re-derived here.
+    expect(m.place!.trigger).toBe(s.mine.triggerRadius);
+    expect(m.place!.blast).toBe(s.mine.blastRadius);
+    // ...and the transform really did invert the ordinary mine's ring pair.
+    const plain = computeAimPreview(input({ id: 'mine', aim: 0, aimDist: 60 }));
+    expect(plain.place!.captive).toBe(false);
+    expect(plain.place!.trigger).toBeLessThan(plain.place!.blast);
+    expect(m.place!.trigger).toBeGreaterThan(m.place!.blast);
+  });
+
+  it('CAPTIVE: the MINES ladder scales the previewed rings, in any pick order', () => {
+    const late = stats('mineBlast', 'mineBlast', 'mineBlast', 'mineBlast', 'mineCaptive');
+    const early = stats('mineCaptive', 'mineBlast', 'mineBlast', 'mineBlast', 'mineBlast');
+    const m = computeAimPreview(input({ id: 'mine', stats: late, aimDist: 60 }));
+    expect(m.place!.trigger).toBeCloseTo(210.8, 1);
+    expect(m.place!.blast).toBeCloseTo(46.9, 1);
+    expect(computeAimPreview(input({ id: 'mine', stats: early, aimDist: 60 })).place).toEqual(m.place);
+  });
 });
 
 // A hull pinned against the rim can point its guns at open water OUTSIDE the
@@ -277,16 +518,19 @@ describe('star shells — the lit radius is the preview', () => {
     expect(m.lines).toHaveLength(1); // ...and it keeps its travel line
   });
 
+  // The WIDE BURST half of this pin is RETIRED: `starRadius` was deleted from
+  // the catalog in Story 7-5 wave 1, so no card moves `starShells.litRadius`
+  // any more. What survives is the load-bearing half — the preview reads the
+  // EFFECTIVE stat rather than the raw CONFIG base.
   it('uses the EFFECTIVE lit radius, never the raw CONFIG base', () => {
-    const wide = stats('starRadius', 'starRadius');
-    expect(wide.starShells.litRadius).toBeGreaterThan(CONFIG.starShells.litRadius);
-    const m = computeAimPreview(input({ id: 'starShells', stats: wide }));
-    expect(m.bursts[0].r).toBe(wide.starShells.litRadius);
+    const s = stats();
+    const m = computeAimPreview(input({ id: 'starShells', stats: s }));
+    expect(m.bursts[0].r).toBe(s.starShells.litRadius);
   });
 
-  it('honors the INCENDIARY shrink — the doctrine trades reach for burn', () => {
+  it('honors the PHOSPHOR shrink — the verb trades reach for burn', () => {
     const inc = stats('starIncendiary');
-    expect(inc.starShells.mode).toBe('incendiary');
+    expect(inc.starShells.phosphor).toBe(true);
     const m = computeAimPreview(input({ id: 'starShells', stats: inc }));
     expect(m.bursts[0].r).toBeCloseTo(
       inc.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor,
@@ -294,6 +538,20 @@ describe('star shells — the lit radius is the preview', () => {
     );
     expect(m.bursts[0].r).toBeLessThan(inc.starShells.litRadius);
     expect(effectiveLitRadius(inc)).toBe(m.bursts[0].r);
+  });
+
+  // THE VERBS STACK (Story 7-5 wave 1). A captain holding BOTH star-shell cards
+  // still previews the phosphor-shrunk circle: DAZZLE is an independent verb
+  // that does not touch the radius, and an either/or read would have picked one.
+  it('a both-verb flare previews the SAME phosphor-shrunk circle', () => {
+    const both = stats('starIncendiary', 'starDazzle');
+    expect(both.starShells.phosphor).toBe(true);
+    expect(both.starShells.dazzle).toBe(true);
+    expect(effectiveLitRadius(both)).toBeCloseTo(
+      both.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor,
+      9,
+    );
+    expect(effectiveLitRadius(both)).toBe(effectiveLitRadius(stats('starIncendiary')));
   });
 
   it('clamps the lit circle to effective range like any gun-family shot', () => {
@@ -337,17 +595,19 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
     expect(m.bursts[0].blocked).toBe(true);
   });
 
-  it('...and the same for the cannon, while an in-bounds muzzle stays confident', () => {
-    expect(computeAimPreview(input({ id: 'cannon', ship: rimShip })).bursts[0].blocked).toBe(true);
-    expect(computeAimPreview(input({ id: 'cannon' })).bursts[0].blocked).toBe(false);
+  it('...and the same for the broadside, while an in-bounds muzzle stays confident', () => {
+    const off = computeAimPreview(input({ id: 'broadside', ship: rimShip, aim: Math.PI / 2 }));
+    expect(off.bursts.every((b) => b.blocked)).toBe(true);
+    const on = computeAimPreview(input({ id: 'broadside', aim: Math.PI / 2 }));
+    expect(on.bursts.every((b) => b.blocked)).toBe(false);
   });
 });
 
 describe('ownBurstRadius — our own blast, never anybody else’s', () => {
-  it('sizes an own gun/cannon burst off our effective stats', () => {
+  it('sizes an own gun/broadside burst off our effective stats', () => {
     const s = stats();
     expect(ownBurstRadius(s, 'gun')).toBe(s.gun.burstRadius);
-    expect(ownBurstRadius(s, 'cannon')).toBe(s.cannon.burstRadius);
+    expect(ownBurstRadius(s, 'broadside')).toBe(s.broadside.burstRadius);
   });
 
   it('leaves every other burst on the CONFIG default (enemy builds stay private)', () => {
@@ -357,13 +617,9 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
     expect(ownBurstRadius(s, 'starShells')).toBeUndefined();
   });
 
-  // The command fish is the biggest blast in the game (60u) and it DOES burst
-  // at a point — leaving it on the gun's 15u default under-drew it by 4×.
-  it('sizes an own COMMAND DETONATION fish at its real 60u blast', () => {
-    expect(ownBurstRadius(stats('torpedoCommand'), 'torpedo')).toBe(CONFIG.torpedo.commandBurstRadius);
-  });
-
-  it('...but a HOMING or standard fish still has no burst ring of its own', () => {
+  // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): no torpedo bursts at a
+  // point any more, so there is no fish whose ring beats the CONFIG default.
+  it('a HOMING or standard fish has no burst ring of its own', () => {
     expect(ownBurstRadius(stats('torpedoHoming'), 'torpedo')).toBeUndefined();
     expect(ownBurstRadius(stats(), 'torpedo')).toBeUndefined();
   });

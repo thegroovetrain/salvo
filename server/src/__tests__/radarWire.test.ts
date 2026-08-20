@@ -145,13 +145,13 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // geometry or pose, so NONE of it may reach the footprint.
     b.hp = b.stats.maxHp * 0.1;
     w.applyBoon(b, 'shipHull');
-    w.applyBoon(b, 'gunDamage');
+    w.applyBoon(b, 'gunBarrel');
     w.applyBoon(b, 'intelRange');
     windowAround(a, 0);
     const after = blipsOf(buildFrame(w, 'a'))[0];
     expect(maskOf(after)).toEqual(maskOf(before));
     // The OBSERVER's own non-vision boons change nothing either.
-    w.applyBoon(a, 'gunDamage');
+    w.applyBoon(a, 'gunBarrel');
     windowAround(a, 0);
     const observed = blipsOf(buildFrame(w, 'a'))[0];
     expect(maskOf(observed)).toEqual(maskOf(before));
@@ -203,7 +203,7 @@ describe('pseudonym track ids — the server-private per-match stream survives t
     expect(mkTrack(0xdead_beef)).toBe(mkTrack(0xdead_beef)); // …deterministically
   });
 
-  it('every ship gets a distinct track id, and ids survive removeShip (a decoy may impersonate a departed owner)', () => {
+  it('every ship gets a distinct track id, and ids survive removeShip (a paint may outlive the ship it belongs to)', () => {
     const w = bareWorld(59);
     for (let i = 0; i < 12; i++) w.addShip(`p${i}`, `P${i}`);
     const tracks = [...Array(12).keys()].map((i) => w.pseudonymFor(`p${i}`));

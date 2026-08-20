@@ -43,24 +43,19 @@ import {
   isAfloat,
   isSinking,
   isSunk,
-  islandDistance,
   loadoutFor,
-  nearestCoastPoint,
-  pointInIsland,
   slotsWithBoons,
   hullEnvelope,
   hullSilhouette,
   mulberry32,
-  pierceDamage,
-  pointPolygonDistance,
   resolveBoons,
   resolveShipPose,
-  returnCards,
   slowedKinematics,
   stepShell,
   stepShip,
   transformPolygon,
   transitionLifecycle,
+  visibilityTo,
   wrapPositive,
   appendWakeSample,
   createShipWake,
@@ -90,6 +85,7 @@ import {
   type HullId,
   type HullTarget,
   type InputMsg,
+  type LitCircle,
   type LoadoutSlot,
   type Rng,
   type ShellOutcome,
@@ -97,7 +93,6 @@ import {
   type ShipClassId,
   type ShipLifecycle,
   type ShipState,
-  type StarShellsMode,
   type SunkEvent,
   type Vec2,
   type WakeRibbon,
@@ -108,13 +103,20 @@ import {
 } from '@salvo/shared';
 import {
   EQUIPMENT,
+  addBuoy,
   addMine,
+  buoyTarget,
+  captiveTorpedo,
   checkMineTriggers,
+  contactBlastRadius,
   mineBlastVictims,
+  scatterJamFakes,
   type ActivationContext,
   type ActivationDenial,
   type ActivationResult,
+  type BuoyState,
   type MineState,
+  type MineTripRules,
 } from './equipment/index.js';
 import type { BurstSubject } from './signals.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
@@ -132,6 +134,7 @@ import {
   type IntelDisc,
 } from './spawn.js';
 import { logWarn } from '../log.js';
+import { leadIntercept } from './lead.js';
 import { nextBountyHolder, type BountyCandidate } from './bounty.js';
 // The ship-role seam (Story 6.3). ALIASED on import purely to keep them
 // distinct from World's own `isFleetHull(id)` method, which answers the same
@@ -244,8 +247,8 @@ function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): EquipmentId
  * (the reveal rules live in signals.ts — "lit from above", no island LOS).
  * Server-owned, NO per-ship state — a zone survives its owner's death and
  * dies only by natural expiry (expireLitZones). The wire shape is LitZoneView
- * ({id,x,y,r,until,by,mode}), materialized per observer by the litzone signal
- * row.
+ * ({id,x,y,r,until,by,phos?,daz?}), materialized per observer by the litzone
+ * signal row.
  */
 export interface LitZone {
   id: string;
@@ -255,47 +258,22 @@ export interface LitZone {
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
   /**
-   * The firer's star-shell DOCTRINE at zone-spawn time (Story 2.8): 'standard'
-   * unless the owner held INCENDIARY/DAZZLE when the flare stopped (owner
-   * lookup at spawn; a vacated owner falls back to 'standard' — the CONFIG-base
-   * rule). As of Story 2.9 (amendment 50) this rides the wire on LitZoneView
-   * to EVERY observer who sees the circle — counterplay over concealment: the
-   * zone's nature is observable behavior of the fired shell, not a build
-   * leak. Zone-spawn stamping (not fire-time) is deliberate — the burn/dazzle
-   * zone effects key off this same field, so the wire mode can never disagree
+   * The firer's star-shell DOCTRINE VERBS at zone-spawn time, stamped
+   * INDEPENDENTLY (Story 7-5 wave 1 — PHOSPHOR and DAZZLE stopped being an
+   * either/or pair, so a zone may burn AND blind, and `markZoneEffects` runs
+   * the two as two separate checks rather than one if/else). Both false unless
+   * the owner held the verb when the flare stopped (owner lookup at spawn; a
+   * vacated owner falls back to both-false — the CONFIG-base rule).
+   *
+   * As of Story 2.9 (amendment 50) these ride the wire on LitZoneView to EVERY
+   * observer who sees the circle — counterplay over concealment: the zone's
+   * nature is observable behavior of the fired shell, not a build leak.
+   * Zone-spawn stamping (not fire-time) is deliberate — the burn/dazzle zone
+   * effects key off these same fields, so the wire flags can never disagree
    * with what the zone actually does.
    */
-  mode: StarShellsMode;
-}
-
-/**
- * A live decoy buoy (Story 1.8): a STATIONARY server entity dropped astern of
- * its Mine Layer owner. To any fogged non-owner it radar-paints EXACTLY like
- * the owner's own ship (the blip row's counterIntel in signals.ts — same gate,
- * same wire shape, id = the OWNER's ship id); the truth (the buoy for what it
- * is) travels as the contact-like `decoys` frame channel (DecoyView) to the
- * owner / truesighted enemies / spectators. ONE live per owner (spawnDecoy
- * silently replaces); survives its owner's death (litZone precedent) and dies
- * only by natural expiry (expireDecoys). NEVER a collision subject: shells and
- * bursts pass through it, it never trips mines, the storm ignores it.
- */
-export interface Decoy {
-  id: string;
-  ownerId: string; // the Mine Layer that dropped it — the ship id its blips impersonate
-  x: number; // u — fixed drop point (stationary forever after)
-  y: number; // u
-  /**
-   * FROZEN drop-time snapshot of the owner (Story 4.2, amendment 11): the
-   * buoy is a radar reflector reporting TRUE stationary values, so its
-   * counterIntel blips carry THIS hull id and heading with speed exactly 0 —
-   * never a live `ships.get(ownerId)` read. A live read would leak the
-   * owner's current course/speed at a false position while they are fogged,
-   * and is undefined for the up-to-30s window a buoy legitimately outlives
-   * its owner (owner death never clears it — the litZone precedent).
-   */
-  hullId: HullId;
-  heading: number; // rad — the owner's heading at drop time
-  until: number; // ms — server time the buoy expires
+  phosphor: boolean;
+  dazzle: boolean;
 }
 
 /** Everything the server tracks per ship, on top of the shared kinematic state. */
@@ -725,11 +703,17 @@ export class World {
   readonly shells = new Map<string, ShellState>();
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
+  /**
+   * All live RADAR BUOYS (Story 7-5 wave 2, R2.7), in drop order — the
+   * mines/litZones store shape. A buoy is world state, not a ship: it never
+   * enters `ships`, the roster, spawn clearance, or the AI target sets. It
+   * dies by natural expiry or by hp reaching 0 under ordinary weapon damage
+   * (tickBuoys / hitBuoy), paying NO XP and emitting NO event either way — a
+   * despawned buoy simply drops out of the next frame's `buoys` list.
+   */
+  readonly buoys = new Map<string, BuoyState>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
-  /** All live decoy buoys (static points), in drop order — max one per owner
-   *  (spawnDecoy evicts the owner's previous buoy) (Story 1.8). */
-  readonly decoys = new Map<string, Decoy>();
   /**
    * LIVE TORPEDO wake ribbons, keyed by shell id (Story 4.12, amendment 196):
    * a running torpedo (`ShellState.kind === 'torp'`) lays a one-cell-wide
@@ -879,14 +863,14 @@ export class World {
   private readonly dotBuckets = new Map<string, { victimId: string; amount: number; since: number }>();
   private mineSeq = 0;
   private litZoneSeq = 0;
-  private decoySeq = 0;
+  private buoySeq = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
    * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
    * the zone-nonce posture: never derivable from the client-known map seed).
-   * Entries are assigned at addShip and NEVER pruned — a decoy buoy outlives
-   * its owner by up to 30s and must keep painting under the OWNER's pseudonym
-   * even after removeShip (the Story 1.8 indistinguishability law), so the map
+   * Entries are assigned at addShip and NEVER pruned — a paint may legitimately
+   * outlive the ship it belongs to (a return sitting in phosphor after a sink)
+   * and must keep resolving to the same pseudonym after removeShip, so the map
    * is append-only for the room's lifetime (bounded by joins per room).
    *
    * HONEST BOUND (do not overclaim): a stable pseudonym does NOT make tracks
@@ -900,6 +884,18 @@ export class World {
   private readonly trackIds = new Map<string, string>();
   /** The private pseudonym stream (see trackIds / WorldOptions.pseudonymSeed). */
   private readonly pseudonymRng: Rng;
+  /**
+   * THE JAM STREAM (Story 7-5 wave 2, R2.11): mints each dropped buoy's
+   * server-private jamSeed, from which that buoy's per-revolution fake
+   * scatter derives (scatterJamFakes). Seeded off the SAME private material
+   * as the pseudonym stream (opts.pseudonymSeed in production — never the
+   * client-known map seed alone), decorrelated by its own constant
+   * (0x94d049bb is unused by any other stream here; see the spawnPhase doc
+   * for the roster). NEVER Math.random(): fakes must be deterministic per
+   * (buoy, sweep) so tests can reproduce them, while a client — which never
+   * learns jamSeed — cannot predict them.
+   */
+  private readonly jamRng: Rng;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -988,6 +984,9 @@ export class World {
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
+    // Jam-seed stream (R2.11) — same private material, own decorrelation
+    // constant, so drawing buoy seeds never perturbs the pseudonym sequence.
+    this.jamRng = mulberry32((((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x94d049bb) >>> 0));
     // Fleet steering stream, decorrelated again from mapgen + spawn.
     this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
     // Bot decision stream (Story 6.4), decorrelated from every other stream
@@ -1004,10 +1003,9 @@ export class World {
 
   /**
    * The stable per-match track id for `shipId` (R3), rolling one on first
-   * request. Roll-on-demand (not only at addShip) covers the decoy edge: a
-   * buoy's ownerId can name a ship whose record predates this room's map (or
-   * was injected by a test) — its counterIntel paint must still emit a
-   * pseudonym, never fall open to the roster id.
+   * request. Roll-on-demand (not only at addShip) covers an ownerId that names
+   * a ship whose record predates this room's map (or was injected by a test) —
+   * its paint must still emit a pseudonym, never fall open to the roster id.
    */
   pseudonymFor(shipId: string): string {
     let track = this.trackIds.get(shipId);
@@ -1401,8 +1399,8 @@ export class World {
   resetForMatchStart(holdStartLine = false): void {
     this.shells.clear();
     this.mines.clear();
+    this.buoys.clear(); // practice-field buoys never relay into the real match (mines precedent)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
-    this.decoys.clear(); // practice-field buoys never lie into the real match (Story 1.8)
     this.pending = [];
     // The throne dies at the match boundary (Story 4.6): redeployShip below
     // zeroes every hull's `kills`, so the vacated throne cannot be re-claimed
@@ -1789,12 +1787,6 @@ export class World {
    * ammo/reload state; behavior effects execute per-tick in stepShips via the
    * cached boonBehaviors). NO event is queued (spendPoint owns the spend UX).
    *
-   * DOCTRINE SWAP (amendments 38/44): when the def names an exclusiveWith
-   * rival CURRENTLY held, ONE occurrence of the rival id leaves `boons` before
-   * the new id lands (stat stacks apply under either doctrine — only the
-   * doctrine card itself swaps). The removed id is RETURNED to the caller so
-   * spendPoint can put the rival's card back in the deck (ping-pong legal).
-   *
    * HEAL-ON-GRANT (amendment 38, shipHull — the ONLY heal path): a
    * healOnGrant def heals exactly the maxHp DELTA this fit produced (clamped
    * to the new cap, never negative; only a LIVING hull heals — a corpse gets
@@ -1810,16 +1802,21 @@ export class World {
    * ratio, preserving the progress fraction — never a free round
    * (rescaleReloadTimers).
    *
+   * EXCLUSIVITY IS DELETED (Story 7-5 wave 2, R2.6): the cannon's AP/PLUNGING
+   * pair was the last user of `exclusiveWith`, and it died with the weapon. No
+   * grant removes anything any more — every doctrine is an independent verb
+   * that stacks — so applyBoon returns nothing and the deck has no give-back
+   * path (`returnCards` left the shared barrel with the mechanism).
+   *
    * Fail-closed: an id the world's catalog cannot resolve appends (the wire
    * mirrors it; clients drop it at resolve) but applies nothing. Public so
    * directed tests (and the spend path) can drive it.
    */
-  applyBoon(ship: ShipRecord, boonId: string): string | null {
+  applyBoon(ship: ShipRecord, boonId: string): void {
     // Own-property gate (fail-closed): a plain-object catalog answers
     // `this.boonCatalog['constructor']` with Object.prototype.constructor —
     // not undefined, and with no `effects` to iterate.
     const def = Object.hasOwn(this.boonCatalog, boonId) ? this.boonCatalog[boonId] : undefined;
-    const swappedOut = World.swapOutRival(ship, def);
     ship.boons.push(boonId);
     ship.boonDefs = resolveBoons(ship.boons, this.boonCatalog);
     ship.boonBehaviors = ship.boonDefs.length === 0 ? NO_BEHAVIORS : boonBehaviors(ship.boonDefs);
@@ -1839,18 +1836,6 @@ export class World {
     // A speed card raises the true attainable top speed the wake ring was
     // provisioned for (Story 4.12) — upsize in place, live samples preserved.
     this.reprovisionWake(ship);
-    return swappedOut;
-  }
-
-  /** The doctrine-swap half of applyBoon (amendments 38/44): when `def` names
-   *  an exclusiveWith rival CURRENTLY held, remove ONE occurrence of the rival
-   *  id and report it (the caller returns its card to the deck). */
-  private static swapOutRival(ship: ShipRecord, def: BoonDef | undefined): string | null {
-    if (def?.exclusiveWith === undefined) return null;
-    const at = ship.boons.indexOf(def.exclusiveWith);
-    if (at < 0) return null;
-    ship.boons.splice(at, 1); // ONE occurrence — the rival's single card
-    return def.exclusiveWith;
   }
 
   /**
@@ -2010,9 +1995,9 @@ export class World {
   }
 
   /** The spend's application half: take the CHOSEN card out of the deck, fit
-   *  the pick (returning a swapped-out doctrine rival to the deck), queue the
-   *  self-private `bn`, and run the acquisition bookkeeping when the pick
-   *  filled the R slot. Split from spendPoint (complexity budget). */
+   *  the pick, queue the self-private `bn`, and run the acquisition
+   *  bookkeeping when the pick filled the R slot. Split from spendPoint
+   *  (complexity budget). */
   private settleSpend(ship: ShipRecord, front: BoonOffer, choice: number): void {
     const boon = front[choice];
     // THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
@@ -2020,10 +2005,7 @@ export class World {
     // so the deck thins over a match by exactly the cards FITTED, and a
     // passed-on line is at full copies for the very next draw.
     ship.deck = consumeCard(ship.deck, boon);
-    const swappedOut = this.applyBoon(ship, boon);
-    // Doctrine swap (amendment 44): the swapped-out rival's card returns to
-    // the deck — doctrine can ping-pong across a match.
-    if (swappedOut !== null) ship.deck = returnCards(ship.deck, [swappedOut]);
+    this.applyBoon(ship, boon);
     this.pending.push({ k: 'bn', id: ship.id, boon });
     // Acquisition pick (amendment 38): the R slot is PERMANENT — the acquired
     // subdeck shuffles in and every remaining acquisition card purges. The
@@ -2123,11 +2105,16 @@ export class World {
     // ctx.hulls() materializes the tick's ONE snapshot here, on first access
     // (see stepContext()), and the two mine rows below reuse it as-is.
     { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hulls()) },
-    // Self-propelled mines creep BEFORE the trigger scan (Story 2.8) — a
-    // deliberate step-order position: a mine that crawls into trigger range
-    // this tick trips this tick, against the same post-move hulls.
-    { name: 'creepMines', run: (w, ctx) => w.creepMines(ctx.dt, ctx.hulls()) },
     { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hulls()) },
+    // RADAR BUOYS (Story 7-5 wave 2) — DELIBERATE step-order position, with
+    // the other static-entity resolution (the stepMines/expireLitZones band):
+    // expiry, the buoy's own sweep advance + jam-epoch refresh, and the GUN
+    // BUOY's auto-fire. It must sit AFTER the motion block (the gun ranges
+    // post-move hostiles) and BEFORE tickRepairs, whose "after EVERY damage
+    // source this tick" contract the buoy gun now falls under — a hull the
+    // buoy sinks this tick is already sunk before regen runs, so damage keeps
+    // winning the tie by construction.
+    { name: 'tickBuoys', run: (w, ctx) => w.tickBuoys(ctx.dtMs) },
     // Star-shell doctrine zone effects (Story 2.8): incendiary DoT + dazzle
     // marking, against post-move centers, BEFORE the expiry sweep so a zone
     // burns/dazzles through its final tick.
@@ -2158,11 +2145,6 @@ export class World {
     // stepShells (resolveBurst on a star shell) and deliberately survive their
     // owner's death — expiry is the only way out.
     { name: 'expireLitZones', run: (w) => w.expireLitZones() },
-    // Decoy buoys (Story 1.8): the same natural-expiry law, swept beside the
-    // zones. Buoys are SPAWNED by the decoy ability row (activationControl) and
-    // survive their owner's death — expiry (or owner replacement) is the only
-    // way out.
-    { name: 'expireDecoys', run: (w) => w.expireDecoys() },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
@@ -2243,7 +2225,7 @@ export class World {
    * — which the pinned order guarantees is stepShells, the exact position the
    * old inline `const hulls = this.aliveHulls()` statement occupied. It is
    * DELIBERATELY STALE from then on: a hull sunk by stepShells remains in the
-   * array for creepMines/stepMines, each of which re-checks liveness per
+   * array for stepMines, which re-checks liveness per
    * victim — the damage semantics live in those re-checks, NOT in the
    * snapshot (amendment 5). It is not a STEP_ORDER row because a row would
    * advertise an insertable slot right after it, and anything inserted there
@@ -2767,7 +2749,13 @@ export class World {
    *  spawn pre-step deliberately does NOT resolve outcomes (see preStepShell) —
    *  every projectile funnels through here, one tick after spawn at the
    *  earliest, so all shell damage resolves in exactly one place. */
-  private stepShells(dt: number, hulls: HullTarget[]): void {
+  private stepShells(dt: number, aliveHulls: HullTarget[]): void {
+    // RADAR BUOYS are ordinary collision subjects on every ordnance path
+    // (Story 7-5 wave 2, R2.7 "destructible by anything that damages a ship"):
+    // merged here ONCE per tick, so shell sweeps, interceptions, bursts and
+    // the blasts resolved off `targets` all see them — while checkMineTriggers
+    // (stepMines) keeps the pure hull snapshot and a buoy never TRIPS a mine.
+    const hulls = this.withBuoyTargets(aliveHulls);
     let friendlyFree: HullTarget[] | undefined; // lazy, per-tick (see shellTargets)
     for (const [id, shell] of this.shells) {
       // FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 36). The
@@ -2795,133 +2783,12 @@ export class World {
       // never paints; only its water does (amendment 196).
       if (shell.kind === 'torp') this.sampleTorpWake(shell);
       if (outcome.kind === 'travel') continue;
-      // An AP shell that pierced but is NOT spent keeps flying (Story 2.8):
-      // its hits resolve now, the projectile stays in flight for next tick.
-      if (outcome.kind === 'pierced' && !outcome.spent) {
-        this.resolveShell(shell, outcome, targets);
-        continue;
-      }
       this.shells.delete(id);
       this.forgetBallistic(id);
       // The spent fish's water outlives it (amendment 200) — detach, never drop.
       this.orphanTorpWake(id);
       this.resolveShell(shell, outcome, targets);
     }
-  }
-
-  /**
-   * SELF-PROPELLED MINES (Story 2.8 doctrine): every ARMED mine whose owner
-   * currently holds the selfPropelled doctrine creeps at CONFIG.mine.creepSpeed
-   * toward the nearest NON-OWNER alive hull whose SILHOUETTE is within
-   * creepAcquireRange. Owner lookup at step time (a vacated/doctrine-less
-   * owner's mines sit still — the CONFIG-base fallback rule). A creeping mine
-   * never leaves the water disk and never enters an island circle (stopped at
-   * the rim — mines float). Position changes flow to clients automatically:
-   * MineViews are re-materialized per tick.
-   *
-   * THE METRIC IS THE SILHOUETTE (Eric ruling 2026-08-02, the tracking fix):
-   * acquisition measures mine→hull POLYGON exactly like the trip does
-   * (pointPolygonDistance, against THIS tick's post-move hulls). The original
-   * center-distance ring could not work at any radius the doctrine could
-   * afford: hulls are 85–124u long, so a ship's silhouette reaches the 32u+
-   * trip ring while its CENTER is still 74–94u out — every approach tripped the
-   * mine before the old 60u center ring ever acquired it, and a trigger boon
-   * widened the pre-empting ring further. Same metric on both rings is the only
-   * shape in which "acquire, then close, then trip" can be true.
-   */
-  private creepMines(dt: number, hulls: readonly HullTarget[]): void {
-    for (const mine of this.mines.values()) {
-      if (this.now < mine.armedAt) continue; // unarmed mines never move
-      const owner = this.ships.get(mine.ownerId);
-      if (owner === undefined || owner.stats.mine.mode !== 'selfPropelled') continue;
-      const target = this.nearestEnemyHull(mine, mine.ownerId, hulls, CONFIG.mine.creepAcquireRange);
-      if (target === null) continue;
-      const d = Math.hypot(target.x - mine.x, target.y - mine.y);
-      if (d <= 0) continue;
-      const step = Math.min(CONFIG.mine.creepSpeed * dt, d);
-      const p = this.clampMinePoint(
-        { x: mine.x + ((target.x - mine.x) / d) * step, y: mine.y + ((target.y - mine.y) / d) * step },
-        mine,
-      );
-      mine.x = p.x;
-      mine.y = p.y;
-    }
-  }
-
-  /**
-   * The nearest ALIVE non-`ownerId` hull whose SILHOUETTE lies within `range`
-   * of `p` — the trigger's own metric (pointPolygonDistance, 0 inside,
-   * concave-safe) against this tick's post-move hull polygons. Returns that
-   * ship's CENTER, which is what the mine steers for: the closest silhouette
-   * POINT slides along the hull as the target turns, so homing on it would make
-   * a crawling mine chase a moving tangent; the center is the stable heading
-   * and lies inside the hull either way. Null when nothing is in reach.
-   *
-   * Deterministic: strict `<` keeps the earliest hull-list entry on ties, and
-   * `hulls` is built in ships-map order (aliveHulls), so the choice is the same
-   * ordering guarantee the old center-metric scan gave.
-   */
-  private nearestEnemyHull(
-    p: Vec2,
-    ownerId: string,
-    hulls: readonly HullTarget[],
-    range: number,
-  ): Vec2 | null {
-    let best: Vec2 | null = null;
-    let bestD = Infinity;
-    for (const hull of hulls) {
-      if (hull.id === ownerId) continue; // a mine never hunts its own owner
-      const ship = this.ships.get(hull.id);
-      if (ship === undefined) continue; // defensive: hulls come from alive ships
-      const d = pointPolygonDistance(p, hull.poly);
-      if (d > range || d >= bestD) continue;
-      bestD = d;
-      best = ship.state;
-    }
-    return best;
-  }
-
-  /**
-   * Clamp a creeping mine's candidate point: never outside the water disk
-   * (scaled back to the rim) and never ashore (projected to the NEAREST point
-   * on that island's coastline; a degenerate projection keeps `prev`).
-   *
-   * REJECT-ON-FAILURE (Story 2.8 review, P10): the clamp is a SINGLE pass, so
-   * in a pinch (two islands, or an island hard against the rim) a push-out can
-   * land inside the NEXT island or back outside the disk. Rather than iterate
-   * to a fixed point that may not exist, the step is REJECTED — the mine holds
-   * its previous position this tick. Creep is a slow crawl; a held tick is
-   * invisible, an illegal rest position is not.
-   */
-  private clampMinePoint(p: Vec2, prev: Vec2): Vec2 {
-    let x = p.x;
-    let y = p.y;
-    const r = Math.hypot(x, y);
-    if (r > this.map.radius) {
-      x = (x / r) * this.map.radius;
-      y = (y / r) * this.map.radius;
-    }
-    for (const isle of this.map.islands) {
-      if (!pointInIsland({ x, y }, isle)) continue;
-      const coast = nearestCoastPoint({ x, y }, isle);
-      if (coast.dist <= 0) return { x: prev.x, y: prev.y }; // degenerate: hold position
-      x = coast.x;
-      y = coast.y;
-    }
-    return this.minePointLegal(x, y) ? { x, y } : { x: prev.x, y: prev.y };
-  }
-
-  /** Is a mine point legal to REST at: inside the water disk and off every
-   *  island's land? A hair of float tolerance so a point the clamp above placed
-   *  exactly ON the rim / the coastline reads as legal (islandDistance is
-   *  signed — negative ashore — and broadphase-gated). */
-  private minePointLegal(x: number, y: number): boolean {
-    const EPS = 1e-6;
-    if (Math.hypot(x, y) > this.map.radius + EPS) return false;
-    for (const isle of this.map.islands) {
-      if (islandDistance({ x, y }, isle) < -EPS) return false;
-    }
-    return true;
   }
 
   /**
@@ -2933,11 +2800,91 @@ export class World {
    * time; a vacated owner falls back to the CONFIG base).
    */
   private stepMines(hulls: HullTarget[]): void {
-    const triggerRadiusFor = (ownerId: string): number =>
-      this.ships.get(ownerId)?.stats.mine.triggerRadius ?? CONFIG.mine.triggerRadius;
-    for (const { mine, victimId } of checkMineTriggers(this.mines, hulls, this.now, triggerRadiusFor)) {
-      this.detonateMine(mine, hulls, victimId);
+    // TRIPPING scans the PURE hull snapshot — a radar buoy never trips a mine
+    // (it is not a hull, and remote minefield clearing is a mechanic nobody
+    // ruled on) — while DETONATION resolves against the buoy-merged list, so
+    // a blast still damages any buoy sitting inside it (R2.7).
+    for (const { mine, victimId, captive } of checkMineTriggers(this.mines, hulls, this.now, this.mineTripRules())) {
+      if (captive) this.launchCaptiveTorpedo(mine, victimId);
+      else this.detonateMine(mine, this.withBuoyTargets(hulls), victimId);
     }
+  }
+
+  /** The per-owner trip policy for this tick's mines: effective trip ring, the
+   *  CAPTIVE doctrine read, and the captive-only hostile gate — each an OWNER
+   *  lookup with the vacated-owner CONFIG fallback, so an orphan mine keeps no
+   *  dead build's numbers and no dead build's doctrine. */
+  private mineTripRules(): MineTripRules {
+    return {
+      triggerRadius: (ownerId) => this.ships.get(ownerId)?.stats.mine.triggerRadius ?? CONFIG.mine.triggerRadius,
+      captive: (ownerId) => this.laysCaptiveMines(ownerId),
+      hostile: (ownerId, victimId) => this.isCaptiveMineHostile(ownerId, victimId),
+    };
+  }
+
+  /**
+   * Does this owner's field consist of CAPTIVE mines? THE single read of the
+   * doctrine, with the vacated-owner CONFIG fallback (false) every other mine
+   * lookup uses — the verb rides the OWNER's live stats, never a per-mine flag,
+   * so a layer who fits CAPTIVE MINES converts the field already on the water.
+   * Three call sites, all of them a carve-out for the same reason: the trip
+   * (launch instead of blast), the burst (R2.18), and the chain (R2.18).
+   */
+  private laysCaptiveMines(ownerId: string): boolean {
+    return this.ships.get(ownerId)?.stats.mine.captive ?? false;
+  }
+
+  /**
+   * "HOSTILE" FOR A CAPTIVE MINE (Story 7-5 wave 2, R2.13 — Eric's ruling). An
+   * enemy CAPTAIN OR BOT always is: they contest the match, and the mine's
+   * owner is already excluded upstream. A FLEET DRONE is hostile ONLY while its
+   * CURRENT acquired target is the mine's owner — read LIVE off the
+   * FleetController's mind, never cached, so a drone that breaks off (target
+   * lost, target sunk, aggro expired) becomes safe to sail past again in the
+   * very next tick.
+   *
+   * THE GATE IS CAPTIVE-ONLY and must not be widened: ordinary and prop-fouling
+   * mines still trip on ANY non-owner hull, drones included, and a mine hit
+   * still causes no aggro (amendment 36, unchanged — see hitShip's `fromMine`).
+   * A vanished victim is not hostile, so a mid-tick teardown cannot launch a
+   * fish at nothing.
+   */
+  private isCaptiveMineHostile(ownerId: string, victimId: string): boolean {
+    const victim = this.ships.get(victimId);
+    if (victim === undefined) return false;
+    if (!roleIsFleetHull(victim)) return true; // an enemy captain or bot
+    return this.drones.isTargeting(victim.id, ownerId); // live aggro, nothing else
+  }
+
+  /**
+   * A CAPTIVE MINE FIRES (R2.12/R2.14). The mine is EXPENDED — deleted first
+   * (the consume-first discipline detonateMine established, so nothing can fire
+   * it twice) — and launches ONE un-upgraded torpedo from its own point along
+   * the lead solution against the tripping hull. No boom, no blast, no chain:
+   * a captive mine never detonates on contact, so none of the detonation path
+   * runs at all.
+   *
+   * THE FISH IS DODGEABLE, AND THAT IS THE DESIGN: it is a base-speed torpedo
+   * fired at where the target WILL be if it holds course, computed by the same
+   * lead solver the fleet gun uses (game/lead.ts). Turn and it misses.
+   *
+   * It carries the OWNER's effective MINE damage and MINE blast radius — read
+   * again at detonation through the ordinary mine-blast path, which is what
+   * makes PROP FOULING ride along when the layer holds both cards (Eric A1:
+   * captive STACKS with prop fouling, and the torpedo's hit carries the foul).
+   * A vacated owner falls back to the CONFIG bases exactly as a mine blast
+   * does; a vanished VICTIM cannot happen here (the hostile gate refuses one).
+   */
+  private launchCaptiveTorpedo(mine: MineState, victimId: string): void {
+    if (!this.mines.delete(mine.id)) return; // already spent this tick
+    const victim = this.ships.get(victimId);
+    if (victim === undefined) return;
+    const { damage, blastRadius } = this.mineBlastParams(mine.ownerId);
+    const vx = Math.cos(victim.state.heading) * victim.state.speed;
+    const vy = Math.sin(victim.state.heading) * victim.state.speed;
+    const led = leadIntercept(mine, victim.state, vx, vy, CONFIG.torpedo.speed);
+    const dir = Math.atan2(led.y - mine.y, led.x - mine.x);
+    this.spawnBallistic(captiveTorpedo(this.nextBallisticId(), mine, dir, this.now, { damage, blastRadius }));
   }
 
   /**
@@ -2993,7 +2940,7 @@ export class World {
       return { damage: CONFIG.mine.damage, blastRadius: CONFIG.mine.blastRadius, fouls: false };
     }
     const mine = owner.stats.mine;
-    return { damage: mine.damage, blastRadius: mine.blastRadius, fouls: mine.mode === 'propFouling' };
+    return { damage: mine.damage, blastRadius: mine.blastRadius, fouls: mine.propFouling };
   }
 
   /** One mine's blast damage + prop-fouling debuff (owner-stats-driven with
@@ -3004,29 +2951,61 @@ export class World {
    *  Victim RESOLUTION, not dmg emission (the ready-room rule); a victimless
    *  detonation sends NOTHING (mines have no fall-of-shot — amendment 16). */
   private blastMine(m: MineState, hulls: readonly HullTarget[]): number {
-    const { damage, blastRadius, fouls } = this.mineBlastParams(m.ownerId);
+    const { resolved, blastRadius } = this.applyMineBlast(m, m.ownerId, hulls);
+    if (resolved > 0) this.emitHitCall(m.ownerId, m.x, m.y);
+    return blastRadius;
+  }
+
+  /**
+   * ONE MINE-STYLE BLAST at `at`, on `ownerId`'s effective mine numbers: full
+   * damage to every non-owner hull silhouette inside the blast (owner excluded
+   * — the universal AoE convention), plus the PROP FOULING slow when the owner
+   * holds the doctrine. Returns how many hulls it RESOLVED and the radius used.
+   *
+   * Split out of blastMine (Story 7-5 wave 2) with the Hit Call left BEHIND on
+   * purpose: the CAPTIVE MINE's torpedo detonates through here too (R2.14 — the
+   * fish's hit carries the foul, because the foul is read off the owner's live
+   * stats at detonation exactly as a mine's is), and its `hc` is already
+   * emitted by resolveShell's interception branch. Amendment 17's "exactly one
+   * `hc` per shell resolution" is what forbids a second one here.
+   */
+  private applyMineBlast(
+    at: Vec2,
+    ownerId: string,
+    hulls: readonly HullTarget[],
+  ): { resolved: number; blastRadius: number } {
+    const { damage, blastRadius, fouls } = this.mineBlastParams(ownerId);
     let resolved = 0;
-    for (const victimId of mineBlastVictims(m, hulls, blastRadius)) {
+    for (const victimId of mineBlastVictims({ x: at.x, y: at.y, ownerId }, hulls, blastRadius)) {
       const victim = this.ships.get(victimId);
       // Per-victim re-check against the DELIBERATELY STALE `hulls` snapshot: a
       // hull sunk earlier this tick is still in it, and damage semantics live
       // in this re-check rather than in the snapshot (amendment 5).
-      if (!victim || !isAfloat(victim.lifecycle)) continue;
+      if (!victim || !isAfloat(victim.lifecycle)) {
+        // A RADAR BUOY inside the blast is an ordinary victim (R2.7): damaged,
+        // counted as resolved (the owner's `hc` is honest — something
+        // connected), never fouled (no propeller) and never worth XP.
+        if (!victim && this.hitBuoy(victimId, damage)) resolved += 1;
+        continue;
+      }
       resolved += 1;
-      this.hitShip(victim, damage, m.ownerId, true); // MINE: no aggro (amendment 36)
+      this.hitShip(victim, damage, ownerId, true); // MINE: no aggro (amendment 36)
       // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
       // assignment), never stack. Gated with damage (no fouling in the
       // damage-suppressed ready room).
       if (fouls && this.damageEnabled) victim.slowedUntil = this.now + CONFIG.mine.foulDurationMs;
     }
-    if (resolved > 0) this.emitHitCall(m.ownerId, m.x, m.y);
-    return blastRadius;
+    return { resolved, blastRadius };
   }
 
   /** Queue the SAME-OWNER armed mines whose centers lie within `blastRadius`
-   *  of detonating mine `m` (amendment 46 — enemy mines never chain). */
+   *  of detonating mine `m` (amendment 46 — enemy mines never chain). A CAPTIVE
+   *  field chains nothing at all (R2.18). */
   private chainMines(m: MineState, blastRadius: number, visited: Set<string>, queue: MineState[]): void {
     const r2 = blastRadius * blastRadius;
+    // R2.18 — a CAPTIVE field never propagates a chain either. The chain is
+    // same-owner by construction, so one read answers for every candidate.
+    if (this.laysCaptiveMines(m.ownerId)) return;
     for (const other of this.mines.values()) {
       if (visited.has(other.id) || other.ownerId !== m.ownerId || this.now < other.armedAt) continue;
       const dx = other.x - m.x;
@@ -3111,21 +3090,19 @@ export class World {
    * FALL OF SHOT (Story 4.3, amendment 16): one self-private `sp` to the
    * shooter at the true termination point of a shell that resolved NO victim.
    * GUN-FAMILY ONLY — the wire-kind predicate (`kind === 'shell'`) selects
-   * gun + cannon + star shells and excludes 'torp' exactly: a torpedo that
+   * gun + broadside + star shells and excludes 'torp' exactly: a torpedo that
    * misses or expires produces NOTHING (the quiet weapon), and mines never
-   * route here at all. The pierce guard keeps "exactly one of hc/sp per
-   * shell": an AP shell that pierced earlier in its life already sent its
-   * Hit Call, so its eventual island/edge/range stop is not also a splash.
+   * route here at all. ONE PER SHELL, and every shell of a broadside barrage
+   * is its own shell (R2.5) — a barrage that misses with three of five splashes
+   * three times, which is the fall-of-shot readout bracket-and-walk needs.
    */
   private emitSplash(shell: ShellState, x: number, y: number): void {
     if (shell.kind !== 'shell') return; // gun family only (amendment 16)
-    if (shell.pierce !== undefined && shell.pierce.hitIds.length > 0) return; // hc already sent
     this.pending.push({ k: 'sp', id: shell.ownerId, x, y });
   }
 
   /** Turn a spent ballistic's outcome into its events, per the projectile's
    *  OWN hit rule (Story 1.4 seam): `burst` detonates at the target point;
-   *  `pierced` applies the AP falloff per hull in hit order (Story 2.8);
    *  `hitShip` is an early interception OUTSIDE the blast — the interceptor
    *  takes the smaller contactDamage (torpedoes set contactDamage = damage, so
    *  their behavior is unchanged; a damageless star shell deals 0 and still
@@ -3137,15 +3114,10 @@ export class World {
       this.resolveBurst(shell, outcome, hulls);
       return;
     }
-    if (outcome.kind === 'pierced') {
-      this.resolvePierce(shell, outcome.hits, outcome.spent);
-      return;
-    }
     if (outcome.kind !== 'hitShip') {
       this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
       // hitIsland / expired: a MISS — fall of shot to the shooter (Story 4.3;
-      // gun family only, and never after an earlier pierce Hit Call — the
-      // guards live in emitSplash).
+      // gun family only — the guard lives in emitSplash).
       this.emitSplash(shell, outcome.x, outcome.y);
       return;
     }
@@ -3158,54 +3130,34 @@ export class World {
     // A DAMAGELESS flare still lights where it stopped (Story 2.8, amendment
     // 39): an intercepted star shell spawns its zone at the interception point.
     if (shell.lit) this.spawnLitZone(shell, outcome);
+    // THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12/R2.14) — the game's
+    // one CONTACT-BLAST projectile: it detonates AT ITS IMPACT POINT for the
+    // layer's MINE damage over the layer's MINE blast radius, carrying the PROP
+    // FOULING slow when the layer holds that card too, instead of dealing plain
+    // contact damage to the hull it touched. The struck hull is inside its own
+    // blast by construction, so there is no double-dip to guard: this branch
+    // RETURNS rather than falling through to the contact hit below. The one Hit
+    // Call for this resolution was already emitted above (amendment 17), which
+    // is why applyMineBlast deliberately does not emit one.
+    if (contactBlastRadius(shell) > 0) {
+      this.applyMineBlast(outcome, shell.ownerId, hulls);
+      return;
+    }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
     const victim = this.ships.get(outcome.victimId);
-    if (!victim || !isAfloat(victim.lifecycle)) return;
+    if (!victim) {
+      // A RADAR BUOY intercepted the shot (R2.7): it takes the interceptor's
+      // contactDamage exactly as a hull would (the `hc` above already told
+      // the shooter something connected). No XP, no feed line (hitBuoy).
+      this.hitBuoy(outcome.victimId, shell.contactDamage);
+      return;
+    }
+    if (!isAfloat(victim.lifecycle)) return;
     // EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05): a later
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
     // not a single click (the same-click salvo ledger is deleted).
     this.hitShip(victim, shell.contactDamage, shell.ownerId, false);
-  }
-
-  /**
-   * ARMOR-PIERCING resolution (Story 2.8): each pierced hull, in hit order,
-   * takes pierceDamage(shell.damage, order) — the 100/50/25% falloff by GLOBAL
-   * hit index across the shell's life — through the hitShip choke, with one
-   * boom per pierce point (hit = the pierced hull, victim-stripping stays with
-   * the boom row). No burst ever; the shell's island/edge stop needs no extra
-   * splash boom (the per-hit booms carry the projectile id).
-   *
-   * BOOM IDS (Story 2.8 review, P2): the client removes a dead-reckoned track
-   * when a boom carrying ITS id arrives, so a NON-TERMINAL pierce (the shell
-   * flew on through) must not reuse the live projectile id — the still-flying
-   * shell would vanish for every observer. A non-terminal hit's boom carries a
-   * DERIVED id (`<shellId>#p<order>`, unique per hit and unknown to every
-   * client track, which makes it a pure impact spark); the TERMINAL hit (the
-   * one that ends the flight — `spent`) keeps the REAL id so the track is
-   * removed exactly once. Nothing else correlates boom ids: signals.ts's boom
-   * row keys only on position/`hit`, and seenBallistics/torpDirs are keyed by
-   * the real projectile id alone (forgetBallistic).
-   */
-  private resolvePierce(
-    shell: ShellState,
-    hits: readonly { victimId: string; x: number; y: number; order: number }[],
-    spent: boolean,
-  ): void {
-    // EXACTLY ONE Hit Call per SHELL LIFE (Story 4.3): only the FIRST pierce
-    // ever recorded (global hit order 0) carries it, at that first pierce
-    // point. A per-pierce (or per-tick) Hit Call would leak the hull count —
-    // severity information the `hc` wire shape deliberately cannot carry. The
-    // terminal splash for an AP shell that pierced is likewise suppressed
-    // (emitSplash's pierce guard): one of hc/sp per shell, never both.
-    if (hits.length > 0 && hits[0].order === 0) this.emitHitCall(shell.ownerId, hits[0].x, hits[0].y);
-    for (const [i, h] of hits.entries()) {
-      const terminal = spent && i === hits.length - 1;
-      const id = terminal ? shell.id : `${shell.id}#p${h.order}`;
-      this.pending.push({ k: 'boom', id, hit: h.victimId, x: h.x, y: h.y });
-      const victim = this.ships.get(h.victimId);
-      if (victim && isAfloat(victim.lifecycle)) this.hitShip(victim, pierceDamage(shell.damage, h.order), shell.ownerId, false);
-    }
   }
 
   /**
@@ -3243,7 +3195,13 @@ export class World {
     if (shell.damage > 0) {
       for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
         const victim = this.ships.get(victimId);
-        if (!victim || !isAfloat(victim.lifecycle)) continue;
+        if (!victim || !isAfloat(victim.lifecycle)) {
+          // A RADAR BUOY inside the burst takes the shell's full damage like
+          // any hull (R2.7) — resolved counts it, so the shooter's Hit Call
+          // stays honest; no XP, no feed line, no dmg event (hitBuoy).
+          if (!victim && this.hitBuoy(victimId, shell.damage)) resolved += 1;
+          continue;
+        }
         resolved += 1;
         this.hitShip(victim, shell.damage, shell.ownerId, false);
       }
@@ -3279,8 +3237,18 @@ export class World {
    * then CASCADES same-owner through detonateMine's chain — a deliberate
    * change from the 1.8 no-cascade rule (deletion keeps every mine at most one
    * detonation).
+   *
+   * A CAPTIVE MINE CANNOT BE SELF-DETONATED (Story 7-5 wave 2, R2.18 — Eric
+   * ruling 2026-08-19). It is excluded here outright: the burst passes over it
+   * and the mine PERSISTS, armed and waiting. It does NOT blast and it does NOT
+   * launch — R2.12 already made the torpedo its only attack, and this was the
+   * last path by which a captive mine could produce a blast centred on its own
+   * casing. After this there are none. The carve-out is CAPTIVE-ONLY and must
+   * not be widened: ordinary and prop-fouling fields self-detonate exactly as
+   * they always have (the same shape as R2.13's hostile gate).
    */
   private detonateMinesInBurst(shell: ShellState, at: Vec2, hulls: readonly HullTarget[]): void {
+    if (this.laysCaptiveMines(shell.ownerId)) return; // R2.18 — the burst passes over
     const detonating: MineState[] = [];
     const r2 = shell.burstRadius * shell.burstRadius;
     for (const mine of this.mines.values()) {
@@ -3294,10 +3262,13 @@ export class World {
 
   /** Spawn a lit zone where a star shell stopped (burst point, or the
    *  interception stop point — amendment 39's damageless flare always lights).
-   *  `mode` is the OWNER's star-shell doctrine at spawn time (owner lookup; a
-   *  vacated owner falls back to 'standard' — the CONFIG-base rule, pinned). */
+   *  The two doctrine verbs are read INDEPENDENTLY off the OWNER's stats at
+   *  spawn time (owner lookup; a vacated owner falls back to both-false — the
+   *  CONFIG-base rule, pinned), so a firer holding BOTH stamps a zone that
+   *  burns and blinds. */
   private spawnLitZone(shell: ShellState, at: Vec2): void {
     const id = this.nextLitZoneId();
+    const stars = this.ships.get(shell.ownerId)?.stats.starShells;
     this.litZones.set(id, {
       id,
       ownerId: shell.ownerId,
@@ -3305,7 +3276,8 @@ export class World {
       y: at.y,
       r: shell.lit!.radius,
       until: this.now + shell.lit!.durationMs,
-      mode: this.ships.get(shell.ownerId)?.stats.starShells.mode ?? 'standard',
+      phosphor: stars?.phosphor ?? false,
+      dazzle: stars?.dazzle ?? false,
     });
   }
 
@@ -3393,8 +3365,13 @@ export class World {
   }
 
   /** The per-ship zone scan: refresh the dazzle mark for every covering
-   *  non-owned dazzle zone and collect the owners of covering incendiary
-   *  zones (deduped — at most one burn per owner per tick). */
+   *  non-owned DAZZLE zone and collect the owners of covering PHOSPHOR zones
+   *  (deduped — at most one burn per owner per tick).
+   *
+   *  THE TWO VERBS ARE INDEPENDENT CHECKS, NOT AN if/else (Story 7-5 wave 1):
+   *  a firer holding both cards stamps a zone that is phosphor AND dazzle, and
+   *  that zone must BOTH burn and blind. The pre-7-5 chain (`if dazzle … else
+   *  if incendiary …`) structurally could not say that. */
   private markZoneEffects(ship: ShipRecord): Set<string> {
     const burnedBy = new Set<string>();
     for (const zone of this.litZones.values()) {
@@ -3402,8 +3379,8 @@ export class World {
       const dx = ship.state.x - zone.x;
       const dy = ship.state.y - zone.y;
       if (dx * dx + dy * dy > zone.r * zone.r) continue;
-      if (zone.mode === 'dazzle') ship.dazzledUntil = this.now + DAZZLE_GRACE_MS;
-      else if (zone.mode === 'incendiary') burnedBy.add(zone.ownerId);
+      if (zone.dazzle) ship.dazzledUntil = this.now + DAZZLE_GRACE_MS;
+      if (zone.phosphor) burnedBy.add(zone.ownerId);
     }
     return burnedBy;
   }
@@ -3414,39 +3391,6 @@ export class World {
     for (const [id, zone] of this.litZones) {
       if (this.now >= zone.until) this.litZones.delete(id);
     }
-  }
-
-  /** Drop every decoy buoy whose lifetime has elapsed (Story 1.8 — the litZone
-   *  expiry law: no per-ship state, owner death never clears it; the only other
-   *  way out is owner replacement in spawnDecoy). */
-  private expireDecoys(): void {
-    for (const [id, decoy] of this.decoys) {
-      if (this.now >= decoy.until) this.decoys.delete(id);
-    }
-  }
-
-  /**
-   * Store a newly-dropped decoy buoy (Story 1.8). ONE live per owner: placing
-   * a second SILENTLY deletes the first (no boom, no event — the mines
-   * oldest-eviction precedent). Lifetime comes from the owner's effective
-   * stats (a pure CONFIG.decoyBuoy pass-through today).
-   */
-  private spawnDecoy(owner: ShipRecord, x: number, y: number): void {
-    for (const [id, decoy] of this.decoys) {
-      if (decoy.ownerId === owner.id) this.decoys.delete(id);
-    }
-    const id = this.nextDecoyId();
-    // hullId/heading frozen HERE, at drop time (Story 4.2, amendment 11) — the
-    // buoy's blips report this snapshot forever, live owner state never read.
-    this.decoys.set(id, {
-      id,
-      ownerId: owner.id,
-      x,
-      y,
-      hullId: owner.hullId,
-      heading: owner.state.heading,
-      until: this.now + owner.stats.decoyBuoy.durationMs,
-    });
   }
 
   /**
@@ -3637,7 +3581,7 @@ export class World {
    * carried since Epic 1): NO RESTRICTION AT THE GATE. The ratified criterion
    * is FITMENT, not category — "it is in a ship equipment slot so it meets
    * criteria for usability" — so all seven registry rows (gun, torpedo, mine,
-   * cannon, starShells, speedBoost, decoyBuoy) activate while SINKING exactly
+   * broadside, starShells, speedBoost, radarBuoy) activate while SINKING exactly
    * as when alive, and a future row is in by default rather than needing a
    * ruling. What a sinking captain loses is the ECONOMY — the upgrade menu,
    * picks and the heal — which never routed through this gate at all (that
@@ -3678,10 +3622,40 @@ export class World {
       mapRadius: this.map.radius,
       islands: this.map.islands,
       mkId: () => this.nextBallisticId(),
-      spawnBallistic: (shell) => this.spawnBallistic(shell),
+      spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
-      dropDecoy: (x, y) => this.spawnDecoy(ship, x, y),
+      // R2.7 — the buoy's placement capability, the dropMine sibling. Life,
+      // hp and radar set read off the OWNER's effective stats at drop.
+      dropBuoy: (x, y) => this.spawnBuoy(ship, x, y, fireT),
+      // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell
+      // gun reach OWN-FLARES-ONLY: a row cannot ask about anyone else's zones.
+      ownLitZones: () => this.ownLiveLitZones(ship.id),
     };
+  }
+
+  /**
+   * THE STAR-SHELL GUN REACH INPUT (Story 7-5 wave 2, R2.15): the lit zones
+   * owned by `ownerId` that are still LIVE, reduced to centre+radius circles.
+   * Live means not yet expired — tested explicitly against `now` rather than
+   * trusting the store, because expireLitZones runs at the END of the tick and
+   * a zone whose `until` fell this tick must not license a shot for one last
+   * frame.
+   *
+   * BOTH filters live here and nowhere else: the shared predicate
+   * (`@salvo/shared` `gunReachU`, which owns the containment + range rule for
+   * server AND client alike) receives circles with no owner and no expiry, so
+   * it CANNOT lend a row someone else's light or a dead flare's. The membership
+   * test it then runs is the same centre-distance test markZoneEffects uses, so
+   * the water a flare licenses you to shoot into is exactly the water it burns
+   * and blinds in.
+   */
+  private ownLiveLitZones(ownerId: string): LitCircle[] {
+    const out: LitCircle[] = [];
+    for (const zone of this.litZones.values()) {
+      if (zone.ownerId !== ownerId || this.now >= zone.until) continue;
+      out.push({ x: zone.x, y: zone.y, r: zone.r });
+    }
+    return out;
   }
 
   /**
@@ -3695,14 +3669,14 @@ export class World {
    * revealed further along its flight — exactly AR3's "materializes slightly
    * ahead of the muzzle".
    */
-  private spawnBallistic(shell: ShellState): void {
+  private spawnBallistic(shell: ShellState, perShellFlash = false): void {
     // MUZZLE FLASH (Story 4.3) — emitted BEFORE the D1 pre-step below runs,
     // while (shell.x, shell.y) is still the TRUE MUZZLE (the pre-pre-step
     // origin). This is the Epic 1 D1 latency mask: the flash marks the hull
     // the shell left, while the back-dated shell materializes further along
     // its flight. NEVER compute a flash from a reveal point — that is the
     // exact anti-cheat leak the Story 1.5 review closed.
-    this.emitMuzzleFlash(shell);
+    this.emitMuzzleFlash(shell, perShellFlash);
     this.shells.set(shell.id, shell);
     this.pending.push(this.ballisticEvent(shell));
     if (shell.bornAt < this.now) this.preStepShell(shell);
@@ -3711,14 +3685,14 @@ export class World {
   /**
    * One `mz` per owner per tick for GUN-FAMILY spawns only (Story 4.3,
    * amendments 19/20): the wire-kind predicate `kind === 'shell'` selects gun
-   * + cannon + star shells and excludes 'torp' exactly — torpedoes are the
+   * + broadside + star shells and excludes 'torp' exactly — torpedoes are the
    * ratified quiet weapon, and no per-weapon flash table exists for a weapon
-   * identity to leak through. Mines and decoys never call spawnBallistic at
-   * all. The event carries position ONLY — no shooter id for anyone, including
-   * the shooter (amendment 19).
+   * identity to leak through. Mines never call spawnBallistic at all. The
+   * event carries position ONLY — no shooter id for anyone, including the
+   * shooter (amendment 19).
    *
    * THE DEDUPE IS PER TICK PER OWNER, NOT PER SALVO — say it precisely, because
-   * the two differ. Its headline job is collapsing a multi-barrel salvo's N
+   * the two differ. Its headline job is collapsing a multi-barrel gun salvo's N
    * shells into ONE flash (per-shell flashes would leak the barrel count, a
    * build tell the wire deliberately does not carry). But it ALSO collapses two
    * SEPARATE gun-family launches by the same ship in one 50ms tick — a gun
@@ -3727,11 +3701,22 @@ export class World {
    * hull at the same tick, so the second flash would draw on top of the first,
    * and emitting two would tell an observer the ship fired twice, which is a
    * weapon-activity tell amendment 19 keeps off this row.
+   *
+   * `perShellFlash` IS THE ONE DECLARED OPT-OUT, and it is the BROADSIDE
+   * BARRAGE's (Story 7-5 wave 2, R2.5 — Eric A2): every shell of a barrage
+   * emits its OWN mz, so a 5-turret broadside lights five muzzles along the
+   * engaged beam rather than one. That deliberately discloses the turret count
+   * to anyone inside the flash halo, which is the ruling: the barrage IS the
+   * spectacle, and the row still carries no shooter id, no hue and no weapon
+   * type. A per-shell spawn neither reads nor writes the per-owner set, so a
+   * gun click in the same tick still gets its own single flash.
    */
-  private emitMuzzleFlash(shell: ShellState): void {
+  private emitMuzzleFlash(shell: ShellState, perShellFlash: boolean): void {
     if (shell.kind !== 'shell') return; // gun family only — the wire kind IS the predicate
-    if (this.mzOwnersThisTick.has(shell.ownerId)) return; // per tick per owner (see above)
-    this.mzOwnersThisTick.add(shell.ownerId);
+    if (!perShellFlash) {
+      if (this.mzOwnersThisTick.has(shell.ownerId)) return; // per tick per owner (see above)
+      this.mzOwnersThisTick.add(shell.ownerId);
+    }
     this.pending.push({ k: 'mz', x: shell.x, y: shell.y });
   }
 
@@ -3754,7 +3739,7 @@ export class World {
    * mutual fire can never depend on ships-map iteration order.
    */
   private preStepShell(shell: ShellState): void {
-    const hulls = this.aliveHulls();
+    const hulls = this.withBuoyTargets(this.aliveHulls()); // buoys intercept back-dated shots too
     let remainingMs = this.now - shell.bornAt;
     while (remainingMs > 0) {
       const dtMs = Math.min(remainingMs, CONFIG.tick.simDtMs);
@@ -3766,31 +3751,8 @@ export class World {
         dt: dtMs / 1000,
         mapRadius: this.map.radius,
       });
-      if (outcome.kind === 'pierced') {
-        this.rollBackPierce(shell, outcome.hits);
-        return;
-      }
       if (outcome.kind !== 'travel') return; // terminal: defer to next tick's sweep
     }
-  }
-
-  /**
-   * A back-dated AP shell pierced during its pre-step (Story 2.8): pre-stepping
-   * NEVER resolves damage (the fireControl no-damage invariant above), but
-   * stepPierce already recorded the hit ids — which would silently immunize
-   * those hulls when the next tick's sweep re-steps. UNDO the pierce: pop this
-   * call's hits off the shell's pierce bookkeeping and park the shell AT the
-   * FIRST pierce point, so next tick's sweep re-pierces there against
-   * then-live hulls and resolves normally (the same one-tick-deferred
-   * semantics as every other pre-step terminal). The shell forfeits at most
-   * one tick's already-decremented distLeft — range only ever shortens.
-   */
-  private rollBackPierce(shell: ShellState, hits: readonly { x: number; y: number }[]): void {
-    const pierce = shell.pierce!;
-    pierce.hitIds.length -= hits.length; // this call's ids are the trailing entries
-    pierce.remaining += hits.length;
-    shell.x = hits[0].x;
-    shell.y = hits[0].y;
   }
 
   /** Store a newly-dropped mine at an already-validated point. Per-player cap =
@@ -3803,6 +3765,169 @@ export class World {
    *  armDelay. Caps / oldest-eviction untouched. */
   private spawnMine(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
     addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), owner.stats.mine.maxLive);
+  }
+
+  /** Store a newly-placed RADAR BUOY at an already-validated point (Story 7-5
+   *  wave 2, R2.7) — the spawnMine sibling. The buoy's jamSeed comes off the
+   *  server-private jam stream at this one site, so a buoy's whole fake
+   *  history is fixed at drop and reproducible from (jamSeed, epoch). */
+  private spawnBuoy(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
+    this.buoySeq += 1;
+    addBuoy(this.buoys, owner, x, y, droppedAt, `b${this.buoySeq}`, this.jamRng.int(0, 0xffffffff));
+  }
+
+  /**
+   * Per-tick RADAR BUOY driving (Story 7-5 wave 2): natural expiry, the
+   * buoy's OWN sweep advance (+ the jamming epoch/fake refresh on each
+   * completed revolution), and the GUN BUOY's auto-fire. Deletion during
+   * iteration is safe (Map iteration tolerates delete of the current entry).
+   */
+  private tickBuoys(dtMs: number): void {
+    for (const buoy of this.buoys.values()) {
+      if (this.now >= buoy.until) {
+        this.buoys.delete(buoy.id); // silent expiry — no XP, no event (R2.7)
+        continue;
+      }
+      this.advanceBuoySweep(buoy, dtMs);
+      this.fireBuoyGun(buoy, dtMs);
+    }
+  }
+
+  /**
+   * Advance one buoy's OWN sweep — 15 RPM, FIXED: R2.20 replaced the sweep
+   * card with BUOY I-IV's DURATION ladder, so nothing in the catalog writes
+   * `radarBuoy.sweepRpm` and every buoy turns at the CONFIG rate. The rate is
+   * still read LIVE off the owner's effective stats each tick (the
+   * mine-doctrine precedent), so a future sweep card would speed a buoy
+   * already on the water without touching this; a vacated owner falls back to
+   * CONFIG. Frozen with every other radar while `radarEnabled` is false
+   * (the advanceSweeps rule — prev === cur means a zero-width paint window,
+   * and perception's explicit radar gate backstops it anyway). Each completed
+   * revolution is one JAMMING EPOCH: the fake set re-scatters exactly then
+   * (R2.11 "re-scattered each sweep"), deterministically from (jamSeed,
+   * epoch) — see scatterJamFakes' draw-order contract.
+   */
+  private advanceBuoySweep(buoy: BuoyState, dtMs: number): void {
+    if (!this.radarEnabled) return;
+    const rpm = this.ships.get(buoy.ownerId)?.stats.radarBuoy.sweepRpm ?? CONFIG.radarBuoy.sweepRpm;
+    const delta = (TAU * dtMs) / (60000 / rpm);
+    buoy.prevSweepAngle = buoy.sweepAngle;
+    buoy.sweepAngle = wrapPositive(buoy.sweepAngle + delta);
+    buoy.sweepTotalRad += delta;
+    const epoch = Math.floor(buoy.sweepTotalRad / TAU);
+    if (epoch !== buoy.jamEpoch) {
+      buoy.jamEpoch = epoch;
+      buoy.jamFakes = scatterJamFakes(buoy.jamSeed, epoch, buoy.x, buoy.y, buoy.radarRange);
+    }
+  }
+
+  /**
+   * THE GUN BUOY (R2.21, Eric ruling 2026-08-19 — REVERSES R2.10's
+   * aggro-gated hostile definition for this weapon ALONE): *"It has its own
+   * radar and is autonomous, so when it has the gun upgrade, it should target
+   * basically anything it sees that isn't the owner of the buoy. Closest
+   * target proximally to the buoy."* Under the owner's `radarBuoy.gun` verb:
+   * 5 damage on a 5000ms cooldown at the NEAREST-TO-THE-BUOY ship its OWN
+   * RADAR can see — enemy captains, bots, and neutral fleet drones alike, NO
+   * aggro test (R2.13's aggro-gated hostile stays CAPTIVE-MINE-ONLY; the two
+   * weapons deliberately differ). The gun is bounded by the buoy's own
+   * PERCEPTION, not a bare distance check: within its flat radar set AND
+   * radar-visible from the buoy (visibilityTo > 0 — a real radar never shoots
+   * what terrain hides from it; the cycle-99 lesson). Excluded: the OWNER
+   * (and, structurally, every buoy — the scan iterates ships only, so buoys
+   * never duel: a defaulted call, flagged to Eric). Damage routes through the
+   * ordinary hitShip choke with byId = the OWNER (kill credit, feed line and
+   * XP pay the captain exactly as a mine kill does) and AGGROS NOBODY
+   * (`fromMine: true` — R2.21a: the mine exception's own rationale verbatim,
+   * "the layer may be dead or across the map, so there is nothing to chase";
+   * the owner must not inherit fights an autonomous turret picked). The
+   * cooldown holds READY at 0 while nothing is in reach and arms on a shot.
+   */
+  private fireBuoyGun(buoy: BuoyState, dtMs: number): void {
+    const owner = this.ships.get(buoy.ownerId);
+    if (owner === undefined || !owner.stats.radarBuoy.gun) return;
+    buoy.gunReloadMsLeft = Math.max(0, buoy.gunReloadMsLeft - dtMs);
+    if (buoy.gunReloadMsLeft > 0) return;
+    const target = this.nearestBuoyTarget(buoy);
+    if (target === null) return;
+    // THE BUOY'S GUN FLASHES LIKE ANY OTHER GUN (Eric ruling 2026-08-19). It
+    // was silent as first built, because emitMuzzleFlash is keyed off a
+    // ShellState and this turret is hitscan — it never spawns one, so it never
+    // reached that path. That was an omission, not a stealth property: a gun
+    // fires, a gun flashes, and an observer inside the halo is owed the cue.
+    //
+    // Emitted RAW rather than through emitMuzzleFlash for two reasons. There is
+    // no shell to hand it, and its per-tick dedupe is keyed on OWNER — sharing
+    // that key would let a buoy shot and its owner's own gun click in the same
+    // tick collapse into ONE flash drawn at only one of two DIFFERENT places,
+    // which would put a flash where nothing fired. A buoy fires at most once
+    // per gunReloadMs, so it needs no dedupe of its own.
+    //
+    // The row's contract is unchanged and carries the disclosure honestly: {k,x,y}
+    // with no shooter id, no hue, no weapon type. An observer inside the 5/8 halo
+    // learns "something fired there" — the buoy's position, which its own radar
+    // profile already discloses to anyone in range (R2.9) — and nothing more.
+    this.pending.push({ k: 'mz', x: buoy.x, y: buoy.y });
+    this.hitShip(target, owner.stats.radarBuoy.gunDamage, buoy.ownerId, true);
+    buoy.gunReloadMsLeft = owner.stats.radarBuoy.gunReloadMs;
+  }
+
+  /** The gun buoy's target pick (R2.21): the afloat non-owner ship NEAREST TO
+   *  THE BUOY within its flat radar set and radar-visible from the buoy —
+   *  role-blind (captain, bot, or neutral drone alike). */
+  private nearestBuoyTarget(buoy: BuoyState): ShipRecord | null {
+    let best: ShipRecord | null = null;
+    let bestD2 = buoy.radarRange * buoy.radarRange;
+    for (const ship of this.ships.values()) {
+      if (ship.id === buoy.ownerId || !isAfloat(ship.lifecycle)) continue;
+      const dx = ship.state.x - buoy.x;
+      const dy = ship.state.y - buoy.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > bestD2) continue;
+      if (visibilityTo(this.map.heightRaster, buoy.x, buoy.y, ship.state.x, ship.state.y) <= 0) continue;
+      best = ship;
+      bestD2 = d2;
+    }
+    return best;
+  }
+
+  /**
+   * The ballistic/blast target list: alive hulls PLUS every live buoy's
+   * frozen square silhouette (Story 7-5 wave 2, R2.7 — "destructible by
+   * anything that damages a ship" is delivered by making the buoy an ordinary
+   * collision subject on the ordnance paths: shell contact/interception,
+   * bursts, torpedo hits, and mine/captive-fish blasts). DELIBERATELY NOT fed
+   * to checkMineTriggers: a buoy is not a hull and must not TRIP a mine —
+   * that would be a new mechanic (remote minefield clearing) nobody ruled on;
+   * mine BLASTS still damage it because detonation resolution takes this
+   * merged list. Allocation-free when no buoy is live (the common case).
+   */
+  private withBuoyTargets(hulls: HullTarget[]): HullTarget[] {
+    if (this.buoys.size === 0) return hulls;
+    const merged = hulls.slice();
+    for (const buoy of this.buoys.values()) merged.push(buoyTarget(buoy));
+    return merged;
+  }
+
+  /**
+   * Apply weapon damage to a BUOY victim (the hitShip sibling for the one
+   * non-ship damageable): honors the same phase guard (target practice never
+   * destroys a buoy), and a destroyed buoy is simply DELETED — NO XP, NO
+   * kill-feed line, NO event of any kind (R2.7; the client reads the despawn
+   * from the buoys list emptying, exactly as it reads expiry). Returns true
+   * iff `victimId` named a live buoy (the caller's "victim resolved" answer —
+   * a connected shot on a buoy IS a Hit Call: `hc` means "something of yours
+   * connected", and the decoy's no-Hit-Call oracle died with the decoy).
+   * Deliberately NO damageDealt credit and NO dmg event: the stat and the
+   * channel are about hulls, and no wire shape carries buoy hp at all.
+   */
+  private hitBuoy(victimId: string, amount: number): boolean {
+    const buoy = this.buoys.get(victimId);
+    if (buoy === undefined) return false;
+    if (!this.damageEnabled) return true; // resolved, but target practice breaks nothing
+    buoy.hp -= amount;
+    if (buoy.hp <= 0) this.buoys.delete(buoy.id);
+    return true;
   }
 
   private nextBallisticId(): string {
@@ -3818,11 +3943,6 @@ export class World {
   private nextLitZoneId(): string {
     this.litZoneSeq += 1;
     return `z${this.litZoneSeq}`;
-  }
-
-  private nextDecoyId(): string {
-    this.decoySeq += 1;
-    return `d${this.decoySeq}`;
   }
 
   /**

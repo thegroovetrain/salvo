@@ -137,10 +137,13 @@ export function lineBlocked(a: Vec2, b: Vec2, islands: readonly Island[]): boole
  *  track — which is honest: nothing on the wire linked them. */
 const ANON_ASSOC_U = CONFIG.vision.radarCellU * 6;
 
-/** u — how near a Hit Call must land to be credited to a track. The cannon's
- *  30u burst is the widest gun-family blast, so twice it covers "that was the
- *  thing I was shooting at" without crediting a hull a map away. */
-const HIT_ASSOC_U = CONFIG.cannon.burstRadius * 2;
+/** u — how near a Hit Call must land to be credited to a track. Twice the
+ *  WIDEST gun-family blast covers "that was the thing I was shooting at"
+ *  without crediting a hull a map away. Derived from the max rather than a
+ *  named weapon (it was the cannon's 30u until Story 7-5 wave 2 deleted the
+ *  cannon; the broadside that replaced it bursts at the gun's 15u), so a
+ *  retune of either blast moves this with it. */
+const HIT_ASSOC_U = Math.max(CONFIG.gun.burstRadius, CONFIG.broadside.burstRadius) * 2;
 
 /** Hit Calls that read as "crippled" (the damage term saturates here). A
  *  severity-free count is all the wire gives; three connections is a real

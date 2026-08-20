@@ -51,14 +51,14 @@ import type { Smoke } from '../render/smoke.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
-import type { Decoys } from '../render/decoys.js';
+import type { Buoys, OwnBuoyState } from '../render/buoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
 import { fireTone, fitDetune, fitTone, worldCue, type ToneId, type WorldCue } from '../audio/tones.js';
-import { pierceOrder, type OwnFire } from '../render/projectiles.js';
+import type { OwnFire } from '../render/projectiles.js';
 import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
 
 /**
@@ -66,7 +66,7 @@ import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.
  * the longest class's, since mounts sit inside the hull footprint) behind
  * `nearOwnShip`. It is what makes a ballistic reveal on our own bow readable as
  * OUR shot — the own-fire correlation's first gate (see the `ownFireWeapon` dep
- * note), which picks the own cannon's heavy flash and plays the own-fire cue.
+ * note), which picks the own broadside's heavy flash and plays the own-fire cue.
  *
  * STORY 4.3 RETIRED ITS OTHER USE. Until now the same threshold also drove a
  * `nearVisibleShip` test that decided whether to draw a muzzle flash at all: a
@@ -110,9 +110,9 @@ export interface RoomBindingDeps {
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
   litZones: LitZones;
-  /** Decoy-buoy markers (render/decoys.ts) — synced contact-like from
-   *  FrameMsg.decoys every tick, exactly like mines/litZones (Story 1.8). */
-  decoys: Decoys;
+  /** Buoy markers (render/buoys.ts) — synced contact-like from
+   *  FrameMsg.buoys every tick, exactly like mines/litZones (Story 1.8). */
+  buoys: Buoys;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
@@ -132,7 +132,7 @@ export interface RoomBindingDeps {
   /**
    * THE OWN-FIRE CORRELATION (Story 2.9). CLAIMS the click-time own-fire latch
    * (sim/ownFire.ts): which weapon the local captain fired a moment ago —
-   * 'gun' | 'cannon' | 'torpedo' | 'starShells' — or null if we did not just
+   * 'gun' | 'broadside' | 'torpedo' | 'starShells' — or null if we did not just
    * shoot. main.ts latches it at CLICK time (the primed slot's equipment id, on
    * a click its own prediction says will fire) and expires it after a short
    * window, so an own reveal materializing on our own bow can be attributed to
@@ -169,6 +169,13 @@ export interface RoomBindingDeps {
    * before own stats exist. A function, same reason as ownBurstRadius.
    */
   ownMineRings: (t: number) => OwnMineRings | undefined;
+  /**
+   * The OWNER's live radar-buoy stats for the own-buoy coverage ring + life
+   * arc, stamped with the FRAME time `t` (`BuoyView.until` is a server-clock
+   * value, so the life fraction must be measured against server timestamps —
+   * the ownMineRings rule, same reason). Undefined before own stats exist.
+   */
+  ownBuoy: (t: number) => OwnBuoyState | undefined;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
@@ -238,7 +245,7 @@ export interface RoomBindingDeps {
    */
   colors: (id: string) => number | null;
   /**
-   * Ordnance-marker tint (Story 1.12): a mine/decoy/lit-zone firer id (`by`) →
+   * Ordnance-marker tint (Story 1.12): a mine/buoy/lit-zone firer id (`by`) →
    * that pilot's BRIGHT personal hue (the SAME hue for every observer), or null
    * while the roster hasn't synced the firer (or the firer left). The renderer
    * paints the amber fallback for a null and retries per frame until it resolves.
@@ -709,7 +716,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   }
   deps.contacts.pushFrame(f.t, f.contacts);
   // Contact-like reconciles. Story 1.12: the marker tint is the FIRER's personal
-  // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
+  // hue (MineView/BuoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
   // every observer; the own/enemy discriminator (`own`) now only drives the fog
   // layer + brightness inside each renderer.
   // Own mines carry their owner-private radius rings (always-on, our stats,
@@ -721,9 +728,9 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
   deps.litZones.sync(litZones, deps.ordnanceHue);
-  // Decoy buoys, same reconcile. Frames OMIT the key when the observer sees no
+  // Buoys, same reconcile. Frames OMIT the key when the observer sees no
   // buoys, so treat a missing key as an empty list.
-  deps.decoys.sync(f.decoys ?? [], deps.ordnanceHue);
+  deps.buoys.sync(f.buoys ?? [], deps.ordnanceHue, deps.ownBuoy(f.t));
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
@@ -1124,7 +1131,7 @@ function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s:
  * — and no identity of any kind, because the row itself has none.
  *
  * OWN FIRE IS SUPPRESSED, on the same `nearOwnShip` idiom the own-fire
- * correlation already uses. Our own gun sounded `fireGun`/`fireCannon` at the
+ * correlation already uses. Our own gun sounded `fireGun`/`fireBroadside` at the
  * instant we fired it (handleShell); layering the distant-report cue on top
  * would double-sound one shot. Hull proximity is the only discriminator
  * available AND the correct one — `mz` deliberately carries no shooter id
@@ -1327,23 +1334,29 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
 }
 
 /**
- * A gun/cannon shell was revealed. For the SHOOTER, reveal position == launch
- * position == our own hull, so "near own ship" is a reliable (if not airtight)
- * own-shot signal — the same heuristic the muzzle flash already uses. Story 2.9
- * composes it with the click-time weapon latch (deps.ownFireWeapon) so an own
- * CANNON shot lands with the weight it should have had all along: its own heavy
- * report (the `fireCannon` tone, which until now no callsite ever played), a
- * bigger muzzle flash, and a heavier shell in flight, plus the doctrine look
- * for whichever cannon exclusive we hold. An onlooker's side of the event is
- * BYTE-IDENTICAL to before — the wire cannot say "cannon" and must not.
+ * A gun/broadside/star shell was revealed. For the SHOOTER, reveal position ==
+ * launch position == our own hull, so "near own ship" is a reliable (if not
+ * airtight) own-shot signal — the same heuristic the muzzle flash already uses.
+ * Story 2.9 composes it with the click-time weapon latch (deps.ownFireWeapon) so
+ * an own BROADSIDE shot lands with the weight it should have: its own heavy
+ * report (the `fireBroadside` tone), a bigger muzzle flash, and a heavier shell
+ * in flight. An onlooker's side of the event is BYTE-IDENTICAL to before — the
+ * wire cannot say which weapon fired and must not.
+ *
+ * A BARRAGE IS SEVERAL SHELLS AND ONLY THE FIRST WEARS THE CLAIM (Story 7-5
+ * wave 2). The latch is one-shot by design — see shellClaim — so the second
+ * through fifth shells of a broadside take the ratified 'gun' fallback look and
+ * crack. That is the shipped multi-barrel behaviour (BARREL had it first), and
+ * it is deliberately NOT widened here: a claim that survived several reveals is
+ * exactly the misinformation the one-shot latch exists to prevent.
  *
  * STORY 4.3 TOOK THE UNIVERSAL FLASH AWAY FROM HERE. The plain `muzzle` is now
  * spawned by the server's `mz` row (handleGunneryEvent), which knows the TRUE
  * muzzle and does not have to infer a launch from a reveal. What stays is the
- * own cannon's `muzzleHeavy` — extra weight the wire deliberately cannot carry
- * (amendment 19 forbids a heavier flash for the cannon, precisely because it
- * would put a class tell on a public row). For our own cannon shot BOTH land on
- * our hull, layered: the universal flash the whole ocean can see, and our own
+ * own broadside's `muzzleHeavy` — extra weight the wire deliberately cannot
+ * carry (amendment 19 forbids a heavier flash for a heavy weapon, precisely
+ * because it would put a class tell on a public row). For our own shot BOTH land
+ * on our hull, layered: the universal flash the whole ocean can see, and our own
  * heavier report on top of it. That is intended and is NOT deduped — they are
  * two different statements about the same shot, and correlating `mz` back to a
  * shell is impossible by design (it carries no id at all).
@@ -1355,24 +1368,24 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   const claim = near ? shellClaim(deps) : null;
   const own = near ? ownShellWeapon(claim) : null;
   deps.projectiles.onShell(e, own, claim);
-  if (own === 'cannon') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
+  if (own === 'broadside') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
   if (own) deps.audio.play(fireTone(shellFireId(own)));
 }
 
 /**
  * Pure-ish: the GENUINE claim behind an own-looking SHELL reveal, or null. The
  * latched click intent counts only when it agrees with the reveal's KIND — a
- * shell can be the gun, the cannon or a star shell (all three ride the `shell`
- * kind), and a standing TORPEDO claim cannot dress one.
+ * shell can be the gun, the broadside or a star shell (all three ride the
+ * `shell` kind), and a standing TORPEDO claim cannot dress one.
  *
- * Never guesses upward — the cannon's weight (its heavy muzzle, its heavy
- * report, its doctrine look) is spent ONLY against a live claim, so a second
+ * Never guesses upward — the broadside's weight (its heavy muzzle, its heavy
+ * report, its heavier track) is spent ONLY against a live claim, so a second
  * shell inside one 400ms window, or an enemy shell revealed on our bow, can
  * never wear it.
  */
 function shellClaim(deps: RoomBindingDeps): OwnFire {
   const fired = deps.ownFireWeapon();
-  return fired === 'cannon' || fired === 'gun' || fired === 'starShells' ? fired : null;
+  return fired === 'broadside' || fired === 'gun' || fired === 'starShells' ? fired : null;
 }
 
 /**
@@ -1394,8 +1407,8 @@ function ownShellWeapon(claim: OwnFire): OwnFire {
 /** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
  *  earns its own launch report (Story 2.9: every fitted line is felt); anything
  *  the claim could not name falls to the gun crack. */
-function shellFireId(own: OwnFire): 'gun' | 'cannon' | 'starShells' {
-  if (own === 'cannon') return 'cannon';
+function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' {
+  if (own === 'broadside') return 'broadside';
   return own === 'starShells' ? 'starShells' : 'gun';
 }
 
@@ -1474,11 +1487,10 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
     splashTone(e, s.worldTones.splash, t, deps, s);
     return;
   }
-  if (pierceOrder(e.id ?? '') !== null) deps.effects.spawnEffect('pierce', e.x, e.y);
-  else if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
-  // Sounded off the MARK, not off the claim — a pierce ring and a spark are both
-  // ordnance connecting out there, and a boom whose spark was deduped away
-  // against a same-frame Hit Call still happened.
+  if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
+  // Sounded off the MARK, not off the claim — a spark is ordnance connecting out
+  // there, and a boom whose spark was deduped away against a same-frame Hit Call
+  // still happened.
   //
   // BUT NEVER WHEN THE HULL IS OURS (review gate, amendment 37). Our own damage
   // is a PER-FRAME AGGREGATE — "one shake at the summed magnitude, one cue"
@@ -1992,7 +2004,12 @@ export function readsAsBurn(amount: number, sinceBurningMs: number): boolean {
 }
 
 /**
- * Pure: is `p` standing in some OTHER captain's burning (INCENDIARY) zone?
+ * Pure: is `p` standing in some OTHER captain's burning (PHOSPHOR) zone?
+ *
+ * Reads the `phos` flag ALONE (Story 7-5 wave 1): the verbs stack, so a zone
+ * that also carries `daz` is still a burning zone and must still classify — a
+ * `mode === 'incendiary'` style equality read would have dropped exactly the
+ * both-verb case.
  *
  * Deliberately does NOT re-check the zone's expiry: a zone that is still in the
  * frame's list is still live by construction (the server rebuilds that list per
@@ -2005,7 +2022,7 @@ export function inEnemyBurningZone(
   selfId: string,
 ): boolean {
   for (const z of zones) {
-    if (z.mode !== 'incendiary' || z.by === selfId) continue;
+    if (z.phos !== true || z.by === selfId) continue;
     const dx = p.x - z.x;
     const dy = p.y - z.y;
     if (dx * dx + dy * dy <= z.r * z.r) return true;

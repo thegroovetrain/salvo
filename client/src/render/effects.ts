@@ -26,7 +26,6 @@ export type EffectKind =
   | 'muzzle'
   | 'muzzleHeavy'
   | 'spark'
-  | 'pierce'
   | 'splash'
   | 'sink'
   | 'torpwake'
@@ -36,14 +35,17 @@ export type EffectKind =
 /**
  * Pure: is this one-shot pure JUICE (a decorative flash) rather than a marker
  * that carries information? Exactly ONE kind is, now: `muzzleHeavy`, the own
- * cannon's extra weight — it only ever draws on our own hull, on top of the
+ * broadside's extra weight — it only ever draws on our own hull, on top of the
  * universal flash, and says nothing the universal flash did not already say.
  * Everything else is a marker: splash / sink / burst rings say WHERE something
- * happened, the torpedo wake says where a fish ran, and the `pierce` ring says a
- * shell PUNCHED THROUGH a hull and is still flying (Story 2.9: the
- * ARMOR-PIERCING read, the only thing on screen distinguishing a pierce from a
- * terminal hit). The juice kinds' peak alpha is scaled by the accessibility
- * motion level (Story 2.3): halved at `reduced`, suppressed at `off`.
+ * happened, and the torpedo wake says where a fish ran. The juice kinds' peak
+ * alpha is scaled by the accessibility motion level (Story 2.3): halved at
+ * `reduced`, suppressed at `off`.
+ *
+ * THE `pierce` RING IS RETIRED (Story 7-5 wave 2, R2.6): ARMOR-PIERCING was its
+ * only source, and with the cannon deleted no shell punches through a hull any
+ * more. Removed end to end — kind, spec and its one spawn site — rather than
+ * left as a spec nothing can reach.
  *
  * STORY 4.3 PROMOTED `muzzle` AND `spark` OUT OF JUICE. They were juice while
  * they were client-side GUESSES about things you could already see: a flash
@@ -241,19 +243,12 @@ const FB = CLIENT_CONFIG.flashBudget;
 
 const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   muzzle: { type: 'dot', life: 0.12, color: C.muzzle, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
-  // Story 2.9 — the OWN cannon's muzzle: the same flash with real weight behind
-  // it (bigger, and it hangs a beat longer). Own-side only, because the wire's
-  // ballistic shape deliberately cannot say "cannon" to an onlooker.
+  // Story 2.9 — the OWN broadside's muzzle: the same flash with real weight
+  // behind it (bigger, and it hangs a beat longer). Own-side only, because the
+  // wire's ballistic shape deliberately cannot name the weapon to an onlooker.
   muzzleHeavy: { type: 'dot', life: 0.18, color: C.muzzle, r0: 9, r1: 1.5, width: 0, alpha: 1, additive: true },
   // spark = the hit flash at a shell-vs-ship impact → Hit Call bloom.
   spark: { type: 'dot', life: 0.2, color: C.hitBloom, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },
-  // Story 2.9 — ARMOR-PIERCING punch-through: a ring that CONTRACTS onto the
-  // hull it just went through. Every other ring in the game expands (splash,
-  // burst, sink), so collapsing inward is unmistakably a different event at a
-  // glance — a shell that did NOT stop here. Damage-marker crimson (the
-  // existing damage register; no new reds), and NOT juice: it is the whole
-  // enemy-side AP tell, so it holds at motion=off.
-  pierce: { type: 'ring', life: 0.28, color: C.damageMarker, r0: 20, r1: 3, width: 2, alpha: 0.9, additive: true },
   // Miss splash ring (replaces the retired blip-green double-duty — see DESIGN.md).
   splash: { type: 'ring', life: 0.5, color: C.splash, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
   // Gun-shell burst at the clicked point: a bright amber ring expanding to the
@@ -652,8 +647,9 @@ export class Effects {
    * age buckets are stamped in — not `performance.now()`. Two clocks here would
    * age the water differently in the two renderings.
    *
-   * A decoy needs no mention and gets none (amendment 201): it is frozen at its
-   * drop pose, never travels one sample cadence, and therefore lays nothing.
+   * A radar buoy needs no mention and gets none (amendment 201, written of the
+   * decoy it replaced): it is anchored at its drop point, never travels one
+   * sample cadence, and therefore lays nothing.
    */
   update(dt: number, nowMs: number, hulls: readonly WakeHull[] = []): void {
     this.frameId++; // the coalescer's frame boundary (see `frameId`)
@@ -671,7 +667,7 @@ export class Effects {
       // FOAM FOLLOWS THE SEGMENT, NOT THE SAMPLE. The first sample onto an empty
       // ribbon always stores (there is nothing to measure a cadence against), so
       // spawning on `stored` alone would put one dot under a hull that has never
-      // moved — a decoy, or a ship at anchor. Water is only disturbed once a
+      // moved — a radar buoy, or a ship at anchor. Water is only disturbed once a
       // hull has actually travelled a cadence, which is exactly `count > 1`, and
       // it is the same predicate the scope uses (one segment, one stamp).
       const stored = this.wakeSources.observe(h, nowMs);

@@ -7,10 +7,12 @@
 // litDurationMs} zone at the burst point OR the interception stop point
 // (World.resolveShell) — firer-only truesight parity inside it lives in
 // signals.ts/perception.ts, never here. Lit numbers come from the OWNER's
-// effective stats (the SLOW-BURN/WIDE BURST ladders); the INCENDIARY doctrine
-// (stats.starShells.mode) shrinks the zone by CONFIG.starShells.
+// effective stats (the SLOW-BURN ladder); the PHOSPHOR verb
+// (stats.starShells.phosphor) shrinks the zone by CONFIG.starShells.
 // incendiaryRadiusFactor — its DoT, and DAZZLE's sight reduction, are World/
-// perception concerns keyed off the zone's mode, never this row's. Same fire
+// perception concerns keyed off the zone's own verb flags, never this row's.
+// The two verbs are INDEPENDENT as of Story 7-5 wave 1: a zone may be BOTH
+// phosphor and dazzle, and only the phosphor half moves the radius. Same fire
 // flow as the gun (360°, clamp at the system's effective range,
 // muzzle-or-target spawn, makeBallistic with D1 fireT); range = the gun's
 // BASE range (stats.starShells.rangeU, radar-derived). Pure over a
@@ -28,7 +30,7 @@ import { burstPoint, muzzleOrTarget } from './guns.js';
  * Star-shell fire control against one slot pool: 0 or 1 flare. The ONLY
  * denial is an empty pool ('no-ammo' — the 20s cooldown); there is no arc.
  * The flare's hit rule IS the lit circle: burstRadius = the effective lit
- * radius (× the incendiary shrink when that doctrine is held), so an
+ * radius (× the phosphor shrink when that verb is held), so an
  * interceptor already inside the would-be lit circle still bursts the flare
  * at its target (zone where aimed); damage is HARDCODED ZERO everywhere
  * (amendment 39).
@@ -45,8 +47,7 @@ function fireStarShell(
   const dir = ship.input.aim;
   const target = burstPoint(ship, mapRadius, stars.rangeU);
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.starShells.shellRadius);
-  const litRadius =
-    stars.litRadius * (stars.mode === 'incendiary' ? CONFIG.starShells.incendiaryRadiusFactor : 1);
+  const litRadius = stars.litRadius * (stars.phosphor ? CONFIG.starShells.incendiaryRadiusFactor : 1);
   const shell = makeBallistic(mkId(), ship, dir, now, {
     speed: CONFIG.starShells.shellSpeed,
     range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.starShells.shellRadius,

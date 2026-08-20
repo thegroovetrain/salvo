@@ -59,6 +59,10 @@ export interface BatchAggregate {
   timeToNBoons: { n: number; reachRate: number; timeS: Summary }[];
   exclusiveOffered: ReachAggregate;
   exclusiveFitted: ReachAggregate;
+  /** Story 7-5: the DOCTRINE reaches. The `exclusive` rarity is extinct (R2.6),
+   *  so the two rows above are structurally 0% and these replace them. */
+  doctrineOffered: ReachAggregate;
+  doctrineFitted: ReachAggregate;
   levelCurve: { tS: number; n: number; mean: number; p50: number }[];
 }
 
@@ -161,6 +165,8 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     timeToNBoons: aggregateBoonTimes(captains),
     exclusiveOffered: reachAggregate(captains.map((c) => c.firstExclusiveOffered)),
     exclusiveFitted: reachAggregate(captains.map((c) => c.firstExclusiveFitted)),
+    doctrineOffered: reachAggregate(captains.map((c) => c.firstDoctrineOffered)),
+    doctrineFitted: reachAggregate(captains.map((c) => c.firstDoctrineFitted)),
     levelCurve: aggregateLevelCurve(captains),
   };
 }
@@ -215,6 +221,8 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
   lines.push(`copy-capped lines per captain: ${fmtSummary(agg.cappedLines)} | captains with >=1 cap: ${pct(agg.anyCapRate)}`);
   lines.push(reachLine('first exclusive OFFERED', agg.exclusiveOffered));
   lines.push(reachLine('first exclusive FITTED ', agg.exclusiveFitted));
+  lines.push(reachLine('first doctrine OFFERED ', agg.doctrineOffered));
+  lines.push(reachLine('first doctrine FITTED  ', agg.doctrineFitted));
   lines.push('time-to-N-boons (sim-s):');
   for (const row of agg.timeToNBoons) {
     lines.push(`  N=${String(row.n).padStart(2)} reach=${pct(row.reachRate).padStart(6)} ${fmtSummary(row.timeS)}`);

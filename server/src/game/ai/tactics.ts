@@ -103,6 +103,7 @@ import {
   inArc,
   nearestCoastPoint,
   sectorArcFor,
+  twinSectorArcFor,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
@@ -136,6 +137,9 @@ const TAU = Math.PI * 2;
  *  own arc from CONFIG could drift from the row that judges its shot. */
 const BOW_SECTOR = sectorArcFor('torpedo');
 const REAR_SECTOR = sectorArcFor('mine');
+/** The BROADSIDE BARRAGE's two mirrored beam sectors (Story 7-5 wave 2, R2.1),
+ *  resolved from the same shared source the equipment row enforces with. */
+const BEAM_SECTORS = twinSectorArcFor('broadside');
 
 /** Proportional gain turning heading error into rudder (the fleet AI's). */
 const RUDDER_GAIN = 2;
@@ -238,7 +242,7 @@ function slotOf(self: BotSelf, id: EquipmentId): number {
 /**
  * The slot fitting `id` IF it can be used this tick, else -1. Readiness is
  * `n > 0` — the pool, which is exactly what `consume()` tests. For every
- * one-round pool in the game (gun, cannon, star shells, torpedo, boost, decoy)
+ * one-round pool in the game (gun, broadside, star shells, torpedo, boost)
  * that is identically "not reloading"; the mine's 2-round rack is the one
  * place the two differ, and there a bot may legitimately drop its second mine
  * while the first round is still rebuilding — refusing would idle the rack for
@@ -330,46 +334,55 @@ function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
 }
 
 /**
- * A gun-family shot (gun / cannon): 360°, clamped range, no arc to miss — and
- * a coastline that must not be in the way. `arcing` is the PLUNGING FIRE
- * exemption: that doctrine overflies terrain and hulls alike (`stepShell`
- * skips en-route collision entirely for it), so gating it would delete the
- * card's whole point.
+ * A gun-family shot (gun / broadside): aimed to a clicked point at a clamped
+ * range, with a coastline that must not be in the way (the cycle-99 fix — a
+ * bot may not fire into rock). THE ARCING EXEMPTION IS GONE with PLUNGING
+ * FIRE: no shot in the game overflies terrain any more, so every gun-family
+ * shot is line-of-fire gated.
  */
 function burstShot(
   self: BotSelf,
   mind: BotMind,
   sit: BotSituation,
   t: BotTrack,
-  id: 'gun' | 'cannon',
-  spec: { rangeU: number; arcing: boolean },
+  id: 'gun' | 'broadside',
+  rangeU: number,
 ): Shot | null {
   const slot = readySlot(self, id);
   if (slot < 0) return null;
   const p = aimPoint(mind, sit, t, CONFIG[id].shellSpeed);
   const d = Math.hypot(p.x - sit.x, p.y - sit.y);
-  if (d > spec.rangeU) return null;
-  if (!spec.arcing && !shotReaches(self, sit, p)) return null;
+  if (d > rangeU) return null;
+  if (!shotReaches(self, sit, p)) return null;
   return { aim: bearing(self.state, p), aimDist: d, slot };
 }
 
 /** The gun — every bot's default weapon and the only one a fleet-clearing
- *  `forager` needs (3/4/5 rounds clear a fleet hull by size). It has no
- *  doctrine that arcs, so terrain always stops it. */
+ *  `forager` needs (3/4/5 rounds clear a fleet hull by size). */
 function gunShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
-  return burstShot(self, mind, sit, t, 'gun', { rangeU: sit.stats.gun.rangeU, arcing: false });
+  return burstShot(self, mind, sit, t, 'gun', sit.stats.gun.rangeU);
 }
 
 /**
- * The cannon (Battleship). Held for a plot worth 45 seconds of reload: a LIVE
- * contact with a disclosed course, so the lead solution is real. An unled
- * ghost gets the gun instead. PLUNGING FIRE is the one shot in the game that
- * may be taken through a headland.
+ * The BROADSIDE BARRAGE (Battleship, Story 7-5 wave 2). Held for a plot worth
+ * 30 seconds of reload: a LIVE contact with a disclosed course, so the lead
+ * solution is real. An unled ghost gets the gun instead.
+ *
+ * THE BEAM ARC IS TESTED FIRST, exactly as the equipment row tests it (the
+ * torpedo precedent): a click in the bow or stern dead zone is denied and
+ * launches nothing, so a bot that requested one would burn its click and look
+ * broken. Its reach is the 5/8 rung (`stats.broadside.rangeU`), NOT radar
+ * range — the first weapon in the game that does not reach the horizon.
  */
-function cannonShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
+function broadsideShot(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack): Shot | null {
   if (!t.live || t.heading === null) return null;
-  const arcing = sit.stats.cannon.mode === 'arcing';
-  return burstShot(self, mind, sit, t, 'cannon', { rangeU: sit.stats.cannon.rangeU, arcing });
+  const shot = burstShot(self, mind, sit, t, 'broadside', sit.stats.broadside.rangeU);
+  if (shot === null) return null;
+  for (const sign of [1, -1]) {
+    const center = wrapAngle(self.state.heading + sign * BEAM_SECTORS.offset);
+    if (inArc(shot.aim, center, BEAM_SECTORS.halfArc)) return shot;
+  }
+  return null; // bow/stern dead zone — the row would deny it
 }
 
 /**
@@ -469,7 +482,7 @@ function flareTarget(mind: BotMind, sit: BotSituation): BotTrack | null {
  * that reads as "this thing knows how to play". A `siege` Battleship that has
  * LOST a contact fires a flare at its last known position: the lit zone grants
  * the firer truesight parity inside it, so the plot resolves back into a live
- * contact the cannon can be spent on. It deliberately does not need a lead
+ * contact the broadside can be spent on. It deliberately does not need a lead
  * solution — the flare lights an AREA, which is exactly why it works on the
  * unled plots nothing else here will shoot at.
  *
@@ -520,25 +533,27 @@ function chooseShot(
   if (target === null) return null;
   return (
     torpedoShot(self, mind, sit, target) ??
-    cannonShot(self, mind, sit, target) ??
+    broadsideShot(self, mind, sit, target) ??
     gunShot(self, mind, sit, target)
   );
 }
 
 /**
- * The ability press, if any: the boost that opens a `raider`'s range and the
- * decoy that breaks a `trapper`'s lock, both spent on the way OUT. Abilities
- * ride the actSeq channel, so this composes with a shot in the same tick.
+ * The ability press, if any: the boost that opens a `raider`'s range, spent on
+ * the way OUT. Abilities ride the actSeq channel, so this composes with a shot
+ * in the same tick.
+ *
+ * THE BUOY PRESS IS GONE (Story 7-5 wave 2): the decoy buoy — the `trapper`'s
+ * lock-breaker and the only other ability a profile ever pressed — is deleted,
+ * and the RADAR BUOY replacing it is a CLICK-PLACED WEAPON on the mine's rear
+ * sector (R2.7), not an actSeq ability. Its tactics belong with the buoy
+ * itself and are a later agent's; the boost is the only ability left.
  */
 function chooseAct(self: BotSelf, sit: BotSituation, posture: BotPosture): number | null {
   if (posture !== 'disengage') return null;
   if (sit.profile.usesBoost) {
     const boost = readySlot(self, 'speedBoost');
     if (boost >= 0) return boost;
-  }
-  if (sit.profile.usesDecoy) {
-    const decoy = readySlot(self, 'decoyBuoy');
-    if (decoy >= 0) return decoy;
   }
   return null;
 }

@@ -3,7 +3,7 @@
 // fade. The Pixi wiring (LitZones class) is a thin adapter around these.
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { Container } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
 import {
   EMBER_HZ,
@@ -14,7 +14,7 @@ import {
   litZoneFade,
   ownActiveZones,
   reconcileLitZones,
-  zoneMode,
+  zoneVerbs,
   LitZones,
   LIT_FADE_MS,
 } from '../render/litZones.js';
@@ -153,52 +153,97 @@ describe('insideAnyZone — point-in-zone-circle test', () => {
 
 // --- STORY 2.9 (amendment 50): a zone reads as its DOCTRINE, for everyone -------
 //
-// The one deliberate wire change of this story: `LitZoneView.mode`. Eric ruled
-// counterplay over concealment — a lit zone IS observable behavior of a fired
-// shell, so what that behavior DOES (burn you / blind you / just light the
+// The one deliberate wire change of that story was `LitZoneView.mode`. Eric
+// ruled counterplay over concealment — a lit zone IS observable behavior of a
+// fired shell, so what that behavior DOES (burn you / blind you / just light the
 // water) is part of what an observer legitimately sees. Everything here is
-// therefore about legibility, not secrecy: the firer's hue keeps the ring, the
-// doctrine layers inside it, and a frame with no mode still paints a flare.
+// therefore about legibility, not secrecy: the firer's hue keeps the ring and
+// the doctrine layers inside it.
+//
+// STORY 7-5 WAVE 1 replaced the single-valued `mode` with two INDEPENDENT
+// optional wire flags, `phos` and `daz`. The mutual exclusion is GONE: a captain
+// holding both star-shell cards lights water that burns AND blinds, so every
+// pin below reads the two flags separately and the both-verb case is pinned
+// explicitly — it is the exact case an if/else-if or a switch would drop.
 
-describe('zoneMode — the doctrine a zone view carries', () => {
-  it('reads the mode straight off the view', () => {
-    expect(zoneMode({ mode: 'incendiary' })).toBe('incendiary');
-    expect(zoneMode({ mode: 'dazzle' })).toBe('dazzle');
-    expect(zoneMode({ mode: 'standard' })).toBe('standard');
+describe('zoneVerbs — the doctrine verbs a zone view carries', () => {
+  it('reads each flag straight off the view', () => {
+    expect(zoneVerbs({ phos: true })).toEqual({ phos: true, daz: false });
+    expect(zoneVerbs({ daz: true })).toEqual({ phos: false, daz: true });
   });
 
-  it('falls back to standard when the field is absent (never blanks a zone)', () => {
-    expect(zoneMode({})).toBe('standard');
+  it('reads BOTH when both ride (the verbs stack — no exclusion anywhere)', () => {
+    expect(zoneVerbs({ phos: true, daz: true })).toEqual({ phos: true, daz: true });
+  });
+
+  it('reads a bare flare as neither verb (never blanks a zone)', () => {
+    expect(zoneVerbs({})).toEqual({ phos: false, daz: false });
   });
 });
 
-describe('LitZones.sync — per-doctrine glows', () => {
-  const modal = (id: string, mode: LitZoneView['mode']): LitZoneView => ({ ...zone(id), mode });
+describe('LitZones.sync — per-verb glows', () => {
+  const verbal = (id: string, verbs: { phos?: true; daz?: true }): LitZoneView => ({ ...zone(id), ...verbs });
 
-  it('paints each doctrine as itself and keeps a mode-less zone standard', () => {
+  it('paints each verb as itself and keeps a flag-less zone a plain flare', () => {
     const litZones = new LitZones(new Container());
     litZones.sync(
-      [modal('burn', 'incendiary'), modal('glare', 'dazzle'), modal('plain', 'standard'), zone('legacy')],
+      [verbal('burn', { phos: true }), verbal('glare', { daz: true }), zone('plain')],
       () => 0x00ff00,
     );
-    expect(litZones.modeOf('burn')).toBe('incendiary');
-    expect(litZones.modeOf('glare')).toBe('dazzle');
-    expect(litZones.modeOf('plain')).toBe('standard');
-    expect(litZones.modeOf('legacy')).toBe('standard');
+    expect(litZones.verbsOf('burn')).toEqual({ phos: true, daz: false });
+    expect(litZones.verbsOf('glare')).toEqual({ phos: false, daz: true });
+    expect(litZones.verbsOf('plain')).toEqual({ phos: false, daz: false });
   });
 
-  it('gives ONLY the burning zone an ember layer (dazzle is deliberately static)', () => {
+  /** One zone's glow, drawn into its own layer, as (draw-instruction count,
+   *  ember alpha). The instruction count is how the GLARE is observed: the
+   *  dazzle branch adds a halo + core fill on top of the standard fill+stroke,
+   *  and the ember rides a CHILD Graphics, so the two verbs are measured on
+   *  two independent channels — exactly the separation under test. */
+  const paintOf = (verbs: { phos?: true; daz?: true }) => {
+    const layer = new Container();
+    const litZones = new LitZones(layer);
+    litZones.sync([verbal('z', verbs)], () => 0x00ff00);
+    return {
+      draws: (layer.children[0] as Graphics).context.instructions.length,
+      ember: litZones.emberAlphaOf('z'),
+      verbs: litZones.verbsOf('z'),
+    };
+  };
+
+  // THE INDEPENDENT-CHECKS PIN. Fails against ANY exclusive read of the two
+  // verbs (a switch, an if/else-if, or an equality against one enum value): a
+  // both-verb zone must render as burning AND dazzling, never as one of them.
+  it('renders a BOTH-verb zone as burning AND dazzling', () => {
+    const plain = paintOf({});
+    const burn = paintOf({ phos: true });
+    const glare = paintOf({ daz: true });
+    const both = paintOf({ phos: true, daz: true });
+
+    expect(both.verbs).toEqual({ phos: true, daz: true });
+    // The BURN half survives the dazzle: the ember child exists and breathes.
+    expect(both.ember).toBeGreaterThan(0);
+    expect(both.ember).toBe(burn.ember);
+    expect(glare.ember).toBeNull(); // ...and dazzle alone never grows one
+    // The GLARE half survives the burn: the both-verb glow carries exactly the
+    // extra geometry a dazzle-only zone does, over the plain flare's baseline.
+    expect(glare.draws).toBeGreaterThan(plain.draws);
+    expect(burn.draws).toBe(plain.draws); // the ember is a CHILD, not more glow
+    expect(both.draws).toBe(glare.draws);
+  });
+
+  it('gives ONLY a burning zone an ember layer (dazzle is deliberately static)', () => {
     const litZones = new LitZones(new Container());
-    litZones.sync([modal('burn', 'incendiary'), modal('glare', 'dazzle'), zone('plain')], () => 0x00ff00);
+    litZones.sync([verbal('burn', { phos: true }), verbal('glare', { daz: true }), zone('plain')], () => 0x00ff00);
     expect(litZones.emberAlphaOf('burn')).toBeGreaterThan(0);
     expect(litZones.emberAlphaOf('glare')).toBeNull();
     expect(litZones.emberAlphaOf('plain')).toBeNull();
   });
 
-  it('renders an enemy zone with its doctrine too (amendment 50 is not own-only)', () => {
+  it('renders an enemy zone with its verbs too (amendment 50 is not own-only)', () => {
     const litZones = new LitZones(new Container());
-    litZones.sync([{ ...modal('enemy', 'incendiary'), by: 'foe' }], () => 0x00ff00);
-    expect(litZones.modeOf('enemy')).toBe('incendiary');
+    litZones.sync([{ ...verbal('enemy', { phos: true }), by: 'foe' }], () => 0x00ff00);
+    expect(litZones.verbsOf('enemy')?.phos).toBe(true);
   });
 });
 
@@ -235,7 +280,7 @@ describe('the ember breath — motion, over information that never moves', () =>
 
   it('breathes the ember alpha over time, under the photosensitivity ceiling', () => {
     const litZones = new LitZones(new Container());
-    litZones.sync([{ ...zone('burn'), mode: 'incendiary' }], () => 0x00ff00);
+    litZones.sync([{ ...zone('burn'), phos: true }], () => 0x00ff00);
     litZones.render(0, 0);
     const base = litZones.emberAlphaOf('burn') ?? 0;
     litZones.render(0, 0.5); // a quarter-cycle at 0.5Hz
@@ -246,7 +291,7 @@ describe('the ember breath — motion, over information that never moves', () =>
   it('holds the ember at its BASE alpha with motion off — the fire is still there', () => {
     settings.set({ motion: 'off' });
     const litZones = new LitZones(new Container());
-    litZones.sync([{ ...zone('burn'), mode: 'incendiary' }], () => 0x00ff00);
+    litZones.sync([{ ...zone('burn'), phos: true }], () => 0x00ff00);
     const seen = new Set<number>();
     for (let t = 0; t < 4; t += 0.25) {
       litZones.render(0, t);
@@ -268,7 +313,7 @@ describe('the ember breath — motion, over information that never moves', () =>
     // The glow's fade rides the parent's alpha; the ember is a CHILD, so a zone
     // dying mid-breath fades out whole instead of the fire flaring back up.
     const litZones = new LitZones(new Container());
-    litZones.sync([{ ...zone('burn', 'me', 1000), mode: 'incendiary' }], () => 0x00ff00);
+    litZones.sync([{ ...zone('burn', 'me', 1000), phos: true }], () => 0x00ff00);
     litZones.render(1000 - LIT_FADE_MS / 2, 1); // half-faded
     const ember = litZones.emberAlphaOf('burn') ?? 0;
     expect(ember).toBeGreaterThan(0); // the child's own alpha is untouched...

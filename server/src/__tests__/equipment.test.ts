@@ -33,16 +33,16 @@ const DT = CONFIG.tick.simDtMs;
 // carriers of the universal [gun, torpedo, mine, empty] fit; PvE fleet hulls
 // now fit [gun, empty, empty, empty], so that fit no longer exists anywhere
 // and the suite runs on the two hulls that actually carry these weapons:
-//   MINE LAYER   [gun, mine, decoyBuoy, empty]  — the gun/mine/empty-slot cases
+//   MINE LAYER   [gun, mine, radarBuoy, empty]  — the gun/mine/empty-slot cases
 //   TORPEDO BOAT [gun, torpedo, speedBoost, empty] — the torpedo cases
 // Every slot index below is named per hull rather than assumed universal.
 /** Mine Layer fit, by slot. */
-const ML_IDS = ['gun', 'mine', 'decoyBuoy'] as const;
+const ML_IDS = ['gun', 'mine', 'radarBuoy'] as const;
 /** Torpedo Boat fit, by slot. */
 const TB_IDS = ['gun', 'torpedo', 'speedBoost'] as const;
 /** Mine Layer slot indices. */
 const SLOT_MINE = 1;
-const SLOT_DECOY = 2;
+const SLOT_BUOY = 2;
 /** Torpedo Boat slot index. */
 const SLOT_TORPEDO = 1;
 
@@ -56,7 +56,7 @@ function bareWorld(seed = 7): World {
 }
 
 /** Add a MINE LAYER and pin it to the origin at a known heading (speed 0) —
- *  the suite's default fixture: [gun, mine, decoyBuoy, empty] covers a 360°
+ *  the suite's default fixture: [gun, mine, radarBuoy, empty] covers a 360°
  *  weapon, an aimed weapon with a rear placement sector, an ability, and the
  *  empty extra slot in one hull. The role stays 'captain' so the
  *  FleetController never overwrites the scripted inputs. */
@@ -104,12 +104,12 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly gun / torpedo / mine / speedBoost / cannon / starShells / decoyBuoy', () => {
+  it('holds exactly gun / torpedo / mine / speedBoost / broadside / starShells / radarBuoy', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
-      'cannon',
-      'decoyBuoy',
+      'broadside',
       'gun',
       'mine',
+      'radarBuoy',
       'speedBoost',
       'starShells',
       'torpedo',
@@ -117,10 +117,11 @@ describe('EQUIPMENT registry — interface conformance', () => {
   });
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
-  // EQUIPMENT_IS_WEAPON map (single source) — gun/torpedo/cannon/starShells
-  // AND (as of Story 2.8, amendment 45) the mine are aimed-click weapons;
-  // speedBoost (1.6) and decoyBuoy (1.8) are instant-activation abilities
-  // (isWeapon:false).
+  // EQUIPMENT_IS_WEAPON map (single source) — gun/torpedo/broadside/starShells
+  // AND (as of Story 2.8, amendment 45) the mine are aimed-click weapons, and
+  // since Story 7-5 wave 2 so is the RADAR BUOY (click-placed in the mine's
+  // rear sector, R2.7 — where the decoy buoy it replaced was an un-aimed
+  // stern-drop ability). speedBoost (1.6) is the ONLY non-weapon left.
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
       expect(row.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
@@ -131,9 +132,9 @@ describe('EQUIPMENT registry — interface conformance', () => {
     // is a click-aimed weapon again (rear placement arc + placeRange).
     expect(EQUIPMENT.mine.isWeapon).toBe(true);
     expect(EQUIPMENT.speedBoost.isWeapon).toBe(false);
-    expect(EQUIPMENT.cannon.isWeapon).toBe(true); // Story 1.7
+    expect(EQUIPMENT.broadside.isWeapon).toBe(true); // Story 7-5 wave 2
     expect(EQUIPMENT.starShells.isWeapon).toBe(true); // Story 1.7
-    expect(EQUIPMENT.decoyBuoy.isWeapon).toBe(false); // Story 1.8: the ML's radar-double ability
+    expect(EQUIPMENT.radarBuoy.isWeapon).toBe(true); // Story 7-5 wave 2 (R2.7): click-placed
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {
@@ -216,13 +217,28 @@ describe('denial reasons — derived through the gate without changing effects',
     expect(w.mines.size).toBe(0);
   });
 
-  it('decoy empty pool denies no-ammo (its only row denial — nothing aimed, no arc)', () => {
+  // The RADAR BUOY's denial matrix (Story 7-5 wave 2, R2.7 — the mine's,
+  // shared sector and placeRange): bow click / past placeRange -> out-of-arc
+  // (nothing consumed); a good astern click places the buoy and consumes.
+  it('the radarBuoy denies out-of-arc on a bow click, keeping the charge; an astern click places it', () => {
     const w = bareWorld();
     const ml = place(w, 'ml');
-    expect(ml.loadout[SLOT_DECOY].equipmentId).toBe('decoyBuoy'); // ML slot 2 (Story 1.8)
-    ml.loadout[SLOT_DECOY].state = { n: 0, reloadMsLeft: CONFIG.decoyBuoy.reloadMs };
-    expect(w.sinkingActivationGate(ml, SLOT_DECOY)).toEqual({ ok: false, reason: 'no-ammo' });
-    expect(w.decoys.size).toBe(0);
+    expect(ml.loadout[SLOT_BUOY].equipmentId).toBe('radarBuoy');
+    // Default aim (bow, heading 0): outside the rear sector -> out-of-arc.
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'out-of-arc' });
+    // Astern but past the shared placeRange: same aim-denial channel.
+    setInput(ml, { aim: Math.PI, aimDist: CONFIG.mine.placeRange + 1, slot: SLOT_BUOY });
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'out-of-arc' });
+    expect(ml.loadout[SLOT_BUOY].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
+    expect(w.buoys.size).toBe(0);
+    // A legal astern click: the buoy is placed AT the clicked point and the
+    // one charge + reload are consumed.
+    setInput(ml, { aim: Math.PI, aimDist: 60, slot: SLOT_BUOY });
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: true });
+    expect(w.buoys.size).toBe(1);
+    expect(ml.loadout[SLOT_BUOY].state).toEqual({ n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs });
+    // Empty pool now: a further click denies no-ammo.
+    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 });
 
@@ -286,15 +302,15 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
 // ---------- 4. FR5: deselected slots still reload every tick -------------------
 
 describe('FR5 — a deselected slot still reloads every tick', () => {
-  it('with the gun selected, the reloading MINE and DECOY slots both advance', () => {
+  it('with the gun selected, the reloading MINE and BUOY slots both advance', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     setInput(ship, { slot: SLOT_GUN }); // gun slot named; fireSeq 0 => no activation
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    ship.loadout[SLOT_DECOY].state = { n: 0, reloadMsLeft: CONFIG.decoyBuoy.reloadMs };
+    ship.loadout[SLOT_BUOY].state = { n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs };
     w.step();
     expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - DT);
-    expect(ship.loadout[SLOT_DECOY].state!.reloadMsLeft).toBe(CONFIG.decoyBuoy.reloadMs - DT);
+    expect(ship.loadout[SLOT_BUOY].state!.reloadMsLeft).toBe(CONFIG.radarBuoy.reloadMs - DT);
   });
 
   it('the same holds on the OTHER hull: a reloading TORPEDO advances under the gun', () => {
@@ -317,7 +333,7 @@ describe('the empty extra slot is never ticked', () => {
     // Drain the three fitted slots so their reload timers must tick down.
     ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    ship.loadout[SLOT_DECOY].state = { n: 0, reloadMsLeft: CONFIG.decoyBuoy.reloadMs };
+    ship.loadout[SLOT_BUOY].state = { n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs };
     const N = 5;
     expect(() => {
       for (let i = 0; i < N; i++) w.step();
@@ -327,7 +343,7 @@ describe('the empty extra slot is never ticked', () => {
     // The fitted slots DID reload-tick (proves the loop ran, and skips only 3).
     expect(ship.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs - N * DT);
     expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - N * DT);
-    expect(ship.loadout[SLOT_DECOY].state!.reloadMsLeft).toBe(CONFIG.decoyBuoy.reloadMs - N * DT);
+    expect(ship.loadout[SLOT_BUOY].state!.reloadMsLeft).toBe(CONFIG.radarBuoy.reloadMs - N * DT);
   });
 
   it("source: fireControl's per-slot tick loop guards on equipmentId !== null", () => {

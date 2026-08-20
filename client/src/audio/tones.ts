@@ -21,9 +21,9 @@ export type ToneId =
   | 'fireGun'
   | 'fireTorp'
   | 'fireMine'
-  | 'fireCannon'
+  | 'fireBroadside'
   | 'fireStarShells'
-  | 'placeDecoy'
+  | 'placeBuoy'
   | 'denied'
   | 'damage'
   | 'kill'
@@ -75,16 +75,17 @@ export const TONES: Record<ToneId, ToneSpec> = {
   fireTorp: { freqStart: 180, freqMid: 140, freqEnd: 90, duration: 0.14, volume: 0.4, type: 'sawtooth', noise: true },
   // Mine: soft low plop, no noise layer (a drop, not a launch).
   fireMine: { freqStart: 220, freqMid: 150, freqEnd: 90, duration: 0.12, volume: 0.4, type: 'sine' },
-  // Cannon (Story 1.7): a HEAVIER gun report — lower + more body than the gun
-  // crack, with a bigger noise transient (the Battleship's big shell).
-  fireCannon: { freqStart: 520, freqMid: 200, freqEnd: 80, duration: 0.14, volume: 0.55, type: 'square', noise: true },
+  // Broadside barrage (Story 7-5 wave 2, inherited from the cannon it replaced):
+  // a HEAVIER gun report — lower + more body than the gun crack, with a bigger
+  // noise transient (the Battleship's big shells, several at once).
+  fireBroadside: { freqStart: 520, freqMid: 200, freqEnd: 80, duration: 0.14, volume: 0.55, type: 'square', noise: true },
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
-  // Decoy buoy placement (Story 1.8): a hollow water "bloop" — same soft sine
+  // Radar buoy placement (Story 1.8): a hollow water "bloop" — same soft sine
   // drop family as the mine plop but pitched a touch higher + brighter so
   // seeding a buoy is audibly distinct from dropping a mine.
-  placeDecoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
+  placeBuoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
   // Denied press (Story 1.10 — FR12 "never silence"): a curt low square BLAT,
   // pitched fast downward with no noise layer — reads as a refusal, distinct
   // from every success cue (the gun family cracks start ≥520Hz with noise, the
@@ -291,7 +292,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //     and centred.
   //   • `point` (700→1100→1500) and `kill` (500→900→1200) start in the same place
   //     and RISE through two octaves; nothing about a miss rises.
-  //   • `fireMine` (220) and `placeDecoy` (340) are the catalog's other soft sine
+  //   • `fireMine` (220) and `placeBuoy` (340) are the catalog's other soft sine
   //     drops, an octave or more below and both transient-free — the hiss is what
   //     says "water", and both of those are your own hand, centred.
   splash: { freqStart: 700, freqMid: 460, freqEnd: 280, duration: 0.1, volume: 0.24, type: 'sine', noise: true },
@@ -374,18 +375,18 @@ export function telegraphTone(dir: number): ToneId {
 
 /** Equipment with a discrete own-fire/placement cue routed through fireTone. The
  *  instant abilities that have NO such cue here are excluded at the type level:
- *  speedBoost (a pure speed window) and decoyBuoy (its placement cue is played
- *  as 'placeDecoy' from the Decoys reconcile own-spawn hook, not via fireTone).
+ *  speedBoost (a pure speed window) and radarBuoy (its placement cue is played
+ *  as 'placeBuoy' from the buoy reconcile own-spawn hook, not via fireTone).
  *  The MINE stays included even though it is now an ability (Story 1.8) — its
  *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
- *  (main.ts); the decoy's cue rides the same hook shape on Decoys. */
-type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'decoyBuoy'>;
+ *  (main.ts); the buoy's cue rides the same hook shape. */
+type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'radarBuoy'>;
 
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',
   torpedo: 'fireTorp',
   mine: 'fireMine',
-  cannon: 'fireCannon',
+  broadside: 'fireBroadside',
   starShells: 'fireStarShells',
 };
 
@@ -426,14 +427,14 @@ const SEMITONE_CENTS = 100;
  */
 const FIT_CATEGORY_CENTS: Readonly<Record<string, number>> = {
   guns: -4 * SEMITONE_CENTS,
-  cannon: -3 * SEMITONE_CENTS,
+  broadside: -3 * SEMITONE_CENTS,
   torpedoes: -2 * SEMITONE_CENTS,
   mines: -1 * SEMITONE_CENTS,
   ship: 0,
   intel: 1 * SEMITONE_CENTS,
   speedBoost: 2 * SEMITONE_CENTS,
   starShells: 3 * SEMITONE_CENTS,
-  decoyBuoy: 4 * SEMITONE_CENTS,
+  radarBuoy: 4 * SEMITONE_CENTS,
 };
 
 /**

@@ -103,14 +103,14 @@ describe('boonCount + personalScore', () => {
   // actually made (OwnShip.boons.length). Repeats are picks too, so occurrences
   // count and the list is NEVER de-duplicated.
   it('counts fitted boons, repeats included, tolerating a missing list', () => {
-    expect(boonCount(['gunDamage', 'gunDamage', 'shipHull'])).toBe(3);
+    expect(boonCount(['intelSweep', 'intelSweep', 'shipHull'])).toBe(3);
     expect(boonCount(undefined)).toBe(0);
     expect(boonCount([])).toBe(0);
   });
 
   it('a WINNER gets the winner flag instead of a placement number', () => {
     const s = recordElimination(freshScore(), 2);
-    const won = personalScore(s, ['gunDamage', 'shipHull'], 4, true, null);
+    const won = personalScore(s, ['intelSweep', 'shipHull'], 4, true, null);
     expect(won.winner).toBe(true);
     expect(won.placement).toBeNull();
     expect(won.boons).toBe(2);
@@ -379,7 +379,7 @@ describe('personalScoreFromResults — the GAME-END score comes off the MESSAGE'
   it('the winner reads VICTORY even while the schema has not patched winnerId yet', () => {
     // The schema-derived path reported `winner: false` here (winnerId still ''),
     // so the actual winner saw an amber "ELIMINATED" line under a VICTORY banner.
-    const s = personalScoreFromResults(freshScore(), ['gunDamage', 'gunDamage'], msg, OWN, 0, null);
+    const s = personalScoreFromResults(freshScore(), ['intelSweep', 'intelSweep'], msg, OWN, 0, null);
     expect(s.winner).toBe(true);
     expect(s.placement).toBeNull();
     expect(s.kills).toBe(4); // from the row, not the lagging roster tally

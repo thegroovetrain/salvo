@@ -21,6 +21,7 @@ import {
   type DamageEvent,
   type GameEvent,
   type HullId,
+  gunReachU as sharedGunReachU,
 } from '@salvo/shared';
 import { clampToArc, gunTarget } from '../game/combat.js';
 import type { ShipRecord } from '../game/world.js';
@@ -458,6 +459,210 @@ describe('multi-barrel click — every shell that connects deals its own damage'
   });
 });
 
+// ---------- R2.16: BARREL fires PARALLEL, and straddles -----------------------
+//
+// Story 7-5 wave 2 replaced the 3° angular fan with PARALLEL TRACKS
+// CONFIG.gun.barrelSpacingU apart under the shared straddle law
+// (sim/spread.ts parallelOffsets — the same call the client's aim preview
+// makes). The server FANNED while the client already PREVIEWED parallel for one
+// commit; these cases are what stops that from happening again.
+
+describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
+  /** Fire one gun click of `barrels` shells at range `range` up the +y axis and
+   *  return the live shells (fire control runs AFTER stepShells, so a single
+   *  step leaves the whole volley in the water). */
+  function volley(range: number, barrels: number, seed: number) {
+    const { w, a } = armed(seed);
+    for (let i = 1; i < barrels; i++) w.applyBoon(a, 'gunBarrel');
+    expect(a.stats.gun.barrels).toBe(barrels);
+    w.submitInput('a', gunInput(HALF_PI, range));
+    w.step();
+    return [...w.shells.values()];
+  }
+
+  it('THE TRACKS ARE PARALLEL: lateral separation is CONSTANT with range (a fan is not)', () => {
+    // Aim is +y, so the lateral axis is x and every burst point shares one y.
+    for (const range of [200, 600]) {
+      const shells = volley(range, 3, 21);
+      expect(shells).toHaveLength(3);
+      const xs = shells.map((s) => s.targetX!).sort((p, q) => p - q);
+      const ys = shells.map((s) => s.targetY!);
+      for (const y of ys) expect(y).toBeCloseTo(range, 6); // same range: not a fan arc
+      expect(xs[1] - xs[0]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+      expect(xs[2] - xs[1]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+      // Every shell flies the SAME bearing — the fan's signature is that they
+      // do not, and this is what a re-introduced angular step would break.
+      const dirs = shells.map((s) => Math.atan2(s.vy, s.vx));
+      for (const d of dirs) expect(d).toBeCloseTo(HALF_PI, 9);
+    }
+  });
+
+  it('the MUZZLES are offset with the targets — a track, not a converging cone', () => {
+    const shells = volley(400, 3, 22);
+    const spread = (vals: number[]) => Math.max(...vals) - Math.min(...vals);
+    // The muzzle spread equals the target spread: both are the same straddle
+    // offsets applied to both ends of the track.
+    expect(spread(shells.map((s) => s.x))).toBeCloseTo(spread(shells.map((s) => s.targetX!)), 6);
+    // ...and every shell flies the same distance.
+    const lengths = shells.map((s) => s.distLeft);
+    for (const l of lengths) expect(l).toBeCloseTo(lengths[0], 6);
+  });
+
+  it('ODD count puts one shell EXACTLY on the click; EVEN straddles it with none on it', () => {
+    const odd = volley(300, 3, 23).map((s) => s.targetX!);
+    expect(odd.some((x) => Math.abs(x) < 1e-9)).toBe(true); // the middle shell
+    const even = volley(300, 2, 24).map((s) => s.targetX!).sort((p, q) => p - q);
+    expect(even.every((x) => Math.abs(x) > 1e-9)).toBe(true); // nothing on the click
+    expect(even[1] - even[0]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+    expect(even[0] + even[1]).toBeCloseTo(0, 9); // symmetric about it
+  });
+
+  it('a SINGLE barrel is byte-identical to the pre-wave-2 geometry (one shell, on the click)', () => {
+    const shells = volley(300, 1, 25);
+    expect(shells).toHaveLength(1);
+    expect(shells[0].targetX).toBeCloseTo(0, 9);
+    expect(shells[0].targetY).toBeCloseTo(300, 6);
+  });
+
+  it('SIGNALS DO NOT MOVE: a multi-barrel gun salvo still collapses to ONE mz', () => {
+    const { w, a } = armed(26);
+    w.applyBoon(a, 'gunBarrel');
+    w.applyBoon(a, 'gunBarrel');
+    expect(a.stats.gun.barrels).toBe(3);
+    w.submitInput('a', gunInput(HALF_PI, 300));
+    w.step();
+    expect(w.tickEvents.filter((e) => e.k === 'mz')).toHaveLength(1);
+  });
+});
+
+// ---------- R2.15: the STAR-SHELL GUN REACH ----------------------------------
+
+describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun', () => {
+  const REACH = 900; // well past the 660u base gun range
+
+  /** A world with one gunner and a live lit zone at (0, REACH) owned by `by`. */
+  function litBoard(by: string, seed = 31) {
+    const { w, a } = armed(seed);
+    w.litZones.set('z1', {
+      id: 'z1',
+      ownerId: by,
+      x: 0,
+      y: REACH,
+      r: 120,
+      until: 10 * 60 * 1000,
+      phosphor: false,
+      dazzle: false,
+    });
+    return { w, a };
+  }
+
+  it('a click BEYOND gun range but inside your OWN live zone flies the whole way', () => {
+    const { w, a } = litBoard('a');
+    expect(a.stats.gun.rangeU).toBeLessThan(REACH);
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    const shell = [...w.shells.values()][0];
+    expect(shell.targetY).toBeCloseTo(REACH, 6);
+  });
+
+  it('THE SAME CLICK inside an ENEMY’s zone is clamped to gun range (own flares only)', () => {
+    const { w, a } = litBoard('b'); // the zone belongs to someone else
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    const shell = [...w.shells.values()][0];
+    expect(shell.targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+  });
+
+  it('an out-of-range click with NO zone at all is clamped exactly as before', () => {
+    const { w, a } = armed(32);
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+  });
+
+  it('an EXPIRED own zone licenses nothing (live means live)', () => {
+    const { w, a } = litBoard('a', 33);
+    w.litZones.get('z1')!.until = 0; // already dead when the click resolves
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+  });
+
+  it('the zone extends the GUN ONLY — a beyond-range STAR SHELL still clamps to its own range', () => {
+    const { w, a } = armed(34, 'battleship');
+    const slot = a.loadout.findIndex((s) => s.equipmentId === 'starShells');
+    expect(slot).toBeGreaterThan(0);
+    w.litZones.set('z1', {
+      id: 'z1', ownerId: 'a', x: 0, y: REACH, r: 120, until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+    });
+    w.submitInput('a', { ...gunInput(HALF_PI, REACH), slot: slot as 0 });
+    w.step();
+    const shell = [...w.shells.values()][0];
+    expect(a.stats.starShells.rangeU).toBeLessThan(REACH);
+    expect(shell.targetY).toBeCloseTo(a.stats.starShells.rangeU, 6);
+  });
+
+  // THE PROMOTION IS REAL, NOT A MIRROR (Story 7-5 wave 2 cleanup). R2.15
+  // shipped implemented TWICE — this legality gate and the client's aim preview
+  // (render/weaponArc.ts weaponReachU) — agreeing only because an agent copied
+  // one into the other, which is exactly the desync class effectiveStats() and
+  // sim/spread.ts exist to prevent. The rule now lives in shared/src/sim/aim.ts
+  // and BOTH sides call it. This case drives a REAL World gun click and asserts
+  // the shell's burst distance is what the SHARED function says; the client has
+  // the matching pin on its side (weaponArc.test.ts), so the two agree
+  // TRANSITIVELY through one function rather than by discipline. It fails the
+  // moment the server re-grows a private copy of the rule.
+  it('the fired reach IS the shared gunReachU, over every branch of the rule', () => {
+    const zone = { x: 0, y: REACH, r: 120 };
+    const cases: [number, { x: number; y: number; r: number }[]][] = [
+      [300, [zone]], // in range — the zone is irrelevant
+      [REACH, [zone]], // lifted
+      [REACH, []], // clamped: no own zone at all
+      [REACH, [{ x: 0, y: REACH, r: 5 }]], // clamped: the click misses the zone
+    ];
+    for (const [aimDist, zones] of cases) {
+      const { w, a } = armed(40 + aimDist + zones.length);
+      for (const [i, z] of zones.entries()) {
+        w.litZones.set(`z${i}`, {
+          id: `z${i}`, ownerId: 'a', x: z.x, y: z.y, r: z.r,
+          until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+        });
+      }
+      // The zone that misses is offset off the aim line so the burst point
+      // falls outside it (same centre distance, wrong bearing).
+      if (zones.length === 1 && zones[0].r === 5) w.litZones.get('z0')!.x = 400;
+      w.submitInput('a', gunInput(HALF_PI, aimDist));
+      w.step();
+      const shell = [...w.shells.values()][0];
+      const want = sharedGunReachU(
+        { x: 0, y: 0 },
+        HALF_PI,
+        aimDist,
+        a.stats.gun.rangeU,
+        w.map.radius,
+        [...w.litZones.values()].map((z) => ({ x: z.x, y: z.y, r: z.r })),
+      );
+      // The shell flies to min(click, reach) — the reach is the CLAMP, so an
+      // in-range click still bursts at the click. Comparing against the shared
+      // reach is what makes this a parity pin rather than a range restatement.
+      expect(shell.targetY, `aimDist=${aimDist} zones=${zones.length}`)
+        .toBeCloseTo(Math.min(aimDist, want), 6);
+    }
+  });
+
+  it('BARREL still straddles at the extended reach (the two features compose)', () => {
+    const { w, a } = litBoard('a', 35);
+    w.applyBoon(a, 'gunBarrel');
+    w.submitInput('a', gunInput(HALF_PI, REACH));
+    w.step();
+    const shells = [...w.shells.values()];
+    expect(shells).toHaveLength(2);
+    for (const s of shells) expect(s.targetY).toBeCloseTo(REACH, 6);
+    const xs = shells.map((s) => s.targetX!).sort((p, q) => p - q);
+    expect(xs[1] - xs[0]).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+  });
+});
+
 // ---------- World fire control: one shot per click, single-shot pool -----------
 
 describe('World fire control — one shot per click (fireSeq), single-shot pool', () => {
@@ -518,7 +723,7 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
 
 const DT_MS = CONFIG.tick.simDtMs;
 const SLOT_TORPEDO = 1;
-/** The Mine Layer's mine slot (Story 1.8 fit: [gun, mine, decoyBuoy, empty]). */
+/** The Mine Layer's mine slot (Story 1.8 fit: [gun, mine, radarBuoy, empty]). */
 const SLOT_MINE_ML = 1;
 
 /** A slot-1/2 click input (torpedo/mine are direction-only; aimDist ignored). */
@@ -694,7 +899,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     // The 2.8 flip of the 1.8 no-compensation pin: mines ride the CLICK
     // channel again, so the D1-validated fire time is the placement time and
     // the 3s arm delay counts from it.
-    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine ([gun, mine, decoyBuoy])
+    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine ([gun, mine, radarBuoy])
     for (let i = 0; i < 40; i++) w.step(); // give the clock room to back-date into
     w.setRtt('a', 80); // allowance = min(80+30, 150) = 110
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };

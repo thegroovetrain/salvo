@@ -15,7 +15,10 @@
 // its own deck until offers went short and then empty. Under the new model no
 // card can sit in an offer and in the deck at once (only the FRONT offer is
 // ever materialized, server-side), so `copies` stays the exact stack cap with
-// no scrub and no reroll. returnCards survives for the DOCTRINE SWAP-OUT only.
+// no scrub and no reroll. THE DECK HAS NO INFLOW AT ALL since Story 7-5 wave 2:
+// `returnCards` was the give-back for the doctrine SWAP-OUT, and the exclusivity
+// mechanism that swapped died with the cannon pair (R2.6), so cards only ever
+// leave. Every card in the catalog now stacks with every other.
 // Rare/exclusive draw weight escalates with dry levels (CONFIG.deck —
 // invisible soft pity), resetting whenever any rare/exclusive lands in a draw.
 //
@@ -212,14 +215,6 @@ export function consumeCard(deck: DeckState, id: BoonId): DeckState {
   const cards = removeCopies(deck.cards, [id]);
   if (cards.length === deck.cards.length) return deck;
   return { cards, levelsSinceRare: deck.levelsSinceRare };
-}
-
-/** Return a doctrine-swapped-out card to the deck — the spend flow's
- *  give-back. Order-preserving append; levelsSinceRare untouched. (Unchosen
- *  offer cards no longer pass through here: they never left.) */
-export function returnCards(deck: DeckState, ids: readonly BoonId[]): DeckState {
-  if (ids.length === 0) return deck;
-  return { cards: [...deck.cards, ...ids], levelsSinceRare: deck.levelsSinceRare };
 }
 
 /**

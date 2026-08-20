@@ -66,8 +66,9 @@ function setup(onOwnStats: () => void): {
     mines: { sync: vi.fn() },
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
+    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    buoys: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play: vi.fn() },
     names: (id: string) => id,
@@ -92,11 +93,11 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, state } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['gunDamage']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
     // THE POINT: the mirror advanced despite the throw, so the next frame has a
     // fresh baseline to compare against.
     expect(state.net.you).not.toBeNull();
-    expect((state.net.you as { boons: string[] }).boons).toEqual(['gunDamage']);
+    expect((state.net.you as { boons: string[] }).boons).toEqual(['intelSweep']);
   });
 
   it('does not re-fire onOwnStats on the next frame for the same boon list', () => {
@@ -104,11 +105,11 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['gunDamage']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
     // Same boons: with the mirror advanced, ownStatsChanged is now false, so the
     // second frame must sail straight past the throwing callback. Under the old
     // ordering this threw again, and would have thrown on every frame forever.
-    sink.handler(frameWith(2, ['gunDamage']));
+    sink.handler(frameWith(2, ['intelSweep']));
     expect(onOwnStats).toHaveBeenCalledTimes(1);
   });
 
@@ -120,9 +121,9 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, onServerState } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['gunDamage']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
     expect(onServerState).not.toHaveBeenCalled(); // frame 1 died below the throw
-    sink.handler(frameWith(2, ['gunDamage']));
+    sink.handler(frameWith(2, ['intelSweep']));
     expect(onServerState).toHaveBeenCalledTimes(1);
   });
 
@@ -131,9 +132,9 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, pushFrame } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['gunDamage']))).toThrow();
-    sink.handler(frameWith(2, ['gunDamage']));
-    sink.handler(frameWith(3, ['gunDamage']));
+    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
+    sink.handler(frameWith(2, ['intelSweep']));
+    sink.handler(frameWith(3, ['intelSweep']));
     // EXACTLY 2 (review gate): the throwing frame 1 must NOT reach pushFrame —
     // it is below the throw — and frames 2 and 3 must both get there. A `>= 2`
     // bound would also pass if frame 1 leaked through, which is the opposite of
@@ -144,8 +145,8 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
   it('fires again when the boon list genuinely changes', () => {
     const onOwnStats = vi.fn();
     const { sink } = setup(onOwnStats);
-    sink.handler(frameWith(1, ['gunDamage']));
-    sink.handler(frameWith(2, ['gunDamage', 'shipHull']));
+    sink.handler(frameWith(1, ['intelSweep']));
+    sink.handler(frameWith(2, ['intelSweep', 'shipHull']));
     expect(onOwnStats).toHaveBeenCalledTimes(2);
   });
 });

@@ -25,6 +25,13 @@ import {
   type BatchAggregate,
 } from './report.js';
 import { buildBotAggregate, renderBotReport } from './botReport.js';
+import {
+  buildCatalogAggregate,
+  renderCatalogLines,
+  renderDeckComposition,
+  renderDeckLines,
+  renderOrdnanceLedger,
+} from './catalogReport.js';
 
 function overridesLine(set: Record<string, number>): string {
   const keys = Object.keys(set).sort();
@@ -78,6 +85,11 @@ function batchMode(opts: CliOptions): ModeOutput {
       // lobby actually has bots in it.
       const botAgg = opts.bots > 0 ? buildBotAggregate(result, opts.bots) : null;
       if (botAgg !== null) body.push(...renderBotReport(variant.label, botAgg), '');
+      // STORY 7-5 EVIDENCE PASS: per-line catalog reachability + the ordnance /
+      // one-hit-kill ledger. Always appended — every run key gains the block.
+      const catAgg = buildCatalogAggregate(result);
+      body.push(...renderCatalogLines(variant.label, catAgg), '');
+      body.push(...renderOrdnanceLedger(variant.label, catAgg), '');
       out.variants.push({ label: variant.label, overrides: variant.set, aggregate: agg, bots: botAgg });
     } finally {
       restore();
@@ -98,6 +110,8 @@ function deckMode(opts: CliOptions): ModeOutput {
       const agg = runDeckSim({ seed: opts.seed, draws: opts.draws });
       rendered.push({ label: variant.label, agg });
       body.push(...renderDeckReport(variant.label, agg), '');
+      body.push(...renderDeckLines(variant.label, agg), '');
+      body.push(...renderDeckComposition(), '');
       out.variants.push({ label: variant.label, overrides: variant.set, aggregate: agg });
     } finally {
       restore();

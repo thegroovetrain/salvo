@@ -12,7 +12,10 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   burstVictims,
-  pierceDamage,
+  fanBearings,
+  fanTargets,
+  parallelOffsets,
+  straddleOffsets,
   mapRadius,
   stepShip,
   generateMap,
@@ -48,7 +51,6 @@ import {
   hookKinematics,
   isAcquisitionDef,
   resolveBoons,
-  returnCards,
   slotsWithBoons,
   validateBoonDef,
   validateCatalog,
@@ -182,7 +184,15 @@ describe('shared barrel', () => {
     // to narrow blips on) and BlipEvent collapses to ReturnBlipEvent alone —
     // a stale client would wait on welcome fields that never arrive and
     // mis-narrow every paint, so the PV join gate is the guard.
-    expect(PROTOCOL_VERSION).toBe(41);
+    // 41 -> 42: UPGRADE CARDS v2, WAVE 1 (Story 7-5, Eric's card rewrite).
+    // Three breaks at once: BOON_CATALOG is rewritten (7 lines deleted, 2 new,
+    // copy counts and ladder FORMS moved — a stale client resolves a deleted id
+    // fail-closed and silently drops the whole boon, so its prediction and HUD
+    // disagree with the sim); the doctrine `mode` enums on torpedo/mine/
+    // starShells become INDEPENDENT VERB BOOLEANS (verbs stack now, which one
+    // enum field cannot express); and LitZoneView trades `mode` for the two
+    // optional flags `phos`/`daz`, which is the payload shape of that change.
+    expect(PROTOCOL_VERSION).toBe(43);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -251,7 +261,8 @@ describe('shared barrel', () => {
     expect(CONFIG.gun.burstRadius).toBe(15);
     expect(CONFIG.gun.contactDamage).toBe(6); // RETUNED 10 -> 6 (Eric ruling 2026-08-04)
     expect(typeof burstVictims).toBe('function');
-    expect(typeof pierceDamage).toBe('function');
+    // BARREL's parallel-track spacing replaced the fan step (Story 7-5 wave 2).
+    expect(CONFIG.gun.barrelSpacingU).toBe(12);
     expect('shellRange' in CONFIG.gun).toBe(false);
     expect('mounts' in CONFIG.gun).toBe(false);
   });
@@ -289,26 +300,54 @@ describe('shared barrel', () => {
       torpedo: true,
       mine: true, // FLIPPED (was false since 1.8): aimed rear-arc placement
       speedBoost: false,
-      cannon: true,
+      broadside: true,
       starShells: true,
-      decoyBuoy: false,
+      radarBuoy: true, // FLIPPED (was false as the decoy): click-placed (7-5 w2)
     });
   });
 
-  it('CONFIG.cannon carries the burst block; doctrine ranges stay radar-derived', () => {
-    expect(CONFIG.cannon).toEqual({
-      arc: 'full',
+  it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {
+    expect(CONFIG.broadside).toEqual({
+      arcOffsetDeg: 90,
+      arcHalfArcDeg: 60,
       shellSpeed: 500,
       maxAmmo: 1,
-      // RETUNED 15000 -> 50000 -> 45000 (Eric rulings 2026-08-04: the
-      // global-cooldown cycle, then the weapon balance pass).
-      reloadMs: 45000,
-      damage: 65, // RETUNED 50 -> 65 (Eric ruling 2026-08-04, balance pass)
-      contactDamage: 20,
-      burstRadius: 30,
+      reloadMs: 30000, // Eric: "lets set the cooldown to 30 seconds"
+      turrets: 3,
+      damage: 20, // Eric: "lets say 20 damage"
+      burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,
+      fanHalfAngleDeg: [12, 10.5, 9, 7.75, 6.5], // DRAFT ladder, index = SPREAD copies
     });
-    expect('rangeU' in CONFIG.cannon).toBe(false);
+    // NO range field — it is derived from radarRange × muzzleFlashFactor, and
+    // NO arc field either: the beams are a twin-sector descriptor, not 'full'.
+    expect('rangeU' in CONFIG.broadside).toBe(false);
+    expect('arc' in CONFIG.broadside).toBe(false);
+    // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card.
+    expect(CONFIG.broadside.fanHalfAngleDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
+  });
+
+  it('CONFIG.radarBuoy carries the buoy\'s OWN sensor set (Story 7-5 wave 2)', () => {
+    expect(CONFIG.radarBuoy).toEqual({
+      radarRange: 330,
+      sweepRpm: 15,
+      durationMs: 20000,
+      hp: 50,
+      reloadMs: 30000,
+      maxAmmo: 1,
+      gunDamage: 5,
+      gunReloadMs: 5000,
+      jamFakes: 10,
+    });
+    // FLIPPED PIN (Eric ruling 2026-08-19, amending R2.7 mid-flight). The
+    // draft had a 30s life on a 20s reload, so TWO buoys could overlap; the
+    // ruling swapped both numbers, which makes one-at-a-time STRUCTURAL and
+    // opens a ~10s dead gap between one expiring and the next being available.
+    // The gap is intended — a buoy is a commitment, not permanent cover — so do
+    // not close it with a bigger pool or a shorter reload.
+    expect(CONFIG.radarBuoy.reloadMs).toBeGreaterThan(CONFIG.radarBuoy.durationMs);
+    expect(CONFIG.radarBuoy.reloadMs - CONFIG.radarBuoy.durationMs).toBe(10000);
+    expect(CONFIG.radarBuoy.maxAmmo).toBe(1);
   });
 
   it('CONFIG.starShells: DAMAGELESS (amendment 39) + the incendiary/dazzle doctrine fields', () => {
@@ -340,30 +379,43 @@ describe('shared barrel', () => {
     // inside your own wake; 150u lets a Mine Layer actually seed water.
     expect(CONFIG.mine.placeRange).toBe(150);
     expect(CONFIG.mine.placeHalfArcDeg).toBe(60);
-    expect(CONFIG.mine.foulFactor).toBe(0.5);
-    expect(CONFIG.mine.foulDurationMs).toBe(4000);
-    // The tracking-mine fix (Eric ruling 2026-08-02): acquisition is measured
-    // mine→hull SILHOUETTE (world.ts nearestEnemyHull, the trigger's metric),
-    // so the range is a silhouette reach and must clear the widest trip ring —
-    // a max-mineTrigger 51.5u — with room to close.
-    expect(CONFIG.mine.creepSpeed).toBe(14);
-    expect(CONFIG.mine.creepAcquireRange).toBe(150);
-    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(CONFIG.mine.blastRadius);
-    expect(CONFIG.decoyBuoy).toEqual({ durationMs: 30000, reloadMs: 20000, maxAmmo: 1 });
+    // RETUNED (Eric ruling 2026-08-19, Story 7-5): 25% slower for 5s — a
+    // weaker slow held longer, and no longer paired with a damage penalty.
+    expect(CONFIG.mine.foulFactor).toBe(0.75);
+    expect(CONFIG.mine.foulDurationMs).toBe(5000);
+    // RETIRED (Story 7-5 wave 2): the three creep pins — creepSpeed 14 u/s,
+    // creepAcquireRange 150u, and acquire > blast. They pinned the SELF-
+    // PROPELLED doctrine's tuning, and that doctrine left the game with its
+    // card; the constants are deleted, so the pins go with them rather than
+    // being adapted. Their ABSENCE is what is pinned now — a mine cannot move.
+    expect((CONFIG.mine as Record<string, unknown>).creepSpeed).toBeUndefined();
+    expect((CONFIG.mine as Record<string, unknown>).creepAcquireRange).toBeUndefined();
+    // CAPTIVE MINES (Story 7-5 wave 2): the swap-and-triple multiplier. Pinned
+    // here as a CONFIG value; the transform itself is pinned in stats.test.ts.
+    expect(CONFIG.mine.captiveTriggerFactor).toBe(3);
+    // BARREL's parallel-track spacing (R2.16) — a LATERAL distance, replacing
+    // the retired 3° angular fan step.
+    expect(CONFIG.gun.barrelSpacingU).toBe(12);
+    expect((CONFIG as Record<string, unknown>).cannon).toBeUndefined();
+    expect((CONFIG as Record<string, unknown>).decoyBuoy).toBeUndefined();
   });
 
-  it('CONFIG.torpedo: the homing/command doctrine fields (Story 2.8)', () => {
+  it('CONFIG.torpedo: the homing doctrine fields (command detonation retired)', () => {
     expect(CONFIG.torpedo.homingTurnRate).toBe(0.5);
     expect(CONFIG.torpedo.homingAcquireRange).toBe(120);
     expect(CONFIG.torpedo.homingUpdateAngleDeg).toBe(5);
-    expect(CONFIG.torpedo.commandBurstRadius).toBe(60);
+    // `commandBurstRadius` is RETIRED with COMMAND DETONATION (Story 7-5): the
+    // weapon left the game, so the constant has no consumer to pin.
     // The homing travel budget (review P8): finite, so a fish can never orbit
     // forever — and long enough to cross the map twice over.
     expect(CONFIG.torpedo.homingMaxRangeU).toBe(1300);
   });
 
   it('re-exports the boon effect engine + Catalog v1 (Stories 2.5/2.8)', () => {
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(33); // 42 - 7 reloads + shipCooldown; 36->35 intel merge; 35->34 cannonBlast deleted; 34->33 mine ring cards merged (Eric 2026-08-16)
+    // 42 - 7 reloads + shipCooldown; 36->35 intel merge; 35->34 cannonBlast
+    // deleted; 34->33 mine ring cards merged (Eric 2026-08-16); 33->28 Story
+    // 7-5 wave 1 (7 deleted, 2 new); 28->29 wave 2 (5 deleted, 6 new) — FINAL.
+    expect(Object.keys(BOON_CATALOG)).toHaveLength(29);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
@@ -373,6 +425,10 @@ describe('shared barrel', () => {
     expect(UNIVERSAL_CATEGORIES).toEqual(['intel', 'ship', 'guns']);
     expect(Object.keys(EQUIPMENT_CATEGORY)).toHaveLength(7);
     expect(Object.keys(DOCTRINE_MODES)).toHaveLength(4);
+    // sim/spread.ts — the ONE straddle rule both sides call (Story 7-5 wave 2).
+    for (const fn of [straddleOffsets, fanBearings, fanTargets, parallelOffsets]) {
+      expect(typeof fn).toBe('function');
+    }
     for (const fn of [
       resolveBoons,
       applyBoonStats,
@@ -390,9 +446,18 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE DECK MODEL engine + the offer/spend wire shape (Story 2.8)', () => {
-    for (const fn of [buildDeck, drawOffer, consumeCard, returnCards, consumeAcquisition]) {
+    for (const fn of [buildDeck, drawOffer, consumeCard, consumeAcquisition]) {
       expect(typeof fn).toBe('function');
     }
+    // RETIRED with the exclusivity mechanism (Story 7-5 wave 2, R2.6):
+    // `returnCards` was the doctrine swap-out's give-back and the cannon pair
+    // was the mechanism's last user, so the deck now has no inflow at all.
+    expect((shared as Record<string, unknown>).returnCards).toBeUndefined();
+    // ...and the AP sweep it sat beside is gone the same way.
+    expect((shared as Record<string, unknown>).pierceDamage).toBeUndefined();
+    expect((shared as Record<string, unknown>).PIERCE_FALLOFF).toBeUndefined();
+    // The BARREL fan step is retired for a LATERAL spacing (R2.16).
+    expect((shared as Record<string, unknown>).BARREL_FAN_STEP_RAD).toBeUndefined();
     // RETIRED by the lazy-draw bugfix (cycle 69/72 house style — no dead knob
     // survives): only the FRONT offer is ever materialized, so there is no
     // second banked offer to scrub stale acquisition cards out of.

@@ -178,7 +178,7 @@ function engageTorp(ctx, inp, target) {
 function dropMines(ctx, inp) {
   if (!ctx.you) return;
   inp.throttle = 0.12; // just enough steerageway to hold a heading
-  inp.slot = 1; // the mine layer's mine slot (gun / mine / decoyBuoy fit)
+  inp.slot = 1; // the mine layer's mine slot (gun / mine / radarBuoy fit)
   inp.aim = ctx.you.heading + Math.PI; // dead astern — center of the placement arc
   inp.aimDist = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
   inp.fireSeq = ++ctx.fireSeq; // click every tick; the 8s drop cooldown paces it

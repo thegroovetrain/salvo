@@ -1,5 +1,5 @@
 // Equipment registry + the Equipment interface (Story 1.2). Every fitted
-// system — the three weapons today (guns / torpedoes / mines), non-weapon
+// system — the weapons (guns / torpedoes / mines / broadside), non-weapon
 // specials from stories 1.6+ — implements one interface over a ship's loadout
 // SLOT. The click's InputMsg.slot names the slot it activates (0 = the gun,
 // the permanently-selected default; a primed skillshot click carries its
@@ -14,15 +14,22 @@
 // helpers; the World owns storage (shells/mines maps) and event emission,
 // exposed to rows through the narrow ActivationContext capabilities.
 
-import { type EquipmentId, type Island, type LoadoutSlot, type ShellState, type WeaponAmmo } from '@salvo/shared';
+import {
+  type EquipmentId,
+  type Island,
+  type LitCircle,
+  type LoadoutSlot,
+  type ShellState,
+  type WeaponAmmo,
+} from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import { gunEquipment } from './guns.js';
 import { torpedoEquipment } from './torpedoes.js';
 import { mineEquipment } from './mines.js';
 import { boostEquipment } from './boost.js';
-import { cannonEquipment } from './cannon.js';
+import { broadsideEquipment } from './broadside.js';
 import { starShellsEquipment } from './starShells.js';
-import { decoyEquipment } from './decoy.js';
+import { radarBuoyEquipment } from './radarBuoy.js';
 
 /**
  * The exact capabilities equipment needs from the World to activate — no more
@@ -45,17 +52,43 @@ export interface ActivationContext {
    *  ship firing outward bursts in-bounds rather than expiring at the edge;
    *  the stern rack refuses a drop point outside it (Story 1.10 'blocked'). */
   mapRadius: number;
-  /** Island landmasses — the stern rack (mine/decoy) refuses a drop point
-   *  ashore on one (Story 1.10 'blocked'); no other row reads them (gun/cannon
-   *  muzzle island-blindness stays deliberately out of scope — see the
-   *  ledger). */
+  /** Island landmasses — the mine rack refuses a drop point ashore on one
+   *  (Story 1.10 'blocked'); no other row reads them (gun/broadside muzzle
+   *  island-blindness stays deliberately out of scope — see the ledger). */
   islands: readonly Island[];
   mkId: () => string;
-  spawnBallistic: (shell: ShellState) => void;
+  /** Store + reveal a launched projectile. `opts.perShellFlash` is the ONE
+   *  declared opt-out from the per-owner-per-tick muzzle-flash dedupe: the
+   *  BROADSIDE BARRAGE emits a flash PER SHELL (Story 7-5 wave 2, R2.5), where
+   *  a multi-barrel gun salvo still collapses to one. */
+  spawnBallistic: (shell: ShellState, opts?: BallisticSpawnOptions) => void;
   dropMine: (x: number, y: number) => void;
-  /** Drop a stationary decoy buoy (Story 1.8) — the World owns the store (one
-   *  live per owner, replacement eviction, natural expiry). */
-  dropDecoy: (x: number, y: number) => void;
+  /** Place a RADAR BUOY at an already-validated point (Story 7-5 wave 2,
+   *  R2.7) — the dropMine sibling: the row validates the rear sector /
+   *  placeRange / water legality and hands the World the clicked point. */
+  dropBuoy: (x: number, y: number) => void;
+  /**
+   * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the LIVE lit zones owned
+   * by the ACTIVATING ship, as centre+radius circles. The gun row feeds them to
+   * the SHARED reach predicate (`@salvo/shared` `gunReachU`) before it clamps an
+   * out-of-range click; no other row calls it, which is what makes the extension
+   * gun-only.
+   *
+   * A CAPABILITY, NOT THE ZONE STORE. Rows get a list already filtered to
+   * OWN + LIVE — never the zone map, never an owner id or expiry they could
+   * re-interpret — so "own flares only" cannot be widened by a row reading a
+   * zone it shouldn't (the World keys the closure on the activating ship's id).
+   * A THUNK rather than a value so a torpedo/mine/boost activation, which never
+   * asks, pays nothing to build the list.
+   */
+  ownLitZones: () => readonly LitCircle[];
+}
+
+/** Per-spawn options for `ActivationContext.spawnBallistic`. */
+export interface BallisticSpawnOptions {
+  /** true = this shell emits its OWN `mz` rather than being folded into the
+   *  owner's one-flash-per-tick dedupe (the broadside's per-shell signals). */
+  perShellFlash?: boolean;
 }
 
 /** Why an activation was refused. Derived from the internal outcomes
@@ -111,9 +144,9 @@ export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRow
   torpedo: torpedoEquipment,
   mine: mineEquipment, // Story 1.8: flipped to a non-weapon (instant drop-astern ability)
   speedBoost: boostEquipment, // Story 1.6: the first non-weapon (ability) row
-  cannon: cannonEquipment, // Story 1.7: the Battleship's long-range burst skillshot
+  broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
-  decoyBuoy: decoyEquipment, // Story 1.8: the Mine Layer's stationary radar-double ability
+  radarBuoy: radarBuoyEquipment, // Story 7-5 wave 2: the Mine Layer's click-placed radar relay (replaced the decoy)
 });
 
 /**
@@ -131,19 +164,31 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
 
 export { freshAmmo, tickReload, consume } from './ammo.js';
 export { boostEquipment } from './boost.js';
-export { decoyEquipment, dropPoint } from './decoy.js';
-export { cannonEquipment } from './cannon.js';
+export {
+  BUOY_SIZE_U,
+  addBuoy,
+  buoySilhouette,
+  buoyTarget,
+  radarBuoyEquipment,
+  scatterJamFakes,
+  type BuoyState,
+  type JamFake,
+} from './radarBuoy.js';
+export { broadsideEquipment, broadsideTargets } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
 export { torpedoEquipment, fireTorpedo } from './torpedoes.js';
 export {
   mineEquipment,
   addMine,
+  captiveTorpedo,
   checkMineTriggers,
+  contactBlastRadius,
   dropBlocked,
   hullFor,
   mineBlastVictims,
   minePlacePoint,
   type MineState,
+  type MineTripRules,
   type MineTrigger,
 } from './mines.js';

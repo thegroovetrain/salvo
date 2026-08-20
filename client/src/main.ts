@@ -26,7 +26,6 @@ import {
   SLOT_COUNT,
   type BoonDef,
   type Island,
-  type DecoyView,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
@@ -49,11 +48,11 @@ import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './re
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
-import { weaponArcHit, weaponRangeHit, weaponRangeU } from './render/weaponArc.js';
+import { weaponArcHit, weaponRangeHit, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
-import { Decoys } from './render/decoys.js';
+import { Buoys, type OwnBuoyState } from './render/buoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Smoke } from './render/smoke.js';
 import { Foghorn } from './render/foghorn.js';
@@ -226,9 +225,9 @@ interface Game {
   aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
-  /** Decoy-buoy markers (render/decoys.ts) — synced from FrameMsg.decoys, the
+  /** Radar-buoy markers (render/buoys.ts) — synced from FrameMsg.buoys, the
    *  mines precedent (Story 1.8). */
-  decoys: Decoys;
+  buoys: Buoys;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -389,8 +388,9 @@ interface Game {
    *  Story 1.6) or, as of Story 1.10, an UNMATCHED server denial on ANY slot
    *  (weapon chips flash per-slot too) — consumed into the matching
    *  abilityPulse (never silence). Per-slot since Story 1.8: the ML fits TWO
-   *  special slots (mine + decoyBuoy), so a denied press must not flash
-   *  the decoy chip. Indexed by loadout slot (length SLOT_COUNT). */
+   *  special slots (mine + radarBuoy — both click-placed WEAPONS as of Story
+   *  7-5 wave 2), so a denied press must not flash the other slot's chip.
+   *  Indexed by loadout slot (length SLOT_COUNT). */
   abilityDeniedPress: boolean[];
   /** Rate-limited denied pulse PER LOADOUT SLOT — the SAME deniedFire grammar
    *  (80ms flash / 300ms floor), one driver per slot so two ability slots (and
@@ -432,13 +432,6 @@ interface Game {
   /** That rank-wide flash is DEGRADED this frame (over budget on its own
    *  element key) — it still draws, at the flat degraded weight. */
   fitFrameDegraded: boolean;
-  /**
-   * ms (server clock) — the latest OWN decoy buoy's expiry, the decoy slot's
-   * ACTIVE window (amendment 48). Latched from the Decoys reconcile's own-spawn
-   * hook, which is the only "you just placed one" signal the client gets; a
-   * replacement buoy simply supersedes it (latest `until` wins).
-   */
-  ownDecoyUntil: number;
   /**
    * THE OWN-FIRE LATCH (Story 2.9, sim/ownFire.ts): the weapon behind the click
    * we just made. The `shell`/`torp` wire shape is deliberately constant-free —
@@ -1219,7 +1212,7 @@ function updateBounty(g: Game): void {
   }
 }
 
-/** Ordnance-marker tint for a firer id (mine/decoy/lit-zone `by`): the pilot's
+/** Ordnance-marker tint for a firer id (mine/buoy/lit-zone `by`): the pilot's
  *  bright personal hue for every observer, or null while the roster hasn't synced
  *  it (or the firer left) — the renderer paints the amber fallback and retries
  *  per frame until the hue resolves (render/hueLatch.ts). The `?? amber` on the
@@ -1618,18 +1611,12 @@ function tickSinkingWindow(g: Game): void {
 function resetOwnOrders(g: Game): void {
   g.keyboard.resetThrottle();
   g.keyboard.clearActivations();
-  // Story 2.9: the decoy slot's ACTIVE window dies at the same hard boundary.
-  // The latch is fed by the reconcile's own-spawn hook, which only ever fires
-  // for a NEW buoy — so a window left standing across death would keep a slot
-  // reading ACTIVE for a buoy the next life does not own. Missing juice beats a
-  // lying slot.
-  g.ownDecoyUntil = 0;
   // Story 2.9: the own-fire latch dies at that same boundary. A claim is a
   // promise about the next reveal on our own bow, and death/respawn breaks it —
   // the shot it describes either splashed unseen or belongs to a hull that no
   // longer exists, so letting it stand would dress the FIRST reveal of the next
   // life (quite possibly somebody else's shell, landing where we just spawned)
-  // as our cannon shot. An unclaimed reveal reads generic, the honest fallback.
+  // as our own barrage. An unclaimed reveal reads generic, the honest fallback.
   g.ownFire.clear();
   // Reset the denial dedup at the SAME boundary (Story 1.10): dropping queued
   // presses without advancing actCount would otherwise let the next press reuse
@@ -2224,23 +2211,25 @@ function overlayFocused(g: Game | null): boolean {
 }
 
 /**
- * An ability-activation keypress landed (the TB's speed boost, or — Story 1.8 —
- * the Mine Layer's decoyBuoy; the MINE left this path in Story 2.8 when it
- * became a click-aimed weapon, amendment 45): the keyboard has QUEUED the press (it rides
+ * An ability-activation keypress landed. As of Story 7-5 wave 2 the SPEED BOOST
+ * is the only equipment left on this path: the MINE left it in Story 2.8
+ * (amendment 45) and the RADAR BUOY replacing the decoy rack is click-placed in
+ * the same rear sector (R2.7), so both prime instead. The keyboard has QUEUED
+ * the press (it rides
  * a later input, drained one-per-tick so the server's one-ability-per-tick gate
  * fires each in turn) — the server decides. Here the client only predicts the
  * verdict, at PRESS time, keyed on the pressed slot:
  *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
  *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
  *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
- *    denied decoy press never flashes another slot's chip;
+ *    denied press never flashes another slot's chip;
  *  - predicted READY → per equipment: speedBoost opens the predictor's optimistic
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
- *    double press within RTT can't extend it). The decoyBuoy drop needs
- *    no press-time cue: its placement tone rides the Decoys reconcile
- *    own-spawn hook (fired on the confirmed OWN buoy, gated by DecoyView `own`
+ *    double press within RTT can't extend it). A click-placed BUOY needs
+ *    no press-time cue either: its placement tone rides the buoy reconcile's
+ *    own-spawn hook (fired on the confirmed OWN buoy, gated by BuoyView `own`
  *    so it never misfires on a truesighted enemy buoy) — the same hook the
  *    mine's placement tone still rides from the Mines reconcile.
  */
@@ -2249,8 +2238,8 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
   // Story 5.2 / amendment 10 — NO RESTRICTION AT THE GATE: every fitted slot
-  // activates while sinking, speedBoost and decoyBuoy included (the criterion
-  // is fitment, not category), so this reads the WIDENED flag. The `?? true`
+  // activates while sinking (the criterion is fitment, not category), so this
+  // reads the WIDENED flag. The `?? true`
   // default for a missing own ship is unchanged.
   if (abilityPressDenied(conningNow(g) ?? true, loaded)) {
     // No live hotbar to flash into (sunk / spectating) — the tone's only
@@ -2281,8 +2270,8 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // an input (it may sit behind other queued presses); the optimistic boost
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
-  // decoyBuoy has no press-time cue: its placement tone rides the Decoys
-  // reconcile own-spawn hook (the mine precedent), so it fires on the confirmed
+  // A click-placed buoy has no press-time cue: its placement tone rides the buoy
+  // reconcile's own-spawn hook (the mine precedent), so it fires on the confirmed
   // OWN buoy and never on a truesighted enemy buoy.
 }
 
@@ -2359,7 +2348,7 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
 
 /** Fresh per-slot denied-feedback state (Story 1.6/1.8): one latch +
  *  rate-limited pulse + flash per loadout slot, so two special slots (the ML's
- *  mine + decoyBuoy) never share a pulse/flash. Fed by predicted ability-press
+ *  mine + radarBuoy) never share a pulse/flash. Fed by predicted ability-press
  *  denials and — Story 1.10 — by unmatched server denials on any slot (the
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<
@@ -2393,14 +2382,17 @@ function abilityFeedbackState(): Pick<
 }
 
 /**
- * An OWN decoy buoy just appeared in the reconcile (render/decoys' own-spawn
- * hook): play its placement cue and latch the window the hotbar's ACTIVE state
- * reads. The hook only ever fires for buoys we own, so a truesighted enemy buoy
- * can never light our slot.
+ * An OWN radar buoy just appeared in the reconcile (render/buoys' own-spawn
+ * hook): play its placement cue. The hook only ever fires for buoys we own, so
+ * a truesighted enemy buoy can never sound our drop.
+ *
+ * It latches NOTHING: the hotbar's ACTIVE window is DERIVED from the reconciled
+ * sprite set (Buoys.ownUntil) rather than from this edge, because a buoy is
+ * destructible and its death is silent on the wire — a latch kept the slot lit
+ * for the full nominal life of a buoy that had already been shot off the water.
  */
-function onOwnDecoy(g: Game | null, audio: Audio, d: DecoyView): void {
-  audio.play('placeDecoy');
-  if (g) g.ownDecoyUntil = Math.max(g.ownDecoyUntil, d.until);
+function onOwnBuoy(audio: Audio): void {
+  audio.play('placeBuoy');
 }
 
 /**
@@ -2418,13 +2410,13 @@ function latchFitFlash(g: Game, category: string): void {
 /**
  * ms — the REMAINING ability window per loadout slot (0 = none running), the
  * ACTIVE state's only input (amendment 48). The boost reads the same
- * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; the decoy
+ * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; the buoy
  * reads the latched own-buoy expiry. Everything else has no window.
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
-  const until = { speedBoost: boostUntilNow(g), decoyBuoy: g.ownDecoyUntil };
-  return status.loadout.map((id) => (id === 'speedBoost' || id === 'decoyBuoy' ? Math.max(0, until[id] - now) : 0));
+  const until = { speedBoost: boostUntilNow(g), radarBuoy: g.buoys.ownUntil() };
+  return status.loadout.map((id) => (id === 'speedBoost' || id === 'radarBuoy' ? Math.max(0, until[id] - now) : 0));
 }
 
 /**
@@ -2508,16 +2500,10 @@ function buildGame(
     // beyond the sight bubble, and the preview must not be eaten by fog.
     aimPreview: new AimPreview(stage.layers.aim),
     effects,
-    // The creep wake rides the SAME torpedo-wake dot a fish lays (a mine under
-    // power is making a wake, and it is the one existing marker that already
-    // survives every motion level).
-    mines: new Mines(
-      stage.layers.mineChart,
-      stage.layers.mineWorld,
-      () => audio.play('fireMine'),
-      (x, y) => effects.spawnEffect('torpwake', x, y),
-    ),
-    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
+    // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
+    // that laid one is gone, and a captive mine is MOORED — nothing can move.
+    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    buoys: new Buoys(stage.layers.buoyChart, stage.layers.buoyWorld, () => onOwnBuoy(audio)),
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
@@ -2557,7 +2543,6 @@ function buildGame(
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
-    ownDecoyUntil: 0,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
@@ -2668,7 +2653,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   // earn it from observable behavior). Deliberately ABOVE the vision-change
   // early-return below: a doctrine swap moves no vision stat, so gating it on
   // one would leave the water lying about the build we just fitted.
-  g.projectiles.setOwnModes({ cannon: stats.cannon.mode, torpedo: stats.torpedo.mode });
+  g.projectiles.setOwnModes({ torpedoHoming: stats.torpedo.homing });
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -2700,15 +2685,44 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
  * of our mines trips or blasts), stamped with the FRAME's own time so the
  * arming window is measured on the clock that owns it — an estimated local
  * serverNow() charges the mine for the transport delay and holds the dim late.
- * The acquisition ring is present only under the SELF-PROPELLED doctrine, and
- * its radius is raw CONFIG on purpose — no boon scales acquisition today.
+ * CAPTIVE MINES (R2.12) rides through as the raw VERB FLAG, never as a radius:
+ * the swap-and-triple that makes a captive mine's rings 144u/32u is derived
+ * inside `effectiveStats`, so `blastRadius`/`triggerRadius` are already the
+ * captive numbers by the time they are read here. What the flag decides is
+ * which rings are DRAWN (render/mines.ts ownMineRings) — a captive mine never
+ * detonates on contact, so it draws no blast circle about itself. The old
+ * `acquire` channel is gone with the SELF-PROPELLED doctrine that fed it.
  */
 function ownMineRingParams(g: Game, t: number): OwnMineRings {
   const mine = g.ownStats.mine;
   return {
     blast: mine.blastRadius,
     trigger: mine.triggerRadius,
-    acquire: mine.mode === 'selfPropelled' ? CONFIG.mine.creepAcquireRange : null,
+    captive: mine.captive,
+    now: t,
+  };
+}
+
+/**
+ * The own-buoy readout parameters for the frame timestamped `t`: the buoy's own
+ * EFFECTIVE radar reach and lifetime plus the two doctrine verbs, read straight
+ * off our stats — the same block the server stamps onto a buoy at drop and gates
+ * its relay with. Stamped with the FRAME's own time for the same reason the mine
+ * rings are: `BuoyView.until` is a server-clock value, so a local `serverNow()`
+ * estimate would charge the buoy for the transport delay and run its life arc
+ * systematically short.
+ *
+ * `radarRange` here is `stats.radarBuoy.radarRange` — the BUOY's flat 330u set,
+ * never the owner's own `stats.radarRange`, which no card on this line moves and
+ * which the buoy does not use.
+ */
+function ownBuoyParams(g: Game, t: number): OwnBuoyState {
+  const buoy = g.ownStats.radarBuoy;
+  return {
+    radarRange: buoy.radarRange,
+    gun: buoy.gun,
+    jamming: buoy.jamming,
+    durationMs: buoy.durationMs,
     now: t,
   };
 }
@@ -2778,6 +2792,10 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // The owner-private mine rings: our live effective radii + our clock. The
     // acquisition ring exists only while we actually hold the doctrine.
     ownMineRings: (t) => ownMineRingParams(g, t),
+    // The owner-private buoy readout: our live effective buoy stats + the
+    // frame's clock. Owner-only by construction (render/buoys.ts draws the ring
+    // and the life arc for `own` buoys alone).
+    ownBuoy: (t) => ownBuoyParams(g, t),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -2835,10 +2853,11 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * and the radar's `shipStamp` sample them at, so the foam lands on the hull the
  * player can see rather than ~100ms ahead of it.
  *
- * THERE IS NO DECOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, Eric:
- * *"Decoy will get major changes soon so lets not worry about it for now"*). A
- * decoy is frozen at its drop pose, so it never travels one sample cadence and
- * lays nothing BY CONSTRUCTION. The resulting tell is ledgered, not papered
+ * THERE IS NO BUOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, written
+ * of the decoy the RADAR BUOY replaced, and true of the replacement for the
+ * same reason). A buoy is anchored at its drop point, so it never travels one
+ * sample cadence and lays nothing BY CONSTRUCTION. The resulting tell — a
+ * stationary radar return with no wake behind it — is ledgered, not papered
  * over.
  *
  * Each source carries its own tint, resolved off the SAME roster the hull's
@@ -2896,6 +2915,7 @@ function renderOwn(
   inStorm: boolean,
   bar: ChromeBarView,
   match: MatchUx,
+  ownZones: readonly OwnZone[],
   frameDt: number,
   now: number,
   nowMs: number,
@@ -2938,7 +2958,7 @@ function renderOwn(
   g.lastOwn = { x: pose.x, y: pose.y };
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
-  renderFiring(g, pose, status, aim, cursor, nowMs);
+  renderFiring(g, pose, status, aim, cursor, ownZones, nowMs);
   // ONE attention read per frame, taken AFTER renderFiring drove the denied
   // pulses and shared by every consumer (the chrome bar's amber ring segment and
   // the HP rail here, the storm vignette back in renderAlive, the XP bank chip
@@ -3144,7 +3164,15 @@ function drivePulses(g: Game, nowMs: number): void {
   );
 }
 
-function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }, nowMs: number): void {
+function renderFiring(
+  g: Game,
+  pose: RenderPose,
+  status: OwnStatus,
+  aim: number,
+  cursor: { x: number; y: number },
+  ownZones: readonly OwnZone[],
+  nowMs: number,
+): void {
   const clicked = g.mouse.clickCount !== g.prevClickCount;
   g.prevClickCount = g.mouse.clickCount;
   drivePulses(g, nowMs);
@@ -3203,6 +3231,13 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   g.deniedDegraded = claimPulseFlash(
     g, FLASH_ELEMENTS.deniedArc, g.deniedPulse, g.deniedFlash, nowMs, g.deniedDegraded,
   );
+  // ONE reach for this aim, feeding BOTH the range-clamp marker and the aim
+  // preview (R2.15): the gun's clamp LIFTS to the click when the click lands
+  // inside one of our own live lit zones — you may shell what your own flare is
+  // lighting — and every other id keeps its own weaponRangeU byte-for-byte. Two
+  // derivations of one reach would let the marker and the burst circle disagree
+  // about where the shell stops.
+  const reachU = weaponReachU(status.stats, primedId, pose, aim, aimDist, g.mapRadius, ownZones);
   g.firing.update(
     pose,
     aim,
@@ -3210,9 +3245,9 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
     { hasAmmo, reloadFrac },
     cursor,
     g.deniedFlash,
-    weaponRangeU(status.stats, primedId), // gun family: radar-derived clamp ring; mine: its placement reach
+    reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
   );
-  renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc);
+  renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc, reachU);
 }
 
 /**
@@ -3231,6 +3266,7 @@ function renderAimPreview(
   status: OwnStatus,
   primedId: EquipmentId | null,
   legal: boolean,
+  gunReachU: number,
 ): void {
   const model = computeAimPreview({
     id: primedId,
@@ -3241,6 +3277,7 @@ function renderAimPreview(
     mapRadius: g.mapRadius,
     islands: g.islands,
     legal,
+    gunReachU,
   });
   g.aimPreview.update(model, previewTint(primedId));
 }
@@ -3647,7 +3684,7 @@ function renderAlive(
   // that one value. The payload is built with a provisional `false`, which
   // renderOwn overwrites with the real read before the HUD draws it.
   let tier1: boolean;
-  if (pose) tier1 = renderOwn(g, pose, status, inStorm, chromeBarView(g, zv, now, false), mu, frameDt, now, nowMs);
+  if (pose) tier1 = renderOwn(g, pose, status, inStorm, chromeBarView(g, zv, now, false), mu, ownZones, frameDt, now, nowMs);
   else {
     // No own frame this tick (forceSnap gap): nothing drove the denied pulse, so
     // the vignette reads the Tier-1 state directly.

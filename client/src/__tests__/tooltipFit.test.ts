@@ -117,7 +117,7 @@ describe('slot tooltip container fit (amendment 47)', () => {
   it('the panel GROWS with the build (the rows are really rendered, not dropped)', () => {
     const bare = tooltipMetrics(modelFor({ label: '', id: 'gun', cls: 'battleship', boons: [] })).height;
     const fitted = tooltipMetrics(
-      modelFor({ label: '', id: 'gun', cls: 'battleship', boons: ['gunDamage', 'gunBarrel'] }),
+      modelFor({ label: '', id: 'gun', cls: 'battleship', boons: ['gunBarrel', 'gunTurret'] }),
     ).height;
     expect(fitted).toBeGreaterThan(bare);
   });
@@ -162,7 +162,7 @@ describe('the laws that constrain the fix', () => {
   it('hosts the shipwide lines under the SHIP divider — in the GUN slot only', () => {
     const shipwide = maxedFor(SHIPWIDE_CATEGORIES);
     // The divider SEPARATES, so it needs the gun's own lines above it...
-    const mixed = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: ['gunDamage', ...shipwide] });
+    const mixed = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: ['gunBarrel', ...shipwide] });
     expect(mixed.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(true);
     // ...and a gun holding ONLY shipwide lines lists them bare (2.9 review): a
     // heading over the whole list separates it from nothing and spends a row of
@@ -199,8 +199,8 @@ describe('the ◆n quick-info compression fits the label column', () => {
       // Worst case per row: a live reload countdown AND — for the two pieces of
       // equipment that HAVE a window — that window at its longest fitted
       // duration, AND the accrued mark, all on the line at once.
-      const window = { speedBoost: stats.boost.durationMs, decoyBuoy: stats.decoyBuoy.durationMs }[
-        c.id as 'speedBoost' | 'decoyBuoy'
+      const window = { speedBoost: stats.boost.durationMs, radarBuoy: stats.radarBuoy.durationMs }[
+        c.id as 'speedBoost' | 'radarBuoy'
       ];
       for (const active of [0, window ?? 0]) {
         const line = quickInfoLine(info, info.reloadMs, active, n);

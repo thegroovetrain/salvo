@@ -1,11 +1,12 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
 // row here: the 18 GameEvent kinds plus the four contact-like frame channels
-// (`contact`, `mine`, `litzone`, and `decoy` — pseudo event types: not
-// GameEvents, but the invariant suite iterates them like everything else).
+// (`contact`, `mine`, `litzone` and `buoy` — pseudo event types: not
+// GameEvents, but the invariant suite iterates them like everything else; the
+// old `decoy` channel died with the decoy buoy in Story 7-5 wave 2, and the
+// RADAR BUOY's `buoy` channel replaced it on its own R2.7-R2.9 rules).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
-// visible()/materialize()/counterIntel(); nothing spatial leaves the server
-// outside a row.
+// visible()/materialize(); nothing spatial leaves the server outside a row.
 //
 // THE LOS RULE (one rule for everything OPTICAL): a point is line-of-sight-
 // clear from the observer iff the segment observer→point crosses no island
@@ -28,13 +29,13 @@
 // msgpack key order follows object insertion order. Every materialize() below
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
-// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
-// DecoyView: id,x,y,until,own,by; SplashEvent/HitCallEvent: k,id,x,y;
+// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,phos,daz;
+// SplashEvent/HitCallEvent: k,id,x,y;
 // MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
 // FoghornEvent: k,h then self? (honker) / x,y (spectator) / b,v (fogged
 // listener) — Story 4.5; SunkEvent: k,id,by?,seen? — the public
 // register, absent keys OMITTED). Do not reorder keys — `by` (Story 1.12) is
-// appended LAST on mine/decoy, `mode` (Story 2.9) after it on litzone, so the
+// appended LAST on mine, `mode` (Story 2.9) after it on litzone, so the
 // historical prefix stays byte-stable.
 
 import {
@@ -50,10 +51,10 @@ import {
   type BallisticEvent,
   type BlipEvent,
   type BoomEvent,
+  type BuoyView,
   type BurstEvent,
   type Contact,
   type DamageEvent,
-  type DecoyView,
   type FoghornEvent,
   type GameEvent,
   type HealEvent,
@@ -78,9 +79,9 @@ import {
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
-import type { Decoy, LitZone, ShipRecord } from './world.js';
+import type { LitZone, ShipRecord } from './world.js';
 import { isParticipant } from './participants.js';
-import type { MineState } from './equipment/index.js';
+import { BUOY_SIZE_U, type BuoyState, type MineState } from './equipment/index.js';
 
 // ---------------------------------------------------------------------------
 // The narrow per-observer context rows receive (imitates equipment's
@@ -105,9 +106,11 @@ interface SignalContextBase {
   /** All ACTIVE star-shell lit zones (Story 1.7) — the owned-zone truesight
    *  source (ownZoneCovers) and the litzone row's scan subjects. */
   litZones: ReadonlyMap<string, LitZone>;
-  /** All LIVE decoy buoys (Story 1.8) — the decoy row's scan subjects AND the
-   *  blip row's counterIntel subjects (the radar-double deception). */
-  decoys: ReadonlyMap<string, Decoy>;
+  /** All LIVE radar buoys (Story 7-5 wave 2) — the `buoy` frame channel's
+   *  scan subjects, the blip row's RELAY sources (R2.8 — an OWN buoy is a
+   *  second radar observer), and the buoy self-paint + jamming-fake sources
+   *  (R2.9/R2.11, buoyRadarBlips). Rides the context like litZones does. */
+  buoys: ReadonlyMap<string, BuoyState>;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
    *  private stream; see World.trackIds for the honest correlation bound).
    *  The `return` blip payload carries no id at all (amendment 152), so no
@@ -156,28 +159,23 @@ export type SignalContext = FoggedSignalContext | SpectatorSignalContext;
  * One spatial signal, declaratively: may THIS observer perceive the subject,
  * and what exact wire shape does it receive. `S` is the row's subject (a
  * world-emitted GameEvent for forwarded kinds; a live ShipRecord / ShellState /
- * MineState / Decoy for the scan-driven channels); `O` is the materialized
- * wire shape. materialize() is only ever called after visible() passes. `CI`
- * is the counterIntel subject type — the DECEIVING entity a row fabricates a
- * signal FROM (default S; the blip row lies from a Decoy).
+ * MineState for the scan-driven channels); `O` is the materialized wire shape.
+ * materialize() is only ever called after visible() passes.
+ *
+ * THE `counterIntel` SEAM IS DELETED (Story 7-5 wave 2): the decoy buoy's
+ * radar-double lie was its only implementer and its only caller, and nothing
+ * fabricates a ship contact any more. A future false-signal row (the jamming
+ * buoy, R2.11) re-establishes the seam WITH the explicit carve-out the
+ * perception oracle will need — it does not inherit a dormant one.
  */
-export interface SignalSpec<S = unknown, O = unknown, CI = S> {
+export interface SignalSpec<S = unknown, O = unknown> {
   /** Registry key: a GameEvent `k`, or a pseudo-type for a non-event frame
-   *  channel (`contact` / `mine` / `litzone` / `decoy`). */
+   *  channel (`contact` / `mine` / `litzone`). */
   readonly eventType: string;
   /** The fog-of-war predicate — the anti-cheat gate for this signal. */
   visible(ctx: SignalContext, subject: S): boolean;
   /** Wire-shape the subject for this observer. KEY ORDER IS LOAD-BEARING. */
   materialize(ctx: SignalContext, subject: S): O;
-  /**
-   * COUNTER-INTEL (first implementation: the blip row, Story 1.8): a row may
-   * fabricate plausible-but-FALSE signals from a deceiving entity — emitted
-   * through the row's OWN gate and wire shaper so a lie is field-for-field and
-   * timing-indistinguishable from the truth (FR10). Returns the wire shape to
-   * emit, or null when the deception does not fire for this observer this
-   * tick. perception.ts is the only caller (the decoy scan).
-   */
-  counterIntel?(ctx: SignalContext, subject: CI): O | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +254,7 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], now: 
  * LOS-clear. pointSighted's SIBLING, never a narrowing of it: exactly THREE
  * rows ride this gate — mines (mineSignal), torpedoes (ballisticSignal's
  * `torp` branch), and homing-torpedo updates (torpedoUpdateSignal). Everything
- * else pointSighted serves — shells, decoys, booms, bursts, sunk-witness,
+ * else pointSighted serves — shells, booms, bursts, sunk-witness,
  * spawns — stays on truesight, byte-identical (SHELLS DO NOT MOVE: a shell is
  * in the air; a torpedo is a wake just under the surface and a mine sits in
  * the water). Observer-scaled exactly as sight is (amendment 121): a
@@ -321,12 +319,20 @@ export function ownZoneCovers(ctx: SignalContext, p: Vec2): boolean {
   return false;
 }
 
+/** Anything carrying a radar sweep window — a ShipRecord, or (Story 7-5
+ *  wave 2) a BuoyState: sweptThisTick reads exactly these two fields, so the
+ *  buoy's OWN sweep runs the IDENTICAL half-open-window rule a ship's does. */
+interface SweepWindow {
+  sweepAngle: number;
+  prevSweepAngle: number;
+}
+
 /**
  * True iff the observer's beam crossed `brg` this tick: the half-open window
  * [prevSweepAngle, sweepAngle), wrap-safe. Start-inclusive + strict `<` at the
  * end means each bearing is painted exactly once per revolution.
  */
-function sweptThisTick(me: ShipRecord, brg: number): boolean {
+function sweptThisTick(me: SweepWindow, brg: number): boolean {
   const window = wrapPositive(me.sweepAngle - me.prevSweepAngle);
   return wrapPositive(brg - me.prevSweepAngle) < window;
 }
@@ -343,7 +349,7 @@ function sweptThisTick(me: ShipRecord, brg: number): boolean {
  *  annulus, so it cannot paint) even where a low island would leave it
  *  radar-visible. The two tiers' occlusion rules are DIFFERENT predicates by
  *  ruling (amendment 179), and the annulus is what keeps them from ever
- *  answering for the same point. Point-based so the decoy counterIntel
+ *  answering for the same point. Point-based so a non-ship subject can share it
  *  (Story 1.8) runs the IDENTICAL test on a buoy position. */
 function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
   const dx = p.x - me.state.x;
@@ -368,11 +374,11 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
  * and the gate from ever disagreeing. Term ordering is load-bearing for cost:
  * annulus → swept-this-tick → shadow march, so the expensive term runs only
  * for candidates already in this tick's beam wedge. The genuine ship scan and
- * the decoy counterIntel both call THIS, so a buoy paints exactly when a ship
- * at that position would — same tick, same boundaries, same shadowing. Do not
- * fork it, and do not give a decoy its own height: observer and target are
- * both at mast height (amendment 101), which is what makes the model
- * symmetric and the deception structurally indistinguishable (amendment 11).
+ * any future non-ship radar subject both call THIS, so anything afloat at a
+ * position paints exactly when a ship there would — same tick, same
+ * boundaries, same shadowing. Do not fork it, and do not give a non-ship
+ * subject its own height: observer and target are both at mast height
+ * (amendment 101), which is what makes the model symmetric.
  */
 function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster, now: number): boolean {
   return (
@@ -380,6 +386,43 @@ function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster, now: number): b
     sweptThisTick(me, bearing(me.state, p)) &&
     visibilityTo(raster, me.state.x, me.state.y, p.x, p.y) > 0
   );
+}
+
+/**
+ * THE BUOY'S OWN RADAR GATE (Story 7-5 wave 2, R2.8) — blipGate's clause
+ * order run FROM THE BUOY: within the buoy's flat 330u set (no inner
+ * exclusion — a buoy has NO sight bubble, so its whole disc is radar and
+ * "sight wins inside its radius" has no sight to win with) ∧ the BUOY's own
+ * beam crossed the point's bearing this tick (its own 15+1.25/card RPM sweep,
+ * the identical half-open-window rule) ∧ at least partially illuminated under
+ * the height-aware shadow march FROM THE BUOY'S POSITION (the plan's "island
+ * shadowing applies from the BUOY's position, because it is a real radar" —
+ * the SAME shared visibilityTo, unchanged, K and mast height included: the
+ * buoy is an antenna at mast height like every other radar, amendment 101's
+ * symmetry preserved rather than forked).
+ */
+function buoyGate(buoy: BuoyState, p: Vec2, raster: HeightRaster): boolean {
+  const dx = p.x - buoy.x;
+  const dy = p.y - buoy.y;
+  if (dx * dx + dy * dy > buoy.radarRange * buoy.radarRange) return false;
+  return sweptThisTick(buoy, bearing(buoy, p)) && visibilityTo(raster, buoy.x, buoy.y, p.x, p.y) > 0;
+}
+
+/**
+ * THE RELAY (R2.8): does a live buoy OWNED BY THIS OBSERVER return point `p`
+ * this tick? RADAR RETURNS ONLY, never vision: what a relayed pass buys the
+ * owner is one more anonymous blip in the same subsequence — never a contact,
+ * never truesight, never LOS. Deliberately NO annulus term against the
+ * OWNER's ranges: a hull inside the owner's sight radius but island-blocked
+ * is exactly the target a buoy is placed to watch (the contact row already
+ * won for anything the owner can genuinely see — the scan's contact-first
+ * ordering — so the relay can never double a contact).
+ */
+function relayedByOwnBuoy(ctx: FoggedSignalContext, p: Vec2): boolean {
+  for (const buoy of ctx.buoys.values()) {
+    if (buoy.ownerId === ctx.me.id && buoyGate(buoy, p, ctx.heightRaster)) return true;
+  }
+  return false;
 }
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
@@ -395,7 +438,7 @@ function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster, now: number): b
  *  boons, hp, damage state, or the observer — every observer painting this
  *  hull this tick receives the identical mask, and the client computes all
  *  intensity. A genuine paint passes the ship's position and LIVE pose; the
- *  decoy counterIntel passes the buoy's position and its FROZEN drop-time
+ *  a non-ship radar subject passes its own position and its frozen
  *  cls/heading (a radar reflector reports true stationary values) — byte-for-
  *  byte the same shape either way, because both run through this one shaper
  *  and the one shared rasterizer+fuzz pipeline (amendment 11 by construction).
@@ -550,44 +593,63 @@ const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
     return dx * dx + dy * dy <= radar * radar; // no LOS, no sweep gate
   },
   materialize(_ctx, zone) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by,mode. `mode`
-    // (Story 2.9, amendment 50) is the zone's doctrine — stamped on the
-    // record at zone-spawn time and delivered to EVERY observer who sees the
-    // circle (counterplay over concealment), appended LAST.
-    return { id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId, mode: zone.mode };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by,phos,daz. The two
+    // doctrine flags (Story 2.9 amendment 50, split into INDEPENDENT verbs by
+    // Story 7-5 wave 1) are stamped on the record at zone-spawn time and
+    // delivered to EVERY observer who sees the circle (counterplay over
+    // concealment), appended LAST. They are written INDEPENDENTLY — a zone
+    // that both burns and blinds carries both — and OMITTED when false, the
+    // established optional-flag wire style, so a plain flare costs what it
+    // always did.
+    return {
+      id: zone.id,
+      x: zone.x,
+      y: zone.y,
+      r: zone.r,
+      until: zone.until,
+      by: zone.ownerId,
+      ...(zone.phosphor ? { phos: true as const } : {}),
+      ...(zone.dazzle ? { daz: true as const } : {}),
+    };
   },
 };
 
 /**
- * `decoy` — contact-like state (NOT events), recomputed every tick exactly
- * like mines (Story 1.8). This channel carries THE TRUTH — the buoy for what
- * it is (DecoyView) — never the deception (that is the blip row's counterIntel
- * above). The OWNER always sees its own buoy (own-equipment awareness, the
- * mines precedent); any other fogged observer sees it only when TRUESIGHT
- * reaches it: within sight + island-LOS (pointSighted), or inside a lit zone
- * the observer OWNS (Story 1.7 parity, no LOS on the zone path) — sight
- * reveals the lie. Decoys NEVER appear as contacts and never radar-paint
- * truthfully (radar range only ever produces the counterIntel blip).
- * Spectators see every buoy.
+ * `buoy` — contact-like state (Story 7-5 wave 2, R2.7/R2.9), recomputed every
+ * tick exactly like mines: the OWNER always sees its own buoy (own field
+ * awareness, even under fog); everyone else sees it only when it is SIGHTED
+ * (truesight + island LOS — the shared BuoyView contract: a buoy rides high
+ * enough in the water to read at sight range, unlike a mine's 3/8 detect) or
+ * inside a lit zone the observer OWNS (Story 1.7 parity). Spectators see all.
+ * Beyond sight an enemy learns of the buoy ONLY through its anonymous radar
+ * paint (buoyRadarBlips below), which carries no id and no owner — this row
+ * is the up-close truth channel, and `by` (the owner's ship id, the mine
+ * row's deliberate personal-hue intel grant) rides ONLY here, never on any
+ * blip (R2.9: nothing on the wire beyond sight says whose it is).
+ * The buoy's hp deliberately does NOT ride this shape (no wire field exists
+ * for it — a shared/ decision, ledgered).
  */
-const decoySignal: SignalSpec<Decoy, DecoyView> = {
-  eventType: 'decoy',
-  visible(ctx, decoy) {
+const buoySignal: SignalSpec<BuoyState, BuoyView> = {
+  eventType: 'buoy',
+  visible(ctx, buoy) {
     if (ctx.mode === 'spectator') return true;
     return (
-      decoy.ownerId === ctx.me.id ||
-      pointSighted(ctx.me, decoy, ctx.islands, ctx.now) ||
-      ownZoneCovers(ctx, decoy)
+      buoy.ownerId === ctx.me.id ||
+      pointSighted(ctx.me, buoy, ctx.islands, ctx.now) ||
+      ownZoneCovers(ctx, buoy)
     );
   },
-  materialize(ctx, decoy) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until,own,by. `id` is the
-    // DECOY's own id — the owner's ship id rides the counterIntel blip AND, as of
-    // Story 1.12, the trailing `by` here (roster-resolved to the owner's personal
-    // hue for every observer of the TRUTH marker; the deceiving blip is unchanged).
-    // `own` mirrors mineSignal (ctx.observerId): true iff the receiver owns the
-    // buoy. Spectators (observerId ≠ ownerId) read own=false. `by` appended LAST.
-    return { id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until, own: decoy.ownerId === ctx.observerId, by: decoy.ownerId };
+  materialize(ctx, buoy) {
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until,own,by — the shared
+    // BuoyView declaration order, the mine row's discipline.
+    return {
+      id: buoy.id,
+      x: buoy.x,
+      y: buoy.y,
+      until: buoy.until,
+      own: buoy.ownerId === ctx.observerId,
+      by: buoy.ownerId,
+    };
   },
 };
 
@@ -609,18 +671,13 @@ const decoySignal: SignalSpec<Decoy, DecoyView> = {
  * self-contained rather than leaning on the scan's contact-first ordering.
  * Spectators get live contacts instead, never blips.
  *
- * COUNTER-INTEL (Story 1.8, FR10): the row also implements the registry's
- * counterIntel seam for DECOY BUOYS — the first lying signal. For a fogged
- * NON-OWNER observer, a live buoy emits a blip through the EXACT ship-blip
- * gate (blipGate — same annulus, same swept-this-tick window, same height-
- * aware shadow march) and the EXACT wire shaper (blipShape), carrying the OWNER's ship id at
- * the BUOY's position: on the wire and in time it is indistinguishable from
- * the owner's own hull painting there. It NEVER lies to its owner, never
- * fires unfogged (spectators see the truth via the decoy row), and — zone
- * parity with the ship rule — never doubles a buoy the observer's own lit
- * zone already truesights (the decoys channel carries the truth there).
+ * COUNTER-INTEL IS DELETED (Story 7-5 wave 2): the DECOY BUOY was this seam's
+ * only user and the whole deception is gone with it — NOTHING in the game
+ * fabricates a ship contact any more. The radar buoy replacing it paints on
+ * its OWN profile carrying no owner identity (R2.9), which is an ordinary
+ * return, not a lie.
  */
-const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
+const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
   eventType: 'blip',
   visible(ctx, target) {
     // Blips are perception-generated, never world-emitted: a world-dispatched
@@ -633,7 +690,13 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // payload carries pose only, so nothing discloses the window here either.
     if ((!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) || target.id === me.id) return false;
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
-    return blipGate(me, target.state, ctx.heightRaster, ctx.now);
+    // The observer's own radar, OR a relay from a buoy the observer OWNS
+    // (Story 7-5 wave 2, R2.8): the buoy is a SECOND OBSERVER for this one
+    // gate and nothing else. Either way the wire shape below is identical —
+    // one anonymous coverage footprint; the scan's contact-first ordering
+    // caps a ship at one paint per observer per tick regardless of how many
+    // sensors returned it.
+    return blipGate(me, target.state, ctx.heightRaster, ctx.now) || relayedByOwnBuoy(ctx, target.state);
   },
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
@@ -642,40 +705,113 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // wire carries the coverage footprint, nothing else (amendment 152).
     return blipShape(ctx, target.state, target.hullId, target.state.heading);
   },
-  counterIntel(ctx, decoy) {
-    // Spectators are unfogged — they get the truth (the decoy row), never a lie.
-    if (ctx.mode !== 'fogged') return null;
-    const me = ctx.me;
-    // The buoy never lies to its owner ("shows up as YOU" — to OTHERS).
-    if (decoy.ownerId === me.id) return null;
-    // Zone parity with the ship rule above: an observer whose OWN lit zone
-    // covers the buoy already truesights it (the decoys channel) — never
-    // doubled as a blip, exactly like a zone-covered ship.
-    if (ownZoneCovers(ctx, decoy)) return null;
-    // CONTACT-COEXISTENCE GUARD (FR10): never lie about an owner the observer
-    // can currently SEE. A genuine ship can never be a contact AND a blip in
-    // the same frame (the annulus excludes sight; zone-covered ships are
-    // blip-excluded), so contact('a') + blip('a') coexisting would be a wire
-    // tell that unmasks the buoy. The gate reuses the contact row's EXACT
-    // visibility predicate on the OWNER's hull — never a hand-rolled variant —
-    // and the deception is worthless in that state anyway (the observer has
-    // the real hull in truesight).
-    const owner = ctx.ships.get(decoy.ownerId);
-    if (owner !== undefined && contactSignal.visible(ctx, owner)) return null;
-    if (!blipGate(me, decoy, ctx.heightRaster, ctx.now)) return null;
-    // The lie: the genuine blip shape at the buoy's position. `t` = ctx.now, like every real paint. The pose is the buoy's
-    // FROZEN drop-time snapshot at speed 0 (Story 4.2, amendment 11) — TRUE
-    // stationary values, never a live ctx.ships.get(ownerId) kinematics read
-    // (the buoy outlives its owner by up to 30s and must keep painting; a live
-    // read would also leak the fogged owner's course/speed at a false
-    // position). Unmasking the lie is BEHAVIORAL — it never moves — not a
-    // payload difference. The lie is the owner hull's COVERAGE FOOTPRINT at
-    // the buoy position and frozen drop heading, built by the same shared
-    // rasterizer a genuine paint runs through (cycle 63) — indistinguishable
-    // by construction.
-    return blipShape(ctx, decoy, decoy.hullId, decoy.heading);
-  },
 };
+
+// ---------------------------------------------------------------------------
+// RADAR-BUOY blip sources (Story 7-5 wave 2, R2.9/R2.11) — perception-
+// generated additions to the ONE blip subsequence, called only by
+// perception's buoyRadarScan and merged before the payload-only blipOrder
+// sort (which is exactly why that sort was kept when the decoy died: a
+// payload-only order can never leak which subsequence member came from a
+// hull, a buoy, or a fake).
+// ---------------------------------------------------------------------------
+
+/**
+ * THE BUOY'S OWN PAINT (R2.9): a small degenerate-segment square at the
+ * buoy's fixed position — its TRUE physical footprint (BUOY_SIZE_U, the same
+ * square the ballistic paths collide with), rasterized and per-paint glinted
+ * by the SAME shared segment pipeline the wake row uses, onto the same
+ * lattice, in the same {k:'blip',...} wire shape. Deliberately NOT
+ * paintCoverage over any HullId: painting a hull silhouette would fake a ship
+ * contact, which is the exact deception Story 7-5 wave 2 deleted — "its OWN
+ * profile" means a return visibly the size of a buoy, carrying (like every
+ * blip since amendment 152) no id, no class, no owner, nothing (R2.9).
+ */
+function buoyPaintBlip(ctx: SignalContext, buoy: BuoyState): BlipEvent {
+  const c = paintSegmentCoverage(buoy.x, buoy.y, buoy.x, buoy.y, BUOY_SIZE_U, CONFIG.vision.radarCellU, ctx.now);
+  return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
+}
+
+/** Does this buoy's owner hold the JAMMING BUOY verb RIGHT NOW? Owner lookup
+ *  with the vacated-owner CONFIG fallback (false) — the mine-doctrine rule,
+ *  so an orphan buoy stops jamming the tick its owner leaves. */
+function buoyJams(ctx: SignalContext, buoy: BuoyState): boolean {
+  return ctx.ships.get(buoy.ownerId)?.stats.radarBuoy.jamming ?? false;
+}
+
+/**
+ * THE JAMMING BUOY'S FALSE RETURNS (R2.11) — THE FIRST DELIBERATE EMISSION OF
+ * A FALSE SIGNAL THROUGH perception.observe(), and the point must be stated
+ * exactly. This INVERTS the wake-chop precedent: chop is client-side because
+ * it carries no information (a modified client deleting it learns nothing);
+ * jamming's ENTIRE PURPOSE is DENYING information, so a client that dropped
+ * the fakes would gain a decisive advantage — therefore THE SERVER emits
+ * them, and they are wire-indistinguishable from real blips BY CONSTRUCTION:
+ * each fake is a (pose, hull-class) scattered on the buoy's server-private
+ * jam stream, shaped by blipShape — the ONE shaper every genuine ship paint
+ * goes through — and gated per observer by blipGate — the ONE gate every
+ * genuine ship paint passes — so a fake appears exactly when a real ship at
+ * that pose would: same annulus, same this-tick beam crossing, same
+ * height-aware shadow, same masks, same sort. The rules, restated from the
+ * plan because each is load-bearing:
+ *   • it ADDS fakes; it NEVER deletes a real return — the real hull still
+ *     paints, one candidate among many (deleting would make the circle read
+ *     suspiciously EMPTY, which is itself information);
+ *   • RADAR ONLY — truesight and LOS untouched; the annulus term inside
+ *     blipGate is what makes "sail in and look" the counter (a fake can
+ *     never appear inside your own sight bubble), and the ownZoneCovers
+ *     exclusion below extends the same truth-wins rule to a flare you hung
+ *     over the circle;
+ *   • the buoy's OWNER IS EXEMPT and sees the truth (the caller skips owner
+ *     frames entirely) — the buoy is concealed among its own fakes for
+ *     everyone else;
+ *   • deterministic per (buoy, sweep revolution) from the server-private jam
+ *     stream (scatterJamFakes' documented draw-order contract) — never
+ *     Math.random(), so tests reproduce every fake and a client can predict
+ *     none.
+ *
+ * THE PERCEPTION CARVE-OUT, DECLARED HERE AND IN THE ORACLE: the master
+ * invariant's blip test asserts every blip traces to a real ship, and for
+ * fakes that is now deliberately false. This is NOT a breach in the leak
+ * direction — a fake discloses NOTHING REAL (its pose comes off a private
+ * RNG, not off any ship) — and it is NOT a seventh declared exception: the
+ * six exceptions are channels that disclose something TRUE beyond sight ∪
+ * paints, and a fabricated return discloses nothing true at all. The count
+ * stays at SIX. perception.test.ts's verifyBlip carries the matching
+ * EXPLICIT carve-out (a blip may alternatively byte-match an independently
+ * re-derived fake/buoy-paint/relay), written so it can never hide a genuine
+ * leak: justification is exact mask equality against oracle-recomputed
+ * sources, so a real ship's footprint leaked outside every gate matches
+ * nothing and still fails.
+ */
+function jamFakeBlips(ctx: FoggedSignalContext, buoy: BuoyState, out: BlipEvent[]): void {
+  if (!buoyJams(ctx, buoy)) return;
+  for (const fake of buoy.jamFakes) {
+    if (ownZoneCovers(ctx, fake)) continue; // your own flare shows the truth: no ship there
+    if (!blipGate(ctx.me, fake, ctx.heightRaster, ctx.now)) continue;
+    out.push(blipShape(ctx, fake, fake.cls, fake.heading));
+  }
+}
+
+/**
+ * All buoy-sourced additions to one observer's blip subsequence this tick
+ * (perception's buoyRadarScan body — exported so the rules stay in this
+ * file): the buoy's own anonymous paint through the observer's OWN blipGate
+ * (an enemy's radar returns the buoy like anything else afloat — R2.9), plus
+ * the jamming fakes above. The OWNER gets NEITHER: it always holds its own
+ * buoy's truth (the `buoy` frame channel) and is exempt from its fakes.
+ */
+export function buoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
+  const out: BlipEvent[] = [];
+  for (const buoy of ctx.buoys.values()) {
+    if (buoy.ownerId === ctx.me.id) continue; // owner: truth channel only, fakes never
+    if (!ownZoneCovers(ctx, buoy) && blipGate(ctx.me, buoy, ctx.heightRaster, ctx.now)) {
+      out.push(buoyPaintBlip(ctx, buoy));
+    }
+    jamFakeBlips(ctx, buoy, out);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // `wk` — RADAR WAKES (Story 4.12, amendments 194-196/200/205).
@@ -1188,7 +1324,9 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  * amendment 17: out-of-sight hit confirmation is now the deliberate,
  * narrowly-scoped job of the SELF-PRIVATE Hit Call row (`hc`, hitCallSignal
  * below) — position only, never a victim id or severity — because the
- * ratified decoy disambiguation oracle depends on it. Bystanders and victims
+ * ratified decoy disambiguation oracle depended on it (that oracle is moot
+ * since Story 7-5 wave 2 deleted the decoy — the RULING stands on its own:
+ * a shooter learns that something of theirs connected). Bystanders and victims
  * keep today's boom rules exactly; the owner's dead-reckoned shell still just
  * expires by client lifetime on this row. Even when the boom IS visible, its
  * `hit` (victim id) is stripped unless the victim's CENTER is itself sighted
@@ -1488,9 +1626,11 @@ const fallOfShotSignal = shooterPrivateSignal<SplashEvent>('sp');
  * knowing supersession of the boom row's owner anti-leak rule for the
  * owner-hit case ONLY (see the boom row's amended comment): leaking
  * "something of yours connected out there" to its owner is now the intended
- * feature — it is what keeps the ratified decoy disambiguation oracle alive.
+ * feature (it was ratified to keep the decoy disambiguation oracle alive; the
+ * decoy is deleted since Story 7-5 wave 2 and the row is unchanged).
  * Self-private + spectator-public: exactly the `dmg` row's shape. ALL
- * ORDNANCE at the emission sites: gun, cannon, star shells, torpedo, mines.
+ * ORDNANCE at the emission sites: gun, broadside — one `hc` PER SHELL of a
+ * barrage (R2.5) — star shells, torpedo, mines.
  */
 const hitCallSignal = shooterPrivateSignal<HitCallEvent>('hc');
 
@@ -1711,9 +1851,9 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 /**
  * String-keyed registry of every signal channel — the 18 GameEvent kinds plus
- * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
+ * the `contact`/`mine`/`litzone` pseudo-types. perception.ts
  * dispatches world events by `e.k` (an emitted kind with no row is a hard
- * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone/decoy
+ * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone
  * scans through their rows. Deep-frozen: the map AND every row are frozen —
  * rows are added at authoring time only, each with its required invariant
  * test case.
@@ -1722,7 +1862,11 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
   mine: mineSignal,
   litzone: litZoneSignal,
-  decoy: decoySignal,
+  // Story 7-5 wave 2: the RADAR BUOY's contact-like frame channel (the mine
+  // row's shape — owner always / sighted / owned-zone / spectators). Its
+  // anonymous radar paint and the jamming fakes are NOT rows: they merge into
+  // the `blip` subsequence via buoyRadarBlips above.
+  buoy: buoySignal,
   blip: blipSignal,
   shell: ballisticSignal('shell'),
   torp: ballisticSignal('torp'),
@@ -1773,8 +1917,8 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 18 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
- * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`/`k:'decoy'`) world
+ * ONLY the 18 GameEvent-kind rows. It excludes the contact/mine/litzone
+ * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup
  * (Object.hasOwn) so an inherited prototype key ('constructor', 'toString')
@@ -1783,8 +1927,10 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
  * registry row).
  */
 export function signalFor(kind: string): SignalSpec | undefined {
-  // Pseudo-rows never dispatch from world events.
-  if (kind === 'contact' || kind === 'mine' || kind === 'litzone' || kind === 'decoy') return undefined;
+  // Pseudo-rows never dispatch from world events ('buoy' joined the set in
+  // Story 7-5 wave 2 — a fabricated k:'buoy' world event must never
+  // materialize a BuoyView).
+  if (kind === 'contact' || kind === 'mine' || kind === 'litzone' || kind === 'buoy') return undefined;
   if (!Object.hasOwn(SIGNAL_REGISTRY, kind)) return undefined; // own-property only
   return (SIGNAL_REGISTRY as Partial<Record<string, SignalSpec>>)[kind];
 }

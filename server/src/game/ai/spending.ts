@@ -62,10 +62,10 @@ export interface BotSpendState {
   maxHp: number;
 }
 
-/** Score for a line whose doctrine pair is already resolved — deliberately
- *  neither zero (the pick stays legal) nor competitive (it stops the
- *  ping-pong). Sits just under the lowest category base in the table. */
-const RESOLVED_EXCLUSIVE_SCORE = 0.9;
+/** Score for a line this bot already holds a copy of — deliberately neither
+ *  zero (the pick stays legal) nor competitive. Sits just under the lowest
+ *  category base in the table. */
+const HELD_LINE_SCORE = 0.9;
 
 /** Score for a card in a category this profile's table says nothing about.
  *  Below every real weight, above a resolved exclusive is NOT the point — an
@@ -95,17 +95,22 @@ function defOf(catalog: BoonCatalog, id: string): BoonDef | null {
   return catalog[id] ?? null;
 }
 
-/** True when this bot has already resolved the doctrine pair this line
- *  belongs to — it holds the card, or it holds the rival. */
-function pairResolved(def: BoonDef, fitted: readonly string[]): boolean {
-  if (def.exclusiveWith === undefined) return false;
-  return fitted.includes(def.id) || fitted.includes(def.exclusiveWith);
+/** True when this bot already holds the ONE-COPY line this def names — a rare
+ *  ×1 doctrine card it has fitted is worth nothing more to it.
+ *
+ *  EXCLUSIVITY IS DELETED (Story 7-5 wave 2, R2.6): this used to also demote a
+ *  line whose `exclusiveWith` RIVAL was held, because the cannon's AP/PLUNGING
+ *  pair could only ever resolve one way. Doctrine verbs now stack, so there is
+ *  no rival to be pre-empted by — only the card's own copies matter, and the
+ *  deck already stops re-offering an exhausted line. */
+function alreadyHeld(def: BoonDef, fitted: readonly string[]): boolean {
+  return fitted.includes(def.id);
 }
 
 /**
  * How much this profile wants one offered line: the per-LINE override if the
  * table names it, else the per-CATEGORY base, else the unlisted default —
- * with a resolved doctrine pair demoted to neutral. Exported so tests (and a
+ * with an already-held one-copy line demoted to neutral. Exported so tests (and a
  * future tuning tool) can read the policy without running a spend.
  */
 export function boonWeightFor(
@@ -116,7 +121,7 @@ export function boonWeightFor(
 ): number {
   const def = defOf(catalog, id);
   if (def === null) return 0; // unknown id: never picked
-  if (pairResolved(def, fitted)) return RESOLVED_EXCLUSIVE_SCORE;
+  if (alreadyHeld(def, fitted)) return HELD_LINE_SCORE;
   const table = weightTable(profile);
   return table.lines[id] ?? table.cat[def.category] ?? UNLISTED_SCORE;
 }

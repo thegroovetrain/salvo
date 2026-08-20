@@ -209,12 +209,12 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     const w = bareWorld();
     const fits: [ShipClassId, string[]][] = [
       ['torpedoBoat', ['gun', 'torpedo', 'speedBoost']],
-      ['battleship', ['gun', 'cannon', 'starShells']],
-      ['mineLayer', ['gun', 'mine', 'decoyBuoy']],
+      ['battleship', ['gun', 'broadside', 'starShells']],
+      ['mineLayer', ['gun', 'mine', 'radarBuoy']],
     ];
     for (const [cls, expected] of fits) {
       const ship = place(w, `s-${cls}`, 0, 0, cls);
-      ship.input = input(1, { aim: 0, aimDist: 200 });
+      ship.input = input(1, { aim: Math.PI / 2, aimDist: 200 }); // abeam: inside the broadside's beam sector
       w.sinkShip(ship.id);
       expect(isSinking(ship.lifecycle)).toBe(true);
       for (let slot = 0; slot < expected.length; slot++) {

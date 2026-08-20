@@ -29,12 +29,13 @@ const TAU = Math.PI * 2;
 const DAMP = CONFIG.ship.islandSpeedMult;
 const DT = CONFIG.tick.simDtMs / 1000;
 const BIG_MAP = 100000; // effectively boundless for island-only cases
-// THE worst case from CONFIG: the whole gun family (gun / cannon / star shells)
-// plus the torpedo — the previous max() omitted cannon and star shells, so a
-// faster sibling could raise the real worst case without this file noticing.
+// THE worst case from CONFIG: the whole gun family (gun / broadside / star
+// shells) plus the torpedo — the previous max() omitted the second gun-family
+// member and star shells, so a faster sibling could raise the real worst case
+// without this file noticing.
 const maxProjSpeed = Math.max(
   CONFIG.gun.shellSpeed,
-  CONFIG.cannon.shellSpeed,
+  CONFIG.broadside.shellSpeed,
   CONFIG.starShells.shellSpeed,
   CONFIG.torpedo.speed,
 );

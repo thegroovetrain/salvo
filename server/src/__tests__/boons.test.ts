@@ -66,7 +66,7 @@ const REPLACE_BOON: BoonDef = {
   category: 'test',
   rarity: 'common',
   copies: 1,
-  effects: [{ kind: 'slotReplace', from: 'torpedo', to: 'cannon' }],
+  effects: [{ kind: 'slotReplace', from: 'torpedo', to: 'broadside' }],
 };
 
 /** ONE boon carrying ALL FOUR effect kinds (the story's acceptance shape). */
@@ -81,7 +81,7 @@ const OMNI_BOON: BoonDef = {
     // type-checks. Widening radar here still exercises a stat effect AND now
     // proves the derivation reaches sightRange through applyBoon (asserted below).
     { kind: 'stat', path: 'radarRange', mult: 1.25 },
-    { kind: 'slotFill', equipmentId: 'decoyBuoy' },
+    { kind: 'slotFill', equipmentId: 'radarBuoy' },
     { kind: 'slotReplace', from: 'speedBoost', to: 'starShells' },
     { kind: 'behavior', hookId: 'surge', params: { bonus: 20 } },
   ],
@@ -254,8 +254,8 @@ describe('World.applyBoon — two homes, nothing else', () => {
     a.loadout[1].state!.n = 0;
     a.loadout[1].state!.reloadMsLeft = 900; // stale torpedo state — replaced wholesale
     w.applyBoon(a, 'longLance');
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'cannon', 'speedBoost', null]);
-    expect(a.loadout[1].state).toEqual({ n: CONFIG.cannon.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'broadside', 'speedBoost', null]);
+    expect(a.loadout[1].state).toEqual({ n: CONFIG.broadside.maxAmmo, reloadMsLeft: 0 });
   });
 
   it('queues NO event (2.7 owns the spend UX) and moves NO other ship field — hp stays put even when maxHp grew', () => {
@@ -296,9 +296,9 @@ describe('World.applyBoon — two homes, nothing else', () => {
     // radar through the one derivation rather than needing its own card.
     expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 2, 9);
     // Home 2 — slots: the fill AND the replace landed in the one structure.
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'starShells', 'decoyBuoy']);
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'starShells', 'radarBuoy']);
     expect(a.loadout[2].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
-    expect(a.loadout[SLOT_EXTRA].state).toEqual({ n: CONFIG.decoyBuoy.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_EXTRA].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
     // Hooks — the behavior effect executes on the real tick (outruns control).
     a.input.throttle = 1;
     c.input.throttle = 1;

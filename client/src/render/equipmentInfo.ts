@@ -33,9 +33,9 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   torpedo: 'Torpedoes',
   mine: 'Mines',
   speedBoost: 'Speed Boost',
-  cannon: 'Heavy Cannon',
+  broadside: 'Broadside Barrage',
   starShells: 'Star Shells',
-  decoyBuoy: 'Decoy Buoy',
+  radarBuoy: 'Radar Buoy',
 };
 
 /** One-to-two sentence tooltip description per equipment id (DRAFT copy). */
@@ -44,10 +44,33 @@ export const EQUIPMENT_DESCRIPTION: Record<EquipmentId, string> = {
   torpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
   mine: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
   speedBoost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
-  cannon: 'A main-battery shell for long work. It bursts at the aimed point and hits hard enough to be worth the wait.',
+  broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
-  decoyBuoy: 'Drops an anchored buoy that paints a false radar contact exactly where you no longer are.',
+  radarBuoy: 'Drops an anchored buoy that runs its own radar sweep and relays what it finds back to you.',
 };
+
+/**
+ * THE MINE'S TOOLTIP UNDER CAPTIVE MINES (Story 7-5 wave 2, R2.12). The shipped
+ * line ends "takes the whole blast out of whoever found it", which is a straight
+ * statement of contact detonation — the ONE thing this verb deletes. A captive
+ * mine never detonates on contact; it launches a torpedo and is expended. The
+ * rest of the sentence is unchanged, deliberately: placement, the arming wait
+ * and the silence are all still true, and rewording settled copy that a ruling
+ * did not touch is exactly what the naming law forbids.
+ */
+const CAPTIVE_MINE_DESCRIPTION =
+  'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then spends itself firing one torpedo at it.';
+
+/**
+ * The tooltip description for a fitted piece of equipment, against the OWNER's
+ * effective stats — the one path, so a verb that changes what a weapon DOES
+ * cannot leave the tooltip describing the weapon it replaced. Only the mine
+ * forks today (CAPTIVE MINES); every other id reads its static line.
+ */
+export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): string {
+  if (id === 'mine' && stats.mine.captive) return CAPTIVE_MINE_DESCRIPTION;
+  return EQUIPMENT_DESCRIPTION[id];
+}
 
 /** The label a slot's tooltip uses for how the equipment is operated: the gun is
  *  keyless and permanently selected, weapons switch-to on their key, abilities
@@ -97,18 +120,23 @@ export function slotForBoonCategory(
  *
  * Star shells deal NO damage as of Story 2.8 (amendment 39 — pure illumination;
  * the INCENDIARY doctrine's DoT is a zone effect, not a hit), so they join the
- * speed boost and the decoy buoy on the null branch.
+ * speed boost and the radar buoy on the null branch.
+ *
+ * The BROADSIDE reports its PER-SHELL damage (Story 7-5 wave 2): every shell of
+ * a barrage carries the same number and each bursts independently, so a
+ * turret-count multiple would report a total no single hull can take.
  */
 export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number | null {
-  return {
+  const table: Record<EquipmentId, number | null> = {
     gun: stats.gun.damage,
     torpedo: stats.torpedo.damage,
     mine: stats.mine.damage,
     speedBoost: null,
-    cannon: stats.cannon.damage,
+    broadside: stats.broadside.damage,
     starShells: null,
-    decoyBuoy: null,
-  }[id];
+    radarBuoy: null,
+  };
+  return table[id];
 }
 
 /** Everything the hotbar row + tooltip need about one fitted slot's equipment. */
@@ -131,7 +159,7 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
   return {
     id,
     name: EQUIPMENT_NAME[id],
-    description: EQUIPMENT_DESCRIPTION[id],
+    description: equipmentDescription(stats, id),
     isWeapon: EQUIPMENT_IS_WEAPON[id],
     damage: equipmentDamage(stats, id),
     reloadMs: equipmentReloadMs(stats, id),
