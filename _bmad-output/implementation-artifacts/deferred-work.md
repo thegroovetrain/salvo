@@ -949,7 +949,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-2-the-sinking-window.md`
   summary: THIS CYCLE SHIPPED WITH NO LIVE OR VISUAL VERIFICATION — everything is code plus 4189 unit tests. Three things specifically want one human look before they are trusted: the `GOING DOWN WITH THE SHIP!` banner's timing and legibility, the hotbar/firing arc surviving the window while the hull visibly slows, and the camera holding on the own hull instead of cutting to the killer. The audio seam in particular had NO test coverage at all before this cycle, which is exactly why a double-sounding shot on every shot of the beat survived implementation and was caught only at the review gate.
   evidence: Story 5-2 client wave report ("No visual sanity check"); review finding P1 (`hasLiveOwnHull`), which the full suite was green against.
-  resolution: PARTLY BORNE OUT 2026-08-20 (cycle 116) — this is the defect this entry predicted, and it took a human look to find it. Eric, on watching his own reveal: *"my ship should be sunk, not visible in full-color motionless in the middle of the map."* Amendment 21's cap held past founder forever once Story 5.3 made the own wreck stay on screen; fixed by `spectateSettle` completing the ramp to the one wreck look (epic-7 amendment 29). ENTRY STAYS OPEN — the banner, the hotbar-through-the-window and the camera hold are still unverified by eye.
+  resolution: PARTLY BORNE OUT 2026-08-20 (cycle 116) — this is the defect this entry predicted, and it took a human look to find it. Eric, on watching his own reveal: *"my ship should be sunk, not visible in full-color motionless in the middle of the map."* Amendment 21's cap held past founder forever once Story 5.3 made the own wreck stay on screen; fixed by `spectateSettle` completing the ramp to the one wreck look (epic-7 amendment 32). ENTRY STAYS OPEN — the banner, the hotbar-through-the-window and the camera hold are still unverified by eye.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-2-the-sinking-window.md`
   summary: TWO SMALL TEST-HYGIENE ITEMS, NEITHER PRODUCTION-REACHABLE. (a) Ready-room respawn is now effectively `max(respawnDelay, sinkingWindowMs)` = 5000ms rather than 3000ms, because `processRespawns` gates on `isSunk` and a hull cannot be sunk until founder — so `respawnDelay` is unobservable and the `SUNK — RESPAWNING IN Ns` placard has no frames left to draw in. Unreachable in a real match (`damageEnabled` is active-only and `respawnEnabled` is ready-room-only, mutually exclusive), so it bites tests and standalone Worlds only; the honest fix is to arm the client ETA off `founderDeadline` or put `respawnAt` on the wire. (b) About a dozen existing server tests were retrofitted to cross the window with a single `w.step(5000)` call, which runs ONE tick at `dtMs = 5000` — so motion, reloads, mines, storm, smoke and wake each integrate a five-second step and the post-founder states those tests pin are no longer reached by the path production takes. Assertions hold; the fidelity does not.
@@ -966,7 +966,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-3-omniscient-reveal-results.md`
   summary: THIS CYCLE SHIPPED WITH NO LIVE OR VISUAL VERIFICATION — the second epic-5 cycle in a row to do so, and this one is ENTIRELY presentation, so the gap bites harder here than it did for 5-2. Everything is code plus 4305 unit tests. Specifically wanting one human look: whether the whole-map framing actually reads as a reveal or just as "very far away" (hull scale drops to roughly 0.26x, and the mockup's own legend flags that all-hull nameplates may read as CLUTTER at that zoom, with *"killer + wreck only"* recorded as its fallback); whether the 0.62 dim leaves the reveal legible behind the modal without hurting the modal's own contrast; whether the zoom SNAP at `motion: off` reads as broken rather than as instant; and whether the modal still fits its container now that it carries a MATCH LOG plus two build blocks. The map chart also draws island coastlines and contour bands across the FULL disc at once for the first time ever — no frame-budget measurement was taken at that framing.
   evidence: no browser session this cycle; mockup `death-reveal-results-1.html` F2 legend #7 (the nameplate-clutter fallback); `client/src/__tests__/containerFit.test.ts` covers height but not the new blocks' worst case.
-  resolution: PARTLY BORNE OUT 2026-08-20 (cycle 116) — this is the defect this entry predicted, found by eye by Eric and not by any of the 4305 tests: the own wreck sat at `sink = 0.3` in near-full personal hue for the whole reveal, because `renderSpectate` never drove `setSink`. Fixed in cycle 116 by `spectateSettle` (epic-7 amendment 29). ENTRY STAYS OPEN — the whole-map framing read, the 0.62 dim, the `motion: off` snap, the modal's container fit and the full-disc chart frame budget are all still unverified by eye.
+  resolution: PARTLY BORNE OUT 2026-08-20 (cycle 116) — this is the defect this entry predicted, found by eye by Eric and not by any of the 4305 tests: the own wreck sat at `sink = 0.3` in near-full personal hue for the whole reveal, because `renderSpectate` never drove `setSink`. Fixed in cycle 116 by `spectateSettle` (epic-7 amendment 32). ENTRY STAYS OPEN — the whole-map framing read, the 0.62 dim, the `motion: off` snap, the modal's container fit and the full-disc chart frame budget are all still unverified by eye.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-3-omniscient-reveal-results.md`
   summary: THE STAGE'S TOP-LEVEL LAYER ORDER IS NOT ASSERTABLE, WHICH LEAVES THE REVEAL'S "HIDE, NEVER FADE" RULE UNPINNED. `WORLD_LAYER_ORDER`/`CHART_LAYER_ORDER`/`HUD_LAYER_ORDER` are exported declared arrays with a build-failing completeness check, but the ROOT mount order (`worldRoot, plateRoot, fogSprite, chartRoot, hudRoot`) is an inline `addChild` inside the unexported `createStage()`, which needs a live Pixi Application jsdom cannot provide. That order is exactly what makes a fog FADE wrong — `plateRoot` sits below the fog while hulls sit above it — so the rule currently lives in comments and in `Fog.setVisible`'s behaviour, not in an assertion. Promoting the root order to a declared array would close it for the same cost the three sub-orders already pay.
@@ -1582,3 +1582,53 @@ and the next reader will again mistake a marker count for an open-work count.
     on it without its own measurement.
   evidence: `bot-evidence-2026-08-20.md` §3 ordnance ledger (damage by source);
     `CONFIG.bots.boonWeights.trapper.cat.guns`.
+
+## 2026-08-20 — Cycle 111 (Mine Layer posture pass): a flaky gate, a method limit, a weak profile
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ml-posture-and-prepared-placement.md`
+  status: OPEN — A REAL DEFECT IN THE PROJECT GATE, measured, deliberately not fixed in-cycle
+  summary: `client/src/__tests__/radarHeatmap.test.ts` IS FLAKY AND PREDATES THIS WORK. Measured in
+    ISOLATION on a QUIET machine: **1 of 5 runs failed on cycle-111 code, and 3 of 6 runs failed on
+    cycle-110 code** (`fcfcffe`, before any of cycle 111's changes) — always the same pair, *"every
+    class at every aspect reads the SAME register at the same range"* and its companion about no
+    mask-derived quantity feeding intensity, occasionally a third. It was first mistaken for CPU
+    contention from concurrent batch sims (a plausible reading, since a load-hit run failed a
+    DIFFERENT set) and only resolved by running the file alone, repeatedly, on both commits. WHY IT
+    MATTERS BEYOND ONE FILE: `npm run check` is the project's stated ship gate ("it must pass before
+    any ship"), and it currently has a material chance of failing on a CLEAN TREE for reasons
+    unrelated to the change under test. That trains re-run-until-green, which is the habit by which a
+    genuine regression eventually rides through — and it is why two readers of the same tree
+    disagreed about whether cycle 111 was green. NOT fixed here: it is client rendering code
+    untouched by this cycle, and diagnosing a rasterization flake needs its own evidence and its own
+    cycle. Whoever takes it should first determine whether the nondeterminism is in the RASTERIZER or
+    in the test's sampling of it.
+  evidence: repeated isolated runs on both commits, 2026-08-20; `npm run check` vs `npm test -w client`
+    disagreeing on the same tree; epic-7 amendment 33's gate section.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ml-posture-and-prepared-placement.md`
+  status: STANDING METHOD RULE — record, do not re-derive
+  summary: THE BLIND-VACUUM RIG'S CONTROL IS NOT VALID ACROSS CYCLES. Cycle 111 instructed that the
+    random-spend control must return UNCHANGED from cycle 110 and that any movement was a defect.
+    That instruction was WRONG and the control moved (ML 12/30 → 8/30 wins, match length 529.1s →
+    598.6s). It is not a leak — the test-profile rows are byte-identical (`testRow`/`TEST_APPETITE`
+    verified by diff) — but the churn bound and the prepared lay live in `EQUIPMENT_TACTICS`, which
+    the two-axis design (amendment 29) SHARES with every profile carrying that equipment, and the
+    test rows run every appetite at EAGER so they pick up prepared laying too. **The control is
+    stable across cycles ONLY for PROFILE and WEIGHT changes; any EQUIPMENT-AXIS change moves both
+    arms and the control MUST be re-run in the same cycle.** Cycle 111's headline uses the
+    within-cycle comparison for exactly this reason. Anyone reaching for the rig again must re-run
+    its control rather than quoting a prior cycle's number.
+  evidence: `bot-evidence-2026-08-20-ml.md` §2; epic-7 amendment 33's method-correction section.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ml-posture-and-prepared-placement.md`
+  status: OPEN — carried forward from cycle 111, candidate for the balance pass
+  summary: `trapper` IS STILL THE WEAK PROFILE. The re-band let it LIVE (181.1s class-wide → 228.1s
+    for trapper) but has not made it DANGEROUS: it kills least of any of the six profiles (0.41 per
+    bot-match) and finished the 30-match campaign at **0% alive**. `forager`, on the same hull and the
+    same cycle's changes, became the longest-lived profile in the game (296.6s, 3.79 boons, 8.7%
+    alive). So the survival fix worked for one ML profile and only half-worked for the other, which
+    points at `trapper`'s own identity — its weight table, its appetite mix, or the value of a mine
+    rack at current numbers — rather than at posture. Composes with the still-unverified
+    "trapper under-buys the gun" entry above; both may dissolve once the balance pass moves mine
+    damage, and neither should be acted on without its own measurement.
+  evidence: `bot-evidence-2026-08-20-ml.md` §1 and §6 (BY PROFILE rows).

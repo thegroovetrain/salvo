@@ -59,6 +59,7 @@ import {
   hasPersistence,
   isActionable,
   lineBlocked,
+  ownLiveMines,
   tracksOf,
   type BotSituation,
   type BotTrack,
@@ -418,9 +419,56 @@ function captiveMineWant(ctx: TacticContext): boolean {
 }
 
 /**
- * Does this bot want a mine in the water now? While WITHDRAWING, always —
- * a mine astern answers the immediate threat at any appetite. Otherwise
- * appetite modulates PROACTIVITY only:
+ * THE FIELD-CHURN BOUND (Eric ruling 2026-08-20, cycle 111): EVERY lay —
+ * prepared and reactive alike — is refused with the bot's own board at
+ * `stats.mine.maxLive`. This closes a shipped defect: `addMine`
+ * (game/equipment/mines.ts) SILENTLY EVICTS the owner's oldest mine at the
+ * cap, so an uncounted lay churns the field the bot just built. The count is
+ * read from the bot's own perception view (`ownLiveMines`) — the same data a
+ * human client receives — never from a world collection.
+ */
+function mineFieldFull(ctx: TacticContext): boolean {
+  return ownLiveMines(ctx.mind) >= ctx.sit.stats.mine.maxLive;
+}
+
+/** The postures in which a PREPARED lay is allowed: the bot is safe — nothing
+ *  is being fought or fled — so a round spent seeding the water costs it no
+ *  answer to a live threat. */
+const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm'];
+
+/**
+ * THE PREPARED LAY (Eric ruling 2026-08-20, cycle 111 — chosen INTO scope:
+ * *"you just have to be lined up well and prepare"*). A mine may go down with
+ * NO target at all while the posture is SAFE and the bot's own live-mine
+ * count is under CONFIG.bots.preparedMineReserve — the trap is seeded before
+ * it is needed, which is the whole doctrine of a hull that hangs back.
+ *
+ * THE GATE IS DOCTRINE-SHAPED, NOT PROFILE-SHAPED: a CONTACT mine needs
+ * something following you, so laying one into empty water is near-wasted —
+ * only an EAGER layer (trapper's standing plan) seeds plain racks ahead of
+ * need. A CAPTIVE mine is a 144u-trip torpedo launcher that fires at the
+ * first hostile into range and so works with NOBODY following — which is
+ * precisely why it suits a hull that is hanging back — so holding the
+ * doctrine opens the prepared occasion at mere NEUTRAL appetite. The reserve
+ * (kept under `maxLive`) is what keeps headroom so a reactive lay always has
+ * a round's worth of room; the profile still only says how eager it is.
+ *
+ * PREPARED ADDS AN OCCASION, IT NEVER REMOVES ONE (epic-7 amendment 29, the
+ * rule five defects produced): every reactive lay below still fires exactly
+ * as before, including with the field at the reserve.
+ */
+function preparedMineWant(ctx: TacticContext): boolean {
+  if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
+  if (ownLiveMines(ctx.mind) >= CONFIG.bots.preparedMineReserve) return false;
+  const appetite = appetiteFor(ctx.sit.profile, 'mine');
+  if (appetite >= APPETITE_EAGER) return true;
+  return ctx.sit.stats.mine.captive && appetite >= APPETITE_NEUTRAL;
+}
+
+/**
+ * The REACTIVE lays — the pre-cycle-111 `mineWant` body, byte-identical in
+ * behaviour. While WITHDRAWING, always — a mine astern answers the immediate
+ * threat at any appetite. Otherwise appetite modulates PROACTIVITY only:
  *   EAGER   (trapper)      — a standing plan: lays with something close and
  *                            behind, closing or not;
  *   NEUTRAL (siege et al.) — lays only when something is CLOSING;
@@ -428,9 +476,8 @@ function captiveMineWant(ctx: TacticContext): boolean {
  * the slow only pays if the pursuer runs through the field, so the fouling
  * trap goes down earlier along the chase.
  */
-function mineWant(ctx: TacticContext): boolean {
+function reactiveMineWant(ctx: TacticContext): boolean {
   const { sit, target: t } = ctx;
-  if (sit.stats.mine.captive) return captiveMineWant(ctx);
   if (ctx.posture === 'disengage') return true;
   if (t === null) return false;
   const appetite = appetiteFor(sit.profile, 'mine');
@@ -442,6 +489,19 @@ function mineWant(ctx: TacticContext): boolean {
     if (d <= CONFIG.mine.placeRange * mult) return true;
   }
   return appetite >= APPETITE_EAGER && d <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
+}
+
+/**
+ * Does this bot want a mine in the water now? The churn bound refuses first
+ * (no lay of any kind may evict), the prepared occasion ADDS next, and the
+ * reactive occasions — the shipped behaviour, captive branch included — run
+ * exactly as before.
+ */
+function mineWant(ctx: TacticContext): boolean {
+  if (mineFieldFull(ctx)) return false;
+  if (preparedMineWant(ctx)) return true;
+  if (ctx.sit.stats.mine.captive) return captiveMineWant(ctx);
+  return reactiveMineWant(ctx);
 }
 
 /** A drop commanded DEAD ASTERN — the centre of the given ratified placement

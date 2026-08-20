@@ -26,9 +26,9 @@
 //   BS siege   — standoff. Cannon-led; star shells to resolve stale contacts
 //                into live sight (C2: the BS DOES use star shells).
 //   ML forager — clears PvE fleet groups for a level lead; avoids captains
-//                early (C3).
-//   ML trapper — mines astern while withdrawing; decoy to break locks; fights
-//                near its own field.
+//                early (C3). Hangs BACK doing it (Eric ruling 2026-08-20).
+//   ML trapper — mines astern while withdrawing; prepares its field from
+//                standoff and lets the traps do the closing.
 //
 // RANGES ARE FRACTIONS OF INTEL RANGE, NEVER LITERALS. `bandMinFrac`/
 // `bandMaxFrac` multiply the bot's OWN `stats.radarRange`, so a profile's
@@ -210,29 +210,44 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     id: 'forager',
     spend: 'weighted',
     hullId: 'mineLayer',
-    bandMinFrac: 0.2,
-    bandMaxFrac: 0.45,
+    // HANGS BACK TO SURVIVE TO THE PAYOFF (Eric ruling 2026-08-20, cycle
+    // 111). The ML *"wants certain things, and when it gets them it is a
+    // powerhouse, it just needs to survive until then"* — and cycle 110's A/B
+    // measured the old 0.20–0.45 band dying for it (181.1s afloat vs the
+    // random control's 264.0s, 1.97 boons vs 2.96). The band now sits from
+    // just under truesight out to the 0.80R standoff: the whole of it is
+    // inside the ML's own gun reach (gun rangeU IS radarRange), so hanging
+    // back costs no firepower, only exposure.
+    bandMinFrac: 0.45,
+    bandMaxFrac: 0.8,
     // THE ONLY profile that would rather shoot world content than a captain
     // (C3: clear fleet groups for the level lead, avoid captains early).
     targetWeights: { captain: 0.5, fleet: 2.0, damaged: 0.8, isolated: 0.6 },
-    disengageHpFrac: 0.4,
-    healHpFrac: DEFAULT_HEAL,
+    disengageHpFrac: 0.55, // the EARLIEST break-off in the game — see above
+    healHpFrac: 0.6, // and tops off early: boons are its plan, hp buys them
     // A farmer, not a layer: the mine sits barely above neutral (reactive —
-    // it answers a closing chaser, never a standing plan), and the buoy is
-    // plain recon between fleet groups.
+    // it answers a closing chaser, not trapper's standing plan; holding the
+    // CAPTIVE doctrine opens the prepared lay at this tier, but that lives
+    // with the weapon in ai/equipment.ts), and the buoy is plain recon
+    // between fleet groups.
     appetite: { mine: 1.4, radarBuoy: 1.1 },
   },
   trapper: {
     id: 'trapper',
     spend: 'weighted',
     hullId: 'mineLayer',
-    // Fights near its own field, so its band sits close: the mine's astern
-    // ±60° arc only pays off with something following you.
-    bandMinFrac: 0.12,
-    bandMaxFrac: 0.35,
+    // RE-BANDED OUTWARD (Eric ruling 2026-08-20, cycle 111): the old
+    // 0.12–0.35 "fights near its own field" band was the closest in the game
+    // and the A/B measured it as the death of the hull that most needs to
+    // live to its payoff. The field does the close fighting now — mines are
+    // laid PREPARED from safety (ai/equipment.ts) and a captive mine's 144u
+    // trip does its own chasing — so the hull itself stands off at knife-to-
+    // truesight range and breaks away sooner.
+    bandMinFrac: 0.25,
+    bandMaxFrac: 0.5,
     targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 0.8 },
-    disengageHpFrac: DEFAULT_DISENGAGE,
-    healHpFrac: DEFAULT_HEAL,
+    disengageHpFrac: 0.45, // breaks off early — the trap fights on without it
+    healHpFrac: 0.6, // and heals early, for the same survive-to-payoff reason
     // EAGER mines — the standing plan (the old usesMinesProactively: true,
     // now the eager tier of the ONE shared mine tactic) — and the mine
     // outranks the buoy, so a threatened tick answers with the trap first.

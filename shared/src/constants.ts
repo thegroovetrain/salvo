@@ -385,6 +385,20 @@ export const CONFIG = {
      */
     healHpFrac: 0.5,
     /**
+     * Own-live-mine count below which a bot may lay a PREPARED mine — seeded
+     * with NO target while the posture is safe (Eric ruling 2026-08-20,
+     * cycle 111: the ML *"wants certain things… you just have to be lined up
+     * well and prepare"*). This is the headroom kept under `mine.maxLive`
+     * (5) so a REACTIVE lay always has room: `addMine` silently EVICTS the
+     * owner's oldest mine at the cap, so an unbounded prepared lay every
+     * reload would churn the very field it just built. 3 = maxLive − the
+     * 2-deep drop pool (mine.maxAmmo), so even a full rack of reactive
+     * drops on top of a fully-prepared field never evicts a laid trap.
+     * Consumed by server ai/equipment.ts (the prepared-lay gate) and nothing
+     * else — bot policy, never a combat constant.
+     */
+    preparedMineReserve: 3,
+    /**
      * ms — how long a bot trusts a stale contact's last-known pose (a radar
      * blip with no live contact decays as low-confidence memory). Longer than
      * the fleet AI's 3000ms memoryMs — a captain plots a track; a fleet hull
@@ -520,15 +534,24 @@ export const CONFIG = {
      * dies to one mine either way). Both doctrines are pure adds and
      * side-grades to each other, so neither profile refuses one.
      *
-     * CAPTIVE MOVED HOMES (the doctrine pass, Eric ruling 2026-08-20). The
-     * first-pass table gave `forager` a 2.4 CAPTIVE want on the claim that a
-     * captive mine "farms without re-positioning" — a rationale the SHIPPED
-     * MECHANICS contradict: a captive mine's trip gate is HOSTILE-ONLY
-     * (isCaptiveMineHostile), and a neutral PvE fleet drone walks straight
-     * over it, so CAPTIVE disarms exactly the fleet-farming forager exists to
-     * do. Forager's entry drops to the held-line neutral (0.9 — never a
-     * WANTED line, still legal in a junk hand) and the want moves to
-     * `trapper`, whose whole game is trapping hostiles.
+     * CAPTIVE IS A SURVIVAL-AND-PAYOFF TOOL, NOT A FARMING TOOL (Eric
+     * playtest ruling 2026-08-20, cycle 111 — partially reversing the
+     * cycle-110 demotion). The mechanical fact from that cycle STANDS: a
+     * captive mine's trip gate is HOSTILE-ONLY (isCaptiveMineHostile), so a
+     * neutral PvE fleet drone walks straight over it and CAPTIVE can never
+     * farm fleet. But the conclusion drawn from it — that `forager` therefore
+     * doesn't want the card — was the wrong frame. Eric ran CAPTIVE MINES and
+     * GUN BUOY together and reports both as *"REALLY powerful weapons, you
+     * just have to be lined up well and prepare"*: a 144u-trip torpedo
+     * launcher covers the water a hull that HANGS BACK is withdrawing
+     * through, which is precisely what a class whose measured problem is
+     * SURVIVAL (181.1s vs the random control's 264.0s) should buy. Forager's
+     * entry is restored as a wanted line at 2.0 — above its mines category
+     * base and its fouling want, below its gun ladder (it is still a
+     * gun-led fleet-clearer) and below `trapper`'s 2.4, which stays the
+     * stronger signature. `buoyGun` — the other half of the combo — gets an
+     * explicit override in BOTH ML tables; it was previously named by
+     * neither and fell through to a bare category weight.
      *
      * THE SIX ACQUISITION CARDS GET A FULL RANKING PER PROFILE (same ruling).
      * An acquisition card inherits its TARGET equipment's category
@@ -625,9 +648,13 @@ export const CONFIG = {
         lines: {
           // `intelRange` dropped with RANGE I–IV (cycle 118) — see siege.
           gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0,
-          // CAPTIVE at the held-line neutral, NOT a wanted line (2026-08-20):
-          // its hostile-only trip cannot farm fleet — see the block comment.
-          mineCaptive: 0.9, minePropFouling: 1.2,
+          // CAPTIVE restored as a WANTED line (Eric playtest, 2026-08-20):
+          // a survival-and-payoff tool for a hull that hangs back — its
+          // hostile-only trip still cannot farm fleet, but that was never
+          // the point. Priced WITH the gun buoy (the other half of Eric's
+          // powerhouse combo), below the gun ladder and below trapper's 2.4
+          // signature — see the block comment.
+          mineCaptive: 2.0, buoyGun: 2.0, minePropFouling: 1.2,
           // Acquisitions: faster rotation between fleet groups, more
           // clearing throughput, light for the next group.
           acquireBoost: 1.4, acquireBroadside: 1.3, acquireStarShells: 1.2, acquireTorpedo: 1.0, acquireMine: 0.9, acquireRadarBuoy: 0.8,
@@ -638,10 +665,14 @@ export const CONFIG = {
       trapper: {
         cat: { mines: 2.6, radarBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
         lines: {
-          // CAPTIVE's want lives HERE now (2026-08-20): a hostile-only
+          // CAPTIVE's strongest want lives HERE (2026-08-20): a hostile-only
           // torpedo mine is a trap for exactly the hulls a trapper traps.
-          // Fouling stays its signature (drags victims into the field).
-          mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.4, shipCooldown: 2.2, buoyDuration: 2.0,
+          // Fouling stays its signature (drags victims into the field), and
+          // the GUN BUOY gets its explicit want (cycle 111 — half of Eric's
+          // "lined up well and prepare" powerhouse combo, previously falling
+          // through to the bare 2.0 category weight): a picket that fights
+          // over the field while the trapper itself stands off.
+          mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.4, buoyGun: 2.2, shipCooldown: 2.2, buoyDuration: 2.0,
           // Acquisitions: ambush weapons that fire FROM the field.
           acquireTorpedo: 1.5, acquireStarShells: 1.3, acquireBoost: 1.1, acquireMine: 1.0, acquireBroadside: 0.9, acquireRadarBuoy: 0.8,
         },
