@@ -320,6 +320,10 @@ describe('shared barrel', () => {
       maxAmmo: 1,
       reloadMs: 30000, // Eric: "lets set the cooldown to 30 seconds"
       turrets: 3,
+      // [DRAFT] fraction of hull length the battery spans (Eric's 2026-08-19
+      // turret correction): three separate, evenly-spaced muzzle points across
+      // the midship section, RE-SPACED (never lengthened) at 4 and 5 turrets.
+      turretSpanFactor: 0.6,
       damage: 20, // Eric: "lets say 20 damage"
       burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,

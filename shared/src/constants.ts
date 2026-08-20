@@ -1261,6 +1261,26 @@ export const CONFIG = {
     maxAmmo: 1, // one barrage in the pool — presented as a pure cooldown
     reloadMs: 30000, // ms — cooldown between barrages (Eric: "lets set the cooldown to 30 seconds")
     turrets: 3, // shells per barrage at base; BROADSIDE TURRETS ×2 takes it to 5
+    /**
+     * [DRAFT] The BATTERY'S ALONG-HULL SPAN, as a fraction of hull length —
+     * Eric's correction 2026-08-19: *"It is supposed to be three separate,
+     * evenly-spaced points on the ship that they fire from. When you get an
+     * extra turret, this is represented as the three evenly-spaced points
+     * changing to four or five."*
+     *
+     * The turrets are spread evenly across `length × this` on the firing beam
+     * (sim/aim.ts `turretMuzzles`, straddled about midships by the SAME
+     * sim/spread.ts law the fan uses), and out to the half-BEAM so a muzzle
+     * sits on the hull's edge rather than its centreline. 0.6 puts a
+     * battleship's battery across the middle 74.4u of its 124u hull — a real
+     * midship section, clear of the bow and stern tips where a turret would
+     * read as a bowsprit.
+     *
+     * MORE GUNS DO NOT MAKE A LONGER SHIP: the span is FIXED, so BROADSIDE
+     * TURRETS re-spaces the same 74.4u into 4 then 5 points (37.2u → 24.8u →
+     * 18.6u apart). DRAFT — Eric tunes it on the water.
+     */
+    turretSpanFactor: 0.6,
     damage: 20, // hp per burst victim, per shell (Eric: "lets say 20 damage")
     // u — blast radius around each shell's own point. DRAFT (the gun's own
     // burstRadius): Eric ruled the shells "burst like the gun" without naming

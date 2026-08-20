@@ -13,6 +13,7 @@
 // deterministic, no state.
 
 import { CONFIG } from '../constants.js';
+import { inArc, wrapAngle } from '../math/angle.js';
 import type { EquipmentId } from './loadout.js';
 
 /**
@@ -96,4 +97,35 @@ export function twinSectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'tw
   const arc = arcFor(id);
   if (arc.kind !== 'twin-sector') throw new Error(`'${id}' arc must be a twin-sector (sim/arcs.ts)`);
   return arc;
+}
+
+/**
+ * WHICH beam of a `twin-sector` descriptor contains `aim` — `+1` for the
+ * `heading + offset` sector, `-1` for the mirrored `heading - offset` one, and
+ * `null` when the aim falls in neither (the bow/stern dead zones, DENIED —
+ * R2.1). This IS R2.2's "the side whose sector contains the click is the side
+ * that fires", and it is the ONE answer three consumers now read: the server's
+ * broadside fire control (which side's turrets fire), the client's firing UX
+ * (which wedge lights) and the client's aim preview (which side the muzzles sit
+ * on). It was CLIENT-ONLY until Eric's 2026-08-19 turret correction gave the
+ * side a GEOMETRIC consequence — the muzzle points themselves — at which point
+ * a server copy of the rule became the desync class `shared/` exists to
+ * prevent, so it was promoted here beside the descriptor it reads.
+ *
+ * The two sectors cannot overlap at the ratified 90°/60° geometry, and the `+`
+ * side is tested first so a hypothetical retune that made them overlap would
+ * still resolve to ONE side rather than an ambiguous both.
+ *
+ * SIGN CONVENTION, load-bearing for `turretMuzzles`: `+1` is the
+ * `heading + offset` beam, i.e. 90° COUNTER-CLOCKWISE of the bow at the
+ * ratified offset — the direction `(-sin heading, cos heading)`.
+ */
+export function twinSectorSide(
+  heading: number,
+  aim: number,
+  arc: { offset: number; halfArc: number },
+): 1 | -1 | null {
+  if (inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc)) return 1;
+  if (inArc(aim, wrapAngle(heading - arc.offset), arc.halfArc)) return -1;
+  return null;
 }
