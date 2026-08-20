@@ -388,8 +388,21 @@ const torpedoTactic: EquipmentTactic = {
  */
 function captiveMineWant(ctx: TacticContext): boolean {
   const t = ctx.target;
-  if (t === null || t.fleet) return false;
+  // A FLEET-ONLY target never justifies a captive mine, on any posture: the
+  // trip is HOSTILE-ONLY, so a neutral PvE drone walks straight over it. This
+  // clause is deliberate and stays.
+  if (t !== null && t.fleet) return false;
+  // WITHDRAWING WITH NOTHING TRACKED: lay anyway, exactly as the base mine
+  // does (review gate, cycle 110). Refusing the whole no-target case made
+  // CAPTIVE delete the base mine's unconditional withdrawal lay, so a low-hp
+  // trapper fleeing an attacker it has LOST IN FOG — the common case, and the
+  // one a rear-facing trap is most for — laid nothing where a contact mine
+  // always laid. A captive mine trips hostile-only in a 144u ring, so a blind
+  // astern lay while running is at least as valid as a contact mine's. Same
+  // class as the buoy-recon downgrade: a doctrine may ADD an occasion, never
+  // silently remove one.
   if (ctx.posture === 'disengage') return true;
+  if (t === null) return false;
   if (appetiteFor(ctx.sit.profile, 'mine') < APPETITE_NEUTRAL) return false;
   return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
 }
@@ -501,14 +514,35 @@ function offensiveFlareTarget(ctx: TacticContext): BotTrack | null {
 }
 
 /**
+ * THE RELUCTANT WAIT MAY NEVER OUTLAST THE GEOMETRY (review gate, cycle 110).
+ * `flareStaleFloorMs` makes a non-eager holder wait 2× before spending a
+ * flare, and `phosphorStaleCapMs` refuses a plot too stale for the SHRUNKEN
+ * burning circle to still cover. At shipped numbers those cross: the
+ * reluctant floor is 3000ms and the phosphor cap is 165 × 0.8 / 45 × 1000 =
+ * 2933ms, so the window was EMPTY by 67ms and buying PHOSPHOR silently
+ * deleted the C2 sensor-flare role for every non-eager holder — `bulwark`,
+ * which CARRIES star shells natively, and every acquirer at the base
+ * appetite. It was invisible to the blind-vacuum rig because those rows are
+ * all eager, and to the suite because the phosphor tests all use `siege`.
+ *
+ * The cap is real geometry and wins; RELUCTANCE DEGRADES TO THE EAGER FLOOR
+ * rather than to nothing, so a doctrine still never removes a role. Pinned
+ * below by a constraint test, so a future litRadius card cannot re-cross it.
+ */
+function flareFloorUnderCap(profile: BotProfile, capMs: number): number {
+  const wanted = flareStaleFloorMs(profile);
+  return wanted < capMs ? wanted : FLARE_STALE_MS;
+}
+
+/**
  * THE SENSOR FLARE (Eric ruling C2): the stalest plot worth lighting — an
  * actionable track we have LOST, quiet past this profile's staleness floor,
  * beyond our own truesight bubble, inside flare reach. Nearest wins.
  */
 function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
   const sit = ctx.sit;
-  const floorMs = flareStaleFloorMs(sit.profile);
   const capMs = sit.stats.starShells.phosphor ? phosphorStaleCapMs(sit.stats) : Infinity;
+  const floorMs = flareFloorUnderCap(sit.profile, capMs);
   let best: BotTrack | null = null;
   let bestD = Infinity;
   for (const t of tracksOf(ctx.mind)) {

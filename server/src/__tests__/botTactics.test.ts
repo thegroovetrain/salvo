@@ -1320,6 +1320,40 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(phos, phosMind, port).fireSlot).not.toBe(slotOf(phos, 'starShells'));
   });
 
+  it('starShells.phosphor never CLOSES the sensor window for a reluctant holder', () => {
+    // REGRESSION (review gate, cycle 110). A non-eager holder waits 2x
+    // (3000ms) before spending a flare, but the phosphor cap refuses anything
+    // staler than 132u / 45 u/s = 2933ms — the window was empty by 67ms, so
+    // buying PHOSPHOR silently deleted the sensor flare for `bulwark`, a hull
+    // that carries star shells natively. Reluctance now degrades to the eager
+    // floor instead of to nothing. Without the fix this fires the gun.
+    const w = openWorld(414);
+    const port = fakePort(w);
+    // Inside the cap, past the EAGER floor, short of the reluctant one.
+    const stale = { x: 500, y: 0, live: false, seenAt: port.now - 2000 };
+    const phos = mkBot(w, 'battleship', 0, 0, 0);
+    phos.stats.starShells.phosphor = true;
+    const phosMind = mkMind('bulwark'); // appetite 1.2 — reluctant, not eager
+    plot(phosMind, track(port.now, stale));
+    expect(COMBAT_BRAIN.decide(phos, phosMind, port).fireSlot).toBe(slotOf(phos, 'starShells'));
+  });
+
+  it('mine.captive keeps the base mine UNCONDITIONAL withdrawal lay', () => {
+    // REGRESSION (review gate, cycle 110). `mineWant` lays astern on
+    // `disengage` at any appetite and with NO target; the captive branch ran
+    // its fleet/no-target refusal FIRST, so a trapper fleeing an attacker it
+    // has lost in fog laid nothing where a contact mine always laid. A captive
+    // mine trips hostile-only in a 144u ring, so the blind astern lay is at
+    // least as valid. Without the fix fireSlot is not the mine.
+    const w = openWorld(415);
+    const port = fakePort(w);
+    const cap = mkBot(w, 'mineLayer', 0, 0, 0);
+    cap.stats.mine.captive = true;
+    cap.hp = cap.stats.maxHp * 0.1; // forces `disengage`
+    const capMind = mkMind('trapper'); // no target plotted at all
+    expect(COMBAT_BRAIN.decide(cap, capMind, port).fireSlot).toBe(slotOf(cap, 'mine'));
+  });
+
   it('broadside.spreadRung: the wide base fan may take a just-lost plot; a tight fan demands live', () => {
     const w = openWorld(410);
     const port = fakePort(w);
