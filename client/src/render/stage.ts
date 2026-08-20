@@ -4,7 +4,7 @@
 // implied by the order of an object literal, so a test can assert it without a
 // GPU and a future refactor cannot quietly re-stack the scene:
 //
-//   worldRoot   (camera-transformed): ocean, wake, projectile, mines, decoys
+//   worldRoot   (camera-transformed): ocean, wake, projectile, mines, buoys
 //   plateRoot   (screen space)        — truesight nameplates (render/nameplates.ts)
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
 //   chartRoot   (camera-transformed): map, smoke, blip, SHIP, aim, burstFx, sweep  (fog-immune: above fog)
@@ -73,9 +73,9 @@ export interface StageLayers {
   projectile: Container;
   /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
   mineWorld: Container;
-  /** Truesighted enemy decoy buoys (render/decoys.ts) — fogged; they only
+  /** Truesighted enemy radar buoys (render/buoys.ts) — fogged; they only
    *  arrive when the observer legitimately sees them (mineWorld precedent). */
-  decoyWorld: Container;
+  buoyWorld: Container;
   // chartRoot children
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
@@ -93,9 +93,9 @@ export interface StageLayers {
   smoke: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
-  /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
-   *  buoy is always readable; a truesighted enemy buoy goes to decoyWorld. */
-  decoyChart: Container;
+  /** OWN radar buoys (render/buoys.ts) — fog-immune chart markers so your own
+   *  buoy is always readable; a truesighted enemy buoy goes to buoyWorld. */
+  buoyChart: Container;
   blip: Container;
   /**
    * HULL SILHOUETTES — own ship (main.ts), every contact (render/contacts.ts)
@@ -145,7 +145,7 @@ export type LayerName = keyof StageLayers;
 // no unit test has. Reading the order off the declaration keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
-export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld'] as const;
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'buoyWorld'] as const;
 /** chartRoot, bottom → top: everything above the fog. `ship` sits between `blip`
  *  and `aim` — over the returns, under the reticle and the burst rings. */
 export const CHART_LAYER_ORDER = [
@@ -154,7 +154,7 @@ export const CHART_LAYER_ORDER = [
   'litZone',
   'smoke',
   'mineChart',
-  'decoyChart',
+  'buoyChart',
   'blip',
   'ship',
   'aim',

@@ -33,6 +33,7 @@ import { boonEffectLine, boonFitToastLine } from '../ui/boonCopy.js';
 import { SHIPWIDE_CATEGORIES, slotForBoonCategory } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
 import { ownMineRings, reconcileMines } from '../render/mines.js';
+import { ownBuoyRing } from '../render/buoys.js';
 import { LitZones, zoneVerbs } from '../render/litZones.js';
 import { tellLine } from '../render/hud.js';
 
@@ -174,6 +175,26 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
     expect(rings.map((r) => [r.r, r.style])).toEqual([[s.mine.triggerRadius, 'dotted']]);
     expect(rings.some((r) => r.style === 'solid')).toBe(false);
   },
+  // GUN BUOY: the owner's buoy circle stops being a bare sensor ring and becomes
+  // a WEAPON ENVELOPE, and the renderer says so in the channel that survives
+  // without color — the ring goes SOLID (the mine grammar's "what it kills in").
+  // One radius, because the buoy's radar reach IS its gun's target set (R2.21).
+  buoyGun: () => {
+    const s = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons(['buoyGun'])).radarBuoy;
+    const ring = ownBuoyRing({ radarRange: s.radarRange, gun: s.gun, jamming: s.jamming, durationMs: s.durationMs, now: 0 });
+    expect(ring.style).toBe('solid');
+    expect(ring.r).toBe(s.radarRange);
+  },
+  // JAMMING BUOY: the water inside the buoy's circle is unreadable to everyone
+  // BUT its owner, so the owner-only readout washes that disc (the storm-plane
+  // fill grammar). A fill, not a hue and not a second ring: the verb changes what
+  // the water MEANS, not how far the buoy reaches.
+  buoyJamming: () => {
+    const s = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons(['buoyJamming'])).radarBuoy;
+    const ring = ownBuoyRing({ radarRange: s.radarRange, gun: s.gun, jamming: s.jamming, durationMs: s.durationMs, now: 0 });
+    expect(s.jamming).toBe(true);
+    expect(ring.fill).toBeGreaterThan(0);
+  },
   // PHOSPHOR SHELLS: the zone carries the burn verb (not the bare flare) and
   // the burning ember breathes above zero alpha.
   starIncendiary: () => {
@@ -194,19 +215,22 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
 };
 
 /**
- * DOCTRINE LINES WHOSE CLIENT IDENTITY CHANNEL IS NOT BUILT YET — the Story 7-5
- * wave-2 lines whose behaviour lands in a LATER slice of the same story (the
- * radar buoy's gun and jamming displays; CAPTIVE MINES left this list when its
- * ring set shipped). They are in the catalog, so
- * they must be listed SOMEWHERE rather than silently missing from the registry,
- * and this list is deliberately EXACT (not a `>=`): the agent that builds one of
- * them has to delete its line here, which is what turns "pending" back into a
- * real identity check instead of a permanent exemption.
+ * DOCTRINE LINES WHOSE CLIENT IDENTITY CHANNEL IS NOT BUILT YET. It is EMPTY,
+ * and that is the point: the list is deliberately EXACT (not a `>=`), so the
+ * agent that builds a pending line has to delete its entry here, which is what
+ * turns "pending" back into a real identity check instead of a permanent
+ * exemption. GUN BUOY and JAMMING BUOY were the last two and left it when the
+ * radar buoy's owner-side readout shipped (Story 7-5 wave 2); CAPTIVE MINES left
+ * it earlier the same way, with its ring set.
  *
  * PLUNGING FIRE / ARMOR-PIERCING / SELF-PROPELLED MINES are NOT here — their
  * registrations are RETIRED with the lines themselves (R2.6).
+ *
+ * Re-adding an id to this list is a real decision: it exempts a shipped card
+ * from FR22's "a presentation-silent boon is a defect", so it needs a story
+ * that says when the channel lands.
  */
-const PENDING_IDENTITY: readonly string[] = ['buoyGun', 'buoyJamming'];
+const PENDING_IDENTITY: readonly string[] = [];
 
 describe('fit-check — DOCTRINE IDENTITY (every doctrine boon registers an on-water tell)', () => {
   // Story 7-5 wave 2: still SEVEN doctrine lines — the cannon pair and

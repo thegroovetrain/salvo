@@ -254,6 +254,8 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
   it('the MINE reads its ratified placement reach — NOT radar range (Story 2.8)', () => {
     expect(weaponRangeU(stats, 'mine')).toBe(CONFIG.mine.placeRange);
     expect(weaponRangeU(stats, 'mine')).toBeLessThan(stats.gun.rangeU);
+    // The RADAR BUOY shares the mine's placement leash verbatim (R2.7).
+    expect(weaponRangeU(stats, 'radarBuoy')).toBe(CONFIG.mine.placeRange);
   });
 
   it('an intelRange stack grows gun, star shells AND the broadside together', () => {
@@ -403,16 +405,33 @@ describe('weaponReachU — the gun reaches into its own flare (R2.15)', () => {
   });
 });
 
-describe('weaponRangeHit — the mine\'s hard placement-reach denial (Story 2.8)', () => {
+describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial (Story 2.8)', () => {
   // The server's mine row refuses `aimDist > CONFIG.mine.placeRange` through
   // the SAME 'out-of-arc' denial channel as a bad bearing, consuming nothing.
   // The client's predicted gate must be its exact complement, or an
   // out-of-range click would silently consume the prime and revert to the gun.
-  it('accepts a click inside the reach, boundary included, and refuses one past it', () => {
-    expect(weaponRangeHit(0, 'mine')).toBe(true);
-    expect(weaponRangeHit(CONFIG.mine.placeRange - 1, 'mine')).toBe(true);
-    expect(weaponRangeHit(CONFIG.mine.placeRange, 'mine')).toBe(true); // inclusive, like the server
-    expect(weaponRangeHit(CONFIG.mine.placeRange + 0.001, 'mine')).toBe(false);
+  //
+  // STORY 7-5 WAVE 2: the RADAR BUOY joined the mine on this gate, and it is a
+  // real client/server parity fix rather than a nicety —
+  // `server/src/game/equipment/radarBuoy.ts` reuses `CONFIG.mine.placeRange`
+  // verbatim (R2.7's "the mine's rear sector at placeRange 150u"), so while the
+  // client answered `true` for the buoy at any distance, a long buoy click ate
+  // the prime for a drop the server refused.
+  for (const id of ['mine', 'radarBuoy'] as const) {
+    it(`${id}: accepts a click inside the reach, boundary included, and refuses one past it`, () => {
+      expect(weaponRangeHit(0, id)).toBe(true);
+      expect(weaponRangeHit(CONFIG.mine.placeRange - 1, id)).toBe(true);
+      expect(weaponRangeHit(CONFIG.mine.placeRange, id)).toBe(true); // inclusive, like the server
+      expect(weaponRangeHit(CONFIG.mine.placeRange + 0.001, id)).toBe(false);
+    });
+  }
+
+  // The buoy's OWN 330u radar set is a different number entirely — that is the
+  // circle it watches once dropped, not how far you can throw it. Reaching for
+  // it here would triple the placement leash.
+  it('the buoy is leashed by the PLACEMENT range, never by its own radar reach', () => {
+    expect(CONFIG.radarBuoy.radarRange).toBeGreaterThan(CONFIG.mine.placeRange);
+    expect(weaponRangeHit(CONFIG.radarBuoy.radarRange, 'radarBuoy')).toBe(false);
   });
 
   it('never gates any OTHER id on distance — they clamp or run on, they do not deny', () => {

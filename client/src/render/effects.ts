@@ -647,8 +647,9 @@ export class Effects {
    * age buckets are stamped in — not `performance.now()`. Two clocks here would
    * age the water differently in the two renderings.
    *
-   * A decoy needs no mention and gets none (amendment 201): it is frozen at its
-   * drop pose, never travels one sample cadence, and therefore lays nothing.
+   * A radar buoy needs no mention and gets none (amendment 201, written of the
+   * decoy it replaced): it is anchored at its drop point, never travels one
+   * sample cadence, and therefore lays nothing.
    */
   update(dt: number, nowMs: number, hulls: readonly WakeHull[] = []): void {
     this.frameId++; // the coalescer's frame boundary (see `frameId`)
@@ -666,7 +667,7 @@ export class Effects {
       // FOAM FOLLOWS THE SEGMENT, NOT THE SAMPLE. The first sample onto an empty
       // ribbon always stores (there is nothing to measure a cadence against), so
       // spawning on `stored` alone would put one dot under a hull that has never
-      // moved — a decoy, or a ship at anchor. Water is only disturbed once a
+      // moved — a radar buoy, or a ship at anchor. Water is only disturbed once a
       // hull has actually travelled a cadence, which is exactly `count > 1`, and
       // it is the same predicate the scope uses (one segment, one stamp).
       const stored = this.wakeSources.observe(h, nowMs);

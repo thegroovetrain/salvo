@@ -51,7 +51,7 @@ import type { Smoke } from '../render/smoke.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
-import type { Decoys } from '../render/decoys.js';
+import type { Buoys, OwnBuoyState } from '../render/buoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
@@ -110,9 +110,9 @@ export interface RoomBindingDeps {
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
   litZones: LitZones;
-  /** Buoy markers (render/decoys.ts) — synced contact-like from
+  /** Buoy markers (render/buoys.ts) — synced contact-like from
    *  FrameMsg.buoys every tick, exactly like mines/litZones (Story 1.8). */
-  decoys: Decoys;
+  buoys: Buoys;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
@@ -169,6 +169,13 @@ export interface RoomBindingDeps {
    * before own stats exist. A function, same reason as ownBurstRadius.
    */
   ownMineRings: (t: number) => OwnMineRings | undefined;
+  /**
+   * The OWNER's live radar-buoy stats for the own-buoy coverage ring + life
+   * arc, stamped with the FRAME time `t` (`BuoyView.until` is a server-clock
+   * value, so the life fraction must be measured against server timestamps —
+   * the ownMineRings rule, same reason). Undefined before own stats exist.
+   */
+  ownBuoy: (t: number) => OwnBuoyState | undefined;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
@@ -723,7 +730,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   deps.litZones.sync(litZones, deps.ordnanceHue);
   // Buoys, same reconcile. Frames OMIT the key when the observer sees no
   // buoys, so treat a missing key as an empty list.
-  deps.decoys.sync(f.buoys ?? [], deps.ordnanceHue);
+  deps.buoys.sync(f.buoys ?? [], deps.ordnanceHue, deps.ownBuoy(f.t));
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).

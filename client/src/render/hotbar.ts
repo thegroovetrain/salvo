@@ -105,7 +105,7 @@ export interface SlotFlags {
  * an upgraded 2-fish tube with one fish left is fireable, and dimming it would
  * lie. Only an empty pool (`n <= 0`) with a running timer cools.
  *
- * ACTIVE OUTRANKS COOLING (amendment 48). The two genuinely coexist — a decoy
+ * ACTIVE OUTRANKS COOLING (amendment 48). The two genuinely coexist — a radar
  * buoy floats out its whole window while its rack reloads, and the boost's
  * cooldown starts the instant the throttle opens — so this is a real decision,
  * not a hypothetical: while the window is RUNNING it is the payoff, and the
@@ -298,8 +298,8 @@ export interface HotbarView {
    *  accrued list and the `◆n` marks. Absent = a build with nothing fitted. */
   boons?: readonly string[];
   /** Per-slot REMAINING ability-window ms (0 = no window running) — the ACTIVE
-   *  state's whole input (amendment 48: boost's `boostUntil`, the decoy's own
-   *  buoy `until`), resolved against the server clock by the caller. */
+   *  state's whole input (amendment 48: boost's `boostUntil`, the radar buoy's
+   *  own `until`), resolved against the server clock by the caller. */
   activeMsLeft?: readonly number[];
   /** Per-slot fit pulse this frame: a boon landed on THIS slot's family. */
   fit?: readonly boolean[];

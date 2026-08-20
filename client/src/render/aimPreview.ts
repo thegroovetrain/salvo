@@ -396,6 +396,35 @@ function minePreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /**
+ * RADAR BUOY placement (Story 7-5 wave 2, R2.7): the drop point plus THE WATER
+ * THE BUOY WILL WATCH — its own flat 330u radar circle, drawn at the clicked
+ * point before the click so a captain can place the coverage rather than guess
+ * at it. Same placement rule as the mine, shared verbatim by the server
+ * (`radarBuoyEquipment.activate` reuses `CONFIG.mine.placeRange` and the mine's
+ * rear sector), so `blockedWater` is the same refusal test on both sides.
+ *
+ * The circle rides the `bursts` channel as an EFFECT radius, not a placement:
+ * it is not a damage area (nothing detonates there), it is the same "this is
+ * what it covers, in a quieter register" the star shell's lit zone uses, and it
+ * is many times a blast circle's size — exactly the case `effect` exists for.
+ * `blocked` carries the server's refusal so a drop into a rock dims rather than
+ * promising coverage it will never get.
+ */
+function buoyPreview(inp: AimPreviewInput): AimPreviewModel {
+  const dist = Math.max(0, inp.aimDist);
+  const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
+  const blocked = blockedWater(p, inp.islands, inp.mapRadius);
+  return {
+    lines: [],
+    // The BUOY's own set (stats.radarBuoy.radarRange), never the owner's
+    // radarRange: the buoy's reach is flat by ruling and no card moves it.
+    bursts: [{ x: p.x, y: p.y, r: inp.stats.radarBuoy.radarRange, blocked, effect: true }],
+    band: null,
+    place: null,
+  };
+}
+
+/**
  * THE preview model for the currently primed equipment. Pure. An illegal aim,
  * an ability, or an empty slot previews nothing.
  *
@@ -419,7 +448,8 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   if (inp.id === 'starShells') return starShellPreview(inp);
   if (inp.id === 'torpedo') return torpedoPreview(inp);
   if (inp.id === 'mine') return minePreview(inp);
-  return EMPTY; // speedBoost / radarBuoy — the buoy's own preview is a later slice
+  if (inp.id === 'radarBuoy') return buoyPreview(inp);
+  return EMPTY; // speedBoost — an instant ability aims nothing
 }
 
 /**

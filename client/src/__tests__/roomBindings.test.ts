@@ -85,8 +85,9 @@ function setup() {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
+    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    buoys: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn,
     onDrop,
@@ -152,11 +153,11 @@ describe('bindRoom reconnect signals', () => {
 // --- decoy channel (Story 1.8) ----------------------------------------------
 
 /** A minimal deps whose contact-like channel spies are exposed for assertions. */
-function setupChannels() {
+function setupChannels(over: Partial<RoomBindingDeps> = {}) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
-  const decoysSync = vi.fn();
+  const buoysSync = vi.fn();
   const deps = {
     // spectating:true so a spec frame's onSpectate branch is skipped (the
     // existing spectator-frame tests use the same shortcut).
@@ -169,28 +170,43 @@ function setupChannels() {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
+    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: decoysSync },
+    buoys: { sync: buoysSync },
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
+    ...over,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, decoysSync };
+  return { sink, buoysSync };
 }
 
 describe('bindRoom buoy channel', () => {
-  // Story 7-5 wave 2: FrameMsg.decoys → FrameMsg.buoys (BuoyView, same fields).
+  // Story 7-5 wave 2: FrameMsg.decoys → FrameMsg.buoys (BuoyView, same fields
+  // plus the owner-side readout, which rides the third argument).
   it('syncs the buoy list contact-like every frame (the mines/litZones precedent)', () => {
-    const { sink, decoysSync } = setupChannels();
+    const { sink, buoysSync } = setupChannels();
     const buoys = [{ id: 'd1', x: 10, y: 20, until: 5000, own: true, by: 'p1' }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], buoys });
-    expect(decoysSync).toHaveBeenCalledWith(buoys, expect.any(Function)); // + firer-hue resolver (Story 1.12)
+    // + the firer-hue resolver (Story 1.12) and the own-buoy readout params.
+    expect(buoysSync).toHaveBeenCalledWith(buoys, expect.any(Function), undefined);
   });
 
-  it('treats an omitted decoys key as an empty list (frames omit it when none)', () => {
-    const { sink, decoysSync } = setupChannels();
+  it('treats an omitted buoys key as an empty list (frames omit it when none)', () => {
+    const { sink, buoysSync } = setupChannels();
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
+    expect(buoysSync).toHaveBeenCalledWith([], expect.any(Function), undefined);
+  });
+
+  // The life arc is measured against `until`, a SERVER-clock value, so its
+  // other end has to be the FRAME's own timestamp — the ownMineRings rule, and
+  // for the same reason (a local estimate charges the buoy for transport delay
+  // and runs the arc systematically short).
+  it('stamps the own-buoy readout with the FRAME time, not a local clock reading', () => {
+    const ownBuoy = vi.fn(() => undefined);
+    const { sink } = setupChannels({ ownBuoy });
+    sink.handler({ t: 4242, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(ownBuoy).toHaveBeenCalledWith(4242);
   });
 });
 
@@ -220,8 +236,9 @@ function setupEvents(over: Record<string, unknown> = {}) {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
+    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    buoys: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
       onBoom,
@@ -320,8 +337,9 @@ describe('bindRoom own sunk', () => {
       // which is exactly the pre-stats behavior (CONFIG default / no rings).
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
+      ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    buoys: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -368,8 +386,9 @@ describe('bindRoom own sunk', () => {
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
+      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      decoys: { sync: vi.fn() },
+      buoys: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -430,8 +449,9 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
+      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      decoys: { sync: vi.fn() },
+      buoys: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -531,8 +551,9 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
+      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      decoys: { sync: vi.fn() },
+      buoys: { sync: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetHonkCooldown,
@@ -625,8 +646,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
+      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      decoys: { sync: vi.fn() },
+      buoys: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
       // Story 4.7: this harness spectates (`you` is null), so the witnessed
@@ -1046,8 +1068,9 @@ function setupToasts(spectating = false) {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
+    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    buoys: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
     radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
@@ -1309,8 +1332,9 @@ function setupWater(
     // default, which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => burstRadius,
     ownMineRings: () => undefined,
+    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    buoys: { sync: vi.fn() },
     projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(), ownFireOf: () => null },
     effects: { spawnEffect },
     shake: { trigger },
@@ -1930,9 +1954,10 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       contacts: { pushFrame: vi.fn() },
       mines: { sync: vi.fn() },
       litZones: { sync: vi.fn() },
-      decoys: { sync: vi.fn() },
+      buoys: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
+      ownBuoy: () => undefined,
       radar: { onSweepSample: vi.fn(), onBlip },
       smoke: { onSmoke },
       foghorn: { onHonk },
@@ -2442,8 +2467,9 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     mines: { sync: vi.fn() },
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
+    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    decoys: { sync: vi.fn() },
+    buoys: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     audio: { play: vi.fn(), playHorn: vi.fn() },

@@ -79,9 +79,55 @@ describe('computeAimPreview — nothing is previewed that cannot be fired', () =
   });
 
   it('an ABILITY slot (and an empty slot) previews nothing', () => {
-    expect(computeAimPreview(input({ id: 'speedBoost' })).lines).toEqual([]);
-    expect(computeAimPreview(input({ id: 'radarBuoy' })).lines).toEqual([]);
-    expect(computeAimPreview(input({ id: null })).lines).toEqual([]);
+    // The speed boost aims nothing and the empty slot holds nothing. The RADAR
+    // BUOY is NOT here any more: it is click-placed, so it previews its drop
+    // (see the buoy suite below).
+    expect(computeAimPreview(input({ id: 'speedBoost' }))).toEqual({ lines: [], bursts: [], place: null, band: null });
+    expect(computeAimPreview(input({ id: null }))).toEqual({ lines: [], bursts: [], place: null, band: null });
+  });
+});
+
+describe('radar buoy placement — the water the buoy will watch (R2.7)', () => {
+  const buoy = (over: Partial<AimPreviewInput> = {}) =>
+    computeAimPreview(input({ id: 'radarBuoy', aim: 0, aimDist: 120, ...over }));
+
+  it('draws the coverage circle AT the drop point, not at the ship', () => {
+    const [c] = buoy().bursts;
+    expect({ x: c.x, y: c.y }).toEqual({ x: SHIP.x + 120, y: SHIP.y });
+  });
+
+  it('the circle is the BUOY’s own flat radar set, never the owner’s radar range', () => {
+    const s = stats();
+    expect(buoy({ stats: s }).bursts[0].r).toBe(s.radarBuoy.radarRange);
+    expect(buoy({ stats: s }).bursts[0].r).toBe(CONFIG.radarBuoy.radarRange);
+    // An intelRange stack widens the OWNER's scope and must leave the buoy's set
+    // exactly where it was (R2.7 — flat by ruling, no card writes it).
+    const wide = stats('intelRange', 'intelRange');
+    expect(wide.radarRange).toBeGreaterThan(s.radarRange);
+    expect(buoy({ stats: wide }).bursts[0].r).toBe(s.radarBuoy.radarRange);
+  });
+
+  it('renders in the QUIET effect register — it is coverage, not a kill circle', () => {
+    expect(buoy().bursts[0].effect).toBe(true);
+  });
+
+  it('draws no travel line, no band and no mine placement ring', () => {
+    const m = buoy();
+    expect(m.lines).toEqual([]);
+    expect(m.band).toBeNull();
+    expect(m.place).toBeNull();
+  });
+
+  it('marks a drop into a rock BLOCKED — the server refuses it and the circle must not promise coverage', () => {
+    const rock = squareIsland(120, 0, 30);
+    expect(buoy({ islands: [rock] }).bursts[0].blocked).toBe(true);
+    expect(buoy({ islands: [rock], aimDist: 20 }).bursts[0].blocked).toBe(false);
+  });
+
+  it('an ILLEGAL aim (outside the rear sector / past the placement reach) previews nothing', () => {
+    expect(computeAimPreview(input({ id: 'radarBuoy', legal: false }))).toEqual({
+      lines: [], bursts: [], place: null, band: null,
+    });
   });
 });
 

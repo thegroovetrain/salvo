@@ -53,7 +53,7 @@ import { weaponArcHit, weaponRangeHit, weaponReachU } from './render/weaponArc.j
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
-import { Decoys } from './render/decoys.js';
+import { Buoys, type OwnBuoyState } from './render/buoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Smoke } from './render/smoke.js';
 import { Foghorn } from './render/foghorn.js';
@@ -226,9 +226,9 @@ interface Game {
   aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
-  /** Decoy-buoy markers (render/decoys.ts) — synced from FrameMsg.decoys, the
+  /** Radar-buoy markers (render/buoys.ts) — synced from FrameMsg.buoys, the
    *  mines precedent (Story 1.8). */
-  decoys: Decoys;
+  buoys: Buoys;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -434,12 +434,12 @@ interface Game {
    *  element key) — it still draws, at the flat degraded weight. */
   fitFrameDegraded: boolean;
   /**
-   * ms (server clock) — the latest OWN decoy buoy's expiry, the decoy slot's
-   * ACTIVE window (amendment 48). Latched from the Decoys reconcile's own-spawn
+   * ms (server clock) — the latest OWN radar buoy's expiry, the buoy slot's
+   * ACTIVE window (amendment 48). Latched from the Buoys reconcile's own-spawn
    * hook, which is the only "you just placed one" signal the client gets; a
    * replacement buoy simply supersedes it (latest `until` wins).
    */
-  ownDecoyUntil: number;
+  ownBuoyUntil: number;
   /**
    * THE OWN-FIRE LATCH (Story 2.9, sim/ownFire.ts): the weapon behind the click
    * we just made. The `shell`/`torp` wire shape is deliberately constant-free —
@@ -1220,7 +1220,7 @@ function updateBounty(g: Game): void {
   }
 }
 
-/** Ordnance-marker tint for a firer id (mine/decoy/lit-zone `by`): the pilot's
+/** Ordnance-marker tint for a firer id (mine/buoy/lit-zone `by`): the pilot's
  *  bright personal hue for every observer, or null while the roster hasn't synced
  *  it (or the firer left) — the renderer paints the amber fallback and retries
  *  per frame until the hue resolves (render/hueLatch.ts). The `?? amber` on the
@@ -1619,12 +1619,12 @@ function tickSinkingWindow(g: Game): void {
 function resetOwnOrders(g: Game): void {
   g.keyboard.resetThrottle();
   g.keyboard.clearActivations();
-  // Story 2.9: the decoy slot's ACTIVE window dies at the same hard boundary.
+  // Story 2.9: the buoy slot's ACTIVE window dies at the same hard boundary.
   // The latch is fed by the reconcile's own-spawn hook, which only ever fires
   // for a NEW buoy — so a window left standing across death would keep a slot
   // reading ACTIVE for a buoy the next life does not own. Missing juice beats a
   // lying slot.
-  g.ownDecoyUntil = 0;
+  g.ownBuoyUntil = 0;
   // Story 2.9: the own-fire latch dies at that same boundary. A claim is a
   // promise about the next reveal on our own bow, and death/respawn breaks it —
   // the shot it describes either splashed unseen or belongs to a hull that no
@@ -2396,14 +2396,14 @@ function abilityFeedbackState(): Pick<
 }
 
 /**
- * An OWN decoy buoy just appeared in the reconcile (render/decoys' own-spawn
+ * An OWN radar buoy just appeared in the reconcile (render/buoys' own-spawn
  * hook): play its placement cue and latch the window the hotbar's ACTIVE state
  * reads. The hook only ever fires for buoys we own, so a truesighted enemy buoy
  * can never light our slot.
  */
-function onOwnDecoy(g: Game | null, audio: Audio, d: BuoyView): void {
-  audio.play('placeDecoy');
-  if (g) g.ownDecoyUntil = Math.max(g.ownDecoyUntil, d.until);
+function onOwnBuoy(g: Game | null, audio: Audio, d: BuoyView): void {
+  audio.play('placeBuoy');
+  if (g) g.ownBuoyUntil = Math.max(g.ownBuoyUntil, d.until);
 }
 
 /**
@@ -2426,7 +2426,7 @@ function latchFitFlash(g: Game, category: string): void {
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
-  const until = { speedBoost: boostUntilNow(g), radarBuoy: g.ownDecoyUntil };
+  const until = { speedBoost: boostUntilNow(g), radarBuoy: g.ownBuoyUntil };
   return status.loadout.map((id) => (id === 'speedBoost' || id === 'radarBuoy' ? Math.max(0, until[id] - now) : 0));
 }
 
@@ -2514,7 +2514,7 @@ function buildGame(
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
-    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
+    buoys: new Buoys(stage.layers.buoyChart, stage.layers.buoyWorld, (b) => onOwnBuoy(gRef, audio, b)),
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
@@ -2554,7 +2554,7 @@ function buildGame(
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
-    ownDecoyUntil: 0,
+    ownBuoyUntil: 0,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
@@ -2715,6 +2715,30 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
   };
 }
 
+/**
+ * The own-buoy readout parameters for the frame timestamped `t`: the buoy's own
+ * EFFECTIVE radar reach and lifetime plus the two doctrine verbs, read straight
+ * off our stats — the same block the server stamps onto a buoy at drop and gates
+ * its relay with. Stamped with the FRAME's own time for the same reason the mine
+ * rings are: `BuoyView.until` is a server-clock value, so a local `serverNow()`
+ * estimate would charge the buoy for the transport delay and run its life arc
+ * systematically short.
+ *
+ * `radarRange` here is `stats.radarBuoy.radarRange` — the BUOY's flat 330u set,
+ * never the owner's own `stats.radarRange`, which no card on this line moves and
+ * which the buoy does not use.
+ */
+function ownBuoyParams(g: Game, t: number): OwnBuoyState {
+  const buoy = g.ownStats.radarBuoy;
+  return {
+    radarRange: buoy.radarRange,
+    gun: buoy.gun,
+    jamming: buoy.jamming,
+    durationMs: buoy.durationMs,
+    now: t,
+  };
+}
+
 /** Wire the room's messages into the game (frames, results, disconnects), and
  *  hand back the disposer that unwires them (see bindRoom's docstring). */
 function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
@@ -2780,6 +2804,10 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // The owner-private mine rings: our live effective radii + our clock. The
     // acquisition ring exists only while we actually hold the doctrine.
     ownMineRings: (t) => ownMineRingParams(g, t),
+    // The owner-private buoy readout: our live effective buoy stats + the
+    // frame's clock. Owner-only by construction (render/buoys.ts draws the ring
+    // and the life arc for `own` buoys alone).
+    ownBuoy: (t) => ownBuoyParams(g, t),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -2837,10 +2865,11 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * and the radar's `shipStamp` sample them at, so the foam lands on the hull the
  * player can see rather than ~100ms ahead of it.
  *
- * THERE IS NO DECOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, Eric:
- * *"Decoy will get major changes soon so lets not worry about it for now"*). A
- * decoy is frozen at its drop pose, so it never travels one sample cadence and
- * lays nothing BY CONSTRUCTION. The resulting tell is ledgered, not papered
+ * THERE IS NO BUOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, written
+ * of the decoy the RADAR BUOY replaced, and true of the replacement for the
+ * same reason). A buoy is anchored at its drop point, so it never travels one
+ * sample cadence and lays nothing BY CONSTRUCTION. The resulting tell — a
+ * stationary radar return with no wake behind it — is ledgered, not papered
  * over.
  *
  * Each source carries its own tint, resolved off the SAME roster the hull's

@@ -32,9 +32,10 @@ import type { OwnFire } from '../render/projectiles.js';
 export const OWN_FIRE_WINDOW_MS = 400;
 
 /** The BALLISTIC equipment ids a reveal can be attributed to — the only ids that
- *  ever produce a `shell`/`torp` event. An ability (boost/decoy) and the mine
- *  (placed, never revealed as a track) can never leak through into a
- *  projectile's identity, so they are rejected at the claim. */
+ *  ever produce a `shell`/`torp` event. An ability (the boost) and the CLICK-
+ *  PLACED ids (the mine and the radar buoy — placed, never revealed as a track)
+ *  can never leak through into a projectile's identity, so they are rejected at
+ *  the claim. */
 const BALLISTIC: readonly EquipmentId[] = ['gun', 'broadside', 'torpedo', 'starShells'];
 
 /** Pure: is this equipment id one a `shell`/`torp` reveal could have come from? */

@@ -41,7 +41,7 @@
 // TURRETS I–II, BUOY I–IV, GUN BUOY, JAMMING BUOY, CAPTIVE MINES.
 //
 // THE VERBS NOW STACK. PHOSPHOR and DAZZLE are independent flags on one star
-// shell, as are PROP FOULING and SELF-PROPELLED on one mine, so no doctrine
+// shell, as are PROP FOULING and CAPTIVE MINES on one mine, so no doctrine
 // card's rules text may imply an either/or any more.
 //
 // FAIL-OPEN, not fail-closed: an id with no copy renders a readable
@@ -242,7 +242,18 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   boostDuration: { label: 'Boost duration', read: (s) => s.boost.durationMs, fmt: secs },
   boostSpeed: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
   starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },
-  buoyDuration: { label: 'Buoy lifetime', read: (s) => s.radarBuoy.durationMs, fmt: secs },
+  // R2.20 (Eric ruling 2026-08-19) replaced the sweep-rate line with this one:
+  // +2.5s of buoy life per card. The note states the EMERGENT consequence of his
+  // two numbers meeting the 30s rack reload — base life is 10s SHORT of it, so a
+  // fresh buoy is never ready when the last one dies, and a full BUOY IV stack
+  // closes that gap exactly. That is the reward curve this line actually sells;
+  // "the buoy lasts longer" is already in the number above it.
+  buoyDuration: {
+    label: 'Buoy lifetime',
+    read: (s) => s.radarBuoy.durationMs,
+    fmt: secs,
+    note: 'A full stack lasts until the next buoy is ready.',
+  },
   intelRange: {
     label: 'Radar range',
     read: (s) => s.radarRange,
@@ -287,8 +298,16 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
 const DOCTRINE_TEXT: Readonly<Record<string, string>> = {
   torpedoHoming: 'Torpedoes slowly steer to the nearest enemy hull in their acquisition band.',
   mineCaptive: 'Mines stop blasting on contact. Each fires one torpedo at the first hostile to trip its wide ring.',
-  buoyGun: 'Your buoy shoots at hostile hulls inside its radar circle: 5 damage every 5 seconds.',
-  buoyJamming: 'Your buoy fills its radar circle with false returns on every scan but your own.',
+  // R2.21 (Eric ruling 2026-08-19) SUPERSEDED R2.10's hostile gate: the gun buoy
+  // is AUTONOMOUS and shoots anything its own radar sees that is not its owner —
+  // enemy captains, bots and NEUTRAL fleet drones alike, nearest to the buoy
+  // first. So this line may not say "hostile", "enemy" or "attacker": every one
+  // of those words promises an aggro gate this weapon does not have.
+  buoyGun: 'Your buoy shoots the nearest hull its radar sees — any hull but yours: 5 damage every 5s.',
+  // R2.11: it ADDS fakes and never deletes a real return, and it is RADAR ONLY.
+  // The line must not imply concealment — the buoy hides nothing, it makes the
+  // water unreadable — and must leave the counter standing: sail in and look.
+  buoyJamming: 'Your buoy fills its circle with false radar returns for all but you. Sight sees the truth.',
   minePropFouling: 'Hulls caught in a mine blast are fouled: 25% slower for 5 seconds. Damage unchanged.',
   starIncendiary: 'Your lit zones also burn: a smaller circle scorches every hull but yours inside it.',
   starDazzle: 'Your lit zones also dazzle: every hull but yours inside one has its true sight cut.',

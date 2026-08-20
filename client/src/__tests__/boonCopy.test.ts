@@ -183,11 +183,31 @@ describe('rules text — the contract, with live values', () => {
     expect(boonDescription(BOON_CATALOG.starDazzle, TB)).toContain('dazzle');
     expect(boonDescription(BOON_CATALOG.mineCaptive, TB)).toContain('torpedo');
     expect(boonDescription(BOON_CATALOG.buoyGun, TB)).toContain('5 damage');
-    expect(boonDescription(BOON_CATALOG.buoyJamming, TB)).toContain('false returns');
+    expect(boonDescription(BOON_CATALOG.buoyJamming, TB)).toContain('false radar returns');
     expect(boonDescription(BOON_CATALOG.acquireBroadside, TB)).toContain('open slot');
     expect(boonDescription(BOON_CATALOG.acquireRadarBuoy, TB)).toContain('open slot');
     // ...and a doctrine card never prints a bare stat diff instead.
     expect(boonDescription(BOON_CATALOG.starIncendiary, TB)).not.toContain('→');
+  });
+
+  // THE TWO BUOY VERBS' COPY RULES, pinned because both are easy to "improve"
+  // back into a lie (Story 7-5 wave 2).
+  it('GUN BUOY never claims an aggro or hostility gate — it shoots anything but you (R2.21)', () => {
+    const text = boonDescription(BOON_CATALOG.buoyGun, TB).toLowerCase();
+    // Eric ruling 2026-08-19 SUPERSEDED R2.10: the gun buoy is autonomous and
+    // fires at the nearest hull its own radar sees, NEUTRAL FLEET DRONES
+    // INCLUDED. Every one of these words promises a gate it does not have.
+    for (const word of ['hostile', 'enemy', 'attacker', 'threat']) expect(text).not.toContain(word);
+    expect(text).toContain('nearest'); // the selection rule IS the interesting half
+  });
+
+  it('JAMMING BUOY never claims concealment — it denies reading, it does not hide (R2.11)', () => {
+    const text = boonDescription(BOON_CATALOG.buoyJamming, TB).toLowerCase();
+    // It ADDS fakes and never deletes a real return, and it is RADAR ONLY: the
+    // ratified counter is to sail in and look, so the copy must not sell it as
+    // cover and must leave truesight standing.
+    for (const word of ['hide', 'hides', 'conceal', 'invisible', 'cloak']) expect(text).not.toContain(word);
+    expect(text).toContain('sight'); // the counter stays on the card
   });
 
   // STORY 7-5 WAVE 2 — the BROADSIDE pair. SPREAD is the ONE line in the catalog

@@ -35,7 +35,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   fireMine: 'the armed mine marker appearing on the chart (render/mines)',
   fireBroadside: 'muzzle flash + the heavier broadside shells in flight (render/effects, projectiles)',
   fireStarShells: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',
-  placeDecoy: 'the buoy topmark appearing on the chart (render/decoys)',
+  placeBuoy: 'the buoy topmark appearing on the chart (render/buoys)',
   denied: '80ms denied-red edge pulse on the weapon arc/reticle and the slot (render/deniedFire, hotbar)',
   damage: 'screen shake + the HP rail dropping in the vitals cluster (render/shake, hud)',
   kill: 'the kill-feed line naming your victim (ui/killFeed)',

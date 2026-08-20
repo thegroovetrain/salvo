@@ -58,12 +58,12 @@ const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
     { key: 'E', value: 'SPEED BOOST' },
   ],
   battleship: [
-    { key: 'Q', value: 'LONG-RANGE CANNON' },
+    { key: 'Q', value: 'BROADSIDE BARRAGE' },
     { key: 'E', value: 'STAR SHELLS' },
   ],
   mineLayer: [
     { key: 'Q', value: 'PROXIMITY MINES' },
-    { key: 'E', value: 'DECOY BUOY' },
+    { key: 'E', value: 'RADAR BUOY' },
   ],
 };
 

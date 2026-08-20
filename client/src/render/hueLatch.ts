@@ -1,4 +1,4 @@
-// Shared firer-hue LATCH for the ordnance markers (mines / decoys / lit-zones),
+// Shared firer-hue LATCH for the ordnance markers (mines / buoys / lit-zones),
 // Story 1.12. A marker's tint is its firer's personal hue — but the roster
 // schema can sync AFTER the marker spawns, so `hueFor(by)` returns null until
 // the firer's hue lands. A marker that spawned on the miss boots on the amber

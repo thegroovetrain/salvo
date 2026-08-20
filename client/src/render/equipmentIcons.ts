@@ -71,14 +71,26 @@ const starShells: Glyph = (g, cx, cy, r) => {
   }
 };
 
-/** Radar buoy: an anchored float with a masthead reflector. (Eric's deck note
- *  asks for a mark more distinct from the mine's — that redraw belongs with the
- *  buoy's own slice, so the shipped linework stands for now.) */
+/**
+ * Radar buoy: a spar buoy — waterline, mast, and a DIAMOND radar-reflector
+ * daymark at the masthead.
+ *
+ * Redrawn in Story 7-5 wave 2 to share the on-water marker's shape language
+ * (render/buoys.ts BUOY_MARKER) rather than merely being "not a mine": the
+ * shipped glyph hung a pennant off the mast, which is nothing the chart ever
+ * draws. The mine glyph is a SPIKED SPHERE and this one has no round part at
+ * all, so Eric's *"the icon needs to be distinguished from the mines a bit
+ * more"* holds in the hotbar as well as on the water.
+ */
 const radarBuoy: Glyph = (g, cx, cy, r) => {
-  g.circle(cx, cy + r * 0.25, r * 0.38);
-  g.moveTo(cx, cy - r * 0.13).lineTo(cx, cy - r * 0.9);
-  g.moveTo(cx, cy - r * 0.9).lineTo(cx + r * 0.5, cy - r * 0.62).lineTo(cx, cy - r * 0.38);
-  g.moveTo(cx - r * 0.75, cy + r * 0.85).lineTo(cx + r * 0.75, cy + r * 0.85);
+  const mast = cy - r * 0.28; // the masthead: the diamond's centre
+  g.moveTo(cx - r * 0.75, cy + r * 0.85).lineTo(cx + r * 0.75, cy + r * 0.85); // waterline
+  g.moveTo(cx, cy + r * 0.85).lineTo(cx, mast); // spar
+  g.moveTo(cx, mast - r * 0.42) // diamond daymark
+    .lineTo(cx + r * 0.42, mast)
+    .lineTo(cx, mast + r * 0.42)
+    .lineTo(cx - r * 0.42, mast)
+    .lineTo(cx, mast - r * 0.42);
 };
 
 const GLYPHS: Record<EquipmentId, Glyph> = {

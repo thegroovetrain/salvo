@@ -115,12 +115,14 @@ export function twinSectorSide(
  * the folded radarRange (Intel is a stealth offense category), so an intelRange
  * stack grows every one together. The BROADSIDE reads `stats.broadside.rangeU`,
  * THE 5/8 RUNG (R2.4) — the one weapon that does not reach the radar horizon,
- * so the shared gun-range fallback would over-promise it by 247.5u. The MINE
- * reads the ratified
- * CONFIG.mine.placeRange: its placement reach is a fixed short leash, NOT radar
- * range, and no boon moves it.
+ * so the shared gun-range fallback would over-promise it by 247.5u. The MINE and
+ * — since Story 7-5 wave 2 — the RADAR BUOY read the ratified
+ * CONFIG.mine.placeRange: their placement reach is a fixed short leash, NOT radar
+ * range, and no boon moves it. (The buoy's OWN 330u radar set is a different
+ * number entirely and never belongs here: that is the circle it watches once
+ * dropped, not how far you can throw it.)
  *
- * CONTRACT — MEANINGFUL FOR `gunLike` IDS, THE BROADSIDE AND THE MINE ONLY.
+ * CONTRACT — MEANINGFUL FOR `gunLike` IDS, THE BROADSIDE AND THE PLACED IDS ONLY.
  * For a torpedo / ability / empty slot there is NO range ring, and this returns
  * `stats.gun.rangeU` purely as a non-crashing fallback — it is NOT that
  * weapon's range (a torpedo runs to the map edge). Do NOT consult this for
@@ -129,7 +131,7 @@ export function twinSectorSide(
 export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
   if (id === 'broadside') return stats.broadside.rangeU;
   if (id === 'starShells') return stats.starShells.rangeU;
-  if (id === 'mine') return CONFIG.mine.placeRange;
+  if (id === 'mine' || id === 'radarBuoy') return CONFIG.mine.placeRange;
   return stats.gun.rangeU; // gun (radar-derived) — and the default
 }
 
@@ -195,23 +197,31 @@ export function weaponReachU(
   return gunReachU(ship, aim, aimDist, base, mapRadius, ownLitZones);
 }
 
+
 /**
- * Pure: is the CLICKED POINT within a hard range DENIAL gate? Only the mine has
- * one (Story 2.8, amendment 45): a click past CONFIG.mine.placeRange is refused
- * outright, exactly like a click outside its rear arc — nothing is consumed and
+ * Pure: is the CLICKED POINT within a hard range DENIAL gate? Only the CLICK-
+ * PLACED ids have one (Story 2.8, amendment 45; the RADAR BUOY joined the mine
+ * on it in Story 7-5 wave 2): a click past CONFIG.mine.placeRange is refused
+ * outright, exactly like a click outside the rear arc — nothing is consumed and
  * the denial register fires. Every other id answers true, because none of them
  * denies on distance: the gun family CLAMPS the aim point to rangeU and fires
  * anyway (the range-clamp marker is that clamp made visible), and a torpedo
  * runs until it hits something or leaves the map.
  *
  * Paired with weaponArcHit at every predicted-fire gate so the client's verdict
- * matches the server's on BOTH halves of the mine's placement rule — otherwise
- * an out-of-range click would silently consume the prime (reverting to the gun)
+ * matches the server's on BOTH halves of the placement rule — otherwise an
+ * out-of-range click would silently consume the prime (reverting to the gun)
  * for a placement the server refused.
  */
 export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean {
-  return id !== 'mine' || aimDist <= CONFIG.mine.placeRange;
+  // ONE leash for both click-placed ids: server/src/game/equipment/radarBuoy.ts
+  // reuses CONFIG.mine.placeRange verbatim (R2.7 — "the mine's rear sector at
+  // placeRange 150u"), so the client must refuse at exactly the same distance
+  // or a long buoy click silently consumes the prime for a drop it will deny.
+  if (id !== 'mine' && id !== 'radarBuoy') return true;
+  return aimDist <= CONFIG.mine.placeRange;
 }
+
 
 /** A sector wedge's BOUNDARY, in the arc graphic's local (hull-relative) frame:
  *  the two side rays out of the apex, plus the range arc that closes them. */

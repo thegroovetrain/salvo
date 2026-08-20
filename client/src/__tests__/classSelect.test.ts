@@ -63,12 +63,16 @@ describe('cardViewModel — pips, keys, loadout', () => {
       { key: 'E', value: 'SPEED BOOST' },
     ]);
     expect(cardViewModel('battleship').loadout).toEqual([
-      { key: 'Q', value: 'LONG-RANGE CANNON' },
+      // Story 7-5: the cannon is DELETED and the broadside replaces it in the
+      // Battleship's Q slot. This card was still advertising LONG-RANGE CANNON
+      // to every player picking a hull — a live player-facing lie, caught only
+      // because an agent read the class-select copy while renaming the buoy.
+      { key: 'Q', value: 'BROADSIDE BARRAGE' },
       { key: 'E', value: 'STAR SHELLS' },
     ]);
     expect(cardViewModel('mineLayer').loadout).toEqual([
       { key: 'Q', value: 'PROXIMITY MINES' },
-      { key: 'E', value: 'DECOY BUOY' },
+      { key: 'E', value: 'RADAR BUOY' },
     ]);
   });
 
