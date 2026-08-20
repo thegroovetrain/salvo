@@ -3,6 +3,7 @@ title: 'Home version register drops the RT PROTOTYPE prefix'
 type: 'chore'
 created: '2026-08-20'
 baseline_revision: '7157dc42f959bb05b496d9f22e4954eb19156656'
+final_revision: '5dac3cea30ef9f8a0d10a4272732f2c6a40bc9bc'
 status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
