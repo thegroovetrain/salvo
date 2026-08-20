@@ -3,6 +3,17 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  46: RANGE I–IV IS DELETED (Eric ruling 2026-08-20) — the `intelRange` card
+ *  line leaves BOON_CATALOG outright, 29 lines → 28. It was the ONLY card
+ *  writing `radarRange`, so the eighths ladder is now frozen at its base for
+ *  every observer (detect 247.5, sight 330, muzzle/smoke 412.5, farRadar 577.5,
+ *  radar 660); base range does NOT compensate, so zero-boon play is
+ *  byte-identical. Catalog content has been wire contract since PV 13 and the
+ *  client resolves boon ids FAIL-CLOSED, so a stale client would drop the id
+ *  silently and disagree with the authoritative sim about radar, truesight and
+ *  every rangeU. The `intel` category SURVIVES carrying `intelSweep` ×5 (subdeck
+ *  9 cards → 5, every hull's deck 41 → 37); `radarRange` stays on
+ *  BOON_STAT_PATHS with no card behind it.
  *  45: PER-TURRET FIRING ARCS (Eric ruling 2026-08-20) — the BROADSIDE
  *  BARRAGE's designed angular fan is DELETED and replaced by per-turret aim:
  *  each turret owns a mount bearing (straddled across
@@ -498,7 +509,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 45;
+export const PROTOCOL_VERSION = 46;
 
 // Tunables
 export * from './constants.js';

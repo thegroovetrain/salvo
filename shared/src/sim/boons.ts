@@ -112,6 +112,11 @@ export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
  */
 export const BOON_STAT_PATHS = [
   'maxHp',
+  // `radarRange` is WHITELISTED-BUT-UNWRITTEN since 2026-08-20: RANGE I–IV was
+  // deleted (Eric ruling) and nothing replaced it. The path stays for the same
+  // reason `gun.burstRadius` and `radarBuoy.sweepRpm` do — the stat is still
+  // addressable in principle, so a future intel-range line can land without
+  // touching this whitelist.
   'radarRange',
   'sweepRpm',
   // `sightRange` is DELIBERATELY ABSENT (Eric ruling 2026-08-16). It became a
@@ -305,9 +310,10 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
 
 /**
  * THE production Boon Catalog — STORY 7-5 WAVE 2 (Eric's card rewrite,
- * `7-5-decks.md`). 29 card lines across 9 categories — THE FINAL SHAPE: 23
- * upgrade lines + 6 acquisitions, every equipment subdeck exactly 6 CARDS and
- * every hull's deck exactly 41.
+ * `7-5-decks.md`). 28 card lines across 9 categories: 22 upgrade lines + 6
+ * acquisitions, every EQUIPMENT subdeck exactly 6 CARDS and every hull's deck
+ * exactly 37. (Wave 2 shipped 29/23/41; RANGE I–IV was deleted 2026-08-20,
+ * taking the `intel` subdeck from 9 physical cards to 5.)
  *
  * WAVE 2 REPLACED TWO WHOLE EQUIPMENTS. The cannon became the BROADSIDE
  * BARRAGE (`cannonDamage`/`cannonArcing`/`cannonAp` out, `broadsideSpread` ×4 +
@@ -457,17 +463,13 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // GUN BUOY: both are plain verbs.
   buoyJamming: { id: 'buoyJamming', category: 'radarBuoy', rarity: 'rare', copies: 1, effects: [doctrine('radarBuoy', 'jamming')] },
   // --- intel (universal) ---------------------------------------------------
-  // RANGE I–IV (×4): +50 u of INTEL RANGE per card — ADDITIVE now, where the
-  // cycle-92 merged line was ×1.15 compounding. It drives `radarRange`, and the
-  // whole eighths ladder rides that ONE number: detect 0.375R, sight 0.5R,
-  // muzzle/smoke 0.625R, farRadar 0.875R, radar R — plus gun/cannon/starShells
-  // rangeU. So the ladder ordering holds at every stack level by ARITHMETIC,
-  // exactly as the merge established, and `sightRange` remains DERIVED
-  // (radarRange/2) rather than stat-addressable. Top of ladder: radar 860,
-  // sight 430. The ×4 copy cap is also the client radar COST cap (render cost
-  // is quadratic in radarRange), and the additive step makes the top of the
-  // ladder markedly cheaper than the old ×1.15⁴ ≈ 1154 u.
-  intelRange: { id: 'intelRange', category: 'intel', rarity: 'common', copies: 4, effects: [stat('radarRange', { add: 50 })] },
+  // RANGE I–IV is DELETED (Eric ruling 2026-08-20). It was the only card that
+  // wrote `radarRange`, so with it gone the eighths ladder is FROZEN at its
+  // base for every observer — detect 247.5, sight 330, muzzle/smoke 412.5,
+  // farRadar 577.5, radar 660. Base range does NOT compensate: `CONFIG.vision`
+  // is untouched. `radarRange` stays on BOON_STAT_PATHS with no card behind it
+  // (the FRAGMENTATION CASING shape), and the `intel` category SURVIVES as a
+  // one-line category carrying INTEL below.
   // INTEL I–V (×5): +3 RPM per card (15 → 30 at the ratified cap).
   intelSweep: { id: 'intelSweep', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sweepRpm', { add: 3 })] },
   // --- ship (universal) ----------------------------------------------------
@@ -657,9 +659,12 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   // gun/cannon/starShells range is radarRange, always (brainstorm 2026-07-30:
   // Radar Range quietly buffs gun/cannon/blast-torp reach — Intel is a
   // stealth offense category). Re-derived here (not stat-addressable —
-  // BOON_STAT_PATHS omits all three rangeU paths) so an intelRadar fold
-  // anywhere in the list can never leave them stale; re-pinned again in
-  // sim/stats.ts clampStats, the sweepPeriodMs precedent's sibling site.
+  // BOON_STAT_PATHS omits all three rangeU paths) so a FUTURE fold writing the
+  // whitelisted `radarRange` path can never leave them stale; re-pinned again
+  // in sim/stats.ts clampStats, the sweepPeriodMs precedent's sibling site.
+  // No card writes `radarRange` today, so these re-pins are currently
+  // load-bearing only as the BASE derivation — which is exactly why they stay:
+  // one derivation path, not two.
   stats.gun.rangeU = stats.radarRange;
   stats.starShells.rangeU = stats.radarRange;
   // The BROADSIDE rides the same number one rung short — the 5/8 muzzle/smoke
@@ -671,12 +676,15 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   // stat-addressable, so a mid-list `broadsideSpread` fold would leave it stale).
   stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
   stats.broadside.traverseRad = broadsideTraverse(stats.broadside.spreadRung);
-  // THE EIGHTHS LADDER IS ONE NUMBER NOW (Eric ruling 2026-08-16): truesight is
+  // THE EIGHTHS LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is
   // the 4/8 rung of intel range, so it is DERIVED here exactly as the three
   // rangeU paths above are, and for the same reason — `sightRange` left
-  // BOON_STAT_PATHS, so an `intelRange` fold anywhere in the list would
-  // otherwise leave it stale. Re-pinned again in sim/stats.ts clampStats (the
-  // firewall's unconditional output pass); these two are the only sites.
+  // BOON_STAT_PATHS, so any FUTURE fold writing the whitelisted `radarRange`
+  // path would otherwise leave it stale. With RANGE I–IV deleted (2026-08-20)
+  // nothing writes that path today and this is the BASE derivation; it stays
+  // here so there is one derivation of truesight rather than two. Re-pinned
+  // again in sim/stats.ts clampStats (the firewall's unconditional output
+  // pass); these two are the only sites.
   stats.sightRange = stats.radarRange / 2;
   // The mine trip ring rides the blast radius (Eric ruling 2026-08-16) — same
   // reason as the re-pins above: `mine.triggerRadius` left BOON_STAT_PATHS, so a

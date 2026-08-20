@@ -345,7 +345,8 @@ function clampStats(stats: EffectiveStats): void {
   // THE BROADSIDE IS THE 5/8 RUNG (Story 7-5 wave 2, Eric: "This weapon's range
   // is limited to 5/8") — the same re-pin law as its two siblings above, one
   // rung short of the horizon. It rides `radarRange` rather than a literal, so
-  // an intelRange stack carries it out with everything else.
+  // there is ONE derivation of the rung rather than two — and a future card on
+  // the whitelisted `radarRange` path would carry it out for free.
   stats.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
   // and the traverse is derived from it (clamped inside the helper) — the
@@ -353,10 +354,14 @@ function clampStats(stats: EffectiveStats): void {
   stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
   stats.broadside.traverseRad = broadsideTraverse(stats.broadside.spreadRung);
   // TRUESIGHT IS THE 4/8 RUNG OF INTEL RANGE (Eric ruling 2026-08-16) — derived,
-  // never stat-addressable. `sightRange` left BOON_STAT_PATHS with the two intel
-  // cards it used to have, so this is the firewall's authoritative answer and
-  // applyBoonStats holds the sibling copy. At zero boons this is byte-identical
-  // to the old CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*2.
+  // never stat-addressable. `sightRange` left BOON_STAT_PATHS, so this is the
+  // firewall's authoritative answer and applyBoonStats holds the sibling copy.
+  // No card writes `radarRange` since RANGE I–IV was deleted (2026-08-20), so
+  // today this resolves the BASE ladder for every observer; it stays derived so
+  // there is one derivation rather than two, and so a future card on that
+  // whitelisted path needs no re-scaling work. At zero boons it is
+  // byte-identical to the old CONFIG.vision.sight seed, because
+  // CONFIG.vision.radar IS SIGHT*2.
   stats.sightRange = stats.radarRange / 2;
   // THE TRIP RING IS A FIXED FRACTION OF THE BLAST (Eric ruling 2026-08-16) —
   // derived, not clamped. This REPLACES the old
