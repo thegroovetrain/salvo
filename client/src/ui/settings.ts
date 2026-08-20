@@ -172,12 +172,10 @@ export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces):
 
 /**
  * Pure: may ABANDON MATCH be offered right now? Amendment 19 renders it "only
- * while in a live match", and the previous predicate (`joined && !returning`)
- * was true in states where the button is meaningless or actively wrong:
- *   • `finished` / matchOver — the match is over and the results modal's RETURN
- *     TO PORT is the one way home; a second, `danger`-styled leave button next
- *     to it just invites a mis-click into an identical outcome;
- *   • `returning` — the leave is already in flight.
+ * while in a live match", which rules out one state: `finished` / matchOver —
+ * the match is over and the results modal's RETURN TO PORT is the one way home;
+ * a second, `danger`-styled leave button next to it just invites a mis-click
+ * into an identical outcome.
  *
  * `waiting`, `gathering`, and `countdown` DO keep it, deliberately: the
  * weapons-safe ready room is where a solo captain can sit indefinitely (the
@@ -185,9 +183,20 @@ export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces):
  * and the spec's leaving law is "the modal's RETURN TO PORT or
  * settings' ABANDON MATCH — never ESC, never a page refresh". Hiding it there
  * would leave a ready-room captain with no sanctioned way back to port at all.
+ *
+ * AND `returning` IS NOT A REASON TO HIDE IT (playtest 2026-08-20). It used to
+ * be, on the reading that "the leave is already in flight" — but the flight can
+ * be long (the ad break held it ~37s in production), and for that whole window
+ * the player was still on the water, still in the match, watching the only exit
+ * they know about DISAPPEAR from the menu they had just used it in. Eric hit
+ * exactly that during a countdown and read it as the button having eaten itself.
+ * A press while a leave is in flight is a latched no-op (`main.ts` returnToPort
+ * guards on `g.returning`, and the chain latches besides), and a no-op exit is
+ * strictly better than a vanished one: THE WAY OUT MUST NEVER LEAVE THE SCREEN
+ * WHILE THE PLAYER IS STILL IN A MATCH.
  */
-export function canAbandon(phase: string, matchOver: boolean, returning: boolean): boolean {
-  return !returning && !matchOver && phase !== 'finished';
+export function canAbandon(phase: string, matchOver: boolean): boolean {
+  return !matchOver && phase !== 'finished';
 }
 
 /** The two confirm-gated danger actions (amendment 19). */

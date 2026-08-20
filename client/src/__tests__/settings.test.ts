@@ -465,6 +465,37 @@ describe('SettingsOverlay — DOM shell', () => {
     expect(overlay.visible).toBe(false); // the overlay closes into the leave flow
   });
 
+  // THE VANISHING EXIT (playtest 2026-08-20, Eric): *"if I go to the settings
+  // menu and click 'abandon match' during the 10s countdown, i am still in the
+  // match, and the 'abandon match button' disappears from the menu."* The leave
+  // was in flight but not yet home (the ad break held the chain ~37s), and the
+  // overlay's gate consulted that in-flight flag — so the player was still on
+  // the water with no way off it. The way out may never leave the screen while
+  // the player is still in a match.
+  it('the exit STAYS in the menu after the player presses it — a leave in flight is not a reason to hide the way out', () => {
+    let returning = false;
+    const live = new SettingsOverlay({
+      store,
+      // main.ts's inLiveMatch in shape: the polled phase and the client-side
+      // matchOver latch, and NOTHING about a leave already being under way.
+      inMatch: () => canAbandon('countdown', false),
+      onAbandon: () => (returning = true),
+      viewportWidth: () => viewportW,
+    });
+    try {
+      const btn = (): HTMLButtonElement => document.getElementById(ABANDON_BUTTON_ID) as HTMLButtonElement;
+      live.open();
+      btn().click(); // arm
+      btn().click(); // fire — the chain latches and the leave starts
+      expect(returning).toBe(true);
+      expect(live.visible).toBe(false);
+      live.open(); // ESC back into the menu, exactly what Eric did
+      expect(document.getElementById(ABANDON_BUTTON_ID)).not.toBeNull();
+    } finally {
+      live.destroy();
+    }
+  });
+
   it('RESET SETTINGS is confirm-gated and restores the defaults', () => {
     store.set({ motion: 'off', masterVolume: 10 });
     overlay.open();
@@ -568,18 +599,23 @@ describe('SettingsOverlay — DOM shell', () => {
 describe('canAbandon — where the leave button belongs (amendment 19)', () => {
   it('offers it while the match can still be abandoned', () => {
     for (const phase of ['waiting', 'gathering', 'countdown', 'active']) {
-      expect(canAbandon(phase, false, false), phase).toBe(true);
+      expect(canAbandon(phase, false), phase).toBe(true);
     }
   });
 
   it('drops it once the match is FINISHED — RETURN TO PORT is the one way home', () => {
-    expect(canAbandon('finished', false, false)).toBe(false);
-    expect(canAbandon('active', true, false)).toBe(false); // matchOver latched client-side
+    expect(canAbandon('finished', false)).toBe(false);
+    expect(canAbandon('active', true)).toBe(false); // matchOver latched client-side
   });
 
-  it('drops it once a leave is already in flight', () => {
-    expect(canAbandon('active', false, true)).toBe(false);
-  });
+  // RETIRED (playtest 2026-08-20): `it('drops it once a leave is already in
+  // flight')` asserted exactly the behaviour Eric hit — the predicate took a
+  // third `returning` argument and answered FALSE while the leave was in
+  // flight, so pressing ABANDON MATCH removed the button, and with the ad break
+  // holding the chain ~37s in production the player spent that whole window
+  // still in the match with the only exit they knew about gone. The predicate
+  // no longer takes the argument at all; the invariant it broke is pinned in
+  // the DOM shell suite ("the exit STAYS in the menu…").
 });
 
 // --- THE ANALYTICS WITHDRAWAL ROW (Story 7.2, review gate) -------------------

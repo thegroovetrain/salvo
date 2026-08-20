@@ -7,7 +7,12 @@
 // pre-fix chain awaited leave() unbounded, so `reload()` was never reached.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { makeReturnToPort, LEAVE_TIMEOUT_MS, type ReturnToPortDeps } from '../app/returnToPort.js';
+import {
+  makeReturnToPort,
+  AD_BREAK_TIMEOUT_MS,
+  LEAVE_TIMEOUT_MS,
+  type ReturnToPortDeps,
+} from '../app/returnToPort.js';
 
 /** A promise that never settles — a dead socket's leave(), or a hanging ad. */
 function never<T>(): Promise<T> {
@@ -115,7 +120,7 @@ describe('makeReturnToPort — the chain always settles to a reload', () => {
     expect(h.reloads).toBe(1);
   });
 
-  it('waits for the ad break before leaving — it is never cut off by this chain', async () => {
+  it('waits for the ad break before leaving — an ad that answers inside the window is never cut off', async () => {
     let releaseAd: (() => void) | undefined;
     const h = harness({
       requestAdBreak: () => {
@@ -126,12 +131,45 @@ describe('makeReturnToPort — the chain always settles to a reload', () => {
       },
     });
     makeReturnToPort(h.deps)();
-    // A long ad (safeAdapter already caps it at 35s): nothing else has run.
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(AD_BREAK_TIMEOUT_MS - 1);
     expect(h.calls).toEqual(['start', 'adBreak']);
     releaseAd?.();
     await vi.advanceTimersByTimeAsync(0);
     expect(h.calls).toEqual(['start', 'adBreak', 'leave', 'reload']);
+  });
+
+  // THE STRANDING (playtest 2026-08-20, measured on live production). The chain
+  // used to await the ad break to completion and NOT time-box it here, on the
+  // argument that the adapter is always safeAdapter-wrapped and therefore capped
+  // at 35s. The cap held — and 35s of a dead button is what Eric reported as
+  // *"return to port no longer works at all"*. Production's ad layer had loaded
+  // the DISPLAY AdSense processor with no Ad Placement API behind it, so the
+  // pushed break produced no `beforeAd`, no `afterAd` and no `adBreakDone`
+  // (measured at 79s and counting), and every RETURN TO PORT / ABANDON MATCH sat
+  // ~37s before the page reloaded. This chain now owns the bound itself: whatever
+  // the ad layer does, the player who asked to leave gets home.
+  it('an ad break that NEVER settles still reaches the reload', async () => {
+    const h = harness({
+      requestAdBreak: () => {
+        h.calls.push('adBreak');
+        return never<void>();
+      },
+    });
+    makeReturnToPort(h.deps)();
+    await vi.advanceTimersByTimeAsync(AD_BREAK_TIMEOUT_MS - 1);
+    expect(h.reloads).toBe(0); // still inside the window
+    await vi.advanceTimersByTimeAsync(1 + LEAVE_TIMEOUT_MS);
+    expect(h.calls).toEqual(['start', 'adBreak', 'leave', 'reload']);
+    expect(h.reloads).toBe(1);
+  });
+
+  it('honors a custom ad-break window', async () => {
+    const h = harness({ requestAdBreak: () => never<void>(), adBreakTimeoutMs: 25 });
+    makeReturnToPort(h.deps)();
+    await vi.advanceTimersByTimeAsync(24);
+    expect(h.reloads).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.reloads).toBe(1);
   });
 
   it('a rejected ad break does not abort the chain', async () => {

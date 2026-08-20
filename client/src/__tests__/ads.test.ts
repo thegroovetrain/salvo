@@ -70,6 +70,9 @@ const EXPECTED_ADS_TXT = 'google.com, pub-8667818947296707, DIRECT, f08c47fec094
 
 interface AdsGlobal {
   adsbygoogle?: { push(cmd: unknown): unknown };
+  /** The Ad Placement API's own global — installed by the H5 Games Ads loader
+   *  and by nothing else. See `isAdsReady`. */
+  adBreak?: unknown;
   [CONSENT_DEFAULTS_MARKER]?: boolean;
 }
 
@@ -276,12 +279,31 @@ describe('the AdSense vendor module', () => {
     expect(isAdsReady()).toBe(true);
   });
 
-  it('READY on the loader replacing the queue with its own command processor', () => {
+  it('READY on the loader installing the Ad Placement API', () => {
     vi.stubEnv('VITE_ADSENSE_CLIENT', CLIENT);
     startAds({ sound: 'on', preloadAdBreaks: 'auto' });
     expect(isAdsReady()).toBe(false);
-    g.adsbygoogle = { push: () => 1 };
+    g.adBreak = () => undefined;
     expect(isAdsReady()).toBe(true);
+  });
+
+  // THE PRODUCTION STRANDING (playtest 2026-08-20, measured on hullcracker.io).
+  // Readiness used to be "the queue is no longer the plain Array our shim
+  // plants" — which ORDINARY DISPLAY ADSENSE satisfies. Production loaded
+  // `adsbygoogle.js?client=ca-pub-…`, which installed the display command
+  // processor (`{push, loaded, pageState}`) and left `window.adBreak` and
+  // `window.adConfig` UNDEFINED. `isAdsReady()` answered true, so `adsAdapter`
+  // skipped its resolve-now fast path and pushed a placement into a processor
+  // with no Ad Placement API behind it: no `beforeAd`, no `afterAd`, no
+  // `adBreakDone` — 79s and counting on the measurement — and every RETURN TO
+  // PORT / ABANDON MATCH sat ~37s on safeAdapter's cap before reloading.
+  it('a DISPLAY-ONLY loader is NOT readiness — an arrived SDK with no break API', () => {
+    vi.stubEnv('VITE_ADSENSE_CLIENT', CLIENT);
+    startAds({ sound: 'on', preloadAdBreaks: 'auto' });
+    // Production's exact shape: the display processor, and nothing else.
+    g.adsbygoogle = { push: () => 1, loaded: true, pageState: {} } as unknown as { push(cmd: unknown): unknown };
+    expect(g.adBreak).toBeUndefined();
+    expect(isAdsReady()).toBe(false);
   });
 
   it('forwards a caller\u2019s own onReady, and survives it throwing', () => {
@@ -318,10 +340,16 @@ describe('the AdSense vendor module', () => {
 // --- the interstitial adapter -------------------------------------------------
 
 /** Stand in for the LIVE SDK: capture the placement and hand back the callbacks
- *  so a test can drive Google's own sequence by hand. */
+ *  so a test can drive Google's own sequence by hand.
+ *
+ *  It installs `window.adBreak` as well as the command processor, because that
+ *  global is what tells the Ad Placement API apart from an ordinary display
+ *  loader — see `isAdsReady`. Nothing calls it; the placement still goes through
+ *  the queue. */
 function liveSdk(): { placements: AdBreakPlacement[]; configs: unknown[] } {
   const placements: AdBreakPlacement[] = [];
   const configs: unknown[] = [];
+  g.adBreak = () => undefined;
   g.adsbygoogle = {
     push(cmd: unknown) {
       if (cmd && typeof cmd === 'object' && 'type' in cmd) placements.push(cmd as AdBreakPlacement);
