@@ -181,3 +181,22 @@ decisions that still direct future work are struck.
 - Confirm both tracker files parse and that `sprint-status.yaml` no longer contains `0.17.120`.
 - Confirm every question in the gate document has either an Eric answer or a recorded default in the
   amendment entry.
+
+## Auto Run Result
+
+Status: **blocked**
+Blocking condition: **intent gaps** — Story 7-6's own acceptance criteria require a with-Eric pass
+on the design source of truth, and the investigation surfaced 28 decisions that an implementer may
+not take alone.
+
+Ran 2026-08-21 against `841d277` (0.17.125, PV 47). Seven read-only audits; no implementation.
+Questions: `bmad-dev-auto-result-7-6-doc-reconciliation-questions.md`. PR #192.
+
+Four of the 28 may not proceed on an implementer default under any circumstances — **B1** (the
+cycle-125 reserved-band violation, where the doc is right and the code is wrong), **D1** (Tab vs
+the ratified SPACE-hold, an undocumented drift that became the played game), **D2** (ratifying two
+draft strings, which epic-6 amendment 41 reserves to Eric) and **G6** (deleting the deprecated root
+`DESIGN.md`/`TODOS.md`).
+
+Resume by re-invoking with this spec once the gate is answered; record the answers as an epic-7
+amendment in the same change that applies them.
