@@ -926,3 +926,68 @@ lattice**, which is now the established protocol for this workstream.
 **Attrition remains shape-wrong and untouched by any of this:** 13.5 alive at 4:00 against a target of
 10. The first ring cycle kills 6.5 where it should kill 10; the middle checkpoint is met; the endgame
 then over-corrects to 1.4 against 2.5. No weapon dial moves this — it is the open problem for cycle 2.
+
+## Arm 16 — Battleship package: `broadside.reloadMs` 20 s + `turnRate` 0.48 — **TARGET 1 LANDS**
+
+Eric's spec, run at n = 360 on the same lattice (base 7000019) as the two arms above it.
+
+| class | torpedo-50 arm | **BS-buff arm** | 95 % CI | point estimate in 31–35 %? |
+|---|---|---|---|---|
+| **torpedoBoat** | 37.3 % | **34.7 %** | 30.0 – 39.8 | **YES** |
+| **battleship** | 29.5 % | **34.2 %** | 29.5 – 39.2 | **YES** |
+| **mineLayer** | 33.1 % | **31.1 %** | 26.5 – 36.1 | **YES** |
+
+**Spread 7.8 pp → 3.6 pp — narrower than the 4 pp band itself.** 360/360 resolved, roster spread 0.0,
+tier ±5 pp, all three consistent with the band.
+
+The Battleship gained **+4.7 pp** (29.5 → 34.2) with TB −2.6 and ML −2.0 — the first dial this cycle to
+move BS at all. No individual effect is significant at this n; the *configuration* is what changed.
+
+### The full landing configuration
+
+```
+shipClasses.torpedoBoat.hp                    125 → 250
+shipClasses.battleship.hp                     175 → 350
+shipClasses.mineLayer.hp                      150 → 300
+damageControl.instantHp                        25 → 50
+damageControl.regenHp                          25 → 50
+broadside.turrets                               3 → 4      (max 6 via the ×2 card)
+broadside.damage                               20 → 15
+broadside.reloadMs                          30000 → 20000
+shipClasses.battleship.kinematics.turnRate    0.4 → 0.48
+torpedo.damage                                 70 → 50
+```
+
+| | TB | BS | ML | spread | alive 4:00 | alive 8:00 | alive 12:00 | median |
+|---|---|---|---|---|---|---|---|---|
+| target | 31–35 | 31–35 | 31–35 | ~4 | 10 | 5 | 2.5 | — |
+| baseline | 51.9 | 31.7 | 16.4 | **35.6** | 7.8 | 1.8 | 0.2 | 506 s |
+| **landing** | **34.7** | **34.2** | **31.1** | **3.6** | 13.7 | **5.4** | 1.4 | 708 s |
+
+### What can and cannot be claimed
+
+**Target 1 is met as far as this instrument can express it.** All three point estimates sit inside
+31–35 % and the spread is narrower than the band. That is the strongest available result — and it is
+*not* the same as proving the band is met: the ±5 pp half-width is wider than the 4 pp band, and the
+ladder's own ceiling of ±3 pp (999 matches) is *still* wider. **No campaign this harness can run will
+ever put a CI inside this band.** Chasing further precision here is chasing noise; the remaining
+question is a playtest question, not a measurement one.
+
+**Target 2 is half met, and the unmet half is a SHAPE problem.** The 8:00 checkpoint lands (5.4 vs 5)
+and matches reaching 12:00 went from 11 % to 48 %. But the curve is **20 → 13.7 → 5.4 → 1.4** against
+20 → 10 → 5 → 2.5: the first ring cycle kills 6 where it should kill 10, then the endgame
+over-corrects. **No dial tried across sixteen arms moves the early cycle without moving the whole
+curve**, because every lethality dial scales the entire match uniformly. Fixing "too flat early, too
+steep late" needs something that varies *with match time* — the ring schedule, a ramping storm, or
+early-game lethality that decays — and all of those are design decisions rather than tuning.
+
+### Attribution debts, stated rather than buried
+
+- **The Battleship package bundles two dials** (reload 20 s and turnRate 0.48). Its +4.7 pp cannot be
+  split between them without another arm. My prior was that the reload does most of the work, since
+  BS's diagnosed problem was a long-reload burst weapon and not steering — untested.
+- **`broadside.reloadMs` has now moved twice** (30 → 22 → 20 s) worth ~5 pp and ~4.7 pp respectively,
+  the second bundled with turn rate. A 33 % cut to a signature weapon's reload is a real feel change
+  on top of the 4-turret redesign, and bots cannot judge feel.
+- **Bot attrition plausibly over-states human attrition** — bots hunt relentlessly, humans hide and
+  rotate with the ring. A curve tuned to satisfy bots may over-correct for people.
