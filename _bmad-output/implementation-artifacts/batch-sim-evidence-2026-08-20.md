@@ -1047,3 +1047,68 @@ So the choice between them is **not a measurement question**:
 
 Attrition is identical across all three cells (C: 13.8 / 5.6 / 1.6, median 728 s; B: 13.7 / 5.4 / 1.4,
 median 708 s), so neither dial trades against target 2.
+
+## Arm 18 — `broadside.reloadMs` 18 s at BASE turn rate (Eric) — **the cycle's best result**
+
+Eric scrapped the kinematics change and bought the same ground with the reload instead. It worked,
+and it beat the version it replaced.
+
+| cell | reload | turnRate | BS | TB | ML | **spread** |
+|---|---|---|---|---|---|---|
+| A | 22 s | 0.40 | 29.5 | 37.3 | 33.1 | 7.8 pp |
+| C | 20 s | 0.40 | 31.7 | 35.8 | 32.5 | 4.2 pp |
+| B | 20 s | **0.48** | 34.2 | 34.7 | 31.1 | 3.6 pp |
+| **D (this arm)** | **18 s** | **0.40** | **34.7** | **33.3** | **31.9** | **2.8 pp** |
+
+**All three point estimates inside 31–35 %, at the tightest spread of the cycle — and with
+`shipClasses.*.kinematics` byte-identical.** n = 360, same lattice, 360/360 resolved.
+
+### The reload's returns did not flatten
+
+| step | Battleship |
+|---|---|
+| 30 s → 22 s (arm 13) | ~+5.0 pp |
+| 22 s → 20 s (arm 17) | +2.2 pp |
+| **20 s → 18 s (this arm)** | **+3.0 pp** |
+
+The prediction going in was that returns would flatten as extra barrages started landing on
+engagements the reload was never the constraint on. **They did not** — the last 2-second step bought
+slightly more than the one before it. Whether that continues below 18 s is untested, and the pattern
+is inside noise either way (each cell carries ±4.9 pp), so it should not be extrapolated further
+without measuring.
+
+### D beats B on every axis that matters
+
+- **Tighter spread** (2.8 pp vs 3.6 pp) — though a 0.8 pp difference is well inside this instrument's
+  resolution, so the honest claim is *at least as good*, not *better*.
+- **No kinematics change.** The Battleship handles exactly as it always has.
+- **One fewer dial in the final config**, which is worth something on its own: fewer values to
+  re-derive, and `shipClasses` is left carrying only the HP change.
+
+**Attrition is unchanged** (13.4 / 5.5 / 1.6, median 732 s), consistent with every other Battleship
+dial — this trade does not touch target 2.
+
+### The final configuration
+
+```
+shipClasses.torpedoBoat.hp   125 → 250      broadside.turrets      3 → 4   (max 6 via the ×2 card)
+shipClasses.battleship.hp    175 → 350      broadside.damage      20 → 15
+shipClasses.mineLayer.hp     150 → 300      broadside.reloadMs 30000 → 18000
+damageControl.instantHp       25 → 50       torpedo.damage        70 → 50
+damageControl.regenHp         25 → 50
+```
+
+Nine values. `shipClasses.*.kinematics` untouched; no mine dial, no gun dial, no map or zone change.
+
+| | TB | BS | ML | spread | 4:00 | 8:00 | 12:00 | median |
+|---|---|---|---|---|---|---|---|---|
+| target | 31–35 | 31–35 | 31–35 | ~4 | 10 | 5 | 2.5 | — |
+| baseline | 51.9 | 31.7 | 16.4 | **35.6** | 7.8 | 1.8 | 0.2 | 506 s |
+| **final** | **33.3** | **34.7** | **31.9** | **2.8** | 13.4 | **5.5** | 1.6 | 732 s |
+
+**A caution that belongs beside the result:** the broadside has now moved 30 s → 18 s, a **40 % cut**,
+and it is the largest proportional change to any weapon in the config — bigger than the torpedo's
+−29 %. Together with 4 turrets at 15 damage, the weapon went from *a 30-second window delivering
+3 × 20* to *an 18-second window delivering 4 × 15*: identical alpha, fired **1.67× as often**. The
+Battleship is a materially different ship to play. The win-share numbers say that is balanced; they
+say nothing about whether it is the ship Eric wants, and no bot campaign can.
