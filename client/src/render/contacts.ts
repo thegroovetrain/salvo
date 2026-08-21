@@ -51,6 +51,12 @@ export type RosterIndex = (id: string) => number | null;
  * spectator has no bubble at all). main.ts owns it because only main.ts knows the
  * own pose, the effective sight radius and the active zones; this module only
  * multiplies it in.
+ *
+ * THREE CONSUMERS, ONE VALUE PER HULL PER FRAME: the silhouette, the aggro
+ * bracket, and — since the plate rose above the fog this cycle — the nameplate.
+ * All three read it at the SAME world point (the hull view's last-applied pose),
+ * so a hull and its label can never disagree about how far into the feather they
+ * are.
  */
 export type HullSoftness = (x: number, y: number) => number;
 
@@ -253,7 +259,7 @@ export class ContactViews {
     // rather than snapping to full strength for its last 150ms.
     const p = fv.view.gfx.position;
     fv.view.setFade(fv.fader.update(dtMs) * softness(p.x, p.y));
-    this.drivePlate(id, fv, rosterIndex, plates);
+    this.drivePlate(id, fv, rosterIndex, plates, softness);
     this.driveAggro(id, fv, store, softness);
     return fv.fader.hidden;
   }
@@ -280,11 +286,43 @@ export class ContactViews {
     fv.aggro.render(this.frameNowMs, fv.fader.alpha * softness(p.x, p.y));
   }
 
-  /** Latch (once) the plate's text/color, then position + fade it every frame.
-   *  Placement rides the hull view's last-applied WORLD pose (gfx.position) — the
-   *  SAME snapshot sample the hull drew — projected to screen; alpha = the fader
-   *  value (holds through the fade-out on prune). */
-  private drivePlate(id: string, fv: FadingView, rosterIndex: RosterIndex, plates: PlateFrame): void {
+  /**
+   * Latch (once) the plate's text/color, then position + fade it every frame.
+   * Placement rides the hull view's last-applied WORLD pose (gfx.position) — the
+   * SAME snapshot sample the hull drew — projected to screen.
+   *
+   * ALPHA IS `fader × softness`, THE SAME PRODUCT THE HULL AND THE AGGRO MARK
+   * WEAR, and the feather half of it arrived this cycle because the plate moved
+   * ABOVE the fog (render/stage.ts — Eric: a name is *"never obscured by
+   * terrain"*). Under the shipped root order the fog composite physically painted
+   * over `plateRoot`, so a plate near the rim of the sight bubble dimmed for
+   * free; lifting it into `chartRoot` lifts it over `fogSprite` too, and
+   * DESIGN.md's Nameplate row still promises plates fade with truesight
+   * resolution. This is the identical bill epic-5 amendment 22 paid when the
+   * hulls moved. The `softness` value is the frame's, computed ONCE per hull by
+   * `updateView` — never a second evaluation here — and the fader half still
+   * holds through the 150ms fade-out on prune, which the product can never
+   * invert (softness ∈ (0, 1]).
+   *
+   * SAMPLED AT `gp` — THE HULL'S WORLD POSE — RATHER THAN AT THE PLATE'S OWN
+   * POSITION, deliberately. The plate is drawn above the hull's bounding circle
+   * (up to ~73u in world terms for a battleship at typical zoom, against an
+   * 82.5u feather band), so a screen-space fog texture used to fade it by its
+   * own position and this does not reproduce that. It reproduces something
+   * better: the label fades WITH the hull it labels, which is the whole point
+   * of the one-softness-per-hull contract above — a hull and its own callsign
+   * can never disagree about how far into the feather they are. Feeding it the
+   * projected `sc` here would be the classic wrong-coordinate bug and every
+   * feather assertion would still pass, so `nameplatesAboveTerrain.test.ts`
+   * pins the sample point directly against a camera where screen != world.
+   */
+  private drivePlate(
+    id: string,
+    fv: FadingView,
+    rosterIndex: RosterIndex,
+    plates: PlateFrame,
+    softness: HullSoftness,
+  ): void {
     if (!fv.plated) {
       const r = latchPlate(false, plates.nameOf(id), rosterIndex(id), isDroneHull(fv.hull));
       if (r.plate) this.nameplates.set(id, r.plate.text, r.plate.color);
@@ -292,7 +330,8 @@ export class ContactViews {
     }
     const gp = fv.view.gfx.position;
     const sc = plates.camera.worldToScreen({ x: gp.x, y: gp.y });
-    this.nameplates.place(id, sc.x, plateScreenY(sc.y, fv.hull, plates.camera.zoom, plates.pad), fv.fader.alpha);
+    const y = plateScreenY(sc.y, fv.hull, plates.camera.zoom, plates.pad);
+    this.nameplates.place(id, sc.x, y, fv.fader.alpha * softness(gp.x, gp.y));
   }
 
   /** A contact booted on the amber fallback because its roster hue had not synced

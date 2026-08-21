@@ -1,14 +1,74 @@
 // Pixi 8 application + scene-graph construction. Thin Pixi adapter (not unit
 // tested). Builds the layer tree in the exact z-order the plan specifies, and
-// the order is DECLARED (the three `*_LAYER_ORDER` arrays below) rather than
-// implied by the order of an object literal, so a test can assert it without a
-// GPU and a future refactor cannot quietly re-stack the scene:
+// the order is DECLARED — `STAGE_ROOT_ORDER` for the four stage roots, the three
+// `*_LAYER_ORDER` arrays for their children — rather than implied by the order of
+// an `addChild` argument list or an object literal, so a test can assert it
+// without a GPU and a future refactor cannot quietly re-stack the scene:
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, mines, buoys
-//   plateRoot   (screen space)        — truesight nameplates (render/nameplates.ts)
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, smoke, blip, SHIP, aim, burstFx, sweep  (fog-immune: above fog)
+//   chartRoot   (camera-transformed): map, smoke, blip, SHIP, PLATE, aim, burstFx,
+//                                     sweep  (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD, then foghorn chevrons
+//
+// A NAME IS NEVER OBSCURED BY TERRAIN (this cycle, Eric: *"in game, names need to
+// appear above all players and in front of islands, not behind. they should never
+// be obscured by terrain."* — and, on seeing the first draft of the stack,
+// *"i think i should be able to see aiming reticles over it. Just not terrain."*).
+// The nameplate container used to be `plateRoot`, the SECOND root mounted, so it
+// sat under every single chart layer — including `map`, whose island bodies and
+// contour bands are filled at `alpha: 1` (render/map.ts), and `ship`. A callsign
+// was therefore painted over by any island it crossed and by every hull
+// silhouette on the water, which is the exact opposite of what a label is for.
+//
+// SO THE PLATE IS NOW A CHART LAYER, `plate`, SEATED DIRECTLY BETWEEN `ship` AND
+// `aim` — the same seat `ship` itself won last cycle, one rung up. That single
+// position expresses BOTH halves of Eric's ruling in the one declared array:
+// above `map` and above `ship` (never obscured by terrain, above all players),
+// and below `aim`, `burstFx` and `sweep` (the reticle, the aim preview, the burst
+// rings and the sweep read OVER a name). The hull lift's own rule — *"the marks
+// you aim and read damage with must never be occluded"* — is therefore extended
+// to labels rather than broken by them, and `CHART_LAYER_ORDER` now reads as the
+// whole stacking contract top to bottom.
+//
+// IT IS A SCREEN-SPACE LAYER INSIDE A CAMERA-TRANSFORMED ROOT, WHICH IS THE ONE
+// UNUSUAL THING IN THIS FILE. Plates are positioned by `camera.worldToScreen` and
+// hold a constant 14px at any zoom precisely so the text never scales or tilts
+// (render/nameplates.ts), so they cannot simply inherit `chartRoot`'s transform.
+// `applyCamera` therefore writes the EXACT INVERSE of that transform onto this
+// one layer, so its children land in raw screen pixels while its z-position stays
+// in the chart stack. The alternative was splitting `chartRoot` into two
+// camera-transformed roots to thread a screen-space root between them — a fourth
+// root, a fourth declared array, a wider `applyCamera` and a split of a ratified
+// order array, all to express a stacking one array index already says. The
+// inverse is written in `applyCamera` and nowhere else, for the same reason the
+// forward transform is: one site, impossible to forget.
+//
+// THE COST OF THE LIFT IS THE SAME BILL THE HULLS PAID, AND IT IS PAID THE SAME
+// WAY. Being under the fog gave a plate the composite's feathered sight hole for
+// free — a callsign dimmed as its hull neared the edge of the bubble, which is
+// what DESIGN.md's Nameplate row means by *"they fade in/out with truesight
+// resolution"*. `chartRoot` is above `fogSprite`, so that dimming is gone and the
+// plate's alpha now carries the feather itself: `fader × hullSightSoftness(...)`,
+// the SAME per-frame `HullSoftness` value the hull and the aggro mark already
+// multiply in (one softness per hull per frame — render/contacts.ts). The
+// own-ship plate stays at alpha 1: the observer is at distance 0, so its softness
+// is 1 by construction.
+//
+// THE FEATHER IS SAMPLED AT THE HULL, NOT AT THE PLATE, AND THAT IS A CHOICE
+// RATHER THAN A REPRODUCTION. A plate is drawn above its hull's bounding circle
+// — up to ~73u in world terms for a battleship at typical zoom, against a
+// feather band only 82.5u wide — so the fog composite, being a screen-space
+// texture, used to fade a plate by the plate's OWN position. Matching that
+// exactly would mean a callsign north of you reading at full strength over a
+// hull the fog is already eating, and the same pair south of you reading the
+// other way round: a 4x brightness split between two contacts at equal range,
+// with no in-fiction cause. Sampling at the hull instead makes the label fade
+// WITH the thing it labels, which is what `render/contacts.ts`'s HullSoftness
+// contract says and what the eye expects of a label. So this is NOT a
+// byte-identical restoration of the old composite, and nothing here should
+// claim it is — the curve, the radii and the endpoint are the fog's own; the
+// sample POINT is deliberately the hull's.
 //
 // HULLS SIT ABOVE THE RADAR PAINT (this cycle, Eric: *"Lets make hulls in general
 // more visible over radar blips when they are visible."*). `ship` used to be the
@@ -30,14 +90,12 @@
 // signals.ts `contactSignal`), so every hull the client holds is one it has
 // legitimately seen — the fog was selling the reveal, never enforcing it.
 //
-// worldRoot and chartRoot share the same camera transform; plateRoot, fogSprite,
-// and hudRoot stay in screen space. plateRoot sits BELOW the fog composite so the
-// plates dim/occlude with the fog (DESIGN: nameplates fade with truesight
-// resolution) — deliberately NOT lifted with the hulls, since a plate is a label
-// and the fog is the only thing that resolves it away. `aim` (crosshair + bearing
-// line) lives in chartRoot because gun range exceeds sight range: aiming at a
-// radar blip would otherwise place the reticle under the fog. Fonts are preloaded
-// before any Text is created.
+// worldRoot and chartRoot share the same camera transform; fogSprite and hudRoot
+// stay in screen space, and the `plate` layer is put BACK into screen space by an
+// inverse transform (above). `aim` (crosshair + bearing line) lives in chartRoot
+// because gun range exceeds sight range: aiming at a radar blip would otherwise
+// place the reticle under the fog. Fonts are preloaded before any Text is
+// created.
 
 import { Application, Container } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -53,17 +111,54 @@ import type { Camera } from './camera.js';
  * which is exactly the two-derivations desync class this project refuses
  * everywhere else (`effectiveStats`, the shared sim). It belongs here anyway:
  * `worldRoot`/`chartRoot` are this module's containers, and the rule that they
- * SHARE one transform (while plateRoot/fogSprite/hudRoot stay in screen space)
- * is this module's contract.
+ * SHARE one transform (while fogSprite/hudRoot stay in screen space) is this
+ * module's contract.
+ *
+ * ...AND THE `plate` LAYER IS PUT BACK INTO SCREEN SPACE HERE. It is a CHILD of
+ * `chart` — seated between `ship` and `aim` so a callsign reads over terrain and
+ * hulls but under the reticle (see this file's header) — while its contents are
+ * positioned in raw screen pixels by `camera.worldToScreen`. Writing the exact
+ * inverse of the transform just applied to its parent cancels the parent out:
+ * Pixi composes `parent ∘ child`, so a child point `p` lands at
+ * `(px + zoom·(−px/zoom + p/zoom)) = p`. The inverse belongs in THIS function
+ * rather than at the call sites for exactly the reason the forward transform
+ * does — one site, written once per frame, impossible for a future caller to
+ * forget and leave the plates drifting against the camera.
  */
-export function applyCamera(camera: Camera, world: Container, chart: Container): void {
+export function applyCamera(camera: Camera, world: Container, chart: Container, plate: Container): void {
+  // ONE READ OF THE ZOOM, AND THE WHOLE FRAME IS REJECTED OR NONE OF IT IS.
+  //
+  // `Camera.zoom` is a RECOMPUTING GETTER (`baseZoom × zoomFactor × userZoom`),
+  // so reading it five times invites a guard that tests a different number from
+  // the one it divides. Hoisted to a const, then checked BEFORE anything is
+  // written.
+  //
+  // The check has to be first, and that is a correction of this cycle's own
+  // first attempt (found at the review gate): it originally wrote the forward
+  // transform, THEN reset the plate to identity on a bad zoom. That bought
+  // nothing at all — `plate` is a CHILD of `chart`, so a NaN already committed
+  // to `chart.scale` composes straight through an identity child and the plates
+  // land at NaN anyway (at `zoom = 0` they collapse onto a single point). The
+  // only reset that means anything is to write NOTHING and leave the entire
+  // camera at its last good state, which is also strictly less code.
+  //
+  // Both ends of the range are rejected, and both are load-bearing: a subnormal
+  // like 5e-324 is finite and positive while `1/it` overflows to Infinity, and
+  // `zoom = Infinity` has a perfectly finite reciprocal of 0 — testing either
+  // one alone lets the other through. The camera's own clamp keeps zoom well
+  // above 0, so this is belt-and-braces rather than a live branch.
+  const z = camera.zoom;
+  const inv = 1 / z;
+  if (!(z > 0) || !Number.isFinite(z) || !Number.isFinite(inv)) return;
   const c = camera.screenCenter;
-  const px = c.x - camera.center.x * camera.zoom + camera.shake.x;
-  const py = c.y - camera.center.y * camera.zoom + camera.shake.y;
-  world.scale.set(camera.zoom);
+  const px = c.x - camera.center.x * z + camera.shake.x;
+  const py = c.y - camera.center.y * z + camera.shake.y;
+  world.scale.set(z);
   world.position.set(px, py);
-  chart.scale.set(camera.zoom);
+  chart.scale.set(z);
   chart.position.set(px, py);
+  plate.scale.set(inv);
+  plate.position.set(-px * inv, -py * inv);
 }
 
 export interface StageLayers {
@@ -107,7 +202,25 @@ export interface StageLayers {
    * is applied per hull instead — see this file's header.
    */
   ship: Container;
-  /** Crosshair + bearing line (render/firing.ts) — fog-immune, above hulls. */
+  /**
+   * TRUESIGHT NAMEPLATES (render/nameplates.ts) — the callsign floated above
+   * every truesight combatant hull.
+   *
+   * A CHART LAYER SINCE THIS CYCLE, and seated here on purpose: directly above
+   * `ship` so a name reads over terrain and over every hull (Eric: names *"should
+   * never be obscured by terrain"*), and directly below `aim` so the reticle, the
+   * aim preview, the burst rings and the sweep all read over a name (Eric: *"i
+   * think i should be able to see aiming reticles over it"*). It was the
+   * `plateRoot` stage root — mounted second, under the whole chart — until then.
+   *
+   * ITS CONTENTS ARE SCREEN-SPACE despite the camera-transformed parent:
+   * `applyCamera` writes the inverse of the chart transform onto this container
+   * every frame, so a plate holds a constant 14px and never tilts with the hull.
+   * See this file's header for why that beat splitting `chartRoot` in two.
+   */
+  plate: Container;
+  /** Crosshair + bearing line (render/firing.ts) — fog-immune, above hulls and
+   *  above nameplates. */
   aim: Container;
   /** Gun-shell burst rings (render/effects.ts) — fog-immune so a burst at radar
    *  range (the story's headline capability) is not ~85% eaten by the fog, the
@@ -140,14 +253,18 @@ export type LayerName = keyof StageLayers;
 // THE DECLARED Z-ORDER. Each array is added to its root IN THIS ORDER, and in
 // Pixi order added == z-order, so these three lists ARE the scene's stacking.
 // They exist as data rather than as the shape of a literal for one reason: the
-// stack is a contract (hulls over returns, reticle over hulls, chevrons over the
-// HUD) and a contract wants an assertion, but `createStage` needs a WebGL context
-// no unit test has. Reading the order off the declaration keeps the pin honest.
+// stack is a contract (hulls over returns, names over hulls, reticle over names,
+// chevrons over the HUD) and a contract wants an assertion, but `createStage`
+// needs a WebGL context no unit test has. Reading the order off the declaration
+// keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
 export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'buoyWorld'] as const;
-/** chartRoot, bottom → top: everything above the fog. `ship` sits between `blip`
- *  and `aim` — over the returns, under the reticle and the burst rings. */
+/** chartRoot, bottom → top: everything above the fog. The four rungs in the
+ *  middle are the whole legibility contract, read upward: `blip` (radar paint),
+ *  `ship` (the hull that outranks its own echo), `plate` (the name that outranks
+ *  terrain and hulls), then `aim`/`burstFx`/`sweep` (the marks you aim and read
+ *  damage with, which outrank everything below them). */
 export const CHART_LAYER_ORDER = [
   'map',
   'zone',
@@ -157,6 +274,7 @@ export const CHART_LAYER_ORDER = [
   'buoyChart',
   'blip',
   'ship',
+  'plate',
   'aim',
   'burstFx',
   'sweep',
@@ -184,15 +302,39 @@ export interface Stage {
   chartRoot: Container;
   /** Screen-space fog overlay (render/fog.ts adds its baked sprite here). */
   fogSprite: Container;
-  /** Screen-space truesight nameplate container (render/nameplates.ts) — above
-   *  the world, below fog, so a plate resolves away with the fog exactly as
-   *  DESIGN.md asks. It deliberately did NOT follow the hulls above the fog this
-   *  cycle: a label is not a mark, and the fog is the only thing that fades it. */
-  plateRoot: Container;
   /** Screen-space HUD. */
   hudRoot: Container;
   layers: StageLayers;
 }
+
+/** Every stage-root name — the keys of `Stage` that ARE roots. `app` is the Pixi
+ *  application and `layers` is the child record; the rest are the containers
+ *  mounted directly on `app.stage`. */
+export type StageRootName = Exclude<keyof Stage, 'app' | 'layers'>;
+
+/**
+ * THE DECLARED ROOT ORDER, bottom → top. Same law as the three `*_LAYER_ORDER`
+ * arrays above and for the same reason, one level up: `createStage` ITERATES
+ * this array to build and mount the roots, so the array IS the stacking rather
+ * than a comment about it.
+ *
+ * It was an inline `app.stage.addChild(...)` argument list until this cycle,
+ * which made it the one part of the scene's stacking no test could see — and
+ * `deferred-work.md` named that gap by name, noting it *"leaves the reveal's
+ * 'hide, never fade' rule unpinned"*. This cycle retires the `plateRoot` root
+ * (the nameplate container became the `plate` CHART LAYER), which is exactly the
+ * kind of root-order change that gap left unguarded, so the array is declared
+ * rather than the call merely edited.
+ */
+export const STAGE_ROOT_ORDER = ['worldRoot', 'fogSprite', 'chartRoot', 'hudRoot'] as const;
+
+/** BUILD-FAILING EXHAUSTIVENESS, the root-level sibling of `EVERY_LAYER_PLACED`:
+ *  a fifth root added to `Stage` but forgotten in `STAGE_ROOT_ORDER` would be
+ *  `undefined` in the returned stage and blow up at its first `addChild`. This
+ *  resolves to `false` the moment that happens, and stops compiling. */
+export const EVERY_ROOT_PLACED: Exclude<StageRootName, (typeof STAGE_ROOT_ORDER)[number]> extends never
+  ? true
+  : false = true;
 
 /**
  * Resolve after `ms`, and never reject. The losing half of the font race.
@@ -318,20 +460,23 @@ export async function createStage(): Promise<Stage> {
     powerPreference: 'high-performance',
   });
 
-  const worldRoot = new Container();
-  const plateRoot = new Container(); // screen-space nameplates (above world, below fog)
-  const fogSprite = new Container(); // fog overlay parent (above world + plates, below chart)
-  const chartRoot = new Container();
-  const hudRoot = new Container();
-  // Order added == z-order.
-  app.stage.addChild(worldRoot, plateRoot, fogSprite, chartRoot, hudRoot);
+  // Order added == z-order, and the order IS `STAGE_ROOT_ORDER` — mounted by
+  // iterating it rather than by an argument list, so the pin cannot drift from
+  // the scene. The cast is safe because EVERY_ROOT_PLACED makes "a root missing
+  // from the array" a compile error.
+  const roots = {} as Record<StageRootName, Container>;
+  for (const name of STAGE_ROOT_ORDER) {
+    const c = new Container();
+    app.stage.addChild(c);
+    roots[name] = c;
+  }
 
   // Built from the declared order arrays — the cast is safe because
   // EVERY_LAYER_PLACED makes "a key in no array" a compile error.
   const layers = {} as StageLayers;
-  addLayers(worldRoot, WORLD_LAYER_ORDER, layers);
-  addLayers(chartRoot, CHART_LAYER_ORDER, layers);
-  addLayers(hudRoot, HUD_LAYER_ORDER, layers);
+  addLayers(roots.worldRoot, WORLD_LAYER_ORDER, layers);
+  addLayers(roots.chartRoot, CHART_LAYER_ORDER, layers);
+  addLayers(roots.hudRoot, HUD_LAYER_ORDER, layers);
 
-  return { app, worldRoot, chartRoot, fogSprite, plateRoot, hudRoot, layers };
+  return { app, ...roots, layers };
 }

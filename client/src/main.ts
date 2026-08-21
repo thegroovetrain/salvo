@@ -2464,7 +2464,9 @@ function buildGame(
   // refit modal as ever, plus the settings overlay and the results modal.
   const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleHotbarPress(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
-  const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
+  // The `plate` CHART LAYER, not a root — over terrain and hulls, under the
+  // reticle; screen-space via applyCamera's inverse (render/stage.ts).
+  const nameplates = new NameplateLayer(stage.layers.plate);
 
   // THE ONE FLASH BUDGET (Story 4.8, amendment 240) — hoisted out of the literal
   // because surfaces built IN it take the budget as a constructor dependency.
@@ -3762,10 +3764,11 @@ function renderAlive(
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
   g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
-  // ...and the hulls, which now render ABOVE that fog, carry its feather
-  // themselves. Built from the SAME pose, the same effective sight radius and the
-  // same owned zones the two lines above use, so the two surfaces cannot disagree
-  // about where the bubble ends.
+  // ...and everything that renders ABOVE that fog carries its feather itself:
+  // the hull, its aggro bracket, and — since this cycle's lift — its NAMEPLATE.
+  // Built from the SAME pose, the same effective sight radius and the same owned
+  // zones the two lines above use, so the surfaces cannot disagree about where
+  // the bubble ends.
   g.hullSoftness = hullSoftnessFor(g, pose, ownZones, now);
 }
 
@@ -3776,10 +3779,18 @@ function renderAlive(
  * REVEAL ITSELF. The fog comes off, the sweep and blips go, the combat surfaces
  * die with the hull, and the camera pulls back to frame the whole ocean.
  *
- * THE FOG IS HIDDEN, NEVER FADED (amendment 24's `Never` clause): `plateRoot`
- * sits BELOW `fogSprite` while hulls sit above it in `chartRoot` (epic-5
- * amendment 22 — "a label is not a mark"), so a fade would dim every nameplate
- * on the water while leaving the hulls they label at full brightness.
+ * THE FOG IS HIDDEN, NEVER FADED (amendment 24's `Never` clause) — and the
+ * CONCLUSION outlived its original premise, so the premise is restated rather
+ * than left to rot. It used to be an asymmetry argument: `plateRoot` sat BELOW
+ * `fogSprite` while hulls sat above it in `chartRoot`, so a fade would have
+ * dimmed every nameplate on the water while leaving the hulls they label at full
+ * brightness. That asymmetry is GONE — the nameplate container is now the
+ * `plate` CHART layer, seated between `ship` and `aim` this cycle (Eric: a name
+ * is *"never obscured by terrain"*), so plates and hulls are both above
+ * `fogSprite`. A fade is still wrong, for the simpler reason: the reveal's
+ * whole job is to take the fog OFF, and a half-transparent composite would leave
+ * a uniform grey wash over the revealed ocean the modal is read against. Only a
+ * hide takes the composite off screen in one step.
  *
  * YOUR OWN WRECK STAYS ON SCREEN — BUT ONLY IF YOU ACTUALLY SANK. It used to be
  * hidden here unconditionally, which was defensible when the reveal was a
@@ -3954,8 +3965,9 @@ function driveOwnWreckSettle(g: Game, now: number): void {
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
   // A spectator has no hull and no bubble, and the fog overlay is off entirely
-  // here — so there is no feather to mirror and every hull draws at full
-  // strength, exactly as it did before hulls moved above the fog.
+  // here — so there is no feather to mirror and every hull (and every plate that
+  // now rides the same product) draws at full strength, exactly as it did before
+  // either moved above the fog.
   g.hullSoftness = NO_SOFTENING;
   // No hull, so no band edge exists to be crossed (Story 4.7): dropping the
   // remembered fraction to null keeps a death from reading as a crossing into
@@ -3969,8 +3981,9 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // duration, `off` arrives on this frame at the identical framing.
   g.camera.tickZoom(frameDt * 1000, motionIntensity(settings.current.motion));
   // THE WRECK'S PLATE MUST BE RE-PROJECTED EVERY FRAME (review finding).
-  // Nameplates are SCREEN-space (`plateRoot` is not camera-transformed), and the
-  // own plate is placed only by updateOwnPlate inside renderOwn — which does not
+  // Nameplates are SCREEN-space (the `plate` layer is seated in the chart stack
+  // but has the chart transform inverted off it by applyCamera), and the own
+  // plate is placed only by updateOwnPlate inside renderOwn — which does not
   // run here. The wreck's HULL is world-space and stays put on its own, but a
   // plate left unplaced would freeze at the pixels it occupied on the last alive
   // frame and then drift free of the wreck as the reveal zooms out and the
@@ -4160,7 +4173,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         // line so this callback stays inside its line budget.
         plateFrame, g.hullSoftness,
       );
-      applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
+      applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot, g.stage.layers.plate);
     },
   };
 }

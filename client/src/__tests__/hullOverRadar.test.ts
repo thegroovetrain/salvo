@@ -273,10 +273,22 @@ describe('the declared z-order: hulls over returns, reticle over hulls', () => {
     expect(at('ship')).toBeLessThan(at('sweep'));
   });
 
-  it('leaves it directly between the two, so nothing slipped in on either side', () => {
+  it('leaves it directly above `blip`, so nothing slipped in underneath', () => {
     expect(at('ship')).toBe(at('blip') + 1);
-    expect(at('aim')).toBe(at('ship') + 1);
   });
+
+  // `aim` was `ship + 1` when this file was written, asserted as "nothing
+  // slipped in on either side". Something deliberately did: the nameplate layer
+  // took that seat when it stopped being a stage root (Eric: names are *"never
+  // obscured by terrain"*, but *"i should be able to see aiming reticles over
+  // it"*), which is the ONE stacking that satisfies both clauses.
+  //
+  // THIS FILE DELIBERATELY DOES NOT RE-ASSERT THE PLATE'S SEAT.
+  // `nameplatesAboveTerrain.test.ts` owns it, and two files asserting one fact
+  // is how a pin ends up half-updated. What survives here is only what this file
+  // is about — `ship` directly above `blip`, and `ship` below the aim marks —
+  // both of which are stated in the cases around this comment and neither of
+  // which the plate move touched.
 
   it('names every layer exactly once across the three roots', () => {
     const all = [...WORLD_LAYER_ORDER, ...CHART_LAYER_ORDER, ...HUD_LAYER_ORDER];
