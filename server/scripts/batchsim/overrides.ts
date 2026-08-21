@@ -53,6 +53,14 @@ const TUNE_FAMILIES = [
   'speedBoost.',
   'radarBuoy.',
   'shipClasses.',
+  // DAMAGE CONTROL is a COMBAT dial, not an economy one, so it belongs on this
+  // surface rather than the --set whitelist: `damageControl` amounts are FLAT
+  // on every hull by ruling ("no maxHp scaling, no upgrade scaling"), which
+  // means any change to hull HP silently reprices every heal. A +100 HP arm
+  // measured here dropped a heal from ~33% of an average hull to ~20% of one,
+  // and the highest-HP hull paid most — so the heal has to be reachable to
+  // tell a real class problem apart from that repricing.
+  'damageControl.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */

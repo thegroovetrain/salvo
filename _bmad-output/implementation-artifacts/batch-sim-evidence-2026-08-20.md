@@ -670,3 +670,189 @@ before any of it is believed.
 3. **Should the Battleship be protected?** Every configuration that fixes TB and ML pushes BS down.
    It may need a compensating buff in the same pass rather than being left to absorb the change.
 4. **Do the bots' mine tactics use a wider arc or longer range at all?** Two null results depend on it.
+
+---
+
+# Cycle 1, part 2 — Eric-directed arms (2026-08-20 → 21)
+
+Eric took over dial selection at this point. The arms below are his specs, plus the single-dial
+follow-ups he authorised in passing (*"If battleship needs a buff after that, we can look into it"*).
+
+## The captive-mine interaction — why `mine.blastRadius` was REFUSED
+
+The best balance dial of part 1 (`mine.blastRadius` 48 → 64) was **rejected by Eric on an interaction
+the sim cannot see**:
+
+> *"when you get the captive mine upgrade it swaps trigger and blast and then triples the new trigger
+> radius, and i worry that it might push the mines out of anyone's visual detection range (3/8 i think,
+> right?), and now suddenly you're getting torpedoed out of nowhere with no radar or visual indicator
+> of a source."*
+
+He is right, and the shipped game is already closer to that line than the concern implies.
+`mineTriggerRadius` (stats.ts) is `foldedBlast × captiveTriggerFactor (3)`, and BLAST CASING is a
+common ×4 at ×1.1, so the stack compounds against the **frozen** 3/8 detect rung of 247.5 u:
+
+| BLAST CASING cards | trip ring @ base 48 | vs 247.5 u detect | warning at TB top speed |
+|---|---|---|---|
+| 0 | 144.0 | +103.5 | 2.30 s |
+| 2 | 174.2 | +73.3 | 1.63 s |
+| **4 (shipped max)** | **210.8** | **+36.7** | **0.81 s** |
+
+| BLAST CASING cards | trip ring @ base 64 | vs detect |
+|---|---|---|
+| 2 | 232.3 | +15.2 |
+| **3** | **255.6** | **−8.1 — trips before it can be seen** |
+| **4** | **281.1** | **−33.6** |
+
+**At the proposed 64, a captive build with 3+ blast cards trips outside detection entirely.** The dial
+is withdrawn.
+
+**Two findings that outlive the withdrawal, both about SHIPPED values:**
+
+1. **A maxed BLAST CASING + CAPTIVE build already leaves 0.81 s of warning** at torpedo-boat speed —
+   36.7 u of margin. That is today's game, with no change at all.
+2. **Under a star-shell DAZZLE the base captive mine is already undetectable.** `pointDetected` is
+   `sightOf(me, now) × detectFactor`, and `sightOf` is the one dazzle entry point, so dazzle halves
+   detect to **123.75 u** — below even the un-upgraded 144 u captive trip ring. No upgrades required.
+
+Neither is a balance question, so neither is proposed on. If the interaction is to be bounded, the
+lever is `captiveTriggerFactor` (3) rather than the blast radius — it is the multiplier doing the work.
+
+## Arm 10 — Eric's three-step: +100 HP flat, broadside 4→6 @ 15, torpedo 70 → 60
+
+| class | baseline | arm | effect | significant? |
+|---|---|---|---|---|
+| torpedoBoat | 51.9 % | 47.8 % | −4.2 pp | no |
+| **mineLayer** | 16.4 % | **31.1 %** | **+14.7 pp** | **YES** |
+| **battleship** | 31.7 % | **21.1 %** | **−10.6 pp** | **YES** |
+
+Attrition: 12.1 / **4.5** / 1.2 (targets 10 / 5 / 2.5), median 701 s. Best pacing to that point.
+
+**Flat HP relatively favours the thinnest hull** — +100 is +80 % on a 125 hp Torpedo Boat and +57 % on
+a 175 hp Battleship — and the measured life gains matched (TB +55 %, ML +53 %, BS +33 %). That ate most
+of the torpedo cut, which is why TB barely moved.
+
+### The heal repricing — a mechanism found here, and later shown NOT to be the cause
+
+Boons fitted *fell* while levels earned *rose* (BS 2.27 → 1.95 boons on 5.00 → 6.15 levels). The
+reason is in `CONFIG.damageControl`, whose own comment is explicit: *"Amounts are FLAT on every hull —
+no maxHp scaling, no upgrade scaling, no class variation."* A heal is 25 instant + 25 regen = 50 hp,
+so raising HP silently reprices it:
+
+| hull | heal as % of max HP, shipped | at +100 |
+|---|---|---|
+| torpedoBoat | 40 % | 22 % |
+| mineLayer | 33 % | 20 % |
+| battleship | 28.6 % | 18 % |
+
+`damageControl` was not on the harness tune surface; it was added (this branch) precisely so a real
+class problem could be told apart from this repricing.
+
+## Arm 11 — Eric's revision: HP ×2 with damage control ×2, same broadside and torpedo
+
+Eric replaced the flat add with a **doubling**, and doubled the heal alongside it — which fixes both
+objections at once: ×2 is proportional (hull ratios preserved) and a doubled heal holds its relative
+value exactly.
+
+| class | baseline | arm | effect | significant? |
+|---|---|---|---|---|
+| torpedoBoat | 51.9 % | 46.1 % | −5.8 pp | no |
+| **mineLayer** | 16.4 % | **31.7 %** | **+15.3 pp** | **YES** |
+| **battleship** | 31.7 % | **22.2 %** | **−9.4 pp** | **YES** |
+
+Attrition: 13.7 / **5.2** / 1.3 — **the 8:00 target is met**; 99 % of matches reach 8:00, median 715 s.
+
+**The heal fix worked mechanically and did NOT rescue the Battleship.** Boons fitted recovered past
+baseline everywhere (BS 1.95 → 2.85, TB 2.49 → 3.61, ML 2.70 → 3.75) — so the repricing was real and
+doubling the heal undid it — while BS's win share moved 21.1 → 22.2 %, inside noise. **The heal economy
+was a genuine mechanism and not the explanation for the Battleship.** Recorded as such rather than
+quietly folded away, because the hypothesis was stated confidently one arm earlier.
+
+The Battleship's actual signature: **the lowest kills in the game (0.78) and below its own baseline
+(0.89)** despite living 58 % longer. It is the slowest hull (35 speed, 0.4 turn) firing a 30 s-reload
+burst into fixed beam sectors, in matches that got long — long matches reward mobility, and it has
+least.
+
+## Arm 12 — deeper torpedo cut (60 → 45) — and a prediction of mine that failed
+
+| class | arm 11 | arm 12 | vs baseline | significant? |
+|---|---|---|---|---|
+| **torpedoBoat** | 46.1 % | **36.1 %** | −15.8 pp | **YES** |
+| **mineLayer** | 31.7 % | **39.4 %** | +23.1 pp | **YES** |
+| battleship | 22.2 % | 24.4 % | −7.2 pp | no |
+
+**The prediction was that this would transfer share to the Battleship, and it did not.** Arm 2 measured
+`torpedo.damage` handing BS +12.8 pp as TB fell 11.4 pp, and that was generalised into a rule. Here the
+**Mine Layer** absorbed it (+7.7 pp) while BS took +2.2 pp. The transfer is **context-dependent**: at
+baseline HP with 506 s matches the Battleship collected the slack; in 740 s matches with doubled HP the
+Mine Layer is better placed to collect anything the Torpedo Boat drops. One arm was not enough to
+support the rule.
+
+## Arm 13 — Battleship buff: `broadside.reloadMs` 30 s → 22 s
+
+| class | arm 12 | arm 13 |
+|---|---|---|
+| torpedoBoat | 36.1 % | **35.6 %** |
+| mineLayer | 39.4 % | **35.0 %** |
+| battleship | 24.4 % | **29.4 %** |
+
+**Spread 15.0 pp → 6.1 pp**, all three consistent with the band, attrition 13.7 / 5.7 / 1.4. On its
+face, the target configuration.
+
+## Arm 14 — CONFIRMATION at 360 matches on INDEPENDENT seeds — and it does not hold
+
+Arm 13 ran at n = 180 (±6.9 pp). At that width the *previous* arm also scored "all consistent with
+band" despite a 15 pp spread, so the flag cannot discriminate and only the point estimates separate
+them. The candidate was therefore re-run at **n = 360 on a fresh seed base (7000019)** — an independent
+sample, not a superset of the lattice every other arm used.
+
+| class | arm 13 (n=180) | **confirmation (n=360)** | 95 % CI | in band? |
+|---|---|---|---|---|
+| **mineLayer** | 35.0 % | **40.0 %** | 35.1 – 45.1 | **NO — CI excludes the band** |
+| torpedoBoat | 35.6 % | **30.3 %** | 25.8 – 35.2 | consistent (slightly under) |
+| battleship | 29.4 % | **29.7 %** | 25.2 – 34.6 | consistent (slightly under) |
+
+**Spread 6.1 pp → 10.3 pp.** Attrition held: 13.7 / **5.7** / 1.8, median 758 s, 58 % of matches reach
+12:00. Resolution 100 %.
+
+**The 6.1 pp reading was a favourable draw.** The Mine Layer moved 35.0 → 40.0 % between samples, a
+5 pp swing entirely consistent with ±6.9 pp noise. **This is why the confirmation was run, and it is
+the single most important methodological point in this ledger: a promising result at the iterate tier
+is a hypothesis, not a landing.**
+
+## Where cycle 1 actually ends
+
+**The candidate configuration** (all values awaiting an Eric ruling; `constants.ts` untouched):
+
+```
+shipClasses.torpedoBoat.hp   125 → 250     damageControl.instantHp   25 → 50
+shipClasses.battleship.hp    175 → 350     damageControl.regenHp     25 → 50
+shipClasses.mineLayer.hp     150 → 300     broadside.turrets          3 → 4   (max 6 via cards)
+torpedo.damage                70 → 45      broadside.damage          20 → 15
+broadside.reloadMs         30000 → 22000
+```
+
+| | TB | BS | ML | spread | alive 4:00 | alive 8:00 | alive 12:00 | median |
+|---|---|---|---|---|---|---|---|---|
+| target | 31–35 | 31–35 | 31–35 | ~4 | 10 | 5 | 2.5 | — |
+| baseline | 51.9 | 31.7 | 16.4 | 35.6 | 7.8 | 1.8 | 0.2 | 506 s |
+| **candidate (n=360)** | **30.3** | **29.7** | **40.0** | **10.3** | 13.7 | **5.7** | 1.8 | 758 s |
+
+**Target 1 — NOT met.** Two of three classes are consistent with the band; the Mine Layer is over at
+40.0 % with a CI that excludes it. Spread improved 35.6 → 10.3 pp.
+
+**Target 2 — the middle checkpoint is met and the shape is wrong.** 8:00 lands at 5.7 against 5, and
+matches reaching 12:00 went from 11 % to 58 % — the third ring cycle is now genuinely measurable for
+the first time. But the curve is **20 → 13.7 → 5.7 → 1.8** against 20 → 10 → 5 → 2.5: **too flat early,
+too steep late.** The first ring cycle kills 6 where it should kill 10, and the endgame over-corrects.
+No dial tried this cycle addresses curve SHAPE, and that is the honest next problem.
+
+### The obvious next step
+
+**Bring the Mine Layer down ~6 pp without disturbing the other two.** It is the only class outside the
+band, and the two dials measured to move it (`mine.blastRadius`, match length) are respectively
+withdrawn on the captive interaction and load-bearing for target 2 — so the next arm needs a mine dial
+that is *not* the blast radius: `mine.damage` (55), `mine.maxLive` (5) and `mine.reloadMs` (15000) are
+all untested, all ML-only, and none touch the captive trip-ring geometry.
+
+**Then re-confirm at 360 on fresh seeds before believing it.** That is the lesson arm 14 paid for.
