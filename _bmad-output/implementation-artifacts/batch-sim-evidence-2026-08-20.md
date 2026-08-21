@@ -187,7 +187,7 @@ two plus mobility.
 
 Two compounding effects make it worse in this campaign specifically:
 
-- **Its third slot — status CORRECTED, see below.** An earlier draft of this entry repeated the 7-5
+- **Its third slot — MEASURED, see the buoy section below. Bots deploy 4.46 buoys per bot-match.** An earlier draft of this entry repeated the 7-5
   ledger's "0 buoy deployments" figure. **That is stale and was withdrawn** (Eric, same day: *"I
   specifically ran a go on the AI tactics and made sure there was buoy play… bots should have buoy
   tactics now"*). `server/src/game/ai/equipment.ts` now carries a full `radarBuoyTactic` — recon
@@ -233,3 +233,180 @@ of the band, and −29 % torpedo damage bought −11.4 pp. Linear extrapolation 
 (one arm, one dial, wide CI), but it does say a torpedo-only correction would have to be severe, and
 severe enough to reshape the weapon's identity. A smaller torpedo cut combined with a second TB dial
 is the more likely shape — **untested, and named as untested**.
+
+## The buoy question — MEASURED, after building the counter that was missing
+
+**Eric, on reading the draft:** *"I specifically ran a go on the AI tactics and made sure there was
+buoy play… bots should have buoy tactics now. and if they don't i will need to revisit that."*
+
+He was right, and the draft was wrong to repeat the 7-5 ledger's "0 deployments in 2,600 bot-matches"
+figure — that pass predates his AI-tactics work.
+
+**Why it could not simply be looked up.** `botMetrics.ts` had no buoy instrumentation of any kind, and
+`aggregate.picks` is a Summary rather than a per-line breakdown. Worse, the obvious workaround was
+unsound: a probe raising `radarBuoy.reloadMs` to detect a drop in `shots` cannot work, because `shots`
+is `ship.lastFireSeq` and `world.ts` is explicit that *"consumption is unconditional — lastFireSeq
+advances even dead or denied."* **A bot refused a buoy every tick reads identically to one deploying
+on cooldown.** The probe was cancelled unrun rather than produce a meaningless number.
+
+**So the counter was built** (this branch): `BotCollector` diffs the World's own `buoys` / `mines`
+maps by id each tick and credits the owner, surfacing `buoysDeployed` / `minesLaid` per bot-match plus
+`buoys` / `mines` table columns. Read-only over World state; 1593 server tests green; the tests are
+fail-proven and pin the discrimination in BOTH directions.
+
+### Result — 24 matches, even roster, per bot-match
+
+| class | n | **buoys** | **mines** | shots | kills | life (s) |
+|---|---|---|---|---|---|---|
+| battleship | 162 | 0.00 | 0.09 | 44.8 | 0.91 | 186.9 |
+| **mineLayer** | 156 | **4.46** | **6.14** | 57.6 | **0.38** | 231.0 |
+| torpedoBoat | 162 | 0.00 | 0.00 | 42.3 | 1.45 | 215.7 |
+
+| profile | buoys | mines | kills |
+|---|---|---|---|
+| forager (ML) | **4.87** | 6.19 | 0.41 |
+| trapper (ML) | **4.07** | 6.10 | 0.36 |
+
+**The buoy tactics work.** Both Mine Layer profiles deploy, at ~4.5 buoys per bot-match — roughly one
+every 50 s of life, which against a 30 s reload and a 20 s duration is close to as often as the
+equipment allows. **The "0 deployments" figure is dead and must not be cited again.**
+
+### And this INVERTS the Mine Layer diagnosis
+
+The earlier draft guessed ML was playing "2-slot against TB's 3". The opposite is true: **the Mine
+Layer uses its whole kit harder than any other hull** — 4.5 buoys *plus* 6.1 mines *plus* the most
+gun shots of any class (57.6) — and converts that into **0.38 kills**, a quarter of the Torpedo Boat's
+1.45 off a third more actions.
+
+**ML's problem is CONVERSION, not usage or engagement.** Six mines laid per bot-match against 0.38
+kills is roughly **16 mines per kill**, and those kills include gun kills, so the true mines-per-mine-
+kill figure is worse still. The mines are being laid, in quantity, by an aggressive brain — and they
+are not connecting. That is consistent with the placement contract (astern, ≤150 u, 3 s arm delay)
+being the binding constraint rather than any mine *number*, which is exactly what the
+`mine.placeHalfArcDeg` 60 → 180 arm now queued is built to test.
+
+**Incidental finding:** battleships laid 0.09 mines per bot-match despite mines not being in the BS
+fit — so acquisition cards DO fire occasionally, and the flat claim that "bots never fit one" is also
+too strong. Rare, but non-zero.
+
+## Arm 3 — `mine.blastRadius` 48 → 64 (+33 %), 180 matches — THE BEST RESULT OF THE CYCLE
+
+Note this dial moves **two** rings, because the trip ring is derived: `triggerRadius = blastRadius ×
+CONFIG.mine.triggerFactor (2/3)`, so 32 → 42.7 u. That derivation is the cycle-95 Eric ruling and is
+re-pinned post-fold, so it cannot be tuned independently — which is precisely why this dial addresses
+*connection probability* and not just damage area.
+
+| class | baseline | arm | effect | 95 % CI on the difference | significant? |
+|---|---|---|---|---|---|
+| **torpedoBoat** | 51.9 % | **40.6 %** | **−11.4 pp** | −20.2 … −2.6 | **YES** |
+| battleship | 31.7 % | 31.1 % | −0.6 pp | −8.9 … +7.7 | no |
+| **mineLayer** | 16.4 % | **28.3 %** | **+11.9 pp** | +4.3 … +19.6 | **YES** |
+
+Attrition: median 506 → 519 s; alive @ 4:00 7.8 → 7.3, @ 8:00 1.8 → 1.8. **Essentially unmoved** —
+this dial is close to attrition-neutral, which is a virtue here.
+
+### Why this is the standout
+
+**It fixes both ends of the spread at once and leaves the middle alone.** Class spread collapses from
+**35.5 pp** (51.9 − 16.4) to **12.3 pp** (40.6 − 28.3) on a single dial, with the Battleship — the
+one class already in band — statistically untouched at 31.1 %.
+
+Contrast arm 2: `torpedo.damage` moved TB by an identical −11.4 pp but handed all of it to the
+Battleship and left ML at 15 %. **Same-sized nerf to the same class, completely different
+redistribution.** That is the cycle's clearest evidence that *which* dial you pick matters more than
+how hard you pull it.
+
+**And it is targeted rather than lucky.** The buoy instrumentation showed ML laying ~16 mines per
+kill — laying plenty, connecting rarely. Widening the trip ring attacks exactly that, and the
+predicted effect appeared. The Torpedo Boat pays for it twice over: it is the fastest hull (most
+likely to run into a trip ring it did not see) and the thinnest at 125 hp, so a 55-damage mine is
+44 % of its life. The dial taxes the over-performing class hardest **by construction**, not by
+coincidence.
+
+### What it does NOT do, and the risks to weigh
+
+- **It does not fix attrition.** Like every other dial this cycle, match length barely moved.
+- **The resulting split is 41 / 31 / 28, not 33 / 33 / 33.** TB is still ~6 pp over the band and ML
+  ~3 pp under. This is a large step, not a landing.
+- **Feel risk, unmeasured and flagged rather than hidden:** a 64 u blast with a 42.7 u trip ring is a
+  big object. Bots cannot tell us whether that reads as fair or as an invisible minefield to a human
+  who never sees the mine before it arms. **A smaller step (56 u → trigger 37.3 u) was not tested**
+  and is the obvious candidate if 64 feels oppressive in the water.
+
+## The pattern across every arm: lethality dials do not control match length
+
+| arm | dial | Δ median duration | alive @ 4:00 | alive @ 8:00 |
+|---|---|---|---|---|
+| baseline | — | 506 s | 7.8 | 1.8 |
+| arm 1 | `gun.damage` −27 % | 537 s (**+6 %**) | 9.1 | 2.3 |
+| arm 2 | `torpedo.damage` −29 % | 523 s (**+3 %**) | 8.4 | 2.1 |
+| arm 3 | `mine.blastRadius` +33 % | 519 s (**+3 %**) | 7.3 | 1.8 |
+
+**Three dials, two of them large cuts to a hull's main weapon, and match length moved by at most 6 %.**
+Individual lives lengthen (arm 1: +15 %) but the match still ends at roughly the same time. Target 2
+is **untouched by everything measured this cycle**, and the target needs alive @ 8:00 to roughly
+triple.
+
+**The hypothesis this points to:** if time-to-kill barely moves match length, then match length is not
+set by how fast bots *kill* — it is set by how fast they *find each other*. **Encounter rate, not
+lethality, is the binding constraint.** Bots hunt continuously, so lowering damage buys longer
+individual fights while the same sequence of eliminations proceeds on roughly the same clock.
+
+Two arms now queued test this from opposite ends: **global hull HP +50 %** (the strongest possible
+time-to-kill lever — it scales against *every* damage source at once, which is what `gun.damage`
+alone could not do), and **`map.baseRadius` 2800 → 3600** (+65 % water at the same roster, attacking
+encounter rate directly while leaving the 660 u endgame ring and its clock untouched, so only the
+early and mid game get sparser — exactly where the curve misses).
+
+**Caveat that belongs with any attrition conclusion:** bots hunt more relentlessly than humans do.
+Human players hide, disengage, and rotate with the ring. Bot attrition is therefore plausibly an
+*upper* bound on real attrition, and a curve tuned to satisfy bots may over-correct for humans. This
+cannot be resolved with this instrument — it needs a playtest.
+
+## Proposals — cycle 1, ranked purely by measured effect size
+
+**Nothing here has been applied. Every line is awaiting an Eric ruling**, and `shared/src/constants.ts`
+is untouched on this branch.
+
+### 1. `mine.blastRadius` 48 → 64 — the strongest measured result
+
+- **Effect:** ML **+11.9 pp** (16.4 → 28.3, significant) · TB **−11.4 pp** (51.9 → 40.6, significant) ·
+  BS −0.6 pp (unchanged). Class spread **35.5 pp → 12.3 pp**.
+- **Sample:** 180 matches vs a 360-match baseline, even roster, 100 % resolution.
+- **Attrition cost:** none measurable (median 506 → 519 s).
+- **Blast radius:** ML fit only — but it *taxes* TB hardest, because TB is the fastest hull and the
+  thinnest at 125 hp.
+- **Also moves:** the trip ring, derived at `× 2/3` → 32 → 42.7 u. That coupling is the point, not a
+  side effect: it addresses ML's measured failure (≈16 mines laid per kill).
+- **Risk:** a 64 u blast with a 42.7 u trip ring is a large object and its *feel* is unmeasured.
+  **Untested fallback: 56 u** (trigger 37.3 u) if it reads as oppressive on the water.
+
+### 2. `torpedo.damage` 70 → 50 — effective on TB, but redistributes wrongly
+
+- **Effect:** TB **−11.4 pp** (significant) · BS **+12.8 pp** (significant, overshoots to 44.4 %) ·
+  ML −1.4 pp (nothing).
+- **Recommendation: do not take this alone.** It fixes TB by breaking BS, and leaves ML where it was.
+  It is listed second because its effect size is real and equal to arm 3's on TB — the difference is
+  entirely in *where the wins go*.
+- Useful only as part of a paired change that also trims BS.
+
+### 3. `gun.damage` 15 → 11 — weak on both targets
+
+- **Effect on win share:** nothing significant (TB −5.6, BS +6.3, ML −0.7; every CI crosses zero).
+- **Effect on attrition:** the best of the three, and still small — +1.3 alive @ 4:00, +0.5 @ 8:00,
+  +6 % duration.
+- **Recommendation: not worth taking for balance.** The gun is universal, so it can only move relative
+  standing second-order, and the measurement agrees.
+
+### Open, queued, or unmeasured — carried into cycle 2
+
+| item | status |
+|---|---|
+| global hull HP +50 % | **running** — the real time-to-kill lever for target 2 |
+| broadside 4 turrets → 6 at 15 dmg (Eric's request) | **queued** |
+| `mine.placeHalfArcDeg` 60 → 180 | **queued** — tests whether ML's deficit is the rear-only contract |
+| `map.baseRadius` 2800 → 3600 | **queued** — the encounter-rate hypothesis for target 2 |
+| combined TB-down + ML-up pass | **not run** — arms 2 and 3 say the two need separate dials |
+| feel of a 64 u mine blast | **unmeasurable here** — needs a playtest |
+| whether bot attrition over-states human attrition | **unmeasurable here** — needs a playtest |
+| per-line boon pick breakdown | **harness gap** — `aggregate.picks` is a Summary, so "what do bots actually build" is still unanswerable |
