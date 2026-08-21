@@ -1,4 +1,12 @@
 // Pins the ratified beta class table and the drone/fleet envelope table. The
+// HULL HP DOUBLED in balance cycle 1 (Eric ruling 2026-08-20): TB 125→250,
+// BS 175→350, ML 150→300, alongside CONFIG.damageControl 25→50 (flat amounts
+// that would otherwise be silently repriced) and the client's toughness pip
+// ladder 100/25→200/50 (which preserves the 2/3/4 readout). The doubling is
+// PROPORTIONAL by design — a flat +100 was measured first and rejected because
+// it hands the thinnest hull the largest relative gain, favouring the class
+// that was already winning. Kinematics are UNCHANGED and still byte-pinned.
+//
 // class maxSpeeds are the Eric knot-realistic rescale (2026-07-21, Story 1.6):
 // TB 45 / ML 40 / BS 35 — a DELIBERATE pin update from the 50/38/28 of Story
 // 1.3. Class hp moved onto the objective toughness ladder (Eric ruling
@@ -30,10 +38,10 @@ import {
 } from '../index.js';
 
 describe('ratified class table (exact Eric-approved values)', () => {
-  it('torpedoBoat: 100×9, hp 125, fast and fragile', () => {
+  it('torpedoBoat: 100×9, hp 250, fast and fragile', () => {
     expect(CONFIG.shipClasses.torpedoBoat).toEqual({
       hull: { length: 100, beam: 9 },
-      hp: 125,
+      hp: 250,
       kinematics: {
         maxSpeed: 45,
         reverseSpeed: 15,
@@ -45,10 +53,10 @@ describe('ratified class table (exact Eric-approved values)', () => {
     });
   });
 
-  it('battleship: 124×32, hp 175, slow and armored', () => {
+  it('battleship: 124×32, hp 350, slow and armored', () => {
     expect(CONFIG.shipClasses.battleship).toEqual({
       hull: { length: 124, beam: 32 },
-      hp: 175,
+      hp: 350,
       kinematics: {
         maxSpeed: 35,
         reverseSpeed: 9,
@@ -60,10 +68,10 @@ describe('ratified class table (exact Eric-approved values)', () => {
     });
   });
 
-  it('mineLayer: 88×20, hp 150, the middle envelope', () => {
+  it('mineLayer: 88×20, hp 300, the middle envelope', () => {
     expect(CONFIG.shipClasses.mineLayer).toEqual({
       hull: { length: 88, beam: 20 },
-      hp: 150,
+      hp: 300,
       kinematics: {
         maxSpeed: 40,
         reverseSpeed: 14,

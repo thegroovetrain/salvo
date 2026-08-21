@@ -21,6 +21,7 @@ import {
 import { loadColorPref, __resetSessionColorPrefForTests, COLOR_PREF_KEY } from '../net/connection.js';
 import { pipFill } from '../util/pips.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { CONFIG } from '@salvo/shared';
 
 // The connection module caches the session's rolled hue (review-gate fix for
 // blocked-storage divergence); reset it per test so corrupt/absent-pref cases
@@ -92,7 +93,10 @@ describe('pipFill — objective anchored-linear mapper (Eric ruling 2026-08-03)'
 
   it('pins the config anchors', () => {
     expect(speed).toEqual({ base: 30, step: 5 });
-    expect(toughness).toEqual({ base: 100, step: 25 });
+    // DOUBLED with hull hp in balance cycle 1. The ladder is ABSOLUTE and
+    // pipFill clamps at 5, so leaving it at 100/25 while hulls doubled would
+    // have put all three at a clamped 5 pips and erased the readout.
+    expect(toughness).toEqual({ base: 200, step: 50 });
     expect(turning).toEqual({ base: 0.2, step: 0.2 });
   });
 
@@ -106,8 +110,19 @@ describe('pipFill — objective anchored-linear mapper (Eric ruling 2026-08-03)'
 
   it('exact anchor landings', () => {
     expect(pipFill(45, speed)).toBe(4); // 30 + 3*5
-    expect(pipFill(175, toughness)).toBe(4); // 100 + 3*25
+    expect(pipFill(350, toughness)).toBe(4); // 200 + 3*50 — the Battleship, still 4 pips
     expect(pipFill(0.6, turning)).toBe(3); // 0.2 + 2*0.2
+  });
+
+  it('the three hulls still read 2 / 3 / 4 toughness pips after the hp doubling', () => {
+    // THE PROPERTY THE LADDER CHANGE EXISTS TO PRESERVE. Hull hp and the ladder
+    // doubled together in balance cycle 1, so the rendered readout is identical
+    // to what shipped before it. Pinned against CONFIG rather than literals, so
+    // a future hp retune that forgets the ladder fails HERE — visibly — instead
+    // of silently flattening all three hulls to a clamped 5.
+    expect(pipFill(CONFIG.shipClasses.torpedoBoat.hp, toughness)).toBe(2);
+    expect(pipFill(CONFIG.shipClasses.mineLayer.hp, toughness)).toBe(3);
+    expect(pipFill(CONFIG.shipClasses.battleship.hp, toughness)).toBe(4);
   });
 
   it('degenerate anchor (step <= 0 or non-finite base) clamps to 1', () => {

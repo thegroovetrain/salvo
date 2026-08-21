@@ -53,6 +53,14 @@ const TUNE_FAMILIES = [
   'speedBoost.',
   'radarBuoy.',
   'shipClasses.',
+  // DAMAGE CONTROL is a COMBAT dial, not an economy one, so it belongs on this
+  // surface rather than the --set whitelist: `damageControl` amounts are FLAT
+  // on every hull by ruling ("no maxHp scaling, no upgrade scaling"), which
+  // means any change to hull HP silently reprices every heal. A +100 HP arm
+  // measured here dropped a heal from ~33% of an average hull to ~20% of one,
+  // and the highest-HP hull paid most — so the heal has to be reachable to
+  // tell a real class problem apart from that repricing.
+  'damageControl.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */
@@ -218,10 +226,29 @@ const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 
  *  though no CONFIG leaf uses it today — this names a HAZARD CLASS, and a
  *  future `<equipment>.cooldownMs` must inherit the floor by existing, not by
  *  someone remembering to come back here. */
+/**
+ * Leaves whose only hazard is ZERO but whose legitimate range sits BELOW 1.
+ *
+ * `turnRate` is rad/s and ships at 0.4 / 0.6 / 0.8 across the three hulls, so
+ * the blanket floor of 1 did not merely restrict it — it made the leaf
+ * UNTUNABLE AT ITS OWN SHIPPED VALUES, refusing every arm including a no-op
+ * one (`--tune shipClasses.battleship.kinematics.turnRate=0.4` was an error).
+ * The hazard the floor exists for is the DIVIDE at ai/tactics.ts:816 and
+ * ai/utility.ts:518, and that is a divide by zero, not by anything under 1 —
+ * so the correct floor here is a small epsilon well clear of 0 and well below
+ * any value a hull would plausibly carry.
+ *
+ * Checked BEFORE the min-one set, which still names `turnRate` because that
+ * set documents the hazard class; this map only corrects its magnitude.
+ */
+const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
+
 function tuneFloor(key: string): number {
   const leaf = key.slice(key.lastIndexOf('.') + 1);
   const lower = leaf.toLowerCase();
   if (lower.endsWith('reloadms') || lower.endsWith('cooldownms')) return 1;
+  const subOne = TUNE_SUB_ONE_FLOORS.get(leaf);
+  if (subOne !== undefined) return subOne;
   return TUNE_MIN_ONE_LEAVES.has(leaf) ? 1 : 0;
 }
 

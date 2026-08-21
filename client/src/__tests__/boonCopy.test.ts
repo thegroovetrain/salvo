@@ -245,7 +245,7 @@ describe('rules text — the contract, with live values', () => {
   });
 
   it('BROADSIDE TURRETS prints shells per barrage, and nothing else', () => {
-    expect(boonDescription(BOON_CATALOG.broadsideTurrets, TB)).toBe('Shells per barrage: 3 → 4.');
+    expect(boonDescription(BOON_CATALOG.broadsideTurrets, TB)).toBe('Shells per barrage: 4 → 5.');
   });
 });
 

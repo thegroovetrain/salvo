@@ -84,6 +84,25 @@ export interface BotSample {
   /** Fire requests the bot issued (lastFireSeq — clicks the sim consumed;
    *  includes shots the equipment refused for reload/arc/ammo). */
   shots: number;
+  /**
+   * PLACEABLES THAT ACTUALLY REACHED THE WATER, counted by id off the World's
+   * own `buoys` / `mines` maps — NOT off `shots`.
+   *
+   * The distinction is the whole reason these exist. `shots` is
+   * `ship.lastFireSeq`, and world.ts is explicit that "consumption is
+   * unconditional — lastFireSeq advances even dead or denied", so a bot that
+   * requests a buoy every tick and is refused every tick reads identically to
+   * one that deploys. Nothing in the report could previously tell those apart,
+   * which made "do bots use their buoy at all?" unanswerable from a campaign.
+   *
+   * Counted by DIFFING IDS rather than by watching a drop event: both maps are
+   * keyed by a monotonic id (`b<seq>`, `m<seq>`) that is never reused, so a
+   * first sighting is a deployment, and an entity that is placed and destroyed
+   * between two observe() calls is the only thing this can miss — impossible
+   * today, since observe() runs every tick and neither expires same-tick.
+   */
+  buoysDeployed: number;
+  minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
   /** Ticks this bot was afloat, and how many of them were in land contact. */
@@ -113,6 +132,8 @@ interface BotTrack {
   levelsUnspent: number;
   boonsFitted: number;
   shots: number;
+  buoysDeployed: number;
+  minesLaid: number;
   damageDealt: number;
   landEpisodes: number;
   maxLandRunTicks: number;
@@ -131,6 +152,8 @@ function newTrack(): BotTrack {
     levelsUnspent: 0,
     boonsFitted: 0,
     shots: 0,
+    buoysDeployed: 0,
+    minesLaid: 0,
     damageDealt: 0,
     landEpisodes: 0,
     maxLandRunTicks: 0,
@@ -196,6 +219,10 @@ export class BotCollector {
   private readonly tracks = new Map<string, BotTrack>();
   /** Reused polygon scratch — the 20Hz loop stays allocation-light. */
   private readonly scratch: Vec2[] = [];
+  /** Type-prefixed ids of every placeable already credited (see
+   *  notePlacements). Bounded by placements made in ONE match, and one
+   *  collector is built per match, so this never grows across a campaign. */
+  private readonly seenPlacements = new Set<string>();
 
   constructor(botIds: readonly string[]) {
     for (const id of botIds) this.tracks.set(id, newTrack());
@@ -210,6 +237,7 @@ export class BotCollector {
     if (activatedAt === 0) return;
     const tS = (world.now - activatedAt) / 1000;
     this.consumeEvents(world, tS);
+    this.notePlacements(world);
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
       if (ship === undefined || !isAfloat(ship.lifecycle)) continue;
@@ -217,6 +245,36 @@ export class BotCollector {
       noteLand(track, hullTouchesLand(ship, world.map.islands, this.scratch));
       track.lifeS = tS;
       readEconomy(track, ship);
+    }
+  }
+
+  /**
+   * Credit every placeable that appeared on the water since the last tick.
+   *
+   * READ-ONLY, like every other number in this module: it reads two World maps
+   * and writes only into this collector's own tracks. The `seen` set is keyed
+   * by TYPE-PREFIXED id (`b:`/`m:`) rather than the bare id, so the two id
+   * spaces can never collide even if the sim's prefixes ever converge.
+   *
+   * A placement by a NON-BOT (a captain in a mixed lobby, a fleet hull) finds
+   * no track and is silently skipped — the same rule `recordKill` already uses.
+   */
+  private notePlacements(world: World): void {
+    this.creditNew(world.buoys.values(), 'b', (t) => { t.buoysDeployed += 1; });
+    this.creditNew(world.mines.values(), 'm', (t) => { t.minesLaid += 1; });
+  }
+
+  private creditNew(
+    entities: Iterable<{ id: string; ownerId: string }>,
+    prefix: string,
+    bump: (track: BotTrack) => void,
+  ): void {
+    for (const e of entities) {
+      const key = `${prefix}:${e.id}`;
+      if (this.seenPlacements.has(key)) continue;
+      this.seenPlacements.add(key);
+      const track = this.tracks.get(e.ownerId);
+      if (track !== undefined) bump(track);
     }
   }
 
@@ -265,6 +323,8 @@ export class BotCollector {
         levelsUnspent: track.levelsUnspent,
         boonsFitted: track.boonsFitted,
         shots: track.shots,
+        buoysDeployed: track.buoysDeployed,
+        minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
         ticks: track.ticks,
         landTicks: track.landTicks,

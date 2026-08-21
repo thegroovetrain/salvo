@@ -4,7 +4,8 @@
 // cap, stays under the lightest CLASS hull on the water) — and a torpedo must
 // always outrun every hull, drones included. The TTK & Objective Pip
 // Rebalance (Eric ruling 2026-08-03) moved class hp onto the toughness ladder
-// (TB 70→125, ML 105→150, BS 150→175).
+// (TB 70→125, ML 105→150, BS 150→175), then DOUBLED again in balance cycle 1
+// (TB 250, ML 300, BS 350) — which only widens every margin below.
 //
 // THE GUARDRAIL'S SCOPE NARROWS TO CLASS HULLS (Story 5.6, Eric rulings
 // 2026-08-14, amendments 33/34/38). Drones dropped 80/100/120 → 60/75/90 and
@@ -72,24 +73,24 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
     expect(CONFIG.broadside.damage).toBeLessThan(minHullHp);
   });
 
-  it('the lightest CLASS hull is the 125hp torpedoBoat; drones sit BELOW it and are no longer floor-eligible', () => {
+  it('the lightest CLASS hull is the 250hp torpedoBoat; drones sit BELOW it and are no longer floor-eligible', () => {
     // Objective toughness ladder (Eric ruling 2026-08-03) moved class hp onto
-    // 100 + 25/pip: TB 125 (2 pips) is the lightest CLASS hull, below ML 150
+    // 200 + 50/pip: TB 250 (2 pips) is the lightest CLASS hull, below ML 300
     // (3 pips) and BS 175 (4 pips).
-    expect(Math.min(...classHps)).toBe(125);
+    expect(Math.min(...classHps)).toBe(250);
     expect(Math.min(...classHps)).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     // Drones (45/60/75 — epic-6 amendment 24; 80/100/120 -> 60/75/90 -> here)
     // are ALL lighter than every pickable class hull. That does NOT make the
     // small drone "the lightest hull on the water" for GUARDRAIL purposes —
     // fleet hulls are PvE fodder (amendment 33) and are deliberately NOT
     // protected by the one-hit-kill law. minHullHp is therefore the CLASS
-    // floor (125), not the drone floor (45).
+    // floor (250), not the drone floor (45).
     for (const droneHp of droneHps) {
       for (const classHp of classHps) {
         expect(droneHp).toBeLessThan(classHp);
       }
     }
-    expect(minHullHp).toBe(125);
+    expect(minHullHp).toBe(250);
     expect(minDroneHp).toBe(45);
     expect(minDroneHp).toBe(CONFIG.drones.small.hp);
   });
@@ -139,7 +140,7 @@ describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming e
 // nothing left to sweep: a future damage line lands under the law
 // automatically, on the day it lands, instead of needing a new pin.
 describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; player-classes-only scope per Story 5.6)', () => {
-  it('EVERY damage path, max-stacked from the catalog, stays UNDER the 125hp lightest CLASS hull', () => {
+  it('EVERY damage path, max-stacked from the catalog, stays UNDER the 250hp lightest CLASS hull', () => {
     // Swept from the catalog rather than listed, so a new damage card is
     // covered the day it lands and a deleted one needs no edit here.
     const damagePaths = ['gun.damage', 'broadside.damage', 'torpedo.damage', 'mine.damage'] as const;
@@ -217,11 +218,13 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   it('a max-stacked BROADSIDE obeys the per-shell law at every turret count', () => {
     // The broadside's two cards move shell COUNT and turret TRAVERSE, never damage,
     // so the per-shell number is its base at every build — the strongest form
-    // the law can take. The BARRAGE total (5 × 20 = 100) legitimately exceeds
-    // the 45hp drone and still lands under the 125hp class floor, but that is
+    // the law can take. The BARRAGE total (6 × 15 = 90) legitimately exceeds
+    // the 45hp drone and still lands under the 250hp class floor, but that is
     // the multi-shell click case the law deliberately does not govern.
+    // Balance cycle 1 moved BOTH halves — turrets 3→4 (max 5→6) and damage
+    // 20→15 — so a maxed barrage FELL 100 → 90 while base alpha held at 60.
     const maxed = stacked('broadsideTurrets');
-    expect(maxed.broadside.turrets).toBe(5);
+    expect(maxed.broadside.turrets).toBe(6);
     expect(maxed.broadside.damage).toBe(CONFIG.broadside.damage);
     expect(maxed.broadside.damage).toBeLessThan(minHullHp); // the law, per SHELL
   });
@@ -336,7 +339,12 @@ describe('the PvE farm must PAY — damage taken costs less to repair than the k
   ] as const;
 
   it('a solo duel with each fleet size is XP-POSITIVE after repair costs', () => {
-    expect(HEAL_HP).toBe(50); // the price of a level, in hp — the whole basis of this test
+    // 100 since balance cycle 1 (instantHp + regenHp both 25 → 50, doubled in
+    // step with hull hp). CONSEQUENCE RECORDED RATHER THAN ABSORBED: a level now
+    // buys twice the repair, so the level-cost of PvE damage HALVED and farming
+    // is materially cheaper to sustain than it was when this bar was derived.
+    // The bar itself still holds — and now holds by a wider margin.
+    expect(HEAL_HP).toBe(100); // the price of a level, in hp — the whole basis of this test
     for (const [size, hullId] of TIERS) {
       const drone = CONFIG.drones[size];
       // Shots the captain needs, on the base gun; the drone answers on its own
@@ -353,14 +361,39 @@ describe('the PvE farm must PAY — damage taken costs less to repair than the k
     }
   });
 
-  it('and the OLD 6/8/10 gun fails this same test on every size — the pin is not vacuous', () => {
+  it('and the OLD 6/8/10 gun fails this same test at the PRE-DOUBLING heal — the pin is not vacuous', () => {
+    // THE COUNTERFACTUAL IS ANCHORED TO THE OLD HEAL (50 hp/level) ON PURPOSE.
+    // At today's 100 hp/level the old 6/8/10 drone gun clears the bar too (the
+    // small tier costs 0.18 levels to repair against 0.25 earned), so measuring
+    // it against the CURRENT heal would make this guard vacuous — it would pass
+    // no matter how weak the counterfactual was. That the guard had to be
+    // re-anchored IS the finding: doubling damageControl halved the level-cost
+    // of PvE damage, which loosened the faucet this whole describe-block exists
+    // to keep honest. Flagged for a ruling; not silently accepted.
+    const PRE_DOUBLING_HEAL = 50;
     const OLD = { small: 6, medium: 8, large: 10 } as const;
     for (const [size, hullId] of TIERS) {
       const drone = CONFIG.drones[size];
       const shotsToKill = Math.ceil(drone.hp / CONFIG.gun.damage);
       const volleysBack = Math.floor((shotsToKill * CONFIG.gun.reloadMs) / drone.gun.reloadMs);
       const damageTaken = volleysBack * OLD[size];
-      expect(damageTaken / HEAL_HP).toBeGreaterThan(CONFIG.xp.droneTierLevels[hullId]);
+      expect(damageTaken / PRE_DOUBLING_HEAL).toBeGreaterThan(CONFIG.xp.droneTierLevels[hullId]);
+    }
+  });
+
+  it('records HOW MUCH cheaper the farm got — the exchange rate roughly doubled', () => {
+    // Same duel, priced at both heals. Not a bar, a MEASUREMENT: it exists so
+    // the size of the side effect is visible in the suite rather than only in a
+    // ledger, and so a future heal retune shows up here immediately.
+    for (const [size, hullId] of TIERS) {
+      const drone = CONFIG.drones[size];
+      const shotsToKill = Math.ceil(drone.hp / CONFIG.gun.damage);
+      const volleysBack = Math.floor((shotsToKill * CONFIG.gun.reloadMs) / drone.gun.reloadMs);
+      const damageTaken = volleysBack * drone.gun.damage;
+      const now = damageTaken / HEAL_HP;
+      const before = damageTaken / 50;
+      expect(before / (now || 1)).toBeCloseTo(2, 10); // exactly 2× cheaper to repair
+      expect(now).toBeLessThan(CONFIG.xp.droneTierLevels[hullId]);
     }
   });
 });

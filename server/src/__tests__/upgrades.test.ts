@@ -600,11 +600,16 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     // Drain to exactly 15hp remaining (10hp paid = 2s), then heal again.
     const ticks = Math.round(10 / REGEN_PER_TICK);
     for (let i = 0; i < ticks; i++) w.step();
-    expect(a.repairHp).toBeCloseTo(15, 6);
+    // Pool after draining 10hp: regenHp - 10. DERIVED, not a literal, because
+    // balance cycle 1 doubled regenHp 25 -> 50 (and with it the rate, 5 -> 10
+    // hp/s) in step with hull hp — a hard-coded 15 pinned the old amount.
+    expect(a.repairHp).toBeCloseTo(DC.regenHp - 10, 6);
     const hpAtSecondHeal = a.hp;
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.repairHp).toBeCloseTo(15 + DC.regenHp, 6); // 40, the matrix row
-    // THE RATE PIN: the very next tick pays 5 hp/s worth, NOT 10 hp/s worth.
+    expect(a.repairHp).toBeCloseTo(DC.regenHp - 10 + DC.regenHp, 6);
+    // THE RATE PIN: the very next tick pays ONE pool's worth of rate, NOT two.
+    // This is the invariant the doubling did NOT touch — pools ADD, never
+    // ACCELERATE — and it is why the rate change is safe.
     w.step();
     expect(a.hp).toBeCloseTo(hpAtSecondHeal + DC.instantHp + REGEN_PER_TICK, 9);
     expect(a.hp).not.toBeCloseTo(hpAtSecondHeal + DC.instantHp + 2 * REGEN_PER_TICK, 9);
@@ -1119,28 +1124,28 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeLessThan(CONFIG.torpedo.reloadMs);
   });
 
-  it('shipCooldown: the BROADSIDE reads the same global scale (30s -> 15s) off the Battleship fit', () => {
+  it('shipCooldown: the BROADSIDE reads the same global scale (18s -> 9s) off the Battleship fit', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, broadside, starShells, empty]
     stack(w, bb, 'shipCooldown', 5);
-    expect(bb.stats.broadside.reloadMs).toBe(15000); // 30000 base -> 15000 (Eric ruling 2026-08-04)
+    expect(bb.stats.broadside.reloadMs).toBe(9000); // 18000 base -> 9000 (balance cycle 1)
     fire(bb, 1, SLOT_BROADSIDE, 300, Math.PI / 2); // abeam — inside the beam sector
     w.step();
     expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(0);
     expect(bb.loadout[SLOT_BROADSIDE].state!.reloadMsLeft).toBe(CONFIG.broadside.reloadMs * 0.5);
     expect(bb.loadout[SLOT_BROADSIDE].state!.reloadMsLeft).toBeLessThan(CONFIG.broadside.reloadMs);
 
-    // ...and the authoritative tick really returns the barrage on the 15s
-    // clock: still empty at 14 950ms, back at exactly 15 000ms — exactly 300
-    // ticks (not 301 — the rounding fix's tick-count pin: reloadMsLeft is
-    // exactly 15000, so it takes exactly 300 * 50ms decrements to cross zero,
-    // never one tick of float-dust slop).
+    // ...and the authoritative tick really returns the barrage on the 9s clock:
+    // still empty at 8 950ms, back at exactly 9 000ms — exactly 180 ticks (not
+    // 181 — the rounding fix's tick-count pin: reloadMsLeft is exactly 9000, so
+    // it takes exactly 180 * 50ms decrements to cross zero, never one tick of
+    // float-dust slop).
     bb.input = { ...bb.input!, fireSeq: 0, seq: 2 };
-    for (let i = 0; i < 299; i++) w.step();
+    for (let i = 0; i < 179; i++) w.step();
     expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(0);
     w.step();
     expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(1);
-    expect(301 * DT).toBeLessThan(CONFIG.broadside.reloadMs); // 15 050 < 30 000
+    expect(181 * DT).toBeLessThan(CONFIG.broadside.reloadMs); // 9 050 < 18 000
   });
 
   it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (exactly 2.5s), not the 5.0s base', () => {

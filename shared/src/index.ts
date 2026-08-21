@@ -3,6 +3,20 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  47: BALANCE CYCLE 1 (Eric rulings 2026-08-20/21) — nine combat tunables move
+ *  together: hull hp DOUBLES (TB 125→250, BS 175→350, ML 150→300),
+ *  `damageControl` instant/regen double with it (25→50 each, because those
+ *  amounts are FLAT by ruling and would otherwise be silently repriced), the
+ *  BROADSIDE goes 3×20 on a 30s cooldown → 4×15 on 18s (base alpha unchanged at
+ *  60, maxed 100→90, fired 1.67× as often), and `torpedo.damage` 70→50.
+ *  NO wire SHAPE changes — this is a join gate, not a serializer break: every
+ *  one of these is compiled into BOTH sides (the client re-derives them through
+ *  effectiveStats for prediction and the HUD), so a stale client would predict
+ *  its own hull with the wrong hp, draw the wrong ammo/cooldown and disagree
+ *  with the server about time-to-kill. That is exactly the desync the gate
+ *  exists to refuse. The client's toughness PIP LADDER doubles alongside
+ *  (client/src/config.ts, 100/25 → 200/50) so the 2/3/4 readout is preserved
+ *  rather than clamping all three hulls to 5.
  *  46: RANGE I–IV IS DELETED (Eric ruling 2026-08-20) — the `intelRange` card
  *  line leaves BOON_CATALOG outright, 29 lines → 28. It was the ONLY card
  *  writing `radarRange`, so the eighths ladder is now frozen at its base for
@@ -509,7 +523,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 46;
+export const PROTOCOL_VERSION = 47;
 
 // Tunables
 export * from './constants.js';

@@ -155,10 +155,10 @@ describe('HUD denominators react to effective stats', () => {
   // lands the ratified 2.5s gun on the chips. The BB's heavy-weapon half of this
   // pin moved with the weapon: the cannon's 45s/22.5s is RETIRED with it, and the
   // BROADSIDE BARRAGE's ratified 30s base halves to 15s (Story 7-5 wave 2, R2.4).
-  it('a FULL shipCooldown stack lands 2.5s gun and 15s broadside on the chips', () => {
+  it('a FULL shipCooldown stack lands 2.5s gun and 9s broadside on the chips', () => {
     const maxed = statsFor('battleship', { shipCooldown: 5 });
     expect(equipmentReloadMs(maxed, 'gun')).toBe(2500);
-    expect(equipmentReloadMs(maxed, 'broadside')).toBe(15000);
+    expect(equipmentReloadMs(maxed, 'broadside')).toBe(9000); // 18000 base × 0.5
     // Additive-linear, never 0.9^5 (which would land 2952/26572).
     expect(maxed.cooldownScale).toBe(0.5);
     // The 5th rung has ratified copy — the card can name the stack it just took.
