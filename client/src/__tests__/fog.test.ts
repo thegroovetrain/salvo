@@ -65,25 +65,30 @@ describe('Fog.setDazzled — the rebake staleness edge', () => {
 
 // THE OMNISCIENT REVEAL (Story 5.3) IS BUILT ON setVisible, NOT A FADE. main.ts's
 // enterSpectateVisuals calls `g.fog.setVisible(false)` — never touches alpha or
-// rebakes toward transparent — and the reason is structural, ratified in that
-// call's own doc comment (amendment 24's `Never` clause, epic-5 amendment 22 "a
-// label is not a mark"): render/stage.ts's `createStage` mounts the roots
-// worldRoot, plateRoot, fogSprite, chartRoot, hudRoot IN THAT ORDER, so
-// `plateRoot` (truesight nameplates) sits BELOW the fog composite while `ship`
-// (hulls) sits in `chartRoot`, ABOVE it. A fog *fade* would therefore dim every
-// nameplate on the water while leaving the hulls they label at full brightness —
-// only a hide takes the whole composite off screen in one step, for both layers
-// at once.
+// rebakes toward transparent — and the reason is stated in that call's own doc
+// comment (amendment 24's `Never` clause): the reveal's whole job is to take the
+// fog OFF, and a half-transparent composite would leave a uniform grey wash over
+// the ocean the results modal is read against. Only a hide takes the whole
+// composite off screen in one step.
 //
-// That root-mount order lives entirely inside `createStage` (an inline
-// `app.stage.addChild(...)` call, not one of the exported *_LAYER_ORDER arrays
-// stage.ts declares for its child layers), and `createStage` requires a live
-// Pixi Application (WebGL/canvas) that jsdom cannot provide — stage.ts's own
-// header calls it "a thin Pixi adapter (not unit tested)". So the root ordering
-// itself is asserted only by inspection (see the comment above and
-// render/stage.ts's header) rather than by a test here; what IS pinned below is
-// the one thing setVisible actually promises: the sprite goes fully off and
-// fully back on, never partially.
+// THE ASYMMETRY ARGUMENT THAT USED TO STAND HERE IS RETIRED (cycle 123): the roots
+// mounted worldRoot, plateRoot, fogSprite, chartRoot, hudRoot, so `plateRoot`
+// (nameplates) sat BELOW the fog while `ship` sat above it — and a fade would have
+// dimmed every callsign while leaving the hulls they label at full brightness.
+// The nameplate container is now the `plate` CHART LAYER, seated between `ship`
+// and `aim` on Eric's ruling that a name is *"never obscured by terrain"* while
+// the reticle still reads over it — so plates and hulls are both above the fog
+// and the asymmetry is gone. The conclusion did not move; its premise did.
+//
+// AND THE ROOT-MOUNT ORDER IS NO LONGER UNASSERTABLE. It used to be an inline
+// `app.stage.addChild(...)` argument list inside `createStage`, which needs a live
+// Pixi Application (WebGL/canvas) jsdom cannot provide — so it was pinned by
+// inspection only, and `deferred-work.md` carried that gap as an open entry.
+// `createStage` now BUILDS the roots by iterating the exported `STAGE_ROOT_ORDER`,
+// which is pinned (with the plate lift itself) in `nameplatesAboveTerrain.test.ts`
+// alongside a `EVERY_ROOT_PLACED` compile-time completeness check. What is pinned
+// BELOW is still the one thing setVisible itself promises: the sprite goes fully
+// off and fully back on, never partially.
 describe('Fog.setVisible — the reveal is a HIDE, never a fade', () => {
   it('setVisible(false) hides the fog sprite outright; setVisible(true) restores it', () => {
     const layer = new Container();

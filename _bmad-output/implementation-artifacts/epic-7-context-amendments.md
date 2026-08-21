@@ -2159,3 +2159,194 @@ four non-ML profiles, `CONFIG.bots.profiles` and all three test-only rows are un
 unverified "trapper under-buys the gun" hypothesis from cycle 110 remains open and may dissolve
 once the balance pass moves mine numbers. Match length rose 29% in the weighted arm because the ML
 stops dying early — a real pacing consequence worth feeling on the water.
+
+## Amendment 34 — A NAME IS NEVER OBSCURED BY TERRAIN, BUT THE RETICLE READS OVER THE NAME (ERIC RULINGS, 2026-08-21, cycle 123)
+
+> *"in game, names need to appear above all players and in front of islands, not behind. they should
+> never be obscured by terrain."*
+
+...and then, on being shown the first draft of the resulting stack:
+
+> *"i think i should be able to see aiming reticles over it. Just not terrain."*
+
+`createStage` mounted its five roots `worldRoot, plateRoot, fogSprite, chartRoot, hudRoot`, so
+`plateRoot` was the SECOND thing on the stage and sat underneath **everything** in `chartRoot` —
+including `map`, whose island bodies and contour bands are filled at `alpha: 1`
+(`client/src/render/map.ts:152-155`), and `ship`. Every callsign was therefore painted over by any
+island it crossed and by every hull silhouette on the water. This is not a tuning question: a label
+that a hill can delete is not a label.
+
+### THE SECOND RULING IS THE ONE THAT SHAPED THE FEATURE
+
+The obvious fix — lift `plateRoot` above `chartRoot` — satisfies the first sentence and overshoots
+the second: it carries plates above `aim`, `burstFx` and `sweep` too. The first draft did exactly
+that and **ledgered the overshoot as an accepted consequence**, arguing that a screen-space container
+cannot be threaded between two camera-transformed layers without splitting `chartRoot` in two. Eric
+read the ledger entry and declined the trade. He was right to: the overshoot silently widened epic-5
+amendment 22's own rule (*"above the returns, below the reticle and the burst rings, which are the
+marks you aim and read damage with and must never be occluded"*) from hulls to labels, and a label
+has a **weaker** claim over a reticle than a hull does, not a stronger one.
+
+**So the nameplate container is now a CHART LAYER, `plate`, seated directly between `ship` and
+`aim`** — the same seat `ship` itself won last cycle, one rung up. `CHART_LAYER_ORDER` reads
+`… blip, ship, plate, aim, burstFx, sweep`, and that single array index carries **both** halves of
+the ruling: above `map` and `ship` (never obscured by terrain, above all players), below
+`aim`/`burstFx`/`sweep` (the reticle, the aim preview, the burst rings and the sweep read over a
+name). The `plateRoot` stage ROOT is retired.
+
+### A SCREEN-SPACE LAYER INSIDE A CAMERA-TRANSFORMED ROOT — THE ONE UNUSUAL THING HERE
+
+Plates are placed in raw screen pixels by `camera.worldToScreen` and hold a constant 14px at any
+zoom precisely so the text never scales or tilts (`render/nameplates.ts`), so they cannot inherit
+`chartRoot`'s transform. `applyCamera` therefore writes the **exact inverse** of that transform onto
+this one container: Pixi composes `parent ∘ child` as `position + scale · p` at each level, so a
+child point `p` lands at `px + zoom·(−px/zoom + p/zoom) = p`. The plate layer's z-position lives in
+the chart stack while its contents live in screen space.
+
+**The inverse belongs in `applyCamera` and nowhere else**, for exactly the reason the forward
+transform does — that function is already documented as *"THE one place that transform is written"*,
+and a caller who applied the camera without the inverse would leave every callsign drifting against
+the world. It is written once per frame at the one site, and both call sites (`main.ts`'s render
+callback and `render/ambient.ts`'s home scene) go through it.
+
+**The alternative was REJECTED, not overlooked:** splitting `chartRoot` into two camera-transformed
+roots to thread a screen-space root between them costs a fourth root, a fourth declared array, a
+wider `applyCamera`, and a split of a ratified order array — all to express a stacking that one
+array index already says.
+
+### THE LIFT'S BILL IS THE SAME ONE EPIC-5 AMENDMENT 22 PAID, AND IT IS PAID THE SAME WAY
+
+Being under the fog gave a plate the composite's feathered sight hole **for free**: a callsign dimmed
+as its hull neared the edge of the bubble, which is precisely what DESIGN.md's Nameplate row means by
+*"they fade in/out with truesight resolution"*. `chartRoot` is above `fogSprite`, so wherever inside
+it the plate sits, that dimming disappears. The plate's alpha is now `fader × softness` — the SAME
+per-frame `HullSoftness` value `ContactViews.render` already computes once per hull and hands to the
+hull silhouette and the aggro bracket. One softness per hull per frame, evaluated at the same world
+point by all three consumers, so a hull and its own label can never disagree about how far into the
+feather they are. `hullSightSoftness` itself did not move: it is still the fog texture's own two
+constants (`HOLE_FEATHER_START`, `FOG_FILL_ALPHA`), still observer-scaled, still exempted inside an
+owned star-shell zone by `main.ts hullSoftnessFor`. What is new is only that a plate consumes it.
+
+The own-ship plate stays at alpha `1` (`updateOwnPlate`, untouched): the observer is at distance 0,
+so its softness is 1 by construction and multiplying it in would buy nothing.
+
+### THE ROOT ORDER IS NOW DECLARED DATA, WHICH CLOSES A NAMED DEFERRED-WORK ENTRY
+
+`deferred-work.md` carried *"THE STAGE'S TOP-LEVEL LAYER ORDER IS NOT ASSERTABLE, WHICH LEAVES THE
+REVEAL'S 'HIDE, NEVER FADE' RULE UNPINNED"* — the three child orders were exported arrays with a
+build-failing completeness check while the ROOT order was an inline `addChild` argument list inside a
+function that needs a live WebGL context. **Retiring the `plateRoot` root is exactly the class of
+change that gap left unguarded**, so the array is declared rather than the call merely edited.
+`createStage` now ITERATES the exported `STAGE_ROOT_ORDER` (`worldRoot, fogSprite, chartRoot,
+hudRoot`) to build and mount the roots — the array IS the order, not a comment about it — and
+`EVERY_ROOT_PLACED`, keyed off `Exclude<keyof Stage, 'app' | 'layers'>`, turns "someone added a root
+and forgot the array" into a compile error, exactly as `EVERY_LAYER_PLACED` already does one level
+down. The entry is marked RESOLVED.
+
+### THE THREE TRAPS
+
+1. **The feather must ride the plate, or the rim fade is silently lost.** Nothing fails, nothing
+   throws — a callsign simply reads at full strength right to the boundary of the sight bubble and
+   then vanishes, which is a harder edge than the one the fog draws and breaks a shipped DESIGN.md
+   promise. If a future refactor drops the `softness` argument from `drivePlate`, that is what
+   regresses.
+2. **The inverse transform must be written EVERY frame the camera is.** It is one function, so the
+   only way to break this is to add a third `applyCamera`-like path or to start writing the camera
+   transform somewhere else. A frame that moved the chart without the plate leaves every callsign
+   sliding across the water.
+3. **`hudRoot` must stay on top.** Plates gained the chart layer, NOT the HUD. The chrome bar,
+   hotbar, vitals, storm vignette and foghorn chevrons must all still draw over a floating callsign;
+   a foghorn chevron in particular lives at the viewport edge where plates congregate at low zoom.
+
+### A RATIFIED PIN WAS UPDATED, DELIBERATELY
+
+`hullOverRadar.test.ts` asserted `at('aim') === at('ship') + 1` under the heading *"leaves it
+directly between the two, so nothing slipped in on either side"*. Something deliberately did. The
+RULE that file exists to protect — a hull never occludes the marks you aim and read damage with — is
+unchanged and still pinned there; only the adjacency moved. **The seat has exactly ONE owner** — a
+first pass asserted `plate === ship + 1` in BOTH files and the review gate flagged it, because two
+files asserting one fact is how a pin ends up half-updated. `nameplatesAboveTerrain.test.ts` owns the
+plate's seat and also re-pins `ship === blip + 1` so the hull lift's own guarantee cannot drift out
+from under it; `hullOverRadar.test.ts` keeps only what it is about and says so in a comment where the
+deleted assertion stood.
+
+### A STALE RATIONALE WAS REWRITTEN RATHER THAN LEFT TO ROT
+
+`enterSpectateVisuals`'s *"THE FOG IS HIDDEN, NEVER FADED"* paragraph justified itself by an
+ASYMMETRY — plates under the fog, hulls above it, so a fade would dim every callsign while leaving
+the hulls at full brightness. That asymmetry is gone. **The conclusion stands and the behaviour is
+byte-identical** (`Fog.setVisible(false)`, never an alpha); its premise is now the simpler one: the
+reveal's whole job is to take the fog OFF, and a half-transparent composite would leave a uniform
+grey wash over the ocean the results modal is read against. The same false premise was restated in
+`fog.test.ts`'s header and in `render/stage.ts`'s, and both were corrected in the same pass. A comment
+asserting a stacking that no longer exists is the next agent's trap.
+
+
+### TWO CONSEQUENCES THE REVIEW GATE SURFACED, BOTH LEDGERED RATHER THAN ABSORBED
+
+**1. A NAME NOW PAINTS OVER A RADAR RETURN.** `plate` sits above `blip` in
+`CHART_LAYER_ORDER`, because it sits above `ship` and `ship` has sat above `blip` since
+epic-5 amendment 22. Under the old root order the plate was beneath the ENTIRE chart, so
+phosphor returns painted over callsigns; now callsigns paint over returns. Eric ruled on
+TERRAIN and on RETICLES; he did not rule on radar paint, and this follows from the seat
+rather than from a decision. It is named here so it is a known consequence rather than a
+side effect, and it composes with the near-range dim mask (epic-4 amendment 181): a
+callsign at close range now reads over returns that are themselves displayed at 20%. If it
+reads as clutter on a dense scope, the fix is a seat between `blip` and `ship`, which
+would cost the *"above all players"* half of the ruling — so it is Eric's call, not a
+tuning knob.
+
+**2. THE FEATHER IS SAMPLED AT THE HULL, WHICH IS NOT THE SAME AS WHAT THE FOG DID.** The
+first draft of this cycle claimed the plate's alpha reproduced the composite's dimming
+*"numerically"*. It does not, and the review measured why: `plateScreenY` draws a plate
+ABOVE its hull's bounding circle — `polygonMaxRadius(hullSilhouette('battleship'))` is
+62.29u, plus `padPx` 8 at a typical 0.73 alive zoom, so roughly **73u** in world terms —
+against a feather band of only `sight × (1 − HOLE_FEATHER_START)` = **82.5u**. The fog is a
+SCREEN-space texture, so it faded a plate by the PLATE's position; sampling at the hull is
+therefore a real behavioural difference of up to 89% of the band, and it flips sign with
+bearing. **Sampling at the hull is nonetheless the choice**, because reproducing the
+composite exactly would put a full-strength callsign over a hull the fog is already eating
+whenever the contact is north of you, and the reverse south of you — a 4× brightness split
+between two contacts at equal range with no in-fiction cause. A label should fade with the
+thing it labels, which is what `contacts.ts`'s one-softness-per-hull contract already said.
+The overclaim was removed from `stage.ts`, `contacts.ts` and the test titles rather than
+the behaviour being changed to match it. **`updateOwnPlate`'s hard-coded alpha 1 is a
+second derivation of the same rule** and was left alone: the observer is at distance 0, so
+`hullSightSoftness(0, sight)` is exactly 1, and the spec forbade touching it.
+
+### A DEFECT IN THIS CYCLE'S OWN GUARD, FOUND AT THE GATE
+
+The degenerate-zoom guard originally wrote the forward transform and THEN reset the plate to
+identity. That bought **nothing**: `plate` is a CHILD of `chart`, so a NaN already committed
+to `chart.scale` composes straight through an identity child and the plates land at NaN
+anyway (at `zoom = 0` they collapse onto a single point). The guard now runs BEFORE anything
+is written and returns, leaving the whole camera at its last good state — strictly less code
+for a guarantee that is actually met. Its test moved with it: it asserts the COMPOSED
+round-trip through Pixi's own `getGlobalPosition()`, not `plate.scale`, because the broken
+version passed a `plate.scale === 1` assertion while failing the property that assertion was
+standing in for. `camera.zoom` is also read ONCE now — it is a recomputing getter, and the
+old code gated the branch on a different read from the one it had already committed to
+`chart.position`.
+### WHAT DID NOT MOVE
+
+`PROTOCOL_VERSION` **47**. Client-only, presentation-only: no `CONFIG` value, no gameplay tunable, no
+wire field, no perception rule, and **no change to what the server discloses** — every plate is drawn
+from a `Contact` the client already legitimately holds, exactly as amendment 22 established for the
+hulls (*"the fog was selling the reveal, never enforcing it"*). Also untouched: which hulls get a
+plate, plate text, colour, latch discipline, `NAME_MAX`, `DRONE_PLATE_TEXT`, `plateScreenY` geometry,
+`updateOwnPlate`, `WORLD_LAYER_ORDER`, `HUD_LAYER_ORDER`, and the relative order of every other chart
+layer. `render/ambient.ts` shares `layers.map` and `layers.ship` on the same stage but adds NOTHING
+to the plate layer, so the home scene renders no plates and the reorder cannot affect it (confirmed,
+not changed).
+
+### NOT VERIFIED BY EYE
+
+No browser session this cycle — the change is pinned by
+`client/src/__tests__/nameplatesAboveTerrain.test.ts` (which round-trips the inverse transform at
+0.26x through 1.5x, under shake, and proves it degrades to identity on a zero or non-finite zoom) and
+by `npm run check` at 5,555 tests. The specific things worth a human look: whether a callsign now
+reads cleanly against the hypsometric contour bands it draws over (it is 14px mono text with no scrim
+— DESIGN.md sanctions `card-scrim` as the fallback if it does not), and whether the plate crowd at
+the omniscient reveal's ~0.26x framing is worse now that terrain no longer hides any of it — the
+mockup's own legend already flagged all-hull nameplates as possible CLUTTER at that zoom, with
+*"killer + wreck only"* recorded as its fallback.

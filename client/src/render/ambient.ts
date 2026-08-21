@@ -135,6 +135,21 @@ function clearLayer(c: Container): void {
  * teardown exists to prevent, arriving silently. Emptying a container the scene
  * never wrote costs one array length check. It takes `StageLayers` rather than a
  * loose record precisely so "every layer" is the TYPE's answer, not this file's.
+ *
+ * ONE LAYER NOW BEHAVES DIFFERENTLY UNDER THIS SWEEP, and the difference is
+ * worth knowing before anyone reorders the boot path. Every other layer's
+ * children are re-created each frame by their renderer, so emptying one is
+ * self-healing; `plate` (added this cycle, when nameplates stopped being their
+ * own stage root) holds Pixi `Text`s owned by a LONG-LIVED `NameplateLayer` map.
+ * Sweeping it while a match is live would destroy those Texts while the map
+ * still holds them — and `has(id)` would keep reporting them present, so they
+ * would never be rebuilt. That cannot happen today: `startGame` calls
+ * `stopAmbient()` BEFORE `buildGame()`, and `makeAmbient`'s `stopped` latch
+ * means a deferred `start()` can never construct a scene after a stop. So the
+ * safety is real but ORDERING-dependent where it used to be structural. The
+ * sweep is deliberately left unconditional rather than growing the curated
+ * carve-out this comment argues against; the structural fix is ledgered in
+ * deferred-work.md.
  */
 export function clearAmbientLayers(layers: StageLayers, fogSprite: Container): void {
   for (const layer of Object.values(layers)) clearLayer(layer);
@@ -284,7 +299,7 @@ export class AmbientScene {
     // drift as well as the fleet (an unscaled dt kept gliding toward a target
     // that never moved again — motion that outlived the setting that forbade it).
     this.camera.update(tick.travelSec, ambientCameraTarget(this.world));
-    applyCamera(this.camera, this.stage.worldRoot, this.stage.chartRoot);
+    applyCamera(this.camera, this.stage.worldRoot, this.stage.chartRoot, this.stage.layers.plate);
     this.chart.update(this.camera.zoom);
     this.drawHulls(tick);
     this.effects.update(tick.dtSec, now, this.wakes);

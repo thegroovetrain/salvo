@@ -1,9 +1,13 @@
 // Truesight nameplates (Story 1.13) — a screen-space callsign label floated
 // above every truesight combatant hull (own ship + contacts). The plates live in
-// their OWN screen-space container (render/stage.ts's plateRoot), NOT as children
-// of the camera-scaled world root or the heading-rotating ShipView.gfx: the text
-// holds a constant hud-micro screen size (mono 9px, 0.18em tracking, uppercase)
-// at any zoom and never tilts with the hull. Each plate is positioned per frame
+// their OWN container (render/stage.ts's `plate` chart layer), NOT as children of
+// the heading-rotating ShipView.gfx: the text holds a constant hud-micro screen
+// size (mono 9px, 0.18em tracking, uppercase) at any zoom and never tilts with
+// the hull. That container is SCREEN-SPACE even though it is seated inside the
+// camera-transformed chart stack — `applyCamera` inverts the chart transform off
+// it every frame — which is what lets a plate sit between `ship` and `aim` (over
+// terrain and hulls, under the reticle) while still being placed in raw screen
+// pixels here. Each plate is positioned per frame
 // at its hull's PROJECTED screen position (the same camera transform the hull
 // gets) and bottom-center anchored above the hull's bounding circle.
 //
