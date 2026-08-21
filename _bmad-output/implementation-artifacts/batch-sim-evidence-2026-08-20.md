@@ -856,3 +856,73 @@ that is *not* the blast radius: `mine.damage` (55), `mine.maxLive` (5) and `mine
 all untested, all ML-only, and none touch the captive trip-ring geometry.
 
 **Then re-confirm at 360 on fresh seeds before believing it.** That is the lesson arm 14 paid for.
+
+## Arm 15 — the candidate at `torpedo.damage` 50 (Eric) — the best configuration measured
+
+Run at **n = 360 on the same seed lattice** as the torpedo-45 confirmation (base 7000019), so the two
+are a like-for-like pair on identical oceans rather than two samples of different ones.
+
+| class | torpedo 45 (n=360) | **torpedo 50 (n=360)** | effect | 95 % CI | significant? |
+|---|---|---|---|---|---|
+| **torpedoBoat** | 30.3 % | **37.3 %** | **+7.0 pp** | +0.2 … +13.9 | **YES** |
+| **mineLayer** | **40.0 %** | **33.1 %** | −6.9 pp | −13.9 … +0.2 | no (just misses) |
+| battleship | 29.7 % | **29.5 %** | −0.2 pp | −6.9 … +6.5 | no |
+
+| | TB | BS | ML | spread | tier | all consistent with band? |
+|---|---|---|---|---|---|---|
+| baseline | 51.9 | 31.7 | 16.4 | **35.6 pp** | ±10 pp | **No** |
+| torpedo 45 | 30.3 | 29.7 | 40.0 | 10.3 pp | ±10 pp | No (ML's CI excludes it) |
+| **torpedo 50** | **37.3** | **29.5** | **33.1** | **7.8 pp** | **±5 pp** | **YES** |
+
+Attrition essentially unchanged, as predicted for a weapon dial: 13.5 / **5.5** / 1.4 against
+10 / 5 / 2.5, median 725 s, 99 % of matches reaching 8:00 and 51 % reaching 12:00. Resolution 359/360
+(one match ended `lastHumanSunk`).
+
+### Why 50 beats 45, and where the share went
+
+**The torpedo dial trades between the Torpedo Boat and the Mine Layer, and leaves the Battleship
+alone.** TB +7.0 pp came almost exactly out of ML (−6.9 pp) while BS moved −0.2 pp. That is the third
+distinct redistribution this cycle has measured from the same dial:
+
+| context | TB | who absorbed it |
+|---|---|---|
+| baseline HP, 506 s matches (arm 2) | −11.4 pp | **Battleship** (+12.8) |
+| doubled HP, 740 s matches (arm 12) | −15.8 pp | **Mine Layer** (+23.1) |
+| doubled HP, 725 s matches (arm 15) | **+7.0 pp** | **Mine Layer** (−6.9) |
+
+**The recipient depends on the surrounding configuration, not on the dial.** Any future reasoning of
+the form "cutting X gives it to Y" has to be re-measured in the config it will ship in — this ledger
+now contains one confident generalisation of that shape that turned out to be wrong (arm 12).
+
+### What this configuration is, and is not
+
+**It is the first configuration in the cycle where all three classes are consistent with the 31–35 %
+band at the ±5 pp tier** — and the tier matters: at ±10 pp that claim was satisfied by a config with a
+15 pp spread, so it meant almost nothing. At ±5 pp it has real content.
+
+**It is not a demonstration that the band is met.** Only the Mine Layer's point estimate (33.1 %) is
+inside it; the Torpedo Boat sits 2.3 pp over and the Battleship 1.5 pp under. Closing that last gap
+needs a dial that trades **TB against BS**, which the torpedo demonstrably is not — it routes through
+the Mine Layer.
+
+**And the honest ceiling:** the skill's own precision ladder tops out at ±3 pp (999 matches), which is
+*wider than the 4 pp band*. So "consistent with the band" is the strongest claim this instrument can
+ever make, and it has now been earned for all three classes. Chasing point estimates below ~2 pp is
+chasing noise.
+
+### The remaining gap, and the dial it needs
+
+TB 37.3 / BS 29.5 is a **7.8 pp spread between two classes the torpedo cannot separate**. The
+Battleship has been the low class in every configuration since HP doubled, and its cause was
+diagnosed rather than guessed: lowest kills in the game despite near-longest life, slowest hull,
+burst weapon on a long reload in fixed beam sectors. It already carries one buff this cycle
+(`broadside.reloadMs` 30 s → 22 s, worth +5 pp).
+
+**Untested and the natural next arm:** a further Battleship lever that does not touch Eric's 4-turret
+design — `broadside.reloadMs` 22 s → 18 s, or the hull's own `kinematics.turnRate` (0.4, the worst in
+the game by a factor of two). Either should trade TB → BS directly. **Re-confirm at 360 on the same
+lattice**, which is now the established protocol for this workstream.
+
+**Attrition remains shape-wrong and untouched by any of this:** 13.5 alive at 4:00 against a target of
+10. The first ring cycle kills 6.5 where it should kill 10; the middle checkpoint is met; the endgame
+then over-corrects to 1.4 against 2.5. No weapon dial moves this — it is the open problem for cycle 2.
