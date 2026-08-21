@@ -196,9 +196,9 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 45→46 bump (PV 46: the INTEL RANGE line is DELETED from BOON_CATALOG — catalog content IS wire contract, so a stale client would render an offer, a copy ladder and a tooltip for a card the server can no longer resolve) is enforced at matchmake', () => {
-  it('rejects pv-45 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(46);
+describe('pv join gate — the 46→47 bump (PV 47: balance cycle 1 doubles hull hp and damage control and retunes the broadside and torpedo — every one is compiled into BOTH sides, so a stale client would predict its own hull with the wrong hp and disagree about time-to-kill) is enforced at matchmake', () => {
+  it('rejects pv-46 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(47);
     expect(protocolVersionError(45)).toMatch(/refresh/);
     expect(protocolVersionError(44)).toMatch(/refresh/);
     expect(protocolVersionError(43)).toMatch(/refresh/);

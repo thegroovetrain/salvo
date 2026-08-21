@@ -209,7 +209,7 @@ describe('shared barrel', () => {
     // wire contract and the client resolves boon ids fail-closed, so a stale
     // client would silently drop the id and disagree with the sim about radar,
     // truesight and every rangeU.
-    expect(PROTOCOL_VERSION).toBe(46);
+    expect(PROTOCOL_VERSION).toBe(47);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -329,13 +329,13 @@ describe('shared barrel', () => {
       arcHalfArcDeg: 60,
       shellSpeed: 500,
       maxAmmo: 1,
-      reloadMs: 30000, // Eric: "lets set the cooldown to 30 seconds"
-      turrets: 3,
+      reloadMs: 18000, // balance cycle 1 (Eric 2026-08-21); was 30000
+      turrets: 4, // balance cycle 1 (Eric 2026-08-20); was 3, max 6 via the ×2 card
       // [DRAFT] fraction of hull length the battery spans (Eric's 2026-08-19
       // turret correction): three separate, evenly-spaced muzzle points across
-      // the midship section, RE-SPACED (never lengthened) at 4 and 5 turrets.
+      // the midship section, RE-SPACED (never lengthened) at 5 and 6 turrets.
       turretSpanFactor: 0.6,
-      damage: 20, // Eric: "lets say 20 damage"
+      damage: 15, // balance cycle 1 (Eric 2026-08-20); was 20 — base alpha held at 4×15 = 60
       burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,
       // RETUNED on Eric's playtest 2026-08-20 (*"the convergence is slightly too

@@ -30,18 +30,38 @@ describe('CONFIG.damageControl — flat on every hull (Eric rulings 2026-08-04)'
     }
   });
 
-  it('the derived regen rate is EXACTLY the ruled 5 hp/s', () => {
-    // THE number the game design was ruled on: the pool pays out at
-    // regenHp / (regenMs/1000) hp per second, and pools ADD at this fixed
-    // rate (two heals run 10s at 5 hp/s, never 5s at 10 hp/s). Pin the
-    // derived rate itself so a retune of either tunable alone trips here.
-    expect(CONFIG.damageControl.regenHp / (CONFIG.damageControl.regenMs / 1000)).toBe(5);
+  it('the derived regen rate is EXACTLY 10 hp/s — DOUBLED with hull hp', () => {
+    // SUPERSEDES the ruled 5 hp/s (Eric 2026-08-04) — balance cycle 1 doubled
+    // `regenHp` 25 → 50 while `regenMs` stayed 5000, so the rate doubled with it.
+    // That is deliberate and it is what was MEASURED: hull hp doubled in the
+    // same pass, so a 5 hp/s pool would have healed half as fast RELATIVE to a
+    // hull, which is the same silent repricing the flat-amount problem caused
+    // for the pool's size. Doubling both holds the heal at the fraction of a
+    // hull it was always worth.
+    //
+    // THE INVARIANT THE OLD RULING WAS REALLY ABOUT IS INTACT: pools still ADD
+    // and never ACCELERATE — two heals run 10s at 10 hp/s, never 5s at 20 hp/s.
+    // What moved is the base rate, not the stacking law.
+    expect(CONFIG.damageControl.regenHp / (CONFIG.damageControl.regenMs / 1000)).toBe(10);
   });
 
-  it('pins the ruled amounts: 25 instant + 25 pooled over 5000ms', () => {
-    expect(CONFIG.damageControl.instantHp).toBe(25);
-    expect(CONFIG.damageControl.regenHp).toBe(25);
+  it('pins the amounts: 50 instant + 50 pooled over 5000ms', () => {
+    expect(CONFIG.damageControl.instantHp).toBe(50);
+    expect(CONFIG.damageControl.regenHp).toBe(50);
     expect(CONFIG.damageControl.regenMs).toBe(5000);
+  });
+
+  it('a heal is worth the SAME FRACTION of every hull it was before the doubling', () => {
+    // The whole reason damageControl moved at all. Amounts are flat by ruling,
+    // so hull hp doubling without them would have cut a heal's relative value
+    // by half on every hull — measured as bots burning levels on heals instead
+    // of boons, worst on the highest-hp hull.
+    const heal = CONFIG.damageControl.instantHp + CONFIG.damageControl.regenHp;
+    const before = { torpedoBoat: 125, battleship: 350 / 2, mineLayer: 150 };
+    for (const [hull, oldHp] of Object.entries(before)) {
+      const nowFrac = heal / CONFIG.shipClasses[hull as keyof typeof CONFIG.shipClasses].hp;
+      expect(nowFrac).toBeCloseTo(50 / oldHp, 10);
+    }
   });
 });
 

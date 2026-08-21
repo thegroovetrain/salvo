@@ -193,9 +193,9 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(Number.isFinite(over.broadside.traverseRad)).toBe(true);
   });
 
-  it('broadsideTurrets adds a shell per card, 3 -> 5, and moves nothing else', () => {
-    expect(effectiveStats(BASE).broadside.turrets).toBe(3);
-    expect(effectiveStats(BASE, stack('broadsideTurrets', 2)).broadside.turrets).toBe(5);
+  it('broadsideTurrets adds a shell per card, 4 -> 6, and moves nothing else', () => {
+    expect(effectiveStats(BASE).broadside.turrets).toBe(4);
+    expect(effectiveStats(BASE, stack('broadsideTurrets', 2)).broadside.turrets).toBe(6);
   });
 
   it('buoyDuration moves the BUOY life only, and its x4 ceiling EXACTLY meets the reload', () => {
@@ -493,13 +493,15 @@ const RELOADS = [
 ] as const;
 
 describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-04)', () => {
-  it('the retuned CONFIG bases are the ruling: gun 5000 ms, broadside 30000 ms', () => {
+  it('the retuned CONFIG bases are the ruling: gun 5000 ms, broadside 18000 ms', () => {
     expect(CONFIG.gun.reloadMs).toBe(5000);
     // The cannon's 45000 (15000 -> 50000 -> 45000, Eric 2026-08-04) left with
-    // the weapon; the BROADSIDE BARRAGE replacing it is 30000 by Eric's own
-    // wave-2 words: *"lets set the cooldown to 30 seconds"*. A max shipCooldown
-    // build lands it at 15s.
-    expect(CONFIG.broadside.reloadMs).toBe(30000);
+    // the weapon. The BROADSIDE BARRAGE replacing it shipped at 30000 (*"lets
+    // set the cooldown to 30 seconds"*) and was RETUNED to 18000 in balance
+    // cycle 1 (Eric ruling 2026-08-21) — the one dial that recovered the
+    // Battleship, measured +5.0pp at 30->22, +2.2pp at 22->20, +3.0pp at
+    // 20->18. A max shipCooldown build now lands it at 9s.
+    expect(CONFIG.broadside.reloadMs).toBe(18000);
   });
 
   it('zero boons: scale is exactly 1 and EVERY reload is REFERENCE-EXACT to its CONFIG base (a true no-op)', () => {
@@ -511,11 +513,11 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     }
   });
 
-  it('ONE stack: scale 0.9 — gun 4500, broadside 27000', () => {
+  it('ONE stack: scale 0.9 — gun 4500, broadside 16200', () => {
     const s = effectiveStats(BASE, stack('shipCooldown', 1));
     expect(s.cooldownScale).toBeCloseTo(0.9, 12);
     expect(s.gun.reloadMs).toBeCloseTo(4500, 9);
-    expect(s.broadside.reloadMs).toBeCloseTo(27000, 9);
+    expect(s.broadside.reloadMs).toBeCloseTo(16200, 9);
   });
 
   it('THE COPY CAP IS 5 and a full stack is EXACTLY 0.5 — the ×5 / 50% ruling pin (Eric 2026-08-04)', () => {
@@ -534,16 +536,16 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     // not merely close. See the tick-count test below for why dust mattered.
     expect(s.cooldownScale).toBe(0.5);
     // ANTI-MULTIPLICATIVE PIN: 0.9^5 = 0.59049 would land gun at 2952.45 ms
-    // and the broadside at 17714.7 ms — the targets are 2500 / 15000 exactly.
+    // and the broadside at 10628.82 ms — the targets are 2500 / 9000 exactly.
     expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 5, 3);
     expect(s.gun.reloadMs).toBe(2500);
-    expect(s.broadside.reloadMs).toBe(15000);
+    expect(s.broadside.reloadMs).toBe(9000);
     expect(s.gun.reloadMs).not.toBeCloseTo(2952.45, 3);
-    expect(s.broadside.reloadMs).not.toBeCloseTo(17714.7, 3);
+    expect(s.broadside.reloadMs).not.toBeCloseTo(10628.82, 3);
     // ALL SEVEN move — one card, every cooldown.
     const expected: Record<string, number> = {
       gun: 2500,
-      broadside: 15000,
+      broadside: 9000,
       torpedo: 15000,
       mine: 7500,
       starShells: 10000,
@@ -553,15 +555,15 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     for (const [name, read] of RELOADS) expect(read(s), name).toBe(expected[name]);
   });
 
-  it('FOUR stacks (one short of the cap, still a reachable state): scale 0.6 — gun 3000, broadside 18000', () => {
+  it('FOUR stacks (one short of the cap, still a reachable state): scale 0.6 — gun 3000, broadside 10800', () => {
     const s = effectiveStats(BASE, stack('shipCooldown', 4));
     expect(s.cooldownScale).toBe(0.6);
-    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3); // 0.6561 would be 3280.5 / 19683
+    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3); // 0.6561 would be 3280.5 / 11809.8
     expect(s.gun.reloadMs).toBe(3000);
-    expect(s.broadside.reloadMs).toBe(18000);
+    expect(s.broadside.reloadMs).toBe(10800);
     const expected: Record<string, number> = {
       gun: 3000,
-      broadside: 18000,
+      broadside: 10800,
       torpedo: 18000,
       mine: 9000,
       starShells: 12000,
@@ -579,23 +581,24 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     // numbers by float dust).
     //
     // Bases retuned 2026-08-04 (weapon balance pass): torpedo 12000 -> 30000,
-    // mine 8000 -> 15000; the broadside's 30000 is Eric's wave-2 ruling.
+    // mine 8000 -> 15000; the broadside's 30000 (Eric's wave-2 ruling) was
+    // RETUNED to 18000 in balance cycle 1 (Eric 2026-08-21).
     //
     // THE ONE IEEE754-DUST CELL IS GONE — and by accident, not by fix. It was
     // `45000 * 0.7 === 31499.999999999996`, and 45000 was the CANNON's base; the
-    // broadside's 30000 multiplies clean at every stack. The rounding this test
+    // broadside's 18000 multiplies clean at every stack. The rounding this test
     // exists to guard is UNCHANGED and still load-bearing (it is what keeps the
     // scale itself off 0.5000000000000001), so the strict-equality table below
     // still fails without it. Noted rather than silently dropped: if a base ever
     // lands back on a dusty product, pin it STRICTLY to the double it actually
     // is — never loosen the cell to a tolerance.
     const table: Record<number, { scale: number } & Record<string, number>> = {
-      0: { scale: 1, gun: 5000, broadside: 30000, torpedo: 30000, mine: 15000, starShells: 20000, boost: 18000, radarBuoy: 30000 },
-      1: { scale: 0.9, gun: 4500, broadside: 27000, torpedo: 27000, mine: 13500, starShells: 18000, boost: 16200, radarBuoy: 27000 },
-      2: { scale: 0.8, gun: 4000, broadside: 24000, torpedo: 24000, mine: 12000, starShells: 16000, boost: 14400, radarBuoy: 24000 },
-      3: { scale: 0.7, gun: 3500, broadside: 21000, torpedo: 21000, mine: 10500, starShells: 14000, boost: 12600, radarBuoy: 21000 },
-      4: { scale: 0.6, gun: 3000, broadside: 18000, torpedo: 18000, mine: 9000, starShells: 12000, boost: 10800, radarBuoy: 18000 },
-      5: { scale: 0.5, gun: 2500, broadside: 15000, torpedo: 15000, mine: 7500, starShells: 10000, boost: 9000, radarBuoy: 15000 },
+      0: { scale: 1, gun: 5000, broadside: 18000, torpedo: 30000, mine: 15000, starShells: 20000, boost: 18000, radarBuoy: 30000 },
+      1: { scale: 0.9, gun: 4500, broadside: 16200, torpedo: 27000, mine: 13500, starShells: 18000, boost: 16200, radarBuoy: 27000 },
+      2: { scale: 0.8, gun: 4000, broadside: 14400, torpedo: 24000, mine: 12000, starShells: 16000, boost: 14400, radarBuoy: 24000 },
+      3: { scale: 0.7, gun: 3500, broadside: 12600, torpedo: 21000, mine: 10500, starShells: 14000, boost: 12600, radarBuoy: 21000 },
+      4: { scale: 0.6, gun: 3000, broadside: 10800, torpedo: 18000, mine: 9000, starShells: 12000, boost: 10800, radarBuoy: 18000 },
+      5: { scale: 0.5, gun: 2500, broadside: 9000, torpedo: 15000, mine: 7500, starShells: 10000, boost: 9000, radarBuoy: 15000 },
     };
     // The table IS the whole reachable ladder — no stack count is untested.
     expect(Object.keys(table)).toHaveLength(BOON_CATALOG.shipCooldown.copies + 1);
@@ -607,10 +610,10 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     // The ruling itself, as strict multiplication identities.
     const full = effectiveStats(BASE, stack('shipCooldown', 5));
     expect(5000 * full.cooldownScale === 2500).toBe(true);
-    expect(30000 * full.cooldownScale === 15000).toBe(true);
+    expect(18000 * full.cooldownScale === 9000).toBe(true);
   });
 
-  it('the tick-count consequence: ammo.ts ticks reloads down in 50ms steps and refills at <= 0 — a 5-stack gun must take EXACTLY 50 ticks (not 51) and broadside 300 (not 301); a 4-stack 60 / 360', () => {
+  it('the tick-count consequence: ammo.ts ticks reloads down in 50ms steps and refills at <= 0 — a 5-stack gun must take EXACTLY 50 ticks (not 51) and broadside 180 (not 181); a 4-stack 60 / 216', () => {
     // Inlined ammo.ts loop shape (server/src/game/equipment/ammo.ts) — do not
     // import server code into a shared test.
     const ticksToRefill = (reloadMs: number): number => {
@@ -624,17 +627,17 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     };
     const capped = effectiveStats(BASE, stack('shipCooldown', 5));
     expect(ticksToRefill(capped.gun.reloadMs)).toBe(50);
-    expect(ticksToRefill(capped.broadside.reloadMs)).toBe(300);
+    expect(ticksToRefill(capped.broadside.reloadMs)).toBe(180);
     const four = effectiveStats(BASE, stack('shipCooldown', 4));
     expect(ticksToRefill(four.gun.reloadMs)).toBe(60);
-    expect(ticksToRefill(four.broadside.reloadMs)).toBe(360);
+    expect(ticksToRefill(four.broadside.reloadMs)).toBe(216);
     // The dust cell this test used to prove behaviourally inert (the 3-stack
     // cannon, 45000 * 0.7 = 31499.999999999996) left with the weapon. The
     // 3-stack broadside is clean, and pinned so a base retune that reintroduces
     // dust shows up as a TICK COUNT rather than only as a decimal.
     const three = effectiveStats(BASE, stack('shipCooldown', 3));
-    expect(three.broadside.reloadMs).toBe(21000);
-    expect(ticksToRefill(three.broadside.reloadMs)).toBe(420);
+    expect(three.broadside.reloadMs).toBe(12600);
+    expect(ticksToRefill(three.broadside.reloadMs)).toBe(252);
   });
 
   it('the scale reaches EVERY equipment: no reload is left at its base after a full stack', () => {

@@ -252,6 +252,11 @@ development_status:
   #     subdeck 9->5, decks 41->37; base holds at 660 and the intel category
   #     survives (two Eric rulings); the eighths ladder is now frozen for every
   #     observer. A31. Full record: spec-remove-intel-range-card.md. PV 45->46.
+  #   cycle 122 (0.17.122) — BALANCE CYCLE 1 (Eric rulings, /balance-sim): hull hp
+  #     DOUBLED (250/350/300) + damageControl 25->50 both, broadside 3x20@30s ->
+  #     4x15@18s, torpedo 70->50. Class spread 35.6pp -> 2.8pp with all three in
+  #     band; attrition 8:00 met. Client toughness pip ladder doubles to 200/50.
+  #     Full record: batch-sim-evidence-2026-08-20.md. PV 46->47.
   7-6-design-and-doc-reconciliation: backlog
   7-7-frontend-backend-split-and-versioning: backlog
   7-8-the-release-gate: backlog

@@ -77,7 +77,7 @@ export const CONFIG = {
   shipClasses: {
     torpedoBoat: {
       hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
-      hp: 125, // hit points — objective toughness ladder: 1 pip=100hp, +25/pip (Eric ruling 2026-08-03); 2 pips
+      hp: 250, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 2 pips
       kinematics: {
         maxSpeed: 45, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 15, // u/s — full-astern (magnitude)
@@ -89,7 +89,7 @@ export const CONFIG = {
     },
     battleship: {
       hull: { length: 124, beam: 32 }, // u
-      hp: 175, // hit points — objective toughness ladder: 1 pip=100hp, +25/pip (Eric ruling 2026-08-03); 4 pips
+      hp: 350, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 4 pips
       kinematics: {
         maxSpeed: 35, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 9, // u/s — full-astern (magnitude)
@@ -101,7 +101,7 @@ export const CONFIG = {
     },
     mineLayer: {
       hull: { length: 88, beam: 20 }, // u
-      hp: 150, // hit points — objective toughness ladder: 1 pip=100hp, +25/pip (Eric ruling 2026-08-03); 3 pips
+      hp: 300, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 3 pips
       kinematics: {
         maxSpeed: 40, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 14, // u/s — full-astern (magnitude)
@@ -1165,7 +1165,11 @@ export const CONFIG = {
     // in Story 7-5 wave 1: Eric took damage bonuses off both the gun and the
     // torpedo), so 70 is now the fish's damage at every build, with no ladder
     // above it to bound.
-    damage: 70,
+    // BALANCE CYCLE 1 (Eric ruling 2026-08-21): 70 → 50. Measured at n=360 on an
+    // even roster, the torpedo is the dial that trades the Torpedo Boat against
+    // the Mine Layer — 50 put TB at 33.3 % and ML at 31.9 %, where 45 overshot
+    // (ML 40.0 %) and 60 undershot (TB 46.1 %). It does NOT move the Battleship.
+    damage: 50,
     maxAmmo: 1, // one fish in the tube pool
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
@@ -1357,8 +1361,20 @@ export const CONFIG = {
     arcHalfArcDeg: 60,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     maxAmmo: 1, // one barrage in the pool — presented as a pure cooldown
-    reloadMs: 30000, // ms — cooldown between barrages (Eric: "lets set the cooldown to 30 seconds")
-    turrets: 3, // shells per barrage at base; BROADSIDE TURRETS ×2 takes it to 5
+    // ms — cooldown between barrages. BALANCE CYCLE 1 (Eric ruling 2026-08-21):
+    // 30000 → 18000, superseding *"lets set the cooldown to 30 seconds"*. This is
+    // the dial that recovered the Battleship, and it is the ONLY one that moved
+    // it: measured +5.0 pp at 30→22, +2.2 pp at 22→20 and +3.0 pp at 20→18, and
+    // the alternative (a turnRate buff, worth +2.5 pp) was tested and SCRAPPED in
+    // favour of buying the same ground here, so `kinematics` stays untouched.
+    reloadMs: 18000,
+    // shells per barrage at base; BROADSIDE TURRETS ×2 takes it to 6.
+    // BALANCE CYCLE 1 (Eric ruling 2026-08-20): 3 → 4, paired with damage 20 → 15
+    // below. Base alpha is UNCHANGED at 60 (3×20 = 4×15); a maxed barrage falls
+    // 100 → 90. Measured balance-neutral on its own — a denser fan wastes less of
+    // the barrage as overkill (damage −1.9 %, kills +6.7 %) without moving win
+    // share — so it ships as a FEEL change that costs nothing elsewhere.
+    turrets: 4,
     /**
      * [DRAFT] The BATTERY'S ALONG-HULL SPAN, as a fraction of hull length —
      * Eric's correction 2026-08-19: *"It is supposed to be three separate,
@@ -1379,7 +1395,10 @@ export const CONFIG = {
      * 18.6u apart). DRAFT — Eric tunes it on the water.
      */
     turretSpanFactor: 0.6,
-    damage: 20, // hp per burst victim, per shell (Eric: "lets say 20 damage")
+    // hp per burst victim, per shell. BALANCE CYCLE 1 (Eric ruling 2026-08-20):
+    // 20 → 15, superseding *"lets say 20 damage"* — the paired half of turrets
+    // 3 → 4 above, which holds base barrage alpha at exactly 60.
+    damage: 15,
     // u — blast radius around each shell's own point. DRAFT (the gun's own
     // burstRadius): Eric ruled the shells "burst like the gun" without naming
     // a radius, so the gun's number is the handwave until it is tuned.
@@ -1642,8 +1661,15 @@ export const CONFIG = {
    * DESIGN TARGET, tunable.
    */
   damageControl: {
-    instantHp: 25, // hp restored immediately at spend time (clamped to maxHp)
-    regenHp: 25, // hp added to the regen pool per heal spend
+    // BALANCE CYCLE 1 (Eric ruling 2026-08-20): both 25 → 50, DOUBLED IN STEP
+    // WITH HULL HP. These amounts are FLAT by ruling, so doubling hull HP without
+    // them silently reprices every heal — measured: a heal fell from ~33 % of an
+    // average hull to ~20 %, bots burned levels topping up instead of fitting
+    // boons (Battleship boons 2.27 → 1.95 while its levels ROSE), and the
+    // highest-HP hull paid most. Doubling both holds a heal at the same fraction
+    // of every hull it was worth before, and boons recovered past baseline.
+    instantHp: 50, // hp restored immediately at spend time (clamped to maxHp)
+    regenHp: 50, // hp added to the regen pool per heal spend
     regenMs: 5000, // ms — payout time of one regenHp pool (the 5 hp/s rate)
   },
 

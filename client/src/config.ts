@@ -994,7 +994,12 @@ export const CLIENT_CONFIG = {
      *  everywhere it's shown. */
     pip: {
       speed: { base: 30, step: 5 }, // knots (numerically = u/s per the 2026-07-21 knot-realistic rescale) — 1 pip = 30kn, +5kn/pip
-      toughness: { base: 100, step: 25 }, // hull hp — 1 pip = 100hp, +25hp/pip
+      // hull hp — 1 pip = 200hp, +50hp/pip. DOUBLED WITH HULL HP in balance
+      // cycle 1: the ladder is absolute, and `pipFill` clamps at 5, so leaving
+      // it at 100/25 while hulls doubled would have rendered ALL THREE at a
+      // clamped 5 pips and erased the readout's whole point. Doubling both
+      // reproduces the shipped 2 / 3 / 4 exactly (TB 250, ML 300, BS 350).
+      toughness: { base: 200, step: 50 },
       turning: { base: 0.2, step: 0.2 }, // rad/s — 1 pip = 0.2 rad/s, +0.2/pip
     },
 

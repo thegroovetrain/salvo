@@ -56,9 +56,14 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // plus the three contact-like channels (contact/mine/litzone) and the
 // spectator frame. (`decoy` left with the decoy buoy — Story 7-5 wave 2; the
 // RADAR BUOY's `buoys` channel joins this list when the buoy is built.)
+// BALANCE CYCLE 1 ADDED 'sm' — and it was the doubling that added it, not a
+// perception change. Hull hp doubled while the fixture's ordnance did not, so
+// hits that used to sink a hull outright now leave it ALIVE and inside the
+// wounded damage band, which is exactly when wounded smoke emits. The battery
+// therefore covers one channel MORE than before; nothing was lost.
 const EXPECTED_CHANNELS = [
   'blip', 'bn', 'boom', 'burst', 'contact', 'denied', 'dmg', 'hc', 'heal', 'litzone',
-  'mine', 'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
+  'mine', 'mz', 'pt', 'shell', 'sm', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU', 'wk',
 ];
 
 // Targeted sub-cases the APPENDED scenarios (island LOS, non-owner + spectator
@@ -978,6 +983,12 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // Every surviving scenario's frames are otherwise unchanged — the equipment
   // swap does not touch the fixture's hulls (TB/ML), and the reload timers
   // visible in `you.ammo` are the ones those hulls already carried.
+  // REGENERATED KNOWINGLY AGAIN IN BALANCE CYCLE 1. The diff is 118 lines and
+  // every one of them is the hp doubling propagating into the frames (125→250,
+  // 150→300 on the fixture's TB/ML hulls) plus the 'sm' emissions that follow
+  // from hulls now surviving wounded where they used to sink. No perception
+  // rule moved, no channel was lost, and no scenario was retired — verified by
+  // reading the diff rather than by trusting the update flag.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });
