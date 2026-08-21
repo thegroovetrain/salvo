@@ -184,26 +184,26 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
 
   it('pins the 20-hue Regatta wheel, all values unique', () => {
     expect(C.players).toEqual({
-      lemon: 0xfff04d,
-      chartreuse: 0xc8e619,
-      olive: 0x7a9b0f,
-      lime: 0x7fe03a,
-      green: 0x23b123,
-      spring: 0x37f2d8,
-      jade: 0x0b9e8f,
-      aqua: 0x40e4ee,
-      cyan: 0x00d0ff,
-      lagoon: 0x0e7fa0,
-      sky: 0x6fc7ff,
-      azure: 0x0f6fd6,
-      cobalt: 0x5468ff,
-      periwinkle: 0x96a6ff,
-      iris: 0xa66bff,
-      orchid: 0xc026d3,
-      fuchsia: 0xe14dff,
-      magenta: 0xff4fd8,
-      mulberry: 0xb01772,
-      rose: 0xff85b3,
+      lemon: 0xa1960d,
+      chartreuse: 0x778b0a,
+      olive: 0x5da20d,
+      lime: 0x11b519,
+      green: 0x12b563,
+      spring: 0x10a981,
+      jade: 0x0d9582,
+      aqua: 0x12adb3,
+      cyan: 0x0e97ab,
+      lagoon: 0x11a5d7,
+      sky: 0x0c8ac4,
+      azure: 0x0c86ea,
+      cobalt: 0x5c8efd,
+      periwinkle: 0x6c6ffd,
+      iris: 0x977afd,
+      orchid: 0xad58fd,
+      fuchsia: 0xd022fd,
+      magenta: 0xe312d9,
+      mulberry: 0xef11b2,
+      rose: 0xf8118d,
     });
     const values = Object.values(C.players);
     expect(values).toHaveLength(20);
@@ -220,28 +220,28 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     });
   });
 
-  it('pins playerFills — 12 DESIGN-verbatim + 8 rule-derived, in wheel order', () => {
+  it('pins playerFills — all 20 rule-derived, in wheel order', () => {
     expect(C.playerFills).toEqual({
-      lemon: 0x736c23,
-      chartreuse: 0x5a680b,
-      olive: 0x374607,
-      lime: 0x39651a,
-      green: 0x105010,
-      spring: 0x196d61,
-      jade: 0x054740,
-      aqua: 0x1d676b,
-      cyan: 0x005e73,
-      lagoon: 0x063948,
-      sky: 0x325a73,
-      azure: 0x073261,
-      cobalt: 0x262f73,
-      periwinkle: 0x444b73,
-      iris: 0x4b3073,
-      orchid: 0x56115f,
-      fuchsia: 0x652373,
-      magenta: 0x732461,
-      mulberry: 0x4f0a33,
-      rose: 0x733c51,
+      lemon: 0x484406,
+      chartreuse: 0x363f05,
+      olive: 0x2a4906,
+      lime: 0x08510b,
+      green: 0x08512d,
+      spring: 0x074c3a,
+      jade: 0x06433b,
+      aqua: 0x084e51,
+      cyan: 0x06444d,
+      lagoon: 0x084a61,
+      sky: 0x053e58,
+      azure: 0x053c69,
+      cobalt: 0x294072,
+      periwinkle: 0x313272,
+      iris: 0x443772,
+      orchid: 0x4e2872,
+      fuchsia: 0x5e0f72,
+      magenta: 0x660862,
+      mulberry: 0x6c0850,
+      rose: 0x70083f,
     });
     const values = Object.values(C.playerFills);
     expect(values).toHaveLength(20);
@@ -250,17 +250,19 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     expect(Object.keys(C.playerFills)).toEqual(Object.keys(C.players));
   });
 
-  it('derives the 8 undocumented fills by the HSV value ×0.45 rule (round per channel)', () => {
-    // The 12 DESIGN pairs sit at ~0.451 (NOT recomputable); only these 8 follow the
-    // exact V×0.45 rule. Scaling all gamma-encoded sRGB channels by 0.45 IS an HSV
-    // V-scale (H/S preserved) — Math.round(channel × 0.45) on the stored sRGB
-    // bytes, NOT on linear-light values.
+  it('derives EVERY fill by the HSV value ×0.45 rule (round per channel)', () => {
+    // Was 8 of 20: the other 12 were hand-authored DESIGN.md pairs sitting at
+    // ~0.451 and explicitly NOT recomputable. Cycle 125 regenerated the whole
+    // wheel, so no hand-authored pair survives and ONE rule now covers the
+    // table — which makes this a complete check rather than a spot check.
+    // Scaling all gamma-encoded sRGB channels by 0.45 IS an HSV V-scale (H/S
+    // preserved) — Math.round(channel × 0.45) on the stored sRGB bytes, NOT on
+    // linear-light values.
     const scale045 = (hex: number): number => {
       const ch = (shift: number): number => Math.round(((hex >> shift) & 0xff) * 0.45);
       return (ch(16) << 16) | (ch(8) << 8) | ch(0);
     };
-    const derived = ['chartreuse', 'olive', 'green', 'jade', 'lagoon', 'sky', 'periwinkle', 'mulberry'] as const;
-    for (const name of derived) {
+    for (const name of Object.keys(C.players) as (keyof typeof C.players)[]) {
       expect(C.playerFills[name], name).toBe(scale045(C.players[name]));
     }
   });

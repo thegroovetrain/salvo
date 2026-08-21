@@ -50,26 +50,33 @@ colors:
   drone-outline: '#9AA3B2'
   drone-fill: '#454950'
   # Regatta Hoist personal colors (20 combatant hues; outline values)
-  player-lemon: '#FFF04D'
-  player-chartreuse: '#C8E619'
-  player-olive: '#7A9B0F'
-  player-lime: '#7FE03A'
-  player-green: '#23B123'
-  player-spring: '#37F2D8'   # shifted off phosphor band per validation (was #37F2A0)
-  player-jade: '#0B9E8F'     # shifted off phosphor band per validation (was #0B9E72)
-  player-aqua: '#40E4EE'     # shifted off phosphor band per validation (was #40EEE0)
-  player-cyan: '#00D0FF'
-  player-lagoon: '#0E7FA0'
-  player-sky: '#6FC7FF'
-  player-azure: '#0F6FD6'
-  player-cobalt: '#5468FF'
-  player-periwinkle: '#96A6FF'
-  player-iris: '#A66BFF'
-  player-orchid: '#C026D3'
-  player-fuchsia: '#E14DFF'
-  player-magenta: '#FF4FD8'
-  player-mulberry: '#B01772'
-  player-rose: '#FF85B3'
+  # REGENERATED 2026-08-21 (Eric ruling, cycle 125): one constant perceptual
+  # lightness (OKLCH L 0.60-0.68) instead of the old 33%-79% zigzag, hues placed
+  # by search inside the SAME reserved-band-safe arc, chroma at the sRGB gamut
+  # edge. The names are lookup keys and are NOT rendered anywhere, so they are
+  # kept for wire-order stability rather than as colour descriptions - several
+  # no longer describe their value. Generated, not hand-picked; see epic-7
+  # amendment 37 for the method and the acceptance numbers.
+  player-lemon: '#A1960D'
+  player-chartreuse: '#778B0A'
+  player-olive: '#5DA20D'
+  player-lime: '#11B519'
+  player-green: '#12B563'
+  player-spring: '#10A981'
+  player-jade: '#0D9582'
+  player-aqua: '#12ADB3'
+  player-cyan: '#0E97AB'
+  player-lagoon: '#11A5D7'
+  player-sky: '#0C8AC4'
+  player-azure: '#0C86EA'
+  player-cobalt: '#5C8EFD'
+  player-periwinkle: '#6C6FFD'
+  player-iris: '#977AFD'
+  player-orchid: '#AD58FD'
+  player-fuchsia: '#D022FD'
+  player-magenta: '#E312D9'
+  player-mulberry: '#EF11B2'
+  player-rose: '#F8118D'
 typography:
   display: { fontFamily: 'Geist', fontWeight: 700 }
   body: { fontFamily: 'Geist', fontSize: '16px', fontWeight: 400 }
@@ -150,7 +157,7 @@ Functional color is restrained for **HUD chrome only** — the hex-era locked pa
 
 The locked 2026-07-16 mocks render on the `void`/`panel` surface family; where the v0.16 import's `#111111`/`#232937` surfaces conflict, the locked mocks win — treat the import surfaces as deprecated.
 
-**Contrast:** `text-primary` on `void` ≈ 15:1; `phosphor` and `amber` on `void` both > 9:1. `text-muted` on `void` ≈ 4.5:1 (lightened per validation) — labels/captions only, uppercase mono ≥ 9px, never body copy or load-bearing numbers. Every Regatta hue must hold ≥ 3:1 against `void` as a **graphic** (blips, hulls); wherever a personal color renders as **text** (kill feed, results, nameplates), it renders as a **lightened text-safe variant meeting ≥ 4.5:1** — the `storm`→`storm-readout` pattern applied per hue (Mulberry, Azure, Orchid, Lagoon fail as raw text). The exact per-hue variant table is an Open Question; the mechanism is not.
+**Contrast:** `text-primary` on `void` ≈ 15:1; `phosphor` and `amber` on `void` both > 9:1. `text-muted` on `void` ≈ 4.5:1 (lightened per validation) — labels/captions only, uppercase mono ≥ 9px, never body copy or load-bearing numbers. Every Regatta hue must hold ≥ 3:1 against `void` as a **graphic** (blips, hulls); wherever a personal color renders as **text** (kill feed, results, nameplates), it renders as a **lightened text-safe variant meeting ≥ 4.5:1** — the `storm`→`storm-readout` pattern applied per hue. (Since the cycle-125 regeneration every hue already clears 4.5:1 unaided — min 5.10 — so `textSafe` is currently a no-op for all twenty; the mechanism is kept because it is what guarantees the bar, not because any hue needs it today. The pre-125 wheel had four that did: Mulberry, Azure, Orchid, Lagoon.) The exact per-hue variant table is an Open Question; the mechanism is not.
 
 ### Regatta Hoist — personal combatant colors
 
@@ -233,7 +240,7 @@ Visual specs; behavior lives in EXPERIENCE.md · Component Patterns. Mocks: [hot
 | **Aggro Bracket** | {components.aggro-bracket}: angular bracket (four L-shaped corner ticks) framing a PvE fleet chevron that has acquired **you** — self-private, fleet hulls only (Story 5.6, Eric ruling 2026-08-14, amendment 39: *"very visually obvious it has aggro'd you... and very visually obvious if it de-aggro's you"*). Dual-coded by **shape alone** (bracket present/absent) — `DESIGN.md:162` puts threat/state on the dual-coding floor and drones are locked greyscale, so color can't carry this; rendered in {colors.amber} (the existing armed/warning register — no new color token invented). **On acquire:** snaps on + one amber flash (`.2` wash, full outline, bloom, **300ms** — deliberately NOT the Hotbar Slot's ≤80ms Activated-flash grammar: that's grammar for a UI element you're already looking at, while this marks a world-space hull that can be anywhere in the sight bubble, including its edge, and must survive peripheral vision) + an audio sting. **While held:** static outline — deliberately not animated (a pulse would need Story 4.8 attention-tier arbitration and spend photosensitivity budget, the same argument that keeps the kill-leader glow static). **On release (3s LOS-loss memory expires):** the bracket visibly breaks at its four corners and fades over ~400ms + a distinct, softer descending cue. At `motionIntensity: off`, the flash and fade are skipped — snap on / snap off, no information lost. |
 | **Telegraph Cluster** | Bottom-right group: HDG/KTS readouts (mono 22px, unit suffixes muted), rudder track (110px, silver hairline, amber position tick), 9-detent telegraph ladder (FULL…STOP…FULL rungs, phosphor ordered-rung marker, amber actual-speed needle, AHEAD/ASTERN captions mono 9px). Ordered vs actual is shape-coded: **marker = hollow rung outline, needle = solid pointer** — never color alone. W/S key glyphs sit at the ladder ends and A/D at the rudder track extremes, visible in the weapons-safe room and fading permanently after the first few successful inputs (component anatomy, not a coach mark). Restyled to Afterimage linework — no panel. |
 | **BR Chrome Bar** | One restrained mono row, top-center: `12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES 0:47 · ☠︎ NAME`. Numbers phosphor, labels muted. Ring readout pulses {colors.amber} at **1 Hz** in the final 10s. The kill-leader segment (Story 4.6, Eric ruling 2026-08-10, reworded same-day) is OPTIONAL — omitted whole, separator included, while the throne is vacant — and is the first segment to carry a PER-PLAYER HUE rather than phosphor/muted/amber; the skull mark (`☠︎`, U+2620+U+FE0E) rides the name segment itself rather than a separate label (the originally-shipped `BOUNTY: ` label is retired). |
-| **Kill Feed** | Top-right, right-aligned, mono 14px uppercase, max 5 lines / 6s TTL. Vessel names 600-weight in their personal colors' **lightened text-safe variants** (raw hues fail 4.5:1 for four picks; variant table = Open Question); connective text ("SUNK BY") {colors.text-secondary}; drone names {colors.drone-outline}. Callsigns cap at 14 chars at entry (ratified 2026-07-23, Story 1.13); longer legacy names mid-ellipsize in the feed. If playtests confirm feed-vs-blip confusion in the NE quadrant, the per-line dark-glass scrim ({colors.card-scrim}) is the sanctioned fallback. **Kill leader mark** (Story 4.6, Eric ruling 2026-08-10): a skull (`☠︎`, U+2620+U+FE0E) rides the kill leader's name segment wherever it appears — as killer or victim — inheriting that segment's text-safe hue and 600 weight; the leader's name additionally carries a STATIC (never breathing/pulsing) `text-shadow` at 10px/.4 alpha in its own hue, per Eric's "highlight the kill leader's name somehow, like it glows faintly" — radius and alpha sourced from the Hotbar Slot's Ready-Weapon glow row above (phosphor `.4` outline + 10px glow), not invented fresh. A drone name never carries the mark or the glow. |
+| **Kill Feed** | Top-right, right-aligned, mono 14px uppercase, max 5 lines / 6s TTL. Vessel names 600-weight in their personal colors' **lightened text-safe variants** (no raw hue fails 4.5:1 since the cycle-125 regeneration, so the lift is currently inert; variant table = Open Question); connective text ("SUNK BY") {colors.text-secondary}; drone names {colors.drone-outline}. Callsigns cap at 14 chars at entry (ratified 2026-07-23, Story 1.13); longer legacy names mid-ellipsize in the feed. If playtests confirm feed-vs-blip confusion in the NE quadrant, the per-line dark-glass scrim ({colors.card-scrim}) is the sanctioned fallback. **Kill leader mark** (Story 4.6, Eric ruling 2026-08-10): a skull (`☠︎`, U+2620+U+FE0E) rides the kill leader's name segment wherever it appears — as killer or victim — inheriting that segment's text-safe hue and 600 weight; the leader's name additionally carries a STATIC (never breathing/pulsing) `text-shadow` at 10px/.4 alpha in its own hue, per Eric's "highlight the kill leader's name somehow, like it glows faintly" — radius and alpha sourced from the Hotbar Slot's Ready-Weapon glow row above (phosphor `.4` outline + 10px glow), not invented fresh. A drone name never carries the mark or the glow. |
 | **Listening Ring** | Dashed compass rose around own ship (~half truesight radius visually): 48 dash-pips + cardinal ticks, phosphor. Segments light toward noise, brightness ∝ loudness/closeness — **pure intensity grammar: more/closer = brighter.** The ring is deliberately source-ambiguous (informed design intent, triage 2026-07-16) — it never encodes what a noise is, only where and how loud; sight is the confirmation channel (torpedoes and mines are confirmed visually in truesight). Bright pip surges are a Tier 1 threat channel (EXPERIENCE · attention priority). |
 | ~~**Bounty Bloom**~~ | **RETIRED 2026-08-10 (Story 4.6, Eric ruling)** — no radar paint, bloom, ring, bearing, range, or area disclosure of the kill leader ships, ever; the bounty is presented only via the BR Chrome Bar's BOUNTY segment above, the kill feed, and a self-only toast/tone. ~~Radar-layer event (GDD E6 #47): the kill leader periodically blooms on every player's radar — an expanding ring in the leader's personal color (1px→3px, ~2s decay [PROPOSAL]) around their class blip at true position. The only radar paint not born of your own sweep — a sanctioned fog exception, visually distinct from sweep paints by the expanding-ring treatment.~~ |
 | **Torpedo (on-water)** | Promoted from the composite mock per validation: {colors.torpedo} hull dash + wake astern; **materialization** = pale boundary rings at the sighting point as the torpedo enters visible range — the treatment that makes pips→sight read as one continuous event. Mines render in the owner's personal hue at truesight (Regatta propagation — Eric ruling 2026-07-23, Story 1.12). |
