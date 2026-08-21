@@ -410,3 +410,263 @@ is untouched on this branch.
 | feel of a 64 u mine blast | **unmeasurable here** — needs a playtest |
 | whether bot attrition over-states human attrition | **unmeasurable here** — needs a playtest |
 | per-line boon pick breakdown | **harness gap** — `aggregate.picks` is a Summary, so "what do bots actually build" is still unanswerable |
+
+## Arm 4 — global hull HP +50 % (TB 125→188, BS 175→263, ML 150→225), 180 matches
+
+**This is the attrition lever. It is also a correction to the hypothesis in the section above.**
+
+### Attrition — the first arm to move the curve at all
+
+| checkpoint | baseline | arm 4 | target | matches reaching (base → arm) |
+|---|---|---|---|---|
+| 4:00 | 7.8 | **11.1** | 10 | 100 % → 100 % |
+| 8:00 | 1.8 | **4.0** | 5 | 61 % → **95 %** |
+| 12:00 | 0.2 | **1.0** | 2.5 | 11 % → **42 %** |
+| median duration | 506 s | **668 s (+32 %)** | — | — |
+
+Mean life rose on every hull (BS 203→271, ML 243→347, TB 225→295). **Alive @ 4:00 now slightly
+overshoots the target**, @ 8:00 lands at 4.0 against 5, and @ 12:00 is still short — but the third
+cycle went from essentially never happening (11 % of matches) to happening in **42 %**, so it is
+becoming measurable rather than hypothetical.
+
+### Win share
+
+| class | baseline | arm | effect | 95 % CI | significant? |
+|---|---|---|---|---|---|
+| torpedoBoat | 51.9 % | 43.9 % | −8.1 pp | −17.0 … +0.8 | no |
+| battleship | 31.7 % | 26.1 % | −5.6 pp | −13.6 … +2.5 | no |
+| **mineLayer** | 16.4 % | **30.0 %** | **+13.6 pp** | +5.9 … +21.3 | **YES** |
+
+### CORRECTION: "lethality dials do not control match length" was too broad
+
+The section above generalised from three arms — `gun.damage`, `torpedo.damage`, `mine.blastRadius` —
+that all moved duration by ≤ 6 %, and concluded that **encounter rate** rather than lethality must be
+the binding constraint on match length. **Arm 4 shows that conclusion was wrong, or at least
+premature.** Hull HP is a pure time-to-kill lever and it moved median duration **+32 %**, five times
+anything before it.
+
+The honest explanation is narrower and does not need a new mechanism: **the first three dials were
+each too narrow.** Every one touched a single weapon, and no single weapon is most of the damage in
+this game — the gun, the torpedo, the mine and the broadside all contribute, so cutting one by ~30 %
+cuts total lethality by far less, and bots partly compensate by firing more. HP scales against *every*
+damage source simultaneously, which is why it is the first dial to actually bite.
+
+**The `map.baseRadius` arm is still queued and still worth running**, because encounter rate remains
+an untested independent lever — but it is no longer the leading explanation, and it should not be
+described as such.
+
+### And it confirms the ML/pacing coupling that arm 1 failed to test
+
+The baseline section proposed that the Mine Layer is weak *partly because matches end before its win
+condition arrives*. Arm 1 appeared to refute it (ML −0.7 pp) — but arm 1 moved duration only 6 %, so
+it never actually tested the claim, which was flagged at the time.
+
+Arm 4 moved duration 32 % and **ML gained +13.6 pp, the only significant class effect in the arm.**
+That is the coupling, measured: **give the Mine Layer a longer match and it converts.** Targets 1 and
+2 are not independent problems for this hull.
+
+**Resulting split 43.9 / 30.0 / 26.1** — spread 17.8 pp, better than baseline's 35.5 but worse than
+arm 3's 12.3 pp. TB remains the outlier in every arm run so far.
+
+**Untested and now the obvious candidate: `mine.blastRadius` 64 AND global HP +50 % together.** Arm 3
+fixes the spread, arm 4 fixes the pacing, and both independently help ML. Whether they compose or
+double-count on ML is exactly the kind of thing that must be measured rather than assumed.
+
+## Arm 5 — the broadside redesign (Eric's request): 4 turrets → 6, 15 dmg/shell
+
+**Eric, 2026-08-20:** *"making the broadside start with 4 guns and go up to 6 through upgrades, but
+only does 15 damage per projectile (instead of 20)."*
+
+Expressible as exactly **two** dials — `broadside.turrets` 3 → 4 and `broadside.damage` 20 → 15 —
+because `broadsideTurrets` is a rare ×2 card at +1 each, so a base of 4 yields a maxed 6 for free with
+no card change. **Base barrage alpha is unchanged at 60** (3×20 → 4×15); a maxed barrage falls
+100 → 90. The two dials move together as one design, so their individual contributions are **not**
+separable from this arm.
+
+| class | baseline | arm | effect | 95 % CI | significant? |
+|---|---|---|---|---|---|
+| torpedoBoat | 51.9 % | 51.1 % | −0.8 pp | −9.8 … +8.1 | no |
+| battleship | 31.7 % | 30.0 % | −1.7 pp | −9.9 … +6.6 | no |
+| mineLayer | 16.4 % | 18.9 % | +2.5 pp | −4.4 … +9.4 | no |
+
+Attrition: median 506 → 505 s. Battleship mean life 202.6 → 201.4 s. **Nothing moved.**
+
+### The weapon DID change — the change just does not reach win share
+
+| battleship, per bot-match | baseline | arm 5 |
+|---|---|---|
+| damage dealt | 460.08 | **451.44** (−1.9 %) |
+| kills | 0.89 | **0.95** (+6.7 %) |
+| shots | 48.49 | 48.16 |
+| damage per shot | 9.49 | 9.37 |
+
+**Slightly less damage, slightly more kills** — which is exactly the consistency-for-spike trade the
+design predicts. A denser fan of weaker shells lands *some* shells more often, so less of the barrage
+is wasted as overkill on a hull that was already dying, and more of it arrives as a finishing blow.
+The effect is real and in the predicted direction; it is simply far too small to move a win share.
+
+### Reading: this is a FREE design change, not a fix
+
+It costs nothing in balance terms — every class effect is inside noise, pacing is untouched, and the
+Battleship's standing is statistically identical. **So if Eric wants 4→6 at 15 for feel, the evidence
+says he can have it without paying for it elsewhere.** What it will not do is help with either target.
+
+Two caveats worth keeping: bots may under-exploit the consistency gain (they do not choose engagements
+the way a human does, so a more reliable weapon is worth more in human hands than this measures), and
+the **maxed** case is where the change actually bites — 6×15 = 90 against 5×20 = 100 — which no arm
+here isolates, because only some bots reach a full turret stack.
+
+## Arm 6 — `mine.placeHalfArcDeg` 60 → 180 — MY HYPOTHESIS, REFUTED
+
+| class | baseline | arm | effect | 95 % CI | significant? |
+|---|---|---|---|---|---|
+| torpedoBoat | 51.9 % | 53.9 % | +1.9 pp | −7.0 … +10.9 | no |
+| battleship | 31.7 % | 31.7 % | +0.0 pp | −8.3 … +8.3 | no |
+| **mineLayer** | 16.4 % | **14.4 %** | **−1.9 pp** | −8.3 … +4.5 | no |
+
+Median duration 506 → 494 s. **The Mine Layer did not improve — it drifted slightly the wrong way.**
+
+**This refutes the structural claim made earlier in this entry.** The baseline section argued that the
+mine's rear-only placement sector (`offset` 180°, ±60°) was the binding constraint on ML — a
+counter-punch weapon that only pays when you are chased. Opening placement to the **full circle**
+should have released exactly that, and it did nothing.
+
+**What the refutation leaves standing, and what it points at.** Widening the *arc* without widening the
+*range* is a smaller change than it sounds: `placeRange` is 150 u, so a Mine Layer can now mine its own
+forward path but still cannot put a trap on anybody else's water. The ability to *project* a mine was
+never granted, so "ML cannot initiate" survives as an explanation while "the rear sector is why"
+does not.
+
+`mine.placeRange` 150 → 400 is queued as the direct test of the surviving half. **Recorded as a
+refuted hypothesis rather than quietly dropped**, because the next session should not spend another
+campaign rediscovering that the arc is not the lever.
+
+## Arm 7 — `map.baseRadius` 2800 → 3600 (+65 % water), 180 matches
+
+The independent test of the encounter-rate idea, kept in the queue after arm 4 undercut it.
+
+| | baseline | map 3600 | target |
+|---|---|---|---|
+| alive @ 4:00 | 7.8 | **9.1** | 10 |
+| alive @ 8:00 | 1.8 | **2.4** | 5 |
+| alive @ 12:00 | 0.2 | 0.3 | 2.5 |
+| median duration | 506 s | **529 s (+5 %)** | — |
+| mean life | BS 203 / ML 243 / TB 225 | BS 228 / ML **288** / TB 244 | — |
+
+Win share TB 51.1 % / BS 27.2 % / ML 21.7 % — **no significant class effect** (largest, ML +5.3 pp,
+CI −1.9 … +12.4).
+
+### Encounter rate is a real lever, but a weak one — and the ring is why
+
+**+65 % water bought +5 % match length.** That is real and correctly signed, but it sits alongside
+`gun.damage`'s +6 % and far below hull HP's **+32 %**. Arm 4's correction stands and is now confirmed
+from a second, independent direction: **time-to-kill dominates; encounter rate is secondary.**
+
+The instructive part is the gap between the two rows. Individual lives lengthened substantially —
+the Mine Layer gained **+19 %** (243 → 288 s) — while the match itself gained only 5 %. Ships spend
+longer alive and further apart, and the match still ends at about the same time.
+
+**The reason is that the ring's clock does not care how big the map is.** Ring radii are geometric
+steps from map radius down to a terminal 660 u fixed at 4:00 / 8:00 / 12:00, so enlarging the map
+lengthens the *early* transits and then compresses everyone into the same endgame on the same
+schedule. A bigger ocean buys time before the first ring and almost nothing after it.
+
+**Consequence for tuning:** reaching the 8:00 and 12:00 targets by map size alone would need an
+enormous map, which costs long empty transits — a fun problem, not just a balance one. **If pacing is
+to be bought with geometry, the honest dial is the ring's clock (`zone.beatMs`) rather than the map's
+radius** — untested this cycle, and named as untested. That is a bigger decision than a number: it
+moves the ratified 4:00 / 8:00 / 12:00 / 16:00 timeline, which is Eric's to rule on.
+
+## Arm 8 — COMBINED: `mine.blastRadius` 64 + hull HP +50 %, 180 matches
+
+The two best single arms together. **They compose on the Mine Layer — and overshoot.**
+
+| class | baseline | arm 3 alone | arm 4 alone | **combined** | effect vs baseline | significant? |
+|---|---|---|---|---|---|---|
+| torpedoBoat | 51.9 % | 40.6 % | 43.9 % | **41.1 %** | −10.8 pp | **YES** |
+| battleship | 31.7 % | 31.1 % | 26.1 % | **22.2 %** | −9.4 pp | **YES** |
+| mineLayer | 16.4 % | 28.3 % | 30.0 % | **36.7 %** | **+20.3 pp** | **YES** |
+
+Attrition: median **673 s**; alive @ 4:00 **10.7** (target 10), @ 8:00 **3.6** (target 5), @ 12:00 1.0
+(target 2.5); matches reaching 8:00 **94 %**, reaching 12:00 **41 %**.
+
+### It composes sub-additively, and the spread gets WORSE
+
+ML's two gains were +11.9 and +13.6 separately, and **+20.3 together** — real composition, well short
+of the +25.5 naive sum, which is what should be expected as a share approaches saturation.
+
+**But the class spread widened: 12.3 pp (arm 3 alone) → 18.9 pp (combined).** ML overshoots the band
+to 36.7 % and **the Battleship collapses to 22.2 %**, becoming the worst class in the game — it lost
+ground in *both* component arms (−0.6 and −5.6) and those losses compounded. Meanwhile TB is still
+6 pp over.
+
+**So the combination is the best PACING result of the cycle and NOT the best BALANCE result.** Taking
+both at full strength would trade a Torpedo Boat problem for a Battleship problem.
+
+## Arm 9 — `mine.placeRange` 150 → 400 — the second placement hypothesis, ALSO REFUTED
+
+| class | baseline | arm | effect | significant? |
+|---|---|---|---|---|
+| torpedoBoat | 51.9 % | 52.8 % | +0.8 pp | no |
+| battleship | 31.7 % | 33.9 % | +2.2 pp | no |
+| **mineLayer** | 16.4 % | **13.3 %** | **−3.1 pp** | no |
+
+Median duration 506 → 500 s. **Nothing.** As with the arc, ML drifted slightly the wrong way.
+
+### Both placement hypotheses are dead — and that is a positive finding about what ML IS
+
+Two independent attempts to let the Mine Layer *project* a trap — a full-circle placement sector
+(arm 6) and a 2.7× placement range (arm 9) — produced no improvement whatsoever. What *did* work was
+a bigger trip ring (+11.9 pp) and a longer match (+13.6 pp).
+
+**The Mine Layer is a zone-control hull whose payoff scales with mine FOOTPRINT × TIME, not with
+mobility or reach.** Giving it a longer arm does nothing; giving its threat more area, or more match
+to apply it in, works. That is a design characterization worth having, and it was not obvious before
+the measurements — the earlier draft of this ledger argued the opposite case with some confidence.
+
+**Methodological caveat, stated because it weakens these two null results specifically:** `blastRadius`
+works *passively* — it needs no new bot behaviour to pay off — whereas a wider arc and a longer
+placement range only pay if the AI actually exploits them. A bot policy that keeps dropping mines
+close and astern would mask a real effect. **These two nulls are therefore weaker evidence than arm
+3's positive**, and if Eric believes in the mechanic, the honest next step is to check the bot's mine
+tactic before concluding the mechanic is worthless to a human.
+
+## Where cycle 1 leaves the two targets
+
+| configuration | TB | BS | ML | spread | alive 4:00 | alive 8:00 | median |
+|---|---|---|---|---|---|---|---|
+| target | 31–35 | 31–35 | 31–35 | ~4 | 10 | 5 | — |
+| **baseline** | 51.9 | 31.7 | 16.4 | 35.5 | 7.8 | 1.8 | 506 s |
+| `mine.blastRadius` 64 | 40.6 | 31.1 | 28.3 | **12.3** | 7.3 | 1.8 | 519 s |
+| hull HP +50 % | 43.9 | 26.1 | 30.0 | 17.8 | **11.1** | **4.0** | **668 s** |
+| both | 41.1 | 22.2 | 36.7 | 18.9 | 10.7 | 3.6 | 673 s |
+
+**Neither target is met, and the cycle was not expected to meet them.** What it produced is a
+measured map of which dials move what:
+
+- **`mine.blastRadius` is the best balance dial found** — one number, spread 35.5 → 12.3 pp.
+- **Hull HP is the only real pacing dial found** — +32 % duration where every single-weapon dial
+  managed ≤ 6 %.
+- **The Torpedo Boat is over in every single configuration tested.** Nothing yet brings it into band
+  without breaking another class.
+
+### The recommended cycle-2 experiment (not a proposal — a test)
+
+Starting from **hull HP +50 %** (43.9 / 26.1 / 30.0), the remaining gap is *TB down ~9 pp, BS up
+~7 pp* — which is very close to the shape arm 2 produced on its own (`torpedo.damage` gave TB −11.4,
+BS +12.8, ML −1.4). **`HP +50 % + a moderate torpedo cut` is therefore the most promising untested
+combination**, with a milder cut (70 → 60) the more likely landing than the 70 → 50 already measured.
+
+**This is arithmetic on separate arms, not a measurement.** Arm 8 has just demonstrated that effects
+compose sub-additively and that losses compound on a third class, so the combination must be run
+before any of it is believed.
+
+### Open questions only Eric can answer
+
+1. **Is a 64 u mine blast (42.7 u trip ring) acceptable to feel?** The strongest balance dial found is
+   also the one bots cannot evaluate. 56 u is the untested fallback.
+2. **May the ring clock move?** `zone.beatMs` is the honest pacing dial if geometry is to carry it,
+   and it changes the ratified 4:00 / 8:00 / 12:00 / 16:00 timeline.
+3. **Should the Battleship be protected?** Every configuration that fixes TB and ML pushes BS down.
+   It may need a compensating buff in the same pass rather than being left to absorb the change.
+4. **Do the bots' mine tactics use a wider arc or longer range at all?** Two null results depend on it.
