@@ -17,7 +17,13 @@ import {
   ColorHoist,
   openClassSelect,
   CLASS_DISPLAY_NAMES,
+  PIP_LABEL_COL_PX,
+  PIP_LABEL_TRACKING_EM,
+  hueAngle,
+  hueSortedIndices,
+  makeHoistRow,
 } from '../ui/classSelect.js';
+import { monoTextWidth } from '../ui/refitCardFit.js';
 import { loadColorPref, __resetSessionColorPrefForTests, COLOR_PREF_KEY } from '../net/connection.js';
 import { pipFill } from '../util/pips.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -44,8 +50,48 @@ describe('cardViewModel — pips, keys, loadout', () => {
     expect(cardViewModel('mineLayer').pips.map((p) => p.filled)).toEqual([3, 3, 3]);
   });
 
-  it('labels the three pip rows SPEED / TOUGHNESS / TURNING', () => {
-    expect(cardViewModel('torpedoBoat').pips.map((p) => p.label)).toEqual(['SPEED', 'TOUGHNESS', 'TURNING']);
+  it('labels the three pip rows SPEED / ARMOR / TURNING', () => {
+    // ARMOR since 2026-08-21 (Eric: *"on ship select, change 'toughness' to
+    // 'armor' so the text fits better"*). A COPY ruling only — the anchor key
+    // it reads (`CLIENT_CONFIG.home.pip.toughness`), the ladder and the fills
+    // are all untouched, and the row still reports hp. Same shape as the KILL
+    // LEADER rename, which moved the player-facing words and left every
+    // internal identifier alone.
+    expect(cardViewModel('torpedoBoat').pips.map((p) => p.label)).toEqual(['SPEED', 'ARMOR', 'TURNING']);
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      expect(cardViewModel(cls).pips.map((p) => p.label), `${cls} agrees`)
+        .toEqual(['SPEED', 'ARMOR', 'TURNING']);
+    }
+  });
+
+  // THE REASON FOR THE RENAME, MEASURED — and the pin that stops it recurring.
+  //
+  // The label column is a FIXED 88px, the face is mono and the label carries its
+  // own 0.16em track, so a label's width is exactly chars x (size x advance +
+  // tracking) — countable, no canvas metrics needed. `TOUGHNESS` came to 96.4px
+  // and overflowed an 88px cell; that is what Eric saw. Measured with
+  // `monoTextWidth`, the same model `refitCardFit` uses for the refit card, so
+  // the two container-fit laws share one metric rather than growing a second.
+  it('every pip label FITS the label column — the defect that prompted the '
+    + 'rename, now a standing bound on any future row', () => {
+    const px = CLIENT_CONFIG.type.registers.hudMicro.size;
+    const track = px * PIP_LABEL_TRACKING_EM;
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      for (const pip of cardViewModel(cls).pips) {
+        const w = monoTextWidth(pip.label, px, track);
+        expect(w, `${pip.label} is ${w.toFixed(1)}px in a ${PIP_LABEL_COL_PX}px column`)
+          .toBeLessThanOrEqual(PIP_LABEL_COL_PX);
+      }
+    }
+  });
+
+  it('...and the retired label really did NOT fit, so the bound above is not '
+    + 'vacuous', () => {
+    const px = CLIENT_CONFIG.type.registers.hudMicro.size;
+    const track = px * PIP_LABEL_TRACKING_EM;
+    expect(monoTextWidth('TOUGHNESS', px, track)).toBeGreaterThan(PIP_LABEL_COL_PX);
+    // ...while TURNING, now the longest of the three, has real room to spare.
+    expect(monoTextWidth('TURNING', px, track)).toBeLessThan(PIP_LABEL_COL_PX);
   });
 
   it('displays zero-padded keys 01 / 02 / 03', () => {
@@ -614,5 +660,76 @@ describe('openClassSelect — teardown balances hoist subscriptions (no leak)', 
     openClassSelect({ initial: 'battleship', hoist, blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
     expect(hoist.listenerCount).toBe(afterFirst); // prior layer's subs freed, not stacked
     expect(document.querySelectorAll('#hc-class-select').length).toBe(1);
+  });
+});
+
+// THE COLOR HOIST READS AS A WHEEL (Eric ruling 2026-08-21: *"organize the
+// colors by hue or something."*).
+//
+// The load-bearing half is what this DOES NOT touch. A wheel index is IDENTITY —
+// the server assigns it at join and it rides `PlayerMeta.color` on the wire — so
+// reordering `REGATTA_HUES` itself would repaint every player in the game and
+// break the index->hex agreement both sides depend on. Only the order the row is
+// WALKED in moves.
+describe('the Color Hoist is displayed in hue order', () => {
+  it('IS A PERMUTATION of the wheel — every index exactly once, none invented', () => {
+    const order = hueSortedIndices(PLAYER_HUES);
+    expect(order).toHaveLength(PLAYER_HUES.length);
+    expect([...order].sort((a, b) => a - b)).toEqual(PLAYER_HUES.map((_, i) => i));
+  });
+
+  it('ascends by hue angle across the whole row', () => {
+    const order = hueSortedIndices(PLAYER_HUES);
+    const angles = order.map((i) => hueAngle(PLAYER_HUES[i]));
+    for (let k = 1; k < angles.length; k++) {
+      expect(angles[k], `swatch ${k} (${angles[k].toFixed(1)}deg) vs ${angles[k - 1].toFixed(1)}deg`)
+        .toBeGreaterThanOrEqual(angles[k - 1]);
+    }
+  });
+
+  it('is STABLE on ties, so equal hues keep wheel order (the colorblind assist '
+    + 'collapses 20 indices onto 8 repeated families)', () => {
+    // Three distinct hues, the middle one duplicated: the duplicates must come
+    // out in ascending index order, not swapped.
+    expect(hueSortedIndices([0xff0000, 0x00ff00, 0x00ff00, 0x0000ff])).toEqual([0, 1, 2, 3]);
+    expect(hueSortedIndices([0x0000ff, 0x00ff00, 0x00ff00, 0xff0000])).toEqual([3, 1, 2, 0]);
+  });
+
+  it('really does REORDER something — the two sub-4-degree inversions the '
+    + 'ratified wheel carries', () => {
+    const order = hueSortedIndices(PLAYER_HUES);
+    const wheel = PLAYER_HUES.map((_, i) => i);
+    // cobalt(12) 233.0deg sits before periwinkle(13) 230.9deg in wheel order,
+    // and orchid(15) 293.4deg before fuchsia(16) 289.9deg. Both are invisible to
+    // the eye; the sort fixes them anyway because it is derived, not hand-listed.
+    expect(order, 'the sort is not the identity').not.toEqual(wheel);
+    expect(order.indexOf(13), 'periwinkle now precedes cobalt').toBeLessThan(order.indexOf(12));
+    expect(order.indexOf(16), 'fuchsia now precedes orchid').toBeLessThan(order.indexOf(15));
+  });
+
+  it('hueAngle: primaries land where they should, and a grey is 0', () => {
+    expect(hueAngle(0xff0000)).toBeCloseTo(0, 6);
+    expect(hueAngle(0x00ff00)).toBeCloseTo(120, 6);
+    expect(hueAngle(0x0000ff)).toBeCloseTo(240, 6);
+    expect(hueAngle(0xffff00)).toBeCloseTo(60, 6);
+    for (const grey of [0x000000, 0x808080, 0xffffff]) expect(hueAngle(grey)).toBe(0);
+  });
+
+  it('the row renders one swatch per hue, in that order, each picking its OWN '
+    + 'wheel index', () => {
+    const hoist = new ColorHoist();
+    const { el, off } = makeHoistRow(hoist);
+    const buttons = [...el.querySelectorAll('button')];
+    expect(buttons).toHaveLength(PLAYER_HUES.length);
+    const order = hueSortedIndices(PLAYER_HUES);
+    // aria-label is `hue ${idx + 1}` — the TRUE wheel index, so it proves the
+    // swatch kept its identity through the reorder.
+    expect(buttons.map((b) => b.getAttribute('aria-label')))
+      .toEqual(order.map((i) => `hue ${i + 1}`));
+    // ...and clicking one selects that index, not its position in the row.
+    const pos = 3;
+    buttons[pos].click();
+    expect(hoist.selected).toBe(order[pos]);
+    off();
   });
 });
