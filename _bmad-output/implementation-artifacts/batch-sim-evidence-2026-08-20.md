@@ -991,3 +991,59 @@ early-game lethality that decays — and all of those are design decisions rathe
   on top of the 4-turret redesign, and bots cannot judge feel.
 - **Bot attrition plausibly over-states human attrition** — bots hunt relentlessly, humans hide and
   rotate with the ring. A curve tuned to satisfy bots may over-correct for people.
+
+## Arm 17 — decomposing the Battleship package (Eric): `reloadMs` 20 s at BASE `turnRate` 0.4
+
+Arm 16 bundled two dials and gained the Battleship +4.7 pp. This is the missing cell of the design —
+reload at 20 s with turn rate held at its shipped 0.4 — so the two halves separate by subtraction.
+All three cells are n = 360 on the same lattice (base 7000019); `turnRate=0.4` was passed
+**explicitly** rather than omitted, so the report's tune block records the hold as deliberate.
+
+| cell | `broadside.reloadMs` | `turnRate` | **BS** | TB | ML | spread |
+|---|---|---|---|---|---|---|
+| A (arm 15) | 22 s | 0.40 | **29.5 %** | 37.3 | 33.1 | 7.8 pp |
+| **C (this arm)** | **20 s** | **0.40** | **31.7 %** | 35.8 | 32.5 | **4.2 pp** |
+| B (arm 16) | 20 s | 0.48 | **34.2 %** | 34.7 | 31.1 | **3.6 pp** |
+
+### The split is essentially even — and both halves are inside the noise
+
+| step | Battleship |
+|---|---|
+| reload 22 s → 20 s (C − A) | **+2.2 pp** |
+| turnRate 0.40 → 0.48 (B − C) | **+2.5 pp** |
+| total (arm 16) | +4.7 pp |
+
+**47 % / 53 %.** My prior — that the reload would carry most of it, since the Battleship's diagnosed
+problem was a long-reload burst weapon rather than steering — is **not supported**: the turn rate did
+marginally more.
+
+**Neither half is individually defensible at this sample.** Each cell carries ±4.9 pp, so a 2.2 pp and
+a 2.5 pp effect are both well inside noise; what the three cells support is the *direction and rough
+parity* of the two contributions, not either figure. Separating a ~2 pp effect from zero would need a
+campaign several times this size, and the band is only 4 pp wide — this is the same precision wall the
+whole cycle has run into.
+
+**The honest reading is about the earlier cut, not these two.** `broadside.reloadMs` went 30 s → 22 s
+back in arm 13 and gained ~5 pp on its own. The remaining 22 → 20 step buys 2.2 pp, and the turn rate
+buys 2.5 pp — so **the bulk of the Battleship's recovery came from the first, larger reload cut**, and
+these two dials are fine-tuning on top of it.
+
+### Practical consequence: the turn rate change is OPTIONAL
+
+**Cell C reaches a 4.2 pp spread with no kinematics change at all** — BS 31.7 % and ML 32.5 % are both
+inside the band, and only the Torpedo Boat at 35.8 % sits marginally (0.8 pp) above it. Cell B is
+better — all three point estimates inside, spread 3.6 pp — but the improvement is 0.6 pp of spread,
+which is far inside noise.
+
+So the choice between them is **not a measurement question**:
+
+- **Take cell C** if the Battleship's handling should stay untouched. It is the smaller change,
+  it leaves `shipClasses.*.kinematics` byte-identical, and it costs ~0.6 pp of spread that this
+  instrument cannot resolve anyway.
+- **Take cell B** if a slightly more responsive Battleship is *wanted for its own sake*. On the
+  turning-circle table it moves the hull from 1.41 to 1.18 hull-lengths tactical diameter — still the
+  slowest to come about in absolute time (6.5 s vs the Torpedo Boat's 3.9 s), and still a defensible
+  big-ship figure.
+
+Attrition is identical across all three cells (C: 13.8 / 5.6 / 1.6, median 728 s; B: 13.7 / 5.4 / 1.4,
+median 708 s), so neither dial trades against target 2.
