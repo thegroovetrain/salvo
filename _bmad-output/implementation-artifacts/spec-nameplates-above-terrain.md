@@ -4,6 +4,7 @@ type: 'bugfix'
 created: '2026-08-21'
 status: 'done'
 baseline_revision: '7a8cbfce2e4b1f7d3ff90c75dbee283bf9b7b267'
+final_revision: 'cfdff1e4a2c232ca43ee6f07049f92b43a5a3ab5'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
