@@ -92,6 +92,24 @@ export interface CardViewModel {
  * BS 2/4/2, ML 3/3/3), and the two special-slot loadout rows. Pure — the DOM
  * builder + tests consume it.
  */
+/**
+ * The pip grid's LABEL COLUMN (px) and the label's own letter-spacing (em) —
+ * exported because `__tests__/classSelect.test.ts` measures every pip label
+ * against them, and a pin that re-typed the numbers would drift off the CSS it
+ * claims to be about.
+ *
+ * THIS COLUMN IS WHY THE ARMOR ROW IS CALLED ARMOR (Eric ruling 2026-08-21:
+ * *"on ship select, change 'toughness' to 'armor' so the text fits better."*).
+ * The column is fixed, the face is mono, and the label carries a 0.16em track,
+ * so `TOUGHNESS` measured 9 x (14 x 0.605 + 2.24) = 96.4px into an 88px cell and
+ * overflowed it. `ARMOR` is 53.6px and `TURNING`, now the longest of the three,
+ * is 75.0px. The column is deliberately NOT shrunk to match: it was never the
+ * thing at fault, and narrowing it would re-open the same trap for the next
+ * label somebody adds.
+ */
+export const PIP_LABEL_COL_PX = 88;
+export const PIP_LABEL_TRACKING_EM = 0.16;
+
 export function cardViewModel(cls: ShipClassId): CardViewModel {
   const spec = CONFIG.shipClasses[cls];
   const anchors = CLIENT_CONFIG.home.pip;
@@ -101,7 +119,7 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
     key: String(SHIP_CLASS_IDS.indexOf(cls) + 1).padStart(2, '0'),
     pips: [
       { label: 'SPEED', filled: pipFill(spec.kinematics.maxSpeed, anchors.speed) },
-      { label: 'TOUGHNESS', filled: pipFill(spec.hp, anchors.toughness) },
+      { label: 'ARMOR', filled: pipFill(spec.hp, anchors.toughness) },
       { label: 'TURNING', filled: pipFill(spec.kinematics.turnRate, anchors.turning) },
     ],
     loadout: LOADOUT[cls],
@@ -222,6 +240,52 @@ export class ColorHoist {
   }
 }
 
+/**
+ * Pure: the wheel indices of `hues`, reordered so the swatches READ as a colour
+ * wheel — ascending hue angle, with a stable fall-back to wheel order for ties.
+ *
+ * ERIC RULING 2026-08-21: *"organize the colors by hue or something."*
+ *
+ * IT RETURNS INDICES, NEVER COLOURS, AND THAT IS THE WHOLE SAFETY ARGUMENT. A
+ * wheel index is IDENTITY — the server assigns it at join, it rides
+ * `PlayerMeta.color` on the wire, and both sides map it back to a hex through
+ * the same-ordered tables (`REGATTA_HUES`' own doc). Reordering the ARRAY would
+ * silently repaint every player in the game and break that agreement; reordering
+ * only the order we WALK it in is presentation and costs nothing. `makeSwatch`
+ * still binds the true index, so a swatch picks the hue it shows.
+ *
+ * DERIVED FROM THE HEXES RATHER THAN HAND-LISTED, so it cannot drift: if a
+ * palette value is ever retuned the row re-sorts itself, and it also does the
+ * right thing under the colorblind assist (which swaps `PLAYER_HUES` wholesale
+ * for 8 repeated families — those then group together instead of interleaving).
+ *
+ * WHAT THIS DOES NOT FIX, measured and left alone: the ratified wheel was
+ * ALREADY hue-monotonic apart from two sub-4-degree swaps (cobalt/periwinkle at
+ * 233 vs 231, orchid/fuchsia at 293 vs 290), so the visible scatter in the row
+ * is not hue at all — it is LIGHTNESS, which zigzags across neighbours (65%,
+ * 50%, 33%, 55%, 42%, 58%, 33%...) for a mean neighbour luminance jump of 0.24.
+ * Smoothing that would mean re-tuning DESIGN.md's ratified hexes, which is a
+ * design decision and not this function's to make.
+ */
+export function hueSortedIndices(hues: readonly number[]): number[] {
+  return hues
+    .map((hex, index) => ({ index, hue: hueAngle(hex) }))
+    .sort((a, b) => a.hue - b.hue || a.index - b.index)
+    .map((e) => e.index);
+}
+
+/** Pure: the HSL hue angle (0-360) of a 0xRRGGBB value; 0 for any grey. */
+export function hueAngle(hex: number): number {
+  const r = ((hex >> 16) & 255) / 255;
+  const g = ((hex >> 8) & 255) / 255;
+  const b = (hex & 255) / 255;
+  const max = Math.max(r, g, b);
+  const span = max - Math.min(r, g, b);
+  if (span === 0) return 0;
+  const sextant = max === r ? ((g - b) / span) % 6 : max === g ? (b - r) / span + 2 : (r - g) / span + 4;
+  return (sextant * 60 + 360) % 360;
+}
+
 const SWATCH_BASE = [
   'width:20px',
   'height:20px',
@@ -272,20 +336,24 @@ export function makeHoistRow(hoist: ColorHoist): HoistRow {
 
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-start;min-width:0';
-  const swatches: HTMLButtonElement[] = [];
-  for (let i = 0; i < PLAYER_HUES.length; i++) {
+  // Walked in HUE order, not wheel order (see `hueSortedIndices`). `swatches` is
+  // keyed by the TRUE wheel index rather than by DOM position, so the ring
+  // repaint below still addresses `hoist.selected` directly and never has to
+  // know where in the row that hue ended up.
+  const swatches = new Map<number, HTMLButtonElement>();
+  for (const i of hueSortedIndices(PLAYER_HUES)) {
     const sw = makeSwatch(hoist, i);
-    swatches.push(sw);
+    swatches.set(i, sw);
     row.appendChild(sw);
   }
 
   const paintRing = (): void => {
     const sel = hoist.selected;
-    swatches.forEach((sw, i) => {
+    for (const [i, sw] of swatches) {
       const on = i === sel;
       sw.style.outline = on ? `2px solid ${cssHex(PLAYER_HUES[i])}` : 'none';
       sw.style.outlineOffset = on ? '3px' : '0';
-    });
+    }
   };
   paintRing();
   const off = hoist.onChange(paintRing);
@@ -346,15 +414,17 @@ function pipCell(): HTMLElement {
   return p;
 }
 
-/** A pip-scale grid (SPEED/TOUGHNESS/TURNING × 5 bars); returns the row cells. */
+/** A pip-scale grid (SPEED/ARMOR/TURNING × 5 bars); returns the row cells. */
 function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] } {
   const grid = document.createElement('div');
-  grid.style.cssText = 'display:grid;grid-template-columns:88px 1fr;row-gap:6px;align-items:center';
+  grid.style.cssText =
+    `display:grid;grid-template-columns:${PIP_LABEL_COL_PX}px 1fr;row-gap:6px;align-items:center`;
   const rows: HTMLElement[][] = [];
   for (const pr of vm.pips) {
     const label = document.createElement('span');
     label.textContent = pr.label;
-    label.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.16em`;
+    label.style.cssText =
+      `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:${PIP_LABEL_TRACKING_EM}em`;
     const dots = document.createElement('span');
     dots.style.cssText = 'display:flex;gap:5px';
     const cells: HTMLElement[] = [];

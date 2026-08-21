@@ -2350,3 +2350,88 @@ reads cleanly against the hypsometric contour bands it draws over (it is 14px mo
 the omniscient reveal's ~0.26x framing is worse now that terrain no longer hides any of it — the
 mockup's own legend already flagged all-hull nameplates as possible CLUTTER at that zoom, with
 *"killer + wreck only"* recorded as its fallback.
+
+## Amendment 35 — THE ARMOR ROW (ERIC RULING, 2026-08-21, cycle 124)
+
+> *"on ship select, change 'toughness' to 'armor' so the text fits better."*
+
+A COPY ruling with a measurable cause. The class card's middle pip row was labelled
+`TOUGHNESS`, and it did not fit: the pip grid's label column is a FIXED 88px
+(`grid-template-columns: 88px 1fr`), the face is mono, and the label carries its own
+0.16em track on top of the 14px hud-micro register — so the label's width is exactly
+`chars × (size × advance + tracking)`, and `TOUGHNESS` came to **96.4px in an 88px cell**.
+`ARMOR` is 53.5px. `TURNING`, now the longest of the three, is 75.0px.
+
+**The column was NOT shrunk to match**, deliberately: it was never the thing at fault, and
+narrowing it would re-arm the same trap for whatever label somebody adds next.
+
+**INTERNAL NAMING IS UNTOUCHED**, following the KILL LEADER precedent (Story 4.6,
+amendments 222-227) verbatim: `CLIENT_CONFIG.home.pip.toughness` keeps its key, the
+`{base: 200, step: 50}` anchor ladder is byte-identical, `pipFill` still reads
+`spec.hp`, and every fill is unchanged (TB 4/2/4 · BS 2/4/2 · ML 3/3/3). Nothing about
+what the row MEASURES moved — only the word above it. `shared/`'s own comments still say
+"toughness ladder" and that is correct: the ladder is the internal object, the label is the
+copy.
+
+**TWO CONSTANTS WERE PROMOTED so the fit could be pinned rather than asserted.**
+`PIP_LABEL_COL_PX` (88) and `PIP_LABEL_TRACKING_EM` (0.16) were literals inside a CSS
+string; they are now exported and interpolated into that same string, so
+`__tests__/classSelect.test.ts` measures against the values the grid actually uses instead
+of re-typing them. The measurement itself reuses `refitCardFit`'s `monoTextWidth` — the
+same mono model epic-4 amendment 47's container-fit law already uses for the refit card —
+so the project has ONE text-metric model and not a second one growing beside it.
+
+**The pin is proven non-vacuous IN THE SUITE**, not just by hand: one case bounds every pip
+label of every hull at `≤ PIP_LABEL_COL_PX`, and the next asserts that the RETIRED label
+exceeded it while `TURNING` clears it with room. A future row that does not fit fails at
+`npm run check` rather than at Eric's eye, which is the whole point — this defect shipped
+because nothing measured it.
+
+`PROTOCOL_VERSION` unchanged at **47**. Client-only, copy-and-pin only: no `CONFIG` value,
+no gameplay tunable, no wire field, no perception rule, no layout geometry.
+
+## Amendment 36 — THE COLOR HOIST READS AS A WHEEL (ERIC RULING, 2026-08-21, cycle 124)
+
+> *"and while you're at it, organize the colors by hue or something."*
+
+The swatch row walked `PLAYER_HUES` in raw index order. It now walks it in ASCENDING HUE
+ANGLE, via a pure `hueSortedIndices(hues)` derived from the hex values at render time.
+
+**THE LOAD-BEARING HALF IS WHAT DID NOT MOVE.** A wheel index is IDENTITY: the server
+assigns it at join, it rides `PlayerMeta.color` on the wire, and both sides map it back to a
+hex through the same-ordered tables — `REGATTA_HUES`' own doc calls that order *"the single
+source of truth both sides share"*. Reordering the ARRAY would repaint every player in the
+game and break that agreement. **Only the order the row is WALKED in changed.**
+`makeSwatch` still binds the true index, `swatches` is keyed BY index rather than by DOM
+position, and a test asserts each rendered swatch still picks its own hue (`aria-label` is
+`hue ${idx + 1}` — the true index — and clicking position 3 selects `order[3]`, not 3).
+
+**DERIVED, NOT HAND-LISTED**, so it cannot drift: retune a palette hex and the row re-sorts
+itself. It also behaves correctly under the colorblind assist, which swaps `PLAYER_HUES`
+wholesale for 8 repeated families — those now GROUP rather than interleave, and the sort is
+stable so equal hues keep wheel order.
+
+### THE HONEST FINDING: HUE WAS NOT THE PROBLEM, AND THE REAL ONE IS NOT MINE TO FIX
+
+Measured before changing anything, because the wheel looked suspiciously deliberate — and it
+is. `REGATTA_HUES` was **already hue-monotonic** apart from two inversions no eye can
+resolve: cobalt 233.0° before periwinkle 230.9°, and orchid 293.4° before fuchsia 289.9°.
+The sort fixes both, and that is the entire mechanical effect of this amendment: **two
+adjacent swaps out of twenty.**
+
+So the scatter Eric is reacting to is **LIGHTNESS, not hue**. Across the wheel it zigzags
+neighbour to neighbour — 65%, 50%, 33%, 55%, 42%, 58%, 33%, 59%, 50%, 34%, 72%, 45%, 66%,
+79%, 71%, 49%, 65%, 65%, 39%, 76% — for a **mean neighbour luminance jump of 0.241** on a
+0–1 scale (max 0.428). A row whose hue is perfectly ordered still reads as noise when every
+other chip is half as bright as the one beside it.
+
+**That was NOT fixed, deliberately.** Smoothing it means re-tuning DESIGN.md's ratified
+Regatta hexes — twelve of which the palette's own comment marks as used VERBATIM and never
+to be recomputed, because they sit at ~0.451 value rather than a naive 0.45. That is a
+design decision and an Eric call, so it is ledgered in `deferred-work.md` with the
+measurements rather than absorbed. **Anyone tempted to "finish the job" by sorting the row
+by LIGHTNESS instead should not**: that destroys hue grouping, which is the thing actually
+asked for.
+
+`PROTOCOL_VERSION` unchanged at **47**. Client-only, presentation-only: no palette value, no
+wheel order, no wire field, no assignment rule.
