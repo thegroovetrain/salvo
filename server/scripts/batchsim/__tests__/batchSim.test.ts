@@ -352,7 +352,12 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // turnRate: the AI divides by it; the resulting Infinity/NaN steer fails
     // the finite check in game/inputs.ts and is SILENTLY DROPPED — the harness
     // would print an ordinary report of a campaign whose bots were inert.
-    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(/>= 1/);
+    // ITS FLOOR IS 0.05, NOT 1: every hull ships 0.4-0.8, so a floor of 1 made
+    // the leaf untunable at its own shipped values (see TUNE_SUB_ONE_FLOORS and
+    // tuneFloor.test.ts). The hazard being guarded is a divide by ZERO, and 0
+    // is still refused here — only the floor's MAGNITUDE changed.
+    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(/>= 0\.05/);
     // shellSpeed / torpedo.speed: the lead solve divides by the ordnance speed.
     expect(() => parseArgs(['--tune', 'gun.shellSpeed=0'])).toThrow(/>= 1/);
     expect(() => parseArgs(['--tune', 'torpedo.speed=0'])).toThrow(/>= 1/);
