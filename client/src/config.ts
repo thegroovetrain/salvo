@@ -127,61 +127,60 @@ const COLORS = {
   // Key order = the ratified wheel order (shared REGATTA_HUES): index i → this
   // table's i-th entry. VERBATIM from DESIGN.md frontmatter.
   players: {
-    lemon: 0xfff04d,
-    chartreuse: 0xc8e619,
-    olive: 0x7a9b0f,
-    lime: 0x7fe03a,
-    green: 0x23b123,
-    spring: 0x37f2d8,
-    jade: 0x0b9e8f,
-    aqua: 0x40e4ee,
-    cyan: 0x00d0ff,
-    lagoon: 0x0e7fa0,
-    sky: 0x6fc7ff,
-    azure: 0x0f6fd6,
-    cobalt: 0x5468ff,
-    periwinkle: 0x96a6ff,
-    iris: 0xa66bff,
-    orchid: 0xc026d3,
-    fuchsia: 0xe14dff,
-    magenta: 0xff4fd8,
-    mulberry: 0xb01772,
-    rose: 0xff85b3,
+    lemon: 0xa1960d,
+    chartreuse: 0x778b0a,
+    olive: 0x5da20d,
+    lime: 0x11b519,
+    green: 0x12b563,
+    spring: 0x10a981,
+    jade: 0x0d9582,
+    aqua: 0x12adb3,
+    cyan: 0x0e97ab,
+    lagoon: 0x11a5d7,
+    sky: 0x0c8ac4,
+    azure: 0x0c86ea,
+    cobalt: 0x5c8efd,
+    periwinkle: 0x6c6ffd,
+    iris: 0x977afd,
+    orchid: 0xad58fd,
+    fuchsia: 0xd022fd,
+    magenta: 0xe312d9,
+    mulberry: 0xef11b2,
+    rose: 0xf8118d,
   },
-  // Regatta Hoist interior FILL values (20 hues; ~45%-value darker shade of the
-  // outline — the SOLID hull interior). SAME key order as `players`. Two origins:
-  //   • 12 DESIGN.md-documented pairs — used VERBATIM, never recomputed (they sit
-  //     at ~0.451 value, not a naive 0.45, so recomputing would drift):
-  //     lemon/lime/spring/aqua/cyan/azure/cobalt/iris/orchid/fuchsia/magenta/rose.
-  //   • 8 RULE-DERIVED literals (chartreuse/olive/green/jade/lagoon/sky/
-  //     periwinkle/mulberry) — no documented hex exists, so each is the outline at
-  //     HSV value ×0.45 (hue/saturation preserved). Scaling the gamma-encoded sRGB
-  //     channels uniformly IS exactly an HSV V-scale (V = max channel; scaling all
-  //     channels by k scales V by k and leaves H/S untouched) — Math.round(channel
-  //     × 0.45) per channel. NOTE: this operates on the stored sRGB bytes, NOT
-  //     linear-light values. Authored as literals here; tokens.test.ts recomputes
-  //     them from that rule to catch a typo.
+  // Regatta Hoist interior FILL values (20 hues; the SOLID hull interior). SAME
+  // key order as `players`.
+  //
+  // ALL TWENTY ARE NOW RULE-DERIVED — the outline at HSV value x0.45, per
+  // channel. The old split ("12 DESIGN.md-documented pairs used VERBATIM at
+  // ~0.451, 8 rule-derived") dissolved when the whole wheel was regenerated in
+  // cycle 125 (epic-7 amendment 37): there are no surviving hand-authored pairs
+  // to preserve, so one rule covers the table and `tokens.test.ts` recomputes
+  // every entry rather than only eight. Scaling the gamma-encoded sRGB channels
+  // uniformly IS exactly an HSV V-scale (V = max channel; scaling all channels
+  // by k scales V by k and leaves H/S untouched) — Math.round(channel x 0.45)
+  // on the stored sRGB bytes, NOT on linear-light values.
   playerFills: {
-    lemon: 0x736c23, // DESIGN
-    chartreuse: 0x5a680b, // rule-derived (0xc8e619 ×0.45)
-    olive: 0x374607, // rule-derived (0x7a9b0f ×0.45)
-    lime: 0x39651a, // DESIGN
-    green: 0x105010, // rule-derived (0x23b123 ×0.45)
-    spring: 0x196d61, // DESIGN
-    jade: 0x054740, // rule-derived (0x0b9e8f ×0.45)
-    aqua: 0x1d676b, // DESIGN
-    cyan: 0x005e73, // DESIGN
-    lagoon: 0x063948, // rule-derived (0x0e7fa0 ×0.45)
-    sky: 0x325a73, // rule-derived (0x6fc7ff ×0.45)
-    azure: 0x073261, // DESIGN
-    cobalt: 0x262f73, // DESIGN
-    periwinkle: 0x444b73, // rule-derived (0x96a6ff ×0.45)
-    iris: 0x4b3073, // DESIGN
-    orchid: 0x56115f, // DESIGN
-    fuchsia: 0x652373, // DESIGN
-    magenta: 0x732461, // DESIGN
-    mulberry: 0x4f0a33, // rule-derived (0xb01772 ×0.45)
-    rose: 0x733c51, // DESIGN
+    lemon: 0x484406,
+    chartreuse: 0x363f05,
+    olive: 0x2a4906,
+    lime: 0x08510b,
+    green: 0x08512d,
+    spring: 0x074c3a,
+    jade: 0x06433b,
+    aqua: 0x084e51,
+    cyan: 0x06444d,
+    lagoon: 0x084a61,
+    sky: 0x053e58,
+    azure: 0x053c69,
+    cobalt: 0x294072,
+    periwinkle: 0x313272,
+    iris: 0x443772,
+    orchid: 0x4e2872,
+    fuchsia: 0x5e0f72,
+    magenta: 0x660862,
+    mulberry: 0x6c0850,
+    rose: 0x70083f,
   },
   // Colorblind-assist families (Story 2.3, amendment 18 — IMPLEMENTER DRAFT,
   // canon later). Eight OUTLINE hues that the 20-hue Regatta wheel collapses onto

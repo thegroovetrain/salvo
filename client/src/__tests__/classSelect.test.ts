@@ -695,16 +695,25 @@ describe('the Color Hoist is displayed in hue order', () => {
     expect(hueSortedIndices([0x0000ff, 0x00ff00, 0x00ff00, 0xff0000])).toEqual([3, 1, 2, 0]);
   });
 
-  it('really does REORDER something — the two sub-4-degree inversions the '
-    + 'ratified wheel carries', () => {
-    const order = hueSortedIndices(PLAYER_HUES);
-    const wheel = PLAYER_HUES.map((_, i) => i);
-    // cobalt(12) 233.0deg sits before periwinkle(13) 230.9deg in wheel order,
-    // and orchid(15) 293.4deg before fuchsia(16) 289.9deg. Both are invisible to
-    // the eye; the sort fixes them anyway because it is derived, not hand-listed.
-    expect(order, 'the sort is not the identity').not.toEqual(wheel);
-    expect(order.indexOf(13), 'periwinkle now precedes cobalt').toBeLessThan(order.indexOf(12));
-    expect(order.indexOf(16), 'fuchsia now precedes orchid').toBeLessThan(order.indexOf(15));
+  it('is the IDENTITY on the shipped wheel — cycle 125 regenerated the palette '
+    + 'hue-monotonic by construction, so there is nothing left to reorder', () => {
+    // This case USED to assert the opposite. The pre-125 wheel carried two
+    // sub-4-degree inversions (cobalt 233.0 before periwinkle 230.9; orchid
+    // 293.4 before fuchsia 289.9) and the sort's entire mechanical effect was
+    // swapping those two pairs. The regenerated wheel is built by walking a hue
+    // arc in one direction, so it arrives sorted.
+    //
+    // THE SORT IS KEPT ANYWAY, and this pin is why it can be: it is a DERIVED
+    // guarantee, not a hand-maintained order. If a future palette edit lands a
+    // value out of sequence the row still reads as a wheel, and this test flips
+    // to telling you the palette moved rather than silently passing.
+    expect(hueSortedIndices(PLAYER_HUES)).toEqual(PLAYER_HUES.map((_, i) => i));
+  });
+
+  it('...and still REORDERS a wheel that needs it, so the identity above is a '
+    + 'property of the palette rather than a broken sort', () => {
+    // Deliberately unsorted input: green(120), red(0), blue(240).
+    expect(hueSortedIndices([0x00ff00, 0xff0000, 0x0000ff])).toEqual([1, 0, 2]);
   });
 
   it('hueAngle: primaries land where they should, and a grey is 0', () => {

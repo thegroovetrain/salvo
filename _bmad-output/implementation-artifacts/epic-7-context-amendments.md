@@ -2435,3 +2435,102 @@ asked for.
 
 `PROTOCOL_VERSION` unchanged at **47**. Client-only, presentation-only: no palette value, no
 wheel order, no wire field, no assignment rule.
+
+## Amendment 37 — THE REGATTA WHEEL IS REGENERATED (ERIC RULING, 2026-08-21, cycle 125)
+
+> *"That's fine, just reorganize the fucking palette hexes so that it doesn't look disorganized
+> like it does now."*
+
+Cycle 124 sorted the Color Hoist by hue and reported the honest finding: hue was never the
+problem, the wheel was already hue-monotonic, and the scatter was **lightness** zigzagging
+33%–79% neighbour to neighbour. That was ledgered as an Eric call because fixing it means
+re-tuning ratified DESIGN.md hexes. **He has now made the call**, so all twenty outline values
+and all twenty fills are replaced.
+
+### THE METHOD (generated, not hand-picked)
+
+The wheel is built in **OKLCH**, where equal `L` is equal PERCEIVED lightness — which is the
+property the old palette lacked and HSL cannot express. Twenty hues placed by search inside the
+existing safe arc, each ridden out to the **sRGB gamut edge** for chroma, with lightness free
+inside a narrow band. Constraints, all of which bind:
+
+- hue stays inside the shipped arc, so the **reserved red/amber band stays empty** (`denied`
+  #ff3b3b sits at oklch 26.4°, `amber` #ffb800 at 80.5°; the wheel excludes 77.6° of hsl
+  red/orange/amber *"by wheel construction"*, per `REGATTA_HUES`' own doc);
+- lightness inside ±0.04 of one target;
+- contrast vs `void` ≥ 3:1 (DESIGN.md's graphic bar);
+- twenty distinct values, and hue ascending.
+
+### MEASURED, BEFORE → AFTER
+
+| | before | after | |
+|---|---|---|---|
+| mean neighbour lightness jump | 0.1579 | **0.0360** | 4.4× flatter — *the complaint* |
+| perceptual lightness range | 0.51–0.94 | **0.60–0.68** | |
+| worst pair separation (OKLab) | 0.0484 | **0.0615** | **+27%** |
+| min contrast vs void | 3.08 | **5.10** | |
+
+**IT IS BETTER ON BOTH AXES, WHICH IS NOT WHAT THE FIRST THREE ATTEMPTS DID.** The obvious
+implementation — one flat lightness for all twenty — was built and REJECTED against these same
+numbers: inside the safe arc it drove the worst pair to 0.0345, a 29% REGRESSION in how tellable
+apart two captains are, because the shipped palette was using lightness variation to carry
+discrimination that hue alone could not. Twenty colours in 253° at one lightness simply have less
+perceptual room. The narrow BAND recovers that and then some. **A future edit that flattens the
+band to zero for tidiness will silently cost identification.**
+
+Two further things fell out and are worth knowing:
+
+- **The old min contrast was 3.08** — the wheel was sitting on its own 3:1 floor with 0.08 to
+  spare. It is now 5.10.
+- **Every hue clears 4.5:1 as raw text**, so `textSafe` is a no-op for all twenty. DESIGN.md's
+  named list of four failures (Mulberry, Azure, Orchid, Lagoon) is retired to a historical note.
+  The mechanism is KEPT — it is what guarantees the bar, not something any hue currently needs.
+
+### WHAT DID NOT MOVE
+
+**Wheel ORDER, which is the wire contract.** `REGATTA_HUES` is untouched: the server still
+assigns an index at join, the index still rides `PlayerMeta.color`, and both sides still map it
+through the same-ordered tables. Only the VALUES behind the keys changed. `colors.cvd` (the eight
+colorblind-assist families) is untouched, and `cvdFamilyIndex`'s "adjacent wheel entries land on
+different families" still holds.
+
+**The names are now lookup keys and nothing more.** They were already never rendered — the
+swatch's own `aria-label` is `hue ${idx + 1}`, and no code path reads a hue NAME — which is what
+made regenerating the values legal at all. Several no longer describe their value (`lemon` is a
+deep yellow-green, `rose` a hot pink). They are kept for wire-order stability. **Do not "fix" a
+name to match its colour**: the key order IS `REGATTA_HUES` order, and renaming a key is a wire
+change wearing a cosmetic disguise.
+
+### THE FILLS COLLAPSE TO ONE RULE
+
+`playerFills` carried a documented split — 12 DESIGN.md pairs used VERBATIM at ~0.451 value
+(*"never recomputed, recomputing would drift"*) and 8 derived at exactly ×0.45. Regenerating the
+outlines dissolves it: **no hand-authored pair survives**, so all twenty are now the outline at
+HSV value ×0.45. `tokens.test.ts`'s derivation check widens from 8 names to the whole table,
+which makes it a complete check rather than a spot check.
+
+**One trap, and it bit once during implementation:** the rule is JS `Math.round`, which is
+round-half-**UP**. A generator using Python's `round` (round-half-to-**even**) produced two fills
+one bit off — channel `0x0a × 0.45 = 4.5` rounds to 5 in JS and 4 in Python. The widened test
+caught both.
+
+### THE HOIST SORT IS NOW THE IDENTITY, AND IS KEPT ANYWAY
+
+Cycle 124's `hueSortedIndices` was introduced to fix two sub-4° inversions. The regenerated wheel
+is monotonic by construction, so the sort now returns wheel order unchanged, and its test flipped
+from *"really does reorder something"* to asserting the identity — with a synthetic unsorted case
+beside it proving the sort still works. **Kept because it is a DERIVED guarantee**: if a future
+palette edit lands a value out of sequence the row still reads as a wheel, and that test reports
+the palette moved instead of passing silently.
+
+### NOT VERIFIED BY EYE
+
+No browser session. Everything above is measured, and `npm run check` is green at 5,570 tests,
+but **whether twenty near-equal-lightness hulls read well against the dark ocean is a question
+only a human can answer** — the whole point of the old zigzag may turn out to have been that a
+dark hull and a bright hull are easy to tell apart at a glance in combat, which is a different
+question from the swatch-row legibility this ruling was about. If it reads flat on the water, the
+lever is the lightness band (±0.04 today), not the hue placement.
+
+`PROTOCOL_VERSION` unchanged at **47**. Client + design-doc only: no wheel order, no wire field,
+no gameplay tunable, no assignment rule.
