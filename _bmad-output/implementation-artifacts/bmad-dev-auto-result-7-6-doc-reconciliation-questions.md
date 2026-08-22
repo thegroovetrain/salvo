@@ -452,3 +452,58 @@ Real-Time Prototype" → the shipped register) plus a stamp on the dated mockup 
 | 23 | Whirlpools | OVERTAKEN | Story 5.5 deferred by your ruling; systems layer declared complete |
 | 24 | PvE drone tiers | **OPEN** (premise corrected) | → **H3** |
 | 25 | Reveal-zoom motion exemption | RULED | **Not** exempt; motion scales duration, never destination |
+
+---
+
+# Eric's rulings — first pass, 2026-08-21
+
+Verbatim answers, with the consequence each one carries. Three items remained open at the end of
+this pass (**E2**, **F4**, **H3 scope**) and are marked as such.
+
+| Tag | Ruling | Consequence |
+|---|---|---|
+| **A1** | "full" | Full ~17-surface reconciliation, including the twelve orphaned/unhomed ledger entries |
+| **A2** | "yes" | Ledger re-homing proceeds |
+| **B1** | *"ima be real, i see myself probably expanding the colors and some other shit in the future. Lets maybe just get rid of the 'law' here."* | **Option 2 — the phosphor-green and storm-violet reservations are RETIRED.** Red/amber stays reserved. The cycle-125 wheel is ratified as shipped; no hue moves. `DESIGN.md:168` and `shared/src/constants.ts:1997-1998` are rewritten to reserve red/amber only, and the new test pins the wheel against **that** band set. Rationale of record: the reservation existed to keep a player hue from reading as a radar return, and Eric has accepted that trade in exchange for room to expand the palette later |
+| **C1** | "yes" | The four-band hypsometric ramp enters DESIGN.md as ratified tokens; `island-fill`/`island-stroke` retired |
+| **C2** | *"idk what you're talking about"* → explained, default taken | `DESIGN.md:166`'s twelve pre-regeneration pairs and the `[ASSUMPTION]` are replaced by the single ×0.45 derivation rule |
+| **C3** | *"yeah im not buying a chromebook for this"* | The `:186` Chromebook rider is dropped; the ≤3-ghost cap stands as a legibility rule |
+| **C4** | "yes" | Foghorn Chevron, DAMAGE CONTROL rail and advertising/consent rows added; `{components.aggro-bracket}` fixed |
+| **D1** | "yes" | **Tab + 1–4 + 5 is ratified.** UX-DR14's "hold-not-toggle (absolute)" and UX-DR12's "HOLD SPACE TO REFIT" are retired; nine EXPERIENCE.md passages corrected; the digit-5 heal entry added |
+| **D2** | *"Sure? When does UNKNOWN VESSEL show up again?"* | **Ratified.** Investigated and answered: the string can never name a captain — `syncRoster()` mirrors every `PlayerMeta` row to every client every tick, and Story 6-7 keeps a departing captain's row alive past their seat expressly so a departure does not read as UNKNOWN VESSEL (`ArenaRoom.ts:222-237`). It renders only for a PvE fleet hull that is neither ours nor ever sighted. A seen drone reads `SMALL/MEDIUM/LARGE DRONE`. Eric's requirement — always see who killed who — already holds |
+| **D3** | "uh ok" | Epic-6 amendment 41's copy law is quoted verbatim into EXPERIENCE.md's Voice and Tone |
+| **D4** | *"yeah delete the copy requirement"* | The SOLO VS AI door is the whole D6 steer |
+| **D5** | "yes" | Ring prose describes both the 660u endgame ring and the collapse |
+| **E1** | *"Deferred, I think it will probably come back at some point"* | Smoke screen restated as deferred, not cut |
+| **E2** | *"i dont remember what this was?"* | **STILL OPEN** — explained (a gun shell striking the clicked spot deals bonus damage; one that collides en route or catches a dodger deals base). Never built, never ruled. Recommendation: drop from the GDD body, keep the decision-log entry |
+| **E3** | "change" | All three instant-re-queue sites reworded to route through home |
+| **E4** | *"very deferred. sonar might come back in the future, but radar is plenty deep enough"* | Hydrophones restated as deferred; the foghorn chevron named as the shipped bearing surface; the "design law" framing struck |
+| **E5** | *"~15 minutes is still accurate, that is the estimated game time. The theoretical max is a little over 17 right now I think."* | **Eric is right; the implementer recommendation was wrong.** Verified: ring fully closed 16:00, a 350 hp hull at 4 hp/s sinks ~87 s later ≈ **17:28**. NFR6 keeps ~15:00 as the estimate and gains a ~17:30 structural ceiling. CLAUDE.md's version is stale twice (175 hp hull, 50 hp heal — both doubled at cycle 122) and is corrected under F5 |
+| **F1** | "ok" | The suite is run once and the true count stamped |
+| **F2** | *"yeah, IF i decide to keep 7-7 as is, im thinking"* | Versioning ruling and Deploy Configuration left untouched; the "superseded at 7.7" pointer is written as conditional, since 7.7 itself may change |
+| **F3** | "sure" | The spurious `0.17.120` duplicate is deleted; the survivor's amendment number corrected 29 → 32 |
+| **F4** | "What?" | **STILL OPEN** — explained (13,074- and 24,801-character single lines; ~49,500 chars of dead narrative in eight archived keys; only 7 of 56 lines under 100 chars). Recommendation: reformat both, narrative moved to the amendment ledger |
+| **G1** | *"I'm controlling my game and servers. no portals. IDGAF what you do. I'm serving my own ads."* | Source comments updated to describe the seam as it is; the `PortalAdapter` interface NAME is retained per AR11 |
+| **G2** | "dated" | The brief gets a superseding header; its body is left as the artifact of record |
+| **G3** | *"Idgaf about the chromebook"* | The device framing is restated as the 1366×768 viewport floor, which survives independently (NFR7/UX-DR39 name it); open findings keep their severity |
+| **G4** | "Yes" | Dated superseding stamp on the epic-6 retro; body untouched |
+| **G5** | "whatever" | Reasoning of record preserved; one line notes the premises changed and the conclusion was re-affirmed on other grounds |
+| **G6** | "delete both" | Root `/DESIGN.md` and `/TODOS.md` are deleted; git history preserves them |
+| **H1** | "Yep" | No kill-streak spectacle; the KILL LEADER throne is the whole recognition surface |
+| **H2** | *"Doesn't matter now, those come after beta launch. K.I.S.S."* | The third journey is deleted from EXPERIENCE.md until a party mode is ruled in |
+| **H3** | *"We actually do need better distinction, size isn't enough. Shape mark isn't a bad idea, or whatever you think?"* | **PARTIALLY OPEN — decision taken, scope pending.** Colour is unavailable (drones locked greyscale). Proposal: the nameplate reads `SMALL/MEDIUM/LARGE DRONE`, reusing the vocabulary already ratified for the kill feed, plus **rank ticks** (1/2/3 marks on the silhouette) so tier survives at blip scale where no nameplate exists. This is a RENDER change, not documentation — 7-6 records the decision marked *not yet built* and ledgers the build as its own cycle, pending Eric's scope call |
+
+## Implementer defaults taken
+
+**C2** and **D2** were answered with questions rather than rulings; both were investigated, answered
+above, and the Recommended line taken. Neither retires a design law nor changes shipped behaviour.
+
+## What B1 costs, recorded honestly
+
+Retiring the phosphor-green reservation means three of twenty captain hues (`green` 149.8°,
+`spring` 164.3°, `jade` 171.6°) sit inside the band DESIGN.md previously kept clear so a player hue
+could not be mistaken for a radar return, and `orchid` 270.9° sits in the old storm-violet reserve.
+That was a deliberate legibility law with a stated rationale, and it is being retired by preference
+to keep the palette expandable — not because the concern was found to be wrong. Ledgered so a
+future "why do captains read as blips?" question finds its answer here rather than being
+re-litigated from scratch.
