@@ -415,6 +415,20 @@ export interface ShipRecord {
    *  moves only inside grantXp's bank loop. Same lifecycle as `xpMs`. */
   level: number;
   /**
+   * SUB-MILLISECOND CARRY for the damage->XP rule (CONFIG.xp.damageLevels),
+   * in fractional ms. `xpMs` is deliberately INTEGER ms, so a per-damage grant
+   * has to round; incendiary DoT credits ~20 tiny bites a second, and rounding
+   * each one independently biases the whole economy in ONE direction over a
+   * match (18k events x up to 0.5ms is ~0.15 of a level, silently). The
+   * remainder is parked here instead and re-offered on the next credit, so the
+   * rule pays out its exact rate with no drift and no free rounding.
+   *
+   * Always in [0, 1). Stays 0 for the whole match while the rule is off (the
+   * shipped default), and shares `xpMs`'s lifecycle exactly: wiped by
+   * redeployShip, preserved across a waiting-phase respawn.
+   */
+  dmgXpCarryMs: number;
+  /**
    * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
    * nothing grants these in production until 2.7's spend flow). Mutated only
    * by applyBoon(). Survive respawn (waiting-phase deaths keep the build,
@@ -1226,7 +1240,7 @@ export class World {
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
-      xpMs: 0, level: 0,
+      xpMs: 0, level: 0, dmgXpCarryMs: 0,
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
@@ -1482,6 +1496,7 @@ export class World {
     // respawn() below, waiting-phase only, PRESERVES both.
     ship.xpMs = 0;
     ship.level = 0;
+    ship.dmgXpCarryMs = 0;
     // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
     // fresh build — respawn() below, waiting-phase only, preserves.
     ship.boons = [];
@@ -3066,17 +3081,71 @@ export class World {
     // the friends that saw it happen. onDamaged itself no-ops for a
     // non-fleet victim, a mine hit, and a fleet-on-fleet hit.
     this.drones.onDamaged(victim.id, byId, fromMine);
+    // OVERKILL NEVER PAYS XP (Eric ruling 2026-08-22): "if i do 50 damage to
+    // someone with 1 HP left, i get 1 damage worth of XP". The XP-eligible
+    // figure is the damage the hull could actually absorb, so it has to be
+    // read BEFORE the hp is applied — afterwards the excess is only
+    // recoverable as a negative hp, which is the same number arrived at less
+    // clearly. `damageDealt` deliberately keeps taking the FULL nominal
+    // `amount`: it is the results-screen tally, not the economy, and Eric's
+    // ruling was about XP.
+    const dealt = Math.min(amount, Math.max(0, victim.hp));
     victim.hp -= amount;
-    this.creditDamage(byId, victim.id, amount);
+    this.creditDamage(byId, victim.id, amount, dealt);
     this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
     if (victim.hp <= 0) this.sinkShip(victim.id, byId);
   }
 
-  /** Accumulate damageDealt on the attacker (self-hits excluded; storm never routes here). */
-  private creditDamage(byId: string, victimId: string, amount: number): void {
+  /**
+   * Accumulate damageDealt on the attacker (self-hits excluded; storm never
+   * routes here), and pay the damage->XP rule.
+   *
+   * TWO FIGURES, DELIBERATELY: `amount` is the FULL nominal damage of the blow
+   * and is what `damageDealt` has always counted; `dealt` is the part the hull
+   * could actually absorb and is the only part that earns XP (Eric ruling
+   * 2026-08-22). They differ only on an overkilling blow. `dealt` is REQUIRED
+   * rather than defaulted to `amount` — a default would let a future damage
+   * path silently opt back into paying for overkill by simply not knowing
+   * about it, which is exactly the ruling this parameter exists to enforce.
+   */
+  private creditDamage(byId: string, victimId: string, amount: number, dealt: number): void {
     if (byId === victimId) return;
     const attacker = this.ships.get(byId);
-    if (attacker) attacker.damageDealt += amount;
+    if (attacker) {
+      attacker.damageDealt += amount;
+      this.creditDamageXp(attacker, dealt);
+    }
+  }
+
+  /**
+   * THE DAMAGE->XP RULE (CONFIG.xp.damageLevels), default OFF at 0.
+   *
+   * Sits on `creditDamage` — the ONE seam every hull-damage path already
+   * funnels through (hitShip for shell/torpedo/mine impacts, burnShip for
+   * incendiary DoT) — so the rule cannot miss an ordnance type, and its
+   * exclusions come for free from the seam rather than being restated: a
+   * self-hit is already filtered by the caller, and the storm never routes
+   * here at all, so neither can ever pay XP.
+   *
+   * Grants through the unchanged `addXpMs`, which keeps every downstream
+   * guarantee intact: a FLEET hull still accrues nothing (its fail-closed
+   * guard is the one that already stops drones earning), the bank loop still
+   * banks each level it crosses with its own pre-rolled offer, and the
+   * fractional remainder of a level still carries in `xpMs`.
+   *
+   * Rounding is carried, not dropped — see `dmgXpCarryMs`. `dealt` arrives
+   * already CLAMPED to the hp the victim actually had (Eric ruling
+   * 2026-08-22), so overkill earns nothing: a 50-damage blow into a 1 hp hull
+   * pays for 1.
+   */
+  private creditDamageXp(attacker: ShipRecord, dealt: number): void {
+    const rate = CONFIG.xp.damageLevels;
+    if (!(rate > 0) || !Number.isFinite(dealt) || dealt <= 0) return;
+    const exact = CONFIG.xp.levelMs * rate * dealt + attacker.dmgXpCarryMs;
+    if (!Number.isFinite(exact)) return;
+    const whole = Math.floor(exact);
+    attacker.dmgXpCarryMs = exact - whole;
+    if (whole > 0) this.addXpMs(attacker, whole);
   }
 
   /**
@@ -3350,8 +3419,11 @@ export class World {
     // but a directed caller must not be able to burn hp off a hull already at
     // 0 or nudge sinkShip at a sinking victim.
     if (isSinking(victim.lifecycle)) return;
+    // The overkill clamp applies to the DoT path too (Eric ruling 2026-08-22):
+    // a burn tick that finishes a hull pays only for the hp it actually took.
+    const dealt = Math.min(amount, Math.max(0, victim.hp));
     victim.hp -= amount;
-    this.creditDamage(ownerId, victim.id, amount);
+    this.creditDamage(ownerId, victim.id, amount, dealt);
     const key = dotKey(ownerId, victim.id);
     const bucket = this.dotBuckets.get(key);
     if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, since: this.now });

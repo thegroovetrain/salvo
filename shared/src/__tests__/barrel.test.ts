@@ -267,7 +267,14 @@ describe('shared barrel', () => {
       expect(CONFIG.xp.droneTierLevels[id]).toBeGreaterThan(0);
       expect(CONFIG.xp.droneTierLevels[id]).toBeLessThan(CONFIG.xp.killLevels);
     }
-    expect(Object.keys(CONFIG.xp).sort()).toEqual(['droneTierLevels', 'killLevels', 'levelMs']);
+    // THE DAMAGE->XP RULE IS A MEASUREMENT DIAL AND SHIPS OFF. Pinning the
+    // value (not merely the key) is what makes "the shipped game is unchanged"
+    // a test rather than a claim: at 0 the rule's credit path returns before
+    // touching xpMs, so the economy has exactly the two inputs it always had.
+    // Turning this on in production is Eric's ruling, and flipping it here
+    // must fail loudly rather than ride in on an unrelated change.
+    expect(CONFIG.xp.damageLevels).toBe(0);
+    expect(Object.keys(CONFIG.xp).sort()).toEqual(['damageLevels', 'droneTierLevels', 'killLevels', 'levelMs']);
   });
 
   it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {

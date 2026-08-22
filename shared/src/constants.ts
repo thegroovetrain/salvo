@@ -1606,6 +1606,25 @@ export const CONFIG = {
   xp: {
     levelMs: 60000, // ms of match time per level (passive tick ≈ 1 level/minute)
     killLevels: 1, // levels' worth of XP for sinking a human captain
+    /**
+     * MEASUREMENT DIAL, DEFAULT OFF (balance instrument, 2026-08-22). Levels'
+     * worth of XP granted per 1 point of damage DEALT, credited through the
+     * one `grantXp` pipeline at the one damage-credit seam (World.creditDamage,
+     * shared by shell/torpedo/mine impacts and incendiary DoT alike).
+     *
+     * 0 IS THE SHIPPED GAME AND IS THE DEFAULT: at 0 the rule contributes
+     * nothing, `xpMs` moves on exactly the two inputs it always has (the
+     * passive tick and kill credit), and every existing economy pin holds
+     * byte-identical. This exists so a damage->XP rule can be MEASURED by the
+     * batch-sim harness (`--set xp.damageLevels=...`, already inside the
+     * whitelisted `xp.*` family) without the shipped game moving. Turning it
+     * on in production is Eric's ruling to make, not an implementer's.
+     *
+     * Self-damage never routes here (creditDamage excludes it) and neither
+     * does the storm (it never routes through creditDamage at all), so the
+     * rule pays only for damage one hull deals to another.
+     */
+    damageLevels: 0,
     // RAISED 2026-08-16 (Eric ruling, epic-6 amendment 24): ¼ / ⅓ / ½ → ¼ / ½ / ¾.
     // Every tier is now a DYADIC rational, so any integer fleet composition is
     // exactly representable — which is why fleetLevels()'s old exact-total pin
