@@ -16,6 +16,7 @@ import { CONFIG, HEAL_CHOICE, isAfloat, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 
 const DC = CONFIG.damageControl as { levelHp: number };
+const LEVEL_RATE_HP_S = 5; // levelHp 25 / levelRegenMs 5000 — Eric's '25 over 5 seconds'
 
 function withLevelHp<T>(hp: number, fn: () => T): T {
   const prev = DC.levelHp;
@@ -47,7 +48,7 @@ function tickOneLevelWatching(w: World, ship: ShipRecord, out: number[]): void {
   const before = ship.level;
   for (let i = 0; i < ticks; i++) {
     w.step();
-    if (ship.level > before && out.length === 0) out.push(ship.repairHp);
+    if (ship.level > before && out.length === 0) out.push(ship.levelRepairHp);
   }
 }
 
@@ -67,6 +68,7 @@ describe('per-level heal: OFF is the shipped game', () => {
     expect(a.level).toBe(1);
     expect(a.hp).toBe(100);
     expect(a.repairHp).toBe(0);
+    expect(a.levelRepairHp).toBe(0);
   });
 });
 
@@ -98,13 +100,17 @@ describe('per-level heal: ON', () => {
       // 25 is still sitting in the pool, undrained (tickRepairs runs before
       // tickXp, so payout starts on the NEXT tick).
       expect(a.hp).toBe(100);
-      expect(a.repairHp).toBe(25);
-      w.step();
-      expect(a.hp).toBeGreaterThan(100); // now it is arriving...
-      expect(a.hp).toBeLessThan(125); // ...but not all at once
-      for (let i = 0; i < 200; i++) w.step(); // let it finish paying out
-      expect(a.repairHp).toBeCloseTo(0, 5);
-      expect(a.hp).toBe(125); // the full 25 landed, just over time
+      expect(a.levelRepairHp).toBe(25);
+      // EXACTLY 5 hp/s — Eric's "25 over 5 seconds", taken literally and
+      // deliberately HALF the menu heal's 10 hp/s. One second of ticks pays
+      // exactly 5 hp; the whole grant takes 5 s, not the 2.5 s it would take
+      // if it shared the paid pool.
+      const perSecond = CONFIG.tick.simDtMs > 0 ? 1000 / CONFIG.tick.simDtMs : 0;
+      for (let i = 0; i < perSecond; i++) w.step();
+      expect(a.hp).toBeCloseTo(100 + LEVEL_RATE_HP_S, 6);
+      for (let i = 0; i < perSecond * 4; i++) w.step(); // the remaining 4 s
+      expect(a.hp).toBeCloseTo(125, 6);
+      expect(a.levelRepairHp).toBeCloseTo(0, 6);
     });
   });
 
@@ -129,7 +135,7 @@ describe('per-level heal: ON', () => {
       a.hp = 100;
       w.grantXp(a, 3); // three levels in one grant
       expect(a.level).toBe(3);
-      expect(a.repairHp).toBe(75); // 3 x 25 into the pool, not 25
+      expect(a.levelRepairHp).toBe(75); // 3 x 25 into the pool, not 25
     });
   });
 
@@ -142,7 +148,7 @@ describe('per-level heal: ON', () => {
       expect(isAfloat(a.lifecycle)).toBe(false);
       w.grantXp(a, 1);
       expect(a.level).toBe(1); // the level still lands...
-      expect(a.repairHp).toBe(0); //  ...the pool does not
+      expect(a.levelRepairHp).toBe(0); //  ...the pool does not
     });
   });
 
@@ -153,7 +159,7 @@ describe('per-level heal: ON', () => {
       d.hp = 10;
       w.grantXp(d, 5);
       expect(d.level).toBe(0);
-      expect(d.repairHp).toBe(0);
+      expect(d.levelRepairHp).toBe(0);
     });
   });
 });
@@ -165,7 +171,8 @@ describe('per-level heal: the MENU heal Eric wants kept is untouched', () => {
       const a = place(w, 'a');
       a.hp = 50;
       tickOneLevel(w); // banks a level; the free heal puts 25 in the pool
-      expect(a.repairHp).toBe(25);
+      expect(a.levelRepairHp).toBe(25);
+      expect(a.repairHp).toBe(0); // the PAID pool is untouched
       expect(a.bankedLevels).toBe(1);
       const ok = w.spendPoint('a', HEAL_CHOICE);
       expect(ok).toBe(true);
@@ -175,7 +182,8 @@ describe('per-level heal: the MENU heal Eric wants kept is untouched', () => {
       expect(a.bankedLevels).toBe(0);
       // ANTI-FLASK: the pools ADD, so the level-heal stacks as DURATION on top
       // of the menu heal rather than making it land faster.
-      expect(a.repairHp).toBe(25 + CONFIG.damageControl.regenHp);
+      expect(a.repairHp).toBe(CONFIG.damageControl.regenHp);
+      expect(a.levelRepairHp).toBe(25); // separate channel, separate rate
     });
   });
 

@@ -1696,13 +1696,14 @@ export const CONFIG = {
     regenMs: 5000, // ms — payout time of one regenHp pool (the 5 hp/s rate)
     /**
      * MEASUREMENT DIAL, DEFAULT OFF (balance instrument, 2026-08-22). Hp
-     * restored AUTOMATICALLY and FOR FREE each time a level is EARNED — the
+     * granted automatically and FOR FREE each time a level is EARNED — the
      * "weak, automatic heal that you get every level" Eric floated, sitting
      * IN ADDITION TO the refit-menu heal rather than replacing it.
      *
      * WHY IN ADDITION AND NOT INSTEAD: Eric likes the heal being a strategic
      * decision and so do his players; what feels bad is the SHARE of levels it
-     * eats, especially early. Replacing the menu heal would delete the
+     * eats, especially early (measured: 58.7% of every level earned goes to a
+     * heal rather than an upgrade). Replacing the menu heal would delete the
      * decision he wants kept. Layering a small free trickle under it leaves
      * the emergency spend exactly as it is while paying for routine chip
      * damage out of progression rather than out of the card budget.
@@ -1712,24 +1713,27 @@ export const CONFIG = {
      * the economy is a different thing from healing paced by a timer, and
      * this dial is on the former side of that line.
      *
+     * IT HAS ITS OWN POOL AND ITS OWN RATE — it does NOT feed `repairHp`.
+     * Eric ruled "25 over 5 seconds" and, when told the shared pool now drains
+     * at 10 hp/s, confirmed the numbers were deliberate: *"I said 25 over 5, i
+     * meant 25 over 5. i know they are old numbers."* The shared pool has ONE
+     * global rate by design (the anti-flask rule), so a genuinely slower
+     * trickle cannot live in it. `levelHp / levelRegenMs` = 25/5000 = 5 hp/s,
+     * half the menu heal's rate, which is the point: the free heal must be
+     * out-damageable where the paid one is meant to answer a real emergency.
+     *
+     * The anti-flask rule holds WITHIN this channel exactly as it does in the
+     * other: the rate is fixed at levelHp/levelRegenMs, and pools ADD, so two
+     * level-heals run 10 s at 5 hp/s rather than 5 s at 10 hp/s.
+     *
      * 0 IS THE SHIPPED GAME AND IS THE DEFAULT. A hull that is sinking or sunk
      * never receives it.
-     *
-     * IT FEEDS THE REGEN POOL, NOT THE BAR (Eric ruling 2026-08-22: "25 over 5
-     * seconds"). A trickle can be out-damaged; an instant top-up cannot, and
-     * answering burst damage is the menu heal's job — the decision being
-     * protected. It inherits the anti-flask rule for free: pools ADD, the rate
-     * never changes, so this stacks as DURATION on top of a menu heal.
-     *
-     * TIMING, STATED HONESTLY: the pool drains at `regenHp / regenMs` = 50 /
-     * 5000 = 10 hp/s, so 25 here is delivered over 2.5 s, not 5. The 5 hp/s
-     * figure in the tickRepairs docstring and in CLAUDE.md is STALE — it
-     * describes the pre-cycle-122 `regenHp` of 25, which was doubled in the
-     * hull-HP pass without those claims being updated. Eric's "over 5 seconds"
-     * matches the DOCUMENTED game rather than the shipped one; whether to fix
-     * the docs or the rate is his call, and is deliberately NOT taken here.
      */
     levelHp: 0,
+    /** ms — payout time of ONE `levelHp` grant, so the free trickle's rate is
+     *  `levelHp / levelRegenMs`. Separate from `regenMs` because the two
+     *  channels deliberately run at different speeds (see `levelHp`). */
+    levelRegenMs: 5000,
   },
 
   /**

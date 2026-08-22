@@ -570,6 +570,20 @@ export interface ShipRecord {
    */
   repairHp: number;
   /**
+   * The FREE per-level heal's own pool (CONFIG.damageControl.levelHp), kept
+   * SEPARATE from `repairHp` because it drains at its own, slower rate —
+   * `levelHp / levelRegenMs` = 5 hp/s against the menu heal's 10 (Eric ruling
+   * 2026-08-22, given knowingly against the current numbers). One pool cannot
+   * carry two rates, and merging them would either speed this up or slow the
+   * paid heal down; both are the wrong answer.
+   *
+   * Same lifecycle as `repairHp` in every respect: zeroed on sink, on
+   * redeploy, and on respawn. Mirrored to the client SUMMED into
+   * OwnShip.repairHp, so the HUD's pending-repair readout stays honest without
+   * a wire change.
+   */
+  levelRepairHp: number;
+  /**
    * ms — server time the PROP-FOULING slow on this ship ends (Story 2.8);
    * 0 = not slowed. Written by detonateMine when a propFouling owner's blast
    * damages this hull (REFRESH, never stack: plain assignment of now +
@@ -1263,7 +1277,7 @@ export class World {
       // A fresh hull carries no open windows — boost, DAMAGE CONTROL pool
       // (2026-08-04), prop-fouling slow, dazzle — the same four zeroed together
       // at every other life boundary (sinkShip / respawn / redeployShip).
-      boostUntil: 0, repairHp: 0, slowedUntil: 0, dazzledUntil: 0,
+      boostUntil: 0, repairHp: 0, levelRepairHp: 0, slowedUntil: 0, dazzledUntil: 0,
       rttMs: null,
       lastFireT: 0,
       respawnAt: 0,
@@ -1519,6 +1533,7 @@ export class World {
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
     ship.repairHp = 0;
+    ship.levelRepairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
@@ -1612,6 +1627,7 @@ export class World {
     // sinking, you're done"), tickRepairs would never tick it anyway (afloat
     // gate), and nothing may trickle hp back onto a hull already at 0.
     ship.repairHp = 0;
+    ship.levelRepairHp = 0;
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
@@ -1825,7 +1841,7 @@ export class World {
     // full hull simply banks pool that tickRepairs then burns against its
     // clamp — the ruled overflow-is-lost behavior, reached by the same path as
     // any other pool.
-    ship.repairHp += hp;
+    ship.levelRepairHp += hp;
     this.pending.push({ k: 'heal', id: ship.id });
   }
 
@@ -2597,12 +2613,26 @@ export class World {
   private tickRepairs(dtMs: number): void {
     const dc = CONFIG.damageControl;
     const budget = (dc.regenHp / dc.regenMs) * dtMs;
+    // The FREE per-level trickle runs on its OWN budget at its own rate
+    // (levelHp/levelRegenMs = 5 hp/s vs the menu heal's 10). Two independent
+    // wall-clock drains, not one shared one — see ShipRecord.levelRepairHp.
+    const levelBudget = dc.levelRegenMs > 0 ? (dc.levelHp / dc.levelRegenMs) * dtMs : 0;
     for (const ship of this.ships.values()) {
-      if (!isAfloat(ship.lifecycle) || ship.repairHp <= 0) continue;
-      const paid = Math.min(budget, ship.repairHp);
-      ship.repairHp -= paid; // wall-clock drain: spent even when the hp is clamped away
-      ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
+      if (!isAfloat(ship.lifecycle)) continue;
+      if (ship.repairHp > 0) this.payRepair(ship, budget, false);
+      if (ship.levelRepairHp > 0 && levelBudget > 0) this.payRepair(ship, levelBudget, true);
     }
+  }
+
+  /** Drain one repair channel by its own wall-clock budget. The pool decrements
+   *  WHETHER OR NOT the hp lands, so overflow past maxHp is lost rather than
+   *  banked — the ruled behavior, and identical for both channels. */
+  private payRepair(ship: ShipRecord, budget: number, level: boolean): void {
+    const pool = level ? ship.levelRepairHp : ship.repairHp;
+    const paid = Math.min(budget, pool);
+    if (level) ship.levelRepairHp -= paid;
+    else ship.repairHp -= paid;
+    ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
   }
 
   /** Alive hull silhouette polygons (post-move) that shells and mines test
@@ -4253,6 +4283,7 @@ export class World {
     // for directed callers).
     ship.boostUntil = 0;
     ship.repairHp = 0;
+    ship.levelRepairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // ...nor a stale grounding read (the redeployShip rule): the respawn
