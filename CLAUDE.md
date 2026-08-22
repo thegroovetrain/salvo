@@ -59,7 +59,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 #### Server (`server/src/`)
 - **index.ts** — `@colyseus/tools` boot; listens on `PORT` or `:2567`.
 - **app.config.ts** — Colyseus app config; registers BOTH rooms — `queue` (`StandardQueueRoom`) and `arena` (`ArenaRoom`) — and mounts `/metrics` + `/liveness` through one `createRouter` call.
-- **log.ts** / **metrics.ts** / **liveness.ts** — ops surfaces, NOT sim: structured stdout logging, process-local counters behind `GET /metrics`, and the public `GET /liveness` presence read (sourced from `matchMaker.query()`, so it stays correct the day the game runs on more than one node).
+- **log.ts** / **metrics.ts** / **liveness.ts** / **robots.ts** — ops surfaces, NOT sim: structured stdout logging, process-local counters behind `GET /metrics`, the public `GET /liveness` presence read (sourced from `matchMaker.query()`, so it stays correct the day the game runs on more than one node), and the `HC_NOINDEX=1` search-engine guard that keeps the staging host out of the index (`X-Robots-Tag: noindex, nofollow`, mounted ahead of `express.static`; never mounted in production).
 - **rooms/StandardQueueRoom.ts** — the standard-match queue: a thin Colyseus adapter (pool array, socket sends, matchMaker calls) over the pure policy in queue.ts. It sits IN FRONT of the arena so "which mode am I waiting for" is never a property of the arena room.
 - **rooms/queue.ts** — the queue's arm/form POLICY: pure functions over plain numbers, zero Colyseus imports (the world.ts / match.ts posture).
 - **rooms/ArenaRoom.ts** — thin Colyseus adapter around `World` + `Match`. Bridges joins/leaves → roster schema, raw `"i"` input messages → World's input store, fixed steps → per-client frames. Applies the transport rate limit (`CONFIG.net.maxMessagesPerSecond`), gates dev room options behind `HC_DEV_OPTIONS`, and is the ONLY file that knows the word "solo" (it builds the 19-bot fleet).
@@ -229,21 +229,35 @@ In QA mode, flag any code that doesn't match that DESIGN.md.
 
 ## Deploy Configuration (configured by /setup-deploy)
 
-Accurate as of cycle 126: ONE Render web service serves the built client and the Colyseus game process. Conditional pointer only — Story 7-7 *would* split this into two services, but 7-7 is under review (Eric ruling F2, 2026-08-21); do not pre-empt it.
+Accurate as of cycle 127: **TWO Render web services, from one `render.yaml`** — a production environment and a staging environment. Each service still serves the built client AND the Colyseus game process from one process; this is an ENVIRONMENT split, not a service split. Story 7-7 *would* split frontend from backend and is DEFERRED IN FULL (Eric ruling F2, 2026-08-21) — do not pre-empt it.
+
+**`render.yaml` is live configuration, not documentation.** Render Blueprint `salvobp` has autoSync ON against it on `main`. Adding a service there creates and bills it; changing `plan` there changes the instance being paid for. Never reach for the Render API or dashboard to make a config change that belongs in the file — the file is the source of truth, and drift between the two is what cycle 127 existed to clean up.
+
+| | production | staging |
+|---|---|---|
+| Service | `hullcracker` | `hullcracker-dev` |
+| Branch | `main` | `development` |
+| URL | https://hullcracker.io/ | its `*.onrender.com` host |
+| Plan | pro (2 CPU / 4 GB) | starter (0.5 CPU / 512 MB) |
+| Analytics / ads | GA4 + AdSense live | **neither** — both absence-gated off |
+| Indexable | yes | no (`HC_NOINDEX=1` → `X-Robots-Tag`) |
+
+### The development flow
+1. Branch from `development` (**not** from `main`).
+2. Build the feature; open the PR against `development`.
+3. Merge to `development` → the dev service auto-deploys.
+4. **Manual QA on the dev host.** This is the gate.
+5. Only once QA passes, merge `development` → `main` → production auto-deploys.
+
+Because staging is `starter` and production is `pro`, functional QA on the dev host is trustworthy and **performance** QA is not — a 20-hull SOLO VS AI match is the case that will feel the gap. Raise the dev plan in `render.yaml` for a cycle that needs to trust its own frame timings.
 
 - Platform: Render
-- Production URL: https://hullcracker.io/
-- Deploy workflow: auto-deploy on push to main
-- Deploy status command: HTTP health check
 - Merge method: merge
 - Project type: web app (multiplayer game)
-- Post-deploy health check: https://hullcracker.io/
-
-### Custom deploy hooks
-- Pre-merge: none
-- Deploy trigger: automatic on push to main (Render auto-deploy)
-- Deploy status: poll production URL
-- Health check: https://hullcracker.io/
+- Deploy trigger: automatic on push to the service's branch (Render auto-deploy)
+- Deploy status: poll the URL of whichever environment was deployed
+- Health check: https://hullcracker.io/ for production; the dev host's own URL for staging — do not health-check production after a staging deploy
+- Pre-merge hooks: none
 
 ### Directives
 - If at any time the linter discovers complexity errors, fix them immediately. Do not worry about when they were from, just fix them.

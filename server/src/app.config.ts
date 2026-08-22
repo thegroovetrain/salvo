@@ -10,6 +10,7 @@ import { ArenaRoom } from './rooms/ArenaRoom.js';
 import { StandardQueueRoom } from './rooms/StandardQueueRoom.js';
 import { metricsEndpoint } from './metrics.js';
 import { livenessEndpoint } from './liveness.js';
+import { noIndexEnabled, robotsTagMiddleware } from './robots.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -50,6 +51,15 @@ export default config({
   },
 
   initializeExpress: (app) => {
+    // FIRST, so it covers express.static below and every route added later.
+    // Only mounted on a host that opted in with HC_NOINDEX=1 — the staging
+    // service in render.yaml. Production never mounts it, so the public game
+    // pays nothing and sends no header. See robots.ts for why a header rather
+    // than a robots.txt.
+    if (noIndexEnabled()) {
+      app.use(robotsTagMiddleware);
+    }
+
     app.get('/health', (_req: Request, res: Response) => {
       res.json({ ok: true, version: pkg.version });
     });
