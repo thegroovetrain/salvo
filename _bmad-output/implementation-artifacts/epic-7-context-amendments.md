@@ -2669,10 +2669,16 @@ printed `☠︎ DRONE IS THE NEW KILL LEADER`. It now has its own `UNKNOWN PILOT
 `CAPTAIN`, for a measured reason**: the name segment runs through the shared 14-code-point cap and
 `UNKNOWN CAPTAIN` is fifteen, rendering as `UNKNOWN…APTAIN`.
 
-**Honest limitation of record:** the random-world master invariant suite does **not** protect this
-field — its generated worlds never produce a fleet-credited sink, so the completeness arm never
-fires. The guarantee is carried by the six directed tests. Anyone hardening this later should know
-the property suite is not what is holding it.
+**Honest limitation of record, REFINED AT THE REVIEW GATE.** The implementing agent reported that
+the random-world master invariant suite does not protect this field, because its generated worlds
+never produce a fleet-credited sink so the oracle's completeness arm never fires. The adversarial
+review corrected that reading, and the correction matters: **the DANGEROUS direction is covered.**
+`verifySunkKillerClass`'s else-arm — *"a killer that is not a live fleet hull must NOT be stamped"* —
+runs on every `sunk` row the property suite generates, and those are overwhelmingly captain-credited,
+so *"a captain's class can never ride this field"* is exercised continuously against random worlds.
+What rests on the six directed tests is only FEATURE LIVENESS (*"a fleet killer IS named"*). The
+safety-critical net is real; the liveness net is directed. Anyone hardening this later should know
+which half is which.
 
 ## Amendment 42 — DRONE TIER RIDES A SHAPE MARK (ERIC RULING, 2026-08-21, cycle 126)
 
