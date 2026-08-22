@@ -2,9 +2,11 @@
 title: 'Render reality sync + a development branch and staging service'
 type: 'chore'
 created: '2026-08-22'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
+baseline_revision: '7c6c45e966ed437ef4b60696d019393885a4f26e'
+final_revision: '9055ab136f18c44cd5f2b114e6e116ddedd098bd'
 context:
   - '{project-root}/render.yaml'
   - '{project-root}/CLAUDE.md'
