@@ -233,7 +233,7 @@ Accurate as of cycle 127: **TWO Render web services, from one `render.yaml`** �
 
 - Platform: Render
 - Production URL: https://hullcracker.io/
-- Staging URL: the `hullcracker-dev` service's `*.onrender.com` host (record it here once Render mints it)
+- Staging URL: https://hullcracker-dev.onrender.com/
 - Deploy workflow: feature → `development` → manual QA on staging → `main`
 - Deploy status command: HTTP health check
 - Merge method: merge
@@ -244,7 +244,7 @@ Accurate as of cycle 127: **TWO Render web services, from one `render.yaml`** �
 - Pre-merge: none
 - Deploy trigger: automatic on push to the service's own branch (Render auto-deploy)
 - Deploy status: poll the URL of whichever environment was deployed
-- Health check: https://hullcracker.io/ for production; the staging host's own URL after a staging deploy — never health-check production after a staging deploy
+- Health check: https://hullcracker.io/ for production; https://hullcracker-dev.onrender.com/ after a staging deploy — never health-check production after a staging deploy. **Once `HC_STAGING_KEY` is set, a healthy staging host answers `401`, not `200`** — that is the password page doing its job, not a failed deploy. `200` there means the gate is OFF.
 
 ### The two environments
 
