@@ -3,6 +3,16 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  48: A DRONE KILLER CAN BE NAMED (Eric ruling 2026-08-21) — `SunkEvent` gains
+ *  an optional `kcls` (HullId), appended LAST after `vcls`, so the load-bearing
+ *  msgpack key order becomes k,id,by?,seen?,bty?,vcls?,kcls?. It carries THE
+ *  KILLER'S HULL CLASS AND ONLY WHEN THE KILLER IS A PvE FLEET HULL
+ *  (`role === 'fleet'`), never for a captain killer — a captain's class is not
+ *  disclosed by this row and widening it is not authorised. Observer-
+ *  independent, identity/class only (no position, bearing, range or hp), so it
+ *  adds NO perception exception: the master invariant stays at exactly SIX
+ *  (`sp`, `hc`, `mz`, `sunk`, `sm`, `fh`). Purely additive to the payload, but
+ *  a wire SHAPE change on a row every client decodes, so it is a join gate.
  *  47: BALANCE CYCLE 1 (Eric rulings 2026-08-20/21) — nine combat tunables move
  *  together: hull hp DOUBLES (TB 125→250, BS 175→350, ML 150→300),
  *  `damageControl` instant/regen double with it (25→50 each, because those
@@ -523,7 +533,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 47;
+export const PROTOCOL_VERSION = 48;
 
 // Tunables
 export * from './constants.js';

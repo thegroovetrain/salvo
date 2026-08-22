@@ -2,7 +2,7 @@
 title: 'Story 7-3: How-to-Play Page'
 type: 'feature'
 created: '2026-08-19'
-status: 'in-review'
+status: 'done'
 baseline_revision: '362e7e7'
 review_loop_iteration: 0
 followup_review_recommended: false

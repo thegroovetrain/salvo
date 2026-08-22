@@ -4,7 +4,15 @@
 // fallback and swaps to its hue once the roster syncs).
 
 import { afterEach, describe, it, expect } from 'vitest';
-import { CONFIG, DRONE_HULL_IDS, HULL_IDS, REGATTA_HUES, SHIP_CLASS_IDS, hullSilhouette } from '@salvo/shared';
+import {
+  CONFIG,
+  DRONE_HULL_IDS,
+  HULL_IDS,
+  REGATTA_HUES,
+  SHIP_CLASS_IDS,
+  hullSilhouette,
+  type HullId,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   PLAYER_HUES,
@@ -13,6 +21,7 @@ import {
   FALLBACK_STYLE,
   hullStyle,
   contactStyle,
+  droneRankTicks,
   hullFlashIntensity,
   isDroneHull,
   setHullFlashGate,
@@ -289,3 +298,120 @@ describe('ShipView.draw — bounds match the shared silhouette dims for each cla
     });
   }
 });
+
+// --- STORY 7.6: DRONE RANK TICKS ----------------------------------------------
+//
+// Eric, 2026-08-21: *"We actually do need better distinction, size isn't
+// enough."* … *"just use the rank ticks on the silhouette, which is way
+// better."* 1 / 2 / 3 transverse bars on the afterdeck for small / medium /
+// large, in the hull's own greyscale outline colour.
+//
+// THE COUNT IS THE TIER, and the tier is the payout (CONFIG.xp.droneTierLevels
+// pays 1/4, 1/2, 3/4 of a level). These pin the properties a reader depends on:
+// the count, that the marks stay INSIDE the silhouette (so they can neither
+// inflate the hull's box nor reach the nameplate floated above it), and that
+// they are stroked in no colour the drone palette does not already own.
+describe('droneRankTicks — the tier rides the silhouette as a countable mark', () => {
+  const TIER: [HullId, number][] = [
+    ['droneSmall', 1],
+    ['droneMedium', 2],
+    ['droneLarge', 3],
+  ];
+
+  it('gives each fleet tier its own tick COUNT — 1 / 2 / 3, small to large', () => {
+    for (const [id, count] of TIER) expect(droneRankTicks(id)).toHaveLength(count);
+    // …and the ladder is strictly increasing, which is the readable property:
+    // a repeated tick count would be no better than the size it rides.
+    const counts = TIER.map(([id]) => droneRankTicks(id).length);
+    expect(counts).toEqual([...counts].sort((a, b) => a - b));
+    expect(new Set(counts).size).toBe(counts.length);
+  });
+
+  it('covers EVERY drone hull id and NO captain hull', () => {
+    // Derived from the shared tables, so a fourth fleet hull (or a class
+    // mistakenly listed as one) fails here rather than rendering unranked.
+    for (const id of DRONE_HULL_IDS) expect(droneRankTicks(id).length).toBeGreaterThan(0);
+    for (const id of SHIP_CLASS_IDS) expect(droneRankTicks(id)).toEqual([]);
+    expect(HULL_IDS.filter((id) => droneRankTicks(id).length > 0)).toEqual([...DRONE_HULL_IDS]);
+  });
+
+  it('draws every tick INSIDE the hull it rides — aft of amidships, clear of both rails', () => {
+    for (const [id] of TIER) {
+      const poly = hullSilhouette(id);
+      const halfBeam = Math.max(...poly.map((p) => Math.abs(p.y)));
+      const halfLen = Math.max(...poly.map((p) => Math.abs(p.x)));
+      // The chevron's parallel-sided midbody: shoulders at +0.3·halfLen, stern
+      // inset at −0.9·halfLen. Every tick must live in it, so it has full beam
+      // under it and never reads as part of the bow arrowhead.
+      for (const t of droneRankTicks(id)) {
+        expect(t.x).toBeLessThan(0); // abaft amidships
+        expect(t.x).toBeLessThanOrEqual(halfLen * 0.3);
+        expect(t.x).toBeGreaterThanOrEqual(-halfLen * 0.9);
+        expect(t.halfLenU).toBeGreaterThan(0);
+        expect(t.halfLenU).toBeLessThan(halfBeam); // clear fill on both sides
+      }
+    }
+  });
+
+  it('separates adjacent ticks by many times their own stroke width', () => {
+    // 2 vs 3 is only countable if the gap survives the line weight.
+    for (const [id] of TIER) {
+      const xs = droneRankTicks(id).map((t) => t.x);
+      for (let i = 1; i < xs.length; i++) {
+        expect(Math.abs(xs[i] - xs[i - 1])).toBeGreaterThan(CLIENT_CONFIG.droneRank.widthU * 4);
+      }
+    }
+  });
+
+  it('scales with the hull: a bigger fleet hull gets longer, wider-spread ticks', () => {
+    // Every number is a fraction of the silhouette, never a world literal.
+    const small = droneRankTicks('droneSmall');
+    const large = droneRankTicks('droneLarge');
+    expect(large[0].halfLenU).toBeGreaterThan(small[0].halfLenU);
+    expect(Math.abs(large[1].x - large[0].x)).toBeGreaterThan(
+      CONFIG.drones.small.hull.length * CLIENT_CONFIG.droneRank.spacingLengthFrac,
+    );
+  });
+
+  it('NEVER inflates the rendered hull box — the marks are interior, so bounds are untouched', () => {
+    // The silhouette IS the hitbox and the nameplate is floated above the hull's
+    // projected bounding circle: a mark that grew the box would move the plate.
+    const { length, beam } = CONFIG.drones.large.hull;
+    const view = new ShipView(DRONE_STYLE, 'droneLarge');
+    const b = view.gfx.getLocalBounds();
+    expect(b.height).toBeLessThan(beam + 12); // the same slop the class bounds test uses
+    expect(b.width).toBeLessThan(length + 12);
+    view.destroy();
+  });
+
+  it('introduces NO new colour — every stroke on a drone hull is `droneOutline`', () => {
+    // Drones are locked greyscale (DESIGN.md:157), so the ticks may not open a
+    // colour channel: they are stroked in the hull's OWN outline colour, which
+    // is why they need no exception to that rule. Read off the rendered Pixi
+    // context rather than trusting the source: this is the assertion that
+    // actually forbids a future `colors.droneRank` token.
+    for (const [id] of TIER) {
+      expect(contactStyle(id, 7)).toEqual(DRONE_STYLE); // greys, whatever the roster says
+      const view = new ShipView(contactStyle(id, 7), id);
+      expect(strokeColorsOf(view)).toEqual([DRONE_STYLE.stroke, DRONE_STYLE.stroke]); // hull, then ticks
+      // …and a recolor carries the ticks with the hull, in one linework family.
+      view.setColors(C.amber, null);
+      expect(strokeColorsOf(view)).toEqual([C.amber, C.amber]);
+      view.destroy();
+    }
+  });
+
+  it('adds exactly ONE stroke pass, and only for a fleet hull', () => {
+    // A captain hull must be byte-identical to what it drew before Story 7.6.
+    const cap = new ShipView(FALLBACK_STYLE, 'battleship');
+    expect(strokeColorsOf(cap)).toEqual([C.amber]);
+    cap.destroy();
+  });
+});
+
+/** Every stroke colour a view's rendered Pixi context actually issues, in draw
+ *  order — the hull outline first, then (fleet hulls only) the rank ticks. */
+function strokeColorsOf(view: ShipView): number[] {
+  const instructions = view.gfx.context.instructions as { action: string; data: { style?: { color?: number } } }[];
+  return instructions.filter((i) => i.action === 'stroke').map((i) => i.data.style?.color ?? -1);
+}

@@ -2,7 +2,7 @@
 title: 'DAMAGE CONTROL — the always-available heal spend'
 type: 'feature'
 created: '2026-08-04'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:

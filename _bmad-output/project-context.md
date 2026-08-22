@@ -90,7 +90,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 ### Critical Don't-Miss Rules
 
 - Never invent game mechanics, balance values, or design decisions without consulting Eric — design questions go to the GDD, not improvisation.
-- **Deprecated docs:** root `TODOS.md` and root `DESIGN.md` are superseded. Design source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md` (+ `EXPERIENCE.md`); gameplay design: the GDD in `_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/`.
+- **Deleted docs:** root `TODOS.md` and root `DESIGN.md` were deleted at cycle 126 (Eric ruling 2026-08-21) — both were hex-era and the latter shared a filename with the real design source of truth, which is how a reader ends up in the wrong document. Git history preserves them, and an archival copy of the v0.16 root design doc lives at `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/imports/DESIGN-v0.16-root.md`. Design source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md` (+ `EXPERIENCE.md`); gameplay design: the GDD in `_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/`.
 - Every completed gds-* phase updates `_bmad-output/gds-workflow-status.yaml` in the same PR as its artifacts.
 - Torpedoes spawn with real bow clearance + owner-only grace and must outrun every hull — speed changes must preserve "can't self-hit at base speed".
 - Win checks are human-gated; drones are ordinary ships driven through the same input pipeline — never special-case drone physics or visibility.

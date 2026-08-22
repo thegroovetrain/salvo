@@ -1,4 +1,8 @@
-// THE ADSENSE INTERSTITIAL, behind the Epic 0 portal seam.
+// THE ADSENSE INTERSTITIAL — THE seam implementation, behind the Epic 0
+// `PortalAdapter` interface. Eric, Epic 7: *"I'm controlling my game and
+// servers. no portals. IDGAF what you do. I'm serving my own ads."* So this is
+// not one adapter among several vendors: it is the only real one there will be,
+// and `portal/nullAdapter.ts` is what an UNCONFIGURED build gets instead.
 //
 // `portal/portalAdapter.ts` has carried a null implementation since Epic 0
 // waiting for exactly this: the game calls five methods and knows nothing about
@@ -8,9 +12,12 @@
 // (Eric ruling R2, amendment 16).
 //
 // FOUR OF THE FIVE METHODS ARE NO-OPS AND THAT IS THE DESIGN, not an omission.
-// `loadingProgress` and `matchStart`/`matchEnd` exist for a PORTAL host (Poki /
-// CrazyGames) that wants to know when the game is playable; AdSense H5 has no
-// such hook and this story ships no display unit for them to drive.
+// `loadingProgress` and `matchStart`/`matchEnd` are the seam's general
+// host-lifecycle notifications — "the game is loading / playable / done"; AdSense
+// H5 has no such hook and this story ships no display unit for them to drive.
+// They are kept because they cost nothing and they are where a future
+// self-served surface (Eric serves his OWN ads — there is no portal host coming)
+// would hang, not because a vendor is expected to arrive and consume them.
 //
 // THE CONTRACT THIS FILE MUST NOT BREAK: there is deliberately NO TIMEOUT in
 // here. A second one would be a second copy of a rule `portal/safeAdapter.ts`

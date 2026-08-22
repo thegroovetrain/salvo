@@ -12,14 +12,17 @@
 // long-persistence phosphor is how course and speed are actually plotted off a
 // scope. `blipAlpha`'s own contract is UNCHANGED and takes the LIFE, not the
 // period: the caller decides how long a paint lives, and `blipLifeMs` is that
-// decision for the in-game scope. The pre-join ambient scope (render/ambient.ts)
-// deliberately keeps one-period life and the green `blipTint` ramp — its dots
-// have no owner and no class, so nothing there needs the longer track.
+// decision for the in-game scope.
 //
-// One cooling ramp remains: `blipTint` — bright → dark phosphor GREEN. It SETS
-// the color, so it may only drive a mark that has NO other color to carry.
-// Exactly one caller is left: the pre-join ambient dots (render/ambient.ts),
-// which have no owner, no class and no strength. (The hue-preserving grey
+// `blipTint` — bright → dark phosphor GREEN — SETS the color, so it may only
+// drive a mark that has NO other color to carry. CORRECTED cycle 126: it has
+// NO production consumer at all. This comment used to claim the pre-join
+// ambient dots were its one caller, but render/ambient.ts builds the ordinary
+// `Radar` and feeds it real coverage footprints, so it runs the same quantized
+// band path as the live scope. `blipTint`, `BLIP_BRIGHT`, `BLIP_DARK` and the
+// `blip-fresh`/`blip-faded` tokens behind them are referenced only by this
+// module and its test. Retiring them is a code decision, so it is ledgered in
+// deferred-work.md rather than taken here. (The hue-preserving grey
 // `blipCool` multiplier died with the `silhouette` grammar in cycle 105 — the
 // in-game scope is a quantized bitmap whose age rides `blipAlpha` and whose
 // strength rides the band colors, so there is no per-mark tint left to cool.)

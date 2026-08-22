@@ -2,7 +2,7 @@
 title: 'Story 7-6: Design & Doc Reconciliation'
 type: 'chore'
 created: '2026-08-21'
-status: 'blocked'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -10,7 +10,6 @@ context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context-amendments.md'
 warnings: ['multiple-goals']
-blocking_condition: 'intent gaps — 28 decisions listed in the question gate; the AC itself requires a with-Eric pass'
 ---
 
 <intent-contract>
@@ -200,3 +199,27 @@ draft strings, which epic-6 amendment 41 reserves to Eric) and **G6** (deleting 
 
 Resume by re-invoking with this spec once the gate is answered; record the answers as an epic-7
 amendment in the same change that applies them.
+
+## Auto Run Result (final)
+
+Status: **done**. Ran 2026-08-21, cycle 126, `0.17.126`, `PROTOCOL_VERSION` 47 → 48.
+
+The gate was answered in full by Eric (28 decisions, plus three mid-flight rulings that reversed
+earlier answers: the drone-killer wire change, rank-ticks-only for drone tiers, and the sensor-tier
+reframing). Every answer and every implementer default is recorded in
+`bmad-dev-auto-result-7-6-doc-reconciliation-questions.md`; the durable consequences are epic-7
+amendments **38-43**.
+
+Seven read-only audits, then seven implementing agents on disjoint file seams. `npm run check`
+green at **5601 tests** (778 shared / 1606 server / 3217 client), exit 0.
+
+**Five corrections of record where verification overturned an instruction** — each caught by
+reading code rather than trusting a prompt, and each recorded in amendment 43: the broadside spec
+(balance cycle 1 superseded it, and the change splits across cycles 113-115 and 122); the purple
+carve-out's amendment number; the claim that Epic 7 shipped a consent dialog; the tone count
+(33 tones / 34 cues); and the orchestrator's own `0.17.120` claim, which was backwards — a
+`git log -S` search misses versions carried by merge commits.
+
+Left open and ledgered rather than absorbed: the Battleship's power fantasy under the 5/8-rung
+broadside, the banked Decoy Ship class, whether heals stay spendable during the sudden-death
+collapse, and the dead `blip-fresh`/`blip-faded` tokens.

@@ -1491,6 +1491,119 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
   });
 });
 
+// ---------- Story 7.6: SunkEvent.kcls, fleet killers only (directed) ----------
+
+describe('perception — SunkEvent.kcls names a FLEET killer and never a captain (Story 7.6)', () => {
+  /** The sunk rows in one observer's frame this tick. */
+  function sunkRows(w: World, viewer: string, phase: MatchPhase = 'active'): SunkEvent[] {
+    return buildFrame(w, viewer, phase).events.filter((e): e is SunkEvent => e.k === 'sunk');
+  }
+
+  it('names the fleet hull that sank a captain — to EVERY client, unsighted (the ruling)', () => {
+    // Eric 2026-08-21: *"Yes I want to see that Bob was killed by SMALL DRONE if
+    // that's what happened."* A captain victim's sinking is PUBLIC, so the line
+    // renders on every client; the killer is 2000u away, so no observer holds a
+    // contact, a blip or a hull memo for it. Only the wire can answer.
+    const w = bareWorld();
+    const victim = place(w, 'bob', 0, 0);
+    const watcher = place(w, 'watcher', 60, 0);
+    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 });
+    expect(sighted(w, victim, drone.state)).toBe(false);
+    expect(sighted(w, watcher, drone.state)).toBe(false);
+    w.sinkShip('bob', 'f');
+    w.step();
+    for (const viewer of ['bob', 'watcher']) {
+      const rows = sunkRows(w, viewer);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kcls).toBe('droneSmall');
+    }
+    // OBSERVER-INDEPENDENT: identical value for the victim and the bystander.
+    expect(sunkRows(w, 'bob')[0].kcls).toBe(sunkRows(w, 'watcher')[0].kcls);
+    // KEY ORDER pinned, kcls LAST — after vcls, which the fleet killer does not
+    // receive here (it is not an observer).
+    expect(Object.keys(sunkRows(w, 'watcher')[0])).toEqual(['k', 'id', 'by', 'seen', 'kcls']);
+  });
+
+  it('A CAPTAIN KILLER IS NEVER NAMED — the constraint the whole design rests on', () => {
+    // A captain's hull class is not disclosed by this row, and this row is
+    // PUBLIC for a captain victim. Stamping `by`'s class unconditionally would
+    // broadcast every killer's build fact to the whole room.
+    const w = bareWorld();
+    place(w, 'killer', 0, 0);
+    place(w, 'victim', 3000, 0);
+    place(w, 'watcher', 60, 0);
+    w.sinkShip('victim', 'killer');
+    w.step();
+    for (const viewer of ['killer', 'victim', 'watcher']) {
+      const rows = sunkRows(w, viewer);
+      expect(rows).toHaveLength(1);
+      expect('kcls' in rows[0]).toBe(false); // OMITTED, not undefined
+    }
+  });
+
+  it('AN AI CAPTAIN (role "bot") IS NEVER NAMED EITHER — participants, not world content', () => {
+    // The gate reads the Story 6.3 role seam's FLEET-HULL reading, not "is not
+    // a human": a bot is a captain for every disclosure purpose.
+    const w = bareWorld();
+    const bot = w.addShip('ai', 'AI', 'bot', 'battleship', undefined, { x: 0, y: 0 });
+    expect(bot.role).toBe('bot');
+    place(w, 'victim', 3000, 0);
+    place(w, 'watcher', 60, 0);
+    w.sinkShip('victim', 'ai');
+    w.step();
+    for (const viewer of ['victim', 'watcher']) {
+      expect('kcls' in sunkRows(w, viewer)[0]).toBe(false);
+    }
+  });
+
+  it('a FLEET victim of a FLEET killer names the killer only on the rows that reach an observer', () => {
+    // Both halves on one row: `vcls` (the credited killer alone — here nobody,
+    // since the credited killer is a drone with no client) and `kcls`.
+    const w = bareWorld();
+    const watcher = place(w, 'watcher', 0, 0);
+    const target = w.addShip('t', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 });
+    expect(sighted(w, watcher, target.state)).toBe(true); // a drone sinking needs a witness
+    w.sinkShip('t', 'f');
+    w.step();
+    const rows = sunkRows(w, 'watcher');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kcls).toBe('droneMedium');
+    expect('vcls' in rows[0]).toBe(false); // the watcher did not fire
+    expect(Object.keys(rows[0])).toEqual(['k', 'id', 'by', 'seen', 'kcls']);
+  });
+
+  it('a STORM death (no killer) and a SELF-SINK both carry it to nobody', () => {
+    const w = bareWorld();
+    const watcher = place(w, 'watcher', 0, 0);
+    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
+    expect(sighted(w, watcher, drone.state)).toBe(true);
+    w.sinkShip('f'); // unattributed
+    w.step();
+    expect('kcls' in sunkRows(w, 'watcher')[0]).toBe(false);
+    // A self-sink credits nobody (creditKill's own attribution rule), so a
+    // fleet hull that goes down on its own id must not name ITSELF as killer.
+    const w2 = bareWorld();
+    const w2watcher = place(w2, 'watcher', 0, 0);
+    const d2 = w2.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
+    expect(sighted(w2, w2watcher, d2.state)).toBe(true);
+    w2.sinkShip('f', 'f');
+    w2.step();
+    expect('kcls' in sunkRows(w2, 'watcher')[0]).toBe(false);
+  });
+
+  it('a killer whose record is already GONE omits the key rather than guessing', () => {
+    const w = bareWorld();
+    place(w, 'victim', 0, 0);
+    place(w, 'watcher', 60, 0);
+    w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 2000, y: 0 });
+    w.sinkShip('victim', 'f');
+    w.removeShip('f');
+    w.step();
+    expect('kcls' in sunkRows(w, 'watcher')[0]).toBe(false);
+  });
+});
+
 // ---------- Story 4.12: radar wakes (directed) --------------------------------
 
 describe('perception — radar wakes (Story 4.12, directed)', () => {
@@ -2521,16 +2634,61 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
 // a hull mis-flagged at construction (e.g. a future combat bot built through
 // the drone path) would put the row and this oracle in agreement on the same
 // wrong answer.
+/**
+ * `kcls` (Story 7.6, Eric ruling 2026-08-21): THE KILLER'S HULL ID, and it may
+ * name a PvE FLEET HULL AND NOTHING ELSE.
+ *
+ * THE POSITIVE ASSERTION IS THE POINT, not the biconditional around it: a
+ * CAPTAIN'S CLASS MAY NEVER RIDE THIS FIELD. A captain's hull class is not
+ * disclosed by the `sunk` row, and this row is PUBLIC for a captain victim, so
+ * a stamping that read `by`'s class unconditionally would broadcast every
+ * killer's build fact to every client in the room. That is the single failure
+ * this oracle exists to catch, and it is asserted in BOTH directions:
+ *   • present ⇒ the killer's record exists AND its role is `'fleet'` AND the
+ *     value is exactly that hull's id (so it cannot name some third ship);
+ *   • a live FLEET killer distinct from the victim ⇒ it MUST be present (so the
+ *     feature cannot silently stop working), and by contraposition a live
+ *     NON-fleet killer must NOT be.
+ *
+ * INDEPENDENCE SCOPE, stated as honestly as verifySunk's own: the role read is
+ * the same `role` field production reads (spelled here as a literal `'fleet'`
+ * comparison rather than through the `isFleetHull` seam the row calls, so a
+ * change to that seam's meaning shows up as a disagreement here). A hull
+ * mis-flagged at CONSTRUCTION would put both in agreement on the same wrong
+ * answer — that is a world-construction invariant, pinned elsewhere.
+ *
+ * OBSERVER-INDEPENDENT: no clause below reads `me`. A per-observer stamping
+ * would make it a second `seen` and leak witness geometry, and the directed
+ * suite restates that by comparing two observers' rows for equality.
+ */
+function verifySunkKillerClass(w: World, ev: SunkEvent): void {
+  // A self-sink credits nobody (creditKill's own attribution rule), so it is
+  // not a "killer" for this purpose and must never stamp.
+  const killer = ev.by !== undefined && ev.by !== ev.id ? w.ships.get(ev.by) : undefined;
+  const fleetKiller = killer !== undefined && killer.role === 'fleet';
+  if ('kcls' in ev) {
+    expect(killer).toBeDefined();
+    // THE GUARANTEE THE WHOLE DESIGN RESTS ON: never a captain, never a bot.
+    expect(killer!.role).toBe('fleet');
+    expect(fleetKiller).toBe(true);
+    expect(ev.kcls).toBe(killer!.hullId);
+  } else {
+    // The other direction: a live fleet killer MUST be named. Contrapositive of
+    // the clause above — a captain or bot killer lands here and stays unnamed.
+    expect(fleetKiller).toBe(false);
+  }
+}
+
 function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as SunkEvent;
   // THE PAYLOAD PIN: because this event now reaches every fogged client, the
   // wire shape itself is the anti-leak boundary — the keys must be a subset of
-  // exactly {k,id,by,seen,bty,vcls}. A positional (or any other) field added at
-  // the world emission, or a materialize() regression back to pass-through,
-  // fails HERE even though every visibility clause still holds.
-  for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen', 'bty', 'vcls']).toContain(key);
+  // exactly {k,id,by,seen,bty,vcls,kcls}. A positional (or any other) field
+  // added at the world emission, or a materialize() regression back to
+  // pass-through, fails HERE even though every visibility clause still holds.
+  for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen', 'bty', 'vcls', 'kcls']).toContain(key);
   // `vcls` (Story 5.6, epic-5 amendment 43): THE VICTIM'S HULL ID, and the
-  // ONLY class field this row may ever carry. Reimplemented here as a hard
+  // only class field this row may carry ABOUT THE VICTIM. Reimplemented here as a hard
   // biconditional against the two clauses it is allowed to depend on — the
   // observer is the CREDITED KILLER, and the wreck record still exists — so
   // any leak to a bystander or to a witness who did not fire fails here.
@@ -2552,6 +2710,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
     // The other direction: a killer with a live wreck record MUST get it.
     expect('vcls' in ev).toBe(true);
   }
+  verifySunkKillerClass(w, ev);
   // `bty` (Story 4.6, 2026-08-10 rework): WHICH PARTICIPANT held the bounty
   // throne at the pre-sink instant — 'v' the victim, 'k' the killer. Three
   // independent checks, none reading the production row: the value is only

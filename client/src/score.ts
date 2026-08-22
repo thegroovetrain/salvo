@@ -90,7 +90,14 @@ export const STORM_KILLER = 'THE STORM';
  *  Deliberately NOT `STORM_KILLER`: something sank us and saying otherwise is a
  *  lie about our own death. The copy mirrors the kill feed's `UNKNOWN_VESSEL`
  *  for the identical case; it is duplicated rather than imported because this
- *  module is a pure leaf and killFeed.ts is a DOM adapter. */
+ *  module is a pure leaf and killFeed.ts is a DOM adapter.
+ *
+ *  STORY 7.6 NARROWED WHAT REACHES IT, without moving it: main.ts now folds
+ *  `feedName(g, id) ?? fleetSizeName(killerCls)`, so a fleet killer this client
+ *  never saw arrives NAMED off `SunkEvent.kcls` and no longer lands here. What
+ *  is left is a killer with no live server record at all. The kill feed's
+ *  terminal label still spells the same case the same way, which is the whole
+ *  reason the two strings are identical. */
 export const UNKNOWN_KILLER = 'UNKNOWN VESSEL';
 
 /** One MATCH LOG line: when it happened, which side of the exchange we were on,
