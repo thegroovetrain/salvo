@@ -1,0 +1,153 @@
+---
+title: 'Render reality sync + a development branch and staging service'
+type: 'chore'
+created: '2026-08-22'
+status: 'done'
+review_loop_iteration: 0
+followup_review_recommended: true
+baseline_revision: '7c6c45e966ed437ef4b60696d019393885a4f26e'
+final_revision: '9055ab136f18c44cd5f2b114e6e116ddedd098bd'
+context:
+  - '{project-root}/render.yaml'
+  - '{project-root}/CLAUDE.md'
+warnings: ['multiple-goals']
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** `render.yaml` under-declares the live `hullcracker` service — it omits `plan`, `region`, `branch` and `autoDeploy`, so the fact that production now runs a **Pro** instance exists only in the Render dashboard. And there is exactly one environment: every merge to `main` deploys straight to the public game, with no host to manually QA a feature on first.
+
+**Approach:** Declare the live service's real settings in `render.yaml` (which the `salvobp` Blueprint already auto-syncs from `main`), add a second `hullcracker-dev` service in the same file tracking a new `development` branch, and rewrite the documented deploy process to `feature -> development -> manual QA -> main`.
+
+## Boundaries & Constraints
+
+**Always:**
+- `render.yaml` is LIVE CONFIG, not documentation: Blueprint `salvobp` (`exs-d6vln4sr85hc73beab80`) has `autoSync: true` against `render.yaml` on `main`. Every declared field must equal the value already live on `srv-d71cpnv5gffc73foa6m0`, so the prod half of the sync is a verified no-op: `plan: pro`, `region: oregon`, `branch: main`, `autoDeploy: true`.
+- Push the `development` branch to `origin` BEFORE the render.yaml change can reach `main` — a service naming a branch that does not exist cannot sync.
+- The dev service reuses the prod `buildCommand`/`startCommand` verbatim. A staging host that builds differently from production tests the wrong artifact.
+- `NODE_ENV=production` on dev too: the point of the host is to exercise the production code path.
+
+**Block If:**
+- Applying anything to the live service directly through the Render API. Every change reaches Render by merging `render.yaml`, so Eric's merge is the approval — including the approval to start billing a second instance.
+- A change would restart or redeploy production as a side effect.
+
+**Never:**
+- Do not set `VITE_GA_MEASUREMENT_ID` or `VITE_ADSENSE_CLIENT` on the dev service. Both are deliberately absence-gated (`render.yaml` comments; `isGaConfigured()`), so omitting them keeps staging traffic out of the GA4 property and serves no ads from a test host.
+- Do not enable `HC_DEV_OPTIONS` on the dev service — manual QA must exercise the same gate production runs (`ArenaRoom.ts:196,276` open direct arena joins and client-supplied room overrides on `'1'`).
+- Do not set `NODE_ENV` to anything but `production` on the dev service. It is load-bearing, not cosmetic: `app.config.ts:19` gates `express.static` on it, so a non-prod value serves no client at all AND mounts `/playground` + `/monitor` publicly.
+- Do not set `VITE_WS_URL` on either service. Unset, `wsEndpoint()` falls through to `wss://${location.host}`, which is what makes one build work on both hosts; set, a dev client would talk to whatever it names.
+- Do not add `healthCheckPath`, delete the stale `HC_RADAR_*` env vars, or verify `www.hullcracker.io`. All three are real findings but all three mutate production; ledger them.
+- Do not split frontend and backend into two services — Story 7-7 is deferred in full (Eric, 2026-08-21).
+- Do not add branch protection, CI, or a `dev.hullcracker.io` custom domain (needs registrar DNS Eric controls).
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Prod sync is a no-op | `render.yaml` on `main` gains `plan: pro`, `region: oregon`, `branch: main` — all already live | Blueprint reports in_sync; no new prod deploy is triggered by the settings themselves | If Render reports a settings diff on the prod service, the declared value is wrong — correct it to the API's value |
+| Dev service is created | Blueprint syncs a `render.yaml` naming `hullcracker-dev`, branch `development` | Render creates the service and builds `development` at its own `*.onrender.com` host | Build failure is isolated to the dev service; prod is untouched |
+| Dev branch missing | `render.yaml` names `branch: development`, branch absent on `origin` | N/A — prevented by pushing `development` first | Blueprint sync errors on the unknown branch |
+| Dev host analytics | A player loads the dev host | No GA4 beacon, no AdSense loader, no `ads.txt` — the absence-gates are all false | None expected |
+| Dev host is not indexable | `HC_NOINDEX=1` set on the dev service; any request | Response carries `X-Robots-Tag: noindex, nofollow` | None expected |
+| Prod stays indexable | `HC_NOINDEX` unset (production) | No `X-Robots-Tag` header on any response; middleware never mounted | None expected |
+| Feature flow | A feature branch merges to `development` | Dev service auto-deploys; prod unchanged until `development` merges to `main` | None expected |
+
+</intent-contract>
+
+## Code Map
+
+- `render.yaml` -- the Blueprint source; one `services:` list, one entry (`hullcracker`) before this cycle and two after. Both edits land here.
+- `server/src/robots.ts` -- NEW ops surface, sibling of `log.ts`/`metrics.ts`/`liveness.ts`: the `HC_NOINDEX` search-engine guard.
+- `server/src/app.config.ts` -- `initializeExpress`; mount the guard ahead of `express.static` (line 66). `isProd` at line 19 is the load-bearing `NODE_ENV` switch.
+- `client/src/net/connection.ts:232-239` -- `wsEndpoint()`; already same-origin, so NO client change is needed for a second host. Confirms the dev service needs no `VITE_WS_URL`.
+- `CLAUDE.md` -- "Deploy Configuration (configured by /setup-deploy)" section states the single-service, push-to-main flow.
+- `_bmad-output/project-context.md` -- two lines assert "Render, auto-deploy on push to main" (Technology Stack, Platform & Build Rules).
+- `VERSION` + `package.json` -- 0.17.126, single-sourced into the client by Vite; this cycle is 127.
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml` -- both trackers must move in this same PR.
+- `_bmad-output/implementation-artifacts/deferred-work.md` -- home for the four ledgered production findings.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [ ] `development` branch -- create from `main` at 0.17.126 and push to `origin` -- must exist before the Blueprint names it.
+- [ ] `render.yaml` -- add `plan: pro`, `region: oregon`, `branch: main`, `autoDeploy: true` to the `hullcracker` service -- close the drift Eric asked about; each value copied from the live API response.
+- [ ] `render.yaml` -- add a second `hullcracker-dev` web service: same runtime/build/start, `branch: development`, `plan: starter`, `region: oregon`, `autoDeploy: true`, `NODE_ENV=production` only -- the staging host, with a comment stating why GA/AdSense are absent and that `plan` is the one knob to reconsider.
+- [ ] `server/src/robots.ts` + `server/src/app.config.ts` + `server/src/__tests__/robots.test.ts` -- add an `HC_NOINDEX=1` middleware sending `X-Robots-Tag: noindex, nofollow`, set only on the dev service -- without it the staging host is fully indexable and duplicates hullcracker.io's three pages; the repo has no robots.txt, canonical URL or noindex anywhere, so the dev service creates this exposure and must close it.
+- [ ] `CLAUDE.md` -- rewrite the Deploy Configuration section for two services and the `feature -> development -> QA -> main` flow -- agents read this to know where a push lands.
+- [ ] `_bmad-output/project-context.md` -- correct both "auto-deploy on push to main" assertions -- they are now wrong for feature work.
+- [ ] `VERSION`, `package.json` -- 0.17.126 -> 0.17.127 -- Eric's cycle-count ruling.
+- [ ] `_bmad-output/implementation-artifacts/deferred-work.md` -- ledger the four production findings (empty `healthCheckPath` vs the working `/liveness`; stale `HC_RADAR_GRAMMAR`/`HC_RADAR_IDENTITY` env vars orphaned on the service since cycle ~103; `www.hullcracker.io` unverified; no `dev.hullcracker.io`) -- each needs an Eric action that mutates production.
+- [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml` -- one-line cycle-127 stamps -- standing rule: both trackers move in the landing PR.
+
+**Acceptance Criteria:**
+- Given the live API response for `srv-d71cpnv5gffc73foa6m0`, when each field declared for the `hullcracker` service in `render.yaml` is compared to it, then every value is identical.
+- Given `render.yaml` after the change, when it is parsed as YAML, then it contains exactly two services, named `hullcracker` and `hullcracker-dev`.
+- Given the `hullcracker-dev` service block, when its `envVars` are read, then the only keys present are `NODE_ENV` and `HC_NOINDEX` — no `VITE_*` key of any kind, and no `HC_DEV_OPTIONS`.
+- Given `git ls-remote origin development`, when run after the branch task, then it resolves to the same commit as `main` did at branch time.
+- Given `CLAUDE.md` and `_bmad-output/project-context.md` after the change, when searched for a claim that merging to `main` is the normal deploy path for a feature, then no such claim remains.
+- Given `npm run check`, when run on the branch, then it passes with the new `robots.test.ts` cases included and no pre-existing test changed.
+- Given the server booted with `HC_NOINDEX` unset, when any route is requested, then no `X-Robots-Tag` header is present — production behaviour is byte-identical to today.
+
+## Spec Change Log
+
+### 2026-08-22 — Eric follow-up: a shared-password gate on staging
+
+Eric, after the first pass: *"what if I want some kind of security on the dev branch server so that random people can't just get on? I don't want to add accounts yet."* Ruled at a question gate: **shared password**, sized for **him plus a few playtesters**, easy to rotate, rotation kicks everyone out cleanly. IP allow list, both, and doing nothing were offered and not taken.
+
+THE LOAD-BEARING FINDING, and the reason this is not one middleware: there are TWO doors and only one is Express. `bindRouterToTransport` removes the Express app from the http server's listeners and prepends its own, so `/matchmake/*` never enters Express. An Express-only password would lock the page and leave the game server open — a facade, and worse than no gate because it looks protected. Verified live: with the gate on, `POST /matchmake/joinOrCreate/queue` with no cookie is refused 525.
+
+Second finding: gating only the queue is not enough either. SOLO VS AI reaches the game via `client.create('arena', {solo:true})`, and `ArenaRoom.onAuth` returns true before its `HC_DEV_OPTIONS` check — a fully open production path. Both rooms are gated, and the arena's gate runs BEFORE the solo branch (pinned by test).
+
+NO CLIENT CHANGE WAS NEEDED. `static onAuth`'s third argument is an `AuthContext` carrying request `headers`, and the SDK posts matchmaking with `credentials: "include"` same-origin — so the cookie the page half issues arrives at the game half by itself. An earlier draft threaded a digest through join options; that was dropped as redundant.
+
+KEEP: the cookie carries `sha256(key)`, never the password, which is what makes rotation free and per-person state unnecessary. `HC_STAGING_KEY` is `sync: false` so the value is never committed. Both halves stay inert with the var unset — verified by booting without it (matchmaking open, `/gate` 404s).
+
+No `bad_spec` loopback was triggered. The one spec amendment made during implementation was additive and pre-review: the host-audit subagent found that the repo carries no `robots.txt`, canonical URL or noindex anywhere, so the staging host this cycle creates would be fully indexable and would duplicate hullcracker.io's three pages against the domain AdSense approval is tied to. The `HC_NOINDEX` guard, its task, its I/O rows and its ACs were added then. KEEP: the exposure is CREATED by this cycle, so it belongs to this cycle — do not re-derive this as out of scope.
+
+## Review Triage Log
+
+### 2026-08-22 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 1, medium 6, low 4)
+- defer: 4: (high 0, medium 3, low 1)
+- reject: 3: (high 0, medium 1, low 2)
+- addressed_findings:
+  - `[high]` `[patch]` THE DEV SERVICE WOULD HAVE BUILT CODE THAT DID NOT CONTAIN THE GUARD. `hullcracker-dev` tracks `development`, which sat at the pre-change commit, so on merge Render would create the service, set `HC_NOINDEX=1` and build a tree with no `robots.ts` — the variable read by nothing, the host indexable on its first deploy, and the I/O matrix asserting the opposite. Fixed by landing this change on `development` as well as proposing it to `main`, which is also what the process this cycle defines prescribes.
+  - `[medium]` `[patch]` A path-less `app.use` registers a `/`-matching layer, exactly what `@colyseus/core`'s `expressRootRoute` looks for when deciding to add its `GET /` fallback — mounting at the top of `initializeExpress` would 404 the root on any non-prod host. Moved inside the `isProd` branch, immediately before `express.static` (`core/build/router/index.mjs:18-27`).
+  - `[medium]` `[patch]` Two comments claimed the header covers every response. Router-matched paths never enter Express. Corrected; the false claim in `app.config.ts` went away with the mount move.
+  - `[medium]` `[patch]` My first correction misdiagnosed the cause as mount order; it is listener PRECEDENCE (`bindRouterToTransport` removes the express listener and prepends its own). Re-corrected with file:line evidence.
+  - `[medium]` `[patch]` The mount decision had no coverage — an unconditional mount would de-index hullcracker.io with every unit test green. Added a structural pin: one mount, behind the guard, inside the prod branch, before `express.static`.
+  - `[medium]` `[patch]` AR1/NFR10 forbid Render autoscaling (no WebSocket sticky sessions ⇒ broken seat reservation) and the file now claiming source-of-truth did not pin it. Declared `numInstances: 1` on both services.
+  - `[medium]` `[patch]` "A sync is a no-op for production" was broader than the fields actually reconciled. Narrowed to name the five verified fields and to name `domains`/`healthCheckPath` as knowingly undeclared.
+  - `[low]` `[patch]` The lazy-env read cited log.ts's HC_DEBUG precedent, whose property does not transfer (this is read once at mount). Claim reduced to the one true reason.
+  - `[low]` `[patch]` The guard was silent at boot. Added `logInfo('robots.noindex', { enabled })` — the decision, never the value.
+  - `[low]` `[patch]` The CLAUDE.md rewrite moved every machine-readable key outside the `grep -A 20 "## Deploy Configuration"` window both deploy skills parse and deleted three keys they write. Restructured; verified with that exact grep.
+  - `[low]` `[patch]` Spec self-contradictions (Verification "touches no source"; Code Map "currently one entry"). Both corrected.
+  - `[medium]` `[defer]` Neither service declares `healthCheckPath`; on staging that lets the QA gate report green on a broken build. Existing ledger entry broadened to both services.
+  - `[medium]` `[defer]` "Branch from `development`" has no mechanism — no CI, no branch protection, and both `EnterWorktree` and `gh pr create` still default to `main`. Ledgered with the one-command fix and the ordering constraint.
+  - `[medium]` `[defer]` The staging hostname will live only in the dashboard — the exact failure mode this cycle exists to fix. Ledgered; a `Staging URL:` placeholder is in CLAUDE.md to paste into.
+  - `[low]` `[defer]` `domains` left undeclared, recorded as a deliberate risk trade (a wrong list detaches the apex domain) rather than an oversight.
+  - `[medium]` `[reject]` "The starter tier may not complete the build." Render builds on a separate build instance: production already builds this tree with `buildPlan: starter` while serving on `pro`.
+  - `[low]` `[reject]` "sprint-status.yaml is missing cycle 126." That index is interstitial-only; 126 was Story 7-6, tracked in the story list.
+  - `[low]` `[reject]` "robots.txt ruled out on a false dichotomy." Complementary, yes, but a `client/public/robots.txt` ships to production too and would need its own env-gating to avoid `Disallow`-ing the real game.
+
+## Design Notes
+
+The Blueprint is why this is one atomic change rather than two. `render.yaml` is not a description of the deployment that someone later applies by hand — `salvobp` watches it on `main` and reconciles. So declaring `plan: pro` and creating the dev service are the same kind of act, and both take effect at Eric's merge. That also means the merge, not an API call, is where the second instance starts costing money; `plan: starter` is staged as the cheapest tier that does not spin down, and it is one word to change before merging if faithful perf QA matters more than $7/mo.
+
+The two `HC_RADAR_*` env vars are worth reading as a lesson rather than a bug: Blueprint sync adds and updates env vars but does not remove ones dropped from the file, so Story 7-3 deleting them from `render.yaml` and from the source left them live on the service, read by nothing. Removing them requires an API call that triggers a production redeploy, which is why it is ledgered rather than done.
+
+## Verification
+
+**Commands:**
+- `python3 -c "import yaml,sys; d=yaml.safe_load(open('render.yaml')); print([s['name'] for s in d['services']])"` -- expected: `['hullcracker', 'hullcracker-dev']`
+- `curl -s -H "Authorization: Bearer $RENDER_API_KEY" https://api.render.com/v1/services/srv-d71cpnv5gffc73foa6m0` -- expected: `plan`, `region`, `branch`, `autoDeploy` equal the values declared in `render.yaml`
+- `git ls-remote origin development` -- expected: one ref, matching `main`'s tip at branch time
+- `npm run check` -- expected: passes, with `robots.test.ts` added and no pre-existing test changed (the only source touched is the new `robots.ts` and its mount in `app.config.ts`)
+- `grep -rn "HC_RADAR" shared/src server/src client/src render.yaml` -- expected: empty (confirms the orphaned vars are dead)
+
+**Manual checks (if no CLI):**
+- After Eric merges: the Render dashboard lists two services; `hullcracker` shows no new deploy caused by the settings sync; `hullcracker-dev` builds `development` green and its host serves the game with no GA/AdSense network requests.

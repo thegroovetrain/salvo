@@ -7,7 +7,7 @@
 // match.end/match.abort telemetry, tick-error containment, metrics feeds,
 // and the JOINING-deadline kick — all adapter-side (game/ stays pure).
 
-import { ClientState, CloseCode, ErrorCode, Room, ServerError, generateId, type Client } from 'colyseus';
+import { ClientState, CloseCode, ErrorCode, Room, ServerError, generateId, type AuthContext, type Client } from 'colyseus';
 import {
   CONFIG,
   MSG,
@@ -49,6 +49,7 @@ import {
   type RoomOptions,
   type SanitizedRoomOptions,
 } from './roomOptions.js';
+import { stagingGateError } from '../stagingGate.js';
 
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
@@ -175,9 +176,21 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * queue traffic nothing. Only the smokes (HC_DEV_OPTIONS=1) still join an
    * arena directly.
    */
-  static async onAuth(_token: string, options?: JoinOptions): Promise<boolean> {
+  static async onAuth(
+    _token: string,
+    options?: JoinOptions,
+    context?: AuthContext,
+  ): Promise<boolean> {
     const error = protocolVersionError(options?.pv);
     if (error) throw new ServerError(ErrorCode.AUTH_FAILED, error);
+    // STAGING PASSWORD (cycle 127). Runs BEFORE the solo door below, which is
+    // the whole point of gating this room at all: SOLO VS AI reaches the game
+    // through `client.create('arena', {solo:true})` and returns true right
+    // past the HC_DEV_OPTIONS check, so gating only the queue would leave a
+    // fully open production path onto the staging host.
+    // Inert in production (HC_STAGING_KEY unset).
+    const gate = stagingGateError(context?.headers?.get('cookie') ?? undefined);
+    if (gate) throw new ServerError(ErrorCode.AUTH_FAILED, gate);
     // THE SOLO DOOR (Story 6.5). The PV gate above still runs FIRST and is
     // unchanged — a stale bundle is refused here whichever door it knocks on.
     //

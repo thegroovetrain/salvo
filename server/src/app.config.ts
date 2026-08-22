@@ -10,6 +10,14 @@ import { ArenaRoom } from './rooms/ArenaRoom.js';
 import { StandardQueueRoom } from './rooms/StandardQueueRoom.js';
 import { metricsEndpoint } from './metrics.js';
 import { livenessEndpoint } from './liveness.js';
+import { noIndexEnabled, robotsTagMiddleware } from './robots.js';
+import {
+  GATE_PATH,
+  gateEnabled,
+  handleGateSubmit,
+  stagingGateMiddleware,
+} from './stagingGate.js';
+import { logInfo } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -58,6 +66,51 @@ export default config({
       app.use('/playground', playground());
       app.use('/monitor', monitor());
     } else {
+      // INSIDE the prod branch, immediately before the static mount, and both
+      // halves of that placement are load-bearing.
+      //
+      // BEFORE static, because the layer that serves the pages must be the one
+      // the header is already set for. INSIDE the prod branch, because the
+      // client is the only thing here worth de-indexing and it exists only in
+      // this branch — and because a path-less `app.use` registers a layer that
+      // matches '/', which is exactly what @colyseus/core's `expressRootRoute`
+      // looks for when deciding whether to add its own `GET /` fallback
+      // (core/build/router/index.mjs:18-27). Mounting this at the top of
+      // initializeExpress would therefore suppress that fallback and 404 the
+      // root in NON-prod, where no static mount exists to serve it. In prod,
+      // express.static already sets that flag, so this adds nothing new.
+      //
+      // Only mounted on a host that opted in with HC_NOINDEX=1 — the staging
+      // service in render.yaml. Production leaves it unset and never mounts it.
+      //
+      // LOGGED EITHER WAY, because the only symptom of this silently failing is
+      // a staging page turning up in search weeks later. One line in the deploy
+      // log makes "is this host protected?" answerable without a live request,
+      // and it is the ops-surface habit log.ts/metrics.ts/liveness.ts already
+      // set. The env value is deliberately NOT logged — only the decision.
+      const noIndex = noIndexEnabled();
+      logInfo('robots.noindex', { enabled: noIndex });
+      if (noIndex) {
+        app.use(robotsTagMiddleware);
+      }
+
+      // THE STAGING PASSWORD, page half (cycle 127). Ahead of express.static so
+      // nothing is served without the cookie, and the POST route is registered
+      // FIRST so it stays reachable to someone who does not have one yet.
+      // The GAME half of the same secret lives in both rooms' static onAuth —
+      // an Express-only gate would leave matchmaking and the socket open, since
+      // neither ever enters Express. See stagingGate.ts.
+      //
+      // Inert unless HC_STAGING_KEY is set, which only the staging service
+      // does, so production adds no route, no middleware and no per-request
+      // work. Logged either way, like the noindex decision above.
+      const gated = gateEnabled();
+      logInfo('stagingGate', { enabled: gated });
+      if (gated) {
+        app.post(GATE_PATH, express.urlencoded({ extended: false }), handleGateSubmit);
+        app.use(stagingGateMiddleware);
+      }
+
       // In production the game server IS the web server: Vite only exists in
       // dev, so the built client must be served from here or the site 404s.
       // express.static also serves index.html at '/'; no catch-all route, so
