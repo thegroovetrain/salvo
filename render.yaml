@@ -1,7 +1,44 @@
+# THIS FILE IS LIVE CONFIGURATION, NOT DOCUMENTATION. Render Blueprint
+# `salvobp` (exs-d6vln4sr85hc73beab80) has autoSync ON against this path on
+# `main`, so whatever lands here is reconciled onto the real services. Adding a
+# service here CREATES it (and starts billing it); changing `plan` here changes
+# the instance you are paying for. Nothing is "applied later by hand".
+#
+# TWO ENVIRONMENTS, ONE FILE (cycle 127):
+#   hullcracker      <- branch `main`         -> https://hullcracker.io    (pro)
+#   hullcracker-dev  <- branch `development`  -> *.onrender.com            (starter)
+#
+# The flow is feature -> development -> manual QA on the dev host -> main.
+# Note the asymmetry that follows from the Blueprint tracking `main`: an edit to
+# THIS FILE only takes effect once it reaches `main`, even though the service it
+# describes deploys from `development`.
+#
+# Every setting declared for `hullcracker` below was read back from the live
+# service and matches it, so syncing this file changes nothing about production.
+# Stated precisely, because the guarantee is only as wide as what was checked:
+# the RECONCILED fields are plan, region, branch, autoDeploy and numInstances.
+# Production state that remains UNDECLARED here and lives only in the dashboard:
+# `domains` (hullcracker.io + the unverified www entry) and `healthCheckPath`
+# (currently empty). Both are ledgered in deferred-work.md rather than declared,
+# because getting a domains list wrong is the one edit in this file that could
+# take the game offline.
 services:
   - type: web
     name: hullcracker
     runtime: node
+    plan: pro
+    region: oregon
+    branch: main
+    autoDeploy: true
+    # NEVER RAISE THIS, AND NEVER ENABLE RENDER AUTOSCALING. Standing
+    # architectural constraint (AR1 / NFR10): Render has no WebSocket sticky
+    # sessions, so a second instance actively breaks seat reservation and
+    # matchmaking — a client would matchmake against one process and connect to
+    # another. The beta posture is ONE vertically scaled instance; horizontal
+    # scale-out needs the Redis-backed Presence/Driver that was deferred with
+    # it. Declared here, matching the live value, so the constraint lives in the
+    # file that is now the source of truth instead of only in a planning doc.
+    numInstances: 1
     buildCommand: npm install --include=dev && npm run build
     startCommand: echo "[hullcracker] Checking build artifacts..." && ls server/dist/index.js shared/dist/types.js client/dist/index.html && echo "[hullcracker] Starting server..." && npm start
     envVars:
@@ -49,3 +86,78 @@ services:
       # indistinguishable from a legitimately unfilled slot.
       # - key: VITE_ADSENSE_SLOT_RESULTS
       #   value: <paste the unit's data-ad-slot digits here>
+
+  # THE STAGING HOST (cycle 127). A byte-identical build of the `development`
+  # branch, on its own hostname, so a feature can be played before it reaches
+  # hullcracker.io. Same runtime, same buildCommand, same startCommand as
+  # production ON PURPOSE — a staging host that builds differently tests the
+  # wrong artifact.
+  #
+  # PLAN IS THE ONE KNOB WORTH RECONSIDERING. `starter` is the cheapest tier
+  # that does not spin down (a spun-down host is useless for QA: the first
+  # request eats a cold boot, and an idle Colyseus room dies with the process).
+  # It is 0.5 CPU / 512 MB against production's 2 CPU / 4 GB, which is fine for
+  # functional QA and NOT representative for performance QA — a 20-hull SOLO VS
+  # AI match is the case that will feel the difference. Raise to `standard` or
+  # `pro` if a cycle needs to trust its own frame timings.
+  #
+  # This tier does NOT govern the build. Render runs builds on a separate build
+  # instance (`buildPlan`), and production already builds this exact tree on the
+  # `starter` build tier while serving on `pro` — so "can a starter box finish
+  # the three-workspace tsc plus the Pixi bundle" is answered yes by every
+  # production deploy to date, not assumed here.
+  - type: web
+    name: hullcracker-dev
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: development
+    autoDeploy: true
+    numInstances: 1 # AR1 again — same reason, and staging must mirror it
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: echo "[hullcracker-dev] Checking build artifacts..." && ls server/dist/index.js shared/dist/types.js client/dist/index.html && echo "[hullcracker-dev] Starting server..." && npm start
+    envVars:
+      # LOAD-BEARING, NOT COSMETIC. `app.config.ts` gates `express.static` on
+      # NODE_ENV === 'production'; anything else serves no client at all (the
+      # site 404s) and mounts /playground and /monitor publicly, unauthenticated.
+      # Staging runs the production code path and is differentiated by the two
+      # absences below, never by this.
+      - key: NODE_ENV
+        value: production
+      # KEEP THIS HOST OUT OF SEARCH. Nothing in the build carries a robots.txt,
+      # a canonical URL or a noindex, so without this the staging host is fully
+      # indexable and duplicates hullcracker.io's three pages against the domain
+      # AdSense approval is tied to. `X-Robots-Tag` rather than a robots.txt
+      # because robots.txt only asks a crawler not to FETCH a URL — one
+      # discovered elsewhere can still be indexed from that alone. Unset in
+      # production, where the middleware is never even mounted.
+      #
+      # NEVER ADD THIS KEY TO THE `hullcracker` BLOCK ABOVE, and never set it on
+      # that service by hand. It would de-index the real game, and a Blueprint
+      # sync does not appear to remove a key once the service has it (see the
+      # orphaned HC_RADAR_* pair in deferred-work.md) — so backing it out would
+      # need a manual API call plus a production redeploy.
+      - key: HC_NOINDEX
+        value: "1"
+      #
+      # WHAT IS DELIBERATELY ABSENT HERE IS THE POINT, and it is the same
+      # argument the two production blocks above make for themselves:
+      #
+      # VITE_GA_MEASUREMENT_ID is unset, so `isGaConfigured()` is false, no
+      # gtag.js is injected and staging traffic cannot land in the production
+      # GA4 property and skew it.
+      #
+      # VITE_ADSENSE_CLIENT is unset, so the build injects no loader and emits
+      # no `dist/ads.txt`, and the null portal adapter is selected. This one is
+      # not merely tidy: with it set, the dev host would serve an `ads.txt`
+      # claiming the production publisher ID from a domain that was never
+      # submitted for AdSense approval.
+      #
+      # VITE_WS_URL is unset on BOTH services, which is what lets one build
+      # serve two hosts — `wsEndpoint()` falls through to `wss://{location.host}`
+      # and each host talks to its own server. Setting it here would point dev
+      # clients at whatever it names, production included.
+      #
+      # HC_DEV_OPTIONS is unset. It is tempting on a QA box, but on '1' it opens
+      # direct arena joins and honours client-supplied room overrides — QA must
+      # exercise the same gate production runs.

@@ -31,7 +31,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **Workspaces (strict layering):** `shared` (pure deterministic sim, zero deps) → `server` (Colyseus 0.17, @colyseus/schema 4.x, @colyseus/tools, Express 4) and `client` (PixiJS 8.19, @colyseus/sdk 0.17, Vite 6).
 - **Language/tooling:** TypeScript ~5.7, ESLint 10 + typescript-eslint (complexity ≤ 10 enforced), Vitest (2.x shared/server, 4.x client + jsdom), tsx for server dev.
 - **Version:** 0.17.0 (`VERSION` + root package.json; 0.X.0 = features, 0.0.X = bugfixes, X.0.0 = major).
-- **Deploy:** Render, auto-deploy on push to main; production https://hullcracker.io/.
+- **Deploy:** Render, two environments from one `render.yaml` (a Blueprint with autoSync ON): `hullcracker` from `main` = production https://hullcracker.io/; `hullcracker-dev` from `development` = staging. Feature work branches from `development`, is QA'd on the staging host, and only then merges to `main`.
 
 ## Critical Implementation Rules
 
@@ -85,7 +85,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - The server must boot from `server/` (or with `--tsconfig server/tsconfig.json`) — Colyseus schema decorators need that tsconfig.
 - Dev-only room options (`matchOverride`/`zoneOverride`) are honored only under `HC_DEV_OPTIONS=1`; production behavior must never depend on them, and `sanitizeRoomOptions()` gates everything client-supplied.
 - Versioning: 0.X.0 = features, 0.0.X = bugfixes, X.0.0 = major. `VERSION` + root package.json, single-sourced into the client by Vite at build time.
-- Deploy is Render auto-deploy on push to main; production is https://hullcracker.io/. Ports: game server `:2567`, Vite `:5173`. NEVER start the dev server — the user manages it; curl-check `:5173` before any browser-based work.
+- Deploy is Render auto-deploy on push to a service's own branch: `main` -> production (https://hullcracker.io/), `development` -> the staging host. BRANCH FROM `development`, NOT `main` — merging to `main` deploys the public game, and the staging QA pass is the gate in front of it. `render.yaml` is the live Blueprint source for BOTH services: make config changes there, never in the Render dashboard or API. Ports: game server `:2567`, Vite `:5173`. NEVER start the dev server — the user manages it; curl-check `:5173` before any browser-based work.
 
 ### Critical Don't-Miss Rules
 
