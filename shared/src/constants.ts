@@ -1694,6 +1694,34 @@ export const CONFIG = {
     instantHp: 50, // hp restored immediately at spend time (clamped to maxHp)
     regenHp: 50, // hp added to the regen pool per heal spend
     regenMs: 5000, // ms — payout time of one regenHp pool (the 5 hp/s rate)
+    /**
+     * MEASUREMENT DIAL, DEFAULT OFF (balance instrument, 2026-08-22). Hp
+     * restored AUTOMATICALLY and FOR FREE each time a level is EARNED — the
+     * "weak, automatic heal that you get every level" Eric floated, sitting
+     * IN ADDITION TO the refit-menu heal rather than replacing it.
+     *
+     * WHY IN ADDITION AND NOT INSTEAD: Eric likes the heal being a strategic
+     * decision and so do his players; what feels bad is the SHARE of levels it
+     * eats, especially early. Replacing the menu heal would delete the
+     * decision he wants kept. Layering a small free trickle under it leaves
+     * the emergency spend exactly as it is while paying for routine chip
+     * damage out of progression rather than out of the card budget.
+     *
+     * It is deliberately TIED TO LEVELLING rather than to a clock. Eric has
+     * ruled against a cooldown-based global heal repeatedly; healing paced by
+     * the economy is a different thing from healing paced by a timer, and
+     * this dial is on the former side of that line.
+     *
+     * 0 IS THE SHIPPED GAME AND IS THE DEFAULT. Applied instantly and clamped
+     * to maxHp; a hull that is sinking or sunk never receives it.
+     *
+     * OPEN FORK for Eric: this is the PLAIN reading — instant hp. Feeding
+     * `repairHp` instead would trickle at the fixed 5 hp/s and preserve the
+     * emergency spend more strongly (a free instant top-up partly answers
+     * burst damage, which is exactly what the menu heal is for). Not chosen
+     * here because "a heal every level" reads as instant.
+     */
+    levelHp: 0,
   },
 
   /**

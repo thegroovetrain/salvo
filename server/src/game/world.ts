@@ -1780,8 +1780,39 @@ export class World {
    */
   private grantPoint(killer: ShipRecord): void {
     killer.bankedLevels += 1;
+    this.grantLevelHeal(killer);
     this.materializeOffer(killer);
     if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
+  }
+
+  /**
+   * THE FREE PER-LEVEL HEAL (CONFIG.damageControl.levelHp), default OFF at 0.
+   *
+   * Earning a level restores a little hp at no cost, IN ADDITION to the
+   * refit-menu heal, which is untouched. It costs no banked level, drops no
+   * offer, and touches no deck — so the strategic heal spend keeps working
+   * exactly as it does today and only the routine chip-damage tax moves off
+   * the card budget.
+   *
+   * Sits in grantPoint rather than addXpMs so it fires ONCE PER LEVEL BANKED
+   * — including each crossing when one grant banks several at once — and
+   * inherits grantPoint's callers for free. Drones never reach here: addXpMs
+   * fail-closes on a fleet hull before the bank loop runs.
+   *
+   * A SINKING OR SUNK HULL GETS NOTHING. The "no hp comes back" rule of the
+   * sinking window (amendment 10) governs here exactly as it governs
+   * spendHeal, and a hull can still cross a level while sinking — its shells
+   * keep resolving and kill credit is not alive-gated — so this guard is
+   * reachable rather than defensive.
+   */
+  private grantLevelHeal(ship: ShipRecord): void {
+    const hp = CONFIG.damageControl.levelHp;
+    if (!(hp > 0) || !Number.isFinite(hp)) return;
+    if (!isAfloat(ship.lifecycle)) return;
+    const healed = Math.min(ship.hp + hp, ship.stats.maxHp);
+    if (healed <= ship.hp) return; // already full — no event, no no-op cue
+    ship.hp = healed;
+    this.pending.push({ k: 'heal', id: ship.id });
   }
 
   /**
