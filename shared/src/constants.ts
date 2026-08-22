@@ -1712,14 +1712,22 @@ export const CONFIG = {
      * the economy is a different thing from healing paced by a timer, and
      * this dial is on the former side of that line.
      *
-     * 0 IS THE SHIPPED GAME AND IS THE DEFAULT. Applied instantly and clamped
-     * to maxHp; a hull that is sinking or sunk never receives it.
+     * 0 IS THE SHIPPED GAME AND IS THE DEFAULT. A hull that is sinking or sunk
+     * never receives it.
      *
-     * OPEN FORK for Eric: this is the PLAIN reading — instant hp. Feeding
-     * `repairHp` instead would trickle at the fixed 5 hp/s and preserve the
-     * emergency spend more strongly (a free instant top-up partly answers
-     * burst damage, which is exactly what the menu heal is for). Not chosen
-     * here because "a heal every level" reads as instant.
+     * IT FEEDS THE REGEN POOL, NOT THE BAR (Eric ruling 2026-08-22: "25 over 5
+     * seconds"). A trickle can be out-damaged; an instant top-up cannot, and
+     * answering burst damage is the menu heal's job — the decision being
+     * protected. It inherits the anti-flask rule for free: pools ADD, the rate
+     * never changes, so this stacks as DURATION on top of a menu heal.
+     *
+     * TIMING, STATED HONESTLY: the pool drains at `regenHp / regenMs` = 50 /
+     * 5000 = 10 hp/s, so 25 here is delivered over 2.5 s, not 5. The 5 hp/s
+     * figure in the tickRepairs docstring and in CLAUDE.md is STALE — it
+     * describes the pre-cycle-122 `regenHp` of 25, which was doubled in the
+     * hull-HP pass without those claims being updated. Eric's "over 5 seconds"
+     * matches the DOCUMENTED game rather than the shipped one; whether to fix
+     * the docs or the rate is his call, and is deliberately NOT taken here.
      */
     levelHp: 0,
   },

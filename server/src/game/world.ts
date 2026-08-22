@@ -1809,9 +1809,23 @@ export class World {
     const hp = CONFIG.damageControl.levelHp;
     if (!(hp > 0) || !Number.isFinite(hp)) return;
     if (!isAfloat(ship.lifecycle)) return;
-    const healed = Math.min(ship.hp + hp, ship.stats.maxHp);
-    if (healed <= ship.hp) return; // already full — no event, no no-op cue
-    ship.hp = healed;
+    // INTO THE POOL, NOT THE BAR (Eric ruling 2026-08-22: "25 over 5
+    // seconds"). Feeding `repairHp` rather than `hp` is what makes this a
+    // TRICKLE the enemy can out-damage instead of a free instant top-up, so it
+    // pays for chip damage between fights without answering burst damage —
+    // which is the menu heal's job and the decision Eric wants preserved.
+    //
+    // It inherits the ratified anti-flask rule for free: pools ADD and the
+    // RATE never changes, so a level-heal landing on top of a menu heal runs
+    // LONGER, never faster. No new drain path exists; tickRepairs is untouched.
+    //
+    // NO FULL-HP GUARD, deliberately, and this differs from spendHeal: the
+    // paid heal is REFUSED at full hp because it would cost a level for
+    // nothing, whereas this costs nothing, so there is no spend to protect. A
+    // full hull simply banks pool that tickRepairs then burns against its
+    // clamp — the ruled overflow-is-lost behavior, reached by the same path as
+    // any other pool.
+    ship.repairHp += hp;
     this.pending.push({ k: 'heal', id: ship.id });
   }
 

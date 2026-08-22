@@ -39,6 +39,18 @@ function place(w: World, id: string, hull: HullId = 'torpedoBoat', fleet = false
   return rec;
 }
 
+/** Tick one level, capturing repairHp on the tick the level lands.
+ *  tickRepairs runs BEFORE tickXp in STEP_ORDER, so the grant is not drained
+ *  in its own tick and this reads the full amount. */
+function tickOneLevelWatching(w: World, ship: ShipRecord, out: number[]): void {
+  const ticks = CONFIG.xp.levelMs / CONFIG.tick.simDtMs;
+  const before = ship.level;
+  for (let i = 0; i < ticks; i++) {
+    w.step();
+    if (ship.level > before && out.length === 0) out.push(ship.repairHp);
+  }
+}
+
 /** Tick until `ship` banks one more level via the passive tick. */
 function tickOneLevel(w: World): void {
   const ticks = CONFIG.xp.levelMs / CONFIG.tick.simDtMs;
@@ -54,17 +66,21 @@ describe('per-level heal: OFF is the shipped game', () => {
     tickOneLevel(w);
     expect(a.level).toBe(1);
     expect(a.hp).toBe(100);
+    expect(a.repairHp).toBe(0);
   });
 });
 
 describe('per-level heal: ON', () => {
-  it('restores exactly levelHp when a level is earned, and costs NOTHING', () => {
-    withLevelHp(20, () => {
+  it('adds exactly levelHp to the POOL (not the bar) and costs NOTHING', () => {
+    withLevelHp(25, () => {
       const w = bareWorld();
       const a = place(w, 'a');
       a.hp = 100;
-      tickOneLevel(w);
-      expect(a.hp).toBe(120);
+      // Freeze the drain so the grant itself is observable: tickRepairs would
+      // otherwise start paying it out in the same tick it lands.
+      const seen: number[] = [];
+      tickOneLevelWatching(w, a, seen);
+      expect(seen[0]).toBe(25); // the pool really received 25 at the crossing
       // The level is still banked and its offer still drawn — the free heal is
       // additive, never a substitute for the spend.
       expect(a.bankedLevels).toBe(1);
@@ -72,87 +88,99 @@ describe('per-level heal: ON', () => {
     });
   });
 
-  it('clamps to maxHp and stays silent when already full', () => {
-    withLevelHp(20, () => {
+  it('delivers over TIME at the pool rate, not instantly', () => {
+    withLevelHp(25, () => {
       const w = bareWorld();
       const a = place(w, 'a');
-      a.hp = a.stats.maxHp - 5;
+      a.hp = 100;
       tickOneLevel(w);
-      expect(a.hp).toBe(a.stats.maxHp);
-      // A full hull emits no heal cue — a free no-op must not look like a heal.
-      // tickEvents holds only the CURRENT tick, so this has to accumulate as it
-      // goes rather than diff a count across the level.
+      // The bar has NOT jumped by 25 the instant the level lands — the whole
+      // 25 is still sitting in the pool, undrained (tickRepairs runs before
+      // tickXp, so payout starts on the NEXT tick).
+      expect(a.hp).toBe(100);
+      expect(a.repairHp).toBe(25);
+      w.step();
+      expect(a.hp).toBeGreaterThan(100); // now it is arriving...
+      expect(a.hp).toBeLessThan(125); // ...but not all at once
+      for (let i = 0; i < 200; i++) w.step(); // let it finish paying out
+      expect(a.repairHp).toBeCloseTo(0, 5);
+      expect(a.hp).toBe(125); // the full 25 landed, just over time
+    });
+  });
+
+  it('still banks pool at FULL hp — overflow is lost, which is the ruled behavior', () => {
+    withLevelHp(25, () => {
+      const w = bareWorld();
+      const a = place(w, 'a');
       a.hp = a.stats.maxHp;
-      const ticks = CONFIG.xp.levelMs / CONFIG.tick.simDtMs;
-      let heals = 0;
-      for (let i = 0; i < ticks; i++) {
-        w.step();
-        a.hp = a.stats.maxHp; // hold it pinned full for the whole level
-        heals += w.tickEvents.filter((e) => e.k === 'heal').length;
-      }
-      expect(a.level).toBe(2); // the second level really was earned
-      expect(heals).toBe(0);
+      tickOneLevel(w);
+      // Unlike the PAID heal (refused at full hp because it would cost a level
+      // for nothing), the free one has no spend to protect, so it lands and
+      // tickRepairs burns it against the clamp — the same overflow-is-lost path
+      // any pool takes.
+      expect(a.hp).toBe(a.stats.maxHp);
     });
   });
 
   it('fires once PER LEVEL when one grant banks several at once', () => {
-    withLevelHp(20, () => {
+    withLevelHp(25, () => {
       const w = bareWorld();
       const a = place(w, 'a', 'battleship');
       a.hp = 100;
       w.grantXp(a, 3); // three levels in one grant
       expect(a.level).toBe(3);
-      expect(a.hp).toBe(160); // 3 x 20, not 20
+      expect(a.repairHp).toBe(75); // 3 x 25 into the pool, not 25
     });
   });
 
   it('gives a SINKING hull nothing — the no-hp-comes-back rule holds', () => {
-    withLevelHp(20, () => {
+    withLevelHp(25, () => {
       const w = bareWorld();
       const a = place(w, 'a');
       a.hp = 100;
       w.sinkShip('a');
       expect(isAfloat(a.lifecycle)).toBe(false);
-      const hp = a.hp;
       w.grantXp(a, 1);
       expect(a.level).toBe(1); // the level still lands...
-      expect(a.hp).toBe(hp); //  ...the hp does not
+      expect(a.repairHp).toBe(0); //  ...the pool does not
     });
   });
 
   it('gives a FLEET hull nothing — it never banks a level at all', () => {
-    withLevelHp(20, () => {
+    withLevelHp(25, () => {
       const w = bareWorld();
       const d = place(w, 'd', 'droneSmall', true);
       d.hp = 10;
       w.grantXp(d, 5);
       expect(d.level).toBe(0);
-      expect(d.hp).toBe(10);
+      expect(d.repairHp).toBe(0);
     });
   });
 });
 
 describe('per-level heal: the MENU heal Eric wants kept is untouched', () => {
   it('still costs a banked level and still drops the offer', () => {
-    withLevelHp(20, () => {
+    withLevelHp(25, () => {
       const w = bareWorld();
       const a = place(w, 'a');
       a.hp = 50;
-      tickOneLevel(w); // banks a level; free heal takes hp to 70
-      expect(a.hp).toBe(70);
+      tickOneLevel(w); // banks a level; the free heal puts 25 in the pool
+      expect(a.repairHp).toBe(25);
       expect(a.bankedLevels).toBe(1);
       const ok = w.spendPoint('a', HEAL_CHOICE);
       expect(ok).toBe(true);
-      // The paid heal is the FULL shipped amount on top of the free trickle,
-      // and it really did cost the level.
-      expect(a.hp).toBe(70 + CONFIG.damageControl.instantHp);
-      expect(a.repairHp).toBe(CONFIG.damageControl.regenHp);
+      // The paid heal pays its FULL shipped amount — instant hp untouched by
+      // the free trickle — and it really did cost the level.
+      expect(a.hp).toBe(50 + CONFIG.damageControl.instantHp);
       expect(a.bankedLevels).toBe(0);
+      // ANTI-FLASK: the pools ADD, so the level-heal stacks as DURATION on top
+      // of the menu heal rather than making it land faster.
+      expect(a.repairHp).toBe(25 + CONFIG.damageControl.regenHp);
     });
   });
 
   it('is still refused at full hp — the free heal does not create a legal spend', () => {
-    withLevelHp(20, () => {
+    withLevelHp(25, () => {
       const w = bareWorld();
       const a = place(w, 'a');
       tickOneLevel(w);
