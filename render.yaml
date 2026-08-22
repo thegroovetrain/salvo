@@ -139,6 +139,25 @@ services:
       # need a manual API call plus a production redeploy.
       - key: HC_NOINDEX
         value: "1"
+      # THE STAGING PASSWORD. One shared secret, no accounts. Setting it turns
+      # on BOTH halves of the gate: a password page in front of everything
+      # express.static serves, and a check in both rooms' `static onAuth` so
+      # matchmaking and the socket are covered too. An Express-only gate would
+      # be a facade — /matchmake/* never enters Express (see stagingGate.ts).
+      #
+      # ROTATION: change this value and save. Every issued cookie is a digest of
+      # the old key, so all of them stop matching at once — everyone is
+      # re-prompted and anyone mid-session is refused at their next join. No
+      # code redeploy, nothing per-person to clean up.
+      #
+      # `sync: false` means the VALUE IS NOT IN THIS FILE — Render prompts for
+      # it once at first sync and stores it on the service. That is deliberate:
+      # a password committed to a public repo is not a password. Set it in the
+      # Render dashboard, then hand it to whoever is playtesting.
+      #
+      # Leave it UNSET to run staging wide open; the whole gate is inert then.
+      - key: HC_STAGING_KEY
+        sync: false
       #
       # WHAT IS DELIBERATELY ABSENT HERE IS THE POINT, and it is the same
       # argument the two production blocks above make for themselves:

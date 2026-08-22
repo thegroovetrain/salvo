@@ -59,7 +59,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 #### Server (`server/src/`)
 - **index.ts** — `@colyseus/tools` boot; listens on `PORT` or `:2567`.
 - **app.config.ts** — Colyseus app config; registers BOTH rooms — `queue` (`StandardQueueRoom`) and `arena` (`ArenaRoom`) — and mounts `/metrics` + `/liveness` through one `createRouter` call.
-- **log.ts** / **metrics.ts** / **liveness.ts** / **robots.ts** — ops surfaces, NOT sim: structured stdout logging, process-local counters behind `GET /metrics`, the public `GET /liveness` presence read (sourced from `matchMaker.query()`, so it stays correct the day the game runs on more than one node), and the `HC_NOINDEX=1` search-engine guard that keeps the staging host out of the index (`X-Robots-Tag: noindex, nofollow`, mounted ahead of `express.static`; never mounted in production).
+- **log.ts** / **metrics.ts** / **liveness.ts** / **robots.ts** / **stagingGate.ts** — ops surfaces, NOT sim: structured stdout logging, process-local counters behind `GET /metrics`, the public `GET /liveness` presence read (sourced from `matchMaker.query()`, so it stays correct the day the game runs on more than one node), the `HC_NOINDEX=1` search-engine guard that keeps the staging host out of the index (`X-Robots-Tag: noindex, nofollow`, mounted ahead of `express.static`; never mounted in production), and the `HC_STAGING_KEY` shared-password gate — the ONE ops surface with two halves, because the two doors into this app run on different stacks: an Express middleware for the page, and `stagingGateError()` called from BOTH rooms' `static onAuth` for matchmaking (Express never sees `/matchmake/*`). Both inert unless their env var is set.
 - **rooms/StandardQueueRoom.ts** — the standard-match queue: a thin Colyseus adapter (pool array, socket sends, matchMaker calls) over the pure policy in queue.ts. It sits IN FRONT of the arena so "which mode am I waiting for" is never a property of the arena room.
 - **rooms/queue.ts** — the queue's arm/form POLICY: pure functions over plain numbers, zero Colyseus imports (the world.ts / match.ts posture).
 - **rooms/ArenaRoom.ts** — thin Colyseus adapter around `World` + `Match`. Bridges joins/leaves → roster schema, raw `"i"` input messages → World's input store, fixed steps → per-client frames. Applies the transport rate limit (`CONFIG.net.maxMessagesPerSecond`), gates dev room options behind `HC_DEV_OPTIONS`, and is the ONLY file that knows the word "solo" (it builds the 19-bot fleet).
@@ -259,6 +259,11 @@ Each service still serves the built client AND the Colyseus game process from on
 | Plan | pro (2 CPU / 4 GB) | starter (0.5 CPU / 512 MB) |
 | Analytics / ads | GA4 + AdSense live | **neither** — both absence-gated off |
 | Indexable | yes | no (`HC_NOINDEX=1` → `X-Robots-Tag`) |
+| Access | public | **shared password** (`HC_STAGING_KEY`) |
+
+**The staging password.** Set `HC_STAGING_KEY` in the Render dashboard for `hullcracker-dev` (it is `sync: false` in `render.yaml`, so the value is never committed). Visiting the host shows a password page; entering it sets a cookie and you are in. Hand the same password to a playtester. **To rotate, change the env var** — every issued cookie is a digest of the old key, so all of them stop matching at once and everyone is re-prompted. Leave the var unset to run staging open.
+
+It gates **two** doors with one secret, and both are required: an Express middleware in front of `express.static` for the page, and `stagingGateError()` in **both** rooms' `static onAuth` for matchmaking. An Express-only gate would be a facade — `/matchmake/*` and the socket never enter Express, so the game server would stay open. Gating only the queue would likewise leave SOLO VS AI open, since it reaches the game through `client.create('arena')`. `/liveness` and `/metrics` stay open, and a mid-match reconnect is not re-gated (the resume token is the auth) — the same posture the `PROTOCOL_VERSION` gate has always had.
 
 ### The development flow
 1. Branch from `development` (**not** from `main`).

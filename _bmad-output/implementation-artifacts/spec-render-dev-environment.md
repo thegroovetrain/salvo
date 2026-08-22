@@ -92,6 +92,18 @@ warnings: ['multiple-goals']
 
 ## Spec Change Log
 
+### 2026-08-22 — Eric follow-up: a shared-password gate on staging
+
+Eric, after the first pass: *"what if I want some kind of security on the dev branch server so that random people can't just get on? I don't want to add accounts yet."* Ruled at a question gate: **shared password**, sized for **him plus a few playtesters**, easy to rotate, rotation kicks everyone out cleanly. IP allow list, both, and doing nothing were offered and not taken.
+
+THE LOAD-BEARING FINDING, and the reason this is not one middleware: there are TWO doors and only one is Express. `bindRouterToTransport` removes the Express app from the http server's listeners and prepends its own, so `/matchmake/*` never enters Express. An Express-only password would lock the page and leave the game server open — a facade, and worse than no gate because it looks protected. Verified live: with the gate on, `POST /matchmake/joinOrCreate/queue` with no cookie is refused 525.
+
+Second finding: gating only the queue is not enough either. SOLO VS AI reaches the game via `client.create('arena', {solo:true})`, and `ArenaRoom.onAuth` returns true before its `HC_DEV_OPTIONS` check — a fully open production path. Both rooms are gated, and the arena's gate runs BEFORE the solo branch (pinned by test).
+
+NO CLIENT CHANGE WAS NEEDED. `static onAuth`'s third argument is an `AuthContext` carrying request `headers`, and the SDK posts matchmaking with `credentials: "include"` same-origin — so the cookie the page half issues arrives at the game half by itself. An earlier draft threaded a digest through join options; that was dropped as redundant.
+
+KEEP: the cookie carries `sha256(key)`, never the password, which is what makes rotation free and per-person state unnecessary. `HC_STAGING_KEY` is `sync: false` so the value is never committed. Both halves stay inert with the var unset — verified by booting without it (matchmaking open, `/gate` 404s).
+
 No `bad_spec` loopback was triggered. The one spec amendment made during implementation was additive and pre-review: the host-audit subagent found that the repo carries no `robots.txt`, canonical URL or noindex anywhere, so the staging host this cycle creates would be fully indexable and would duplicate hullcracker.io's three pages against the domain AdSense approval is tied to. The `HC_NOINDEX` guard, its task, its I/O rows and its ACs were added then. KEEP: the exposure is CREATED by this cycle, so it belongs to this cycle — do not re-derive this as out of scope.
 
 ## Review Triage Log

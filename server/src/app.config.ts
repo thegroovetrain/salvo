@@ -11,6 +11,12 @@ import { StandardQueueRoom } from './rooms/StandardQueueRoom.js';
 import { metricsEndpoint } from './metrics.js';
 import { livenessEndpoint } from './liveness.js';
 import { noIndexEnabled, robotsTagMiddleware } from './robots.js';
+import {
+  GATE_PATH,
+  gateEnabled,
+  handleGateSubmit,
+  stagingGateMiddleware,
+} from './stagingGate.js';
 import { logInfo } from './log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -86,6 +92,23 @@ export default config({
       logInfo('robots.noindex', { enabled: noIndex });
       if (noIndex) {
         app.use(robotsTagMiddleware);
+      }
+
+      // THE STAGING PASSWORD, page half (cycle 127). Ahead of express.static so
+      // nothing is served without the cookie, and the POST route is registered
+      // FIRST so it stays reachable to someone who does not have one yet.
+      // The GAME half of the same secret lives in both rooms' static onAuth —
+      // an Express-only gate would leave matchmaking and the socket open, since
+      // neither ever enters Express. See stagingGate.ts.
+      //
+      // Inert unless HC_STAGING_KEY is set, which only the staging service
+      // does, so production adds no route, no middleware and no per-request
+      // work. Logged either way, like the noindex decision above.
+      const gated = gateEnabled();
+      logInfo('stagingGate', { enabled: gated });
+      if (gated) {
+        app.post(GATE_PATH, express.urlencoded({ extended: false }), handleGateSubmit);
+        app.use(stagingGateMiddleware);
       }
 
       // In production the game server IS the web server: Vite only exists in

@@ -11,7 +11,7 @@
 // the second captain, and hands the arena a fully-formed roster in a single
 // reservation. The arena never learns the mode — it only ever receives seats.
 
-import { ClientState, CloseCode, ErrorCode, Room, ServerError, matchMaker, type Client } from 'colyseus';
+import { ClientState, CloseCode, ErrorCode, Room, ServerError, matchMaker, type AuthContext, type Client } from 'colyseus';
 import {
   CONFIG,
   MSG,
@@ -25,6 +25,7 @@ import {
   sanitizeName,
   type JoinOptions,
 } from './roomOptions.js';
+import { stagingGateError } from '../stagingGate.js';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
 
@@ -122,9 +123,20 @@ export class StandardQueueRoom extends Room {
    * can be turned away with a readable "refresh" message instead of failing
    * later at schema decode.
    */
-  static async onAuth(_token: string, options?: JoinOptions): Promise<boolean> {
+  static async onAuth(
+    _token: string,
+    options?: JoinOptions,
+    context?: AuthContext,
+  ): Promise<boolean> {
     const error = protocolVersionError(options?.pv);
     if (error) throw new ServerError(ErrorCode.AUTH_FAILED, error);
+    // STAGING PASSWORD (cycle 127), and this door is the load-bearing copy for
+    // exactly the reason the PV gate above is: the queue is the door a
+    // multiplayer player knocks on. The cookie arrives on its own — the SDK
+    // posts the matchmake request with credentials included and staging is
+    // same-origin. Inert in production (HC_STAGING_KEY unset).
+    const gate = stagingGateError(context?.headers?.get('cookie') ?? undefined);
+    if (gate) throw new ServerError(ErrorCode.AUTH_FAILED, gate);
     return true;
   }
 
