@@ -7,6 +7,9 @@
 // test, would silently de-index hullcracker.io.
 
 import { describe, it, expect, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Request, Response, NextFunction } from 'express';
 import { ROBOTS_TAG, noIndexEnabled, robotsTagMiddleware } from '../robots.js';
 
@@ -47,7 +50,10 @@ describe('noIndexEnabled', () => {
   // A typo must fail toward PRODUCTION behaviour. If any truthy-ish string
   // enabled it, a stray HC_NOINDEX=0 on the real service would de-index the
   // live game, which is far worse than a staging host briefly being crawlable.
-  it.each(['0', '', 'true', 'yes', 'noindex', ' 1'])(
+  // '1 ' and '1\n' are the REALISTIC failure: a value pasted into a dashboard
+  // field or echoed into an env file picks up trailing whitespace far more
+  // easily than it picks up a wrong word.
+  it.each(['0', '', 'true', 'yes', 'noindex', ' 1', '1 ', '1\n', '01', 'TRUE'])(
     'is false for %o',
     (value) => {
       process.env.HC_NOINDEX = value;
@@ -86,5 +92,41 @@ describe('robotsTagMiddleware', () => {
     const { res, next, calls } = fakeExchange();
     robotsTagMiddleware({} as Request, res, next);
     expect(calls()).toBe(1);
+  });
+});
+
+// STRUCTURAL PIN on the MOUNT DECISION, which is the part the unit tests above
+// cannot reach and the only part whose failure is catastrophic: a future edit
+// that mounts the middleware unconditionally would de-index hullcracker.io
+// while every test above stayed green. Source-text assertions rather than a
+// booted app, following the `ai/` import-ban pin precedent — booting
+// @colyseus/tools here would drag in the whole transport for one header.
+describe('app.config.ts mount decision', () => {
+  const SRC = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../app.config.ts'),
+    'utf-8',
+  );
+
+  it('mounts the middleware only behind the noIndexEnabled() guard', () => {
+    // Exactly one mount, and the decision comes from noIndexEnabled() exactly
+    // once. Matching `if (noIndex` covers both the direct call and the local
+    // it is currently read into; what must never appear is an UNGUARDED mount.
+    expect(SRC.match(/app\.use\(robotsTagMiddleware\)/g) ?? []).toHaveLength(1);
+    expect(SRC.match(/noIndexEnabled\(\)/g) ?? []).toHaveLength(1);
+
+    const mount = SRC.indexOf('app.use(robotsTagMiddleware)');
+    const preceding = SRC.slice(Math.max(0, mount - 300), mount);
+    expect(preceding).toMatch(/if \(noIndex/);
+  });
+
+  it('mounts it inside the production branch, before express.static', () => {
+    // Outside the prod branch, a path-less app.use matches '/' and suppresses
+    // @colyseus/core's own `GET /` fallback (expressRootRoute), 404-ing the
+    // root on any non-prod host. Before static, or the pages miss the header.
+    const guard = SRC.indexOf('app.use(robotsTagMiddleware)');
+    const staticMount = SRC.indexOf('app.use(express.static(');
+    const elseBranch = SRC.indexOf('} else {');
+    expect(guard).toBeGreaterThan(elseBranch);
+    expect(guard).toBeLessThan(staticMount);
   });
 });

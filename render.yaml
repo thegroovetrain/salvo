@@ -13,8 +13,15 @@
 # THIS FILE only takes effect once it reaches `main`, even though the service it
 # describes deploys from `development`.
 #
-# Settings below are declared to MATCH what is already live, so a sync is a
-# no-op for production rather than a change to it.
+# Every setting declared for `hullcracker` below was read back from the live
+# service and matches it, so syncing this file changes nothing about production.
+# Stated precisely, because the guarantee is only as wide as what was checked:
+# the RECONCILED fields are plan, region, branch, autoDeploy and numInstances.
+# Production state that remains UNDECLARED here and lives only in the dashboard:
+# `domains` (hullcracker.io + the unverified www entry) and `healthCheckPath`
+# (currently empty). Both are ledgered in deferred-work.md rather than declared,
+# because getting a domains list wrong is the one edit in this file that could
+# take the game offline.
 services:
   - type: web
     name: hullcracker
@@ -23,6 +30,15 @@ services:
     region: oregon
     branch: main
     autoDeploy: true
+    # NEVER RAISE THIS, AND NEVER ENABLE RENDER AUTOSCALING. Standing
+    # architectural constraint (AR1 / NFR10): Render has no WebSocket sticky
+    # sessions, so a second instance actively breaks seat reservation and
+    # matchmaking — a client would matchmake against one process and connect to
+    # another. The beta posture is ONE vertically scaled instance; horizontal
+    # scale-out needs the Redis-backed Presence/Driver that was deferred with
+    # it. Declared here, matching the live value, so the constraint lives in the
+    # file that is now the source of truth instead of only in a planning doc.
+    numInstances: 1
     buildCommand: npm install --include=dev && npm run build
     startCommand: echo "[hullcracker] Checking build artifacts..." && ls server/dist/index.js shared/dist/types.js client/dist/index.html && echo "[hullcracker] Starting server..." && npm start
     envVars:
@@ -84,6 +100,12 @@ services:
   # functional QA and NOT representative for performance QA — a 20-hull SOLO VS
   # AI match is the case that will feel the difference. Raise to `standard` or
   # `pro` if a cycle needs to trust its own frame timings.
+  #
+  # This tier does NOT govern the build. Render runs builds on a separate build
+  # instance (`buildPlan`), and production already builds this exact tree on the
+  # `starter` build tier while serving on `pro` — so "can a starter box finish
+  # the three-workspace tsc plus the Pixi bundle" is answered yes by every
+  # production deploy to date, not assumed here.
   - type: web
     name: hullcracker-dev
     runtime: node
@@ -91,6 +113,7 @@ services:
     region: oregon
     branch: development
     autoDeploy: true
+    numInstances: 1 # AR1 again — same reason, and staging must mirror it
     buildCommand: npm install --include=dev && npm run build
     startCommand: echo "[hullcracker-dev] Checking build artifacts..." && ls server/dist/index.js shared/dist/types.js client/dist/index.html && echo "[hullcracker-dev] Starting server..." && npm start
     envVars:
@@ -108,6 +131,12 @@ services:
       # because robots.txt only asks a crawler not to FETCH a URL — one
       # discovered elsewhere can still be indexed from that alone. Unset in
       # production, where the middleware is never even mounted.
+      #
+      # NEVER ADD THIS KEY TO THE `hullcracker` BLOCK ABOVE, and never set it on
+      # that service by hand. It would de-index the real game, and a Blueprint
+      # sync does not appear to remove a key once the service has it (see the
+      # orphaned HC_RADAR_* pair in deferred-work.md) — so backing it out would
+      # need a manual API call plus a production redeploy.
       - key: HC_NOINDEX
         value: "1"
       #
