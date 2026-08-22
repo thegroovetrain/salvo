@@ -16,7 +16,8 @@
 # Every setting declared for `hullcracker` below was read back from the live
 # service and matches it, so syncing this file changes nothing about production.
 # Stated precisely, because the guarantee is only as wide as what was checked:
-# the RECONCILED fields are plan, region, branch, autoDeploy and numInstances.
+# the RECONCILED fields are plan, region, branch, autoDeployTrigger and
+# numInstances.
 # Production state that remains UNDECLARED here and lives only in the dashboard:
 # `domains` (hullcracker.io + the unverified www entry) and `healthCheckPath`
 # (currently empty). Both are ledgered in deferred-work.md rather than declared,
@@ -29,7 +30,10 @@ services:
     plan: pro
     region: oregon
     branch: main
-    autoDeploy: true
+    # `autoDeployTrigger: commit`, NOT the `autoDeploy: true` this replaces —
+    # that field is DEPRECATED in Render's blueprint spec, and `commit` is its
+    # documented equivalent. It is also the value the live API already reports.
+    autoDeployTrigger: commit
     # NEVER RAISE THIS, AND NEVER ENABLE RENDER AUTOSCALING. Standing
     # architectural constraint (AR1 / NFR10): Render has no WebSocket sticky
     # sessions, so a second instance actively breaks seat reservation and
@@ -112,7 +116,7 @@ services:
     plan: starter
     region: oregon
     branch: development
-    autoDeploy: true
+    autoDeployTrigger: commit # see the note on the production service above
     numInstances: 1 # AR1 again — same reason, and staging must mirror it
     buildCommand: npm install --include=dev && npm run build
     startCommand: echo "[hullcracker-dev] Checking build artifacts..." && ls server/dist/index.js shared/dist/types.js client/dist/index.html && echo "[hullcracker-dev] Starting server..." && npm start
