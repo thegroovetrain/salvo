@@ -257,10 +257,10 @@ export function turretAimPoints(
  *
  * MORE GUNS, NOT A LONGER SHIP. The battery spans a FIXED
  * `hull.length × CONFIG.broadside.turretSpanFactor` whatever `count` is, so
- * BROADSIDE TURRETS re-spaces the SAME midship section into 4 then 5 points —
- * tighter spacing, never a longer line of guns.
+ * BROADSIDE TURRETS re-spaces the SAME midship section into 5 then 6 points
+ * (from the base 4) — tighter spacing, never a longer line of guns.
  *
- * The along-hull distribution is the SAME straddle law the fan itself uses
+ * The along-hull distribution is the SAME straddle law the muzzle positions use
  * (`sim/spread.ts straddleOffsets`), not new spacing maths: an odd count puts
  * one turret exactly amidships (offset 0) and an even count straddles midships
  * with none on it, falling out of the formula rather than being special-cased

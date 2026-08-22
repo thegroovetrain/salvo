@@ -2,7 +2,7 @@
 // (sim/silhouette.ts — the silhouette IS the hitbox). One code path keyed by
 // hull id: the three pickable classes render their ratified board silhouettes;
 // drone hull ids render the legacy chevron (exactly what hullSilhouette returns
-// for a drone id).
+// for a drone id) plus their TIER's rank ticks (Story 7.6 — see RANK_TICKS).
 //
 // Story 1.12 (Regatta Hoist): every combatant hull — own AND contact — draws as
 // a 1.5px stroke in the pilot's BRIGHT personal hue over a SOLID interior in that
@@ -17,7 +17,15 @@
 // so world heading == sprite rotation (no y-flip — see camera.ts).
 
 import { Graphics } from 'pixi.js';
-import { REGATTA_HUES, hullSilhouette, type HullId, type Vec2 } from '@salvo/shared';
+import {
+  DRONE_HULL_IDS,
+  DRONE_SIZE_IDS,
+  REGATTA_HUES,
+  droneSizeOf,
+  hullSilhouette,
+  type HullId,
+  type Vec2,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
@@ -257,6 +265,91 @@ export function hullFlashIntensity(amount: number, degraded: boolean): number {
   return degraded ? amount * FB.degradeAlphaFactor : amount;
 }
 
+// --- DRONE RANK TICKS (Story 7.6, Eric ruling 2026-08-21) ----------------------
+//
+// *"We actually do need better distinction, size isn't enough."* … *"just use
+// the rank ticks on the silhouette, which is way better."*
+//
+// 1 / 2 / 3 transverse bars across a fleet hull's afterdeck for small / medium /
+// large. THE TICK COUNT IS THE TIER, and it is the only channel that could be:
+// drones are locked greyscale (DESIGN.md:157), so colour was never available,
+// and Eric has ruled the 85 → 100 → 115u length ladder insufficient on its own.
+// The tier matters because the tier IS the payout — 1/4, 1/2, 3/4 of a level
+// (`CONFIG.xp.droneTierLevels`).
+//
+// SCOPE: the RENDERED HULL ONLY. Radar returns cannot carry this. Since cycle
+// 105's ONE-RADAR ruling every blip is an identity-free coverage footprint
+// rasterised onto the phosphor lattice (render/radar.ts: *"the retired
+// `silhouette` grammar went with cycle 105's ONE-RADAR ruling"*) — there is no
+// outline out there to tick, and adding one would be a perception widening
+// besides. A drone's tier is legible exactly where its hull is: inside truesight.
+//
+// GEOMETRY IS DERIVED FROM THE SILHOUETTE, NEVER FROM CONFIG.drones DIMS. The
+// polygon is what actually gets drawn, so measuring the marks against its own
+// bounding box is what keeps them on the deck if a hull is ever reshaped. Every
+// fraction lives in `CLIENT_CONFIG.droneRank`.
+
+/**
+ * One rank tick in the hull's LOCAL frame (bow at +x, origin-centred, world
+ * units): a transverse segment on the keel at `x`, spanning ±`halfLenU` in y.
+ */
+export interface RankTick {
+  readonly x: number;
+  readonly halfLenU: number;
+}
+
+const NO_TICKS: readonly RankTick[] = [];
+
+/** Bounding-box extent of a local-frame silhouette: bow-to-stern span (length)
+ *  and port-to-starboard span (beam). */
+function hullExtent(poly: readonly Vec2[]): { lengthU: number; beamU: number } {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let maxAbsY = 0;
+  for (const p of poly) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (Math.abs(p.y) > maxAbsY) maxAbsY = Math.abs(p.y);
+  }
+  return { lengthU: maxX - minX, beamU: maxAbsY * 2 };
+}
+
+/**
+ * Pure: the `count` ticks for a hull, centred as a group `aftOffsetLengthFrac`
+ * of the hull's length abaft amidships and spaced along the keel. Index 0 is
+ * the FORWARD-most tick; a single tick sits exactly on the group centre.
+ */
+function buildRankTicks(hullId: HullId, count: number): readonly RankTick[] {
+  const cfg = CLIENT_CONFIG.droneRank;
+  const { lengthU, beamU } = hullExtent(hullSilhouette(hullId));
+  const spacing = lengthU * cfg.spacingLengthFrac;
+  const centerX = -lengthU * cfg.aftOffsetLengthFrac;
+  const halfLenU = (beamU * cfg.tickBeamFrac) / 2;
+  const out: RankTick[] = [];
+  for (let i = 0; i < count; i++) out.push({ x: centerX + (i - (count - 1) / 2) * spacing, halfLenU });
+  return out;
+}
+
+/**
+ * The rank ticks per drone hull id, built ONCE at module load — `draw()` runs on
+ * every hull construction and on every recolor, and this is fixed geometry.
+ *
+ * THE COUNT IS THE SHARED SIZE LADDER'S OWN ORDER (`DRONE_SIZE_IDS`), not a
+ * second table: a fourth fleet tier added server-side gets its rank for free and
+ * in the right place, the same reason `fleetSizeName` derives from `droneSizeOf`
+ * instead of listing the three sizes again.
+ */
+const RANK_TICKS: Readonly<Record<string, readonly RankTick[]>> = Object.fromEntries(
+  DRONE_HULL_IDS.map((id) => [id, buildRankTicks(id, DRONE_SIZE_IDS.indexOf(droneSizeOf(id) ?? 'small') + 1)]),
+);
+
+/** The rank ticks a hull wears: 1 / 2 / 3 for the small / medium / large fleet
+ *  hulls, and NONE for every captain hull (a captain's class is already carried
+ *  by a distinct silhouette and a personal hue). */
+export function droneRankTicks(hullId: HullId): readonly RankTick[] {
+  return RANK_TICKS[hullId] ?? NO_TICKS;
+}
+
 /** Trace the shared silhouette polygon (local frame, bow at +x, closed). */
 function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
   g.moveTo(poly[0].x, poly[0].y);
@@ -309,6 +402,25 @@ export class ShipView {
     // outline; a null fill leaves a hollow outline (the roster-miss fallback).
     if (this.style.fill !== null) g.fill({ color: this.style.fill, alpha: 1 });
     g.stroke({ width: 1.5, color: this.style.stroke, alpha: 1 });
+    this.drawRankTicks();
+  }
+
+  /**
+   * The tier mark on a PvE fleet hull (Story 7.6) — a no-op for every captain
+   * hull. Drawn AFTER the silhouette so the bars sit over the interior fill,
+   * and in the hull's OWN stroke colour so the greyscale rule needs no
+   * exception: for a drone that colour is `DRONE_STYLE.stroke`, and a hull
+   * recoloured through `setColors` carries its ticks with it.
+   */
+  private drawRankTicks(): void {
+    const ticks = droneRankTicks(this.hullId);
+    if (ticks.length === 0) return;
+    const g = this.gfx;
+    for (const t of ticks) {
+      g.moveTo(t.x, -t.halfLenU);
+      g.lineTo(t.x, t.halfLenU);
+    }
+    g.stroke({ width: CLIENT_CONFIG.droneRank.widthU, color: this.style.stroke, alpha: 1 });
   }
 
   /**

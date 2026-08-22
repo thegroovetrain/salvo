@@ -1,5 +1,24 @@
 # Spine Pair Review — Hullcracker.io
 
+> **DEVICE PREMISE RESTATED — 2026-08-21 (Story 7.6). No finding's severity or status changes.**
+>
+> This is a **dated review document** (run 2026-07-16) and its findings are preserved exactly as
+> written. One premise underneath them has since moved: the reference device was a low-end
+> 1366×768 school Chromebook, and the 2026-08-18 Epic 7 rescope retired it (Eric, 2026-08-21:
+> *"Idgaf about the chromebook."*). The reference device is now Eric's MacBook Pro 16,1
+> (i7-9750H / 32 GB / Radeon Pro 5300M + UHD 630, dpr 2) — epic-7 amendment 1.
+>
+> **What that does and does not change.** The **1366×768 viewport floor SURVIVES on its own
+> terms** — it is an independent requirement (NFR7, UX-DR39), never a property of the Chromebook,
+> only illustrated by one. Every finding below whose basis is the floor viewport, a post-scale
+> type size (the 9 px mono minimum, 8.1 px at 90% UI scale), a contrast ratio, a subpixel
+> silhouette feature, or an attention/animation budget is **unaffected in substance and keeps its
+> stated severity**; read "on a Chromebook" as "at the 1366×768 floor viewport". Findings whose
+> basis is *hardware performance* are re-measured against the reference MacBook (NFR1) — the bar
+> moved, the finding did not disappear. **Eric's ruling (G3) is that open findings keep their
+> severity**; nothing here has been downgraded, closed, or reworded on account of the device
+> change, and open findings continue to gate DESIGN.md.
+
 ## Overall verdict
 
 A strong, extraction-ready spine pair: every `{path.to.token}` reference in both files resolves to a defined DESIGN.md frontmatter token, every color carries a hex, component names are byte-identical across the two files, and both journeys from the decision log land with protagonists, numbered beats, climaxes, and failure paths. The one high-severity gap is inheritance: two adopted GDD E6 information-texture features (the Bounty radar bloom, the Foghorn emote) have no UX treatment anywhere — a story-dev implementing E6 from this contract would have to invent or silently drop them. Remaining findings are medium/low: a handful of visual specs referenced behaviorally but never drawn (nameplate, home status line, countdown), the HP Rail spec-vs-mock divergence (honestly flagged, but unresolved), and a miss-splash color left token-less after its old hex was retired.

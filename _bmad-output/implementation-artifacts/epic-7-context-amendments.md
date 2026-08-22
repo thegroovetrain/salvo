@@ -2534,3 +2534,255 @@ lever is the lightness band (±0.04 today), not the hue placement.
 
 `PROTOCOL_VERSION` unchanged at **47**. Client + design-doc only: no wheel order, no wire field,
 no gameplay tunable, no assignment rule.
+
+## Amendment 38 — THE RESERVED-BAND LAW IS RETIRED (ERIC RULING, 2026-08-21, cycle 126)
+
+> *"ima be real, i see myself probably expanding the colors and some other shit in the
+> future. Lets maybe just get rid of the 'law' here."*
+
+Story 7-6's question gate opened by reporting a defect in something that had shipped the day
+before: cycle 125's OKLCH palette regeneration put **four player hues inside bands DESIGN.md
+reserves**. Measured by hand and confirmed twice — `player-green` #12B563 at **149.8°**,
+`player-spring` #10A981 at **164.3°** and `player-jade` #0D9582 at **171.6°** all sit inside the
+reserved phosphor-green band (±20° around `#00FF88` = 152°, i.e. 132–172°) at saturation ~0.90,
+well over the 0.35 threshold; `player-orchid` #AD58FD at **270.9°** sits inside the reserved
+storm-violet band (266–286°). Pre-125 values were green 120°, jade 174.6°, orchid 293.4° — all
+outside.
+
+**This is the one item in the whole cycle where the doc was RIGHT and the code was WRONG.**
+`DESIGN.md:168` did not merely reserve the band, it recorded that *"Spring, Jade, and Aqua were
+shifted off the phosphor band per validation"* — the exact hues that had moved back onto it — and
+`shared/src/constants.ts:1998` claimed all four bands were *"excluded by wheel construction."*
+Amendment 37 asserts only that *"the reserved red/amber band stays empty"* and never mentions
+phosphor or storm violet.
+
+**Nothing caught it because nothing ever looked.** The band predicate existed
+(`client/src/__tests__/tokens.test.ts`, `BAND_HALF = 20`, `BAND_MIN_SAT = 0.35`) but was applied
+only to combat-effect tokens and the heatmap ramp — **no test had ever pinned the Regatta wheel
+against it.**
+
+**THE RULING RETIRES THE LAW RATHER THAN MOVING THE HUES.** Only **amber (~25–52°) and the red
+family (~345–25°)** remain reserved. The cycle-125 wheel ships byte-identical; not one hue moves.
+Rewritten in `DESIGN.md` and `constants.ts`'s `REGATTA_HUES` doc.
+
+**THE COST IS RECORDED, NOT LAUNDERED.** The phosphor reservation existed so a player hue could
+never be mistaken for a radar return — DESIGN.md's own phrasing elsewhere is *"a phosphor-ish
+splash is a fake blip."* Three of twenty captains now wear close to blip green. It is retired **by
+preference, to keep the palette expandable, NOT because the concern was found wrong**, and both the
+doc and `deferred-work.md` say so in those words, so a future *"why do captains read as blips?"*
+finds its answer instead of re-litigating it from scratch.
+
+**The missing pin now exists** and is proven non-vacuous two ways: bare literals at 0°, 40° and
+348° (the wrap case) assert inside while 70° asserts outside, and a mutation setting `rose` to
+~350° fails the wheel assertion. A fifth case asserts the retired reservations POSITIVELY — green,
+spring and jade inside the old phosphor band, orchid inside the old storm-violet — so this ruling's
+cost is pinned as a decision rather than left to resurface as a defect. Margins are genuinely thin,
+not slack: `lemon` at 55.54° clears the amber ceiling by 3.5°.
+
+`PROTOCOL_VERSION` unaffected by this amendment. Doc + comment + test only; no palette value moved.
+
+## Amendment 39 — TAB IS THE RATIFIED REFIT BINDING (ERIC RULING, 2026-08-21, cycle 126)
+
+The largest doc-vs-doc conflict in the repository, closed. EXPERIENCE.md specified **hold SPACE**
+to refit in nine places and `UX-DR14` called hold-not-toggle **"absolute"**. What has shipped for
+months is `Tab` to toggle the window (`client/src/input/keyboard.ts:351`), `1`–`4` to pick, `5` for
+DAMAGE CONTROL (`HEAL_CHOICE`), with Space bound-inert.
+
+**No amendment in any epic ever ruled that change** — it was undocumented drift that became the
+played game, and CLAUDE.md had been asserting Tab as fact while the design contract asserted the
+opposite. Eric ratified Tab. UX-DR14's absolute clause and UX-DR12's `HOLD SPACE TO REFIT` cue copy
+are RETIRED; the shipped cue is `LEVEL UP — TAB TO REFIT`. UX-DR14's four-card, spatial-1–4 and
+spend-latch halves are untouched and still shipped.
+
+Consequence worth naming: the digit-5 DAMAGE CONTROL heal appeared **nowhere** in EXPERIENCE.md
+before this pass. A shipped, always-available, level-spending action was entirely undocumented.
+
+## Amendment 40 — THE SENSOR TIERS CARRY DIFFERENT INFORMATION, BY DESIGN (ERIC RULING, 2026-08-21)
+
+> *"the radar is now a simulated real radar, so its all just radar blips based on realistic
+> return strength."*
+
+DESIGN.md's ratified *"identity is color-first — informed waiver"* (Eric, triage 2026-07-16)
+accepted that knowing *which of twenty players* you are looking at rides on hue. That premise had
+quietly stopped holding: Variant P was deleted at cycle 51 and Variant C's personal-coloured blips
+at cycle 105, so at radar range there is **no identity channel at all**.
+
+Eric's ruling reframes it rather than shrinking it, and the reframing is the point: **identity was
+never removed from radar — radar became a real sensor, and a real sensor does not know whose hull
+it is looking at.** A return is a coverage footprint smeared by the beam and quantized into three
+strength bands: a measurement of how much metal reflected, with no channel in which identity could
+ride. Cycle 105 is the consequence of the physical model, not a UI concession.
+
+So the waiver is **SCOPED to in-sight surfaces** — own hull, nameplate, kill-feed name, own-blip
+ring — and DESIGN.md now carries a positive statement of the two tiers: *truesight resolves a ship;
+radar resolves an echo.* Class is **inferable with skill at radar range, never readable**; hue and
+name arrive on crossing into truesight. The dual-coding floor is unchanged.
+
+## Amendment 41 — A DRONE KILLER CAN BE NAMED (ERIC RULING, 2026-08-21, cycle 126, PV 47 → 48)
+
+> *"if someone gets sunk by a drone, you can tell me what drone sunk them. Its fine. UNKNOWN
+> VESSEL can only be a drone anyway. Please, let me laugh and foghorn salute the dumbass who died
+> to a drone."* … *"Yes I want to see that Bob was killed by SMALL DRONE if that's what happened."*
+
+**Eric's premise was investigated before being acted on, and it is exactly right.** `UNKNOWN
+VESSEL` can never name a captain: `syncRoster()` mirrors every `PlayerMeta` row to every client
+every tick, and Story 6-7 deliberately keeps a departing captain's row alive past their seat so a
+departure does not read as `UNKNOWN VESSEL` (`ArenaRoom.ts:222-237`). The string reaches only a
+fleet hull that is neither ours nor ever sighted.
+
+He was offered the free version (rename the fallback to `DRONE`, no wire change) and **chose the
+one that costs a PV bump**, because the size is the joke and his own earlier ruling already held
+that *"SUNK BY SMALL DRONE is both funnier and strictly more informative."*
+
+`SunkEvent` gains one optional field, **`kcls?: HullId`**, appended last; the documented
+load-bearing key order becomes `k,id,by?,seen?,bty?,vcls?,kcls?`.
+
+**THE GATE IS THE WHOLE DESIGN: fleet killers ONLY.** One function, `stampKillerClass()`, is the
+only site that can write the field, and it reads the Story 6.3 role seam's `isFleetHull`
+(`role === 'fleet'`) rather than a raw comparison — so an AI captain (`role: 'bot'`) and any future
+role land on the safe side with **no edit**. A captain's class is not disclosed by this row and
+widening that was NOT authorised: a fleet hull's tier is fixed by CONFIG and identical every match,
+so it is not a fact about any player. Self-sinks are excluded (mirroring `creditKill`'s own
+attribution rule) and a missing killer record fails closed.
+
+**The declared-exception count is still SIX** (`sp`, `hc`, `mz`, `sunk`, `sm`, `fh`). `sunk` was
+already an exception; this adds an attribute to it that discloses nothing spatial, nothing about any
+observer's sensors and nothing about any player. `visible()` is byte-identical — who receives the
+row did not move.
+
+Pinned by an independently-reimplemented oracle (`verifySunkKillerClass`, spelling the role check as
+a literal `'fleet'` rather than importing production's helper, preserving the file's
+oracle-independence discipline) running over every fogged frame the property suites generate, in
+both directions: present ⇒ the killer is a fleet hull with exactly that id; a live fleet killer ⇒
+must be present, so by contraposition a captain killer must not be. Mutating the gate to allow
+captains fails **10** tests.
+
+**Two consequences absorbed rather than shipped broken.** The MATCH LOG had to receive `kcls` too,
+or the feed would read `SUNK BY SMALL DRONE` while the modal read `SUNK BY UNKNOWN VESSEL` — the
+exact feed-vs-log disagreement a previous review gate already caught once. And the drone grey is
+pinned for a wire-named killer, or two drone names on one line would render in two different
+colours.
+
+**The `updateBounty` trap:** `UNKNOWN_VESSEL` had a second consumer — the KILL LEADER claim
+register's roster-miss fallback. A leader is always a captain, so sharing one constant would have
+printed `☠︎ DRONE IS THE NEW KILL LEADER`. It now has its own `UNKNOWN PILOT` — **`PILOT`, not
+`CAPTAIN`, for a measured reason**: the name segment runs through the shared 14-code-point cap and
+`UNKNOWN CAPTAIN` is fifteen, rendering as `UNKNOWN…APTAIN`.
+
+**Honest limitation of record, REFINED AT THE REVIEW GATE.** The implementing agent reported that
+the random-world master invariant suite does not protect this field, because its generated worlds
+never produce a fleet-credited sink so the oracle's completeness arm never fires. The adversarial
+review corrected that reading, and the correction matters: **the DANGEROUS direction is covered.**
+`verifySunkKillerClass`'s else-arm — *"a killer that is not a live fleet hull must NOT be stamped"* —
+runs on every `sunk` row the property suite generates, and those are overwhelmingly captain-credited,
+so *"a captain's class can never ride this field"* is exercised continuously against random worlds.
+What rests on the six directed tests is only FEATURE LIVENESS (*"a fleet killer IS named"*). The
+safety-critical net is real; the liveness net is directed. Anyone hardening this later should know
+which half is which.
+
+## Amendment 42 — DRONE TIER RIDES A SHAPE MARK (ERIC RULING, 2026-08-21, cycle 126)
+
+> *"We actually do need better distinction, size isn't enough."* … *"just use the rank ticks on the
+> silhouette, which is way better. Its pretty obvious they are drone ships, they might not need
+> nameplates."*
+
+All three PvE fleet tiers (`droneSmall`/`droneMedium`/`droneLarge`, worth ¼/½/¾ of a level) rendered
+in ONE grey pair with only hull SIZE distinguishing them. Colour is structurally unavailable —
+drones are locked greyscale by ratified rule — so the answer is shape, which is also what the
+project's dual-coding law already says class, threat and state ride.
+
+**1 / 2 / 3 transverse ticks** on the drone hull, centred on the keel, stroked in the hull's own
+outline colour. All four geometry knobs are fractions of the silhouette's own bounding box, never
+world literals: `tickBeamFrac 0.55`, `spacingLengthFrac 0.11`, `aftOffsetLengthFrac 0.15`,
+`widthU 1.5`. Ticks sit in the chevron's parallel-sided midbody with ~22% of the beam clear either
+side, far abaft the bow arrowhead so they cannot be read as a heading vector; gaps are 6–8× the
+stroke width so 2 vs 3 is countable. Strictly interior, so `getLocalBounds()` is unchanged and the
+nameplate cannot move.
+
+**The count is derived from `droneSizeOf` + `DRONE_SIZE_IDS` order**, so a fourth fleet tier ranks
+itself; a test fails if one appears unranked. A test also reads the actual issued stroke colours, so
+a future `colors.droneRank` token is forbidden **by assertion**, not by comment. Six mutants were
+run, each reverted.
+
+**SCOPE CORRECTION OF RECORD:** ticks are rendered-hull-only, in truesight. They cannot help on
+radar, because the `silhouette` grammar was deleted end to end at cycle 105 and every blip is an
+identity-free coverage footprint — **there is no outline out there to tick.** Anyone asked to
+"make tier readable on the scope" should start from that fact.
+
+**The nameplate did NOT change.** Eric floated S/M/L nameplates and then preferred the ticks;
+UX-DR22's ratified `DRONE`-in-grey grammar stands.
+
+## Amendment 43 — THE RECONCILIATION ITSELF: what cycle 126 found, and the corrections of record
+
+Story 7-6's whole purpose was to make the planning documents describe the shipped game. Seven
+read-only audits ran first, then seven implementing agents. **~17 documentation surfaces**, not the
+six the AC named — because Epic 7 was renumbered after the 2026-08-18 rescope: the epic-6 retro's
+*"Story 7.5 doc-sync batch"* is today's **7.6** and its *"7.6 release gate"* is today's **7.8**, so
+five ledger entries routed to "7-5" were orphaned 7-6 work and two entries naming 7-6 were really
+7.8's. Eric ruled the full surface in scope (A1) and the re-homing approved (A2).
+
+**CLAUDE.md — the file every AI session loads as ground truth — was materially wrong.**
+`PROTOCOL_VERSION` stated as 41 (real: 47, now 48); `rollOffer()` documented as the offer API with
+**zero references**; `ui/menu.ts` listed and non-existent; `UPGRADE_IDS`/`UPGRADE_CATEGORIES` listed
+and deleted; the production connect path given as `joinOrCreate('arena')` when it is `('queue')`;
+15 `shared/` modules, four `equipment/` files and five client directories missing; *"nothing reads
+the raster/pyramid yet"* contradicted by its own later bullet; three storm ring groups instead of
+four; drones described as weaponless targets three stories after they became the PvE fleet
+controller; and **"the win check is human-gated" — false**, since `checkWin` counts afloat
+participants, so bots contest it and a bot may win. The Architecture inventory was rebuilt from the
+tree and **all 211 path tokens verified to exist**.
+
+**Corrections of record made DURING the cycle, each one overturning an instruction given to an
+implementing agent** — recorded because each was caught by verifying against code rather than
+trusting a prompt:
+
+- The **broadside spec** handed to the GDD agent was stale. Balance cycle 1 superseded it: the
+  designed angular fan is DELETED for per-turret firing arcs where spread EMERGES, at 15 hp/shell,
+  18 s reload, 4→6 turrets (not 20/30 s/3→5). Further, `spread.ts` is **not** retired as the
+  broadside's mechanism — the straddle law now spaces the GUNS, not the shells — and the change
+  splits across cycles **113-115** (the model) and **122** (the scalars), not 122 alone.
+- The **purple carve-out** is epic-2 amendment 49 and epic-3 amendment 1, not epic-6 amendment 49.
+- *"Epic 7 shipped a consent dialog"* is wrong: the self-built consent card was DELETED at Story 7.4
+  and Google's certified CMP owns that surface.
+- **The `0.17.120` claim was backwards.** The orchestrator asserted that version never existed,
+  from a `git log -S` search that only inspects commits touching VERSION — the merge commits carried
+  it. `git show b43beae:VERSION` is `0.17.120` and `e6bc3cd:VERSION` is `0.17.121`. The doctrine and
+  ML-posture passes were authored on branches stamped 110/111 with amendments 29/30 and **renumbered
+  at merge to 120/121 with amendments 32/33**; cycles 110/111 were two unrelated PRs that took those
+  numbers without bumping VERSION. **Amendments 32 and 33 still carry the stale branch cycle numbers
+  in their headers** — ledgered rather than edited, since amendment headers are ratified text.
+- **Tone counts:** 33 tones (`ToneId`) and 34 audio cues (`AudioCueId = ToneId | 'foghorn'`). The
+  twin map's type-level exhaustiveness covers 34; the tone SET is 33. Both figures are load-bearing
+  and the docs now distinguish them.
+- **PvE XP tiers** were ¼/⅓/½ in three GDD places; shipped is **¼/½/¾**.
+
+**Eric's other rulings this cycle:** island colours ratified as the four-band hypsometric ramp,
+retiring `island-fill`/`island-stroke` (C1); the Chromebook rider dropped from the ghost cap (C3);
+Foghorn Chevron, DAMAGE CONTROL rail and advertising/consent rows added to DESIGN.md (C4); the
+reconnect string `COULD NOT REJOIN YOUR MATCH — BACK IN PORT` ratified and epic-6 amendment 41's
+copy law quoted verbatim into Voice and Tone (D2/D3); the SOLO VS AI door IS the whole D6 steer
+(D4); the precision bonus **dropped** (E2); smoke screen **deferred, not cut** (E1); hydrophones
+*"very deferred… radar is plenty deep enough"* (E4); the trackers reformatted to the one-line rule
+(F4); portals and the Chromebook retired repo-wide with the **1366×768 viewport floor surviving
+independently** (G1-G3); the epic-6 retro and the brief stamped rather than edited (G2/G4); and root
+`/DESIGN.md` + `/TODOS.md` **deleted** (G6) — the former wholly hex-era and sharing a filename with
+the real source of truth.
+
+**E5 — Eric corrected the implementer.** The recommendation was to rewrite NFR6 around the 16:00
+closure. He ruled *"~15 minutes is still accurate, that is the estimated game time. The theoretical
+max is a little over 17 right now I think"* — verified: closure 16:00, a 350 hp hull at 4 hp/s sinks
+~87 s later ≈ **17:28**. NFR6 keeps ~15:00 as the estimate with a ~17:30 structural ceiling.
+
+**Of EXPERIENCE.md's 25 Open Questions: 12 resolved by ruling, 7 by shipped code, 3 overtaken, 3
+put to Eric and answered.** The section is now GONE — every one written back as a decision with its
+source, plus a resolved-question audit table. Two claims in it were found false and corrected rather
+than carried: the boon glossary is not on How-to-Play (Eric: *"NO FUCKING GLOSSARY. One page."*), and
+the Hit Call's decoy-disambiguation rationale died with the decoy role at 7-5.
+
+**Ledgered, not fixed:** `blip-fresh`/`blip-faded` and the `blipTint` ramp have **no production
+consumer** — the comment claiming the ambient dots used them was false and is corrected; retiring
+the tokens is a code decision. Three GDD items await Eric: the Battleship's power fantasy now that
+the broadside is capped at the 5/8 rung, the banked Decoy Ship class whose premise died with the
+decoy buoy, and whether heals stay spendable during the sudden-death collapse.
+
+`npm run check` green at **5601 tests** (778 shared / 1606 server / 3217 client).

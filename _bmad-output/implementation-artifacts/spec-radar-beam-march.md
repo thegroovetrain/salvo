@@ -2,7 +2,7 @@
 title: 'The Beam March — radar paints everything it sweeps (cycle 62, corrective)'
 type: 'refactor'
 created: '2026-08-07'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:

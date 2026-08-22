@@ -1391,8 +1391,8 @@ export const CONFIG = {
      * read as a bowsprit.
      *
      * MORE GUNS DO NOT MAKE A LONGER SHIP: the span is FIXED, so BROADSIDE
-     * TURRETS re-spaces the same 74.4u into 4 then 5 points (37.2u → 24.8u →
-     * 18.6u apart). DRAFT — Eric tunes it on the water.
+     * TURRETS re-spaces the same 74.4u into 5 then 6 points (24.8u → 18.6u →
+     * 14.88u apart, from the base 4). DRAFT — Eric tunes it on the water.
      */
     turretSpanFactor: 0.6,
     // hp per burst victim, per shell. BALANCE CYCLE 1 (Eric ruling 2026-08-20):
@@ -1621,14 +1621,18 @@ export const CONFIG = {
 
   /**
    * OFFERS (Story 2.7) — the shape of the pre-rolled offer a banked level
-   * carries. `size` is the ratified card count (4 boons from 4 DISTINCT
-   * categories, UX-DR14 / FR19); it is gameplay-authoritative (it bounds the
-   * server's accepted `SpendMsg.choice` and the client's digit picks), so it
-   * lives here and not in CLIENT_CONFIG. A catalog with fewer categories than
-   * `size` rolls a shorter offer rather than throwing (sim/offers.ts).
+   * carries. `size` is the ratified card count: 4 DIFFERENT CARD LINES, DRAWN
+   * FROM THE PLAYER'S OWN DECK and weighted by rarity. The old "one from each
+   * of 4 distinct CATEGORIES" roll died wholesale with Story 2.8's deck model
+   * (amendment 38 — see sim/offers.ts:1-8 and sim/deck.ts `drawOffer`); the
+   * category is a card's label, not a slot in the offer. It is
+   * gameplay-authoritative (it bounds the server's accepted `SpendMsg.choice`
+   * and the client's digit picks), so it lives here and not in CLIENT_CONFIG.
+   * A deck that has run thin draws a SHORTER offer rather than throwing, and
+   * an empty draw materializes no offer at all.
    */
   offer: {
-    size: 4, // boons per offer, each from a distinct BOON_CATALOG category
+    size: 4, // card lines per offer — drawn from the deck, all different
   },
 
   /**
@@ -1995,8 +1999,13 @@ export function mapRadius(playerCap: number): number {
  * same-ordered CLIENT_CONFIG.colors.players / .playerFills tables. Only the ORDER
  * is promoted to shared (nearest-free assignment + index→hex must agree); the hex
  * VALUES stay client tokens so DESIGN.md remains the styling authority. The
- * reserved bands (amber / red / storm-violet / phosphor-green) are excluded by
- * wheel construction — the wheel is the ONLY assignment source.
+ * reserved bands are AMBER and the RED FAMILY, and only those two: the
+ * storm-violet and phosphor-green reservations were RETIRED by Eric ruling
+ * 2026-08-21 (Story 7-6 question gate B1) to keep the palette expandable, so
+ * the cycle-125 wheel legitimately places green/spring/jade in the old
+ * phosphor band and orchid in the old storm-violet one. The surviving
+ * amber/red reserve is pinned against the live wheel by
+ * client/src/__tests__/tokens.test.ts. The wheel is the ONLY assignment source.
  */
 export const REGATTA_HUES = [
   'lemon',

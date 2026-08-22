@@ -209,7 +209,13 @@ describe('shared barrel', () => {
     // wire contract and the client resolves boon ids fail-closed, so a stale
     // client would silently drop the id and disagree with the sim about radar,
     // truesight and every rangeU.
-    expect(PROTOCOL_VERSION).toBe(47);
+    //
+    // 47 -> 48: A DRONE KILLER CAN BE NAMED (Eric ruling 2026-08-21).
+    // `SunkEvent` gains an optional `kcls` (HullId) appended LAST after `vcls`,
+    // carrying the KILLER'S hull class and ONLY when the killer is a PvE fleet
+    // hull -- never a captain's. A wire SHAPE change on a row every client
+    // decodes, so it is a join gate even though it is purely additive.
+    expect(PROTOCOL_VERSION).toBe(48);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat

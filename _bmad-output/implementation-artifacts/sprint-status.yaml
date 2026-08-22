@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-21  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; interstitial cycle 100 (0.17.100) STORY 6-6 mode select & queue liveness, epic-6 amendments 33-39; interstitial cycle 101 (0.17.101) 6-6 FOLLOW-UP on Eric playtest: home-screen presence in PLAYERS ONLINE, queue becomes a MODAL, SOLO sub-line is a bare count, register moves bottom-left, epic-6 amendments 40-45 (44/45: register survives the door, ESC cancels); PV unchanged at 40; STORY 6-7 cycle 102 (0.17.102) RECONNECTION UX: refresh-resume, the departure scuttle, client-synthesized elimination, epic-6 amendments 46-49 (46: match URL withdrawn by Eric mid-gate); PV unchanged at 40. EPIC 6 CLOSED 2026-08-18 — retro epic-6-retro-2026-08-18.md; 6/7 landed, 6-2 cancelled; 1 significant-discovery alert (Epic 7 plan change) EPIC 7 RESCOPED 2026-08-18 (PR #165, ed3ba5a): portal launch -> self-published beta; 6 -> 8 stories renumbered to execution order; Chromebook retired, split/versioning last (beta cuts 0.1.0/0.1.0); NFR1/2/8/9/10 amended, NFR18/19 + FR39/40 added, AR1/AR11 superseded in part; no code, no version bump, PV unchanged at 40. Full record: planning-artifacts/sprint-change-proposal-2026-08-18.md EPIC 7 OPEN; STORY 7-1 cycle 103 (0.17.103) PERFORMANCE & LOAD PASS: first-ever NFR1 whole-frame verdict — live play PASSES at every zoom with 0 dropped frames, omniscient reveal BREACHES the render leg (11.7ms vs 10ms, open, framing-driven not roster-driven); powerPreference was unset; cost is FILL-RATE not entities; integrated-only hardware ~12-15 FPS needs an Eric ruling; NFR2 3.1s of ~10s; epic-7 amendments 1-13; PV unchanged at 40. Interstitial cycle 105 (0.17.105) home mode-button sub-lines deleted — settings-yield escape, epic-6 amendment 50; PV unchanged at 40. STORY 7-5 cycle 108 (0.17.108) UPGRADE CARDS v2: Eric's catalog rewrite (33->29 lines, decks 41), cannon->BROADSIDE BARRAGE, decoy->RADAR BUOY, CAPTIVE MINES, exclusivity deleted; epic-7 amendments 20-28; PV 41->43. Interstitial cycle 117 (0.17.117) BATCHSIM HARNESS PREP for /balance-sim: --roster even + --tune (HC_BALANCE=1 gated), dead cannon. family dropped for the live broadside./speedBoost./radarBuoy. blocks, --json contract pinned for the first time; 17 review patches; PV unchanged at 45. Full record: spec-balance-sim-harness-prep.md Interstitial cycle 118 (0.17.118) THE HOME VERSION REGISTER IS THE BARE VERSION: Eric ruled the RT PROTOTYPE // prefix off the wordmark's third line; styling/structure/version plumbing byte-identical, retirement pin split into its own dated test, README + dated mockup ledgered for 7-6; epic-7 amendment 30; PV unchanged at 45. Interstitial cycle 119 (0.17.119) INTEL RANGE CARD DELETED (Eric ruling): the only card that wrote radarRange leaves the catalog (29->28 lines, intel subdeck 9->5, every hull deck 41->37), so the eighths ladder is now FROZEN at base for every observer; base does NOT compensate and the intel category survives on intelSweep alone (both Eric rulings); radarRange stays whitelisted-but-unwritten and the observer-scaled anchors are kept; epic-7 amendment 31; PV 45->46. Full record: spec-remove-intel-range-card.md19  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; interstitial cycle 100 (0.17.100) STORY 6-6 mode select & queue liveness, epic-6 amendments 33-39; interstitial cycle 101 (0.17.101) 6-6 FOLLOW-UP on Eric playtest: home-screen presence in PLAYERS ONLINE, queue becomes a MODAL, SOLO sub-line is a bare count, register moves bottom-left, epic-6 amendments 40-45 (44/45: register survives the door, ESC cancels); PV unchanged at 40; STORY 6-7 cycle 102 (0.17.102) RECONNECTION UX: refresh-resume, the departure scuttle, client-synthesized elimination, epic-6 amendments 46-49 (46: match URL withdrawn by Eric mid-gate); PV unchanged at 40. EPIC 6 CLOSED 2026-08-18 — retro epic-6-retro-2026-08-18.md; 6/7 landed, 6-2 cancelled; 1 significant-discovery alert (Epic 7 plan change) EPIC 7 RESCOPED 2026-08-18 (PR #165, ed3ba5a): portal launch -> self-published beta; 6 -> 8 stories renumbered to execution order; Chromebook retired, split/versioning last (beta cuts 0.1.0/0.1.0); NFR1/2/8/9/10 amended, NFR18/19 + FR39/40 added, AR1/AR11 superseded in part; no code, no version bump, PV unchanged at 40. Full record: planning-artifacts/sprint-change-proposal-2026-08-18.md EPIC 7 OPEN; STORY 7-1 cycle 103 (0.17.103) PERFORMANCE & LOAD PASS: first-ever NFR1 whole-frame verdict — live play PASSES at every zoom with 0 dropped frames, omniscient reveal BREACHES the render leg (11.7ms vs 10ms, open, framing-driven not roster-driven); powerPreference was unset; cost is FILL-RATE not entities; integrated-only hardware ~12-15 FPS needs an Eric ruling; NFR2 3.1s of ~10s; epic-7 amendments 1-13; PV unchanged at 40. Interstitial cycle 105 (0.17.105) home mode-button sub-lines deleted — settings-yield escape, epic-6 amendment 50; PV unchanged at 40. STORY 7-5 cycle 108 (0.17.108) UPGRADE CARDS v2: Eric's catalog rewrite (33->29 lines, decks 41), cannon->BROADSIDE BARRAGE, decoy->RADAR BUOY, CAPTIVE MINES, exclusivity deleted; epic-7 amendments 20-28; PV 41->43. Interstitial cycle 120 (0.17.120) SOLO VS AI DOCTRINE PASS: bot policy splits onto TWO AXES (ship profile = temperament, ai/equipment.ts EquipmentTactic = weapon knowledge travelling with the weapon, so an ACQUIRED R-slot weapon is actually used); all 8 doctrine verbs get a behavioural consumer; radar buoy gains a tactic; bounded band pull; acquisitions ranked so bots settle; omniscient `gunner` retired and `pacifist` kept as a frozen storm control (pilots.ts->controls.ts, --pilot->--control); three TEST-ONLY random-spend profiles in a separate id space; forager.mineCaptive corrected (captive trips hostile-only); 3 doctrine-downgrade defects fixed; epic-7 amendment 32; PV unchanged at 43.19  # epic-6 OPEN; interstitial cycle 98 (0.17.98) dim-mask render-freeze fix; interstitial cycle 99 (0.17.99) BOT AI PLAYTEST FIXES (terrain fire gate + ring-as-constraint), epic-6 amendment 32; interstitial cycle 100 (0.17.100) STORY 6-6 mode select & queue liveness, epic-6 amendments 33-39; interstitial cycle 101 (0.17.101) 6-6 FOLLOW-UP on Eric playtest: home-screen presence in PLAYERS ONLINE, queue becomes a MODAL, SOLO sub-line is a bare count, register moves bottom-left, epic-6 amendments 40-45 (44/45: register survives the door, ESC cancels); PV unchanged at 40; STORY 6-7 cycle 102 (0.17.102) RECONNECTION UX: refresh-resume, the departure scuttle, client-synthesized elimination, epic-6 amendments 46-49 (46: match URL withdrawn by Eric mid-gate); PV unchanged at 40. EPIC 6 CLOSED 2026-08-18 — retro epic-6-retro-2026-08-18.md; 6/7 landed, 6-2 cancelled; 1 significant-discovery alert (Epic 7 plan change) EPIC 7 RESCOPED 2026-08-18 (PR #165, ed3ba5a): portal launch -> self-published beta; 6 -> 8 stories renumbered to execution order; Chromebook retired, split/versioning last (beta cuts 0.1.0/0.1.0); NFR1/2/8/9/10 amended, NFR18/19 + FR39/40 added, AR1/AR11 superseded in part; no code, no version bump, PV unchanged at 40. Full record: planning-artifacts/sprint-change-proposal-2026-08-18.md EPIC 7 OPEN; STORY 7-1 cycle 103 (0.17.103) PERFORMANCE & LOAD PASS: first-ever NFR1 whole-frame verdict — live play PASSES at every zoom with 0 dropped frames, omniscient reveal BREACHES the render leg (11.7ms vs 10ms, open, framing-driven not roster-driven); powerPreference was unset; cost is FILL-RATE not entities; integrated-only hardware ~12-15 FPS needs an Eric ruling; NFR2 3.1s of ~10s; epic-7 amendments 1-13; PV unchanged at 40. Interstitial cycle 105 (0.17.105) home mode-button sub-lines deleted — settings-yield escape, epic-6 amendment 50; PV unchanged at 40. STORY 7-5 cycle 108 (0.17.108) UPGRADE CARDS v2: Eric's catalog rewrite (33->29 lines, decks 41), cannon->BROADSIDE BARRAGE, decoy->RADAR BUOY, CAPTIVE MINES, exclusivity deleted; epic-7 amendments 20-28; PV 41->43. Interstitial cycle 110 (0.17.110) SOLO VS AI DOCTRINE PASS: bot policy splits onto TWO AXES (ship profile = temperament, ai/equipment.ts EquipmentTactic = weapon knowledge travelling with the weapon, so an ACQUIRED R-slot weapon is actually used); all 8 doctrine verbs get a behavioural consumer; radar buoy gains a tactic; bounded band pull; acquisitions ranked so bots settle; omniscient `gunner` retired and `pacifist` kept as a frozen storm control (pilots.ts->controls.ts, --pilot->--control); three TEST-ONLY random-spend profiles in a separate id space; forager.mineCaptive corrected (captive trips hostile-only); 3 doctrine-downgrade defects fixed; epic-7 amendment 29; PV unchanged at 43. Interstitial cycle 121 (0.17.121) MINE LAYER POSTURE PASS: acts on cycle 110's blind-vacuum finding — the ML's bots built and sailed it WORSE THAN CHANCE and the cause was SURVIVAL, not target choice. Eric's playtest named the class (hang back, farm, survive to the payoff); both ML profiles are re-banded OUTWARD (forager 0.45-0.80R, trapper 0.25-0.50R) with earlier disengage/heal, mineCaptive is RESTORED for forager (cycle 110's demotion reversed) and buoyGun gains explicit overrides, plus PREPARED PLACEMENT (a mine laid while safe, bounded by the bot's own live-mine count via MineView.own — which also closes a shipped defect: no lay consulted maxLive and addMine silently evicts the owner's oldest). MEASURED: ML survival 181.1s -> 264.4s, at parity with the random control's 268.1s, wins 4/30 -> 8/30, boons +47%. METHOD CORRECTION OF RECORD: the blind-vacuum control is NOT valid across cycles — an equipment-axis change moves both arms, so it must be re-run in-cycle. Also measured and ledgered: radarHeatmap.test.ts is FLAKY and PREDATES this work (3 of 6 runs fail on cycle-110 code), so npm run check is an unreliable gate. epic-7 amendment 33; PV unchanged at 43. INTERSTITIAL cycle 123 (0.17.123) NAMEPLATES DRAW ABOVE TERRAIN, UNDER THE RETICLE (Eric rulings 2026-08-21): the plateRoot ROOT is retired and the nameplate container becomes the `plate` CHART LAYER seated between ship and aim, so a callsign reads over opaque island fills and every hull while the reticle/aim preview/burst rings/sweep read over the name; it stays screen-space via the inverse chart transform applyCamera now writes; the fog feather it lost rides the plate's alpha as the same fader x HullSoftness product the hull and aggro mark already wear; root mount order promoted to the declared, iterated STAGE_ROOT_ORDER + EVERY_ROOT_PLACED, closing the deferred-work entry that named it; hullOverRadar's ship-adjacency pin updated knowingly; a plate can never reach the DOM chrome (refit window, settings) and that is now pinned on both sides of the canvas boundary; two consequences ledgered rather than absorbed - a name now paints over radar returns, and the feather is sampled at the HULL rather than reproducing the screen-space composite; epic-7 amendment 34; client-only, PV unchanged at 47. Interstitial cycle 124 (0.17.124) SHIP-SELECT COPY + HOIST ORDER: the class card's middle pip row is ARMOR, not TOUGHNESS (Eric - the longer word measured 96.4px into a fixed 88px label column and overflowed it; ARMOR is 53.5px, TURNING now the longest at 75.0px), a copy ruling only with CLIENT_CONFIG.home.pip.toughness and the anchor ladder untouched, plus the column width and label tracking promoted to constants so a new container-fit pin measures the CSS rather than re-typing it; and the Color Hoist row is walked in ascending HUE ANGLE via a derived hueSortedIndices, reordering only the WALK and never REGATTA_HUES itself (a wheel index is wire identity). MEASURED AND LEDGERED, NOT FIXED: the wheel was already hue-monotonic bar two sub-4-degree inversions, so the visible scatter is LIGHTNESS (mean neighbour luminance jump 0.241) and smoothing it means re-tuning ratified DESIGN.md hexes - an Eric call. epic-7 amendments 35-36; client-only, PV unchanged at 47. Interstitial cycle 125 (0.17.125) REGATTA PALETTE REGENERATED (Eric ruling, closing the cycle-124 ledger entry): all 20 outlines and all 20 fills replaced by an OKLCH construction at one perceptual lightness band inside the same reserved-band-safe arc — mean neighbour lightness jump 0.1579 -> 0.0360 (4.4x flatter) AND worst pair separation 0.0484 -> 0.0615 (+27%), min contrast vs void 3.08 -> 5.10, every hue now clearing 4.5:1 as raw text so textSafe is inert. A FLAT lightness was built and REJECTED (worst pair 0.0345, a 29% identification regression) — the band is load-bearing. Wheel ORDER and REGATTA_HUES untouched (wire identity); hue names are lookup keys and several no longer describe their value; playerFills collapse to ONE x0.45 rule so the derivation test covers all 20. NOT verified by eye. epic-7 amendment 37; client+design-doc only, PV unchanged at 47.
+# last_updated: 2026-08-21 (cycle 126, 0.17.126)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -13,7 +13,7 @@
 #
 # Everything else has a home that is already canonical:
 #   rulings, amendments, design narrative, "what will bite the next agent"
-#       -> epic-N-context-amendments.md   (append-only; amendments 1-243 live there today)
+#       -> epic-N-context-amendments.md   (append-only)
 #   open threads, deferred work, review-gate defers
 #       -> deferred-work.md
 #   per-cycle implementation record
@@ -22,8 +22,12 @@
 #       -> epic-N-retro-*.md
 #
 # If you are about to paste more than one line into this file, you are writing in the
-# wrong file. (2026-08-08: ~400 lines of duplicated narrative were removed from here;
-# every word of it was already recorded in the files listed above.)
+# wrong file. (2026-08-08: ~400 lines of duplicated narrative were removed from here.
+# 2026-08-21, Story 7-6, Eric ruling F4 "reformat both": a 13,074-character header
+# comment — three concatenated copies of the same changelog — plus a 38-line narrative
+# block and thirteen narrative status comments were removed. Every word of it was
+# already recorded in the files listed above; the cycle 110-125 headlines survive as
+# one-liners in the interstitial index below.)
 
 # STATUS DEFINITIONS:
 # ==================
@@ -62,11 +66,14 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 #
 # Source epics: _bmad-output/planning-artifacts/epics.md (8 epics / 58 stories)
-# Epic sequence per GDD: E0 → E1 → E2 → E3 → E4 (Information Texture) → E5 (Living Ocean) → E6 (Lobbies) → E7 (Portal)
+# Epic sequence per GDD: E0 → E1 → E2 → E3 → E4 (Information Texture) → E5 (Living Ocean) → E6 (Lobbies) → E7 (Beta Launch Readiness)
 #
 # ROSTER RE-SCOPE (2026-07-19): PROPAGATED. Three-class beta (TB/ML/BS; gunboat cut) is reflected
 # in epics.md — see _bmad-output/planning-artifacts/sprint-change-proposal-2026-07-19.md.
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
+#
+# EPIC 7 RESCOPE (2026-08-18): PROPAGATED. Portal launch -> self-published beta; 6 -> 8 stories,
+# renumbered to execution order. See _bmad-output/planning-artifacts/sprint-change-proposal-2026-08-18.md.
 
 # INTERSTITIAL CYCLE INDEX — cycles that landed outside a numbered story.
 # One line each. Rulings are in epic-N-context-amendments.md at the cited range.
@@ -94,28 +101,51 @@
 #   cycle 69 (0.17.69)  the slope paints to the peak — amendments 194-198
 #   cycle 71 (0.17.71)  wake length + tail fade — amendments 213-214
 #   cycle 72 (0.17.72)  the storm comes off the scope — amendment 128 retired
-#   cycle 78 (0.17.78)  the sinking window playtest pass: match held open, kill made visible, hulls over radar — amendments 20-22 (Eric)
-#   cycle 79 (0.17.79)  Story 5-3 the omniscient reveal & results — amendments 23-30; PV 34 (no wire change)
-#   cycle 80 (0.17.80)  the deck stops hoarding: lazy front-offer draw — epic-2 amendments 69-73; PV 34 (no wire change)
-#   cycle 81 (0.17.81)  the death plume moves to the killing blow — epic-5 amendment 32; PV 34 (client-only)
-#   cycle 82 (0.17.82)  sudden death — the final collapse; epic-3 amendments 27-30; PV 34->35
-#   cycle 84 (0.17.84)  the home scene: the menu backdrop becomes a real slice of the game — PV 36 (client-only)
-#   cycle 85 (0.17.85)  PvE fleet rebalance: gun 6/8/10 -> 1/2/3, waves 3/2/1 -> 4/2/1 fleets — epic-5 amendment 45; PV 36 (server-side constants)
-#   cycle 86 (0.17.86)  the home scene is a different ocean every load (Eric ask); off-scope defect fixed + 20-seed sweep — PV 36 (client-only)
-#   cycle 87 (0.17.87)  home tagline: random nautical pun pool replaces the fixed line — epic-5 amendment 46; PV unchanged at 36 (client-only)
-#   cycle 90 (0.17.90)  the held start line + shared spawn lattice + sweep anchored to heading — epic-6 amendments 19-21; PV unchanged at 37
-#   cycle 91 (0.17.91)  client frame-loop containment: a throw costs one frame, not the session — PV unchanged at 37 (client-only)
-#   cycle 92 (0.17.92)  THE INTEL RANGE MERGE: intelTruesight + intelRadar -> one intelRange line (x4), truesight DERIVED, the 5/8 rung observer-scaled — epic-6 amendment 22; PV 37->38
-#   cycle 93 (0.17.93)  FRAGMENTATION CASING deleted: cannonBlast was a TOTAL no-op under ARMOR-PIERCING — epic-6 amendment 23; PV 38->39
-#   cycle 94 (0.17.94)  PvE FLEET REBALANCE: hp 45/60/75, flat 1 damage, tiers 1/4-1/2-3/4, 6-hull groups at 8/4/2, spreadU 400->500 — epic-6 amendment 24; PV unchanged at 39
-#   cycle 95 (0.17.95)  mines: fouling damage penalty removed (kills the pick-order bug), trip ring DERIVED from blast, the two ring cards merged — epic-6 amendment 25; PV 39->40
-#   cycle 98 (0.17.98)  the frozen client: a Sprite mask's TextureSource may never be destroyed while bound — dim-mask rebake redraws in place; no amendment (defect); PV unchanged at 40 (client-only)
-#   cycle 99 (0.17.99)  BOT AI PLAYTEST FIXES: bots stop firing through islands (no LOS test existed anywhere in ai/) + the storm ring becomes a CONSTRAINT on every heading rather than a post-hoc override — epic-6 amendment 32; PV unchanged at 40
-#   cycle 105 (0.17.105) home mode-button sub-lines DELETED (N/20 QUEUED, STARTS INSTANTLY): a descendant visibility:visible escaped the settings yield — epic-6 amendment 50; PV unchanged at 40 (client-only)
-#   cycle 108 (0.17.108) THE PRIVACY POLICY SPEAKS AS HULLCRACKER.IO: operator name/entity type/country deleted from WHO RUNS THIS + CONTACT, whole policy converted to third person incl. one heading, no behavioural disclosure moved — epic-7 amendment 19 (supersedes R11); PV unchanged at 41 (client copy only)
+#   cycle 78 (0.17.78)  the sinking-window playtest pass — epic-5 amendments 20-22
+#   cycle 79 (0.17.79)  Story 5-3 the omniscient reveal & results — epic-5 amendments 23-30; PV 34
+#   cycle 80 (0.17.80)  the deck stops hoarding: lazy front-offer draw — epic-2 amendments 69-73; PV 34
+#   cycle 81 (0.17.81)  the death plume moves to the killing blow — epic-5 amendment 32; PV 34
+#   cycle 82 (0.17.82)  sudden death — the final collapse — epic-3 amendments 27-30; PV 34->35
+#   cycle 84 (0.17.84)  the home scene: menu backdrop becomes a real slice of the game — PV 36
+#   cycle 85 (0.17.85)  PvE fleet rebalance (gun 6/8/10 -> 1/2/3) — epic-5 amendment 45; PV 36
+#   cycle 86 (0.17.86)  the home scene is a different ocean every load — PV 36
+#   cycle 87 (0.17.87)  home tagline: random nautical pun pool — epic-5 amendment 46; PV 36
+#   cycle 90 (0.17.90)  held start line + shared spawn lattice + sweep anchored to heading — epic-6 amendments 19-21; PV 37
+#   cycle 91 (0.17.91)  client frame-loop containment — PV 37 (client-only)
+#   cycle 92 (0.17.92)  THE INTEL RANGE MERGE (intelTruesight + intelRadar -> intelRange) — epic-6 amendment 22; PV 37->38
+#   cycle 93 (0.17.93)  FRAGMENTATION CASING deleted — epic-6 amendment 23; PV 38->39
+#   cycle 94 (0.17.94)  PvE FLEET REBALANCE (hp 45/60/75, 6-hull groups) — epic-6 amendment 24; PV 39
+#   cycle 95 (0.17.95)  the mine-card rulings (fouling penalty, derived trip ring, merged cards) — epic-6 amendment 25; PV 39->40
+#   cycle 98 (0.17.98)  the frozen client: a Sprite mask's TextureSource may never be destroyed — no amendment (defect); PV 40
+#   cycle 99 (0.17.99)  BOT AI PLAYTEST FIXES (terrain fire gate, ring-as-constraint) — epic-6 amendment 32; PV 40
+#   cycle 101 (0.17.101) 6-6 follow-up: queue modal, PLAYERS ONLINE counts home, register bottom-left — epic-6 amendments 40-45; PV 40
+#   cycle 105 (0.17.105) home mode-button sub-lines DELETED — epic-6 amendment 50; PV 40 (client-only)
+#   cycle 108 (0.17.108) THE PRIVACY POLICY SPEAKS AS HULLCRACKER.IO — epic-7 amendment 19 (supersedes R11); PV 41
+#   cycle 110 (0.17.110) PR #176 leaving a match is NEVER gated on an ad (Eric ruling: no cap of any length) — no amendment; PV 43; number claimed, VERSION file not bumped
+#   cycle 111 (0.17.111) PR #177 the RADAR BUOY gets its own scope (Eric: "It gets its own returns. I just get to see them as the owner"); the gun buoy fires a real shell — no amendment; PV 43->44; number claimed, VERSION file not bumped
+#   cycle 112 (0.17.112) the placement wedge tells the truth (buoy drawn at ARC_R, not its 150u leash; doubled reload wedge) — no amendment; PV 44
+#   cycle 113 (0.17.113) PR #179 broadside shells leave from REAL turrets (shared turretMuzzles()) — no amendment; PV 44
+#   cycle 114 (0.17.114) PR #180 each broadside turret gets its OWN firing arc; the designed fan is deleted — no amendment; PV 44->45
+#   cycle 115 (0.17.115) PR #181 broadside convergence is rarer at level 1 (Eric playtest; the dial is the OVERLAP, not the arc width; ~303u -> ~386u) — no amendment; PV 45
+#   cycle 116 (0.17.116) the own wreck finishes going down (spectateSettle) — epic-7 amendment 29; PV 45; spec-spectate-own-wreck-settle.md
+#   cycle 117 (0.17.117) batchSim harness prep for /balance-sim (--roster even, --tune behind HC_BALANCE=1) — no amendment; PV 45; spec-balance-sim-harness-prep.md
+#   cycle 118 (0.17.118) the home version register is the BARE version — epic-7 amendment 30; PV 45; spec-home-version-register-drop-prototype.md
+#   cycle 119 (0.17.119) INTEL RANGE card deleted; the eighths ladder is frozen — epic-7 amendment 31; PV 45->46; spec-remove-intel-range-card.md
+#   cycle 120 (0.17.120) SOLO VS AI DOCTRINE PASS (ship profile vs EquipmentTactic registry) — epic-7 amendment 32; spec-solo-ai-doctrine-pass.md
+#   cycle 121 (0.17.121) MINE LAYER POSTURE PASS + prepared placement — epic-7 amendment 33; spec-ml-posture-and-prepared-placement.md
+#   cycle 122 (0.17.122) BALANCE CYCLE 1 (hull hp doubled, damageControl 50/50, broadside 4x15@18s, torpedo 50) — no amendment; PV 46->47; batch-sim-evidence-2026-08-20.md
+#   cycle 123 (0.17.123) nameplates draw above terrain, under the reticle — epic-7 amendment 34; PV 47; spec-nameplates-above-terrain.md
+#   cycle 124 (0.17.124) SHIP-SELECT COPY (ARMOR row) + Color Hoist walks in hue order — epic-7 amendments 35-36; PV 47 (client-only)
+#   cycle 125 (0.17.125) REGATTA PALETTE REGENERATED in OKLCH — epic-7 amendment 37; PV 47 (client + design doc)
+# NOTE (2026-08-21, Story 7-6, Eric ruling F3): cycles 120/121 were AUTHORED on branches stamped
+# 0.17.110 / 0.17.111 / epic-7 amendments 29-30 and RENUMBERED at merge (PR #184 -> 0.17.120,
+# PR #187 -> 0.17.121, amendments 32-33; verified against the VERSION file at each merge commit).
+# The branch-local stamps had survived here as duplicate rows and are deleted. Cycles 110/111
+# above are the UNRELATED PR #176/#177 playtest hotfixes. The epic-7 amendment ledger's own
+# A32/A33 headers still read "cycle 110"/"cycle 111" and are stale.
 
 generated: 2026-07-17
-last_updated: 2026-08-19
+last_updated: 2026-08-21
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -171,93 +201,50 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: done  # 11/12 stories landed cycles 41-75; 4-1 deferred by Eric ruling (amendment 1), number reserved. See the interstitial cycle index above for non-story cycles in this epic
+  epic-4: done  # 11/12 landed cycles 41-75; 4-1 deferred (amendment 1), number reserved
   4-1-the-listening-ring: deferred  # 2026-08-04 Eric ruling; amendment 1; bmad-dev-auto-result-4-1-listening-ring-deferred.md
   4-2-class-legible-blips: done  # 2026-08-04 cycle 41 (0.17.41); PV 19->20; amendments 7-14
   4-3-the-gunnery-conversation: done  # 2026-08-04 cycle 43 (0.17.43); PV 21->22; amendments 15-20
   4-4-wounded-smoke: done  # 2026-08-05 cycle 49 (0.17.49); PV 24->25; amendments 40-50
   4-5-the-foghorn: done  # 2026-08-05 cycle 50 (0.17.50); PV 25->26; amendments 51-61
-  4-6-the-bounty: done  # 2026-08-10 cycle 73 (0.17.73); PV 32->33; amendments 216-221
-  # SCOPE REDUCTION for both below, recorded not dropped (amendment 216): 4-7 loses the bloom's audio row, 4-8 loses it as a channel.
-  4-7-the-real-time-sound-map: done  # 2026-08-10 cycle 74 (0.17.74); PV 33; amendments 228-238 (Reading C)
+  4-6-the-bounty: done  # 2026-08-10 cycle 73 (0.17.73); PV 32->33; amendments 216-227
+  4-7-the-real-time-sound-map: done  # 2026-08-10 cycle 74 (0.17.74); PV 33; amendments 228-238
   4-8-attention-priority-the-readability-gate: done  # 2026-08-11 cycle 75 (0.17.75); PV 33; amendments 239-243
-  # THE RADAR PHYSICS ARC (4-9 .. 4-12) — design contract is amendments 100-118; on any
-  # apparent conflict the amendments win and the conflict is REPORTED, not resolved.
   4-9-the-eighths-ladder: done  # 2026-08-07 cycle 60 (0.17.60); PV 29->30; amendments 121-125
   4-10-the-physical-return-model: done  # 2026-08-07 cycle 61 (0.17.61); PV 30; amendments 127-137
   4-11-height-aware-radar-shadows: done  # 2026-08-08 cycle 68 (0.17.68); PV 31; amendments 176-188
   4-12-radar-wakes: done  # 2026-08-08 cycle 70 (0.17.70); PV 31->32; amendments 204-211
-  epic-4-retrospective: done  # 2026-08-11 epic-4-retro-2026-08-11.md; unattended run; 1 significant-discovery alert (Story 5.4 radar re-derivation)
+  epic-4-retrospective: done  # 2026-08-11 epic-4-retro-2026-08-11.md
 
   # epic-5: The Living Ocean (GDD E4)
-  epic-5: done  # 4/6 stories landed cycles 76-83; 5-4 + 5-5 deferred by Eric ruling (amendment 47), numbers reserved. See the interstitial cycle index above for non-story cycles in this epic
-  5-1-lifecycle-state-machine-step-order-registry: done  # 2026-08-11 cycle 76 (0.17.76); PV 33; amendments 1-7; drones stop gating the win (amendment 4)
-  5-2-the-sinking-window: done  # 2026-08-12 cycle 77 (0.17.77); PV 33->34; amendments 10-19; AR7 sinking-activation TBD closed
-  5-3-omniscient-reveal-results: done  # 2026-08-13 cycle 79 (0.17.79); PV 34; amendments 23-30; UX open question #25 closed
-  5-4-fog-banks: deferred  # 2026-08-14 Eric ruling; amendment 47; radar re-derivation still owed before it may be specified
+  epic-5: done  # 4/6 landed cycles 76-83; 5-4 + 5-5 deferred (amendment 47), numbers reserved
+  5-1-lifecycle-state-machine-step-order-registry: done  # 2026-08-11 cycle 76 (0.17.76); PV 33; amendments 1-7
+  5-2-the-sinking-window: done  # 2026-08-12 cycle 77 (0.17.77); PV 33->34; amendments 10-19
+  5-3-omniscient-reveal-results: done  # 2026-08-13 cycle 79 (0.17.79); PV 34; amendments 23-30
+  5-4-fog-banks: deferred  # 2026-08-14 Eric ruling; amendment 47; radar re-derivation owed before it may be specified
   5-5-whirlpools: deferred  # 2026-08-14 Eric ruling; amendment 47; UX open question #23 still unresolved
   5-6-roving-pve-fleets: done  # 2026-08-14 cycle 83 (0.17.83); PV 35->36; amendments 33-44
-  epic-5-retrospective: done  # 2026-08-14 epic-5-retro-2026-08-14.md; unattended run; 1 significant-discovery alert (Epic 6 inherits the AR18 harness Epic 5 deleted)
+  epic-5-retrospective: done  # 2026-08-14 epic-5-retro-2026-08-14.md
 
-  # epic-6: Honest Lobbies & Modes (GDD E5)
-  epic-6: done  # 6/7 stories landed cycles 88-102; 6-2 CANCELLED by Eric ruling (amendment 11). See the interstitial cycle index above for the 9 non-story cycles in this epic
+  # epic-6: Honest Lobbies & Modes (GDD E5) — CLOSED 2026-08-18
+  epic-6: done  # 6/7 landed cycles 88-102; 6-2 CANCELLED (amendment 11)
   6-1-queue-based-lobbies: done  # 2026-08-15 cycle 88 (0.17.88); PV 36; amendments 1-9
   6-2-roster-scaled-oceans: cancelled  # 2026-08-15 Eric ruling; amendments 11-12; bmad-dev-auto-result-6-2-roster-oceans-questions.md
-  # The 2026-08-04 scope note here (drones gate the win; 6-3 owes solo termination) was
-  # OVERTAKEN: 5-1 removed the gate and moved solo termination to 6-5. See deferred-work.md.
   6-3-the-participants-only-win-check: done  # 2026-08-15 cycle 89 (0.17.89); PV 36->37; amendments 13-18
   6-4-combat-bot-ai: done  # 2026-08-17 cycle 96 (0.17.96); PV 40; amendments 26-28; bot-evidence-2026-08-16.md
-  6-5-solo-vs-ai-mode: done  # 2026-08-17 cycle 97 (0.17.97); PV 40; amendments 29-31; queue-free create door, 1 human + 19 AI captains
-  6-6-mode-select-queue-liveness: done  # 2026-08-17 cycle 100 (0.17.100); PV 40; amendments 33-39; GET /liveness (driver-backed), global counts on home
-  6-7-reconnection-ux: done  # 2026-08-18 cycle 102 (0.17.102); PV 40; amendments 46-49; refresh-resume (sessionStorage + onReconnect welcome), the departure scuttle, client-synthesized elimination; match URL withdrawn (A46)
-  epic-6-retrospective: done  # 2026-08-18 epic-6-retro-2026-08-18.md; unattended run; 1 significant-discovery alert (Epic 7 plan change: loadTest.mjs absent, solo-create cost vector unruled, 7-5 list widened)
+  6-5-solo-vs-ai-mode: done  # 2026-08-17 cycle 97 (0.17.97); PV 40; amendments 29-31
+  6-6-mode-select-queue-liveness: done  # 2026-08-17 cycle 100 (0.17.100); PV 40; amendments 33-39
+  6-7-reconnection-ux: done  # 2026-08-18 cycle 102 (0.17.102); PV 40; amendments 46-49
+  epic-6-retrospective: done  # 2026-08-18 epic-6-retro-2026-08-18.md
 
   # epic-7: Beta Launch Readiness (RESCOPED 2026-08-18; sprint-change-proposal-2026-08-18.md)
   epic-7: in-progress
-  7-1-performance-and-load-pass: done  # 2026-08-18 cycle 103 (0.17.103) NFR1 live play PASSES (headroom 10.2-10.9ms, 0 dropped frames); omniscient reveal BREACHES render leg 11.7ms vs 10ms (open); powerPreference fix; NFR2 3.1s of ~10s; epic-7 amendments 1-13; PV unchanged at 40
-  7-2-analytics-consent-and-privacy: done  # 2026-08-18 cycle 104 (0.17.104); PV unchanged at 40; epic-7 amendment 14 (R1-R16); own consent card + Consent Mode v2 BASIC, /privacy page, reusable page chrome; certified CMP DEFERRED to 7-4 (Google requires the AdSense site+code first)
-  7-3-how-to-play-page: done  # 2026-08-19 cycle 106 (0.17.106); PV 40->41; epic-7 amendment 15 (R1-R3); /how-to-play page (basics only - Eric struck the boon glossary and the AC coverage list), win condition stated, home link made real, settings binding reference fixed; the OLD silhouette radar DELETED end to end (prod return grammar is now the only radar)
-  7-4-adsense-h5-games-ads: in-review  # 2026-08-19 cycle 107 (0.17.107); PV unchanged at 41; epic-7 amendments 16-18; interstitial at return-to-port + ONE responsive display unit beside the score screen (A18 supersedes A16 R2's "no display units" - home was unbuildable, the score screen is not); Google's certified CMP adopted, own consent card DELETED, Consent Mode BASIC->ADVANCED; ads.txt verification; display slot id gated and unset pending an inter-epic job, interstitial pending H5 approval. Also A17: ESC while spectating reopens the score screen
-  7-5-upgrade-cards-v2: in-review  # 2026-08-19 cycle 109 (0.17.109); PV 41->43 (42 wave 1, 43 wave 2); epic-7 amendments 20-28; Eric's catalog v2 — 33->29 lines, every acquirable subdeck 6, every hull deck 41; cannon->BROADSIDE BARRAGE (5/8 rung), decoy->RADAR BUOY (decoy role deleted), CAPTIVE MINES, star-shell gun reach, exclusivity DELETED (verb flags); jamming emits server-side FALSE blips, declared exceptions stay at SIX; batch-sim-evidence-7-5-2026-08-19.md
-  # POST-LANDING PLAYTEST FIXES (Eric, 2026-08-20). Cycles 110 and 111 were
-  # MERGED WITHOUT A VERSION BUMP — recorded here so no number is silently lost:
-  #   cycle 110 (0.17.110) PR #176 — RETURN TO PORT / ABANDON MATCH stranded the
-  #     player ~37s: display AdSense with no H5 placement API means no ad callback
-  #     ever fires, and isAdsReady() called that ready. Leaving is now NEVER gated
-  #     on an ad (Eric ruling: no cap of any length). PV unchanged at 43.
-  #   cycle 111 (0.17.111) PR #177 — the RADAR BUOY gets its OWN scope (Eric:
-  #     "It gets its own returns. I just get to see them as the owner"); the gun
-  #     buoy fires a real shell. PV 43->44.
-  #   cycle 112 (0.17.112) — the placement wedge: the buoy was drawn at the
-  #     torpedo's indicative ARC_R instead of its 150u leash, and the reload
-  #     sweep-back drew a SECOND wedge at half radius on a true-radius placement
-  #     arc. Both click-placed ids now share one grammar. PV unchanged at 44.
-  #   cycle 113 (0.17.113) PR #179 — broadside shells leave from REAL turrets:
-  #     shared turretMuzzles() feeds server fire path and client preview. PV 44.
-  #   cycle 114 (0.17.114) PR #180 — each broadside turret gets its OWN firing
-  #     arc; the designed fan is deleted and the spread EMERGES. PV 44->45.
-  #   cycle 115 (0.17.115) PR #181 — broadside convergence is rarer at level 1
-  #     (Eric playtest); the dial is the OVERLAP, not the arc. PV unchanged at 45.
-  #   cycle 116 (0.17.116) — the own wreck finishes going down: spectateSettle
-  #     completes the capped ramp to setSink(1). A29. PV unchanged at 45.
-  #   cycle 117 (0.17.117) — batchSim harness prep for /balance-sim: --roster
-  #     even (bots AND captains, offset by match index) + --tune behind
-  #     HC_BALANCE=1; dead cannon. family dropped for broadside./speedBoost./
-  #     radarBuoy.; 17 review patches. Full record: spec-balance-sim-harness-prep.md.
-  #     PV unchanged at 45.
-  #   cycle 118 (0.17.118) — the home version register is the BARE version;
-  #     Eric ruled the RT PROTOTYPE // prefix off the wordmark. A30.
-  #     PV unchanged at 45.
-  #   cycle 119 (0.17.119) — INTEL RANGE deleted (Eric): catalog 29->28, intel
-  #     subdeck 9->5, decks 41->37; base holds at 660 and the intel category
-  #     survives (two Eric rulings); the eighths ladder is now frozen for every
-  #     observer. A31. Full record: spec-remove-intel-range-card.md. PV 45->46.
-  #   cycle 122 (0.17.122) — BALANCE CYCLE 1 (Eric rulings, /balance-sim): hull hp
-  #     DOUBLED (250/350/300) + damageControl 25->50 both, broadside 3x20@30s ->
-  #     4x15@18s, torpedo 70->50. Class spread 35.6pp -> 2.8pp with all three in
-  #     band; attrition 8:00 met. Client toughness pip ladder doubles to 200/50.
-  #     Full record: batch-sim-evidence-2026-08-20.md. PV 46->47.
-  7-6-design-and-doc-reconciliation: backlog
+  7-1-performance-and-load-pass: done  # 2026-08-18 cycle 103 (0.17.103); PV 40; epic-7 amendments 1-13
+  7-2-analytics-consent-and-privacy: done  # 2026-08-18 cycle 104 (0.17.104); PV 40; epic-7 amendment 14 (R1-R16)
+  7-3-how-to-play-page: done  # 2026-08-19 cycle 106 (0.17.106); PV 40->41; epic-7 amendment 15 (R1-R3)
+  7-4-adsense-h5-games-ads: done  # 2026-08-19 cycle 107 (0.17.107); PV 41; epic-7 amendments 16-18
+  7-5-upgrade-cards-v2: done  # 2026-08-19 cycle 109 (0.17.109); PV 41->43; epic-7 amendments 20-28; batch-sim-evidence-7-5-2026-08-19.md
+  7-6-design-and-doc-reconciliation: done  # 2026-08-21 cycle 126 (0.17.126); PV 47->48; epic-7 amendments 38-43; bmad-dev-auto-result-7-6-doc-reconciliation-questions.md
   7-7-frontend-backend-split-and-versioning: backlog
   7-8-the-release-gate: backlog
   # Old numbering retired 2026-08-18: 7-3-portal-sdk-integrations CANCELLED (no portal release);
@@ -265,218 +252,222 @@ development_status:
   # 7-5-design-md-real-time-refresh -> 7-6; 7-6-the-release-gate -> 7-8.
   epic-7-retrospective: optional
 
-# action_items — OPEN entries carry their full text (they are live instructions).
-# CLOSED entries are summarized to one line; the full record is in the file each one names.
+# action_items — one line per entry. Rationale, evidence and "what will bite the next
+# agent" live in epic-N-context-amendments.md, deferred-work.md and the retros.
 action_items:
   - epic: 2
-    action: "Waive all 18 followup_review_recommended flags; retire the flag — future follow-up wishes are ledger entries with evidence + named home, or nothing (Eric ruling, epic-2 retro)"
+    action: "Waive all 18 followup_review_recommended flags; retire the flag (Eric ruling, epic-2 retro)"
     owner: "review pipeline"
     status: done
   - epic: 2
-    action: "Storm-purple ruling into 3-2 spec: exclusivity clause dead; binding requirement is ring-edge legibility; accent reuse of storm purple is fine (Eric ruling, epic-2 retro)"
+    action: "Storm-purple ruling into the 3-2 spec: the binding requirement is ring-edge legibility"
     owner: "spec author (create-story 3-2)"
-    status: done  # 3-2 spec authored from the ruling; amendment 14 grammar; design gate ratified from live screenshots (amendment 18); stale-open corrected at epic-3 retro
+    status: done  # amendment 14 grammar; design gate ratified from live screenshots (amendment 18)
   - epic: 2
-    action: "3-1 spec carries picks-band shortfall ownership + harness-lengths-are-lower-bounds caveat + endedBy split + post-landing baseline rerun"
+    action: "3-1 spec carries picks-band ownership + lower-bounds caveat + endedBy split + baseline rerun"
     owner: "spec author (create-story 3-1)"
-    status: done  # 3-1 spec + evidence campaign carried all four; picks-band ledger entry RESOLVED (pacifist picks p50 12.0 at 12:00 closure)
+    status: done  # all four carried; the picks-band ledger entry is RESOLVED
   - epic: 2
-    action: "Epic 2 doc debt (typography rows, purple carve-out now moot, LitZoneView.mode, audio table) rides to Story 7-5 — no pre-Epic-3 batch"
+    action: "Epic 2 doc debt (typography rows, purple carve-out, LitZoneView.mode, audio table) rides to the doc-sync batch"
     owner: "Story 7-6"  # renumbered 2026-08-18
-    status: open
+    status: open  # 2026-08-21 cycle 126: DESIGN.md hud-micro is still 9px against amendments 15-17; see deferred-work.md
   - epic: 3
-    action: "Sudden-death full-close at ~15:00 is a PARKED Eric-gated contingency (would supersede amendment 24's geometric bar) — never built absent a new explicit ruling; revisit only on live-play evidence of non-concluding matches (Eric, epic-3 retro)"
+    action: "Sudden-death full-close at ~15:00 is a PARKED Eric-gated contingency"
     owner: "ledger (Eric-gated)"
-    status: done  # UN-PARKED and BUILT 2026-08-14 cycle 82 (0.17.82) on a new Eric ruling; PV 34->35; epic-3 amendments 27-30; pacifist control now resolves 12/12 at p50 16:27
+    status: done  # UN-PARKED and BUILT 2026-08-14 cycle 82; epic-3 amendments 27-30
   - epic: 3
-    action: "Live-playtest lobby-convergence friction (~10 players, hard to reach one room, 2026-08-02) recorded as evidence for queue-based lobbies"
+    action: "Live-playtest lobby-convergence friction (~10 players, 2026-08-02) is evidence for queue-based lobbies"
     owner: "spec author (create-story 6-1)"
     status: open
   - epic: 3
-    action: "BB endgame share + terminal-ring island pockets: next checkpoint is full-roster matches reaching 12:00 closure (terminal ring human-unverified — playtest matches never hit 12:00)"
+    action: "BB endgame share + terminal-ring island pockets: next checkpoint is full-roster matches reaching 12:00 closure"
     owner: "ledger (playtest checkpoint)"
     status: open
   - epic: 4
-    action: "Bearing surface for the foghorn — RESOLVED 2026-08-05 (cycle 50, amendment 55): 4-5 grew its own screen-edge chevron and shipped rather than deferring alongside 4-1. Rejected alternatives and rationale: amendment 55"
+    action: "Bearing surface for the foghorn"
     owner: "spec author (create-story 4-5)"
-    status: resolved
+    status: resolved  # 2026-08-05 cycle 50, epic-4 amendment 55: 4-5 grew its own screen-edge chevron
   - epic: 4
-    action: "Story 4-8 must not pin a listening-ring Tier-1 attention channel (deferred with 4-1); shipped Tier-1 set is the low-HP rail pulse + live denied pulse. Still owns resolving the tier-table <25%-vs-50% doc drift with Eric rather than inheriting the stale number"
+    action: "Story 4-8 must not pin a listening-ring Tier-1 channel; it owns the tier-table doc drift"
     owner: "spec author (create-story 4-8)"
-    status: done  # cycle 75: Tier-1 set is railCritical + all denied pulses; the 25/50 'drift' was closed as a CATEGORY ERROR not a typo (amendment 239)
+    status: done  # cycle 75; the 25/50 'drift' closed as a CATEGORY ERROR (amendment 239)
   - epic: 4
-    action: "Weapon cooldown / TTK rebalance — LANDED as cycles 42 (global cooldown ruling) and 44 (per-weapon numbers, amendments 21-25, with the batch-sim pass cycle 42 skipped). Full record: epic-4-context-amendments.md, batch-sim-evidence-2026-08-04.md"
+    action: "Weapon cooldown / TTK rebalance"
     owner: "ledger (Eric-gated)"
-    status: done  # STILL OPEN, carried forward: the 4-1 hydrophone deferral was NOT revisited by either cycle. Torps/mines are now materially more threatening (70hp fish, 55hp mine, two-deep racks), which moves the very premise the deferral rested on — but reviving 4-1 still needs its own explicit Eric ruling and is NOT implied by this cycle. Eric ruled the resulting pacing acceptable (amendment 26) and reaffirmed sudden death as sharpened-but-PARKED (amendment 28)
+    status: done  # cycles 42 + 44; amendments 21-28; batch-sim-evidence-2026-08-04.md. Residual: the 4-1 hydrophone deferral was not revisited — deferred-work.md
   - epic: 4
-    action: "Aggregate flash budget still has NO global mechanism. The ratified accessibility floor says no element or screen region flashes more than 3x/s regardless of how many compliant events stack — and the accessibility review wrote that rule FOR muzzle flashes and Hit Call blooms specifically. Story 4-3 shipped only the per-source 300ms tone floor; muzzle-carries is the FIRST feature that can actually bind the budget (up to 19 other hulls flashing inside your halo). Story 4-8 owns attention priority and is its natural home. Related: 4-3 promoted `muzzle` and `spark` out of isJuiceEffect, so 4-8 inherits a changed juice/information split"
+    action: "Aggregate flash budget has no global mechanism; Story 4-8 is its home"
     owner: "spec author (create-story 4-8)"
-    status: done  # cycle 75 built it: client/src/render/flashBudget.ts (coalesce, then DEGRADE — never delete; amendment 240)
+    status: done  # cycle 75: client/src/render/flashBudget.ts (coalesce then DEGRADE — amendment 240)
   - epic: 2
-    action: "DAMAGE CONTROL heal strip — LANDED as cycle 46 (0.17.46); PV 22->23. Discharges epic-2 amendment 38's level-heal item. Full record: amendments 58-64"
+    action: "DAMAGE CONTROL heal strip"
     owner: "ledger (Eric-gated)"
-    status: done  # ONE thread open: heal observability is self-private for now (amendment 63) and is an explicit Eric-gated revisit after live play
+    status: done  # cycle 46 (0.17.46); PV 22->23; amendments 58-64. Residual: heal observability stays self-private (amendment 63) — deferred-work.md
   - epic: 2
-    action: "DAMAGE CONTROL rail legibility — LANDED as cycle 47 (0.17.47); client presentation only, no PV bump. Discharges the strip-geometry half of the cycle-46 ledger entry. Full record: amendments 65-68"
+    action: "DAMAGE CONTROL rail legibility"
     owner: "ledger (Eric-gated)"
-    status: done  # TWO threads open: the heal TONE stays unratified draft; and the band anchor now runs on seven pixels of slack at the 1280x614 floor AND is separately bounded by the 125% UI-scale tier at 1600x768 — pinned with literal values, but the next refit-band change collides with it first
+    status: done  # cycle 47 (0.17.47); amendments 65-68. Residuals: the unratified heal tone and the band-anchor slack at the 1280x614 floor — deferred-work.md
   - epic: 4
-    action: "PER-SHELL DAMAGE LAW — LANDED as cycle 48 (0.17.48): the Story 2.8 same-click salvo single-hit rule is DELETED, so every shell of a multi-barrel click that connects deals FULL damage. No PV bump, no CONFIG tunable touched. Full record: amendments 35-39"
+    action: "Per-shell damage law"
     owner: "ledger (Eric-gated)"
-    status: done  # TWO threads open — (1) a burst over a hull an earlier shell of the same click just sank emits `sp` (a MISS mark) instead of `hc`, because `resolved` is counted after the !alive guard; pre-existing but now COMMON, and resolving it means touching Story 4.3's ratified hc/sp grammar, so it is Eric-gated (see deferred-work.md). (2) HULLCRACKER_NOTES.md:83 still states the law without the per-SHELL qualifier — routed to the 7-5 doc-sync batch
+    status: done  # cycle 48 (0.17.48); amendments 35-39. Residuals: the sp-instead-of-hc same-click case, and HULLCRACKER_NOTES.md:83 — deferred-work.md
   - epic: 5
-    action: "FRACTAL ISLAND GENERATION — LANDED as an interstitial: the circle-packing map generator replaced by a fractal capsule-offset generator with true polygon coastlines (Eric ruling 2026-08-05). Superseded by cycle 59's fBm height field. Full record: spec-fractal-island-generation.md"
+    action: "Fractal island generation"
     owner: "ledger"
-    status: done  # NOTE 2026-08-08: this entry's own text recorded the landing as cycle 51 / PV 25->26, while the interstitial cycle index above records fractal island generation as cycle 52 / PV 27->28 and cycle 51 as the radar realism cycle. Left UNRESOLVED deliberately — flagged for Eric rather than adjudicated during a tracker cleanup. Spec closeout (baseline/final revisions, review triage log) also still open
+    status: done  # cycle 52 (0.17.52); PV 27->28; superseded by cycle 59. The entry's own cycle-51-vs-52 conflict stays flagged for Eric — deferred-work.md
   - epic: 5
-    action: "FRACTAL TERRAIN — HEIGHT-FIELD ISLANDS — LANDED as cycle 59 (0.17.59); PV 28->29. The cycle-51/52 capsule generator replaced by a genuine fBm height field; star-shape invariant retired; Island.skeleton deleted for pole/core; height raster + max-height pyramid retained as the future radar-shadow substrate. Full record: spec-island-elevation-and-grounding.md"
+    action: "Fractal terrain — height-field islands"
     owner: "ledger"
-    status: done  # no open threads beyond the pre-existing epic-5 deferrals (slate-for-rocks palette + independent-height sea stacks, both explicitly DEFERRED to the living-ocean epic per the spec's Spec Change Log item 3). Known and deliberately unfixed: islands CLUSTER (a parameter, not an architecture defect — leave unless Eric rules otherwise)
+    status: done  # cycle 59 (0.17.59); PV 28->29; spec-island-elevation-and-grounding.md. Residuals: slate palette + sea stacks, island clustering — deferred-work.md
   - epic: 4
-    action: "WAKE LENGTH + TAIL FADE — LANDED as cycle 71 (0.17.71); PV 32. Two Eric corrections on sailing 4-12 live: the wake clock cut 12s -> 5.5s (an eighths-ladder rung, not a feel number), and recency becomes a cell count rather than a brightness ramp. Full record: amendments 213-214"
+    action: "Wake length + tail fade"
     owner: "ledger"
-    status: done  # THREE things left for the next agent's eye, all named in deferred-work.md — the 2% drone overshoot of the 3/8 rung (recorded and bounded by test, not a violation), the decoy tell still open by Eric's cycle-70 instruction, and whether 247.5u reads right on the water now that the on-water foam shortened with the radar ribbon (one wake, one length)
+    status: done  # cycle 71 (0.17.71); PV 32; amendments 213-214. Three eye-checks left — deferred-work.md
   - epic: 4
-    action: "THE STORM COMES OFF THE SCOPE — LANDED as cycle 72 (0.17.72); PV 32, client-only. The Story 4.10 storm wall is DELETED and amendment 128 retired with it, by PREFERENCE not defect. The storm still renders ON THE WATER exactly as before (Story 3.2's grammar untouched); it simply stops being a radar RETURN. Full record: the cycle-72 spec"
+    action: "The storm comes off the scope"
     owner: "ledger"
-    status: done  # ONE thread left open and named in deferred-work.md — re-adding any storm return must re-derive amendment 128's AREA question from scratch rather than assuming the fixed-thickness wall is the safe default, because the wall WAS the compromise and the compromise is what Eric rejected
+    status: done  # cycle 72 (0.17.72); PV 32; amendment 128 retired. Re-adding a storm return must re-derive the AREA question — deferred-work.md
   - epic: 3
-    action: "SUDDEN DEATH — THE FINAL COLLAPSE — LANDED as cycle 82 (0.17.82); PV 34->35. The parked SUDDEN DEATH contingency is BUILT under a new Eric ruling; epic-3 amendment 24's post-closure-shrink clause is superseded (the damage ramp is NOT). Full record: epic-3 amendments 27-30 + spec-sudden-death-final-collapse.md"
+    action: "Sudden death — the final collapse"
     owner: "ledger"
-    status: done  # TWO threads open, both named in the cycle report — whether the collapse gets its own SUDDEN DEATH chrome-bar register (no new copy was invented), and NFR6's "~15:00" doc text now superseded by a ~17:00 worst-case ceiling (routed to the 7-5 doc batch)
+    status: done  # cycle 82 (0.17.82); PV 34->35; epic-3 amendments 27-30. NFR6's match-time text restated 2026-08-21 (cycle 126)
   - epic: 5
-    action: "HOME TAGLINE — NAUTICAL PUNS — LANDED as cycle 87 (0.17.87); PV unchanged at 36, client-only. Full record: epic-5 amendment 46"
+    action: "Home tagline — nautical puns"
     owner: "ledger"
-    status: done  # doc-sync (stale mockup tagline text) routed to deferred-work.md
+    status: done  # cycle 87 (0.17.87); PV 36; epic-5 amendment 46. The stale mockup tagline is routed to deferred-work.md
   - epic: 4
-    action: "Re-derive Story 5.4 (Fog Banks) radar interaction against the SHIPPED physical return model before specifying it — its AC ('radar may still paint me') was written for binary LOS blips; size against amendment 108 and cycle 72's rejection of area returns (epic-4 retro significant-discovery alert)"
+    action: "Re-derive Story 5.4 (Fog Banks) radar interaction against the shipped physical return model before specifying it"
     owner: "spec author (create-story 5-4)"
-    status: done  # HELD — never violated; 5-4 was never specified and is now DEFERRED (epic-5 amendment 47), which restates the constraint verbatim for any revival
+    status: done  # HELD — 5-4 was never specified and is now DEFERRED (epic-5 amendment 47), which restates the constraint verbatim
   - epic: 4
-    action: "Ratify or retune CLIENT_CONFIG.flashBudget.degradeAlphaFactor (0.35) against the readability-gate close-up captures — ships stamped implementer draft (epic-4 retro action 2)"
+    action: "Ratify or retune CLIENT_CONFIG.flashBudget.degradeAlphaFactor (0.35) against the readability-gate captures"
     owner: "Eric (looking pass)"
     status: open
   - epic: 4
-    action: "Rule the foghorn intel-truesight band fork — hearing rides intel range vs re-anchor the ladder; the obvious clamp is WRONG (it re-deafens on dazzle, undoing amendment 122)"
+    action: "Rule the foghorn intel-truesight band fork (the obvious clamp is wrong — it re-deafens on dazzle)"
     owner: "Eric (ruling)"
     status: open
   - epic: 4
-    action: "Rule the 1.5x-zoom radar-return / BR-chrome-bar overlap — backing scrim, band exclusion, or accept; not introduced by 4-8 (return grammar meets Story 3.3 bar)"
+    action: "Rule the 1.5x-zoom radar-return / BR-chrome-bar overlap — backing scrim, band exclusion, or accept"
     owner: "Eric (ruling)"
     status: open
   - epic: 4
-    action: "Run a deferred-work triage pass — 178 entries, 8 resolved, none triaged since 2026-07-18; partition resolved-by-later-work / still-open / needs-Eric as the 2026-07-18 cycle did"
+    action: "Run a deferred-work triage pass — partition resolved-by-later-work / still-open / needs-Eric"
     owner: "interstitial chore"
-    status: open
+    status: partially-done  # mechanical half 2026-08-18 (epic-6 retro); the routing half is still open — deferred-work.md
   - epic: 4
-    action: "Carry the human-playtest checkpoint a SECOND epic: BB endgame share + terminal-ring island pockets + epic-4's eye-dependent claims (wake legibility under clutter, degraded-flash catchability, 'threat channels read first')"
+    action: "Carry the human-playtest checkpoint: BB endgame share, terminal-ring pockets, wake legibility, degraded flash, 'threat channels read first'"
     owner: "ledger (playtest checkpoint)"
     status: open
   - epic: 4
-    action: "7-5 doc batch grew by 7 rows (amendment 243); TWO of them are unspecified BEHAVIOUR not stale text (Tier-2-under-Tier-2; Tier-3-under-Tier-2-alone) and need a ruling, not a text edit"
+    action: "Two attention-tier BEHAVIOURS in the doc batch need a ruling, not a text edit (Tier-2-under-Tier-2; Tier-3-under-Tier-2-alone)"
     owner: "Eric-gated 7-6 doc batch"  # renumbered 2026-08-18 (was 7-5)
     status: open
   - epic: 4
-    action: "Prove 'threat channels read first' TEMPORALLY (video capture or per-channel alpha trace) — the readability gate proves everything except its own headline claim; arbitration is unit-pinned either way"
+    action: "Prove 'threat channels read first' TEMPORALLY (video capture or per-channel alpha trace)"
     owner: "Epic 7 reference-device pass"
     status: open
   - epic: 4
-    action: "NFR1 whole-frame verdict vs 16.6ms on real hardware — never obtained this epic (headless rAF throttling; dev build invalid basis), now carrying a full epic of render growth (return heatmap, shadows, wakes, chop, flash budget)"
-    owner: "Story 7-1 (Performance & Load Pass)"  # renamed 2026-08-18; Chromebook retired
-    status: open  # 2026-08-14: now carrying TWO epics of growth — epic-5 added a 2800u ocean, up to 63 fleet hulls, and a whole-disc reveal chart, all unmeasured. A cheap early read is worth taking before 7-1
+    action: "NFR1 whole-frame verdict vs 16.6ms on real hardware"
+    owner: "Story 7-1 (Performance & Load Pass)"
+    status: done  # 2026-08-18 cycle 103: live play PASSES, 0 dropped frames; the omniscient-reveal breach stays open — epic-7 amendments 4-5
   - epic: 5
-    action: "STORIES 5.4 (Fog Banks) + 5.5 (Whirlpools) DEFERRED, numbers reserved — and the systems layer is declared complete ('i have enough systems'). A new mechanic from here needs a fresh ruling; 'it was in the epic plan' is no longer sufficient grounds. Full record: epic-5 amendment 47"
+    action: "Stories 5.4 + 5.5 DEFERRED, numbers reserved; the systems layer is declared complete — a new mechanic needs a fresh ruling"
     owner: "ledger (Eric-gated)"
-    status: open
+    status: open  # standing ruling record, not work — epic-5 amendment 47
   - epic: 5
-    action: "Run a full-roster MULTIPLAYER PLAYTEST carrying the accumulated checkpoint — now THREE epics of eye-dependent claims plus epic-5's entire visual layer (reveal framing + motion:off snap, sinking settle/kill flash/plume, aggro bracket at bubble edge, fleet spacing, 2800u ocean feel, and the two-human sinking-window duel the feature was designed for). Highest-value action available"
+    action: "Run a full-roster MULTIPLAYER PLAYTEST carrying the accumulated checkpoint"
     owner: "Eric + captains"
     status: open
   - epic: 5
-    action: "Decide the BETA PATH — whether Epic 6 runs in plan order or is resequenced around the 'there is always a game' spine (6-1 -> 6-4 -> 6-5 -> 6-6, 6-3 folded in, 6-2/6-7 after). This is what 'get the beta ready' cashes out to and only Eric can rule it"
+    action: "Decide the BETA PATH — Epic 6 in plan order or resequenced around the 'there is always a game' spine"
     owner: "Eric (ruling)"
-    status: done  # 2026-08-18 epic-6 retro: HELD. Epic 6 ran 6-1 -> 6-3 -> 6-4 -> 6-5 -> 6-6 -> 6-7 with 6-2 cancelled by explicit ruling (amendment 11) — the spine, taken deliberately
+    status: done  # 2026-08-18 epic-6 retro: HELD; 6-1 -> 6-3 -> 6-4 -> 6-5 -> 6-6 -> 6-7 with 6-2 cancelled
   - epic: 5
-    action: "Story 6-4 must REBUILD the AR18 batch-sim capability that amendment 41 deleted with the drone fill — its own AC ('bot quality is measured, not felt') has no implementation behind it, and Story 7-6's release gate depends on loadTest.mjs by name. Add to 6-4 scope at create-story time"
+    action: "Story 6-4 must rebuild the AR18 batch-sim capability that amendment 41 deleted with the drone fill"
     owner: "spec author (create-story 6-4)"
-    status: partially-done  # 2026-08-16 cycle 96: bot-vs-bot leg BUILT (bot-evidence-2026-08-16.md); LOAD-TEST leg (loadTest.mjs) NOT built, stays with Story 7-6 — epic-6 retro raises it to a Significant Discovery (7-6 names it in its AC and it does not exist). Duplicate `status: open` key removed at epic-6 retro (YAML last-wins was discarding this line)
+    status: partially-done  # bot-vs-bot leg BUILT cycle 96; the LOAD-TEST leg (loadTest.mjs) is unbuilt and stays with Story 7-8
   - epic: 5
-    action: "Story 6-5 must arrive with its SOLO TERMINATION RULE — amendment 4 left a human-versus-drones match with no defined end, and minHumans=2 is the only thing hiding it. 6-5 is now beta-critical, so this must not surface as a review finding"
+    action: "Story 6-5 must arrive with its SOLO TERMINATION RULE"
     owner: "spec author (create-story 6-5)"
-    status: done  # 2026-08-17 cycle 97: the debt was MIS-FRAMED, not unpaid — isParticipant is role !== 'fleet', so bots count in afloatCaptains() and a 1+19 roster never latches early (epic-6 amendment 29). Did not surface as a review finding
+    status: done  # 2026-08-17 cycle 97: the debt was MIS-FRAMED, not unpaid — epic-6 amendment 29
   - epic: 5
-    action: "Story 6-2 must replace amendment 42's hard-coded baseRadius 2800 with a curve and RE-DERIVE the closing-rate band as a function of radius (the pinned 0.75-0.85 band was re-ratified to 1.019); also re-check heightField.ts regionWavelength, a fixed 2400u literal that now repeats across the disc"
+    action: "Story 6-2 must replace amendment 42's hard-coded baseRadius 2800 with a curve and re-derive the closing-rate band"
     owner: "spec author (create-story 6-2)"
-    status: done  # 2026-08-18 epic-6 retro: MOOT — 6-2 cancelled (amendment 11). The regionWavelength half was ALREADY resolved when written: it reads CONFIG.map.baseRadius since Story 5-6 (36fe6ca), so it spans the disc once at any radius. Process note: the item was authored against a stale reading
+    status: done  # MOOT — 6-2 cancelled (epic-6 amendment 11); the regionWavelength half was already resolved when written
   - epic: 5
-    action: "Re-put epic-5 amendment 46(c) on a CORRECTED premise — the win condition is now stated nowhere a new player can read it (HOW TO PLAY is the FIELD MANUAL stub, the results banner is winner-only). Either restore a home line or make Story 7-4 a beta gate"
+    action: "Re-put epic-5 amendment 46(c) on a corrected premise — the win condition is stated nowhere a new player can read it"
     owner: "Eric (ruling)"
-    status: resolved  # 2026-08-18 rescope: How-to-Play (renumbered 7-4 -> 7-3) is now a BETA GATE and its AC states the win condition explicitly; FR39 added. Full record: sprint-change-proposal-2026-08-18.md
+    status: resolved  # 2026-08-18 rescope: How-to-Play (7-3) is a BETA GATE and states the win condition; FR39 added
   - epic: 5
-    action: "BATCH the nine small Eric calls in one sitting: kill flash under a co-located plume; boons/last-offer on the results modal; sudden-death tiebreak + heal-during-collapse + chrome register; tickSmoke during sinking; SunkEvent.vcls uniformity; one-hit-kill guardrail scope; degradeAlphaFactor; foghorn intel-truesight fork; 1.5x zoom chrome collision. Each is a sentence; most have their evidence already captured"
+    action: "BATCH the nine small Eric calls in one sitting (kill flash under a plume; results boons/last-offer; sudden-death tiebreak + heal-during-collapse + chrome register; tickSmoke during sinking; SunkEvent.vcls; one-hit-kill guardrail scope; degradeAlphaFactor; foghorn fork; 1.5x zoom collision)"
     owner: "Eric (ruling batch)"
     status: open
   - epic: 6
-    action: "PvE wave table is ABSOLUTE (36 hulls at 1:00 at every roster) while epic-5 amendment 45's rationale says 'a RATIO, one fleet per ~5 captains' — a live contradiction in shipped code, found at the 6-2 gate, NOT map-related. Recommended default is CHANGE NOTHING (the table fills a 2800u ocean for a thin lobby; the ratio language was justifying a 20-captain XP budget). Needs eyes on the water, not analysis: does a 2-captain 2800u ocean feel empty, does PvE out-threaten PvP there, does small-lobby leveling run away. Full reasoning: epic-6 amendment 12"
+    action: "PvE wave table is ABSOLUTE (36 hulls at 1:00 at every roster) while amendment 45's rationale says a RATIO — needs eyes on the water"
     owner: "Eric (playtest checkpoint)"
-    status: open
+    status: open  # full reasoning: epic-6 amendment 12; the recommended default is CHANGE NOTHING
   - epic: 6
-    action: "spec-6-1-queue-based-lobbies.md frontmatter still reads status 'ready-for-dev' though the story merged as cycle 88 (PR #146); its Spec Change Log, Review Triage Log and Verification sections are empty. Closeout gap surfaced at the 6-2 gate, flagged rather than edited"
+    action: "spec-6-1-queue-based-lobbies.md frontmatter still reads 'ready-for-dev' and its closeout sections are empty"
     owner: "spec closeout"
     status: open
   - epic: 6
-    action: "THE SPAWN RING IS SATURATED at cap 20 (703.7u of arc per captain against a 660u radar requirement), so cycle 89's even spacing is forced and spawn positions are therefore DERIVABLE; and duo/trio queues do not fit at any spacing (teammates in mutual LOS eat the inter-team gap to ~370u). Both want a bigger ocean — the reopening amendment 11 left the mapRadius() curve in place for. Full reasoning + sizing: epic-6 amendment 14"
+    action: "THE SPAWN RING IS SATURATED at cap 20, so spawn positions are DERIVABLE; duo/trio do not fit at any spacing — both want a bigger ocean"
     owner: "Eric (ruling — map size, gated on teams)"
-    status: open
+    status: open  # full reasoning + sizing: epic-6 amendment 14
   - epic: 6
-    action: "Run a full-roster MULTIPLAYER PLAYTEST — FOURTH epic carried. List now five epics deep: BB endgame share, terminal-ring island pockets, wake legibility, degradeAlphaFactor, 'threat channels read first', epic-5's visual layer, PLUS epic-6's min-2 queue path, the 2:00/0:10 rhythm, the frozen start line, the departure scuttle and the two-human sinking-window duel. None of these can be exercised by a solo session, which is the only kind the project has run. Highest-value action available"
+    action: "Run a full-roster MULTIPLAYER PLAYTEST — FOURTH epic carried; none of the listed claims can be exercised solo"
     owner: "Eric + captains"
     status: open
   - epic: 6
-    action: "RULE THE TWO FAILING BOT QUALITY BARS — 'bots scoring >=1 kill' 45.8% vs a 60% bar and 'storm deaths' 3.3% vs a 5-20% band, both failing on all three legs. The bars are the ORCHESTRATOR'S, not Eric's, and the evidence file diagnoses both as questionable AS WRITTEN (the first is structurally capped near 95% and really measures profile balance; the second assumed matches run long enough for the ring to bite, and only 2.0% reach the endgame ring). Re-derive them or replace the kill-share bar with a per-profile floor — do NOT tune bots to satisfy an unratified number. Bots sit on the retention critical path. Evidence: bot-evidence-2026-08-16.md"
+    action: "RULE THE TWO FAILING BOT QUALITY BARS (kill-share 45.8% vs 60%; storm deaths 3.3% vs 5-20%) — the bars are the orchestrator's, not Eric's"
     owner: "Eric (ruling)"
-    status: open
+    status: open  # evidence, and the case that both are questionable as written: bot-evidence-2026-08-16.md
   - epic: 6
-    action: "SIGNIFICANT DISCOVERY — server/scripts/loadTest.mjs DOES NOT EXIST and Story 7-6's release-gate AC names it by name ('the harness's second duty'). AR12's load-test leg died with epic-5 amendment 41's drone-fill deletion; 6-4 rebuilt the bot-evaluation leg only. Verified at the epic-6 retro: server/scripts/ holds batchSim.mjs and thirteen smokes, no loadTest.mjs. Epic 7 must scope its construction into 7-6 explicitly or re-derive the gate. THIRD epic this capability has been assumed present"
-    owner: "spec author (create-story 7-8)"  # renumbered 2026-08-18 (was 7-6: release gate)
-    status: open
+    action: "SIGNIFICANT DISCOVERY — server/scripts/loadTest.mjs DOES NOT EXIST and the release-gate AC names it by name"
+    owner: "spec author (create-story 7-8)"  # renumbered 2026-08-18 (was 7-6)
+    status: open  # third epic this capability has been assumed present; epic-6-retro-2026-08-18.md
   - epic: 6
-    action: "RULE THE UNAUTHENTICATED SOLO-CREATE COST VECTOR — a bare POST /matchmake/create/arena now mints a full 20-hull 19-bot-mind 20Hz simulating room for the ~15s seat-reservation window, with no websocket and no matchmake rate limit anywhere; ~10 req/s sustains ~150 concurrent full arenas on the single Render process. SAFE against room hijack (verified twice, independently, against @colyseus/core 0.17.44) — this is cost, not capture, and it is bounded with no permanent leak. Before 6-5 no unauthenticated path could mint a simulating room at all. Candidates: per-IP create throttle, global concurrent-solo ceiling, or accept explicitly. Full record: deferred-work.md:1108"
+    action: "RULE THE UNAUTHENTICATED SOLO-CREATE COST VECTOR — a bare POST /matchmake/create/arena mints a full 20-hull room, unthrottled"
     owner: "Eric (ruling — Story 7-8 hardening sweep)"  # renumbered 2026-08-18
-    status: open
+    status: open  # cost not capture, bounded, no permanent leak; candidates and the full record: deferred-work.md
   - epic: 6
-    action: "RE-SCOPE STORY 7-5's reconciliation list — its AC names EXPERIENCE.md's disconnect wording and the GDD's post-death 'spectate' language, and epic 6 added at least four more: UX-DR30's sailable weapons-safe waiting room NO LONGER EXISTS in production (amendments 1/8 replaced it with a frozen held start line; the grammar survives only for the dev/sandbox door); EXPERIENCE.md:67's home sub-line was overridden by 6-5; EXPERIENCE.md:108's 'absence, not placeholders' was SCOPED rather than followed (amendment 39 — an honest zero renders); and amendment 41's copy law plus amendment 49's DRAFT string ('COULD NOT REJOIN YOUR MATCH — BACK IN PORT') both want ratification in a copy pass"
+    action: "RE-SCOPE the reconciliation list — epic 6 added four more items (UX-DR30's waiting room, EXPERIENCE.md:67, :108's scoping, the copy law + the DRAFT string)"
     owner: "spec author (create-story 7-6)"  # renumbered 2026-08-18 (was 7-5)
-    status: open
+    status: done  # 2026-08-21 cycle 126: the question gate took the full ~17-surface list (Eric ruling A1 "full")
   - epic: 6
-    action: "RUN THE DEFERRED-WORK TRIAGE PASS — SECOND HALF REMAINS: route the 149 entries that name NO HOME at all, and surface the ~7 among them needing an Eric ruling rather than an owner. Also still unannotated: 38 shipped-home entries needing genuine investigation (gun dead ring, hueLatch revision gap, sweepCrossed backward step, permanently-invisible straight torpedo) rather than a cross-reference. THE MECHANISM FIX IS THE DURABLE PART: whatever resolves an entry must MARK the entry — resolution is currently recorded only in the resolving story's spec/amendments, which is why resolved items are re-counted as open forever, and why the file carries three different annotation styles"
+    action: "RUN THE DEFERRED-WORK TRIAGE PASS — SECOND HALF: route the 149 entries naming no home, surface the ~7 needing an Eric ruling, and make resolution MARK the entry"
     owner: "interstitial chore"
-    status: partially-done  # 2026-08-18 epic-6 retro, at Eric's direction: MECHANICAL HALF DONE. 38 entries annotated (15 RESOLVED with cited code evidence, 3 PARTIAL, 7 VERIFIED-STILL-OPEN, 1 REFRAMED, 2 standing records, rest superseded/routed); shipped-home-but-unadjudicated fell 76 -> 38. Full record: the 2026-08-18 triage section in deferred-work.md
+    status: partially-done  # mechanical half done 2026-08-18 (38 entries annotated); the routing half and the mechanism fix remain
   - epic: 6
-    action: "ASSERT SPEC-FRONTMATTER/TRACKER AGREEMENT MECHANICALLY — spec-5-6's drift was fixed at the epic-5 retro and RECURRED at spec-6-1 on the very next story (still 'ready-for-dev', no final_revision, empty closeout sections). Fixing instances has now failed twice; nothing in the pipeline asserts a spec's own status agrees with sprint-status. Add the check to the dev-auto close-out or the retro script. Fixing an instance is not fixing a mechanism"
+    action: "ASSERT SPEC-FRONTMATTER/TRACKER AGREEMENT MECHANICALLY — fixing instances has failed twice; add the check to dev-auto close-out or the retro script"
     owner: "bookkeeping (mechanism)"
-    status: open
+    status: open  # 2026-08-21 cycle 126: five more stale spec statuses found and fixed by hand — the mechanism is still absent
   - epic: 6
-    action: "TAKE A CHEAP NFR1 WHOLE-FRAME READ against 16.6ms rather than waiting for Story 7-1's reference device — now carrying THREE epics of unmeasured growth including 20-hull bot lobbies and the liveness poll. A rough read now is worth more than a perfect one at 7-1"
+    action: "Take a cheap NFR1 whole-frame read rather than waiting for the reference device"
     owner: "interstitial spike"
-    status: done  # 2026-08-18 cycle 103: superseded by the full read. PASSES with 10.9-13.8ms headroom; the growth premise was WRONG — cost is fill-rate, not entities (epic-7 amendment 5)
+    status: done  # 2026-08-18 cycle 103: superseded by the full read; the growth premise was wrong (epic-7 amendment 5)
   - epic: 6
-    action: "ACQUIRE THE REFERENCE CHROMEBOOK — Story 7-1's AC makes it the permanent reference device, replacing the 4x-throttle proxy, and both 7-1 and 7-2 are gated on having it in hand. This is Epic 7's true critical path: hardware, not code"
+    action: "ACQUIRE THE REFERENCE CHROMEBOOK"
     owner: "Eric"
-    status: cancelled  # 2026-08-18 Eric ruling (sprint-change-proposal-2026-08-18.md): Chromebook target retired, reference device is Eric's i7 MacBook. Epic 7's critical path is now AdSense approval, not hardware
+    status: cancelled  # 2026-08-18 Eric ruling: retired, reference device is Eric's i7 MacBook; re-affirmed 2026-08-21 (ruling G3)
   - epic: 7
-    action: "ADD hullcracker.io TO THE EXISTING ADSENSE ACCOUNT + APPLY FOR H5 GAMES ADS — Eric has held an approved AdSense account for years, so the prerequisite is met and DISPLAY units need only site verification + ads.txt. The INTERSTITIAL still needs H5 Games Ads access, a separate application subject to partner eligibility. Do both once 7-2's privacy policy is live; if H5 lags, beta ships display-only and the interstitial follows as a client-only deploy"
-    owner: "Eric"
-    status: open
-  - epic: 7
-    action: "STAMP THE REFERENCE MACBOOK model/year into Story 7-1's spec so the NFR1 bar is reproducible by someone other than Eric"
-    owner: "Eric"
-    status: done  # 2026-08-18 cycle 103: read off the machine rather than asked for — MacBook Pro 16,1 (2019), i7-9750H 6c/12t, 32GB, Radeon Pro 5300M + UHD 630 switchable. The GPU PAIR is part of the stamp (epic-7 amendment 1)
-  - epic: 7
-    action: "DELIVER THE STORY 7-5 CARD PLAN when the story is reached — four rulings already made (cannon REMOVED; Battleship gets a BROADSIDE BARRAGE; mutual exclusivity REMOVED; SOME cards retooled as 'added verbs', specifically the formerly-exclusive cards that STAY). The forge sessions are IRRELEVANT and must not be mined for direction. Full record: sprint-change-proposal-2026-08-18.md Story 7.5"
+    action: "ADD hullcracker.io TO THE ADSENSE ACCOUNT + APPLY FOR H5 GAMES ADS once 7-2's privacy policy is live"
     owner: "Eric"
     status: open
   - epic: 7
-    action: "KEEP THE CLIENT ON THE APEX DOMAIN at the 7-7 split — AdSense approval and the GA4 property are per-domain and both land before it; the game server takes a subdomain"
+    action: "STAMP THE REFERENCE MACBOOK model/year into Story 7-1's spec"
+    owner: "Eric"
+    status: done  # 2026-08-18 cycle 103: MacBook Pro 16,1 (2019), i7-9750H, Radeon Pro 5300M + UHD 630 (epic-7 amendment 1)
+  - epic: 7
+    action: "DELIVER THE STORY 7-5 CARD PLAN when the story is reached"
+    owner: "Eric"
+    status: done  # 2026-08-19 cycle 109: Eric authored the catalog himself (7-5-decks.md); epic-7 amendments 20-28
+  - epic: 7
+    action: "KEEP THE CLIENT ON THE APEX DOMAIN at the 7-7 split — AdSense approval and the GA4 property are per-domain"
     owner: "spec author (create-story 7-7)"
     status: open
+  - epic: 7
+    action: "RULE THE THREE ITEMS LEFT OPEN AT THE 7-6 GATE — E2 precision bonus, H3 PvE fleet tier legibility scope, and whether heals stay spendable during the sudden-death collapse"
+    owner: "Eric (ruling)"
+    status: open  # 2026-08-21 cycle 126; bmad-dev-auto-result-7-6-doc-reconciliation-questions.md

@@ -2,7 +2,7 @@
 title: 'Story 4.8 — Attention Priority & the Readability Gate'
 type: 'feature'
 created: '2026-08-11'
-status: 'ready-for-dev'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:

@@ -7,6 +7,39 @@ updated: '2026-07-15'
 
 # Game Brief: Hullcracker.io
 
+> ## SUPERSEDING NOTICE — 2026-08-21 (Story 7.6)
+>
+> **This is a DATED ARTIFACT OF RECORD, not standing strategy.** Eric ruled it so directly
+> ("dated"); the body below is preserved verbatim as what was decided on 2026-07-15 and is
+> deliberately NOT rewritten.
+>
+> **What has since changed.** The 2026-08-18 Epic 7 rescope
+> (`_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-18.md`, status APPROVED)
+> retired the portal launch. Eric, 2026-08-21: *"I'm controlling my game and servers. no portals.
+> IDGAF what you do. I'm serving my own ads."* and *"Idgaf about the chromebook."*
+>
+> **The current model, which governs over anything below that conflicts with it:**
+>
+> - **Distribution** — self-published at `https://hullcracker.io/`, direct URL. **No Poki, no
+>   CrazyGames, no portal SDK of any kind ships.** (Portal work is speculative, when/if-it-matters.)
+> - **Monetization** — Eric's own Google AdSense (H5 Games Ads, Ad Placement API), behind the
+>   `PortalAdapter` seam whose NAME is retained deliberately per AR11. Interstitial at
+>   death→return-to-port; display units on home/port and How-to-Play only; no ad surface during a
+>   live match.
+> - **Hosting** — Eric's own servers: a single, vertically scaled Render game-server instance plus
+>   a Render Static Site for the client. Render autoscaling is never enabled.
+> - **Reference device** — Eric's MacBook Pro 16,1 (i7-9750H / 32 GB / Radeon Pro 5300M + UHD 630,
+>   dpr 2), epic-7 amendment 1. **The Chromebook target is retired**; no low-end device will be
+>   acquired. Low-end performance is therefore no longer a "distribution feature" — but the
+>   **1366×768 viewport floor survives on its own terms** (NFR7, UX-DR39): it was never a property
+>   of the Chromebook, only illustrated by one, and the client must still stay light against NFR2's
+>   cold-load budget.
+>
+> Read every "portal", "Poki/CrazyGames" and "Chromebook" reference below as the July 2026 plan of
+> record. Live requirements are `_bmad-output/planning-artifacts/epics.md` (NFR1/NFR2/NFR7/NFR8/
+> NFR9/NFR10) and `_bmad-output/game-architecture.md`.
+
+
 ## Executive Summary
 
 Hullcracker.io is a real-time naval battle royale in the browser: one warship per captain, a fog-covered ocean of islands, a shrinking storm circle, and information as the scarcest ammunition. It sits deliberately midway between Battleship and World of Warships — the board game's hidden-information soul (calling shots into the dark, reading a radar sweep) fused with the feel of arcade naval gunnery, with none of WoWS's grind or systems bloat. Last hull floating wins.

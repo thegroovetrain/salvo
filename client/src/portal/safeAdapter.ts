@@ -11,7 +11,7 @@ function swallowSync(call: () => void): void {
   try {
     call();
   } catch {
-    /* a portal must never break the game */
+    /* a third-party SDK must never break the game */
   }
 }
 
@@ -19,7 +19,7 @@ async function swallowAsync(call: () => Promise<void>): Promise<void> {
   try {
     await call();
   } catch {
-    /* a portal must never break the game */
+    /* a third-party SDK must never break the game */
   }
 }
 

@@ -2,7 +2,7 @@
 title: 'Story 7-5: Upgrade Cards v2'
 type: 'feature'
 created: '2026-08-19'
-status: 'draft'
+status: 'done'
 baseline_revision: '60db0b2'
 review_loop_iteration: 0
 context:

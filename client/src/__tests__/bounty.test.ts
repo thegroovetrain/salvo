@@ -24,6 +24,10 @@ import {
   leaderNameSegment,
 } from '../ui/bounty.js';
 import { killLine } from '../ui/killFeed.js';
+import { ellipsizeName, NAME_MAX } from '../util/text.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { UNKNOWN_VESSEL } from '../ui/killFeed.js';
 
 const ME = 'me';
 
@@ -107,13 +111,56 @@ describe('bountyClaimLine — the public claim register', () => {
   });
 
   it('prints whatever name it is handed — the caller owns the roster-miss policy', () => {
-    // main.ts substitutes the feed's neutral UNKNOWN VESSEL label; a raw
-    // session id never reaches this builder in the first place.
-    expect(bountyClaimLine({ name: 'UNKNOWN VESSEL', id: 'x' })[0].text).toBe(`${KILL_LEADER_MARK} UNKNOWN VESSEL`);
+    // main.ts substitutes its own `UNKNOWN_CAPTAIN` label on a roster miss
+    // (Story 7.6) — NOT the kill feed's `UNKNOWN_VESSEL`, which since 7.6 can
+    // only ever mean a PvE fleet hull, and THE KILL LEADER IS ALWAYS A CAPTAIN
+    // (the throne runs on `captainKills`). A raw session id never reaches this
+    // builder in the first place, whichever label the caller picks.
+    expect(bountyClaimLine({ name: 'UNKNOWN PILOT', id: 'x' })[0].text).toBe(`${KILL_LEADER_MARK} UNKNOWN PILOT`);
+    expect(bountyClaimLine({ name: 'UNKNOWN PILOT', id: 'x' })[0].text).not.toContain('DRONE');
+    // And it must FIT the shared display cap, or it renders `UNKNOWN…APTAIN`.
+    expect(ellipsizeName('UNKNOWN PILOT')).toBe('UNKNOWN PILOT');
   });
 
   it('names no count and no place — the throne is identity only', () => {
     expect(bountyClaimLine({ name: 'ALPHA', id: 'a' }).map((s) => s.text).join('')).not.toMatch(/\d/);
+  });
+});
+
+describe("the claim register's roster-miss label is a CAPTAIN's, not the feed's (Story 7.6)", () => {
+  // main.ts is the app entry point (Pixi stage, DOM chrome, a live socket), so
+  // its wiring is pinned by reading the source — the same technique
+  // resumeWiring/sessionLock/projectiles already use.
+  const mainSrc = (): string => readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+  const updateBountyBody = (): string => {
+    const src = mainSrc();
+    const start = src.indexOf('function updateBounty(');
+    expect(start).toBeGreaterThan(-1);
+    return src.slice(start, src.indexOf('\n}\n', start));
+  };
+
+  it('updateBounty falls back to UNKNOWN_CAPTAIN — never the kill feed\'s UNKNOWN_VESSEL', () => {
+    // THE TRAP: `UNKNOWN_VESSEL` is the kill feed's label for a hull it cannot
+    // identify, and since Story 7.6 that can ONLY ever be a PvE fleet hull (a
+    // captain is always nameable off the roster; a never-seen fleet killer now
+    // arrives named on the wire). THE KILL LEADER IS ALWAYS A CAPTAIN — the
+    // throne runs on `captainKills` — so sharing one constant across the two
+    // meanings is what would let this register print a drone-flavoured claim.
+    const body = updateBountyBody();
+    expect(body).toContain('?? UNKNOWN_CAPTAIN');
+    expect(body).not.toContain('UNKNOWN_VESSEL');
+  });
+
+  it('that label is a real distinct constant, and it FITS the shared display cap', () => {
+    const src = mainSrc();
+    const m = /const UNKNOWN_CAPTAIN = '([^']+)';/.exec(src);
+    expect(m).not.toBeNull();
+    const label = m![1];
+    expect(label).not.toBe(UNKNOWN_VESSEL); // two meanings, two strings
+    expect(label).not.toContain('DRONE');
+    // Over NAME_MAX it renders mid-ellipsized (`UNKNOWN…APTAIN`) in the feed.
+    expect([...label].length).toBeLessThanOrEqual(NAME_MAX);
+    expect(ellipsizeName(label)).toBe(label);
   });
 });
 

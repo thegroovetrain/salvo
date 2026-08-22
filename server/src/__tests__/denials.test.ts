@@ -196,9 +196,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 46→47 bump (PV 47: balance cycle 1 doubles hull hp and damage control and retunes the broadside and torpedo — every one is compiled into BOTH sides, so a stale client would predict its own hull with the wrong hp and disagree about time-to-kill) is enforced at matchmake', () => {
-  it('rejects pv-46 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(47);
+describe('pv join gate — the 47→48 bump (PV 48: SunkEvent gains an optional `kcls`, the KILLER\'s hull class and only ever a PvE fleet hull\'s — a wire SHAPE change on a row every client decodes) is enforced at matchmake', () => {
+  it('rejects pv-47 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(48);
+    expect(protocolVersionError(47)).toMatch(/refresh/);
+    expect(protocolVersionError(46)).toMatch(/refresh/);
     expect(protocolVersionError(45)).toMatch(/refresh/);
     expect(protocolVersionError(44)).toMatch(/refresh/);
     expect(protocolVersionError(43)).toMatch(/refresh/);

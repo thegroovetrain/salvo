@@ -1,6 +1,26 @@
 # Adversarial Review — HUD Legibility ("information noise must never bury the hunt")
 
+> **DEVICE PREMISE RESTATED — 2026-08-21 (Story 7.6). No finding's severity or status changes.**
+>
+> This is a **dated review document** (run 2026-07-16) and its findings are preserved exactly as
+> written. One premise underneath them has since moved: the reference device was a low-end
+> 1366×768 school Chromebook, and the 2026-08-18 Epic 7 rescope retired it (Eric, 2026-08-21:
+> *"Idgaf about the chromebook."*). The reference device is now Eric's MacBook Pro 16,1
+> (i7-9750H / 32 GB / Radeon Pro 5300M + UHD 630, dpr 2) — epic-7 amendment 1.
+>
+> **What that does and does not change.** The **1366×768 viewport floor SURVIVES on its own
+> terms** — it is an independent requirement (NFR7, UX-DR39), never a property of the Chromebook,
+> only illustrated by one. Every finding below whose basis is the floor viewport, a post-scale
+> type size (the 9 px mono minimum, 8.1 px at 90% UI scale), a contrast ratio, a subpixel
+> silhouette feature, or an attention/animation budget is **unaffected in substance and keeps its
+> stated severity**; read "on a Chromebook" as "at the 1366×768 floor viewport". Findings whose
+> basis is *hardware performance* are re-measured against the reference MacBook (NFR1) — the bar
+> moved, the finding did not disappear. **Eric's ruling (G3) is that open findings keep their
+> severity**; nothing here has been downgraded, closed, or reworded on account of the device
+> change, and open findings continue to gate DESIGN.md.
+
 Reviewer lens: 13-year-old on a 1366×768 low-end Chromebook, 60 FPS, 20-ship match, worst-case screen.
+*(Lens restated 2026-08-21, Story 7.6 — read as: **the 1366×768 floor viewport**, 60 FPS, 20-ship match, worst-case screen. The floor is the load-bearing half and it survives; the Chromebook is retired as the reference device. No finding below changes severity or status.)*
 Artifacts attacked: `DESIGN.md`, `EXPERIENCE.md`, `.decision-log.md`, `.working/hud-composite-1.html`, `.working/class-silhouettes-1.html`, `.working/spend-window-1.html` (placement check), `.working/extract-gdd.md` (E6 inventory).
 Date: 2026-07-16. Line citations are to the files as of this run.
 

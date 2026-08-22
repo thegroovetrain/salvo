@@ -17,14 +17,20 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/b
 
 # Game Architecture
 
-> **RESCOPE NOTICE — 2026-08-18.** Epic 7 was rescoped from a portal launch to a
-> self-published beta (`_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-18.md`,
-> approved by Eric). **The portal (Poki/CrazyGames) release and the low-end Chromebook
-> reference device are both RETIRED.** This document's *Hosting Posture* and *Portal SDK Seam*
-> sections are updated below. Its **constraint, risk and rationale sections still contain
-> portal-launch and Chromebook framing that is now false** — reconciling them is Story 7.6's
-> job, and until it runs, read any "portal gate" or "Chromebook 60 FPS" language as historical.
-> The reference device is now Eric's Intel i7 MacBook; monetization is AdSense H5 Games Ads.
+> **RESCOPE NOTICE — 2026-08-18, RECONCILED 2026-08-21 (Story 7.6).** Epic 7 was rescoped from
+> a portal launch to a self-published beta
+> (`_bmad-output/planning-artifacts/sprint-change-proposal-2026-08-18.md`, approved by Eric).
+> **The portal (Poki/CrazyGames) release and the low-end Chromebook reference device are both
+> RETIRED.** Story 7.6 has now swept this document's constraint, risk and rationale sections;
+> the portal-launch and Chromebook framing they carried is struck or restated in place, each
+> site marked inline. The reference device is **Eric's MacBook Pro 16,1 (i7-9750H / 32 GB /
+> Radeon Pro 5300M + UHD 630, dpr 2)** (epic-7 amendment 1); distribution is self-published at
+> `https://hullcracker.io/`; monetization is Eric's own AdSense H5 Games Ads.
+>
+> **What survives the retirement:** the **1366×768 viewport floor** is an independent
+> requirement (NFR7, UX-DR39) and is unaffected — it was never a property of the Chromebook,
+> only illustrated by one. Any residual "portal"/"Chromebook" text below is either inside a
+> dated superseding stamp or an explicit historical note; it is not live guidance.
 
 ## Executive Summary
 
@@ -94,28 +100,35 @@ constraint; this document's job is AI-agent implementation consistency.
 | Living ocean: fog banks, hemisphered whirlpools, roving PvE fleets (3 tiers), sinking window | Medium-High | E4 |
 | Phased ring storm: 3×4min groups, minute rhythm, Endgame Guarantee (2 truesight diameters) | Medium | E3 |
 | Lobbies & modes: min-2 fill-or-timer, cap 20, no bot-fill, roster-scaled maps, Solo vs AI combat bots | Medium-High | E5 |
-| Portal launch: Chromebook 60 FPS, <10 s load, Poki/CrazyGames SDK compliance | Medium | E7 |
+| Self-published beta launch: 60 FPS on the reference MacBook, fast cold load, AdSense H5 Games Ads placement (RESTATED 2026-08-21 — was "Portal launch: Chromebook 60 FPS, <10 s load, Poki/CrazyGames SDK compliance") | Medium | E7 |
 
 ### Technical Requirements
 
 - **Simulation:** authoritative 20 Hz (50 ms) fixed-tick server; deterministic shared sim
   (same pure functions both sides) enabling client-side prediction with reconcile-and-replay;
   contacts snapshot-interpolated ~100 ms behind.
-- **Performance:** 60 FPS sustained on a low-end school Chromebook in a full 20-ship match with
-  all effects; portal click → playable in <~10 s; feel intact at ~150 ms residential latency —
-  operationalized as measurable proxies (hit-registration agreement %, prediction-error bounds)
-  defined in this document, not assessed by feel alone.
+- **Performance (RESTATED 2026-08-21, Story 7.6):** 60 FPS sustained on the **reference
+  device** — Eric's MacBook Pro 16,1 (i7-9750H / Radeon Pro 5300M + UHD 630, dpr 2) — in a full
+  20-ship match with all effects, at the **1366×768 viewport floor** and above; link → playable
+  in <~10 s; feel intact at ~150 ms residential latency — operationalized as measurable proxies
+  (hit-registration agreement %, prediction-error bounds) defined in this document, not assessed
+  by feel alone. *(Was: "a low-end school Chromebook" and "portal click → playable". The device
+  and the click are retired; the FPS bar, the load budget and the viewport floor are not.)*
 - **Networking:** client-server over Colyseus 0.16 (WebSocket); roster via schema sync, all
   spatial state via per-client frames; PROTOCOL_VERSION gates wire breaks.
 - **Transport:** WebSocket (TCP) is the incumbent; its real risk at ~150 ms is head-of-line
   blocking under packet loss, not latency. Transport choice is an explicit engine-selection
   criterion (Step 3), evaluated jointly with the lag-compensation decision.
-- **Scalability:** the architecture must survive a portal-launch traffic spike ("hug of
-  death"). Monorepo is retained; the server tier must scale horizontally — multiple match
-  processes/instances behind matchmaking, no single-process assumptions baked into room or
-  lobby design. Scale-out capability is an engine-selection evaluation criterion (Step 3).
-  Posture: constraints now, infrastructure later — scale-out is a deploy-time knob, not a
-  launch-day platform build.
+- **Scalability (RESTATED 2026-08-21, Story 7.6):** **the beta posture is a SINGLE, vertically
+  scaled Render game-server instance** (Eric, 2026-08-18 — he keeps his own servers). The
+  architecture must nonetheless not foreclose horizontal scale-out: monorepo is retained; no
+  single-process assumptions baked into room or lobby design; Presence/Driver injectable
+  (memory → Redis as config). Scale-out stays a **deploy-time knob, explicitly NOT beta work**,
+  and **Render autoscaling must never be enabled** — Render has no WebSocket sticky sessions, so
+  autoscaling would actively break seat reservation and matchmaking. *(Was justified by "a
+  portal-launch traffic spike (hug of death)". The portal spike is retired as a driver; the
+  no-single-process obligation and the never-autoscale warning survive on their own terms — see
+  NFR10 and AR1.)*
 - **Anti-cheat (structural):** everything spatial leaving the server passes through the
   perception boundary — nothing outside sight ∪ this-tick radar paints reaches any client;
   counter-intel lies live on the server and are wire-indistinguishable; player intent enters
@@ -130,7 +143,9 @@ constraint; this document's job is AI-agent implementation consistency.
   objects, wire-indistinguishability tests as definition of done — enforced as a per-epic
   gate, not an aspiration.
 - **Assets:** procedural vector linework + synthesized WebAudio tones — no texture/model/audio
-  file pipeline; bundle stays within portal size limits.
+  file pipeline. *(RE-BASED 2026-08-21, Story 7.6, following NFR9: the constraint's original
+  justification was portal bundle-size limits; with the portal gone it stands on NFR2's cold-load
+  budget. The constraint survives its reason — it is not relaxed.)*
 
 ### Complexity Drivers
 
@@ -157,8 +172,11 @@ constraint; this document's job is AI-agent implementation consistency.
    Staggered low-cadence bot perception (~250 ms) is a fairness tuning knob (human-ish
    reflexes), not a perf necessity. PvE drones use a cheaper threat-check tier, not full
    observe(). Combat-bot AI remains dedicated design work.
-6. **Chromebook 60 FPS with multiplied effects** — E6's information texture adds persistent
-   visual state (smoke trails, splashes, flashes) to every fight.
+6. **60 FPS with multiplied effects** — E6's information texture adds persistent visual state
+   (smoke trails, splashes, flashes) to every fight. *(RESTATED 2026-08-21, Story 7.6: the
+   driver was written as "Chromebook 60 FPS". The device is retired; the driver is not — the
+   bar is now 60 FPS on the reference MacBook at the 1366×768 viewport floor, measured against
+   the per-epic frame budget below.)*
 7. **Horizontal scale-out** — from one process on one Render instance to N match processes
    under a matchmaking layer, without breaking the single-server-clock-per-World invariant
    (each World owns its clock; scale-out is more Worlds, never a shared one).
@@ -171,8 +189,8 @@ constraint; this document's job is AI-agent implementation consistency.
 | WebSocket/TCP adequate at ~150 ms (HOL blocking is the real risk) | Evaluate at engine selection, jointly with lag compensation |
 | 20Hz tick carries forward | Decide jointly with lag compensation |
 | Sinking ships and the win check (participant while sinking? both finalists sinking?) | Semantic decision needed (match lifecycle) |
-| Portal SDK constraints (ad-break hooks touch match-flow UX) | Surface constraints early; integrate late |
-| Chromebook 60 FPS with full E6 effects | Per-epic frame budget, low-end benchmark cadence |
+| ~~Portal SDK constraints (ad-break hooks touch match-flow UX)~~ | **CLOSED 2026-08-21 (Story 7.6).** No portal SDK ships. The concrete integration is AdSense H5 Games Ads behind the retained `PortalAdapter` interface (AR11), landed at Story 7.4; the ad-break hook is the death→return-to-port interstitial and no ad surface exists during a live match |
+| ~~Chromebook 60 FPS with full E6 effects~~ | **CLOSED 2026-08-21 (Story 7.6).** The Chromebook is retired (epic-7 amendment 1). The standing assumption is 60 FPS on the reference MacBook at the 1366×768 viewport floor, audited by the per-epic frame budget; Chrome 4× CPU throttle is retained as a cheap stress check, never as the gate |
 
 ### Novel Concepts (no off-the-shelf pattern)
 
@@ -189,14 +207,22 @@ constraint; this document's job is AI-agent implementation consistency.
 
 ### Technical Risks
 
-- **Perf ceiling on low-end hardware** — the risk is discovering the blown budget at E7;
+- **Perf ceiling on the reference device** — the risk is discovering the blown budget at E7;
   mitigated by per-epic frame budgets and building E6 effects against a budget, not
-  auditing after.
-- **Hug of death** — a portal feature spike exceeding single-instance capacity; the
-  architecture must make scale-out a deploy-time knob, not a rewrite. The drone-lobby
-  harness doubles as the pre-launch load test.
+  auditing after. *(RESTATED 2026-08-21, Story 7.6: was "on low-end hardware", framed as an E7
+  portal-certification discovery. There is no certification gate; the risk is unchanged in
+  substance and is now measured against the reference MacBook at the 1366×768 viewport floor.)*
+- **Hug of death** — a traffic spike exceeding single-instance capacity; the architecture must
+  make scale-out a deploy-time knob, not a rewrite. The drone-lobby harness doubles as the
+  pre-launch load test. *(RESTATED 2026-08-21, Story 7.6: the premised spike was a portal
+  feature slot. With self-publishing there is no such single event, so the LIKELIHOOD drops
+  sharply — but the risk is not deleted: a link can still go around, the beta runs on one
+  vertically scaled Render instance, and Render autoscaling is forbidden, so the ceiling is
+  hard. Vertical scaling is the only sanctioned growth lever at beta.)*
 - **First-match feel at latency** — lag comp retrofitted late is the classic failure;
-  first-match feel is the entire retention funnel on a portal.
+  first-match feel is the entire retention funnel. *(RESTATED 2026-08-21, Story 7.6: was
+  "…the entire retention funnel on a portal". Self-published, the first match is if anything
+  MORE load-bearing — there is no portal catalogue to bring a second visit.)*
 - **Fog-trust collapse** — one demonstrated leak ("the fog is fake") attacks the USP itself;
   invariant coverage is per-feature definition of done, not a standing test suite alone.
 - **Cold start × modes** — Solo vs AI is the only mode that works at population zero, which
@@ -204,7 +230,10 @@ constraint; this document's job is AI-agent implementation consistency.
   retention critical path, not in E5 filler. Architecturally first-class, never a fallback.
 - **Ad seam is the death seam** — real-time multiplayer has no mid-match ad inventory; the
   death→requeue flow is simultaneously the revenue moment and the retention moment, and must
-  be designed for both (portal SDK constraint, surfaced now, integrated at E7).
+  be designed for both. *(RESTATED 2026-08-21, Story 7.6: was "portal SDK constraint, surfaced
+  now, integrated at E7". The constraint is real and unchanged, but it is not a portal's — it is
+  the AdSense H5 Games Ads interstitial placement ruled at Story 7.4, riding the seam AR11
+  retained. Surfaced at Epic 0, integrated at Story 7.4.)*
 - **Observability gap** — no telemetry/ops story exists yet; when the traffic spike arrives,
   the difference between an incident and a shrug is a dashboard. RESOLVED in Cross-cutting
   Concerns (metrics route, match telemetry, perf overlay).
@@ -247,6 +276,13 @@ here, not a compromise. Additionally, MCP-bearing engines fail the portal gate o
 Unity WebGL bundle sizes and cold starts blow the <10 s Chromebook load requirement, and
 Godot 4 web export still fights SharedArrayBuffer/threading issues on exactly the target
 low-end hardware.
+
+*Premises changed, conclusion re-affirmed (2026-08-21, Story 7.6 — G5).* The two supporting
+premises in the last sentence above have retired with the rescope: there is no portal gate and
+no Chromebook load requirement. **The decision stands unchanged on its primary reasoning** — the
+text-and-tests agent-substrate argument, which never depended on either — and on NFR2's cold-load
+budget, which a Unity WebGL bundle would still blow. The original rationale is left verbatim as
+the reasoning of record; do not re-litigate.
 
 ### Decision: Upgrade Colyseus 0.16 → 0.17 (early — before E1 and before any public playtest)
 
@@ -341,7 +377,12 @@ Carried to the next steps: lag-compensation model (× tick-rate ratification) ·
 timing within the Colyseus Cloud move · boon effect data model (two-home taxonomy) ·
 add-a-signal perception pattern (incl. third sensor tier) · sinking-window lifecycle semantics ·
 state-sync evolution (outline blips, listening ring on the wire) · per-epic perf budget
-mechanics · observability/telemetry stack · portal SDK integration seam.
+mechanics · observability/telemetry stack.
+
+*(RESOLVED 2026-08-21, Story 7.6: **"portal SDK integration seam" is struck from this list** — it
+is no longer a remaining decision. It is settled: AdSense H5 Games Ads behind the retained
+`PortalAdapter` interface, landed at Story 7.4. See AR11 and the Ad / Lifecycle Adapter Seam
+section below.)*
 
 ---
 
@@ -548,8 +589,9 @@ try {
   option — fog is server-authoritative, so a client-side fog-off is impossible by design);
   dev spectate-all camera.
 - **Activation law:** client dev tools exist only in dev builds (`import.meta.env.DEV`; Vite
-  strips them from prod); server dev behavior only under `HC_DEV_OPTIONS=1`. Nothing debug
-  ships in the portal build.
+  strips them from prod); server dev behavior only under `HC_DEV_OPTIONS=1`. **Nothing debug
+  ships in the production build** (RESTATED 2026-08-21, Story 7.6 — was "the portal build";
+  the law is unchanged, only the name of the artifact it governs. Cf. NFR17).
 - Noted as future (not committed): input-log deterministic replay — the seeded sim makes it
   cheap later.
 
@@ -664,8 +706,11 @@ salvo/
 │   ├── net/                      # connection (0.17 reconnect), clock, snapshots, roomBindings
 │   ├── sim/                      # prediction, inputSampler
 │   ├── input/                    # keyboard, mouse, telegraph — E2 rebind work lands here
-│   ├── portal/                   # NEW — PortalAdapter interface + nullAdapter.ts (NOW);
-│   │                             #       pokiAdapter.ts / crazyAdapter.ts at E7
+│   ├── portal/                   # Ad/lifecycle seam — PortalAdapter interface (name retained
+│   │                             #   per AR11) + nullAdapter.ts + safeAdapter.ts. SHIPPED.
+│   │                             #   No pokiAdapter/crazyAdapter will ever land (7.6, 2026-08-21).
+│   ├── ads/                      # AdSense H5 Games Ads impl behind that seam (Story 7.4):
+│   │                             #   adsAdapter.ts, adsense.ts, adsHead.ts, resultsAd.ts
 │   ├── debug/                    # NEW — perfOverlay.ts, devTools.ts (import.meta.env.DEV only)
 │   ├── render/                   # stage, camera, ships, contacts, fog, radar, phosphor, zone, hud…
 │   │                             # E6 renderers land here: listeningRing.ts, splashes.ts, smokeTrails.ts
@@ -693,7 +738,7 @@ salvo/
 | Fire-time compensation (D1) | `inputs.ts` (clamp) + `equipment/ballistics.ts` (back-dated spawn) | RTT measured via room.ping() |
 | Whirlpools / fog banks (E4) | `shared/src/sim/whirlpool.ts` / `map.ts` + perception modifier | Hemisphere secret lives in World, not the map seed |
 | Telemetry (Step 5) | `server/src/log.ts` + match.end/abort in `match.ts` hooks | stdout only |
-| Portal seam (Step 5) | `client/src/portal/` | Game code never imports an SDK directly |
+| Ad / lifecycle seam (Step 5) | `client/src/portal/` (interface + null + safe wrapper); `client/src/ads/` (AdSense impl) | Game code never imports an ad SDK directly. Directory and interface keep the `portal` name per AR11 — a retained name, not a promised portal integration |
 | Harnesses | `server/scripts/` | HC_DEV_OPTIONS-gated room options |
 
 ### Naming Conventions (ratified from codebase + extended)
@@ -719,7 +764,8 @@ salvo/
    or not, same interface, same registry, reload ticks every tick.
 6. New spatial signal → a `signals.ts` registry row (invariants auto-cover it).
 7. DOM is chrome; everything tactical is Pixi. `state.ts` stays a leaf.
-8. Debug/dev code → `client/src/debug/` or behind `HC_DEV_OPTIONS` — never in portal builds.
+8. Debug/dev code → `client/src/debug/` or behind `HC_DEV_OPTIONS` — never in production builds.
+   *(RESTATED 2026-08-21, Story 7.6 — was "never in portal builds".)*
 
 ---
 

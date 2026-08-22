@@ -894,6 +894,60 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * DRONE RANK TICKS (Story 7.6, Eric ruling 2026-08-21) — 1 / 2 / 3 short
+   * transverse bars across a PvE fleet hull's afterdeck for small / medium /
+   * large. *"We actually do need better distinction, size isn't enough."* …
+   * *"just use the rank ticks on the silhouette, which is way better."*
+   *
+   * WHY THE CHANNEL IS SHAPE, AGAIN. Drones are locked greyscale (DESIGN.md:157,
+   * `drone-outline`/`drone-fill`; reaffirmed by epic-5 amendment 40 for the
+   * aggro bracket), so colour was never available to separate the three tiers.
+   * Hull SIZE was the only channel carrying tier, and Eric has now ruled a bare
+   * 85 → 100 → 115u length ladder insufficient at the ranges a player actually
+   * reads a contact at. THE TICK COUNT *IS* THE TIER — a countable mark, dual
+   * coded with the size it rides, exactly as DESIGN.md's Do's and Don'ts require
+   * class/threat/state to ride shape.
+   *
+   * WHY NO NEW COLOUR TOKEN. The ticks are stroked in the hull's OWN outline
+   * colour (`DRONE_STYLE.stroke` = `colors.droneOutline`) over the `droneFill`
+   * interior, so they inherit the greyscale rule rather than being exempted
+   * from it, and a future palette change moves the hull and its ticks together.
+   *
+   * EVERY NUMBER IS A FRACTION OF THE HULL IT RIDES, never a world literal: one
+   * set of knobs has to read on all three drone hulls, and a fourth fleet hull
+   * must get correct ticks with no new tuning. The fractions are taken against
+   * the SILHOUETTE's own bounding box (render/ships.ts `droneRankTicks`), so the
+   * marks can never drift off the polygon they are drawn on.
+   *
+   * WHY THEY SIT AFT. The drone silhouette is the legacy CHEVRON — an arrowhead
+   * — and a mark near the bow would read as part of that arrowhead's terminal
+   * rather than as a count. `aftOffsetLengthFrac` parks the group behind
+   * amidships, inside the chevron's parallel-sided midbody (which spans
+   * −0.45L … +0.15L), where every tick has full beam under it and clear fill on
+   * both sides. They are entirely INSIDE the silhouette, so they can neither
+   * inflate the hull's bounding box nor reach the nameplate, which is floated
+   * above that box in screen space (render/nameplates.ts).
+   */
+  droneRank: {
+    /** Each tick's transverse length as a fraction of the hull's BEAM. 0.55
+     *  leaves ~22% of the beam as clear fill on each side, so a tick never
+     *  touches the outline and reads as a mark ON the deck rather than as a
+     *  notch in the hull. */
+    tickBeamFrac: 0.55,
+    /** Keel-wise gap between adjacent ticks as a fraction of hull LENGTH. At
+     *  0.11 the gap (9.4 / 11.0 / 12.7u) is six to eight times the tick's own
+     *  stroke width, which is what makes 2 vs 3 countable rather than a smear. */
+    spacingLengthFrac: 0.11,
+    /** How far AFT of amidships the tick GROUP's centre sits, as a fraction of
+     *  hull length. Keeps even the widest (3-tick) group clear of the bow
+     *  chevron and inside the parallel-sided midbody — see the block header. */
+    aftOffsetLengthFrac: 0.15,
+    /** Tick stroke width (world u) — the hull outline's own 1.5, so the mark
+     *  sits in the same linework family as the silhouette carrying it. */
+    widthU: 1.5,
+  },
+
+  /**
    * THE AGGRO BRACKET (Story 5.6, epic-5 amendment 40) — the angular mark a PvE
    * fleet ship wears once it has acquired YOU. *"I want it very visually obvious
    * that a PvE ship has aggro'd you, and very visually obvious if it de-aggro's

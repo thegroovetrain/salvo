@@ -30,6 +30,7 @@ import {
   type EffectiveStats,
   type EquipmentId,
   type GameMap,
+  type HullId,
   type OwnShip,
   type ResultsMsg,
   type ShipClassId,
@@ -123,7 +124,7 @@ import { injectTheme } from './ui/theme.js';
 import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
 import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
-import { fleetSizeName, pushKillLine, UNKNOWN_VESSEL } from './ui/killFeed.js';
+import { fleetSizeName, pushKillLine } from './ui/killFeed.js';
 import { pushUpgradeToast } from './ui/upgradeToast.js';
 import {
   closeResultsAsSpectate,
@@ -444,9 +445,11 @@ interface Game {
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
-   * Portal SDK seam (portal/portalAdapter.ts), always safeAdapter-wrapped so
-   * every call here is safe to fire and forget. The null adapter today; a real
-   * portal adapter at Epic 7. The game never imports a portal SDK directly.
+   * Host ad-SDK seam (portal/portalAdapter.ts), always safeAdapter-wrapped so
+   * every call here is safe to fire and forget. The implementation is ADSENSE
+   * (`ads/adsAdapter.ts`) on a configured build and the null adapter otherwise —
+   * there is no portal host and there will not be one (Eric, Epic 7). The game
+   * never imports an ad SDK directly; see `buildPortal`.
    */
   portal: PortalAdapter;
   /** Latch: portal.matchEnd() fired — results re-delivery must not re-fire it. */
@@ -1188,6 +1191,32 @@ function bountyHolder(g: Game): BountyHolder | null {
 }
 
 /**
+ * THE CLAIM REGISTER'S roster-miss stand-in — a CAPTAIN's, deliberately its own
+ * constant rather than the kill feed's `UNKNOWN_VESSEL` (Story 7.6).
+ *
+ * The two labels answer two different questions and only happened to share a
+ * string. The kill feed's is for a hull we cannot identify, and since Story 7.6
+ * that can only ever be a PvE fleet hull — a captain is always nameable
+ * (`syncRoster` mirrors every roster row to every client, and Story 6.7 keeps a
+ * departing captain's row alive past their seat precisely so a departure does
+ * not read as `UNKNOWN VESSEL`), and a never-seen fleet killer now arrives
+ * named on the wire. THE KILL LEADER IS ALWAYS A CAPTAIN — the throne runs on
+ * `captainKills` — so pointing this consumer at a drone-flavoured label would
+ * print a register about a vessel class that can never hold the throne.
+ *
+ * Near-unreachable today (see the roster argument above) and kept because
+ * `bountyTransition` reads an id off the schema and the name off the same
+ * schema, with no ordering guarantee between the two patches.
+ *
+ * `PILOT`, NOT `CAPTAIN`, for a mechanical reason as well as a copy one: the
+ * name segment runs through the shared 14-code-point display cap
+ * (`util/text.ts` NAME_MAX), and `UNKNOWN CAPTAIN` is fifteen — it would render
+ * mid-ellipsized as `UNKNOWN…APTAIN`. `pilot` is the register the codebase
+ * already uses for a human captain (the pilot's text-safe hue), and it fits.
+ */
+const UNKNOWN_CAPTAIN = 'UNKNOWN PILOT';
+
+/**
  * THE BOUNTY's two edge-driven surfaces (Story 4.6), fired ONCE per change of
  * holder: the public claim register in the kill feed, and — only when the
  * throne lands on the local player — the toast and its cue.
@@ -1203,7 +1232,7 @@ function updateBounty(g: Game): void {
   if (!t.changed) return;
   g.bountyPrev = t.holder;
   if (t.claimed) {
-    const name = rosterNameOrNull(g, t.holder) ?? UNKNOWN_VESSEL; // never a raw session id
+    const name = rosterNameOrNull(g, t.holder) ?? UNKNOWN_CAPTAIN; // never a raw session id
     pushKillLine(bountyClaimLine({ name, id: t.holder }), (id) => feedColor(g, id));
   }
   if (t.self) {
@@ -1471,7 +1500,12 @@ function ownResultsIdentity(g: Game): ResultsOwn | null {
  * latches the elimination placement and opens the results modal immediately —
  * the ratified replacement for the old silent auto-spectate.
  */
-function handleSunkObserved(g: Game, victimId: string, killerId: string | null): void {
+function handleSunkObserved(
+  g: Game,
+  victimId: string,
+  killerId: string | null,
+  killerCls: HullId | undefined,
+): void {
   g.score = recordSunk(
     g.score,
     // rosterNameOrNull, never rosterName: a victim who has already LEFT the
@@ -1492,8 +1526,12 @@ function handleSunkObserved(g: Game, victimId: string, killerId: string | null):
       // VESSEL" for a designed, common outcome of this feature while the kill
       // feed — already on `feedName` — correctly read "DRONE SANK <you>". Both
       // surfaces must agree about the same event.
+      // `?? fleetSizeName(killerCls)` (Story 7.6): the same second step the kill
+      // feed's killerNameRef takes, for a fleet killer this client never saw.
+      // Without it the feed would read `SUNK BY SMALL DRONE` while the modal's
+      // MATCH LOG read `SUNK BY UNKNOWN VESSEL` for the identical event.
       tMs: ownMatchTime(g),
-      killerName: killerId === null ? null : feedName(g, killerId),
+      killerName: killerId === null ? null : feedName(g, killerId) ?? fleetSizeName(killerCls),
     },
     g.state.net.sessionId,
   );
@@ -2775,7 +2813,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     ordnanceHue: (by) => ordnanceHue(g, by),
     // Every observed sinking feeds the personal-score accumulator; our own
     // sinking in a live match opens the elimination modal (amendments 22/23).
-    onSunkObserved: (victimId, killerId) => handleSunkObserved(g, victimId, killerId),
+    onSunkObserved: (victimId, killerId, killerCls) => handleSunkObserved(g, victimId, killerId, killerCls),
     // The `bn` fitted event is the spend latch's ack (Story 2.7 review): mark
     // the latch in flight so it releases as a SUCCESS even when a same-frame
     // passive bank + an identical re-roll hide every other landing signal.
@@ -5059,13 +5097,14 @@ async function main(): Promise<void> {
   // consent signals, and the EEA/UK/CH region default is what holds until their
   // CMP answer arrives.
   analytics.boot();
-  // Portal seam: a real SDK requires init before any loading/gameplay events, so
-  // encode that ordering now (init → loadingProgress(0) → stage load →
-  // loadingProgress(1) → menu). The null adapter resolves immediately, so boot
-  // timing is unchanged; Epic 7 swaps only the inner adapter here. The
-  // safeAdapter wrap guarantees a misbehaving portal can never block boot or
-  // any later lifecycle moment.
-  // STORY 7.4 SWAPS THE INNER ADAPTER — see `buildPortal`.
+  // The host ad-SDK seam: a real SDK requires init before any loading/gameplay
+  // events, so encode that ordering now (init → loadingProgress(0) → stage load →
+  // loadingProgress(1) → menu). The null adapter resolves immediately, so an
+  // unconfigured build's boot timing is unchanged. The safeAdapter wrap
+  // guarantees a misbehaving SDK can never block boot or any later lifecycle
+  // moment.
+  // STORY 7.4 PUT ADSENSE BEHIND THE SEAM — see `buildPortal`, which is the one
+  // place that chooses between the AdSense adapter and the null one.
   let audioRef: Audio | null = null;
   const portal = buildPortal(() => audioRef);
   await portal.init();

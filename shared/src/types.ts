@@ -979,8 +979,9 @@ export interface DamageEvent {
  * Observer-INDEPENDENT (unlike the per-observer `seen`): every recipient of
  * the row gets the same value.
  *
- * `vcls` (Story 5.6) is documented on the field itself and is appended after
- * `bty`; the full load-bearing key order is k,id,by?,seen?,bty?,vcls?.
+ * `vcls` (Story 5.6) and `kcls` (Story 7.6) are documented on the fields
+ * themselves and are appended after `bty`; the full load-bearing key order is
+ * k,id,by?,seen?,bty?,vcls?,kcls?.
  */
 export interface SunkEvent {
   k: 'sunk';
@@ -1020,6 +1021,45 @@ export interface SunkEvent {
    * re-confirmed by Eric in the same ruling).
    */
   vcls?: HullId;
+  /**
+   * THE KILLER'S HULL ID, AND ONLY EVER A PvE FLEET HULL'S (Story 7.6, Eric
+   * ruling 2026-08-21): *"if someone gets sunk by a drone, you can tell me
+   * what drone sunk them. Its fine. UNKNOWN VESSEL can only be a drone anyway.
+   * Please, let me laugh and foghorn salute the dumbass who died to a drone."*
+   * And, asked directly whether it was worth a wire break: *"Yes I want to see
+   * that Bob was killed by SMALL DRONE if that's what happened."*
+   *
+   * WHY IT MUST BE ON THE WIRE, and why it is the MIRROR of `vcls` rather than
+   * a widening of it. A fleet hull can sink a captain from outside that
+   * captain's — and every bystander's — truesight bubble, and with fleet hulls
+   * off the roster (amendment 39) no client then holds a name, a hull or a row
+   * for the killer id. The `sunk` row is GLOBAL for a captain victim, so every
+   * client renders that line, and every one of them could only say
+   * `UNKNOWN VESSEL`. The ever-seen hull memo (client/src/net/snapshots.ts)
+   * answers this whenever the killer was once in our bubble; this key answers
+   * the case the memo structurally cannot, exactly as `vcls` does for victims.
+   *
+   * FLEET HULLS ONLY — THE LOAD-BEARING CONSTRAINT. The key is stamped iff the
+   * killer's `role` is `'fleet'`. A CAPTAIN killer never carries it, because a
+   * captain's hull class is NOT disclosed by this row today and widening it
+   * would be a genuine new disclosure about a player (their class is a build
+   * fact, readable off a contact only when you can actually see them). A fleet
+   * hull's tier is about nobody: it names a server-spawned PvE hull whose
+   * existence, size mix and tier ladder are fixed by CONFIG.
+   *
+   * OBSERVER-INDEPENDENT, like `bty` and unlike `seen`/`vcls`: every recipient
+   * of the row gets the same value, because the fact it carries is the same
+   * for all of them. It therefore adds NO perception exception — the master
+   * invariant stays at exactly SIX. The row is already a declared exception,
+   * and this key discloses nothing about any observer's sensors, nothing
+   * spatial, and nothing about any player.
+   *
+   * NOTHING ELSE RIDES IT: no position, bearing, range, hp, weapon or hue.
+   * Appended LAST, after `vcls`; the key is OMITTED entirely when it does not
+   * apply, never `undefined` (msgpack encodes that). KEY ORDER IS LOAD-BEARING:
+   * k,id,by?,seen?,bty?,vcls?,kcls?.
+   */
+  kcls?: HullId;
 }
 
 /** A ship (re)spawned at a position. */

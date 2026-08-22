@@ -80,7 +80,7 @@ import {
   type WakeRibbon,
 } from '@salvo/shared';
 import type { LitZone, ShipRecord } from './world.js';
-import { isParticipant } from './participants.js';
+import { isFleetHull, isParticipant } from './participants.js';
 import { BUOY_SIZE_U, type BuoyState, type MineState } from './equipment/index.js';
 
 // ---------------------------------------------------------------------------
@@ -1504,7 +1504,10 @@ function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
  * ONLY ({k,id,by?} — no position, class, hue, damage, or weapon field). Story
  * 5.6's `vcls` does not weaken that: it is stamped for the CREDITED KILLER
  * alone (stampVictimClass below), so no row that reaches an observer on the
- * public clause ever carries a class. And
+ * public clause ever carries a class ABOUT A PLAYER. Story 7.6's `kcls` does
+ * reach the public clause — it is observer-independent — but it names a PvE
+ * FLEET hull's tier and nothing else (stampKillerClass below): never a
+ * captain's class, no position, no hue, no weapon. And
  * ArenaRoom.syncRoster() already makes the FACT of every sinking public —
  * alive/kills/deaths mirror to every client. What this row adds beyond the
  * schema is precision, and that is the honest scope of the ratification: the
@@ -1530,7 +1533,7 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
   },
   materialize(ctx, e) {
     // ALWAYS a fresh object (the burstSignal discipline): KEY ORDER IS
-    // LOAD-BEARING (msgpack): k,id,by?,seen?,bty?,vcls? — and NEVER a key whose
+    // LOAD-BEARING (msgpack): k,id,by?,seen?,bty?,vcls?,kcls? — and NEVER a key whose
     // value is undefined (msgpack encodes it; world-emitted storm deaths
     // carry `by: undefined`, which must leave the wire as an ABSENT key).
     const out: SunkEvent = { k: 'sunk', id: e.id };
@@ -1548,6 +1551,7 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
     // verbatim from the world's pre-sink read, never re-derived per observer.
     if (e.bty === 'v' || e.bty === 'k') out.bty = e.bty;
     stampVictimClass(ctx, e, out);
+    stampKillerClass(ctx, e, out);
     return out;
   },
 };
@@ -1597,6 +1601,53 @@ function stampVictimClass(ctx: SignalContext, e: SunkEvent, out: SunkEvent): voi
   if (e.by === undefined || e.by !== ctx.observerId) return;
   const wreck = ctx.ships.get(e.id);
   if (wreck !== undefined) out.vcls = wreck.hullId;
+}
+
+/**
+ * `kcls` — THE KILLER'S HULL ID, AND ONLY EVER A PvE FLEET HULL'S (Story 7.6,
+ * Eric ruling 2026-08-21): *"if someone gets sunk by a drone, you can tell me
+ * what drone sunk them. Its fine. UNKNOWN VESSEL can only be a drone anyway.
+ * Please, let me laugh and foghorn salute the dumbass who died to a drone."*
+ *
+ * WHY IT MUST BE ON THE WIRE — the MIRROR of `vcls`, not a widening of it. A
+ * fleet hull can sink a captain from outside every observer's truesight bubble,
+ * and with fleet hulls off the roster (amendment 39) no client then holds a
+ * name, a hull or a row for that killer id. Because a CAPTAIN victim's sinking
+ * is PUBLIC (the third clause above), that line renders on every client, and
+ * every one of them could only read `UNKNOWN VESSEL`. The ever-seen hull memo
+ * covers the killer we once had in our bubble; this key covers the case the
+ * memo structurally cannot.
+ *
+ * FLEET HULLS ONLY — THE ONE CONSTRAINT THAT MATTERS, and it is enforced here
+ * and nowhere else. `killer.role !== 'fleet'` returns without stamping. A
+ * captain's hull class is NOT disclosed by this row today, and widening it
+ * would be a genuine new disclosure about a PLAYER (their class is a build fact
+ * you read off a contact when you can actually see them). A fleet hull's tier
+ * is about nobody — a server-spawned PvE hull whose existence, size mix and
+ * tier ladder are fixed by CONFIG and identical every match.
+ *
+ * OBSERVER-INDEPENDENT, on the `bty` pattern and deliberately NOT the
+ * `seen`/`vcls` one: the fact it carries is the same for every recipient, so
+ * per-observer stamping would only invent a difference that does not exist.
+ * NO SEVENTH PERCEPTION EXCEPTION: the row is already a declared exception, and
+ * this key discloses nothing spatial, nothing about any observer's sensors and
+ * nothing about any player. The master invariant stays at exactly SIX.
+ *
+ * FAIL-CLOSED on a missing killer record (a killer who left the room between
+ * the sinking and the frame): the key is simply omitted and the client falls
+ * back exactly as it does today. Appended LAST, after `vcls`; OMITTED rather
+ * than `undefined` (msgpack encodes that).
+ */
+function stampKillerClass(ctx: SignalContext, e: SunkEvent, out: SunkEvent): void {
+  if (e.by === undefined || e.by === e.id) return; // no credited killer / self-sink
+  const killer = ctx.ships.get(e.by);
+  // THE GATE. Never a captain, never an AI captain ('bot'), never anything but
+  // a PvE fleet hull — see the note above; this is the whole safety argument.
+  // Read through the Story 6.3 role SEAM (`isFleetHull` is WORLD CONTENT, the
+  // exact reading this key needs) rather than a raw `role ===` comparison, so a
+  // future role lands on the safe side without an edit here.
+  if (killer === undefined || !isFleetHull(killer)) return;
+  out.kcls = killer.hullId;
 }
 
 /**

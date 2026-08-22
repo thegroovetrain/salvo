@@ -385,7 +385,7 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // constant step, so no `mult`/`add` can express it and a derived read is the
   // only way it stays one derivation.
   broadsideSpread: { id: 'broadsideSpread', category: 'broadside', rarity: 'common', copies: 4, effects: [stat('broadside.spreadRung', { add: 1 })] },
-  // BROADSIDE TURRETS I–II (rare ×2): +1 shell per barrage, 3 → 5. Each new
+  // BROADSIDE TURRETS I–II (rare ×2): +1 shell per barrage, 4 → 6. Each new
   // gun gets its own muzzle position AND its own firing arc, densifying the
   // same covered beam sector (sim/aim.ts) — more guns able to bear on any
   // given click, never a wider battery.
