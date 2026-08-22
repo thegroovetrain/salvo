@@ -245,7 +245,7 @@ development_status:
   7-4-adsense-h5-games-ads: done  # 2026-08-19 cycle 107 (0.17.107); PV 41; epic-7 amendments 16-18
   7-5-upgrade-cards-v2: done  # 2026-08-19 cycle 109 (0.17.109); PV 41->43; epic-7 amendments 20-28; batch-sim-evidence-7-5-2026-08-19.md
   7-6-design-and-doc-reconciliation: done  # 2026-08-21 cycle 126 (0.17.126); PV 47->48; epic-7 amendments 38-43; bmad-dev-auto-result-7-6-doc-reconciliation-questions.md
-  7-7-frontend-backend-split-and-versioning: backlog
+  7-7-frontend-backend-split-and-versioning: deferred  # 2026-08-21 Eric ruling: DEFERRED IN FULL (topology AND versioning); one game version, 0.17.X continues; no VERSION bump this PR; tripwires in deferred-work.md
   7-8-the-release-gate: backlog
   # Old numbering retired 2026-08-18: 7-3-portal-sdk-integrations CANCELLED (no portal release);
   # 7-1-chromebook-performance-pass + 7-2-ten-second-load MERGED into 7-1; 7-4 -> 7-3;
@@ -465,7 +465,7 @@ action_items:
     status: done  # 2026-08-19 cycle 109: Eric authored the catalog himself (7-5-decks.md); epic-7 amendments 20-28
   - epic: 7
     action: "KEEP THE CLIENT ON THE APEX DOMAIN at the 7-7 split — AdSense approval and the GA4 property are per-domain"
-    owner: "spec author (create-story 7-7)"
+    owner: "whoever revives the deferred 7-7 split"  # rehomed 2026-08-21: 7-7 deferred in full, no spec will be written; unblocked meanwhile (client is on the apex today)
     status: open
   - epic: 7
     action: "RULE THE THREE ITEMS LEFT OPEN AT THE 7-6 GATE — E2 precision bonus, H3 PvE fleet tier legibility scope, and whether heals stay spendable during the sudden-death collapse"

@@ -305,13 +305,23 @@ half ships, Colyseus Cloud does not. Epic work (E1 onward) builds on
 the stabilized 0.17 room/adapter layer; doing E1 first would mean redoing the adapter against
 0.17 afterward.
 
-### Hosting Posture — SUPERSEDED IN PART (Eric, 2026-08-18)
+### Hosting Posture — SUPERSEDED IN PART (Eric, 2026-08-18), THEN DEFERRED (Eric, 2026-08-21)
 
 **The Track-2 trigger fired — open beta IS the first public link — but the destination
-changed.** Rescoped by `sprint-change-proposal-2026-08-18.md`; built as Story 7.7, which is
-deliberately the LAST build story of Epic 7 so beta cuts clean at `0.1.0` / `0.1.0`.
+changed.** Rescoped by `sprint-change-proposal-2026-08-18.md`; assigned to Story 7.7, which was
+deliberately the LAST build story of Epic 7 so beta cut clean at `0.1.0` / `0.1.0`.
 
-- **Shipped topology (beta):** **two deployables, both on Render.** The client ships as a
+> **DEFERRED IN FULL — Eric ruling 2026-08-21. The two-deployable topology below is a PLAN, not
+> the shipped state, and the `0.1.0` cut is off.** Beta ships the topology that has been live all
+> along: **ONE Render web service**, serving `client/dist` (`server/src/app.config.ts`'s
+> `express.static`) alongside the Colyseus arena, same-origin websocket, carrying **ONE version
+> number** on the `0.17.X` scheme. Static asset serving is revisited when load makes it a
+> problem — revival tripwires, the three options (full split / assets-only CDN / status quo) and
+> the OpenFront.io deploy evidence are in `deferred-work.md`. Everything below stands as the
+> revival brief. The two bullets that did NOT change: `shared/` is still not a deployable, and
+> Colyseus Cloud is still not adopted.
+
+- **Planned topology (DEFERRED — not shipped):** **two deployables, both on Render.** The client ships as a
   **Render Static Site** on the **apex domain** (`client/dist`, CDN-served, no Node process);
   the game server ships as a **Render Web Service** on a **subdomain**, running only the
   Colyseus arena. Ad and analytics identity is per-domain, which is why the client keeps the

@@ -16,7 +16,7 @@
 # ledgers and the keys themselves remain in git history.)
 
 generated: '2026-07-15'
-last_updated: '2026-08-21'  # cycle 126 (0.17.126). Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
+last_updated: '2026-08-21'  # cycle 126 (0.17.126) + the 7-7 deferral bookkeeping PR (no cycle, no VERSION bump). Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -54,4 +54,4 @@ retrospective-epic-5: _bmad-output/implementation-artifacts/epic-5-retro-2026-08
 retrospective-epic-6: _bmad-output/implementation-artifacts/epic-6-retro-2026-08-18.md # complete 2026-08-18 (6/7 landed, 6-2 cancelled; tests 4470->5106, PV 36->40; 49 amendments; 1 significant-discovery alert); superseding stamp added 2026-08-21 (Story 7-6, Eric ruling G4) — its "Epic 7 Preview — Portal Launch Readiness" section was invalidated the same day by the rescope
 retrospective-epic-7: false # pending
 
-next_expected: 'STORY 7-6 (cycle 126, 0.17.126) landed most recently: DESIGN & DOC RECONCILIATION — epic-7 amendments 38-43, PROTOCOL_VERSION 47->48. Rulings: bmad-dev-auto-result-7-6-doc-reconciliation-questions.md; consequences: epic-7-context-amendments.md; carried-forward threads: deferred-work.md. NEXT: Story 7-7 (frontend/backend split + per-service versioning), then Story 7-8 (the release gate).'
+next_expected: 'STORY 7-6 (cycle 126, 0.17.126) landed most recently: DESIGN & DOC RECONCILIATION — epic-7 amendments 38-43, PROTOCOL_VERSION 47->48. Rulings: bmad-dev-auto-result-7-6-doc-reconciliation-questions.md; consequences: epic-7-context-amendments.md; carried-forward threads: deferred-work.md. STORY 7-7 (frontend/backend split + per-service versioning) IS DEFERRED IN FULL by Eric ruling 2026-08-21 — both halves; the game keeps ONE version and the 0.17.X scheme CONTINUES, so beta ships as 0.17.X, not 0.1.0/0.1.0. Rationale, OpenFront.io deploy evidence and the revival tripwires: deferred-work.md. NEXT: Story 7-8 (the release gate), which Eric confirmed stays in scope for beta and at which Epic 7 now closes.'
