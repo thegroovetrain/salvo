@@ -399,3 +399,261 @@ damage cap; paying a fraction of the victim's MAX hp rather than raw damage.
   campaign here can separate the two.
 - Median match ends before 12:00 in every 1/300 arm, so the final ring cycle's
   attrition target is **unmeasurable rather than unmet** there.
+
+---
+
+# Session 3 — the split kill bounty (2026-08-22/23)
+
+Eric: *"no XP damage bonus, instead we split the original bounty. The killer gets
+1/10 of a level, and the remaining 9/10 are split proportionally between everyone
+who dealt damage to that ship that contributed to the kill"*, with a recency
+window so stale damage cannot claim a share. His three named variables: the
+guaranteed killer fraction, the window length, and the total value of a kill.
+
+**This is the first mechanism in the whole session that does not damage class
+balance — and it may improve it.**
+
+## Built, default off
+
+`CONFIG.xp.assistWindowMs` is the switch AND the window (0 = shipped game, no
+ledger written, killer takes everything). `CONFIG.xp.killerShare` is the
+guaranteed fraction. The third variable needed no dial: it is `xp.killLevels`.
+Later, `CONFIG.xp.assistEnvWeight` was added — see the dilution section.
+
+**It REDISTRIBUTES A FIXED POT rather than minting XP per point of damage**,
+which is structurally why it cannot run away the way damage→XP does. Tests pin
+CONSERVATION (shares sum to the kill value), not merely each share.
+
+Design forks resolved WITH Eric, each confirmed by him:
+1. The killer also shares the remainder → a solo kill still pays full value.
+2. Eligibility is a **recency gate on the attacker**, not a sliding window over
+   their damage — his wording, *"if the LAST time you damaged the target was
+   outside that window"* — so an eligible attacker brings their whole
+   contribution. The alternative is real and deliberately not taken.
+3. A storm kill still pays assists, killer share unpaid. **Recommended and
+   accepted**: the guaranteed share is payment for the RISK OF CLOSING, and if
+   the storm finished them nobody took that risk. Paying it anyway would make
+   chip-and-let-the-storm-work as rewarding as committing.
+4. Fleet damagers are ENVIRONMENT, pooled — see dilution below.
+5. The bounty-holder bonus is never split (Eric: *"Yeah I'm good with that"*).
+6. The ledger records CLAMPED damage, so overkill cannot inflate a share.
+
+## Results — 91 matches per arm, roster even
+
+| arm | killer share | window | kill value | levels | cards | BS | TB | ML | **spread** |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline | — | — | 1.0 | 7.99 | 3.30 | 40.7 | 30.8 | 28.6 | 12.1 |
+| split10w30 | 0.1 | 30 s | 1.0 | 8.13 | 3.26 | 40.7 | 29.7 | 29.7 | **11.0** |
+| split10w10 | 0.1 | 10 s | 1.0 | 8.02 | 3.31 | 38.5 | 29.7 | 31.9 | **8.8** |
+| split50w30 | 0.5 | 30 s | 1.0 | 8.05 | 3.28 | 37.4 | 30.8 | 31.9 | **6.6** |
+| **split10w30x15** | 0.1 | 30 s | **1.5** | **8.55** | **3.53** | 36.3 | 30.8 | **33.0** | **5.5** |
+
+**`split50w30` (6.6 pp) and `split10w30x15` (5.5 pp) are the two tightest fields
+measured anywhere in this session**, against a 12.1 pp baseline and a < 4 pp
+target. At 1.5× kill value all three classes sit between 30.8 % and 36.3 %, with
+the **Mine Layer at 33.0 % — inside the 31-35 % band** — and levels and cards
+both up 7 %.
+
+### Why it works, and the three orthogonal knobs
+
+Rewarding damage CONTRIBUTION rather than only the finishing blow pays the
+classes that SOFTEN targets (mines, torpedoes) instead of concentrating value on
+whoever lands the last hit. That is the opposite of what damage→XP did, which
+paid whoever was already winning fights.
+
+The session's structural result:
+
+- **the SPLIT** decides *how* value is distributed → flattens the field
+- **`killLevels`** decides *how much* value exists → raises levels
+- **heal economics** decides how much becomes CARDS rather than heals
+
+These are genuinely different quantities. Every earlier attempt used ONE knob to
+do all three jobs, which is why damage→XP wrecked class balance and why two heal
+levers compounded badly.
+
+**And unlike damage→XP, raising `killLevels` is BOUNDED**: there are only 19
+other captains, so total minted per match has a hard ceiling. `split10w30x15`'s
+worst case was 37 levels; 1/100's was **187**.
+
+### Strength of claim, stated honestly
+
+**No individual class movement is significant at ±10pp** — the largest is ML
++3.3 pp, CI[−9.9, +16.4]. What can be said: three independent split arms all
+show spread AT OR BELOW baseline, so "the split does not hurt balance" is
+reasonably supported; "the split improves balance" is NOT yet established.
+**This is the one result in the session worth a ±5pp campaign (360 matches),
+because it is the only candidate pointing at the 31-35 % band.**
+
+## Environment dilution — measured, and NOT interpretable on balance
+
+Eric asked whether drone damage should reduce a player's proportional share,
+framing drones as environment: *"they are technically part of the environment
+just like the storm is"*. Built as `assistEnvWeight`, a WEIGHT not a flag,
+because his wording was *"shouldn't count … to some extent"*.
+
+It fixes a real edge case the un-diluted rule has: **graze a hull for 10, let the
+storm take the other 240, and you collect the ENTIRE assist pot** for a graze. At
+weight 1 that same graze pays 0.9 × 10/250 = 0.036.
+
+| weight | levels | cards | BS | TB | ML | spread |
+|---|---|---|---|---|---|---|
+| 0 (free) | 8.13 | 3.26 | 40.7 | 29.7 | 29.7 | 11.0 |
+| 0.5 | 8.06 | 3.19 | 40.7 | 19.8 | 39.6 | 20.9 |
+| 1 (full) | 7.95 | 3.17 | 38.5 | 25.3 | 36.3 | 13.2 |
+
+**THE CLASS-BALANCE COLUMN IS NOISE AND MUST NOT BE READ.** A monotonic dial
+producing 11 → 21 → 13 pp is the signature of the ±10pp floor dominating, not a
+real non-monotonicity. An earlier reading of this ledger's author — that
+dilution specifically hurts the Torpedo Boat — fitted weight 1 and was
+CONTRADICTED by weight 0.5; it is retracted here rather than left standing.
+
+**The ECONOMY column IS readable** because it is monotonic and small: levels
+8.13 → 8.06 → 7.95, cards 3.26 → 3.19 → 3.17. Full dilution costs ~2 % of levels
+and ~3 % of cards. That is the honest price of the fairness fix; what it does to
+class balance is UNMEASURED at this tier.
+
+## Correction of record: the two heal levers do NOT compose
+
+The ten-arm ledger above named "combine both heal levers" as the obvious
+untested next step and predicted they were mechanically independent. **They are
+not.** `healboth` (heal2x + levelHp 25, no damage XP) delivered the predicted
+card gain (+42 %) but its spread was **36.3 pp** — more than double either lever
+alone (14.3 and 17.6), with the Torpedo Boat collapsing to 18.7 %.
+
+Neither individual movement clears significance (BS +14.3 pp CI[−0.2, +28.0]; TB
+−12.1 pp CI[−24.2, +0.5]), so this is not proven — but it is the same magnitude
+as effects called significant elsewhere, and it **falsifies the specific claim
+that was made**. The safer generalisation: INDIVIDUAL levers stay tame;
+COMBINATIONS do not, whichever levers they are. `d1000lvl25` shows the same
+shape (35.2 pp, against 20.9 and 17.6 alone).
+
+This also retires this ledger's earlier line that "every arm without damage XP
+stays at 12-25 pp" — `healboth` is 36.3 pp with no damage XP at all.
+
+## The 1/1000 rate (Eric: "1 XP per 10 damage")
+
+Units agreed explicitly: 1 damage = 1 % of a level at 1/100, 3 damage at 1/300,
+10 damage at 1/1000 — so "1 XP" in his phrasing means 1 % of a level.
+
+| arm | levels | cards | spread | max levels |
+|---|---|---|---|---|
+| baseline | 7.99 | 3.30 | 12.1 | 35 |
+| **dmg1000** | 8.86 | 3.88 | **20.9** | 38 |
+| dmg300 | 10.62 | 5.24 | 30.8 | 56 |
+| dmg100 | 22.48 | 10.91 | 47.3 | **187** |
+
+**1/1000 is the first damage rate with no significant class movement** (ML −3.3
+pp CI[−16.0, +9.5]). Spread cost scales roughly linearly with rate: +8.8, +18.7,
++35.2 pp. But it barely moves the ratio Eric cares about (heal share 58.7 % →
+56.2 %), so it remains a WORSE DEAL than the heal levers for the same goal —
++18 % cards for +8.8 pp of spread, against heal2x's +30 % cards for +2.2 pp.
+
+## Worst case, which Eric asked for directly
+
+| arm | max levels | max boons |
+|---|---|---|
+| baseline | 35 | 30 |
+| split arms | 31-37 | 22-25 |
+| dmg1000 | 38 | 27 |
+| dmg300 | 56 | 40 |
+| **dmg100** | **187** | 40 |
+
+**Max boons SATURATES at 40 from 1/300 upward** — those players exhaust their
+deck and everything after is heals, which is exactly the ceiling Eric wanted to
+stay under. The split arms are the only ones that LOWER the ceiling (max boons
+22-25), because value spreads across contributors instead of concentrating on
+the top earner.
+
+Structurally the ceiling has three sources: the passive tick (hard-capped by
+match length, ~16 levels), captain kills (bounded by the field, 19 others), and
+**PvE fleet + damage XP — the only UNBOUNDED sources**, because fleet waves
+respawn. That is what produced 187.
+
+---
+
+# FINAL — all 18 arms, 1,638 matches
+
+91 matches per arm, `--roster even`, coarse ±10pp tier. Targets: each class
+**31-35 %** (spread < 4pp); **10 / 5 / 2.5** alive at 4:00 / 8:00 / 12:00.
+
+| arm | levels | cards | heals | heal % | BS | TB | ML | spread | max lv | max bn |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 7.99 | 3.30 | 4.69 | 59 | 40.7 | 30.8 | 28.6 | 12.1 | 35 | 30 |
+| heal2x | 8.13 | **4.30** | 3.83 | 47 | 41.8 | 27.5 | 30.8 | 14.3 | 35 | 29 |
+| lvlheal25 | 7.78 | 4.00 | 3.77 | 48 | 38.5 | 39.6 | 22.0 | 17.6 | 37 | 34 |
+| healboth | 8.23 | 4.69 | 3.54 | 43 | 54.9 | 18.7 | 26.4 | 36.3 | 33 | 31 |
+| split10w30 | 8.13 | 3.26 | 4.87 | 60 | 40.7 | 29.7 | 29.7 | 11.0 | 32 | 24 |
+| split10w10 | 8.02 | 3.31 | 4.71 | 59 | 38.5 | 29.7 | 31.9 | 8.8 | 35 | 25 |
+| **split50w30** | 8.05 | 3.28 | 4.77 | 59 | 37.4 | 30.8 | 31.9 | **6.6** | 34 | **22** |
+| **split10w30x15** | 8.55 | 3.53 | 5.02 | 59 | 36.3 | 30.8 | **33.0** | **5.5** | 37 | 29 |
+| split50w30x2 | 8.63 | 3.90 | 4.71 | 55 | 42.9 | 37.4 | 19.8 | 23.1 | 50 | 40 |
+| **split50w30heal** | 8.25 | **4.25** | 3.99 | 48 | 41.8 | 29.7 | 28.6 | 13.2 | 34 | 28 |
+| split10w30env | 7.95 | 3.17 | 4.78 | 60 | 38.5 | 25.3 | 36.3 | 13.2 | 31 | 23 |
+| split10w30env5 | 8.06 | 3.19 | 4.86 | 60 | 40.7 | 19.8 | 39.6 | 20.9 | 33 | 26 |
+| dmg1000 | 8.86 | 3.88 | 4.97 | 56 | 46.2 | 28.6 | 25.3 | 20.9 | 38 | 27 |
+| d1000lvl25 | 8.80 | 4.77 | 4.02 | 46 | 53.8 | 27.5 | 18.7 | 35.2 | 41 | 37 |
+| dmg300 | 10.62 | 5.24 | 5.37 | 51 | 40.7 | 45.1 | 14.3 | 30.8 | 56 | 40 |
+| d300heal | 12.15 | **7.30** | 4.83 | 40 | 54.9 | 36.3 | 8.8 | 46.2 | 56 | 40 |
+| d300lvl25 | 10.98 | 6.56 | 4.39 | 40 | 46.2 | 38.5 | 15.4 | 30.8 | 55 | 40 |
+| dmg100 | 22.48 | 10.91 | 11.05 | 49 | 50.5 | 46.2 | 3.3 | 47.3 | **187** | 40 |
+
+## The four durable results
+
+**1. THE ONLY MECHANISM THAT DOES NOT COST BALANCE IS THE SPLIT BOUNTY.** Four
+split arms land at 5.5-11.0 pp spread against a 12.1 pp baseline — the only
+family in the session at or below it. `split10w30x15` puts all three classes in
+30.8-36.3 % with the Mine Layer at 33.0 %, inside the band, at +7 % levels and
++7 % cards.
+
+**2. HEAL ECONOMICS IS THE ONLY EFFICIENT SOURCE OF UPGRADES.** `heal2x` buys
++30 % cards for +1.8 % levels and 2.2 pp of spread. Every damage-XP rate buys
+fewer cards per point of spread: 1/1000 is +18 % cards for +8.8 pp.
+
+**3. COMBINATIONS DO NOT COMPOSE — MEASURED THREE TIMES, PREDICTED WRONG THREE
+TIMES.** `healboth` (14.3 + 17.6 → **36.3**), `d1000lvl25` (20.9 + 17.6 →
+**35.2**), `split50w30x2` (6.6 at 1.0× kill value → **23.1** at 2.0×, the clean
+single-variable case). The author of this ledger predicted independence each
+time and was wrong each time. **Do not reason about combinations here; measure
+them.** `split50w30heal` is the one benign case (13.2 pp ≈ baseline), and even
+there the split's flattening did NOT survive — it bought the card gain and gave
+back the balance gain.
+
+**4. ATTRITION WAS NEVER FIXED AND IS NOT AN ECONOMY PROBLEM.** 4:00 sits 3-4
+hulls over target in EVERY arm including baseline (13.4 vs 10). Storm deaths are
+~5 % of all deaths, so it is encounter rate. `map.baseRadius` 2400 moved it 1.1
+hulls and cost 11 pp of spread. The zone dials (`beatMs`, `ringSteps.0`) are the
+untested lever.
+
+## The deck ceiling
+
+Max boons SATURATES at **40** in every arm from 1/300 up, plus `split50w30x2`
+and `d1000lvl25` — those players exhaust the deck and everything after is heals,
+the outcome Eric wanted to avoid. The split arms are the only ones that LOWER
+the ceiling (22-29), because value spreads across contributors rather than
+concentrating on the top earner.
+
+## Ranked, for a ruling
+
+1. **`xp.assistWindowMs` 30000 + `killerShare` 0.1 + `killLevels` 1.5**
+   (`split10w30x15`). Tightest field with a real economy gain: ML into band,
+   spread 5.5 pp, +7 % levels, +7 % cards, no deck saturation.
+2. **Add `heal2x` on top** (`split50w30heal` shape). +29 % cards, heal share
+   59 → 48 %, spread ≈ baseline. Buys the upgrades; gives back the flatness.
+3. **`heal2x` alone.** Simplest change on the table. +30 % cards, no class cost.
+4. **Damage XP at 1/1000** if a damage-reward feel is wanted for its own sake —
+   affordable (+8.8 pp) but a worse deal than any heal lever for the same goal.
+5. **REJECTED by measurement:** 1/300 and 1/100 (30.8 and 47.3 pp, ML to 14.3 %
+   and 3.3 %); drone hp at any value; `killLevels` 2.0; two heal levers together.
+
+**Everything above rests on ±10pp**, which is wider than the 4pp band. No single
+class movement in the split family is individually significant. The strongest
+honest claim is that **four independent split arms all sit at or below baseline
+spread**, which is a pattern rather than a proof. **`split10w30x15` and
+`split50w30` deserve the ±5pp campaign (360 matches each) — they are the only
+candidates pointing at the band.**
+
+**Standing caveats unchanged:** two bot-quality bars fail at BASELINE (any-kill
+38.6 %, storm deaths 4.86 %), so absolute class share is partly tactics-driven;
+and the Mine Layer is measured with part of its kit unused (radar buoy 0
+deployments in 2,600 bot-matches, acquisition cards never fitted), so its
+weakness may be partly a BOT problem rather than a GAME problem.
