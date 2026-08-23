@@ -429,6 +429,24 @@ export interface ShipRecord {
    */
   dmgXpCarryMs: number;
   /**
+   * THE ASSIST LEDGER (CONFIG.xp.assistWindowMs) — who has damaged THIS hull,
+   * how much, and when they last did it. Keyed by attacker id; lives on the
+   * VICTIM because that is the shape the split needs at the moment of sinking.
+   *
+   * Only maintained while the split is ON (`assistWindowMs > 0`), so with the
+   * shipped 0 it stays empty and costs nothing — the feature is inert rather
+   * than merely unpaid.
+   *
+   * `amount` accumulates the CLAMPED damage (the same figure the damage->XP
+   * rule pays on), so overkill cannot inflate a share. `at` is the last
+   * damage's server-clock ms, which is what the eligibility window tests.
+   *
+   * Bounded by the roster — one entry per attacker — and cleared with the
+   * hull's life: on sink (after the split is paid), on redeploy, and on
+   * respawn, so a fresh life never inherits a previous one's contributors.
+   */
+  damageFrom: Map<string, { amount: number; at: number }>;
+  /**
    * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
    * nothing grants these in production until 2.7's spend flow). Mutated only
    * by applyBoon(). Survive respawn (waiting-phase deaths keep the build,
@@ -1254,7 +1272,7 @@ export class World {
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
-      xpMs: 0, level: 0, dmgXpCarryMs: 0,
+      xpMs: 0, level: 0, dmgXpCarryMs: 0, damageFrom: new Map(),
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
@@ -1511,6 +1529,7 @@ export class World {
     ship.xpMs = 0;
     ship.level = 0;
     ship.dmgXpCarryMs = 0;
+    ship.damageFrom.clear();
     // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
     // fresh build — respawn() below, waiting-phase only, preserves.
     ship.boons = [];
@@ -1709,15 +1728,82 @@ export class World {
    * unchanged grantXp pipeline (fractional carry untouched).
    */
   private creditKill(victim: ShipRecord, by: string | undefined, victimHeldBounty: boolean): void {
-    if (!by || by === victim.id) return;
-    const killer = this.ships.get(by);
-    if (!killer) return;
-    // The PvE TALLY keys on the fleet reading (economy): `pveKills` counts
-    // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
-    if (roleIsFleetHull(victim)) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
-    else killer.kills += 1;
-    const bonus = victimHeldBounty ? CONFIG.bounty.killLevels : 0;
-    this.grantXp(killer, World.killXpLevels(victim) + bonus);
+    const killer = by && by !== victim.id ? this.ships.get(by) : undefined;
+    if (killer !== undefined) {
+      // The PvE TALLY keys on the fleet reading (economy): `pveKills` counts
+      // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
+      if (roleIsFleetHull(victim)) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
+      else killer.kills += 1;
+      // THE BOUNTY-HOLDER BONUS IS NEVER SPLIT. It rewards the act of sinking
+      // the throne's holder, not the work of wearing them down, so it stays
+      // whole to the killer even when the kill value itself is being shared.
+      if (victimHeldBounty) this.grantXp(killer, CONFIG.bounty.killLevels);
+    }
+    this.payKillValue(victim, killer);
+    victim.damageFrom.clear(); // the ledger dies with the life it described
+  }
+
+  /**
+   * Pay out a sinking hull's KILL VALUE — whole to the killer (the shipped
+   * game), or split among its contributors when CONFIG.xp.assistWindowMs is on.
+   *
+   * OFF (`assistWindowMs <= 0`) is byte-identical to the behaviour this
+   * replaced: an unattributed or self sink pays nobody, and a killer takes the
+   * full `killXpLevels`.
+   *
+   * ON, the value becomes a pot: `killerShare` of it is guaranteed to the
+   * killer, and the rest is divided by damage among everyone eligible — the
+   * killer INCLUDED, so a solo kill still pays the full value and the split
+   * only ever moves value to people who actually contributed.
+   *
+   * A STORM KILL STILL PAYS THE ASSISTS. There is no killer, so the guaranteed
+   * share goes unpaid, but the hull was worn down by somebody and the split is
+   * about that work. This is NEW value — today an unattributed sink credits
+   * nothing at all — and is flagged as a design consequence rather than
+   * absorbed silently.
+   */
+  private payKillValue(victim: ShipRecord, killer: ShipRecord | undefined): void {
+    const pot = World.killXpLevels(victim);
+    if (!(pot > 0)) return;
+    const windowMs = CONFIG.xp.assistWindowMs;
+    if (windowMs <= 0) {
+      if (killer !== undefined) this.grantXp(killer, pot);
+      return;
+    }
+    const share = Math.min(1, Math.max(0, CONFIG.xp.killerShare));
+    if (killer !== undefined && share > 0) this.grantXp(killer, pot * share);
+    this.splitAssists(victim, pot * (1 - share), windowMs);
+  }
+
+  /**
+   * Divide `budget` levels among the victim's eligible contributors, in
+   * proportion to the damage each dealt.
+   *
+   * ELIGIBILITY IS A RECENCY GATE ON THE ATTACKER, not a sliding window over
+   * their damage — Eric's wording: *"your damage doesn't count if the LAST
+   * time you damaged the target was outside of that window"*. So an attacker
+   * who is inside the window brings their WHOLE contribution with them.
+   * (The alternative — counting only damage dealt inside the window — is a
+   * real fork and is deliberately not taken here.)
+   *
+   * FLEET HULLS ARE EXCLUDED rather than counted-and-unpaid: they cannot
+   * accrue XP, so counting their damage would silently evaporate part of every
+   * pot they contributed to instead of redistributing it.
+   */
+  private splitAssists(victim: ShipRecord, budget: number, windowMs: number): void {
+    if (!(budget > 0)) return;
+    const cutoff = this.now - windowMs;
+    let total = 0;
+    const eligible: { ship: ShipRecord; amount: number }[] = [];
+    for (const [id, rec] of victim.damageFrom) {
+      if (rec.at < cutoff || rec.amount <= 0 || id === victim.id) continue;
+      const ship = this.ships.get(id);
+      if (ship === undefined || roleIsFleetHull(ship)) continue;
+      eligible.push({ ship, amount: rec.amount });
+      total += rec.amount;
+    }
+    if (total <= 0) return;
+    for (const e of eligible) this.grantXp(e.ship, (budget * e.amount) / total);
   }
 
   /**
@@ -3189,6 +3275,31 @@ export class World {
     if (attacker) {
       attacker.damageDealt += amount;
       this.creditDamageXp(attacker, dealt);
+    }
+    this.recordAssist(victimId, byId, dealt);
+  }
+
+  /**
+   * Note one attacker's contribution on the VICTIM's assist ledger (the split
+   * kill bounty). Gated on the feature being on, so at the shipped
+   * `assistWindowMs` of 0 nothing is allocated and nothing is written.
+   *
+   * Records the CLAMPED `dealt`, never the nominal blow, so a killing shot
+   * that overkills by 300 does not buy its owner a 300-damage share — the same
+   * rule Eric ruled for damage->XP, applied to the same figure.
+   *
+   * The attacker need not still exist (a dead killer's assist still counts, as
+   * kill credit already does), so this deliberately does NOT look them up.
+   */
+  private recordAssist(victimId: string, byId: string, dealt: number): void {
+    if (CONFIG.xp.assistWindowMs <= 0 || !(dealt > 0)) return;
+    const victim = this.ships.get(victimId);
+    if (victim === undefined) return;
+    const prev = victim.damageFrom.get(byId);
+    if (prev === undefined) victim.damageFrom.set(byId, { amount: dealt, at: this.now });
+    else {
+      prev.amount += dealt;
+      prev.at = this.now;
     }
   }
 

@@ -1625,6 +1625,43 @@ export const CONFIG = {
      * rule pays only for damage one hull deals to another.
      */
     damageLevels: 0,
+    /**
+     * SPLIT KILL BOUNTY — MEASUREMENT DIALS, DEFAULT OFF (Eric, 2026-08-22).
+     *
+     * `assistWindowMs` is the ON SWITCH and the contribution window in one: at
+     * 0 the whole mechanism is inert and the killer takes the full kill value,
+     * which is the shipped game. Above 0 a sinking hull's kill value becomes a
+     * POT: `killerShare` of it is guaranteed to the killer, and the remainder
+     * is split among everyone who damaged that hull PROPORTIONALLY TO THE
+     * DAMAGE THEY DEALT — the killer included, since they dealt damage too.
+     *
+     * The window exists so stale damage cannot claim a share: an attacker is
+     * eligible only if the LAST time they damaged this victim is within
+     * `assistWindowMs` of the sinking. Eric's case — *"you wouldn't get credit
+     * if you damaged a ship early in the match and then never saw it again for
+     * 5 minutes before it sunk"*.
+     *
+     * The THIRD experimental variable Eric named — the total value of a kill —
+     * needs no dial here: it is `killLevels` above, already tunable.
+     *
+     * Damage is counted with the SAME clamped figure the damage->XP rule uses,
+     * so overkill inflates nobody's share (his 2026-08-22 ruling applied
+     * consistently). Fleet hulls are excluded from the split entirely — they
+     * are not participants and cannot accrue XP, so counting them would make
+     * shares evaporate rather than redistribute.
+     */
+    assistWindowMs: 0,
+    /**
+     * Fraction of the kill value guaranteed to the KILLER before the rest is
+     * split by damage. Only consumed when `assistWindowMs > 0`. Eric's opening
+     * value is 1/10; it and the window are the two dials he named as the
+     * primary experimental variables.
+     *
+     * The killer then ALSO takes a proportional share of the remainder, so a
+     * solo kill still pays the full value — the split only ever moves value to
+     * others when others actually contributed.
+     */
+    killerShare: 0.1,
     // RAISED 2026-08-16 (Eric ruling, epic-6 amendment 24): ¼ / ⅓ / ½ → ¼ / ½ / ¾.
     // Every tier is now a DYADIC rational, so any integer fleet composition is
     // exactly representable — which is why fleetLevels()'s old exact-total pin
