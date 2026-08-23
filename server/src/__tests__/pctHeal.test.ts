@@ -323,3 +323,36 @@ describe('percentage heal: FLAT instant + %max pool (Eric 2026-08-23 variant)', 
     }
   });
 });
+
+describe('percentage heal: %max instant + FLAT pool (Eric 2026-08-23, the reverse)', () => {
+  it('pays 10% of max instantly and the flat 50 into the pool', () => {
+    withPct(0.1, 0, () => {
+      const w = bareWorld();
+      const a = place(w, 'a'); // battleship 350
+      a.hp = 100;
+      bank(w, a);
+      w.spendPoint('a', HEAL_CHOICE);
+      expect(a.hp).toBeCloseTo(100 + a.stats.maxHp * 0.1, 6); // 35 instant
+      expect(a.repairHp).toBe(CONFIG.damageControl.regenHp); // flat 50 pooled
+    });
+  });
+
+  it('KEEPS the anti-flask rule, unlike the other ordering', () => {
+    // With no percentage pool the drain stays on the fixed CONFIG rate, so two
+    // heals run LONGER rather than faster. The 50-flat-instant + %max-pool
+    // ordering does NOT have this property, because its pool carries its own
+    // duration-based rate. Identical totals, different stacking behaviour —
+    // worth knowing when comparing the two.
+    withPct(0.1, 0, () => {
+      const w = bareWorld();
+      const a = place(w, 'a');
+      a.hp = 50;
+      bank(w, a);
+      bank(w, a);
+      w.spendPoint('a', HEAL_CHOICE);
+      w.spendPoint('a', HEAL_CHOICE);
+      expect(a.repairHp).toBe(2 * CONFIG.damageControl.regenHp);
+      expect(a.repairRate).toBe(0);
+    });
+  });
+});

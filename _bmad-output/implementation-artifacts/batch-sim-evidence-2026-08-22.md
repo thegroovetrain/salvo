@@ -867,3 +867,84 @@ hands the Battleship an advantage it never bought. A delta rule keeps the
 synergy AND is class-neutral at zero cards. **NOT BUILT — needs a ruling.**
 
 Options 1 and 2 compensate AROUND the problem; this one removes it.
+
+## Compensation probes and THE DECOMPOSITION — the menu heal is the whole problem
+
+Eric asked what might compensate the Torpedo Boat, and chose two dials sized
+from cycle 1. Both were run as single-dial probes on the ruled config (n=91),
+then a decomposition arm settled the question neither could.
+
+| config | BS | ML | TB | spread | cards |
+|---|---|---|---|---|---|
+| shipped (n=**360**) | 40.0 | 31.7 | 28.3 | **11.7** | 3.33 |
+| **`ruledShippedHeal`** — split + auto-heal, menu heal UNTOUCHED | **42.9** | **29.7** | **27.5** | **15.4** | **3.59** |
+| hybrid B — 10 % max instant + 50 flat pooled | 46.2 | 34.1 | 19.8 | 26.4 | — |
+| `ruledBS26` — broadside 18 → 26 s | 48.4 | 31.9 | 19.8 | 28.6 | 3.52 |
+| `ruledTorp65` — torpedo 50 → 65 | 54.9 | 22.0 | 23.1 | 33.0 | — |
+| hybrid A — 50 flat instant + 10 % max pooled | 56.0 | 26.4 | 17.6 | 38.5 | 3.35 |
+| **ruled 15 % + 15 %** (n=**360**) | **56.4** | 26.1 | **17.5** | **38.9** | 3.54 |
+
+### THE ANSWER: nothing needs to compensate the Torpedo Boat
+
+With the split and the auto-heal in place and **the menu heal left exactly as it
+ships**, the TB sits at **27.5 %** — its 28.3 % baseline — and the whole field is
+at **15.4 pp** against the shipped 11.7 pp, with the **best card yield measured
+anywhere (3.59, +8 %)**.
+
+**The TB was never broken by the split or by the auto-heal.** Every point it lost
+came from converting the MENU heal to percentages, and every variant of that
+conversion cost 11-23 pp of spread. That also retires both compensation dials:
+they were repairing damage this configuration does not cause, and each carried a
+real cost (slowing a weapon deliberately tuned at 18 s; draining the Mine Layer).
+
+### What the probes established on the way
+
+- **`broadside.reloadMs` 18 → 26 s** — BS −8.0, and the **Mine Layer returns to
+  band (31.9 %) untouched**, confirming the ML was under-band only because the BS
+  was absorbing share. TB barely moves (+2.3), exactly as cycle 1's arm 13 said.
+- **`torpedo.damage` 50 → 65** — TB +5.6, but it came out of the **Mine Layer**
+  (−4.1), not the Battleship (−1.5). **Cycle 1's context-dependency warning
+  confirmed**: the torpedo↔BS trade of arm 2 held only in SHORT matches; at
+  ~720 s the ML absorbs it (the arm-12 pattern). Right class, wrong pocket.
+- **base360 is itself a finding**: at n=360 the SHIPPED game is ML 31.7 % and TB
+  28.3 %, **both consistent with the band** — only the Battleship (40.0 %) is
+  out. The shipped game is closer to target than any 91-match reading suggested.
+
+### THE SUSTAIN HALF DRIVES CLASS BALANCE, NOT THE BURST
+
+The cleanest single-variable result of the session. Two menu-heal orderings with
+**identical totals** (TB 75 / ML 80 / BS 85):
+
+- **A** 50 flat instant + 10 % max pooled → 56.0 / 26.4 / 17.6, **38.5 pp**
+- **B** 10 % max instant + 50 flat pooled → 46.2 / 34.1 / 19.8, **26.4 pp**
+
+Same total healing; **12 pp of spread, purely from which half scales with hull
+size.** In A the POOL scales (TB 25 / BS 35); in B it is flat 50 for everyone.
+Equalising sustained healing THROUGHPUT is worth 12 pp; equalising BURST is worth
+almost nothing — which fits a game whose matches now run ~720 s, where throughput
+across many heals decides fights rather than any single top-up. **The anti-flask
+rule is therefore doing real balance work**: B keeps the fixed-rate flat pool
+while A's pool carries its own duration-based rate.
+
+### Standing recommendation
+
+- **XP split — keep.** Benign alone (11.0 pp) and benign in combination.
+- **Auto-heal 10 % of missing per level — keep.** Best single mechanism measured
+  (5.5 pp alone) and it carries the card gain.
+- **Menu heal as percentages — this is the entire bill.** It buys the hull-card
+  synergy; the measured price is 11-23 pp of class spread, cheapest as hybrid B.
+
+**The only untested route to having the synergy without the bill** remains the
+back-pocket mechanism Eric kept alive: scale the heal off **ADDED** maxHp rather
+than absolute, so hull cards grow it but a Battleship does not start ahead.
+NOT BUILT — needs a ruling.
+
+### Calibration note, recorded against this author
+
+Five predictions missed this session: `healboth` composing, `d1000lvl25`
+composing, `split50w30x2` keeping flatness, the mine one-shot causing the ML
+collapse, and flat-burst favouring the TB. Every ARITHMETIC claim held (heal
+parity points, the 3-4× undersized pool, XP conservation, the hull-card
+anti-synergy, drone-hp proportionality). **The pattern: reasoning about SIZES is
+reliable here; reasoning about WHICH MECHANISM DOMINATES AN OUTCOME is not.
+Compute the arithmetic; measure the causation.**
