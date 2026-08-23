@@ -447,6 +447,15 @@ export interface ShipRecord {
    */
   damageFrom: Map<string, { amount: number; at: number }>;
   /**
+   * ENVIRONMENT damage taken this life — the storm plus every PvE fleet hull,
+   * pooled, because neither can hold a share and Eric treats them as the same
+   * category (*"they are technically part of the environment just like the
+   * storm is"*). Consumed only by the assist split, weighted by
+   * CONFIG.xp.assistEnvWeight; at the shipped weight of 0 it is recorded but
+   * ignored. Same lifecycle as `damageFrom`.
+   */
+  envDamage: number;
+  /**
    * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
    * nothing grants these in production until 2.7's spend flow). Mutated only
    * by applyBoon(). Survive respawn (waiting-phase deaths keep the build,
@@ -1272,7 +1281,7 @@ export class World {
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
-      xpMs: 0, level: 0, dmgXpCarryMs: 0, damageFrom: new Map(),
+      xpMs: 0, level: 0, dmgXpCarryMs: 0, damageFrom: new Map(), envDamage: 0,
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
@@ -1530,6 +1539,7 @@ export class World {
     ship.level = 0;
     ship.dmgXpCarryMs = 0;
     ship.damageFrom.clear();
+    ship.envDamage = 0;
     // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
     // fresh build — respawn() below, waiting-phase only, preserves.
     ship.boons = [];
@@ -1741,6 +1751,7 @@ export class World {
     }
     this.payKillValue(victim, killer);
     victim.damageFrom.clear(); // the ledger dies with the life it described
+    victim.envDamage = 0;
   }
 
   /**
@@ -1803,7 +1814,17 @@ export class World {
       total += rec.amount;
     }
     if (total <= 0) return;
-    for (const e of eligible) this.grantXp(e.ship, (budget * e.amount) / total);
+    // ENVIRONMENT DILUTION (Eric 2026-08-22). The pot is scaled by the eligible
+    // players' share of the damage that actually killed this hull, so a graze
+    // finished by the storm pays a graze's worth instead of the whole pot.
+    // The storm and the fleet dilute IDENTICALLY — one rule, Eric's own
+    // framing that a drone is environment like the storm — and stale player
+    // damage counts toward neither side.
+    const envWeight = Math.min(1, Math.max(0, CONFIG.xp.assistEnvWeight));
+    const env = victim.envDamage * envWeight;
+    const paid = env > 0 ? budget * (total / (total + env)) : budget;
+    if (!(paid > 0)) return;
+    for (const e of eligible) this.grantXp(e.ship, (paid * e.amount) / total);
   }
 
   /**
@@ -2674,6 +2695,10 @@ export class World {
     const bite = CONFIG.zone.stormDps * dt;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle) || !isOutside(ship.state, ring.cx, ring.cy, ring.r)) continue;
+      // The storm is ENVIRONMENT for the assist split: pooled on the victim so
+      // assistEnvWeight can dilute it. Clamped to the hp actually removed, the
+      // same rule every other damage source is recorded under.
+      if (CONFIG.xp.assistWindowMs > 0) ship.envDamage += Math.min(bite, Math.max(0, ship.hp));
       ship.hp -= bite;
       if (ship.hp <= 0) this.sinkShip(ship.id); // by=undefined — the storm has no killer
     }
@@ -3295,6 +3320,16 @@ export class World {
     if (CONFIG.xp.assistWindowMs <= 0 || !(dealt > 0)) return;
     const victim = this.ships.get(victimId);
     if (victim === undefined) return;
+    // A FLEET attacker is ENVIRONMENT, pooled rather than ledgered: it can
+    // never hold a share, and pooling it is what lets assistEnvWeight dilute
+    // fleet damage exactly as it dilutes the storm's. An attacker we cannot
+    // find is treated as a departed PLAYER, not as environment — the
+    // conservative reading, since it keeps their damage out of the dilution.
+    const attacker = this.ships.get(byId);
+    if (attacker !== undefined && roleIsFleetHull(attacker)) {
+      victim.envDamage += dealt;
+      return;
+    }
     const prev = victim.damageFrom.get(byId);
     if (prev === undefined) victim.damageFrom.set(byId, { amount: dealt, at: this.now });
     else {

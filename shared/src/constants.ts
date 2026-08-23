@@ -1662,6 +1662,30 @@ export const CONFIG = {
      * others when others actually contributed.
      */
     killerShare: 0.1,
+    /**
+     * HOW MUCH ENVIRONMENT DAMAGE DILUTES THE ASSIST POT (Eric, 2026-08-22).
+     *
+     * The storm and the PvE fleet are both ENVIRONMENT — Eric's own framing:
+     * *"they are technically part of the environment just like the storm is"* —
+     * so ONE rule covers both, and neither gets a special case.
+     *
+     * At 0 (the default, and what the first split arms measured) environment
+     * damage is FREE: the eligible players divide the whole assist pot however
+     * little of the hull they actually removed. That is too generous at the
+     * low end — graze a hull for 10, let the storm take the other 240, and you
+     * collect the entire pot for a graze.
+     *
+     * At 1 the pot is scaled by the players' share of the damage that actually
+     * killed the hull, so the storm and the fleet dilute it exactly as another
+     * player would. Eric's *"shouldn't count ... to some extent"* is the
+     * reason this is a WEIGHT rather than a flag: partial values are the
+     * interesting middle.
+     *
+     * STALE player damage counts toward NEITHER side — it is not environment,
+     * and diluting a pot because of a player who left the fight is the wrong
+     * reading of "who killed this hull".
+     */
+    assistEnvWeight: 0,
     // RAISED 2026-08-16 (Eric ruling, epic-6 amendment 24): ¼ / ⅓ / ½ → ¼ / ½ / ¾.
     // Every tier is now a DYADIC rational, so any integer fleet composition is
     // exactly representable — which is why fleetLevels()'s old exact-total pin

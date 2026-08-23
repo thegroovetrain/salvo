@@ -17,18 +17,21 @@ import { CONFIG, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 
 const XP = CONFIG.xp;
-const MUT = CONFIG.xp as { assistWindowMs: number; killerShare: number };
+const MUT = CONFIG.xp as { assistWindowMs: number; killerShare: number; assistEnvWeight: number };
 
-function withSplit<T>(windowMs: number, killerShare: number, fn: () => T): T {
+function withSplit<T>(windowMs: number, killerShare: number, fn: () => T, envWeight = 0): T {
   const w = MUT.assistWindowMs;
   const k = MUT.killerShare;
+  const e = MUT.assistEnvWeight;
   MUT.assistWindowMs = windowMs;
   MUT.killerShare = killerShare;
+  MUT.assistEnvWeight = envWeight;
   try {
     return fn();
   } finally {
     MUT.assistWindowMs = w;
     MUT.killerShare = k;
+    MUT.assistEnvWeight = e;
   }
 }
 
@@ -268,5 +271,82 @@ describe('split bounty: the edges', () => {
       w.sinkShip('b', 'a');
       expect(b.damageFrom.size).toBe(0);
     });
+  });
+});
+
+describe('split bounty: ENVIRONMENT dilution (storm + fleet, one rule)', () => {
+  it('ships at 0 — environment is free, which is what the first split arms measured', () => {
+    expect(CONFIG.xp.assistEnvWeight).toBe(0);
+  });
+
+  it('at weight 0 a FLEET damager does not dilute the pot', () => {
+    withSplit(30000, 0.1, () => {
+      const w = bareWorld();
+      const a = place(w, 'a', 0);
+      const b = place(w, 'b', 300);
+      const d = place(w, 'd', 600, 'droneSmall', true);
+      b.hp = 200;
+      hit(w, 'd', b, 100, 'drone');
+      hit(w, 'a', b, 100, 'kill');
+      expect(levels(a)).toBeCloseTo(XP.killLevels, 6);
+    });
+  });
+
+  it('at weight 1 a FLEET damager dilutes exactly like a player would', () => {
+    withSplit(
+      30000,
+      0.1,
+      () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const d = place(w, 'd', 600, 'droneSmall', true);
+        b.hp = 200;
+        hit(w, 'd', b, 100, 'drone'); // environment did half the work
+        hit(w, 'a', b, 100, 'kill'); // a did the other half
+        // a keeps its guaranteed 0.1, but the assist pot pays only the half
+        // the players actually removed: 0.9 x 0.5 = 0.45.
+        expect(levels(a)).toBeCloseTo(0.1 + 0.45, 6);
+      },
+      1,
+    );
+  });
+
+  it('at weight 1 a GRAZE finished by the storm pays a graze, not a whole kill', () => {
+    withSplit(
+      30000,
+      0.1,
+      () => {
+        const w = bareWorld();
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 250;
+        hit(w, 'c', b, 10, 'graze'); // c chips 10...
+        b.envDamage += 240; // ...the storm takes the other 240
+        w.sinkShip('b'); // unattributed: no killer share is paid
+        // 0.9 x (10 / 250) = 0.036, not the whole 0.9 the un-diluted rule pays.
+        expect(levels(c)).toBeCloseTo(0.9 * (10 / 250), 4);
+      },
+      1,
+    );
+  });
+
+  it('takes a PARTIAL weight — Eric\'s "to some extent" is the interesting middle', () => {
+    withSplit(
+      30000,
+      0.1,
+      () => {
+        const w = bareWorld();
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 200;
+        hit(w, 'c', b, 100, 'half');
+        b.envDamage += 100;
+        w.sinkShip('b');
+        // env counts at half weight: 100 / (100 + 50) = 2/3 of the pot.
+        expect(levels(c)).toBeCloseTo(0.9 * (100 / 150), 4);
+      },
+      0.5,
+    );
   });
 });

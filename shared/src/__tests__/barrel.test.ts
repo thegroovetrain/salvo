@@ -274,7 +274,23 @@ describe('shared barrel', () => {
     // Turning this on in production is Eric's ruling, and flipping it here
     // must fail loudly rather than ride in on an unrelated change.
     expect(CONFIG.xp.damageLevels).toBe(0);
-    expect(Object.keys(CONFIG.xp).sort()).toEqual(['damageLevels', 'droneTierLevels', 'killLevels', 'levelMs']);
+    // THE SPLIT KILL BOUNTY IS OFF TOO. `assistWindowMs` is both the switch and
+    // the window, so 0 means the killer takes the whole kill value exactly as
+    // the shipped game does — no ledger written, no share computed. The other
+    // two are its shape, inert while it is 0, and pinned so that turning the
+    // mechanism on is always a deliberate act.
+    expect(CONFIG.xp.assistWindowMs).toBe(0);
+    expect(CONFIG.xp.killerShare).toBe(0.1);
+    expect(CONFIG.xp.assistEnvWeight).toBe(0);
+    expect(Object.keys(CONFIG.xp).sort()).toEqual([
+      'assistEnvWeight',
+      'assistWindowMs',
+      'damageLevels',
+      'droneTierLevels',
+      'killLevels',
+      'killerShare',
+      'levelMs',
+    ]);
   });
 
   it('carries the damage-control block — and the free per-level heal ships OFF', () => {
