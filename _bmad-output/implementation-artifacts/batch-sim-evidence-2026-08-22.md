@@ -657,3 +657,112 @@ candidates pointing at the band.**
 and the Mine Layer is measured with part of its kit unused (radar buoy 0
 deployments in 2,600 bot-matches, acquisition cards never fitted), so its
 weakness may be partly a BOT problem rather than a GAME problem.
+
+---
+
+# Session 4 — percentage healing (2026-08-23)
+
+Eric: *"instead of a flat amount of healing, lets say that the heal option
+restores 10% of your maximum hull as a flat heal and 10% of your missing hull
+(after the flat heal) over 5 seconds"*, sweeping each percentage to 15 % and
+20 %, plus the free per-level heal at 10 % of missing.
+
+**His motivation is FEEL, not balance**, stated explicitly: *"the reason i like
+the *idea* of percentage based heals is that it makes the increased hull points
+upgrade *that* much more appealing… regardless of what it does to balance (which
+we can fix elsewhere) I'm more interested making the game *feel* right."*
+
+## THE MOTIVATION IS MECHANICALLY CORRECT — the shipped heal is an ANTI-SYNERGY
+
+`shipHull` is common ×4 at +25 maxHp = **+100 max**. Under the shipped flat heal
+(50 instant + 50 pooled = 100 hp, always), stacking all four drops the heal from
+**40 % of your hull to 28.6 %** — hull points make damage control
+*proportionally worse*. Under percentage healing the same four cards raise the
+heal **40 % in absolute hp** and hold it at a constant fraction. Hull points and
+damage control stop working against each other. **That is a real design win
+independent of any balance number, and it is the strongest argument in this
+session for the whole direction.**
+
+## Results — 91 matches per arm
+
+| arm | flat % | miss % | cards | heal % | BS | TB | ML | spread |
+|---|---|---|---|---|---|---|---|---|
+| baseline | flat 50 | flat 50 | 3.30 | 58.7 | 40.7 | 30.8 | 28.6 | **12.1** |
+| **pctauto10** | — | auto 10 | **3.65** | **53.9** | **35.2** | **35.2** | 29.7 | **5.5** |
+| pct10_10 | 10 | 10 | 2.18 | 73.4 | 61.5 | 9.9 | 28.6 | 51.6 |
+| pct15_10 | 15 | 10 | 2.53 | 68.8 | 53.8 | 19.8 | 26.4 | 34.1 |
+| pct20_10 | 20 | 10 | 2.87 | 64.8 | 54.9 | 9.9 | 35.2 | 45.1 |
+| pct10_15 | 10 | 15 | 2.34 | 71.6 | 61.5 | 12.1 | 26.4 | 49.5 |
+| pct10_20 | 10 | 20 | 2.57 | 68.4 | 52.7 | 17.6 | 29.7 | 35.2 |
+| pct15_40 | 15 | 40 | 3.37 | 58.5 | 53.8 | 19.8 | 26.4 | 34.1 |
+| pct20_50 | 20 | 50 | **3.73** | 53.7 | 61.1 | 17.8 | 21.1 | 43.3 |
+| pct05_60 | 5 | 60 | 3.66 | 55.3 | 53.3 | **21.1** | 25.6 | 32.2 |
+
+### THE SWEEP AS SPECIFIED COULD NOT CONVERGE, and why
+
+10-20 % undersizes the POOLED half by 3-4×: the shipped heal pools a flat 50 hp,
+while 10-20 % of missing pools only 7.5-21. So every arm of the original sweep
+was a net NERF (cards BELOW baseline in all five), and the nerf was tangled with
+the re-proportioning. The parity arms (`pct15_40`, `pct20_50`, `pct05_60`) were
+added to separate them. **The two components need very different scales**: the
+flat part's parity is 14-20 %, the missing part's is ~30-40 %.
+
+### THE FINDING: it matters WHICH heal you convert, not the flat/missing mix
+
+**Every one of the eight MENU-heal percentage arms puts the Torpedo Boat between
+9.9 % and 21.1 % and the Battleship above 52 %** — every flat/missing
+combination, under-strength and at parity alike. That is the most consistent
+pattern in the whole session.
+
+Converting only the FREE PER-LEVEL heal to %missing and leaving the menu heal
+flat (`pctauto10`) gives **+11 % cards, heal share 58.7 → 53.9 %, and BS and TB
+dead level at 35.2 % with a 5.5 pp spread — the joint-tightest field measured
+anywhere in these campaigns.**
+
+Reading: the menu heal is the emergency spend that decides engagements, so making
+it hull-proportional hands the Battleship a decisive edge in sustained fights.
+The auto heal is a background trickle; proportional there costs nothing.
+
+### Eric's small-hull hypothesis: DIRECTIONALLY RIGHT, INSUFFICIENT
+
+*"smaller hulls might prefer more %missing health as they are more likely to have
+a higher % missing"* — correct BY CONSTRUCTION. Damage is ABSOLUTE, so identical
+fire leaves a small hull at a lower fraction of health, and %missing pays in
+proportion to that fraction while %max is strictly proportional to hull size.
+
+Supported by the data: at fixed flat 10 %, raising missing 10 → 15 → 20 took the
+TB 9.9 → 12.1 → 17.6 (monotonic); at fixed missing 10 %, raising flat 10 → 20
+left it at 9.9. The missing-heavy `pct05_60` gives the best TB of the menu-heal
+family. **But it does not rescue it** — 21.1 % against a 30.8 % baseline.
+
+### The trade, stated for a ruling
+
+**The hull-card synergy lives in the %max component of the MENU heal** — the big
+visible one. So:
+
+- `pct20_50` → synergy + near-death scaling. Bill: ~20 pp of Battleship
+  advantage (BS 61.1, TB 17.8).
+- `pctauto10` → near-death scaling + balance + economy. No hull-card synergy.
+- Nothing tested gets all three.
+
+Since Eric has said balance is fixable elsewhere, `pct20_50` remains a legitimate
+choice — the point is that the bill is now measured rather than unknown.
+
+### The limit that matters most here
+
+**THE HARNESS CANNOT MEASURE APPEAL.** Bot card choice is `bestOfferIndex()` over
+FIXED per-profile weights (`ai/spending.ts`), so bots cannot perceive that a
+synergy became stronger and take `shipHull` at exactly the same rate either way.
+**Whether the hull upgrade FEELS better to buy is structurally unmeasurable by
+batch-sim and belongs to human playtest.** Everything above is the mechanical
+consequence only.
+
+### Implementation note carried forward
+
+Percentage mode delivers the pool BY DURATION (5 s) rather than at a fixed hp/s,
+because the amount now varies with how hurt the hull is. That DEPARTS from the
+anti-flask rule ("pools ADD, the RATE never changes") and does so ONLY in
+percentage mode — the flat path keeps its fixed rate and its anti-flask
+behaviour byte-identical, pinned by a test. Eric's *"after the flat heal"*
+ordering is load-bearing and also pinned: the flat part shrinks the missing pool
+measured against it, so the two percentages are not interchangeable.
