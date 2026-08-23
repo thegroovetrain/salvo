@@ -182,3 +182,110 @@ fund the damage term instead of stacking it on top.
 **Open and unruled:** whether `damageDealt` should be clamped like the XP is; and the standing
 pre-existing bot-quality gap (any-kill 38.6 %, storm deaths 4.86 %) that limits every absolute class
 reading in this file.
+
+---
+
+# Session 2 — chasing the goal behind the question (2026-08-22, same day)
+
+Eric, on seeing the first results: *"the goal is to increase the overall number
+of levels acquired… hopefully without exceeding the actual pool of cards
+available"*, then, sharpening it: *"I just want to see more levels on ships, more
+upgrades **without reducing the number of heals I have to spend to survive**."*
+He also accepted 1/300 as a rate he likes and opened the floor to other ideas.
+
+## THE STRUCTURAL FINDING: XP volume cannot buy you upgrades
+
+| arm | levels / bot | → cards | → heals | heal share |
+|---|---|---|---|---|
+| baseline | 7.99 | 3.30 | 4.69 | **58.7 %** |
+| 1/300 | 10.62 | 5.24 | 5.37 | **50.6 %** |
+| 1/100 | 22.48 | 10.91 | 11.05 | **50.3 %** |
+
+**Nearly three levels in five are spent on a heal rather than an upgrade, and
+adding XP barely moves that ratio** — it scales both halves together. Bots spend
+`HEAL_CHOICE` *before* considering a card (`ai/spending.ts:208`, heal test first
+by ruling), so heals and upgrades compete for one pool.
+
+The consequence is the whole session: **"more upgrades" and "more XP" are
+different problems.** There are two independent levers —
+
+- **VOLUME** (damage XP): more levels. Snowballs, widens class spread, pushes
+  the top bots into the deck ceiling (56 levels / 40 boons at 1/300 vs 35/30 at
+  baseline), and leaves the card:heal ratio untouched.
+- **RATIO** (heal economics): each level buys more *card*. No inflation, no
+  snowball, no deck-ceiling pressure.
+
+Eric's stated goal is a RATIO statement. That reframing is this session's main
+result and it was measured, not argued.
+
+## Eric's drone-hp idea BACKFIRED, and the cause is a documented breakpoint
+
+Proposal (his): at a rate of 1/N, a drone should be worth through damage what
+its kill tier already pays, i.e. `hp = tier × N` → **75 / 150 / 225** at 1/300.
+
+Measured (`d300drone`, 91 matches): **the Mine Layer got WORSE — 14.3 % → 9.9 %
+— and the Battleship took 57.1 %.**
+
+Cause, read out of the code rather than guessed. `shared/src/constants.ts:1257`:
+
+> `damage: 55` … *"and it still clears the 45hp small drone at base, **which is
+> the Mine Layer fleet-farming ruling (2026-08-16)**"*
+
+A 75 hp small drone sits **above the mine's one-shot**, so the `forager` — the
+ML's stronger profile, the one that farms drones — loses its entire farm. The
+Battleship, with the dps and bulk to grind 150-225 hp hulls, eats the buff
+instead. Attrition did not improve either (13.6 alive at 4:00 against a target
+of 10, *worse* than 1/300 alone): tankier PvE means more time shooting drones
+instead of each other.
+
+**DRONE HP AND MINE DAMAGE ARE COUPLED** — the same shape as cycle 122's ruling
+that hull HP and `damageControl` must move together, and the same failure mode:
+moving one alone silently reprices the other. The corrected arm (`d300drone2`)
+caps small at **55**, the largest value preserving the one-shot, and keeps Eric's
+proportional targets for medium/large, which break nothing (the mine never
+one-shot a 60 hp medium: 55 < 60 already). Going to a true 75 requires
+`mine.damage` 55 → 75 as its partner — a 36 % mine buff **against players too**,
+which is a far larger blast radius than the drone change it is paying for.
+
+## Two instrument dials added this session, both DEFAULT OFF
+
+- **`CONFIG.damageControl.levelHp`** — hp granted free on every level earned.
+  Eric's own candidate (*"a weak, automatic heal that you get every level"*),
+  built **in addition to** the menu heal, never instead of it: he likes the heal
+  being a strategic decision and so do his players, so the fix has to target the
+  SHARE it eats, not the decision.
+- **`CONFIG.damageControl.levelRegenMs`** — that heal's own payout time.
+
+**A cooldown-based global heal is REJECTED and must not be re-proposed.** Eric
+has *"ruled against it many times"*; it was offered again this session in
+ignorance and declined again. The distinction that keeps `levelHp` legal: it is
+paced by the ECONOMY (you earn it) rather than by a CLOCK.
+
+### The rate correction of record
+
+Eric ruled *"25 over 5 seconds"*. Told the shared pool now drains at 10 hp/s, he
+answered: *"I said 25 over 5, i meant 25 over 5. i know they are old numbers. I
+intentionally gave you those numbers."* So the free heal has its OWN pool
+(`ShipRecord.levelRepairHp`) at its OWN rate, `levelHp / levelRegenMs` = **5
+hp/s** — deliberately HALF the menu heal's, which is what makes the free trickle
+out-damageable while the paid heal still answers an emergency. The shared pool
+could not deliver it: it has one global rate by construction (the anti-flask
+rule), which holds inside the new channel too (pools ADD, rate fixed).
+
+**STALE DOC FLAGGED, NOT FIXED — needs an Eric ruling.** `tickRepairs`'s own
+docstring and `CLAUDE.md` both say the repair pool runs at **5 hp/s**. It does
+not: `regenHp / regenMs` = 50 / 5000 = **10 hp/s**. Cycle 122 doubled `regenHp`
+25 → 50 in the hull-HP pass without updating either claim, so both describe the
+pre-cycle-122 game. Whether to correct the docs or restore the rate is his call
+and was deliberately not taken. (CLAUDE.md's *"~25s per banked level"*
+sudden-death figure is unaffected — it derives from a heal's total 100 hp
+against 4 hp/s of storm, not from the drain rate.)
+
+Also found while testing: **`tickRepairs` runs BEFORE `tickXp` in `STEP_ORDER`**,
+so a level's pool is not drained in its own tick and payout begins the next one.
+
+## Arms still running at time of writing
+
+`heal2x` (no damage XP, heal potency doubled — also the CEILING on what a
+"heal-boost card line" could buy, since a card version is a paid opt-in subset),
+`d300heal`, `lvlheal25`, `d300lvl25`, `d300drone2`. Nine arms total.
