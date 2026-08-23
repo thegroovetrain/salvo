@@ -1787,6 +1787,26 @@ export class World {
   }
 
   /**
+   * The victim's contributors who may actually be paid: damage recorded at or
+   * after `cutoff`, from a hull that still exists and is not a fleet hull.
+   *
+   * Split out of splitAssists for the complexity budget, but it earns its own
+   * name — every clause here is a RULE (the recency gate, the fleet exclusion,
+   * the self-damage guard) rather than bookkeeping, and reading them in one
+   * place is how the payout stays auditable.
+   */
+  private eligibleContributors(victim: ShipRecord, cutoff: number): { ship: ShipRecord; amount: number }[] {
+    const out: { ship: ShipRecord; amount: number }[] = [];
+    for (const [id, rec] of victim.damageFrom) {
+      if (rec.at < cutoff || rec.amount <= 0 || id === victim.id) continue;
+      const ship = this.ships.get(id);
+      if (ship === undefined || roleIsFleetHull(ship)) continue;
+      out.push({ ship, amount: rec.amount });
+    }
+    return out;
+  }
+
+  /**
    * Divide `budget` levels among the victim's eligible contributors, in
    * proportion to the damage each dealt.
    *
@@ -1803,16 +1823,9 @@ export class World {
    */
   private splitAssists(victim: ShipRecord, budget: number, windowMs: number): void {
     if (!(budget > 0)) return;
-    const cutoff = this.now - windowMs;
+    const eligible = this.eligibleContributors(victim, this.now - windowMs);
     let total = 0;
-    const eligible: { ship: ShipRecord; amount: number }[] = [];
-    for (const [id, rec] of victim.damageFrom) {
-      if (rec.at < cutoff || rec.amount <= 0 || id === victim.id) continue;
-      const ship = this.ships.get(id);
-      if (ship === undefined || roleIsFleetHull(ship)) continue;
-      eligible.push({ ship, amount: rec.amount });
-      total += rec.amount;
-    }
+    for (const e of eligible) total += e.amount;
     if (total <= 0) return;
     // ENVIRONMENT DILUTION (Eric 2026-08-22). The pot is scaled by the eligible
     // players' share of the damage that actually killed this hull, so a graze
