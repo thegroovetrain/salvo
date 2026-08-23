@@ -277,6 +277,32 @@ describe('shared barrel', () => {
     expect(Object.keys(CONFIG.xp).sort()).toEqual(['damageLevels', 'droneTierLevels', 'killLevels', 'levelMs']);
   });
 
+  it('carries the damage-control block — and the free per-level heal ships OFF', () => {
+    // The PAID heal, unchanged: 50 instant + 50 into the pool = 100 hp.
+    expect(CONFIG.damageControl.instantHp).toBe(50);
+    expect(CONFIG.damageControl.regenHp).toBe(50);
+    expect(CONFIG.damageControl.regenMs).toBe(5000);
+    // THE FREE PER-LEVEL HEAL IS A MEASUREMENT DIAL AND SHIPS AT 0, exactly as
+    // xp.damageLevels does. Pinning the VALUE (not just the key) is what makes
+    // "the shipped game is unchanged" a test rather than a claim: at 0 the
+    // grant path returns before touching the pool, so levelling restores
+    // nothing and the heal stays purely a spend. Turning it on is Eric's
+    // ruling, and must not ride in on an unrelated change.
+    expect(CONFIG.damageControl.levelHp).toBe(0);
+    // Its own payout time, separate from regenMs BY DESIGN: the free trickle
+    // runs at levelHp/levelRegenMs (5 hp/s at 25) against the paid pool's
+    // regenHp/regenMs (10 hp/s), which is the asymmetry that keeps the free
+    // heal out-damageable while the paid one answers an emergency.
+    expect(CONFIG.damageControl.levelRegenMs).toBe(5000);
+    expect(Object.keys(CONFIG.damageControl).sort()).toEqual([
+      'instantHp',
+      'levelHp',
+      'levelRegenMs',
+      'regenHp',
+      'regenMs',
+    ]);
+  });
+
   it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {
     expect(CONFIG.bounty.killLevels).toBe(1); // on top of the standard captain kill
     expect(CONFIG.bounty.minCaptainKills).toBe(1); // a zero-kill field has no bounty
