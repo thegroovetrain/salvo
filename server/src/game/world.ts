@@ -611,6 +611,21 @@ export interface ShipRecord {
    */
   levelRepairHp: number;
   /**
+   * PER-POOL DRAIN RATES in hp/ms, used ONLY by percentage healing
+   * (CONFIG.damageControl.healMissingPct / levelMissingPct). 0 means "no rate
+   * of my own — drain at the fixed CONFIG rate", which is the flat path and is
+   * what keeps it byte-identical.
+   *
+   * Percentage healing needs its own rate because the AMOUNT now varies with
+   * how hurt the hull is while the DURATION is fixed at 5 s (Eric's "over 5
+   * seconds"). A fixed hp/s cannot deliver a variable amount in a fixed time.
+   * Set on grant to pool/regenMs, so the pool empties exactly one window after
+   * the most recent grant.
+   */
+  repairRate: number;
+  /** The same, for the free per-level pool. See `repairRate`. */
+  levelRepairRate: number;
+  /**
    * ms — server time the PROP-FOULING slow on this ship ends (Story 2.8);
    * 0 = not slowed. Written by detonateMine when a propFouling owner's blast
    * damages this hull (REFRESH, never stack: plain assignment of now +
@@ -1281,7 +1296,7 @@ export class World {
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
-      xpMs: 0, level: 0, dmgXpCarryMs: 0, damageFrom: new Map(), envDamage: 0,
+      xpMs: 0, level: 0, dmgXpCarryMs: 0, damageFrom: new Map(), envDamage: 0, repairRate: 0, levelRepairRate: 0,
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
@@ -1561,8 +1576,7 @@ export class World {
     // ...nor a DAMAGE CONTROL pool: hp is already full here, so a surviving
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
-    ship.repairHp = 0;
-    ship.levelRepairHp = 0;
+    World.clearRepair(ship);
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
@@ -1655,8 +1669,7 @@ export class World {
     // the economy is what a sinking captain loses (amendment 10 — "once
     // sinking, you're done"), tickRepairs would never tick it anyway (afloat
     // gate), and nothing may trickle hp back onto a hull already at 0.
-    ship.repairHp = 0;
-    ship.levelRepairHp = 0;
+    World.clearRepair(ship);
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
@@ -1942,9 +1955,21 @@ export class World {
    * reachable rather than defensive.
    */
   private grantLevelHeal(ship: ShipRecord): void {
-    const hp = CONFIG.damageControl.levelHp;
-    if (!(hp > 0) || !Number.isFinite(hp)) return;
+    const dc = CONFIG.damageControl;
     if (!isAfloat(ship.lifecycle)) return;
+    // Percentage mode (Eric: "the automatic heal set to 10% of missing hull")
+    // replaces the flat amount and, like the menu heal's pool, is delivered by
+    // DURATION rather than at a fixed rate.
+    if (dc.levelMissingPct > 0) {
+      const add = (ship.stats.maxHp - ship.hp) * dc.levelMissingPct;
+      if (!(add > 0)) return;
+      ship.levelRepairHp += add;
+      ship.levelRepairRate = dc.levelRegenMs > 0 ? ship.levelRepairHp / dc.levelRegenMs : 0;
+      this.pending.push({ k: 'heal', id: ship.id });
+      return;
+    }
+    const hp = dc.levelHp;
+    if (!(hp > 0) || !Number.isFinite(hp)) return;
     // INTO THE POOL, NOT THE BAR (Eric ruling 2026-08-22: "25 over 5
     // seconds"). Feeding `repairHp` rather than `hp` is what makes this a
     // TRICKLE the enemy can out-damage instead of a free instant top-up, so it
@@ -2190,10 +2215,23 @@ export class World {
     ship.offer = null;
     ship.bankedLevels -= 1;
     const dc = CONFIG.damageControl;
-    ship.hp = Math.min(ship.hp + dc.instantHp, ship.stats.maxHp);
-    // Pools ADD, the RATE never changes (the ratified anti-flask rule): a second
-    // heal makes the drain run twice as LONG, never twice as fast.
-    ship.repairHp += dc.regenHp;
+    // PERCENTAGE MODE (Eric 2026-08-23) replaces both amounts when on. The
+    // ORDER IS LOAD-BEARING and is his: the flat part lands FIRST and so
+    // shrinks the missing pool measured after it, which is why the two
+    // percentages are not interchangeable.
+    const instant = dc.healFlatPct > 0 ? ship.stats.maxHp * dc.healFlatPct : dc.instantHp;
+    ship.hp = Math.min(ship.hp + instant, ship.stats.maxHp);
+    if (dc.healMissingPct > 0) {
+      // Sized off what is STILL missing, then delivered over regenMs BY
+      // DURATION — the amount varies with how hurt the hull is, so a fixed
+      // hp/s cannot land it in a fixed 5 s.
+      ship.repairHp += (ship.stats.maxHp - ship.hp) * dc.healMissingPct;
+      ship.repairRate = dc.regenMs > 0 ? ship.repairHp / dc.regenMs : 0;
+    } else {
+      // Pools ADD, the RATE never changes (the ratified anti-flask rule): a
+      // second heal makes the drain run twice as LONG, never twice as fast.
+      ship.repairHp += dc.regenHp;
+    }
     this.pending.push({ k: 'heal', id: ship.id });
     this.materializeOffer(ship); // the NEXT banked level surfaces its hand now
     return true;
@@ -2743,8 +2781,12 @@ export class World {
     const levelBudget = dc.levelRegenMs > 0 ? (dc.levelHp / dc.levelRegenMs) * dtMs : 0;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
-      if (ship.repairHp > 0) this.payRepair(ship, budget, false);
-      if (ship.levelRepairHp > 0 && levelBudget > 0) this.payRepair(ship, levelBudget, true);
+      // A pool with its OWN rate (percentage healing) drains at that rate; a
+      // pool without one drains at the fixed CONFIG rate, which is the flat
+      // path and is byte-identical to what shipped.
+      if (ship.repairHp > 0) this.payRepair(ship, ship.repairRate > 0 ? ship.repairRate * dtMs : budget, false);
+      const lvl = ship.levelRepairRate > 0 ? ship.levelRepairRate * dtMs : levelBudget;
+      if (ship.levelRepairHp > 0 && lvl > 0) this.payRepair(ship, lvl, true);
     }
   }
 
@@ -2756,7 +2798,21 @@ export class World {
     const paid = Math.min(budget, pool);
     if (level) ship.levelRepairHp -= paid;
     else ship.repairHp -= paid;
+    // An emptied pool drops its custom rate, so a later FLAT grant is never
+    // paid out at a stale percentage-mode rate.
+    if (level && ship.levelRepairHp <= 0) ship.levelRepairRate = 0;
+    if (!level && ship.repairHp <= 0) ship.repairRate = 0;
     ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
+  }
+
+  /** Zero BOTH repair channels and their custom rates. One helper for the three
+   *  sites that end a hull's repair state (sink, redeploy, respawn), so a new
+   *  channel can never be added to one of them and forgotten in the others. */
+  private static clearRepair(ship: ShipRecord): void {
+    ship.repairHp = 0;
+    ship.levelRepairHp = 0;
+    ship.repairRate = 0;
+    ship.levelRepairRate = 0;
   }
 
   /** Alive hull silhouette polygons (post-move) that shells and mines test
@@ -4441,8 +4497,7 @@ export class World {
     // or a DAMAGE CONTROL pool (sinkShip already zeroed them; kept symmetric
     // for directed callers).
     ship.boostUntil = 0;
-    ship.repairHp = 0;
-    ship.levelRepairHp = 0;
+    World.clearRepair(ship);
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // ...nor a stale grounding read (the redeployShip rule): the respawn

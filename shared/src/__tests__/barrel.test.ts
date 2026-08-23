@@ -310,9 +310,19 @@ describe('shared barrel', () => {
     // regenHp/regenMs (10 hp/s), which is the asymmetry that keeps the free
     // heal out-damageable while the paid one answers an emergency.
     expect(CONFIG.damageControl.levelRegenMs).toBe(5000);
+    // PERCENTAGE HEALING ships OFF too. At 0 the heal pays the flat amounts
+    // above and the fixed-rate drain, so the shipped feel is untouched; above
+    // 0 these REPLACE those amounts and the pool switches to a fixed-DURATION
+    // delivery. Pinned by value so that is always a deliberate act.
+    expect(CONFIG.damageControl.healFlatPct).toBe(0);
+    expect(CONFIG.damageControl.healMissingPct).toBe(0);
+    expect(CONFIG.damageControl.levelMissingPct).toBe(0);
     expect(Object.keys(CONFIG.damageControl).sort()).toEqual([
+      'healFlatPct',
+      'healMissingPct',
       'instantHp',
       'levelHp',
+      'levelMissingPct',
       'levelRegenMs',
       'regenHp',
       'regenMs',

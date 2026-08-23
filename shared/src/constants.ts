@@ -1795,6 +1795,42 @@ export const CONFIG = {
      *  `levelHp / levelRegenMs`. Separate from `regenMs` because the two
      *  channels deliberately run at different speeds (see `levelHp`). */
     levelRegenMs: 5000,
+    /**
+     * PERCENTAGE HEALING — MEASUREMENT DIALS, DEFAULT OFF (Eric, 2026-08-23).
+     *
+     * *"instead of a flat amount of healing, lets say that the heal option
+     * restores 10% of your maximum hull as a flat heal and 10% of your missing
+     * hull (after the flat heal) over 5 seconds."*
+     *
+     * At 0 both are inert and the heal pays the FLAT `instantHp`/`regenHp`
+     * exactly as it ships. Above 0 they REPLACE those amounts:
+     *   instant = maxHp x healFlatPct                     (clamped to maxHp)
+     *   pool    = (maxHp - hp) x healMissingPct           (AFTER the instant)
+     * The "after the flat heal" ordering is Eric's and is load-bearing: the
+     * flat part shrinks the missing pool it is measured against, so the two
+     * percentages are NOT interchangeable and their order cannot be swapped.
+     *
+     * WHY PERCENTAGES CHANGE THE SHAPE OF THE HEAL. A flat heal is worth a
+     * different fraction of every hull (the reason cycle 122 had to double
+     * damageControl when hull HP doubled) and is worth the same whether you
+     * are at 90 % or 5 %. A missing-hull term is worth MOST when you are
+     * nearly dead, which is where an emergency heal is supposed to matter.
+     *
+     * `healMissingPct` is delivered over `regenMs` — 5 s BY DURATION, not at a
+     * fixed hp/s, because the amount now varies with how hurt you are. That is
+     * a departure from the anti-flask rule ("pools ADD, the RATE never
+     * changes") and applies ONLY in percentage mode; the flat path keeps its
+     * fixed rate byte-identical. Flagged rather than absorbed.
+     */
+    healFlatPct: 0,
+    healMissingPct: 0,
+    /**
+     * The FREE per-level heal as a fraction of MISSING hull (Eric: *"the
+     * automatic heal set to 10% of missing hull"*). At 0 the level heal pays
+     * the flat `levelHp` instead. Delivered over `levelRegenMs`, by duration,
+     * for the same reason as `healMissingPct`.
+     */
+    levelMissingPct: 0,
   },
 
   /**
