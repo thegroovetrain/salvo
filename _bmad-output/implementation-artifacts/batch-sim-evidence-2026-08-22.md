@@ -289,3 +289,113 @@ so a level's pool is not drained in its own tick and payout begins the next one.
 `heal2x` (no damage XP, heal potency doubled — also the CEILING on what a
 "heal-boost card line" could buy, since a card version is a paid opt-in subset),
 `d300heal`, `lvlheal25`, `d300lvl25`, `d300drone2`. Nine arms total.
+
+---
+
+# The full ten-arm campaign — results and ranked proposals
+
+91 matches per arm, `--roster even` (verified on every arm), 100 % resolved,
+±10pp coarse tier. Targets: each class **31-35 %** (spread < 4pp), and
+**10 / 5 / 2.5** hulls alive at 4:00 / 8:00 / 12:00.
+
+| arm | levels | cards | heals | heal % | BS | TB | ML | spread | 4:00 | 8:00 | 12:00 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 7.99 | 3.30 | 4.69 | 58.7 | 40.7 | 30.8 | 28.6 | **12.1** | 13.4 | 5.4 | 1.5 |
+| heal2x | 8.13 | **4.30** | 3.83 | 47.1 | 41.8 | 27.5 | 30.8 | **14.3** | 14.1 | 5.4 | 1.4 |
+| lvlheal25 | 7.78 | 4.00 | 3.77 | 48.5 | 38.5 | 39.6 | 22.0 | 17.6 | 13.5 | 4.9 | 1.1 |
+| heal2xmap | 7.84 | 4.16 | 3.68 | 46.9 | 46.2 | 33.0 | 20.9 | 25.3 | **13.0** | **5.0** | 1.2 |
+| dmg300 | 10.62 | 5.24 | 5.37 | 50.6 | 40.7 | 45.1 | 14.3 | 30.8 | 13.0 | 4.0 | 0.5 |
+| d300heal | 12.15 | **7.30** | 4.83 | 39.8 | 54.9 | 36.3 | 8.8 | 46.2 | 14.1 | 4.2 | 0.4 |
+| d300lvl25 | 10.98 | 6.56 | 4.39 | 40.1 | 46.2 | 38.5 | 15.4 | 30.8 | 12.8 | 3.5 | 0.4 |
+| d300drone | 11.55 | 6.21 | 5.31 | 46.1 | 57.1 | 33.0 | 9.9 | 47.3 | 13.6 | 4.1 | 0.4 |
+| d300drone2 | 11.51 | 6.12 | 5.37 | 46.7 | 49.5 | 40.7 | 9.9 | 39.6 | 13.6 | 4.2 | 0.4 |
+| dmg100 | 22.48 | 10.91 | 11.05 | 50.3 | 50.5 | 46.2 | 3.3 | 47.3 | **11.2** | 3.0 | 0.6 |
+| **target** | — | — | — | — | 31-35 | 31-35 | 31-35 | **< 4** | **10.0** | **5.0** | **2.5** |
+
+## The three results that matter
+
+**1. THE DAMAGE-XP RULE IS THE SOLE SOURCE OF THE CLASS DAMAGE.** Every arm
+containing 1/300 lands at **30.8-47.3 pp** spread; every arm without it stays at
+**12.1-25.3**. Across five independent combinations there is no configuration in
+which damage XP is present and the field is close. Only `d300heal`'s ML movement
+is individually significant (−19.8 pp, CI[−30.7, −8.5]) — but the *pattern* across
+five arms is not a coincidence of one noisy reading.
+
+**2. HEAL ECONOMICS BUYS UPGRADES ESSENTIALLY FREE.** `heal2x` is **+30 % cards
+on +1.8 % levels**; `lvlheal25` is **+21 % cards on −2.6 % levels**. Neither
+moves any class significantly (largest: ML +2.2 pp and −6.6 pp, both CIs
+spanning zero). This is the lever that answers Eric's goal — *"more upgrades
+without reducing the number of heals I have to spend to survive"* — because it
+attacks the RATIO rather than the volume, and survivability goes UP rather than
+being traded away.
+
+**3. NOTHING FIXED ATTRITION, AND THE MISS IS PRE-EXISTING.** Early attrition is
+3-4 hulls over target at 4:00 in **every arm including baseline** (13.4 vs 10).
+Storm deaths are ~5 % of all deaths, so this is an ENCOUNTER-RATE problem, not a
+storm-damage one. `map.baseRadius` 2800 → 2400 moved 4:00 only 14.1 → 13.0 and
+put 8:00 exactly on target, but cost 11 pp of class spread (ML 30.8 → 20.9) — a
+poor trade. **The attrition lever is not in the economy and was not found here.**
+
+## Eric's drone-hp idea: the hypothesis was WRONG, stated for the record
+
+Session 2 diagnosed the `d300drone` ML collapse as the mine losing its one-shot
+on a 75 hp small drone (the documented 2026-08-16 fleet-farming ruling). The
+corrected arm tested exactly that and **refuted it**: with small capped at 55,
+preserving the one-shot, **the ML is 9.9 % in BOTH drone arms — identical.**
+
+The correction was still worth making (BS 57.1 → 49.5, TB 33.0 → 40.7, spread
+47.3 → 39.6), so the breakpoint is real; it just was not what moved the ML.
+
+Per-profile levels give the actual mechanism:
+
+| profile | 1/300 | drone55 | |
+|---|---|---|---|
+| BS bulwark | 12.50 | 14.84 | **+19 %** |
+| ML forager | 11.66 | 12.56 | +8 % |
+| TB duelist | 13.08 | 13.88 | +6 % |
+
+**Raising drone hp is a BATTLESHIP buff.** The ML was already the efficient
+farmer — its PvE kills barely move (4.87 → 4.93) because one-shot mines were
+never its bottleneck — so making farming richer for everyone DILUTES its
+comparative advantage. Drone hp is not an ML fix in any variant tested.
+
+## Ranked proposals — none accepted, all awaiting a ruling
+
+1. **`damageControl.instantHp`/`regenHp` 50 → 100** (`heal2x`). +30 % cards,
+   +1.8 % levels, no significant class movement, survivability up. The single
+   best answer to the stated goal. Cost: attrition 4:00 worsens 13.4 → 14.1.
+2. **`damageControl.levelHp` 25 @ 5 hp/s** (`lvlheal25`, Eric's own idea).
+   +21 % cards, −20 % heal spends, no XP inflation, and it PRESERVES the
+   strategic heal decision he wants kept — the reason to prefer it over (1)
+   despite the smaller card gain.
+3. **Both together — UNTESTED.** Naively ~+50 % cards with no inflation, and the
+   two are mechanically independent. This is the obvious next campaign and it
+   was not run.
+4. **`xp.damageLevels` 1/300** — only if the class cost is acceptable or the ML
+   is fixed FIRST by some means not found here. It doubles cards when combined
+   with a heal lever (`d300heal` +121 %, `d300lvl25` +99 %) but no tested
+   combination brings spread under 30 pp.
+5. **REJECTED by measurement:** drone hp at any tested value; `map.baseRadius`
+   2400 as an attrition fix.
+
+**UNTESTED and named rather than implied:** combining the two heal levers;
+`zone.beatMs` / `zone.ringSteps.0` as the real attrition lever; lowering the
+passive tick to FUND a damage term instead of stacking on it; a per-victim
+damage cap; paying a fraction of the victim's MAX hp rather than raw damage.
+
+## Standing caveats
+
+- **±10pp is wider than the 4pp-wide band.** "Consistent with band" is the
+  strongest claim available; individual class orderings within an arm are not
+  callable at this tier. The five-arm PATTERN in result 1 is stronger than any
+  single arm's CI.
+- **Two bot-quality bars fail at BASELINE** (any-kill 38.6 % vs ≥60 %; storm
+  deaths 4.86 % vs 5-20 %), so absolute class share is partly tactics-driven in
+  every arm. Identical across arms, so between-arm differences stand.
+- **The ML reading carries a known bot-tactics confound**: per CLAUDE.md the
+  radar buoy has 0 deployments across 2,600 bot-matches and bots never fit an
+  acquisition card, so the Mine Layer is measured with part of its kit unused.
+  Its weakness may be partly a BOT problem rather than a GAME problem, and no
+  campaign here can separate the two.
+- Median match ends before 12:00 in every 1/300 arm, so the final ring cycle's
+  attrition target is **unmeasurable rather than unmet** there.
