@@ -279,3 +279,47 @@ describe("percentage heal: the POOLED half as a fraction of MAX (Eric's ruling c
     }
   });
 });
+
+describe('percentage heal: FLAT instant + %max pool (Eric 2026-08-23 variant)', () => {
+  it('pays the flat 50 instantly and 10% of max into the pool', () => {
+    // healFlatPct 0 means "use the flat instantHp", and healPoolPct sizes the
+    // pool off max — the hybrid keeps the flat heal's implicit small-hull
+    // advantage while the POOLED half still grows with hull cards.
+    const prev = DC.healPoolPct;
+    DC.healPoolPct = 0.10;
+    try {
+      withPct(0, 0, () => {
+        const w = bareWorld();
+        const a = place(w, 'a'); // battleship 350
+        a.hp = 100;
+        bank(w, a);
+        w.spendPoint('a', HEAL_CHOICE);
+        expect(a.hp).toBe(100 + CONFIG.damageControl.instantHp); // flat 50
+        expect(a.repairHp).toBeCloseTo(a.stats.maxHp * 0.1, 6); // 35 pooled
+      });
+    } finally {
+      DC.healPoolPct = prev;
+    }
+  });
+
+  it('leaves the SMALL hull the better proportional deal, unlike an all-%max heal', () => {
+    const prev = DC.healPoolPct;
+    DC.healPoolPct = 0.10;
+    try {
+      const fracOf = (hull: HullId): number =>
+        withPct(0, 0, () => {
+          const w = bareWorld();
+          const a = place(w, 'a', hull);
+          a.hp = 10;
+          bank(w, a);
+          w.spendPoint('a', HEAL_CHOICE);
+          return (CONFIG.damageControl.instantHp + a.repairHp) / a.stats.maxHp;
+        });
+      // The flat instant is a bigger slice of a small hull, so the TB keeps an
+      // edge that a pure %max heal erases entirely.
+      expect(fracOf('torpedoBoat')).toBeGreaterThan(fracOf('battleship'));
+    } finally {
+      DC.healPoolPct = prev;
+    }
+  });
+});
