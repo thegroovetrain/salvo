@@ -766,3 +766,104 @@ percentage mode — the flat path keeps its fixed rate and its anti-flask
 behaviour byte-identical, pinned by a test. Eric's *"after the flat heal"*
 ordering is load-bearing and also pinned: the flat part shrinks the missing pool
 measured against it, so the two percentages are not interchangeable.
+
+---
+
+# Session 5 — Eric's RULED CONFIGURATION, measured at ±5pp (2026-08-23)
+
+Eric, converging: *"I want the XP split. 1/10 for the killer, 9/10 split
+proportionally to whomever dealt damage in the last 30 seconds, normal kill
+reward. I want automatic 10% missing HP healing over 5 seconds each level up. I
+want the healing upgrade to provide 10% max HP instantly plus 15% max HP over 5
+seconds. Start there and run the larger test on that configuration."*
+Corrected the same session to **15 % + 15 %**.
+
+| dial | value |
+|---|---|
+| `xp.assistWindowMs` | 30000 |
+| `xp.killerShare` | 0.1 |
+| `xp.killLevels` | 1.0 (unchanged — "normal kill reward") |
+| `damageControl.levelMissingPct` | 0.10 (free, per level, over 5 s) |
+| `damageControl.healFlatPct` | 0.15 (instant) |
+| `damageControl.healPoolPct` | 0.15 (over 5 s) |
+
+**`healPoolPct` was BUILT for this ruling** — a pooled half sized off MAX rather
+than off MISSING. Queried as a possible slip and confirmed deliberate: *"it was
+not a slip."* Both shapes now exist, and choosing between them is a ruling.
+
+## Result — 360 matches, roster even, 360/360 resolved, worst CI half-width 5.10 pp
+
+| class | share | 95 % CI | in the 31-35 % band? |
+|---|---|---|---|
+| **battleship** | **56.4 %** | 51.2 – 61.4 | **NO** |
+| mineLayer | 26.1 % | 21.8 – 30.9 | **NO** |
+| **torpedoBoat** | **17.5 %** | 13.9 – 21.8 | **NO** |
+
+**Spread 38.9 pp. `all_consistent = false`. NO class CI comes near the band**,
+and the Torpedo Boat's upper bound sits ~10 pp below the band's floor.
+
+**THIS IS THE FIRST WELL-POWERED CLASS READING IN THE WHOLE CORPUS OF THESE
+SESSIONS.** Every other arm here ran at 91 matches / ±10 pp, where nothing short
+of a 20 pp swing was distinguishable from noise. At 360 this is not a hedge.
+
+Economy: levels 8.25 (+3 %), cards 3.54 (+7 %), heal share 58.7 → 57.1 %,
+max levels 36, max boons 33. Attrition 14.3 / 5.8 / 1.4 against 10 / 5 / 2.5.
+
+## The mechanism, and it is specific
+
+**Percentage healing scales with `maxHp`, and the Battleship has the most of
+it.** Under the flat heal every hull got 100 hp; under 15 + 15 % the BS gets 105
+and the TB 75. Doubled hull HP already produces ~720 s attrition wars, and in an
+attrition war sustained healing throughput decides fights — so the largest hull
+was handed the largest throughput.
+
+Cross-checked against session 4: **every configuration with ANY %max component
+on the MENU heal put the TB at 9.9-21.1 %** — nine arms now, including
+`pct15_40` and `pct05_60` which used %MISSING for the pooled half. So it is the
+%max **instant** component specifically, not the pooled half, and not the
+strength.
+
+The split bounty flattens on its own (5.5-11.0 pp across four arms) but is
+SWAMPED here rather than preserved.
+
+## Compensation — cycle-1 sensitivities, and their limits
+
+Read back from `batch-sim-evidence-2026-08-20.md` at Eric's request:
+
+| dial | move | TB | BS | ML |
+|---|---|---|---|---|
+| `torpedo.damage` 70→50 | −29 % | **−11.4 sig** | **+12.8 sig** | −1.4 |
+| `torpedo.damage` 60→45 | −25 % | −10.0 | +2.2 | **+7.7** |
+| `mine.blastRadius` 48→64 | +33 % | **−11.4 sig** | −0.6 | **+11.9 sig** |
+| hull HP +50 % (global) | — | −8.1 | −5.6 | **+13.6 sig** |
+| `broadside.reloadMs` 30→22 | −27 % | −0.5 | **+5.0** | −4.4 |
+| `gun.damage` 15→11 | −27 % | −5.6 ns | +6.3 ns | −0.7 |
+| `mine.placeHalfArcDeg` / `placeRange` | — | REFUTED, no effect | | |
+
+**Two cycle-1 lessons govern their use here.** *Which* dial matters more than how
+hard it is pulled — `torpedo.damage` and `mine.blastRadius` moved TB by an
+identical −11.4 pp and handed it to different classes. And **where TB's share
+goes is CONTEXT-DEPENDENT**: at 506 s the Battleship collected it, at 740 s with
+doubled HP the Mine Layer did. **This config runs 722 s — the second regime**,
+so a torpedo buff may come out of the already-under-band Mine Layer.
+
+**Every figure above comes from a DIFFERENT baseline** (125 hp hulls, 506 s
+matches) and is directional only.
+
+### Probes run (one dial each, 91 matches, on top of the ruled config)
+
+- `ruledBS26` — `broadside.reloadMs` 18 s → 26 s. Nerfs the actual
+  over-performer; cycle 1 says it leaves TB alone.
+- `ruledTorp65` — `torpedo.damage` 50 → 65. The question is not whether TB
+  gains but **whether the gain comes from the BS or the ML.**
+
+### KEPT IN THE BACK POCKET, Eric 2026-08-23: *"its not a bad idea"*
+
+Scale the percentage heal off the maxHp **ADDED** rather than absolute maxHp — a
+flat base plus a percentage of `(maxHp − baseMaxHp)`. The hull-card synergy Eric
+wants only requires that hull cards GROW the heal; it does not require the heal
+to scale with the maxHp a hull started with. Absolute scaling is precisely what
+hands the Battleship an advantage it never bought. A delta rule keeps the
+synergy AND is class-neutral at zero cards. **NOT BUILT — needs a ruling.**
+
+Options 1 and 2 compensate AROUND the problem; this one removes it.
