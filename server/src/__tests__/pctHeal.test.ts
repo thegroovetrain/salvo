@@ -23,6 +23,7 @@ import { World, type ShipRecord } from '../game/world.js';
 const DC = CONFIG.damageControl as {
   healFlatPct: number;
   healMissingPct: number;
+  healPoolPct: number;
   levelMissingPct: number;
   levelHp: number;
 };
@@ -212,5 +213,69 @@ describe('percentage heal: the FREE per-level heal as a fraction of missing', ()
       },
       0.1,
     );
+  });
+});
+
+describe("percentage heal: the POOLED half as a fraction of MAX (Eric's ruling config)", () => {
+  it('ships at 0', () => {
+    expect(CONFIG.damageControl.healPoolPct).toBe(0);
+  });
+
+  it('pays 10% of max instantly and 15% of max into the pool, over 5 s', () => {
+    const prev = DC.healPoolPct;
+    DC.healPoolPct = 0.15;
+    try {
+      withPct(0.1, 0, () => {
+        const w = bareWorld();
+        const a = place(w, 'a'); // battleship, 350 max
+        const max = a.stats.maxHp;
+        a.hp = 100;
+        bank(w, a);
+        w.spendPoint('a', HEAL_CHOICE);
+        expect(a.hp).toBeCloseTo(100 + max * 0.1, 6); // 35 instant
+        expect(a.repairHp).toBeCloseTo(max * 0.15, 6); // 52.5 pooled
+        for (let i = 0; i < SECOND * 5; i++) w.step();
+        expect(a.repairHp).toBeCloseTo(0, 4); // exactly the 5 s window
+        expect(a.hp).toBeCloseTo(100 + max * 0.25, 3); // 25% of max total
+      });
+    } finally {
+      DC.healPoolPct = prev;
+    }
+  });
+
+  it('pays the SAME whatever your hp — unlike the missing-sized pool', () => {
+    const prev = DC.healPoolPct;
+    DC.healPoolPct = 0.15;
+    try {
+      const pooled = (startHp: number): number =>
+        withPct(0.1, 0, () => {
+          const w = bareWorld();
+          const a = place(w, 'a');
+          a.hp = startHp;
+          bank(w, a);
+          w.spendPoint('a', HEAL_CHOICE);
+          return a.repairHp;
+        });
+      expect(pooled(50)).toBeCloseTo(pooled(250), 6);
+    } finally {
+      DC.healPoolPct = prev;
+    }
+  });
+
+  it('takes PRECEDENCE over healMissingPct so two pooled halves never both pay', () => {
+    const prev = DC.healPoolPct;
+    DC.healPoolPct = 0.15;
+    try {
+      withPct(0.1, 0.5, () => {
+        const w = bareWorld();
+        const a = place(w, 'a');
+        a.hp = 100;
+        bank(w, a);
+        w.spendPoint('a', HEAL_CHOICE);
+        expect(a.repairHp).toBeCloseTo(a.stats.maxHp * 0.15, 6); // max-based only
+      });
+    } finally {
+      DC.healPoolPct = prev;
+    }
   });
 });

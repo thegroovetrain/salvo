@@ -316,10 +316,12 @@ describe('shared barrel', () => {
     // delivery. Pinned by value so that is always a deliberate act.
     expect(CONFIG.damageControl.healFlatPct).toBe(0);
     expect(CONFIG.damageControl.healMissingPct).toBe(0);
+    expect(CONFIG.damageControl.healPoolPct).toBe(0);
     expect(CONFIG.damageControl.levelMissingPct).toBe(0);
     expect(Object.keys(CONFIG.damageControl).sort()).toEqual([
       'healFlatPct',
       'healMissingPct',
+      'healPoolPct',
       'instantHp',
       'levelHp',
       'levelMissingPct',

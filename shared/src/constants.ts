@@ -1825,6 +1825,23 @@ export const CONFIG = {
     healFlatPct: 0,
     healMissingPct: 0,
     /**
+     * The POOLED half as a fraction of MAX hull (Eric ruling 2026-08-23: *"the
+     * healing upgrade to provide 10% max HP instantly plus 15% max HP over 5
+     * seconds"*). Delivered over `regenMs`.
+     *
+     * DELIBERATELY DISTINCT FROM `healMissingPct`. That one sizes the pool off
+     * what is still MISSING, so it pays most when you are nearly dead and
+     * nothing at all when you are full. This one is a fixed fraction of MAX, so
+     * it pays the same whatever your hp — a flat heal that scales with hull
+     * size rather than with how hurt you are. Eric's first spec used missing;
+     * this ruling uses max, twice and explicitly, so both shapes exist and the
+     * choice between them is a ruling rather than an implementation detail.
+     *
+     * Takes PRECEDENCE over `healMissingPct` when both are set, so a
+     * configuration cannot silently pay two pooled halves.
+     */
+    healPoolPct: 0,
+    /**
      * The FREE per-level heal as a fraction of MISSING hull (Eric: *"the
      * automatic heal set to 10% of missing hull"*). At 0 the level heal pays
      * the flat `levelHp` instead. Delivered over `levelRegenMs`, by duration,

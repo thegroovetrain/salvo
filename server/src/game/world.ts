@@ -2221,7 +2221,12 @@ export class World {
     // percentages are not interchangeable.
     const instant = dc.healFlatPct > 0 ? ship.stats.maxHp * dc.healFlatPct : dc.instantHp;
     ship.hp = Math.min(ship.hp + instant, ship.stats.maxHp);
-    if (dc.healMissingPct > 0) {
+    if (dc.healPoolPct > 0) {
+      // A fixed fraction of MAX, delivered over the window — pays the same
+      // whatever your hp, unlike the missing-sized pool below.
+      ship.repairHp += ship.stats.maxHp * dc.healPoolPct;
+      ship.repairRate = dc.regenMs > 0 ? ship.repairHp / dc.regenMs : 0;
+    } else if (dc.healMissingPct > 0) {
       // Sized off what is STILL missing, then delivered over regenMs BY
       // DURATION — the amount varies with how hurt the hull is, so a fixed
       // hp/s cannot land it in a fixed 5 s.
