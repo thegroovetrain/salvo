@@ -166,6 +166,16 @@ function clampUnit(v: number): number {
 // hull, so nothing below this line can touch anything else.
 // ---------------------------------------------------------------------------
 
+/** The mind's resolved profile ROW, with the harness's random-spend override
+ *  applied (BotMind.spendRandom): a copy whose `spend` alone is flipped, so
+ *  temperament is byte-identical and chooseSpend's existing fork does the
+ *  rest. The shipped path (spendRandom false) returns the frozen row itself. */
+export function profileRowOf(mind: BotMind): BotProfile {
+  const row = profileOf(mind.profile);
+  if (!mind.spendRandom || row.spend === 'random') return row;
+  return { ...row, spend: 'random' };
+}
+
 /** Everything targeting/posture needs about the bot itself. */
 export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): BotSituation {
   return {
@@ -176,7 +186,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     maxHp: self.stats.maxHp,
     stats: self.stats,
     speed: self.state.speed,
-    profile: profileOf(mind.profile),
+    profile: profileRowOf(mind),
     ring: port.zoneLiveRing,
     islands: port.map.islands,
   };

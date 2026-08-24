@@ -77,6 +77,16 @@ export interface RunSpec {
   botProfile?: string;
   /** The controller-level engage gate; default 'always' (shipped behaviour). */
   botEngage?: BotEngageGate;
+  /** SPEND MODE (balance campaign, 2026-08-24): 'random' makes every rolled
+   *  in-game profile keep its temperament but pick cards uniformly at random
+   *  (BotController.spend — the engage-gate seam's sibling). Default
+   *  undefined = 'profile', the shipped weighted policy, byte-identical. */
+  botSpend?: 'profile' | 'random';
+  /** Force every rolled-path bot's hull (mono-class arms with tuned
+   *  temperaments); profiles still roll among that hull's own rows. args.ts
+   *  refuses the combinations this would contradict (--bot-profile, --roster
+   *  even). */
+  botHull?: ShipClassId;
   /** Scripted captain control factory; defaults to the storm-pacing pacifist
    *  (CONTROL_REGISTRY.pacifist — the only row there is). */
   control?: ControlFactory;
@@ -132,6 +142,8 @@ export function botProfileFor(
  *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
 function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
+  // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
+  if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
@@ -139,9 +151,10 @@ function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: num
     // (randomTorpedoBoat / randomBattleship / randomMineLayer), so it governs
     // the class and the roster policy must not fight it — passing a hull too
     // would let `--roster even` silently put a randomMineLayer row on a
-    // battleship. On the rolled path (no forcing) the roster policy deals as
-    // it does for captains.
-    ids.push(world.addBot(profile === undefined ? botHull(spec, index, i) : undefined, profile).id);
+    // battleship. On the rolled path (no forcing) a forced --bot-hull beats
+    // the roster deal (args.ts refuses the ambiguous combinations), else the
+    // roster policy deals as it does for captains.
+    ids.push(world.addBot(profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined, profile).id);
   }
   return ids;
 }

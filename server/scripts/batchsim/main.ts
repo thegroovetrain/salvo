@@ -70,9 +70,13 @@ function headerLines(opts: CliOptions): string[] {
   const hull = opts.roster !== 'rolled' ? ` roster=${opts.roster}` : '';
   const botProfile = opts.botProfile !== null ? ` botProfile=${opts.botProfile}` : '';
   const botEngage = opts.botEngage !== 'always' ? ` botEngage=${opts.botEngage}` : '';
+  // The tuned-profile measurement flags join the run key on the same
+  // only-when-non-default terms as every flag before them (NFR5).
+  const botSpend = opts.botSpend !== 'profile' ? ` botSpend=${opts.botSpend}` : '';
+  const botHull = opts.botHull !== null ? ` botHull=${opts.botHull}` : '';
   const roster = opts.deckOnly
     ? ''
-    : ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage} control=${opts.control}`;
+    : ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull} control=${opts.control}`;
   const tune = Object.keys(opts.tune).length > 0 ? ` tune=${tuneLine(opts.tune)}` : '';
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
@@ -126,6 +130,8 @@ function batchMode(opts: CliOptions): ModeOutput {
           bots: opts.bots,
           botProfile: opts.botProfile ?? undefined,
           botEngage: opts.botEngage,
+          botSpend: opts.botSpend,
+          botHull: opts.botHull ?? undefined,
           roster: opts.roster,
           control: CONTROL_REGISTRY[opts.control],
         },

@@ -241,6 +241,16 @@ export interface BotMind {
   /** The priority profile assigned at enroll off the seeded RNG (or the
    *  test-only row forced by the harness's explicit override). */
   profile: AnyProfileId;
+  /** RANDOM-SPEND OVERRIDE (balance campaign, 2026-08-24) — stamped at enroll
+   *  from BotController.spend, so a rolled IN-GAME profile keeps its whole
+   *  temperament (band, targeting, heal thresholds, appetite) while its CARD
+   *  pick alone goes uniform-random through the existing `spend: 'random'`
+   *  fork in chooseSpend. The heal rule fires before that fork by
+   *  construction, so this cannot change WHEN a bot heals — only which card
+   *  it takes. OPTIONAL, absent = false: absent on every production path and
+   *  in every hand-built test mind — only the controller's enroll ever sets
+   *  it, and only when the harness set BotController.spend first. */
+  spendRandom?: boolean;
   /** Deliberation-stagger slot in [0, cadenceTicks) — botPhase(id,
    *  cadenceTicks). Staggers DECISION work, never perception. */
   phase: number;

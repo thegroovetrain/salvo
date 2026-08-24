@@ -2,6 +2,7 @@
 // `--flag value` pairs, fail-fast with a usage message on anything unknown).
 // Pure over argv — unit-testable without a process.
 
+import { SHIP_CLASS_IDS, type ShipClassId } from '@salvo/shared';
 import { validateTunableKey, validateTunableValue, validateTuneKey, validateTuneValue } from './overrides.js';
 import { CONTROL_REGISTRY } from './controls.js';
 import { BOT_PROFILES, TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
@@ -36,6 +37,15 @@ export interface CliOptions {
   /** The controller-level engage gate: 'endgame' holds every bot's fire until
    *  the terminal ring is reached (the Story 3.4 evidence instrument). */
   botEngage: 'always' | 'endgame';
+  /** SPEND MODE (balance campaign, 2026-08-24): 'profile' (default, shipped
+   *  weighted policy) | 'random' — rolled IN-GAME profiles keep their whole
+   *  temperament but pick cards uniformly at random, the tuned-profile
+   *  instance of the blind-vacuum measurement design. */
+  botSpend: 'profile' | 'random';
+  /** FORCED HULL for every bot on the ROLLED-profile path (mono-class arms
+   *  with tuned temperaments): each bot still rolls an in-game profile for
+   *  that hull. Null = the roster policy deals as usual. */
+  botHull: ShipClassId | null;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
   /** EQUIPMENT CONFIG overrides (--tune), applied alongside `set` before any
@@ -106,6 +116,14 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --bot-engage MODE  'always' (default) or 'endgame': under 'endgame' bots hold
                      the ring rhythm and never fire until the terminal ring is
                      reached, then fight normally
+  --bot-spend MODE   'profile' (default; the shipped weighted boon policy) or
+                     'random': rolled in-game profiles keep their temperament
+                     but pick cards uniformly at random (tuned-profile
+                     instance of the randomized-pick measurement design)
+  --bot-hull CLASS   force every rolled-path bot onto one hull
+                     (${SHIP_CLASS_IDS.join(' | ')}); profiles still roll among
+                     that hull's own rows. Mono-class arms with tuned
+                     temperaments. Not valid with --bot-profile or --roster even
   --deck-only        pure deck-economy fast mode (no World, no Match)
   --draws N          deck-only total draw budget (default 20000)
   --raw              include raw per-match bot rows (builds, pick timing,
@@ -123,6 +141,8 @@ function defaults(): CliOptions {
     control: 'pacifist',
     botProfile: null,
     botEngage: 'always',
+    botSpend: 'profile',
+    botHull: null,
     set: {},
     tune: {},
     roster: 'rolled',
@@ -239,6 +259,18 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
     }
     o.botEngage = v;
   },
+  '--bot-spend': (o, v) => {
+    if (v !== 'profile' && v !== 'random') {
+      throw new UsageError(`--bot-spend: expected 'profile' or 'random', got '${v}'`);
+    }
+    o.botSpend = v;
+  },
+  '--bot-hull': (o, v) => {
+    if (!SHIP_CLASS_IDS.includes(v as ShipClassId)) {
+      throw new UsageError(`--bot-hull: unknown class '${v}' (available: ${SHIP_CLASS_IDS.join(', ')})`);
+    }
+    o.botHull = v as ShipClassId;
+  },
   '--set': parseSet,
   '--sweep': parseSweep,
   '--tune': parseTune,
@@ -300,6 +332,7 @@ function assertCoherent(opts: CliOptions): void {
   if (opts.botProfile !== null && opts.bots === 0) {
     throw new UsageError('--bot-profile needs --bots N: there is no bot to force it onto');
   }
+  assertBotFlagsCoherent(opts);
   assertRawCoherent(opts);
   if (!opts.deckOnly) return;
   // DECK-ONLY BUILDS NO WORLD. runDeckSim simulates the draw economy alone — it
@@ -313,6 +346,26 @@ function assertCoherent(opts: CliOptions): void {
   }
   if (Object.keys(opts.tune).length > 0) {
     throw new UsageError('--tune does not apply to --deck-only: the deck economy reads no combat CONFIG (drop one of the two flags)');
+  }
+}
+
+/** The tuned-profile measurement flags (balance campaign, 2026-08-24): both
+ *  need bots to act on, --bot-hull contradicts a forced test profile (the
+ *  profile governs the hull — buildBotLobby would silently ignore the hull),
+ *  and it contradicts --roster even (one hull for all IS the roster). Each
+ *  refusal closes a run key that would silently measure something other than
+ *  what the operator asked for. */
+function assertBotFlagsCoherent(opts: CliOptions): void {
+  if (opts.botSpend !== 'profile' && opts.bots === 0) {
+    throw new UsageError('--bot-spend needs --bots N: there is no bot to apply it to');
+  }
+  if (opts.botHull === null) return;
+  if (opts.bots === 0) throw new UsageError('--bot-hull needs --bots N: there is no bot to force it onto');
+  if (opts.botProfile !== null) {
+    throw new UsageError('--bot-hull conflicts with --bot-profile: a forced test profile governs the hull');
+  }
+  if (opts.roster === 'even') {
+    throw new UsageError('--bot-hull conflicts with --roster even: one forced hull IS the roster');
   }
 }
 
