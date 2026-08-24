@@ -52,17 +52,23 @@ level at 35.2 %).
 **Always:**
 
 - **The encounter model is the ruled semantics** (Eric, 2026-08-23) and has TWO
-  resets, both on a 30 s gap:
-  - **Encounter-level** — a hull that takes no participant damage for 30 s ends
+  resets, both on a **60 s** gap:
+  - **Encounter-level** — a hull that takes no participant damage for 60 s ends
     its encounter; the whole ledger is wiped, every contributor's claim with it.
-  - **Per-attacker** — *"if I should rejoin the combat after 30 seconds, it
+  - **Per-attacker** — *"if I should rejoin the combat after [the window], it
     starts counting my damage contribution fresh, as if I had not previously
     been in the battle."* This fires **even while the fight continues**: someone
     else keeping the encounter alive does not preserve YOUR claim.
-- **Eligibility on top of that:** your last damage must be inside the 30 s
-  window. 30 s is comfortably longer than every weapon cycle (gun 5 s, mine 15 s,
-  broadside 18 s, star shells 20 s); only the torpedo's 30 s sits at the
-  boundary, and the gun is universal.
+- **Eligibility on top of that:** your last damage must be inside the same 60 s
+  window. `assistWindowMs` and `assistEncounterGapMs` are ONE concept in this
+  model and must move together — with a 60 s gap and a 30 s eligibility window
+  an attacker who lapsed 45 s would keep their tally but be dropped by
+  eligibility anyway, so the gap would do nothing.
+- **60 s clears every weapon cycle with room** (gun 5 s, mine 15 s, broadside
+  18 s, star shells 20 s, torpedo 30 s). Eric's original 30 s was ruled first
+  and left the torpedo exactly at the boundary; 60 s removes that case entirely.
+  It also lets a disengage-and-return read as ONE encounter, which is closer to
+  how a naval fight actually plays than a hard 30 s cut.
 - **Overkill never pays** (Eric, 2026-08-22): the ledger records damage CLAMPED
   to the hp the hull actually had. *"if i do 50 damage to someone with 1 HP left,
   i get 1 damage worth of XP."*
@@ -133,10 +139,10 @@ level at 35.2 %).
 | Solo kill | one attacker, all damage recent | killer takes the FULL kill value | share + remainder both land on them |
 | Even split | A 100, B 100, B kills | B 0.55, A 0.45 | conservation: the pot is never inflated |
 | Uneven split | A 150, B 50, B kills | A 0.675, B 0.325 | strictly proportional |
-| Attacker lapses | A hits, then 30 s+ of nothing from A, B kills | A earns 0 | A's last damage outside the window |
-| Encounter lapses | A hits, 30 s of NO damage at all, B opens fresh and kills | A earns 0 | ledger wiped; the new hit opens a new encounter |
-| Long fight | A opens, both trade continuously for 90 s, B kills | A's OPENING damage still counts | no lull ⇒ encounter intact |
-| Rejoin mid-fight | A hits 200, absent 30 s+ while B sustains, A returns with 10, B kills | A counted for **10**, not 210 | per-attacker restart; B's tally untouched |
+| Attacker lapses | A hits, then 60 s+ of nothing from A, B kills | A earns 0 | A's last damage outside the window |
+| Encounter lapses | A hits, 60 s of NO damage at all, B opens fresh and kills | A earns 0 | ledger wiped; the new hit opens a new encounter |
+| Long fight | A opens, both trade continuously for 3 min, B kills | A's OPENING damage still counts | no lull ⇒ encounter intact |
+| Rejoin mid-fight | A hits 200, absent 60 s+ while B sustains, A returns with 10, B kills | A counted for **10**, not 210 | per-attacker restart; B's tally untouched |
 | Overkill | victim at 10 hp, 400-damage blow | 10 recorded, not 400 | clamped at the seam |
 | Storm kill | victim softened then storm-finished | assists paid; killer share unpaid | new value vs today's "credits nobody" |
 | Storm lull | victim burning alone 30 s+, then sunk | prior claims lapse | storm never refreshes the clock |
@@ -195,9 +201,9 @@ level at 35.2 %).
   shares SUM to the kill value.
 - Given an attacker whose last damage is older than the window, they receive
   nothing.
-- Given a 30 s lull in all participant damage, the ledger is wiped and prior
+- Given a 60 s lull in all participant damage, the ledger is wiped and prior
   contributors receive nothing.
-- Given an attacker who lapses 30 s and returns while the fight continues, their
+- Given an attacker who lapses 60 s and returns while the fight continues, their
   tally counts only damage from the return onward, and other contributors'
   tallies are unaffected.
 - Given a level earned by a damaged hull, 10 % of its missing hp is delivered
@@ -222,28 +228,42 @@ kill 38.6 % against a ≥60 % bar; storm deaths 4.86 % against a 5-20 % band), s
 absolute class share is partly decided by bot tactics in every arm — the
 between-arm differences are what carry.
 
-### The encounter model's own balance cost is UNMEASURED at usable precision
+### Why 60 s and not 30 s — and what is NOT established
 
-Recorded so a dev cycle does not rediscover it. On identical code and seeds
-(n=91), Eric's encounter model against the plain recency gate:
+Eric ruled the encounter model at 30 s, then asked for a 1:00 window measured.
+All arms below share code and seeds (n=91), on the adopted configuration:
 
-| | BS | ML | TB | spread |
+| window reading | BS | ML | TB | spread |
 |---|---|---|---|---|
-| plain gate (control) | 42.9 | 29.7 | 27.5 | **15.4 pp** |
-| encounter model, 30 s | 48.4 | 25.3 | 26.4 | **23.1 pp** |
+| shipped baseline (n=**360**) | 40.0 | 31.7 | 28.3 | 11.7 pp |
+| plain recency gate | 42.9 | 29.7 | 27.5 | 15.4 pp |
+| sliding window | 44.0 | 27.5 | 28.6 | 16.5 pp |
+| encounter model, 30 s | 48.4 | 25.3 | 26.4 | 23.1 pp |
+| **encounter model, 60 s** | **36.3** | **30.8** | **33.0** | **5.5 pp** |
 
-**No movement is significant** — the largest is BS +5.5 pp, CI[−8.8, +19.5] — so
-at this sample the difference is indistinguishable from noise. The point
-estimate is ~7.7 pp wider and there is a plausible mechanism behind it: **the
-stricter the split, the more it behaves like no split at all**, because
-discarding more contributions pushes value back toward whoever lands the kill,
-and the Battleship is the class that lands kills. The split's balance benefit
-comes precisely from spreading value widely, so correctness and that benefit
-pull in opposite directions.
+**60 s is the best class balance measured anywhere in these sessions** — all
+three classes 30.8-36.3 %, TB squarely in band — at an economy identical to
+every other reading (cards 3.58, heal share 55.4 %).
 
-**This is not an argument against the ruling.** Eric chose the encounter model
-for CORRECTNESS — "who actually contributed to this kill" — and that reasoning
-stands independently of spread. Settling it would take a 360-match run per arm.
+**THE ECONOMY IS INVARIANT ACROSS ALL FOUR READINGS** (cards 3.58-3.60, heal
+share 55.4-56.0 %). How the window is read is a FAIRNESS decision; it does not
+touch the upgrade gain the story exists to deliver. Only class spread moves.
+
+**What is NOT established, stated plainly.** No individual class movement is
+significant at n=91 — the largest is BS −6.6 pp, CI[−20.3, +7.5] versus the
+gate. **A 5.5 pp spread could be a lucky draw**, and a 360-match confirmation
+was offered and declined as unnecessary for now. If a later cycle wants to lean
+on this number, that run is the way to earn it.
+
+**A hypothesis, offered as a hypothesis.** The apparent driver is not how
+STRICT the split is but HOW MANY CONTRIBUTORS GET PAID: the 60 s arm widens the
+eligibility window as well as the reset gap, so more attackers qualify per kill
+and value spreads across more hulls. The 30 s encounter arm went the other way
+because both of its resets discard contributions at the same 30 s the gate
+already used. If that is right, **eligibility window LENGTH is the real balance
+dial and the reset semantics are mostly about fairness** — which would make
+this a dial worth sweeping in a later balance cycle. It is not established here,
+and the author's causal predictions in these sessions have a poor record.
 
 ## Reference Implementation
 
