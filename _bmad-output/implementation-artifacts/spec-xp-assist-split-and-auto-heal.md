@@ -180,6 +180,12 @@ level at 35.2 %).
   `CONFIG.damageControl` shape pins move with the new keys.
 - `server/src/__tests__/splitBounty.test.ts`, `levelHeal.test.ts` — the matrix
   above.
+- `server/scripts/batchsim/encounterSpan.ts` — the measurement behind the
+  encounter figures (median span, attackers per sink, damage recency). **It
+  ships WITH this story, not before it**: it reads `ShipRecord.damageFrom` and
+  `CONFIG.xp.assistWindowMs`, so it cannot compile until the ledger exists. It
+  was deliberately excluded from the harness-only merge (PR #195) for that
+  reason and lives here on the reference branch.
 - Bookkeeping: sprint-status, gds-workflow-status, amendments, CHANGELOG,
   `PROTOCOL_VERSION` adjudication (see Block If).
 
