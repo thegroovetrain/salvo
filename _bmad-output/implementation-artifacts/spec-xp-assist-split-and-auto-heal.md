@@ -2,11 +2,12 @@
 title: 'XP Assist Split + Per-Level Auto-Heal'
 type: 'feature'
 created: '2026-08-23'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 warnings: ['oversized']
 baseline_revision: 'be968a8' # branch HEAD at implementation start (branched from origin/development 25715a0)
+final_revision: '6011a35'
 reference_implementation: 'worktree-balance-damage-xp'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/batch-sim-evidence-2026-08-22.md'
