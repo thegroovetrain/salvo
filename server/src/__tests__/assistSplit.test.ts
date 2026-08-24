@@ -63,8 +63,12 @@ function place(w: World, id: string, x = 0, hull: HullId = 'torpedoBoat', fleet 
   return rec;
 }
 
+// Monotonic default for `hit()`'s shell id — the previous `s${damage}`
+// default collided whenever two same-damage hits omitted an id.
+let nextShellId = 0;
+
 /** Land exactly `damage` on `victim` from `by`, without sinking it. */
-function hit(w: World, by: string, victim: ShipRecord, damage: number, id = `s${Math.floor(damage)}`): void {
+function hit(w: World, by: string, victim: ShipRecord, damage: number, id = `s${nextShellId++}`): void {
   w.shells.set(id, {
     id,
     ownerId: by,
@@ -169,6 +173,24 @@ describe('assist split: the payout', () => {
     hit(w, 'a', b, 100, 'kill');
     expect(levels(a) + levels(c) + levels(d)).toBeCloseTo(XP.killLevels, 6);
     expect(levels(d)).toBeCloseTo(0.9 * 0.5, 6); // half the damage, half the remainder
+  });
+
+  it('conservation is millisecond-approximate, not structural', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0);
+    const b = place(w, 'b', 300);
+    const c = place(w, 'c', 600);
+    b.hp = 7; // an awkward ratio: 3/7 and 4/7 of the 0.9 remainder, non-terminating in ms
+    hit(w, 'c', b, 3, 'c-part');
+    hit(w, 'a', b, 4, 'kill'); // a: 4 damage AND the kill
+    const expectedTotalMs = CONFIG.xp.killLevels * XP.levelMs;
+    const actualTotalMs = totalMs(a) + totalMs(c);
+    // Each share behind this payout rounds independently through grantXp
+    // (±0.5ms each) — the killer's guaranteed share, the killer's split
+    // share, and the contributor's split share — so conservation holds to
+    // ROUNDING, not exactly: within ±1ms per recipient (2 recipients here)
+    // of killLevels * levelMs.
+    expect(Math.abs(actualTotalMs - expectedTotalMs)).toBeLessThanOrEqual(2);
   });
 
   it('honours killerShare — at 1.0 the killer takes everything', () => {
@@ -350,7 +372,9 @@ describe('assist split: the edges', () => {
     // The guaranteed tenth is payment for the RISK OF CLOSING, and nobody took
     // it, so it is burned. NEW VALUE against the shipped game, flagged rather
     // than absorbed: an unattributed sink used to credit nobody at all.
-    expect(levels(c)).toBeCloseTo(0.9, 6);
+    // Dial-relative rather than a hardcoded 0.9, so a retune of killerShare
+    // moves this expectation with it.
+    expect(levels(c)).toBeCloseTo((1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
   });
 
   it('lets claims LAPSE while a hull burns alone — the storm never refreshes a counter', () => {
@@ -385,6 +409,46 @@ describe('assist split: the edges', () => {
     expect(b.damageFrom.has('d')).toBe(false);
     expect(levels(a)).toBeCloseTo(XP.killLevels, 6);
     expect(levels(d)).toBe(0);
+  });
+
+  it('a FLEET killer burns the guaranteed share', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0);
+    const c = place(w, 'c', 600);
+    const f = place(w, 'f', 900, 'droneSmall', true);
+    const b = place(w, 'b', 300);
+    b.hp = 300;
+    hit(w, 'a', b, 100, 'a-soft'); // a and c soften b up...
+    hit(w, 'c', b, 100, 'c-soft');
+    hit(w, 'f', b, 100, 'f-kill'); // ...but the fleet hull lands the kill
+    // addXpMs fail-closes on fleet hulls, so the guaranteed killerShare tenth
+    // simply evaporates here rather than landing on anyone — the humans only
+    // ever split the 0.9 remainder, proportionally to their own damage.
+    expect(levels(f)).toBe(0);
+    expect(levels(a)).toBeCloseTo(0.5 * (1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
+    expect(levels(c)).toBeCloseTo(0.5 * (1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
+    // No one receives the killer share: the humans' total is exactly the
+    // remainder, never the full pot.
+    expect(levels(a) + levels(c)).toBeCloseTo((1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
+  });
+
+  it("a dead attacker's claim still pays", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0);
+    const b = place(w, 'b', 300);
+    const k = place(w, 'k', 600);
+    b.hp = 200;
+    hit(w, 'a', b, 100, 'a-hit'); // a damages b, does not sink it
+    w.sinkShip('a'); // a itself dies — mutual destruction
+    hit(w, 'k', b, 100, 'k-kill'); // k finishes b off inside the window
+    // a's claim still pays despite being dead at payout time: eligibleContributors
+    // reads the victim's damage ledger only, never the contributor's own
+    // lifecycle — the mutual-destruction kill-credit precedent applied to assists.
+    expect(levels(a)).toBeCloseTo(0.5 * (1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels, 6);
+    expect(levels(k)).toBeCloseTo(
+      CONFIG.xp.killerShare * CONFIG.xp.killLevels + 0.5 * (1 - CONFIG.xp.killerShare) * CONFIG.xp.killLevels,
+      6
+    );
   });
 
   it('does not let OVERKILL inflate a share', () => {

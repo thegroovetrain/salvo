@@ -2,7 +2,7 @@
 title: 'XP Assist Split + Per-Level Auto-Heal'
 type: 'feature'
 created: '2026-08-23'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 followup_review_recommended: false
 warnings: ['oversized']
@@ -239,7 +239,7 @@ Questions below).
 - [x] `frames.ts` summed mirror (`repairHp + levelRepairHp`)
 - [x] `server/scripts/batchsim/encounterSpan.ts` ported to the one-dial model
 - [x] How-to-Play copy only (A2 — NO in-game text); PV stays 48 (A3)
-- [ ] Bookkeeping (VERSION 0.17.129, no CHANGELOG entry — the ledger lives in
+- [x] Bookkeeping (VERSION 0.17.129, no CHANGELOG entry — the ledger lives in
       sprint-status.yaml, both trackers, epic-7 amendment 44) +
       `npm run check`
 
@@ -352,6 +352,50 @@ fixed per-profile weights, so bots cannot perceive that a synergy became
 stronger. Any "does this feel better" question — notably the deferred hull-card
 synergy — is unmeasurable here and belongs to human playtest.
 
+## Review Triage Log
+
+### 2026-08-23 — Review pass (Blind Hunter + Edge Case Hunter, both at session capability)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 18: (high 0, medium 1, low 17)
+- defer: 1: (low 1)
+- reject: 2
+- addressed_findings:
+  - `[medium]` `[patch]` The How-to-Play assist paragraph described the REJECTED sliding-window
+    model ("still working on that hull in the last minute") and hid the killer's double-dip —
+    reworded to the rolling-counter model, and both new paragraphs are now content-pinned in
+    `howToPlay.test.ts` (they previously shipped unpinned, against the repo's copy-pin culture).
+  - `[low]` `[patch]` `levelRegenMs <= 0` accrued a pool that never drains (phantom wire
+    `repairHp` forever) — now the channel's third fail-closed OFF sentinel, pinned by test.
+  - `[low]` `[patch]` A FLEET-HULL KILLER BURNS THE GUARANTEED SHARE (drones carry guns, so this
+    is production-reachable): behavior matches the measured reference and is now documented in
+    `payKillValue` and pinned by its own test (humans still split the 0.9 remainder).
+  - `[low]` `[patch]` Posthumous assist pay (a dead attacker's claim still pays — the
+    mutual-destruction precedent) documented and pinned; outbound claims not being swept on
+    redeploy documented as a directed-API limitation (unreachable in live BR).
+  - `[low]` `[patch]` `zone.test.ts`'s derived sudden-death bound was self-consistent only by
+    coincidence at shipped constants — now a 4-iteration fixed point over the extended tail.
+  - `[low]` `[patch]` Conservation is millisecond-approximate (each share rounds independently
+    through `grantXp`) — documented, plus an awkward-ratio (3/7 · 4/7) conservation test.
+  - `[low]` `[patch]` One heal cue PER LEVEL BANKED on a multi-level grant — event count pinned.
+  - `[low]` `[patch]` `encounterSpan.ts`: killing-blow bias acknowledged in the header (the
+    snapshot excludes the sinking step's damage; the original reference measurements carry the
+    identical bias, so the series is internally consistent) + argv validated.
+  - `[low]` `[patch]` Doc/test hygiene: `splitBounty.test.ts` renamed `assistSplit.test.ts`;
+    storm-kill expectation made dial-relative; `hit()` default shell id de-collided (monotonic
+    counter); barrel weapon-cycle pin now sweeps `EQUIPMENT_IS_WEAPON` structurally (covers the
+    radar buoy's 30 s the enumeration missed); `creditKill`'s stale "storm credits nothing"
+    opening corrected; `splitAssists` fallback comment covers the expired-entry directed case;
+    `OwnShip.repairHp`'s type comment documents the two-channel sum; spec bookkeeping checkbox.
+- deferred:
+  - `[low]` `encounterSpan.ts` instrument redesign (capture the killing-tick damage via a
+    pre-clear hook) → `deferred-work.md`, to be done deliberately between measurement campaigns.
+- rejected:
+  - Non-finite `killerShare` via harness `--set` — unreachable: `overrides.ts:199,273` already
+    reject non-finite values, and CONFIG is a typed literal otherwise.
+  - `recordAssist` re-resolving the victim by id — one map lookup per damage event, micro-noise;
+    the seam's id signature matches its neighbors.
+
 ## Planning investigation findings (2026-08-23, cycle-129 planning pass)
 
 Verified against `origin/development` HEAD `25715a0` and the reference branch
@@ -429,8 +473,36 @@ Asked and ruled via AskUserQuestion in the same run; full record in
 
 ## Auto Run Result
 
-2026-08-23: run briefly halted with five questions; Eric answered all five
-in-session via AskUserQuestion (see
-`bmad-dev-auto-result-xp-assist-split-questions.md` — THE ANSWERS). Spec
-unblocked to `ready-for-dev`; implementation proceeds on branch
-`dev-auto-xp-assist-split` in the same run.
+Status: done (2026-08-23/24, cycle 129, 0.17.129, PV stays 48).
+
+Run shape: planning halt with five questions → Eric answered all five
+in-session via AskUserQuestion (`bmad-dev-auto-result-xp-assist-split-questions.md`
+— THE ANSWERS) → implementation → dual-hunter review → 18 patches applied,
+1 deferred, 2 rejected.
+
+**Implemented:** the assist split (per-attacker rolling 60 s counter, ONE dial
+`xp.assistWindowMs` 60000 + `killerShare` 0.1; overkill-clamped ledger; drone
+pots split; storm/self sinks pay assists with the killer share unpaid; directed-
+API killer fallback, conservation-pinned) and the per-level auto-heal
+(`damageControl.levelMissingPct` 0.10 over `levelRegenMs` 5000 into its own
+pool at its own duration-based rate; menu heal byte-identical and pinned).
+How-to-Play copy only (standing instruction A2); no in-game text.
+
+**Files:** `shared/src/constants.ts` (dials + rulings), `shared/src/types.ts`
+(repairHp doc), `server/src/game/world.ts` (ledger/payout/auto-heal/two-channel
+drain), `server/src/game/frames.ts` (summed mirror),
+`server/scripts/batchsim/encounterSpan.ts` (ships with the story),
+`client/src/how-to-play/copy.ts` (+ pins), tests: `assistSplit.test.ts` (new),
+`levelHeal.test.ts` (new), `barrel.test.ts`, `perception.test.ts`,
+`zone.test.ts`, `howToPlay.test.ts`. Bookkeeping: VERSION/package 0.17.129,
+both trackers, epic-7 amendment 44, one deferred-work entry.
+
+**Verification:** `npm run check` green three times independently (implementer,
+patch batch, orchestrator final): shared 779 / server 1693 / client 3218 =
+5690 tests, lint 0 errors. encounterSpan smoke ran and reported.
+
+**Residual risks:** the 60 s window's 5.5 pp class-spread reading is n=91
+directional (a 360-match confirmation was offered and declined — the spec's
+Evidence section carries the caveat); the sudden-death ceiling lengthens
+slightly (measured 87.5 → 91.95 s storm tail; amendment 44 consequence 2);
+encounterSpan's killing-blow bias is acknowledged and deferred.

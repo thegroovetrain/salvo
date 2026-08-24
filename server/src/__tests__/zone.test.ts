@@ -354,10 +354,19 @@ describe('the collapse group — the whole map is storm at closure', () => {
     //
     // The bound is DERIVED, not pinned to that measurement: at most one level
     // per levelMs over the sink, plus one for the fraction already in flight,
-    // each worth at most levelMissingPct of the full hull.
-    const freeLevels = Math.ceil((sunkS * 1000) / CONFIG.xp.levelMs) + 1;
-    const healedHp = freeLevels * CONFIG.damageControl.levelMissingPct * CONFIG.shipClasses.battleship.hp;
-    const boundS = sunkS + healedHp / CONFIG.zone.stormDps;
+    // each worth at most levelMissingPct of the full hull. A SHORT FIXED-POINT
+    // ITERATION, not a single pass off `sunkS` alone: the extended tail earns
+    // MORE levels than the bare storm-only sink duration would suggest, and the
+    // bound must account for levels earned over ITS OWN extended tail, not just
+    // over the un-healed sink. Computing `freeLevels` from `sunkS` alone is
+    // self-consistent only by coincidence of the shipped constants — a retune
+    // of levelMissingPct/stormDps/levelMs could under-bound it silently. Four
+    // iterations converge well past the precision this bound needs.
+    let boundS = sunkS;
+    for (let i = 0; i < 4; i++) {
+      const freeLevels = Math.ceil((boundS * 1000) / CONFIG.xp.levelMs) + 1;
+      boundS = sunkS + (freeLevels * CONFIG.damageControl.levelMissingPct * CONFIG.shipClasses.battleship.hp) / CONFIG.zone.stormDps;
+    }
     const budgetTicks = Math.ceil((boundS * 1000 + 1000) / CONFIG.tick.simDtMs);
     let ticks = 0;
     while (isAfloat(rec.lifecycle) && ticks < budgetTicks) {

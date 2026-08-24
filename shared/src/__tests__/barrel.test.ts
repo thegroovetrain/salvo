@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as shared from '../index.js';
+import type { EquipmentId } from '../index.js';
 import {
   PROTOCOL_VERSION,
   CONFIG,
@@ -276,8 +277,22 @@ describe('shared barrel', () => {
     expect(CONFIG.xp.killerShare).toBe(0.1);
     // 60 s clears every weapon cycle with room — the reason it beat the
     // first-ruled 30 s, which left the torpedo exactly at the boundary.
-    for (const ms of [CONFIG.gun.reloadMs, CONFIG.mine.reloadMs, CONFIG.broadside.reloadMs, CONFIG.starShells.reloadMs, CONFIG.torpedo.reloadMs]) {
-      expect(CONFIG.xp.assistWindowMs).toBeGreaterThan(ms);
+    // STRUCTURAL SWEEP over the weapon registry (EQUIPMENT_IS_WEAPON), not a
+    // hand-enumerated list, so a future weapon's reload is covered
+    // automatically. This also now covers the radar buoy's 30s reload, which
+    // the old five-reload enumeration omitted.
+    const WEAPON_CONFIG_RELOAD_MS: Record<EquipmentId, number> = {
+      gun: CONFIG.gun.reloadMs,
+      torpedo: CONFIG.torpedo.reloadMs,
+      mine: CONFIG.mine.reloadMs,
+      speedBoost: -Infinity, // not a weapon — EQUIPMENT_IS_WEAPON filters it out below
+      broadside: CONFIG.broadside.reloadMs,
+      starShells: CONFIG.starShells.reloadMs,
+      radarBuoy: CONFIG.radarBuoy.reloadMs,
+    };
+    for (const id of Object.keys(EQUIPMENT_IS_WEAPON) as EquipmentId[]) {
+      if (!EQUIPMENT_IS_WEAPON[id]) continue;
+      expect(CONFIG.xp.assistWindowMs).toBeGreaterThan(WEAPON_CONFIG_RELOAD_MS[id]);
     }
     expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
   });

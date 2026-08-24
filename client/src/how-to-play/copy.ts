@@ -87,7 +87,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
     heading: 'UPGRADING',
     paragraphs: [
       'You gain a level every minute you stay afloat, and more for sinking other captains. Levels never expire, so there is no rush to spend one.',
-      'A kill is shared. Whoever lands the last blow keeps a guaranteed slice, and the rest is split by damage dealt among everyone still working on that hull in the last minute. Soften a target and you are paid for it, even if someone else finishes the job.',
+      'A kill is shared. Whoever lands the last blow keeps a guaranteed slice, and the rest is split by damage dealt among everyone who wore the target down, the finisher included. Keep landing hits at least once a minute and your whole contribution stays counted; go silent for a minute and your claim on that hull lapses.',
       'The refit offers four cards. Take one and it is fitted for the rest of the match. Spend the level on DAMAGE CONTROL instead to repair your hull.',
       'Every level you earn also patches part of your missing hull on its own, free of charge. It is a slow trickle, not a rescue — DAMAGE CONTROL is still what answers a real emergency.',
       'You cannot fire while the refit is open. You can still steer.',

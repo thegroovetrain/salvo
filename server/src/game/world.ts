@@ -1728,7 +1728,9 @@ export class World {
   /**
    * The kill-credit half of sinkShip (Story 4.6 extraction): tally + XP for
    * an attributed sink. A DEAD killer (mutual destruction) still gets both;
-   * storm (`by` undefined) and self-kills credit nothing by construction.
+   * storm (`by` undefined) and self-kills credit nothing to the roster tally
+   * or the bounty bonus by construction — but the kill VALUE itself now flows
+   * through payKillValue regardless, which pays assists on those sinks too.
    * `kills` — the roster tally AND the bounty ruler, one field since Story
    * 5.6 — advances ONLY on a PARTICIPANT victim: a human captain or, since
    * Story 6.4 (Eric ruling B3: bots are ordinary combatants — a bot victim
@@ -1781,6 +1783,14 @@ export class World {
    * that risk — but the hull was worn down by somebody and the split is about
    * that work. This is NEW value: today an unattributed sink credits nothing at
    * all.
+   *
+   * A FLEET-HULL KILLER BURNS THE GUARANTEED SHARE. The 0.1 (or configured
+   * `killerShare`) is granted to the drone here exactly as it would be to a
+   * human, but `addXpMs` fail-closes on every fleet hull — so the tenth simply
+   * evaporates while the eligible human contributors still only split the 0.9
+   * remainder through splitAssists. This is reachable in production (drones
+   * carry guns and can land the killing blow) and matches the measured
+   * reference behavior; it is a named consequence, not a defect.
    */
   private payKillValue(victim: ShipRecord, killer: ShipRecord | undefined): void {
     const pot = World.killXpLevels(victim);
@@ -1810,6 +1820,19 @@ export class World {
    * they contributed to instead of redistributing it. (recordAssist already
    * refuses to ledger a fleet attacker; this is the same rule at the second
    * seam, and it also catches a hull whose role changed mid-life.)
+   *
+   * A DEAD ATTACKER'S CLAIM STILL PAYS: nothing here checks the contributor's
+   * OWN lifecycle, only the victim's damage ledger — deliberately, mirroring
+   * the mutual-destruction kill-credit precedent (creditKill still pays a
+   * killer who died in the same exchange). A hull that sinks the victim's
+   * attacker after they landed their damage does not erase that claim.
+   *
+   * OUTBOUND CLAIMS ARE NOT SWEPT FROM OTHER HULLS' LEDGERS on redeploy or
+   * respawn — a fresh life can still be paid for damage its previous life
+   * dealt, if some other victim's `damageFrom` entry for this id is still
+   * inside the window. Unreachable in live BR (ready-room damage is
+   * suppressed and match death is terminal — there is no redeploy), so this is
+   * a directed-API limitation rather than a rule anyone has had to enforce.
    */
   private eligibleContributors(victim: ShipRecord, cutoff: number): { ship: ShipRecord; amount: number }[] {
     const out: { ship: ShipRecord; amount: number }[] = [];
@@ -1849,6 +1872,14 @@ export class World {
    * for nothing IS the sole contributor to that death, so last-hit-takes-all is
    * the correct degenerate answer rather than burning nine tenths of the pot.
    * It is measurement-neutral: no measured arm could reach it.
+   *
+   * The same directed-API reasoning also covers a killer whose ledger entry
+   * has fallen out of `eligibleContributors`' window — a directed sink against
+   * a killer whose last recorded hit is older than `cutoff` reaches this
+   * fallback exactly as the empty-ledger case does. Still unreachable in-sim
+   * for the identical reason: the killing blow itself is the freshest possible
+   * damage against `cutoff`, so it always refreshes the counter before this
+   * branch could ever be asked to cover for it.
    */
   private splitAssists(victim: ShipRecord, budget: number, cutoff: number, killer: ShipRecord | undefined): void {
     if (!(budget > 0)) return;
@@ -1978,6 +2009,12 @@ export class World {
   private grantLevelHeal(ship: ShipRecord): void {
     if (!isAfloat(ship.lifecycle)) return;
     const dc = CONFIG.damageControl;
+    // THE CHANNEL'S THIRD OFF SENTINEL, same family as assistWindowMs=0: a zero
+    // duration means OFF, never instant. Without this guard a zeroed
+    // levelRegenMs still accrues into levelRepairHp at a drain rate of 0 — a
+    // pool that never empties and permanently inflates the wire's summed
+    // repairHp.
+    if (!(dc.levelMissingPct > 0) || !(dc.levelRegenMs > 0)) return;
     const add = (ship.stats.maxHp - ship.hp) * dc.levelMissingPct;
     if (!(add > 0)) return;
     ship.levelRepairHp += add;

@@ -16,7 +16,7 @@ import { CONFIG, HEAL_CHOICE, isAfloat, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 
 const DC = CONFIG.damageControl;
-const MUT = CONFIG.damageControl as { levelMissingPct: number };
+const MUT = CONFIG.damageControl as { levelMissingPct: number; levelRegenMs: number };
 const TICKS_PER_LEVEL = CONFIG.xp.levelMs / CONFIG.tick.simDtMs;
 const TICKS_PER_S = 1000 / CONFIG.tick.simDtMs;
 
@@ -28,6 +28,18 @@ function withMissingPct<T>(pct: number, fn: () => T): T {
     return fn();
   } finally {
     MUT.levelMissingPct = prev;
+  }
+}
+
+/** Run `fn` with the auto-heal DURATION dial moved, always restoring it — the
+ *  channel's third OFF sentinel, same family as withMissingPct(0). */
+function withRegenMs<T>(ms: number, fn: () => T): T {
+  const prev = MUT.levelRegenMs;
+  MUT.levelRegenMs = ms;
+  try {
+    return fn();
+  } finally {
+    MUT.levelRegenMs = prev;
   }
 }
 
@@ -147,6 +159,19 @@ describe('per-level auto-heal: the ruled shape — a fraction of MISSING hull', 
     expect(a.levelRepairRate).toBeCloseTo(60 / DC.levelRegenMs, 12);
   });
 
+  it('fires one heal cue PER LEVEL BANKED when one grant crosses several', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 'battleship');
+    a.hp = 150; // 200 missing, so both crossings pay into the pool
+    w.grantXp(a, 2); // two levels in one grant
+    expect(a.level).toBe(2);
+    w.step(); // flush pending into tickEvents — the swap happens at step's end
+    expect(healEvents(w, 'a')).toEqual([
+      { k: 'heal', id: 'a' },
+      { k: 'heal', id: 'a' },
+    ]);
+  });
+
   it('gives a SINKING hull nothing — the no-hp-comes-back rule holds', () => {
     const w = bareWorld();
     const a = place(w, 'a');
@@ -191,6 +216,23 @@ describe('per-level auto-heal: the ruled shape — a fraction of MISSING hull', 
       expect(a.hp).toBe(100);
       expect(a.repairHp).toBe(0);
       expect(a.levelRepairHp).toBe(0);
+      expect(healEvents(w, 'a')).toEqual([]);
+    });
+  });
+
+  it('levelRegenMs 0 is OFF, never a stuck pool', () => {
+    withRegenMs(0, () => {
+      const w = bareWorld();
+      const a = place(w, 'a', 'battleship');
+      a.hp = 150; // 200 missing — would otherwise accrue a 20 hp pool
+      tickOneLevel(w);
+      expect(a.level).toBe(1);
+      // A zero duration means OFF, never instant: with levelMissingPct still
+      // > 0 the fail-closed guard in grantLevelHeal must refuse the accrual
+      // entirely rather than adding to a pool that drains at rate 0 — the
+      // permanently-inflated-wire-repairHp bug this guard exists to prevent.
+      expect(a.levelRepairHp).toBe(0);
+      expect(a.hp).toBe(150);
       expect(healEvents(w, 'a')).toEqual([]);
     });
   });

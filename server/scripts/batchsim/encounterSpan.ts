@@ -12,6 +12,18 @@
 //
 // It changes no game code and adds no measurement to world.ts.
 //
+// THE KILLING-BLOW BIAS, ACKNOWLEDGED: the snapshot is taken BEFORE each step,
+// and the fatal hit lands (and is wiped, via world.step()'s own damageFrom.clear())
+// INSIDE that same step — so every sink's `total`, its window fractions, and its
+// bucket history all EXCLUDE the killing blow itself, and `lastGapS` measures to
+// the PENULTIMATE hit, not the fatal one. A hull first damaged in its own sinking
+// step never appears in this data at all. The original reference measurements
+// this file's header quotes (median 332s / 6 attackers / recency fractions) carry
+// the IDENTICAL bias, so the series is internally consistent — nothing here was
+// retroactively corrected while the numbers above stayed stale. Removing the bias
+// would need a pre-clear snapshot hook inside world.ts itself, which is
+// deliberately NOT added for a measurement script that must change no game code.
+//
 //   node_modules/.bin/tsx --tsconfig server/scripts/batchsim/tsconfig.json \
 //     server/scripts/batchsim/encounterSpan.ts [matches] [seed]
 
@@ -23,6 +35,10 @@ import { mixSeed } from './stats.js';
 
 const MATCHES = Number(process.argv[2] ?? 40);
 const SEED = Number(process.argv[3] ?? 90210);
+if (!Number.isFinite(MATCHES) || !Number.isFinite(SEED)) {
+  process.stderr.write('usage: encounterSpan.ts [matches] [seed]\n');
+  process.exit(1);
+}
 
 // DELIBERATELY WIDER THAN ANY WINDOW UNDER TEST. Buckets are pruned to the live
 // window, so a run at the shipped 60 s could only report fractions up to 60 s.
