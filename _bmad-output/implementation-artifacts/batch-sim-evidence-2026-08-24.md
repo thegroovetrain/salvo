@@ -24,3 +24,17 @@
 **Also flagged**: pre-existing `encounterSpan.ts` tsc error under the batchsim tsconfig (cycle 129; `npm run check` doesn't cover it); `catalogMetrics.ts` DAMAGE_SOURCES still says broadside 20 hp (stale since cycle 122 set 15 = the gun's constant, so that ledger's gun/broadside attribution is unreliable — unused by this campaign).
 
 **Eric rulings on this evidence**: none yet — report delivered for review.
+
+## Campaign 2: the tuned-profile rerun (same day, Eric-directed)
+
+**Ask** (Eric, 2026-08-24 morning): rerun the randomized-pick design on the shipped bot temperaments — 498 then +501 more mixed matches ("i want data"). Instrument: the new `--bot-spend random` mode (PR #197, merged same morning): rolled in-game profiles keep full temperament, card pick alone uniform-random, heal rule untouched by construction. `--roster even`, `--raw`, 12 shards, seed bases 42 + 900000042, one arm label.
+
+**Sample.** 999 matches (998 resolved + 1 draw), roster exactly even (6,657/6,666/6,657), zero failures, zero duplicate seeds, zero validity warnings, ±5pp tier supported.
+
+**Standing target 1 — class win share**: **BS 44.6% (41.5–47.7) / ML 32.5% (29.6–35.4, IN BAND) / TB 22.9% (20.4–25.7)**. Temperament recovered 25pp of the vacuum's BS dominance; the ~10pp residual over the band under randomized spending points at the kit itself (cycle 122's 2.8pp spread had tuned profiles AND weighted spending). TB kills 0.50→0.88/bot vs vacuum, BS mean life 483→397s, ML the survivor class at 478s.
+
+**Standing target 2 — attrition** (exact survivorship, n=19,980): 73.6% @4:00 (target 50%), 37.2% @8:00 (25%), 14.7% @12:00 (12.5%) — random spending slows the early game; on-target by ring 3; median 911s.
+
+**Cross-rig verdict** (full tables: `upgrade-winrate-tuned-2026-08-24.md`): **24 of 28 cards moved <±0.08 — the tier structure is rig-independent.** Confirmed: acquireBroadside 1.92 + gunBarrel 1.79 (statistically the strongest card, n=3,712, CI 1.69–1.90) as S; broadside cards ~neutral ON the BS; the boost/buoy/star acquisition tail. **Corrections of record vs the vacuum report**: CAPTIVE MINES on the TB was a knife-range rig artifact (1.63 → 0.74; it's an ML/BS card); the "torpedoes migrate to the BS" reading dissolves (acquireTorpedo 1.11→0.96, tube/homing ~0.99); INTEL 0.87 (0.82–0.94) and SPEED 0.93 (0.87–0.99) are now solid negatives under temperaments that kite — under-budget, not under-measured. Revised tiers: A band empty; EMERGENCY THROTTLE acq. sole F at 0.74.
+
+**Eric rulings on this evidence**: none yet — the fix-direction discussion (re-tier weapons so acquisition = tier I; rungs buy the weapon's distinctive dimension, not alpha; mine-ladder lethality as the ML wincon; proportional heals for HULL value; broadside budget) predates this data and every direction survived it.
