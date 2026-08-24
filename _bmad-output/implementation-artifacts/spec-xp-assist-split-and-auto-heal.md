@@ -222,6 +222,29 @@ kill 38.6 % against a ≥60 % bar; storm deaths 4.86 % against a 5-20 % band), s
 absolute class share is partly decided by bot tactics in every arm — the
 between-arm differences are what carry.
 
+### The encounter model's own balance cost is UNMEASURED at usable precision
+
+Recorded so a dev cycle does not rediscover it. On identical code and seeds
+(n=91), Eric's encounter model against the plain recency gate:
+
+| | BS | ML | TB | spread |
+|---|---|---|---|---|
+| plain gate (control) | 42.9 | 29.7 | 27.5 | **15.4 pp** |
+| encounter model, 30 s | 48.4 | 25.3 | 26.4 | **23.1 pp** |
+
+**No movement is significant** — the largest is BS +5.5 pp, CI[−8.8, +19.5] — so
+at this sample the difference is indistinguishable from noise. The point
+estimate is ~7.7 pp wider and there is a plausible mechanism behind it: **the
+stricter the split, the more it behaves like no split at all**, because
+discarding more contributions pushes value back toward whoever lands the kill,
+and the Battleship is the class that lands kills. The split's balance benefit
+comes precisely from spreading value widely, so correctness and that benefit
+pull in opposite directions.
+
+**This is not an argument against the ruling.** Eric chose the encounter model
+for CORRECTNESS — "who actually contributed to this kill" — and that reasoning
+stands independently of spread. Settling it would take a 360-match run per arm.
+
 ## Reference Implementation
 
 Both mechanisms are already implemented and tested on branch
