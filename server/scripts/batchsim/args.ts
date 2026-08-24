@@ -55,6 +55,11 @@ export interface CliOptions {
   deckOnly: boolean;
   /** Deck-only mode: total draw budget across simulated economies. */
   draws: number;
+  /** Include RAW per-match bot rows (builds, picks, offers, placement) in the
+   *  --json envelope — the per-upgrade evidence surface. Opt-in because it
+   *  multiplies the JSON size by the lobby; the deterministic stdout body is
+   *  untouched either way. */
+  raw: boolean;
   json: string | null;
   quiet: boolean;
   help: boolean;
@@ -103,6 +108,8 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      reached, then fight normally
   --deck-only        pure deck-economy fast mode (no World, no Match)
   --draws N          deck-only total draw budget (default 20000)
+  --raw              include raw per-match bot rows (builds, pick timing,
+                     offers seen, placement) in the --json envelope
   --json PATH        also write the machine-readable report to PATH
   --quiet            suppress stderr progress lines
   --help             print this and exit`;
@@ -122,6 +129,7 @@ function defaults(): CliOptions {
     sweeps: [],
     deckOnly: false,
     draws: 20000,
+    raw: false,
     json: null,
     quiet: false,
     help: false,
@@ -250,6 +258,7 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
 
 const BOOL_FLAGS: Record<string, (opts: CliOptions) => void> = {
   '--deck-only': (o) => void (o.deckOnly = true),
+  '--raw': (o) => void (o.raw = true),
   '--quiet': (o) => void (o.quiet = true),
   '--help': (o) => void (o.help = true),
 };
@@ -291,6 +300,7 @@ function assertCoherent(opts: CliOptions): void {
   if (opts.botProfile !== null && opts.bots === 0) {
     throw new UsageError('--bot-profile needs --bots N: there is no bot to force it onto');
   }
+  assertRawCoherent(opts);
   if (!opts.deckOnly) return;
   // DECK-ONLY BUILDS NO WORLD. runDeckSim simulates the draw economy alone — it
   // reads no roster and no combat value — so both of these would be stamped
@@ -303,6 +313,16 @@ function assertCoherent(opts: CliOptions): void {
   }
   if (Object.keys(opts.tune).length > 0) {
     throw new UsageError('--tune does not apply to --deck-only: the deck economy reads no combat CONFIG (drop one of the two flags)');
+  }
+}
+
+/** RAW ROWS ARE BOT ROWS: a lobby with no bots emits none, and deck-only
+ *  builds no lobby at all — either combination is a run key that silently
+ *  measures nothing, the same false-evidence class assertCoherent's other
+ *  refusals close. */
+function assertRawCoherent(opts: CliOptions): void {
+  if (opts.raw && (opts.deckOnly || opts.bots === 0)) {
+    throw new UsageError('--raw needs a bot lobby (--bots N, not --deck-only): raw rows are per-bot rows');
   }
 }
 

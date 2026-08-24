@@ -100,11 +100,28 @@ export interface RunSpec {
   roster?: 'even' | 'rolled';
 }
 
-/** The forced test profile for bot ordinal `i`, or undefined for the shipped
- *  rolled path. Pure so the deal order is part of the reproducible run key. */
-export function botProfileFor(spec: Pick<RunSpec, 'botProfile'>, i: number): TestProfileId | undefined {
+/** The forced test profile for bot ordinal `i` of match `matchIndex`, or
+ *  undefined for the shipped rolled path. Pure so the deal order is part of
+ *  the reproducible run key.
+ *
+ *  THE `+ matchIndex` OFFSET IS THE SAME FIX `rotate()` CARRIES for --roster
+ *  even (balance campaign, 2026-08-24): a forced test profile governs the
+ *  hull, so without the offset a 20-bot `--bot-profile random` lobby deals
+ *  7/7/6 with the SAME class short in every match — the exact representation
+ *  artefact the even roster exists to remove, reproduced on the one path
+ *  --roster even cannot reach. This CHANGES the deal for pre-existing
+ *  `--bot-profile random` run keys (a measurement-validity fix, documented
+ *  here rather than hidden behind a flag); a NAMED forced profile is
+ *  offset-invariant and every such run key is byte-identical. */
+export function botProfileFor(
+  spec: Pick<RunSpec, 'botProfile'>,
+  i: number,
+  matchIndex = 0,
+): TestProfileId | undefined {
   if (spec.botProfile === undefined) return undefined;
-  if (spec.botProfile === BOT_PROFILE_SCHEME) return TEST_PROFILE_IDS[i % TEST_PROFILE_IDS.length];
+  if (spec.botProfile === BOT_PROFILE_SCHEME) {
+    return TEST_PROFILE_IDS[(i + matchIndex) % TEST_PROFILE_IDS.length];
+  }
   return spec.botProfile as TestProfileId;
 }
 
@@ -117,7 +134,7 @@ function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: num
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
-    const profile = botProfileFor(spec, i);
+    const profile = botProfileFor(spec, i, index);
     // WHICH DEALER WINS THE HULL. A forced TEST profile is per-hull
     // (randomTorpedoBoat / randomBattleship / randomMineLayer), so it governs
     // the class and the roster policy must not fight it — passing a hull too
@@ -503,7 +520,7 @@ function finishSample(
   catalog?: CatalogCollector,
 ): MatchSample {
   const summary = match.endSummary();
-  return buildSample(index, seed, world, collector, captainIds, bots, catalog, {
+  return buildSample(index, seed, world, match, collector, captainIds, bots, catalog, {
     durationS: summary.durationS,
     endedBy: summary.endedBy,
     // Keep the field HONEST: match.ts today emits `?.hullId ?? null`, so ''
@@ -531,7 +548,7 @@ function unresolvedSample(
   catalog?: CatalogCollector,
 ): MatchSample {
   const durationS = Math.round((world.now - match.activatedAt) / 100) / 10;
-  return buildSample(index, seed, world, collector, captainIds, bots, catalog, {
+  return buildSample(index, seed, world, match, collector, captainIds, bots, catalog, {
     durationS,
     endedBy: 'unresolved',
     // No conclusion => no winner, ever. Never borrow a class from the roster.
@@ -552,6 +569,7 @@ function buildSample(
   index: number,
   seed: number,
   world: World,
+  match: Match,
   collector: MatchCollector,
   captainIds: readonly string[],
   bots: BotCollector | undefined,
@@ -573,7 +591,9 @@ function buildSample(
     winnerClass: outcome.winnerClass,
     stormDeaths: outcome.stormDeaths,
     killsByVictimTier: collector.killsByVictimTier,
-    bots: bots?.samples(world) ?? [],
+    // Match.placements is only computed at finish — on an 'unresolved' sample
+    // it is empty and every bot's placement honestly reads null.
+    bots: bots?.samples(world, match.placements) ?? [],
     catalog: catalog?.result(),
     captains,
     departedCaptains,
