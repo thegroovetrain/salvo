@@ -445,7 +445,7 @@ export interface ShipRecord {
    * hull's life: on sink (after the split is paid), on redeploy, and on
    * respawn, so a fresh life never inherits a previous one's contributors.
    */
-  damageFrom: Map<string, { amount: number; at: number }>;
+  damageFrom: Map<string, { amount: number; at: number; buckets: { at: number; amount: number }[] }>;
   /**
    * ENVIRONMENT damage taken this life — the storm plus every PvE fleet hull,
    * pooled, because neither can hold a share and Eric treats them as the same
@@ -455,6 +455,16 @@ export interface ShipRecord {
    * ignored. Same lifecycle as `damageFrom`.
    */
   envDamage: number;
+  /**
+   * Server-clock ms of the last damage that entered this hull's ASSIST LEDGER
+   * — i.e. the last time a participant hit it. Drives the encounter reset
+   * (CONFIG.xp.assistEncounterGapMs). 0 means "never damaged this life".
+   *
+   * Deliberately NOT refreshed by the storm or by a fleet hull: those pool into
+   * `envDamage` and are not a fight, so a hull burning alone in the storm still
+   * lets its attackers' claims lapse.
+   */
+  lastDamagedAt: number;
   /**
    * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
    * nothing grants these in production until 2.7's spend flow). Mutated only
@@ -1296,7 +1306,7 @@ export class World {
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
-      xpMs: 0, level: 0, dmgXpCarryMs: 0, damageFrom: new Map(), envDamage: 0, repairRate: 0, levelRepairRate: 0,
+      xpMs: 0, level: 0, dmgXpCarryMs: 0, damageFrom: new Map(), envDamage: 0, lastDamagedAt: 0, repairRate: 0, levelRepairRate: 0,
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
@@ -1555,6 +1565,7 @@ export class World {
     ship.dmgXpCarryMs = 0;
     ship.damageFrom.clear();
     ship.envDamage = 0;
+    ship.lastDamagedAt = 0;
     // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
     // fresh build — respawn() below, waiting-phase only, preserves.
     ship.boons = [];
@@ -1765,6 +1776,7 @@ export class World {
     this.payKillValue(victim, killer);
     victim.damageFrom.clear(); // the ledger dies with the life it described
     victim.envDamage = 0;
+    victim.lastDamagedAt = 0;
   }
 
   /**
@@ -1799,6 +1811,13 @@ export class World {
     this.splitAssists(victim, pot * (1 - share), windowMs);
   }
 
+  /** Damage in buckets at or after `cutoff` — the SLIDING-WINDOW reading. */
+  private static recentDamage(buckets: { at: number; amount: number }[], cutoff: number): number {
+    let sum = 0;
+    for (const b of buckets) if (b.at >= cutoff) sum += b.amount;
+    return sum;
+  }
+
   /**
    * The victim's contributors who may actually be paid: damage recorded at or
    * after `cutoff`, from a hull that still exists and is not a fleet hull.
@@ -1810,11 +1829,17 @@ export class World {
    */
   private eligibleContributors(victim: ShipRecord, cutoff: number): { ship: ShipRecord; amount: number }[] {
     const out: { ship: ShipRecord; amount: number }[] = [];
+    const sliding = CONFIG.xp.assistSlidingWindow > 0;
     for (const [id, rec] of victim.damageFrom) {
-      if (rec.at < cutoff || rec.amount <= 0 || id === victim.id) continue;
+      if (id === victim.id) continue;
+      // GATE mode: the whole lifetime total qualifies if the LAST hit is recent.
+      // SLIDING mode: only the damage actually dealt inside the window counts,
+      // and the gate is implicit — an attacker with no recent buckets sums to 0.
+      const amount = sliding ? World.recentDamage(rec.buckets, cutoff) : rec.at < cutoff ? 0 : rec.amount;
+      if (amount <= 0) continue;
       const ship = this.ships.get(id);
       if (ship === undefined || roleIsFleetHull(ship)) continue;
-      out.push({ ship, amount: rec.amount });
+      out.push({ ship, amount });
     }
     return out;
   }
@@ -3404,12 +3429,70 @@ export class World {
       victim.envDamage += dealt;
       return;
     }
+    // THE ENCOUNTER RESET (Eric 2026-08-23): a long enough lull in ALL incoming
+    // participant damage ends the encounter, and its ledger goes with it. This
+    // fires BEFORE the write, so the hit that breaks the lull opens the new
+    // encounter rather than joining the dead one.
+    const gap = CONFIG.xp.assistEncounterGapMs;
+    this.maybeEndEncounter(victim, gap);
+    victim.lastDamagedAt = this.now;
     const prev = victim.damageFrom.get(byId);
-    if (prev === undefined) victim.damageFrom.set(byId, { amount: dealt, at: this.now });
+    if (prev === undefined) {
+      victim.damageFrom.set(byId, { amount: dealt, at: this.now, buckets: [{ at: this.now, amount: dealt }] });
+      return;
+    }
+    // REJOINING STARTS YOU FRESH (Eric 2026-08-23): *"if I should rejoin the
+    // combat after 30 seconds, it starts counting my damage contribution fresh,
+    // as if I had not previously been in the battle."* This is PER ATTACKER and
+    // is separate from the encounter reset above — it fires even while the
+    // fight rages on, because someone else keeping it alive does not keep YOUR
+    // claim alive. Without it, a hull under continuous fire from B would still
+    // be carrying A's hour-old total the moment A landed one shot.
+    if (gap > 0 && this.now - prev.at > gap) World.restartTally(prev, dealt, this.now);
     else {
       prev.amount += dealt;
       prev.at = this.now;
+      World.addBucket(prev.buckets, dealt, this.now);
     }
+  }
+
+  /** End the victim's current encounter if the lull since the last participant
+   *  hit exceeded `gap`, wiping the ledger and the old fight's environment
+   *  damage with it. Split out for the complexity budget. */
+  private maybeEndEncounter(victim: ShipRecord, gap: number): void {
+    if (gap <= 0 || victim.lastDamagedAt <= 0) return;
+    if (this.now - victim.lastDamagedAt <= gap) return;
+    victim.damageFrom.clear();
+    victim.envDamage = 0;
+  }
+
+  /** Wipe one attacker's tally and begin it again at `dealt` — the rejoin rule.
+   *  Split out for the complexity budget; it is the whole of "as if I had not
+   *  previously been in the battle", so it earns its own name. */
+  private static restartTally(rec: { amount: number; at: number; buckets: { at: number; amount: number }[] }, dealt: number, now: number): void {
+    rec.amount = dealt;
+    rec.at = now;
+    rec.buckets.length = 0;
+    rec.buckets.push({ at: now, amount: dealt });
+  }
+
+  /** ms per assist bucket. 1 s against a 30 s window is ~3 % of boundary fuzz,
+   *  immaterial to balance, and it is what keeps the history BOUNDED: DoT
+   *  credits ~20 events a second, so exact per-event history would grow without
+   *  limit in exactly the case that matters. */
+  private static readonly ASSIST_BUCKET_MS = 1000;
+
+  /** Add `dealt` to the newest bucket, opening a new one when it has aged out,
+   *  and drop buckets that can no longer be inside any window. Bounded at
+   *  window/bucket + 1 entries however long a fight runs. */
+  private static addBucket(buckets: { at: number; amount: number }[], dealt: number, now: number): void {
+    const last = buckets[buckets.length - 1];
+    if (last !== undefined && now - last.at < World.ASSIST_BUCKET_MS) last.amount += dealt;
+    else buckets.push({ at: now, amount: dealt });
+    const cutoff = now - CONFIG.xp.assistWindowMs - World.ASSIST_BUCKET_MS;
+    let drop = 0;
+    while (drop < buckets.length && buckets[drop].at < cutoff) drop++;
+    if (drop > 0) buckets.splice(0, drop);
   }
 
   /**

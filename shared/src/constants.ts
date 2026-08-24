@@ -1686,6 +1686,54 @@ export const CONFIG = {
      * reading of "who killed this hull".
      */
     assistEnvWeight: 0,
+    /**
+     * HOW THE WINDOW IS READ (Eric, 2026-08-23). 0 = the shipped reading: the
+     * window is a RECENCY GATE on the attacker, so if your last hit landed
+     * inside it, your WHOLE lifetime contribution to that hull counts. 1 = a
+     * SLIDING WINDOW: only the damage you actually dealt inside the window
+     * counts, and anything earlier is simply not there.
+     *
+     * The difference only appears for an attacker who damaged a hull long ago
+     * AND recently. Under the gate a 1-damage tag re-qualifies an old 200-damage
+     * contribution in full; under the sliding window it qualifies 1 damage.
+     *
+     * Sliding mode needs per-window history rather than a running total, so the
+     * ledger keeps 1-SECOND BUCKETS pruned to the window — bounded at ~31 per
+     * attacker however long the fight runs, at the cost of up to 1 s of fuzz at
+     * the boundary. That fuzz is immaterial against a 30 s knob and is the
+     * reason the bucket exists: incendiary DoT credits ~20 events a second, so
+     * exact per-event history would be unbounded in the only case that matters.
+     */
+    assistSlidingWindow: 0,
+    /**
+     * THE ENCOUNTER RESET (Eric, 2026-08-23). If a hull takes NO damage from
+     * anyone for this long, the encounter is considered OVER and its whole
+     * assist ledger is wiped — everyone's contributions with it. 0 disables it.
+     *
+     * Eric: *"As long as I do at least 1 damage to this opponent within 30
+     * seconds, my contributions count towards the kill. But if I let 30 seconds
+     * pass, I have been considered to have 'left the encounter'."*
+     *
+     * WHY IT IS BETTER THAN EITHER WINDOW READING ALONE. Measured over 114
+     * sinks: a hull accumulates damage across a median of 332 s from a median
+     * of SIX attackers, and only ~24 % of that damage falls in the final 30 s.
+     * So the two earlier readings each got something wrong — the plain recency
+     * GATE let a 1-damage tag re-qualify a contribution from a fight five
+     * minutes and several heals ago, while the SLIDING window discarded the
+     * opening damage of the very brawl that was still going on. Resetting on a
+     * lull keeps a long fight whole and drops a finished one entirely, which is
+     * what "who contributed to the kill" actually means.
+     *
+     * 30 s is comfortably longer than every weapon cycle — gun 5 s, mine 15 s,
+     * broadside 18 s, star shells 20 s — so a hull that is still fighting
+     * cannot lapse by accident. Only the torpedo's 30 s sits at the boundary,
+     * and the gun is universal.
+     *
+     * STORM AND FLEET DAMAGE DO NOT KEEP AN ENCOUNTER ALIVE: a hull burning
+     * alone in the storm is not in a fight, so its attackers' claims should
+     * still lapse. Only damage that enters the assist ledger refreshes it.
+     */
+    assistEncounterGapMs: 0,
     // RAISED 2026-08-16 (Eric ruling, epic-6 amendment 24): ¼ / ⅓ / ½ → ¼ / ½ / ¾.
     // Every tier is now a DYADIC rational, so any integer fleet composition is
     // exactly representable — which is why fleetLevels()'s old exact-total pin

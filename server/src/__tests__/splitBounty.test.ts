@@ -17,7 +17,7 @@ import { CONFIG, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 
 const XP = CONFIG.xp;
-const MUT = CONFIG.xp as { assistWindowMs: number; killerShare: number; assistEnvWeight: number };
+const MUT = CONFIG.xp as { assistWindowMs: number; killerShare: number; assistEnvWeight: number; assistSlidingWindow: number; assistEncounterGapMs: number };
 
 function withSplit<T>(windowMs: number, killerShare: number, fn: () => T, envWeight = 0): T {
   const w = MUT.assistWindowMs;
@@ -348,5 +348,282 @@ describe('split bounty: ENVIRONMENT dilution (storm + fleet, one rule)', () => {
       },
       0.5,
     );
+  });
+});
+
+describe('split bounty: SLIDING WINDOW vs the recency gate (Eric 2026-08-23)', () => {
+  const withSliding = <T,>(on: boolean, fn: () => T): T => {
+    const prev = MUT.assistSlidingWindow;
+    MUT.assistSlidingWindow = on ? 1 : 0;
+    try {
+      return fn();
+    } finally {
+      MUT.assistSlidingWindow = prev;
+    }
+  };
+
+  /** c chips EARLY, disappears, then lands ONE point of damage late; a kills. */
+  const tagRefresh = (sliding: boolean): number =>
+    withSliding(sliding, () =>
+      withSplit(5000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 250;
+        hit(w, 'c', b, 99, 'early'); // 99 damage, long ago
+        for (let i = 0; i < 400; i++) w.step(); // 20 s pass, well past the window
+        hit(w, 'c', b, 1, 'tag'); // a single point, just now
+        b.hp = 100; // set up an exactly-lethal blow so a's credit is exactly 100
+        hit(w, 'a', b, 100, 'kill');
+        return levels(c);
+      }),
+    );
+
+  it('GATE mode: a 1-damage tag re-qualifies the whole old contribution', () => {
+    // c is credited for all 100 damage against a's 100 -> half of the 0.9.
+    expect(tagRefresh(false)).toBeCloseTo(0.9 * 0.5, 6);
+  });
+
+  it('SLIDING mode: only the 1 damage inside the window counts', () => {
+    // c is credited for 1 against a's 100 -> 1/101 of the 0.9.
+    expect(tagRefresh(true)).toBeCloseTo(0.9 * (1 / 101), 4);
+  });
+
+  it('SLIDING mode drops an attacker with no recent damage at all', () => {
+    withSliding(true, () => {
+      withSplit(5000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 250;
+        hit(w, 'c', b, 100, 'stale');
+        for (let i = 0; i < 400; i++) w.step();
+        hit(w, 'a', b, 150, 'kill');
+        expect(levels(c)).toBe(0);
+        expect(levels(a)).toBeCloseTo(XP.killLevels, 6); // a takes the whole pot
+      });
+    });
+  });
+
+  it('the two modes AGREE when all damage is recent', () => {
+    const both = [false, true].map((sliding) =>
+      withSliding(sliding, () =>
+        withSplit(30000, 0.1, () => {
+          const w = bareWorld();
+          const a = place(w, 'a', 0);
+          const b = place(w, 'b', 300);
+          const c = place(w, 'c', 600);
+          b.hp = 200;
+          hit(w, 'c', b, 100, 'assist');
+          hit(w, 'a', b, 100, 'kill');
+          return levels(c);
+        }),
+      ),
+    );
+    expect(both[0]).toBeCloseTo(both[1], 6);
+    expect(both[0]).toBeCloseTo(0.45, 6);
+  });
+
+  it('keeps the bucket history BOUNDED however long the fight runs', () => {
+    withSliding(true, () => {
+      withSplit(5000, 0.1, () => {
+        const w = bareWorld();
+        const b = place(w, 'b', 300);
+        b.hp = 100000; // never sinks
+        for (let i = 0; i < 40; i++) {
+          hit(w, 'a', b, 1, `h${i}`);
+          for (let t = 0; t < 20; t++) w.step(); // 1 s between hits
+        }
+        const rec = b.damageFrom.get('a');
+        expect(rec).toBeDefined();
+        // 5 s window / 1 s buckets, plus one grace bucket — never 40.
+        expect(rec!.buckets.length).toBeLessThanOrEqual(8);
+      });
+    });
+  });
+});
+
+describe("split bounty: THE ENCOUNTER RESET (Eric 2026-08-23)", () => {
+  const withGap = <T,>(gapMs: number, fn: () => T): T => {
+    const prev = MUT.assistEncounterGapMs;
+    MUT.assistEncounterGapMs = gapMs;
+    try {
+      return fn();
+    } finally {
+      MUT.assistEncounterGapMs = prev;
+    }
+  };
+
+  it('wipes the ledger after a lull, so an OLD fight earns nothing', () => {
+    withGap(5000, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 250;
+        hit(w, 'c', b, 100, 'oldfight'); // c fights b...
+        for (let i = 0; i < 200; i++) w.step(); // ...then 10 s of quiet: encounter over
+        hit(w, 'a', b, 150, 'kill'); // a starts a NEW encounter and finishes it
+        // Note the attacker window is 30 s and c's hit was only 10 s ago, so the
+        // plain gate would still have paid c. The ENCOUNTER rule is what drops it.
+        expect(levels(c)).toBe(0);
+        expect(levels(a)).toBeCloseTo(XP.killLevels, 6);
+      });
+    });
+  });
+
+  it('keeps a LONG fight whole — early damage still counts while it continues', () => {
+    withGap(5000, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 400;
+        hit(w, 'c', b, 100, 'open'); // c opens the fight
+        for (let i = 0; i < 60; i++) w.step(); // 3 s — under the gap, fight lives
+        hit(w, 'a', b, 50, 'mid');
+        for (let i = 0; i < 60; i++) w.step();
+        hit(w, 'a', b, 50, 'mid2');
+        for (let i = 0; i < 60; i++) w.step();
+        b.hp = 100;
+        hit(w, 'a', b, 100, 'kill');
+        // The fight never lapsed, so c's OPENING damage is still in: c 100 vs
+        // a 200 -> c takes a third of the 0.9. This is exactly what the sliding
+        // window would have thrown away.
+        expect(levels(c)).toBeCloseTo(0.9 * (100 / 300), 4);
+      });
+    });
+  });
+
+  it('a hit that breaks the lull opens a NEW encounter rather than joining the dead one', () => {
+    withGap(5000, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        b.hp = 300;
+        hit(w, 'a', b, 100, 'old');
+        for (let i = 0; i < 200; i++) w.step(); // lull
+        hit(w, 'a', b, 50, 'new'); // same attacker, new encounter
+        b.hp = 50;
+        hit(w, 'a', b, 50, 'kill');
+        const rec = b.damageFrom.get('a');
+        // Only the post-lull damage is on the books at the moment of the kill;
+        // the 100 from before the lull was wiped even though it was a's own.
+        expect(rec).toBeUndefined(); // cleared by the sink
+        expect(levels(a)).toBeCloseTo(XP.killLevels, 6); // sole contributor either way
+      });
+    });
+  });
+
+  it('the STORM does not keep an encounter alive', () => {
+    withGap(5000, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 200;
+        hit(w, 'c', b, 100, 'chip');
+        const at = b.lastDamagedAt;
+        b.envDamage += 50; // storm damage does not touch the ledger clock
+        expect(b.lastDamagedAt).toBe(at);
+      });
+    });
+  });
+
+  it('OFF at 0 — a lull changes nothing, which is the shipped behaviour', () => {
+    withGap(0, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 250;
+        hit(w, 'c', b, 100, 'old');
+        for (let i = 0; i < 200; i++) w.step();
+        hit(w, 'a', b, 150, 'kill');
+        // c's hit is still inside the 30 s attacker window, so the plain gate pays it.
+        expect(levels(c)).toBeCloseTo(0.9 * (100 / 250), 4);
+      });
+    });
+  });
+});
+
+describe('split bounty: REJOINING STARTS YOU FRESH (Eric 2026-08-23)', () => {
+  const withGap = <T,>(gapMs: number, fn: () => T): T => {
+    const prev = MUT.assistEncounterGapMs;
+    MUT.assistEncounterGapMs = gapMs;
+    try {
+      return fn();
+    } finally {
+      MUT.assistEncounterGapMs = prev;
+    }
+  };
+
+  it('resets YOUR tally when YOU lapse, even while the fight rages on', () => {
+    withGap(5000, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 100000; // survives the whole sequence until we set it lethal
+        hit(w, 'c', b, 200, 'c-early'); // c does BIG early damage...
+        // ...then leaves for 10 s while a keeps the encounter alive throughout,
+        // so the ENCOUNTER never lapses — only c personally does.
+        for (let k = 0; k < 4; k++) {
+          hit(w, 'a', b, 25, `a${k}`);
+          for (let i = 0; i < 50; i++) w.step(); // 2.5 s between a's hits
+        }
+        hit(w, 'c', b, 10, 'c-rejoin'); // c comes back with a small hit
+        const rec = b.damageFrom.get('c');
+        expect(rec).toBeDefined();
+        // c's 200 is GONE — the rejoin starts fresh at 10, not 210.
+        expect(rec!.amount).toBe(10);
+        // a, who never lapsed, keeps its full accumulated total.
+        expect(b.damageFrom.get('a')!.amount).toBe(100);
+      });
+    });
+  });
+
+  it('does NOT reset a contributor who keeps hitting inside the gap', () => {
+    withGap(5000, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const b = place(w, 'b', 300);
+        place(w, 'a', 0);
+        b.hp = 100000;
+        for (let k = 0; k < 5; k++) {
+          hit(w, 'a', b, 20, `h${k}`);
+          for (let i = 0; i < 40; i++) w.step(); // 2 s apart, well inside the gap
+        }
+        expect(b.damageFrom.get('a')!.amount).toBe(100); // all five hits accumulate
+      });
+    });
+  });
+
+  it('pays the rejoiner on the FRESH tally only', () => {
+    withGap(5000, () => {
+      withSplit(30000, 0.1, () => {
+        const w = bareWorld();
+        const a = place(w, 'a', 0);
+        const b = place(w, 'b', 300);
+        const c = place(w, 'c', 600);
+        b.hp = 100000;
+        hit(w, 'c', b, 200, 'c-early');
+        for (let k = 0; k < 4; k++) {
+          hit(w, 'a', b, 25, `a${k}`);
+          for (let i = 0; i < 50; i++) w.step();
+        }
+        hit(w, 'c', b, 100, 'c-rejoin'); // c rejoins with 100
+        b.hp = 100;
+        hit(w, 'a', b, 100, 'kill'); // a finishes: a total 200, c total 100
+        expect(levels(c)).toBeCloseTo(0.9 * (100 / 300), 4); // not 300/500
+      });
+    });
   });
 });

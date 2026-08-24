@@ -282,8 +282,12 @@ describe('shared barrel', () => {
     expect(CONFIG.xp.assistWindowMs).toBe(0);
     expect(CONFIG.xp.killerShare).toBe(0.1);
     expect(CONFIG.xp.assistEnvWeight).toBe(0);
+    expect(CONFIG.xp.assistSlidingWindow).toBe(0);
+    expect(CONFIG.xp.assistEncounterGapMs).toBe(0);
     expect(Object.keys(CONFIG.xp).sort()).toEqual([
+      'assistEncounterGapMs',
       'assistEnvWeight',
+      'assistSlidingWindow',
       'assistWindowMs',
       'damageLevels',
       'droneTierLevels',
