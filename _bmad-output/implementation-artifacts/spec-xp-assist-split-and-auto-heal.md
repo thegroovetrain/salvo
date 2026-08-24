@@ -2,11 +2,11 @@
 title: 'XP Assist Split + Per-Level Auto-Heal'
 type: 'feature'
 created: '2026-08-23'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
 followup_review_recommended: false
 warnings: ['oversized']
-baseline_revision: '25715a0' # origin/development at branch time (was bdf51db when drafted)
+baseline_revision: 'be968a8' # branch HEAD at implementation start (branched from origin/development 25715a0)
 reference_implementation: 'worktree-balance-damage-xp'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/batch-sim-evidence-2026-08-22.md'
@@ -220,22 +220,27 @@ Questions below).
 ## Tasks & Acceptance
 
 **Execution (dependency order):**
-- [ ] `CONFIG` dials (`assistWindowMs` 60000, `killerShare` 0.1,
+- [x] `CONFIG` dials (`assistWindowMs` 60000, `killerShare` 0.1,
       `levelMissingPct` 0.10, `levelRegenMs` 5000) + barrel pins (xp shape pin
-      moves; damageControl gets its FIRST shape pin)
-- [ ] The assist ledger, one-dial rolling-counter model (`recordAssist` with
+      moves; damageControl gets its FIRST shape pin, plus a weapon-cycle
+      clearance pin)
+- [x] The assist ledger, one-dial rolling-counter model (`recordAssist` with
       overkill-clamped `dealt`, per-attacker restart, fleet-attacker
       exclusion; bucket history kept for encounterSpan)
-- [ ] The payout (`payKillValue` / `splitAssists` / `eligibleContributors`),
+- [x] The payout (`payKillValue` / `splitAssists` / `eligibleContributors`),
       with conservation tests; drone pots split (A5); storm kills pay assists,
-      killer share unpaid
-- [ ] The per-level auto-heal (`grantLevelHeal`, %missing only) + its own
+      killer share unpaid; plus a directed-API killer fallback when the ledger
+      is empty (unreachable in-sim, conservation made structural — see the
+      implementation report)
+- [x] The per-level auto-heal (`grantLevelHeal`, %missing only) + its own
       drain channel (`levelRepairHp`/`levelRepairRate` through one
-      `payRepair`); zeroed wherever `repairHp` is
-- [ ] `frames.ts` summed mirror (`repairHp + levelRepairHp`)
-- [ ] `server/scripts/batchsim/encounterSpan.ts` ported to the one-dial model
-- [ ] How-to-Play copy only (A2 — NO in-game text); PV stays 48 (A3)
-- [ ] Bookkeeping (VERSION 0.17.129, CHANGELOG, both trackers, amendments) +
+      `payRepair`); zeroed wherever `repairHp` is (`World.clearRepair`, all
+      three lifecycle sites)
+- [x] `frames.ts` summed mirror (`repairHp + levelRepairHp`)
+- [x] `server/scripts/batchsim/encounterSpan.ts` ported to the one-dial model
+- [x] How-to-Play copy only (A2 — NO in-game text); PV stays 48 (A3)
+- [ ] Bookkeeping (VERSION 0.17.129, no CHANGELOG entry — the ledger lives in
+      sprint-status.yaml, both trackers, epic-7 amendment 44) +
       `npm run check`
 
 **Acceptance Criteria:**

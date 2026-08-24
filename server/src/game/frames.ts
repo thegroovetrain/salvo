@@ -76,7 +76,11 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // is repairing; it reads only the hp it can actually see change. REQUIRED
     // (not optional like slowedUntil/dazzledUntil): the client's strip renders
     // the pool every frame, so a dropped key would read as "pool gone".
-    repairHp: ship.repairHp,
+    // BOTH repair channels, SUMMED: the paid pool and the free per-level
+    // trickle. The field means "hp still owed to this hull", which is true of
+    // the sum; splitting it would need a wire change to say something the
+    // player cannot act on differently — neither pool can be spent or cancelled.
+    repairHp: ship.repairHp + ship.levelRepairHp,
     // Applied boon ids (Story 2.5 — dormant, [] until 2.7 grants any),
     // defensive copy. SELF-PRIVATE like upg/boostUntil: rides `you` and
     // NOTHING else — never a Contact, blip, ballistic event, boom, or

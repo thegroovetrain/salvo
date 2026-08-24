@@ -342,14 +342,30 @@ describe('the collapse group — the whole map is storm at closure', () => {
     expect(rec.hp).toBe(CONFIG.shipClasses.battleship.hp); // full HP into the collapse
     const sunkS = CONFIG.shipClasses.battleship.hp / CONFIG.zone.stormDps;
     expect(sunkS).toBeLessThanOrEqual(90); // was 45 pre-doubling — see the note above
-    const budgetTicks = Math.ceil((sunkS * 1000 + 1000) / CONFIG.tick.simDtMs);
+    // THE FREE PER-LEVEL AUTO-HEAL LENGTHENS THE TAIL (2026-08-23). A hull dying
+    // out here keeps earning PASSIVE levels, and each one patches
+    // levelMissingPct of its MISSING hull into a free pool. The guarantee is
+    // intact and for a structural reason rather than a measured one: the heal
+    // is a bounded fraction of a bounded hull earned at a bounded rate, while
+    // the storm is unbounded and constant — so the geometry still terminates
+    // every match with no damage ramp. Only the worst case moves, MEASURED here
+    // at 91.95s against the 87.5s of pure storm (exactly the one level this hull
+    // earns while dying).
+    //
+    // The bound is DERIVED, not pinned to that measurement: at most one level
+    // per levelMs over the sink, plus one for the fraction already in flight,
+    // each worth at most levelMissingPct of the full hull.
+    const freeLevels = Math.ceil((sunkS * 1000) / CONFIG.xp.levelMs) + 1;
+    const healedHp = freeLevels * CONFIG.damageControl.levelMissingPct * CONFIG.shipClasses.battleship.hp;
+    const boundS = sunkS + healedHp / CONFIG.zone.stormDps;
+    const budgetTicks = Math.ceil((boundS * 1000 + 1000) / CONFIG.tick.simDtMs);
     let ticks = 0;
     while (isAfloat(rec.lifecycle) && ticks < budgetTicks) {
       w.step();
       ticks += 1;
     }
     expect(isAfloat(rec.lifecycle)).toBe(false);
-    expect((ticks * CONFIG.tick.simDtMs) / 1000).toBeLessThanOrEqual(90);
+    expect((ticks * CONFIG.tick.simDtMs) / 1000).toBeLessThanOrEqual(boundS);
   });
 });
 
