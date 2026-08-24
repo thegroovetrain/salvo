@@ -277,6 +277,19 @@ export interface LitZone {
   dazzle: boolean;
 }
 
+/**
+ * ONE attacker's running claim on ONE victim's kill value — the entry type of
+ * `ShipRecord.damageFrom`. See that field for the rolling-counter model.
+ */
+interface AssistTally {
+  /** Clamped damage accumulated since this tally last started. */
+  amount: number;
+  /** Server-clock ms of this attacker's most recent damage on the victim. */
+  at: number;
+  /** 1 s damage history — encounterSpan.ts's substrate, never a payout input. */
+  buckets: { at: number; amount: number }[];
+}
+
 /** Everything the server tracks per ship, on top of the shared kinematic state. */
 export interface ShipRecord {
   id: string;
@@ -414,6 +427,26 @@ export interface ShipRecord {
   /** Levels COMPLETED (integer). Mirrored onto OwnShip.lvl (self-private);
    *  moves only inside grantXp's bank loop. Same lifecycle as `xpMs`. */
   level: number;
+  /**
+   * THE ASSIST LEDGER (CONFIG.xp.assistWindowMs) — who has damaged THIS hull,
+   * how much, and when they last did it. Keyed by attacker id; it lives on the
+   * VICTIM because that is the shape the split needs at the moment of sinking.
+   *
+   * `amount` accumulates the CLAMPED damage, never the nominal blow, so
+   * overkill cannot inflate a share. `at` is the last damage's server-clock ms,
+   * and it is the whole of the rolling-counter model: it decides both whether
+   * this attacker's tally RESTARTS on the next hit and whether the tally is
+   * eligible at the sink. `buckets` is 1 s damage history, kept as the
+   * MEASUREMENT SUBSTRATE for scripts/batchsim/encounterSpan.ts (not a payout
+   * input) and bounded at window/bucket + 1 entries however long a fight runs.
+   *
+   * Only maintained while the split is on (`assistWindowMs > 0`), so an OFF arm
+   * allocates nothing. Bounded by the roster — one entry per attacker — and
+   * cleared with the hull's life: on sink (after the split is paid), on
+   * redeploy, and on respawn, so a fresh life never inherits a previous one's
+   * contributors.
+   */
+  damageFrom: Map<string, AssistTally>;
   /**
    * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
    * nothing grants these in production until 2.7's spend flow). Mutated only
@@ -555,6 +588,33 @@ export interface ShipRecord {
    * exactly where boostUntil resets — a pool must never survive the death gap.
    */
   repairHp: number;
+  /**
+   * hp — the FREE per-level auto-heal's OWN pool
+   * (CONFIG.damageControl.levelMissingPct), kept SEPARATE from `repairHp`
+   * because it drains at its own rate. The paid pool has ONE global rate by
+   * design (the anti-flask rule), and a pool cannot carry two rates: merging
+   * them would either speed this trickle up or slow the paid heal down, and
+   * both are the wrong answer. Written only by grantLevelHeal, drained only by
+   * tickRepairs' second channel.
+   *
+   * Same lifecycle as `repairHp` in every respect: zeroed on sink, on redeploy,
+   * and on respawn (all three through World.clearRepair). Mirrored to the
+   * client SUMMED into OwnShip.repairHp, so the HUD's pending-repair readout
+   * stays honest with no wire change.
+   */
+  levelRepairHp: number;
+  /**
+   * hp/ms — the free channel's drain rate, recomputed on every grant as
+   * `levelRepairHp / CONFIG.damageControl.levelRegenMs`. 0 = nothing draining.
+   *
+   * DELIVERY BY DURATION, not at a fixed hp/s: the grant's AMOUNT varies with
+   * how hurt the hull is while the ruled window is fixed at 5 s, and a fixed
+   * rate cannot land a variable amount in a fixed time. This is the deliberate,
+   * evidence-documented departure from the anti-flask rule, and it is CONFINED
+   * TO THIS CHANNEL — the paid pool's fixed regenHp/regenMs rate is untouched
+   * and pinned.
+   */
+  levelRepairRate: number;
   /**
    * ms — server time the PROP-FOULING slow on this ship ends (Story 2.8);
    * 0 = not slowed. Written by detonateMine when a propFouling owner's blast
@@ -1226,7 +1286,7 @@ export class World {
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
-      xpMs: 0, level: 0,
+      xpMs: 0, level: 0, damageFrom: new Map(),
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
@@ -1249,7 +1309,7 @@ export class World {
       // A fresh hull carries no open windows — boost, DAMAGE CONTROL pool
       // (2026-08-04), prop-fouling slow, dazzle — the same four zeroed together
       // at every other life boundary (sinkShip / respawn / redeployShip).
-      boostUntil: 0, repairHp: 0, slowedUntil: 0, dazzledUntil: 0,
+      boostUntil: 0, repairHp: 0, levelRepairHp: 0, levelRepairRate: 0, slowedUntil: 0, dazzledUntil: 0,
       rttMs: null,
       lastFireT: 0,
       respawnAt: 0,
@@ -1482,6 +1542,9 @@ export class World {
     // respawn() below, waiting-phase only, PRESERVES both.
     ship.xpMs = 0;
     ship.level = 0;
+    // ...and so does the assist ledger: a fresh match's kill value must never
+    // be split with someone who damaged this hull in the ready room.
+    ship.damageFrom.clear();
     // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
     // fresh build — respawn() below, waiting-phase only, preserves.
     ship.boons = [];
@@ -1503,7 +1566,7 @@ export class World {
     // ...nor a DAMAGE CONTROL pool: hp is already full here, so a surviving
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
-    ship.repairHp = 0;
+    World.clearRepair(ship);
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
@@ -1595,8 +1658,9 @@ export class World {
     // The DAMAGE CONTROL pool DOES die at entry (2026-08-04 rule, unchanged):
     // the economy is what a sinking captain loses (amendment 10 — "once
     // sinking, you're done"), tickRepairs would never tick it anyway (afloat
-    // gate), and nothing may trickle hp back onto a hull already at 0.
-    ship.repairHp = 0;
+    // gate), and nothing may trickle hp back onto a hull already at 0. The FREE
+    // per-level channel dies on the same rule and at the same instant.
+    World.clearRepair(ship);
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
@@ -1664,7 +1728,9 @@ export class World {
   /**
    * The kill-credit half of sinkShip (Story 4.6 extraction): tally + XP for
    * an attributed sink. A DEAD killer (mutual destruction) still gets both;
-   * storm (`by` undefined) and self-kills credit nothing by construction.
+   * storm (`by` undefined) and self-kills credit nothing to the roster tally
+   * or the bounty bonus by construction — but the kill VALUE itself now flows
+   * through payKillValue regardless, which pays assists on those sinks too.
    * `kills` — the roster tally AND the bounty ruler, one field since Story
    * 5.6 — advances ONLY on a PARTICIPANT victim: a human captain or, since
    * Story 6.4 (Eric ruling B3: bots are ordinary combatants — a bot victim
@@ -1676,17 +1742,157 @@ export class World {
    * what `kills` deliberately refuses to. Sinking the throne's holder pays
    * `CONFIG.bounty.killLevels` ON TOP of the standard kill value, through the
    * unchanged grantXp pipeline (fractional carry untouched).
+   *
+   * The kill VALUE itself no longer necessarily lands whole on the killer — it
+   * goes through payKillValue, which splits it among the hull's recent
+   * attackers. THE BOUNTY BONUS IS NEVER SPLIT and is granted here, separately:
+   * it rewards the act of sinking the throne's holder, not the work of wearing
+   * them down.
    */
   private creditKill(victim: ShipRecord, by: string | undefined, victimHeldBounty: boolean): void {
-    if (!by || by === victim.id) return;
-    const killer = this.ships.get(by);
-    if (!killer) return;
-    // The PvE TALLY keys on the fleet reading (economy): `pveKills` counts
-    // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
-    if (roleIsFleetHull(victim)) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
-    else killer.kills += 1;
-    const bonus = victimHeldBounty ? CONFIG.bounty.killLevels : 0;
-    this.grantXp(killer, World.killXpLevels(victim) + bonus);
+    const killer = by && by !== victim.id ? this.ships.get(by) : undefined;
+    if (killer !== undefined) {
+      // The PvE TALLY keys on the fleet reading (economy): `pveKills` counts
+      // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
+      if (roleIsFleetHull(victim)) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
+      else killer.kills += 1;
+      if (victimHeldBounty) this.grantXp(killer, CONFIG.bounty.killLevels);
+    }
+    this.payKillValue(victim, killer);
+    victim.damageFrom.clear(); // the ledger dies with the life it described
+  }
+
+  /**
+   * Pay out a sinking hull's KILL VALUE — split among its recent attackers
+   * (CONFIG.xp.assistWindowMs > 0), or whole to the killer at the 0 sentinel.
+   *
+   * OFF is byte-identical to last-hit-takes-all: an unattributed or self sink
+   * pays nobody, and a killer takes the full `killXpLevels`.
+   *
+   * ON, the value becomes a pot: `killerShare` of it is guaranteed to the
+   * killer, and the rest is divided by damage among everyone eligible — the
+   * killer INCLUDED, since the killing blow itself routes through recordAssist,
+   * so a solo kill still pays the full value and the split only ever moves
+   * value to people who actually contributed.
+   *
+   * A DRONE VICTIM'S POT SPLITS TOO (Eric answer A5, 2026-08-23): `killXpLevels`
+   * covers a fleet hull's ¼/½/¾ level, and that is what every measured arm did.
+   *
+   * A STORM KILL STILL PAYS THE ASSISTS. There is no killer, so the guaranteed
+   * share goes UNPAID — it is payment for the risk of closing, and nobody took
+   * that risk — but the hull was worn down by somebody and the split is about
+   * that work. This is NEW value: today an unattributed sink credits nothing at
+   * all.
+   *
+   * A FLEET-HULL KILLER BURNS THE GUARANTEED SHARE. The 0.1 (or configured
+   * `killerShare`) is granted to the drone here exactly as it would be to a
+   * human, but `addXpMs` fail-closes on every fleet hull — so the tenth simply
+   * evaporates while the eligible human contributors still only split the 0.9
+   * remainder through splitAssists. This is reachable in production (drones
+   * carry guns and can land the killing blow) and matches the measured
+   * reference behavior; it is a named consequence, not a defect.
+   */
+  private payKillValue(victim: ShipRecord, killer: ShipRecord | undefined): void {
+    const pot = World.killXpLevels(victim);
+    if (!(pot > 0)) return;
+    const windowMs = CONFIG.xp.assistWindowMs;
+    if (windowMs <= 0) {
+      if (killer !== undefined) this.grantXp(killer, pot);
+      return;
+    }
+    const share = Math.min(1, Math.max(0, CONFIG.xp.killerShare));
+    if (killer !== undefined && share > 0) this.grantXp(killer, pot * share);
+    this.splitAssists(victim, pot * (1 - share), this.now - windowMs, killer);
+  }
+
+  /**
+   * The victim's contributors who may actually be paid: a tally whose last
+   * damage landed at or after `cutoff` — i.e. whose rolling counter is still
+   * active — from a hull that still exists and is not a fleet hull.
+   *
+   * Split out of splitAssists for the complexity budget, but it earns its own
+   * name: every clause here is a RULE (the eligibility window, the fleet
+   * exclusion, the self-damage guard) rather than bookkeeping, and reading them
+   * in one place is how the payout stays auditable.
+   *
+   * FLEET HULLS ARE EXCLUDED rather than counted-and-unpaid: they cannot accrue
+   * XP, so counting their damage would silently EVAPORATE part of every pot
+   * they contributed to instead of redistributing it. (recordAssist already
+   * refuses to ledger a fleet attacker; this is the same rule at the second
+   * seam, and it also catches a hull whose role changed mid-life.)
+   *
+   * A DEAD ATTACKER'S CLAIM STILL PAYS: nothing here checks the contributor's
+   * OWN lifecycle, only the victim's damage ledger — deliberately, mirroring
+   * the mutual-destruction kill-credit precedent (creditKill still pays a
+   * killer who died in the same exchange). A hull that sinks the victim's
+   * attacker after they landed their damage does not erase that claim.
+   *
+   * OUTBOUND CLAIMS ARE NOT SWEPT FROM OTHER HULLS' LEDGERS on redeploy or
+   * respawn — a fresh life can still be paid for damage its previous life
+   * dealt, if some other victim's `damageFrom` entry for this id is still
+   * inside the window. Unreachable in live BR (ready-room damage is
+   * suppressed and match death is terminal — there is no redeploy), so this is
+   * a directed-API limitation rather than a rule anyone has had to enforce.
+   */
+  private eligibleContributors(victim: ShipRecord, cutoff: number): { ship: ShipRecord; amount: number }[] {
+    const out: { ship: ShipRecord; amount: number }[] = [];
+    for (const [id, rec] of victim.damageFrom) {
+      if (id === victim.id || rec.at < cutoff || !(rec.amount > 0)) continue;
+      const ship = this.ships.get(id);
+      if (ship === undefined || roleIsFleetHull(ship)) continue;
+      out.push({ ship, amount: rec.amount });
+    }
+    return out;
+  }
+
+  /**
+   * Divide `budget` levels among the victim's eligible contributors, in
+   * proportion to the damage each dealt.
+   *
+   * AN ELIGIBLE ATTACKER BRINGS THEIR WHOLE TALLY WITH THEM — the window is a
+   * property of the COUNTER, not a filter over the damage inside it. Eric:
+   * *"as long as i continue putting damage on the ship within 60s, it tracks
+   * all the damage i have done."* A sliding window over the same history (only
+   * damage dealt inside the last 60 s counts) was measured and is deliberately
+   * NOT taken: it discards the opening damage of a brawl still in progress.
+   *
+   * WITH NO ELIGIBLE CONTRIBUTOR AT ALL the remainder falls to the KILLER, and
+   * with no killer either it evaporates — the storm-lull case, and the reason a
+   * hull burning alone owes nobody anything.
+   *
+   * THE KILLER FALLBACK MAKES CONSERVATION STRUCTURAL RATHER THAN EMERGENT.
+   * The ruling's own rationale for "a solo kill still pays the full value" is
+   * that the killing blow itself routes through recordAssist, so the killer
+   * always holds a live counter — true of every in-sim damage path, and the
+   * branch below is therefore unreachable from any of them. But `sinkShip(id,
+   * by)` is a directed API whose documented contract is "an attributed sink
+   * credits the killer", and leaving that contract dependent on a call ordering
+   * in another method is the same hidden coupling the REQUIRED `dealt`
+   * parameter exists to forbid at the other seam. A killer who is on the books
+   * for nothing IS the sole contributor to that death, so last-hit-takes-all is
+   * the correct degenerate answer rather than burning nine tenths of the pot.
+   * It is measurement-neutral: no measured arm could reach it.
+   *
+   * The same directed-API reasoning also covers a killer whose ledger entry
+   * has fallen out of `eligibleContributors`' window — a directed sink against
+   * a killer whose last recorded hit is older than `cutoff` reaches this
+   * fallback exactly as the empty-ledger case does. Still unreachable in-sim
+   * for the identical reason: the killing blow itself is the freshest possible
+   * damage against `cutoff`, so it always refreshes the counter before this
+   * branch could ever be asked to cover for it.
+   */
+  private splitAssists(victim: ShipRecord, budget: number, cutoff: number, killer: ShipRecord | undefined): void {
+    if (!(budget > 0)) return;
+    const eligible = this.eligibleContributors(victim, cutoff);
+    let total = 0;
+    for (const e of eligible) total += e.amount;
+    if (!(total > 0)) {
+      // A FLEET killer collects nothing here either: addXpMs fail-closes on it,
+      // so the pot still evaporates exactly as it did before the fallback.
+      if (killer !== undefined) this.grantXp(killer, budget);
+      return;
+    }
+    for (const e of eligible) this.grantXp(e.ship, (budget * e.amount) / total);
   }
 
   /**
@@ -1765,8 +1971,61 @@ export class World {
    */
   private grantPoint(killer: ShipRecord): void {
     killer.bankedLevels += 1;
+    this.grantLevelHeal(killer);
     this.materializeOffer(killer);
     if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
+  }
+
+  /**
+   * THE FREE PER-LEVEL AUTO-HEAL (CONFIG.damageControl.levelMissingPct).
+   *
+   * Earning a level patches 10 % of the hull's MISSING hp at no cost, IN
+   * ADDITION to the refit-menu heal, which is untouched. It costs no banked
+   * level, drops no offer, and touches no deck — so the strategic heal spend
+   * keeps working exactly as it does today, and only the routine chip-damage
+   * tax moves off the card budget (measured: 58.7 % of every level earned was
+   * going to a heal rather than an upgrade).
+   *
+   * Sits in grantPoint rather than addXpMs so it fires ONCE PER LEVEL BANKED —
+   * including each crossing when one grant banks several at once — and inherits
+   * grantPoint's callers for free. A fleet hull never reaches here: addXpMs
+   * fail-closes on it before the bank loop runs.
+   *
+   * INTO THE POOL, NOT THE BAR. Feeding a pool rather than `hp` is what makes
+   * this a TRICKLE the enemy can out-damage instead of a free instant top-up,
+   * so it pays for chip damage between fights without answering burst damage —
+   * which is the menu heal's job and the decision Eric wants preserved.
+   *
+   * A SINKING OR SUNK HULL GETS NOTHING. The "no hp comes back" rule of the
+   * sinking window (amendment 10) governs here exactly as it governs spendHeal,
+   * and a hull CAN still cross a level while sinking — its shells keep
+   * resolving and kill credit is not alive-gated — so this guard is REACHABLE
+   * rather than defensive.
+   *
+   * A FULL HULL GETS NOTHING AND NO CUE: 10 % of zero missing is zero, and the
+   * `heal` event must not fire for a heal that did not happen. (This is why the
+   * cue lives after the amount, not before it.)
+   */
+  private grantLevelHeal(ship: ShipRecord): void {
+    if (!isAfloat(ship.lifecycle)) return;
+    const dc = CONFIG.damageControl;
+    // THE CHANNEL'S THIRD OFF SENTINEL, same family as assistWindowMs=0: a zero
+    // duration means OFF, never instant. Without this guard a zeroed
+    // levelRegenMs still accrues into levelRepairHp at a drain rate of 0 — a
+    // pool that never empties and permanently inflates the wire's summed
+    // repairHp.
+    if (!(dc.levelMissingPct > 0) || !(dc.levelRegenMs > 0)) return;
+    const add = (ship.stats.maxHp - ship.hp) * dc.levelMissingPct;
+    if (!(add > 0)) return;
+    ship.levelRepairHp += add;
+    // DELIVERY BY DURATION: rate recomputed against the WHOLE pool, so the pool
+    // empties exactly one levelRegenMs after the most recent level rather than
+    // running longer for each one. See ShipRecord.levelRepairRate.
+    ship.levelRepairRate = dc.levelRegenMs > 0 ? ship.levelRepairHp / dc.levelRegenMs : 0;
+    // The existing self-private cue, reused: the client already plays the heal
+    // tone and shows the hp rail's pending segment, so the free heal has full
+    // feedback with ZERO client change.
+    this.pending.push({ k: 'heal', id: ship.id });
   }
 
   /**
@@ -2505,6 +2764,12 @@ export class World {
    * spam ~20/s); the victim already receives its live hp every frame via
    * OwnShip.hp, and the client HP bar reads from you.hp, so it stays accurate.
    * No boom for storm ticks either.
+   *
+   * IT DELIBERATELY BYPASSES creditDamage, which is what makes "the storm never
+   * refreshes an attacker's counter" STRUCTURAL rather than a restated rule: a
+   * hull burning alone out here is not in a fight, so its attackers' claims on
+   * its kill value still lapse. When the storm finishes it, payKillValue still
+   * pays whatever counters are live, with the killer's guaranteed share unpaid.
    */
   private applyStorm(dt: number): void {
     if (this.zoneStartT === null || !this.damageEnabled) return;
@@ -2533,16 +2798,45 @@ export class World {
    *
    * Only LIVING hulls tick — a wreck's pool is already zeroed by sinkShip, so
    * the afloat gate is belt-and-braces against a directed caller.
+   *
+   * TWO INDEPENDENT CHANNELS since 2026-08-23, drained side by side through one
+   * payRepair: the PAID pool above at its fixed rate, and the FREE per-level
+   * pool at its own `levelRepairRate` (pool ÷ levelRegenMs, set on grant). They
+   * do not interact — a level heal landing on top of a menu heal changes
+   * neither pool's rate, and each empties on its own clock.
    */
   private tickRepairs(dtMs: number): void {
     const dc = CONFIG.damageControl;
     const budget = (dc.regenHp / dc.regenMs) * dtMs;
     for (const ship of this.ships.values()) {
-      if (!isAfloat(ship.lifecycle) || ship.repairHp <= 0) continue;
-      const paid = Math.min(budget, ship.repairHp);
-      ship.repairHp -= paid; // wall-clock drain: spent even when the hp is clamped away
-      ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
+      if (!isAfloat(ship.lifecycle)) continue;
+      if (ship.repairHp > 0) World.payRepair(ship, budget, false);
+      if (ship.levelRepairHp > 0 && ship.levelRepairRate > 0) World.payRepair(ship, ship.levelRepairRate * dtMs, true);
     }
+  }
+
+  /** Drain ONE repair channel by its own wall-clock budget. The pool decrements
+   *  WHETHER OR NOT the hp lands, so overflow past maxHp is lost rather than
+   *  banked — the ruled behavior, and identical for both channels. */
+  private static payRepair(ship: ShipRecord, budget: number, level: boolean): void {
+    const pool = level ? ship.levelRepairHp : ship.repairHp;
+    const paid = Math.min(budget, pool);
+    if (level) {
+      ship.levelRepairHp -= paid;
+      // An emptied pool drops its rate, so a later grant is never paid out at a
+      // stale one (the rate is always recomputed against the whole pool).
+      if (ship.levelRepairHp <= 0) ship.levelRepairRate = 0;
+    } else ship.repairHp -= paid;
+    ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
+  }
+
+  /** Zero BOTH repair channels and the free channel's rate. ONE helper for the
+   *  three sites that end a hull's repair state (sink, redeploy, respawn), so a
+   *  future channel cannot be added to one of them and forgotten in the others. */
+  private static clearRepair(ship: ShipRecord): void {
+    ship.repairHp = 0;
+    ship.levelRepairHp = 0;
+    ship.levelRepairRate = 0;
   }
 
   /** Alive hull silhouette polygons (post-move) that shells and mines test
@@ -3066,17 +3360,104 @@ export class World {
     // the friends that saw it happen. onDamaged itself no-ops for a
     // non-fleet victim, a mine hit, and a fleet-on-fleet hit.
     this.drones.onDamaged(victim.id, byId, fromMine);
+    // OVERKILL NEVER PAYS (Eric ruling 2026-08-22): *"if i do 50 damage to
+    // someone with 1 HP left, i get 1 damage worth of XP"*. The claim-eligible
+    // figure is the damage the hull could actually absorb, so it has to be read
+    // BEFORE the hp is applied — afterwards the excess is only recoverable as a
+    // negative hp, which is the same number arrived at less clearly.
+    const dealt = Math.max(0, Math.min(amount, victim.hp));
     victim.hp -= amount;
-    this.creditDamage(byId, victim.id, amount);
+    this.creditDamage(byId, victim.id, amount, dealt);
     this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
     if (victim.hp <= 0) this.sinkShip(victim.id, byId);
   }
 
-  /** Accumulate damageDealt on the attacker (self-hits excluded; storm never routes here). */
-  private creditDamage(byId: string, victimId: string, amount: number): void {
+  /**
+   * Accumulate damageDealt on the attacker (self-hits excluded; storm never
+   * routes here), and note the contribution on the victim's assist ledger.
+   *
+   * TWO FIGURES, DELIBERATELY: `amount` is the FULL nominal damage of the blow
+   * and is what `damageDealt` has always counted — it is the RESULTS-SCREEN
+   * TALLY, not the economy, and the overkill ruling was about the economy;
+   * `dealt` is the part the hull could actually absorb and is the only part
+   * that earns a share. They differ only on an overkilling blow. `dealt` is
+   * REQUIRED rather than defaulted to `amount` — a default would let a future
+   * damage path silently opt back into paying for overkill by simply not
+   * knowing about it, which is exactly the ruling this parameter enforces.
+   */
+  private creditDamage(byId: string, victimId: string, amount: number, dealt: number): void {
     if (byId === victimId) return;
     const attacker = this.ships.get(byId);
     if (attacker) attacker.damageDealt += amount;
+    this.recordAssist(victimId, byId, dealt);
+  }
+
+  /**
+   * Note one attacker's contribution on the VICTIM's assist ledger — the whole
+   * of the rolling-counter model, in Eric's words (2026-08-23):
+   *
+   *   *"as long as i continue putting damage on the ship within 60s, it tracks
+   *   all the damage i have done. If that 60s window expires, then it stops
+   *   tracking my damage. When the ship is sunk, the xp reward is split
+   *   proportionally to everyone who still had an active counter at that
+   *   time."*
+   *
+   * So a lapsed counter RESTARTS FROM ZERO on the next hit — *"as if I had not
+   * previously been in the battle"* — and that fires PER ATTACKER, even while
+   * the fight rages on, because someone else keeping it alive does not keep
+   * YOUR claim alive. One number does all three jobs (restart gap, eligibility
+   * window, on-switch), which is why a second encounter-gap dial does not
+   * exist: with gap = window, every-attacker-silent is exactly every-counter-
+   * expired, so the encounter-level wipe is subsumed.
+   *
+   * Records the CLAMPED `dealt`, never the nominal blow, so a killing shot that
+   * overkills by 300 does not buy its owner a 300-damage share.
+   *
+   * A FLEET attacker is never ledgered at all — it cannot accrue XP, so a share
+   * for it would evaporate rather than redistribute. An attacker we cannot find
+   * IS ledgered (a departed player's claim survives, exactly as a dead killer's
+   * kill credit does); eligibleContributors drops it at payout if the hull is
+   * really gone.
+   *
+   * The storm never routes through this seam (applyStorm bypasses creditDamage
+   * entirely), which is what makes "the storm never refreshes a counter"
+   * structural rather than a restated rule.
+   */
+  private recordAssist(victimId: string, byId: string, dealt: number): void {
+    if (CONFIG.xp.assistWindowMs <= 0 || !(dealt > 0)) return;
+    const victim = this.ships.get(victimId);
+    if (victim === undefined) return;
+    const attacker = this.ships.get(byId);
+    if (attacker !== undefined && roleIsFleetHull(attacker)) return;
+    const prev = victim.damageFrom.get(byId);
+    if (prev === undefined || this.now - prev.at > CONFIG.xp.assistWindowMs) {
+      victim.damageFrom.set(byId, { amount: dealt, at: this.now, buckets: [{ at: this.now, amount: dealt }] });
+      return;
+    }
+    prev.amount += dealt;
+    prev.at = this.now;
+    World.addBucket(prev.buckets, dealt, this.now);
+  }
+
+  /** ms per assist bucket. 1 s against a 60 s window is ~1.7 % of boundary
+   *  fuzz, and it is what keeps the history BOUNDED: incendiary DoT credits
+   *  ~20 events a second, so exact per-event history would grow without limit
+   *  in exactly the case that matters. */
+  private static readonly ASSIST_BUCKET_MS = 1000;
+
+  /** Add `dealt` to the newest bucket, opening a new one when it has aged out,
+   *  and drop buckets that can no longer be inside any window. Bounded at
+   *  window/bucket + 1 entries however long a fight runs. The history is
+   *  MEASUREMENT SUBSTRATE ONLY (scripts/batchsim/encounterSpan.ts) — no payout
+   *  path reads it; the payout reads `amount` and `at`. */
+  private static addBucket(buckets: { at: number; amount: number }[], dealt: number, now: number): void {
+    const last = buckets[buckets.length - 1];
+    if (last !== undefined && now - last.at < World.ASSIST_BUCKET_MS) last.amount += dealt;
+    else buckets.push({ at: now, amount: dealt });
+    const cutoff = now - CONFIG.xp.assistWindowMs - World.ASSIST_BUCKET_MS;
+    let drop = 0;
+    while (drop < buckets.length && buckets[drop].at < cutoff) drop++;
+    if (drop > 0) buckets.splice(0, drop);
   }
 
   /**
@@ -3350,8 +3731,12 @@ export class World {
     // but a directed caller must not be able to burn hp off a hull already at
     // 0 or nudge sinkShip at a sinking victim.
     if (isSinking(victim.lifecycle)) return;
+    // The overkill clamp applies to the DoT path too (hitShip's rule at the
+    // second call site): a burn tick that finishes a hull claims only the hp it
+    // actually took.
+    const dealt = Math.max(0, Math.min(amount, victim.hp));
     victim.hp -= amount;
-    this.creditDamage(ownerId, victim.id, amount);
+    this.creditDamage(ownerId, victim.id, amount, dealt);
     const key = dotKey(ownerId, victim.id);
     const bucket = this.dotBuckets.get(key);
     if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, since: this.now });
@@ -4135,9 +4520,12 @@ export class World {
     // or a DAMAGE CONTROL pool (sinkShip already zeroed them; kept symmetric
     // for directed callers).
     ship.boostUntil = 0;
-    ship.repairHp = 0;
+    World.clearRepair(ship);
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
+    // ...nor a previous life's contributors: creditKill already cleared the
+    // ledger at the sink, kept symmetric here for directed callers.
+    ship.damageFrom.clear();
     // ...nor a stale grounding read (the redeployShip rule): the respawn
     // placement is island-clear, so the hull is not aground.
     ship.landContact = false;

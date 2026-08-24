@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as shared from '../index.js';
+import type { EquipmentId } from '../index.js';
 import {
   PROTOCOL_VERSION,
   CONFIG,
@@ -267,7 +268,53 @@ describe('shared barrel', () => {
       expect(CONFIG.xp.droneTierLevels[id]).toBeGreaterThan(0);
       expect(CONFIG.xp.droneTierLevels[id]).toBeLessThan(CONFIG.xp.killLevels);
     }
-    expect(Object.keys(CONFIG.xp).sort()).toEqual(['droneTierLevels', 'killLevels', 'levelMs']);
+    // THE ASSIST SPLIT IS ONE DIAL (Eric answer A1, 2026-08-23). Pinning the
+    // VALUE is what makes "60 s is the ruled window" a test rather than a
+    // claim: the same number is the per-attacker restart gap, the eligibility
+    // window at the sink, and the on-switch, so a second gap dial appearing
+    // here would fail the shape pin by its key alone.
+    expect(CONFIG.xp.assistWindowMs).toBe(60000);
+    expect(CONFIG.xp.killerShare).toBe(0.1);
+    // 60 s clears every weapon cycle with room — the reason it beat the
+    // first-ruled 30 s, which left the torpedo exactly at the boundary.
+    // STRUCTURAL SWEEP over the weapon registry (EQUIPMENT_IS_WEAPON), not a
+    // hand-enumerated list, so a future weapon's reload is covered
+    // automatically. This also now covers the radar buoy's 30s reload, which
+    // the old five-reload enumeration omitted.
+    const WEAPON_CONFIG_RELOAD_MS: Record<EquipmentId, number> = {
+      gun: CONFIG.gun.reloadMs,
+      torpedo: CONFIG.torpedo.reloadMs,
+      mine: CONFIG.mine.reloadMs,
+      speedBoost: -Infinity, // not a weapon — EQUIPMENT_IS_WEAPON filters it out below
+      broadside: CONFIG.broadside.reloadMs,
+      starShells: CONFIG.starShells.reloadMs,
+      radarBuoy: CONFIG.radarBuoy.reloadMs,
+    };
+    for (const id of Object.keys(EQUIPMENT_IS_WEAPON) as EquipmentId[]) {
+      if (!EQUIPMENT_IS_WEAPON[id]) continue;
+      expect(CONFIG.xp.assistWindowMs).toBeGreaterThan(WEAPON_CONFIG_RELOAD_MS[id]);
+    }
+    expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
+  });
+
+  it('carries the damage-control block — the paid heal plus the FREE per-level channel', () => {
+    // The PAID heal, unchanged by the 2026-08-23 auto-heal: 50 instant + 50
+    // into the pool = 100 hp, drained at the fixed regenHp/regenMs 10 hp/s.
+    expect(CONFIG.damageControl.instantHp).toBe(50);
+    expect(CONFIG.damageControl.regenHp).toBe(50);
+    expect(CONFIG.damageControl.regenMs).toBe(5000);
+    // THE FREE PER-LEVEL AUTO-HEAL: 10 % of MISSING hull, delivered over 5 s
+    // from its own pool at its own rate. A fraction of MISSING (not of max, not
+    // a flat amount) is the ruled shape and is what makes it need no repricing
+    // when hull HP next moves.
+    expect(CONFIG.damageControl.levelMissingPct).toBe(0.1);
+    expect(CONFIG.damageControl.levelRegenMs).toBe(5000);
+    // CONFIG.damageControl's FIRST shape pin (this block had value pins in
+    // damageControl.test.ts but never a key pin). It is the guard that a
+    // percentage MENU heal — measured across nine variants and DEFERRED by
+    // Eric to after the upgrade-card balance pass — cannot arrive silently:
+    // healFlatPct / healMissingPct / healPoolPct would all fail by key alone.
+    expect(Object.keys(CONFIG.damageControl).sort()).toEqual(['instantHp', 'levelMissingPct', 'levelRegenMs', 'regenHp', 'regenMs']);
   });
 
   it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {

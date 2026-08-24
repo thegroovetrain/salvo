@@ -431,14 +431,19 @@ export interface OwnShip {
    */
   xp: number;
   /**
-   * hp — remaining DAMAGE CONTROL regen pool (Eric rulings 2026-08-04); `0`
-   * = no pool draining. Each heal spend adds CONFIG.damageControl.regenHp
-   * here; the server drains it at the fixed regenHp/regenMs rate (pools ADD,
-   * the rate never changes) and it resets to 0 wherever boostUntil does
-   * (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION (the
-   * boostUntil precedent): this field rides `you` and NOTHING else — it never
-   * appears on a Contact, blip, ballistic event, boom, or spectator payload.
-   * An enemy observer reads a healing hull ONLY through its observed
+   * hp still owed to this hull — `0` = no pool draining. Since 2026-08-23 this
+   * is the SUM of two server-side pools folded together on the wire
+   * (frames.ts: `ship.repairHp + ship.levelRepairHp`): the PAID damage-control
+   * regen pool (Eric rulings 2026-08-04) — each heal spend adds
+   * CONFIG.damageControl.regenHp here, drained at the fixed regenHp/regenMs
+   * rate (pools ADD, the rate never changes) — and the FREE per-level
+   * auto-heal pool (CONFIG.damageControl.levelMissingPct), drained at its own
+   * DURATION-based rate (`levelRepairHp / levelRegenMs`, recomputed against
+   * the whole pool on every grant). Both pools reset to 0 wherever boostUntil
+   * does (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION
+   * (the boostUntil precedent): this field rides `you` and NOTHING else — it
+   * never appears on a Contact, blip, ballistic event, boom, or spectator
+   * payload. An enemy observer reads a healing hull ONLY through its observed
    * persistence under fire; the heal's timing and existence stay self-private.
    */
   repairHp: number;

@@ -58,6 +58,17 @@ describe('how-to-play copy', () => {
     }
   });
 
+  // The 2026-08-23 assist-split + auto-heal economy (CONFIG.xp.assistWindowMs
+  // / killerShare, CONFIG.damageControl.levelMissingPct): pins that BOTH new
+  // UPGRADING paragraphs survive, so a later edit cannot silently delete
+  // either one.
+  it('teaches the assist split and the auto-heal', () => {
+    const upgrading = HOWTO_SECTIONS.find((s) => s.heading === 'UPGRADING');
+    const paragraphs = upgrading?.paragraphs ?? [];
+    expect(paragraphs.some((p) => p.includes('A kill is shared'))).toBe(true);
+    expect(paragraphs.some((p) => p.includes('patches part of your missing hull'))).toBe(true);
+  });
+
   // The netcode debug toggle ships to players but is a developer affordance, and
   // Eric ruled it out of BOTH binding surfaces (the settings reference omits it
   // too). A bare 'P' would be too loose a match, so this checks the key tables.

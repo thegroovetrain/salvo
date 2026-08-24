@@ -2786,3 +2786,57 @@ the broadside is capped at the 5/8 rung, the banked Decoy Ship class whose premi
 decoy buoy, and whether heals stay spendable during the sudden-death collapse.
 
 `npm run check` green at **5601 tests** (778 shared / 1606 server / 3217 client).
+
+## Amendment 44 — THE ASSIST SPLIT + THE PER-LEVEL AUTO-HEAL SHIP (ERIC RULINGS 2026-08-22/23, cycle 129, PV stays 48)
+
+The two mechanisms adopted at balance cycle 2 (cycle 128's spec) are LIVE: a kill's value is a POT
+— `xp.killerShare` (1/10) guaranteed to the killer, the remainder split proportionally to
+overkill-clamped damage among every attacker whose counter is still active at the sink — and every
+level EARNED patches `damageControl.levelMissingPct` (10%) of MISSING hull, free, over
+`levelRegenMs` (5s), into its own pool at its own rate. The menu heal is byte-identical and pinned.
+Evidence: `batch-sim-evidence-2026-08-22.md`; spec: `spec-xp-assist-split-and-auto-heal.md`.
+
+**THE MODEL IS A PER-ATTACKER ROLLING COUNTER, ONE DIAL (Eric, 2026-08-23, planning session):**
+*"the easiest way to think about it is that as long as i continue putting damage on the ship within
+60s, it tracks all the damage i have done. If that 60s window expires, then it stops tracking my
+damage. When the ship is sunk, the xp reward is split proportionally to everyone who still had an
+active counter at that time."* This formulation SUPERSEDES the spec draft's two-reset encounter
+model as the implementation: when gap = window the encounter-level wipe is provably redundant (all
+attackers silent for the window ⇒ every counter individually expired), so `assistEncounterGapMs`
+NEVER SHIPPED — `xp.assistWindowMs` (60000) is the restart gap, the eligibility window and the
+on-switch in one number, and "these must move together" is structural.
+
+**FIVE ERIC ANSWERS taken in-session via AskUserQuestion** (record:
+`bmad-dev-auto-result-xp-assist-split-questions.md`): **A1** one dial (above). **A2 — HOW-TO-PLAY
+COPY ONLY, and a STANDING INSTRUCTION**: *"How to play only. I will explicitly tell you when to add
+copy to ingame text."* No refit-menu line, no toast, no HUD text shipped — feature explanations
+default to the How-to-Play page until Eric says otherwise. **A3** — NO PV bump: PV stays 48 under
+the cycle-96 precedent (no wire shape moved; `OwnShip.repairHp` keeps meaning "hp still owed", now
+the SUM of both channels; the client reads none of the moved/new keys — `healReadout()` reads only
+`instantHp`/`regenHp`/`regenMs`, all unchanged). **A4** — the reference branch's rejected machinery
+(`xp.damageLevels`, `assistSlidingWindow`, `assistEnvWeight`, `damageControl.levelHp`,
+`healFlatPct`/`healMissingPct`/`healPoolPct`) NEVER LANDED, not even off; the full instrument set
+survives on `worktree-balance-damage-xp`. Kept deliberately: the per-attacker bucket history
+(measurement substrate for `server/scripts/batchsim/encounterSpan.ts`, which shipped with this
+cycle) and the 0-sentinel OFF branches (`--set xp.assistWindowMs=0` /
+`damageControl.levelMissingPct=0` are reachable harness arms). **A5** — a DRONE victim's ¼/½/¾
+pot splits exactly like a captain's (what every measured arm did).
+
+**CONSEQUENCES OF RECORD, none silent:** (1) A STORM KILL NOW PAYS ASSISTS with the killer share
+unpaid (it is payment for the risk of closing, and nobody took it) — new value where an
+unattributed sink previously credited nothing; a SELF-SINK resolves the same way (killer undefined,
+recent attackers split the remainder), reference-identical. (2) THE SUDDEN-DEATH CEILING LENGTHENS
+SLIGHTLY: a hull dying in the storm keeps earning passive levels, each patching 10% of missing
+free — measured 87.5s → 91.95s storm tail for a full-HP battleship; `zone.test.ts`'s bound is now
+DERIVED (levels-per-sink × levelMissingPct × maxHp ÷ stormDps) rather than pinned, and the
+guarantee holds structurally (bounded heal vs unbounded constant storm). The cycle-82 "~17:28
+theoretical max" arithmetic is accordingly understated by a few minutes' tail in the hoarded-heals
+worst case. (3) `splitAssists` carries a DIRECTED-API KILLER FALLBACK: with an empty ledger and a
+live killer, the killer takes the remainder — unreachable from any in-sim damage path (the killing
+blow always ledgers), measurement-neutral, and what keeps `sinkShip(id, by)`'s "an attributed sink
+credits the killer" contract independent of call ordering; pinned by its own test. (4)
+`CONFIG.damageControl` gained its FIRST shape pin (barrel.test.ts), so a percentage MENU heal —
+deferred by Eric to after the upgrade-card balance pass — cannot arrive silently. (5) The free
+channel delivers BY DURATION (rate = pool/levelRegenMs, recomputed per grant) — a deliberate,
+confined departure from the anti-flask fixed-rate rule; the paid channel's fixed rate is pinned
+untouched.

@@ -1817,7 +1817,10 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect(f.you.xp).toBeCloseTo(me.xpMs / CONFIG.xp.levelMs, 12);
     // DAMAGE CONTROL (2026-08-04): the regen pool is self-private on the
     // boostUntil terms — the OBSERVER'S OWN value on `you`, and nothing else's.
-    expect(f.you.repairHp).toBe(me.repairHp);
+    // BOTH CHANNELS since 2026-08-23 (the free per-level auto-heal got its own
+    // pool): the field means "hp still owed", which is the sum. The privacy
+    // claim is unchanged and is what the structural pin below still enforces.
+    expect(f.you.repairHp).toBe(me.repairHp + me.levelRepairHp);
   }
   // THE STRUCTURAL PIN: `repairHp` may exist NOWHERE in a frame except `you`,
   // and the string must be absent entirely from any frame that has no `you`
