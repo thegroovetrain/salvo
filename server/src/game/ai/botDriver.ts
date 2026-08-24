@@ -131,6 +131,16 @@ export class BotController {
    * batch-sim harness (`--bot-engage endgame`), before any tick runs.
    */
   engage: BotEngageGate = 'always';
+  /**
+   * THE SPEND MODE (balance campaign, 2026-08-24) — 'profile' is the shipped
+   * behaviour and the default, so nothing in production moves. Under 'random'
+   * every subsequently-enrolled bot keeps its rolled profile's TEMPERAMENT
+   * (band, targeting, disengage/heal thresholds, appetite) but picks cards
+   * uniformly at random from its offer — the tuned-profile instance of the
+   * blind-vacuum rows' measurement design, reachable only through the
+   * batch-sim harness (`--bot-spend random`), set before any enrollment.
+   */
+  spend: 'profile' | 'random' = 'profile';
 
   constructor(port: BotWorldPort, seed: number) {
     this.port = port;
@@ -213,6 +223,7 @@ export class BotController {
       fireSeq: 0,
       actSeq: 0,
       profile: prof,
+      spendRandom: this.spend === 'random',
       phase: botPhase(id, this.cadenceTicks),
       view: null,
       viewAt: -1,

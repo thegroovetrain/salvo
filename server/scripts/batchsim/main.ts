@@ -70,9 +70,13 @@ function headerLines(opts: CliOptions): string[] {
   const hull = opts.roster !== 'rolled' ? ` roster=${opts.roster}` : '';
   const botProfile = opts.botProfile !== null ? ` botProfile=${opts.botProfile}` : '';
   const botEngage = opts.botEngage !== 'always' ? ` botEngage=${opts.botEngage}` : '';
+  // The tuned-profile measurement flags join the run key on the same
+  // only-when-non-default terms as every flag before them (NFR5).
+  const botSpend = opts.botSpend !== 'profile' ? ` botSpend=${opts.botSpend}` : '';
+  const botHull = opts.botHull !== null ? ` botHull=${opts.botHull}` : '';
   const roster = opts.deckOnly
     ? ''
-    : ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage} control=${opts.control}`;
+    : ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull} control=${opts.control}`;
   const tune = Object.keys(opts.tune).length > 0 ? ` tune=${tuneLine(opts.tune)}` : '';
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
@@ -97,6 +101,11 @@ interface JsonVariant {
   roster: string;
   aggregate: unknown;
   bots?: unknown;
+  /** RAW per-match bot rows (--raw only): the per-upgrade evidence surface —
+   *  one row per match carrying outcome + every BotSample (build, pick timing,
+   *  offers seen, placement). ADDITIVE, exactly as `tune`/`roster` were: absent
+   *  on every run that does not ask for it. */
+  raw?: unknown;
 }
 
 interface ModeOutput {
@@ -121,6 +130,8 @@ function batchMode(opts: CliOptions): ModeOutput {
           bots: opts.bots,
           botProfile: opts.botProfile ?? undefined,
           botEngage: opts.botEngage,
+          botSpend: opts.botSpend,
+          botHull: opts.botHull ?? undefined,
           roster: opts.roster,
           control: CONTROL_REGISTRY[opts.control],
         },
@@ -151,6 +162,7 @@ function batchMode(opts: CliOptions): ModeOutput {
         roster: opts.roster,
         aggregate: agg,
         bots: botAgg,
+        ...(opts.raw ? { raw: rawRows(result) } : {}),
       });
     } finally {
       restore();
@@ -189,6 +201,20 @@ function deckMode(opts: CliOptions): ModeOutput {
   }
   if (rendered.length > 1) body.push(...renderDeckComparison(rendered), '');
   return out;
+}
+
+/** The --raw surface: per-match outcome + every BotSample, nothing re-derived —
+ *  captain/catalog blocks stay out (they have their own aggregates), so the raw
+ *  block's size is exactly lobby × matches. */
+function rawRows(result: BatchResult): unknown {
+  return result.matches.map((m) => ({
+    index: m.index,
+    seed: m.seed,
+    durationS: m.durationS,
+    endedBy: m.endedBy,
+    winnerClass: m.winnerClass,
+    bots: m.bots ?? [],
+  }));
 }
 
 function failureLines(result: BatchResult): string[] {
