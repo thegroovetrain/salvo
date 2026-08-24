@@ -53,6 +53,14 @@ const TUNE_FAMILIES = [
   'speedBoost.',
   'radarBuoy.',
   'shipClasses.',
+  // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
+  // "should a drone be worth, through damage, what its kill tier already says
+  // it is worth" — at a damage->XP rate of 1/N, tier x N is the hp that makes
+  // the two halves proportional. It is a COMBAT envelope (hp, gun, kinematics)
+  // and so belongs on this surface rather than the --set economy whitelist,
+  // even though the question that reaches for it is an economy one. The `hp`
+  // leaf inherits the existing floor of 1 via TUNE_MIN_ONE_LEAVES.
+  'drones.',
   // DAMAGE CONTROL is a COMBAT dial, not an economy one, so it belongs on this
   // surface rather than the --set whitelist: `damageControl` amounts are FLAT
   // on every hull by ruling ("no maxHp scaling, no upgrade scaling"), which
