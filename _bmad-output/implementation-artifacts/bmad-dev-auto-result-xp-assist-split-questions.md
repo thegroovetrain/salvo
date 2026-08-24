@@ -1,13 +1,27 @@
 ---
-status: blocked
+status: answered
 ---
 
 # BMad Dev Auto Result — XP Assist Split + Per-Level Auto-Heal (questions)
 
-Status: BLOCKED 2026-08-23 — five questions for Eric, surfaced before implementation as the
-invocation requested.
-Blocking condition: intent gaps — two are the spec's own "Block If" items, three arose from the
-planning investigation.
+Status: ANSWERED 2026-08-23 — all five ruled by Eric in-session (via AskUserQuestion, same run).
+Original blocking condition: intent gaps — two were the spec's own "Block If" items, three arose
+from the planning investigation.
+
+## THE ANSWERS (Eric, 2026-08-23)
+
+- **A1 — ONE DIAL.** `xp.assistWindowMs: 60000` only; `assistEncounterGapMs` never ships. The
+  per-attacker rolling counter is the model, and "must move together" is structural.
+- **A2 — HOW-TO-PLAY ONLY.** No in-game copy anywhere (no refit-menu line). Eric, verbatim: *"How
+  to play only. I will explicitly tell you when to add copy to ingame text."* — recorded as a
+  STANDING instruction, not just for this story.
+- **A3 — NO PV BUMP.** `PROTOCOL_VERSION` stays 48, per the cycle-96 precedent adjudication.
+- **A4 — NONE OF THE REJECTED MACHINERY LANDS.** Selective port of the adopted mechanisms only.
+  Keeps confirmed: the per-attacker bucket history (encounterSpan.ts's substrate) and the
+  0-sentinel OFF branches (harness-measurable OFF arms).
+- **A5 — DRONE POTS SPLIT.** A fleet victim's ¼/½/¾-level value splits exactly like a captain's.
+
+---
 
 Baseline: `25715a0` (origin/development, 0.17.128, PROTOCOL_VERSION 48). Branch
 `dev-auto-xp-assist-split`. Spec: `spec-xp-assist-split-and-auto-heal.md` (status `blocked`,

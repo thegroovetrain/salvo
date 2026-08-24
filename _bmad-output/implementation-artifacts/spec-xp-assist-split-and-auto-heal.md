@@ -2,7 +2,7 @@
 title: 'XP Assist Split + Per-Level Auto-Heal'
 type: 'feature'
 created: '2026-08-23'
-status: 'blocked'
+status: 'ready-for-dev'
 review_loop_iteration: 0
 followup_review_recommended: false
 warnings: ['oversized']
@@ -179,13 +179,13 @@ Questions below).
 
 - `shared/src/constants.ts` — `CONFIG.xp` gains `assistWindowMs` (**60000** —
   the draft's 30000 here was stale against the 55401ce ruling; 60 s is ruled)
-  and `killerShare` (0.1); whether `assistEncounterGapMs` (60000) also ships or
-  the two collapse into the one dial Eric's rolling-counter formulation implies
-  is **Q1**. `CONFIG.damageControl` gains `levelMissingPct` (0.10) and
-  `levelRegenMs` (5000). The reference branch's other dials (`damageLevels`,
-  `assistSlidingWindow`, `assistEnvWeight`, `levelHp`, `healFlatPct`,
-  `healMissingPct`, `healPoolPct`) are rejected/not-adopted mechanisms — **Q4**
-  proposes they never land (no dead knob survives).
+  and `killerShare` (0.1). **A1: ONE dial** — `assistEncounterGapMs` never
+  ships; the per-attacker rolling counter is the model. `CONFIG.damageControl`
+  gains `levelMissingPct` (0.10) and `levelRegenMs` (5000). **A4:** the
+  reference branch's other dials (`damageLevels`, `assistSlidingWindow`,
+  `assistEnvWeight`, `levelHp`, `healFlatPct`, `healMissingPct`,
+  `healPoolPct`) never land (no dead knob survives); the 0-sentinel OFF
+  branches of the two shipped mechanisms stay, for the harness.
 - `server/src/game/world.ts` —
   - `ShipRecord`: `damageFrom` (the per-victim assist ledger), `lastDamagedAt`
     (the encounter clock), `levelRepairHp` + `levelRepairRate` (the free heal's
@@ -220,13 +220,23 @@ Questions below).
 ## Tasks & Acceptance
 
 **Execution (dependency order):**
-- [ ] `CONFIG` dials + barrel pins
-- [ ] The assist ledger + encounter/rejoin resets (`recordAssist`)
-- [ ] The payout (`payKillValue` / `splitAssists`), with conservation tests
-- [ ] The per-level auto-heal + its own drain channel
-- [ ] `frames.ts` summed mirror
-- [ ] PROTOCOL_VERSION adjudication + client copy decision
-- [ ] Bookkeeping + `npm run check`
+- [ ] `CONFIG` dials (`assistWindowMs` 60000, `killerShare` 0.1,
+      `levelMissingPct` 0.10, `levelRegenMs` 5000) + barrel pins (xp shape pin
+      moves; damageControl gets its FIRST shape pin)
+- [ ] The assist ledger, one-dial rolling-counter model (`recordAssist` with
+      overkill-clamped `dealt`, per-attacker restart, fleet-attacker
+      exclusion; bucket history kept for encounterSpan)
+- [ ] The payout (`payKillValue` / `splitAssists` / `eligibleContributors`),
+      with conservation tests; drone pots split (A5); storm kills pay assists,
+      killer share unpaid
+- [ ] The per-level auto-heal (`grantLevelHeal`, %missing only) + its own
+      drain channel (`levelRepairHp`/`levelRepairRate` through one
+      `payRepair`); zeroed wherever `repairHp` is
+- [ ] `frames.ts` summed mirror (`repairHp + levelRepairHp`)
+- [ ] `server/scripts/batchsim/encounterSpan.ts` ported to the one-dial model
+- [ ] How-to-Play copy only (A2 — NO in-game text); PV stays 48 (A3)
+- [ ] Bookkeeping (VERSION 0.17.129, CHANGELOG, both trackers, amendments) +
+      `npm run check`
 
 **Acceptance Criteria:**
 - Given a solo kill, the killer receives the full kill value (conservation).
@@ -390,26 +400,19 @@ tip `b2047f8`. These are facts, not decisions:
   now summed over two channels); `OwnShip.xp`/`lvl` already carry fractional
   progress (droneTierLevels precedent).
 
-## Open Questions (run halted here — answers unblock implementation)
+## Open Questions — ALL ANSWERED (Eric, 2026-08-23, in-session)
 
-Five questions surfaced per Eric's invocation directive; full statements,
-evidence and recommendations in
+Asked and ruled via AskUserQuestion in the same run; full record in
 `bmad-dev-auto-result-xp-assist-split-questions.md` (same directory):
 
-- **Q1** — one dial (`assistWindowMs` 60000, the rolling-counter model) or two
-  (`+ assistEncounterGapMs` 60000, the measured two-reset code)? Equivalent
-  behavior; recommendation: one.
-- **Q2** — client copy for the free auto-heal: none, a line in the refit heal
-  readout, and/or How-to-Play? Design call; recommendation: one readout line,
-  copy Eric's.
-- **Q3** — `PROTOCOL_VERSION`: adjudicated NO BUMP under the cycle-96
-  precedent; confirm or veto.
-- **Q4** — the reference branch's rejected/not-adopted machinery
-  (damage→XP, sliding window, env dilution, flat `levelHp`, percentage menu
-  heal) never lands; 0-sentinel OFF branches of the two shipped mechanisms
-  stay for the harness. Confirm or veto.
-- **Q5** — drone-kill pots split like captain pots (what every measured arm
-  did). Confirm or veto.
+- **A1 — ONE dial**: `assistWindowMs: 60000` only, the rolling-counter model;
+  `assistEncounterGapMs` never ships.
+- **A2 — How-to-Play ONLY**: no in-game copy anywhere. Eric: *"I will
+  explicitly tell you when to add copy to ingame text"* (standing instruction).
+- **A3 — NO PV bump**: `PROTOCOL_VERSION` stays 48.
+- **A4 — none of the rejected machinery lands**: selective port; the bucket
+  history and the 0-sentinel OFF branches stay.
+- **A5 — drone pots split** like captain pots.
 
 ## Verification
 
@@ -421,12 +424,8 @@ evidence and recommendations in
 
 ## Auto Run Result
 
-Status: blocked
-Blocking condition: intent gaps — five Eric-level questions surfaced before
-implementation, as the invocation requested ("surface questions before
-implementation"). See
-`bmad-dev-auto-result-xp-assist-split-questions.md`. Branch
-`dev-auto-xp-assist-split` (off `origin/development` @ 25715a0) carries this
-spec update and the questions file; no game code was touched. On answers,
-re-invoke `/bmad-dev-auto` pointing at this spec (status will be reset to
-`draft`/`ready-for-dev` per the answers).
+2026-08-23: run briefly halted with five questions; Eric answered all five
+in-session via AskUserQuestion (see
+`bmad-dev-auto-result-xp-assist-split-questions.md` — THE ANSWERS). Spec
+unblocked to `ready-for-dev`; implementation proceeds on branch
+`dev-auto-xp-assist-split` in the same run.
