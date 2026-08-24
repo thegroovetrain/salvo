@@ -2,8 +2,11 @@
 title: 'XP Assist Split + Per-Level Auto-Heal'
 type: 'feature'
 created: '2026-08-23'
-status: 'draft'
-baseline_revision: 'bdf51db'
+status: 'blocked'
+review_loop_iteration: 0
+followup_review_recommended: false
+warnings: ['oversized']
+baseline_revision: '25715a0' # origin/development at branch time (was bdf51db when drafted)
 reference_implementation: 'worktree-balance-damage-xp'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/batch-sim-evidence-2026-08-22.md'
@@ -156,11 +159,33 @@ level at 35.2 %).
 
 </intent-contract>
 
+## Post-draft ruling of record (Eric, 2026-08-23, planning session)
+
+Eric, restating the encounter model during the planning pass: *"the easiest way
+to think about it is that as long as i continue putting damage on the ship
+within 60s, it tracks all the damage i have done. If that 60s window expires,
+then it stops tracking my damage. When the ship is sunk, the xp reward is split
+proportionally to everyone who still had an active counter at that time."*
+
+This is a **per-attacker rolling 60 s counter**, and it is provably equivalent
+to the contract's two resets when gap = window: if EVERY attacker is silent
+60 s, every counter has individually expired — the "encounter lapses" case for
+free — and eligibility at sink ("last damage inside the window") is exactly
+"counter still active". One rule yields all three clauses. Whether the CONFIG
+surface should collapse to one dial to match is **open question Q1** (see Open
+Questions below).
+
 ## Code Map
 
-- `shared/src/constants.ts` — `CONFIG.xp` gains `assistWindowMs` (30000),
-  `killerShare` (0.1), `assistEncounterGapMs` (30000); `CONFIG.damageControl`
-  gains `levelMissingPct` (0.10) and `levelRegenMs` (5000).
+- `shared/src/constants.ts` — `CONFIG.xp` gains `assistWindowMs` (**60000** —
+  the draft's 30000 here was stale against the 55401ce ruling; 60 s is ruled)
+  and `killerShare` (0.1); whether `assistEncounterGapMs` (60000) also ships or
+  the two collapse into the one dial Eric's rolling-counter formulation implies
+  is **Q1**. `CONFIG.damageControl` gains `levelMissingPct` (0.10) and
+  `levelRegenMs` (5000). The reference branch's other dials (`damageLevels`,
+  `assistSlidingWindow`, `assistEnvWeight`, `levelHp`, `healFlatPct`,
+  `healMissingPct`, `healPoolPct`) are rejected/not-adopted mechanisms — **Q4**
+  proposes they never land (no dead knob survives).
 - `server/src/game/world.ts` —
   - `ShipRecord`: `damageFrom` (the per-victim assist ledger), `lastDamagedAt`
     (the encounter clock), `levelRepairHp` + `levelRepairRate` (the free heal's
@@ -176,8 +201,11 @@ level at 35.2 %).
 - `server/src/game/frames.ts` — `OwnShip.repairHp` mirrors the SUM of both
   channels; the field means "hp still owed", and splitting it would need a wire
   change to say something the player cannot act on differently.
-- `shared/src/__tests__/barrel.test.ts` — the `CONFIG.xp` and
-  `CONFIG.damageControl` shape pins move with the new keys.
+- `shared/src/__tests__/barrel.test.ts` — the `CONFIG.xp` shape pin (line 270,
+  `['droneTierLevels','killLevels','levelMs']`) moves with the new keys.
+  **Investigation finding:** `CONFIG.damageControl` has NO shape pin anywhere
+  (only value pins in `shared/src/__tests__/damageControl.test.ts:49-51`) — this
+  story adds one while adding keys, closing the gap.
 - `server/src/__tests__/splitBounty.test.ts`, `levelHeal.test.ts` — the matrix
   above.
 - `server/scripts/batchsim/encounterSpan.ts` — the measurement behind the
@@ -308,3 +336,97 @@ hull HP next moves.
 fixed per-profile weights, so bots cannot perceive that a synergy became
 stronger. Any "does this feel better" question — notably the deferred hull-card
 synergy — is unmeasurable here and belongs to human playtest.
+
+## Planning investigation findings (2026-08-23, cycle-129 planning pass)
+
+Verified against `origin/development` HEAD `25715a0` and the reference branch
+tip `b2047f8`. These are facts, not decisions:
+
+- **Cherry-pick is clean.** Only ONE file moved on development since the
+  branch point (`server/scripts/batchsim/overrides.ts`, byte-identical to the
+  reference branch's own `315cf05`); no file the adopted commits touch has
+  moved. The adopted chain (`572126e` → `ec29de7` → `36a5299` for the split;
+  `18e29ff` → `394cef8` → `027680a` for the heal) applies without conflict —
+  but the chain interleaves rejected machinery, so a selective port (Q4) is the
+  cleaner route than pick-then-strip.
+- **Storm sinks are structurally killerless today**: `applyStorm`
+  (world.ts:2509) bypasses `creditDamage` and calls `sinkShip` with `by`
+  undefined, so `creditKill`'s guard drops them. The reference's
+  `payKillValue` handles this exactly as the contract requires — killer share
+  unpaid (burned), remainder split among active counters.
+- **Drone-kill pots split too.** `payKillValue` pots `killXpLevels(victim)`,
+  which covers fleet victims (¼/½/¾ level). Every measured arm included this.
+  Confirm-or-veto as **Q5**.
+- **Killer eligibility is structural**: the killing blow itself routes through
+  `hitShip` → `creditDamage` → `recordAssist`, so the killer always holds a
+  fresh counter at sink and always shares the remainder.
+- **The auto-heal already carries a cue for free**: `grantLevelHeal` pushes the
+  existing self-private `heal` event, so the client plays the heal tone and the
+  hp rail's pending segment shows the trickle — with zero client change. The
+  refit-menu copy question (**Q2**) is about explanation, not feedback.
+- **Multi-level grants compound flat**: N levels banked in one grant each add
+  `levelMissingPct × missing` measured at the SAME hp (the pool is not hp yet),
+  so 3 levels ≈ 30 % of missing. Matches the matrix row ("fires 3 times").
+- **The level channel delivers BY DURATION** (rate = pool / `levelRegenMs`,
+  recomputed on each add) — a deliberate, evidence-documented departure from
+  the anti-flask fixed-rate rule, confined to the free channel; the menu
+  channel keeps its fixed rate, pinned.
+- **A sinking hull can still bank a level** (kill credit is not
+  lifecycle-gated: world.ts:406-408), so `grantLevelHeal`'s `isAfloat` guard is
+  reachable, not defensive.
+- **Bot policy needs NO change and must not get one**: `ai/spending.ts`
+  `chooseSpend` heals below `healHpFrac` off live hp; every measured number in
+  the Evidence section was produced WITH that policy unchanged, so retuning it
+  here would detach the story from its own evidence.
+- **`encounterSpan.ts` reads the per-attacker bucket history**, so buckets
+  survive any Q4 cleanup as the measurement substrate; only the sliding-mode
+  dial/branch (`assistSlidingWindow`, `recentDamage`) is droppable.
+- **PV facts** (for Q3): `PROTOCOL_VERSION` is 48. The client's only
+  `CONFIG.damageControl` reader is `healReadout()`
+  (client/src/ui/upgradeMenu.ts:321 — `instantHp`/`regenHp`/`regenMs`, none of
+  which move); `CONFIG.xp` has zero executable client readers;
+  `welcome.config` has zero client readers (the cycle-96 precedent's own
+  test). `OwnShip.repairHp` keeps its shape and its meaning ("hp still owed",
+  now summed over two channels); `OwnShip.xp`/`lvl` already carry fractional
+  progress (droneTierLevels precedent).
+
+## Open Questions (run halted here — answers unblock implementation)
+
+Five questions surfaced per Eric's invocation directive; full statements,
+evidence and recommendations in
+`bmad-dev-auto-result-xp-assist-split-questions.md` (same directory):
+
+- **Q1** — one dial (`assistWindowMs` 60000, the rolling-counter model) or two
+  (`+ assistEncounterGapMs` 60000, the measured two-reset code)? Equivalent
+  behavior; recommendation: one.
+- **Q2** — client copy for the free auto-heal: none, a line in the refit heal
+  readout, and/or How-to-Play? Design call; recommendation: one readout line,
+  copy Eric's.
+- **Q3** — `PROTOCOL_VERSION`: adjudicated NO BUMP under the cycle-96
+  precedent; confirm or veto.
+- **Q4** — the reference branch's rejected/not-adopted machinery
+  (damage→XP, sliding window, env dilution, flat `levelHp`, percentage menu
+  heal) never lands; 0-sentinel OFF branches of the two shipped mechanisms
+  stay for the harness. Confirm or veto.
+- **Q5** — drone-kill pots split like captain pots (what every measured arm
+  did). Confirm or veto.
+
+## Verification
+
+**Commands:**
+- `npm run check` -- expected: lint + type-check + all workspace tests green
+  (test counts move with the new/adapted suites).
+- `HC_DEV_OPTIONS=1` smokes unaffected (no wire shape change).
+- `node_modules/.bin/tsx --tsconfig server/scripts/batchsim/tsconfig.json server/scripts/batchsim/encounterSpan.ts 5 90210` -- expected: runs and reports (the script ships with this story).
+
+## Auto Run Result
+
+Status: blocked
+Blocking condition: intent gaps — five Eric-level questions surfaced before
+implementation, as the invocation requested ("surface questions before
+implementation"). See
+`bmad-dev-auto-result-xp-assist-split-questions.md`. Branch
+`dev-auto-xp-assist-split` (off `origin/development` @ 25715a0) carries this
+spec update and the questions file; no game code was touched. On answers,
+re-invoke `/bmad-dev-auto` pointing at this spec (status will be reset to
+`draft`/`ready-for-dev` per the answers).
