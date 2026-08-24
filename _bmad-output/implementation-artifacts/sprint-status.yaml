@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-22 (cycle 127, 0.17.127)
+# last_updated: 2026-08-23 (cycle 128, 0.17.128)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -138,6 +138,7 @@
 #   cycle 124 (0.17.124) SHIP-SELECT COPY (ARMOR row) + Color Hoist walks in hue order — epic-7 amendments 35-36; PV 47 (client-only)
 #   cycle 125 (0.17.125) REGATTA PALETTE REGENERATED in OKLCH — epic-7 amendment 37; PV 47 (client + design doc)
 #   cycle 127 (0.17.127) TWO RENDER ENVIRONMENTS — render.yaml reconciled with the live pro service; hullcracker-dev from a new `development` branch; HC_NOINDEX guard — no amendment; PV 48; spec-render-dev-environment.md
+#   cycle 128 (0.17.128) BALANCE CYCLE 2 — MEASUREMENT ONLY, no CONFIG value moved: drones.* tunable, 29-arm evidence, XP assist-split + auto-heal SPEC for a later dev cycle — no amendment; PV 48; batch-sim-evidence-2026-08-22.md, spec-xp-assist-split-and-auto-heal.md
 # NOTE (2026-08-21, Story 7-6, Eric ruling F3): cycles 120/121 were AUTHORED on branches stamped
 # 0.17.110 / 0.17.111 / epic-7 amendments 29-30 and RENUMBERED at merge (PR #184 -> 0.17.120,
 # PR #187 -> 0.17.121, amendments 32-33; verified against the VERSION file at each merge commit).
