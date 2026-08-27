@@ -124,6 +124,27 @@ async function clientReachable() {
   }
 }
 
+/**
+ * NFR17 dead-strip tokens — each is a TELL that a dev-only surface leaked into
+ * the production bundle. Every token here must be DEV-gated (import.meta.env.DEV
+ * or equivalent) at its source; a hit means the gate failed, not that this list
+ * is wrong. Keep every entry commented with what it proves absent.
+ */
+const DEAD_STRIP_TOKENS = [
+  // The Story 4.8 staged worst-case scene's own marker (client/src/stage/worstCaseScene.ts).
+  STAGE_MARKER,
+  // The staged scene's window hook (client/src/stage/*), reachable only via ?stage=worstcase.
+  '__hcStage',
+  // Loose substrings of the staged-scene module/route names, in case minification
+  // preserves an identifier or path fragment the two exact tokens above miss.
+  'worstcase',
+  'worstCase',
+  // The `P` netcode-toggle debug banner (client/src/main.ts) — Story 7-8 task 1
+  // DEV-gates the `P` binding; this is the bundle-side proof the banner string
+  // itself (`NETCODE: ${mode}`) never ships, not just that the key is unbound.
+  'NETCODE:',
+];
+
 /** Grep the PRODUCTION bundle for the staged scene. Absence is the pass. */
 function verifyBundle() {
   if (!existsSync(DIST_DIR)) {
@@ -140,18 +161,18 @@ function verifyBundle() {
       }
       if (!/\.(js|css|html|map)$/.test(entry.name)) continue;
       const text = readFileSync(p, 'utf8');
-      for (const needle of [STAGE_MARKER, '__hcStage', 'worstcase', 'worstCase']) {
+      for (const needle of DEAD_STRIP_TOKENS) {
         if (text.includes(needle)) hits.push({ file: p.slice(REPO.length + 1), needle });
       }
     }
   };
   walk(DIST_DIR);
   if (hits.length === 0) {
-    console.log(`PASS — the staged scene is absent from ${DIST_DIR.slice(REPO.length + 1)}.`);
-    console.log('       (searched for: ' + [STAGE_MARKER, '__hcStage', 'worstcase', 'worstCase'].join(', ') + ')');
+    console.log(`PASS — no dead-strip tokens found in ${DIST_DIR.slice(REPO.length + 1)}.`);
+    console.log('       (searched for: ' + DEAD_STRIP_TOKENS.join(', ') + ')');
     return 0;
   }
-  console.error('FAIL — staged-scene traces found in the production bundle:');
+  console.error('FAIL — dead-strip token(s) found in the production bundle:');
   for (const h of hits) console.error(`  ${h.file}: ${h.needle}`);
   return 1;
 }

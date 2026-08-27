@@ -687,7 +687,13 @@ describe('KeyboardInput — M / P / zoom keys (folded into the chokepoint)', () 
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
 
-  it('M fires onMute, P fires onNetDebug — edge-only', () => {
+  // P IS DEV-ONLY SINCE STORY 7-8 (NFR17), AND THIS SUITE CANNOT SEE THAT.
+  // Vitest runs with `import.meta.env.DEV` truthy, so every assertion about
+  // `KeyP` below — this one and the preventDefault sweep — describes the DEV
+  // build, which is the only build a unit test can observe. The PRODUCTION
+  // absence is pinned where it is actually decidable: the client build greps
+  // `dist` for the handler's `NETCODE:` banner and fails on a hit.
+  it('M fires onMute, P fires onNetDebug — edge-only (P: DEV builds only)', () => {
     let mutes = 0;
     let nets = 0;
     kb = new KeyboardInput({ onMute: () => (mutes += 1), onNetDebug: () => (nets += 1) });

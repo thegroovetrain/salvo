@@ -50,6 +50,14 @@ import {
   type SanitizedRoomOptions,
 } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
+import {
+  SOLO_CREATE_THROTTLE_ERROR,
+  SOLO_CREATE_WINDOW_MS,
+  admitSoloCreate,
+  clientIpFrom,
+  resolveSoloCreateLimit,
+  type SoloCreateLedger,
+} from './soloThrottle.js';
 
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
@@ -90,6 +98,68 @@ export const ARENA_DIRECT_JOIN_ERROR = 'this room is not joinable directly — u
  * able to spin on a pathological pool.
  */
 const CALLSIGN_REDRAWS = 4;
+
+/**
+ * PER-IP SOLO-CREATE THROTTLE state (Story 7-8, Eric ruling 2026-08-27,
+ * epic-7 amendment 45). Module-level because the door it guards is STATIC
+ * onAuth — there is no room instance yet, and there must not be: the whole
+ * point is refusing before a room is minted. Policy lives in soloThrottle.ts
+ * (pure, injectable clock); this is the adapter's ledger + env read +
+ * wall-clock, the I/O trio that stays out of the pure module. Memory is
+ * bounded by the sweep inside admitSoloCreate (see that module's header).
+ */
+const soloCreateLedger: SoloCreateLedger = new Map();
+/** One warning per process for the no-derivable-address fail-open (local dev —
+ *  see clientIpFrom's trust model); never per-request log spam. */
+let warnedSoloThrottleNoIp = false;
+/** Static-door logger: no room, no matchId yet. */
+const doorLog = createLogger({ mode: MODE });
+
+/** TEST SEAM: clear the throttle's process-level state between tests. */
+export function resetSoloCreateThrottle(): void {
+  soloCreateLedger.clear();
+  warnedSoloThrottleNoIp = false;
+}
+
+/**
+ * The throttle verdict for one solo create — refusal message, or null to
+ * admit (the stagingGateError shape). Runs AFTER the PV and staging gates, so
+ * only a request that would otherwise mint a room ever consumes quota.
+ *
+ * Address derivation: the RIGHTMOST x-forwarded-for entry (proxy-appended —
+ * client-forgeable only on its LEFT; see clientIpFrom for the full trust
+ * model). The socket remote address is unreachable from static onAuth in
+ * @colyseus/core 0.17.44 (the matchmake route's AuthContext carries headers
+ * and a socketless WHATWG Request — router/default_routes.mjs builds `ip`
+ * from the same headers), so with no header at all — a bare local run, where
+ * no proxy exists to append one — the throttle FAILS OPEN with one logged
+ * warning rather than refusing every local solo player.
+ */
+function soloCreateGateError(context: AuthContext | undefined): string | null {
+  const limit = resolveSoloCreateLimit(process.env.HC_SOLO_CREATE_LIMIT);
+  if (limit === 0) return null; // explicitly disabled (load-test self-boot)
+  const ip = clientIpFrom(context?.headers?.get('x-forwarded-for'));
+  if (ip === null) {
+    if (!warnedSoloThrottleNoIp) {
+      warnedSoloThrottleNoIp = true;
+      doorLog.warn('room.soloThrottleNoIp', { reason: 'no x-forwarded-for; throttle fails open' });
+    }
+    return null;
+  }
+  const ok = admitSoloCreate(soloCreateLedger, ip, Date.now(), {
+    limit,
+    windowMs: SOLO_CREATE_WINDOW_MS,
+  });
+  return ok ? null : SOLO_CREATE_THROTTLE_ERROR;
+}
+
+/** The throwing shape of soloCreateGateError, so static onAuth stays under the
+ *  complexity budget: refusal becomes the same ServerError the PV and staging
+ *  gates throw, admission returns quietly. */
+function assertSoloCreateAllowed(context: AuthContext | undefined): void {
+  const throttled = soloCreateGateError(context);
+  if (throttled) throw new ServerError(ErrorCode.AUTH_FAILED, throttled);
+}
 
 /**
  * Render a thrown value into log fields WITHOUT ever throwing ourselves:
@@ -205,7 +275,16 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // legitimate solo player — and never a seat, or a bot, in someone else's
     // match. Everything else about this door is untouched: a non-solo direct
     // join is still refused unless the process opted in with HC_DEV_OPTIONS=1.
-    if (options?.solo === true) return true;
+    if (options?.solo === true) {
+      // PER-IP CREATE THROTTLE (Story 7-8, ruled): the solo door is the ONE
+      // unauthenticated path that mints a full simulating room per request, so
+      // it is the one door metered. The queue stays unthrottled (socket-gated,
+      // cohort-formed — a flood there holds sockets, not rooms) and reconnects
+      // are never re-gated (matchMaker.reconnect() skips onAuth entirely).
+      // Refusing HERE means refusing before any room exists.
+      assertSoloCreateAllowed(context);
+      return true;
+    }
     if (process.env.HC_DEV_OPTIONS !== '1') {
       throw new ServerError(ErrorCode.AUTH_FAILED, ARENA_DIRECT_JOIN_ERROR);
     }

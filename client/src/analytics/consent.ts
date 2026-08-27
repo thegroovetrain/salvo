@@ -44,6 +44,38 @@ export type ConsentState = ConsentChoice | 'undecided';
 export const CONSENT_KEY = 'hullcracker.consent';
 
 /**
+ * GLOBAL PRIVACY CONTROL — READ AS A PRE-EMPTIVE DENIAL (Eric ruling
+ * 2026-08-27, epic-7 amendment 45; closes the Story 7.2 ledger entry).
+ *
+ * `navigator.globalPrivacyControl === true` is a browser-level opt-out the
+ * player configured once, deliberately, and which several US state privacy laws
+ * treat as a legally binding signal. So it is not a tie-breaker and not a
+ * default: it DENIES BEFORE AND REGARDLESS OF ANY GRANT, over a stored local
+ * choice and over anything Google's CMP may say later, for every consent signal
+ * this module controls.
+ *
+ * It is deliberately NOT persisted. The player's own stored choice is left
+ * exactly where it is, so turning GPC off restores the decision they actually
+ * made rather than a denial we wrote on their behalf.
+ *
+ * STRICT `=== true`. The spec defines the property as the boolean `true` when
+ * the signal is on and leaves it absent otherwise; a truthy non-boolean is a
+ * shim doing something else, and reading it as consent would be inventing one.
+ * Wrapped in the same fail-open `try` every reader in this module uses — a
+ * hostile `navigator` shim must not throw on the boot path — but note the
+ * failure direction is the honest one either way: no readable signal is not a
+ * signal.
+ */
+export function gpcDenied(): boolean {
+  try {
+    if (typeof navigator === 'undefined') return false;
+    return (navigator as { globalPrivacyControl?: unknown }).globalPrivacyControl === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The stored choice, or `undecided`.
  *
  * FAIL-OPEN ON EVERY FAILURE, exactly like `home.ts`'s `loadSavedName` and
@@ -54,6 +86,10 @@ export const CONSENT_KEY = 'hullcracker.consent';
  * `hullcracker.consent = "yes"` can never be read as an accept.
  */
 export function loadConsent(): ConsentState {
+  // GPC OUTRANKS THE RECORD, and is checked before it is read: a stored
+  // `granted` from before the player turned the signal on must not resurrect
+  // (see `gpcDenied`). The record itself is untouched.
+  if (gpcDenied()) return 'denied';
   try {
     const raw = localStorage.getItem(CONSENT_KEY);
     return raw === 'granted' || raw === 'denied' ? raw : 'undecided';
@@ -147,7 +183,10 @@ function allGranted(): ConsentSignals {
  * a default treats the signals as unknown.
  */
 export function consentDefaults(): ConsentDefaultPayload {
-  return allGranted();
+  // ...unless the browser already said no. GPC turns the GLOBAL default over
+  // (the region default below is denied either way), so a GPC visitor's tag is
+  // born denied instead of being granted and then corrected.
+  return gpcDenied() ? allDenied() : allGranted();
 }
 
 /**
@@ -191,7 +230,24 @@ export interface ConsentAnalyticsUpdate {
  * here would silently stamp on a consent the player gave Google's dialog, and
  * writing `'granted'` would forge one they never gave. A partial update leaves
  * every signal it omits exactly as the CMP and the defaults left it.
+ *
+ * GPC IS THE ONE THING THAT WIDENS IT, AND IT WIDENS TO ALL FOUR (Eric ruling
+ * 2026-08-27). Two reasons, and the second is why the defaults branch alone
+ * would not have been enough:
+ *
+ *  1. GPC is a "do not sell or share" signal. The signals that carry selling
+ *     and sharing are the three AD ones — denying `analytics_storage` alone
+ *     would answer the legal signal with the one thing it is least about. The
+ *     7.4 division of authority is not breached: it forbids this row from
+ *     forging a GRANT the player never gave and from stamping on a consent they
+ *     gave Google's dialog, and a denial the player themselves configured at
+ *     the browser is neither.
+ *  2. On an ads-configured build the consent DEFAULTS are written into the page
+ *     head at BUILD time (`ads/adsHead.ts`), where no browser and therefore no
+ *     GPC signal exists — and `ga.ts` then skips its own defaults, so
+ *     `consentDefaults()`'s GPC branch never reaches production at all. This
+ *     UPDATE is the leg that actually lands there.
  */
-export function consentUpdate(choice: ConsentChoice): ConsentAnalyticsUpdate {
-  return { analytics_storage: choice };
+export function consentUpdate(choice: ConsentChoice): ConsentAnalyticsUpdate | ConsentSignals {
+  return gpcDenied() ? allDenied() : { analytics_storage: choice };
 }

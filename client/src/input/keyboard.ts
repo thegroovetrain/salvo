@@ -358,7 +358,20 @@ export class KeyboardInput {
     bind(['KeyX'], () => this.hooks.onZoom?.(1));
     bind(['KeyZ'], () => this.hooks.onZoom?.(-1));
     bind(['KeyM'], this.edge(() => this.hooks.onMute?.()));
-    bind(['KeyP'], this.edge(() => this.hooks.onNetDebug?.()));
+    // P — THE NETCODE A/B TOGGLE, AND IT IS DEV-ONLY (NFR17, Story 7-8).
+    //
+    // `import.meta.env.DEV` is a build-time constant, so the shipped artifact
+    // folds this to nothing: the key is not merely inert in production, the
+    // BINDING DOES NOT EXIST, and `KeyP` falls through as an unbound key
+    // (native, never preventDefault-ed) exactly like any other letter. The
+    // handler and its `NETCODE:` banner are dead-stripped at the other end of
+    // the wire (main.ts's `keyboardHooks`), which is what the build's
+    // `--verify-bundle` grep pins.
+    //
+    // A unit test cannot see this branch — vitest runs with DEV truthy, so the
+    // suite below exercises the DEV behaviour and the PROD behaviour is pinned
+    // by the bundle grep in the client build, not here.
+    if (import.meta.env.DEV) bind(['KeyP'], this.edge(() => this.hooks.onNetDebug?.()));
     return b;
   }
 
