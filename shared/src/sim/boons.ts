@@ -28,7 +28,13 @@
 import type { EquipmentId, LoadoutSlot } from './loadout.js';
 import { SLOT_EXTRA, equipmentMaxAmmo, loadoutFor } from './loadout.js';
 import { CONFIG, type HullId } from '../constants.js';
-import { broadsideTraverse, clampSpreadRung, mineTriggerRadius, type EffectiveStats } from './stats.js';
+import {
+  broadsideMountSpread,
+  broadsideTraverse,
+  clampSpreadRung,
+  mineTriggerRadius,
+  type EffectiveStats,
+} from './stats.js';
 import type { HookParams } from './hooks.js';
 
 /** Catalog boon id (camelCase string — the registry-id convention). */
@@ -167,9 +173,10 @@ export const BOON_STAT_PATHS = [
   // `radarRange × CONFIG.vision.muzzleFlashFactor` (the 5/8 rung), re-pinned
   // post-fold in both clampStats and applyBoonStats exactly as its two gun-family
   // siblings are — so a card addressing it would be a second derivation.
-  // `broadside.traverseRad` is absent for the same reason: the SPREAD card
-  // writes the 1-based `spreadRung` and the per-turret traverse is read off
-  // the authored ladder. `damage`/`burstRadius`/`reloadMs`/`maxAmmo` are whitelisted-but-
+  // `broadside.traverseRad` and `broadside.mountSpreadRad` are absent for the
+  // same reason: the SPREAD card writes the 1-based `spreadRung` and BOTH arc
+  // ladders are read off it (2026-08-27 — the card moves the mounts as well as
+  // the arcs). `damage`/`burstRadius`/`reloadMs`/`maxAmmo` are whitelisted-but-
   // unwritten (the established shape — no card drives them today).
   'broadside.reloadMs',
   'broadside.maxAmmo',
@@ -376,14 +383,17 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // EXTRA TURRET (rare ×1): gun pool 1 → 2 — the single-shot pin deliberately retired.
   gunTurret: { id: 'gunTurret', category: 'guns', rarity: 'rare', copies: 1, effects: [stat('gun.maxAmmo', { add: 1 })] },
   // --- broadside (the BROADSIDE BARRAGE — replaces the cannon) --------------
-  // BROADSIDE SPREAD I–IV (×4): each card climbs the authored TRAVERSE ladder
-  // (±34° → ±40° → ±46° → ±52° → ±58° per turret), widening every gun's own
-  // firing arc so more of the battery can swing onto a given click (Eric
-  // ruling 2026-08-20 — the salvo's spread is emergent, never designed). The
-  // card writes the 1-BASED RUNG and `broadside.traverseRad` is derived from
-  // it (sim/stats.ts): the ladder is a table of authored degrees, not a
-  // constant step, so no `mult`/`add` can express it and a derived read is the
-  // only way it stays one derivation.
+  // BROADSIDE SPREAD I–IV (×4): each card climbs BOTH authored arc ladders at
+  // once (Eric ruling 2026-08-27) — every turret's own firing arc WIDENS (±6°
+  // → ±7° → ±7.5° → ±9° → ±14°) while the mount bearings swing INWARD toward
+  // the beam (±28° → ±25° → ±22.5° → ±15° → ±6°). At the base 4-gun battery
+  // the arcs do not overlap at all until the third card; at the cap they
+  // overlap enough for the whole battery to converge on one abeam click from
+  // ~265u out. [Factual note — flagged for Eric's copy pass.] The card writes
+  // the 1-BASED RUNG and both `broadside.traverseRad` and
+  // `broadside.mountSpreadRad` are derived from it (sim/stats.ts): the ladders
+  // are tables of authored degrees, not constant steps, so no `mult`/`add` can
+  // express them and a derived read is the only way they stay one derivation.
   broadsideSpread: { id: 'broadsideSpread', category: 'broadside', rarity: 'common', copies: 4, effects: [stat('broadside.spreadRung', { add: 1 })] },
   // BROADSIDE TURRETS I–II (rare ×2): +1 shell per barrage, 4 → 6. Each new
   // gun gets its own muzzle position AND its own firing arc, densifying the
@@ -671,11 +681,14 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   // rung, Eric's "limited to 5/8" (Story 7-5 wave 2). Same re-pin law, same two
   // sites, and it is why `broadside.rangeU` is not on BOON_STAT_PATHS either.
   stats.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
-  // The broadside TRAVERSE reads its authored ladder off the folded SPREAD rung —
-  // derived for the same reason as every rangeU above (`traverseRad` is not
-  // stat-addressable, so a mid-list `broadsideSpread` fold would leave it stale).
+  // The broadside TRAVERSE and MOUNT SPREAD both read their authored ladders off
+  // the folded SPREAD rung — derived for the same reason as every rangeU above
+  // (neither is stat-addressable, so a mid-list `broadsideSpread` fold would
+  // leave them stale). Since 2026-08-27 the card drives both: the mounts rotate
+  // inward while the arcs widen.
   stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
   stats.broadside.traverseRad = broadsideTraverse(stats.broadside.spreadRung);
+  stats.broadside.mountSpreadRad = broadsideMountSpread(stats.broadside.spreadRung);
   // THE EIGHTHS LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is
   // the 4/8 rung of intel range, so it is DERIVED here exactly as the three
   // rangeU paths above are, and for the same reason — `sightRange` left

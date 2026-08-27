@@ -216,7 +216,15 @@ describe('shared barrel', () => {
     // carrying the KILLER'S hull class and ONLY when the killer is a PvE fleet
     // hull -- never a captain's. A wire SHAPE change on a row every client
     // decodes, so it is a join gate even though it is purely additive.
-    expect(PROTOCOL_VERSION).toBe(48);
+    //
+    // 48 -> 49: THE BROADSIDE'S ZERO-OVERLAP ARC LADDER (Eric rulings
+    // 2026-08-24 + 2026-08-27). `CONFIG.broadside.turretMountSpreadDeg` becomes
+    // a PER-RUNG ARRAY and `traverseDeg` retunes, so BROADSIDE SPREAD climbs
+    // BOTH ladders off one rung and `EffectiveStats.broadside` gains a derived
+    // `mountSpreadRad`. No wire SHAPE change: both sides compile the ladder and
+    // both run `turretAimPoints`, so a stale client previews and predicts a
+    // barrage the server does not fire -- the same break class as PV 45.
+    expect(PROTOCOL_VERSION).toBe(49);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -391,20 +399,27 @@ describe('shared barrel', () => {
       damage: 15, // balance cycle 1 (Eric 2026-08-20); was 20 — base alpha held at 4×15 = 60
       burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,
-      // RETUNED on Eric's playtest 2026-08-20 (*"the convergence is slightly too
-      // high at level 1"*): mounts widened 27 -> 28 while arcs narrowed 34 ->
-      // 33.5, which tightens the OVERLAP (traverse - mountSpread, what
-      // convergence needs) without shrinking the SUM (what keeps a gun on every
-      // legal click). Base abeam convergence ~303u -> ~386u.
-      turretMountSpreadDeg: 28, // [DRAFT] mount half-spread about the beam
-      traverseDeg: [33.5, 39.5, 45.5, 51.5, 57.5], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
+      // THE ZERO-OVERLAP LADDER (Eric rulings 2026-08-24 + 2026-08-27): the
+      // SPREAD card climbs BOTH ladders off one rung — the mounts swing INWARD
+      // toward the beam while the arcs WIDEN. At the base 4-gun battery the
+      // per-turret wedges do not overlap at all until the third card (rung 3
+      // exactly touches), and at the cap the whole battery converges on an abeam
+      // click from ~265u out. Both [DRAFT]; the overlap SCHEDULE is what is
+      // ruled, and it is pinned in aim.test.ts.
+      turretMountSpreadDeg: [28, 25, 22.5, 15, 6], // [DRAFT] mount half-spread ladder, index = SPREAD copies
+      traverseDeg: [6, 7, 7.5, 9, 14], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
     });
     // NO range field — it is derived from radarRange × muzzleFlashFactor, and
     // NO arc field either: the beams are a twin-sector descriptor, not 'full'.
     expect('rangeU' in CONFIG.broadside).toBe(false);
     expect('arc' in CONFIG.broadside).toBe(false);
-    // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card.
+    // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card. BOTH
+    // ladders, and the SAME length — one rung indexes them together
+    // (effectiveStats pairs them by index; a length mismatch would silently
+    // clamp one and run off the other).
     expect(CONFIG.broadside.traverseDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
+    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
+    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(CONFIG.broadside.traverseDeg.length);
   });
 
   it('CONFIG.radarBuoy carries the buoy\'s OWN sensor set (Story 7-5 wave 2)', () => {

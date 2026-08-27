@@ -196,9 +196,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 47→48 bump (PV 48: SunkEvent gains an optional `kcls`, the KILLER\'s hull class and only ever a PvE fleet hull\'s — a wire SHAPE change on a row every client decodes) is enforced at matchmake', () => {
-  it('rejects pv-47 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(48);
+describe('pv join gate — the 48→49 bump (PV 49: the BROADSIDE\'s per-turret arc ladder is re-cut to ZERO OVERLAP at tier I — a behavioural CONFIG change both sides compile and both run through turretAimPoints) is enforced at matchmake', () => {
+  it('rejects pv-48 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(49);
+    expect(protocolVersionError(48)).toMatch(/refresh/);
     expect(protocolVersionError(47)).toMatch(/refresh/);
     expect(protocolVersionError(46)).toMatch(/refresh/);
     expect(protocolVersionError(45)).toMatch(/refresh/);

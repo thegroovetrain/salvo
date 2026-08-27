@@ -28,10 +28,20 @@
 // 2. THE DAMAGE LEDGER, attributed BY AMOUNT. DamageEvent carries no weapon
 //    field, and adding one would mean touching server/src. It does not need
 //    one: after Story 7-5 deleted the gun / torpedo / mine damage cards, every
-//    damage source in the game emits a UNIQUE, BOON-INVARIANT constant (gun 15,
-//    gun bodyblock 6, broadside 20, torpedo 70, mine 55, radar-buoy gun 5,
-//    fleet-hull gun 1, storm 0.2/tick, incendiary 0.25/tick). Any amount that
-//    does NOT match is bucketed by its own value under `other:<amount>` and
+//    damage source in the game emits a BOON-INVARIANT constant — and every
+//    amount here is now READ FROM CONFIG rather than typed in, because the
+//    literal list drifted (it still said broadside 20 nine cycles after balance
+//    cycle 1 set 15). CONFIG cannot drift from itself. The table is built
+//    LAZILY, on the first classification rather than at module import, because
+//    `--tune` / `--set` mutate CONFIG after every import: a table baked at
+//    import would score a tuned run against untuned amounts.
+//    THE AMOUNTS ARE NOT ALL UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
+//    made `broadside.damage` exactly equal `gun.damage` (both 15), so a first-
+//    match lookup would silently file every broadside burst under 'gun'. Sources
+//    that collide on an amount are reported under ONE merged label
+//    ('gun/broadside') — an honest ambiguity beats a confident wrong answer. Any
+//    amount that matches nothing is bucketed by its own value under
+//    `other:<amount>` and
 //    printed, so a future damage card cannot silently corrupt the attribution.
 //
 // 3. THE ONE-HIT-KILL GUARDRAIL, MEASURED IN PLAY. The shared test pins it
@@ -44,22 +54,56 @@
 import { CONFIG } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 
-/** Damage amounts that identify their source exactly (see header, ledger 2). */
-const DAMAGE_SOURCES: { label: string; amount: number }[] = [
-  { label: 'gun', amount: 15 },
-  { label: 'gunBodyblock', amount: 6 },
-  { label: 'broadside', amount: 20 },
-  { label: 'torpedo', amount: 70 },
-  { label: 'mine', amount: 55 },
-  { label: 'buoyGun', amount: 5 },
-  { label: 'fleetGun', amount: 1 },
-  { label: 'storm', amount: 0.2 },
-  { label: 'incendiary', amount: 0.25 },
-];
 const AMOUNT_EPS = 1e-6;
 
+/** Every damage source, with its amount READ FROM CONFIG (see header, ledger 2)
+ *  — a typed-in list drifted twice, and CONFIG cannot drift from itself. The
+ *  per-tick DoT amounts use the SHARED fixed step (CONFIG.tick.simDtMs, the one
+ *  World.step defaults to) rather than a typed-in 0.05, for the same reason. */
+function rawSources(): { label: string; amount: number }[] {
+  const tickS = CONFIG.tick.simDtMs / 1000;
+  return [
+    { label: 'gun', amount: CONFIG.gun.damage },
+    { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
+    { label: 'broadside', amount: CONFIG.broadside.damage },
+    { label: 'torpedo', amount: CONFIG.torpedo.damage },
+    { label: 'mine', amount: CONFIG.mine.damage },
+    { label: 'buoyGun', amount: CONFIG.radarBuoy.gunDamage },
+    { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
+    { label: 'storm', amount: CONFIG.zone.stormDps * tickS },
+    { label: 'incendiary', amount: CONFIG.starShells.incendiaryDps * tickS },
+  ];
+}
+
+let sourcesMemo: { label: string; amount: number }[] | null = null;
+
+/**
+ * The sources, with any that COLLIDE on an amount merged into one honest label.
+ * Balance cycle 1 set `broadside.damage` to exactly `gun.damage` (both 15), and
+ * a first-match lookup would have filed every broadside burst under 'gun' in
+ * silence. 'gun/broadside' says what the ledger actually knows.
+ *
+ * BUILT LAZILY, ON FIRST CLASSIFICATION — never at module import. The harness's
+ * `--tune` / `--set` overrides MUTATE CONFIG after every module is imported, so
+ * a table baked at import would attribute a tuned run against the untuned
+ * amounts (and could miss or invent a collision the tuned run really has).
+ * Memoized on first use, which is after the overrides have applied and before
+ * any World steps: the table is still built exactly once per process.
+ */
+function damageSources(): { label: string; amount: number }[] {
+  if (sourcesMemo !== null) return sourcesMemo;
+  const out: { label: string; amount: number }[] = [];
+  for (const s of rawSources()) {
+    const hit = out.find((o) => Math.abs(o.amount - s.amount) < AMOUNT_EPS);
+    if (hit) hit.label = `${hit.label}/${s.label}`;
+    else out.push({ ...s });
+  }
+  sourcesMemo = out;
+  return out;
+}
+
 function classifyDamage(amount: number): string {
-  for (const s of DAMAGE_SOURCES) if (Math.abs(amount - s.amount) < AMOUNT_EPS) return s.label;
+  for (const s of damageSources()) if (Math.abs(amount - s.amount) < AMOUNT_EPS) return s.label;
   return `other:${amount.toFixed(3)}`;
 }
 
@@ -72,10 +116,12 @@ function classifyShell(kind: string, damage: number, lit: boolean): string {
   // DamageEvent names its weapon.
   if (kind === 'torp') return damage === CONFIG.mine.damage ? 'captiveTorpedo' : 'torpedo';
   if (lit) return 'starShell';
-  if (damage === 20) return 'broadside';
-  if (damage === 15) return 'gun';
-  if (damage === 5) return 'buoyGun';
-  return `shell:${damage}`;
+  // Everything else goes through the ONE collision-honest table: the buoy gun
+  // used to be matched here with an exact `===` AHEAD of the merge, so a tune
+  // that put buoy damage on a gun/broadside amount would have filed every such
+  // shell under a confident 'buoyGun'. It is a row in that table like any
+  // other, so a collision now prints the merged label the ledger can defend.
+  return classifyDamage(damage);
 }
 
 /** One match's catalog + ordnance ledger. Every field is a plain tally so the

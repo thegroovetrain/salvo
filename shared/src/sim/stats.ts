@@ -88,6 +88,14 @@ export interface EffectiveBroadside {
   // against CONFIG.broadside.traverseDeg; never stat-addressable (a card
   // writing it would be a second derivation).
   traverseRad: number;
+  // rad — the OUTERMOST MOUNT BEARINGS' half-spread about the firing beam (Eric
+  // ruling 2026-08-27). The SPREAD card now drives BOTH halves of the geometry:
+  // the mounts rotate INWARD toward the beam while the traverses widen, which is
+  // what turns "zero overlap at tier I" into true convergence at tier V. DERIVED
+  // post-fold from the SAME `spreadRung` against CONFIG.broadside.
+  // turretMountSpreadDeg, exactly as `traverseRad` is, and absent from
+  // BOON_STAT_PATHS for exactly the same reason.
+  mountSpreadRad: number;
 }
 
 // STORY 7-5 WAVE 1 — DOCTRINE IS A SET OF INDEPENDENT VERBS, NOT ONE ENUM.
@@ -209,8 +217,10 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'broadside' | 'starShel
       burstRadius: CONFIG.broadside.burstRadius,
       turrets: CONFIG.broadside.turrets,
       spreadRung: 1, // no BROADSIDE SPREAD cards held
-      // traverseRad base — re-derived from spreadRung post-fold, same law.
+      // traverseRad / mountSpreadRad base — both re-derived from spreadRung
+      // post-fold, same law, same rung.
       traverseRad: broadsideTraverse(1),
+      mountSpreadRad: broadsideMountSpread(1),
     },
     starShells: {
       reloadMs: CONFIG.starShells.reloadMs,
@@ -239,18 +249,45 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'broadside' | 'starShel
   };
 }
 
-/** deg -> rad (CONFIG.broadside.traverseDeg is authored in degrees).
+/** deg -> rad (CONFIG.broadside's two ladders are authored in degrees).
  *  SAME ASSOCIATION as sim/arcs.ts's `deg` — `(d * PI) / 180`, never
  *  `d * (PI / 180)`: the two round differently in the last bit, and both sides
  *  must land on the identical double. */
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
+ * THE PAIRED-LADDER CONTRACT, CHECKED AT LOAD. `traverseDeg` and
+ * `turretMountSpreadDeg` are indexed by the SAME rung, so `clampSpreadRung` may
+ * clamp against either only while they are the same length. A test pins it
+ * (barrel.test.ts, aim.test.ts), but a CONFIG edit that desynced them would let
+ * a valid rung index one ladder into `undefined` and `deg()` it into NaN — a
+ * silent NaN arc rather than a failure. Same fail-at-load law as sim/arcs.ts's
+ * `sectorArcFor`: an authoring error throws where it is authored.
+ */
+if (CONFIG.broadside.turretMountSpreadDeg.length !== CONFIG.broadside.traverseDeg.length) {
+  throw new Error(
+    `broadside ladder mismatch: turretMountSpreadDeg has ${CONFIG.broadside.turretMountSpreadDeg.length} rungs, `
+    + `traverseDeg has ${CONFIG.broadside.traverseDeg.length} (sim/stats.ts — the two are index-paired)`,
+  );
+}
+
+/**
  * The BROADSIDE SPREAD rung, clamped to the authored ladder: 1 (no cards) ..
  * traverseDeg.length (the ×4 cap). Integer — the card adds exactly 1, so a
  * fractional value can only come from malformed effect data.
+ *
+ * NON-FINITE CLAMPS TO 1. `Math.round(NaN)` is NaN and every comparison against
+ * it is false, so `min/max` would pass NaN straight through and index the
+ * ladders into `undefined` → a NaN traverse/mount spread on a live ship. A
+ * malformed effect is the only way here, and rung 1 (the un-carded base) is the
+ * safe reading of "no valid card count".
+ *
+ * ONE LENGTH FOR BOTH LADDERS: `traverseDeg` and `turretMountSpreadDeg` are
+ * indexed by the SAME rung, asserted at module load above (and pinned in
+ * barrel.test.ts), so clamping against either is clamping against both.
  */
 export function clampSpreadRung(rung: number): number {
+  if (!Number.isFinite(rung)) return 1;
   const top = CONFIG.broadside.traverseDeg.length;
   return Math.min(top, Math.max(1, Math.round(rung)));
 }
@@ -262,6 +299,16 @@ export function clampSpreadRung(rung: number): number {
  */
 export function broadsideTraverse(rung: number): number {
   return deg(CONFIG.broadside.traverseDeg[clampSpreadRung(rung) - 1]);
+}
+
+/**
+ * rad — the outermost MOUNT BEARINGS' half-spread about the firing beam at a
+ * given SPREAD rung (1-based). The exact sibling of `broadsideTraverse`, on the
+ * same rung, through the same `deg` association — the mounts rotate inward as
+ * the traverses widen (Eric ruling 2026-08-27), and both re-pin sites call this.
+ */
+export function broadsideMountSpread(rung: number): number {
+  return deg(CONFIG.broadside.turretMountSpreadDeg[clampSpreadRung(rung) - 1]);
 }
 
 /**
@@ -349,10 +396,11 @@ function clampStats(stats: EffectiveStats): void {
   // the whitelisted `radarRange` path would carry it out for free.
   stats.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
-  // and the traverse is derived from it (clamped inside the helper) — the
-  // sweepPeriodMs pattern applied to an authored ladder.
+  // and BOTH halves of the arc geometry are derived from it (clamped inside the
+  // helpers) — the sweepPeriodMs pattern applied to a pair of authored ladders.
   stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
   stats.broadside.traverseRad = broadsideTraverse(stats.broadside.spreadRung);
+  stats.broadside.mountSpreadRad = broadsideMountSpread(stats.broadside.spreadRung);
   // TRUESIGHT IS THE 4/8 RUNG OF INTEL RANGE (Eric ruling 2026-08-16) — derived,
   // never stat-addressable. `sightRange` left BOON_STAT_PATHS, so this is the
   // firewall's authoritative answer and applyBoonStats holds the sibling copy.

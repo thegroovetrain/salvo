@@ -1743,3 +1743,27 @@ Four findings surfaced while reconciling `render.yaml` with the live Render serv
 - source_spec: `_bmad-output/implementation-artifacts/spec-xp-assist-split-and-auto-heal.md`
   summary: encounterSpan.ts systematically excludes the killing blow (and any hull first damaged in its sinking step) from every measured sink; capturing it needs a pre-clear hook in world.ts, deliberately not added for a measurement script this cycle.
   evidence: The script snapshots ledgers BEFORE each world.step(), and the fatal hit lands and is wiped by creditKill inside that step — so total, per-window fractions and lastGap all miss the final hit (lastGap measures to the penultimate one). Both review hunters traced it independently (cycle 129 review pass). The original reference-branch measurements (median 332 s span / 6 attackers / recency fractions behind the 60 s window) carried the identical bias, so the series is internally consistent; fixing the instrument changes the series and should be done deliberately, between campaigns.
+
+## 2026-08-27 — cycle 130 findings (from spec-broadside-zero-overlap-arcs)
+
+Four threads left open by the broadside zero-overlap arc ladder. None is a defect; each is either an Eric design/copy call or a balance pass with its own evidence requirement.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-broadside-zero-overlap-arcs.md`
+  status: OPEN — Eric design question
+  summary: AT LOW SPREAD RUNGS EVERY PREVIEW SHELL IS ARC-CLAMPED, SO THE CLAMPED-SHELL TELL HAS NOTHING TO CONTRAST AGAINST. The ruled distinction — an on-click shell at full alpha, a clamped one at `clampedAlphaScale` — only manifests in a MIXED barrage. At rung 1 a dead-abeam click puts zero of four guns on it, so the whole preview draws at 0.45x and reads as uniform faintness rather than "these shells are not going where you pointed". Whether the all-clamped case wants its own treatment (a different mark, a register the player can read as "nothing bears here", or nothing at all because the gaps are the design) is a design call, not an implementation one.
+  evidence: `client/src/render/aimPreview.ts` clamped pass at `CLIENT_CONFIG.aimPreview.clampedAlphaScale` (0.45); `shared/src/__tests__/aim.test.ts` "DEAD GAPS EXIST AT RUNG 1" pins zero guns bearing on a legal abeam click at every range.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-broadside-zero-overlap-arcs.md`
+  status: OPEN — recorded for Eric; emergent, not designed
+  summary: AT 5 TURRETS THE ODD-COUNT STRADDLE PUTS THE CENTRE MOUNT DEAD ON THE BEAM, RESTORING A GUARANTEED ON-CLICK SHELL ABEAM THAT THE BASE LADDER DELIBERATELY REMOVES. One BROADSIDE TURRETS card takes the battery from 4 (even — straddles the beam, no gun on it) to 5 (odd — one gun exactly on it), so an abeam click goes from zero guns bearing to one, at every range, at every SPREAD rung. That is a consequence of the ruled densification meeting the straddle law, not a decision anyone took: the first turret card quietly buys back the base ladder's most visible property. Left as-is because the densification WAS ruled and accepted; recorded so it is a known consequence rather than a surprise.
+  evidence: `shared/src/sim/spread.ts straddleOffsets` emits a zero entry for any odd count; `client/src/__tests__/aimPreview.test.ts` 5-turret case; `shared/src/__tests__/aim.test.ts` "TURRETS densify the same sector".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-broadside-zero-overlap-arcs.md`
+  status: OPEN — belongs to a balance pass with campaign evidence, not to this cycle
+  summary: BOT BROADSIDE WEIGHTS AND `EquipmentTactic` GATING WERE NOT RETUNED FOR THE ZERO-OVERLAP LADDER. `fanAcceptsPlot`'s polarity is correct again after this cycle, but the boon weight tables predate the ladder entirely: they were written when SPREAD narrowed an authored fan, and they still price it as a precision card rather than as the mount-choke card it now is. A bot on the broadside profiles will therefore under-value the single card that decides whether its barrage converges. Not touched here because a weight change is only defensible against a campaign, and this cycle's evidence is geometric.
+  evidence: `server/src/game/ai/equipment.ts` (broadside tactic, `fanAcceptsPlot`); `CONFIG.bots.boonWeights` `siege` / `bulwark` rows in `shared/src/constants.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-broadside-zero-overlap-arcs.md`
+  status: OPEN — needs Eric copy (the naming law forbids inventing card text)
+  summary: THE SPREAD CARD FACE NAMES ONLY HALF THE LADDER. It prints "Turret traverse" and the `current → next` traverse numbers, but the SPREAD card now drives TWO ladders — the traverse widening AND the mounts swinging inward — and the mount CHOKE is the half that actually delivers convergence. A player reading the face cannot tell that the card is what brings the battery onto one point. Naming the second half needs Eric's copy: rewording ratified card text without a ruling is exactly what the naming law forbids.
+  evidence: `client/src/ui/boonCopy.ts` `broadsideSpread` line and its source comment; `CONFIG.broadside.turretMountSpreadDeg` `[28, 25, 22.5, 15, 6]` is the unnamed ladder.

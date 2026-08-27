@@ -7,8 +7,10 @@
 //     sight bubble, where the fog was already clear. Three ids draw one: the
 //     torpedo's BOW arc; (Story 2.8, amendment 45) the mine's REAR PLACEMENT
 //     arc, drawn at its true CONFIG.mine.placeRange radius so the wedge IS the
-//     reachable water; and (Story 7-5 wave 2, R2.1) the BROADSIDE BARRAGE's TWO
-//     mirrored BEAM sectors, of which exactly the one containing the aim lights.
+//     reachable water; and (Story 7-5 wave 2, R2.1) the BROADSIDE BARRAGE, whose
+//     two mirrored BEAM sectors are now thin OUTLINES marking the deny boundary
+//     while ONE SMALL WEDGE PER TURRET carries the aiming information (Eric
+//     ruling 2026-08-27) — exactly the side containing the aim lights.
 //     The gun FAMILY (gun / star shells) draws NO arc sector: it is 360° and
 //     fires to the clicked point (Eric ruling 2026-07-21), so a wedge would lie.
 //     The remaining instant ability (speedBoost) never primes and draws no
@@ -24,7 +26,16 @@
 // tested); the id classification + in-arc test reuse render/weaponArc.ts.
 
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, arcFor, inArc, wrapAngle, type EquipmentId } from '@salvo/shared';
+import {
+  CONFIG,
+  arcFor,
+  inArc,
+  turretMountBearings,
+  turretMuzzles,
+  wrapAngle,
+  type EquipmentId,
+  type HullId,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { fireArcKind, sectorOutline, twinSectorSide, weaponArcHit } from './weaponArc.js';
 
@@ -33,14 +44,37 @@ const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torped
 const DIM = CLIENT_CONFIG.colors.textMuted;
 const DENIED_RED = CLIENT_CONFIG.colors.denied; // the single denied red
 const EDGE = CLIENT_CONFIG.aimPreview.placementEdge;
+const BW = CLIENT_CONFIG.broadsideArcs;
+/** The ONE lit/dim fill weight every aim-gated arc draws at — the sector fill
+ *  and the per-turret wedges are the same grammar and cannot drift apart. */
+const ARC_FILL = CLIENT_CONFIG.arcFill;
 const ARC_R = 72; // u — sector indicator radius (the torpedo's indicative wedge)
 const RETICLE_R = 7; // u — crosshair size
 const IMPACT_R = 4; // u — range-clamped impact marker ring
+/** The `arcs` Graphics is HULL-LOCAL (position = pose, rotation = heading), so
+ *  the shared turret helpers are called at the identity pose and their answers
+ *  ARE local coordinates. This is the whole reason the render can reuse the
+ *  sim's geometry instead of re-deriving spacing. */
+const IDENTITY_POSE = { x: 0, y: 0, heading: 0 };
 
 export interface FiringPose {
   x: number;
   y: number;
   heading: number;
+}
+
+/**
+ * Everything the BROADSIDE's per-turret arc display needs, straight off the
+ * owner's effective stats (never CONFIG): the hull whose muzzle positions the
+ * wedges spring from, how many guns there are, and the SPREAD rung's two derived
+ * half-angles. Omitted for every other weapon — and omitted safely: without it
+ * the twin sector still draws its legal outline, just no wedges.
+ */
+export interface BroadsideArcs {
+  hullId: HullId;
+  turrets: number;
+  traverseRad: number;
+  mountSpreadRad: number;
 }
 
 /**
@@ -52,6 +86,71 @@ export interface FiringPose {
 export interface FiringAmmo {
   hasAmmo: boolean;
   reloadFrac: number;
+}
+
+/** One turret's drawn arc, in the HULL-LOCAL frame the `arcs` Graphics uses. */
+export interface TurretWedge {
+  apex: { x: number; y: number };
+  from: number;
+  to: number;
+  r: number;
+}
+
+/**
+ * PURE: the fill an aim-gated arc is drawn with — the ONE decision behind both
+ * the torpedo/mine sector fill and the broadside's per-turret wedges.
+ *
+ * `lit` means "this surface would fire on a click right now" and is ALSO how a
+ * denial reads: the caller passes DENIED_RED with `lit` true, so a denied arc
+ * keeps the bright weight and only changes register. An unlit arc drops to the
+ * muted tint at the dim weight — never the weapon's own colour, which is what
+ * keeps "amber = armed" honest.
+ */
+export function arcFillStyle(color: number, lit: boolean): { color: number; alpha: number } {
+  return { color: lit ? color : DIM, alpha: lit ? ARC_FILL.litAlpha : ARC_FILL.dimAlpha };
+}
+
+/** ONE cached answer PER BEAM, keyed on the four scalars the geometry depends
+ *  on. The inputs move only on a boon grant (or a hull change, i.e. a new
+ *  match), so in steady flight this is a four-compare hit instead of three
+ *  fresh arrays (`turretMuzzles` / `turretMountBearings` / `straddleOffsets`)
+ *  per beam per frame. */
+const wedgeMemo = new Map<1 | -1, BroadsideArcs & { wedges: TurretWedge[] }>();
+
+function buildTurretWedges(side: 1 | -1, bs: BroadsideArcs): TurretWedge[] {
+  const muzzles = turretMuzzles(IDENTITY_POSE, bs.hullId, bs.turrets, side);
+  const mounts = turretMountBearings(0, bs.turrets, side, bs.mountSpreadRad);
+  return mounts.map((m, i) => ({
+    apex: muzzles[i],
+    from: m - bs.traverseRad,
+    to: m + bs.traverseRad,
+    r: BW.wedgeRadius,
+  }));
+}
+
+/**
+ * PURE: the per-turret arc display's geometry for one beam (Eric ruling
+ * 2026-08-27, ruling 4). Apex at that gun's own muzzle, swept from its own mount
+ * bearing ± its own traverse, at the indicative display radius.
+ *
+ * IT IS THE SIM'S OWN ANSWER, at an identity pose. `turretMuzzles` and
+ * `turretMountBearings` are the same functions `turretAimPoints` calls, so the
+ * wedge the player aims by and the arc the fire path tests against cannot drift
+ * — re-deriving spacing here (an even fan, a hand-rolled straddle) is exactly
+ * the desync class this project keeps one geometry source to prevent. Split out
+ * of the Pixi adapter so it is directly assertable.
+ *
+ * MEMOIZED PER BEAM: a repeat call with the same four scalars returns the SAME
+ * array. It is read-only to every caller (the renderer walks it, the tests
+ * assert over it) — never mutate the result in place.
+ */
+export function turretWedges(side: 1 | -1, bs: BroadsideArcs): TurretWedge[] {
+  const hit = wedgeMemo.get(side);
+  if (hit !== undefined && hit.hullId === bs.hullId && hit.turrets === bs.turrets
+    && hit.traverseRad === bs.traverseRad && hit.mountSpreadRad === bs.mountSpreadRad) return hit.wedges;
+  const wedges = buildTurretWedges(side, bs);
+  wedgeMemo.set(side, { ...bs, wedges });
+  return wedges;
 }
 
 export class FiringUX {
@@ -102,6 +201,7 @@ export class FiringUX {
     cursor: { x: number; y: number },
     denied = false,
     rangeU: number = CONFIG.vision.radar,
+    broadside: BroadsideArcs | null = null,
   ): void {
     this.rangeU = rangeU;
     const kind = fireArcKind(id);
@@ -113,7 +213,7 @@ export class FiringUX {
     // (Story 7-5 wave 2). The gun family is 360° (no wedge) and the remaining
     // ability (speedBoost) draws no marker.
     if (kind === 'sector' && id !== null) this.drawSectorArc(id, aim, pose.heading, ammo, denied);
-    if (kind === 'twin' && id !== null) this.drawTwinArcs(id, aim, pose.heading, ammo, denied);
+    if (kind === 'twin' && id !== null) this.drawTwinArcs(id, aim, pose.heading, ammo, denied, broadside);
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);
   }
 
@@ -157,17 +257,24 @@ export class FiringUX {
   }
 
   /**
-   * The BROADSIDE BARRAGE's twin beams (R2.1): both mirrored wedges are drawn
+   * The BROADSIDE BARRAGE's twin beams (R2.1): both mirrored sectors are drawn
    * every frame — the pair IS the information ("you can fire to either side,
    * and not fore or aft") — but only the one CONTAINING the aim lights, which
    * is the client's reading of R2.2's "the side whose sector contains the click
    * is the side that fires". A denied press reddens BOTH, because an out-of-arc
    * broadside click missed both beams and neither would have fired.
    *
-   * Drawn at the indicative ARC_R rather than at the true 5/8 rangeU, exactly
-   * as the torpedo's wedge is: a 412.5u filled wedge on each beam would bury the
-   * chart, and the reach is already told honestly twice — by the range-clamp
-   * marker on the aim bearing and by the aim preview's per-shell burst circles.
+   * WHAT THE SECTOR MEANS CHANGED (Eric ruling 2026-08-27, ruling 4). Under the
+   * zero-overlap ladder the guns cover only narrow slivers of the ±60° sector,
+   * so a big filled wedge would promise water no gun can reach. The sector drops
+   * to a THIN OUTLINE and means exactly one thing — the deny boundary — while
+   * the aiming information becomes ONE WEDGE PER GUN, drawn from that gun's own
+   * muzzle over its own arc. The gaps between the wedges are the design.
+   *
+   * Everything stays INDICATIVE at ARC_R / wedgeRadius rather than the true 5/8
+   * reach, exactly as the torpedo's wedge is: a 412.5u wedge on each beam would
+   * bury the chart, and the reach is already told honestly twice — by the
+   * range-clamp marker and by the aim preview's per-shell burst circles.
    */
   private drawTwinArcs(
     id: EquipmentId,
@@ -175,6 +282,7 @@ export class FiringUX {
     heading: number,
     ammo: FiringAmmo,
     denied: boolean,
+    bs: BroadsideArcs | null,
   ): void {
     const t = arcFor(id);
     if (t.kind !== 'twin-sector') return; // descriptor law: only twin sectors draw a pair
@@ -182,8 +290,77 @@ export class FiringUX {
     const color = denied ? DENIED_RED : AMBER;
     for (const side of [1, -1] as const) {
       const lit = denied || (firing === side && ammo.hasAmmo);
-      this.sector(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
+      this.drawLegalOutline(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
+      if (bs !== null) this.drawTurretWedges(side, color, lit, bs);
     }
+  }
+
+  /**
+   * One small filled wedge per TURRET, in the arcs graphic's hull-local frame.
+   * The geometry comes from the pure `turretWedges` below — the SHARED sim
+   * answer at an identity pose, never re-derived here, so the wedge a captain
+   * aims by and the arc the server tests against are one thing.
+   *
+   * All wedges on a side go into ONE fill: they share a verdict (lit / dim /
+   * denied), and a single path keeps the draw cheap at six guns.
+   */
+  private drawTurretWedges(side: 1 | -1, color: number, lit: boolean, bs: BroadsideArcs): void {
+    const wedges = turretWedges(side, bs);
+    if (wedges.length === 0) return;
+    const g = this.arcs;
+    for (const w of wedges) {
+      g.moveTo(w.apex.x, w.apex.y);
+      g.arc(w.apex.x, w.apex.y, w.r, w.from, w.to);
+      g.lineTo(w.apex.x, w.apex.y);
+    }
+    g.fill(arcFillStyle(color, lit));
+  }
+
+  /**
+   * The ±60° legal sector as a hairline boundary (no fill), plus the reload
+   * sweep-back it now hosts. The outline geometry is weaponArc.sectorOutline —
+   * the same pure helper the mine's placement edge uses — and the sweep-back is
+   * the shipped `sector()` tail, moved here byte-for-byte when the fill it used
+   * to ride was deleted.
+   */
+  private drawLegalOutline(
+    offset: number,
+    halfArc: number,
+    color: number,
+    lit: boolean,
+    reloadFrac: number,
+  ): void {
+    this.strokeSectorOutline(offset, halfArc, ARC_R, color, lit, BW.legalEdge);
+    if (!(reloadFrac > 0 && reloadFrac < 1)) return;
+    const g = this.arcs;
+    g.moveTo(0, 0);
+    g.arc(0, 0, ARC_R * BW.reloadRadiusFactor, offset - halfArc, offset + halfArc);
+    g.lineTo(0, 0);
+    // COLOUR-INDEPENDENT, exactly as the shipped `sector()` tail was: the
+    // sweep-back has always been DIM, never the wedge's own colour, so a denied
+    // reload does not paint it red. Verified against the pre-cycle file before
+    // the tail was rehomed here.
+    g.fill({ color: DIM, alpha: BW.reloadAlphaBase + BW.reloadAlphaSpan * reloadFrac });
+  }
+
+  /** The two side rays plus the closing range arc of a sector, stroked at the
+   *  caller's edge style. ONE body for both outlines the firing UX draws — the
+   *  broadside's hairline deny boundary and the mine placement wedge's crisp
+   *  edge — which differed only in radius and in which style block they read. */
+  private strokeSectorOutline(
+    offset: number,
+    halfArc: number,
+    radius: number,
+    color: number,
+    lit: boolean,
+    style: { width: number; alpha: number; dimAlpha: number },
+  ): void {
+    const { rays, arc } = sectorOutline(offset, halfArc, radius);
+    const g = this.arcs;
+    g.moveTo(0, 0).lineTo(rays[0].x, rays[0].y);
+    g.arc(0, 0, arc.r, arc.from, arc.to);
+    g.lineTo(0, 0);
+    g.stroke({ width: style.width, color, alpha: lit ? style.alpha : style.dimAlpha });
   }
 
   /**
@@ -206,12 +383,7 @@ export class FiringUX {
     color: number,
     lit: boolean,
   ): void {
-    const { rays, arc } = sectorOutline(offset, halfArc, radius);
-    const g = this.arcs;
-    g.moveTo(0, 0).lineTo(rays[0].x, rays[0].y);
-    g.arc(0, 0, arc.r, arc.from, arc.to);
-    g.lineTo(0, 0);
-    g.stroke({ width: EDGE.width, color, alpha: lit ? EDGE.alpha : EDGE.dimAlpha });
+    this.strokeSectorOutline(offset, halfArc, radius, color, lit, EDGE);
   }
 
   /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */
@@ -237,8 +409,8 @@ export class FiringUX {
     // second placement boundary — 75u of "you can place here" inside 150u of the
     // same thing, while reloading only, which is why it looked intermittent.
     // Exactly one boundary may ever be on screen for a placement weapon.
-    const fillAlpha = lit ? 0.5 : 0.14;
-    g.fill({ color: lit ? color : DIM, alpha: placement && reloading ? fillAlpha * 0.45 : fillAlpha });
+    const style = arcFillStyle(color, lit);
+    g.fill({ ...style, alpha: placement && reloading ? style.alpha * 0.45 : style.alpha });
     if (reloading && !placement) {
       g.moveTo(0, 0);
       g.arc(0, 0, radius * 0.5, offset - halfArc, offset + halfArc);

@@ -246,7 +246,15 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   // "1 → 2" would tell the player nothing about what tightens. So it reads the
   // DERIVED half-angle instead, straight off the same effectiveStats preview
   // diff every other line uses: the firewall does the ladder lookup and the ×4
-  // clamp, so a maxed stack honestly prints "±3° → ±3°".
+  // clamp, so a maxed stack honestly prints the same number twice.
+  //
+  // SINCE 2026-08-27 THE CARD MOVES TWO NUMBERS and the face still prints ONE.
+  // The rung also swings the MOUNT bearings inward (`mountSpreadRad`), which is
+  // half of what the card actually buys — but a second printed line would need
+  // NEW PLAYER-FACING WORDS, and inventing card copy is what the naming law
+  // forbids. Traverse stays the headline because it is the number the player
+  // sees change on the water (their wedges get wider). FLAGGED FOR ERIC'S COPY
+  // PASS: the choke is currently unnamed on the face.
   broadsideSpread: { label: 'Turret traverse', read: (s) => s.broadside.traverseRad, fmt: halfAngleDeg },
   broadsideTurrets: { label: 'Shells per barrage', read: (s) => s.broadside.turrets },
   torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },

@@ -101,14 +101,15 @@ const FLARE_STALE_MS = 1500;
  *  spending a 20s flare on the same plot. Eagerness, never geometry: when both
  *  profiles fire, they fire at the identical point. */
 const RELUCTANT_STALE_MULT = 2;
-/** The base spread rung — the WIDEST fan. At this rung (and only this rung) a
- *  broadside may be spent on a just-lost plot; every tightened rung demands a
- *  live track, because a narrow fan is a point weapon and a point weapon
- *  needs a real position. */
+/** The base spread rung — the WIDEST pattern, where the per-turret arcs do not
+ *  overlap at all and the barrage sprays across the beam. At this rung (and only
+ *  this rung) a broadside may be spent on a just-lost plot; every tightened rung
+ *  chokes the pattern toward a converging point weapon, and a point weapon needs
+ *  a real position. */
 const WIDE_RUNG = 1;
-/** ms — how recently a NON-live plot must have been refreshed for the WIDE
- *  base fan to accept it. ~1.5s of drift at full ahead (67u) is inside the
- *  base 12° fan's footprint at combat range; older and the fan is a guess. */
+/** ms — how recently a NON-live plot must have been refreshed for the WIDE base
+ *  pattern to accept it. ~1.5s of drift at full ahead (67u) is inside the base
+ *  barrage's footprint at combat range; older and the shot is a guess. */
 const WIDE_FAN_STALE_MS = 1500;
 /** u/s — the fastest playable hull, the drift bound the phosphor stale cap is
  *  derived against (never a literal: a kinematics retune moves it). */
@@ -295,10 +296,14 @@ const gunTactic: EquipmentTactic = {
 // ---------------------------------------------------------------------------
 
 /**
- * THE SPREAD-RUNG CONSUMER: the wide BASE fan (rung 1, 12° half-angle) covers
- * enough water to be worth a just-lost plot with a disclosed course; every
- * tightened rung (BROADSIDE SPREAD cards) narrows the fan toward a point
- * weapon, and a point weapon demands a LIVE track.
+ * THE SPREAD-RUNG CONSUMER. The designed fan is long dead and the ladder was
+ * re-cut again on 2026-08-27 (zero overlap at tier I, true convergence at tier
+ * V), so read the gate by what the rung MEANS rather than by any fan width: at
+ * rung 1 the per-turret arcs do not overlap and the barrage lands as a wide
+ * shotgun pattern across the beam — enough water covered to be worth a
+ * just-lost plot with a disclosed course. Every rung above it chokes the
+ * pattern toward a converging point weapon, and a point weapon demands a LIVE
+ * track. The polarity is therefore unchanged and still correct.
  */
 function fanAcceptsPlot(t: BotTrack, sit: BotSituation): boolean {
   if (t.live) return true;
