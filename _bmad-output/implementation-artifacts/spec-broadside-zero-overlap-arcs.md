@@ -88,7 +88,7 @@ Prior ruling of record (batch-sim-evidence-2026-08-24.md, Design ruling 2): the 
 - [x] `server/src/game/ai/equipment.ts` -- comment truth pass; keep gate polarity
 - [x] `server/scripts/batchsim/{balanceProbe,overrides,catalogMetrics}.ts` -- instrument updates (probe per-rung, guard, damage attribution from CONFIG)
 - [x] `VERSION` + root `package.json` 0.17.130; `sprint-status.yaml` + `gds-workflow-status.yaml` one-line stamps
-- [ ] Evidence: `balanceProbe` before/after arc tables + same-night campaign vs 2026-08-24 baselines → `batch-sim-evidence-2026-08-27.md` + one-line ledger append
+- [x] Evidence: `balanceProbe` arc tables + Eric-approved 96-match trend run vs 2026-08-24 baselines → `batch-sim-evidence-2026-08-27.md` (scale superseded by Eric's 2026-08-27 ≤99-match / ask-first rulings, recorded there)
 
 **Acceptance Criteria:**
 - Given base 4 turrets at rungs 1-3, when adjacent wedges are compared, then `2·traverse ≤ mount gap` (zero overlap; rung 3 may touch), and at rungs 4-5 `2·traverse > gap` strictly.
@@ -100,6 +100,16 @@ Prior ruling of record (batch-sim-evidence-2026-08-24.md, Design ruling 2): the 
 - Given `npm run check`, then lint + tsc + all workspaces green.
 
 ## Spec Change Log
+
+- 2026-08-27 (Eric rulings, mid-run, supersede the Always measurement clause's SCALE): no sim run is ever launched unprompted — ask first; approved quick checks are ≤99 matches (hard cap); full campaigns only when Eric names them. The clause's intent (measure balance-touching changes) stands. This run's 96-match check was Eric-approved interactively.
+
+## Auto Run Result
+
+- **Implemented:** the broadside zero-overlap arc ladder (Eric rulings 2026-08-24/27) — SPREAD now drives per-rung mount spread [28,25,22.5,15,6]° AND traverse [6,7,7.5,9,14]°: zero overlap through card 2 (touching), overlap from card 3, true convergence at max choke (~265u+ abeam); per-turret wedge display from real muzzle positions with the legal sector as a thin outline; aim preview marks arc-clamped shells; PV 48→49; 0.17.130.
+- **Files:** shared (constants, stats, boons, aim, index PV), server (equipment/broadside, ai/equipment comments), client (firing wedge render, aimPreview clamped pass, config knobs, main threading), batchsim instruments (balanceProbe, catalogMetrics lazy CONFIG-derived attribution, overrides guard), ~10 test files rewritten deliberately + firingArcs.test.ts new; VERSION/package/trackers; CLAUDE.md supersession stamp; deferred-work +4.
+- **Review:** dual adversarial pass → 15 patches applied (NaN/ladder hardening, instrument correctness, doc/ledger integrity, render memo, test strengthening), 4 deferred to deferred-work.md, 2 rejected. No intent_gap, no bad_spec.
+- **Verification:** `npm run check` green (5716 tests: 784/1702/3230), balanceProbe schedule/convergence tables match the rulings exactly, visual QA on a live PV-49 solo match (wedges/gaps/lit-side confirmed by screenshot), 96-match trend run: BS 44.6%→24.0% / ML 32.5%→44.8% / TB 22.9%→31.3% vs the 08-24 baseline — recorded with the bots-can't-aim-the-ship caveat in `batch-sim-evidence-2026-08-27.md`; no rebalance taken.
+- **Residual risks:** DRAFT ladder numbers await Eric's on-water tuning; bot broadside play unretuned for the new ladder (deferred); clamped-preview distinction and rung-5 display unverified by eye; BS win-share drop is Eric's call to accept or retune.
 
 ## Review Triage Log
 
