@@ -3306,14 +3306,24 @@ function renderFiring(
  * and the server's own fire path read. Handed on every frame regardless of the
  * primed weapon; render/firing.ts uses it only when the broadside is up.
  */
+let arcsMemo: BroadsideArcs | null = null;
+
 function broadsideArcs(g: Game, status: OwnStatus): BroadsideArcs {
   const b = status.stats.broadside;
-  return {
+  // ONE SLOT: these four move only on a boon grant (or a new match's hull), so
+  // the frame loop hands the renderer the SAME object it had last frame rather
+  // than minting one every tick. render/firing.ts memoizes the wedge geometry
+  // off the same four scalars.
+  const m = arcsMemo;
+  if (m !== null && m.hullId === g.ownClass && m.turrets === b.turrets
+    && m.traverseRad === b.traverseRad && m.mountSpreadRad === b.mountSpreadRad) return m;
+  arcsMemo = {
     hullId: g.ownClass,
     turrets: b.turrets,
     traverseRad: b.traverseRad,
     mountSpreadRad: b.mountSpreadRad,
   };
+  return arcsMemo;
 }
 
 function renderAimPreview(

@@ -45,6 +45,9 @@ const DIM = CLIENT_CONFIG.colors.textMuted;
 const DENIED_RED = CLIENT_CONFIG.colors.denied; // the single denied red
 const EDGE = CLIENT_CONFIG.aimPreview.placementEdge;
 const BW = CLIENT_CONFIG.broadsideArcs;
+/** The ONE lit/dim fill weight every aim-gated arc draws at — the sector fill
+ *  and the per-turret wedges are the same grammar and cannot drift apart. */
+const ARC_FILL = CLIENT_CONFIG.arcFill;
 const ARC_R = 72; // u — sector indicator radius (the torpedo's indicative wedge)
 const RETICLE_R = 7; // u — crosshair size
 const IMPACT_R = 4; // u — range-clamped impact marker ring
@@ -94,6 +97,38 @@ export interface TurretWedge {
 }
 
 /**
+ * PURE: the fill an aim-gated arc is drawn with — the ONE decision behind both
+ * the torpedo/mine sector fill and the broadside's per-turret wedges.
+ *
+ * `lit` means "this surface would fire on a click right now" and is ALSO how a
+ * denial reads: the caller passes DENIED_RED with `lit` true, so a denied arc
+ * keeps the bright weight and only changes register. An unlit arc drops to the
+ * muted tint at the dim weight — never the weapon's own colour, which is what
+ * keeps "amber = armed" honest.
+ */
+export function arcFillStyle(color: number, lit: boolean): { color: number; alpha: number } {
+  return { color: lit ? color : DIM, alpha: lit ? ARC_FILL.litAlpha : ARC_FILL.dimAlpha };
+}
+
+/** ONE cached answer PER BEAM, keyed on the four scalars the geometry depends
+ *  on. The inputs move only on a boon grant (or a hull change, i.e. a new
+ *  match), so in steady flight this is a four-compare hit instead of three
+ *  fresh arrays (`turretMuzzles` / `turretMountBearings` / `straddleOffsets`)
+ *  per beam per frame. */
+const wedgeMemo = new Map<1 | -1, BroadsideArcs & { wedges: TurretWedge[] }>();
+
+function buildTurretWedges(side: 1 | -1, bs: BroadsideArcs): TurretWedge[] {
+  const muzzles = turretMuzzles(IDENTITY_POSE, bs.hullId, bs.turrets, side);
+  const mounts = turretMountBearings(0, bs.turrets, side, bs.mountSpreadRad);
+  return mounts.map((m, i) => ({
+    apex: muzzles[i],
+    from: m - bs.traverseRad,
+    to: m + bs.traverseRad,
+    r: BW.wedgeRadius,
+  }));
+}
+
+/**
  * PURE: the per-turret arc display's geometry for one beam (Eric ruling
  * 2026-08-27, ruling 4). Apex at that gun's own muzzle, swept from its own mount
  * bearing ± its own traverse, at the indicative display radius.
@@ -104,16 +139,18 @@ export interface TurretWedge {
  * — re-deriving spacing here (an even fan, a hand-rolled straddle) is exactly
  * the desync class this project keeps one geometry source to prevent. Split out
  * of the Pixi adapter so it is directly assertable.
+ *
+ * MEMOIZED PER BEAM: a repeat call with the same four scalars returns the SAME
+ * array. It is read-only to every caller (the renderer walks it, the tests
+ * assert over it) — never mutate the result in place.
  */
 export function turretWedges(side: 1 | -1, bs: BroadsideArcs): TurretWedge[] {
-  const muzzles = turretMuzzles(IDENTITY_POSE, bs.hullId, bs.turrets, side);
-  const mounts = turretMountBearings(0, bs.turrets, side, bs.mountSpreadRad);
-  return mounts.map((m, i) => ({
-    apex: muzzles[i],
-    from: m - bs.traverseRad,
-    to: m + bs.traverseRad,
-    r: BW.wedgeRadius,
-  }));
+  const hit = wedgeMemo.get(side);
+  if (hit !== undefined && hit.hullId === bs.hullId && hit.turrets === bs.turrets
+    && hit.traverseRad === bs.traverseRad && hit.mountSpreadRad === bs.mountSpreadRad) return hit.wedges;
+  const wedges = buildTurretWedges(side, bs);
+  wedgeMemo.set(side, { ...bs, wedges });
+  return wedges;
 }
 
 export class FiringUX {
@@ -276,7 +313,7 @@ export class FiringUX {
       g.arc(w.apex.x, w.apex.y, w.r, w.from, w.to);
       g.lineTo(w.apex.x, w.apex.y);
     }
-    g.fill({ color: lit ? color : DIM, alpha: lit ? BW.litAlpha : BW.dimAlpha });
+    g.fill(arcFillStyle(color, lit));
   }
 
   /**
@@ -293,17 +330,37 @@ export class FiringUX {
     lit: boolean,
     reloadFrac: number,
   ): void {
-    const { rays, arc } = sectorOutline(offset, halfArc, ARC_R);
+    this.strokeSectorOutline(offset, halfArc, ARC_R, color, lit, BW.legalEdge);
+    if (!(reloadFrac > 0 && reloadFrac < 1)) return;
+    const g = this.arcs;
+    g.moveTo(0, 0);
+    g.arc(0, 0, ARC_R * BW.reloadRadiusFactor, offset - halfArc, offset + halfArc);
+    g.lineTo(0, 0);
+    // COLOUR-INDEPENDENT, exactly as the shipped `sector()` tail was: the
+    // sweep-back has always been DIM, never the wedge's own colour, so a denied
+    // reload does not paint it red. Verified against the pre-cycle file before
+    // the tail was rehomed here.
+    g.fill({ color: DIM, alpha: BW.reloadAlphaBase + BW.reloadAlphaSpan * reloadFrac });
+  }
+
+  /** The two side rays plus the closing range arc of a sector, stroked at the
+   *  caller's edge style. ONE body for both outlines the firing UX draws — the
+   *  broadside's hairline deny boundary and the mine placement wedge's crisp
+   *  edge — which differed only in radius and in which style block they read. */
+  private strokeSectorOutline(
+    offset: number,
+    halfArc: number,
+    radius: number,
+    color: number,
+    lit: boolean,
+    style: { width: number; alpha: number; dimAlpha: number },
+  ): void {
+    const { rays, arc } = sectorOutline(offset, halfArc, radius);
     const g = this.arcs;
     g.moveTo(0, 0).lineTo(rays[0].x, rays[0].y);
     g.arc(0, 0, arc.r, arc.from, arc.to);
     g.lineTo(0, 0);
-    g.stroke({ width: BW.legalEdge.width, color, alpha: lit ? BW.legalEdge.alpha : BW.legalEdge.dimAlpha });
-    if (!(reloadFrac > 0 && reloadFrac < 1)) return;
-    g.moveTo(0, 0);
-    g.arc(0, 0, ARC_R * BW.reloadRadiusFactor, offset - halfArc, offset + halfArc);
-    g.lineTo(0, 0);
-    g.fill({ color: DIM, alpha: BW.reloadAlphaBase + BW.reloadAlphaSpan * reloadFrac });
+    g.stroke({ width: style.width, color, alpha: lit ? style.alpha : style.dimAlpha });
   }
 
   /**
@@ -326,12 +383,7 @@ export class FiringUX {
     color: number,
     lit: boolean,
   ): void {
-    const { rays, arc } = sectorOutline(offset, halfArc, radius);
-    const g = this.arcs;
-    g.moveTo(0, 0).lineTo(rays[0].x, rays[0].y);
-    g.arc(0, 0, arc.r, arc.from, arc.to);
-    g.lineTo(0, 0);
-    g.stroke({ width: EDGE.width, color, alpha: lit ? EDGE.alpha : EDGE.dimAlpha });
+    this.strokeSectorOutline(offset, halfArc, radius, color, lit, EDGE);
   }
 
   /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */
@@ -357,8 +409,8 @@ export class FiringUX {
     // second placement boundary — 75u of "you can place here" inside 150u of the
     // same thing, while reloading only, which is why it looked intermittent.
     // Exactly one boundary may ever be on screen for a placement weapon.
-    const fillAlpha = lit ? 0.5 : 0.14;
-    g.fill({ color: lit ? color : DIM, alpha: placement && reloading ? fillAlpha * 0.45 : fillAlpha });
+    const style = arcFillStyle(color, lit);
+    g.fill({ ...style, alpha: placement && reloading ? style.alpha * 0.45 : style.alpha });
     if (reloading && !placement) {
       g.moveTo(0, 0);
       g.arc(0, 0, radius * 0.5, offset - halfArc, offset + halfArc);

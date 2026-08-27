@@ -217,8 +217,15 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
     const gapAt = (count: number): number => (2 * MOUNT_DEG[0]) / (count - 1);
     expect(gapAt(5)).toBeLessThan(gapAt(TURRETS));
     expect(gapAt(6)).toBeLessThan(gapAt(5));
-    // Denser guns really do put more of them on a given click.
-    expect(bearing(350, 20, 1, 6)).toBeGreaterThanOrEqual(bearing(350, 20, 1, TURRETS));
+    // Denser guns really do put more of them on a given click — asserted
+    // STRICTLY, at geometries measured to separate the two counts. A `>=` here
+    // would pass on 0 >= 0 and prove nothing, and densification is NOT
+    // universally better: an extra gun re-spaces the WHOLE battery, so some
+    // clicks that one of four could bear fall in a gap of six (a 6-gun rung-1
+    // battery drops a ±15° click at 100u the 4-gun one holds). The claim is
+    // "denser really does bear more somewhere", not "denser bears more always".
+    expect(bearing(350, 20, 1, 6)).toBeGreaterThan(bearing(350, 20, 1, TURRETS)); // 1 vs 0
+    expect(bearing(350, 0, 2, 6)).toBeGreaterThan(bearing(350, 0, 2, TURRETS)); // 2 vs 0, dead abeam
   });
 
   it('mounts pair UNCROSSED with muzzles on BOTH beams: the bow-most gun owns the bow-most arc', () => {

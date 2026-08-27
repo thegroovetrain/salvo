@@ -22,7 +22,7 @@ import {
   wrapAngle,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { turretWedges } from '../render/firing.js';
+import { arcFillStyle, turretWedges } from '../render/firing.js';
 
 const IDENTITY = { x: 0, y: 0, heading: 0 };
 const BW = CLIENT_CONFIG.broadsideArcs;
@@ -100,5 +100,41 @@ describe('the broadside arc display — one wedge per gun, from the SHARED geome
   it('the display radius is a CONFIG knob, and stays inside the legal sector indicator', () => {
     expect(BW.wedgeRadius).toBeGreaterThan(0);
     expect(BW.wedgeRadius).toBeLessThan(72); // ARC_R — the sector outline it sits inside
+  });
+
+  it('repeat calls with the SAME geometry return the same memoized array', () => {
+    const bs = arcsFor();
+    expect(turretWedges(1, bs)).toBe(turretWedges(1, { ...bs })); // four scalars, not identity
+    expect(turretWedges(1, bs)).not.toBe(turretWedges(-1, bs)); // one slot PER BEAM
+    expect(turretWedges(1, bs)).not.toBe(turretWedges(1, MAXED)); // a boon grant re-derives
+  });
+});
+
+// THE LIT/DIM DECISION, tested as a decision and not as a draw. The wedge fill
+// and the torpedo/mine sector fill are one grammar and read ONE pair of alphas
+// (CLIENT_CONFIG.arcFill) — they used to carry a private copy each, which is two
+// sources for one choice. `lit` also carries the DENIAL: the caller passes the
+// denied red with lit true, so a denial keeps the bright weight and changes
+// register only.
+describe('arcFillStyle — the one lit/dim/denied fill decision', () => {
+  const AMBER = CLIENT_CONFIG.colors.amber;
+  const DENIED = CLIENT_CONFIG.colors.denied;
+  const DIM = CLIENT_CONFIG.colors.textMuted;
+  const F = CLIENT_CONFIG.arcFill;
+
+  it('lit keeps the weapon colour at the lit weight; unlit drops to the muted tint', () => {
+    expect(arcFillStyle(AMBER, true)).toEqual({ color: AMBER, alpha: F.litAlpha });
+    expect(arcFillStyle(AMBER, false)).toEqual({ color: DIM, alpha: F.dimAlpha });
+  });
+
+  it('a DENIED arc reads at the LIT weight — the denial is a register change, not a fade', () => {
+    expect(arcFillStyle(DENIED, true)).toEqual({ color: DENIED, alpha: F.litAlpha });
+    expect(F.litAlpha).toBeGreaterThan(F.dimAlpha);
+  });
+
+  it('an unlit arc NEVER wears the weapon colour, whichever weapon asked', () => {
+    for (const c of [AMBER, DENIED, CLIENT_CONFIG.colors.legacy.torpGlow]) {
+      expect(arcFillStyle(c, false).color).toBe(DIM);
+    }
   });
 });

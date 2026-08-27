@@ -54,11 +54,27 @@ function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: str
 
 const PROBE_POSE = { x: 0, y: 0, heading: 0 };
 
+/** Adjacent mounts' angular separation at a battery of `n` guns — the straddle
+ *  spans 2·spread whatever the count, so one gun has no neighbour and no gap. */
+function mountGapDeg(spreadDeg: number, n: number): number {
+  return n > 1 ? (2 * spreadDeg) / (n - 1) : 0;
+}
+
+/** deg — the verdict tolerance. The touching rung is an EXACT equality by
+ *  authoring (2·7.5 = 2·22.5/3) but both sides are float arithmetic, so a
+ *  retuned ladder that still means "touching" must not print as a gap. */
+const VERDICT_EPS = 1e-9;
+
 /** The RUNG's PAIR — the two arc ladders are indexed together, exactly as
  *  effectiveStats() pairs them. Never mix a traverse with another rung's
- *  mounts: that is a geometry the game can never produce. */
+ *  mounts: that is a geometry the game can never produce. Indexed defensively:
+ *  sim/stats.ts asserts the two ladders are the same length at load, so an
+ *  undefined here would mean the probe outran that contract. */
 function rungArc(s: number): { tau: number; ms: number } {
-  return { tau: deg(CONFIG.broadside.traverseDeg[s]), ms: deg(CONFIG.broadside.turretMountSpreadDeg[s]) };
+  const t = CONFIG.broadside.traverseDeg[s];
+  const m = CONFIG.broadside.turretMountSpreadDeg[s];
+  if (t === undefined || m === undefined) throw new Error(`broadside ladder mismatch at rung ${s + 1}`);
+  return { tau: deg(t), ms: deg(m) };
 }
 
 /** The ruled overlap schedule at the BASE battery (Eric ruling 2026-08-27). */
@@ -67,9 +83,9 @@ function overlapSchedule(): void {
   console.log('OVERLAP SCHEDULE at the base battery (Eric ruling 2026-08-27: zero overlap through rung 3):');
   console.log('rung | mountSpread | traverse | gap = 2*spread/(n-1) | 2*traverse | overlap?');
   for (let s = 0; s < b.traverseDeg.length; s += 1) {
-    const gap = (2 * b.turretMountSpreadDeg[s]) / (b.turrets - 1);
+    const gap = mountGapDeg(b.turretMountSpreadDeg[s], b.turrets);
     const span = 2 * b.traverseDeg[s];
-    const verdict = span > gap ? 'OVERLAP' : span === gap ? 'touching' : 'gap';
+    const verdict = span > gap + VERDICT_EPS ? 'OVERLAP' : span > gap - VERDICT_EPS ? 'touching' : 'gap';
     console.log(
       `  ${s + 1}  | ${fmt(b.turretMountSpreadDeg[s], 2).padStart(11)} | ${fmt(b.traverseDeg[s], 2).padStart(8)} | ${fmt(gap, 3).padStart(20)} | ${fmt(span, 2).padStart(10)} | ${verdict}`,
     );

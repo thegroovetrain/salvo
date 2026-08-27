@@ -17,6 +17,9 @@ import {
   BOON_CATALOG,
   CONFIG,
   SHIP_CLASS_IDS,
+  broadsideMountSpread,
+  broadsideTraverse,
+  clampSpreadRung,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -205,6 +208,23 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(over.broadside.spreadRung).toBe(CONFIG.broadside.traverseDeg.length);
     expect(Number.isFinite(over.broadside.traverseRad)).toBe(true);
     expect(Number.isFinite(over.broadside.mountSpreadRad)).toBe(true);
+  });
+
+  // A NON-FINITE RUNG CLAMPS TO 1, and it must be checked BEFORE Math.round:
+  // every comparison against NaN is false, so min/max would pass NaN through
+  // and index both authored ladders into `undefined` -> a NaN arc on a live
+  // ship. Only malformed effect data can produce one; rung 1 (un-carded) is the
+  // honest reading of "no valid card count".
+  it('a NON-FINITE spread rung clamps to the base rung, never to NaN', () => {
+    const top = CONFIG.broadside.traverseDeg.length;
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(clampSpreadRung(bad), `${bad}`).toBe(1);
+      expect(Number.isFinite(broadsideTraverse(bad)), `traverse ${bad}`).toBe(true);
+      expect(Number.isFinite(broadsideMountSpread(bad)), `mounts ${bad}`).toBe(true);
+    }
+    // The paired-ladder contract the clamp rests on is asserted at module load
+    // (sim/stats.ts) — restate it here so a CONFIG edit fails a test too.
+    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(top);
   });
 
   it('broadsideTurrets adds a shell per card, 4 -> 6, and moves nothing else', () => {

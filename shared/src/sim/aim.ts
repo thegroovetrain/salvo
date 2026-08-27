@@ -194,7 +194,12 @@ export function turretMountBearings(
   mountSpreadRad: number,
 ): number[] {
   const n = Math.max(0, Math.floor(count));
-  const spread = mountSpreadRad;
+  // A NEGATIVE spread reverses the straddle and CROSSES the pairing — the
+  // bow-most muzzle would take the stern-most arc, silently inverting the
+  // parallax mechanism above. Unreachable through effectiveStats (the ladder is
+  // authored positive) but reachable through the batchsim's per-index --set
+  // overrides, so it is clamped rather than trusted.
+  const spread = Math.max(0, mountSpreadRad);
   const step = n > 1 ? (2 * spread) / (n - 1) : 0;
   const beam = heading + side * degToRad(CONFIG.broadside.arcOffsetDeg);
   return straddleOffsets(n, step).map((m) => beam + m);

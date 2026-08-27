@@ -828,6 +828,20 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE ONE FILL WEIGHT an aim-gated arc is drawn at (render/firing.ts): `lit`
+   * for the side/sector that would fire (or a denied press), `dim` for an idle
+   * one. The torpedo's and mine's `sector()` fill and the broadside's per-turret
+   * wedges are the SAME grammar and must read at the same weight, so they read
+   * the same pair — the wedges were introduced with a private copy of these two
+   * numbers beside the hard-coded literals `sector()` still carried, which is
+   * two sources for one decision.
+   */
+  arcFill: {
+    litAlpha: 0.5,
+    dimAlpha: 0.14,
+  },
+
+  /**
    * THE BROADSIDE'S PER-TURRET ARC DISPLAY (render/firing.ts — Eric ruling
    * 2026-08-27, ruling 4: *"bright per-turret wedges drawn from each gun's real
    * muzzle position + the ±60° legal sector reduced to a THIN OUTLINE"*).
@@ -854,10 +868,6 @@ export const CLIENT_CONFIG = {
      *  INSIDE the legal sector, and comfortably shorter than the 124u
      *  battleship hull they sprout from. */
     wedgeRadius: 50,
-    /** Fill alpha of a turret wedge on the FIRING side (inherits the shipped
-     *  sector's lit weight) and on the idle side. */
-    litAlpha: 0.5,
-    dimAlpha: 0.14,
     /** The ±60° legal sector, now a stroked boundary rather than a fill. */
     legalEdge: {
       width: 1,

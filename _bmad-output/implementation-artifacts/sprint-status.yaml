@@ -140,7 +140,7 @@
 #   cycle 127 (0.17.127) TWO RENDER ENVIRONMENTS — render.yaml reconciled with the live pro service; hullcracker-dev from a new `development` branch; HC_NOINDEX guard — no amendment; PV 48; spec-render-dev-environment.md
 #   cycle 128 (0.17.128) BALANCE CYCLE 2 — MEASUREMENT ONLY, no CONFIG value moved: drones.* tunable, 29-arm evidence, XP assist-split + auto-heal SPEC for a later dev cycle — no amendment; PV 48; batch-sim-evidence-2026-08-22.md, spec-xp-assist-split-and-auto-heal.md
 #   cycle 129 (0.17.129) XP ASSIST SPLIT + PER-LEVEL AUTO-HEAL (one-dial 60s rolling counter, killer 1/10; free 10%-of-missing heal per level, own pool) — epic-7 amendment 44; PV 48; spec-xp-assist-split-and-auto-heal.md
-#   cycle 130 (0.17.130) BROADSIDE ZERO-OVERLAP ARC LADDER + per-turret arc display (mountSpread per-rung [28,25,22.5,15,6], traverse [6,7,7.5,9,14]) — epic-7 amendment 45; PV 48->49; spec-broadside-zero-overlap-arcs.md
+#   cycle 130 (0.17.130) BROADSIDE ZERO-OVERLAP ARC LADDER + per-turret arc display (mountSpread per-rung [28,25,22.5,15,6], traverse [6,7,7.5,9,14]) — batch-sim-evidence-2026-08-27.md; PV 48->49; spec-broadside-zero-overlap-arcs.md
 # NOTE (2026-08-21, Story 7-6, Eric ruling F3): cycles 120/121 were AUTHORED on branches stamped
 # 0.17.110 / 0.17.111 / epic-7 amendments 29-30 and RENUMBERED at merge (PR #184 -> 0.17.120,
 # PR #187 -> 0.17.121, amendments 32-33; verified against the VERSION file at each merge commit).

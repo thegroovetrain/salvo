@@ -256,15 +256,38 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'broadside' | 'starShel
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
+ * THE PAIRED-LADDER CONTRACT, CHECKED AT LOAD. `traverseDeg` and
+ * `turretMountSpreadDeg` are indexed by the SAME rung, so `clampSpreadRung` may
+ * clamp against either only while they are the same length. A test pins it
+ * (barrel.test.ts, aim.test.ts), but a CONFIG edit that desynced them would let
+ * a valid rung index one ladder into `undefined` and `deg()` it into NaN — a
+ * silent NaN arc rather than a failure. Same fail-at-load law as sim/arcs.ts's
+ * `sectorArcFor`: an authoring error throws where it is authored.
+ */
+if (CONFIG.broadside.turretMountSpreadDeg.length !== CONFIG.broadside.traverseDeg.length) {
+  throw new Error(
+    `broadside ladder mismatch: turretMountSpreadDeg has ${CONFIG.broadside.turretMountSpreadDeg.length} rungs, `
+    + `traverseDeg has ${CONFIG.broadside.traverseDeg.length} (sim/stats.ts — the two are index-paired)`,
+  );
+}
+
+/**
  * The BROADSIDE SPREAD rung, clamped to the authored ladder: 1 (no cards) ..
  * traverseDeg.length (the ×4 cap). Integer — the card adds exactly 1, so a
  * fractional value can only come from malformed effect data.
  *
+ * NON-FINITE CLAMPS TO 1. `Math.round(NaN)` is NaN and every comparison against
+ * it is false, so `min/max` would pass NaN straight through and index the
+ * ladders into `undefined` → a NaN traverse/mount spread on a live ship. A
+ * malformed effect is the only way here, and rung 1 (the un-carded base) is the
+ * safe reading of "no valid card count".
+ *
  * ONE LENGTH FOR BOTH LADDERS: `traverseDeg` and `turretMountSpreadDeg` are
- * indexed by the SAME rung, and a pin asserts they are the same length
- * (barrel.test.ts), so clamping against either is clamping against both.
+ * indexed by the SAME rung, asserted at module load above (and pinned in
+ * barrel.test.ts), so clamping against either is clamping against both.
  */
 export function clampSpreadRung(rung: number): number {
+  if (!Number.isFinite(rung)) return 1;
   const top = CONFIG.broadside.traverseDeg.length;
   return Math.min(top, Math.max(1, Math.round(rung)));
 }

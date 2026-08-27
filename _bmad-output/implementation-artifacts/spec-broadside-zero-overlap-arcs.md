@@ -2,7 +2,7 @@
 title: 'Broadside zero-overlap arc ladder + per-turret arc display'
 type: 'feature'
 created: '2026-08-27'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'd5a35c7'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -102,6 +102,28 @@ Prior ruling of record (batch-sim-evidence-2026-08-24.md, Design ruling 2): the 
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-27 — Review pass (Blind Hunter + Edge Case Hunter, deduplicated)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 15: (high 0, medium 6, low 9)
+- defer: 4: (high 0, medium 3, low 1)
+- reject: 2
+- addressed_findings:
+  - `[medium]` `[patch]` non-finite spreadRung clamps to 1 + paired-ladder length asserted at load (NaN-radian poisoning closed)
+  - `[low]` `[patch]` negative mountSpreadRad guard in turretMountBearings (uncrossed pairing inversion via batchsim --set)
+  - `[medium]` `[patch]` catalogMetrics DAMAGE_SOURCES built lazily post-overrides (import-time capture defeated --tune attribution)
+  - `[low]` `[patch]` buoy-gun exact === routed through AMOUNT_EPS + collision merge; TICK_S derived from the shared step
+  - `[low]` `[patch]` balanceProbe: turrets≤1 gap guard, epsilon touching verdict, defensive ladder indexing
+  - `[medium]` `[patch]` tracker stamps repointed off the nonexistent "amendment 45" to batch-sim-evidence-2026-08-27.md
+  - `[medium]` `[patch]` four deferred-work ledger entries written (were code comments only)
+  - `[medium]` `[patch]` CLAUDE.md broadside entries given minimal cycle-130 supersession stamps
+  - `[low]` `[patch]` lit/dim alphas single-sourced with sector(); legal-outline helper dedup; reload-sweep denied-color verified
+  - `[low]` `[patch]` densify pin strengthened past the vacuous 0≥0 case
+  - `[low]` `[patch]` one-slot memo for per-frame wedge geometry allocations
+  - `[medium]` `[patch]` lit/denied alpha-selection logic gained direct test coverage (visual pass separate)
+  - deferred: all-clamped preview uniform-faintness (Eric design question); 5-turret centre-gun always-bears-abeam emergent consequence; bot broadside weights unretuned for the new ladder; card-face choke unnamed (Eric copy)
+  - rejected: spec-code-map/boonCopy.test mismatch (test reads derived values — no change was needed); "measurement discipline unmet" (the ruled campaign was already running in-session; evidence lands before the PR)
 
 ## Design Notes
 
