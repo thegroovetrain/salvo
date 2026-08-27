@@ -32,7 +32,7 @@
 //     proved against — so all of them are re-derived here, at the new one. A bound
 //     proved at nominal is not proved.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { CONFIG, WAKE_AGE_BUCKETS, buildHeightRaster, coverageCellCount, coverageHas, paintCoverage, rasterizeSegmentCoverage, sampleHeight, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
@@ -67,6 +67,14 @@ import {
 } from '../render/radarField.js';
 import { chopSample, wakeAgeScale, wakeSample } from '../render/radarSources.js';
 import { marchSlice, returnStrength, type MarchSlice } from '../render/radarMarch.js';
+
+// Story 7-8, task 6: this file alone passes 68/68 in ~22ms slowest test, but
+// under `npm test -w client`'s intra-suite thread parallelism it can starve
+// against other worker threads and trip the 5000ms default `testTimeout` (a
+// DIFFERENT test each run — this is thread-pool contention, not slow code).
+// 20000ms absorbs that starvation without hiding a real regression; a genuine
+// hang or infinite loop still fails.
+vi.setConfig({ testTimeout: 20000 });
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
 /** The shipped knobs with the grain switched off — geometry tests need a

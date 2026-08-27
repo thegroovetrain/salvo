@@ -2840,3 +2840,60 @@ deferred by Eric to after the upgrade-card balance pass — cannot arrive silent
 channel delivers BY DURATION (rate = pool/levelRegenMs, recomputed per grant) — a deliberate,
 confined departure from the anti-flask fixed-rate rule; the paid channel's fixed rate is pinned
 untouched.
+
+## Amendment 45 — THE RELEASE-GATE RULINGS (ERIC, 2026-08-27, in-session via AskUserQuestion, cycle 131 / Story 7-8)
+
+Four dispositions taken at Story 7-8's question gate, all Eric's, recorded verbatim in intent:
+
+**(1) THE SOLO-CREATE COST VECTOR IS RULED: PER-IP CREATE THROTTLE.** The unauthenticated
+`POST /matchmake/create/arena` door (open since Story 6-5, epic-6 amendment 29's "THE RESIDUAL")
+gets a per-IP creation throttle at the matchmake door — the cheapest sufficient mechanism. The
+global concurrent-solo ceiling and bare acceptance were offered and not taken. Closes the
+deferred-work entry re-homed to 7-8 by Eric ruling A2 (cycle 126).
+
+**(2) THE LOAD SPIKE RUNS LOCAL + STAGING.** `loadTest.mjs` (built this cycle — the AC's named
+construction) proves the harness against a self-booted server, then spikes the staging tier
+as-is (`hullcracker-dev`, starter plan — lower-bound numbers, real deployed path). Raising the
+staging plan and spiking production were offered and not taken; a production spike stays
+forbidden without an explicit Eric instruction. Staging matchmaking is password-gated, so the
+staging leg needs `HC_STAGING_KEY` at run time or lands in the manual matrix as the exact
+command for Eric.
+
+**(3) THE ≤720p LIVENESS-BLOCK COLLISION WAS ALREADY RESOLVED — the ledger was stale.** Eric:
+"It has already moved to the bottom left iirc." Verified in code: `client/src/ui/home.ts`
+`makeLiveness()` renders at `bottom:22px;left:26px` with its own move-rationale comment ("IT
+MOVED, AND THE REASON IS A MEASUREMENT"). No code change; the cycle-98 deferred-work entry and
+the 7.8 AC's re-derivation clause are discharged by pointing at the shipped fix.
+
+**(4) GPC IS READ AS A PRE-EMPTIVE DENIED.** `navigator.globalPrivacyControl` gets a reader in
+`analytics/consent.ts`: a GPC-on browser is treated as consent denied before any grant. This
+closes the legally-shaped Story 7-2 ledger entry ("a legally binding opt-out in several US
+states Hullcracker.io serves") in the direction of compliance.
+
+Also of record at this gate: the staging password gate is LIVE (staging answers 401 — the
+`sync: false` `HC_STAGING_KEY` dashboard action happened after the cycle-127 "shipped inert"
+ledger entry was written), and the local `origin/HEAD` symref can lag the 2026-08-22 default-
+branch switch — a fresh worktree cut from "the default branch" must verify it is based on
+`origin/development`, not `origin/main`.
+
+## Amendment 46 — THE SECOND GATE (ERIC, 2026-08-27, in-session; supersedes amendment 45's ruling 2 in part)
+
+**(1) THE STAGING LOAD SPIKE IS STRUCK.** Asked to supply the staging password to execute
+amendment 45's "local + staging" ruling, Eric: *"Since when did I ever ask you to do this? …
+This is pointless."* The later statement governs: the deployed-tier spike is CANCELLED, not
+deferred — the LOCAL self-boot run is the load-test evidence of record (44 sockets, 4 arenas /
+80 hulls, tick p95 2.5–2.7 ms against the 40 ms bar, three independent runs), and
+`loadTest.mjs`'s deployed mode remains a capability, not an obligation. Nobody re-asks for the
+key. Process note of record: the password precondition was buried in an option description,
+which is how the follow-up read as invented scope.
+
+**(2) THE GPC POLICY SENTENCE IS APPROVED** verbatim: *"Hullcracker.io honours the Global
+Privacy Control signal: a browser that sends it is treated as having declined analytics and
+advertising consent."* Lands in `policyCopy.ts`'s consent section this cycle, amendment-19
+voice (third person, Hullcracker.io as subject).
+
+**(3) THE SETTINGS PRIVACY ROW STAYS AS-IS under GPC** (orchestrator disposition after Eric's
+clarifying question "why are there two controls?"): there is only ONE in-game control — the
+existing settings row — and GPC is a browser-level signal that outranks it one-directionally.
+The snap-back-to-OFF under GPC is the honest state; a disabled-row treatment or explainer is
+NEW settings copy and stays an open Eric item, ledgered, not shipped.

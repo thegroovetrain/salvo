@@ -23,6 +23,7 @@
 // ever. The single parameter that ships anywhere is `mode` on `mode_pick`.
 
 import {
+  gpcDenied,
   loadConsent,
   saveConsent,
   consentDefaults,
@@ -163,7 +164,13 @@ function createAnalytics(): Analytics {
   }
 
   function settle(choice: ConsentChoice): void {
-    state = choice;
+    // GPC OUTRANKS THE ROW (Eric ruling 2026-08-27). The player's press is still
+    // PERSISTED — turning the browser signal off must give them back the choice
+    // they actually made — but it does not lift the denial for this session, and
+    // `consentUpdate` below denies all four signals rather than carrying the
+    // grant. `loadConsent()` applies the same rule on the way in, so the two
+    // entry points into `state` agree by construction.
+    state = gpcDenied() ? 'denied' : choice;
     saveConsent(choice);
     // The tag is normally already up — `boot()` builds it — but a settings press
     // can reach here first after a failed boot, and `activate` is cheap and

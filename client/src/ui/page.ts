@@ -41,7 +41,8 @@ const P = CLIENT_CONFIG.page;
 export interface MountedPage {
   /** The outermost element, already appended to the host. */
   root: HTMLElement;
-  /** Remove the page and its ESC binding. Idempotent. */
+  /** Remove the page, its ESC binding and its `pagehide` disposal hook.
+   *  Idempotent — safe to call after `pagehide` has already fired it. */
   destroy(): void;
 }
 
@@ -391,7 +392,10 @@ function makeHeader(opts: PageOptions): HTMLElement {
  * gate), so refusing would leave the stale page on screen and the fresh call
  * silently doing nothing — a failure the caller cannot see and cannot fix
  * without the handle it already threw away. Replacing is the behaviour that is
- * correct WITHOUT the caller's cooperation, which is the whole point.
+ * correct WITHOUT the caller's cooperation, which is the whole point. Story
+ * 7-8's `pagehide` disposal below is the same argument applied to the document
+ * going away, and it does not change this one: it gives the discarded handle a
+ * teardown path, it does not make a second mount any less of a bug to absorb.
  */
 let liveMount: MountedPage | null = null;
 
@@ -405,11 +409,18 @@ let liveMount: MountedPage | null = null;
  * should get the key first. `destroy()` unbinds with the same flag, or the
  * removal silently does nothing.
  *
- * Two ways the binding can no longer outlive its page: mounting again replaces
- * the previous mount (see `liveMount`), and the handler DISOWNS ITSELF if its
- * root has left the document — a host that drops the root without calling
+ * Three ways the binding can no longer outlive its page: mounting again replaces
+ * the previous mount (see `liveMount`), the handler DISOWNS ITSELF if its root
+ * has left the document — a host that drops the root without calling
  * `destroy()` would otherwise leave a capture-phase key that navigates home
- * behind a screen that is gone.
+ * behind a screen that is gone — and `pagehide` disposes the whole thing when
+ * the document goes away.
+ *
+ * THE `pagehide` LEG IS WHAT MAKES DISPOSAL REACHABLE WITHOUT THE CALLER
+ * (Story 7-8, closing the 7.2 review-gate ledger entry): both static-page mains
+ * boot at module scope and discard the handle, so `destroy()` had no reachable
+ * path at all. It is `pagehide` rather than `unload` because `unload` is
+ * deprecated and disables the back/forward cache outright.
  */
 export function renderPage(opts: PageOptions): MountedPage {
   liveMount?.destroy();
@@ -435,9 +446,26 @@ export function renderPage(opts: PageOptions): MountedPage {
     if (!live) return;
     live = false;
     document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('pagehide', onPageHide);
     root.remove();
     if (liveMount === mount) liveMount = null;
   };
+  /**
+   * The document is going away — dispose, so the capture-phase ESC listener
+   * cannot outlive the page that owns it.
+   *
+   * `persisted` IS THE TRAP. A `pagehide` with `persisted: true` means the
+   * document is entering the back/forward cache and may be shown again exactly
+   * as it is — including any mutation this handler makes. Tearing the root out
+   * there would restore a BLANK page on a back-navigation, and there is nothing
+   * to clean up anyway: a frozen document's listeners are frozen with it. The
+   * listener stays bound (no `once`) so the real termination still reaches
+   * here; `destroy()` is what unbinds it.
+   */
+  function onPageHide(e: PageTransitionEvent): void {
+    if (e.persisted) return;
+    destroy();
+  }
   function onKey(e: KeyboardEvent): void {
     if (e.key !== 'Escape') return;
     // The page left the DOM without a teardown: unbind instead of navigating.
@@ -449,6 +477,7 @@ export function renderPage(opts: PageOptions): MountedPage {
     opts.onBack();
   }
   document.addEventListener('keydown', onKey, true);
+  window.addEventListener('pagehide', onPageHide);
 
   const mount: MountedPage = { root, destroy };
   liveMount = mount;

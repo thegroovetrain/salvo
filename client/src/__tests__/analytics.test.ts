@@ -27,6 +27,7 @@ import {
   consentDefaults,
   consentRegionDefaults,
   consentUpdate,
+  gpcDenied,
   EEA_UK_CH_REGIONS,
 } from '../analytics/consent.js';
 import { GA_SCRIPT_SRC, isGaConfigured, measurementId, __resetGaForTests } from '../analytics/ga.js';
@@ -618,6 +619,111 @@ describe('EVERY source page carries no third-party script', () => {
       const origins = pageHtml(rel).match(/https:\/\/[a-z0-9.-]+/g) ?? [];
       const hosts = [...new Set(origins.map((o) => o.replace('https://', '')))];
       expect(hosts.sort(), rel).toEqual(['fonts.googleapis.com', 'fonts.gstatic.com']);
+    }
+  });
+});
+
+// --- Global Privacy Control ---------------------------------------------------
+//
+// Eric ruling 2026-08-27 (epic-7 amendment 45), closing the legally-shaped
+// Story 7.2 ledger entry: `navigator.globalPrivacyControl === true` is read as a
+// PRE-EMPTIVE DENIAL — before and regardless of any grant, whether that grant is
+// stored from a previous session or arrives later from Google's CMP.
+//
+// The two halves pinned here are (a) a GPC browser is never measured by this
+// seam and never sees a granted signal leave it, and (b) a GPC-absent browser is
+// BYTE-IDENTICAL to before the ruling, which is what every other block in this
+// file is already asserting.
+
+/** Stub the browser signal. `undefined` REMOVES it, which is the shipped reality
+ *  for every browser that does not send GPC — the property is absent, not
+ *  `false`. */
+function setGpc(value: unknown): void {
+  const nav = navigator as unknown as Record<string, unknown>;
+  if (value === undefined) delete nav.globalPrivacyControl;
+  else Object.defineProperty(nav, 'globalPrivacyControl', { value, configurable: true });
+}
+
+const ALL_DENIED = {
+  ad_storage: 'denied',
+  ad_user_data: 'denied',
+  ad_personalization: 'denied',
+  analytics_storage: 'denied',
+} as const;
+
+describe('Global Privacy Control (Eric ruling 2026-08-27)', () => {
+  afterEach(() => setGpc(undefined));
+
+  it('is absent by default, and everything above this block therefore holds', () => {
+    expect(gpcDenied()).toBe(false);
+    saveConsent('granted');
+    expect(loadConsent()).toBe('granted');
+    expect(consentDefaults()).toEqual({
+      ad_storage: 'granted',
+      ad_user_data: 'granted',
+      ad_personalization: 'granted',
+      analytics_storage: 'granted',
+    });
+    expect(consentUpdate('granted')).toEqual({ analytics_storage: 'granted' });
+  });
+
+  it('reads ONLY the literal `true` — a truthy shim value is not a signal', () => {
+    for (const junk of ['true', 1, {}, 'yes']) {
+      setGpc(junk);
+      expect(gpcDenied(), String(junk)).toBe(false);
+    }
+    setGpc(true);
+    expect(gpcDenied()).toBe(true);
+  });
+
+  it('outranks a STORED grant — and leaves the stored record untouched', () => {
+    saveConsent('granted');
+    setGpc(true);
+    expect(loadConsent()).toBe('denied');
+    // Not persisted over: turning the browser signal off gives the player back
+    // the decision they actually made.
+    expect(localStorage.getItem(CONSENT_KEY)).toBe('granted');
+    setGpc(undefined);
+    expect(loadConsent()).toBe('granted');
+  });
+
+  it('turns the global default over, and names all four signals in the update', () => {
+    setGpc(true);
+    expect(consentDefaults()).toEqual(ALL_DENIED);
+    // The 7.4 "never names an ad signal" rule is about this row forging a
+    // consent or stamping on one the player gave Google's dialog. A denial the
+    // player configured at their own browser is neither — and the ad signals are
+    // what a "do not sell or share" signal is actually about. The update leg is
+    // also the ONLY one that lands on an ads-configured build, where the
+    // defaults are written into the page head at build time.
+    expect(consentUpdate('granted')).toEqual(ALL_DENIED);
+  });
+
+  it('boots denied: a denying update rides the boot and no funnel event leaves', () => {
+    setGpc(true);
+    const seam = bootedSeam();
+    expect(seam.consentState()).toBe('denied');
+    const updates = commands().filter((c) => c[0] === 'consent' && c[1] === 'update');
+    expect(updates).toHaveLength(1);
+    expect(updates[0][2]).toEqual(ALL_DENIED);
+    seam.home();
+    seam.modePick('standard');
+    seam.matchStart();
+    expect(eventNames()).toEqual([]);
+  });
+
+  it('a settings grant cannot lift it — the press persists but never measures', () => {
+    setGpc(true);
+    const seam = bootedSeam();
+    seam.grantConsent();
+    seam.home();
+    seam.matchStart();
+    expect(seam.consentState()).toBe('denied');
+    expect(eventNames()).toEqual([]);
+    // The player's press IS recorded — it governs again the moment GPC is off.
+    expect(localStorage.getItem(CONSENT_KEY)).toBe('granted');
+    for (const c of commands().filter((x) => x[0] === 'consent' && x[1] === 'update')) {
+      expect((c[2] as Record<string, unknown>).analytics_storage).toBe('denied');
     }
   });
 });

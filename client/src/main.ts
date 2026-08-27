@@ -2208,7 +2208,15 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       if (g) handleZoomStep(g, dir);
     },
     onMute: withG(toggleMute),
-    onNetDebug: withG(toggleMode),
+    // P — THE NETCODE A/B TOGGLE, DEV-ONLY (NFR17, Story 7-8). The keyboard
+    // chokepoint drops the binding under the same build-time constant; this is
+    // the other half, and it is the half that matters for the BUNDLE: with the
+    // only reference to `toggleMode` inside a branch Vite folds to `false`,
+    // Rollup drops the function and its `NETCODE:` banner string with it. The
+    // client build greps `dist` for that token and fails on a hit, so the
+    // production absence is pinned by the build rather than by a unit test
+    // (vitest runs with DEV truthy and can only ever see the dev branch).
+    ...(import.meta.env.DEV ? { onNetDebug: withG(toggleMode) } : {}),
   };
 }
 
