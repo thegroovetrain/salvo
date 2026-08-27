@@ -1,0 +1,387 @@
+{
+  "story": "7-8",
+  "harness": "server/scripts/loadTest.mjs",
+  "startedAt": "2026-08-27T19:29:44.502Z",
+  "finishedAt": "2026-08-27T19:30:56.404Z",
+  "verdict": "PASS",
+  "node": "v22.19.0",
+  "platform": "darwin x64",
+  "protocolVersion": 49,
+  "profile": {
+    "mode": "selfboot",
+    "origin": "http://localhost:2609",
+    "port": 2609,
+    "clients": 44,
+    "solo": 2,
+    "queueClients": 42,
+    "seconds": 60,
+    "p95Ms": 40,
+    "enforceP95": true,
+    "custom": false,
+    "stagingKeySet": false,
+    "stagingCookieSent": false
+  },
+  "tickBudgetMs": 50,
+  "connections": {
+    "attempted": 44,
+    "joined": 44,
+    "refused": {
+      "gate": 0,
+      "pv": 0,
+      "capacity": 0,
+      "throttle": 0,
+      "network": 0,
+      "other": 0
+    },
+    "refusalSamples": [],
+    "errored": 0,
+    "errorSamples": [],
+    "drops": 0,
+    "dropSamples": [],
+    "boarded": 40,
+    "seats": 40,
+    "boardFailures": [],
+    "activeInMatch": 42,
+    "soloArenas": 2
+  },
+  "traffic": {
+    "inputMessagesSent": 57918,
+    "cadenceHz": 20,
+    "driveSeconds": 60
+  },
+  "metrics": {
+    "peak": {
+      "t": 1787859056402,
+      "label": "final",
+      "rooms": 5,
+      "players": 44,
+      "tick": {
+        "p50": 1.51,
+        "p95": 2.58,
+        "max": 57.3,
+        "samples": 4800
+      },
+      "messages": {
+        "ratePerSec": 866.6,
+        "total": 60858
+      }
+    },
+    "end": {
+      "t": 1787859056402,
+      "label": "final",
+      "rooms": 5,
+      "players": 44,
+      "tick": {
+        "p50": 1.51,
+        "p95": 2.58,
+        "max": 57.3,
+        "samples": 4800
+      },
+      "messages": {
+        "ratePerSec": 866.6,
+        "total": 60858
+      }
+    },
+    "series": [
+      {
+        "t": 1787858985555,
+        "label": "baseline",
+        "rooms": 0,
+        "players": 0,
+        "tick": {
+          "p50": 0,
+          "p95": 0,
+          "max": 0,
+          "samples": 0
+        },
+        "messages": {
+          "ratePerSec": 0,
+          "total": 0
+        }
+      },
+      {
+        "t": 1787858990561,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 0.78,
+          "p95": 2.36,
+          "max": 4.76,
+          "samples": 368
+        },
+        "messages": {
+          "ratePerSec": 892.5,
+          "total": 3570
+        }
+      },
+      {
+        "t": 1787858995558,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 0.75,
+          "p95": 2.01,
+          "max": 9.25,
+          "samples": 766
+        },
+        "messages": {
+          "ratePerSec": 877.33,
+          "total": 7896
+        }
+      },
+      {
+        "t": 1787859000560,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 0.97,
+          "p95": 2.06,
+          "max": 52.9,
+          "samples": 1166
+        },
+        "messages": {
+          "ratePerSec": 876,
+          "total": 12264
+        }
+      },
+      {
+        "t": 1787859005560,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.11,
+          "p95": 2.34,
+          "max": 52.9,
+          "samples": 1566
+        },
+        "messages": {
+          "ratePerSec": 873.16,
+          "total": 16590
+        }
+      },
+      {
+        "t": 1787859010561,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.25,
+          "p95": 2.47,
+          "max": 52.9,
+          "samples": 1966
+        },
+        "messages": {
+          "ratePerSec": 871.5,
+          "total": 20916
+        }
+      },
+      {
+        "t": 1787859015561,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.27,
+          "p95": 2.38,
+          "max": 52.9,
+          "samples": 2366
+        },
+        "messages": {
+          "ratePerSec": 871.86,
+          "total": 25284
+        }
+      },
+      {
+        "t": 1787859020565,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.3,
+          "p95": 2.44,
+          "max": 52.9,
+          "samples": 2766
+        },
+        "messages": {
+          "ratePerSec": 870.88,
+          "total": 29610
+        }
+      },
+      {
+        "t": 1787859025567,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.32,
+          "p95": 2.42,
+          "max": 52.9,
+          "samples": 3167
+        },
+        "messages": {
+          "ratePerSec": 871.23,
+          "total": 33978
+        }
+      },
+      {
+        "t": 1787859030566,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.36,
+          "p95": 2.49,
+          "max": 52.9,
+          "samples": 3567
+        },
+        "messages": {
+          "ratePerSec": 871.5,
+          "total": 38346
+        }
+      },
+      {
+        "t": 1787859035566,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.38,
+          "p95": 2.54,
+          "max": 52.9,
+          "samples": 3967
+        },
+        "messages": {
+          "ratePerSec": 871.71,
+          "total": 42714
+        }
+      },
+      {
+        "t": 1787859040564,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.41,
+          "p95": 2.51,
+          "max": 52.9,
+          "samples": 4367
+        },
+        "messages": {
+          "ratePerSec": 871.89,
+          "total": 47082
+        }
+      },
+      {
+        "t": 1787859045568,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.43,
+          "p95": 2.54,
+          "max": 57.3,
+          "samples": 4768
+        },
+        "messages": {
+          "ratePerSec": 871.32,
+          "total": 51408
+        }
+      },
+      {
+        "t": 1787859050565,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.46,
+          "p95": 2.54,
+          "max": 57.3,
+          "samples": 4800
+        },
+        "messages": {
+          "ratePerSec": 868.7,
+          "total": 55776
+        }
+      },
+      {
+        "t": 1787859055568,
+        "label": "run",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.5,
+          "p95": 2.55,
+          "max": 57.3,
+          "samples": 4800
+        },
+        "messages": {
+          "ratePerSec": 869.4,
+          "total": 60144
+        }
+      },
+      {
+        "t": 1787859056402,
+        "label": "final",
+        "rooms": 5,
+        "players": 44,
+        "tick": {
+          "p50": 1.51,
+          "p95": 2.58,
+          "max": 57.3,
+          "samples": 4800
+        },
+        "messages": {
+          "ratePerSec": 866.6,
+          "total": 60858
+        }
+      }
+    ],
+    "pollErrors": []
+  },
+  "assertions": [
+    {
+      "name": "every connection accounted for",
+      "pass": true,
+      "detail": "attempted=44 joined=44 refused=0 errored=0"
+    },
+    {
+      "name": "no connection errors",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "name": "no unexplained socket drops",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "every seat boarded",
+      "pass": true,
+      "detail": "seats=40 boarded=40 "
+    },
+    {
+      "name": "the spike drove a live simulation",
+      "pass": true,
+      "detail": "active clients=42, inputs sent=57918"
+    },
+    {
+      "name": "/metrics answered throughout",
+      "pass": true,
+      "detail": "13 samples in the measured window"
+    },
+    {
+      "name": "tick samples > 0",
+      "pass": true,
+      "detail": "samples=4800"
+    },
+    {
+      "name": "tick p95 <= 40ms (80% of the 50ms step)",
+      "pass": true,
+      "detail": "peak p95=2.58ms"
+    }
+  ]
+}
