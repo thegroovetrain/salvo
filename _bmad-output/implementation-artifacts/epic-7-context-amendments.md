@@ -2840,3 +2840,38 @@ deferred by Eric to after the upgrade-card balance pass — cannot arrive silent
 channel delivers BY DURATION (rate = pool/levelRegenMs, recomputed per grant) — a deliberate,
 confined departure from the anti-flask fixed-rate rule; the paid channel's fixed rate is pinned
 untouched.
+
+## Amendment 45 — THE RELEASE-GATE RULINGS (ERIC, 2026-08-27, in-session via AskUserQuestion, cycle 131 / Story 7-8)
+
+Four dispositions taken at Story 7-8's question gate, all Eric's, recorded verbatim in intent:
+
+**(1) THE SOLO-CREATE COST VECTOR IS RULED: PER-IP CREATE THROTTLE.** The unauthenticated
+`POST /matchmake/create/arena` door (open since Story 6-5, epic-6 amendment 29's "THE RESIDUAL")
+gets a per-IP creation throttle at the matchmake door — the cheapest sufficient mechanism. The
+global concurrent-solo ceiling and bare acceptance were offered and not taken. Closes the
+deferred-work entry re-homed to 7-8 by Eric ruling A2 (cycle 126).
+
+**(2) THE LOAD SPIKE RUNS LOCAL + STAGING.** `loadTest.mjs` (built this cycle — the AC's named
+construction) proves the harness against a self-booted server, then spikes the staging tier
+as-is (`hullcracker-dev`, starter plan — lower-bound numbers, real deployed path). Raising the
+staging plan and spiking production were offered and not taken; a production spike stays
+forbidden without an explicit Eric instruction. Staging matchmaking is password-gated, so the
+staging leg needs `HC_STAGING_KEY` at run time or lands in the manual matrix as the exact
+command for Eric.
+
+**(3) THE ≤720p LIVENESS-BLOCK COLLISION WAS ALREADY RESOLVED — the ledger was stale.** Eric:
+"It has already moved to the bottom left iirc." Verified in code: `client/src/ui/home.ts`
+`makeLiveness()` renders at `bottom:22px;left:26px` with its own move-rationale comment ("IT
+MOVED, AND THE REASON IS A MEASUREMENT"). No code change; the cycle-98 deferred-work entry and
+the 7.8 AC's re-derivation clause are discharged by pointing at the shipped fix.
+
+**(4) GPC IS READ AS A PRE-EMPTIVE DENIED.** `navigator.globalPrivacyControl` gets a reader in
+`analytics/consent.ts`: a GPC-on browser is treated as consent denied before any grant. This
+closes the legally-shaped Story 7-2 ledger entry ("a legally binding opt-out in several US
+states Hullcracker.io serves") in the direction of compliance.
+
+Also of record at this gate: the staging password gate is LIVE (staging answers 401 — the
+`sync: false` `HC_STAGING_KEY` dashboard action happened after the cycle-127 "shipped inert"
+ledger entry was written), and the local `origin/HEAD` symref can lag the 2026-08-22 default-
+branch switch — a fresh worktree cut from "the default branch" must verify it is based on
+`origin/development`, not `origin/main`.
