@@ -86,7 +86,7 @@ export const POLICY_CONTACT = 'contact@hullcracker.io';
 
 /** Stamped, not computed: a policy's date is the date its CONTENTS were last
  *  changed, so it must not tick with the build. */
-export const POLICY_UPDATED = 'Last updated 19 August 2026';
+export const POLICY_UPDATED = 'Last updated 27 August 2026';
 
 export const POLICY_SECTIONS: readonly PolicySection[] = [
   {
@@ -305,6 +305,8 @@ export const POLICY_SECTIONS: readonly PolicySection[] = [
       'For ADVERTISING: use Google’s Ads Settings at https://www.google.com/settings/ads, or '
       + 'https://www.aboutads.info/choices. If Google showed you its consent dialog, you can '
       + 'reopen it from the privacy or consent control Google places on the page.',
+      'Hullcracker.io honours the Global Privacy Control signal: a browser that sends it is '
+      + 'treated as having declined analytics and advertising consent.',
       'Clearing site data for hullcracker.io also clears your analytics setting and the Google '
       + 'cookies — but it removes your saved callsign, class, colour and settings along with them, '
       + 'so the settings row is the easier route.',

@@ -56,6 +56,7 @@ import {
   admitSoloCreate,
   clientIpFrom,
   resolveSoloCreateLimit,
+  xffEntryCount,
   type SoloCreateLedger,
 } from './soloThrottle.js';
 
@@ -112,6 +113,16 @@ const soloCreateLedger: SoloCreateLedger = new Map();
 /** One warning per process for the no-derivable-address fail-open (local dev —
  *  see clientIpFrom's trust model); never per-request log spam. */
 let warnedSoloThrottleNoIp = false;
+/**
+ * Logged once per process on the FIRST create the throttle actually admits
+ * (reviewer finding, Story 7-8): the rightmost-XFF trust model documented on
+ * clientIpFrom is an unverified deployment assumption — nobody has confirmed
+ * Render's edge appends exactly one hop. This flag caps the admit line to one
+ * per process (the shape doesn't change request to request); every refusal
+ * still logs unconditionally, since a refusal is by construction rare enough
+ * not to be spam and is exactly the case where seeing the shape matters most.
+ */
+let loggedFirstSoloThrottleAdmit = false;
 /** Static-door logger: no room, no matchId yet. */
 const doorLog = createLogger({ mode: MODE });
 
@@ -119,6 +130,26 @@ const doorLog = createLogger({ mode: MODE });
 export function resetSoloCreateThrottle(): void {
   soloCreateLedger.clear();
   warnedSoloThrottleNoIp = false;
+  loggedFirstSoloThrottleAdmit = false;
+}
+
+/**
+ * `room.soloThrottleShape` — the ops observability line (Story 7-8 follow-up).
+ * Never logs the raw header, only its entry COUNT and the derived rightmost
+ * key, so the real XFF shape on Render can be read off logs without recording
+ * anything a raw-header ban would object to. See `loggedFirstSoloThrottleAdmit`
+ * for the admit/refusal cadence.
+ */
+function logSoloThrottleShape(context: AuthContext | undefined, ip: string, admitted: boolean): void {
+  if (admitted) {
+    if (loggedFirstSoloThrottleAdmit) return;
+    loggedFirstSoloThrottleAdmit = true;
+  }
+  doorLog.info('room.soloThrottleShape', {
+    entries: xffEntryCount(context?.headers?.get('x-forwarded-for')),
+    rightmost: ip,
+    verdict: admitted ? 'admitted' : 'refused',
+  });
 }
 
 /**
@@ -150,6 +181,7 @@ function soloCreateGateError(context: AuthContext | undefined): string | null {
     limit,
     windowMs: SOLO_CREATE_WINDOW_MS,
   });
+  logSoloThrottleShape(context, ip, ok);
   return ok ? null : SOLO_CREATE_THROTTLE_ERROR;
 }
 

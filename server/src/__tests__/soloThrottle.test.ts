@@ -14,7 +14,7 @@
 // throttle call from onAuth and it fails (proven by a temporary revert during
 // this story's implementation).
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AuthContext } from 'colyseus';
 import { PROTOCOL_VERSION } from '@salvo/shared';
 import {
@@ -248,6 +248,34 @@ describe('ArenaRoom.static onAuth — the adapter', () => {
     await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION }, ctx('203.0.113.7'))).rejects.toThrow(
       ARENA_DIRECT_JOIN_ERROR,
     );
+  });
+
+  // Ops observability (reviewer finding: the rightmost-XFF trust model is an
+  // unverified deployment assumption). Only the FIRST admit per process logs;
+  // every refusal logs. Never the raw header — only its entry count and the
+  // derived rightmost key.
+  it('logs room.soloThrottleShape once on the first admit, and on every refusal', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      for (let i = 0; i < 6; i += 1) {
+        await expect(soloAuth(ctx('203.0.113.7'))).resolves.toBe(true);
+      }
+      await expect(soloAuth(ctx('203.0.113.7'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
+      await expect(soloAuth(ctx('203.0.113.7'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
+
+      const shapeLines = logSpy.mock.calls
+        .map((args) => String(args[0]))
+        .filter((line) => line.includes('room.soloThrottleShape'));
+      // 1 admit line (the first of the six) + 2 refusal lines (every refusal).
+      expect(shapeLines).toHaveLength(3);
+      expect(shapeLines[0]).toContain('"verdict":"admitted"');
+      expect(shapeLines[0]).toContain('"entries":1');
+      expect(shapeLines[0]).toContain('"rightmost":"203.0.113.7"');
+      expect(shapeLines[1]).toContain('"verdict":"refused"');
+      expect(shapeLines[2]).toContain('"verdict":"refused"');
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   // Ruled: ONLY the solo create path is metered. The queue door is

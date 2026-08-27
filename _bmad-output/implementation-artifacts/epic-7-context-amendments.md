@@ -2875,3 +2875,25 @@ Also of record at this gate: the staging password gate is LIVE (staging answers 
 ledger entry was written), and the local `origin/HEAD` symref can lag the 2026-08-22 default-
 branch switch — a fresh worktree cut from "the default branch" must verify it is based on
 `origin/development`, not `origin/main`.
+
+## Amendment 46 — THE SECOND GATE (ERIC, 2026-08-27, in-session; supersedes amendment 45's ruling 2 in part)
+
+**(1) THE STAGING LOAD SPIKE IS STRUCK.** Asked to supply the staging password to execute
+amendment 45's "local + staging" ruling, Eric: *"Since when did I ever ask you to do this? …
+This is pointless."* The later statement governs: the deployed-tier spike is CANCELLED, not
+deferred — the LOCAL self-boot run is the load-test evidence of record (44 sockets, 4 arenas /
+80 hulls, tick p95 2.5–2.7 ms against the 40 ms bar, three independent runs), and
+`loadTest.mjs`'s deployed mode remains a capability, not an obligation. Nobody re-asks for the
+key. Process note of record: the password precondition was buried in an option description,
+which is how the follow-up read as invented scope.
+
+**(2) THE GPC POLICY SENTENCE IS APPROVED** verbatim: *"Hullcracker.io honours the Global
+Privacy Control signal: a browser that sends it is treated as having declined analytics and
+advertising consent."* Lands in `policyCopy.ts`'s consent section this cycle, amendment-19
+voice (third person, Hullcracker.io as subject).
+
+**(3) THE SETTINGS PRIVACY ROW STAYS AS-IS under GPC** (orchestrator disposition after Eric's
+clarifying question "why are there two controls?"): there is only ONE in-game control — the
+existing settings row — and GPC is a browser-level signal that outranks it one-directionally.
+The snap-back-to-OFF under GPC is the honest state; a disabled-row treatment or explainer is
+NEW settings copy and stays an open Eric item, ledgered, not shipped.

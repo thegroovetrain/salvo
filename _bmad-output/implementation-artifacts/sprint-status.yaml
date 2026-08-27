@@ -250,7 +250,7 @@ development_status:
   7-5-upgrade-cards-v2: done  # 2026-08-19 cycle 109 (0.17.109); PV 41->43; epic-7 amendments 20-28; batch-sim-evidence-7-5-2026-08-19.md
   7-6-design-and-doc-reconciliation: done  # 2026-08-21 cycle 126 (0.17.126); PV 47->48; epic-7 amendments 38-43; bmad-dev-auto-result-7-6-doc-reconciliation-questions.md
   7-7-frontend-backend-split-and-versioning: deferred  # 2026-08-21 Eric ruling: DEFERRED IN FULL (topology AND versioning); one game version, 0.17.X continues; no VERSION bump this PR; tripwires in deferred-work.md
-  7-8-the-release-gate: backlog
+  7-8-the-release-gate: done  # 2026-08-27 cycle 131 (0.17.131); PV 49; epic-7 amendments 45-46; release-gate-2026-08-27.md
   # Old numbering retired 2026-08-18: 7-3-portal-sdk-integrations CANCELLED (no portal release);
   # 7-1-chromebook-performance-pass + 7-2-ten-second-load MERGED into 7-1; 7-4 -> 7-3;
   # 7-5-design-md-real-time-refresh -> 7-6; 7-6-the-release-gate -> 7-8.

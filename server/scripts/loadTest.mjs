@@ -635,7 +635,7 @@ function tallyDrops(clients, ledger) {
 
 // --- assertions ----------------------------------------------------------------
 
-function assertions(cfg, ledger, board, activeCount, metrics, inputsSent) {
+function assertions(cfg, ledger, board, activeCount, metrics, inputsSent, expectedSeats) {
   const refusedTotal = Object.values(ledger.refused).reduce((a, b) => a + b, 0);
   const out = [];
   const add = (name, pass, detail) => out.push({ name, pass, detail });
@@ -648,6 +648,16 @@ function assertions(cfg, ledger, board, activeCount, metrics, inputsSent) {
   add('no connection errors', ledger.errored === 0, ledger.errorSamples.join(' | ') || 'none');
   add('no unexplained socket drops', ledger.drops === 0, JSON.stringify(ledger.dropSamples));
   add('every seat boarded', board.boardFailures.length === 0, `seats=${board.seats} boarded=${board.boarded} ${board.boardFailures.join(' | ')}`);
+  // A run whose queue leg forms zero cohorts (every join refused/errored, or the
+  // seed never landed) can still pass "every seat boarded" vacuously — 0
+  // failures against 0 seats. This row is the one that actually requires the
+  // queue leg to have DONE something: every whole cohort the profile expected
+  // must have both formed (gotten a seat) AND boarded (consumed it).
+  add(
+    'every expected cohort formed and boarded',
+    board.boarded >= expectedSeats,
+    `boarded=${board.boarded} expectedSeats=${expectedSeats}`,
+  );
   add('the spike drove a live simulation', activeCount > 0 && inputsSent > 0, `active clients=${activeCount}, inputs sent=${inputsSent}`);
   add('/metrics answered throughout', metrics !== null && metrics.count >= 2, metrics ? `${metrics.count} samples in the measured window` : 'no samples');
   add('tick samples > 0', metrics !== null && metrics.end.tick.samples > 0, metrics ? `samples=${metrics.end.tick.samples}` : 'n/a');
@@ -818,7 +828,7 @@ async function main() {
     tallyDrops(clients, ledger);
     const metrics = summarizeMetrics(poller.samples, windowStart);
     const inputsSent = driver.sent;
-    const checks = assertions(cfg, ledger, board, activeCount, metrics, inputsSent);
+    const checks = assertions(cfg, ledger, board, activeCount, metrics, inputsSent, expectedSeats);
     const soloArenas = clients.filter((c) => c.kind === 'solo' && c.arena).length;
 
     resultTable(cfg, ledger, board, activeCount, metrics, inputsSent, elapsedS, soloArenas);

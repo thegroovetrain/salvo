@@ -2,9 +2,10 @@
 title: 'Story 7-8: The Release Gate'
 type: 'chore'
 created: '2026-08-27'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
 followup_review_recommended: false
+baseline_revision: '40c653975e4d00f5ba49e5653ffd8c9c45b0c673'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context-amendments.md'
@@ -91,15 +92,15 @@ gate, not this cycle's. No new in-game copy. `/metrics`/`/liveness` stay open (b
 
 **Execution:** (all rulings taken — 1–7 in any order, 8–9 last)
 
-- [ ] 1. `client/src/input/keyboard.ts` + `client/src/main.ts` -- DEV-gate the `P` toggle -- NFR17; keep dev behavior byte-identical
-- [ ] 2. `server/scripts/loadTest.mjs` -- build the harness (self-boot default, `HC_LOAD_TARGET` for deployed, staging-cookie support); run it locally and record results -- AR12/NFR10, the AC's named construction
-- [ ] 3. `server/src/rooms/` -- per-IP solo-create throttle (ruled) + its test: cap creates per IP per minute at the matchmake door, clean refusal, tunable under `CONFIG.net` or a server constant -- the AC's "is RULED" clause
-- [ ] 4. `client/scripts/readabilityCapture.mjs` + build wiring -- extend tokens (netcode banner), fail the build on a hit -- closes the "checked only when a human remembers" gap
-- [ ] 5. `client/src/ui/page.ts` + both static-page mains -- retain handles, `pagehide` disposal, double-mount guard + tests -- the ledgered leak, now on two pages
-- [ ] 6. `client/vitest.config.ts`/`radarHeatmap.test.ts` + `shared/src/__tests__/map.test.ts` -- make the gate reliably green (timeout/budget with rationale comments) -- the AC's own signal integrity
-- [ ] 7. `client/src/analytics/consent.ts` -- read `navigator.globalPrivacyControl` as pre-emptive denied (ruled) + test -- legally binding opt-out; the 720p item needs NO code (already at bottom-left; report closes the ledger entry)
-- [ ] 8. Verification legs -- full `npm run check`; PV-consistency grep; local production build + Chromium full-pipeline smoke at 1366×768 (solo-vs-AI path; scratch ports); loadTest run(s) per Q2 -- the gate itself
-- [ ] 9. `release-gate-2026-08-27.md` + trackers + VERSION -- write the report with automated evidence + the manual matrix for Eric (browser matrix, production pipeline incl. ad break, HC_DEV_OPTIONS absence on prod env, post-merge analytics/ads smoke, development→main merge steps) -- the gate's deliverable
+- [x] 1. `client/src/input/keyboard.ts` + `client/src/main.ts` -- DEV-gate the `P` toggle -- NFR17; keep dev behavior byte-identical (dist grep + live prod-posture press both prove absence)
+- [x] 2. `server/scripts/loadTest.mjs` -- build the harness (self-boot default, `HC_LOAD_TARGET` for deployed, staging-cookie support); run it locally and record results -- AR12/NFR10 (tick p95 2.5-2.7ms vs 40ms bar, 3 runs; STAGING SPIKE STRUCK by Eric, amendment 46)
+- [x] 3. `server/src/rooms/` -- per-IP solo-create throttle (ruled) + its test -- soloThrottle.ts pure policy + adapter, 26 tests, regression test discriminates; server constant + `HC_SOLO_CREATE_LIMIT` env
+- [x] 4. `client/scripts/readabilityCapture.mjs` + build wiring -- tokens extended (`NETCODE:`), build fails on a hit, plant-proven non-vacuous
+- [x] 5. `client/src/ui/page.ts` + both static-page mains -- `pagehide` self-disposal (bfcache-safe), destroy idempotent; REPLACE semantics preserved (the stacking premise was stale — mains unchanged)
+- [x] 6. `client/vitest.config.ts`/`radarHeatmap.test.ts` + `shared/src/__tests__/map.test.ts` -- de-flaked (per-file 20000ms timeout; budget 500→1500ms), three consecutive green checks
+- [x] 7. `client/src/analytics/consent.ts` -- GPC pre-emptive denied (all four signals, nothing persisted) + 6 tests; policy sentence added per amendment 46; 720p item needed no code (already bottom-left)
+- [x] 8. Verification legs -- check ×3 green (784+1727/1728+3238/3239), build+verify-bundle green, PV 49, Chromium smoke at 1366×768 (home/class-select/HUD/static pages; P dead in prod), loadTest ×3
+- [x] 9. `release-gate-2026-08-27.md` + trackers + VERSION 0.17.131 -- report with evidence + the manual matrix for Eric
 
 **Acceptance Criteria:**
 - Given a production client build, when dist is grepped for the netcode banner and worstcase tokens, then zero hits — and the grep runs inside the build, not a README.
@@ -111,7 +112,28 @@ gate, not this cycle's. No new in-game copy. `/metrics`/`/liveness` stay open (b
 
 ## Spec Change Log
 
+### 2026-08-27 — Eric second gate (amendment 46), pre-review
+The staging load-spike half of the Q2 ruling is STRUCK by Eric ("this is pointless") — the local
+self-boot run is the load-test evidence of record; deployed mode stays a capability. The GPC
+policy sentence is APPROVED verbatim and added (policyCopy.ts, date bumped). The settings
+PRIVACY row stays as-is under GPC (one in-game control; the browser signal outranks it —
+explainer copy is an open Eric item). KEEP: the throttle, loadTest harness, and all client
+hardening as built.
+
 ## Review Triage Log
+
+### 2026-08-27 — Review pass (dual-model: Fable adversarial + Codex cross-model, per Eric's /orchestrate directive; replaces the dual-hunter pass)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 2, medium 1, low 0)
+- defer: 3: (high 0, medium 2, low 1)
+- reject: 1: (high 0, medium 1, low 0)
+- addressed_findings:
+  - `[high]` `[patch]` loadTest could PASS with the entire queue leg silently measuring nothing (both models, CONFIRMED) — added the `boarded >= expectedSeats` assertion; forced-fail proof exits 1
+  - `[high]` `[patch]` the rightmost-XFF trust model is an unverified deployment assumption whose failure mode refuses legitimate players (Fable, PLAUSIBLE) — the throttle now logs `room.soloThrottleShape` (entries count + derived key) on first admit and every refusal, so the one-hop assumption is verified empirically off Render logs; manual-matrix step added
+  - `[medium]` `[patch]` GPC honoring shipped with no policy disclosure against the policy's every-sentence-is-shipped-behaviour rule — Eric-approved sentence added, date bumped, pin test extended
+  - deferred: shared-NAT starvation residual; PRIVACY-row explainer under GPC (+ Google-CMP re-grant residual); server/scripts outside the ESLint config — all ledgered in deferred-work.md
+  - rejected: Codex's `x-client-ip`/`x-real-ip` fallback for the throttle — client-forgeable channels covering no real deployment (Render always appends XFF; local fail-open is the accepted posture)
 
 ## Design Notes
 
@@ -133,3 +155,33 @@ gate, not this cycle's. No new in-game copy. `/metrics`/`/liveness` stay open (b
 
 **Manual checks (if no CLI):**
 - Chromium smoke screenshots at 1366×768: home, match HUD, refit, death/results — corner anatomy intact, no mono type below 9 px.
+
+## Auto Run Result
+
+**Summary:** Story 7-8 shipped as cycle 131 (0.17.131, PV 49 unchanged). The release gate's
+automatable legs are all GREEN; what remains is Eric's manual matrix
+(`release-gate-2026-08-27.md`): Edge/Firefox/Safari, the production pipeline incl. the ad
+break, two Render dashboard checks, and the development→main merge.
+
+**Files changed:** `server/src/rooms/soloThrottle.ts` (NEW — per-IP solo-create throttle policy),
+`server/src/rooms/ArenaRoom.ts` (throttle adapter + shape logging), `server/scripts/loadTest.mjs`
+(NEW — the AR12 load-test leg), `client/src/input/keyboard.ts` + `client/src/main.ts` (P toggle
+DEV-gated + dead-stripped), `client/src/ui/page.ts` (pagehide disposal), `client/src/analytics/
+{consent,ga,index}.ts` (GPC pre-emptive denial), `client/src/privacy/policyCopy.ts` (GPC
+sentence, date), `client/scripts/readabilityCapture.mjs` + `client/package.json` (verify-bundle
+in the build), `client/src/__tests__/radarHeatmap.test.ts` + `shared/src/__tests__/map.test.ts`
+(de-flake), tests across all three workspaces (+~70), `release-gate-2026-08-27.md` (NEW),
+amendments 45–46, trackers, VERSION.
+
+**Review breakdown:** 3 patches applied (2 high, 1 medium), 3 deferred to the ledger, 1
+rejected with rationale; 0 intent gaps, 0 bad_spec. Dual-model gate (Fable adversarial:
+BUILD-ON-IT; Codex: 2 confirmed findings, both closed by the loadTest assertion patch).
+
+**Verification:** `npm run check` green ×3 pre-fix and ×1 on the final tree (784 shared + 1728
+server + 3239 client); `npm run build` green with verify-bundle inside it (plant-proven);
+loadTest ×3 (tick p95 2.5–2.7 ms vs 40 ms); Chromium production-posture smoke at 1366×768
+(P key dead, HUD intact, both static pages clean).
+
+**Residual risks:** named in `release-gate-2026-08-27.md` (shared-NAT starvation, local
+fail-open without XFF, PRIVACY-row snap-back, Google-CMP re-grant, self-boot measurement bias,
+server-scripts lint gap) — all accepted/ledgered, none blocking.

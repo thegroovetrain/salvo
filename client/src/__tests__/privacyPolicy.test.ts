@@ -180,6 +180,16 @@ describe('privacy policy — disclosures that must survive the redaction', () =>
       .toContain('Data may be processed outside your country, including in the United States.');
   });
 
+  // Eric ruling 2026-08-27: the Global Privacy Control disclosure (matches the
+  // shipped behaviour in analytics/consent.ts's gpcDenied()/consentDefaults()/
+  // consentUpdate() — GPC denies both analytics AND the three ad signals).
+  it('discloses that Global Privacy Control is honoured, for both analytics and advertising', () => {
+    expect(bodyText(POLICY_SECTIONS)).toContain(
+      'Hullcracker.io honours the Global Privacy Control signal: a browser that sends it is '
+      + 'treated as having declined analytics and advertising consent.',
+    );
+  });
+
   it('keeps the frozen contact address, the title, and a stamped date', () => {
     expect(POLICY_CONTACT).toBe('contact@hullcracker.io');
     expect(POLICY_TITLE).toBe('PRIVACY POLICY');

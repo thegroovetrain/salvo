@@ -97,6 +97,18 @@ export function clientIpFrom(forwardedFor: string | null | undefined): string | 
 }
 
 /**
+ * Count of comma-separated entries in a raw `x-forwarded-for` header value
+ * (0 for absent/empty). Observability only — this and `clientIpFrom`'s
+ * derived rightmost entry are what an operator needs to verify the trust
+ * model above against a real Render log, WITHOUT ever recording the raw
+ * header value itself (which could carry a chain of real addresses).
+ */
+export function xffEntryCount(forwardedFor: string | null | undefined): number {
+  if (!forwardedFor) return 0;
+  return forwardedFor.split(',').length;
+}
+
+/**
  * One create attempt from `ip` at `nowMs` (injectable clock — the caller owns
  * time, tests drive it as a plain number). Returns true and RECORDS the admit,
  * or false and records NOTHING: refusals never consume quota, because a
