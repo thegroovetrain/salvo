@@ -2,8 +2,9 @@
 title: 'Broadside zero-overlap arc ladder + per-turret arc display'
 type: 'feature'
 created: '2026-08-27'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'd5a35c7'
+final_revision: '31f64c8'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
