@@ -52,50 +52,82 @@ function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: str
   return n;
 }
 
+const PROBE_POSE = { x: 0, y: 0, heading: 0 };
+
+/** The RUNG's PAIR — the two arc ladders are indexed together, exactly as
+ *  effectiveStats() pairs them. Never mix a traverse with another rung's
+ *  mounts: that is a geometry the game can never produce. */
+function rungArc(s: number): { tau: number; ms: number } {
+  return { tau: deg(CONFIG.broadside.traverseDeg[s]), ms: deg(CONFIG.broadside.turretMountSpreadDeg[s]) };
+}
+
+/** The ruled overlap schedule at the BASE battery (Eric ruling 2026-08-27). */
+function overlapSchedule(): void {
+  const b = CONFIG.broadside;
+  console.log('OVERLAP SCHEDULE at the base battery (Eric ruling 2026-08-27: zero overlap through rung 3):');
+  console.log('rung | mountSpread | traverse | gap = 2*spread/(n-1) | 2*traverse | overlap?');
+  for (let s = 0; s < b.traverseDeg.length; s += 1) {
+    const gap = (2 * b.turretMountSpreadDeg[s]) / (b.turrets - 1);
+    const span = 2 * b.traverseDeg[s];
+    const verdict = span > gap ? 'OVERLAP' : span === gap ? 'touching' : 'gap';
+    console.log(
+      `  ${s + 1}  | ${fmt(b.turretMountSpreadDeg[s], 2).padStart(11)} | ${fmt(b.traverseDeg[s], 2).padStart(8)} | ${fmt(gap, 3).padStart(20)} | ${fmt(span, 2).padStart(10)} | ${verdict}`,
+    );
+  }
+}
+
+/** One rung's row of "guns on the click" counts, across bearing × range. */
+function onClickRow(turrets: number, s: number): string {
+  const b = CONFIG.broadside;
+  const { tau, ms } = rungArc(s);
+  const cells: string[] = [];
+  for (const phiDeg of [0, 15, 30, 45, 60]) {
+    const phi = deg(phiDeg);
+    const counts = [100, 200, 300, 412.5].map((r) => {
+      const click = { x: r * Math.sin(phi), y: r * Math.cos(phi) };
+      return turretAimPoints(PROBE_POSE, 'battleship', turrets, 1, click, tau, ms, 5000).filter((t) => t.onClick).length;
+    });
+    cells.push(`${String(phiDeg).padStart(2)}°:${counts.join('/')}`);
+  }
+  return `  rung ${s + 1} (±${fmt(b.traverseDeg[s]).padStart(4)}° / mounts ±${fmt(b.turretMountSpreadDeg[s]).padStart(4)}°) | ${cells.join(' | ')}`;
+}
+
+/** One (hull, aspect, turrets, R) row of shells actually landing, per rung. */
+function landedRow(hullId: HullId, aspectName: string, head: number, turrets: number, R: number): string {
+  const b = CONFIG.broadside;
+  const cells: string[] = [];
+  for (let s = 0; s < b.traverseDeg.length; s += 1) {
+    const click = { x: 0, y: R }; // dead abeam of the firing battleship
+    const { tau, ms } = rungArc(s);
+    const aims = turretAimPoints(PROBE_POSE, 'battleship', turrets, 1, click, tau, ms, 5000);
+    const landed = shellsOn(aims.map((t) => t.target), b.burstRadius, hullAt(hullId, click, head));
+    cells.push(String(landed).padStart(7));
+  }
+  return `${hullId.padEnd(12)} | ${aspectName.padEnd(9)} | ${String(turrets).padStart(7)} | ${fmt(R).padStart(5)} | ${cells.join(' | ')}`;
+}
+
 function broadsideBlock(): void {
   const b = CONFIG.broadside;
   console.log(
-    `== BROADSIDE PER-TURRET ARCS (DRAFT mountSpread ±${b.turretMountSpreadDeg}°, traverseDeg = [${b.traverseDeg.join(', ')}], burstRadius ${b.burstRadius}u) ==`,
+    `== BROADSIDE PER-TURRET ARCS (DRAFT mountSpreadDeg = [${b.turretMountSpreadDeg.join(', ')}], traverseDeg = [${b.traverseDeg.join(', ')}], burstRadius ${b.burstRadius}u) ==`,
   );
   console.log('Each turret fires exactly at the click when its own arc bears, else at its arc limit');
   console.log('at the click\'s range (sim/aim.ts turretAimPoints — the shipped function, no re-derivation).');
   console.log('');
+  overlapSchedule();
+  console.log('');
   console.log('GUNS ON THE CLICK (battleship battery, port beam; click at bearing phi off abeam):');
-  const pose = { x: 0, y: 0, heading: 0 };
-  for (const turrets of [3, 4, 5]) {
-    console.log(`turrets=${turrets}: rows = spread rung (traverse), cols = phi; cell = "bear" counts at R=100/200/300/412.5`);
-    for (let s = 0; s < b.traverseDeg.length; s += 1) {
-      const tau = deg(b.traverseDeg[s]);
-      const cells: string[] = [];
-      for (const phiDeg of [0, 15, 30, 45, 60]) {
-        const phi = deg(phiDeg);
-        const counts = [100, 200, 300, 412.5].map((r) => {
-          const click = { x: r * Math.sin(phi), y: r * Math.cos(phi) };
-          return turretAimPoints(pose, 'battleship', turrets, 1, click, tau, 5000).filter((t) => t.onClick).length;
-        });
-        cells.push(`${String(phiDeg).padStart(2)}°:${counts.join('/')}`);
-      }
-      console.log(`  ±${fmt(b.traverseDeg[s]).padStart(4)}° | ${cells.join(' | ')}`);
-    }
+  for (const turrets of [4, 5, 6]) {
+    console.log(`turrets=${turrets}: rows = spread rung, cols = phi; cell = "bear" counts at R=100/200/300/412.5`);
+    for (let s = 0; s < b.traverseDeg.length; s += 1) console.log(onClickRow(turrets, s));
   }
   console.log('');
   console.log('SHELLS THAT ACTUALLY LAND ON ONE STATIONARY HULL (aim = hull centre, shipped burstVictims):');
   console.log('hull         | aspect    | turrets |     R | spread0 | spread1 | spread2 | spread3 | spread4');
   for (const hullId of HULL_IDS) {
     for (const [aspectName, head] of [['broadside', Math.PI / 2] as const, ['bow-on', 0] as const]) {
-      for (const turrets of [3, 5]) {
-        for (const R of [150, 300, 412.5]) {
-          const cells: string[] = [];
-          for (let s = 0; s < b.traverseDeg.length; s += 1) {
-            const click = { x: 0, y: R }; // dead abeam of the firing battleship
-            const aims = turretAimPoints(pose, 'battleship', turrets, 1, click, deg(b.traverseDeg[s]), 5000);
-            const targets = aims.map((t) => t.target);
-            cells.push(String(shellsOn(targets, b.burstRadius, hullAt(hullId, click, head))).padStart(7));
-          }
-          console.log(
-            `${hullId.padEnd(12)} | ${aspectName.padEnd(9)} | ${String(turrets).padStart(7)} | ${fmt(R).padStart(5)} | ${cells.join(' | ')}`,
-          );
-        }
+      for (const turrets of [4, 6]) {
+        for (const R of [150, 300, 412.5]) console.log(landedRow(hullId, aspectName, head, turrets, R));
       }
     }
   }

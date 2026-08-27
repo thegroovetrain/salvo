@@ -1414,46 +1414,61 @@ export const CONFIG = {
     // spread any more — it EMERGES from guns that cannot all bear on one
     // point. `fanHalfAngleDeg` (the fan-width ladder) is gone with the model.
     //
-    // Each turret's arc is its MOUNT BEARING ± its TRAVERSE half-angle. The
-    // mounts are straddled across ±turretMountSpreadDeg about the firing beam
-    // (index-paired with turretMuzzles, UNCROSSED: the bow-most gun owns the
-    // bow-most arc — sim/aim.ts turretAimPoints), so together the battery
-    // covers the whole ±60° sector while each gun stays individually narrow:
-    // mountSpread + base traverse = 61.5° ≥ arcHalfArcDeg, pinned, which is what
-    // guarantees at least ONE gun always bears on any legal click ("one shell
-    // will absolutely hit at the target point" survives structurally).
+    // Each turret's arc is its MOUNT BEARING ± its TRAVERSE half-angle, and
+    // BOTH now ride the SPREAD rung. The mounts are straddled across
+    // ±turretMountSpreadDeg[rung] about the firing beam (index-paired with
+    // turretMuzzles, UNCROSSED: the bow-most gun owns the bow-most arc —
+    // sim/aim.ts turretAimPoints).
     //
-    // CONVERGENCE IS PARALLAX. A gun that bears fires EXACTLY at the click; to
-    // put ALL guns on one point their muzzle→click bearings (which differ by
-    // atan(hullOffset/R) — ~5° at max reach, ~14° at 150u) must each fit their
-    // OWN arc, and the mounts are 28° apart. At base that closes only past
-    // ~386u — 94% of the weapon's own 412.5u reach — within ~±2° of abeam.
-    // Eric: *"IF you happen to click a point that can be perfectly lined up,
-    // then yes, all guns should converge. But that should be very rare without
-    // upgrades and aiming close to max range."*
+    // ZERO OVERLAP AT TIER I (Eric ruling 2026-08-24) — *"it fires out and if
+    // you wanna hit something closing in on you, you need to aim your ship ...
+    // not a short-cooldown delete-ships button — an inaccurate shotgun that
+    // gradually gets better."* The weapon's budget moves out of ALPHA and into
+    // RELIABILITY. So the cycle-115 tuning narrative below is SUPERSEDED: the
+    // arcs no longer tile the ±60° sector at base, and the cycle-114 pin
+    // `mountSpread + base traverse ≥ arcHalfArcDeg` is now TIER-DEPENDENT and
+    // deliberately FALSE at low rungs. DEAD GAPS ARE THE DESIGN — a click in
+    // one is still LEGAL and still fires (every gun that cannot bear swings to
+    // its arc limit at the click's range); only the bow/stern dead zone denies.
     //
-    // RETUNED on his playtest (2026-08-20): *"the convergence is slightly too
-    // high at level 1 imo. I am okay with there being some dead space when
-    // closer to the ship that none of the shots can actually hit."* Base
-    // convergence moved ~303u → ~386u. THE DIAL IS THE OVERLAP
-    // (traverse − mountSpread), which is what convergence needs; COVERAGE is
-    // their SUM, which is what keeps a gun on every legal click. Widening the
-    // mounts while narrowing the arcs tightens the first WITHOUT opening
-    // angular gaps in the second — so the dead space Eric accepted is the
-    // CLOSE-RANGE kind (parallax too wide for the outer guns to bear), never a
-    // bearing that no gun can ever reach.
+    // THE SCHEDULE, at the BASE 4-gun battery (Eric ruling 2026-08-27, adjacent
+    // mount gap = 2·mountSpread/(turrets−1) = 2·mountSpread/3):
+    //   rung 1 (0 cards): gap 18.667° vs 2·traverse 12°  — clear gaps
+    //   rung 2 (1 card):  gap 16.667° vs 2·traverse 14°  — narrower gaps
+    //   rung 3 (2 cards): gap 15.000° vs 2·traverse 15°  — exactly touching
+    //   rung 4 (3 cards): gap 10.000° vs 2·traverse 18°  — overlap begins
+    //   rung 5 (4 cards): gap  4.000° vs 2·traverse 28°  — heavy overlap
+    // Pinned in shared/src/__tests__/aim.test.ts.
     //
-    // [DRAFT] deg — half-spread of the outermost mount bearings about the
-    // beam. FIXED as turrets increase: extra guns densify the SAME covered
-    // sector (the turretSpanFactor rule applied to bearings).
-    turretMountSpreadDeg: 28,
+    // CONVERGENCE IS PARALLAX, and TRUE CONVERGENCE IS THE TOP-RUNG PAYOFF
+    // (Eric ruling 2026-08-27). A gun that bears fires EXACTLY at the click; to
+    // put ALL guns on one abeam point every muzzle→click bearing (which differ
+    // from the beam by atan(hullOffset/R), hullOffset = 37.2u on a battleship)
+    // must fit its own arc, i.e. atan(hullOffset/R) ≤ traverse − mountSpread.
+    // The mounts now ROTATE INWARD toward the beam as the arcs widen, so that
+    // difference goes −22° → −18° → −15° → −6° → +8°: negative at rungs 1-4
+    // (no range converges the whole battery) and +8° at the cap, where the
+    // battery converges from ~265u out. That is the ladder's whole shape —
+    // an inaccurate shotgun at tier I, a converging battery at tier V, with
+    // fewer guns connecting off-center at every rung.
+    //
+    // TURRETS DENSIFY, THEY DO NOT WIDEN (Eric ruling 2026-08-27, accepted):
+    // BROADSIDE TURRETS ×2 re-spaces the SAME mount spread into 5 then 6
+    // bearings, so the gap shrinks (18.667° → 14° → 11.2° at rung 1) and the
+    // wedges may touch at low rungs. That is ACCEPTED emergent behaviour; the
+    // zero-overlap promise is stated at the base 4-gun battery ONLY, and
+    // traverse is NEVER derived from gun count.
+    //
+    // [DRAFT] deg — half-spread of the outermost mount bearings about the beam,
+    // indexed by BROADSIDE SPREAD copies held (index 0 = no cards). Read through
+    // EffectiveStats.broadside.mountSpreadRad, never indexed at a call site.
+    // Non-increasing by pin; same length as `traverseDeg` by pin.
+    turretMountSpreadDeg: [28, 25, 22.5, 15, 6],
     // [DRAFT] deg — each turret's TRAVERSE half-angle about its own mount,
     // indexed by BROADSIDE SPREAD copies held (index 0 = no cards, index 4 =
-    // the ×4 cap). The card WIDENS every gun's arc (+6°/card), so more guns
-    // can swing onto a given click and full convergence becomes reachable at
-    // closer ranges (386 → 183 → 118 → 86 → 66u, abeam). Read through
+    // the ×4 cap). Non-decreasing by pin. Read through
     // EffectiveStats.broadside.traverseRad, never indexed at a call site.
-    traverseDeg: [33.5, 39.5, 45.5, 51.5, 57.5],
+    traverseDeg: [6, 7, 7.5, 9, 14],
   },
 
   /**

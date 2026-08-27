@@ -146,7 +146,11 @@ function resolveLeaf(key: string, allowTune = false): Leaf {
   // documented, legitimate dial; `broadside.traverseDeg.length` is a numeric
   // own property that would TRUNCATE a live CONFIG array and then run the batch
   // as if nothing had happened. The index rule admits the first and refuses the
-  // second without needing to enumerate array internals.
+  // second without needing to enumerate array internals — and because it is
+  // generic over Array.isArray it covered `broadside.turretMountSpreadDeg` the
+  // moment that field became a per-rung ladder too (2026-08-27), with no new
+  // clause. Truncating EITHER of the paired broadside ladders would silently
+  // desync the rung pairing effectiveStats() makes, so both are pinned.
   if (Array.isArray(node) && !/^(?:0|[1-9]\d*)$/.test(prop)) {
     throw new TunableError(`'${key}': an array entry is addressable only by index`);
   }

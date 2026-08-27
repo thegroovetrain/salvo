@@ -111,6 +111,9 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         turrets: CONFIG.broadside.turrets,
         spreadRung: 1,
         traverseRad: (CONFIG.broadside.traverseDeg[0] * Math.PI) / 180,
+        // The SPREAD card's SECOND derived half-angle (2026-08-27): the mounts
+        // swing inward as the arcs widen, off the same rung.
+        mountSpreadRad: (CONFIG.broadside.turretMountSpreadDeg[0] * Math.PI) / 180,
       },
       starShells: {
         reloadMs: CONFIG.starShells.reloadMs,
@@ -180,17 +183,28 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(base.broadside.rangeU).toBeCloseTo(base.radarRange * CONFIG.vision.muzzleFlashFactor, 9);
     expect(base.broadside.rangeU).toBeCloseTo(412.5, 9); // the ratified base
     expect(base.broadside.rangeU).toBeLessThan(base.radarRange);
-    // 0..4 SPREAD copies walk the authored traverse ladder 34 -> 40 -> 46 -> 52 -> 58.
+    // 0..4 SPREAD copies walk BOTH authored ladders off the SAME rung
+    // (2026-08-27): traverse 6 -> 7 -> 7.5 -> 9 -> 14 while the mounts swing
+    // inward 28 -> 25 -> 22.5 -> 15 -> 6.
     for (let n = 0; n <= 4; n++) {
       const s = effectiveStats(BASE, stack('broadsideSpread', n));
       expect(s.broadside.spreadRung, `${n} copies`).toBe(n + 1);
       expect(s.broadside.traverseRad, `${n} copies`).toBeCloseTo((CONFIG.broadside.traverseDeg[n] * Math.PI) / 180, 12);
+      expect(s.broadside.mountSpreadRad, `${n} copies`).toBeCloseTo(
+        (CONFIG.broadside.turretMountSpreadDeg[n] * Math.PI) / 180,
+        12,
+      );
     }
+    // The two really do move in OPPOSITE directions — that is the whole ladder.
+    const cap = effectiveStats(BASE, stack('broadsideSpread', 4));
+    expect(cap.broadside.traverseRad).toBeGreaterThan(base.broadside.traverseRad);
+    expect(cap.broadside.mountSpreadRad).toBeLessThan(base.broadside.mountSpreadRad);
     // Over-stacking past the physical copy cap CLAMPS rather than running off
     // the table (the gun.barrels precedent) — a hostile boon list cannot NaN it.
     const over = effectiveStats(BASE, stack('broadsideSpread', 9));
     expect(over.broadside.spreadRung).toBe(CONFIG.broadside.traverseDeg.length);
     expect(Number.isFinite(over.broadside.traverseRad)).toBe(true);
+    expect(Number.isFinite(over.broadside.mountSpreadRad)).toBe(true);
   });
 
   it('broadsideTurrets adds a shell per card, 4 -> 6, and moves nothing else', () => {

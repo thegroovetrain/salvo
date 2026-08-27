@@ -282,12 +282,15 @@ describe('the gun reaches into its own flare — the preview agrees with the gat
 
   it('a lifted reach never leaks into another weapon', () => {
     const d = RANGE + 200;
-    const b = computeAimPreview(
-      input({ id: 'broadside', aim: Math.PI / 2, aimDist: d, gunReachU: d }),
-    ).bursts;
-    for (const shot of b) {
-      expect(Math.hypot(shot.x, shot.y)).toBeCloseTo(stats().broadside.rangeU, 6);
-    }
+    // Asserted as an IDENTITY rather than as a distance: under the 2026-08-27
+    // zero-overlap ladder the base barrage puts nothing on the click, so its
+    // bursts sit at per-gun arc limits and no single radius describes them. The
+    // claim under test is the lift, and "the lift changes nothing here" says it
+    // exactly, at every rung.
+    const lifted = computeAimPreview(input({ id: 'broadside', aim: Math.PI / 2, aimDist: d, gunReachU: d }));
+    const plain = computeAimPreview(input({ id: 'broadside', aim: Math.PI / 2, aimDist: d }));
+    expect(lifted.bursts).toEqual(plain.bursts);
+    expect(lifted.lines).toEqual(plain.lines);
     const star = computeAimPreview(input({ id: 'starShells', aimDist: d, gunReachU: d })).bursts;
     expect(Math.hypot(star[0].x, star[0].y)).toBeCloseTo(stats().starShells.rangeU, 6);
   });
@@ -304,12 +307,15 @@ describe('the gun reaches into its own flare — the preview agrees with the gat
 describe('the broadside — per-turret aim comes from the SHARED helper, not a re-derivation', () => {
   const broadside = (over: Partial<AimPreviewInput> = {}): AimPreviewInput =>
     input({ id: 'broadside', aim: Math.PI / 2, aimDist: 300, ...over });
+  /** The ×4 SPREAD cap — where the mounts have swung in far enough under wide
+   *  enough arcs for the whole battery to converge (Eric ruling 2026-08-27). */
+  const MAXED_SPREAD = stats('broadsideSpread', 'broadsideSpread', 'broadsideSpread', 'broadsideSpread');
   /** The shared truth for a given input — the exact call broadsidePreview and
    *  the server's broadsideAim both make. */
   const truthFor = (inp: AimPreviewInput): TurretAim[] => {
     const b = inp.stats.broadside;
     const click = burstPointAlong(inp.ship, inp.aimDist, MAP_R, b.rangeU, inp.aim);
-    return turretAimPoints(inp.ship, inp.ship.cls, b.turrets, 1, click, b.traverseRad, MAP_R);
+    return turretAimPoints(inp.ship, inp.ship.cls, b.turrets, 1, click, b.traverseRad, b.mountSpreadRad, MAP_R);
   };
 
   it('THE ONE-ANSWER PIN: every circle and every line IS turretAimPoints(), index for index', () => {
@@ -326,28 +332,57 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
   });
 
   it('every turret that BEARS previews a circle EXACTLY on the crosshair', () => {
-    // Near max reach, dead abeam: all three arcs contain the click. 410u rather
-    // than 400u since Eric's 2026-08-20 retune pushed the base convergence
-    // threshold ~303u → ~386u; making this shot rarer was the point of the
-    // ruling, so the preview test stands further out to find it — the same move
-    // its server twin made, and they must agree.
-    const inp = broadside({ aimDist: 410 });
+    // THE TOP-RUNG CASE (Eric ruling 2026-08-27). At base the arcs do not
+    // overlap and NOTHING converges at any range, so the "all guns on the
+    // crosshair" shot now lives at the ×4 SPREAD cap, where the mounts have
+    // swung in to ±6° under ±14° of traverse and an abeam click past ~265u sits
+    // in every arc. Its server twin (broadside.test.ts) makes the same move.
+    const inp = broadside({ aimDist: 350, stats: MAXED_SPREAD });
     const b = inp.stats.broadside;
-    const click = burstPointAlong(SHIP, 410, MAP_R, b.rangeU, Math.PI / 2);
+    const click = burstPointAlong(SHIP, 350, MAP_R, b.rangeU, Math.PI / 2);
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(CONFIG.broadside.turrets);
     for (const burst of m.bursts) {
       expect(burst.x).toBeCloseTo(click.x, 9);
       expect(burst.y).toBeCloseTo(click.y, 9);
+      expect(burst.clamped).toBe(false); // every gun bears — nothing is arc-limited
+    }
+  });
+
+  // RULING 4: the preview must SAY which shells are going where you pointed.
+  it('marks arc-CLAMPED shells distinct from on-click ones, per turret', () => {
+    // Base rung, abeam: a dead gap — every shell is clamped.
+    const gap = computeAimPreview(broadside({ aimDist: 300 }));
+    expect(gap.bursts.every((b) => b.clamped === true)).toBe(true);
+    expect(gap.lines.every((l) => l.clamped === true)).toBe(true);
+    // The cap, same click: every shell is on it.
+    const converged = computeAimPreview(broadside({ aimDist: 300, stats: MAXED_SPREAD }));
+    expect(converged.bursts.every((b) => b.clamped === false)).toBe(true);
+    // …and a MIXED barrage really exists (inner guns bear, outer clamp).
+    const mixed = computeAimPreview(broadside({ aimDist: 150, stats: MAXED_SPREAD }));
+    expect(mixed.bursts.filter((b) => b.clamped === true).length).toBeGreaterThan(0);
+    expect(mixed.bursts.filter((b) => b.clamped === false).length).toBeGreaterThan(0);
+    // The flag tracks turretAimPoints exactly, index for index — never a
+    // second opinion about which gun bore.
+    const truth = truthFor(broadside({ aimDist: 150, stats: MAXED_SPREAD }));
+    truth.forEach((t, i) => expect(mixed.bursts[i].clamped, `shell ${i}`).toBe(!t.onClick));
+  });
+
+  it('no NON-broadside preview carries the clamped flag', () => {
+    for (const id of ['gun', 'starShells'] as const) {
+      const m = computeAimPreview(input({ id, aimDist: 300 }));
+      expect(m.bursts.every((b) => b.clamped !== true), id).toBe(true);
+      expect(m.lines.every((l) => l.clamped !== true), id).toBe(true);
     }
   });
 
   it('a turret that CANNOT bear previews its arc-limit shot, at the click\'s range from its own gun', () => {
-    // Close abeam: parallax leaves only the INNER guns on the click. Eric:
-    // "One shell will *absolutely* hit at the target point" — and it does.
-    // INDEX-AGNOSTIC since balance cycle 1 made the turret count EVEN (3 → 4):
-    // there is no single centre gun any more, so the bearing set is found by
-    // geometry rather than assumed to be index 1.
+    // THE ZERO-OVERLAP CASE (Eric 2026-08-24). "One shell will absolutely hit
+    // at the target point" is RETIRED as a guarantee: at the base rung the four
+    // mounts sit ±28°/±9.33° off the beam with only ±6° of traverse each, so a
+    // dead-abeam click falls in the gap between the two inner wedges and NO gun
+    // bears. Every shell still fires — at its own arc edge, at the click's
+    // range from its own muzzle — which IS the shotgun the ruling asked for.
     const inp = broadside({ aimDist: 150 });
     const b = inp.stats.broadside;
     const click = burstPointAlong(SHIP, 150, MAP_R, b.rangeU, Math.PI / 2);
@@ -355,7 +390,8 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
     const onClick = m.bursts
       .map((p, i) => ({ p, i }))
       .filter(({ p }) => Math.hypot(p.x - click.x, p.y - click.y) < 1e-9);
-    expect(onClick.length).toBeGreaterThanOrEqual(1); // the promise, whatever the count
+    expect(onClick).toHaveLength(0); // the dead gap — and the barrage still flies
+    expect(m.bursts).toHaveLength(CONFIG.broadside.turrets);
     const bearing = new Set(onClick.map(({ i }) => i));
     for (let i = 0; i < m.bursts.length; i += 1) {
       if (bearing.has(i)) continue;
@@ -374,31 +410,39 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(5);
     const onClick = m.bursts.filter((p) => Math.hypot(p.x - click.x, p.y - click.y) < 1e-9);
-    // At an ODD 5 the centre gun sits on the beam and the two inner mounts bear
-    // beside it, so THREE land on the click; the outer pair clamp. (The old
-    // designed fan guaranteed an even count NEVER put a shell on the click —
-    // that rule died with the fan.)
-    expect(onClick).toHaveLength(3);
+    // At an ODD 5 the centre gun sits dead ON the beam with zero parallax, so
+    // under the zero-overlap ladder it is the ONE gun that bears at base — the
+    // other four are outside their own ±6° arcs and clamp. (An EVEN battery
+    // straddles the beam and has no such gun, which is why the base 4 puts
+    // NOTHING on an abeam click.)
+    expect(onClick).toHaveLength(1);
   });
 
-  it('a SPREAD stack WIDENS each turret\'s arc: the same click gains guns, not a tighter fan', () => {
-    const base = computeAimPreview(broadside({ aimDist: 150 }));
-    const maxed = computeAimPreview(
-      broadside({ aimDist: 150, stats: stats('broadsideSpread', 'broadsideSpread', 'broadsideSpread', 'broadsideSpread') }),
-    );
-    const click = burstPointAlong(SHIP, 150, MAP_R, stats().broadside.rangeU, Math.PI / 2);
+  it('a SPREAD stack brings guns ONTO the click: nothing at base, the whole battery at the cap', () => {
+    const base = computeAimPreview(broadside({ aimDist: 350 }));
+    const maxed = computeAimPreview(broadside({ aimDist: 350, stats: MAXED_SPREAD }));
+    const click = burstPointAlong(SHIP, 350, MAP_R, stats().broadside.rangeU, Math.PI / 2);
     const onClick = (m: ReturnType<typeof computeAimPreview>): number =>
       m.bursts.filter((p) => Math.hypot(p.x - click.x, p.y - click.y) < 1e-9).length;
-    expect(onClick(base)).toBe(2); // base is now an EVEN 4 turrets: the two inner guns bear
-    expect(onClick(maxed)).toBe(4); // every widened arc now bears
+    expect(onClick(base)).toBe(0); // zero overlap: the abeam click is in a dead gap
+    expect(onClick(maxed)).toBe(4); // true convergence at the cap
+    // Closer in, the cap still loses its OUTER guns to parallax — the payoff is
+    // abeam and at range, never everywhere.
+    const near = computeAimPreview(broadside({ aimDist: 150, stats: MAXED_SPREAD }));
+    const nearClick = burstPointAlong(SHIP, 150, MAP_R, stats().broadside.rangeU, Math.PI / 2);
+    expect(near.bursts.filter((p) => Math.hypot(p.x - nearClick.x, p.y - nearClick.y) < 1e-9)).toHaveLength(2);
   });
 
   it('near the rim the limit shots are CLAMPED to the water — the same answer the server fires', () => {
     // Pressed against the rim clicking dead abeam at the boundary: the click
     // pins to the rim and the bow gun's raw limit point would land OUTSIDE the
     // disk (an off-disk target expires: splash, no burst, no damage).
+    // At the ×4 SPREAD cap, so the barrage carries BOTH kinds of shell here (at
+    // base nothing bears at all and the "one gun is still ON the click" half of
+    // the claim is no longer available anywhere — that is the 2026-08-24
+    // ruling, not a defect).
     const ship = { ...SHIP, x: MAP_R * 0.98, y: 0, heading: -Math.PI / 6 };
-    const inp = broadside({ ship, aim: Math.PI / 3, aimDist: MAP_R });
+    const inp = broadside({ ship, aim: Math.PI / 3, aimDist: MAP_R, stats: MAXED_SPREAD });
     const m = computeAimPreview(inp);
     const truth = truthFor(inp);
     expect(truth.some((t) => !t.onClick)).toBe(true); // limit shots exist here
@@ -421,9 +465,13 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
   });
 
   it('clamps to the 5/8 RUNG, not the radar horizon (R2.4)', () => {
-    const inp = broadside({ aimDist: 99999 });
+    // Read at the SPREAD cap, where every gun bears and so every burst sits on
+    // the clamped click itself. At base the shells are at per-gun arc limits,
+    // whose distance from the ship centre is a parallax artefact rather than
+    // the weapon's reach — the reach is the CLICK, and this is where it shows.
+    const inp = broadside({ aimDist: 99999, stats: MAXED_SPREAD });
     const m = computeAimPreview(inp);
-    expect(Math.hypot(m.bursts[1].x, m.bursts[1].y)).toBeCloseTo(inp.stats.broadside.rangeU, 6);
+    for (const b of m.bursts) expect(Math.hypot(b.x, b.y)).toBeCloseTo(inp.stats.broadside.rangeU, 6);
     expect(inp.stats.broadside.rangeU).toBeLessThan(inp.stats.gun.rangeU);
   });
 
@@ -432,8 +480,10 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
     // INDEPENDENCE — that blocking is decided per turret, not for the salvo —
     // so it is asserted as a partition rather than by turret index: balance
     // cycle 1 made the count even (3 → 4), which moved which guns cross the
-    // rock without changing the property under test.
-    const inp = broadside({ aimDist: 150, islands: [squareIsland(0, 130, 10)] });
+    // rock without changing the property under test. The rock WIDENED 10 → 25
+    // for the 2026-08-27 ladder: the base barrage now fans to its arc limits
+    // instead of converging, so the inner pair's lines run wider of the beam.
+    const inp = broadside({ aimDist: 150, islands: [squareIsland(0, 130, 25)] });
     const m = computeAimPreview(inp);
     const blocked = m.bursts.filter((b) => b.blocked);
     const clear = m.bursts.filter((b) => !b.blocked);
@@ -726,6 +776,9 @@ describe('previewTint', () => {
 describe('the broadside - one line per TURRET, from the shared muzzle helper', () => {
   const broadside = (over: Partial<AimPreviewInput> = {}): AimPreviewInput =>
     input({ id: 'broadside', aim: Math.PI / 2, aimDist: 300, ...over });
+  /** The ×4 SPREAD cap — the only rung where guns actually bear on an abeam
+   *  click since the 2026-08-27 zero-overlap ladder. */
+  const MAXED_SPREAD = stats('broadsideSpread', 'broadsideSpread', 'broadsideSpread', 'broadsideSpread');
 
   it('every travel line starts at its OWN turret, exactly turretMuzzles()', () => {
     const inp = broadside({ ship: { ...SHIP, x: 60, y: -30, heading: 1.1 }, aim: 1.1 + Math.PI / 2 });
@@ -771,12 +824,14 @@ describe('the broadside - one line per TURRET, from the shared muzzle helper', (
   it('the STRADDLED PAIR runs to the click, each from its own turret', () => {
     // Was "the ODD centre shot… from the middle turret" when the count was 3.
     // Balance cycle 1 made it 4, so the mounts straddle amidships instead of
-    // seating a gun on the beam: the two INNER turrets both bear, both draw a
-    // line to the click, and their along-hull offsets are equal and opposite.
-    const inp = broadside();
+    // seating a gun on the beam. Read at the ×4 SPREAD cap since 2026-08-27:
+    // at base NO gun bears on an abeam click (zero overlap), so the bearing
+    // pair this test is about only exists once the arcs have been bought — and
+    // at 150u it is exactly the INNER pair, straddling amidships as before.
+    const inp = broadside({ aimDist: 150, stats: MAXED_SPREAD });
     const m = computeAimPreview(inp);
     const b = inp.stats.broadside;
-    const click = burstPointAlong(SHIP, 300, MAP_R, b.rangeU, Math.PI / 2);
+    const click = burstPointAlong(SHIP, 150, MAP_R, b.rangeU, Math.PI / 2);
     const bearing = m.bursts
       .map((p, i) => i)
       .filter((i) => Math.hypot(m.bursts[i].x - click.x, m.bursts[i].y - click.y) < 1e-9);

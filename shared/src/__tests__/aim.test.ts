@@ -87,91 +87,145 @@ describe('clampInsideMap', () => {
   });
 });
 
-describe('turretAimPoints — per-turret firing arcs (Eric ruling 2026-08-20)', () => {
+describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 2026-08-24 / 2026-08-27)', () => {
   const MAP_R = 5000;
   // Battleship at the origin, bow along +x: the side-(+1) beam faces +y, so a
   // click "phi deg off the beam toward the bow" is (r·sin phi, r·cos phi).
   const POSE = { x: 0, y: 0, heading: 0 };
-  const TAU = CONFIG.broadside.traverseDeg.map((d) => (d * Math.PI) / 180);
+  const TURRETS = CONFIG.broadside.turrets; // the BASE battery — where the schedule is stated
+  const MOUNT_DEG = CONFIG.broadside.turretMountSpreadDeg;
+  const TRAV_DEG = CONFIG.broadside.traverseDeg;
+  const rad = (d: number): number => (d * Math.PI) / 180;
+  /** The SPREAD ladder is now a PAIR of ladders read off ONE rung — never mix a
+   *  traverse from one rung with mounts from another (effectiveStats pairs them
+   *  by index, and so must every test here). `rung` is 1-based, as the stat is. */
+  const arc = (rung: number): { tau: number; ms: number } => ({
+    tau: rad(TRAV_DEG[rung - 1]),
+    ms: rad(MOUNT_DEG[rung - 1]),
+  });
+  const TOP = TRAV_DEG.length; // rung 5 — the ×4 SPREAD cap
   const clickAt = (r: number, phiDeg: number): { x: number; y: number } => {
     const phi = (phiDeg * Math.PI) / 180;
     return { x: r * Math.sin(phi), y: r * Math.cos(phi) };
   };
-  const aims = (r: number, phiDeg: number, tau = TAU[0], count = 3) =>
-    turretAimPoints(POSE, 'battleship', count, 1, clickAt(r, phiDeg), tau, MAP_R);
-  const bearing = (r: number, phiDeg: number, tau = TAU[0], count = 3): number =>
-    aims(r, phiDeg, tau, count).filter((t) => t.onClick).length;
+  const aims = (r: number, phiDeg: number, rung = 1, count: number = TURRETS) => {
+    const { tau, ms } = arc(rung);
+    return turretAimPoints(POSE, 'battleship', count, 1, clickAt(r, phiDeg), tau, ms, MAP_R);
+  };
+  const bearing = (r: number, phiDeg: number, rung = 1, count: number = TURRETS): number =>
+    aims(r, phiDeg, rung, count).filter((t) => t.onClick).length;
 
-  it('a turret whose arc bears fires EXACTLY at the click — byte-identical, never approximately', () => {
-    const click = clickAt(412.5, 0); // max reach, dead abeam: every arc bears
-    const out = turretAimPoints(POSE, 'battleship', 3, 1, click, TAU[0], MAP_R);
-    expect(out).toHaveLength(3);
-    for (const t of out) {
-      expect(t.onClick).toBe(true);
-      expect(t.target).toEqual({ x: click.x, y: click.y });
+  // THE RULED SCHEDULE (Eric 2026-08-27), stated at the BASE 4-gun battery: the
+  // arcs must not overlap at all through card 2, may exactly touch at card 2,
+  // and must strictly overlap from card 3 up. This is the pin that REPLACES the
+  // cycle-114 coverage pin (`mountSpread + base traverse ≥ arcHalfArcDeg`),
+  // which is now deliberately FALSE at every low rung.
+  it('THE OVERLAP SCHEDULE: zero overlap at rungs 1-3 (rung 3 exactly touching), strict overlap at 4-5', () => {
+    expect(MOUNT_DEG).toHaveLength(TRAV_DEG.length); // one rung, two ladders
+    const gapAt = (rung: number): number => (2 * MOUNT_DEG[rung - 1]) / (TURRETS - 1);
+    for (const rung of [1, 2, 3]) {
+      expect(2 * TRAV_DEG[rung - 1], `rung ${rung}`).toBeLessThanOrEqual(gapAt(rung));
+    }
+    expect(2 * TRAV_DEG[2]).toBeCloseTo(gapAt(3), 9); // rung 3 is the touching rung
+    for (const rung of [4, 5]) {
+      expect(2 * TRAV_DEG[rung - 1], `rung ${rung}`).toBeGreaterThan(gapAt(rung));
     }
   });
 
-  it('a turret that CANNOT bear fires at its arc LIMIT, still at the click\'s range from its muzzle', () => {
-    // 150u dead abeam: parallax swings the outer turrets\' muzzle→click
-    // bearings outside their own arcs — only the midship gun bears.
-    const click = clickAt(150, 0);
-    const out = turretAimPoints(POSE, 'battleship', 3, 1, click, TAU[0], MAP_R);
-    const mounts = turretMountBearings(POSE.heading, 3, 1);
-    expect(out.filter((t) => t.onClick)).toHaveLength(1);
-    expect(out[1].onClick).toBe(true); // the midship gun is the one on the click
-    out.forEach((t, i) => {
-      if (t.onClick) return;
-      expect(t.target).not.toEqual(click); // the limit shot is NOT on the click...
-      const dist = Math.hypot(t.target.x - t.muzzle.x, t.target.y - t.muzzle.y);
-      expect(dist).toBeCloseTo(Math.hypot(click.x - t.muzzle.x, click.y - t.muzzle.y), 9); // ...but at its range
-      const b = Math.atan2(t.target.y - t.muzzle.y, t.target.x - t.muzzle.x);
-      const offEdge = Math.min(
-        Math.abs(wrapAngle(b - (mounts[i] + TAU[0]))),
-        Math.abs(wrapAngle(b - (mounts[i] - TAU[0]))),
-      );
-      expect(offEdge).toBeLessThan(1e-9); // pinned to the arc edge, not somewhere inside
-    });
-  });
-
-  it('BROADSIDE SPREAD widens each traverse: MORE guns bear on the SAME click, monotonically', () => {
-    // A fixed mid-range abeam click: 1 gun at base, all 3 at the ladder cap.
-    expect(bearing(150, 0, TAU[0])).toBe(1);
-    expect(bearing(150, 0, TAU[TAU.length - 1])).toBe(3);
-    for (let rung = 1; rung < TAU.length; rung += 1) {
-      expect(bearing(150, 0, TAU[rung])).toBeGreaterThanOrEqual(bearing(150, 0, TAU[rung - 1]));
+  it('the ladders move in OPPOSITE directions: mounts swing inward, arcs widen', () => {
+    for (let i = 1; i < TRAV_DEG.length; i += 1) {
+      expect(MOUNT_DEG[i], `mount rung ${i + 1}`).toBeLessThanOrEqual(MOUNT_DEG[i - 1]);
+      expect(TRAV_DEG[i], `traverse rung ${i + 1}`).toBeGreaterThanOrEqual(TRAV_DEG[i - 1]);
     }
+    expect(MOUNT_DEG[0]).toBeGreaterThan(MOUNT_DEG[TOP - 1]);
+    expect(TRAV_DEG[0]).toBeLessThan(TRAV_DEG[TOP - 1]);
   });
 
-  it('full convergence is RARE at base: near max range AND near-perfect geometry only', () => {
-    expect(bearing(412.5, 0)).toBe(3); // the lined-up shot: max reach, dead abeam — all guns converge
-    expect(bearing(412.5, 15)).toBeLessThan(3); // same range, 15° off the beam: geometry breaks it
-    expect(bearing(250, 0)).toBe(1); // same bearing, mid range: parallax breaks it
-    expect(bearing(100, 0)).toBe(1); // close: parallax defeats every outer arc
-  });
-
-  it('COVERAGE: at least one gun bears on EVERY sector click past point-blank water', () => {
-    // The structural guarantee behind "one shell will absolutely hit at the
-    // target point": the outermost arcs reach the sector edge at base...
-    expect(CONFIG.broadside.turretMountSpreadDeg + CONFIG.broadside.traverseDeg[0]).toBeGreaterThanOrEqual(
-      CONFIG.broadside.arcHalfArcDeg,
-    );
-    // ...and it holds parallax-true across the whole sector at every count.
-    // (Inside ~70u — water alongside the hull itself — muzzle-relative
-    // bearings degenerate and no arc may contain the click; known, accepted.)
-    for (const count of [3, 4, 5]) {
-      for (const r of [80, 150, 300, 412.5]) {
-        for (let phi = -59; phi <= 59; phi += 2) {
-          expect(bearing(r, phi, TAU[0], count), `count=${count} r=${r} phi=${phi}`).toBeGreaterThanOrEqual(1);
-        }
+  // THE COVERAGE GUARANTEE IS GONE ON PURPOSE (Eric 2026-08-24: *"an inaccurate
+  // shotgun that gradually gets better"*). At rung 1 the four mounts sit at
+  // ±28°/±9.33° off the beam with only ±6° of traverse each, so a DEAD-ABEAM
+  // click — the most natural aim there is — falls in the gap between the two
+  // inner wedges and NO gun bears. Every shell still fires, at its own arc
+  // limit; the click is legal and is never denied.
+  it('DEAD GAPS EXIST AT RUNG 1: a legal abeam click puts ZERO guns on it, and still fires every shell', () => {
+    for (const r of [150, 300, 412.5]) {
+      const out = aims(r, 0);
+      expect(out, `r=${r}`).toHaveLength(TURRETS); // a full barrage, always
+      expect(out.filter((t) => t.onClick).length, `r=${r}`).toBe(0);
+      for (const t of out) {
+        // Each swings to its own arc EDGE, at the click's range from its muzzle.
+        const click = clickAt(r, 0);
+        const dist = Math.hypot(t.target.x - t.muzzle.x, t.target.y - t.muzzle.y);
+        expect(dist).toBeCloseTo(Math.hypot(click.x - t.muzzle.x, click.y - t.muzzle.y), 9);
       }
     }
   });
 
+  it('a turret that CANNOT bear is pinned to its arc EDGE, never somewhere inside it', () => {
+    const rung = 1;
+    const { tau, ms } = arc(rung);
+    const click = clickAt(300, 0);
+    const out = aims(300, 0, rung);
+    const mounts = turretMountBearings(POSE.heading, TURRETS, 1, ms);
+    out.forEach((t, i) => {
+      expect(t.onClick).toBe(false);
+      expect(t.target).not.toEqual(click);
+      const b = Math.atan2(t.target.y - t.muzzle.y, t.target.x - t.muzzle.x);
+      const offEdge = Math.min(
+        Math.abs(wrapAngle(b - (mounts[i] + tau))),
+        Math.abs(wrapAngle(b - (mounts[i] - tau))),
+      );
+      expect(offEdge).toBeLessThan(1e-9);
+    });
+  });
+
+  // THE TOP-RUNG PAYOFF (Eric 2026-08-27): at the ×4 cap the mounts have rotated
+  // in to ±6° while the traverse has opened to ±14°, so every muzzle→click
+  // bearing fits its own arc and the WHOLE battery lands on one abeam point.
+  // The threshold is where atan(hullOffset/R) ≤ traverse − mountSpread (8°),
+  // i.e. ~265u — comfortably inside the ruled "≥ ~300u".
+  it('TRUE CONVERGENCE AT THE CAP: every turret is on an abeam click from ~300u out', () => {
+    for (const r of [300, 350, 412.5]) {
+      const out = aims(r, 0, TOP);
+      expect(out.filter((t) => t.onClick).length, `r=${r}`).toBe(TURRETS);
+      const click = clickAt(r, 0);
+      for (const t of out) expect(t.target).toEqual({ x: click.x, y: click.y });
+    }
+  });
+
+  it('the cap converges ABEAM, not everywhere: an off-center click still drops guns', () => {
+    expect(bearing(350, 0, TOP)).toBe(TURRETS);
+    expect(bearing(350, 45, TOP)).toBeLessThan(TURRETS);
+  });
+
+  it('BROADSIDE SPREAD brings MORE guns onto the SAME click, monotonically', () => {
+    let prev = -1;
+    for (let rung = 1; rung <= TOP; rung += 1) {
+      const n = bearing(350, 0, rung);
+      expect(n, `rung ${rung}`).toBeGreaterThanOrEqual(prev);
+      prev = n;
+    }
+    expect(bearing(350, 0, 1)).toBe(0); // the shotgun…
+    expect(bearing(350, 0, TOP)).toBe(TURRETS); // …becomes the battery
+  });
+
+  // BROADSIDE TURRETS densifies the SAME mount spread (ruling 3, ACCEPTED): the
+  // gap shrinks as guns are added, so wedges may touch at low rungs. Nothing
+  // pins zero overlap above the base count, and traverse is never derived from
+  // the count to compensate.
+  it('TURRETS densify the same sector — no zero-overlap claim is made above the base battery', () => {
+    const gapAt = (count: number): number => (2 * MOUNT_DEG[0]) / (count - 1);
+    expect(gapAt(5)).toBeLessThan(gapAt(TURRETS));
+    expect(gapAt(6)).toBeLessThan(gapAt(5));
+    // Denser guns really do put more of them on a given click.
+    expect(bearing(350, 20, 1, 6)).toBeGreaterThanOrEqual(bearing(350, 20, 1, TURRETS));
+  });
+
   it('mounts pair UNCROSSED with muzzles on BOTH beams: the bow-most gun owns the bow-most arc', () => {
+    const { ms } = arc(1);
     for (const side of [1, -1] as const) {
       const muzzles = turretMuzzles(POSE, 'battleship', 3, side);
-      const mounts = turretMountBearings(POSE.heading, 3, side);
+      const mounts = turretMountBearings(POSE.heading, 3, side, ms);
       const bowness = mounts.map((m) => Math.abs(wrapAngle(m - POSE.heading)));
       for (let i = 1; i < 3; i += 1) {
         // As the muzzle moves toward the stern (x falls), its mount swings
@@ -182,26 +236,36 @@ describe('turretAimPoints — per-turret firing arcs (Eric ruling 2026-08-20)', 
   });
 
   it('the mount spread is FIXED as turrets are added — extra guns densify the same covered sector', () => {
-    const m3 = turretMountBearings(0.4, 3, 1);
-    const m5 = turretMountBearings(0.4, 5, 1);
+    const { ms } = arc(1);
+    const m3 = turretMountBearings(0.4, 3, 1, ms);
+    const m5 = turretMountBearings(0.4, 5, 1, ms);
     expect(m5).toHaveLength(5);
     expect(m5[0]).toBeCloseTo(m3[0], 12);
     expect(m5[4]).toBeCloseTo(m3[2], 12);
     // A lone turret sits dead on the beam.
-    expect(turretMountBearings(0.4, 1, 1)).toEqual([0.4 + Math.PI / 2]);
+    expect(turretMountBearings(0.4, 1, 1, ms)).toEqual([0.4 + Math.PI / 2]);
+  });
+
+  it('the mount spread is the RUNG\'s, never CONFIG\'s: the same battery narrows as SPREAD is bought', () => {
+    const wide = turretMountBearings(0, TURRETS, 1, arc(1).ms);
+    const tight = turretMountBearings(0, TURRETS, 1, arc(TOP).ms);
+    const span = (b: number[]): number => Math.abs(b[b.length - 1] - b[0]);
+    expect(span(tight)).toBeLessThan(span(wide));
+    expect(span(wide)).toBeCloseTo(2 * rad(MOUNT_DEG[0]), 12);
+    expect(span(tight)).toBeCloseTo(2 * rad(MOUNT_DEG[TOP - 1]), 12);
   });
 
   it('an arc-limit shot swung past the rim is pulled back inside the water disk', () => {
     const R = 1000;
     // Bow +y near the rim; the starboard (side -1) beam faces the rim. The
     // click clamps to the rim along its own bearing (burstPointAlong), and the
-    // two non-bearing turrets\' limit shots would land OUTSIDE the disk.
+    // non-bearing turrets' limit shots would land OUTSIDE the disk.
     const pose = { x: 940, y: 0, heading: Math.PI / 2 };
     const dir = (55 * Math.PI) / 180;
     const click = burstPointAlong(pose, 5000, R, 412.5, dir);
     expect(Math.hypot(click.x, click.y)).toBeLessThanOrEqual(R);
-    const out = turretAimPoints(pose, 'battleship', 3, -1, click, TAU[0], R);
-    expect(out.some((t) => t.onClick)).toBe(true); // coverage holds even here
+    const { tau, ms } = arc(1);
+    const out = turretAimPoints(pose, 'battleship', TURRETS, -1, click, tau, ms, R);
     let pulled = 0;
     for (const t of out) {
       expect(Math.hypot(t.target.x, t.target.y)).toBeLessThanOrEqual(R); // nothing bursts off the water

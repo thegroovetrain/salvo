@@ -813,6 +813,63 @@ export const CLIENT_CONFIG = {
       alpha: 0.55,
       dimAlpha: 0.18,
     },
+    /**
+     * THE CLAMPED-SHELL SCALE (Eric ruling 2026-08-27, ruling 4): a broadside
+     * shell whose turret could NOT bear on the click still bursts somewhere
+     * real, so its line and circle are drawn in full — at this fraction of the
+     * normal alpha, so the shells actually going where the player pointed read
+     * as the bright ones. Under the zero-overlap ladder most of a low-rung
+     * barrage is clamped, which is exactly the thing the preview now has to
+     * say. Multiplies whatever alpha the shell would otherwise take (including
+     * `blockedAlpha`), so the two tells compose rather than fight. Nothing but
+     * the broadside sets the flag. Implementer-drafted.
+     */
+    clampedAlphaScale: 0.45,
+  },
+
+  /**
+   * THE BROADSIDE'S PER-TURRET ARC DISPLAY (render/firing.ts — Eric ruling
+   * 2026-08-27, ruling 4: *"bright per-turret wedges drawn from each gun's real
+   * muzzle position + the ±60° legal sector reduced to a THIN OUTLINE"*).
+   *
+   * The zero-overlap ladder made the old pair of big ±60° filled wedges a LIE:
+   * they said "you can hit anywhere in here" while the guns cover only a few
+   * narrow slivers of it. So the sector keeps its job — it is the DENY boundary,
+   * and nothing else — and drops to a hairline; the information moved into one
+   * small wedge per gun, drawn from that gun's own muzzle at its own mount
+   * bearing ± its own traverse. The gaps between them are the design.
+   *
+   * All geometry comes from the shared helpers (sim/aim.ts `turretMuzzles` /
+   * `turretMountBearings`) at an IDENTITY pose, because the `arcs` Graphics is
+   * already hull-local (position = pose, rotation = heading). Nothing here
+   * re-derives spacing.
+   *
+   * Every value is implementer-drafted feel; the grammar (lit side bright, off
+   * side dim, denial reddens both) is the shipped one, unchanged.
+   */
+  broadsideArcs: {
+    /** u — the per-turret wedge's radius. INDICATIVE, like the torpedo's ARC_R:
+     *  the real reach is 412.5u and a filled wedge that long would bury the
+     *  chart. Short of the 72u sector radius so the wedges read as a battery
+     *  INSIDE the legal sector, and comfortably shorter than the 124u
+     *  battleship hull they sprout from. */
+    wedgeRadius: 50,
+    /** Fill alpha of a turret wedge on the FIRING side (inherits the shipped
+     *  sector's lit weight) and on the idle side. */
+    litAlpha: 0.5,
+    dimAlpha: 0.14,
+    /** The ±60° legal sector, now a stroked boundary rather than a fill. */
+    legalEdge: {
+      width: 1,
+      alpha: 0.25,
+      dimAlpha: 0.12,
+    },
+    /** The reload sweep-back, rehomed onto the legal sector (it used to ride the
+     *  big fill this block deleted): a half-radius wedge whose alpha climbs as
+     *  the barrage comes back. Same two numbers the shipped `sector()` used. */
+    reloadRadiusFactor: 0.5,
+    reloadAlphaBase: 0.1,
+    reloadAlphaSpan: 0.2,
   },
 
   /**

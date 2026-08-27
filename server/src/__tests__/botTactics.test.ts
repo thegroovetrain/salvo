@@ -1484,7 +1484,12 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(room, roomMind, port).fireSlot).toBe(slotOf(room, 'mine'));
   });
 
-  it('broadside.spreadRung: the wide base fan may take a just-lost plot; a tight fan demands live', () => {
+  // The rung means "how choked is the pattern", not "how wide is a designed
+  // fan" — the fan died at cycle 114 and the ladder was re-cut on 2026-08-27
+  // (zero overlap at rung 1, convergence at rung 5). The gate's polarity is
+  // unchanged and still correct: a wide shotgun tolerates a stale plot, a
+  // converging point weapon does not.
+  it('broadside.spreadRung: the wide base pattern may take a just-lost plot; a choked one demands live', () => {
     const w = openWorld(410);
     const port = fakePort(w);
     // Abeam, disclosed course, JUST lost — and PERSISTENT (held a full sweep
@@ -1503,7 +1508,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const tightMind = mkMind('bulwark');
     plot(tightMind, track(port.now, justLost));
     expect(COMBAT_BRAIN.decide(tight, tightMind, port).fireSlot).toBe(slotOf(tight, 'gun'));
-    // And even the wide fan refuses a plot that has drifted too long.
+    // And even the wide base pattern refuses a plot that has drifted too long.
     const old = mkBot(w, 'battleship', 0, 0, 0);
     const oldMind = mkMind('bulwark');
     plot(oldMind, track(port.now, { ...justLost, seenAt: port.now - 2000 }));

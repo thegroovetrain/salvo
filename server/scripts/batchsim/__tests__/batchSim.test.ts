@@ -297,11 +297,19 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // CONFIG array. Either produces a run whose report reads ordinary while the
     // sim underneath it is wrong — the one failure a balance harness may not have.
     const lenBefore = CONFIG.broadside.traverseDeg.length;
+    const mountLenBefore = CONFIG.broadside.turretMountSpreadDeg.length;
     expect(() => parseArgs(['--tune', 'broadside.traverseDeg.length=1'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'broadside.traverseDeg.__proto__.length=1'])).toThrow(TunableError);
     expect(() => parseArgs(['--set', 'xp.__proto__.levelMs=1'])).toThrow(TunableError);
     expect(() => applyOverrides({}, { 'broadside.traverseDeg.length': 1 })).toThrow(TunableError);
     expect(CONFIG.broadside.traverseDeg.length).toBe(lenBefore);
+    // Its 2026-08-27 PAIR gets the identical guard — the index rule is generic
+    // over arrays, so this needed no new clause, but truncating EITHER ladder
+    // desyncs the rung pairing effectiveStats() makes, so both are pinned.
+    expect(() => parseArgs(['--tune', 'broadside.turretMountSpreadDeg.length=1'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'broadside.turretMountSpreadDeg.__proto__.length=1'])).toThrow(TunableError);
+    expect(() => applyOverrides({}, { 'broadside.turretMountSpreadDeg.length': 1 })).toThrow(TunableError);
+    expect(CONFIG.broadside.turretMountSpreadDeg.length).toBe(mountLenBefore);
     expect(Array.prototype.length).toBe(0);
     // The legitimate array dial still works — the rule is "index only", not
     // "no arrays". zone.ringSteps.N is documented and must keep resolving.

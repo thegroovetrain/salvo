@@ -28,10 +28,17 @@
 // 2. THE DAMAGE LEDGER, attributed BY AMOUNT. DamageEvent carries no weapon
 //    field, and adding one would mean touching server/src. It does not need
 //    one: after Story 7-5 deleted the gun / torpedo / mine damage cards, every
-//    damage source in the game emits a UNIQUE, BOON-INVARIANT constant (gun 15,
-//    gun bodyblock 6, broadside 20, torpedo 70, mine 55, radar-buoy gun 5,
-//    fleet-hull gun 1, storm 0.2/tick, incendiary 0.25/tick). Any amount that
-//    does NOT match is bucketed by its own value under `other:<amount>` and
+//    damage source in the game emits a BOON-INVARIANT constant — and every
+//    amount here is now READ FROM CONFIG rather than typed in, because the
+//    literal list drifted (it still said broadside 20 nine cycles after balance
+//    cycle 1 set 15). CONFIG cannot drift from itself.
+//    THE AMOUNTS ARE NOT ALL UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
+//    made `broadside.damage` exactly equal `gun.damage` (both 15), so a first-
+//    match lookup would silently file every broadside burst under 'gun'. Sources
+//    that collide on an amount are reported under ONE merged label
+//    ('gun/broadside') — an honest ambiguity beats a confident wrong answer. Any
+//    amount that matches nothing is bucketed by its own value under
+//    `other:<amount>` and
 //    printed, so a future damage card cannot silently corrupt the attribution.
 //
 // 3. THE ONE-HIT-KILL GUARDRAIL, MEASURED IN PLAY. The shared test pins it
@@ -44,19 +51,39 @@
 import { CONFIG } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 
-/** Damage amounts that identify their source exactly (see header, ledger 2). */
-const DAMAGE_SOURCES: { label: string; amount: number }[] = [
-  { label: 'gun', amount: 15 },
-  { label: 'gunBodyblock', amount: 6 },
-  { label: 'broadside', amount: 20 },
-  { label: 'torpedo', amount: 70 },
-  { label: 'mine', amount: 55 },
-  { label: 'buoyGun', amount: 5 },
-  { label: 'fleetGun', amount: 1 },
-  { label: 'storm', amount: 0.2 },
-  { label: 'incendiary', amount: 0.25 },
-];
 const AMOUNT_EPS = 1e-6;
+/** Per-tick damage is dps × the 50ms fixed step (storm / incendiary DoT). */
+const TICK_S = 0.05;
+
+/** Every damage source, with its amount READ FROM CONFIG (see header, ledger 2)
+ *  — a typed-in list drifted twice, and CONFIG cannot drift from itself. */
+const RAW_SOURCES: { label: string; amount: number }[] = [
+  { label: 'gun', amount: CONFIG.gun.damage },
+  { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
+  { label: 'broadside', amount: CONFIG.broadside.damage },
+  { label: 'torpedo', amount: CONFIG.torpedo.damage },
+  { label: 'mine', amount: CONFIG.mine.damage },
+  { label: 'buoyGun', amount: CONFIG.radarBuoy.gunDamage },
+  { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
+  { label: 'storm', amount: CONFIG.zone.stormDps * TICK_S },
+  { label: 'incendiary', amount: CONFIG.starShells.incendiaryDps * TICK_S },
+];
+
+/**
+ * The sources, with any that COLLIDE on an amount merged into one honest label.
+ * Balance cycle 1 set `broadside.damage` to exactly `gun.damage` (both 15), and
+ * a first-match lookup would have filed every broadside burst under 'gun' in
+ * silence. 'gun/broadside' says what the ledger actually knows.
+ */
+const DAMAGE_SOURCES: { label: string; amount: number }[] = (() => {
+  const out: { label: string; amount: number }[] = [];
+  for (const s of RAW_SOURCES) {
+    const hit = out.find((o) => Math.abs(o.amount - s.amount) < AMOUNT_EPS);
+    if (hit) hit.label = `${hit.label}/${s.label}`;
+    else out.push({ ...s });
+  }
+  return out;
+})();
 
 function classifyDamage(amount: number): string {
   for (const s of DAMAGE_SOURCES) if (Math.abs(amount - s.amount) < AMOUNT_EPS) return s.label;
@@ -72,10 +99,10 @@ function classifyShell(kind: string, damage: number, lit: boolean): string {
   // DamageEvent names its weapon.
   if (kind === 'torp') return damage === CONFIG.mine.damage ? 'captiveTorpedo' : 'torpedo';
   if (lit) return 'starShell';
-  if (damage === 20) return 'broadside';
-  if (damage === 15) return 'gun';
-  if (damage === 5) return 'buoyGun';
-  return `shell:${damage}`;
+  // Same CONFIG-derived, collision-honest classification as the damage ledger:
+  // gun and broadside shells both carry 15 and are indistinguishable here.
+  if (damage === CONFIG.radarBuoy.gunDamage) return 'buoyGun';
+  return classifyDamage(damage);
 }
 
 /** One match's catalog + ordnance ledger. Every field is a plain tally so the

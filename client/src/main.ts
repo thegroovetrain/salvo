@@ -47,7 +47,7 @@ import { setAggroFlashGate } from './render/aggro.js';
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
 import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
-import { FiringUX } from './render/firing.js';
+import { FiringUX, type BroadsideArcs } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
 import { weaponArcHit, weaponRangeHit, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
@@ -3286,6 +3286,7 @@ function renderFiring(
     cursor,
     g.deniedFlash,
     reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
+    broadsideArcs(g, status), // the per-turret wedge display (Eric ruling 2026-08-27)
   );
   renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc, reachU);
 }
@@ -3298,6 +3299,23 @@ function renderFiring(
  * our hull. An out-of-arc / out-of-reach aim previews nothing: the denied
  * treatment is already the honest answer there.
  */
+/**
+ * The BROADSIDE's per-turret arc display inputs (Eric ruling 2026-08-27): the
+ * hull whose muzzles the wedges spring from, plus the SPREAD rung's TWO derived
+ * half-angles — straight off effectiveStats, the same numbers the aim preview
+ * and the server's own fire path read. Handed on every frame regardless of the
+ * primed weapon; render/firing.ts uses it only when the broadside is up.
+ */
+function broadsideArcs(g: Game, status: OwnStatus): BroadsideArcs {
+  const b = status.stats.broadside;
+  return {
+    hullId: g.ownClass,
+    turrets: b.turrets,
+    traverseRad: b.traverseRad,
+    mountSpreadRad: b.mountSpreadRad,
+  };
+}
+
 function renderAimPreview(
   g: Game,
   pose: RenderPose,
