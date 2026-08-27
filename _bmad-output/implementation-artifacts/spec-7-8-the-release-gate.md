@@ -2,10 +2,11 @@
 title: 'Story 7-8: The Release Gate'
 type: 'chore'
 created: '2026-08-27'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 baseline_revision: '40c653975e4d00f5ba49e5653ffd8c9c45b0c673'
+final_revision: '8da475918ec16b1bdbd6bb535ad9414a6f03a8d7'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context-amendments.md'
