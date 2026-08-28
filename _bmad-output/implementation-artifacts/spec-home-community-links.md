@@ -2,9 +2,10 @@
 title: 'Home page DISCORD + REDDIT community links (env-templated)'
 type: 'feature'
 created: '2026-08-28'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '89c0ad5'
+final_revision: '77be563'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/project-context.md'
