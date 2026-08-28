@@ -20,6 +20,13 @@ import {
   showHome,
 } from '../ui/home.js';
 import type { LivenessPayload } from '@salvo/shared';
+
+// The community links (Eric ruling 2026-08-28) are env-gated and read
+// `import.meta.env` at call time, so ANY test in this file that stubs a
+// `VITE_*` var must hand the next one an unconfigured build back — file-wide,
+// not per-describe, because a leak would surface as `expected 3 to be 2` in a
+// pin far from the stub (review gate, cycle 132; the ads.test.ts shape).
+afterEach(() => vi.unstubAllEnvs());
 import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
 import { HOME_TAGLINES } from '../ui/taglines.js';
 
@@ -1206,8 +1213,18 @@ describe('the status line is NEVER written by queue code', () => {
     document.getElementById('queue-modal')?.remove();
   });
 
-  /** The underplay LINK row — HOW TO PLAY's parent. Both children are ANCHORS
-   *  since Story 7.3 gave HOW TO PLAY a real page and PRIVACY's treatment. */
+  /** The ZERO-CONFIG build, asserted rather than assumed: Vitest merges the
+   *  shell's `VITE_*` and `client/.env*` into `import.meta.env`, so a developer
+   *  who set a community var to QA the row must not fail the unconfigured pins
+   *  (review gate, cycle 132 — the ads/analytics suites stub the same way). */
+  function noCommunityVars(): void {
+    vi.stubEnv('VITE_DISCORD_INVITE', '');
+    vi.stubEnv('VITE_SUBREDDIT', '');
+  }
+
+  /** The underplay LINK row — HOW TO PLAY's parent. Every child is an ANCHOR:
+   *  Story 7.3 gave HOW TO PLAY a real page and PRIVACY's treatment, and the
+   *  2026-08-28 community links take the same one. */
   function underplay(): HTMLElement {
     return [...home().querySelectorAll('a')].find((s) => s.textContent === 'HOW TO PLAY')
       ?.parentElement as HTMLElement;
@@ -1226,10 +1243,52 @@ describe('the status line is NEVER written by queue code', () => {
     // the server status onto its own line beneath, on Eric's ruling. The pin is
     // therefore intact in spirit — the row is navigation and nothing else — and
     // the status register is asserted separately just below.
+    noCommunityVars();
     showHome('0.0.0-test', vi.fn());
     expect(underplay().children.length).toBe(2);
     expect([...underplay().children].map((c) => c.textContent)).toEqual(['HOW TO PLAY', 'PRIVACY']);
     expect(statusText()).toBe('SERVER: CHECKING…');
+  });
+
+  it('the community links join the row when their env vars are set', () => {
+    // Eric ruling 2026-08-28 (R1): DISCORD and REDDIT are two more "places you
+    // can go", so they take the same treatment and the same row — and they
+    // FOLLOW the static-page links in a fixed order. The pin above is the
+    // zero-config half of this one: with no vars set the row is unchanged.
+    vi.stubEnv('VITE_DISCORD_INVITE', 'abc123');
+    vi.stubEnv('VITE_SUBREDDIT', 'hullcracker');
+    showHome('0.0.0-test', vi.fn());
+    const kids = [...underplay().children] as HTMLAnchorElement[];
+    expect(kids.map((c) => c.textContent)).toEqual([
+      'HOW TO PLAY',
+      'PRIVACY',
+      'DISCORD',
+      'REDDIT',
+    ]);
+    expect(kids.map((c) => c.tagName)).toEqual(['A', 'A', 'A', 'A']);
+    expect(kids[2].getAttribute('href')).toBe('https://discord.gg/abc123');
+    expect(kids[3].getAttribute('href')).toBe('https://www.reddit.com/r/hullcracker/');
+    // OFF-SITE: a new tab, and no window handle (or referrer) back to the game.
+    for (const el of kids.slice(2)) {
+      expect(el.getAttribute('target')).toBe('_blank');
+      expect(el.getAttribute('rel')).toBe('noopener noreferrer');
+    }
+    // The status line beneath is the PROBE's alone, exactly as before.
+    expect(statusText()).toBe('SERVER: CHECKING…');
+  });
+
+  it('a malformed community var hides ITS link and nothing else', () => {
+    // Both directions: a bad DISCORD beside a good REDDIT, then the reverse —
+    // so the pin would catch either link's rendering breaking, not just one.
+    vi.stubEnv('VITE_DISCORD_INVITE', 'a b/../x');
+    vi.stubEnv('VITE_SUBREDDIT', 'hullcracker');
+    showHome('0.0.0-test', vi.fn());
+    expect([...underplay().children].map((c) => c.textContent)).toEqual(['HOW TO PLAY', 'PRIVACY', 'REDDIT']);
+    home().remove();
+    vi.stubEnv('VITE_DISCORD_INVITE', 'abc123');
+    vi.stubEnv('VITE_SUBREDDIT', 'hull cracker');
+    showHome('0.0.0-test', vi.fn());
+    expect([...underplay().children].map((c) => c.textContent)).toEqual(['HOW TO PLAY', 'PRIVACY', 'DISCORD']);
   });
 
   it('PRIVACY is a REAL anchor to /privacy, not a scripted span', () => {

@@ -1785,3 +1785,7 @@ Four threads left open by the broadside zero-overlap arc ladder. None is a defec
   status: OPEN — cheap, needs a config-glob change only
   summary: `server/scripts/*.mjs` IS OUTSIDE THE ESLINT CONFIG — only `client/scripts/**/*.mjs` and `**/*.ts` are covered, so `loadTest.mjs` (859 lines) and every smoke has no lint gate; the exact gap Story 7.1 closed for client scripts.
   evidence: `eslint.config.js` include globs; noted by the cycle-131 loadTest implementer.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-home-community-links.md`
+  summary: `client/.env.local` (and every `.env.*` variant Vite loads) is NOT gitignored — only bare `.env` is — so a developer who follows the render.yaml invitation to set `VITE_*` vars locally can commit them; a real secret in one would ship to a public repo.
+  evidence: Blind Hunter review, cycle 132 — `.gitignore` ignores `.env` only; Vite loads `.env.local`, `.env.[mode]`, `.env.[mode].local` (vite/dist/node/chunks loadEnv). Pre-existing, surfaced by the community-links vars being the first `VITE_*` a developer is invited to set locally.

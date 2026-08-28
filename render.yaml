@@ -90,6 +90,32 @@ services:
       # indistinguishable from a legitimately unfilled slot.
       # - key: VITE_ADSENSE_SLOT_RESULTS
       #   value: <paste the unit's data-ad-slot digits here>
+      # THE COMMUNITY LINKS (Eric ruling 2026-08-28). The home screen's underplay
+      # row renders DISCORD and REDDIT beside HOW TO PLAY · PRIVACY, and these two
+      # keys are the ONLY place their identity lives. THE TEMPLATE IS CODE, THE
+      # IDENTITY IS CONFIG: `client/src/ui/communityLinks.ts` owns the shapes
+      # `https://discord.gg/{code}` and `https://www.reddit.com/r/{name}/`, so no
+      # literal community URL is committed anywhere in the client.
+      #
+      # SAME MECHANISM AND SAME ABSENCE GATING as the two blocks above: Vite
+      # inlines `VITE_`-prefixed vars at BUILD time, and an unset (or malformed)
+      # value renders NO ANCHOR AT ALL — no fallback destination exists, so a
+      # fork, a preview build or a local `npm run dev` cannot point a stranger's
+      # players at Eric's server. Setting them HERE is what turns each link on.
+      #
+      # Not secrets: a Discord invite code and a subreddit name are public by
+      # construction — both are handed out to be shared.
+      #
+      # LEFT UNSET IN THIS FILE BY RULING (Eric, 2026-08-28, R4): the values were
+      # not supplied at build time, and none is invented here. Uncomment each one
+      # and paste the real value when ready — the Blueprint is the source of
+      # truth, so a value set only in the dashboard is drift (see cycle 127).
+      # QUOTE THE VALUES: a bare `on`, `no` or `yes` is a YAML 1.1 boolean to
+      # some loaders, and a subreddit named like that would arrive as `true`.
+      # - key: VITE_DISCORD_INVITE
+      #   value: "<paste the invite code — the part after discord.gg/>"
+      # - key: VITE_SUBREDDIT
+      #   value: "<paste the subreddit name, without r/>"
 
   # THE STAGING HOST (cycle 127). A byte-identical build of the `development`
   # branch, on its own hostname, so a feature can be played before it reaches
@@ -192,6 +218,12 @@ services:
       # serve two hosts — `wsEndpoint()` falls through to `wss://{location.host}`
       # and each host talks to its own server. Setting it here would point dev
       # clients at whatever it names, production included.
+      #
+      # VITE_DISCORD_INVITE and VITE_SUBREDDIT are unset, so staging's home
+      # screen shows no community links at all. Nothing is being protected here
+      # — they are public values — it is simply that production has none set
+      # either yet (Eric ruling 2026-08-28). Set them here to QA the row before
+      # the real invite code and subreddit name reach the production block.
       #
       # HC_DEV_OPTIONS is unset. It is tempting on a QA box, but on '1' it opens
       # direct arena joins and honours client-supplied room overrides — QA must
