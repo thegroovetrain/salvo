@@ -1414,46 +1414,61 @@ export const CONFIG = {
     // spread any more — it EMERGES from guns that cannot all bear on one
     // point. `fanHalfAngleDeg` (the fan-width ladder) is gone with the model.
     //
-    // Each turret's arc is its MOUNT BEARING ± its TRAVERSE half-angle. The
-    // mounts are straddled across ±turretMountSpreadDeg about the firing beam
-    // (index-paired with turretMuzzles, UNCROSSED: the bow-most gun owns the
-    // bow-most arc — sim/aim.ts turretAimPoints), so together the battery
-    // covers the whole ±60° sector while each gun stays individually narrow:
-    // mountSpread + base traverse = 61.5° ≥ arcHalfArcDeg, pinned, which is what
-    // guarantees at least ONE gun always bears on any legal click ("one shell
-    // will absolutely hit at the target point" survives structurally).
+    // Each turret's arc is its MOUNT BEARING ± its TRAVERSE half-angle, and
+    // BOTH now ride the SPREAD rung. The mounts are straddled across
+    // ±turretMountSpreadDeg[rung] about the firing beam (index-paired with
+    // turretMuzzles, UNCROSSED: the bow-most gun owns the bow-most arc —
+    // sim/aim.ts turretAimPoints).
     //
-    // CONVERGENCE IS PARALLAX. A gun that bears fires EXACTLY at the click; to
-    // put ALL guns on one point their muzzle→click bearings (which differ by
-    // atan(hullOffset/R) — ~5° at max reach, ~14° at 150u) must each fit their
-    // OWN arc, and the mounts are 28° apart. At base that closes only past
-    // ~386u — 94% of the weapon's own 412.5u reach — within ~±2° of abeam.
-    // Eric: *"IF you happen to click a point that can be perfectly lined up,
-    // then yes, all guns should converge. But that should be very rare without
-    // upgrades and aiming close to max range."*
+    // ZERO OVERLAP AT TIER I (Eric ruling 2026-08-24) — *"it fires out and if
+    // you wanna hit something closing in on you, you need to aim your ship ...
+    // not a short-cooldown delete-ships button — an inaccurate shotgun that
+    // gradually gets better."* The weapon's budget moves out of ALPHA and into
+    // RELIABILITY. So the cycle-115 tuning narrative below is SUPERSEDED: the
+    // arcs no longer tile the ±60° sector at base, and the cycle-114 pin
+    // `mountSpread + base traverse ≥ arcHalfArcDeg` is now TIER-DEPENDENT and
+    // deliberately FALSE at low rungs. DEAD GAPS ARE THE DESIGN — a click in
+    // one is still LEGAL and still fires (every gun that cannot bear swings to
+    // its arc limit at the click's range); only the bow/stern dead zone denies.
     //
-    // RETUNED on his playtest (2026-08-20): *"the convergence is slightly too
-    // high at level 1 imo. I am okay with there being some dead space when
-    // closer to the ship that none of the shots can actually hit."* Base
-    // convergence moved ~303u → ~386u. THE DIAL IS THE OVERLAP
-    // (traverse − mountSpread), which is what convergence needs; COVERAGE is
-    // their SUM, which is what keeps a gun on every legal click. Widening the
-    // mounts while narrowing the arcs tightens the first WITHOUT opening
-    // angular gaps in the second — so the dead space Eric accepted is the
-    // CLOSE-RANGE kind (parallax too wide for the outer guns to bear), never a
-    // bearing that no gun can ever reach.
+    // THE SCHEDULE, at the BASE 4-gun battery (Eric ruling 2026-08-27, adjacent
+    // mount gap = 2·mountSpread/(turrets−1) = 2·mountSpread/3):
+    //   rung 1 (0 cards): gap 18.667° vs 2·traverse 12°  — clear gaps
+    //   rung 2 (1 card):  gap 16.667° vs 2·traverse 14°  — narrower gaps
+    //   rung 3 (2 cards): gap 15.000° vs 2·traverse 15°  — exactly touching
+    //   rung 4 (3 cards): gap 10.000° vs 2·traverse 18°  — overlap begins
+    //   rung 5 (4 cards): gap  4.000° vs 2·traverse 28°  — heavy overlap
+    // Pinned in shared/src/__tests__/aim.test.ts.
     //
-    // [DRAFT] deg — half-spread of the outermost mount bearings about the
-    // beam. FIXED as turrets increase: extra guns densify the SAME covered
-    // sector (the turretSpanFactor rule applied to bearings).
-    turretMountSpreadDeg: 28,
+    // CONVERGENCE IS PARALLAX, and TRUE CONVERGENCE IS THE TOP-RUNG PAYOFF
+    // (Eric ruling 2026-08-27). A gun that bears fires EXACTLY at the click; to
+    // put ALL guns on one abeam point every muzzle→click bearing (which differ
+    // from the beam by atan(hullOffset/R), hullOffset = 37.2u on a battleship)
+    // must fit its own arc, i.e. atan(hullOffset/R) ≤ traverse − mountSpread.
+    // The mounts now ROTATE INWARD toward the beam as the arcs widen, so that
+    // difference goes −22° → −18° → −15° → −6° → +8°: negative at rungs 1-4
+    // (no range converges the whole battery) and +8° at the cap, where the
+    // battery converges from ~265u out. That is the ladder's whole shape —
+    // an inaccurate shotgun at tier I, a converging battery at tier V, with
+    // fewer guns connecting off-center at every rung.
+    //
+    // TURRETS DENSIFY, THEY DO NOT WIDEN (Eric ruling 2026-08-27, accepted):
+    // BROADSIDE TURRETS ×2 re-spaces the SAME mount spread into 5 then 6
+    // bearings, so the gap shrinks (18.667° → 14° → 11.2° at rung 1) and the
+    // wedges may touch at low rungs. That is ACCEPTED emergent behaviour; the
+    // zero-overlap promise is stated at the base 4-gun battery ONLY, and
+    // traverse is NEVER derived from gun count.
+    //
+    // [DRAFT] deg — half-spread of the outermost mount bearings about the beam,
+    // indexed by BROADSIDE SPREAD copies held (index 0 = no cards). Read through
+    // EffectiveStats.broadside.mountSpreadRad, never indexed at a call site.
+    // Non-increasing by pin; same length as `traverseDeg` by pin.
+    turretMountSpreadDeg: [28, 25, 22.5, 15, 6],
     // [DRAFT] deg — each turret's TRAVERSE half-angle about its own mount,
     // indexed by BROADSIDE SPREAD copies held (index 0 = no cards, index 4 =
-    // the ×4 cap). The card WIDENS every gun's arc (+6°/card), so more guns
-    // can swing onto a given click and full convergence becomes reachable at
-    // closer ranges (386 → 183 → 118 → 86 → 66u, abeam). Read through
+    // the ×4 cap). Non-decreasing by pin. Read through
     // EffectiveStats.broadside.traverseRad, never indexed at a call site.
-    traverseDeg: [33.5, 39.5, 45.5, 51.5, 57.5],
+    traverseDeg: [6, 7, 7.5, 9, 14],
   },
 
   /**
@@ -1597,7 +1612,11 @@ export const CONFIG = {
    * a human captain = `killLevels`, a drone = its size tier below.
    *
    * DAMAGE GRANTS ZERO XP. There is deliberately no damage-XP entry here and
-   * no damage-XP path in the sim — dealing damage is not progression.
+   * no damage-XP path in the sim — dealing damage is not progression. The
+   * assist split below does NOT contradict that: damage decides how a KILL's
+   * value is DIVIDED, never how much value exists. A damage->XP rule was
+   * measured at 1/100, 1/300 and 1/1000 and REJECTED at every rate (2026-08-22
+   * evidence pass); do not reintroduce it as "a small amount would be fine".
    *
    * `droneTierLevels` is keyed by DRONE HULL ID (the victim's `cls`), and IS
    * the PvE fleet-tier hook the later fleets epic reuses verbatim: ¼ / ½ / ¾
@@ -1606,6 +1625,66 @@ export const CONFIG = {
   xp: {
     levelMs: 60000, // ms of match time per level (passive tick ≈ 1 level/minute)
     killLevels: 1, // levels' worth of XP for sinking a human captain
+    /**
+     * THE ASSIST SPLIT — the ONE dial (Eric ruling 2026-08-23, answer A1).
+     *
+     * A sinking hull's kill value becomes a POT: `killerShare` of it is
+     * guaranteed to the killer, and the remainder is divided among everyone
+     * who damaged that hull, PROPORTIONALLY TO THE DAMAGE THEY DEALT — the
+     * killer included, since they dealt damage too, so a solo kill still pays
+     * the full value and the split only ever moves value to people who
+     * actually contributed.
+     *
+     * THE MODEL IS A PER-ATTACKER ROLLING COUNTER, in Eric's own words: *"as
+     * long as i continue putting damage on the ship within 60s, it tracks all
+     * the damage i have done. If that 60s window expires, then it stops
+     * tracking my damage. When the ship is sunk, the xp reward is split
+     * proportionally to everyone who still had an active counter at that
+     * time."* ONE number is the whole rule — the per-attacker restart gap, the
+     * eligibility window at the sink, and the on-switch are the same 60 s, so
+     * "these must move together" is STRUCTURAL rather than a comment. A second
+     * `assistEncounterGapMs` dial was measured and deliberately does not ship:
+     * when gap = window it is provably redundant (if every attacker is silent
+     * for the window, every counter has individually expired, which IS the
+     * encounter-lapse case).
+     *
+     * WHY 60 s AND NOT 30. It clears every weapon cycle with room — gun 5 s,
+     * mine 15 s, broadside 18 s, star shells 20 s, torpedo 30 s — where Eric's
+     * first-ruled 30 s left the torpedo exactly at the boundary. It also lets a
+     * disengage-and-return read as ONE encounter. Measured (n=91, shared seeds)
+     * it is the best class balance anywhere in the 2026-08-22/23 corpus: BS
+     * 36.3 / ML 30.8 / TB 33.0, spread 5.5 pp against an 11.7 pp baseline. That
+     * spread is NOT established as significant at n=91 — see the story evidence
+     * before leaning on it.
+     *
+     * Damage is counted CLAMPED to the hp the hull could actually absorb (Eric
+     * 2026-08-22: *"if i do 50 damage to someone with 1 HP left, i get 1 damage
+     * worth of XP"*), so overkill inflates nobody's share. Fleet hulls are
+     * excluded from the split entirely — they cannot accrue XP, so counting
+     * them would make their share EVAPORATE rather than redistribute. The storm
+     * never enters the ledger at all (applyStorm bypasses the damage-credit
+     * seam), which is what makes "a hull burning alone is not in a fight"
+     * structural.
+     *
+     * 0 IS A REACHABLE OFF CONFIGURATION, not dead code: it restores
+     * last-hit-takes-all byte-identically (no ledger written, no share
+     * computed) so the batch-sim harness can measure an OFF arm via
+     * `--set xp.assistWindowMs=0`.
+     */
+    assistWindowMs: 60000,
+    /**
+     * Fraction of the kill value guaranteed to the KILLER before the rest is
+     * split by damage. Only consumed when `assistWindowMs > 0`.
+     *
+     * IT IS PAYMENT FOR THE RISK OF CLOSING — the killer had to come within
+     * reach to finish the hull, and that is worth something the softening work
+     * is not. Which is exactly why a STORM kill leaves it unpaid: nobody took
+     * the risk, so nobody collects it (the remainder still splits normally).
+     *
+     * The killer then ALSO takes a proportional share of the remainder, so a
+     * solo kill still pays the full value.
+     */
+    killerShare: 0.1,
     // RAISED 2026-08-16 (Eric ruling, epic-6 amendment 24): ¼ / ⅓ / ½ → ¼ / ½ / ¾.
     // Every tier is now a DYADIC rational, so any integer fleet composition is
     // exactly representable — which is why fleetLevels()'s old exact-total pin
@@ -1663,6 +1742,10 @@ export const CONFIG = {
    * at 5 hp/s, never 5s at 10 hp/s. Amounts are FLAT on every hull — no
    * maxHp scaling, no upgrade scaling, no class variation. Every number is a
    * DESIGN TARGET, tunable.
+   *
+   * The `levelMissingPct` / `levelRegenMs` pair below is a SECOND, FREE channel
+   * (the per-level auto-heal, 2026-08-23) with its own pool and its own rate.
+   * The spend above is untouched by it in every respect.
    */
   damageControl: {
     // BALANCE CYCLE 1 (Eric ruling 2026-08-20): both 25 → 50, DOUBLED IN STEP
@@ -1675,6 +1758,51 @@ export const CONFIG = {
     instantHp: 50, // hp restored immediately at spend time (clamped to maxHp)
     regenHp: 50, // hp added to the regen pool per heal spend
     regenMs: 5000, // ms — payout time of one regenHp pool (the 5 hp/s rate)
+    /**
+     * THE PER-LEVEL AUTO-HEAL (Eric ruling 2026-08-23) — the fraction of
+     * MISSING hull restored automatically, FOR FREE, each time a level is
+     * EARNED. It sits IN ADDITION TO the paid heal above, which is untouched.
+     *
+     * WHY IN ADDITION AND NOT INSTEAD. Eric likes the heal being a strategic
+     * decision; what feels bad is the SHARE of levels it eats — measured at
+     * 58.7 % of every level earned going to `HEAL_CHOICE` rather than an
+     * upgrade, a ratio that holds at ~50-59 % across every XP rate tested,
+     * because volume scales cards and heals together. Replacing the menu heal
+     * would delete the decision he wants kept; layering a free trickle under it
+     * pays for routine chip damage out of progression instead of out of the
+     * card budget. Measured with the assist split: cards/bot 3.33 → 3.59.
+     *
+     * WHY A FRACTION OF MISSING RATHER THAN A FLAT AMOUNT. A flat heal is worth
+     * the same at 90 % hp as at 5 %, and a different fraction of every hull —
+     * which is why balance cycle 1 had to double `damageControl` in step with
+     * hull HP. A missing-hull term is worth most when nearly dead, and NEEDS NO
+     * REPRICING WHEN HULL HP NEXT MOVES.
+     *
+     * It pays NOTHING to a full hull (10 % of zero missing is zero, and no heal
+     * cue fires), nothing to a sinking or sunk hull, and nothing to a fleet
+     * hull. It is tied to LEVELLING, not to a clock — Eric has ruled against a
+     * cooldown-paced global heal repeatedly, and healing paced by the economy
+     * is a different thing.
+     *
+     * 0 IS A REACHABLE OFF CONFIGURATION, not dead code: the harness measures
+     * an OFF arm via `--set damageControl.levelMissingPct=0`.
+     */
+    levelMissingPct: 0.1,
+    /**
+     * ms — payout time of the free per-level pool. It has its OWN pool and its
+     * OWN rate: `levelRepairHp / levelRegenMs`, recomputed on each grant, so
+     * the pool empties exactly one window after the most recent level.
+     *
+     * DELIVERY IS BY DURATION, which is a deliberate departure from the
+     * anti-flask rule ("pools ADD, the RATE never changes") and is CONFINED TO
+     * THIS FREE CHANNEL — the paid menu pool keeps its fixed regenHp/regenMs
+     * rate, byte-identical and pinned. A fixed hp/s cannot deliver a variable
+     * amount in a fixed time, and Eric ruled the duration ("over 5 seconds")
+     * knowingly against the shared pool's rate. Two rates cannot live in one
+     * pool, which is why this channel exists at all: the free trickle must be
+     * out-damageable while the paid heal answers an emergency.
+     */
+    levelRegenMs: 5000,
   },
 
   /**

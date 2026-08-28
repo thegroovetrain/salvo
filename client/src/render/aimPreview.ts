@@ -85,12 +85,20 @@ export interface AimPreviewInput {
   gunReachU?: number;
 }
 
-/** One travel line, already island-clipped (except where the shot overflies). */
+/** One travel line, already island-clipped (except where the shot overflies).
+ *
+ *  `clamped` marks a BROADSIDE shell whose turret could not bear on the click
+ *  and is firing at its own arc LIMIT instead (Eric ruling 2026-08-27, ruling
+ *  4). Under the zero-overlap ladder that is the common case at low SPREAD
+ *  rungs, so the preview must say which shells are actually going where the
+ *  player pointed. Absent/false everywhere else — no other system has the
+ *  distinction. */
 export interface PreviewLine {
   x1: number;
   y1: number;
   x2: number;
   y2: number;
+  clamped?: boolean;
 }
 
 /** A circle at the TRUE burst point. `blocked` = an island stops the shot short
@@ -107,6 +115,8 @@ export interface PreviewBurst {
   r: number;
   blocked: boolean;
   effect: boolean;
+  /** See PreviewLine.clamped — the arc-limit half of a broadside barrage. */
+  clamped?: boolean;
 }
 
 /**
@@ -209,9 +219,10 @@ function shellPreview(
   target: Vec2,
   spec: BurstSpec,
   into: AimPreviewModel,
+  clamped = false,
 ): void {
   const clip = clipAtIslands(origin, target, inp.islands);
-  into.lines.push({ x1: origin.x, y1: origin.y, x2: clip.point.x, y2: clip.point.y });
+  into.lines.push({ x1: origin.x, y1: origin.y, x2: clip.point.x, y2: clip.point.y, clamped });
   if (spec.burstRadius <= 0) return;
   // A muzzle already outside the rim is the same promise-breaker an island
   // is — the shell never reaches the point — so it earns the same dim tell
@@ -223,6 +234,7 @@ function shellPreview(
     r: spec.burstRadius,
     blocked,
     effect: spec.effect === true,
+    clamped,
   });
 }
 
@@ -300,9 +312,20 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
   // turretAimPoints — the SAME call the server's broadsideAim makes, so there
   // is one answer and not two: an arc-limit shot swung past the rim is pulled
   // back exactly as the click itself was.
-  for (const t of turretAimPoints(inp.ship, inp.ship.cls, b.turrets, side, click, b.traverseRad, inp.mapRadius)) {
-    shellPreview(inp, t.muzzle, t.target, spec, model);
-  }
+  const aims = turretAimPoints(
+    inp.ship,
+    inp.ship.cls,
+    b.turrets,
+    side,
+    click,
+    b.traverseRad,
+    b.mountSpreadRad,
+    inp.mapRadius,
+  );
+  // `!onClick` is the CLAMPED tell (ruling 4): that turret could not bear and is
+  // firing at its arc limit. Under the zero-overlap ladder most of a low-rung
+  // barrage is clamped, so the distinction is the aiming conversation itself.
+  for (const t of aims) shellPreview(inp, t.muzzle, t.target, spec, model, !t.onClick);
   return model;
 }
 
@@ -501,21 +524,37 @@ export class AimPreview {
   update(model: AimPreviewModel, tint: number): void {
     const g = this.g;
     g.clear();
-    for (const l of model.lines) {
-      g.moveTo(l.x1, l.y1).lineTo(l.x2, l.y2);
-    }
-    if (model.lines.length > 0) g.stroke({ width: P.lineWidth, color: tint, alpha: P.lineAlpha });
+    // TWO STROKE PASSES, because Pixi takes one alpha per stroke() and a
+    // CLAMPED shell must read quieter than one that is going where you pointed
+    // (ruling 4). Non-broadside models carry no `clamped` flag at all, so their
+    // second pass is empty and their draw is byte-identical to before.
+    this.strokeLines(model.lines, tint, false, P.lineAlpha);
+    this.strokeLines(model.lines, tint, true, P.lineAlpha * P.clampedAlphaScale);
     if (model.band) this.drawBand(model.band, tint);
     for (const b of model.bursts) this.drawBurst(b, tint);
     if (model.place) this.drawPlacement(model.place, tint);
   }
 
+  /** One alpha's worth of travel lines: every line whose `clamped` flag matches. */
+  private strokeLines(lines: readonly PreviewLine[], tint: number, clamped: boolean, alpha: number): void {
+    let any = false;
+    for (const l of lines) {
+      if ((l.clamped === true) !== clamped) continue;
+      this.g.moveTo(l.x1, l.y1).lineTo(l.x2, l.y2);
+      any = true;
+    }
+    if (any) this.g.stroke({ width: P.lineWidth, color: tint, alpha });
+  }
+
   /** The blast circle at the burst point: hairline ring + a whisper of fill.
    *  A blocked path drops the whole thing to `blockedAlpha` — the shot does not
-   *  get there, and the circle must not claim it will. */
+   *  get there, and the circle must not claim it will. A CLAMPED broadside
+   *  shell keeps its full geometry (it really does burst there) but scales down
+   *  to say "this gun could not reach your click". */
   private drawBurst(b: PreviewBurst, tint: number): void {
-    const lit = b.blocked ? P.blockedAlpha : b.effect ? P.effectAlpha : P.burstAlpha;
-    const fill = b.blocked ? 0 : b.effect ? P.effectFillAlpha : P.burstFillAlpha;
+    const scale = b.clamped === true ? P.clampedAlphaScale : 1;
+    const lit = (b.blocked ? P.blockedAlpha : b.effect ? P.effectAlpha : P.burstAlpha) * scale;
+    const fill = (b.blocked ? 0 : b.effect ? P.effectFillAlpha : P.burstFillAlpha) * scale;
     this.g.circle(b.x, b.y, b.r).fill({ color: tint, alpha: fill });
     this.g.circle(b.x, b.y, b.r).stroke({ width: P.burstWidth, color: tint, alpha: lit });
   }

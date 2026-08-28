@@ -152,9 +152,22 @@ const degToRad = (d: number): number => (d * Math.PI) / 180;
  * THE BROADSIDE TURRETS' MOUNT BEARINGS (Eric ruling 2026-08-20) — each turret
  * owns a FIRING ARC of its own: this mount bearing ± the traverse half-angle
  * (`EffectiveStats.broadside.traverseRad`). The mounts are straddled across
- * ±`CONFIG.broadside.turretMountSpreadDeg` about the firing beam by the SAME
- * straddle law that spaces the muzzles, so together the battery covers the
- * whole ±60° sector while each gun stays individually narrow.
+ * ±`mountSpreadRad` about the firing beam by the SAME straddle law that spaces
+ * the muzzles.
+ *
+ * `mountSpreadRad` is a PARAMETER, not a CONFIG read (Eric ruling 2026-08-27):
+ * the SPREAD card climbs a mount ladder as well as a traverse ladder, so the
+ * spread is per-rung and reaches here through `EffectiveStats.broadside.
+ * mountSpreadRad` — the effectiveStats() firewall, never a second derivation.
+ *
+ * COVERAGE IS NO LONGER GUARANTEED, AND THAT IS THE DESIGN. The cycle-114 pin
+ * `mountSpread + base traverse ≥ arcHalfArcDeg` is now TIER-DEPENDENT and
+ * deliberately FALSE at low rungs: at tier I the arcs leave clear DEAD GAPS
+ * inside the legal ±60° sector. A click in a gap is still legal and still
+ * fires — every gun that cannot bear swings to its arc LIMIT at the click's
+ * range (`turretAimPoints`, code path unchanged), which is exactly Eric's
+ * *"inaccurate shotgun that gradually gets better"*. Only the bow/stern dead
+ * zone outside both beams denies.
  *
  * INDEX-PAIRED WITH `turretMuzzles`, AND UNCROSSED — the bow-most muzzle gets
  * the bow-most mount. The pairing falls out of one sign identity: muzzle `i`
@@ -169,11 +182,24 @@ const degToRad = (d: number): number => (d * Math.PI) / 180;
  *
  * The mount spread is FIXED as `count` grows (the turretSpanFactor rule
  * applied to bearings): extra turrets densify the same covered sector, so
- * more guns bear on any given click — never a wider battery.
+ * more guns bear on any given click — never a wider battery. Under the
+ * 2026-08-27 ladder that densification can make adjacent wedges TOUCH at low
+ * rungs (6 guns at ±6° traverse leave an 11.2° gap); Eric ACCEPTED that, and
+ * traverse is never derived from `count` to compensate.
  */
-export function turretMountBearings(heading: number, count: number, side: 1 | -1): number[] {
+export function turretMountBearings(
+  heading: number,
+  count: number,
+  side: 1 | -1,
+  mountSpreadRad: number,
+): number[] {
   const n = Math.max(0, Math.floor(count));
-  const spread = degToRad(CONFIG.broadside.turretMountSpreadDeg);
+  // A NEGATIVE spread reverses the straddle and CROSSES the pairing — the
+  // bow-most muzzle would take the stern-most arc, silently inverting the
+  // parallax mechanism above. Unreachable through effectiveStats (the ladder is
+  // authored positive) but reachable through the batchsim's per-index --set
+  // overrides, so it is clamped rather than trusted.
+  const spread = Math.max(0, mountSpreadRad);
   const step = n > 1 ? (2 * spread) / (n - 1) : 0;
   const beam = heading + side * degToRad(CONFIG.broadside.arcOffsetDeg);
   return straddleOffsets(n, step).map((m) => beam + m);
@@ -205,7 +231,9 @@ export interface TurretAim {
  * differ by ~atan(hullOffset/R), so a distant click can sit in every arc at
  * once while a close one overshoots them all, which is exactly Eric's
  * "convergence is very rare without upgrades and aiming close to max range".
- * BROADSIDE SPREAD widens `traverseRad`, bringing more guns onto a click.
+ * BROADSIDE SPREAD widens `traverseRad` AND narrows `mountSpreadRad` together,
+ * bringing more guns onto a click at every range and, at the cap, the whole
+ * battery onto an abeam one.
  *
  * `click` MUST arrive already range- and map-clamped (`burstPointAlong`) —
  * both callers do exactly that. A clamped limit shot takes the same
@@ -215,9 +243,14 @@ export interface TurretAim {
  * is a no-op on it. It is a FUNCTION rather than two agreeing call sites
  * because the previewed circle IS where the shell bursts: the server's
  * `broadsideAim` and the client's `broadsidePreview` both call this and
- * cannot diverge. COVERAGE GUARANTEE (pinned in aim.test.ts): mountSpread +
- * base traverse ≥ the ±60° sector, so any legal click beyond point-blank
- * water has at least one gun ON it.
+ * cannot diverge.
+ *
+ * THERE IS NO COVERAGE GUARANTEE ANY MORE (Eric ruling 2026-08-24, superseding
+ * the cycle-114 pin `mountSpread + base traverse ≥ arcHalfArcDeg`): at low
+ * SPREAD rungs the wedges leave DEAD GAPS and a legal click can have ZERO guns
+ * on it, every turret firing at its own arc limit instead. That shotgun pattern
+ * IS the ruling. The per-rung overlap SCHEDULE that replaces the old pin lives
+ * in CONFIG.broadside's comment and is pinned in aim.test.ts.
  *
  * Degenerate click on a muzzle: distance 0 — the shell "flies" nowhere and
  * bursts at the click; onClick by construction.
@@ -229,9 +262,10 @@ export function turretAimPoints(
   side: 1 | -1,
   click: Vec2,
   traverseRad: number,
+  mountSpreadRad: number,
   mapRadius: number,
 ): TurretAim[] {
-  const mounts = turretMountBearings(pose.heading, count, side);
+  const mounts = turretMountBearings(pose.heading, count, side, mountSpreadRad);
   return turretMuzzles(pose, hullId, count, side).map((muzzle, i) => {
     const dx = click.x - muzzle.x;
     const dy = click.y - muzzle.y;

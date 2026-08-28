@@ -92,6 +92,12 @@ describe('broadside — server loadout + barrage construction', () => {
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(bb.stats.broadside.rangeU).toBeCloseTo(RUNG_5_8, 9);
     expect(bb.stats.broadside.rangeU).toBeLessThan(bb.stats.gun.rangeU); // the FIRST short-reach weapon
+    // Measured at the ×4 SPREAD cap, where every gun bears and so every shell
+    // lands on the clamped CLICK itself. At base (2026-08-27's zero-overlap
+    // ladder) the shells sit at per-gun arc limits, whose distance from the ship
+    // CENTRE is a parallax artefact rather than the weapon's reach — the reach
+    // is the click, and this is where the click shows.
+    for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
     setInput(bb, { aim: ABEAM, aimDist: 1200, slot: SLOT_BROADSIDE });
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     for (const p of polar(w, { x: 0, y: 0 })) expect(p.range).toBeCloseTo(RUNG_5_8, 6);
@@ -172,13 +178,14 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
   it('every turret that BEARS fires EXACTLY at the click — a lined-up salvo fully converges', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    // Near max reach, dead abeam: the parallax between muzzle bearings is small
-    // enough that every turret's own arc contains the click. 410u rather than
-    // 400u since Eric's 2026-08-20 retune pushed the base convergence threshold
-    // ~303u → ~386u — the point of that ruling was to make this shot rarer, so
-    // the test has to stand further out to find it.
-    setInput(bb, { aim: ABEAM, aimDist: 410, slot: SLOT_BROADSIDE });
-    const click = burstPointAlong(bb.state, 410, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    // THE TOP-RUNG PAYOFF (Eric ruling 2026-08-27). Under the zero-overlap
+    // ladder the BASE battery converges at NO range at all — the mounts sit
+    // ±28°/±9.33° off the beam under only ±6° of traverse. Full convergence is
+    // now what the ×4 SPREAD stack BUYS: mounts in to ±6°, arcs out to ±14°, so
+    // an abeam click past ~265u sits inside every one of them.
+    for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
+    setInput(bb, { aim: ABEAM, aimDist: 350, slot: SLOT_BROADSIDE });
+    const click = burstPointAlong(bb.state, 350, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     const targets = [...w.shells.values()].map((s) => ({ x: s.targetX!, y: s.targetY! }));
     expect(targets).toHaveLength(CONFIG.broadside.turrets);
@@ -191,13 +198,15 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
   it('a turret that CANNOT bear fires at its arc LIMIT, still at the click\'s range from its muzzle', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    // Close abeam: parallax swings the outer turrets' muzzle→click bearings
-    // outside their own arcs, so only the midship gun is on the click.
+    // THE ZERO-OVERLAP CASE (Eric ruling 2026-08-24). A dead-abeam click at the
+    // base rung falls in the GAP between the two inner wedges — the four mounts
+    // sit ±28°/±9.33° off the beam with only ±6° of traverse each — so NO gun
+    // bears and the whole barrage is arc-limited. That is the "inaccurate
+    // shotgun" the ruling asks for; the click is legal and is never denied.
     setInput(bb, { aim: ABEAM, aimDist: 150, slot: SLOT_BROADSIDE });
     const click = burstPointAlong(bb.state, 150, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
     const aim = broadsideAim(bb, 1, w.map.radius);
-    expect(aim.filter((t) => t.onClick)).toHaveLength(2);
-    expect(aim[1].onClick).toBe(true); // the midship gun
+    expect(aim.filter((t) => t.onClick)).toHaveLength(0);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     const fired = [...w.shells.values()];
     expect(fired).toHaveLength(aim.length);
@@ -214,44 +223,40 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
     });
   });
 
-  it('CONVERGENCE IS RARE AT BASE: all guns near max range, the midship gun alone at mid range', () => {
-    const onClick = (aimDist: number): number => {
+  it('ZERO OVERLAP AT BASE: an abeam click puts NO gun on it, at any range', () => {
+    const onClick = (aimDist: number, spread = 0): number => {
       const w = bareWorld();
       const bb = place(w, 'a', 'battleship', 0, 0);
+      for (let i = 0; i < spread; i += 1) w.applyBoon(bb, 'broadsideSpread');
       setInput(bb, { aim: ABEAM, aimDist, slot: SLOT_BROADSIDE });
       return broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick).length;
     };
-    // RETUNED on Eric's playtest 2026-08-20 (*"the convergence is slightly too
-    // high at level 1"*): the base threshold moved ~303u → ~386u, so a lined-up
-    // salvo converges only in the outermost ~6% of the weapon's 412.5u reach.
-    //
-    // BALANCE CYCLE 1 PARTLY WORKS AGAINST THAT RULING, AND IT NEEDS AN ERIC
-    // DECISION. Going 3 → 4 turrets made the count EVEN, so the mounts straddle
-    // the beam (±28° spread) instead of seating one gun ON it. Two inner guns
-    // now bear where one did, so off-convergence range holds 2 shells rather
-    // than 1: point damage at mid range goes 1×20 = 20 → 2×15 = 30, UP 50 %,
-    // even though total barrage alpha is unchanged at 60. The 360-match arm
-    // measured the change as balance-NEUTRAL on win share, so this is a FEEL
-    // question — but it is the opposite direction to the playtest ruling above,
-    // and it is recorded here rather than absorbed into a re-pinned number.
-    expect(onClick(410)).toBe(CONFIG.broadside.turrets); // the lined-up long shot
-    expect(onClick(350)).toBe(2); // was 1 at 3 turrets — see the note above
-    expect(onClick(250)).toBe(2); // mid range: the two inner arcs bear
-    expect(onClick(100)).toBe(2); // close: still 2, never the whole battery
+    // ERIC RULING 2026-08-24, superseding the cycle-115 playtest retune this
+    // test used to carry (and closing the balance-cycle-1 "two inner guns bear
+    // where one did" note with it — nothing bears now). The base battery is an
+    // INACCURATE SHOTGUN: mounts ±28°/±9.33° off the beam, ±6° of traverse
+    // each, so a dead-abeam click is in a dead gap at EVERY range and the
+    // barrage lands as a wide pattern instead of a point strike.
+    for (const r of [100, 250, 350, 410]) expect(onClick(r), `r=${r}`).toBe(0);
+    // …and the SPREAD ladder is what buys convergence back, from ~265u out.
+    expect(onClick(350, 4)).toBe(CONFIG.broadside.turrets);
+    expect(onClick(100, 4)).toBeLessThan(CONFIG.broadside.turrets); // never up close
   });
 
-  it('BROADSIDE SPREAD widens every turret\'s arc: MORE guns land ON the same click', () => {
+  it('BROADSIDE SPREAD moves BOTH arc ladders: wider arcs, mounts swung inward', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     const baseTraverse = bb.stats.broadside.traverseRad;
-    setInput(bb, { aim: ABEAM, aimDist: 150, slot: SLOT_BROADSIDE });
-    expect(broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick)).toHaveLength(2);
+    const baseMounts = bb.stats.broadside.mountSpreadRad;
+    setInput(bb, { aim: ABEAM, aimDist: 350, slot: SLOT_BROADSIDE });
+    expect(broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick)).toHaveLength(0);
     for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
-    expect(bb.stats.broadside.traverseRad).toBeGreaterThan(baseTraverse); // the card WIDENS
-    // The same click is now inside every turret's widened arc.
+    expect(bb.stats.broadside.traverseRad).toBeGreaterThan(baseTraverse); // arcs WIDEN…
+    expect(bb.stats.broadside.mountSpreadRad).toBeLessThan(baseMounts); // …mounts swing IN
+    // The same click is now inside every turret's arc.
     expect(broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick)).toHaveLength(CONFIG.broadside.turrets);
     // …and the fired shells all land exactly there.
-    const click = burstPointAlong(bb.state, 150, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    const click = burstPointAlong(bb.state, 350, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     for (const s of w.shells.values()) {
       expect(s.targetX!).toBeCloseTo(click.x, 9);
@@ -269,9 +274,12 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
     const aim = broadsideAim(bb, 1, w.map.radius);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     expect(w.shells.size).toBe(6);
-    // Denser mounts on the SAME covered sector: more guns bear on this click
-    // than the base battery's one (the whole point of an extra turret).
-    expect(aim.filter((t) => t.onClick).length).toBeGreaterThan(1);
+    // Denser mounts on the SAME covered sector (ruling 3, ACCEPTED): an ODD
+    // count seats one gun dead ON the beam with zero parallax, so at 6 the
+    // wedges pack tighter and the extra guns each get their own arc — never a
+    // wider battery, and no zero-overlap claim is made above the base count.
+    expect(aim).toHaveLength(6);
+    expect(new Set(aim.map((t) => `${t.muzzle.x.toFixed(6)},${t.muzzle.y.toFixed(6)}`)).size).toBe(6);
   });
 
   it('the fire path and broadsideAim agree exactly — ONE geometry, not two', () => {
@@ -490,8 +498,11 @@ describe('broadside — limit shots are clamped to the water disk (ONE shared an
       const brg = Math.atan2(s.targetY! - aim[i].muzzle.y, s.targetX! - aim[i].muzzle.x);
       expect(Math.abs(angleDiff(brg, Math.atan2(s.vy, s.vx)))).toBeLessThan(1e-9);
     });
-    // Coverage holds even pressed against the boundary: one gun is ON the click.
-    expect(aim.some((t) => t.onClick)).toBe(true);
+    // The clamp REALLY bit here — limit shots exist, which is the case under
+    // test. (The old "coverage holds: one gun is ON the click" assertion is
+    // RETIRED with the coverage guarantee itself, Eric 2026-08-24: at the base
+    // rung the arcs leave dead gaps and no gun need bear on any given click.)
+    expect(aim.some((t) => !t.onClick)).toBe(true);
   });
 });
 
@@ -591,15 +602,15 @@ describe('broadside - every shell fires from its OWN turret', () => {
   it('THE BEARING GUN\'S SHOT STILL LANDS EXACTLY ON THE CLICK, from its own turret', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
-    const click = burstPointAlong(bb.state, 300, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
-    // ERIC'S PROMISE HOLDS, VIA A DIFFERENT GUN. At 3 turrets the count was ODD,
-    // so one gun sat exactly ON the beam and was the shell that hit the click.
-    // Balance cycle 1 made it EVEN (4), so the mounts STRADDLE the beam and no
-    // gun sits on it — instead the two INNER guns both bear and both fire
-    // exactly at the click. *"One shell will absolutely hit at the target
-    // point"* is therefore still true (two do); what changed is which turret
-    // delivers it, and that a straddled pair replaces a single centre gun.
+    // READ AT THE ×4 SPREAD CAP since 2026-08-27. Eric's *"one shell will
+    // absolutely hit at the target point"* is RETIRED as a base-rung promise
+    // (2026-08-24: zero overlap, dead gaps, an inaccurate shotgun) — what
+    // survives, and what this test now pins, is that a gun which DOES bear
+    // fires exactly at the click FROM ITS OWN TURRET. At 150u the pair that
+    // bears is the INNER pair, straddling amidships.
+    for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
+    setInput(bb, { aim: ABEAM, aimDist: 150, slot: SLOT_BROADSIDE });
+    const click = burstPointAlong(bb.state, 150, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
     const aim = broadsideAim(bb, 1, w.map.radius);
     const bearing = aim.filter((t) => t.onClick);
     expect(bearing).toHaveLength(2);
@@ -616,9 +627,9 @@ describe('broadside - every shell fires from its OWN turret', () => {
     for (const t of bearing) {
       expect(t.muzzle.y).toBeCloseTo(CONFIG.shipClasses.battleship.hull.beam / 2, 9);
     }
-    // ...and end to end, a shell's fall of shot lands ON the clicked point.
-    // Eric: "One shell will *absolutely* hit at the target point."
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    // ...and end to end, a bearing shell's fall of shot lands ON the clicked
+    // point — the promise, at the rung that now carries it.
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 150, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     const splashes: { x: number; y: number }[] = [];
     for (let i = 0; i < 60 && splashes.length === 0; i += 1) {
       w.step();

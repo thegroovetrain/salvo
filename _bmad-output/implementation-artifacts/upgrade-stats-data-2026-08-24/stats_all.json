@@ -1,0 +1,7967 @@
+{
+ "ok": true,
+ "matches": {
+  "mixed": {
+   "matches": 1000,
+   "resolved": 1000,
+   "draws": 0
+  },
+  "monoBS": {
+   "matches": 500,
+   "resolved": 500,
+   "draws": 0
+  },
+  "monoML": {
+   "matches": 500,
+   "resolved": 500,
+   "draws": 0
+  },
+  "monoTB": {
+   "matches": 499,
+   "resolved": 499,
+   "draws": 0
+  }
+ },
+ "scopes": {
+  "mixed": {
+   "bots": 20000,
+   "poolWinrate": 0.05,
+   "poolAvgKills": 0.87,
+   "poolAvgLifeS": 432.3,
+   "cards": {
+    "acquireBoost": {
+     "builds": 1298,
+     "wins": 143,
+     "winrate": 0.1102,
+     "ci95": [
+      0.0943,
+      0.1284
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.925,
+     "expWins": 154.55,
+     "avgPlacement": 7.79,
+     "placeDist": {
+      "1": 143,
+      "2": 112,
+      "3": 107,
+      "4-5": 188,
+      "6-10": 355,
+      "11-20": 393
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.17,
+     "avgFirstTimeS": 215.1,
+     "picksTotal": 1298,
+     "offered": 12105,
+     "pickThrough": 0.107,
+     "avgKills": 1.5,
+     "avgDamage": 1680.3,
+     "avgLifeS": 535.2
+    },
+    "acquireBroadside": {
+     "builds": 1081,
+     "wins": 137,
+     "winrate": 0.1267,
+     "ci95": [
+      0.1082,
+      0.1479
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.257,
+     "expWins": 109.0,
+     "avgPlacement": 7.23,
+     "placeDist": {
+      "1": 137,
+      "2": 115,
+      "3": 99,
+      "4-5": 156,
+      "6-10": 276,
+      "11-20": 298
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.71,
+     "avgFirstTimeS": 210.6,
+     "picksTotal": 1081,
+     "offered": 11048,
+     "pickThrough": 0.098,
+     "avgKills": 1.63,
+     "avgDamage": 1729.0,
+     "avgLifeS": 551.2
+    },
+    "acquireMine": {
+     "builds": 1223,
+     "wins": 168,
+     "winrate": 0.1374,
+     "ci95": [
+      0.1192,
+      0.1578
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.176,
+     "expWins": 142.91,
+     "avgPlacement": 7.73,
+     "placeDist": {
+      "1": 168,
+      "2": 101,
+      "3": 70,
+      "4-5": 160,
+      "6-10": 345,
+      "11-20": 379
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.11,
+     "avgFirstTimeS": 223.4,
+     "picksTotal": 1223,
+     "offered": 12145,
+     "pickThrough": 0.101,
+     "avgKills": 1.75,
+     "avgDamage": 1819.4,
+     "avgLifeS": 535.5
+    },
+    "acquireRadarBuoy": {
+     "builds": 1216,
+     "wins": 134,
+     "winrate": 0.1102,
+     "ci95": [
+      0.0938,
+      0.129
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.977,
+     "expWins": 137.2,
+     "avgPlacement": 7.94,
+     "placeDist": {
+      "1": 134,
+      "2": 104,
+      "3": 81,
+      "4-5": 166,
+      "6-10": 339,
+      "11-20": 392
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.97,
+     "avgFirstTimeS": 209.7,
+     "picksTotal": 1216,
+     "offered": 11966,
+     "pickThrough": 0.102,
+     "avgKills": 1.47,
+     "avgDamage": 1628.7,
+     "avgLifeS": 532.4
+    },
+    "acquireStarShells": {
+     "builds": 1084,
+     "wins": 54,
+     "winrate": 0.0498,
+     "ci95": [
+      0.0384,
+      0.0644
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.48,
+     "expWins": 112.61,
+     "avgPlacement": 8.9,
+     "placeDist": {
+      "1": 54,
+      "2": 75,
+      "3": 97,
+      "4-5": 125,
+      "6-10": 325,
+      "11-20": 408
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.76,
+     "avgFirstTimeS": 212.2,
+     "picksTotal": 1084,
+     "offered": 11039,
+     "pickThrough": 0.098,
+     "avgKills": 0.84,
+     "avgDamage": 1264.0,
+     "avgLifeS": 493.0
+    },
+    "acquireTorpedo": {
+     "builds": 1306,
+     "wins": 196,
+     "winrate": 0.1501,
+     "ci95": [
+      0.1317,
+      0.1705
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.242,
+     "expWins": 157.78,
+     "avgPlacement": 7.16,
+     "placeDist": {
+      "1": 196,
+      "2": 114,
+      "3": 120,
+      "4-5": 190,
+      "6-10": 336,
+      "11-20": 350
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.23,
+     "avgFirstTimeS": 216.1,
+     "picksTotal": 1306,
+     "offered": 11956,
+     "pickThrough": 0.109,
+     "avgKills": 1.76,
+     "avgDamage": 1834.1,
+     "avgLifeS": 557.9
+    },
+    "boostDuration": {
+     "builds": 2034,
+     "wins": 172,
+     "winrate": 0.0846,
+     "ci95": [
+      0.0732,
+      0.0975
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.653,
+     "expWins": 263.48,
+     "avgPlacement": 8.24,
+     "placeDist": {
+      "1": 172,
+      "2": 156,
+      "3": 158,
+      "4-5": 284,
+      "6-10": 585,
+      "11-20": 679
+     },
+     "avgCopies": 1.21,
+     "avgFirstOrdinal": 3.35,
+     "avgFirstTimeS": 244.2,
+     "picksTotal": 2462,
+     "offered": 25253,
+     "pickThrough": 0.097,
+     "avgKills": 1.1,
+     "avgDamage": 1418.6,
+     "avgLifeS": 515.9
+    },
+    "boostSpeed": {
+     "builds": 1226,
+     "wins": 112,
+     "winrate": 0.0914,
+     "ci95": [
+      0.0765,
+      0.1088
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.637,
+     "expWins": 175.71,
+     "avgPlacement": 8.04,
+     "placeDist": {
+      "1": 112,
+      "2": 97,
+      "3": 104,
+      "4-5": 166,
+      "6-10": 362,
+      "11-20": 385
+     },
+     "avgCopies": 1.08,
+     "avgFirstOrdinal": 3.66,
+     "avgFirstTimeS": 253.1,
+     "picksTotal": 1322,
+     "offered": 13901,
+     "pickThrough": 0.095,
+     "avgKills": 1.17,
+     "avgDamage": 1463.5,
+     "avgLifeS": 524.8
+    },
+    "broadsideSpread": {
+     "builds": 2829,
+     "wins": 564,
+     "winrate": 0.1994,
+     "ci95": [
+      0.1851,
+      0.2145
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.311,
+     "expWins": 430.28,
+     "avgPlacement": 6.46,
+     "placeDist": {
+      "1": 564,
+      "2": 295,
+      "3": 216,
+      "4-5": 422,
+      "6-10": 690,
+      "11-20": 642
+     },
+     "avgCopies": 1.32,
+     "avgFirstOrdinal": 3.91,
+     "avgFirstTimeS": 250.4,
+     "picksTotal": 3747,
+     "offered": 33723,
+     "pickThrough": 0.111,
+     "avgKills": 2.29,
+     "avgDamage": 2137.2,
+     "avgLifeS": 585.0
+    },
+    "broadsideTurrets": {
+     "builds": 1952,
+     "wins": 482,
+     "winrate": 0.2469,
+     "ci95": [
+      0.2283,
+      0.2665
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.393,
+     "expWins": 346.05,
+     "avgPlacement": 5.8,
+     "placeDist": {
+      "1": 482,
+      "2": 220,
+      "3": 176,
+      "4-5": 275,
+      "6-10": 415,
+      "11-20": 384
+     },
+     "avgCopies": 1.14,
+     "avgFirstOrdinal": 4.45,
+     "avgFirstTimeS": 270.0,
+     "picksTotal": 2216,
+     "offered": 20230,
+     "pickThrough": 0.11,
+     "avgKills": 2.68,
+     "avgDamage": 2281.2,
+     "avgLifeS": 607.6
+    },
+    "buoyDuration": {
+     "builds": 2141,
+     "wins": 181,
+     "winrate": 0.0845,
+     "ci95": [
+      0.0735,
+      0.0971
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.623,
+     "expWins": 290.35,
+     "avgPlacement": 8.1,
+     "placeDist": {
+      "1": 181,
+      "2": 174,
+      "3": 180,
+      "4-5": 306,
+      "6-10": 607,
+      "11-20": 693
+     },
+     "avgCopies": 1.21,
+     "avgFirstOrdinal": 3.51,
+     "avgFirstTimeS": 233.3,
+     "picksTotal": 2585,
+     "offered": 26502,
+     "pickThrough": 0.098,
+     "avgKills": 1.15,
+     "avgDamage": 1438.6,
+     "avgLifeS": 525.6
+    },
+    "buoyGun": {
+     "builds": 820,
+     "wins": 105,
+     "winrate": 0.128,
+     "ci95": [
+      0.1069,
+      0.1527
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.761,
+     "expWins": 137.96,
+     "avgPlacement": 7.12,
+     "placeDist": {
+      "1": 105,
+      "2": 87,
+      "3": 80,
+      "4-5": 114,
+      "6-10": 212,
+      "11-20": 222
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.25,
+     "avgFirstTimeS": 262.8,
+     "picksTotal": 820,
+     "offered": 8150,
+     "pickThrough": 0.101,
+     "avgKills": 1.41,
+     "avgDamage": 1704.9,
+     "avgLifeS": 566.8
+    },
+    "buoyJamming": {
+     "builds": 805,
+     "wins": 88,
+     "winrate": 0.1093,
+     "ci95": [
+      0.0896,
+      0.1328
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.654,
+     "expWins": 134.58,
+     "avgPlacement": 7.52,
+     "placeDist": {
+      "1": 88,
+      "2": 81,
+      "3": 82,
+      "4-5": 110,
+      "6-10": 214,
+      "11-20": 230
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.15,
+     "avgFirstTimeS": 260.2,
+     "picksTotal": 805,
+     "offered": 8350,
+     "pickThrough": 0.096,
+     "avgKills": 1.25,
+     "avgDamage": 1527.5,
+     "avgLifeS": 552.9
+    },
+    "gunBarrel": {
+     "builds": 3854,
+     "wins": 812,
+     "winrate": 0.2107,
+     "ci95": [
+      0.1981,
+      0.2239
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.736,
+     "expWins": 467.77,
+     "avgPlacement": 6.44,
+     "placeDist": {
+      "1": 812,
+      "2": 384,
+      "3": 324,
+      "4-5": 514,
+      "6-10": 960,
+      "11-20": 860
+     },
+     "avgCopies": 1.15,
+     "avgFirstOrdinal": 3.22,
+     "avgFirstTimeS": 223.8,
+     "picksTotal": 4422,
+     "offered": 43067,
+     "pickThrough": 0.103,
+     "avgKills": 2.27,
+     "avgDamage": 2074.5,
+     "avgLifeS": 579.5
+    },
+    "gunTurret": {
+     "builds": 2343,
+     "wins": 355,
+     "winrate": 0.1515,
+     "ci95": [
+      0.1376,
+      0.1666
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.917,
+     "expWins": 387.05,
+     "avgPlacement": 7.34,
+     "placeDist": {
+      "1": 355,
+      "2": 210,
+      "3": 181,
+      "4-5": 344,
+      "6-10": 590,
+      "11-20": 663
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.15,
+     "avgFirstTimeS": 264.2,
+     "picksTotal": 2343,
+     "offered": 23486,
+     "pickThrough": 0.1,
+     "avgKills": 1.7,
+     "avgDamage": 1778.9,
+     "avgLifeS": 552.6
+    },
+    "intelSweep": {
+     "builds": 6980,
+     "wins": 734,
+     "winrate": 0.1052,
+     "ci95": [
+      0.0982,
+      0.1126
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.88,
+     "expWins": 834.21,
+     "avgPlacement": 8.1,
+     "placeDist": {
+      "1": 734,
+      "2": 578,
+      "3": 519,
+      "4-5": 921,
+      "6-10": 1903,
+      "11-20": 2325
+     },
+     "avgCopies": 1.31,
+     "avgFirstOrdinal": 3.12,
+     "avgFirstTimeS": 216.1,
+     "picksTotal": 9140,
+     "offered": 88711,
+     "pickThrough": 0.103,
+     "avgKills": 1.39,
+     "avgDamage": 1593.8,
+     "avgLifeS": 522.8
+    },
+    "mineBlast": {
+     "builds": 2254,
+     "wins": 199,
+     "winrate": 0.0883,
+     "ci95": [
+      0.0773,
+      0.1007
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.667,
+     "expWins": 298.23,
+     "avgPlacement": 8.03,
+     "placeDist": {
+      "1": 199,
+      "2": 198,
+      "3": 180,
+      "4-5": 318,
+      "6-10": 639,
+      "11-20": 720
+     },
+     "avgCopies": 1.22,
+     "avgFirstOrdinal": 3.45,
+     "avgFirstTimeS": 234.3,
+     "picksTotal": 2750,
+     "offered": 26754,
+     "pickThrough": 0.103,
+     "avgKills": 1.19,
+     "avgDamage": 1479.8,
+     "avgLifeS": 528.4
+    },
+    "mineCaptive": {
+     "builds": 813,
+     "wins": 104,
+     "winrate": 0.1279,
+     "ci95": [
+      0.1067,
+      0.1526
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.784,
+     "expWins": 132.62,
+     "avgPlacement": 7.13,
+     "placeDist": {
+      "1": 104,
+      "2": 80,
+      "3": 70,
+      "4-5": 119,
+      "6-10": 237,
+      "11-20": 203
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.1,
+     "avgFirstTimeS": 249.7,
+     "picksTotal": 813,
+     "offered": 8278,
+     "pickThrough": 0.098,
+     "avgKills": 1.81,
+     "avgDamage": 1768.4,
+     "avgLifeS": 554.9
+    },
+    "minePropFouling": {
+     "builds": 771,
+     "wins": 80,
+     "winrate": 0.1038,
+     "ci95": [
+      0.0842,
+      0.1273
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.604,
+     "expWins": 132.35,
+     "avgPlacement": 7.19,
+     "placeDist": {
+      "1": 80,
+      "2": 70,
+      "3": 80,
+      "4-5": 136,
+      "6-10": 205,
+      "11-20": 200
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.31,
+     "avgFirstTimeS": 267.8,
+     "picksTotal": 771,
+     "offered": 8311,
+     "pickThrough": 0.093,
+     "avgKills": 1.42,
+     "avgDamage": 1636.3,
+     "avgLifeS": 564.7
+    },
+    "shipCooldown": {
+     "builds": 6910,
+     "wins": 809,
+     "winrate": 0.1171,
+     "ci95": [
+      0.1097,
+      0.1249
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.036,
+     "expWins": 780.86,
+     "avgPlacement": 7.88,
+     "placeDist": {
+      "1": 809,
+      "2": 575,
+      "3": 535,
+      "4-5": 952,
+      "6-10": 1850,
+      "11-20": 2189
+     },
+     "avgCopies": 1.32,
+     "avgFirstOrdinal": 2.99,
+     "avgFirstTimeS": 211.7,
+     "picksTotal": 9151,
+     "offered": 87717,
+     "pickThrough": 0.104,
+     "avgKills": 1.48,
+     "avgDamage": 1654.5,
+     "avgLifeS": 531.2
+    },
+    "shipHull": {
+     "builds": 5999,
+     "wins": 745,
+     "winrate": 0.1242,
+     "ci95": [
+      0.1161,
+      0.1328
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.989,
+     "expWins": 753.26,
+     "avgPlacement": 7.36,
+     "placeDist": {
+      "1": 745,
+      "2": 562,
+      "3": 520,
+      "4-5": 880,
+      "6-10": 1624,
+      "11-20": 1668
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 3.27,
+     "avgFirstTimeS": 223.0,
+     "picksTotal": 7580,
+     "offered": 73393,
+     "pickThrough": 0.103,
+     "avgKills": 1.53,
+     "avgDamage": 1700.7,
+     "avgLifeS": 554.1
+    },
+    "shipSpeed": {
+     "builds": 6128,
+     "wins": 710,
+     "winrate": 0.1159,
+     "ci95": [
+      0.1081,
+      0.1241
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.931,
+     "expWins": 762.5,
+     "avgPlacement": 7.71,
+     "placeDist": {
+      "1": 710,
+      "2": 555,
+      "3": 489,
+      "4-5": 837,
+      "6-10": 1687,
+      "11-20": 1850
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 3.24,
+     "avgFirstTimeS": 223.1,
+     "picksTotal": 7749,
+     "offered": 73572,
+     "pickThrough": 0.105,
+     "avgKills": 1.48,
+     "avgDamage": 1658.8,
+     "avgLifeS": 539.7
+    },
+    "starDazzle": {
+     "builds": 1129,
+     "wins": 280,
+     "winrate": 0.248,
+     "ci95": [
+      0.2237,
+      0.274
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.236,
+     "expWins": 226.56,
+     "avgPlacement": 5.6,
+     "placeDist": {
+      "1": 280,
+      "2": 134,
+      "3": 86,
+      "4-5": 174,
+      "6-10": 255,
+      "11-20": 200
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.89,
+     "avgFirstTimeS": 290.1,
+     "picksTotal": 1129,
+     "offered": 10132,
+     "pickThrough": 0.111,
+     "avgKills": 2.65,
+     "avgDamage": 2296.9,
+     "avgLifeS": 619.5
+    },
+    "starDuration": {
+     "builds": 2788,
+     "wins": 516,
+     "winrate": 0.1851,
+     "ci95": [
+      0.1711,
+      0.1999
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.203,
+     "expWins": 428.88,
+     "avgPlacement": 6.67,
+     "placeDist": {
+      "1": 516,
+      "2": 293,
+      "3": 218,
+      "4-5": 382,
+      "6-10": 697,
+      "11-20": 682
+     },
+     "avgCopies": 1.3,
+     "avgFirstOrdinal": 3.94,
+     "avgFirstTimeS": 248.0,
+     "picksTotal": 3632,
+     "offered": 32865,
+     "pickThrough": 0.111,
+     "avgKills": 2.18,
+     "avgDamage": 2064.3,
+     "avgLifeS": 574.3
+    },
+    "starIncendiary": {
+     "builds": 1151,
+     "wins": 326,
+     "winrate": 0.2832,
+     "ci95": [
+      0.258,
+      0.31
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.433,
+     "expWins": 227.53,
+     "avgPlacement": 5.66,
+     "placeDist": {
+      "1": 326,
+      "2": 118,
+      "3": 96,
+      "4-5": 136,
+      "6-10": 259,
+      "11-20": 216
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.85,
+     "avgFirstTimeS": 283.4,
+     "picksTotal": 1151,
+     "offered": 10105,
+     "pickThrough": 0.114,
+     "avgKills": 2.78,
+     "avgDamage": 2393.1,
+     "avgLifeS": 611.1
+    },
+    "torpedoHoming": {
+     "builds": 800,
+     "wins": 130,
+     "winrate": 0.1625,
+     "ci95": [
+      0.1386,
+      0.1897
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.926,
+     "expWins": 140.34,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 130,
+      "2": 62,
+      "3": 63,
+      "4-5": 111,
+      "6-10": 215,
+      "11-20": 219
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.33,
+     "avgFirstTimeS": 291.7,
+     "picksTotal": 800,
+     "offered": 8231,
+     "pickThrough": 0.097,
+     "avgKills": 1.58,
+     "avgDamage": 1664.7,
+     "avgLifeS": 551.3
+    },
+    "torpedoSpeed": {
+     "builds": 2027,
+     "wins": 203,
+     "winrate": 0.1001,
+     "ci95": [
+      0.0878,
+      0.114
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.727,
+     "expWins": 279.13,
+     "avgPlacement": 8.13,
+     "placeDist": {
+      "1": 203,
+      "2": 173,
+      "3": 149,
+      "4-5": 284,
+      "6-10": 544,
+      "11-20": 674
+     },
+     "avgCopies": 1.2,
+     "avgFirstOrdinal": 3.53,
+     "avgFirstTimeS": 247.6,
+     "picksTotal": 2436,
+     "offered": 25860,
+     "pickThrough": 0.094,
+     "avgKills": 1.21,
+     "avgDamage": 1484.0,
+     "avgLifeS": 524.0
+    },
+    "torpedoTube": {
+     "builds": 787,
+     "wins": 114,
+     "winrate": 0.1449,
+     "ci95": [
+      0.122,
+      0.1712
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.888,
+     "expWins": 128.35,
+     "avgPlacement": 7.37,
+     "placeDist": {
+      "1": 114,
+      "2": 71,
+      "3": 56,
+      "4-5": 110,
+      "6-10": 219,
+      "11-20": 217
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.07,
+     "avgFirstTimeS": 270.7,
+     "picksTotal": 787,
+     "offered": 8318,
+     "pickThrough": 0.095,
+     "avgKills": 1.49,
+     "avgDamage": 1631.8,
+     "avgLifeS": 545.6
+    }
+   }
+  },
+  "mixed/battleship": {
+   "bots": 6672,
+   "poolWinrate": 0.1037,
+   "poolAvgKills": 1.56,
+   "poolAvgLifeS": 483.0,
+   "cards": {
+    "acquireBoost": {
+     "builds": 767,
+     "wins": 131,
+     "winrate": 0.1708,
+     "ci95": [
+      0.1458,
+      0.1991
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.879,
+     "expWins": 148.98,
+     "avgPlacement": 6.82,
+     "placeDist": {
+      "1": 131,
+      "2": 78,
+      "3": 66,
+      "4-5": 116,
+      "6-10": 187,
+      "11-20": 189
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.48,
+     "avgFirstTimeS": 226.4,
+     "picksTotal": 767,
+     "offered": 6648,
+     "pickThrough": 0.115,
+     "avgKills": 2.12,
+     "avgDamage": 2059.8,
+     "avgLifeS": 567.8
+    },
+    "acquireMine": {
+     "builds": 767,
+     "wins": 146,
+     "winrate": 0.1904,
+     "ci95": [
+      0.1641,
+      0.2197
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.978,
+     "expWins": 149.35,
+     "avgPlacement": 6.97,
+     "placeDist": {
+      "1": 146,
+      "2": 78,
+      "3": 46,
+      "4-5": 94,
+      "6-10": 195,
+      "11-20": 208
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.5,
+     "avgFirstTimeS": 230.2,
+     "picksTotal": 767,
+     "offered": 6724,
+     "pickThrough": 0.114,
+     "avgKills": 2.31,
+     "avgDamage": 2138.8,
+     "avgLifeS": 564.2
+    },
+    "acquireRadarBuoy": {
+     "builds": 712,
+     "wins": 119,
+     "winrate": 0.1671,
+     "ci95": [
+      0.1415,
+      0.1963
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.9,
+     "expWins": 132.23,
+     "avgPlacement": 6.77,
+     "placeDist": {
+      "1": 119,
+      "2": 73,
+      "3": 61,
+      "4-5": 103,
+      "6-10": 181,
+      "11-20": 175
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.29,
+     "avgFirstTimeS": 216.0,
+     "picksTotal": 712,
+     "offered": 6458,
+     "pickThrough": 0.11,
+     "avgKills": 2.09,
+     "avgDamage": 2007.9,
+     "avgLifeS": 577.3
+    },
+    "acquireTorpedo": {
+     "builds": 751,
+     "wins": 172,
+     "winrate": 0.229,
+     "ci95": [
+      0.2004,
+      0.2604
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.198,
+     "expWins": 143.61,
+     "avgPlacement": 6.35,
+     "placeDist": {
+      "1": 172,
+      "2": 65,
+      "3": 59,
+      "4-5": 115,
+      "6-10": 168,
+      "11-20": 172
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.44,
+     "avgFirstTimeS": 222.5,
+     "picksTotal": 751,
+     "offered": 6509,
+     "pickThrough": 0.115,
+     "avgKills": 2.4,
+     "avgDamage": 2193.8,
+     "avgLifeS": 587.4
+    },
+    "boostDuration": {
+     "builds": 221,
+     "wins": 63,
+     "winrate": 0.2851,
+     "ci95": [
+      0.2296,
+      0.3479
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.823,
+     "expWins": 76.58,
+     "avgPlacement": 4.75,
+     "placeDist": {
+      "1": 63,
+      "2": 31,
+      "3": 29,
+      "4-5": 35,
+      "6-10": 36,
+      "11-20": 27
+     },
+     "avgCopies": 1.34,
+     "avgFirstOrdinal": 6.67,
+     "avgFirstTimeS": 377.4,
+     "picksTotal": 296,
+     "offered": 2710,
+     "pickThrough": 0.109,
+     "avgKills": 2.96,
+     "avgDamage": 2493.2,
+     "avgLifeS": 648.9
+    },
+    "boostSpeed": {
+     "builds": 137,
+     "wins": 42,
+     "winrate": 0.3066,
+     "ci95": [
+      0.2355,
+      0.3882
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.829,
+     "expWins": 50.66,
+     "avgPlacement": 4.43,
+     "placeDist": {
+      "1": 42,
+      "2": 18,
+      "3": 15,
+      "4-5": 25,
+      "6-10": 23,
+      "11-20": 14
+     },
+     "avgCopies": 1.13,
+     "avgFirstOrdinal": 7.1,
+     "avgFirstTimeS": 358.8,
+     "picksTotal": 155,
+     "offered": 1525,
+     "pickThrough": 0.102,
+     "avgKills": 3.18,
+     "avgDamage": 2590.3,
+     "avgLifeS": 666.0
+    },
+    "broadsideSpread": {
+     "builds": 2513,
+     "wins": 488,
+     "winrate": 0.1942,
+     "ci95": [
+      0.1792,
+      0.2101
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.953,
+     "expWins": 512.12,
+     "avgPlacement": 6.64,
+     "placeDist": {
+      "1": 488,
+      "2": 250,
+      "3": 188,
+      "4-5": 375,
+      "6-10": 614,
+      "11-20": 598
+     },
+     "avgCopies": 1.33,
+     "avgFirstOrdinal": 3.67,
+     "avgFirstTimeS": 235.5,
+     "picksTotal": 3349,
+     "offered": 30039,
+     "pickThrough": 0.111,
+     "avgKills": 2.27,
+     "avgDamage": 2124.9,
+     "avgLifeS": 577.7
+    },
+    "broadsideTurrets": {
+     "builds": 1723,
+     "wins": 414,
+     "winrate": 0.2403,
+     "ci95": [
+      0.2207,
+      0.261
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.06,
+     "expWins": 390.39,
+     "avgPlacement": 5.98,
+     "placeDist": {
+      "1": 414,
+      "2": 188,
+      "3": 146,
+      "4-5": 240,
+      "6-10": 378,
+      "11-20": 357
+     },
+     "avgCopies": 1.14,
+     "avgFirstOrdinal": 4.15,
+     "avgFirstTimeS": 254.5,
+     "picksTotal": 1961,
+     "offered": 17825,
+     "pickThrough": 0.11,
+     "avgKills": 2.65,
+     "avgDamage": 2269.0,
+     "avgLifeS": 599.8
+    },
+    "buoyDuration": {
+     "builds": 223,
+     "wins": 72,
+     "winrate": 0.3229,
+     "ci95": [
+      0.2649,
+      0.3868
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.947,
+     "expWins": 76.07,
+     "avgPlacement": 4.51,
+     "placeDist": {
+      "1": 72,
+      "2": 29,
+      "3": 25,
+      "4-5": 32,
+      "6-10": 39,
+      "11-20": 26
+     },
+     "avgCopies": 1.28,
+     "avgFirstOrdinal": 6.64,
+     "avgFirstTimeS": 375.6,
+     "picksTotal": 286,
+     "offered": 2643,
+     "pickThrough": 0.108,
+     "avgKills": 3.04,
+     "avgDamage": 2528.2,
+     "avgLifeS": 675.6
+    },
+    "buoyGun": {
+     "builds": 93,
+     "wins": 37,
+     "winrate": 0.3978,
+     "ci95": [
+      0.3043,
+      0.4995
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.939,
+     "expWins": 39.4,
+     "avgPlacement": 4.02,
+     "placeDist": {
+      "1": 37,
+      "2": 9,
+      "3": 7,
+      "4-5": 14,
+      "6-10": 17,
+      "11-20": 9
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 8.16,
+     "avgFirstTimeS": 424.9,
+     "picksTotal": 93,
+     "offered": 822,
+     "pickThrough": 0.113,
+     "avgKills": 3.32,
+     "avgDamage": 2677.6,
+     "avgLifeS": 691.9
+    },
+    "buoyJamming": {
+     "builds": 77,
+     "wins": 29,
+     "winrate": 0.3766,
+     "ci95": [
+      0.2767,
+      0.4883
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.94,
+     "expWins": 30.86,
+     "avgPlacement": 4.06,
+     "placeDist": {
+      "1": 29,
+      "2": 9,
+      "3": 6,
+      "4-5": 13,
+      "6-10": 13,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.69,
+     "avgFirstTimeS": 400.7,
+     "picksTotal": 77,
+     "offered": 790,
+     "pickThrough": 0.097,
+     "avgKills": 3.26,
+     "avgDamage": 2587.0,
+     "avgLifeS": 685.3
+    },
+    "gunBarrel": {
+     "builds": 1655,
+     "wins": 546,
+     "winrate": 0.3299,
+     "ci95": [
+      0.3077,
+      0.3529
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.645,
+     "expWins": 332.01,
+     "avgPlacement": 5.08,
+     "placeDist": {
+      "1": 546,
+      "2": 184,
+      "3": 120,
+      "4-5": 211,
+      "6-10": 347,
+      "11-20": 247
+     },
+     "avgCopies": 1.18,
+     "avgFirstOrdinal": 3.64,
+     "avgFirstTimeS": 233.4,
+     "picksTotal": 1947,
+     "offered": 17233,
+     "pickThrough": 0.113,
+     "avgKills": 3.31,
+     "avgDamage": 2560.2,
+     "avgLifeS": 625.0
+    },
+    "gunTurret": {
+     "builds": 1021,
+     "wins": 241,
+     "winrate": 0.236,
+     "ci95": [
+      0.211,
+      0.2631
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.914,
+     "expWins": 263.72,
+     "avgPlacement": 6.31,
+     "placeDist": {
+      "1": 241,
+      "2": 94,
+      "3": 80,
+      "4-5": 148,
+      "6-10": 228,
+      "11-20": 230
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.79,
+     "avgFirstTimeS": 286.1,
+     "picksTotal": 1021,
+     "offered": 9488,
+     "pickThrough": 0.108,
+     "avgKills": 2.48,
+     "avgDamage": 2226.9,
+     "avgLifeS": 587.5
+    },
+    "intelSweep": {
+     "builds": 2921,
+     "wins": 521,
+     "winrate": 0.1784,
+     "ci95": [
+      0.1649,
+      0.1927
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.9,
+     "expWins": 578.74,
+     "avgPlacement": 7.04,
+     "placeDist": {
+      "1": 521,
+      "2": 273,
+      "3": 220,
+      "4-5": 391,
+      "6-10": 733,
+      "11-20": 783
+     },
+     "avgCopies": 1.38,
+     "avgFirstOrdinal": 3.54,
+     "avgFirstTimeS": 226.0,
+     "picksTotal": 4038,
+     "offered": 35997,
+     "pickThrough": 0.112,
+     "avgKills": 2.15,
+     "avgDamage": 2044.2,
+     "avgLifeS": 561.9
+    },
+    "mineBlast": {
+     "builds": 252,
+     "wins": 83,
+     "winrate": 0.3294,
+     "ci95": [
+      0.2743,
+      0.3896
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.969,
+     "expWins": 85.68,
+     "avgPlacement": 4.85,
+     "placeDist": {
+      "1": 83,
+      "2": 37,
+      "3": 16,
+      "4-5": 25,
+      "6-10": 56,
+      "11-20": 35
+     },
+     "avgCopies": 1.27,
+     "avgFirstOrdinal": 6.64,
+     "avgFirstTimeS": 367.0,
+     "picksTotal": 319,
+     "offered": 2870,
+     "pickThrough": 0.111,
+     "avgKills": 3.27,
+     "avgDamage": 2664.0,
+     "avgLifeS": 644.9
+    },
+    "mineCaptive": {
+     "builds": 83,
+     "wins": 31,
+     "winrate": 0.3735,
+     "ci95": [
+      0.2772,
+      0.481
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.022,
+     "expWins": 30.35,
+     "avgPlacement": 3.82,
+     "placeDist": {
+      "1": 31,
+      "2": 10,
+      "3": 10,
+      "4-5": 10,
+      "6-10": 19,
+      "11-20": 3
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.94,
+     "avgFirstTimeS": 348.8,
+     "picksTotal": 83,
+     "offered": 922,
+     "pickThrough": 0.09,
+     "avgKills": 3.99,
+     "avgDamage": 2961.8,
+     "avgLifeS": 653.7
+    },
+    "minePropFouling": {
+     "builds": 92,
+     "wins": 36,
+     "winrate": 0.3913,
+     "ci95": [
+      0.2979,
+      0.4935
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.949,
+     "expWins": 37.94,
+     "avgPlacement": 3.91,
+     "placeDist": {
+      "1": 36,
+      "2": 9,
+      "3": 11,
+      "4-5": 14,
+      "6-10": 14,
+      "11-20": 8
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.95,
+     "avgFirstTimeS": 410.3,
+     "picksTotal": 92,
+     "offered": 950,
+     "pickThrough": 0.097,
+     "avgKills": 3.97,
+     "avgDamage": 2803.7,
+     "avgLifeS": 679.3
+    },
+    "shipCooldown": {
+     "builds": 2864,
+     "wins": 559,
+     "winrate": 0.1952,
+     "ci95": [
+      0.1811,
+      0.2101
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.039,
+     "expWins": 538.0,
+     "avgPlacement": 6.76,
+     "placeDist": {
+      "1": 559,
+      "2": 255,
+      "3": 230,
+      "4-5": 405,
+      "6-10": 698,
+      "11-20": 717
+     },
+     "avgCopies": 1.4,
+     "avgFirstOrdinal": 3.35,
+     "avgFirstTimeS": 217.5,
+     "picksTotal": 4011,
+     "offered": 35528,
+     "pickThrough": 0.113,
+     "avgKills": 2.28,
+     "avgDamage": 2124.1,
+     "avgLifeS": 571.4
+    },
+    "shipHull": {
+     "builds": 2525,
+     "wins": 515,
+     "winrate": 0.204,
+     "ci95": [
+      0.1887,
+      0.2201
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.992,
+     "expWins": 518.9,
+     "avgPlacement": 6.24,
+     "placeDist": {
+      "1": 515,
+      "2": 264,
+      "3": 221,
+      "4-5": 378,
+      "6-10": 616,
+      "11-20": 531
+     },
+     "avgCopies": 1.32,
+     "avgFirstOrdinal": 3.7,
+     "avgFirstTimeS": 233.3,
+     "picksTotal": 3344,
+     "offered": 29737,
+     "pickThrough": 0.112,
+     "avgKills": 2.32,
+     "avgDamage": 2170.3,
+     "avgLifeS": 593.6
+    },
+    "shipSpeed": {
+     "builds": 2616,
+     "wins": 503,
+     "winrate": 0.1923,
+     "ci95": [
+      0.1776,
+      0.2078
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.943,
+     "expWins": 533.33,
+     "avgPlacement": 6.6,
+     "placeDist": {
+      "1": 503,
+      "2": 282,
+      "3": 214,
+      "4-5": 339,
+      "6-10": 658,
+      "11-20": 620
+     },
+     "avgCopies": 1.33,
+     "avgFirstOrdinal": 3.66,
+     "avgFirstTimeS": 235.8,
+     "picksTotal": 3481,
+     "offered": 29712,
+     "pickThrough": 0.117,
+     "avgKills": 2.26,
+     "avgDamage": 2118.4,
+     "avgLifeS": 579.9
+    },
+    "starDazzle": {
+     "builds": 1046,
+     "wins": 265,
+     "winrate": 0.2533,
+     "ci95": [
+      0.2279,
+      0.2806
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.983,
+     "expWins": 269.58,
+     "avgPlacement": 5.63,
+     "placeDist": {
+      "1": 265,
+      "2": 121,
+      "3": 74,
+      "4-5": 164,
+      "6-10": 233,
+      "11-20": 189
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.78,
+     "avgFirstTimeS": 282.5,
+     "picksTotal": 1046,
+     "offered": 9220,
+     "pickThrough": 0.113,
+     "avgKills": 2.73,
+     "avgDamage": 2326.5,
+     "avgLifeS": 617.9
+    },
+    "starDuration": {
+     "builds": 2580,
+     "wins": 484,
+     "winrate": 0.1876,
+     "ci95": [
+      0.173,
+      0.2031
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 0.896,
+     "expWins": 540.01,
+     "avgPlacement": 6.67,
+     "placeDist": {
+      "1": 484,
+      "2": 277,
+      "3": 193,
+      "4-5": 350,
+      "6-10": 640,
+      "11-20": 636
+     },
+     "avgCopies": 1.31,
+     "avgFirstOrdinal": 3.78,
+     "avgFirstTimeS": 240.4,
+     "picksTotal": 3388,
+     "offered": 30169,
+     "pickThrough": 0.112,
+     "avgKills": 2.24,
+     "avgDamage": 2089.4,
+     "avgLifeS": 573.9
+    },
+    "starIncendiary": {
+     "builds": 1055,
+     "wins": 303,
+     "winrate": 0.2872,
+     "ci95": [
+      0.2607,
+      0.3152
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.128,
+     "expWins": 268.69,
+     "avgPlacement": 5.66,
+     "placeDist": {
+      "1": 303,
+      "2": 107,
+      "3": 90,
+      "4-5": 125,
+      "6-10": 229,
+      "11-20": 201
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.7,
+     "avgFirstTimeS": 272.8,
+     "picksTotal": 1055,
+     "offered": 9195,
+     "pickThrough": 0.115,
+     "avgKills": 2.85,
+     "avgDamage": 2424.3,
+     "avgLifeS": 609.2
+    },
+    "torpedoHoming": {
+     "builds": 118,
+     "wins": 60,
+     "winrate": 0.5085,
+     "ci95": [
+      0.4194,
+      0.597
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.147,
+     "expWins": 52.32,
+     "avgPlacement": 3.47,
+     "placeDist": {
+      "1": 60,
+      "2": 11,
+      "3": 9,
+      "4-5": 14,
+      "6-10": 18,
+      "11-20": 6
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 8.46,
+     "avgFirstTimeS": 440.9,
+     "picksTotal": 118,
+     "offered": 912,
+     "pickThrough": 0.129,
+     "avgKills": 4.1,
+     "avgDamage": 2863.8,
+     "avgLifeS": 698.7
+    },
+    "torpedoSpeed": {
+     "builds": 245,
+     "wins": 90,
+     "winrate": 0.3673,
+     "ci95": [
+      0.3095,
+      0.4293
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.011,
+     "expWins": 89.06,
+     "avgPlacement": 4.33,
+     "placeDist": {
+      "1": 90,
+      "2": 28,
+      "3": 17,
+      "4-5": 41,
+      "6-10": 43,
+      "11-20": 26
+     },
+     "avgCopies": 1.28,
+     "avgFirstOrdinal": 7.05,
+     "avgFirstTimeS": 379.2,
+     "picksTotal": 314,
+     "offered": 3064,
+     "pickThrough": 0.102,
+     "avgKills": 3.32,
+     "avgDamage": 2643.3,
+     "avgLifeS": 671.7
+    },
+    "torpedoTube": {
+     "builds": 93,
+     "wins": 47,
+     "winrate": 0.5054,
+     "ci95": [
+      0.4056,
+      0.6047
+     ],
+     "poolWinrate": 0.1037,
+     "ordinalLift": 1.239,
+     "expWins": 37.92,
+     "avgPlacement": 3.61,
+     "placeDist": {
+      "1": 47,
+      "2": 11,
+      "3": 2,
+      "4-5": 11,
+      "6-10": 17,
+      "11-20": 5
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.8,
+     "avgFirstTimeS": 397.9,
+     "picksTotal": 93,
+     "offered": 974,
+     "pickThrough": 0.095,
+     "avgKills": 4.01,
+     "avgDamage": 2845.4,
+     "avgLifeS": 686.5
+    }
+   }
+  },
+  "mixed/mineLayer": {
+   "bots": 6664,
+   "poolWinrate": 0.0236,
+   "poolAvgKills": 0.56,
+   "poolAvgLifeS": 418.3,
+   "cards": {
+    "acquireBoost": {
+     "builds": 531,
+     "wins": 12,
+     "winrate": 0.0226,
+     "ci95": [
+      0.013,
+      0.0391
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.425,
+     "expWins": 28.26,
+     "avgPlacement": 9.18,
+     "placeDist": {
+      "1": 12,
+      "2": 34,
+      "3": 41,
+      "4-5": 72,
+      "6-10": 168,
+      "11-20": 204
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.72,
+     "avgFirstTimeS": 198.7,
+     "picksTotal": 531,
+     "offered": 5457,
+     "pickThrough": 0.097,
+     "avgKills": 0.61,
+     "avgDamage": 1132.1,
+     "avgLifeS": 488.0
+    },
+    "acquireBroadside": {
+     "builds": 563,
+     "wins": 71,
+     "winrate": 0.1261,
+     "ci95": [
+      0.1012,
+      0.1561
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 2.203,
+     "expWins": 32.22,
+     "avgPlacement": 7.2,
+     "placeDist": {
+      "1": 71,
+      "2": 60,
+      "3": 54,
+      "4-5": 79,
+      "6-10": 142,
+      "11-20": 157
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.77,
+     "avgFirstTimeS": 200.2,
+     "picksTotal": 563,
+     "offered": 5489,
+     "pickThrough": 0.103,
+     "avgKills": 1.69,
+     "avgDamage": 1751.0,
+     "avgLifeS": 556.7
+    },
+    "acquireStarShells": {
+     "builds": 538,
+     "wins": 29,
+     "winrate": 0.0539,
+     "ci95": [
+      0.0378,
+      0.0763
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.915,
+     "expWins": 31.69,
+     "avgPlacement": 8.66,
+     "placeDist": {
+      "1": 29,
+      "2": 42,
+      "3": 50,
+      "4-5": 67,
+      "6-10": 153,
+      "11-20": 197
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.83,
+     "avgFirstTimeS": 204.6,
+     "picksTotal": 538,
+     "offered": 5473,
+     "pickThrough": 0.098,
+     "avgKills": 0.9,
+     "avgDamage": 1311.7,
+     "avgLifeS": 505.4
+    },
+    "acquireTorpedo": {
+     "builds": 555,
+     "wins": 24,
+     "winrate": 0.0432,
+     "ci95": [
+      0.0292,
+      0.0635
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.719,
+     "expWins": 33.36,
+     "avgPlacement": 8.25,
+     "placeDist": {
+      "1": 24,
+      "2": 49,
+      "3": 61,
+      "4-5": 75,
+      "6-10": 168,
+      "11-20": 178
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.93,
+     "avgFirstTimeS": 207.4,
+     "picksTotal": 555,
+     "offered": 5447,
+     "pickThrough": 0.102,
+     "avgKills": 0.9,
+     "avgDamage": 1347.3,
+     "avgLifeS": 518.0
+    },
+    "boostDuration": {
+     "builds": 92,
+     "wins": 3,
+     "winrate": 0.0326,
+     "ci95": [
+      0.0112,
+      0.0915
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.299,
+     "expWins": 10.04,
+     "avgPlacement": 7.28,
+     "placeDist": {
+      "1": 3,
+      "2": 6,
+      "3": 14,
+      "4-5": 19,
+      "6-10": 30,
+      "11-20": 20
+     },
+     "avgCopies": 1.14,
+     "avgFirstOrdinal": 5.08,
+     "avgFirstTimeS": 313.7,
+     "picksTotal": 105,
+     "offered": 1332,
+     "pickThrough": 0.079,
+     "avgKills": 0.79,
+     "avgDamage": 1425.3,
+     "avgLifeS": 568.0
+    },
+    "boostSpeed": {
+     "builds": 64,
+     "wins": 3,
+     "winrate": 0.0469,
+     "ci95": [
+      0.0161,
+      0.129
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.393,
+     "expWins": 7.62,
+     "avgPlacement": 7.16,
+     "placeDist": {
+      "1": 3,
+      "2": 9,
+      "3": 5,
+      "4-5": 9,
+      "6-10": 23,
+      "11-20": 15
+     },
+     "avgCopies": 1.08,
+     "avgFirstOrdinal": 5.11,
+     "avgFirstTimeS": 322.0,
+     "picksTotal": 69,
+     "offered": 710,
+     "pickThrough": 0.097,
+     "avgKills": 0.81,
+     "avgDamage": 1384.2,
+     "avgLifeS": 559.6
+    },
+    "broadsideSpread": {
+     "builds": 166,
+     "wins": 41,
+     "winrate": 0.247,
+     "ci95": [
+      0.1876,
+      0.3178
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.635,
+     "expWins": 25.08,
+     "avgPlacement": 4.76,
+     "placeDist": {
+      "1": 41,
+      "2": 23,
+      "3": 13,
+      "4-5": 27,
+      "6-10": 42,
+      "11-20": 20
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 5.95,
+     "avgFirstTimeS": 354.8,
+     "picksTotal": 205,
+     "offered": 2031,
+     "pickThrough": 0.101,
+     "avgKills": 2.52,
+     "avgDamage": 2292.6,
+     "avgLifeS": 654.3
+    },
+    "broadsideTurrets": {
+     "builds": 125,
+     "wins": 34,
+     "winrate": 0.272,
+     "ci95": [
+      0.2017,
+      0.3559
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.457,
+     "expWins": 23.33,
+     "avgPlacement": 4.52,
+     "placeDist": {
+      "1": 34,
+      "2": 19,
+      "3": 15,
+      "4-5": 21,
+      "6-10": 22,
+      "11-20": 14
+     },
+     "avgCopies": 1.12,
+     "avgFirstOrdinal": 6.79,
+     "avgFirstTimeS": 384.7,
+     "picksTotal": 140,
+     "offered": 1264,
+     "pickThrough": 0.111,
+     "avgKills": 2.98,
+     "avgDamage": 2358.8,
+     "avgLifeS": 665.6
+    },
+    "buoyDuration": {
+     "builds": 1846,
+     "wins": 101,
+     "winrate": 0.0547,
+     "ci95": [
+      0.0452,
+      0.066
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.826,
+     "expWins": 122.29,
+     "avgPlacement": 8.56,
+     "placeDist": {
+      "1": 101,
+      "2": 142,
+      "3": 154,
+      "4-5": 254,
+      "6-10": 546,
+      "11-20": 649
+     },
+     "avgCopies": 1.2,
+     "avgFirstOrdinal": 3.08,
+     "avgFirstTimeS": 212.8,
+     "picksTotal": 2220,
+     "offered": 22739,
+     "pickThrough": 0.098,
+     "avgKills": 0.92,
+     "avgDamage": 1307.9,
+     "avgLifeS": 506.9
+    },
+    "buoyGun": {
+     "builds": 702,
+     "wins": 65,
+     "winrate": 0.0926,
+     "ci95": [
+      0.0733,
+      0.1163
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.105,
+     "expWins": 58.85,
+     "avgPlacement": 7.55,
+     "placeDist": {
+      "1": 65,
+      "2": 75,
+      "3": 70,
+      "4-5": 98,
+      "6-10": 185,
+      "11-20": 209
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.68,
+     "avgFirstTimeS": 238.0,
+     "picksTotal": 702,
+     "offered": 6946,
+     "pickThrough": 0.101,
+     "avgKills": 1.16,
+     "avgDamage": 1579.2,
+     "avgLifeS": 549.1
+    },
+    "buoyJamming": {
+     "builds": 694,
+     "wins": 54,
+     "winrate": 0.0778,
+     "ci95": [
+      0.0601,
+      0.1001
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.866,
+     "expWins": 62.39,
+     "avgPlacement": 7.96,
+     "placeDist": {
+      "1": 54,
+      "2": 66,
+      "3": 75,
+      "4-5": 92,
+      "6-10": 191,
+      "11-20": 216
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.7,
+     "avgFirstTimeS": 239.2,
+     "picksTotal": 694,
+     "offered": 7162,
+     "pickThrough": 0.097,
+     "avgKills": 1.04,
+     "avgDamage": 1409.5,
+     "avgLifeS": 534.8
+    },
+    "gunBarrel": {
+     "builds": 1145,
+     "wins": 140,
+     "winrate": 0.1223,
+     "ci95": [
+      0.1045,
+      0.1425
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.991,
+     "expWins": 70.32,
+     "avgPlacement": 7.15,
+     "placeDist": {
+      "1": 140,
+      "2": 117,
+      "3": 112,
+      "4-5": 165,
+      "6-10": 315,
+      "11-20": 296
+     },
+     "avgCopies": 1.13,
+     "avgFirstOrdinal": 2.98,
+     "avgFirstTimeS": 211.0,
+     "picksTotal": 1299,
+     "offered": 13082,
+     "pickThrough": 0.099,
+     "avgKills": 1.55,
+     "avgDamage": 1758.9,
+     "avgLifeS": 562.0
+    },
+    "gunTurret": {
+     "builds": 689,
+     "wins": 52,
+     "winrate": 0.0755,
+     "ci95": [
+      0.058,
+      0.0976
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.787,
+     "expWins": 66.04,
+     "avgPlacement": 8.14,
+     "placeDist": {
+      "1": 52,
+      "2": 60,
+      "3": 59,
+      "4-5": 104,
+      "6-10": 193,
+      "11-20": 221
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.91,
+     "avgFirstTimeS": 247.8,
+     "picksTotal": 689,
+     "offered": 7154,
+     "pickThrough": 0.096,
+     "avgKills": 1.07,
+     "avgDamage": 1434.2,
+     "avgLifeS": 527.8
+    },
+    "intelSweep": {
+     "builds": 2147,
+     "wins": 110,
+     "winrate": 0.0512,
+     "ci95": [
+      0.0427,
+      0.0614
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.825,
+     "expWins": 133.39,
+     "avgPlacement": 8.67,
+     "placeDist": {
+      "1": 110,
+      "2": 175,
+      "3": 167,
+      "4-5": 287,
+      "6-10": 620,
+      "11-20": 788
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 2.92,
+     "avgFirstTimeS": 204.3,
+     "picksTotal": 2710,
+     "offered": 27262,
+     "pickThrough": 0.099,
+     "avgKills": 0.86,
+     "avgDamage": 1300.9,
+     "avgLifeS": 504.7
+    },
+    "mineBlast": {
+     "builds": 1891,
+     "wins": 106,
+     "winrate": 0.0561,
+     "ci95": [
+      0.0466,
+      0.0674
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.908,
+     "expWins": 116.78,
+     "avgPlacement": 8.55,
+     "placeDist": {
+      "1": 106,
+      "2": 153,
+      "3": 155,
+      "4-5": 269,
+      "6-10": 539,
+      "11-20": 669
+     },
+     "avgCopies": 1.22,
+     "avgFirstOrdinal": 2.95,
+     "avgFirstTimeS": 210.6,
+     "picksTotal": 2303,
+     "offered": 22748,
+     "pickThrough": 0.101,
+     "avgKills": 0.91,
+     "avgDamage": 1307.7,
+     "avgLifeS": 509.6
+    },
+    "mineCaptive": {
+     "builds": 691,
+     "wins": 61,
+     "winrate": 0.0883,
+     "ci95": [
+      0.0693,
+      0.1118
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.039,
+     "expWins": 58.69,
+     "avgPlacement": 7.63,
+     "placeDist": {
+      "1": 61,
+      "2": 69,
+      "3": 55,
+      "4-5": 104,
+      "6-10": 210,
+      "11-20": 192
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.65,
+     "avgFirstTimeS": 230.5,
+     "picksTotal": 691,
+     "offered": 6951,
+     "pickThrough": 0.099,
+     "avgKills": 1.52,
+     "avgDamage": 1599.1,
+     "avgLifeS": 538.6
+    },
+    "minePropFouling": {
+     "builds": 650,
+     "wins": 40,
+     "winrate": 0.0615,
+     "ci95": [
+      0.0455,
+      0.0827
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.728,
+     "expWins": 54.96,
+     "avgPlacement": 7.73,
+     "placeDist": {
+      "1": 40,
+      "2": 59,
+      "3": 65,
+      "4-5": 114,
+      "6-10": 182,
+      "11-20": 190
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.69,
+     "avgFirstTimeS": 241.3,
+     "picksTotal": 650,
+     "offered": 6982,
+     "pickThrough": 0.093,
+     "avgKills": 1.05,
+     "avgDamage": 1454.3,
+     "avgLifeS": 545.3
+    },
+    "shipCooldown": {
+     "builds": 2148,
+     "wins": 136,
+     "winrate": 0.0633,
+     "ci95": [
+      0.0538,
+      0.0744
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.072,
+     "expWins": 126.84,
+     "avgPlacement": 8.42,
+     "placeDist": {
+      "1": 136,
+      "2": 188,
+      "3": 178,
+      "4-5": 297,
+      "6-10": 615,
+      "11-20": 734
+     },
+     "avgCopies": 1.28,
+     "avgFirstOrdinal": 2.81,
+     "avgFirstTimeS": 201.5,
+     "picksTotal": 2760,
+     "offered": 26942,
+     "pickThrough": 0.102,
+     "avgKills": 0.95,
+     "avgDamage": 1348.6,
+     "avgLifeS": 515.4
+    },
+    "shipHull": {
+     "builds": 1869,
+     "wins": 122,
+     "winrate": 0.0653,
+     "ci95": [
+      0.0549,
+      0.0774
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.99,
+     "expWins": 123.27,
+     "avgPlacement": 7.93,
+     "placeDist": {
+      "1": 122,
+      "2": 174,
+      "3": 190,
+      "4-5": 269,
+      "6-10": 535,
+      "11-20": 579
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 3.05,
+     "avgFirstTimeS": 210.9,
+     "picksTotal": 2309,
+     "offered": 22588,
+     "pickThrough": 0.102,
+     "avgKills": 1.01,
+     "avgDamage": 1388.6,
+     "avgLifeS": 537.2
+    },
+    "shipSpeed": {
+     "builds": 1848,
+     "wins": 112,
+     "winrate": 0.0606,
+     "ci95": [
+      0.0506,
+      0.0724
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.937,
+     "expWins": 119.53,
+     "avgPlacement": 8.4,
+     "placeDist": {
+      "1": 112,
+      "2": 162,
+      "3": 152,
+      "4-5": 261,
+      "6-10": 533,
+      "11-20": 628
+     },
+     "avgCopies": 1.22,
+     "avgFirstOrdinal": 3.0,
+     "avgFirstTimeS": 207.6,
+     "picksTotal": 2263,
+     "offered": 22692,
+     "pickThrough": 0.1,
+     "avgKills": 0.94,
+     "avgDamage": 1338.9,
+     "avgLifeS": 519.6
+    },
+    "starDazzle": {
+     "builds": 51,
+     "wins": 10,
+     "winrate": 0.1961,
+     "ci95": [
+      0.1102,
+      0.3246
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.084,
+     "expWins": 9.23,
+     "avgPlacement": 5.2,
+     "placeDist": {
+      "1": 10,
+      "2": 8,
+      "3": 9,
+      "4-5": 7,
+      "6-10": 9,
+      "11-20": 8
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.53,
+     "avgFirstTimeS": 367.7,
+     "picksTotal": 51,
+     "offered": 482,
+     "pickThrough": 0.106,
+     "avgKills": 1.65,
+     "avgDamage": 2027.6,
+     "avgLifeS": 659.7
+    },
+    "starDuration": {
+     "builds": 112,
+     "wins": 18,
+     "winrate": 0.1607,
+     "ci95": [
+      0.1041,
+      0.2398
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.069,
+     "expWins": 16.83,
+     "avgPlacement": 6.74,
+     "placeDist": {
+      "1": 18,
+      "2": 8,
+      "3": 14,
+      "4-5": 16,
+      "6-10": 30,
+      "11-20": 26
+     },
+     "avgCopies": 1.19,
+     "avgFirstOrdinal": 5.86,
+     "avgFirstTimeS": 314.8,
+     "picksTotal": 133,
+     "offered": 1481,
+     "pickThrough": 0.09,
+     "avgKills": 1.37,
+     "avgDamage": 1753.7,
+     "avgLifeS": 580.2
+    },
+    "starIncendiary": {
+     "builds": 48,
+     "wins": 12,
+     "winrate": 0.25,
+     "ci95": [
+      0.1492,
+      0.3878
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 1.205,
+     "expWins": 9.96,
+     "avgPlacement": 5.44,
+     "placeDist": {
+      "1": 12,
+      "2": 9,
+      "3": 1,
+      "4-5": 5,
+      "6-10": 13,
+      "11-20": 8
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.02,
+     "avgFirstTimeS": 403.5,
+     "picksTotal": 48,
+     "offered": 495,
+     "pickThrough": 0.097,
+     "avgKills": 2.31,
+     "avgDamage": 2243.7,
+     "avgLifeS": 653.4
+    },
+    "torpedoHoming": {
+     "builds": 48,
+     "wins": 7,
+     "winrate": 0.1458,
+     "ci95": [
+      0.0725,
+      0.2717
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.808,
+     "expWins": 8.66,
+     "avgPlacement": 5.79,
+     "placeDist": {
+      "1": 7,
+      "2": 4,
+      "3": 10,
+      "4-5": 7,
+      "6-10": 11,
+      "11-20": 9
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.6,
+     "avgFirstTimeS": 388.8,
+     "picksTotal": 48,
+     "offered": 526,
+     "pickThrough": 0.091,
+     "avgKills": 1.6,
+     "avgDamage": 1914.6,
+     "avgLifeS": 632.0
+    },
+    "torpedoSpeed": {
+     "builds": 124,
+     "wins": 12,
+     "winrate": 0.0968,
+     "ci95": [
+      0.0562,
+      0.1616
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.621,
+     "expWins": 19.34,
+     "avgPlacement": 5.66,
+     "placeDist": {
+      "1": 12,
+      "2": 23,
+      "3": 20,
+      "4-5": 20,
+      "6-10": 33,
+      "11-20": 16
+     },
+     "avgCopies": 1.19,
+     "avgFirstOrdinal": 6.09,
+     "avgFirstTimeS": 335.0,
+     "picksTotal": 147,
+     "offered": 1562,
+     "pickThrough": 0.094,
+     "avgKills": 1.48,
+     "avgDamage": 1911.5,
+     "avgLifeS": 624.0
+    },
+    "torpedoTube": {
+     "builds": 48,
+     "wins": 8,
+     "winrate": 0.1667,
+     "ci95": [
+      0.087,
+      0.2958
+     ],
+     "poolWinrate": 0.0236,
+     "ordinalLift": 0.892,
+     "expWins": 8.97,
+     "avgPlacement": 5.6,
+     "placeDist": {
+      "1": 8,
+      "2": 9,
+      "3": 8,
+      "4-5": 3,
+      "6-10": 13,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.85,
+     "avgFirstTimeS": 389.6,
+     "picksTotal": 48,
+     "offered": 471,
+     "pickThrough": 0.102,
+     "avgKills": 1.81,
+     "avgDamage": 2102.6,
+     "avgLifeS": 645.1
+    }
+   }
+  },
+  "mixed/torpedoBoat": {
+   "bots": 6664,
+   "poolWinrate": 0.0227,
+   "poolAvgKills": 0.5,
+   "poolAvgLifeS": 395.5,
+   "cards": {
+    "acquireBroadside": {
+     "builds": 518,
+     "wins": 66,
+     "winrate": 0.1274,
+     "ci95": [
+      0.1014,
+      0.1589
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 2.187,
+     "expWins": 30.17,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 66,
+      "2": 55,
+      "3": 45,
+      "4-5": 77,
+      "6-10": 134,
+      "11-20": 141
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.65,
+     "avgFirstTimeS": 222.0,
+     "picksTotal": 518,
+     "offered": 5559,
+     "pickThrough": 0.093,
+     "avgKills": 1.57,
+     "avgDamage": 1705.0,
+     "avgLifeS": 545.2
+    },
+    "acquireMine": {
+     "builds": 456,
+     "wins": 22,
+     "winrate": 0.0482,
+     "ci95": [
+      0.0321,
+      0.072
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.946,
+     "expWins": 23.25,
+     "avgPlacement": 9.02,
+     "placeDist": {
+      "1": 22,
+      "2": 23,
+      "3": 24,
+      "4-5": 66,
+      "6-10": 150,
+      "11-20": 171
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.44,
+     "avgFirstTimeS": 212.2,
+     "picksTotal": 456,
+     "offered": 5421,
+     "pickThrough": 0.084,
+     "avgKills": 0.8,
+     "avgDamage": 1282.3,
+     "avgLifeS": 487.3
+    },
+    "acquireRadarBuoy": {
+     "builds": 504,
+     "wins": 15,
+     "winrate": 0.0298,
+     "ci95": [
+      0.0181,
+      0.0485
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.51,
+     "expWins": 29.42,
+     "avgPlacement": 9.6,
+     "placeDist": {
+      "1": 15,
+      "2": 31,
+      "3": 20,
+      "4-5": 63,
+      "6-10": 158,
+      "11-20": 217
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.52,
+     "avgFirstTimeS": 200.9,
+     "picksTotal": 504,
+     "offered": 5508,
+     "pickThrough": 0.092,
+     "avgKills": 0.59,
+     "avgDamage": 1093.0,
+     "avgLifeS": 468.9
+    },
+    "acquireStarShells": {
+     "builds": 546,
+     "wins": 25,
+     "winrate": 0.0458,
+     "ci95": [
+      0.0312,
+      0.0667
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.737,
+     "expWins": 33.92,
+     "avgPlacement": 9.14,
+     "placeDist": {
+      "1": 25,
+      "2": 33,
+      "3": 47,
+      "4-5": 58,
+      "6-10": 172,
+      "11-20": 211
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.68,
+     "avgFirstTimeS": 219.7,
+     "picksTotal": 546,
+     "offered": 5566,
+     "pickThrough": 0.098,
+     "avgKills": 0.78,
+     "avgDamage": 1216.9,
+     "avgLifeS": 480.9
+    },
+    "boostDuration": {
+     "builds": 1721,
+     "wins": 106,
+     "winrate": 0.0616,
+     "ci95": [
+      0.0512,
+      0.074
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.905,
+     "expWins": 117.09,
+     "avgPlacement": 8.74,
+     "placeDist": {
+      "1": 106,
+      "2": 119,
+      "3": 115,
+      "4-5": 230,
+      "6-10": 519,
+      "11-20": 632
+     },
+     "avgCopies": 1.2,
+     "avgFirstOrdinal": 2.83,
+     "avgFirstTimeS": 223.4,
+     "picksTotal": 2061,
+     "offered": 21211,
+     "pickThrough": 0.097,
+     "avgKills": 0.88,
+     "avgDamage": 1280.3,
+     "avgLifeS": 496.0
+    },
+    "boostSpeed": {
+     "builds": 1025,
+     "wins": 67,
+     "winrate": 0.0654,
+     "ci95": [
+      0.0518,
+      0.0822
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.827,
+     "expWins": 81.06,
+     "avgPlacement": 8.57,
+     "placeDist": {
+      "1": 67,
+      "2": 70,
+      "3": 84,
+      "4-5": 132,
+      "6-10": 316,
+      "11-20": 356
+     },
+     "avgCopies": 1.07,
+     "avgFirstOrdinal": 3.11,
+     "avgFirstTimeS": 234.7,
+     "picksTotal": 1098,
+     "offered": 11666,
+     "pickThrough": 0.094,
+     "avgKills": 0.92,
+     "avgDamage": 1317.9,
+     "avgLifeS": 503.8
+    },
+    "broadsideSpread": {
+     "builds": 150,
+     "wins": 35,
+     "winrate": 0.2333,
+     "ci95": [
+      0.1728,
+      0.3072
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.335,
+     "expWins": 26.21,
+     "avgPlacement": 5.32,
+     "placeDist": {
+      "1": 35,
+      "2": 22,
+      "3": 15,
+      "4-5": 20,
+      "6-10": 34,
+      "11-20": 24
+     },
+     "avgCopies": 1.29,
+     "avgFirstOrdinal": 5.73,
+     "avgFirstTimeS": 384.1,
+     "picksTotal": 193,
+     "offered": 1653,
+     "pickThrough": 0.117,
+     "avgKills": 2.29,
+     "avgDamage": 2170.8,
+     "avgLifeS": 630.8
+    },
+    "broadsideTurrets": {
+     "builds": 104,
+     "wins": 34,
+     "winrate": 0.3269,
+     "ci95": [
+      0.2443,
+      0.4218
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.455,
+     "expWins": 23.36,
+     "avgPlacement": 4.37,
+     "placeDist": {
+      "1": 34,
+      "2": 13,
+      "3": 15,
+      "4-5": 14,
+      "6-10": 15,
+      "11-20": 13
+     },
+     "avgCopies": 1.11,
+     "avgFirstOrdinal": 6.48,
+     "avgFirstTimeS": 389.7,
+     "picksTotal": 115,
+     "offered": 1141,
+     "pickThrough": 0.101,
+     "avgKills": 2.9,
+     "avgDamage": 2390.9,
+     "avgLifeS": 668.0
+    },
+    "buoyDuration": {
+     "builds": 72,
+     "wins": 8,
+     "winrate": 0.1111,
+     "ci95": [
+      0.0574,
+      0.2042
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.875,
+     "expWins": 9.14,
+     "avgPlacement": 7.44,
+     "placeDist": {
+      "1": 8,
+      "2": 3,
+      "3": 1,
+      "4-5": 20,
+      "6-10": 22,
+      "11-20": 18
+     },
+     "avgCopies": 1.1,
+     "avgFirstOrdinal": 4.96,
+     "avgFirstTimeS": 319.4,
+     "picksTotal": 79,
+     "offered": 1120,
+     "pickThrough": 0.071,
+     "avgKills": 1.15,
+     "avgDamage": 1414.3,
+     "avgLifeS": 540.2
+    },
+    "buoyGun": {
+     "builds": 25,
+     "wins": 3,
+     "winrate": 0.12,
+     "ci95": [
+      0.0417,
+      0.2996
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.674,
+     "expWins": 4.45,
+     "avgPlacement": 6.36,
+     "placeDist": {
+      "1": 3,
+      "2": 3,
+      "3": 3,
+      "4-5": 2,
+      "6-10": 10,
+      "11-20": 4
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 5.8,
+     "avgFirstTimeS": 358.0,
+     "picksTotal": 25,
+     "offered": 382,
+     "pickThrough": 0.065,
+     "avgKills": 1.44,
+     "avgDamage": 1615.4,
+     "avgLifeS": 597.2
+    },
+    "buoyJamming": {
+     "builds": 34,
+     "wins": 5,
+     "winrate": 0.1471,
+     "ci95": [
+      0.0645,
+      0.3013
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.937,
+     "expWins": 5.33,
+     "avgPlacement": 6.29,
+     "placeDist": {
+      "1": 5,
+      "2": 6,
+      "3": 1,
+      "4-5": 5,
+      "6-10": 10,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 5.35,
+     "avgFirstTimeS": 369.4,
+     "picksTotal": 34,
+     "offered": 398,
+     "pickThrough": 0.085,
+     "avgKills": 1.18,
+     "avgDamage": 1535.6,
+     "avgLifeS": 624.1
+    },
+    "gunBarrel": {
+     "builds": 1054,
+     "wins": 126,
+     "winrate": 0.1195,
+     "ci95": [
+      0.1013,
+      0.1405
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.807,
+     "expWins": 69.73,
+     "avgPlacement": 7.8,
+     "placeDist": {
+      "1": 126,
+      "2": 83,
+      "3": 92,
+      "4-5": 138,
+      "6-10": 298,
+      "11-20": 317
+     },
+     "avgCopies": 1.12,
+     "avgFirstOrdinal": 2.81,
+     "avgFirstTimeS": 222.7,
+     "picksTotal": 1176,
+     "offered": 12752,
+     "pickThrough": 0.092,
+     "avgKills": 1.43,
+     "avgDamage": 1654.6,
+     "avgLifeS": 526.9
+    },
+    "gunTurret": {
+     "builds": 633,
+     "wins": 62,
+     "winrate": 0.0979,
+     "ci95": [
+      0.0772,
+      0.1236
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.134,
+     "expWins": 54.66,
+     "avgPlacement": 8.12,
+     "placeDist": {
+      "1": 62,
+      "2": 56,
+      "3": 42,
+      "4-5": 92,
+      "6-10": 169,
+      "11-20": 212
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.38,
+     "avgFirstTimeS": 246.7,
+     "picksTotal": 633,
+     "offered": 6844,
+     "pickThrough": 0.092,
+     "avgKills": 1.12,
+     "avgDamage": 1431.4,
+     "avgLifeS": 523.2
+    },
+    "intelSweep": {
+     "builds": 1912,
+     "wins": 103,
+     "winrate": 0.0539,
+     "ci95": [
+      0.0446,
+      0.0649
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.84,
+     "expWins": 122.65,
+     "avgPlacement": 9.07,
+     "placeDist": {
+      "1": 103,
+      "2": 130,
+      "3": 132,
+      "4-5": 243,
+      "6-10": 550,
+      "11-20": 754
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 2.71,
+     "avgFirstTimeS": 214.3,
+     "picksTotal": 2392,
+     "offered": 25452,
+     "pickThrough": 0.094,
+     "avgKills": 0.81,
+     "avgDamage": 1234.7,
+     "avgLifeS": 483.6
+    },
+    "mineBlast": {
+     "builds": 111,
+     "wins": 10,
+     "winrate": 0.0901,
+     "ci95": [
+      0.0497,
+      0.1579
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.728,
+     "expWins": 13.73,
+     "avgPlacement": 6.48,
+     "placeDist": {
+      "1": 10,
+      "2": 8,
+      "3": 9,
+      "4-5": 24,
+      "6-10": 44,
+      "11-20": 16
+     },
+     "avgCopies": 1.15,
+     "avgFirstOrdinal": 4.79,
+     "avgFirstTimeS": 337.3,
+     "picksTotal": 128,
+     "offered": 1136,
+     "pickThrough": 0.113,
+     "avgKills": 1.22,
+     "avgDamage": 1724.4,
+     "avgLifeS": 583.9
+    },
+    "mineCaptive": {
+     "builds": 39,
+     "wins": 12,
+     "winrate": 0.3077,
+     "ci95": [
+      0.1857,
+      0.4642
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.626,
+     "expWins": 7.38,
+     "avgPlacement": 5.41,
+     "placeDist": {
+      "1": 12,
+      "2": 1,
+      "3": 5,
+      "4-5": 5,
+      "6-10": 8,
+      "11-20": 8
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.13,
+     "avgFirstTimeS": 379.2,
+     "picksTotal": 39,
+     "offered": 405,
+     "pickThrough": 0.096,
+     "avgKills": 2.36,
+     "avgDamage": 2227.8,
+     "avgLifeS": 633.5
+    },
+    "minePropFouling": {
+     "builds": 29,
+     "wins": 4,
+     "winrate": 0.1379,
+     "ci95": [
+      0.055,
+      0.3056
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.642,
+     "expWins": 6.23,
+     "avgPlacement": 5.34,
+     "placeDist": {
+      "1": 4,
+      "2": 2,
+      "3": 4,
+      "4-5": 8,
+      "6-10": 9,
+      "11-20": 2
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.62,
+     "avgFirstTimeS": 411.5,
+     "picksTotal": 29,
+     "offered": 379,
+     "pickThrough": 0.077,
+     "avgKills": 1.59,
+     "avgDamage": 2012.8,
+     "avgLifeS": 636.0
+    },
+    "shipCooldown": {
+     "builds": 1898,
+     "wins": 114,
+     "winrate": 0.0601,
+     "ci95": [
+      0.0502,
+      0.0717
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.99,
+     "expWins": 115.17,
+     "avgPlacement": 8.96,
+     "placeDist": {
+      "1": 114,
+      "2": 132,
+      "3": 127,
+      "4-5": 250,
+      "6-10": 537,
+      "11-20": 738
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 2.65,
+     "avgFirstTimeS": 214.4,
+     "picksTotal": 2380,
+     "offered": 25247,
+     "pickThrough": 0.094,
+     "avgKills": 0.88,
+     "avgDamage": 1292.2,
+     "avgLifeS": 488.5
+    },
+    "shipHull": {
+     "builds": 1605,
+     "wins": 108,
+     "winrate": 0.0673,
+     "ci95": [
+      0.056,
+      0.0806
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.988,
+     "expWins": 109.31,
+     "avgPlacement": 8.47,
+     "placeDist": {
+      "1": 108,
+      "2": 124,
+      "3": 109,
+      "4-5": 233,
+      "6-10": 473,
+      "11-20": 558
+     },
+     "avgCopies": 1.2,
+     "avgFirstOrdinal": 2.85,
+     "avgFirstTimeS": 220.9,
+     "picksTotal": 1927,
+     "offered": 21068,
+     "pickThrough": 0.091,
+     "avgKills": 0.9,
+     "avgDamage": 1325.4,
+     "avgLifeS": 511.6
+    },
+    "shipSpeed": {
+     "builds": 1664,
+     "wins": 95,
+     "winrate": 0.0571,
+     "ci95": [
+      0.0469,
+      0.0693
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.837,
+     "expWins": 113.46,
+     "avgPlacement": 8.71,
+     "placeDist": {
+      "1": 95,
+      "2": 111,
+      "3": 123,
+      "4-5": 237,
+      "6-10": 496,
+      "11-20": 602
+     },
+     "avgCopies": 1.2,
+     "avgFirstOrdinal": 2.84,
+     "avgFirstTimeS": 220.4,
+     "picksTotal": 2005,
+     "offered": 21168,
+     "pickThrough": 0.095,
+     "avgKills": 0.86,
+     "avgDamage": 1291.8,
+     "avgLifeS": 498.8
+    },
+    "starDazzle": {
+     "builds": 32,
+     "wins": 5,
+     "winrate": 0.1562,
+     "ci95": [
+      0.0686,
+      0.3175
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.783,
+     "expWins": 6.39,
+     "avgPlacement": 5.16,
+     "placeDist": {
+      "1": 5,
+      "2": 5,
+      "3": 3,
+      "4-5": 3,
+      "6-10": 13,
+      "11-20": 3
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.09,
+     "avgFirstTimeS": 413.8,
+     "picksTotal": 32,
+     "offered": 430,
+     "pickThrough": 0.074,
+     "avgKills": 1.62,
+     "avgDamage": 1760.0,
+     "avgLifeS": 607.3
+    },
+    "starDuration": {
+     "builds": 96,
+     "wins": 14,
+     "winrate": 0.1458,
+     "ci95": [
+      0.0889,
+      0.23
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.768,
+     "expWins": 18.24,
+     "avgPlacement": 6.65,
+     "placeDist": {
+      "1": 14,
+      "2": 8,
+      "3": 11,
+      "4-5": 16,
+      "6-10": 27,
+      "11-20": 20
+     },
+     "avgCopies": 1.16,
+     "avgFirstOrdinal": 5.91,
+     "avgFirstTimeS": 374.8,
+     "picksTotal": 111,
+     "offered": 1215,
+     "pickThrough": 0.091,
+     "avgKills": 1.38,
+     "avgDamage": 1750.3,
+     "avgLifeS": 578.9
+    },
+    "starIncendiary": {
+     "builds": 48,
+     "wins": 11,
+     "winrate": 0.2292,
+     "ci95": [
+      0.1331,
+      0.3654
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.307,
+     "expWins": 8.42,
+     "avgPlacement": 5.96,
+     "placeDist": {
+      "1": 11,
+      "2": 2,
+      "3": 5,
+      "4-5": 6,
+      "6-10": 17,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 5.83,
+     "avgFirstTimeS": 396.5,
+     "picksTotal": 48,
+     "offered": 415,
+     "pickThrough": 0.116,
+     "avgKills": 1.71,
+     "avgDamage": 1855.1,
+     "avgLifeS": 611.7
+    },
+    "torpedoHoming": {
+     "builds": 634,
+     "wins": 63,
+     "winrate": 0.0994,
+     "ci95": [
+      0.0784,
+      0.1251
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.11,
+     "expWins": 56.74,
+     "avgPlacement": 8.08,
+     "placeDist": {
+      "1": 63,
+      "2": 47,
+      "3": 44,
+      "4-5": 90,
+      "6-10": 186,
+      "11-20": 204
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.39,
+     "avgFirstTimeS": 256.6,
+     "picksTotal": 634,
+     "offered": 6793,
+     "pickThrough": 0.093,
+     "avgKills": 1.11,
+     "avgDamage": 1422.6,
+     "avgLifeS": 517.8
+    },
+    "torpedoSpeed": {
+     "builds": 1658,
+     "wins": 101,
+     "winrate": 0.0609,
+     "ci95": [
+      0.0504,
+      0.0735
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 0.906,
+     "expWins": 111.42,
+     "avgPlacement": 8.87,
+     "placeDist": {
+      "1": 101,
+      "2": 122,
+      "3": 112,
+      "4-5": 223,
+      "6-10": 468,
+      "11-20": 632
+     },
+     "avgCopies": 1.19,
+     "avgFirstOrdinal": 2.82,
+     "avgFirstTimeS": 221.7,
+     "picksTotal": 1975,
+     "offered": 21234,
+     "pickThrough": 0.093,
+     "avgKills": 0.87,
+     "avgDamage": 1280.7,
+     "avgLifeS": 494.7
+    },
+    "torpedoTube": {
+     "builds": 646,
+     "wins": 59,
+     "winrate": 0.0913,
+     "ci95": [
+      0.0715,
+      0.116
+     ],
+     "poolWinrate": 0.0227,
+     "ordinalLift": 1.047,
+     "expWins": 56.37,
+     "avgPlacement": 8.04,
+     "placeDist": {
+      "1": 59,
+      "2": 51,
+      "3": 46,
+      "4-5": 96,
+      "6-10": 189,
+      "11-20": 205
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.33,
+     "avgFirstTimeS": 243.5,
+     "picksTotal": 646,
+     "offered": 6873,
+     "pickThrough": 0.094,
+     "avgKills": 1.11,
+     "avgDamage": 1422.1,
+     "avgLifeS": 517.9
+    }
+   }
+  },
+  "monoBS": {
+   "bots": 10000,
+   "poolWinrate": 0.05,
+   "poolAvgKills": 0.9,
+   "poolAvgLifeS": 360.6,
+   "cards": {
+    "acquireBoost": {
+     "builds": 798,
+     "wins": 84,
+     "winrate": 0.1053,
+     "ci95": [
+      0.0858,
+      0.1285
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.809,
+     "expWins": 103.86,
+     "avgPlacement": 7.39,
+     "placeDist": {
+      "1": 84,
+      "2": 82,
+      "3": 76,
+      "4-5": 107,
+      "6-10": 224,
+      "11-20": 225
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.98,
+     "avgFirstTimeS": 203.4,
+     "picksTotal": 798,
+     "offered": 7895,
+     "pickThrough": 0.101,
+     "avgKills": 1.41,
+     "avgDamage": 1630.5,
+     "avgLifeS": 483.1
+    },
+    "acquireMine": {
+     "builds": 777,
+     "wins": 110,
+     "winrate": 0.1416,
+     "ci95": [
+      0.1188,
+      0.1678
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.1,
+     "expWins": 100.02,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 110,
+      "2": 62,
+      "3": 74,
+      "4-5": 107,
+      "6-10": 199,
+      "11-20": 225
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.96,
+     "avgFirstTimeS": 201.9,
+     "picksTotal": 777,
+     "offered": 7912,
+     "pickThrough": 0.098,
+     "avgKills": 1.73,
+     "avgDamage": 1771.1,
+     "avgLifeS": 482.4
+    },
+    "acquireRadarBuoy": {
+     "builds": 814,
+     "wins": 81,
+     "winrate": 0.0995,
+     "ci95": [
+      0.0808,
+      0.122
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.767,
+     "expWins": 105.59,
+     "avgPlacement": 7.53,
+     "placeDist": {
+      "1": 81,
+      "2": 79,
+      "3": 60,
+      "4-5": 125,
+      "6-10": 235,
+      "11-20": 234
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.98,
+     "avgFirstTimeS": 197.6,
+     "picksTotal": 814,
+     "offered": 7880,
+     "pickThrough": 0.103,
+     "avgKills": 1.3,
+     "avgDamage": 1572.1,
+     "avgLifeS": 478.0
+    },
+    "acquireTorpedo": {
+     "builds": 774,
+     "wins": 112,
+     "winrate": 0.1447,
+     "ci95": [
+      0.1217,
+      0.1712
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.089,
+     "expWins": 102.88,
+     "avgPlacement": 7.01,
+     "placeDist": {
+      "1": 112,
+      "2": 69,
+      "3": 62,
+      "4-5": 123,
+      "6-10": 211,
+      "11-20": 197
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.06,
+     "avgFirstTimeS": 210.6,
+     "picksTotal": 774,
+     "offered": 7777,
+     "pickThrough": 0.1,
+     "avgKills": 1.65,
+     "avgDamage": 1747.1,
+     "avgLifeS": 497.5
+    },
+    "boostDuration": {
+     "builds": 205,
+     "wins": 44,
+     "winrate": 0.2146,
+     "ci95": [
+      0.164,
+      0.2758
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.783,
+     "expWins": 56.17,
+     "avgPlacement": 5.0,
+     "placeDist": {
+      "1": 44,
+      "2": 32,
+      "3": 28,
+      "4-5": 27,
+      "6-10": 44,
+      "11-20": 30
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 6.18,
+     "avgFirstTimeS": 340.9,
+     "picksTotal": 255,
+     "offered": 2207,
+     "pickThrough": 0.116,
+     "avgKills": 1.94,
+     "avgDamage": 2103.3,
+     "avgLifeS": 590.9
+    },
+    "boostSpeed": {
+     "builds": 117,
+     "wins": 26,
+     "winrate": 0.2222,
+     "ci95": [
+      0.1564,
+      0.3057
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.71,
+     "expWins": 36.61,
+     "avgPlacement": 5.01,
+     "placeDist": {
+      "1": 26,
+      "2": 18,
+      "3": 14,
+      "4-5": 19,
+      "6-10": 21,
+      "11-20": 19
+     },
+     "avgCopies": 1.03,
+     "avgFirstOrdinal": 6.82,
+     "avgFirstTimeS": 371.1,
+     "picksTotal": 120,
+     "offered": 1299,
+     "pickThrough": 0.092,
+     "avgKills": 2.03,
+     "avgDamage": 2147.7,
+     "avgLifeS": 594.2
+    },
+    "broadsideSpread": {
+     "builds": 2652,
+     "wins": 327,
+     "winrate": 0.1233,
+     "ci95": [
+      0.1113,
+      0.1364
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.892,
+     "expWins": 366.78,
+     "avgPlacement": 7.08,
+     "placeDist": {
+      "1": 327,
+      "2": 273,
+      "3": 238,
+      "4-5": 400,
+      "6-10": 717,
+      "11-20": 697
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 3.16,
+     "avgFirstTimeS": 212.5,
+     "picksTotal": 3296,
+     "offered": 32155,
+     "pickThrough": 0.103,
+     "avgKills": 1.48,
+     "avgDamage": 1703.8,
+     "avgLifeS": 493.9
+    },
+    "broadsideTurrets": {
+     "builds": 1857,
+     "wins": 280,
+     "winrate": 0.1508,
+     "ci95": [
+      0.1352,
+      0.1678
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.004,
+     "expWins": 279.01,
+     "avgPlacement": 6.6,
+     "placeDist": {
+      "1": 280,
+      "2": 198,
+      "3": 167,
+      "4-5": 288,
+      "6-10": 487,
+      "11-20": 437
+     },
+     "avgCopies": 1.1,
+     "avgFirstOrdinal": 3.44,
+     "avgFirstTimeS": 228.0,
+     "picksTotal": 2043,
+     "offered": 19107,
+     "pickThrough": 0.107,
+     "avgKills": 1.64,
+     "avgDamage": 1805.9,
+     "avgLifeS": 513.5
+    },
+    "buoyDuration": {
+     "builds": 187,
+     "wins": 42,
+     "winrate": 0.2246,
+     "ci95": [
+      0.1707,
+      0.2896
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.764,
+     "expWins": 54.96,
+     "avgPlacement": 4.95,
+     "placeDist": {
+      "1": 42,
+      "2": 32,
+      "3": 17,
+      "4-5": 27,
+      "6-10": 46,
+      "11-20": 23
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 6.56,
+     "avgFirstTimeS": 358.6,
+     "picksTotal": 233,
+     "offered": 2215,
+     "pickThrough": 0.105,
+     "avgKills": 2.05,
+     "avgDamage": 2090.4,
+     "avgLifeS": 597.1
+    },
+    "buoyGun": {
+     "builds": 76,
+     "wins": 14,
+     "winrate": 0.1842,
+     "ci95": [
+      0.113,
+      0.2858
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.654,
+     "expWins": 21.39,
+     "avgPlacement": 4.49,
+     "placeDist": {
+      "1": 14,
+      "2": 12,
+      "3": 11,
+      "4-5": 14,
+      "6-10": 21,
+      "11-20": 4
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.32,
+     "avgFirstTimeS": 353.4,
+     "picksTotal": 76,
+     "offered": 701,
+     "pickThrough": 0.108,
+     "avgKills": 1.97,
+     "avgDamage": 2043.2,
+     "avgLifeS": 613.9
+    },
+    "buoyJamming": {
+     "builds": 91,
+     "wins": 23,
+     "winrate": 0.2527,
+     "ci95": [
+      0.1747,
+      0.3508
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.761,
+     "expWins": 30.23,
+     "avgPlacement": 4.12,
+     "placeDist": {
+      "1": 23,
+      "2": 19,
+      "3": 9,
+      "4-5": 18,
+      "6-10": 15,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.22,
+     "avgFirstTimeS": 419.1,
+     "picksTotal": 91,
+     "offered": 747,
+     "pickThrough": 0.122,
+     "avgKills": 2.22,
+     "avgDamage": 2201.4,
+     "avgLifeS": 644.3
+    },
+    "gunBarrel": {
+     "builds": 1603,
+     "wins": 417,
+     "winrate": 0.2601,
+     "ci95": [
+      0.2393,
+      0.2822
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.921,
+     "expWins": 217.12,
+     "avgPlacement": 5.51,
+     "placeDist": {
+      "1": 417,
+      "2": 183,
+      "3": 153,
+      "4-5": 237,
+      "6-10": 324,
+      "11-20": 289
+     },
+     "avgCopies": 1.13,
+     "avgFirstOrdinal": 3.16,
+     "avgFirstTimeS": 213.7,
+     "picksTotal": 1819,
+     "offered": 18617,
+     "pickThrough": 0.098,
+     "avgKills": 2.35,
+     "avgDamage": 2168.0,
+     "avgLifeS": 551.2
+    },
+    "gunTurret": {
+     "builds": 1069,
+     "wins": 173,
+     "winrate": 0.1618,
+     "ci95": [
+      0.141,
+      0.1851
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.959,
+     "expWins": 180.42,
+     "avgPlacement": 6.41,
+     "placeDist": {
+      "1": 173,
+      "2": 115,
+      "3": 107,
+      "4-5": 147,
+      "6-10": 301,
+      "11-20": 226
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.79,
+     "avgFirstTimeS": 242.9,
+     "picksTotal": 1069,
+     "offered": 10040,
+     "pickThrough": 0.106,
+     "avgKills": 1.72,
+     "avgDamage": 1841.2,
+     "avgLifeS": 516.9
+    },
+    "intelSweep": {
+     "builds": 2972,
+     "wins": 376,
+     "winrate": 0.1265,
+     "ci95": [
+      0.115,
+      0.1389
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.941,
+     "expWins": 399.38,
+     "avgPlacement": 7.11,
+     "placeDist": {
+      "1": 376,
+      "2": 296,
+      "3": 274,
+      "4-5": 429,
+      "6-10": 823,
+      "11-20": 774
+     },
+     "avgCopies": 1.3,
+     "avgFirstOrdinal": 3.1,
+     "avgFirstTimeS": 210.7,
+     "picksTotal": 3865,
+     "offered": 38438,
+     "pickThrough": 0.101,
+     "avgKills": 1.49,
+     "avgDamage": 1693.4,
+     "avgLifeS": 495.8
+    },
+    "mineBlast": {
+     "builds": 180,
+     "wins": 52,
+     "winrate": 0.2889,
+     "ci95": [
+      0.2276,
+      0.359
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.002,
+     "expWins": 51.9,
+     "avgPlacement": 4.67,
+     "placeDist": {
+      "1": 52,
+      "2": 18,
+      "3": 23,
+      "4-5": 27,
+      "6-10": 38,
+      "11-20": 22
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 6.37,
+     "avgFirstTimeS": 347.7,
+     "picksTotal": 226,
+     "offered": 2377,
+     "pickThrough": 0.095,
+     "avgKills": 2.48,
+     "avgDamage": 2367.2,
+     "avgLifeS": 601.0
+    },
+    "mineCaptive": {
+     "builds": 80,
+     "wins": 32,
+     "winrate": 0.4,
+     "ci95": [
+      0.2996,
+      0.5095
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.27,
+     "expWins": 25.2,
+     "avgPlacement": 3.95,
+     "placeDist": {
+      "1": 32,
+      "2": 7,
+      "3": 13,
+      "4-5": 9,
+      "6-10": 13,
+      "11-20": 6
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.86,
+     "avgFirstTimeS": 357.1,
+     "picksTotal": 80,
+     "offered": 730,
+     "pickThrough": 0.11,
+     "avgKills": 3.24,
+     "avgDamage": 2674.8,
+     "avgLifeS": 625.2
+    },
+    "minePropFouling": {
+     "builds": 82,
+     "wins": 23,
+     "winrate": 0.2805,
+     "ci95": [
+      0.1948,
+      0.3859
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.754,
+     "expWins": 30.51,
+     "avgPlacement": 3.91,
+     "placeDist": {
+      "1": 23,
+      "2": 14,
+      "3": 11,
+      "4-5": 19,
+      "6-10": 10,
+      "11-20": 5
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.8,
+     "avgFirstTimeS": 372.1,
+     "picksTotal": 82,
+     "offered": 758,
+     "pickThrough": 0.108,
+     "avgKills": 2.76,
+     "avgDamage": 2598.4,
+     "avgLifeS": 627.0
+    },
+    "shipCooldown": {
+     "builds": 2962,
+     "wins": 385,
+     "winrate": 0.13,
+     "ci95": [
+      0.1183,
+      0.1426
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.025,
+     "expWins": 375.6,
+     "avgPlacement": 7.14,
+     "placeDist": {
+      "1": 385,
+      "2": 284,
+      "3": 263,
+      "4-5": 419,
+      "6-10": 841,
+      "11-20": 770
+     },
+     "avgCopies": 1.32,
+     "avgFirstOrdinal": 2.91,
+     "avgFirstTimeS": 201.3,
+     "picksTotal": 3896,
+     "offered": 38060,
+     "pickThrough": 0.102,
+     "avgKills": 1.55,
+     "avgDamage": 1717.2,
+     "avgLifeS": 489.7
+    },
+    "shipHull": {
+     "builds": 2599,
+     "wins": 368,
+     "winrate": 0.1416,
+     "ci95": [
+      0.1287,
+      0.1555
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.996,
+     "expWins": 369.31,
+     "avgPlacement": 6.64,
+     "placeDist": {
+      "1": 368,
+      "2": 298,
+      "3": 258,
+      "4-5": 378,
+      "6-10": 684,
+      "11-20": 613
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.26,
+     "avgFirstTimeS": 217.8,
+     "picksTotal": 3204,
+     "offered": 32196,
+     "pickThrough": 0.1,
+     "avgKills": 1.59,
+     "avgDamage": 1773.7,
+     "avgLifeS": 515.1
+    },
+    "shipSpeed": {
+     "builds": 2640,
+     "wins": 352,
+     "winrate": 0.1333,
+     "ci95": [
+      0.1209,
+      0.1468
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.96,
+     "expWins": 366.85,
+     "avgPlacement": 7.02,
+     "placeDist": {
+      "1": 352,
+      "2": 247,
+      "3": 234,
+      "4-5": 389,
+      "6-10": 745,
+      "11-20": 673
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.19,
+     "avgFirstTimeS": 211.8,
+     "picksTotal": 3298,
+     "offered": 32246,
+     "pickThrough": 0.102,
+     "avgKills": 1.54,
+     "avgDamage": 1711.9,
+     "avgLifeS": 495.7
+    },
+    "starDazzle": {
+     "builds": 1050,
+     "wins": 176,
+     "winrate": 0.1676,
+     "ci95": [
+      0.1462,
+      0.1914
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.938,
+     "expWins": 187.69,
+     "avgPlacement": 6.2,
+     "placeDist": {
+      "1": 176,
+      "2": 121,
+      "3": 117,
+      "4-5": 164,
+      "6-10": 251,
+      "11-20": 221
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.0,
+     "avgFirstTimeS": 255.8,
+     "picksTotal": 1050,
+     "offered": 9946,
+     "pickThrough": 0.106,
+     "avgKills": 1.77,
+     "avgDamage": 1885.9,
+     "avgLifeS": 538.5
+    },
+    "starDuration": {
+     "builds": 2729,
+     "wins": 318,
+     "winrate": 0.1165,
+     "ci95": [
+      0.105,
+      0.1291
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.843,
+     "expWins": 377.08,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 318,
+      "2": 271,
+      "3": 251,
+      "4-5": 389,
+      "6-10": 755,
+      "11-20": 745
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.15,
+     "avgFirstTimeS": 214.8,
+     "picksTotal": 3351,
+     "offered": 32648,
+     "pickThrough": 0.103,
+     "avgKills": 1.47,
+     "avgDamage": 1675.6,
+     "avgLifeS": 486.4
+    },
+    "starIncendiary": {
+     "builds": 1013,
+     "wins": 192,
+     "winrate": 0.1895,
+     "ci95": [
+      0.1666,
+      0.2148
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.156,
+     "expWins": 166.15,
+     "avgPlacement": 6.08,
+     "placeDist": {
+      "1": 192,
+      "2": 123,
+      "3": 94,
+      "4-5": 149,
+      "6-10": 246,
+      "11-20": 209
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.74,
+     "avgFirstTimeS": 235.5,
+     "picksTotal": 1013,
+     "offered": 9859,
+     "pickThrough": 0.103,
+     "avgKills": 1.94,
+     "avgDamage": 2016.6,
+     "avgLifeS": 532.5
+    },
+    "torpedoHoming": {
+     "builds": 75,
+     "wins": 26,
+     "winrate": 0.3467,
+     "ci95": [
+      0.2488,
+      0.4595
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.145,
+     "expWins": 22.72,
+     "avgPlacement": 4.29,
+     "placeDist": {
+      "1": 26,
+      "2": 5,
+      "3": 10,
+      "4-5": 16,
+      "6-10": 11,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.61,
+     "avgFirstTimeS": 367.1,
+     "picksTotal": 75,
+     "offered": 714,
+     "pickThrough": 0.105,
+     "avgKills": 2.87,
+     "avgDamage": 2431.0,
+     "avgLifeS": 609.6
+    },
+    "torpedoSpeed": {
+     "builds": 202,
+     "wins": 57,
+     "winrate": 0.2822,
+     "ci95": [
+      0.2246,
+      0.3479
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.944,
+     "expWins": 60.36,
+     "avgPlacement": 4.53,
+     "placeDist": {
+      "1": 57,
+      "2": 25,
+      "3": 22,
+      "4-5": 37,
+      "6-10": 37,
+      "11-20": 24
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 6.5,
+     "avgFirstTimeS": 363.1,
+     "picksTotal": 249,
+     "offered": 2327,
+     "pickThrough": 0.107,
+     "avgKills": 2.46,
+     "avgDamage": 2306.2,
+     "avgLifeS": 599.6
+    },
+    "torpedoTube": {
+     "builds": 71,
+     "wins": 18,
+     "winrate": 0.2535,
+     "ci95": [
+      0.1668,
+      0.3655
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.815,
+     "expWins": 22.08,
+     "avgPlacement": 3.97,
+     "placeDist": {
+      "1": 18,
+      "2": 12,
+      "3": 11,
+      "4-5": 13,
+      "6-10": 15,
+      "11-20": 2
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.68,
+     "avgFirstTimeS": 387.0,
+     "picksTotal": 71,
+     "offered": 685,
+     "pickThrough": 0.104,
+     "avgKills": 2.72,
+     "avgDamage": 2417.5,
+     "avgLifeS": 640.2
+    }
+   }
+  },
+  "monoBS/battleship": {
+   "bots": 10000,
+   "poolWinrate": 0.05,
+   "poolAvgKills": 0.9,
+   "poolAvgLifeS": 360.6,
+   "cards": {
+    "acquireBoost": {
+     "builds": 798,
+     "wins": 84,
+     "winrate": 0.1053,
+     "ci95": [
+      0.0858,
+      0.1285
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.809,
+     "expWins": 103.86,
+     "avgPlacement": 7.39,
+     "placeDist": {
+      "1": 84,
+      "2": 82,
+      "3": 76,
+      "4-5": 107,
+      "6-10": 224,
+      "11-20": 225
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.98,
+     "avgFirstTimeS": 203.4,
+     "picksTotal": 798,
+     "offered": 7895,
+     "pickThrough": 0.101,
+     "avgKills": 1.41,
+     "avgDamage": 1630.5,
+     "avgLifeS": 483.1
+    },
+    "acquireMine": {
+     "builds": 777,
+     "wins": 110,
+     "winrate": 0.1416,
+     "ci95": [
+      0.1188,
+      0.1678
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.1,
+     "expWins": 100.02,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 110,
+      "2": 62,
+      "3": 74,
+      "4-5": 107,
+      "6-10": 199,
+      "11-20": 225
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.96,
+     "avgFirstTimeS": 201.9,
+     "picksTotal": 777,
+     "offered": 7912,
+     "pickThrough": 0.098,
+     "avgKills": 1.73,
+     "avgDamage": 1771.1,
+     "avgLifeS": 482.4
+    },
+    "acquireRadarBuoy": {
+     "builds": 814,
+     "wins": 81,
+     "winrate": 0.0995,
+     "ci95": [
+      0.0808,
+      0.122
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.767,
+     "expWins": 105.59,
+     "avgPlacement": 7.53,
+     "placeDist": {
+      "1": 81,
+      "2": 79,
+      "3": 60,
+      "4-5": 125,
+      "6-10": 235,
+      "11-20": 234
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.98,
+     "avgFirstTimeS": 197.6,
+     "picksTotal": 814,
+     "offered": 7880,
+     "pickThrough": 0.103,
+     "avgKills": 1.3,
+     "avgDamage": 1572.1,
+     "avgLifeS": 478.0
+    },
+    "acquireTorpedo": {
+     "builds": 774,
+     "wins": 112,
+     "winrate": 0.1447,
+     "ci95": [
+      0.1217,
+      0.1712
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.089,
+     "expWins": 102.88,
+     "avgPlacement": 7.01,
+     "placeDist": {
+      "1": 112,
+      "2": 69,
+      "3": 62,
+      "4-5": 123,
+      "6-10": 211,
+      "11-20": 197
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.06,
+     "avgFirstTimeS": 210.6,
+     "picksTotal": 774,
+     "offered": 7777,
+     "pickThrough": 0.1,
+     "avgKills": 1.65,
+     "avgDamage": 1747.1,
+     "avgLifeS": 497.5
+    },
+    "boostDuration": {
+     "builds": 205,
+     "wins": 44,
+     "winrate": 0.2146,
+     "ci95": [
+      0.164,
+      0.2758
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.783,
+     "expWins": 56.17,
+     "avgPlacement": 5.0,
+     "placeDist": {
+      "1": 44,
+      "2": 32,
+      "3": 28,
+      "4-5": 27,
+      "6-10": 44,
+      "11-20": 30
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 6.18,
+     "avgFirstTimeS": 340.9,
+     "picksTotal": 255,
+     "offered": 2207,
+     "pickThrough": 0.116,
+     "avgKills": 1.94,
+     "avgDamage": 2103.3,
+     "avgLifeS": 590.9
+    },
+    "boostSpeed": {
+     "builds": 117,
+     "wins": 26,
+     "winrate": 0.2222,
+     "ci95": [
+      0.1564,
+      0.3057
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.71,
+     "expWins": 36.61,
+     "avgPlacement": 5.01,
+     "placeDist": {
+      "1": 26,
+      "2": 18,
+      "3": 14,
+      "4-5": 19,
+      "6-10": 21,
+      "11-20": 19
+     },
+     "avgCopies": 1.03,
+     "avgFirstOrdinal": 6.82,
+     "avgFirstTimeS": 371.1,
+     "picksTotal": 120,
+     "offered": 1299,
+     "pickThrough": 0.092,
+     "avgKills": 2.03,
+     "avgDamage": 2147.7,
+     "avgLifeS": 594.2
+    },
+    "broadsideSpread": {
+     "builds": 2652,
+     "wins": 327,
+     "winrate": 0.1233,
+     "ci95": [
+      0.1113,
+      0.1364
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.892,
+     "expWins": 366.78,
+     "avgPlacement": 7.08,
+     "placeDist": {
+      "1": 327,
+      "2": 273,
+      "3": 238,
+      "4-5": 400,
+      "6-10": 717,
+      "11-20": 697
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 3.16,
+     "avgFirstTimeS": 212.5,
+     "picksTotal": 3296,
+     "offered": 32155,
+     "pickThrough": 0.103,
+     "avgKills": 1.48,
+     "avgDamage": 1703.8,
+     "avgLifeS": 493.9
+    },
+    "broadsideTurrets": {
+     "builds": 1857,
+     "wins": 280,
+     "winrate": 0.1508,
+     "ci95": [
+      0.1352,
+      0.1678
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.004,
+     "expWins": 279.01,
+     "avgPlacement": 6.6,
+     "placeDist": {
+      "1": 280,
+      "2": 198,
+      "3": 167,
+      "4-5": 288,
+      "6-10": 487,
+      "11-20": 437
+     },
+     "avgCopies": 1.1,
+     "avgFirstOrdinal": 3.44,
+     "avgFirstTimeS": 228.0,
+     "picksTotal": 2043,
+     "offered": 19107,
+     "pickThrough": 0.107,
+     "avgKills": 1.64,
+     "avgDamage": 1805.9,
+     "avgLifeS": 513.5
+    },
+    "buoyDuration": {
+     "builds": 187,
+     "wins": 42,
+     "winrate": 0.2246,
+     "ci95": [
+      0.1707,
+      0.2896
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.764,
+     "expWins": 54.96,
+     "avgPlacement": 4.95,
+     "placeDist": {
+      "1": 42,
+      "2": 32,
+      "3": 17,
+      "4-5": 27,
+      "6-10": 46,
+      "11-20": 23
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 6.56,
+     "avgFirstTimeS": 358.6,
+     "picksTotal": 233,
+     "offered": 2215,
+     "pickThrough": 0.105,
+     "avgKills": 2.05,
+     "avgDamage": 2090.4,
+     "avgLifeS": 597.1
+    },
+    "buoyGun": {
+     "builds": 76,
+     "wins": 14,
+     "winrate": 0.1842,
+     "ci95": [
+      0.113,
+      0.2858
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.654,
+     "expWins": 21.39,
+     "avgPlacement": 4.49,
+     "placeDist": {
+      "1": 14,
+      "2": 12,
+      "3": 11,
+      "4-5": 14,
+      "6-10": 21,
+      "11-20": 4
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.32,
+     "avgFirstTimeS": 353.4,
+     "picksTotal": 76,
+     "offered": 701,
+     "pickThrough": 0.108,
+     "avgKills": 1.97,
+     "avgDamage": 2043.2,
+     "avgLifeS": 613.9
+    },
+    "buoyJamming": {
+     "builds": 91,
+     "wins": 23,
+     "winrate": 0.2527,
+     "ci95": [
+      0.1747,
+      0.3508
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.761,
+     "expWins": 30.23,
+     "avgPlacement": 4.12,
+     "placeDist": {
+      "1": 23,
+      "2": 19,
+      "3": 9,
+      "4-5": 18,
+      "6-10": 15,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.22,
+     "avgFirstTimeS": 419.1,
+     "picksTotal": 91,
+     "offered": 747,
+     "pickThrough": 0.122,
+     "avgKills": 2.22,
+     "avgDamage": 2201.4,
+     "avgLifeS": 644.3
+    },
+    "gunBarrel": {
+     "builds": 1603,
+     "wins": 417,
+     "winrate": 0.2601,
+     "ci95": [
+      0.2393,
+      0.2822
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.921,
+     "expWins": 217.12,
+     "avgPlacement": 5.51,
+     "placeDist": {
+      "1": 417,
+      "2": 183,
+      "3": 153,
+      "4-5": 237,
+      "6-10": 324,
+      "11-20": 289
+     },
+     "avgCopies": 1.13,
+     "avgFirstOrdinal": 3.16,
+     "avgFirstTimeS": 213.7,
+     "picksTotal": 1819,
+     "offered": 18617,
+     "pickThrough": 0.098,
+     "avgKills": 2.35,
+     "avgDamage": 2168.0,
+     "avgLifeS": 551.2
+    },
+    "gunTurret": {
+     "builds": 1069,
+     "wins": 173,
+     "winrate": 0.1618,
+     "ci95": [
+      0.141,
+      0.1851
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.959,
+     "expWins": 180.42,
+     "avgPlacement": 6.41,
+     "placeDist": {
+      "1": 173,
+      "2": 115,
+      "3": 107,
+      "4-5": 147,
+      "6-10": 301,
+      "11-20": 226
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.79,
+     "avgFirstTimeS": 242.9,
+     "picksTotal": 1069,
+     "offered": 10040,
+     "pickThrough": 0.106,
+     "avgKills": 1.72,
+     "avgDamage": 1841.2,
+     "avgLifeS": 516.9
+    },
+    "intelSweep": {
+     "builds": 2972,
+     "wins": 376,
+     "winrate": 0.1265,
+     "ci95": [
+      0.115,
+      0.1389
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.941,
+     "expWins": 399.38,
+     "avgPlacement": 7.11,
+     "placeDist": {
+      "1": 376,
+      "2": 296,
+      "3": 274,
+      "4-5": 429,
+      "6-10": 823,
+      "11-20": 774
+     },
+     "avgCopies": 1.3,
+     "avgFirstOrdinal": 3.1,
+     "avgFirstTimeS": 210.7,
+     "picksTotal": 3865,
+     "offered": 38438,
+     "pickThrough": 0.101,
+     "avgKills": 1.49,
+     "avgDamage": 1693.4,
+     "avgLifeS": 495.8
+    },
+    "mineBlast": {
+     "builds": 180,
+     "wins": 52,
+     "winrate": 0.2889,
+     "ci95": [
+      0.2276,
+      0.359
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.002,
+     "expWins": 51.9,
+     "avgPlacement": 4.67,
+     "placeDist": {
+      "1": 52,
+      "2": 18,
+      "3": 23,
+      "4-5": 27,
+      "6-10": 38,
+      "11-20": 22
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 6.37,
+     "avgFirstTimeS": 347.7,
+     "picksTotal": 226,
+     "offered": 2377,
+     "pickThrough": 0.095,
+     "avgKills": 2.48,
+     "avgDamage": 2367.2,
+     "avgLifeS": 601.0
+    },
+    "mineCaptive": {
+     "builds": 80,
+     "wins": 32,
+     "winrate": 0.4,
+     "ci95": [
+      0.2996,
+      0.5095
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.27,
+     "expWins": 25.2,
+     "avgPlacement": 3.95,
+     "placeDist": {
+      "1": 32,
+      "2": 7,
+      "3": 13,
+      "4-5": 9,
+      "6-10": 13,
+      "11-20": 6
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.86,
+     "avgFirstTimeS": 357.1,
+     "picksTotal": 80,
+     "offered": 730,
+     "pickThrough": 0.11,
+     "avgKills": 3.24,
+     "avgDamage": 2674.8,
+     "avgLifeS": 625.2
+    },
+    "minePropFouling": {
+     "builds": 82,
+     "wins": 23,
+     "winrate": 0.2805,
+     "ci95": [
+      0.1948,
+      0.3859
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.754,
+     "expWins": 30.51,
+     "avgPlacement": 3.91,
+     "placeDist": {
+      "1": 23,
+      "2": 14,
+      "3": 11,
+      "4-5": 19,
+      "6-10": 10,
+      "11-20": 5
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.8,
+     "avgFirstTimeS": 372.1,
+     "picksTotal": 82,
+     "offered": 758,
+     "pickThrough": 0.108,
+     "avgKills": 2.76,
+     "avgDamage": 2598.4,
+     "avgLifeS": 627.0
+    },
+    "shipCooldown": {
+     "builds": 2962,
+     "wins": 385,
+     "winrate": 0.13,
+     "ci95": [
+      0.1183,
+      0.1426
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.025,
+     "expWins": 375.6,
+     "avgPlacement": 7.14,
+     "placeDist": {
+      "1": 385,
+      "2": 284,
+      "3": 263,
+      "4-5": 419,
+      "6-10": 841,
+      "11-20": 770
+     },
+     "avgCopies": 1.32,
+     "avgFirstOrdinal": 2.91,
+     "avgFirstTimeS": 201.3,
+     "picksTotal": 3896,
+     "offered": 38060,
+     "pickThrough": 0.102,
+     "avgKills": 1.55,
+     "avgDamage": 1717.2,
+     "avgLifeS": 489.7
+    },
+    "shipHull": {
+     "builds": 2599,
+     "wins": 368,
+     "winrate": 0.1416,
+     "ci95": [
+      0.1287,
+      0.1555
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.996,
+     "expWins": 369.31,
+     "avgPlacement": 6.64,
+     "placeDist": {
+      "1": 368,
+      "2": 298,
+      "3": 258,
+      "4-5": 378,
+      "6-10": 684,
+      "11-20": 613
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.26,
+     "avgFirstTimeS": 217.8,
+     "picksTotal": 3204,
+     "offered": 32196,
+     "pickThrough": 0.1,
+     "avgKills": 1.59,
+     "avgDamage": 1773.7,
+     "avgLifeS": 515.1
+    },
+    "shipSpeed": {
+     "builds": 2640,
+     "wins": 352,
+     "winrate": 0.1333,
+     "ci95": [
+      0.1209,
+      0.1468
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.96,
+     "expWins": 366.85,
+     "avgPlacement": 7.02,
+     "placeDist": {
+      "1": 352,
+      "2": 247,
+      "3": 234,
+      "4-5": 389,
+      "6-10": 745,
+      "11-20": 673
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.19,
+     "avgFirstTimeS": 211.8,
+     "picksTotal": 3298,
+     "offered": 32246,
+     "pickThrough": 0.102,
+     "avgKills": 1.54,
+     "avgDamage": 1711.9,
+     "avgLifeS": 495.7
+    },
+    "starDazzle": {
+     "builds": 1050,
+     "wins": 176,
+     "winrate": 0.1676,
+     "ci95": [
+      0.1462,
+      0.1914
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.938,
+     "expWins": 187.69,
+     "avgPlacement": 6.2,
+     "placeDist": {
+      "1": 176,
+      "2": 121,
+      "3": 117,
+      "4-5": 164,
+      "6-10": 251,
+      "11-20": 221
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.0,
+     "avgFirstTimeS": 255.8,
+     "picksTotal": 1050,
+     "offered": 9946,
+     "pickThrough": 0.106,
+     "avgKills": 1.77,
+     "avgDamage": 1885.9,
+     "avgLifeS": 538.5
+    },
+    "starDuration": {
+     "builds": 2729,
+     "wins": 318,
+     "winrate": 0.1165,
+     "ci95": [
+      0.105,
+      0.1291
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.843,
+     "expWins": 377.08,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 318,
+      "2": 271,
+      "3": 251,
+      "4-5": 389,
+      "6-10": 755,
+      "11-20": 745
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.15,
+     "avgFirstTimeS": 214.8,
+     "picksTotal": 3351,
+     "offered": 32648,
+     "pickThrough": 0.103,
+     "avgKills": 1.47,
+     "avgDamage": 1675.6,
+     "avgLifeS": 486.4
+    },
+    "starIncendiary": {
+     "builds": 1013,
+     "wins": 192,
+     "winrate": 0.1895,
+     "ci95": [
+      0.1666,
+      0.2148
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.156,
+     "expWins": 166.15,
+     "avgPlacement": 6.08,
+     "placeDist": {
+      "1": 192,
+      "2": 123,
+      "3": 94,
+      "4-5": 149,
+      "6-10": 246,
+      "11-20": 209
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.74,
+     "avgFirstTimeS": 235.5,
+     "picksTotal": 1013,
+     "offered": 9859,
+     "pickThrough": 0.103,
+     "avgKills": 1.94,
+     "avgDamage": 2016.6,
+     "avgLifeS": 532.5
+    },
+    "torpedoHoming": {
+     "builds": 75,
+     "wins": 26,
+     "winrate": 0.3467,
+     "ci95": [
+      0.2488,
+      0.4595
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.145,
+     "expWins": 22.72,
+     "avgPlacement": 4.29,
+     "placeDist": {
+      "1": 26,
+      "2": 5,
+      "3": 10,
+      "4-5": 16,
+      "6-10": 11,
+      "11-20": 7
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.61,
+     "avgFirstTimeS": 367.1,
+     "picksTotal": 75,
+     "offered": 714,
+     "pickThrough": 0.105,
+     "avgKills": 2.87,
+     "avgDamage": 2431.0,
+     "avgLifeS": 609.6
+    },
+    "torpedoSpeed": {
+     "builds": 202,
+     "wins": 57,
+     "winrate": 0.2822,
+     "ci95": [
+      0.2246,
+      0.3479
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.944,
+     "expWins": 60.36,
+     "avgPlacement": 4.53,
+     "placeDist": {
+      "1": 57,
+      "2": 25,
+      "3": 22,
+      "4-5": 37,
+      "6-10": 37,
+      "11-20": 24
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 6.5,
+     "avgFirstTimeS": 363.1,
+     "picksTotal": 249,
+     "offered": 2327,
+     "pickThrough": 0.107,
+     "avgKills": 2.46,
+     "avgDamage": 2306.2,
+     "avgLifeS": 599.6
+    },
+    "torpedoTube": {
+     "builds": 71,
+     "wins": 18,
+     "winrate": 0.2535,
+     "ci95": [
+      0.1668,
+      0.3655
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.815,
+     "expWins": 22.08,
+     "avgPlacement": 3.97,
+     "placeDist": {
+      "1": 18,
+      "2": 12,
+      "3": 11,
+      "4-5": 13,
+      "6-10": 15,
+      "11-20": 2
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.68,
+     "avgFirstTimeS": 387.0,
+     "picksTotal": 71,
+     "offered": 685,
+     "pickThrough": 0.104,
+     "avgKills": 2.72,
+     "avgDamage": 2417.5,
+     "avgLifeS": 640.2
+    }
+   }
+  },
+  "monoML": {
+   "bots": 10000,
+   "poolWinrate": 0.05,
+   "poolAvgKills": 0.87,
+   "poolAvgLifeS": 483.1,
+   "cards": {
+    "acquireBoost": {
+     "builds": 997,
+     "wins": 53,
+     "winrate": 0.0532,
+     "ci95": [
+      0.0409,
+      0.0689
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.532,
+     "expWins": 99.7,
+     "avgPlacement": 9.05,
+     "placeDist": {
+      "1": 53,
+      "2": 65,
+      "3": 73,
+      "4-5": 138,
+      "6-10": 279,
+      "11-20": 389
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.09,
+     "avgFirstTimeS": 210.6,
+     "picksTotal": 997,
+     "offered": 9198,
+     "pickThrough": 0.108,
+     "avgKills": 1.0,
+     "avgDamage": 1391.9,
+     "avgLifeS": 536.7
+    },
+    "acquireBroadside": {
+     "builds": 1015,
+     "wins": 201,
+     "winrate": 0.198,
+     "ci95": [
+      0.1747,
+      0.2237
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.942,
+     "expWins": 103.49,
+     "avgPlacement": 7.03,
+     "placeDist": {
+      "1": 201,
+      "2": 92,
+      "3": 86,
+      "4-5": 111,
+      "6-10": 251,
+      "11-20": 274
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.16,
+     "avgFirstTimeS": 209.5,
+     "picksTotal": 1015,
+     "offered": 9053,
+     "pickThrough": 0.112,
+     "avgKills": 2.11,
+     "avgDamage": 2012.4,
+     "avgLifeS": 605.8
+    },
+    "acquireStarShells": {
+     "builds": 1050,
+     "wins": 72,
+     "winrate": 0.0686,
+     "ci95": [
+      0.0548,
+      0.0855
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.658,
+     "expWins": 109.45,
+     "avgPlacement": 8.77,
+     "placeDist": {
+      "1": 72,
+      "2": 79,
+      "3": 71,
+      "4-5": 133,
+      "6-10": 299,
+      "11-20": 396
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.19,
+     "avgFirstTimeS": 214.0,
+     "picksTotal": 1050,
+     "offered": 9114,
+     "pickThrough": 0.115,
+     "avgKills": 1.15,
+     "avgDamage": 1494.3,
+     "avgLifeS": 546.5
+    },
+    "acquireTorpedo": {
+     "builds": 985,
+     "wins": 89,
+     "winrate": 0.0904,
+     "ci95": [
+      0.074,
+      0.1099
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.932,
+     "expWins": 95.49,
+     "avgPlacement": 8.58,
+     "placeDist": {
+      "1": 89,
+      "2": 83,
+      "3": 70,
+      "4-5": 134,
+      "6-10": 250,
+      "11-20": 359
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.01,
+     "avgFirstTimeS": 203.2,
+     "picksTotal": 985,
+     "offered": 9206,
+     "pickThrough": 0.107,
+     "avgKills": 1.22,
+     "avgDamage": 1529.3,
+     "avgLifeS": 559.2
+    },
+    "boostDuration": {
+     "builds": 232,
+     "wins": 24,
+     "winrate": 0.1034,
+     "ci95": [
+      0.0705,
+      0.1493
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.515,
+     "expWins": 46.63,
+     "avgPlacement": 6.95,
+     "placeDist": {
+      "1": 24,
+      "2": 21,
+      "3": 23,
+      "4-5": 48,
+      "6-10": 61,
+      "11-20": 55
+     },
+     "avgCopies": 1.17,
+     "avgFirstOrdinal": 5.91,
+     "avgFirstTimeS": 348.4,
+     "picksTotal": 271,
+     "offered": 2860,
+     "pickThrough": 0.095,
+     "avgKills": 1.4,
+     "avgDamage": 1815.7,
+     "avgLifeS": 616.5
+    },
+    "boostSpeed": {
+     "builds": 162,
+     "wins": 20,
+     "winrate": 0.1235,
+     "ci95": [
+      0.0814,
+      0.183
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.535,
+     "expWins": 37.37,
+     "avgPlacement": 7.32,
+     "placeDist": {
+      "1": 20,
+      "2": 15,
+      "3": 12,
+      "4-5": 28,
+      "6-10": 43,
+      "11-20": 44
+     },
+     "avgCopies": 1.06,
+     "avgFirstOrdinal": 6.4,
+     "avgFirstTimeS": 349.3,
+     "picksTotal": 171,
+     "offered": 1580,
+     "pickThrough": 0.108,
+     "avgKills": 1.67,
+     "avgDamage": 1811.2,
+     "avgLifeS": 604.0
+    },
+    "broadsideSpread": {
+     "builds": 362,
+     "wins": 125,
+     "winrate": 0.3453,
+     "ci95": [
+      0.2982,
+      0.3957
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.459,
+     "expWins": 85.65,
+     "avgPlacement": 4.77,
+     "placeDist": {
+      "1": 125,
+      "2": 44,
+      "3": 38,
+      "4-5": 43,
+      "6-10": 57,
+      "11-20": 55
+     },
+     "avgCopies": 1.3,
+     "avgFirstOrdinal": 6.59,
+     "avgFirstTimeS": 378.6,
+     "picksTotal": 470,
+     "offered": 4100,
+     "pickThrough": 0.115,
+     "avgKills": 3.04,
+     "avgDamage": 2505.1,
+     "avgLifeS": 700.7
+    },
+    "broadsideTurrets": {
+     "builds": 242,
+     "wins": 94,
+     "winrate": 0.3884,
+     "ci95": [
+      0.3292,
+      0.4511
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.413,
+     "expWins": 66.52,
+     "avgPlacement": 4.73,
+     "placeDist": {
+      "1": 94,
+      "2": 23,
+      "3": 17,
+      "4-5": 27,
+      "6-10": 47,
+      "11-20": 34
+     },
+     "avgCopies": 1.16,
+     "avgFirstOrdinal": 7.14,
+     "avgFirstTimeS": 390.3,
+     "picksTotal": 280,
+     "offered": 2481,
+     "pickThrough": 0.113,
+     "avgKills": 3.44,
+     "avgDamage": 2579.4,
+     "avgLifeS": 694.1
+    },
+    "buoyDuration": {
+     "builds": 3480,
+     "wins": 355,
+     "winrate": 0.102,
+     "ci95": [
+      0.0924,
+      0.1125
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.926,
+     "expWins": 383.37,
+     "avgPlacement": 8.47,
+     "placeDist": {
+      "1": 355,
+      "2": 268,
+      "3": 236,
+      "4-5": 461,
+      "6-10": 898,
+      "11-20": 1262
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 3.34,
+     "avgFirstTimeS": 222.6,
+     "picksTotal": 4389,
+     "offered": 40230,
+     "pickThrough": 0.109,
+     "avgKills": 1.31,
+     "avgDamage": 1560.6,
+     "avgLifeS": 561.8
+    },
+    "buoyGun": {
+     "builds": 1370,
+     "wins": 180,
+     "winrate": 0.1314,
+     "ci95": [
+      0.1145,
+      0.1503
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.951,
+     "expWins": 189.35,
+     "avgPlacement": 7.83,
+     "placeDist": {
+      "1": 180,
+      "2": 113,
+      "3": 98,
+      "4-5": 208,
+      "6-10": 328,
+      "11-20": 443
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.05,
+     "avgFirstTimeS": 259.6,
+     "picksTotal": 1370,
+     "offered": 12487,
+     "pickThrough": 0.11,
+     "avgKills": 1.45,
+     "avgDamage": 1742.3,
+     "avgLifeS": 586.6
+    },
+    "buoyJamming": {
+     "builds": 1400,
+     "wins": 195,
+     "winrate": 0.1393,
+     "ci95": [
+      0.1221,
+      0.1584
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.993,
+     "expWins": 196.46,
+     "avgPlacement": 7.78,
+     "placeDist": {
+      "1": 195,
+      "2": 123,
+      "3": 109,
+      "4-5": 179,
+      "6-10": 363,
+      "11-20": 431
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.1,
+     "avgFirstTimeS": 257.6,
+     "picksTotal": 1400,
+     "offered": 12126,
+     "pickThrough": 0.115,
+     "avgKills": 1.5,
+     "avgDamage": 1703.0,
+     "avgLifeS": 591.8
+    },
+    "gunBarrel": {
+     "builds": 2153,
+     "wins": 419,
+     "winrate": 0.1946,
+     "ci95": [
+      0.1784,
+      0.2119
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.814,
+     "expWins": 230.93,
+     "avgPlacement": 6.9,
+     "placeDist": {
+      "1": 419,
+      "2": 209,
+      "3": 167,
+      "4-5": 310,
+      "6-10": 485,
+      "11-20": 563
+     },
+     "avgCopies": 1.13,
+     "avgFirstOrdinal": 3.33,
+     "avgFirstTimeS": 218.3,
+     "picksTotal": 2440,
+     "offered": 23065,
+     "pickThrough": 0.106,
+     "avgKills": 2.06,
+     "avgDamage": 2035.6,
+     "avgLifeS": 616.4
+    },
+    "gunTurret": {
+     "builds": 1393,
+     "wins": 165,
+     "winrate": 0.1184,
+     "ci95": [
+      0.1025,
+      0.1365
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.841,
+     "expWins": 196.14,
+     "avgPlacement": 8.09,
+     "placeDist": {
+      "1": 165,
+      "2": 112,
+      "3": 109,
+      "4-5": 193,
+      "6-10": 348,
+      "11-20": 466
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.08,
+     "avgFirstTimeS": 256.4,
+     "picksTotal": 1393,
+     "offered": 12581,
+     "pickThrough": 0.111,
+     "avgKills": 1.44,
+     "avgDamage": 1650.5,
+     "avgLifeS": 575.8
+    },
+    "intelSweep": {
+     "builds": 4027,
+     "wins": 377,
+     "winrate": 0.0936,
+     "ci95": [
+      0.085,
+      0.103
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.91,
+     "expWins": 414.47,
+     "avgPlacement": 8.53,
+     "placeDist": {
+      "1": 377,
+      "2": 307,
+      "3": 284,
+      "4-5": 532,
+      "6-10": 1078,
+      "11-20": 1449
+     },
+     "avgCopies": 1.33,
+     "avgFirstOrdinal": 3.14,
+     "avgFirstTimeS": 210.2,
+     "picksTotal": 5338,
+     "offered": 47838,
+     "pickThrough": 0.112,
+     "avgKills": 1.24,
+     "avgDamage": 1536.7,
+     "avgLifeS": 558.5
+    },
+    "mineBlast": {
+     "builds": 3579,
+     "wins": 346,
+     "winrate": 0.0967,
+     "ci95": [
+      0.0874,
+      0.1068
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.865,
+     "expWins": 400.0,
+     "avgPlacement": 8.59,
+     "placeDist": {
+      "1": 346,
+      "2": 272,
+      "3": 252,
+      "4-5": 441,
+      "6-10": 942,
+      "11-20": 1326
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.41,
+     "avgFirstTimeS": 222.7,
+     "picksTotal": 4470,
+     "offered": 40179,
+     "pickThrough": 0.111,
+     "avgKills": 1.29,
+     "avgDamage": 1542.2,
+     "avgLifeS": 555.3
+    },
+    "mineCaptive": {
+     "builds": 1307,
+     "wins": 245,
+     "winrate": 0.1875,
+     "ci95": [
+      0.1672,
+      0.2095
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.419,
+     "expWins": 172.71,
+     "avgPlacement": 6.68,
+     "placeDist": {
+      "1": 245,
+      "2": 144,
+      "3": 120,
+      "4-5": 183,
+      "6-10": 292,
+      "11-20": 323
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.86,
+     "avgFirstTimeS": 250.0,
+     "picksTotal": 1307,
+     "offered": 12285,
+     "pickThrough": 0.106,
+     "avgKills": 2.41,
+     "avgDamage": 2106.4,
+     "avgLifeS": 620.8
+    },
+    "minePropFouling": {
+     "builds": 1399,
+     "wins": 175,
+     "winrate": 0.1251,
+     "ci95": [
+      0.1088,
+      0.1435
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.903,
+     "expWins": 193.85,
+     "avgPlacement": 8.05,
+     "placeDist": {
+      "1": 175,
+      "2": 123,
+      "3": 104,
+      "4-5": 174,
+      "6-10": 338,
+      "11-20": 485
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.04,
+     "avgFirstTimeS": 255.6,
+     "picksTotal": 1399,
+     "offered": 12617,
+     "pickThrough": 0.111,
+     "avgKills": 1.46,
+     "avgDamage": 1675.2,
+     "avgLifeS": 578.4
+    },
+    "shipCooldown": {
+     "builds": 3995,
+     "wins": 399,
+     "winrate": 0.0999,
+     "ci95": [
+      0.091,
+      0.1096
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.025,
+     "expWins": 389.15,
+     "avgPlacement": 8.62,
+     "placeDist": {
+      "1": 399,
+      "2": 293,
+      "3": 249,
+      "4-5": 491,
+      "6-10": 1082,
+      "11-20": 1481
+     },
+     "avgCopies": 1.33,
+     "avgFirstOrdinal": 3.04,
+     "avgFirstTimeS": 206.6,
+     "picksTotal": 5326,
+     "offered": 47640,
+     "pickThrough": 0.112,
+     "avgKills": 1.29,
+     "avgDamage": 1547.5,
+     "avgLifeS": 553.1
+    },
+    "shipHull": {
+     "builds": 3582,
+     "wins": 380,
+     "winrate": 0.1061,
+     "ci95": [
+      0.0964,
+      0.1166
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.958,
+     "expWins": 396.79,
+     "avgPlacement": 8.1,
+     "placeDist": {
+      "1": 380,
+      "2": 284,
+      "3": 266,
+      "4-5": 476,
+      "6-10": 1012,
+      "11-20": 1164
+     },
+     "avgCopies": 1.27,
+     "avgFirstOrdinal": 3.34,
+     "avgFirstTimeS": 219.4,
+     "picksTotal": 4552,
+     "offered": 39990,
+     "pickThrough": 0.114,
+     "avgKills": 1.35,
+     "avgDamage": 1597.6,
+     "avgLifeS": 574.7
+    },
+    "shipSpeed": {
+     "builds": 3612,
+     "wins": 354,
+     "winrate": 0.098,
+     "ci95": [
+      0.0887,
+      0.1081
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.893,
+     "expWins": 396.58,
+     "avgPlacement": 8.43,
+     "placeDist": {
+      "1": 354,
+      "2": 278,
+      "3": 267,
+      "4-5": 463,
+      "6-10": 968,
+      "11-20": 1282
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 3.33,
+     "avgFirstTimeS": 217.5,
+     "picksTotal": 4495,
+     "offered": 40324,
+     "pickThrough": 0.111,
+     "avgKills": 1.27,
+     "avgDamage": 1560.6,
+     "avgLifeS": 562.3
+    },
+    "starDazzle": {
+     "builds": 101,
+     "wins": 19,
+     "winrate": 0.1881,
+     "ci95": [
+      0.1239,
+      0.2752
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.854,
+     "expWins": 22.24,
+     "avgPlacement": 5.95,
+     "placeDist": {
+      "1": 19,
+      "2": 8,
+      "3": 11,
+      "4-5": 21,
+      "6-10": 22,
+      "11-20": 20
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.2,
+     "avgFirstTimeS": 352.3,
+     "picksTotal": 101,
+     "offered": 949,
+     "pickThrough": 0.106,
+     "avgKills": 1.86,
+     "avgDamage": 2019.3,
+     "avgLifeS": 662.5
+    },
+    "starDuration": {
+     "builds": 249,
+     "wins": 37,
+     "winrate": 0.1486,
+     "ci95": [
+      0.1098,
+      0.1981
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.663,
+     "expWins": 55.78,
+     "avgPlacement": 6.67,
+     "placeDist": {
+      "1": 37,
+      "2": 26,
+      "3": 24,
+      "4-5": 43,
+      "6-10": 60,
+      "11-20": 59
+     },
+     "avgCopies": 1.19,
+     "avgFirstOrdinal": 6.22,
+     "avgFirstTimeS": 342.6,
+     "picksTotal": 297,
+     "offered": 3162,
+     "pickThrough": 0.094,
+     "avgKills": 1.73,
+     "avgDamage": 1910.2,
+     "avgLifeS": 621.5
+    },
+    "starIncendiary": {
+     "builds": 93,
+     "wins": 22,
+     "winrate": 0.2366,
+     "ci95": [
+      0.1617,
+      0.3323
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.929,
+     "expWins": 23.68,
+     "avgPlacement": 5.66,
+     "placeDist": {
+      "1": 22,
+      "2": 10,
+      "3": 7,
+      "4-5": 16,
+      "6-10": 21,
+      "11-20": 17
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.81,
+     "avgFirstTimeS": 371.4,
+     "picksTotal": 93,
+     "offered": 1017,
+     "pickThrough": 0.091,
+     "avgKills": 2.04,
+     "avgDamage": 2235.2,
+     "avgLifeS": 667.0
+    },
+    "torpedoHoming": {
+     "builds": 95,
+     "wins": 21,
+     "winrate": 0.2211,
+     "ci95": [
+      0.1494,
+      0.3144
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.949,
+     "expWins": 22.13,
+     "avgPlacement": 5.31,
+     "placeDist": {
+      "1": 21,
+      "2": 13,
+      "3": 9,
+      "4-5": 20,
+      "6-10": 19,
+      "11-20": 13
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.57,
+     "avgFirstTimeS": 393.8,
+     "picksTotal": 95,
+     "offered": 1013,
+     "pickThrough": 0.094,
+     "avgKills": 2.48,
+     "avgDamage": 2145.7,
+     "avgLifeS": 688.9
+    },
+    "torpedoSpeed": {
+     "builds": 250,
+     "wins": 43,
+     "winrate": 0.172,
+     "ci95": [
+      0.1303,
+      0.2237
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.842,
+     "expWins": 51.07,
+     "avgPlacement": 6.21,
+     "placeDist": {
+      "1": 43,
+      "2": 30,
+      "3": 25,
+      "4-5": 41,
+      "6-10": 64,
+      "11-20": 47
+     },
+     "avgCopies": 1.21,
+     "avgFirstOrdinal": 5.91,
+     "avgFirstTimeS": 339.6,
+     "picksTotal": 302,
+     "offered": 3195,
+     "pickThrough": 0.095,
+     "avgKills": 1.85,
+     "avgDamage": 1993.7,
+     "avgLifeS": 650.3
+    },
+    "torpedoTube": {
+     "builds": 131,
+     "wins": 29,
+     "winrate": 0.2214,
+     "ci95": [
+      0.1588,
+      0.2998
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.952,
+     "expWins": 30.46,
+     "avgPlacement": 5.99,
+     "placeDist": {
+      "1": 29,
+      "2": 13,
+      "3": 15,
+      "4-5": 22,
+      "6-10": 26,
+      "11-20": 26
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.6,
+     "avgFirstTimeS": 380.3,
+     "picksTotal": 131,
+     "offered": 1002,
+     "pickThrough": 0.131,
+     "avgKills": 2.16,
+     "avgDamage": 2143.1,
+     "avgLifeS": 669.3
+    }
+   }
+  },
+  "monoML/mineLayer": {
+   "bots": 10000,
+   "poolWinrate": 0.05,
+   "poolAvgKills": 0.87,
+   "poolAvgLifeS": 483.1,
+   "cards": {
+    "acquireBoost": {
+     "builds": 997,
+     "wins": 53,
+     "winrate": 0.0532,
+     "ci95": [
+      0.0409,
+      0.0689
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.532,
+     "expWins": 99.7,
+     "avgPlacement": 9.05,
+     "placeDist": {
+      "1": 53,
+      "2": 65,
+      "3": 73,
+      "4-5": 138,
+      "6-10": 279,
+      "11-20": 389
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.09,
+     "avgFirstTimeS": 210.6,
+     "picksTotal": 997,
+     "offered": 9198,
+     "pickThrough": 0.108,
+     "avgKills": 1.0,
+     "avgDamage": 1391.9,
+     "avgLifeS": 536.7
+    },
+    "acquireBroadside": {
+     "builds": 1015,
+     "wins": 201,
+     "winrate": 0.198,
+     "ci95": [
+      0.1747,
+      0.2237
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.942,
+     "expWins": 103.49,
+     "avgPlacement": 7.03,
+     "placeDist": {
+      "1": 201,
+      "2": 92,
+      "3": 86,
+      "4-5": 111,
+      "6-10": 251,
+      "11-20": 274
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.16,
+     "avgFirstTimeS": 209.5,
+     "picksTotal": 1015,
+     "offered": 9053,
+     "pickThrough": 0.112,
+     "avgKills": 2.11,
+     "avgDamage": 2012.4,
+     "avgLifeS": 605.8
+    },
+    "acquireStarShells": {
+     "builds": 1050,
+     "wins": 72,
+     "winrate": 0.0686,
+     "ci95": [
+      0.0548,
+      0.0855
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.658,
+     "expWins": 109.45,
+     "avgPlacement": 8.77,
+     "placeDist": {
+      "1": 72,
+      "2": 79,
+      "3": 71,
+      "4-5": 133,
+      "6-10": 299,
+      "11-20": 396
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.19,
+     "avgFirstTimeS": 214.0,
+     "picksTotal": 1050,
+     "offered": 9114,
+     "pickThrough": 0.115,
+     "avgKills": 1.15,
+     "avgDamage": 1494.3,
+     "avgLifeS": 546.5
+    },
+    "acquireTorpedo": {
+     "builds": 985,
+     "wins": 89,
+     "winrate": 0.0904,
+     "ci95": [
+      0.074,
+      0.1099
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.932,
+     "expWins": 95.49,
+     "avgPlacement": 8.58,
+     "placeDist": {
+      "1": 89,
+      "2": 83,
+      "3": 70,
+      "4-5": 134,
+      "6-10": 250,
+      "11-20": 359
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.01,
+     "avgFirstTimeS": 203.2,
+     "picksTotal": 985,
+     "offered": 9206,
+     "pickThrough": 0.107,
+     "avgKills": 1.22,
+     "avgDamage": 1529.3,
+     "avgLifeS": 559.2
+    },
+    "boostDuration": {
+     "builds": 232,
+     "wins": 24,
+     "winrate": 0.1034,
+     "ci95": [
+      0.0705,
+      0.1493
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.515,
+     "expWins": 46.63,
+     "avgPlacement": 6.95,
+     "placeDist": {
+      "1": 24,
+      "2": 21,
+      "3": 23,
+      "4-5": 48,
+      "6-10": 61,
+      "11-20": 55
+     },
+     "avgCopies": 1.17,
+     "avgFirstOrdinal": 5.91,
+     "avgFirstTimeS": 348.4,
+     "picksTotal": 271,
+     "offered": 2860,
+     "pickThrough": 0.095,
+     "avgKills": 1.4,
+     "avgDamage": 1815.7,
+     "avgLifeS": 616.5
+    },
+    "boostSpeed": {
+     "builds": 162,
+     "wins": 20,
+     "winrate": 0.1235,
+     "ci95": [
+      0.0814,
+      0.183
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.535,
+     "expWins": 37.37,
+     "avgPlacement": 7.32,
+     "placeDist": {
+      "1": 20,
+      "2": 15,
+      "3": 12,
+      "4-5": 28,
+      "6-10": 43,
+      "11-20": 44
+     },
+     "avgCopies": 1.06,
+     "avgFirstOrdinal": 6.4,
+     "avgFirstTimeS": 349.3,
+     "picksTotal": 171,
+     "offered": 1580,
+     "pickThrough": 0.108,
+     "avgKills": 1.67,
+     "avgDamage": 1811.2,
+     "avgLifeS": 604.0
+    },
+    "broadsideSpread": {
+     "builds": 362,
+     "wins": 125,
+     "winrate": 0.3453,
+     "ci95": [
+      0.2982,
+      0.3957
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.459,
+     "expWins": 85.65,
+     "avgPlacement": 4.77,
+     "placeDist": {
+      "1": 125,
+      "2": 44,
+      "3": 38,
+      "4-5": 43,
+      "6-10": 57,
+      "11-20": 55
+     },
+     "avgCopies": 1.3,
+     "avgFirstOrdinal": 6.59,
+     "avgFirstTimeS": 378.6,
+     "picksTotal": 470,
+     "offered": 4100,
+     "pickThrough": 0.115,
+     "avgKills": 3.04,
+     "avgDamage": 2505.1,
+     "avgLifeS": 700.7
+    },
+    "broadsideTurrets": {
+     "builds": 242,
+     "wins": 94,
+     "winrate": 0.3884,
+     "ci95": [
+      0.3292,
+      0.4511
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.413,
+     "expWins": 66.52,
+     "avgPlacement": 4.73,
+     "placeDist": {
+      "1": 94,
+      "2": 23,
+      "3": 17,
+      "4-5": 27,
+      "6-10": 47,
+      "11-20": 34
+     },
+     "avgCopies": 1.16,
+     "avgFirstOrdinal": 7.14,
+     "avgFirstTimeS": 390.3,
+     "picksTotal": 280,
+     "offered": 2481,
+     "pickThrough": 0.113,
+     "avgKills": 3.44,
+     "avgDamage": 2579.4,
+     "avgLifeS": 694.1
+    },
+    "buoyDuration": {
+     "builds": 3480,
+     "wins": 355,
+     "winrate": 0.102,
+     "ci95": [
+      0.0924,
+      0.1125
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.926,
+     "expWins": 383.37,
+     "avgPlacement": 8.47,
+     "placeDist": {
+      "1": 355,
+      "2": 268,
+      "3": 236,
+      "4-5": 461,
+      "6-10": 898,
+      "11-20": 1262
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 3.34,
+     "avgFirstTimeS": 222.6,
+     "picksTotal": 4389,
+     "offered": 40230,
+     "pickThrough": 0.109,
+     "avgKills": 1.31,
+     "avgDamage": 1560.6,
+     "avgLifeS": 561.8
+    },
+    "buoyGun": {
+     "builds": 1370,
+     "wins": 180,
+     "winrate": 0.1314,
+     "ci95": [
+      0.1145,
+      0.1503
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.951,
+     "expWins": 189.35,
+     "avgPlacement": 7.83,
+     "placeDist": {
+      "1": 180,
+      "2": 113,
+      "3": 98,
+      "4-5": 208,
+      "6-10": 328,
+      "11-20": 443
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.05,
+     "avgFirstTimeS": 259.6,
+     "picksTotal": 1370,
+     "offered": 12487,
+     "pickThrough": 0.11,
+     "avgKills": 1.45,
+     "avgDamage": 1742.3,
+     "avgLifeS": 586.6
+    },
+    "buoyJamming": {
+     "builds": 1400,
+     "wins": 195,
+     "winrate": 0.1393,
+     "ci95": [
+      0.1221,
+      0.1584
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.993,
+     "expWins": 196.46,
+     "avgPlacement": 7.78,
+     "placeDist": {
+      "1": 195,
+      "2": 123,
+      "3": 109,
+      "4-5": 179,
+      "6-10": 363,
+      "11-20": 431
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.1,
+     "avgFirstTimeS": 257.6,
+     "picksTotal": 1400,
+     "offered": 12126,
+     "pickThrough": 0.115,
+     "avgKills": 1.5,
+     "avgDamage": 1703.0,
+     "avgLifeS": 591.8
+    },
+    "gunBarrel": {
+     "builds": 2153,
+     "wins": 419,
+     "winrate": 0.1946,
+     "ci95": [
+      0.1784,
+      0.2119
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.814,
+     "expWins": 230.93,
+     "avgPlacement": 6.9,
+     "placeDist": {
+      "1": 419,
+      "2": 209,
+      "3": 167,
+      "4-5": 310,
+      "6-10": 485,
+      "11-20": 563
+     },
+     "avgCopies": 1.13,
+     "avgFirstOrdinal": 3.33,
+     "avgFirstTimeS": 218.3,
+     "picksTotal": 2440,
+     "offered": 23065,
+     "pickThrough": 0.106,
+     "avgKills": 2.06,
+     "avgDamage": 2035.6,
+     "avgLifeS": 616.4
+    },
+    "gunTurret": {
+     "builds": 1393,
+     "wins": 165,
+     "winrate": 0.1184,
+     "ci95": [
+      0.1025,
+      0.1365
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.841,
+     "expWins": 196.14,
+     "avgPlacement": 8.09,
+     "placeDist": {
+      "1": 165,
+      "2": 112,
+      "3": 109,
+      "4-5": 193,
+      "6-10": 348,
+      "11-20": 466
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.08,
+     "avgFirstTimeS": 256.4,
+     "picksTotal": 1393,
+     "offered": 12581,
+     "pickThrough": 0.111,
+     "avgKills": 1.44,
+     "avgDamage": 1650.5,
+     "avgLifeS": 575.8
+    },
+    "intelSweep": {
+     "builds": 4027,
+     "wins": 377,
+     "winrate": 0.0936,
+     "ci95": [
+      0.085,
+      0.103
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.91,
+     "expWins": 414.47,
+     "avgPlacement": 8.53,
+     "placeDist": {
+      "1": 377,
+      "2": 307,
+      "3": 284,
+      "4-5": 532,
+      "6-10": 1078,
+      "11-20": 1449
+     },
+     "avgCopies": 1.33,
+     "avgFirstOrdinal": 3.14,
+     "avgFirstTimeS": 210.2,
+     "picksTotal": 5338,
+     "offered": 47838,
+     "pickThrough": 0.112,
+     "avgKills": 1.24,
+     "avgDamage": 1536.7,
+     "avgLifeS": 558.5
+    },
+    "mineBlast": {
+     "builds": 3579,
+     "wins": 346,
+     "winrate": 0.0967,
+     "ci95": [
+      0.0874,
+      0.1068
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.865,
+     "expWins": 400.0,
+     "avgPlacement": 8.59,
+     "placeDist": {
+      "1": 346,
+      "2": 272,
+      "3": 252,
+      "4-5": 441,
+      "6-10": 942,
+      "11-20": 1326
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.41,
+     "avgFirstTimeS": 222.7,
+     "picksTotal": 4470,
+     "offered": 40179,
+     "pickThrough": 0.111,
+     "avgKills": 1.29,
+     "avgDamage": 1542.2,
+     "avgLifeS": 555.3
+    },
+    "mineCaptive": {
+     "builds": 1307,
+     "wins": 245,
+     "winrate": 0.1875,
+     "ci95": [
+      0.1672,
+      0.2095
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.419,
+     "expWins": 172.71,
+     "avgPlacement": 6.68,
+     "placeDist": {
+      "1": 245,
+      "2": 144,
+      "3": 120,
+      "4-5": 183,
+      "6-10": 292,
+      "11-20": 323
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.86,
+     "avgFirstTimeS": 250.0,
+     "picksTotal": 1307,
+     "offered": 12285,
+     "pickThrough": 0.106,
+     "avgKills": 2.41,
+     "avgDamage": 2106.4,
+     "avgLifeS": 620.8
+    },
+    "minePropFouling": {
+     "builds": 1399,
+     "wins": 175,
+     "winrate": 0.1251,
+     "ci95": [
+      0.1088,
+      0.1435
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.903,
+     "expWins": 193.85,
+     "avgPlacement": 8.05,
+     "placeDist": {
+      "1": 175,
+      "2": 123,
+      "3": 104,
+      "4-5": 174,
+      "6-10": 338,
+      "11-20": 485
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 4.04,
+     "avgFirstTimeS": 255.6,
+     "picksTotal": 1399,
+     "offered": 12617,
+     "pickThrough": 0.111,
+     "avgKills": 1.46,
+     "avgDamage": 1675.2,
+     "avgLifeS": 578.4
+    },
+    "shipCooldown": {
+     "builds": 3995,
+     "wins": 399,
+     "winrate": 0.0999,
+     "ci95": [
+      0.091,
+      0.1096
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.025,
+     "expWins": 389.15,
+     "avgPlacement": 8.62,
+     "placeDist": {
+      "1": 399,
+      "2": 293,
+      "3": 249,
+      "4-5": 491,
+      "6-10": 1082,
+      "11-20": 1481
+     },
+     "avgCopies": 1.33,
+     "avgFirstOrdinal": 3.04,
+     "avgFirstTimeS": 206.6,
+     "picksTotal": 5326,
+     "offered": 47640,
+     "pickThrough": 0.112,
+     "avgKills": 1.29,
+     "avgDamage": 1547.5,
+     "avgLifeS": 553.1
+    },
+    "shipHull": {
+     "builds": 3582,
+     "wins": 380,
+     "winrate": 0.1061,
+     "ci95": [
+      0.0964,
+      0.1166
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.958,
+     "expWins": 396.79,
+     "avgPlacement": 8.1,
+     "placeDist": {
+      "1": 380,
+      "2": 284,
+      "3": 266,
+      "4-5": 476,
+      "6-10": 1012,
+      "11-20": 1164
+     },
+     "avgCopies": 1.27,
+     "avgFirstOrdinal": 3.34,
+     "avgFirstTimeS": 219.4,
+     "picksTotal": 4552,
+     "offered": 39990,
+     "pickThrough": 0.114,
+     "avgKills": 1.35,
+     "avgDamage": 1597.6,
+     "avgLifeS": 574.7
+    },
+    "shipSpeed": {
+     "builds": 3612,
+     "wins": 354,
+     "winrate": 0.098,
+     "ci95": [
+      0.0887,
+      0.1081
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.893,
+     "expWins": 396.58,
+     "avgPlacement": 8.43,
+     "placeDist": {
+      "1": 354,
+      "2": 278,
+      "3": 267,
+      "4-5": 463,
+      "6-10": 968,
+      "11-20": 1282
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 3.33,
+     "avgFirstTimeS": 217.5,
+     "picksTotal": 4495,
+     "offered": 40324,
+     "pickThrough": 0.111,
+     "avgKills": 1.27,
+     "avgDamage": 1560.6,
+     "avgLifeS": 562.3
+    },
+    "starDazzle": {
+     "builds": 101,
+     "wins": 19,
+     "winrate": 0.1881,
+     "ci95": [
+      0.1239,
+      0.2752
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.854,
+     "expWins": 22.24,
+     "avgPlacement": 5.95,
+     "placeDist": {
+      "1": 19,
+      "2": 8,
+      "3": 11,
+      "4-5": 21,
+      "6-10": 22,
+      "11-20": 20
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.2,
+     "avgFirstTimeS": 352.3,
+     "picksTotal": 101,
+     "offered": 949,
+     "pickThrough": 0.106,
+     "avgKills": 1.86,
+     "avgDamage": 2019.3,
+     "avgLifeS": 662.5
+    },
+    "starDuration": {
+     "builds": 249,
+     "wins": 37,
+     "winrate": 0.1486,
+     "ci95": [
+      0.1098,
+      0.1981
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.663,
+     "expWins": 55.78,
+     "avgPlacement": 6.67,
+     "placeDist": {
+      "1": 37,
+      "2": 26,
+      "3": 24,
+      "4-5": 43,
+      "6-10": 60,
+      "11-20": 59
+     },
+     "avgCopies": 1.19,
+     "avgFirstOrdinal": 6.22,
+     "avgFirstTimeS": 342.6,
+     "picksTotal": 297,
+     "offered": 3162,
+     "pickThrough": 0.094,
+     "avgKills": 1.73,
+     "avgDamage": 1910.2,
+     "avgLifeS": 621.5
+    },
+    "starIncendiary": {
+     "builds": 93,
+     "wins": 22,
+     "winrate": 0.2366,
+     "ci95": [
+      0.1617,
+      0.3323
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.929,
+     "expWins": 23.68,
+     "avgPlacement": 5.66,
+     "placeDist": {
+      "1": 22,
+      "2": 10,
+      "3": 7,
+      "4-5": 16,
+      "6-10": 21,
+      "11-20": 17
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.81,
+     "avgFirstTimeS": 371.4,
+     "picksTotal": 93,
+     "offered": 1017,
+     "pickThrough": 0.091,
+     "avgKills": 2.04,
+     "avgDamage": 2235.2,
+     "avgLifeS": 667.0
+    },
+    "torpedoHoming": {
+     "builds": 95,
+     "wins": 21,
+     "winrate": 0.2211,
+     "ci95": [
+      0.1494,
+      0.3144
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.949,
+     "expWins": 22.13,
+     "avgPlacement": 5.31,
+     "placeDist": {
+      "1": 21,
+      "2": 13,
+      "3": 9,
+      "4-5": 20,
+      "6-10": 19,
+      "11-20": 13
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.57,
+     "avgFirstTimeS": 393.8,
+     "picksTotal": 95,
+     "offered": 1013,
+     "pickThrough": 0.094,
+     "avgKills": 2.48,
+     "avgDamage": 2145.7,
+     "avgLifeS": 688.9
+    },
+    "torpedoSpeed": {
+     "builds": 250,
+     "wins": 43,
+     "winrate": 0.172,
+     "ci95": [
+      0.1303,
+      0.2237
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.842,
+     "expWins": 51.07,
+     "avgPlacement": 6.21,
+     "placeDist": {
+      "1": 43,
+      "2": 30,
+      "3": 25,
+      "4-5": 41,
+      "6-10": 64,
+      "11-20": 47
+     },
+     "avgCopies": 1.21,
+     "avgFirstOrdinal": 5.91,
+     "avgFirstTimeS": 339.6,
+     "picksTotal": 302,
+     "offered": 3195,
+     "pickThrough": 0.095,
+     "avgKills": 1.85,
+     "avgDamage": 1993.7,
+     "avgLifeS": 650.3
+    },
+    "torpedoTube": {
+     "builds": 131,
+     "wins": 29,
+     "winrate": 0.2214,
+     "ci95": [
+      0.1588,
+      0.2998
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.952,
+     "expWins": 30.46,
+     "avgPlacement": 5.99,
+     "placeDist": {
+      "1": 29,
+      "2": 13,
+      "3": 15,
+      "4-5": 22,
+      "6-10": 26,
+      "11-20": 26
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.6,
+     "avgFirstTimeS": 380.3,
+     "picksTotal": 131,
+     "offered": 1002,
+     "pickThrough": 0.131,
+     "avgKills": 2.16,
+     "avgDamage": 2143.1,
+     "avgLifeS": 669.3
+    }
+   }
+  },
+  "monoTB": {
+   "bots": 9980,
+   "poolWinrate": 0.05,
+   "poolAvgKills": 0.86,
+   "poolAvgLifeS": 473.3,
+   "cards": {
+    "acquireBroadside": {
+     "builds": 979,
+     "wins": 227,
+     "winrate": 0.2319,
+     "ci95": [
+      0.2065,
+      0.2593
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 2.174,
+     "expWins": 104.4,
+     "avgPlacement": 6.8,
+     "placeDist": {
+      "1": 227,
+      "2": 80,
+      "3": 62,
+      "4-5": 122,
+      "6-10": 230,
+      "11-20": 258
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.04,
+     "avgFirstTimeS": 220.8,
+     "picksTotal": 979,
+     "offered": 9446,
+     "pickThrough": 0.104,
+     "avgKills": 2.47,
+     "avgDamage": 2004.2,
+     "avgLifeS": 603.3
+    },
+    "acquireMine": {
+     "builds": 914,
+     "wins": 73,
+     "winrate": 0.0799,
+     "ci95": [
+      0.064,
+      0.0993
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.773,
+     "expWins": 94.48,
+     "avgPlacement": 8.52,
+     "placeDist": {
+      "1": 73,
+      "2": 78,
+      "3": 63,
+      "4-5": 111,
+      "6-10": 256,
+      "11-20": 333
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.96,
+     "avgFirstTimeS": 215.9,
+     "picksTotal": 914,
+     "offered": 9265,
+     "pickThrough": 0.099,
+     "avgKills": 1.28,
+     "avgDamage": 1480.6,
+     "avgLifeS": 546.4
+    },
+    "acquireRadarBuoy": {
+     "builds": 999,
+     "wins": 61,
+     "winrate": 0.0611,
+     "ci95": [
+      0.0478,
+      0.0777
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.604,
+     "expWins": 100.95,
+     "avgPlacement": 8.61,
+     "placeDist": {
+      "1": 61,
+      "2": 80,
+      "3": 63,
+      "4-5": 125,
+      "6-10": 329,
+      "11-20": 341
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.92,
+     "avgFirstTimeS": 222.6,
+     "picksTotal": 999,
+     "offered": 9649,
+     "pickThrough": 0.104,
+     "avgKills": 0.9,
+     "avgDamage": 1332.1,
+     "avgLifeS": 547.7
+    },
+    "acquireStarShells": {
+     "builds": 956,
+     "wins": 70,
+     "winrate": 0.0732,
+     "ci95": [
+      0.0584,
+      0.0915
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.691,
+     "expWins": 101.32,
+     "avgPlacement": 8.65,
+     "placeDist": {
+      "1": 70,
+      "2": 69,
+      "3": 69,
+      "4-5": 130,
+      "6-10": 268,
+      "11-20": 350
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.06,
+     "avgFirstTimeS": 222.1,
+     "picksTotal": 956,
+     "offered": 9408,
+     "pickThrough": 0.102,
+     "avgKills": 1.11,
+     "avgDamage": 1411.9,
+     "avgLifeS": 544.7
+    },
+    "boostDuration": {
+     "builds": 3319,
+     "wins": 338,
+     "winrate": 0.1018,
+     "ci95": [
+      0.092,
+      0.1126
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.871,
+     "expWins": 388.25,
+     "avgPlacement": 8.31,
+     "placeDist": {
+      "1": 338,
+      "2": 247,
+      "3": 239,
+      "4-5": 449,
+      "6-10": 897,
+      "11-20": 1149
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.22,
+     "avgFirstTimeS": 230.5,
+     "picksTotal": 4136,
+     "offered": 39547,
+     "pickThrough": 0.105,
+     "avgKills": 1.32,
+     "avgDamage": 1502.8,
+     "avgLifeS": 556.7
+    },
+    "boostSpeed": {
+     "builds": 2080,
+     "wins": 270,
+     "winrate": 0.1298,
+     "ci95": [
+      0.116,
+      0.1449
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.981,
+     "expWins": 275.26,
+     "avgPlacement": 8.0,
+     "placeDist": {
+      "1": 270,
+      "2": 159,
+      "3": 144,
+      "4-5": 286,
+      "6-10": 536,
+      "11-20": 685
+     },
+     "avgCopies": 1.09,
+     "avgFirstOrdinal": 3.6,
+     "avgFirstTimeS": 250.0,
+     "picksTotal": 2268,
+     "offered": 21595,
+     "pickThrough": 0.105,
+     "avgKills": 1.46,
+     "avgDamage": 1570.6,
+     "avgLifeS": 571.6
+    },
+    "broadsideSpread": {
+     "builds": 326,
+     "wins": 129,
+     "winrate": 0.3957,
+     "ci95": [
+      0.3441,
+      0.4497
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.333,
+     "expWins": 96.76,
+     "avgPlacement": 4.69,
+     "placeDist": {
+      "1": 129,
+      "2": 35,
+      "3": 20,
+      "4-5": 41,
+      "6-10": 48,
+      "11-20": 53
+     },
+     "avgCopies": 1.32,
+     "avgFirstOrdinal": 7.09,
+     "avgFirstTimeS": 396.9,
+     "picksTotal": 429,
+     "offered": 4098,
+     "pickThrough": 0.105,
+     "avgKills": 3.48,
+     "avgDamage": 2502.7,
+     "avgLifeS": 682.5
+    },
+    "broadsideTurrets": {
+     "builds": 237,
+     "wins": 107,
+     "winrate": 0.4515,
+     "ci95": [
+      0.3894,
+      0.5151
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.64,
+     "expWins": 65.23,
+     "avgPlacement": 4.08,
+     "placeDist": {
+      "1": 107,
+      "2": 23,
+      "3": 17,
+      "4-5": 28,
+      "6-10": 40,
+      "11-20": 22
+     },
+     "avgCopies": 1.22,
+     "avgFirstOrdinal": 6.82,
+     "avgFirstTimeS": 401.3,
+     "picksTotal": 288,
+     "offered": 2661,
+     "pickThrough": 0.108,
+     "avgKills": 3.86,
+     "avgDamage": 2589.2,
+     "avgLifeS": 699.8
+    },
+    "buoyDuration": {
+     "builds": 211,
+     "wins": 33,
+     "winrate": 0.1564,
+     "ci95": [
+      0.1136,
+      0.2115
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.668,
+     "expWins": 49.42,
+     "avgPlacement": 6.31,
+     "placeDist": {
+      "1": 33,
+      "2": 24,
+      "3": 20,
+      "4-5": 34,
+      "6-10": 56,
+      "11-20": 44
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 6.03,
+     "avgFirstTimeS": 391.9,
+     "picksTotal": 261,
+     "offered": 2884,
+     "pickThrough": 0.09,
+     "avgKills": 1.48,
+     "avgDamage": 1742.8,
+     "avgLifeS": 639.2
+    },
+    "buoyGun": {
+     "builds": 93,
+     "wins": 14,
+     "winrate": 0.1505,
+     "ci95": [
+      0.0918,
+      0.237
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.652,
+     "expWins": 21.48,
+     "avgPlacement": 5.77,
+     "placeDist": {
+      "1": 14,
+      "2": 12,
+      "3": 9,
+      "4-5": 17,
+      "6-10": 26,
+      "11-20": 15
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.08,
+     "avgFirstTimeS": 399.0,
+     "picksTotal": 93,
+     "offered": 1007,
+     "pickThrough": 0.092,
+     "avgKills": 1.65,
+     "avgDamage": 1808.9,
+     "avgLifeS": 666.0
+    },
+    "buoyJamming": {
+     "builds": 107,
+     "wins": 16,
+     "winrate": 0.1495,
+     "ci95": [
+      0.0942,
+      0.2292
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.692,
+     "expWins": 23.13,
+     "avgPlacement": 7.15,
+     "placeDist": {
+      "1": 16,
+      "2": 9,
+      "3": 9,
+      "4-5": 13,
+      "6-10": 30,
+      "11-20": 30
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 5.7,
+     "avgFirstTimeS": 339.5,
+     "picksTotal": 107,
+     "offered": 946,
+     "pickThrough": 0.113,
+     "avgKills": 1.36,
+     "avgDamage": 1665.6,
+     "avgLifeS": 610.7
+    },
+    "gunBarrel": {
+     "builds": 2079,
+     "wins": 405,
+     "winrate": 0.1948,
+     "ci95": [
+      0.1783,
+      0.2124
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.691,
+     "expWins": 239.54,
+     "avgPlacement": 6.72,
+     "placeDist": {
+      "1": 405,
+      "2": 206,
+      "3": 169,
+      "4-5": 260,
+      "6-10": 532,
+      "11-20": 507
+     },
+     "avgCopies": 1.16,
+     "avgFirstOrdinal": 3.26,
+     "avgFirstTimeS": 233.2,
+     "picksTotal": 2409,
+     "offered": 23407,
+     "pickThrough": 0.103,
+     "avgKills": 2.2,
+     "avgDamage": 1990.2,
+     "avgLifeS": 612.1
+    },
+    "gunTurret": {
+     "builds": 1252,
+     "wins": 163,
+     "winrate": 0.1302,
+     "ci95": [
+      0.1127,
+      0.15
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.874,
+     "expWins": 186.46,
+     "avgPlacement": 7.69,
+     "placeDist": {
+      "1": 163,
+      "2": 89,
+      "3": 115,
+      "4-5": 173,
+      "6-10": 322,
+      "11-20": 390
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.97,
+     "avgFirstTimeS": 265.6,
+     "picksTotal": 1252,
+     "offered": 12458,
+     "pickThrough": 0.1,
+     "avgKills": 1.6,
+     "avgDamage": 1655.7,
+     "avgLifeS": 579.1
+    },
+    "intelSweep": {
+     "builds": 3792,
+     "wins": 371,
+     "winrate": 0.0978,
+     "ci95": [
+      0.0888,
+      0.1077
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.873,
+     "expWins": 425.04,
+     "avgPlacement": 8.42,
+     "placeDist": {
+      "1": 371,
+      "2": 309,
+      "3": 272,
+      "4-5": 453,
+      "6-10": 1022,
+      "11-20": 1365
+     },
+     "avgCopies": 1.31,
+     "avgFirstOrdinal": 3.11,
+     "avgFirstTimeS": 226.7,
+     "picksTotal": 4952,
+     "offered": 47160,
+     "pickThrough": 0.105,
+     "avgKills": 1.3,
+     "avgDamage": 1475.6,
+     "avgLifeS": 553.1
+    },
+    "mineBlast": {
+     "builds": 211,
+     "wins": 46,
+     "winrate": 0.218,
+     "ci95": [
+      0.1676,
+      0.2785
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.783,
+     "expWins": 58.77,
+     "avgPlacement": 6.1,
+     "placeDist": {
+      "1": 46,
+      "2": 20,
+      "3": 21,
+      "4-5": 26,
+      "6-10": 54,
+      "11-20": 44
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 6.67,
+     "avgFirstTimeS": 371.7,
+     "picksTotal": 265,
+     "offered": 2820,
+     "pickThrough": 0.094,
+     "avgKills": 2.27,
+     "avgDamage": 2143.9,
+     "avgLifeS": 648.0
+    },
+    "mineCaptive": {
+     "builds": 104,
+     "wins": 33,
+     "winrate": 0.3173,
+     "ci95": [
+      0.2357,
+      0.4119
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.124,
+     "expWins": 29.36,
+     "avgPlacement": 4.86,
+     "placeDist": {
+      "1": 33,
+      "2": 15,
+      "3": 8,
+      "4-5": 14,
+      "6-10": 17,
+      "11-20": 17
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.93,
+     "avgFirstTimeS": 366.8,
+     "picksTotal": 104,
+     "offered": 944,
+     "pickThrough": 0.11,
+     "avgKills": 3.36,
+     "avgDamage": 2600.7,
+     "avgLifeS": 696.3
+    },
+    "minePropFouling": {
+     "builds": 90,
+     "wins": 20,
+     "winrate": 0.2222,
+     "ci95": [
+      0.1487,
+      0.3185
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.707,
+     "expWins": 28.28,
+     "avgPlacement": 5.51,
+     "placeDist": {
+      "1": 20,
+      "2": 8,
+      "3": 12,
+      "4-5": 16,
+      "6-10": 18,
+      "11-20": 16
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.43,
+     "avgFirstTimeS": 377.4,
+     "picksTotal": 90,
+     "offered": 1012,
+     "pickThrough": 0.089,
+     "avgKills": 2.81,
+     "avgDamage": 2326.8,
+     "avgLifeS": 664.0
+    },
+    "shipCooldown": {
+     "builds": 3748,
+     "wins": 410,
+     "winrate": 0.1094,
+     "ci95": [
+      0.0998,
+      0.1198
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.043,
+     "expWins": 393.03,
+     "avgPlacement": 8.32,
+     "placeDist": {
+      "1": 410,
+      "2": 297,
+      "3": 249,
+      "4-5": 505,
+      "6-10": 984,
+      "11-20": 1303
+     },
+     "avgCopies": 1.34,
+     "avgFirstOrdinal": 2.96,
+     "avgFirstTimeS": 218.3,
+     "picksTotal": 5040,
+     "offered": 47211,
+     "pickThrough": 0.107,
+     "avgKills": 1.37,
+     "avgDamage": 1523.0,
+     "avgLifeS": 555.7
+    },
+    "shipHull": {
+     "builds": 3277,
+     "wins": 388,
+     "winrate": 0.1184,
+     "ci95": [
+      0.1078,
+      0.1299
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.045,
+     "expWins": 371.15,
+     "avgPlacement": 7.76,
+     "placeDist": {
+      "1": 388,
+      "2": 287,
+      "3": 246,
+      "4-5": 450,
+      "6-10": 894,
+      "11-20": 1012
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.15,
+     "avgFirstTimeS": 224.2,
+     "picksTotal": 4108,
+     "offered": 39472,
+     "pickThrough": 0.104,
+     "avgKills": 1.39,
+     "avgDamage": 1566.5,
+     "avgLifeS": 580.9
+    },
+    "shipSpeed": {
+     "builds": 3364,
+     "wins": 342,
+     "winrate": 0.1017,
+     "ci95": [
+      0.0919,
+      0.1123
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.887,
+     "expWins": 385.67,
+     "avgPlacement": 8.43,
+     "placeDist": {
+      "1": 342,
+      "2": 277,
+      "3": 237,
+      "4-5": 418,
+      "6-10": 904,
+      "11-20": 1186
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.19,
+     "avgFirstTimeS": 229.1,
+     "picksTotal": 4139,
+     "offered": 39667,
+     "pickThrough": 0.104,
+     "avgKills": 1.34,
+     "avgDamage": 1496.7,
+     "avgLifeS": 552.4
+    },
+    "starDazzle": {
+     "builds": 78,
+     "wins": 20,
+     "winrate": 0.2564,
+     "ci95": [
+      0.1726,
+      0.3631
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.914,
+     "expWins": 21.89,
+     "avgPlacement": 5.71,
+     "placeDist": {
+      "1": 20,
+      "2": 5,
+      "3": 10,
+      "4-5": 11,
+      "6-10": 17,
+      "11-20": 15
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.72,
+     "avgFirstTimeS": 401.8,
+     "picksTotal": 78,
+     "offered": 987,
+     "pickThrough": 0.079,
+     "avgKills": 2.08,
+     "avgDamage": 1987.0,
+     "avgLifeS": 651.4
+    },
+    "starDuration": {
+     "builds": 223,
+     "wins": 33,
+     "winrate": 0.148,
+     "ci95": [
+      0.1074,
+      0.2005
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.689,
+     "expWins": 47.89,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 33,
+      "2": 26,
+      "3": 18,
+      "4-5": 26,
+      "6-10": 54,
+      "11-20": 66
+     },
+     "avgCopies": 1.19,
+     "avgFirstOrdinal": 5.72,
+     "avgFirstTimeS": 355.9,
+     "picksTotal": 265,
+     "offered": 2816,
+     "pickThrough": 0.094,
+     "avgKills": 1.58,
+     "avgDamage": 1747.7,
+     "avgLifeS": 609.7
+    },
+    "starIncendiary": {
+     "builds": 95,
+     "wins": 19,
+     "winrate": 0.2,
+     "ci95": [
+      0.1319,
+      0.2914
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.851,
+     "expWins": 22.34,
+     "avgPlacement": 6.72,
+     "placeDist": {
+      "1": 19,
+      "2": 9,
+      "3": 3,
+      "4-5": 18,
+      "6-10": 21,
+      "11-20": 25
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.06,
+     "avgFirstTimeS": 363.3,
+     "picksTotal": 95,
+     "offered": 963,
+     "pickThrough": 0.099,
+     "avgKills": 1.78,
+     "avgDamage": 1955.5,
+     "avgLifeS": 632.6
+    },
+    "torpedoHoming": {
+     "builds": 1306,
+     "wins": 204,
+     "winrate": 0.1562,
+     "ci95": [
+      0.1375,
+      0.1769
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.034,
+     "expWins": 197.28,
+     "avgPlacement": 7.45,
+     "placeDist": {
+      "1": 204,
+      "2": 119,
+      "3": 101,
+      "4-5": 166,
+      "6-10": 327,
+      "11-20": 389
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.99,
+     "avgFirstTimeS": 265.4,
+     "picksTotal": 1306,
+     "offered": 12608,
+     "pickThrough": 0.104,
+     "avgKills": 1.76,
+     "avgDamage": 1714.2,
+     "avgLifeS": 590.9
+    },
+    "torpedoSpeed": {
+     "builds": 3246,
+     "wins": 329,
+     "winrate": 0.1014,
+     "ci95": [
+      0.0914,
+      0.1122
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.864,
+     "expWins": 380.98,
+     "avgPlacement": 8.39,
+     "placeDist": {
+      "1": 329,
+      "2": 252,
+      "3": 240,
+      "4-5": 418,
+      "6-10": 854,
+      "11-20": 1153
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.25,
+     "avgFirstTimeS": 234.7,
+     "picksTotal": 3996,
+     "offered": 39883,
+     "pickThrough": 0.1,
+     "avgKills": 1.3,
+     "avgDamage": 1480.2,
+     "avgLifeS": 553.6
+    },
+    "torpedoTube": {
+     "builds": 1275,
+     "wins": 217,
+     "winrate": 0.1702,
+     "ci95": [
+      0.1506,
+      0.1918
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.176,
+     "expWins": 184.59,
+     "avgPlacement": 7.17,
+     "placeDist": {
+      "1": 217,
+      "2": 119,
+      "3": 104,
+      "4-5": 154,
+      "6-10": 335,
+      "11-20": 346
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.89,
+     "avgFirstTimeS": 262.1,
+     "picksTotal": 1275,
+     "offered": 12654,
+     "pickThrough": 0.101,
+     "avgKills": 1.85,
+     "avgDamage": 1747.4,
+     "avgLifeS": 600.5
+    }
+   }
+  },
+  "monoTB/torpedoBoat": {
+   "bots": 9980,
+   "poolWinrate": 0.05,
+   "poolAvgKills": 0.86,
+   "poolAvgLifeS": 473.3,
+   "cards": {
+    "acquireBroadside": {
+     "builds": 979,
+     "wins": 227,
+     "winrate": 0.2319,
+     "ci95": [
+      0.2065,
+      0.2593
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 2.174,
+     "expWins": 104.4,
+     "avgPlacement": 6.8,
+     "placeDist": {
+      "1": 227,
+      "2": 80,
+      "3": 62,
+      "4-5": 122,
+      "6-10": 230,
+      "11-20": 258
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.04,
+     "avgFirstTimeS": 220.8,
+     "picksTotal": 979,
+     "offered": 9446,
+     "pickThrough": 0.104,
+     "avgKills": 2.47,
+     "avgDamage": 2004.2,
+     "avgLifeS": 603.3
+    },
+    "acquireMine": {
+     "builds": 914,
+     "wins": 73,
+     "winrate": 0.0799,
+     "ci95": [
+      0.064,
+      0.0993
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.773,
+     "expWins": 94.48,
+     "avgPlacement": 8.52,
+     "placeDist": {
+      "1": 73,
+      "2": 78,
+      "3": 63,
+      "4-5": 111,
+      "6-10": 256,
+      "11-20": 333
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.96,
+     "avgFirstTimeS": 215.9,
+     "picksTotal": 914,
+     "offered": 9265,
+     "pickThrough": 0.099,
+     "avgKills": 1.28,
+     "avgDamage": 1480.6,
+     "avgLifeS": 546.4
+    },
+    "acquireRadarBuoy": {
+     "builds": 999,
+     "wins": 61,
+     "winrate": 0.0611,
+     "ci95": [
+      0.0478,
+      0.0777
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.604,
+     "expWins": 100.95,
+     "avgPlacement": 8.61,
+     "placeDist": {
+      "1": 61,
+      "2": 80,
+      "3": 63,
+      "4-5": 125,
+      "6-10": 329,
+      "11-20": 341
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 2.92,
+     "avgFirstTimeS": 222.6,
+     "picksTotal": 999,
+     "offered": 9649,
+     "pickThrough": 0.104,
+     "avgKills": 0.9,
+     "avgDamage": 1332.1,
+     "avgLifeS": 547.7
+    },
+    "acquireStarShells": {
+     "builds": 956,
+     "wins": 70,
+     "winrate": 0.0732,
+     "ci95": [
+      0.0584,
+      0.0915
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.691,
+     "expWins": 101.32,
+     "avgPlacement": 8.65,
+     "placeDist": {
+      "1": 70,
+      "2": 69,
+      "3": 69,
+      "4-5": 130,
+      "6-10": 268,
+      "11-20": 350
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.06,
+     "avgFirstTimeS": 222.1,
+     "picksTotal": 956,
+     "offered": 9408,
+     "pickThrough": 0.102,
+     "avgKills": 1.11,
+     "avgDamage": 1411.9,
+     "avgLifeS": 544.7
+    },
+    "boostDuration": {
+     "builds": 3319,
+     "wins": 338,
+     "winrate": 0.1018,
+     "ci95": [
+      0.092,
+      0.1126
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.871,
+     "expWins": 388.25,
+     "avgPlacement": 8.31,
+     "placeDist": {
+      "1": 338,
+      "2": 247,
+      "3": 239,
+      "4-5": 449,
+      "6-10": 897,
+      "11-20": 1149
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.22,
+     "avgFirstTimeS": 230.5,
+     "picksTotal": 4136,
+     "offered": 39547,
+     "pickThrough": 0.105,
+     "avgKills": 1.32,
+     "avgDamage": 1502.8,
+     "avgLifeS": 556.7
+    },
+    "boostSpeed": {
+     "builds": 2080,
+     "wins": 270,
+     "winrate": 0.1298,
+     "ci95": [
+      0.116,
+      0.1449
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.981,
+     "expWins": 275.26,
+     "avgPlacement": 8.0,
+     "placeDist": {
+      "1": 270,
+      "2": 159,
+      "3": 144,
+      "4-5": 286,
+      "6-10": 536,
+      "11-20": 685
+     },
+     "avgCopies": 1.09,
+     "avgFirstOrdinal": 3.6,
+     "avgFirstTimeS": 250.0,
+     "picksTotal": 2268,
+     "offered": 21595,
+     "pickThrough": 0.105,
+     "avgKills": 1.46,
+     "avgDamage": 1570.6,
+     "avgLifeS": 571.6
+    },
+    "broadsideSpread": {
+     "builds": 326,
+     "wins": 129,
+     "winrate": 0.3957,
+     "ci95": [
+      0.3441,
+      0.4497
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.333,
+     "expWins": 96.76,
+     "avgPlacement": 4.69,
+     "placeDist": {
+      "1": 129,
+      "2": 35,
+      "3": 20,
+      "4-5": 41,
+      "6-10": 48,
+      "11-20": 53
+     },
+     "avgCopies": 1.32,
+     "avgFirstOrdinal": 7.09,
+     "avgFirstTimeS": 396.9,
+     "picksTotal": 429,
+     "offered": 4098,
+     "pickThrough": 0.105,
+     "avgKills": 3.48,
+     "avgDamage": 2502.7,
+     "avgLifeS": 682.5
+    },
+    "broadsideTurrets": {
+     "builds": 237,
+     "wins": 107,
+     "winrate": 0.4515,
+     "ci95": [
+      0.3894,
+      0.5151
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.64,
+     "expWins": 65.23,
+     "avgPlacement": 4.08,
+     "placeDist": {
+      "1": 107,
+      "2": 23,
+      "3": 17,
+      "4-5": 28,
+      "6-10": 40,
+      "11-20": 22
+     },
+     "avgCopies": 1.22,
+     "avgFirstOrdinal": 6.82,
+     "avgFirstTimeS": 401.3,
+     "picksTotal": 288,
+     "offered": 2661,
+     "pickThrough": 0.108,
+     "avgKills": 3.86,
+     "avgDamage": 2589.2,
+     "avgLifeS": 699.8
+    },
+    "buoyDuration": {
+     "builds": 211,
+     "wins": 33,
+     "winrate": 0.1564,
+     "ci95": [
+      0.1136,
+      0.2115
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.668,
+     "expWins": 49.42,
+     "avgPlacement": 6.31,
+     "placeDist": {
+      "1": 33,
+      "2": 24,
+      "3": 20,
+      "4-5": 34,
+      "6-10": 56,
+      "11-20": 44
+     },
+     "avgCopies": 1.24,
+     "avgFirstOrdinal": 6.03,
+     "avgFirstTimeS": 391.9,
+     "picksTotal": 261,
+     "offered": 2884,
+     "pickThrough": 0.09,
+     "avgKills": 1.48,
+     "avgDamage": 1742.8,
+     "avgLifeS": 639.2
+    },
+    "buoyGun": {
+     "builds": 93,
+     "wins": 14,
+     "winrate": 0.1505,
+     "ci95": [
+      0.0918,
+      0.237
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.652,
+     "expWins": 21.48,
+     "avgPlacement": 5.77,
+     "placeDist": {
+      "1": 14,
+      "2": 12,
+      "3": 9,
+      "4-5": 17,
+      "6-10": 26,
+      "11-20": 15
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.08,
+     "avgFirstTimeS": 399.0,
+     "picksTotal": 93,
+     "offered": 1007,
+     "pickThrough": 0.092,
+     "avgKills": 1.65,
+     "avgDamage": 1808.9,
+     "avgLifeS": 666.0
+    },
+    "buoyJamming": {
+     "builds": 107,
+     "wins": 16,
+     "winrate": 0.1495,
+     "ci95": [
+      0.0942,
+      0.2292
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.692,
+     "expWins": 23.13,
+     "avgPlacement": 7.15,
+     "placeDist": {
+      "1": 16,
+      "2": 9,
+      "3": 9,
+      "4-5": 13,
+      "6-10": 30,
+      "11-20": 30
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 5.7,
+     "avgFirstTimeS": 339.5,
+     "picksTotal": 107,
+     "offered": 946,
+     "pickThrough": 0.113,
+     "avgKills": 1.36,
+     "avgDamage": 1665.6,
+     "avgLifeS": 610.7
+    },
+    "gunBarrel": {
+     "builds": 2079,
+     "wins": 405,
+     "winrate": 0.1948,
+     "ci95": [
+      0.1783,
+      0.2124
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.691,
+     "expWins": 239.54,
+     "avgPlacement": 6.72,
+     "placeDist": {
+      "1": 405,
+      "2": 206,
+      "3": 169,
+      "4-5": 260,
+      "6-10": 532,
+      "11-20": 507
+     },
+     "avgCopies": 1.16,
+     "avgFirstOrdinal": 3.26,
+     "avgFirstTimeS": 233.2,
+     "picksTotal": 2409,
+     "offered": 23407,
+     "pickThrough": 0.103,
+     "avgKills": 2.2,
+     "avgDamage": 1990.2,
+     "avgLifeS": 612.1
+    },
+    "gunTurret": {
+     "builds": 1252,
+     "wins": 163,
+     "winrate": 0.1302,
+     "ci95": [
+      0.1127,
+      0.15
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.874,
+     "expWins": 186.46,
+     "avgPlacement": 7.69,
+     "placeDist": {
+      "1": 163,
+      "2": 89,
+      "3": 115,
+      "4-5": 173,
+      "6-10": 322,
+      "11-20": 390
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.97,
+     "avgFirstTimeS": 265.6,
+     "picksTotal": 1252,
+     "offered": 12458,
+     "pickThrough": 0.1,
+     "avgKills": 1.6,
+     "avgDamage": 1655.7,
+     "avgLifeS": 579.1
+    },
+    "intelSweep": {
+     "builds": 3792,
+     "wins": 371,
+     "winrate": 0.0978,
+     "ci95": [
+      0.0888,
+      0.1077
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.873,
+     "expWins": 425.04,
+     "avgPlacement": 8.42,
+     "placeDist": {
+      "1": 371,
+      "2": 309,
+      "3": 272,
+      "4-5": 453,
+      "6-10": 1022,
+      "11-20": 1365
+     },
+     "avgCopies": 1.31,
+     "avgFirstOrdinal": 3.11,
+     "avgFirstTimeS": 226.7,
+     "picksTotal": 4952,
+     "offered": 47160,
+     "pickThrough": 0.105,
+     "avgKills": 1.3,
+     "avgDamage": 1475.6,
+     "avgLifeS": 553.1
+    },
+    "mineBlast": {
+     "builds": 211,
+     "wins": 46,
+     "winrate": 0.218,
+     "ci95": [
+      0.1676,
+      0.2785
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.783,
+     "expWins": 58.77,
+     "avgPlacement": 6.1,
+     "placeDist": {
+      "1": 46,
+      "2": 20,
+      "3": 21,
+      "4-5": 26,
+      "6-10": 54,
+      "11-20": 44
+     },
+     "avgCopies": 1.26,
+     "avgFirstOrdinal": 6.67,
+     "avgFirstTimeS": 371.7,
+     "picksTotal": 265,
+     "offered": 2820,
+     "pickThrough": 0.094,
+     "avgKills": 2.27,
+     "avgDamage": 2143.9,
+     "avgLifeS": 648.0
+    },
+    "mineCaptive": {
+     "builds": 104,
+     "wins": 33,
+     "winrate": 0.3173,
+     "ci95": [
+      0.2357,
+      0.4119
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.124,
+     "expWins": 29.36,
+     "avgPlacement": 4.86,
+     "placeDist": {
+      "1": 33,
+      "2": 15,
+      "3": 8,
+      "4-5": 14,
+      "6-10": 17,
+      "11-20": 17
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.93,
+     "avgFirstTimeS": 366.8,
+     "picksTotal": 104,
+     "offered": 944,
+     "pickThrough": 0.11,
+     "avgKills": 3.36,
+     "avgDamage": 2600.7,
+     "avgLifeS": 696.3
+    },
+    "minePropFouling": {
+     "builds": 90,
+     "wins": 20,
+     "winrate": 0.2222,
+     "ci95": [
+      0.1487,
+      0.3185
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.707,
+     "expWins": 28.28,
+     "avgPlacement": 5.51,
+     "placeDist": {
+      "1": 20,
+      "2": 8,
+      "3": 12,
+      "4-5": 16,
+      "6-10": 18,
+      "11-20": 16
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 7.43,
+     "avgFirstTimeS": 377.4,
+     "picksTotal": 90,
+     "offered": 1012,
+     "pickThrough": 0.089,
+     "avgKills": 2.81,
+     "avgDamage": 2326.8,
+     "avgLifeS": 664.0
+    },
+    "shipCooldown": {
+     "builds": 3748,
+     "wins": 410,
+     "winrate": 0.1094,
+     "ci95": [
+      0.0998,
+      0.1198
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.043,
+     "expWins": 393.03,
+     "avgPlacement": 8.32,
+     "placeDist": {
+      "1": 410,
+      "2": 297,
+      "3": 249,
+      "4-5": 505,
+      "6-10": 984,
+      "11-20": 1303
+     },
+     "avgCopies": 1.34,
+     "avgFirstOrdinal": 2.96,
+     "avgFirstTimeS": 218.3,
+     "picksTotal": 5040,
+     "offered": 47211,
+     "pickThrough": 0.107,
+     "avgKills": 1.37,
+     "avgDamage": 1523.0,
+     "avgLifeS": 555.7
+    },
+    "shipHull": {
+     "builds": 3277,
+     "wins": 388,
+     "winrate": 0.1184,
+     "ci95": [
+      0.1078,
+      0.1299
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.045,
+     "expWins": 371.15,
+     "avgPlacement": 7.76,
+     "placeDist": {
+      "1": 388,
+      "2": 287,
+      "3": 246,
+      "4-5": 450,
+      "6-10": 894,
+      "11-20": 1012
+     },
+     "avgCopies": 1.25,
+     "avgFirstOrdinal": 3.15,
+     "avgFirstTimeS": 224.2,
+     "picksTotal": 4108,
+     "offered": 39472,
+     "pickThrough": 0.104,
+     "avgKills": 1.39,
+     "avgDamage": 1566.5,
+     "avgLifeS": 580.9
+    },
+    "shipSpeed": {
+     "builds": 3364,
+     "wins": 342,
+     "winrate": 0.1017,
+     "ci95": [
+      0.0919,
+      0.1123
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.887,
+     "expWins": 385.67,
+     "avgPlacement": 8.43,
+     "placeDist": {
+      "1": 342,
+      "2": 277,
+      "3": 237,
+      "4-5": 418,
+      "6-10": 904,
+      "11-20": 1186
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.19,
+     "avgFirstTimeS": 229.1,
+     "picksTotal": 4139,
+     "offered": 39667,
+     "pickThrough": 0.104,
+     "avgKills": 1.34,
+     "avgDamage": 1496.7,
+     "avgLifeS": 552.4
+    },
+    "starDazzle": {
+     "builds": 78,
+     "wins": 20,
+     "winrate": 0.2564,
+     "ci95": [
+      0.1726,
+      0.3631
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.914,
+     "expWins": 21.89,
+     "avgPlacement": 5.71,
+     "placeDist": {
+      "1": 20,
+      "2": 5,
+      "3": 10,
+      "4-5": 11,
+      "6-10": 17,
+      "11-20": 15
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.72,
+     "avgFirstTimeS": 401.8,
+     "picksTotal": 78,
+     "offered": 987,
+     "pickThrough": 0.079,
+     "avgKills": 2.08,
+     "avgDamage": 1987.0,
+     "avgLifeS": 651.4
+    },
+    "starDuration": {
+     "builds": 223,
+     "wins": 33,
+     "winrate": 0.148,
+     "ci95": [
+      0.1074,
+      0.2005
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.689,
+     "expWins": 47.89,
+     "avgPlacement": 7.26,
+     "placeDist": {
+      "1": 33,
+      "2": 26,
+      "3": 18,
+      "4-5": 26,
+      "6-10": 54,
+      "11-20": 66
+     },
+     "avgCopies": 1.19,
+     "avgFirstOrdinal": 5.72,
+     "avgFirstTimeS": 355.9,
+     "picksTotal": 265,
+     "offered": 2816,
+     "pickThrough": 0.094,
+     "avgKills": 1.58,
+     "avgDamage": 1747.7,
+     "avgLifeS": 609.7
+    },
+    "starIncendiary": {
+     "builds": 95,
+     "wins": 19,
+     "winrate": 0.2,
+     "ci95": [
+      0.1319,
+      0.2914
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.851,
+     "expWins": 22.34,
+     "avgPlacement": 6.72,
+     "placeDist": {
+      "1": 19,
+      "2": 9,
+      "3": 3,
+      "4-5": 18,
+      "6-10": 21,
+      "11-20": 25
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 6.06,
+     "avgFirstTimeS": 363.3,
+     "picksTotal": 95,
+     "offered": 963,
+     "pickThrough": 0.099,
+     "avgKills": 1.78,
+     "avgDamage": 1955.5,
+     "avgLifeS": 632.6
+    },
+    "torpedoHoming": {
+     "builds": 1306,
+     "wins": 204,
+     "winrate": 0.1562,
+     "ci95": [
+      0.1375,
+      0.1769
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.034,
+     "expWins": 197.28,
+     "avgPlacement": 7.45,
+     "placeDist": {
+      "1": 204,
+      "2": 119,
+      "3": 101,
+      "4-5": 166,
+      "6-10": 327,
+      "11-20": 389
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.99,
+     "avgFirstTimeS": 265.4,
+     "picksTotal": 1306,
+     "offered": 12608,
+     "pickThrough": 0.104,
+     "avgKills": 1.76,
+     "avgDamage": 1714.2,
+     "avgLifeS": 590.9
+    },
+    "torpedoSpeed": {
+     "builds": 3246,
+     "wins": 329,
+     "winrate": 0.1014,
+     "ci95": [
+      0.0914,
+      0.1122
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 0.864,
+     "expWins": 380.98,
+     "avgPlacement": 8.39,
+     "placeDist": {
+      "1": 329,
+      "2": 252,
+      "3": 240,
+      "4-5": 418,
+      "6-10": 854,
+      "11-20": 1153
+     },
+     "avgCopies": 1.23,
+     "avgFirstOrdinal": 3.25,
+     "avgFirstTimeS": 234.7,
+     "picksTotal": 3996,
+     "offered": 39883,
+     "pickThrough": 0.1,
+     "avgKills": 1.3,
+     "avgDamage": 1480.2,
+     "avgLifeS": 553.6
+    },
+    "torpedoTube": {
+     "builds": 1275,
+     "wins": 217,
+     "winrate": 0.1702,
+     "ci95": [
+      0.1506,
+      0.1918
+     ],
+     "poolWinrate": 0.05,
+     "ordinalLift": 1.176,
+     "expWins": 184.59,
+     "avgPlacement": 7.17,
+     "placeDist": {
+      "1": 217,
+      "2": 119,
+      "3": 104,
+      "4-5": 154,
+      "6-10": 335,
+      "11-20": 346
+     },
+     "avgCopies": 1.0,
+     "avgFirstOrdinal": 3.89,
+     "avgFirstTimeS": 262.1,
+     "picksTotal": 1275,
+     "offered": 12654,
+     "pickThrough": 0.101,
+     "avgKills": 1.85,
+     "avgDamage": 1747.4,
+     "avgLifeS": 600.5
+    }
+   }
+  }
+ }
+}

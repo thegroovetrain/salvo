@@ -1,0 +1,4 @@
+# Only needed for training (train_ppo.py). smoke.py and env_client.py are
+# stdlib-only.
+numpy>=1.26
+torch>=2.2

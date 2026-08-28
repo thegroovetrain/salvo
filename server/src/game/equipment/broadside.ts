@@ -76,7 +76,16 @@ const BEAMS = twinSectorArcFor('broadside');
 export function broadsideAim(ship: ShipRecord, side: 1 | -1, mapRadius: number): TurretAim[] {
   const bs = ship.stats.broadside;
   const click = burstPointAlong(ship, mapRadius, bs.rangeU, ship.input.aim);
-  return turretAimPoints(ship.state, ship.hullId, bs.turrets, side, click, bs.traverseRad, mapRadius);
+  return turretAimPoints(
+    ship.state,
+    ship.hullId,
+    bs.turrets,
+    side,
+    click,
+    bs.traverseRad,
+    bs.mountSpreadRad,
+    mapRadius,
+  );
 }
 
 /**
@@ -84,8 +93,9 @@ export function broadsideAim(ship: ShipRecord, side: 1 | -1, mapRadius: number):
  * arc miss consumes nothing), then one consumed round launches `turrets`
  * shells, each a REAL gun-pattern shell flying to the point ITS OWN turret arc
  * can reach and bursting there in `burstRadius`. Damage/blast/turret
- * count/traverse all come from the OWNER'S effective stats (the BROADSIDE
- * TURRETS and BROADSIDE SPREAD ladders), never raw CONFIG. distLeft slack
+ * count/traverse/mount spread all come from the OWNER'S effective stats (the
+ * BROADSIDE TURRETS ladder and the SPREAD card's paired arc ladders), never raw
+ * CONFIG. distLeft slack
  * mirrors fireGunShells (guards float drift, never extends reach).
  *
  * EACH SHELL LEAVES ITS OWN TURRET (Eric's correction 2026-08-19). Shell `i`

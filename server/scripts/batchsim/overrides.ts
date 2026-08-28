@@ -53,6 +53,14 @@ const TUNE_FAMILIES = [
   'speedBoost.',
   'radarBuoy.',
   'shipClasses.',
+  // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
+  // "should a drone be worth, through damage, what its kill tier already says
+  // it is worth" — at a damage->XP rate of 1/N, tier x N is the hp that makes
+  // the two halves proportional. It is a COMBAT envelope (hp, gun, kinematics)
+  // and so belongs on this surface rather than the --set economy whitelist,
+  // even though the question that reaches for it is an economy one. The `hp`
+  // leaf inherits the existing floor of 1 via TUNE_MIN_ONE_LEAVES.
+  'drones.',
   // DAMAGE CONTROL is a COMBAT dial, not an economy one, so it belongs on this
   // surface rather than the --set whitelist: `damageControl` amounts are FLAT
   // on every hull by ruling ("no maxHp scaling, no upgrade scaling"), which
@@ -138,7 +146,11 @@ function resolveLeaf(key: string, allowTune = false): Leaf {
   // documented, legitimate dial; `broadside.traverseDeg.length` is a numeric
   // own property that would TRUNCATE a live CONFIG array and then run the batch
   // as if nothing had happened. The index rule admits the first and refuses the
-  // second without needing to enumerate array internals.
+  // second without needing to enumerate array internals — and because it is
+  // generic over Array.isArray it covered `broadside.turretMountSpreadDeg` the
+  // moment that field became a per-rung ladder too (2026-08-27), with no new
+  // clause. Truncating EITHER of the paired broadside ladders would silently
+  // desync the rung pairing effectiveStats() makes, so both are pinned.
   if (Array.isArray(node) && !/^(?:0|[1-9]\d*)$/.test(prop)) {
     throw new TunableError(`'${key}': an array entry is addressable only by index`);
   }

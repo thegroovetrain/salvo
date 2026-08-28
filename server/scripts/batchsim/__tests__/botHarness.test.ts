@@ -111,11 +111,18 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     levelsUnspent: 0,
     boonsFitted: 10,
     shots: 20,
+    buoysDeployed: 0,
+    minesLaid: 0,
     damageDealt: 200,
     ticks: 2000,
     landTicks: 0,
     landEpisodes: 0,
     maxLandRunTicks: 0,
+    boons: [],
+    picks: [],
+    offersSeen: {},
+    offerHands: 0,
+    placement: null,
     ...over,
   };
 }
@@ -363,6 +370,28 @@ describe('runner — forced test profiles and the engage gate (wave 4)', () => {
       expect(botProfileFor({ botProfile: 'random' }, i)).toBe(TEST_PROFILE_IDS[i % 3]);
       expect(botProfileFor({}, i)).toBeUndefined();
     }
+  });
+
+  it('the scheme deal is OFFSET BY MATCH INDEX, so no class is short in every match', () => {
+    // 20 bots over 3 classes is 7/7/6 — without the offset the SAME test row
+    // is short in every match (the rotate() representation artefact, on the
+    // one path --roster even cannot reach because the forced profile governs
+    // the hull). A named id stays offset-invariant.
+    for (let i = 0; i < 6; i += 1) {
+      for (let index = 0; index < 4; index += 1) {
+        expect(botProfileFor({ botProfile: 'random' }, i, index)).toBe(TEST_PROFILE_IDS[(i + index) % 3]);
+        expect(botProfileFor({ botProfile: 'randomMineLayer' }, i, index)).toBe('randomMineLayer');
+      }
+    }
+    // Across 3 consecutive matches of 20, each row totals exactly 20.
+    const totals = new Map<string, number>();
+    for (let index = 0; index < 3; index += 1) {
+      for (let i = 0; i < 20; i += 1) {
+        const p = botProfileFor({ botProfile: 'random' }, i, index)!;
+        totals.set(p, (totals.get(p) ?? 0) + 1);
+      }
+    }
+    expect([...totals.values()]).toEqual([20, 20, 20]);
   });
 
   it('a forced run carries ONLY test profiles in its bot rows, one hull per row', () => {

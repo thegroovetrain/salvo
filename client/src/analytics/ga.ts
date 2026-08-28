@@ -13,7 +13,7 @@
 // `dataLayer` in scope for every file in `client/src`, which is precisely the
 // boundary this module exists to hold.
 
-import type { ConsentAnalyticsUpdate, ConsentDefaultPayload } from './consent.js';
+import type { ConsentDefaultPayload, ConsentSignals } from './consent.js';
 // THE MARKER ONLY — and from a LEAF module that imports nothing, not from the ad
 // layer. `ads/adsHead.ts` is the pure build-time transform that writes the
 // consent defaults into the page head when a publisher ID is configured; this
@@ -203,8 +203,13 @@ export function startGa(defaults: readonly ConsentDefaultPayload[]): boolean {
  * because the three ad signals belong to Google's CMP now and a `consent update`
  * leaves every signal it omits exactly where the CMP and the defaults left it.
  * Silently drops if the tag was never built, which is the inert-build case.
+ *
+ * The payload is `Partial<ConsentSignals>` rather than the analytics pair alone
+ * because Story 7-8's GPC denial is the one update that legitimately names all
+ * four (see `consentUpdate`). This module still states no policy: it sends
+ * whatever the consent module decided.
  */
-export function sendGaConsentUpdate(update: ConsentAnalyticsUpdate): void {
+export function sendGaConsentUpdate(update: Partial<ConsentSignals>): void {
   if (!ready) return;
   try {
     const win = globalThis as unknown as GaWindow;

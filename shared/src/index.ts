@@ -3,6 +3,23 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  49: THE BROADSIDE'S ZERO-OVERLAP ARC LADDER (Eric rulings 2026-08-24 +
+ *  2026-08-27) — `CONFIG.broadside.turretMountSpreadDeg` becomes a PER-RUNG
+ *  ARRAY ([28, 25, 22.5, 15, 6]) where it was the scalar 28, and `traverseDeg`
+ *  retunes [33.5, 39.5, 45.5, 51.5, 57.5] → [6, 7, 7.5, 9, 14]. The BROADSIDE
+ *  SPREAD card now climbs BOTH ladders off the same `spreadRung`, so
+ *  `EffectiveStats.broadside` gains a derived `mountSpreadRad` beside
+ *  `traverseRad` (neither stat-addressable). At the base 4-gun battery the
+ *  per-turret arcs no longer overlap at all until the third card and the whole
+ *  battery converges on an abeam click only at the cap — Eric's *"an inaccurate
+ *  shotgun that gradually gets better"*, moving the weapon's budget out of alpha
+ *  and into reliability. NO wire SHAPE change: this is a join gate, not a
+ *  serializer break. Both sides compile the ladder and both run
+ *  `sim/aim.ts turretAimPoints` (which gains a `mountSpreadRad` parameter), so a
+ *  stale client would preview and predict a barrage the server does not fire —
+ *  the same break class as PV 45, which introduced this model. The legal
+ *  twin-sector geometry (arcOffsetDeg 90 / arcHalfArcDeg 60) is UNTOUCHED and no
+ *  damage/reload/turret/range scalar moved.
  *  48: A DRONE KILLER CAN BE NAMED (Eric ruling 2026-08-21) — `SunkEvent` gains
  *  an optional `kcls` (HullId), appended LAST after `vcls`, so the load-bearing
  *  msgpack key order becomes k,id,by?,seen?,bty?,vcls?,kcls?. It carries THE
@@ -533,7 +550,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 48;
+export const PROTOCOL_VERSION = 49;
 
 // Tunables
 export * from './constants.js';

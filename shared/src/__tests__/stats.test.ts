@@ -17,6 +17,9 @@ import {
   BOON_CATALOG,
   CONFIG,
   SHIP_CLASS_IDS,
+  broadsideMountSpread,
+  broadsideTraverse,
+  clampSpreadRung,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -111,6 +114,9 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
         turrets: CONFIG.broadside.turrets,
         spreadRung: 1,
         traverseRad: (CONFIG.broadside.traverseDeg[0] * Math.PI) / 180,
+        // The SPREAD card's SECOND derived half-angle (2026-08-27): the mounts
+        // swing inward as the arcs widen, off the same rung.
+        mountSpreadRad: (CONFIG.broadside.turretMountSpreadDeg[0] * Math.PI) / 180,
       },
       starShells: {
         reloadMs: CONFIG.starShells.reloadMs,
@@ -180,17 +186,45 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
     expect(base.broadside.rangeU).toBeCloseTo(base.radarRange * CONFIG.vision.muzzleFlashFactor, 9);
     expect(base.broadside.rangeU).toBeCloseTo(412.5, 9); // the ratified base
     expect(base.broadside.rangeU).toBeLessThan(base.radarRange);
-    // 0..4 SPREAD copies walk the authored traverse ladder 34 -> 40 -> 46 -> 52 -> 58.
+    // 0..4 SPREAD copies walk BOTH authored ladders off the SAME rung
+    // (2026-08-27): traverse 6 -> 7 -> 7.5 -> 9 -> 14 while the mounts swing
+    // inward 28 -> 25 -> 22.5 -> 15 -> 6.
     for (let n = 0; n <= 4; n++) {
       const s = effectiveStats(BASE, stack('broadsideSpread', n));
       expect(s.broadside.spreadRung, `${n} copies`).toBe(n + 1);
       expect(s.broadside.traverseRad, `${n} copies`).toBeCloseTo((CONFIG.broadside.traverseDeg[n] * Math.PI) / 180, 12);
+      expect(s.broadside.mountSpreadRad, `${n} copies`).toBeCloseTo(
+        (CONFIG.broadside.turretMountSpreadDeg[n] * Math.PI) / 180,
+        12,
+      );
     }
+    // The two really do move in OPPOSITE directions — that is the whole ladder.
+    const cap = effectiveStats(BASE, stack('broadsideSpread', 4));
+    expect(cap.broadside.traverseRad).toBeGreaterThan(base.broadside.traverseRad);
+    expect(cap.broadside.mountSpreadRad).toBeLessThan(base.broadside.mountSpreadRad);
     // Over-stacking past the physical copy cap CLAMPS rather than running off
     // the table (the gun.barrels precedent) — a hostile boon list cannot NaN it.
     const over = effectiveStats(BASE, stack('broadsideSpread', 9));
     expect(over.broadside.spreadRung).toBe(CONFIG.broadside.traverseDeg.length);
     expect(Number.isFinite(over.broadside.traverseRad)).toBe(true);
+    expect(Number.isFinite(over.broadside.mountSpreadRad)).toBe(true);
+  });
+
+  // A NON-FINITE RUNG CLAMPS TO 1, and it must be checked BEFORE Math.round:
+  // every comparison against NaN is false, so min/max would pass NaN through
+  // and index both authored ladders into `undefined` -> a NaN arc on a live
+  // ship. Only malformed effect data can produce one; rung 1 (un-carded) is the
+  // honest reading of "no valid card count".
+  it('a NON-FINITE spread rung clamps to the base rung, never to NaN', () => {
+    const top = CONFIG.broadside.traverseDeg.length;
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(clampSpreadRung(bad), `${bad}`).toBe(1);
+      expect(Number.isFinite(broadsideTraverse(bad)), `traverse ${bad}`).toBe(true);
+      expect(Number.isFinite(broadsideMountSpread(bad)), `mounts ${bad}`).toBe(true);
+    }
+    // The paired-ladder contract the clamp rests on is asserted at module load
+    // (sim/stats.ts) — restate it here so a CONFIG edit fails a test too.
+    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(top);
   });
 
   it('broadsideTurrets adds a shell per card, 4 -> 6, and moves nothing else', () => {

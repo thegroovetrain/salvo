@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-22 (cycle 127, 0.17.127)
+# last_updated: 2026-08-27 (cycle 130, 0.17.130)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -138,6 +138,9 @@
 #   cycle 124 (0.17.124) SHIP-SELECT COPY (ARMOR row) + Color Hoist walks in hue order — epic-7 amendments 35-36; PV 47 (client-only)
 #   cycle 125 (0.17.125) REGATTA PALETTE REGENERATED in OKLCH — epic-7 amendment 37; PV 47 (client + design doc)
 #   cycle 127 (0.17.127) TWO RENDER ENVIRONMENTS — render.yaml reconciled with the live pro service; hullcracker-dev from a new `development` branch; HC_NOINDEX guard — no amendment; PV 48; spec-render-dev-environment.md
+#   cycle 128 (0.17.128) BALANCE CYCLE 2 — MEASUREMENT ONLY, no CONFIG value moved: drones.* tunable, 29-arm evidence, XP assist-split + auto-heal SPEC for a later dev cycle — no amendment; PV 48; batch-sim-evidence-2026-08-22.md, spec-xp-assist-split-and-auto-heal.md
+#   cycle 129 (0.17.129) XP ASSIST SPLIT + PER-LEVEL AUTO-HEAL (one-dial 60s rolling counter, killer 1/10; free 10%-of-missing heal per level, own pool) — epic-7 amendment 44; PV 48; spec-xp-assist-split-and-auto-heal.md
+#   cycle 130 (0.17.130) BROADSIDE ZERO-OVERLAP ARC LADDER + per-turret arc display (mountSpread per-rung [28,25,22.5,15,6], traverse [6,7,7.5,9,14]) — batch-sim-evidence-2026-08-27.md; PV 48->49; spec-broadside-zero-overlap-arcs.md
 # NOTE (2026-08-21, Story 7-6, Eric ruling F3): cycles 120/121 were AUTHORED on branches stamped
 # 0.17.110 / 0.17.111 / epic-7 amendments 29-30 and RENUMBERED at merge (PR #184 -> 0.17.120,
 # PR #187 -> 0.17.121, amendments 32-33; verified against the VERSION file at each merge commit).
@@ -247,7 +250,7 @@ development_status:
   7-5-upgrade-cards-v2: done  # 2026-08-19 cycle 109 (0.17.109); PV 41->43; epic-7 amendments 20-28; batch-sim-evidence-7-5-2026-08-19.md
   7-6-design-and-doc-reconciliation: done  # 2026-08-21 cycle 126 (0.17.126); PV 47->48; epic-7 amendments 38-43; bmad-dev-auto-result-7-6-doc-reconciliation-questions.md
   7-7-frontend-backend-split-and-versioning: deferred  # 2026-08-21 Eric ruling: DEFERRED IN FULL (topology AND versioning); one game version, 0.17.X continues; no VERSION bump this PR; tripwires in deferred-work.md
-  7-8-the-release-gate: backlog
+  7-8-the-release-gate: done  # 2026-08-27 cycle 131 (0.17.131); PV 49; epic-7 amendments 45-46; release-gate-2026-08-27.md
   # Old numbering retired 2026-08-18: 7-3-portal-sdk-integrations CANCELLED (no portal release);
   # 7-1-chromebook-performance-pass + 7-2-ten-second-load MERGED into 7-1; 7-4 -> 7-3;
   # 7-5-design-md-real-time-refresh -> 7-6; 7-6-the-release-gate -> 7-8.

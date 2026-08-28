@@ -154,10 +154,22 @@ services:
       # re-prompted and anyone mid-session is refused at their next join. No
       # code redeploy, nothing per-person to clean up.
       #
-      # `sync: false` means the VALUE IS NOT IN THIS FILE — Render prompts for
-      # it once at first sync and stores it on the service. That is deliberate:
-      # a password committed to a public repo is not a password. Set it in the
-      # Render dashboard, then hand it to whoever is playtesting.
+      # `sync: false` means the VALUE IS NOT IN THIS FILE — Render stores it on
+      # the service instead. That is deliberate: a password committed to a
+      # public repo is not a password. Set it in the Render dashboard, then hand
+      # it to whoever is playtesting.
+      #
+      # OBSERVED AT FIRST SYNC (2026-08-22), so nobody re-diagnoses it: an
+      # UNATTENDED auto-sync cannot resolve `sync: false`, because that setting
+      # means "prompt for a value in the dashboard" and a Blueprint sync
+      # triggered by a push has nobody to prompt. The sync therefore reports
+      # `error` and this ONE key is skipped — while every other field in this
+      # file applies normally, which is exactly what happened: the service was
+      # created with the correct plan/region/branch/trigger/instances and
+      # HC_NOINDEX, and only this key was missing. THE GATE IS INERT UNTIL THE
+      # VALUE EXISTS, so the host is open in the window between the service
+      # being created and someone setting it. Set the value and the next sync
+      # goes green. Not a reason to commit the password.
       #
       # Leave it UNSET to run staging wide open; the whole gate is inert then.
       - key: HC_STAGING_KEY

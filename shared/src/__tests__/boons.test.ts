@@ -269,6 +269,9 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     // authored ladder off the stat-addressable SPREAD rung.
     expect(BOON_STAT_PATHS).not.toContain('broadside.rangeU');
     expect(BOON_STAT_PATHS).not.toContain('broadside.traverseRad');
+    // Its 2026-08-27 sibling: the SPREAD rung now drives the MOUNT spread too,
+    // and for the same reason a card must never address it directly.
+    expect(BOON_STAT_PATHS).not.toContain('broadside.mountSpreadRad');
     expect(BOON_STAT_PATHS).toContain('broadside.spreadRung');
   });
 

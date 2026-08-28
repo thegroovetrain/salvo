@@ -551,7 +551,16 @@ describe('generation-time guard', () => {
     // too. 500 keeps the guard catching what it is actually for — an
     // order-of-magnitude regression in the generator — without failing the
     // build because three workspaces happened to run their suites at once.
-    expect(elapsed).toBeLessThan(500);
+    //
+    // RE-BASED AGAIN 500 -> 1500 by Story 7-8 (the release-gate cycle). This
+    // guard's own comment above predicted exactly this: 402ms alone vs. a
+    // measured ~625ms inside a full three-workspace `npm run check`, i.e. more
+    // machine contention than the 500 headroom covered. 1500 is still a guard
+    // against an ORDER-OF-MAGNITUDE regression (a real break is multi-second,
+    // not a couple hundred extra ms of CPU contention) — the purpose does not
+    // move, only the headroom needed to survive the full-suite run this budget
+    // is actually exercised under.
+    expect(elapsed).toBeLessThan(1500);
   });
 });
 

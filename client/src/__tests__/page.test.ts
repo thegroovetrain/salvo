@@ -338,6 +338,38 @@ describe('lifetime', () => {
     expect(document.querySelectorAll('#test-page')).toHaveLength(1);
   });
 
+  // DISPOSAL IS REACHABLE WITHOUT THE CALLER (Story 7-8). Neither
+  // `src/privacy/main.ts` nor `src/how-to-play/main.ts` keeps the handle, so
+  // before this the capture-phase ESC listener had no teardown path at all.
+  it('pagehide disposes the page and its ESC binding', () => {
+    const onBack = vi.fn();
+    const page = build({ onBack });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(page.root.isConnected).toBe(false);
+    expect(document.getElementById('test-page')).toBeNull();
+    esc();
+    expect(onBack).not.toHaveBeenCalled();
+    // ...and the handle stays safe to call afterwards (afterEach does exactly
+    // that): disposal is idempotent whichever leg got there first.
+    expect(() => page.destroy()).not.toThrow();
+  });
+
+  // A `pagehide` with `persisted: true` means the document is entering the
+  // back/forward cache and may be shown again EXACTLY as it is — including this
+  // handler's mutations. Tearing the root out there restores a blank page.
+  it('leaves the page alone on a bfcache pagehide, and still disposes later', () => {
+    const onBack = vi.fn();
+    const page = build({ onBack });
+    window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: true }));
+    expect(page.root.isConnected).toBe(true);
+    esc();
+    expect(onBack).toHaveBeenCalledTimes(1);
+    // The listener was not consumed by the bfcache pass: real termination still
+    // disposes.
+    window.dispatchEvent(new Event('pagehide'));
+    expect(page.root.isConnected).toBe(false);
+  });
+
   it('disowns its ESC binding if the root is dropped without destroy()', () => {
     const onBack = vi.fn();
     const page = build({ onBack });

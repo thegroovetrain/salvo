@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as shared from '../index.js';
+import type { EquipmentId } from '../index.js';
 import {
   PROTOCOL_VERSION,
   CONFIG,
@@ -215,7 +216,15 @@ describe('shared barrel', () => {
     // carrying the KILLER'S hull class and ONLY when the killer is a PvE fleet
     // hull -- never a captain's. A wire SHAPE change on a row every client
     // decodes, so it is a join gate even though it is purely additive.
-    expect(PROTOCOL_VERSION).toBe(48);
+    //
+    // 48 -> 49: THE BROADSIDE'S ZERO-OVERLAP ARC LADDER (Eric rulings
+    // 2026-08-24 + 2026-08-27). `CONFIG.broadside.turretMountSpreadDeg` becomes
+    // a PER-RUNG ARRAY and `traverseDeg` retunes, so BROADSIDE SPREAD climbs
+    // BOTH ladders off one rung and `EffectiveStats.broadside` gains a derived
+    // `mountSpreadRad`. No wire SHAPE change: both sides compile the ladder and
+    // both run `turretAimPoints`, so a stale client previews and predicts a
+    // barrage the server does not fire -- the same break class as PV 45.
+    expect(PROTOCOL_VERSION).toBe(49);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -267,7 +276,53 @@ describe('shared barrel', () => {
       expect(CONFIG.xp.droneTierLevels[id]).toBeGreaterThan(0);
       expect(CONFIG.xp.droneTierLevels[id]).toBeLessThan(CONFIG.xp.killLevels);
     }
-    expect(Object.keys(CONFIG.xp).sort()).toEqual(['droneTierLevels', 'killLevels', 'levelMs']);
+    // THE ASSIST SPLIT IS ONE DIAL (Eric answer A1, 2026-08-23). Pinning the
+    // VALUE is what makes "60 s is the ruled window" a test rather than a
+    // claim: the same number is the per-attacker restart gap, the eligibility
+    // window at the sink, and the on-switch, so a second gap dial appearing
+    // here would fail the shape pin by its key alone.
+    expect(CONFIG.xp.assistWindowMs).toBe(60000);
+    expect(CONFIG.xp.killerShare).toBe(0.1);
+    // 60 s clears every weapon cycle with room — the reason it beat the
+    // first-ruled 30 s, which left the torpedo exactly at the boundary.
+    // STRUCTURAL SWEEP over the weapon registry (EQUIPMENT_IS_WEAPON), not a
+    // hand-enumerated list, so a future weapon's reload is covered
+    // automatically. This also now covers the radar buoy's 30s reload, which
+    // the old five-reload enumeration omitted.
+    const WEAPON_CONFIG_RELOAD_MS: Record<EquipmentId, number> = {
+      gun: CONFIG.gun.reloadMs,
+      torpedo: CONFIG.torpedo.reloadMs,
+      mine: CONFIG.mine.reloadMs,
+      speedBoost: -Infinity, // not a weapon — EQUIPMENT_IS_WEAPON filters it out below
+      broadside: CONFIG.broadside.reloadMs,
+      starShells: CONFIG.starShells.reloadMs,
+      radarBuoy: CONFIG.radarBuoy.reloadMs,
+    };
+    for (const id of Object.keys(EQUIPMENT_IS_WEAPON) as EquipmentId[]) {
+      if (!EQUIPMENT_IS_WEAPON[id]) continue;
+      expect(CONFIG.xp.assistWindowMs).toBeGreaterThan(WEAPON_CONFIG_RELOAD_MS[id]);
+    }
+    expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
+  });
+
+  it('carries the damage-control block — the paid heal plus the FREE per-level channel', () => {
+    // The PAID heal, unchanged by the 2026-08-23 auto-heal: 50 instant + 50
+    // into the pool = 100 hp, drained at the fixed regenHp/regenMs 10 hp/s.
+    expect(CONFIG.damageControl.instantHp).toBe(50);
+    expect(CONFIG.damageControl.regenHp).toBe(50);
+    expect(CONFIG.damageControl.regenMs).toBe(5000);
+    // THE FREE PER-LEVEL AUTO-HEAL: 10 % of MISSING hull, delivered over 5 s
+    // from its own pool at its own rate. A fraction of MISSING (not of max, not
+    // a flat amount) is the ruled shape and is what makes it need no repricing
+    // when hull HP next moves.
+    expect(CONFIG.damageControl.levelMissingPct).toBe(0.1);
+    expect(CONFIG.damageControl.levelRegenMs).toBe(5000);
+    // CONFIG.damageControl's FIRST shape pin (this block had value pins in
+    // damageControl.test.ts but never a key pin). It is the guard that a
+    // percentage MENU heal — measured across nine variants and DEFERRED by
+    // Eric to after the upgrade-card balance pass — cannot arrive silently:
+    // healFlatPct / healMissingPct / healPoolPct would all fail by key alone.
+    expect(Object.keys(CONFIG.damageControl).sort()).toEqual(['instantHp', 'levelMissingPct', 'levelRegenMs', 'regenHp', 'regenMs']);
   });
 
   it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {
@@ -344,20 +399,27 @@ describe('shared barrel', () => {
       damage: 15, // balance cycle 1 (Eric 2026-08-20); was 20 — base alpha held at 4×15 = 60
       burstRadius: 15, // DRAFT — the gun's own ("bursts like the gun")
       shellRadius: 2,
-      // RETUNED on Eric's playtest 2026-08-20 (*"the convergence is slightly too
-      // high at level 1"*): mounts widened 27 -> 28 while arcs narrowed 34 ->
-      // 33.5, which tightens the OVERLAP (traverse - mountSpread, what
-      // convergence needs) without shrinking the SUM (what keeps a gun on every
-      // legal click). Base abeam convergence ~303u -> ~386u.
-      turretMountSpreadDeg: 28, // [DRAFT] mount half-spread about the beam
-      traverseDeg: [33.5, 39.5, 45.5, 51.5, 57.5], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
+      // THE ZERO-OVERLAP LADDER (Eric rulings 2026-08-24 + 2026-08-27): the
+      // SPREAD card climbs BOTH ladders off one rung — the mounts swing INWARD
+      // toward the beam while the arcs WIDEN. At the base 4-gun battery the
+      // per-turret wedges do not overlap at all until the third card (rung 3
+      // exactly touches), and at the cap the whole battery converges on an abeam
+      // click from ~265u out. Both [DRAFT]; the overlap SCHEDULE is what is
+      // ruled, and it is pinned in aim.test.ts.
+      turretMountSpreadDeg: [28, 25, 22.5, 15, 6], // [DRAFT] mount half-spread ladder, index = SPREAD copies
+      traverseDeg: [6, 7, 7.5, 9, 14], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
     });
     // NO range field — it is derived from radarRange × muzzleFlashFactor, and
     // NO arc field either: the beams are a twin-sector descriptor, not 'full'.
     expect('rangeU' in CONFIG.broadside).toBe(false);
     expect('arc' in CONFIG.broadside).toBe(false);
-    // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card.
+    // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card. BOTH
+    // ladders, and the SAME length — one rung indexes them together
+    // (effectiveStats pairs them by index; a length mismatch would silently
+    // clamp one and run off the other).
     expect(CONFIG.broadside.traverseDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
+    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
+    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(CONFIG.broadside.traverseDeg.length);
   });
 
   it('CONFIG.radarBuoy carries the buoy\'s OWN sensor set (Story 7-5 wave 2)', () => {

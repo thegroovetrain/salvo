@@ -47,7 +47,7 @@ import { setAggroFlashGate } from './render/aggro.js';
 import { ownSettle, spectateSettle } from './render/sinkSettle.js';
 import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
-import { FiringUX } from './render/firing.js';
+import { FiringUX, type BroadsideArcs } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
 import { weaponArcHit, weaponRangeHit, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
@@ -2208,7 +2208,15 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       if (g) handleZoomStep(g, dir);
     },
     onMute: withG(toggleMute),
-    onNetDebug: withG(toggleMode),
+    // P — THE NETCODE A/B TOGGLE, DEV-ONLY (NFR17, Story 7-8). The keyboard
+    // chokepoint drops the binding under the same build-time constant; this is
+    // the other half, and it is the half that matters for the BUNDLE: with the
+    // only reference to `toggleMode` inside a branch Vite folds to `false`,
+    // Rollup drops the function and its `NETCODE:` banner string with it. The
+    // client build greps `dist` for that token and fails on a hit, so the
+    // production absence is pinned by the build rather than by a unit test
+    // (vitest runs with DEV truthy and can only ever see the dev branch).
+    ...(import.meta.env.DEV ? { onNetDebug: withG(toggleMode) } : {}),
   };
 }
 
@@ -3286,6 +3294,7 @@ function renderFiring(
     cursor,
     g.deniedFlash,
     reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
+    broadsideArcs(g, status), // the per-turret wedge display (Eric ruling 2026-08-27)
   );
   renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc, reachU);
 }
@@ -3298,6 +3307,33 @@ function renderFiring(
  * our hull. An out-of-arc / out-of-reach aim previews nothing: the denied
  * treatment is already the honest answer there.
  */
+/**
+ * The BROADSIDE's per-turret arc display inputs (Eric ruling 2026-08-27): the
+ * hull whose muzzles the wedges spring from, plus the SPREAD rung's TWO derived
+ * half-angles — straight off effectiveStats, the same numbers the aim preview
+ * and the server's own fire path read. Handed on every frame regardless of the
+ * primed weapon; render/firing.ts uses it only when the broadside is up.
+ */
+let arcsMemo: BroadsideArcs | null = null;
+
+function broadsideArcs(g: Game, status: OwnStatus): BroadsideArcs {
+  const b = status.stats.broadside;
+  // ONE SLOT: these four move only on a boon grant (or a new match's hull), so
+  // the frame loop hands the renderer the SAME object it had last frame rather
+  // than minting one every tick. render/firing.ts memoizes the wedge geometry
+  // off the same four scalars.
+  const m = arcsMemo;
+  if (m !== null && m.hullId === g.ownClass && m.turrets === b.turrets
+    && m.traverseRad === b.traverseRad && m.mountSpreadRad === b.mountSpreadRad) return m;
+  arcsMemo = {
+    hullId: g.ownClass,
+    turrets: b.turrets,
+    traverseRad: b.traverseRad,
+    mountSpreadRad: b.mountSpreadRad,
+  };
+  return arcsMemo;
+}
+
 function renderAimPreview(
   g: Game,
   pose: RenderPose,

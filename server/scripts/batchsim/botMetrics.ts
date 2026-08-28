@@ -62,6 +62,14 @@ const LAND_CONTACT_SLACK = 1;
  */
 export type BotEnd = 'alive' | 'sunkByShip' | 'sunkByFleet' | 'sunkByStorm';
 
+/** One boon fit, stamped when its `bn` event fired: the card's catalog id and
+ *  sim-seconds since activation. Array order IS build order — `bn` events are
+ *  consumed in emission order, and a bot has exactly one life. */
+export interface BotPick {
+  id: string;
+  s: number;
+}
+
 export interface BotSample {
   id: string;
   name: string;
@@ -105,6 +113,36 @@ export interface BotSample {
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
+  /**
+   * PER-UPGRADE EVIDENCE (balance campaign, 2026-08-24) — the build itself.
+   *
+   * `boons` is the fitted catalog ids in application order at the last afloat
+   * reading (repeats = stacks). `picks` is the same build stamped with WHEN:
+   * one row per `bn` event, in emission order, carrying sim-seconds since
+   * activation — so "how early was this card bought" is answerable both as a
+   * build index (array position) and as match time. The two agree in content
+   * (a bot has one life and boons is append-only within it); `boons` is kept
+   * anyway as the cheap ground truth the picks stream is verified against.
+   */
+  boons: string[];
+  picks: BotPick[];
+  /**
+   * OFFER EXPOSURE: boon id -> distinct materialized hands it appeared in, and
+   * the hands denominator. Counted by REFERENCE diff on `ship.offer` exactly
+   * as CatalogCollector does (an offer is materialized once and frozen —
+   * world.ts materializeOffer), so a hand sitting open across many ticks
+   * counts once. Per-bot rather than pooled, so pick-through and exposure can
+   * be conditioned on class/profile/outcome downstream.
+   */
+  offersSeen: Record<string, number>;
+  offerHands: number;
+  /**
+   * AUTHORITATIVE FINAL PLACEMENT (1 = winner), read off Match.placements —
+   * the same map the death banner's `9TH OF 14` uses — at sample time. Null
+   * when the match never computed one (an 'unresolved' cap-out finishes no
+   * placement pass) or the bot somehow holds no row.
+   */
+  placement: number | null;
   /** Ticks this bot was afloat, and how many of them were in land contact. */
   ticks: number;
   landTicks: number;
@@ -138,6 +176,13 @@ interface BotTrack {
   landEpisodes: number;
   maxLandRunTicks: number;
   curLandRun: number;
+  boons: string[];
+  picks: BotPick[];
+  offersSeen: Record<string, number>;
+  offerHands: number;
+  /** The offer array reference last tallied (CatalogCollector.seenOffer's
+   *  exact mechanism — an offer is materialized once and frozen). */
+  lastOffer: unknown;
 }
 
 function newTrack(): BotTrack {
@@ -158,6 +203,11 @@ function newTrack(): BotTrack {
     landEpisodes: 0,
     maxLandRunTicks: 0,
     curLandRun: 0,
+    boons: [],
+    picks: [],
+    offersSeen: {},
+    offerHands: 0,
+    lastOffer: null,
   };
 }
 
@@ -245,6 +295,7 @@ export class BotCollector {
       noteLand(track, hullTouchesLand(ship, world.map.islands, this.scratch));
       track.lifeS = tS;
       readEconomy(track, ship);
+      noteOffer(track, ship);
     }
   }
 
@@ -282,6 +333,12 @@ export class BotCollector {
    *  captain collector reads (`by === undefined` IS the storm/no-killer case). */
   private consumeEvents(world: World, tS: number): void {
     for (const e of world.tickEvents) {
+      if (e.k === 'bn') {
+        // A non-bot spender (captain, in a mixed lobby) finds no track and is
+        // skipped — the same rule recordKill uses.
+        this.tracks.get(e.id)?.picks.push({ id: e.boon, s: Math.round(tS * 10) / 10 });
+        continue;
+      }
       if (e.k !== 'sunk') continue;
       this.recordVictim(world, e.id, e.by, tS);
       if (e.by !== undefined) this.recordKill(world, e.by, e.id);
@@ -304,8 +361,10 @@ export class BotCollector {
   }
 
   /** Freeze every track into a report row. `profileOf` comes from the live
-   *  BotController (the only place a bot's rolled profile is knowable). */
-  samples(world: World): BotSample[] {
+   *  BotController (the only place a bot's rolled profile is knowable).
+   *  `placements` is Match.placements (public readonly) — passed rather than
+   *  imported so this module keeps its zero-influence, read-only posture. */
+  samples(world: World, placements?: ReadonlyMap<string, number>): BotSample[] {
     const out: BotSample[] = [];
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
@@ -330,10 +389,24 @@ export class BotCollector {
         landTicks: track.landTicks,
         landEpisodes: track.landEpisodes,
         maxLandRunTicks: track.maxLandRunTicks,
+        boons: track.boons,
+        picks: track.picks,
+        offersSeen: track.offersSeen,
+        offerHands: track.offerHands,
+        placement: placements?.get(id) ?? null,
       });
     }
     return out;
   }
+}
+
+/** Tally a newly materialized offer hand (reference diff — see BotTrack.lastOffer). */
+function noteOffer(track: BotTrack, ship: ShipRecord): void {
+  const offer = ship.offer;
+  if (offer === null || track.lastOffer === offer) return;
+  track.lastOffer = offer;
+  track.offerHands += 1;
+  for (const id of offer) track.offersSeen[id] = (track.offersSeen[id] ?? 0) + 1;
 }
 
 /**
@@ -374,4 +447,7 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.boonsFitted = ship.boons.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
+  // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only
+  // within a life and a bot has exactly one, so length IS the change signal.
+  if (ship.boons.length !== track.boons.length) track.boons = ship.boons.slice();
 }
