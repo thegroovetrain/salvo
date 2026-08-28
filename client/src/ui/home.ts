@@ -47,6 +47,16 @@
 // replaces the server status"*). The modal keeps its own `N/20 QUEUED` line
 // (epic-6 amendment 42); that surface is untouched by the ruling above.
 //
+// THE UNDERPLAY ROW CARRIES THE COMMUNITY NOW (Eric ruling 2026-08-28):
+// HOW TO PLAY · PRIVACY · DISCORD · REDDIT. The two new anchors take the same
+// treatment as the static-page links because the row means one thing — places
+// you can go — and DISCORD/REDDIT are two more of them. Their URLs are BUILT,
+// never literal: the templates live in ui/communityLinks.ts and the identity
+// arrives as `VITE_DISCORD_INVITE` / `VITE_SUBREDDIT`, so an unset (or
+// malformed) var simply renders no anchor at all — the GA4/AdSense absence
+// gating, applied to navigation. Both vars ship UNSET, so today the row is
+// still exactly the two static-page links.
+//
 // The settings overlay is TRANSPARENT so the ambient scene breathes behind it;
 // the ambient's scrim keeps this text legible.
 //
@@ -81,6 +91,7 @@ import {
   updateQueueModal,
 } from './queueModal.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { communityLinks, type CommunityLink } from './communityLinks.js';
 import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
@@ -684,6 +695,23 @@ const UNDERPLAY_LINK_CSS =
  */
 const HOWTO_HREF = '/how-to-play';
 
+/**
+ * A community anchor (Eric ruling 2026-08-28). Same treatment as the two
+ * static-page links — the row is uniform — but OFF-SITE, so it opens in a new
+ * tab and `rel="noopener noreferrer"` denies the destination a window handle
+ * back onto the game tab (and withholds the referrer). The href is already
+ * built and validated by ui/communityLinks.ts; nothing is templated here.
+ */
+function makeCommunityLink(link: CommunityLink): HTMLAnchorElement {
+  const el = document.createElement('a');
+  el.textContent = link.label;
+  el.href = link.href;
+  el.target = '_blank';
+  el.rel = 'noopener noreferrer';
+  el.style.cssText = UNDERPLAY_LINK_CSS;
+  return el;
+}
+
 function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   // TWO LINES NOW (Eric ruling 2026-08-18, Story 7.2): the LINKS share the top
   // line and the SERVER STATUS gets its own beneath them. Asked where PRIVACY
@@ -716,6 +744,10 @@ function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   privacy.href = CLIENT_CONFIG.consent.policyHref;
   privacy.style.cssText = UNDERPLAY_LINK_CSS;
   row.append(howto, privacy);
+  // The community links FOLLOW the static-page ones, in a fixed order, and an
+  // unconfigured one contributes nothing — so with neither var set this loop
+  // runs zero times and the row is byte-identical to what shipped before.
+  for (const link of communityLinks()) row.append(makeCommunityLink(link));
   col.append(row, statusEl);
   return col;
 }
