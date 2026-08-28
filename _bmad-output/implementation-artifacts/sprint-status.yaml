@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-27 (cycle 130, 0.17.130)
+# last_updated: 2026-08-27 (cycle 131, 0.17.131; epic-7 retrospective)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -149,7 +149,7 @@
 # A32/A33 headers still read "cycle 110"/"cycle 111" and are stale.
 
 generated: 2026-07-17
-last_updated: 2026-08-21
+last_updated: 2026-08-27
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -242,7 +242,7 @@ development_status:
   epic-6-retrospective: done  # 2026-08-18 epic-6-retro-2026-08-18.md
 
   # epic-7: Beta Launch Readiness (RESCOPED 2026-08-18; sprint-change-proposal-2026-08-18.md)
-  epic-7: in-progress
+  epic-7: done  # CLOSED 2026-08-27 at the retro; 7/8 landed cycles 103-131, 7-7 deferred in full
   7-1-performance-and-load-pass: done  # 2026-08-18 cycle 103 (0.17.103); PV 40; epic-7 amendments 1-13
   7-2-analytics-consent-and-privacy: done  # 2026-08-18 cycle 104 (0.17.104); PV 40; epic-7 amendment 14 (R1-R16)
   7-3-how-to-play-page: done  # 2026-08-19 cycle 106 (0.17.106); PV 40->41; epic-7 amendment 15 (R1-R3)
@@ -254,7 +254,7 @@ development_status:
   # Old numbering retired 2026-08-18: 7-3-portal-sdk-integrations CANCELLED (no portal release);
   # 7-1-chromebook-performance-pass + 7-2-ten-second-load MERGED into 7-1; 7-4 -> 7-3;
   # 7-5-design-md-real-time-refresh -> 7-6; 7-6-the-release-gate -> 7-8.
-  epic-7-retrospective: optional
+  epic-7-retrospective: done  # 2026-08-27 epic-7-retro-2026-08-27.md
 
 # action_items — one line per entry. Rationale, evidence and "what will bite the next
 # agent" live in epic-N-context-amendments.md, deferred-work.md and the retros.
@@ -422,19 +422,19 @@ action_items:
   - epic: 6
     action: "Run a full-roster MULTIPLAYER PLAYTEST — FOURTH epic carried; none of the listed claims can be exercised solo"
     owner: "Eric + captains"
-    status: open
+    status: resolved  # 2026-08-27 epic-7 retro, Eric ruling: THE BETA IS THE PLAYTEST — launch supersedes the private session
   - epic: 6
     action: "RULE THE TWO FAILING BOT QUALITY BARS (kill-share 45.8% vs 60%; storm deaths 3.3% vs 5-20%) — the bars are the orchestrator's, not Eric's"
     owner: "Eric (ruling)"
-    status: open  # evidence, and the case that both are questionable as written: bot-evidence-2026-08-16.md
+    status: done  # 2026-08-27 epic-7 retro, Eric ruling: RETIRED — 6-4-era bars measuring the wrong thing; drop from the harness baseline
   - epic: 6
     action: "SIGNIFICANT DISCOVERY — server/scripts/loadTest.mjs DOES NOT EXIST and the release-gate AC names it by name"
     owner: "spec author (create-story 7-8)"  # renumbered 2026-08-18 (was 7-6)
-    status: open  # third epic this capability has been assumed present; epic-6-retro-2026-08-18.md
+    status: done  # 2026-08-27 cycle 131: built and passing (p95 2.5-2.7ms vs 40ms bar) — epic-7 amendment 45(2); stale-open fixed at the epic-7 retro
   - epic: 6
     action: "RULE THE UNAUTHENTICATED SOLO-CREATE COST VECTOR — a bare POST /matchmake/create/arena mints a full 20-hull room, unthrottled"
     owner: "Eric (ruling — Story 7-8 hardening sweep)"  # renumbered 2026-08-18
-    status: open  # cost not capture, bounded, no permanent leak; candidates and the full record: deferred-work.md
+    status: done  # 2026-08-27 cycle 131: per-IP throttle ruled and shipped (soloThrottle.ts) — epic-7 amendment 45(1); stale-open fixed at the epic-7 retro
   - epic: 6
     action: "RE-SCOPE the reconciliation list — epic 6 added four more items (UX-DR30's waiting room, EXPERIENCE.md:67, :108's scoping, the copy law + the DRAFT string)"
     owner: "spec author (create-story 7-6)"  # renumbered 2026-08-18 (was 7-5)
@@ -475,3 +475,15 @@ action_items:
     action: "RULE THE THREE ITEMS LEFT OPEN AT THE 7-6 GATE — E2 precision bonus, H3 PvE fleet tier legibility scope, and whether heals stay spendable during the sudden-death collapse"
     owner: "Eric (ruling)"
     status: open  # 2026-08-21 cycle 126; bmad-dev-auto-result-7-6-doc-reconciliation-questions.md
+  - epic: 7
+    action: "ROUTE THE 7-5 DEBT CLUSTER + Eric-gated ledger threads as named inputs to the new-epics brainstorming (radar buoy unmeasured, bot acquisition gap, BS bot-share drift, integrated-GPU floor; list in epic-7-retro-2026-08-27.md section 6)"
+    owner: "Eric (planning session)"
+    status: open
+  - epic: 7
+    action: "RETIRE THE TWO 6-4 BOT QUALITY BARS from the harness/evidence baseline (retro ruling: retired, not carried) on the next batch-sim touch"
+    owner: "harness maintenance"
+    status: open
+  - epic: 7
+    action: "BUDGET ~3 CORRECTION CYCLES PER FEATURE STORY when sizing the next epic set — the measured epic-7 rate (7 story cycles : 22 interstitial)"
+    owner: "sprint planning (next epic set)"
+    status: open
