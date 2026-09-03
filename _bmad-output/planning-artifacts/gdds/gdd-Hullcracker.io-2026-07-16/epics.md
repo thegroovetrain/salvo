@@ -1,6 +1,8 @@
 # Hullcracker.io — Development Epics
 
-Companion to `gdd.md` (which carries the summary table and sequence). Sequence: **E1 → E2 → E3 → E6 → E4 → E5 → E7**. Numbers are design targets per the GDD; all tunable.
+Companion to `gdd.md` (which carries the summary table and sequence). Sequence: **E1 → E2 → E3 → E6 → E4 → E5 → E7 → E8 → E9**. Numbers are design targets per the GDD; all tunable.
+
+> **Deck model v3 added 2026-09-03.** E1–E7 have shipped. **E8 (The Deck) and E9 (The Account) ship together as one unit before the traffic push** — Eric declined releasing the match-side rework without accounts (*"go big or go home"*). The E8/E9 seam is a build seam, not a release seam, and it is the facilitator's: collapse it if preferred. Source: `_bmad-output/forge/deck-model-v3/forged-idea.md` (hardened from `brainstorming-session-2026-09-01.md`).
 
 > **Reconciled 2026-08-21 (Story 7-6).** E1–E6 have shipped, and several scope lines below were superseded by later rulings. Where that happened the line is corrected in place and the supersession named; lines describing work that was **deferred** rather than done say so. `gdd.md` is the design authority for anything this file and it disagree about.
 
@@ -196,3 +198,72 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 3. Ads, consent, and the privacy policy.
 4. How-to-Play page.
 5. DESIGN.md refresh.
+
+---
+
+## E8 — The Deck (v3)
+
+**Goal:** every match is played on a **deck** — a 40-card, hull-labelled, legality-checked deck that fills three generic weapon slots and four consumable slots through the untouched `Tab` offer. Everything in this epic works **anonymously on the starter decks**: signing in (E9) changes what you keep, never what you can do here.
+
+**In scope:**
+- **Card model (A):** a weapon is one ladder line (copy 1 = the weapon at base, fitted into a weapon slot; copies 2–5 = authored tier bundles) plus separate one-copy add-ons (tubes, doctrine verbs) drawable at any time and holdable ahead of the weapon. Universal lines (HULL, SPEED, COOLDOWN, SWEEP, BARREL/TURRET) are ladders on the same rule. **Copies = tier ceiling.** Add-ons target a weapon family (tag). The acquisition card and its "taking one burns the rest" rule are retired.
+- **The catalog is hull-agnostic; nothing is class-locked.** The catalog's v3 contents (lines, tier bundles, the consumable set) are Eric's authored document — this epic builds the model and the hooks the catalog plugs into.
+- **Legal deck**, server-checked once at queue and frozen there: exact size (CONFIG min/max dials — a 25–40 band MUST be tested before 40 is final); per-line copies ≤ max (5 ladder / 1 add-on); every card unlocked; no composition requirements (gunboat and zero-heal decks are legal). **Starter decks** per hull are ordinary decks passing the same rules against a fresh account.
+- **Draw rule: equal weight per card.** No rarity weighting, no class weighting, no pity (the 2026-07-30 soft pity is retired). A card leaves the deck when taken. Exhaustion legal but rare. A **draw-pile counter** on the HUD (Eric: "Yes").
+- **Slot grammar:** the slotless universal **deck gun**; **three generic weapon slots** (`Q`/`E`/`R`), empty at 0:00, one fixed arc per weapon, a fourth weapon = **replace which** (flow unspecified — see GDD open note 13); **swap cheese is a NEVER**; **the slot keeps its clock across replacement**.
+- **Four consumable slots**, keys `1`–`4` with `Tab` closed (`Z`–`V` tested): a consumable leaves the deck on pick; full slots grey the card and the **server refuses the pick** (no instant-use); slot contents are server-owned ship state (reconnect-safe). Engine supports **key-fires** and **key-primes-then-click-fires**; the card face says which. Content open (Eric's categories: Denial, Intel, Ordnance; Terrain to keep in mind).
+- **Heal as a card:** the `5` key and the DAMAGE CONTROL rail are retired; DAMAGE CONTROL is a stockable consumable with the shipped 100 hp effect, 4–5 copies per starter deck [DRAFT], scarcer than today and never renewable. "Heals during the collapse" closes by construction. *(The fate of the shipped free per-level auto-heal is an Eric call — GDD open note 14.)*
+- **The opening:** spawn with the deck gun only; **level zero at countdown start**; **mulligan** = one free redraw of that offer, countdown only (the single exception to never-reroll); **weighted first draw** guarantees ≥1 actively usable card (consumable or Tier I weapon). Pinned-card spawn is a later CONFIG-gated experiment.
+- **Bots:** each of the six profiles carries an authored 40-card deck in the player format, legality-checked at room build; a **total** consumable-tactic table (no consumable ships without a bot use rule); the batch-sim harness runs **authored** and **random-legal** deck arms and pins the bars: starter-vs-veteran win band, torpedo-less TB, pure gunboat, heal-take rate, levels wasted, one-copy appearance rate.
+- **Results:** the player's own deck — brought, drawn, taken. Enemy decks are shown to no player. Every deck in every match is recorded server-side (the record itself is E9's store; E8 emits it).
+
+**Out of scope:** the account, the deck editor, unlocks, match history UI (E9); the catalog's contents (Eric's document); positional slots / per-slot arcs, pinned-card spawn as default, passive per-level heal, draft mode, enemy-deck reveal, ghost decks, deck codes (parked); a hand, merging, storefront verbs, rarity weighting, soft pity, instant-use-on-pick, class-locked / deck-manipulation / hull-mod / salvage cards, discard/reshuffle (rejected).
+
+**Dependencies:** E2 (the `Tab` offer and XP pipeline it builds on), E5 (bot profiles), the Eric-authored catalog v3.
+
+**Playable deliverable:** pick a hull, sail its starter deck: spawn gun-only, mulligan the opening offer during the countdown, draw weapons into `Q`/`E`/`R`, stock and spend consumables on `1`–`4`, heal from a card, and see the deck you played in results — identical rules for humans and bots.
+
+**High-level stories:**
+1. Card model (A) + hull-agnostic catalog hooks (ladder copy 1 fits the weapon; add-ons by family tag; copies = tier ceiling).
+2. Legal-deck rules, CONFIG size dials, starter decks per hull; legality check + freeze at queue (starter deck for anonymous captains).
+3. Equal-weight draw, card-leaves-on-take, exhaustion handling, draw-pile counter.
+4. Slotless deck gun + three generic weapon slots: fit-on-draw, replace-which, slot clock across replacement, swap-cheese guard.
+5. Four consumable slots: server-owned state, full-slot refusal in the offer, both activation paths, keys `1`–`4` (and the `Z`–`V` test).
+6. Heal as a consumable card; retire `5` and the DAMAGE CONTROL rail.
+7. The opening: gun-only spawn, level zero at countdown, mulligan, weighted first draw; pinned-card experiment behind CONFIG.
+8. Bot decks + consumable tactics + harness arms and pinned bars (incl. the 25–40 deck-size band test).
+9. Own-deck results view (brought / drawn / taken) and the server-side per-match deck record.
+
+**Guardrails:** the `Tab` offer is untouched (no hand, no second clock, no storefront); the passive XP tick stays the anti-snowball floor; the master perception invariant keeps exactly six exceptions; never invent a card, a number or a consumable without Eric.
+
+---
+
+## E9 — The Account (v3)
+
+**Goal:** sign in and **keep things** — decks, unlocks, tokens, match history — without changing anything a captain can do inside a match. Ships as one unit with E8, before the traffic push.
+
+**In scope:**
+- **Two states, no guest tier.** Anonymous = today's game on the hull's starter deck, nothing stored. Signed in = decks, unlocks, tokens, history.
+- **OAuth only** (Google, Discord), minimal scopes: the account holds a provider + an opaque subject id — never an email, name or password. 13+ by provider terms, not verified. **Privacy-policy delta: one paragraph** on signed-in accounts.
+- **The first persistent store and first non-ops HTTP API** (sign-in callback, deck editing, history). Architecture belongs to `gds-game-architecture`; it must not pre-empt the deferred Story 7-7 split.
+- **Deck editor** — Eric: *"It's probably a deckbuilder."* One verb: how many copies of a line. Several decks per hull (*"fine. Data is cheap"*); the client names a deck at join and the server loads and validates it. Deck slots may later be rewarded or monetized (#80) — a slot is not power.
+- **Unlocks:** a whole line per unlock (all tiers of a ladder / the one copy of an add-on), flat price, any order [DRAFT]; all three hulls and starter decks unlocked day one; the starter decks' cards are the initial unlock list. Variety, never power.
+- **Earn:** account level → one unlock token per level; XP per match **placement-scaled**, **Solo vs AI discounted**. Both dials derive from one OPEN intent number — matches to unlock the launch catalog — shipped as a CONFIG dial ([DRAFT] 40–60 band) and tuned from live history. Catalog breadth target ≥ ~100 cards' worth per hull [DRAFT].
+- **Match history:** the player's own deck per match (brought / drawn / taken); every deck in every match stored server-side for Eric's metrics — the meta dashboard is the live harness.
+
+**Out of scope:** guest accounts, own email/password storage (rejected); deck names, enemy-deck reveal, deck codes, ghost decks (rejected/parked); ranked, teams, cosmetics shop (post-beta).
+
+**Dependencies:** E8 (the deck the account keeps), `gds-game-architecture` (the store), E7's privacy policy (the delta lands on it).
+
+**Playable deliverable:** sign in with Google or Discord, build a deck for a hull, bring it to a match, earn a token, unlock a line, and read your own deck back from match history — while an anonymous player next to you sails the same rules on a starter deck.
+
+**High-level stories:**
+1. OAuth sign-in (Google, Discord; minimal scopes) and the two-state account posture.
+2. The account store + non-ops HTTP API (per the architecture phase).
+3. Deck editor (several decks per hull; legality feedback against unlocks).
+4. Deck selection at join; server load + validate + freeze at queue.
+5. Unlock tokens: account level bar, placement-scaled / Solo-vs-AI-discounted XP, whole-line flat unlocks; the intent-number CONFIG dial.
+6. Match history (own deck) + the server-side all-decks record and Eric's metrics view.
+7. Privacy-policy paragraph for signed-in accounts.
+
+**Guardrails:** store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power (the starter-vs-veteran win band is the measurement).

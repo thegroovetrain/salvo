@@ -3,7 +3,7 @@ title: Hullcracker.io - Game Design Document
 game_type: shooter
 platforms: [desktop-browser]
 created: 2026-07-16
-updated: 2026-08-21
+updated: 2026-09-03
 ---
 
 # Hullcracker.io - Game Design Document
@@ -20,7 +20,7 @@ updated: 2026-08-21
 
 You are a lone captain hunting — and being hunted — with imperfect senses, on an ocean that keeps getting smaller.
 
-A real-time naval battle royale in the browser — Battleship's hidden-information DNA with World of Warships' feel and none of its weight. **Twenty captains, one ocean, last hull afloat wins.** One short match, start to finish inside about fifteen minutes — no install, no account, no grind. Emotional contract: **Frantic to Play, Light to Hold**. North star: midway between Battleship and World of Warships.
+A real-time naval battle royale in the browser — Battleship's hidden-information DNA with World of Warships' feel and none of its weight. **Twenty captains, one ocean, last hull afloat wins.** One short match, start to finish inside about fifteen minutes — no install, no account required, nothing to grind for power. Emotional contract: **Frantic to Play, Light to Hold**. Sign in (OAuth only) and you keep things between matches — your decks, your unlocks, your match history — but signing in never changes what you can do inside a match. North star: midway between Battleship and World of Warships.
 
 ### Target Audience
 
@@ -31,8 +31,8 @@ A real-time naval battle royale in the browser — Battleship's hidden-informati
 
 1. The only naval battle royale in the browser.
 2. The only browser game whose core loop is sensor deduction — two-tier fog of war (truesight + rotating radar sweep) makes information the primary resource.
-3. **Paint, Not Power** — a structural, not policy, no-pay-to-win guarantee: detection is math, so cosmetics are structurally incapable of being pay-to-win.
-4. A match-identity system (**promise + growth**) no .io competitor attempts: your lobby pick is a genuinely different loadout at 0:00, and your build grows through XP levels — a passive tick everyone earns, accelerated by kills — during the match.
+3. **Paint, Not Power** — a structural, not policy, no-pay-to-win guarantee: detection is math, so cosmetics are structurally incapable of being pay-to-win. Account unlocks are **variety, never power** — a starter deck is authored to be viable against a veteran's, and the batch-sim harness pins that band.
+4. A match-identity system (**promise + growth**) no .io competitor attempts: your lobby pick is a hull and a deck of your own, and your build grows by drawing from that deck through XP levels — a passive tick everyone earns, accelerated by kills — during the match.
 
 ---
 
@@ -46,11 +46,11 @@ A real-time naval battle royale in the browser — Battleship's hidden-informati
 
 ### Background and Rationale
 
-A running build exists — v0.17.125 as of 2026-08-21 (TypeScript monorepo: authoritative 20Hz server, client prediction, two-tier fog of war, three ship classes, real firing arcs, phased storm, 5,000+ automated tests). *(It was v0.16.0 with 649 tests when this GDD was first written.)* This GDD consolidates the game brief (2026-07-15), the identity-fork forge resolution, and the brainstorming sessions (2026-07-15; supplemental classes/weapons/upgrades session 2026-07-19, including its same-day party-mode review rulings) into the canonical design document for the beta.
+A running build exists — v0.17.132 as of 2026-08-28 (TypeScript monorepo: authoritative 20Hz server, client prediction, two-tier fog of war, three ship classes, real firing arcs, phased storm, 5,000+ automated tests). *(It was v0.16.0 with 649 tests when this GDD was first written.)* This GDD consolidates the game brief (2026-07-15), the identity-fork forge resolution, and the brainstorming sessions (2026-07-15; supplemental classes/weapons/upgrades session 2026-07-19, including its same-day party-mode review rulings) into the canonical design document for the beta. **The 2026-09-03 update folds in THE DECK MODEL v3** — the metagame brainstorm of 2026-09-01 (82 ideas, diffed against the 2026-08-27 equipment-rework session) hardened by the `deck-model-v3` forge (`_bmad-output/forge/deck-model-v3/forged-idea.md`), which Eric ruled ships as **one unit**: accounts, authored per-hull decks, consumable slots, heal-as-card, and gun-only spawns.
 
 Comparables: Mk48.io (closest, maintenance mode), Maelstrom (validated the fantasy, died anyway), Drednot.io, Ships 3D. Reference DNA: Battleship (hidden info), World of Warships (class fantasy, gunnery feel), Hades (promise/RNG contract), Risk of Rain (stackable upgrades, named thresholds), Apex Legends (kits as verb focus, not exclusivity), surviv.io/ZombsRoyale/OpenFront.io (top-down BR structure).
 
-References of the form **#NN** throughout this document cite idea numbers in the brainstorming session (`_bmad-output/brainstorming-session-2026-07-15.md`). Decisions marked **2026-07-19** come from the supplemental session and its party-mode addendum (`_bmad-output/brainstorming-session-2026-07-19.md`).
+References of the form **#NN** throughout this document cite idea numbers in the brainstorming session (`_bmad-output/brainstorming-session-2026-07-15.md`). Decisions marked **2026-07-19** come from the supplemental session and its party-mode addendum (`_bmad-output/brainstorming-session-2026-07-19.md`). Passages marked **v3** carry the deck model v3 rulings (the 2026-09-01 metagame session and its forge of 2026-09-02); a **#NN** reference inside a v3 passage cites the 2026-09-01 session's numbering.
 
 ---
 
@@ -65,12 +65,12 @@ Information is the primary resource. Every contact is a deduction from partial s
 *Steers:* sensor and weapon design (everything either feeds or reads the information game), HUD/UI, the server-side perception boundary, counter-intel features ("lies must live on the server"). A feature that neither produces nor consumes imperfect information must justify itself.
 
 **2. Frantic to Play, Light to Hold**
-Real-time gunnery with genuine feel — the World of Warships DNA — inside a package with zero meta-weight: no install, no account, no grind, one complete match inside fifteen minutes.
-*Steers:* scope discipline, onboarding (playable within seconds of page load), low-end hardware performance as a distribution feature, and the Paint-Not-Power monetization guarantee.
+Real-time gunnery with genuine feel — the World of Warships DNA — inside a package with zero meta-weight: no install, no account required, nothing to grind for power, one complete match inside fifteen minutes. *(v3: an account exists only to KEEP things — decks, unlocks, history. It never changes what a captain can do inside a match, and the anonymous player sails the same starter decks under the same rules.)*
+*Steers:* scope discipline, onboarding (playable within seconds of page load), low-end hardware performance as a distribution feature, the Paint-Not-Power monetization guarantee, and the account posture (two states, no guest tier, nothing stored for the anonymous player).
 
 **3. Promise + Growth**
-The lobby pick is a genuine promise: a different loadout at 0:00, not a skin over sameness. XP levels — a passive tick everyone earns, accelerated by kills — grow that promise into a build that is *yours* by the endgame. RNG only governs what was never promised (the Hades contract).
-*Steers:* class design (class = envelope, build = point inside it; focus, not exclusivity), the pre-rolled offer system, upgrade stacking and named thresholds, anti-snowball tuning.
+The lobby pick is a genuine promise: a hull, and a deck you built — and **something to DO at 0:00**, not a skin over sameness. XP levels — a passive tick everyone earns, accelerated by kills — draw from that deck and grow the promise into a build that is *yours* by the endgame. RNG only governs what was never promised (the Hades contract): the deck's composition is promised, the order it arrives in is not. *(v3 re-anchored the promise. It used to be "you hold your class weapon at 0:00"; every hull now spawns with the deck gun only, and the promise is the deck itself — Eric: "If I put some weird off-meta shit together and it worked, I bet that feels fucking great.")*
+*Steers:* class design (class = hull envelope + starter-deck tilt; the catalog is hull-agnostic and nothing is class-locked), the deck and its draw rule, upgrade stacking as copy counts, anti-snowball tuning.
 
 **4. The Ocean Keeps Getting Smaller**
 The storm closes in legible phases, forcing every hunt to a conclusion. The Endgame Guarantee — a final ring two truesight diameters across — forces combat while keeping the sensor game alive to the last shot. No match ends in mutual avoidance.
@@ -88,9 +88,9 @@ One cycle, run continuously from spawn to sinking:
 
 1. **Sail / sense** — work throttle and helm while the truesight bubble and radar sweep feed fragments of the ocean. *(Pillars 1, 4 — the storm dictates where sailing is viable)*
 2. **Deduce / position** — turn blips, flashes, and silence into a mental picture; maneuver for the engagement you want. *(Pillar 1)*
-3. **Strike** — commit the weapons your loadout promises, within their real firing arcs. The slot grammar is universal; the contents are not — you strike with what you picked and what you've grown. *(Pillars 2, 3)*
+3. **Strike** — commit the weapons your deck has dealt you, within their real firing arcs, and spend the consumables you stocked. The slot grammar is universal; the contents are not — you strike with what you built and what you've drawn. *(Pillars 2, 3)*
 4. **Survive the reply** — striking reveals you; helm through the answer. *(Pillars 1, 2)*
-5. **Grow** — XP levels (passive tick plus kill bonuses) bank upgrade points; spend them to deepen your promise. *(Pillar 3)*
+5. **Grow** — XP levels (passive tick plus kill bonuses) each draw four cards from your deck; take one to deepen your promise. *(Pillar 3)*
 
 …while **the storm closes in legible phases**, shrinking the water the whole loop happens on — the loop's clock. *(Pillar 4)*
 
@@ -103,7 +103,7 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 - **Win: last match participant afloat.** That is the whole win condition, in every mode. A *participant* is any captain-role hull — a human captain, or (in Solo vs AI) an AI captain, which means **an AI captain can legitimately win a match**. Roving PvE fleet hulls are never participants: they can never win, and they never need to be destroyed to claim the win.
 - **Loss:** your hull reaches zero. Damage sources: enemy weapons and the storm.
 - **Sinking — go down shooting.** Reaching zero HP doesn't remove you immediately: you get a short sinking window (~5 s, tunable) in which the hull gradually slows to a stop — a ritardando, not a cut — and your guns stay live. Maybe you take your attacker with you.
-- **After the water closes:** the omniscient reveal — dying means finally seeing everything — as the backdrop to the results screen, whose two actions are SPECTATE and RETURN TO PORT. Death is cheap by design (Pillar 2), but **there is no instant re-queue: you always return to the home screen to start another match** (Eric ruling, epic-5 amendment 30 — *"You MUST return to the home screen to requeue. MUST."*).
+- **After the water closes:** the omniscient reveal — dying means finally seeing everything — as the backdrop to the results screen, whose two actions are SPECTATE and RETURN TO PORT *(v3: results also show the deck you brought, drew and took — your own, never an enemy's)*. Death is cheap by design (Pillar 2), but **there is no instant re-queue: you always return to the home screen to start another match** (Eric ruling, epic-5 amendment 30 — *"You MUST return to the home screen to requeue. MUST."*).
 
 ---
 
@@ -113,7 +113,7 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 
 > Numbers in this document are **design targets or current-prototype reference values, explicitly tunable** — the prototype's CONFIG values were playtest handwaves and carry no authority. Where a value is settled design intent, it is stated as such.
 
-**Ship classes — the promise (Pillar 3).** The lobby pick is your class, and the class is the Hades weapon pick: a complete playstyle and power fantasy, not a hull-size variant. **Three classes at beta** (re-scoped 2026-07-19: the gunboat is cut; prove the concept in front of players first, then expand):
+**Ship classes — the promise (Pillar 3).** The lobby pick is your class, and the class is a hull plus a deck: a complete playstyle and power fantasy, not a hull-size variant. **Three classes at beta** (re-scoped 2026-07-19: the gunboat is cut; prove the concept in front of players first, then expand). *(v3: the fantasies below are what each hull's STARTER DECK is authored to deliver — a Torpedo Boat starter is torpedo-heavy — not a fixed fit; a signed-in captain may build any of them differently.)*
 
 | Class | Power fantasy |
 |---|---|
@@ -121,21 +121,21 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 | **Battleship** | Massive, heavily armored, main-battery gunnery: dominates the open ocean by weight of shot. *(The 2026-08-19 broadside rework moved the fantasy off "outranges everyone" — its battery is the only weapon in the game that does not reach the full radar horizon — and onto "turn your beam to it and it deletes you.")* |
 | **Mine Layer** | The trapper: area denial, reading where prey will flee and having already been there — "you died to a decision I made ninety seconds ago." |
 
-**The roster formula (ratified 2026-07-19):** every class = a **hull envelope** (size, speed, toughness, turning) + **one signature ability on cooldown** + (sometimes) **one signature weapon**, on top of the shared kit. Nobody counters a class; everybody plays around abilities on cooldown. Quality bar: **six great classes beat eight half-assed ones** — the beta ships three great ones. Hull envelopes differentiate feel; loadouts differentiate playstyle.
+**The roster formula (ratified 2026-07-19, re-cut by v3):** every class = a **hull envelope** (size, speed, toughness, turning) + **a deck**, on top of the shared deck gun. The 2026-07-19 form — envelope + one signature ability on cooldown + (sometimes) one signature weapon — survives as the SHAPE of each hull's starter deck, not as a fixed fit: the signature pieces are the lines the starter is built around, and a deck belongs to a hull as a **label**, never as a lock. Nobody counters a class; everybody plays around what a deck can deal. Quality bar: **six great classes beat eight half-assed ones** — the beta ships three great ones. Hull envelopes differentiate feel; decks differentiate playstyle.
 
 **First-run class select (ruled 2026-07-19):** three cards, forced meaningful choice, **no pushed default**; the Torpedo Boat sits pre-focused for keyboard flow.
 
 **Deferred classes:** the six-class expansion blueprint (Submarine first, then Carrier; Decoy Ship banked) lives in Out of Scope — deferred, not designed-in.
 
-**Slot grammar (universal; contents per class).** Every ship fits:
+**Slot grammar (universal; contents from the deck) — v3.** Every ship fits:
 
-1. **The gun** — universal: every class carries the **same standard gun**, working the same way. Short cooldown, basic damage, available to use most of the time.
-2. **Two special abilities** — what makes the class unique; **at least one of the two is a weapon**. In the beta trio the pair is exactly the roster formula's signature weapon + signature ability.
-3. **One extra slot, filled mid-match through the upgrade economy** — every acquirable piece of equipment in the game can show up in an offer as an *acquisition card*, so anyone can grow torpedoes, mines, a broadside battery, star shells, a speed boost or a radar buoy: the offers decide. (The smoke screen is **deferred**, not cut — see Out of Scope.)
+1. **The deck gun** — universal and slotless: every hull carries the **same standard gun**, working the same way, from 0:00. Short cooldown, basic damage, available to use most of the time. It is the only thing anyone holds at spawn.
+2. **Three generic weapon slots** (`Q` / `E` / `R`) — **empty at 0:00** and filled by the deck: taking the first copy of a weapon's line fits that weapon into the next empty slot. Slots are generic — there are no positional mounts and no per-slot arcs (parked; Eric: *"I don't think we'll need the mechanic"*) — and each weapon carries **one fixed firing arc** of its own. Drawing a fourth weapon with all three slots full means **replace which** — there is no hand, no swap-out, no sell-back. Two laws carried from the equipment forge: **swap cheese is a NEVER** — moving a weapon into or between slots may never yield more shots than leaving it alone — and **the slot keeps its clock across replacement**, so a fresh weapon never skips the reload of the one it replaced.
+3. **Four consumable slots** (`1`–`4` with the refit window closed; `Z`–`V` is the tested alternative) — stocked from the deck, spent by key. See Consumables below.
 
-Class differentiation lives in the two specials and the hull envelope stats — never in the gun.
+Class differentiation lives in the hull envelope and the deck's composition — never in the gun.
 
-Backburnered (designed-for but not in beta): **~4 consumable slots**.
+*(Superseded by v3: the 2026-07-16 grammar of "two special abilities fitted at 0:00 + one extra slot filled by an acquisition card". Weapons are now deck lines like everything else, and the acquisition card is gone — copy 1 of a weapon's ladder IS the weapon.)*
 
 **Movement — telegraph and helm.** Set-and-forget engine orders (9-detent telegraph) plus rudder; ships have separate acceleration and braking rates, and rudder authority reduces below steerage speed. Kinematics are per-class envelope values (current reference across the three hulls: max speeds 35–45 u/s, turn rates 0.4–0.8 rad/s — all tunable).
 
@@ -151,17 +151,21 @@ Backburnered (designed-for but not in beta): **~4 consumable slots**.
 
 **Ships leave wakes on the scope.** Disturbed water is world state and paints as a fading ribbon behind every moving hull — including torpedoes, whose fish itself is still never painted. A wake outlives its ship, so a sunk hull leaves a track pointing back the way it came. The fastest hull's full-ahead track is exactly the 3/8 detect rung: your wake reaches as far behind you as detect reaches around you.
 
-**Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks a point carrying a **pre-rolled offer of 4 cards** (rolled at earn-time, never rerolls; ratified at 4 choices during the UX phase, 2026-07-16 — supersedes the earlier 3). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
+**Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level opens the refit window (`Tab`) on a **pre-drawn offer of 4 different card lines from your own deck** (drawn at earn-time; reopening the window never rerolls — ratified at 4 choices during the UX phase, 2026-07-16). One level buys any one card. The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance). **The Tab offer is untouched by v3** (Eric's first lock): no hand, no second clock, no storefront — merge, lock, sell and refresh are all dead.
 
-**THE DECK MODEL — supersedes the category-first roll.** An offer is *not* "one card from each of four distinct categories". Each player holds a **personal deck**: the universal card lines (Intel, Ship, Gun) + one subdeck per piece of equipment they carry + one **acquisition card** for each acquirable piece they do not. A level draws **4 different card lines** from that deck. **Rarity is physical scarcity, not a dice roll** — a line's copy count *is* its stack cap, and a card leaves the deck for good when it is fitted, so a build's ceiling is something a player can count rather than something they hope for. Rare lines carry an invisible soft pity that rises the longer none has landed. Deck state is server-private; only the four drawn ids ride the wire.
+**THE DECK MODEL v3 — supersedes the 2026-07-30 personal-deck model.** A captain brings a **deck of exactly 40 cards, authored for one hull**, and every level draws from it. *(The deck-size floor and ceiling are dials; a 25–40 band MUST be tested before 40 is final — Eric: "in my mind right now the total deck size all-included is 40 cards.")* What replaced what:
 
-Upgrade *content* follows the **Hades-hammer model** (Eric's model, captured 2026-07-19): most cards raise stats, but some **fundamentally change how a piece of equipment behaves** — same slot, different verb. **The stat-lift-vs-build-defining tension is RESOLVED** (the 2026-07-19 open note is closed): **commons are the stat ladders; rares are the nature-changers.** Stat lifts are the bulk of the deck, and doctrine cards are the spice that defines a build. **Doctrines are no longer mutually exclusive** — each is an independent added verb, so a star-shell build can run PHOSPHOR *and* DAZZLE, and a mine build CAPTIVE *and* PROP-FOULING; the exclusivity mechanism is gone from the game entirely. **Variant behaviors are expressly upgrades — no one starts with one; class identity never depends on them** (design law, 2026-07-19).
+- **The catalog is hull-agnostic and nothing is class-locked** (Eric: *"NO"*). A deck belongs to one hull as a **label** only. Class tilt lives in **starter-deck composition** and in an author's copy counts — never in the draw.
+- **Card model (A).** A weapon is **one ladder line**: copy 1 *is* the weapon at base (it fills a weapon slot), copies 2–5 are **authored tier bundles** for that weapon. Separate **one-copy add-ons** (an extra tube, a doctrine verb such as ACOUSTIC HOMING or CAPTIVE MINES) are drawable at any time and can be **held ahead of the weapon** they modify (Eric: *"it's a choice"*). Universal lines (HULL, SPEED, COOLDOWN, SWEEP, the gun's BARREL/TURRET) are ladders on the same rule. **Copies = tier ceiling**: how many copies you put in the deck is the highest tier you can reach — a deliberately capped line is a build decision, not a shortfall. Direction of travel: add-ons target a weapon **family** (ACOUSTIC HOMING on light *and* heavy torpedoes); multi-copy add-ons are possible later. *(The catalog's contents — which lines exist, what each tier bundle does — are an Eric-authored document in the `7-5-decks.md` tradition and are out of this GDD's scope; the shipped 28-line catalog already carries the ladder + one-copy add-on shape.)*
+- **Draw rule: equal weight per card.** No rarity weighting, no class weighting, **no pity** — the 2026-07-30 soft pity is retired. *Deck size is the pity, composition is the tilt*: in a 40-card deck a one-copy line is offered at least once in ~66% of 8-pick matches and ~90% of 15-pick ones [DRAFT figures from the forge's arithmetic; the harness pins the real one-copy appearance rate]. The only smoothing anywhere in the game is the level-zero opening draw (see The opening, under Player Progression).
+- **A card leaves the deck when it is taken** — a consumable on pick, a ladder copy when fitted — so a build's ceiling is something a player can count. **Exhaustion is legal but should be rare** and means you are at maximum power (Eric: *"ideally if you are gaining a level you've always got choices"*). The HUD carries a **draw-pile counter** (`23 LEFT`) — Eric: *"Yes."* Deck state is server-private; only the four drawn ids ride the wire.
+- **Legal deck** — checked by the server once, when you queue, and **frozen at queue** (later edits apply to the next match): exactly the configured size; per-line copies ≤ the line's maximum (5 for a ladder, 1 for an add-on); every card unlocked on the account; **no composition requirements** — a gunboat deck (nothing but gun ladders) and a zero-heal deck are both legal by design (Eric: *"I'm frankly not even sure I want the default set to be required"*). **Starter decks are ordinary decks** that pass the same rules against a fresh account's unlocks.
 
-*(Two pieces of the 2026-07-19 model never shipped and are retired here. "The 4 choices map roughly one per slot, and slot 4 is the equipment slot" was a picture of the offer, not a mechanism: a draw is 4 lines from the deck, and the extra slot fills when an **acquisition card** happens to be drawn and taken. And the prototype's 14 stat-stack upgrades were replaced wholesale twice over — first by the v1 catalog, then by Eric's own card rewrite of 2026-08-19.)*
+Upgrade *content* follows the **Hades-hammer model** (Eric's model, captured 2026-07-19): most cards raise stats, but some **fundamentally change how a piece of equipment behaves** — same slot, different verb. Under v3 the split reads: **ladders are the stat tiers; add-ons are the nature-changers.** Add-ons (doctrines) are independent added verbs and stack — a star-shell build can run PHOSPHOR *and* DAZZLE, a mine build CAPTIVE *and* PROP-FOULING; exclusivity is gone from the game entirely. **Variant behaviors are expressly upgrades — no one starts with one; class identity never depends on them** (design law, 2026-07-19, unchanged).
 
-**Offers can put any acquirable piece of equipment on the table** — this is how the extra slot fills, and how a Battleship grows torpedoes or a Mine Layer a speed boost. Taking an acquisition permanently opens that equipment's subdeck and burns every remaining acquisition card: the extra slot is a one-time commitment.
+**Consumables — v3.** Four consumable slots on every hull, keyed `1`–`4` with the refit window closed. A consumable is a deck card: taking it from an offer stocks it in a slot, and **it leaves the deck on pick, not on use**. **Full slots grey the consumable in the offer and the server refuses the pick** — there is no instant-use-on-pick; the never-rerolling offer is itself the mechanism (Eric: *"use one and then pick it if it's what you really want"* — spend a slot, reopen `Tab`, the card is still there). Slot contents are server-owned ship state, so a refresh or reconnect keeps them for free. Two activation shapes are an engine requirement, not a content taxonomy: **key fires** (instant, like the speed boost) and **key primes, click fires** (aimed, like `Q`/`E`/`R`), and the card face says which. **Content is open** (Eric: *"consumables should be able to do pretty much anything; it depends on what ideas I have"*); the categories he wants are **Denial, Intel, Ordnance**, with Terrain to keep in mind. No consumable ships without a bot use rule (see Enemy Design and AI).
 
-**Healing ships, and it is not a card.** The refit window carries a permanent **DAMAGE CONTROL** rail alongside the four cards (digit `5`), spending a banked level on an instant hull repair plus a short regen pool. It is always available and never competes for a card slot — which is how the 2026-07-16 law ("self-heal is never a ship feature") and Eric's wish for *some* healing were both satisfied: healing is an economy choice, never a hull property. **Open:** whether heals should stay spendable during the sudden-death collapse.
+**Healing IS a card now — v3.** The `5` key and the permanent DAMAGE CONTROL rail are **retired**. DAMAGE CONTROL becomes a **stockable consumable**: the shipped effect is unchanged (100 hp — 50 instant plus 50 pooled at 5 hp/s), and the starter decks carry **4–5 copies each [DRAFT]** (derived from Eric's 2026-08-27 sketch of one or two heals per eight levels; harness-tuned per hull). Heals must be **scarcer than today, and never renewable** (#6 recycling rejected). The 2026-07-16 law — self-heal is never a ship feature — still holds: healing remains an economy choice, drawn from the deck and paid for with a level. **"Can heals be spent during the sudden-death collapse?" closes by construction** — a captain can hold at most four stocked heals and at most the copies in the deck. A passive per-level heal as a v3 mechanism is **parked**. [NOTE FOR DESIGNER: the FREE per-level auto-heal that shipped 2026-08-23 — a fraction of missing hull restored every time a level is earned, layered under the paid heal because heals were eating ~59% of level spend — is not mentioned by the forge. Whether it survives alongside the heal card, or is the thing "parked" retires, is an Eric call.]
 
 **The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — **four ring groups** of ~4 minutes each, on an internal minute rhythm (see Difficulty Curve). Groups 1–3 bring the ocean down to the Endgame Guarantee ring by **12:00**; group 4 is **sudden death**, collapsing that final ring onto its own centre between **15:00 and 16:00**, at which point the whole map is storm. Storm never blinds sensors; it only damages (reference 4 hp/s, with **no damage ramp** — the collapse is geometry, not escalation). The **Endgame Guarantee**: the endgame ring's diameter is **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
 
@@ -169,7 +173,7 @@ Upgrade *content* follows the **Hades-hammer model** (Eric's model, captured 202
 
 Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left hand helms the ship, right hand fights it.
 
-- **Keyboard:** telegraph detents (set-and-forget engine orders) + rudder; weapon-slot selection (the gun, the two specials, the extra slot); the foghorn; and the **refit window** — `Tab` opens it, `1`–`4` pick a card, `5` spends the level on DAMAGE CONTROL. (The old CTRL-chord spend window is gone; there is no chord binding of any kind.)
+- **Keyboard:** telegraph detents (set-and-forget engine orders) + rudder; weapon-slot priming (`Q` / `E` / `R` — the gun is always selected and needs no key); **consumable slots `1`–`4` with the refit window closed** (v3; `Z`–`V` is the tested alternative — Eric: *"1-4 make sense, so do ZXCV… I'm open minded"*); the foghorn; and the **refit window** — `Tab` opens it, `1`–`4` take a card. **The `5` key is gone** with the DAMAGE CONTROL rail (v3: the heal is a card). There is no chord binding of any kind.
 - **Mouse:** aim freely — weapons fire only within their real firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback rather than silence.
 - Match completes with keyboard + mouse only. Touch/mobile input is out of scope for beta.
 
@@ -179,9 +183,9 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Weapon Systems
 
-**Fitted loadouts (the promise at 0:00).** The **gun is universal** — every class carries the same standard gun, working the same way (short cooldown, basic damage, available most of the time). Class identity comes from the **two special abilities** — at least one of them a weapon — and the hull envelope stats. Per the forge lock, contents are **focus, not exclusivity**, and the mechanism is the economy: **every acquirable piece of equipment can appear in offers**, filling the extra slot — anyone might grow into torpedoes, mines, a broadside battery, star shells, a speed boost or a radar buoy mid-match.
+**Fitted loadouts — the promise at 0:00 is the DECK (v3).** The **deck gun is universal** — every hull carries the same standard gun, working the same way (short cooldown, basic damage, available most of the time), and **at 0:00 it is all anyone holds**: the three weapon slots and four consumable slots are empty until the deck fills them. Class identity comes from the **hull envelope** and the **starter deck's composition** — the table below names the signature pieces each starter is authored around. Contents are **focus, not exclusivity**, and the mechanism is the deck: **any weapon or ability in the catalog is a line any hull may run** once unlocked — a Battleship deck can carry torpedoes, a Mine Layer deck a speed boost — and no card is class-locked.
 
-| Class | Gun | Signature weapon | Signature ability |
+| Class | Gun (slotless, from 0:00) | Starter deck's signature weapon | Starter deck's signature ability |
 |---|---|---|---|
 | **Torpedo Boat** | Standard gun | Torpedo tubes | Speed boost — several seconds of raised speed (inherited from the cut gunboat, ruled 2026-07-19; fits the "zip around firing torps" fantasy) |
 | **Battleship** | Standard gun | **Broadside barrage** — replaced the long-range cannon outright (2026-08-19) | Star shells (#12) — illuminate a region of radar-space to truesight, then hit from distance |
@@ -203,7 +207,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 - **Torpedoes outrun every hull** at base speed and spawn with real bow clearance plus a brief owner-only grace — they can never self-hit at base speed. The fish itself is never painted by radar — it is spotted inside the **3/8 detect rung** — but its **wake** paints on the scope even where the torpedo does not. *(Hydrophones were the planned torpedo warning; they are deferred — see Universal sensor suite.)*
 - **Mines** are **click-aimed into a rear sector** rather than dropped dead astern (superseding the 2026-07-22 stern rack), arm after a delay, trigger by proximity, and are capped per-player (live-mine cap; oldest evicted) and globally. On trigger they **blast** — every non-owner hull within the blast radius (larger than the trigger radius) takes full damage; the owner's own gunfire **detonates its own armed mines early**; mines **persist until detonated (no expiry)** (Eric ruling 2026-07-22; aimed placement added later). A **captive** mine is the exception to the blast rule — it launches a torpedo instead.
 - Numbers (damage, reloads, ranges, speeds) are design targets and move with every balance pass; current reference values are gun 15 hp burst / 5 s, torpedo 50 hp / 30 s, mine 55 hp / 15 s, broadside 15 hp per shell × 4 shells / 18 s, star shells 20 s. Hull HP is Torpedo Boat 250 / Mine Layer 300 / Battleship 350.
-- **Compass vetoes stand for the new armory:** no torpedo variety (one torpedo design per fit — a doctrine card changes how that one torpedo behaves rather than adding a second design to choose between, so the veto holds; ruled compatible 2026-07-19), no damage-control parties, no sectional damage — WoWS-creep stays out. *(The DAMAGE CONTROL heal is an economy spend, not a WoWS-style repair party: no crew, no consumable, no timer to manage.)*
+- **Compass vetoes stand for the new armory:** no torpedo variety (one torpedo design per fit — a doctrine card changes how that one torpedo behaves rather than adding a second design to choose between, so the veto holds; ruled compatible 2026-07-19), no damage-control parties, no sectional damage — WoWS-creep stays out. *(The DAMAGE CONTROL heal is a deck card spent from a consumable slot, not a WoWS-style repair party: no crew, no timer to manage, and never renewable.)*
 
 **Weapon feel.** The gunnery-feel package from the brainstorm's information-texture bundle (#90) is design intent: **fall-of-shot spotting** (#21 — your splashes are visible in fog, so misses become information and you can bracket-and-walk fire), **the Hit Call** (#19 — a muffled boom and orange bloom confirm you connected without revealing how badly), and **muzzle flash carries** (#34 — firing lights the fog beyond truesight; shooting is being seen). Together: every trigger pull produces information for someone (Pillar 1).
 
@@ -221,7 +225,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 **No bot-fill in standard lobbies.** A standard BR match is humans only: minimum 2 human captains, pooled in a queue that forms the match on a fill-or-timer. Bots never masquerade as players. *(Roster-scaled map sizing was cancelled — every match gets the same fixed-radius ocean.)*
 
-**Solo vs AI mode.** A dedicated mode reached straight from the home screen — with no queue at all, because a lobby of one has nothing to pool. It mints a private match of **one human captain plus 19 AI captains**: real opponents playing the battle royale, not target practice. An AI captain is a full participant — roster row, personal hue, ship class, XP, boon deck, kill-feed line, eligible for the KILL LEADER throne — and **it can win the match**. Its only knowledge of the world is what the perception boundary hands it: bots fight in the same fog humans do, and they are driven through the same input pipeline as every ship. AI captains come in per-class **priority profiles** (two per hull) rather than a difficulty ladder.
+**Solo vs AI mode.** A dedicated mode reached straight from the home screen — with no queue at all, because a lobby of one has nothing to pool. It mints a private match of **one human captain plus 19 AI captains**: real opponents playing the battle royale, not target practice. An AI captain is a full participant — roster row, personal hue, ship class, XP, boon deck, kill-feed line, eligible for the KILL LEADER throne — and **it can win the match**. Its only knowledge of the world is what the perception boundary hands it: bots fight in the same fog humans do, and they are driven through the same input pipeline as every ship. AI captains come in per-class **priority profiles** (two per hull) rather than a difficulty ladder. **v3:** each profile carries an **authored 40-card deck in the player deck format**, legality-checked when the room is built — the bot is the first customer of the deck rules. Every consumable card ships with a bot use rule (a **total** consumable-tactic table: instant cards keyed off profile state such as the heal threshold, aimed cards through the weapon solve), so no card can enter the catalog without a bot that knows how to spend it. The batch-sim harness runs two deck arms from day one — **authored** decks and **random-legal** decks — and pins these bars: the starter-vs-veteran win band, the two golden decks (a torpedo-less Torpedo Boat, a pure gunboat), heal-take rate, levels wasted, and the one-copy appearance rate.
 
 **Roving PvE drone fleets — in all BR modes.** Every match (standard and Solo vs AI) contains a few roving PvE drone fleets that can be hunted and killed for XP:
 
@@ -255,9 +259,10 @@ Backburnered: supply drops (#23) — the ring rhythm still reserves their minute
 
 - **Modes at beta:** **Solo** (standard BR — humans only, no bot-fill) and **Solo vs AI** (lobby filled with AI combatants). Both contain roving PvE drone fleets.
 - **Lobby:** match starts at **2 human captains** (fill-or-timer), capped at **20** for now.
-- **Matchmaking: one standard queue.** Captains pool in a queue that arms a single hard deadline at the second captain and then hands the arena a fully-formed roster; hitting the 20-captain cap forms the match immediately. There is no half-filled lobby to drop into, no skill matching, no parties and no ranked at beta. **Solo vs AI does not queue at all** — it mints its own private match on the spot.
+- **Matchmaking: one standard queue.** Captains pool in a queue that arms a single hard deadline at the second captain and then hands the arena a fully-formed roster; hitting the 20-captain cap forms the match immediately. There is no half-filled lobby to drop into, no skill matching, no parties and no ranked at beta. **Solo vs AI does not queue at all** — it mints its own private match on the spot. **v3: the deck is frozen at queue** — the client names a deck at join, the server loads it from the account (or the hull's starter deck for an anonymous captain), checks legality once, and snapshots it; edits made after queuing apply to the next match.
 - **Balance frame:** class counterplay flows from focus-not-exclusivity (every class carries the same standard gun; specials define the matchup); the passive XP tick is the anti-snowball floor; Paint-Not-Power keeps every purchasable structurally non-competitive.
-- **Post-beta (explicitly out of beta scope):** duos/trios with a ping system, ranked, accounts.
+- **Accounts — v3, in scope before the traffic push.** Two states and **no guest tier**. **Anonymous** = today's game: open the URL, pick a hull, sail its starter deck; nothing is stored. **Signed in** (OAuth only — Google or Discord, minimal scopes: the account holds a provider and an opaque subject id, never an email, name or password; 13+ by the provider's terms, not verified) = your decks, unlocks, unlock tokens and match history. *Signing in changes what you keep, never what you can do in a match.* Eric declined releasing the match-side rework without accounts (*"go big or go home"*): the deck model ships as one unit.
+- **Post-beta (explicitly out of beta scope):** duos/trios with a ping system, ranked.
 
 ---
 
@@ -279,7 +284,11 @@ Backburnered: supply drops (#23) — the ring rhythm still reserves their minute
 
 These values are declared handwaves — the shape (kills accelerate, participation never zeroes out) is the commitment; exact fractions are tunable. The PvE fractions were raised from ¼/⅓/½ to ¼/½/¾ on 2026-08-16; keeping every tier a dyadic fraction is deliberate, so any fleet composition is exactly representable. **Tuning method (committed):** batch-simulate the XP tick and kill-bonus outcomes with drone lobbies before human playtests.
 
-**Spending.** Each level banks a point; each point carries a pre-rolled offer of **4 different card lines drawn from that player's personal deck** (rolled at earn-time, never rerolled — see The Deck Model). Alongside the four cards, the refit window always offers **DAMAGE CONTROL**, which spends the level on hull repair instead of a card. The catalog shipped and was then rewritten wholesale by Eric (2026-08-19); its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
+**Spending.** Each level opens a pre-drawn offer of **4 different card lines from the deck you brought** (drawn at earn-time, never rerolled — see The Deck Model v3); one level buys any one card, and a heal is a card like any other. The catalog shipped, was rewritten wholesale by Eric (2026-08-19), and is being re-cut again for v3's ladders and tier bundles; its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
+
+**The opening — v3.** Every hull spawns with the deck gun only. **Level zero is granted at countdown start**, so the first offer opens during the 10 s countdown and can be taken before the water goes live, or held. **Mulligan:** one free redraw of the level-zero offer, only during the countdown — the single declared exception to "reopening never rerolls", at a moment nobody is on the water. **Weighted first draw** is the default and is built first: the level-zero offer is guaranteed to contain at least one **actively usable** card (a consumable or a weapon's Tier I) — Eric: *"my brain leans more towards weighted first pick."* A **pinned card** (one deck card marked start-fitted, #21) is a later, CONFIG-gated experiment to test against it. The promise this buys is *"you have something to DO at 0:00"* — not *"you hold your class weapon at 0:00."*
+
+**Account progression — v3 (the only meta layer).** An **account level** bar fills with XP earned per match — **placement-scaled**, and **discounted in Solo vs AI** (Eric: *"probably, just not as much"*) — and every account level grants **one unlock token**. A token unlocks **a whole line** (all five tiers of a ladder, or the one copy of an add-on) at a **flat price, in any order [DRAFT — Eric: "flat probably, idk"]**: unlocks are **variety, never power**. All three hulls and their starter decks are unlocked from day one; the starter decks' cards are the initial unlock list, and a starter is authored to be viable at the top of the ladder — Eric: *"good enough… just not the most optimized deck for how I play, or the current meta."* Both XP dials derive from one intent number — **matches to unlock the launch catalog** — which is OPEN (Eric: *"fuck if I know"*): a CONFIG dial with a **[DRAFT] 40–60 match** placeholder, tuned from live match history. Catalog breadth target: a hull builds from **at least ~100 cards' worth of unlockables (~25–30 lines) [DRAFT]** — Eric: *"100ish is a solid target."* A signed-in captain may keep **several decks per hull** (Eric: *"fine. Data is cheap"*); Eric has noted that deck *slots* could be rewarded or monetized (#80) — a slot is not power, so Paint-Not-Power holds. **Match history** records **every deck in every match server-side** for Eric's own metrics (*"the only way to see how things are performing in live play"*); a player sees their **own** deck — brought, drawn, taken — in results and history, and **enemy decks are shown to no player**. Meta convergence is accepted (Eric: *"There's no avoiding it"*).
 
 **Balance laws:** **Universal counterplay only (2026-07-19)** — tools must counterplay everything, never specific ships or weapons except incidentally; no counter-classes, ever. **No death pings or free information (2026-07-19)** — scouting is the skill; nothing announces a kill or a position for free. The Rat Covenant — hiding is legal but priced (a hiding player ticks but never accelerates; the kill-only bonus is exactly the price). The Conservation Law ("every power gain emits a signal") is a *tendency*, not a law — anti-snowball outranks it. **The KILL LEADER (#47, formerly "the Bounty"):** the captain with the most captain kills holds a public throne — **identity only**. Their name is published to every client and marked with a skull wherever it appears, and sinking them pays a bonus level. **The Bounty Bloom is deleted end to end**: there is no radar paint, bloom, ring, bearing, range or area disclosure of the holder, ever. Identity was already free — every client can already count kills — so publishing the name only reconciles the server's answer with what a client could derive anyway; *position* was the sole genuinely new disclosure, and it is exactly what the ruling removed. The anti-snowball teeth are the bonus and the target painted on the **name**, not on the water.
 
@@ -296,13 +305,13 @@ Three escalating cycles of that rhythm bring the ocean down to the endgame ring 
 
 **Then group 4: sudden death.** The endgame ring holds through 12:00–15:00 on the same rhythm (clear seas · the reserved supply beat · the collapse point marked at 14:00), and from **15:00 to 16:00 it collapses concentrically onto its own centre**. At 16:00 the map is 100% storm and every hull still afloat is taking damage. This is a shrink, not an escalation: storm damage never ramps, and the endgame ring itself is untouched.
 
-**Match length.** **~15:00 is the estimate and the design contract** (Pillar 2). The **structural ceiling is ~17:30**: the ring is fully closed at 16:00, and the game's toughest hull needs roughly another 87 s to sink at storm damage from full health. Even that is soft at the very top, because banked hull repairs are spendable while alive and each one buys back time — but the match always terminates, which is the whole point of the collapse. *(The brainstorm's 10-Minute Covenant is formally retired in favor of this contract.)*
+**Match length.** **~15:00 is the estimate and the design contract** (Pillar 2). The **structural ceiling is ~17:30**: the ring is fully closed at 16:00, and the game's toughest hull needs roughly another 87 s to sink at storm damage from full health. Even that is soft at the very top, because stocked heals are spendable while alive and each one buys back time — but under v3 a captain holds at most four, so the ceiling is bounded by construction, and the match always terminates, which is the whole point of the collapse. *(The brainstorm's 10-Minute Covenant is formally retired in favor of this contract.)*
 
 ### Economy and Resources
 
-- **XP is the only progression currency.** No loot-scavenging spine (explicitly rejected); nothing on the water outranks playing well.
+- **XP is the only in-match currency; unlock tokens are the only account currency** (v3). No loot-scavenging spine (explicitly rejected); nothing on the water outranks playing well, and nothing an account holds outranks a starter deck.
 - **Ammo is per-weapon and reload-limited**, not scavenged: each fitted system owns its ammo pool and reload timer, always ticking.
-- **The extra slot fills through offers** — an **acquisition card** drawn from your own deck is the "pickup" mechanism, and taking one burns the rest; nothing is scavenged off the water. Consumable slots are backburnered.
+- **Weapon slots and consumable slots fill from the deck** — copy 1 of a weapon's ladder fits the weapon, a consumable card stocks a slot; nothing is scavenged off the water. *(v3 retires the acquisition card and its "taking one burns the rest" rule.)*
 
 ---
 
@@ -349,15 +358,16 @@ There is no authored level progression — the storm is the level progression. E
 ### Performance Requirements
 
 - **60 FPS sustained on the ratified reference device** — Eric's MacBook Pro 16,1 (2019) / Intel Core i7-9750H (epic-7 amendment 1) — in a full 20-ship match with fog, radar sweep, and effects active, at the **1366×768 viewport floor** (NFR7 / UX-DR39). Performance is a distribution feature, not an optimization afterthought (Pillar 2).
-- **Playable from first click in under ~10 seconds** on that same hardware — no install, no account.
+- **Playable from first click in under ~10 seconds** on that same hardware — no install, no account required.
 - **Authoritative 20 Hz server simulation with client prediction**; playable feel at typical residential latencies (up to ~150 ms without degradation).
-- **Structural anti-cheat:** nothing outside a client's sight ∪ radar sweep ever reaches that client. The rule is enforced at a single chokepoint with property-style invariant tests behind it, and every relaxation of it is a **named, individually-argued exception** rather than a soft edge — today there are exactly six (your own fall-of-shot, your own hit call, the anonymous muzzle flash, the public sinking register, wounded smoke, and the foghorn). Counter-intel lies live on the server and are indistinguishable on the wire.
+- **Structural anti-cheat:** nothing outside a client's sight ∪ radar sweep ever reaches that client. The rule is enforced at a single chokepoint with property-style invariant tests behind it, and every relaxation of it is a **named, individually-argued exception** rather than a soft edge — today there are exactly six (your own fall-of-shot, your own hit call, the anonymous muzzle flash, the public sinking register, wounded smoke, and the foghorn). Counter-intel lies live on the server and are indistinguishable on the wire. **v3:** deck state is server-private (only the four drawn ids ride the wire), deck legality is checked by the server once at queue, and consumable slot contents are server-owned ship state.
 
 ### Platform-Specific Details
 
 - Desktop browser: current Chrome, Edge, Firefox, Safari. Keyboard + mouse.
 - **Self-published at `https://hullcracker.io/`** on its own servers and monetized with its own ad units — no portal, no portal SDK, no third-party technical compliance gate (Eric ruling 2026-08-21). The launch obligations that remain are the operator's own: hosting, ad + consent handling, and the privacy policy.
 - Mobile/touch: out of scope for beta.
+- **Accounts (v3):** OAuth sign-in only (Google, Discord) with minimal scopes — the operator stores a provider and an opaque subject id, never an email, name or password; no guest tier; nothing stored for the anonymous player. The privacy policy grows by one paragraph on signed-in accounts. The account store is the project's first persistent store and first non-ops HTTP API (sign-in callback, deck editing, match history) — an architecture question for `gds-game-architecture`, and it must not pre-empt the deferred frontend/backend split (Story 7-7).
 
 ### Asset Requirements
 
@@ -382,8 +392,10 @@ Detailed breakdown with stories, scope boundaries, and dependencies: `epics.md`.
 | E5 | **Honest Lobbies & Modes** | No bot-fill, min-2 fill-or-timer, cap 20, roster-scaled maps, Solo vs AI combat AI | Two real modes with honest matches |
 | E6 | **Information Texture** | Listening ring + torpedo pips, hit call, fall-of-shot, muzzle flash carries, wounded smoke, foghorn | Every fight is legible through the fog |
 | E7 | **Launch Readiness** | 60 FPS on the reference device, <10 s load, ads + consent, privacy policy, how-to-play page | Shippable at `hullcracker.io` |
+| E8 | **The Deck** (v3) | Card model (A) + hull-agnostic catalog hooks, legal 40-card decks + starter decks frozen at queue, equal-weight draw, deck gun + three generic weapon slots (replace-which, slot keeps its clock), four consumable slots, heal as a card (`5` retired), gun-only spawn + level zero + mulligan + weighted first draw, draw-pile counter, bot decks + consumable tactics + harness arms and bars, own deck in results | Every match — anonymous or signed in — is played on a deck, under the same rules for everyone |
+| E9 | **The Account** (v3) | OAuth sign-in (no guest tier), the first persistent store, deck editor (several decks per hull), account level → unlock tokens → whole-line unlocks, placement-scaled XP, match history (own deck to the player, every deck to Eric's metrics), privacy-policy delta | Sign in and keep your decks, unlocks and history — nothing changes inside a match |
 
-**Sequence: E1 → E2 → E3 → E6 → E4 → E5 → E7.** Identity and economy first (the spine everything touches), match shape third, then texture, world, modes, launch.
+**Sequence: E1 → E2 → E3 → E6 → E4 → E5 → E7 → E8 → E9.** Identity and economy first (the spine everything touches), match shape third, then texture, world, modes, launch — E1–E7 have shipped. **E8 and E9 ship together as one unit before the traffic push** (Eric declined releasing the match-side rework without accounts — *"go big or go home"*); the split is a build seam, not a release seam. [NOTE FOR DESIGNER: the E8/E9 seam is the facilitator's — E8 is everything that changes on the water and plays anonymously on starter decks; E9 is everything an account keeps. Collapse to one epic if preferred.]
 
 ---
 
@@ -399,6 +411,7 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 - Players choose to sail again quickly after death — the fun proxy, measured as the share of deaths that lead to another match. The route is deliberately through the home screen (there is no instant re-queue); if dying doesn't lead to "again," Pillar 2 is failing.
 - All three classes see real pick rates — no class is a dead button (Pillar 3's promise has to be worth promising).
 - One playtest-answerable question per pillar — e.g., for Pillar 1: do players describe finding someone as a *deduction*?
+- **v3 harness bars, pinned before human playtests:** the starter-vs-veteran win band (unlocks are variety, never power — measured, not asserted); the two golden decks (a torpedo-less Torpedo Boat and a pure gunboat both play); heal-take rate; levels wasted (offers with nothing worth taking); the one-copy appearance rate.
 
 ---
 
@@ -415,7 +428,7 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 **Backburnered — designed-for, not built in beta:**
 
 - Sensor-forward class (formerly "Hunter," working name TBD; the 2026-07-19 session tabled the closely related Radar Picket for lacking a weapon identity — parked until it has one)
-- ~4 consumable slots per ship
+- ~~~4 consumable slots per ship~~ — **built into the design by v3** (four slots, keys `1`–`4`; see Consumables)
 - Supply drops (the ring rhythm reserves their minute-2 beat, which runs today as a real structural no-op)
 - **Hydrophones / the passive listening ring**, sonar as a distinct sensor tier, and active ping — deferred 2026-08-21 (Eric: *"very deferred. sonar might come back in the future, but radar is plenty deep enough"*). The foghorn chevron is the shipped bearing surface.
 - **The smoke screen (#26)** — deferred 2026-08-21 (Eric: *"Deferred, I think it will probably come back at some point"*).
@@ -425,8 +438,12 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 - Teams (duos/trios + ping system)
 - Custom/private lobbies
-- Ranked, accounts, cosmetics shop, unlockable classes (unlocks are **never power** — the Paint-Not-Power guarantee extends to class unlocks), Service Record, Pennants
+- Ranked, cosmetics shop, unlockable classes (unlocks are **never power** — the Paint-Not-Power guarantee extends to class unlocks), Service Record, Pennants. *(Accounts left this list on 2026-09-03 — they ship with the deck model before the traffic push; see Multiplayer Considerations.)*
 - Rare Pull exotic offers (#84) — boon catalog v1 is basics-first; anything springing from it comes later
+
+**Rejected by the deck model v3 forge (2026-09-02) — do not re-propose without a ruling:** a hand with a per-minute drip; card merging; storefront verbs (lock / sell / refresh); rarity weighting and soft pity in the draw; instant-use-on-pick; guest accounts; storing emails or passwords; deck names (in the feed or anywhere); class-locked cards; deck-manipulation cards; hull-mod cards; salvage cards; discard/reshuffle (exhaustion is meant to be rare, not cycled); the deck picking the hull.
+
+**Parked by the same forge (open, not dead):** positional slots and per-slot arcs (the arc model — direction from the slot, traverse from the item — stays on file); the pinned-card spawn (a CONFIG-gated experiment against the weighted first draw); a passive per-level heal; draft mode (#73); revealing enemy decks to players (Eric: *"if it's in results I should see it in history. Or maybe not"*); ghost decks (bots sailing anonymized player decks — a later change of source, not mechanism); deck codes; card kinds Eric left live but unruled — timed buffs (*"maybe"*), drawback cards (*"maybe"*), signal cards (*"unknown"*).
 
 **Not planned without design-first work:**
 
@@ -451,12 +468,22 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 5. **RESOLVED (Story 7-6, 2026-08-21):** DESIGN.md's real-time-era reconciliation pass is done. *(Art Style; E7)*
 6. Sensor-forward class real name — tracked in Out of Scope; needed only when it comes off the backburner.
 7. Minutes-1–3 pacing ("Quiet Dread" — protect or fix) is a playtest call; the ring rhythm's minute-1 "clear seas" is the current answer.
+8. **v3 — deck size.** 40 is the working number; a 25–40 floor/ceiling band MUST be tested before it is final. *(The Deck Model v3)*
+9. **v3 — consumable keys.** `1`–`4` vs `Z`–`V`: Eric is open-minded; test both. *(Controls and Input)*
+10. **v3 — heal copies per starter deck.** 4 vs 5 [DRAFT]; harness-tuned per hull. *(Healing)*
+11. **v3 — the matches-to-full-catalog number.** OPEN; ships as a CONFIG dial in a [DRAFT] 40–60 band, tuned from live match history. *(Account progression)*
+12. **v3 — consumable content and tier-bundle contents.** Both are the catalog rework — an Eric-authored document, out of GDD scope. *(Consumables; The Deck Model v3)*
+13. **v3 — the "replace which?" flow.** Drawing a fourth weapon into three full slots means replacing one; the forge carries the rule, but neither session specified the player-facing flow (where the choice is made, what the offer shows). *(Slot grammar)*
+14. **v3 — the shipped per-level auto-heal.** Its fate under the heal card is unruled — see the NOTE in Healing. *(Healing)*
+15. **v3 — the E8/E9 seam.** The facilitator's split; Eric may collapse it. *(Development Epics)*
+16. **v3 — the account store's architecture.** First persistent store + first non-ops HTTP API — `gds-game-architecture`'s call, and it must not pre-empt the deferred Story 7-7 split. *(Technical Specifications)*
 
 *(The gunboat AP-gun form note was deleted with the class, 2026-07-19.)*
 
 **Dependencies:**
 
-- **Boon catalog — DELIVERED** (E2, then rewritten wholesale by Eric on 2026-08-19). This GDD specifies the model — the personal deck, commons-as-ladders / rares-as-nature-changers, acquisition cards for the extra slot, felt builds — and the contents are Eric's.
+- **Boon catalog — DELIVERED** (E2, then rewritten wholesale by Eric on 2026-08-19), **and due a v3 re-cut that is NOT yet written.** This GDD specifies the model — the 40-card authored deck, ladders-as-tiers / add-ons-as-nature-changers, copies = tier ceiling, consumables — and the contents (which lines, what each tier bundle does, the consumable set) are Eric's next authored document. E8 builds the model against it.
+- **The account store (v3)** — the first persistent store and non-ops HTTP API; `gds-game-architecture` owns the design. E9 depends on it; the privacy policy gains one paragraph on signed-in accounts.
 - **Combat-bot AI — DELIVERED** (E5), distinct from PvE defensive AI; priority profiles, not a difficulty ladder.
 - **Self-publishing** replaces the portal dependency: the launch gate is the operator's own — hosting, ad + consent handling, and the privacy policy (E7). There is no third-party portal compliance dependency.
 - **Aim reconciliation under latency** (lag compensation vs shoot-at-server-state) is a feel-defining, expertise-heavy call — explicitly delegated to the architecture phase (`gds-game-architecture`); the design requirement is only "feel intact at ~150 ms."
