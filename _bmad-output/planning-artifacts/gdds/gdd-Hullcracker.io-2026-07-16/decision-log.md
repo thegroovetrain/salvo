@@ -254,3 +254,13 @@ Change signal: `_bmad-output/forge/deck-model-v3/forged-idea.md` (2026-09-02, "T
 - **Note 18 — RESOLVED.** A consumable line's cap is its own authored copy count in the catalog (as ladders carry 5 and add-ons 1); there is no deck-level consumable cap and no third composition rule.
 
 **Walkthrough outcome:** 13, 15, 17, 18 resolved; 16 confirmed as written; 14 deliberately left open for the balance pass. Remaining open v3 notes: 8 (deck-size band test), 9 (consumable keys), 10 (heal copies), 11 (unlock-economy drafts), 12 (catalog contents), 14 (auto-heal).
+
+## Walkthrough — 2026-09-03 (Eric live, open notes 8–12)
+
+- **Note 8 — RESOLVED.** 40 cards, final for launch; the forge's 25–40 band test is dropped (min/max stay CONFIG dials, untested).
+- **Note 9 — RESOLVED.** Eric: *"1-4 by default, but maybe we can introduce user-configurable controls."* `1`–`4` is the default; the `Z`–`V` test is dropped; user-configurable bindings are recorded as a maybe, not scoped into E8.
+- **Note 10 — RESOLVED.** Starter decks carry 5 DAMAGE CONTROL copies to start; the harness tunes per hull. (The card's catalog maximum is a separate number, per note 18.)
+- **Note 11 — PARTLY RESOLVED.** Breadth target (~100 cards / ~25–30 lines per hull) CONFIRMED. The matches-to-catalog intent number stays OPEN and the 40–60 placeholder is WITHDRAWN (set the dial once the catalog's line count is known). The flat unlock price stays [DRAFT].
+- **Note 12 — NEXT STEP RULED.** Brainstorm the consumables first (`gds-brainstorm-game`), then Eric authors catalog v3 (lines, tier bundles, consumables, per-card copy counts). E8 story creation waits on that document.
+
+**Walkthrough outcome (8–12):** 8, 9, 10 resolved; 11 partly (breadth confirmed; intent number open with no placeholder; flat price still [DRAFT]); 12 stays a pointer with its next step ruled. Remaining open v3 notes after both walkthroughs: 11 (intent number, flat price), 12 (the catalog itself), 14 (auto-heal, deferred to the balance pass).
