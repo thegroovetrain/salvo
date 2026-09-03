@@ -207,3 +207,60 @@ Change signal: `_bmad-output/brainstorming-session-2026-07-19.md` (focused sessi
 **Correction (Eric, 2026-07-19, during this update pass):** the extra-slot mechanism is **unchanged** — every class-specific ability in the game can still appear in boon offers to fill the extra slot (the 2026-07-16 resolution stands). The update's initial rewording of that slot as equipment-pool-only, plus a NOTE questioning whether live class abilities remain offerable, was wrong and has been reverted in gdd.md and epics.md. The Hades-hammer slot-4 equipment behavior is captured in the upgrade-economy model alongside — it does not replace off-class ability offers.
 
 **Propagation note:** production-epic/story fallout (1.9 Gunboat Loadout obsolete; 1.3 = three hull envelopes; 1.6 TB = torps + boost; 1.14 = three cards / no default; 2.8 boon catalog = three kits; 4.2 = three silhouettes) is `gds-correct-course` work against `_bmad-output/planning-artifacts/epics.md`, not this document set.
+
+---
+
+## Update pass — 2026-09-03 (deck model v3 forge, gds-gdd Update mode)
+
+Change signal: `_bmad-output/forge/deck-model-v3/forged-idea.md` (2026-09-02, "The Deck Model v3 — HARDENED"), the forge of `_bmad-output/brainstorming-session-2026-09-01.md` (82 ideas, diffed against the 2026-08-27 equipment-rework session). Run as a background job with no live Eric prompt: the forged idea's **Locked** items were taken as decided (Eric's rulings during the forge run are quoted in its memlog), its **[DRAFT]** numbers stay tagged as drafts, its **Open** items became indexed open notes, and every facilitator call made here is named as such below.
+
+**Pillar edits (surfaced, not silent):**
+
+- **Pillar 2** — "no install, no account, no grind" → "no install, no account required, nothing to grind for power." Accounts enter the game, but only to KEEP things; the anonymous player sails the same starter decks under the same rules. Steers gains the account posture.
+- **Pillar 3** — the promise is re-anchored from "a different loadout at 0:00" to "a hull, and a deck you built — and something to DO at 0:00." Accepted consequence of gun-only spawns, recorded by the forge in Eric's words. Steers now names starter-deck tilt, the draw rule, and copies-as-stack-caps.
+
+**Reversals / supersessions applied:**
+
+- **The 2026-07-30 personal-deck model** (universal lines + subdeck per carried equipment + acquisition cards; soft pity; rarity as a draw weight) → **THE DECK MODEL v3**: a 40-card authored, hull-labelled deck; card model (A) — weapon ladders whose copy 1 IS the weapon, plus one-copy add-ons; copies = tier ceiling; equal per-card draw weight, no pity; legal-deck rules, frozen at queue. The acquisition card is retired.
+- **Slot grammar** — "gun + two specials fitted at 0:00 + one extra slot" → slotless deck gun + three generic weapon slots empty at 0:00 + four consumable slots. Carried from the equipment forge: one fixed arc per weapon, replace-which for a fourth weapon, swap cheese is a NEVER, the slot keeps its clock. The roster formula survives as the SHAPE of each starter deck; the catalog is hull-agnostic and nothing is class-locked.
+- **Heal** — the `5` key / DAMAGE CONTROL rail → a stockable consumable card (effect unchanged at 100 hp; 4–5 starter copies [DRAFT]; scarcer, never renewable). The "heals during the collapse" open question closes by construction. The 2026-07-16 law (self-heal never a ship feature) still holds.
+- **Controls** — `5` is gone; `1`–`4` fire consumables with `Tab` closed (`Z`–`V` tested).
+- **Accounts** — moved out of post-beta into scope before the traffic push (Eric declined a match-side-only release: "go big or go home"). Two states, no guest tier, OAuth only with minimal scopes.
+- **Consumable slots** — off the backburner and into the design (four slots).
+
+**Additions:** the opening (level zero at countdown start, countdown-only mulligan as the single never-reroll exception, weighted first draw default, pinned card as a CONFIG-gated experiment); consumables (leave the deck on pick, full-slot server refusal, two activation shapes, Eric's categories); account progression (account level → unlock token → whole line, flat [DRAFT]; placement-scaled XP, Solo vs AI discounted; the OPEN intent number as a [DRAFT] 40–60 CONFIG dial; ~100 cards' worth per hull [DRAFT]); match history (own deck to the player, every deck to Eric's metrics; enemy decks to no one); bots on authored decks with a total consumable-tactic table and two harness arms; the pinned harness bars as Success Metrics; the draw-pile HUD counter (Eric: "Yes"); several decks per hull; the Rejected / Parked lists in Out of Scope; Technical Specifications gains the account posture and the architecture flag.
+
+**Development epics:** **E8 — The Deck** and **E9 — The Account** added to `gdd.md` (summary rows, sequence E1 → … → E7 → E8 → E9) and `epics.md` (full entries, 9 + 7 high-level stories). **Facilitator call:** the E8/E9 seam — on-the-water rework that plays anonymously on starter decks vs. what an account keeps — is a build seam, not a release seam; both ship as one unit. Eric may collapse it (GDD open note 15).
+
+**Open items indexed (GDD Assumptions and Dependencies 8–16):** deck-size band 25–40 test; `1`–`4` vs `Z`–`V`; heal copies 4 vs 5; the matches-to-catalog number; consumable content and tier-bundle contents (Eric's catalog document); the "replace which?" player-facing flow (neither session specified it); the fate of the shipped 2026-08-23 free per-level auto-heal (the forge parks "a passive per-level heal" without naming the shipped one — flagged, not decided); the E8/E9 seam; the account store's architecture (`gds-game-architecture`; must not pre-empt Story 7-7).
+
+**Not carried, deliberately:** the 2026-08-27 session's serial per-charge cooldowns, the single 30 s combat clock, and "storm damage breaks out-of-combat regen" — the 09-01 session lists them as untouched and the forge does not carry them as constraints; the 14 facilitator-proposed consumable cards and their numbers; the deckbuilder's "collection left, deck right" layout (Eric said only "probably a deckbuilder").
+
+**Files touched:** `gdd.md` (frontmatter → updated 2026-09-03; Executive Summary, USPs 3–4, Background, Pillars 2–3, Core Loop steps 3/5, Win/Loss results line, Ship classes, Roster formula, Slot grammar, Upgrade economy → The Deck Model v3 + Hades-hammer + Consumables + Healing, Controls, Fitted loadouts + table header, vetoes parenthetical, Enemy Design and AI, Multiplayer Considerations, Spending + The opening + Account progression, Match length, Economy and Resources, Technical Specifications, Development Epics, Success Metrics, Out of Scope, Assumptions and Dependencies); `epics.md` (E8, E9, sequence header); `_bmad-output/gds-workflow-status.yaml` (gdd stamp).
+
+**Finalize passes (same day):** an input-reconciliation subagent (forged idea vs. gdd.md/epics.md) and a validator subagent (checklist) ran; their findings were applied in a second commit. Corrections of record: "actively usable" means a consumable or ANY equipment's Tier I (not only a weapon's); the one-copy appearance figures are forge-MEASURED (66/82/90/97% at 8/12/15/20 picks against a 14-line deck), not drafts; only the flat unlock PRICE is [DRAFT], "any order" is not; add-on family targeting is a DIRECTION, not a lock; the Rejected/Parked lists now attribute each item to the forge or to the 2026-09-01 session, and deck codes (#64) are recorded as an unruled proposal; E1/E2/E5/E7 lines that v3 supersedes are marked in place in epics.md. **Two new open notes surfaced by validation, both Eric's to rule:** (17) v3's "light and heavy torpedoes" family example presupposes two torpedo designs against the standing no-torpedo-variety veto; (18) the legal-deck rule states no copy cap for a consumable line. Open-item density is high (notes 8–18) for an epic pair ruled to ship as one unit — E8 cannot be broken into stories until the catalog v3 document exists; flagged, not absorbed.
+
+**Propagation note:** production epics/stories for E8–E9 are `gds-create-epics-and-stories` work; the account store is `gds-game-architecture` work; the catalog v3 contents are Eric's authored document. None of the three is produced here.
+
+---
+
+## Walkthrough — 2026-09-03 (Eric live, open notes 13–18 one at a time)
+
+- **Note 13 — RESOLVED.** Eric: *"I think the only rules we enforce on deck construction are that it is 40 cards exactly and you can have no more than three lines of cards that might fit into an equipment slot, thus sidestepping the issue entirely."* The legal deck now has exactly two composition rules (40 cards; ≤ 3 equipment lines), the carried "fourth weapon = replace which" rule is retired, and the slot grammar says so. Facilitator reading, stated to Eric for correction: "copies ≤ line max" and "every card unlocked" survive as OWNERSHIP bounds, not composition rules.
+- **Note 14 — LEFT OPEN by Eric:** the shipped free per-level auto-heal's fate is deferred to the balance pass once bots are on v3 decks. The GDD note stands as written.
+- **Note 15 — RESOLVED.** Eric keeps the E8 / E9 split: two GDD epics, one release before the traffic push.
+- **Note 16 — CONFIRMED as written.** The account store is delegated to `gds-game-architecture` with no added constraint; the privacy posture and the 7-7 deferral are the only guards.
+- **Note 17 — RESOLVED.** The brief's no-torpedo-variety compass veto is NARROWED to within-a-weapon: several torpedo designs may exist as separate catalog lines (Light, Heavy), each a fixed design per slot; a selector inside one weapon stays banned. The forge's family-targeting example (ACOUSTIC HOMING on light and heavy torpedoes) stands.
+- **Note 18 — RESOLVED.** A consumable line's cap is its own authored copy count in the catalog (as ladders carry 5 and add-ons 1); there is no deck-level consumable cap and no third composition rule.
+
+**Walkthrough outcome:** 13, 15, 17, 18 resolved; 16 confirmed as written; 14 deliberately left open for the balance pass. Remaining open v3 notes: 8 (deck-size band test), 9 (consumable keys), 10 (heal copies), 11 (unlock-economy drafts), 12 (catalog contents), 14 (auto-heal).
+
+## Walkthrough — 2026-09-03 (Eric live, open notes 8–12)
+
+- **Note 8 — RESOLVED.** 40 cards, final for launch; the forge's 25–40 band test is dropped (min/max stay CONFIG dials, untested).
+- **Note 9 — RESOLVED.** Eric: *"1-4 by default, but maybe we can introduce user-configurable controls."* `1`–`4` is the default; the `Z`–`V` test is dropped; user-configurable bindings are recorded as a maybe, not scoped into E8.
+- **Note 10 — RESOLVED.** Starter decks carry 5 DAMAGE CONTROL copies to start; the harness tunes per hull. (The card's catalog maximum is a separate number, per note 18.)
+- **Note 11 — PARTLY RESOLVED.** Breadth target (~100 cards / ~25–30 lines per hull) CONFIRMED. The matches-to-catalog intent number stays OPEN and the 40–60 placeholder is WITHDRAWN (set the dial once the catalog's line count is known). The flat unlock price stays [DRAFT].
+- **Note 12 — NEXT STEP RULED.** Brainstorm the consumables first (`gds-brainstorm-game`), then Eric authors catalog v3 (lines, tier bundles, consumables, per-card copy counts). E8 story creation waits on that document.
+
+**Walkthrough outcome (8–12):** 8, 9, 10 resolved; 11 partly (breadth confirmed; intent number open with no placeholder; flat price still [DRAFT]); 12 stays a pointer with its next step ruled. Remaining open v3 notes after both walkthroughs: 11 (intent number, flat price), 12 (the catalog itself), 14 (auto-heal, deferred to the balance pass).

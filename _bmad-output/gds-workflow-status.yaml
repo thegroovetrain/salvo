@@ -31,7 +31,7 @@ domain-research: false # optional
 create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/brief.md # complete 2026-07-15 (addendum + decision log alongside); superseding header added 2026-08-21 (Story 7-6, Eric ruling G2 "dated") — the body is the artifact of record
 
 # --- Phase 2: Design ---
-gdd: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md # complete 2026-07-16 (epics.md + decision-log.md alongside; PR #23); updated 2026-07-19 (three-class re-scope); reconciled 2026-08-21 (Story 7-6)
+gdd: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md # complete 2026-07-16 (epics.md + decision-log.md alongside; PR #23); updated 2026-07-19 (three-class re-scope); reconciled 2026-08-21 (Story 7-6); updated 2026-09-03 (deck model v3 from forge/deck-model-v3/forged-idea.md — accounts, authored 40-card decks, consumable slots, heal-as-card, gun-only spawn; E8 The Deck + E9 The Account added)
 create-narrative: false # optional
 ux: _bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md # complete 2026-07-16 (EXPERIENCE.md peer contract + decision log + validation reports + mockups/ alongside); reconciled 2026-08-21 (Story 7-6, Eric rulings B1/C1-C4/D1-D5)
 prd: false # optional
