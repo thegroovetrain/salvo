@@ -16,7 +16,7 @@
 # ledgers and the keys themselves remain in git history.)
 
 generated: '2026-07-15'
-last_updated: '2026-08-28'  # cycle 132 (0.17.132), home community links. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
+last_updated: '2026-09-02'  # metagame brainstorm (brainstorm-game-metagame) closed. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -26,6 +26,7 @@ brainstorm-game: _bmad-output/brainstorming-session-2026-07-15.md # complete 202
 brainstorm-game-supplemental: _bmad-output/brainstorming-session-2026-07-19.md # complete 2026-07-19 (focused design loop-back feeding the gds-gdd update + gds-correct-course before story 1-1)
 brainstorm-game-boon-catalog: _bmad-output/brainstorming-session-2026-07-30.md # complete 2026-07-30 (the 2-8 design gate's design session: THE DECK MODEL; rulings in epic-2-context-amendments.md)
 brainstorm-game-equipment-rework: _bmad-output/brainstorming-session-2026-08-27.md # complete 2026-08-27 (positional-slot/tag/storefront equipment rework design session; 56 ideas, feeds a future forge/GDD pass)
+brainstorm-game-metagame: _bmad-output/brainstorming-session-2026-09-01.md # complete 2026-09-02 (accounts + per-hull authored 40-card decks, consumable slots, heal-as-card, gun-only spawn; 82 ideas, 10 bench rulings; diffs against the 08-27 equipment-rework session)
 domain-research: false # optional
 create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/brief.md # complete 2026-07-15 (addendum + decision log alongside); superseding header added 2026-08-21 (Story 7-6, Eric ruling G2 "dated") — the body is the artifact of record
 
