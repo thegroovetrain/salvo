@@ -6,6 +6,8 @@ author: 'Eric'
 version: '1.0'
 stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 status: 'complete'
+amendments:
+  - '2026-09-09 — account store (E9): D7 superseded, D8 amended, D9–D18 added; scoped gds-game-architecture pass'
 engine: 'Custom TypeScript (Colyseus 0.17 + PixiJS 8.19, npm-workspaces monorepo)'
 platform: 'Desktop browser (keyboard + mouse)'
 
@@ -31,6 +33,15 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/b
 > requirement (NFR7, UX-DR39) and is unaffected — it was never a property of the Chromebook,
 > only illustrated by one. Any residual "portal"/"Chromebook" text below is either inside a
 > dated superseding stamp or an explicit historical note; it is not live guidance.
+
+> **AMENDMENT NOTICE — 2026-09-09 (the Account Store, E9).** A scoped `gds-game-architecture`
+> pass added the project's first persistent store: **D7 is SUPERSEDED, D8 AMENDED, D9–D18
+> ADDED**, with matching Cross-cutting, Project Structure, Implementation Patterns (Novel
+> Patterns 6–9) and Validation amendments, each appended to its section under a dated heading.
+> Read the amendment blocks as live guidance alongside the originals; where they disagree, the
+> amendment governs. Headline: **Colyseus 0.17 → 0.18 is E9's story 0**, Render Postgres via
+> `render.yaml`, `@colyseus/database` + `@colyseus/auth` (OAuth only, curated) + `@colyseus/admin`,
+> the deck loaded at BOTH doors, and the sim never learning the store exists.
 
 ## Executive Summary
 
@@ -58,6 +69,18 @@ problem this project doesn't have.
 **Structure:** layer-first monorepo, 5 fully-designed novel patterns + 4 ratified standard
 patterns, 12 enforced consistency rules. **Validated PASS. Ready for:** the epic
 implementation phase (E1–E7).
+
+**Amended 2026-09-09 — the account store (E9):** E1–E7 have shipped; the deck model v3 brings
+the first persistence. **Ten decisions (D9–D18)** put the store IN-PROCESS on the one Render
+service (Story 7-7 stays deferred), on **Render managed Postgres** declared in `render.yaml`,
+through **`@colyseus/database` / `@colyseus/auth` / `@colyseus/admin` on Colyseus 0.18** —
+OAuth only (Google, Discord), identity = provider + opaque subject, a curated endpoint map with
+the popup callback replaced, JWT 30 days with server-side revocation. **Four new patterns
+(6–9)**: the Door (verify then load, both doors, one helper), `MatchRecord → AccountWriter`
+(a port with a queue — the sim never learns the store exists and the wire never carries a
+deck), the curated auth map + identity upsert, and the two-state settings source. **Nine new
+consistency rules**, each pinned. **Validated PASS; ready for:** `gds-create-epics-and-stories`
+on E9 (with the 0.18 upgrade as story 0).
 
 ---
 
@@ -408,8 +431,8 @@ section below.)*
 | D4 | Match lifecycle | PROVISIONAL: sinking ships win-eligible until fully sunk; later-sinker wins; same-tick = draw. Sinking is a REVERSIBLE state | Design genuinely open (Eric, 2026-07-17); future heal may refloat — architecture commits to reversibility, not to the win rule |
 | D5 | Combat AI | Utility AI over observe() views, staggered ~250 ms; PvE drones on cheap threat-check tier; bot-vs-bot evaluation via the triple-duty harness | Structurally fair (bots lack the data to cheat); cost ceiling ≈ human lobby |
 | D6 | Matchmaking | Colyseus 0.17 QueueRoom; modes = queues (Standard, Solo vs AI); min-2 fill-or-timer, cap 20; roster-scaled map at countdown; queue-liveness UX constraint | Framework-native fit for E5's lobby rules |
-| D7 | Persistence | localStorage client prefs only; NO accounts, NO server player DB at beta | Light to Hold; accounts are post-beta scope |
-| D8 | Scale plumbing | Presence/Driver injectable now; Redis arrives with the Colyseus Cloud move (Track 2) | One motion, one pipeline; no Redis on Render ever |
+| D7 | Persistence | ~~localStorage client prefs only; NO accounts, NO server player DB at beta~~ **SUPERSEDED 2026-09-09 — see the Account Store amendment (D9–D18)** | ~~Light to Hold; accounts are post-beta scope~~ Accounts ship with the deck model v3 |
+| D8 | Scale plumbing | Presence/Driver injectable now; ~~Redis arrives with the Colyseus Cloud move (Track 2)~~ **AMENDED 2026-09-09:** the Cloud trigger is struck; vertical scaling only | One motion, one pipeline; no Redis on Render ever |
 
 ### D1 — Firing Under Latency (detail)
 
@@ -495,6 +518,208 @@ section below.)*
 - Presence/Driver constructed via config injection; memory implementations on Render,
   @colyseus/redis-* engaged at the Colyseus Cloud move. No code path may assume same-process
   room co-residency.
+
+---
+
+## Amendment 2026-09-09 — The Account Store (E9)
+
+> **Scope.** A scoped pass of the architecture workflow on ONE system: the account store
+> (GDD open note 16, delegated to this workflow with no added design constraint — Eric,
+> 2026-09-03). It SUPERSEDES **D7** in full and **D8** in part, and adds **D9–D18**. Every
+> other decision in this document stands. Versions verified against the npm registry on
+> 2026-09-09.
+
+### Decision Summary (account store)
+
+| # | Category | Decision | Rationale |
+|---|---|---|---|
+| D7 (SUPERSEDED) | Persistence | ~~localStorage client prefs only; NO accounts, NO server player DB at beta~~ | Retired by deck model v3 (Eric, 2026-09-03: accounts ship with the deck, *"go big or go home"*) |
+| D8 (AMENDED) | Scale plumbing | Presence/Driver stay injectable; still no Redis on Render; the "Colyseus Cloud move" trigger is struck — vertical scaling is the only growth lever (2026-08-18) | The account store adds no process and no shared registry, so D8's obligations are unchanged |
+| D9 | Topology | **In-process module** `server/src/account/`, mounted once in `app.config.ts`, same origin as the game | Zero new deployables; Story 7-7 stays deferred; the account token rides matchmaking through the same `static onAuth` the staging gate already reads |
+| D10 | Framework | **Upgrade Colyseus 0.17 → 0.18** (all packages, both sides) as the FIRST work item of E9 | Eric 2026-09-09: *"keep everything CURRENT"*; `@colyseus/database` and `@colyseus/admin` exist only on 0.18 |
+| D11 | Storage | **Render managed Postgres**, one instance per environment, both on the smallest paid tier, declared in `render.yaml` `databases:` | Survives deploys, backups, keeps zero-downtime deploys (a disk would disable them); Blueprint-is-truth holds; ~$6/mo each |
+| D12 | Data layer | **`@colyseus/database` 0.18** (Drizzle ORM + `postgres` driver), migrations as **checked-in SQL files** generated by `drizzle-kit` — never `"auto"` in production | Typed schema, one migration path, reviewable SQL; the module's `db.auth` service gives token revocation for free |
+| D13 | Auth | **`@colyseus/auth` 0.18**, OAuth ONLY (Google, Discord, minimal scopes), a **curated endpoint subset** (userdata + OAuth), the popup **callback endpoint replaced** to pin the postMessage origin to `HC_SITE_ORIGIN`, identity keyed on **(provider, subject)** with a **second provider LINKING to the same account**, **JWT 30 days** with token-version revocation | Eric's pick over a hand-rolled client; 0.18's endpoint map lets the rejected email/password/anonymous routes stay unmounted |
+| D14 | Card ids | **camelCase line ids declared in `shared/`** beside the catalog (`heavyTorpedo`, `hullRepair`); a deck row is `{lineId, copies}` | Rename-proof (FLAK GUN was SHRAPNEL GUN a week earlier); matches the existing boon-id convention the sim addresses cards by |
+| D15 | Deletion | **Self-serve delete**: account, sessions, decks, unlocks and prefs removed; match-history rows keep deck contents with the account reference nulled | Google/Discord developer terms expect a deletion path; Eric's metrics survive as anonymous rows |
+| D16 | Admin | **`@colyseus/admin` 0.18 for Eric** (own admin login, RBAC, CRUD over the account tables); **players get their own history route** in the account API | Eric 2026-09-09: *"I DO want @colyseus/admin for ME"* |
+| D17 | Prefs & settings | **Two states, nothing in between** (Eric 2026-09-09): anonymous = starter deck only, no progression, no deck editor, settings in localStorage exactly as today; signed in = the account holds callsign, colour preference, last class AND the settings store, and the client switches to them | Adds a chosen display name to stored data (privacy paragraph names it) |
+| D18 | Write path | Deck **loaded + validated at the DOOR** (queue for standard, arena for solo; one shared loader, never from the client); XP, tokens and history **written off-tick** at match end from a server-only `MatchRecord` through an `AccountWriter` port that drains on shutdown; a write failure can never touch a match | The sim stays pure and Colyseus-free; the tick loop never awaits the database |
+
+### D9 — Topology (detail)
+
+- `server/src/account/` is a self-contained module: `index.ts` exposes exactly two things —
+  `accountEndpoints()` (a better-call endpoint map spread into the ONE `createRouter` call in
+  `app.config.ts`, beside `getMetrics` / `getLiveness`) and `createAccountWriter()` (the port
+  the rooms call). Nothing under `game/` imports it; `world.ts` and `match.ts` keep zero
+  persistence imports exactly as they keep zero Colyseus imports.
+- **Absence-gated like GA/AdSense:** with no `DATABASE_URL` the module mounts nothing, NEVER
+  constructs `GameDatabase` (whose own default is a silent SQLite file at `./colyseus.db` —
+  a pin test asserts no construction without the URL), the home screen renders no SIGN IN,
+  and the game is byte-identical to today. Staging carries
+  its own database and OAuth apps so the account layer is QA'd on the dev host — this is
+  deliberately NOT the ads/analytics blind spot.
+- **7-7 compatibility, checked:** the account token is a Bearer header, not a cookie, so a
+  future apex/subdomain split changes nothing here; the admin console's own cookie is
+  `SameSite` within the registrable domain and also survives it.
+
+### D10 — Colyseus 0.18 upgrade (detail)
+
+- Pinned targets (verified 2026-09-09): `colyseus` 0.18.5 · `@colyseus/core` 0.18.12 ·
+  `@colyseus/schema` 5.0.27 (both sides) · `@colyseus/tools` 0.18.3 · `@colyseus/sdk` 0.18.2 ·
+  `@colyseus/auth` 0.18.2 · `@colyseus/database` 0.18.3 · `@colyseus/admin` 0.18.5 ·
+  `@colyseus/monitor` 0.18.3 · `@colyseus/playground` 0.18.4 · `postgres` 3.4.9 ·
+  `drizzle-kit` 0.31.10. Node stays 22 (22.19 locally).
+- Measured touchpoints in this codebase: `setSimulationInterval` → `setTimestep` (one call,
+  `ArenaRoom.ts`); `setMetadata` now REPLACES (both rooms already write whole objects — verify,
+  don't assume); `Client#id` is gone (no uses found); schema field cap 63 (`ArenaState` has
+  23); `createRouter` survives; `static onAuth(token, options, context)` keeps
+  `context.headers`, so the staging gate and PROTOCOL_VERSION gate are untouched. Schema 4 → 5
+  on both sides is the largest piece; ~26 test files import Colyseus APIs.
+- Ships as its own PR with `PROTOCOL_VERSION` bumped (the schema encoder changed) and a full
+  headless-smoke pass BEFORE any account code lands. A framework upgrade and a feature never
+  share a PR.
+
+### D11 — Storage (detail)
+
+- `render.yaml` gains two `databases:` entries (`hullcracker-db`, `hullcracker-dev-db`), each
+  web service gets `DATABASE_URL` via `fromDatabase.property: connectionString`. Region
+  `oregon`, same as the services. Free tier REJECTED for staging: it expires after 30 days.
+  **The `databases:` entries land in the SAME PR as the code that reads them, never ahead:**
+  the Blueprint auto-syncs on `main`, so the file creates and bills both instances the moment
+  it merges, whether or not anything reads them.
+- No persistent disk on either web service, ever: a disk disables zero-downtime deploys and
+  would drop every live match on each push.
+- Backups: Render's managed backups are the whole story at launch; no export job.
+
+### D12 — Data layer (detail)
+
+- `GameDatabase` opened with `migrations: { files }`; `drizzle-kit generate` output is committed
+  under `server/drizzle/` and runs at boot. The module's own tables (`colyseus_users`,
+  `colyseus_roles`, `colyseus_admin_audit`, …) are created by the same files; unused plugin
+  tables (leaderboards, cloud saves, analytics) cost nothing and are NOT wired.
+- **Never `applyRouterDefaults` / the auto-mount.** It spreads the ENTIRE auth endpoint map.
+  The account module builds the router itself (D13).
+- Account tables (Drizzle schema in `server/src/account/schema.ts`):
+  `account_identities (provider, subject) → user_id` (several rows may point at one user —
+  D13 linking) · `account_profiles (user_id, callsign, color_pref, last_class, settings
+  jsonb)` — `color_pref` is a PREFERENCE, never the server-assigned wheel index `regatta.ts`
+  hands out at join; `settings` is the client settings store's own versioned shape, migrated by
+  the client's existing `migrate` · `decks (id, user_id, hull, cards jsonb[{lineId, copies}],
+  updated_at)` · `unlocks (user_id, line_id)` · `account_progress (user_id, xp,
+  tokens_spent)` — **level and available tokens are DERIVED** (`level = f(xp)`, `available =
+  level − tokens_spent`), never stored, so the match-end write is one atomic
+  `UPDATE … SET xp = xp + $1` with no read-modify-write race (one account in two browsers is
+  Tuesday: `sessionLock` is per browser) · `matches (id, mode, started_at, ended_at,
+  roster_size, winner_class)` · `match_participants (match_id, user_id nullable **FK ON DELETE
+  SET NULL**, role, class, placement, kills, deck_brought jsonb[lineId], deck_drawn
+  jsonb[{lineId, atMs}], deck_taken jsonb[{lineId, atMs}])` — the `atMs` stamps are what the
+  history route prints as `T+mm:ss`. `colyseus_users.email` is NULL for every
+  player, permanently.
+
+### D13 — Auth (detail)
+
+- OAuth apps per HOST (redirect URIs differ): `HC_OAUTH_GOOGLE_ID/SECRET`,
+  `HC_OAUTH_DISCORD_ID/SECRET`, plus `JWT_SECRET`, `SESSION_SECRET` — all server env,
+  `sync: false`, never `VITE_*` (`client/.env.*` is not gitignored — deferred-work.md).
+  Scopes: Google `openid`, Discord `identify`. No email scope on either.
+- Endpoint map is built by hand: `auth-userdata` + the OAuth `start` endpoint from
+  `oauthEndpoints()`, with the `callback` entry REPLACED by `server/src/account/oauthCallback.ts`
+  — a copy that posts to `postMessage(payload, HC_SITE_ORIGIN)` rather than `'*'`.
+  **`HC_SITE_ORIGIN` is CONFIG, one per host, declared in the clear in `render.yaml`** (an
+  origin is not a secret) — never derived from the `Host` header, which the caller controls. `auth-login`,
+  `auth-register`, `auth-anonymous`, forgot/reset/confirm are never mounted. A pin test asserts
+  the mounted path set.
+- `onOAuthProviderCallback` is the module's; it upserts `account_identities` on
+  `(provider, profile.id | profile.sub)` and returns `{ id: userId }`. **The `upgradingToken`
+  branch is decided (Eric 2026-09-09): a caller already holding a valid token who completes
+  OAuth with a SECOND provider gets that identity LINKED to the same user** — one account, two
+  ways in, both removed by deletion. The module's default merges by email, which we never
+  hold, and would have minted a second account silently. The JWT payload carries
+  the opaque user id and `tokenVersion`, nothing else. `expiresIn: '30d'`. Sign-out and
+  deletion call `db.auth.bumpTokenVersion(userId)`, which the module's `revocationCheck`
+  enforces on every verify.
+- The token lives where the SDK puts it (localStorage) and rides matchmaking as
+  `Authorization: Bearer`; both rooms' `static onAuth` verify it AFTER the PV and staging gates
+  and attach `{ userId }` or `null` (anonymous is a first-class result, not an error).
+- **Trap:** `colyseus_users.anonymous` defaults to `true` — the callback must write `false`.
+
+### D14 — Card ids (detail)
+
+- `shared/src/sim/catalog.ts` declares `LINE_IDS` (29 camelCase ids, one per catalog v3 line)
+  and the per-line cap; the deck-legality check (`shared/src/sim/deckRules.ts`, pure) and the
+  store both address cards by these ids. Display names live only in client copy. Adding a line
+  = one id + one cap; a rename = zero store migrations.
+
+### D15 — Deletion (detail)
+
+- `DELETE /api/account` (authenticated): one transaction — delete identities, profile, decks,
+  unlocks, progress, the `colyseus_users` row; set `match_participants.user_id = NULL` on every
+  row that referenced it; bump token version first so no live token survives. Response 204.
+  Settings gains a DELETE ACCOUNT control with a confirm. The privacy paragraph states both the
+  deletion path and that anonymized match records are retained.
+
+### D16 — Admin & the players' history route (detail)
+
+- `@colyseus/admin` mounted at `/admin` + `/admin-api` in BOTH environments, gated by its own
+  login (the bootstrap admin is created ONCE, out of band, never by a route); on the dev host
+  it sits BEHIND the staging gate so the password page comes first — two doors, one secret,
+  cycle 127's posture. Player accounts never hold an admin role.
+  Account tables are exposed through its `tables` option so history is browsable without SQL.
+  **Knowing exception, ledgered:** the admin login stores ONE password hash — Eric's — in
+  `colyseus_users`; the "no own email/password storage" rejection was about players and stands.
+- Players: `GET /api/account/history?cursor=` returns the caller's own `match_participants`
+  rows (brought / drawn / taken, placement, kills, T+ stamps). Enemy decks are never returned
+  by any route — the query is keyed on the caller's user id, not on match id.
+
+### D17 — Prefs & settings (detail)
+
+- **Two states, nothing in between (Eric 2026-09-09):** *"Anonymous accounts don't get
+  anything but the starter deck. If someone wants an account THEN AND ONLY THEN do they get
+  progression and deckbuilding … leave settings connected to localstorage. BUT if someone DOES
+  have an account, then we can switch them to their database account settings."* So the
+  anonymous path is byte-identical to today: `hullcracker.*` localStorage for callsign, colour
+  preference, last class and the settings store; no XP accrues, no deck editor renders.
+- Signed in, `account_profiles` is the source of truth and the client switches to it: on the
+  FIRST sign-in of a fresh account (no profile row) the local values SEED the row — the account
+  never wipes a callsign someone has carried for weeks; on every later sign-in the account wins
+  and overwrites local; edits while signed in write both. Sign-out leaves local as it was.
+  The callsign becomes stored personal data and is named in the privacy paragraph.
+
+### D18 — Write path (detail)
+
+- **At the DOOR — both doors:** SOLO VS AI is `client.create('arena', { solo: true })` and never
+  touches the queue, so "the queue loads the deck" alone would leave solo on the starter deck
+  forever or, worse, trusting client options. ONE shared `loadDeckFor(userId, deckId, hull)`
+  is called by `StandardQueueRoom.onJoin` for standard and by `ArenaRoom.onJoin` for solo. It
+  loads the deck for that user, runs `deckRules.check()` (pure, `shared/`) against the catalog
+  caps and the account's unlocks, and returns the 40 line ids, which the queue puts into the
+  seat reservation options exactly as it already does for `name`/`cls`/`horn`
+  (`sanitizeArenaOptions`). **A client-supplied `deck` key is REJECTED by the sanitizer at
+  BOTH doors** — a deck reaches the arena only because the server put it there. Anonymous →
+  the hull's starter deck; invalid → a refusal with a reason, never a silent substitution.
+- **At match end:** the room builds a server-only **`MatchRecord`** from `World` (deck state is
+  server-private) and `Match` (placements) and calls `accountWriter.recordMatch(record)` —
+  fire-and-forget, logged on failure (`account.write.failed { matchId }`), never awaited on
+  the tick. **`MatchRecord` is NEVER `ResultsMsg`:** the wire results row is broadcast to every
+  client, so a deck field added there would hand every enemy deck to every player — not a
+  spatial leak, so the perception invariant would not catch it. A pin test asserts `ResultsMsg`
+  carries no deck field. **The writer DRAINS on shutdown** (`AccountWriter.flush()` from the app
+  shutdown hook): Render sends SIGTERM on every deploy, and twenty matches ending as the process
+  dies must not lose twenty XP grants. XP and tokens are computed
+  from the SAME `MatchRecord` by a pure `shared/` function (`progression.ts`: placement
+  scaling, Solo-vs-AI discount, the matches-to-catalog CONFIG dial) and written in the same
+  transaction as the history rows. Bots' and anonymous captains' decks are recorded with
+  `user_id = NULL`; a captain who DELETED their account mid-match is written the same way
+  (the FK's `ON DELETE SET NULL` plus a writer that treats a vanished user as anonymous), so
+  one deletion can never roll back a whole match's history.
+
+### What did NOT move
+
+- The master perception invariant keeps SIX declared exceptions; nothing spatial changes.
+- Story 7-7 stays deferred in full; no new deployable, no CORS, no cross-origin cookie.
+- `PROTOCOL_VERSION` moves for the 0.18 schema encoder (D10) and again when E8 adds `deckId`
+  and consumable slot state to the wire — never for the account API, which is HTTP.
 
 ---
 
@@ -653,6 +878,106 @@ interface PortalAdapter {
 
 ---
 
+### Cross-cutting Concerns — Account Store amendment (2026-09-09)
+
+The three-zone error strategy, stdout-only logging, the no-event-bus law and the activation
+law above all STAND. The account store adds a FOURTH zone and extends each pattern; nothing
+below relaxes an existing rule.
+
+#### Error Handling — the fourth zone: the account layer never takes the game down
+
+- **Boot:** `DATABASE_URL` unset → the module is inert (D9). `DATABASE_URL` set but the
+  database unreachable or a migration failing → the process STILL STARTS with the account
+  module OFF, logs `account.disabled { reason }` once, and `/liveness` reports
+  `account: false`. The game must never depend on the database being up — and neither
+  service has a `healthCheckPath` today (deferred-work.md), so a refused boot would be an
+  outage, not a held deploy.
+- **Doors:** a signed-in captain whose deck cannot be loaded (query failure, deck missing,
+  illegal) is REFUSED with a stable code — `account.unavailable`, `deck.missing`,
+  `deck.illegal { rule }` — never silently seated on the starter deck (D18). The client shows
+  the reason and offers SAIL STARTER DECK as an explicit act. Anonymous joins are untouched by
+  any account failure.
+- **HTTP endpoints:** Result-shaped JSON — `{ ok: true, … }` or `{ ok: false, code, reason }` —
+  with the same stable codes; HTTP status carries only the class (200/400/401/404/409/503).
+  No stack traces, no driver messages, no SQL leave the process.
+- **Tick law extended:** nothing inside `Room.update()` / `World.step()` may `await` the
+  database — a query on the tick is a bug in the same class as a throw in `shared/`. The
+  writer is the ONLY runtime path from a room to the store, and it is a queue.
+
+```ts
+// door (StandardQueueRoom.onJoin / ArenaRoom.onJoin — same helper, both doors)
+const deck = await loadDeckFor(auth.userId, options.deckId, cls);   // Result<LineId[], DoorError>
+if (!deck.ok) throw new ServerError(4001, deck.code);               // 'deck.illegal' etc. — never fall back
+```
+
+#### Logging — new events, and the FIRST PII rule the log has needed
+
+- New dot.case events: `account.signin { provider, userId }`, `account.link { userId }`,
+  `account.signout { userId }`, `account.delete { userId }`, `deck.rejected { userId, code }`,
+  `account.write.ok { matchId, rows }`, `account.write.failed { matchId, err }`,
+  `account.disabled { reason }`.
+- **Never logged:** tokens, provider subject ids, callsigns (a callsign is stored personal data
+  from D17 onward), deck contents. `userId` — the opaque server-minted id — is the only
+  identity a log line may carry. `match.end` stays byte-identical: zero PII, still true.
+- The hot-path law holds: the writer logs one line per match, never per row.
+
+#### Configuration — one new env table, two new CONFIG blocks, nothing client-side
+
+| Env var | Host | Secret | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | both, via `fromDatabase` | yes | Postgres connection; absent = module inert |
+| `JWT_SECRET`, `SESSION_SECRET` | both, `sync: false` | yes | token signing; OAuth state cookie |
+| `HC_OAUTH_GOOGLE_ID` / `_SECRET`, `HC_OAUTH_DISCORD_ID` / `_SECRET` | both, `sync: false`, one app per host | yes | provider clients (redirect URIs differ per host) |
+| `HC_SITE_ORIGIN` | both, in the clear | no | postMessage target for the replaced callback |
+
+- **No secret is ever a `VITE_` var** — `client/.env.*` is not gitignored. The client learns
+  "accounts exist" from `/liveness` (`account: true`), not from build-time config.
+- Shared `CONFIG` gains `deck` (`size: 40`, `maxEquipmentLines: 3`) and `progression`
+  (placement XP curve, `soloXpFactor`, `matchesToCatalog` — the OPEN intent dial, no
+  placeholder, and the flat unlock `tokenPrice [DRAFT]`). Both are gameplay-load-bearing, so
+  they live in `shared/`, ride `WelcomeMsg.config`, and bump `PROTOCOL_VERSION` only when the
+  client READS them (the `CONFIG.fleet` precedent).
+- The catalog's line ids and caps (D14) are configuration-adjacent code in `shared/`,
+  exactly like the boon catalog.
+
+#### Events — still no bus; the writer is a port with a queue, not a dispatcher
+
+- Server-internal: the room calls `accountWriter.recordMatch(record)` directly at ONE site (the
+  results hook). The writer holds an in-process FIFO, retries once, drains on shutdown. It
+  is a PORT (an interface the room is handed), not a pub/sub — no other subscriber may ever
+  exist, so the "no event bus" law is not bent.
+- Client-internal: one `account` slice in `state.ts` (`{ status: 'anonymous' | 'signedIn',
+  userId?, profile?, decks?, progress? }`), written ONLY by `net/account.ts` from HTTP
+  responses, read by `ui/`. One-way data flow stands; the deck editor is DOM chrome and never
+  touches the sim.
+- Wire: the account API is HTTP JSON and is NOT part of `PROTOCOL_VERSION`; its own contract
+  is the endpoint path set, pinned by test.
+
+#### Observability
+
+- `/metrics` gains `account: { signIns, writeOk, writeFailed, queueDepth, deckRejected }`.
+- `/liveness` gains `account: boolean` (module live) — the client's only signal to render
+  SIGN IN.
+- `@colyseus/admin` (D16) is the read surface for history; it is an ops console, not a metric.
+
+#### Debug & Development Tools
+
+- **Local dev needs no Postgres:** `@colyseus/database` supports the `pglite` dialect
+  (in-process Postgres). `HC_DEV_DB=pglite` runs the real schema and migrations in memory;
+  the server tests use the same dialect, so every account path is exercised by `npm run check`
+  against the real SQL. PGlite is dev/test only — production takes `DATABASE_URL` or nothing.
+- **The one sanctioned deck override:** under `HC_DEV_OPTIONS=1` ONLY, a door accepts a
+  `deckOverride` room option (line ids) for headless smokes and the batch-sim harness — gated
+  in `sanitizeRoomOptions` exactly like `matchOverride`, rejected everywhere else. This is the
+  sole exception to D18's "a client never supplies a deck".
+- Dev-only OAuth: a `HC_DEV_OPTIONS`-gated `devSignIn` endpoint mints a token for a named
+  local user so the deck editor can be driven without provider apps. Never mounted in
+  production — same activation law as every other dev tool.
+- Rate limiting: sign-in start and deck writes share `soloThrottle.ts`'s per-IP shape
+  (epic-7 amendment 45), env-tunable, in-memory — single instance, so no Redis.
+
+---
+
 ## Project Structure
 
 ### Organization Pattern
@@ -776,6 +1101,102 @@ salvo/
 7. DOM is chrome; everything tactical is Pixi. `state.ts` stays a leaf.
 8. Debug/dev code → `client/src/debug/` or behind `HC_DEV_OPTIONS` — never in production builds.
    *(RESTATED 2026-08-21, Story 7.6 — was "never in portal builds".)*
+
+---
+
+### Project Structure — Account Store amendment (2026-09-09)
+
+The organization pattern (layer-first, domain-organized within each layer) and the one law
+(`shared` imports from neither side) STAND. The store adds one server domain, one client
+domain, two shared modules, and a migrations folder — no new workspace and no new deployable.
+
+#### New homes
+
+```
+salvo/
+├── render.yaml                   # + databases: hullcracker-db / hullcracker-dev-db (D11), lands WITH the code
+├── shared/src/
+│   ├── constants.ts              # + CONFIG.deck, CONFIG.progression (Step 5)
+│   └── sim/
+│       ├── catalog.ts            # NEW — LINE_IDS (29 camelCase ids) + per-line caps + starter decks (D14)
+│       ├── deckRules.ts          # NEW — legal-deck check: exactly 40, ≤3 equipment lines, caps, ownership (pure)
+│       └── progression.ts        # NEW — xp per placement, solo discount, level(xp), tokensAvailable (pure)
+├── server/
+│   ├── drizzle/                  # NEW — drizzle-kit SQL migrations, checked in, run at boot (D12)
+│   └── src/
+│       ├── app.config.ts         # + ONE spread of accountEndpoints() into the existing createRouter call;
+│       │                         #   + admin mount (D16); + writer handed to both rooms; + shutdown drain
+│       ├── liveness.ts           # + account: boolean
+│       ├── metrics.ts            # + account counters
+│       ├── account/              # NEW — the whole store; imports nothing from game/
+│       │   ├── index.ts          #   accountEndpoints(), createAccountWriter(), isAccountEnabled() — the ONLY exports
+│       │   ├── db.ts             #   GameDatabase construction (pg | pglite dev/test); refuses without DATABASE_URL
+│       │   ├── schema.ts         #   Drizzle tables: account_identities, account_profiles, decks, unlocks,
+│       │   │                     #   account_progress, matches, match_participants (D12)
+│       │   ├── auth.ts           #   curated @colyseus/auth endpoint map; onOAuthProviderCallback (identity upsert + link)
+│       │   ├── oauthCallback.ts  #   the REPLACED popup callback — postMessage to HC_SITE_ORIGIN (D13)
+│       │   ├── session.ts        #   verifyToken(headers) → { userId } | null — what both rooms' static onAuth call
+│       │   ├── decks.ts          #   loadDeckFor(userId, deckId, hull) — the door helper (D18); deck CRUD for the editor
+│       │   ├── progress.ts       #   unlock(lineId), atomic xp increment, derived level/tokens
+│       │   ├── history.ts        #   the player's own history query (cursor-paged)
+│       │   ├── writer.ts         #   AccountWriter: FIFO, recordMatch(MatchRecord), flush() (D18)
+│       │   ├── deletion.ts       #   the one-transaction delete (D15)
+│       │   ├── endpoints.ts      #   better-call endpoints: /api/account/{me,profile,decks,unlock,history,delete}
+│       │   ├── throttle.ts       #   per-IP limits, soloThrottle's shape
+│       │   └── devSignIn.ts      #   HC_DEV_OPTIONS-only token mint
+│       ├── rooms/
+│       │   ├── roomOptions.ts    # + deckId sanitizer; REJECTS `deck`; deckOverride under HC_DEV_OPTIONS only
+│       │   ├── StandardQueueRoom.ts  # + verifyToken in static onAuth; + loadDeckFor in onJoin
+│       │   └── ArenaRoom.ts      # + verifyToken in static onAuth; + loadDeckFor for solo; + MatchRecord → writer
+│       └── game/
+│           └── matchRecord.ts    # NEW — MatchRecord type + builder from World + Match (server-only, never wire)
+└── client/src/
+    ├── state.ts                  # + account slice (leaf stays a leaf)
+    ├── net/account.ts            # NEW — the ONLY writer of the account slice: sign-in (client.auth), /api/account/* calls
+    ├── settings/store.ts         # + account-backed source when signed in (D17); localStorage otherwise
+    └── ui/
+        ├── signIn.ts             # NEW — SIGN IN row on the home screen (DOM chrome), rendered only when liveness says account:true
+        ├── deckEditor.ts         # NEW — the deckbuilder (DOM chrome); legality feedback via shared deckRules
+        ├── history.ts            # NEW — own match history (DOM chrome)
+        └── settings.ts           # + DELETE ACCOUNT control
+```
+
+#### System → Location Mapping (additions)
+
+| System (decision) | Home | Boundary note |
+|---|---|---|
+| Catalog ids + caps + starters (D14) | `shared/src/sim/catalog.ts` | Data; the deck rules and the store address cards by these ids only |
+| Deck legality (D18) | `shared/src/sim/deckRules.ts` | Pure; server runs it at the door, client runs it in the editor for feedback — one function, never two |
+| Progression math (D18) | `shared/src/sim/progression.ts` | Pure; the writer folds its result into one atomic update |
+| The store (D9–D13, D15) | `server/src/account/` | Imports `shared/` and Colyseus; NEVER `game/`. `game/` never imports it |
+| Token verification (D13) | `account/session.ts` ← both rooms' `static onAuth` | Runs AFTER the PV and staging gates; `null` = anonymous, never an error |
+| Deck at the door (D18) | `account/decks.ts` ← `StandardQueueRoom.onJoin` + `ArenaRoom.onJoin` (solo) | The one helper, both doors; a client `deck` key is rejected in `roomOptions.ts` |
+| Match record (D18) | `game/matchRecord.ts` → `account/writer.ts` | Server-only type; a pin test proves `ResultsMsg` has no deck field |
+| Admin console (D16) | `app.config.ts` mount | Behind its own login; behind the staging gate on dev |
+| Account API (D16) | `account/endpoints.ts` spread into the ONE `createRouter` call | HTTP JSON, not `PROTOCOL_VERSION` |
+| Client account state (Step 5) | `client/src/state.ts` + `net/account.ts` | One-way: net → state → ui; the sim never reads it |
+| Deck editor / history / sign-in (E9) | `client/src/ui/` | DOM chrome only; nothing tactical |
+
+#### Naming Conventions (additions)
+
+| Element | Convention | Example |
+|---|---|---|
+| Database tables / columns | snake_case, plural tables, `account_` prefix on account-owned tables | `account_profiles.color_pref`, `match_participants` |
+| Migration files | drizzle-kit's `NNNN_<slug>.sql`, committed | `server/drizzle/0001_account_store.sql` |
+| Line ids | camelCase, one per catalog line, matching boon-id style | `'heavyTorpedo'`, `'hullRepair'` |
+| HTTP paths | `/api/account/<noun>`; auth stays at the module's `/auth/*` | `/api/account/history` |
+| Error codes | dot.case, `<domain>.<reason>` | `deck.illegal`, `account.unavailable` |
+| Env vars | `HC_` prefix for ours; the module's own names kept verbatim | `HC_SITE_ORIGIN`, `JWT_SECRET` |
+
+#### Architectural Boundaries (two new placement rules)
+
+9. **Persistence → `server/src/account/`, and it never reaches the sim.** `game/` imports
+   nothing from `account/`; rooms touch it at exactly three sites — `static onAuth`
+   (verify), `onJoin` (load deck), the results hook (record). No fourth site without an
+   amendment.
+10. **A deck enters a match only through `loadDeckFor`.** Never from a client option, never
+    from schema, never from `WelcomeMsg`. The single dev exception is `deckOverride`, gated
+    like `matchOverride`.
 
 ---
 
@@ -961,6 +1382,138 @@ No data managers, no locators, no runtime loading of gameplay data. Client feel 
 
 ---
 
+### Implementation Patterns — Account Store amendment (2026-09-09)
+
+Four patterns, all novel to this codebase because nothing persisted before. Each has ONE
+canonical shape; an agent that finds itself writing a second shape for the same job is
+wrong.
+
+#### Novel Pattern 6: The Door (verify, then load — both doors, one helper)
+
+**Purpose:** a token becomes a seat and a deck at exactly one place per door, and the two
+doors (queue for standard, arena for solo) cannot drift.
+
+**Components:** `account/session.ts` (`verifyToken`), `account/decks.ts` (`loadDeckFor`),
+`rooms/roomOptions.ts` (the sanitizer that ACCEPTS `deckId` and REJECTS `deck`),
+`shared/sim/deckRules.ts` (the pure check).
+
+**Data flow:** `static onAuth(token, options, ctx)` → PV gate → staging gate →
+`verifyToken(ctx.headers)` → `{ userId } | null` → `onJoin(client, options)` →
+`loadDeckFor(userId, options.deckId, cls)` → `Result<LineId[], DoorError>` → seat options (queue)
+or the ship's deck (solo arena). The ORDER of the three gates is fixed: cheapest and most
+disclosing-of-nothing first.
+
+```ts
+// rooms/StandardQueueRoom.ts and rooms/ArenaRoom.ts — identical shape, no copy-paste: both call the helpers
+static async onAuth(token: string, options: JoinOptions, ctx: AuthContext) {
+  const pv = protocolVersionError(options.pv);  if (pv) throw new ServerError(4000, pv);
+  const gate = stagingGateError(ctx.headers);   if (gate) throw new ServerError(4000, gate);
+  return { userId: await verifyToken(ctx.headers) };            // null = anonymous, a valid answer
+}
+async onJoin(client: Client, options: JoinOptions) {
+  const deck = await loadDeckFor(client.auth.userId, options.deckId, sanitizeClassId(options.cls));
+  if (!deck.ok) throw new ServerError(4001, deck.code);          // never a silent starter
+  …
+}
+```
+
+**Edge cases the pattern owns:** anonymous + `deckId` present → ignored, starter deck;
+signed in + no `deckId` → the account's LAST-USED deck for that hull, else starter; a deck
+whose lines the account no longer owns (can't happen today — unlocks are never revoked — but
+`deckRules` checks ownership anyway); module disabled → `account.unavailable` for a
+token-bearer, silent anonymous for everyone else.
+
+#### Novel Pattern 7: MatchRecord → AccountWriter (a port with a queue)
+
+**Purpose:** the sim's private truth (every deck, every draw, every pick) reaches the store
+without the sim knowing the store exists, and without ever touching the wire.
+
+**Components:** `game/matchRecord.ts` (type + `buildMatchRecord(world, match)`),
+`account/writer.ts` (`AccountWriter` interface + `createAccountWriter(db)` + a `NullWriter`
+for tests and the disabled state), `shared/sim/progression.ts` (pure XP/token math).
+
+**Data flow:** results hook fires ONCE → room builds `MatchRecord` → `writer.recordMatch(rec)`
+returns synchronously after enqueueing → the queue drains off-tick: one transaction per match
+(insert `matches`, insert N `match_participants`, N atomic `xp` increments computed by
+`progression.ts`) → `account.write.ok` / `account.write.failed`. `flush()` awaits the queue
+from the app shutdown hook.
+
+```ts
+// game/matchRecord.ts — server-only. Pin test: ResultsMsg has no key named deck*.
+export interface MatchRecord {
+  matchId: string; mode: 'standard' | 'solo'; startedAt: number; endedAt: number;
+  participants: Array<{ userId: string | null; role: ShipRole; cls: ClassId; placement: number;
+    kills: number; brought: LineId[]; drawn: Array<{ lineId: LineId; atMs: number }>;
+    taken:  Array<{ lineId: LineId; atMs: number }> }>;
+}
+// rooms/ArenaRoom.ts — the ONLY call site
+this.writer.recordMatch(buildMatchRecord(this.world, this.match));   // returns void; never awaited here
+```
+
+**Rules:** the room never awaits the writer; the writer never throws into the room; a
+`NullWriter` is what a disabled module injects, so rooms carry no `if (accountEnabled)`.
+
+#### Novel Pattern 8: Curated Auth Map + Identity Upsert (the module, used narrowly)
+
+**Purpose:** take `@colyseus/auth`'s OAuth machinery and JWT plumbing while mounting NONE of
+its rejected surfaces and keying identity our way.
+
+**Components:** `account/auth.ts` (builds the map), `account/oauthCallback.ts` (the replaced
+endpoint), `account/schema.ts` (`account_identities`).
+
+```ts
+// account/auth.ts — the map is built by hand; a pin test asserts exactly this key set
+const oauth = oauthEndpoints({ prefix: '/auth/provider' });
+export const authMap = {
+  'auth-userdata':        userdataEndpoint('/auth'),
+  'auth-oauth-start':     oauth['auth-oauth-start'],
+  'auth-oauth-callback':  pinnedOriginCallback(process.env.HC_SITE_ORIGIN!),   // ours, not the module's
+};
+// onOAuthProviderCallback — identity, never email
+auth.settings.onOAuthProviderCallback = async (data, provider) => {
+  const subject = data.profile.sub ?? data.profile.id;
+  const linkTo  = data.upgradingToken?.id ?? null;                  // a signed-in caller adding a 2nd provider
+  const userId  = await upsertIdentity({ provider, subject, linkTo });
+  return { id: userId, anonymous: false };                          // this object IS the JWT payload
+};
+```
+
+**Rules:** the returned object is the JWT payload — return the id and nothing else; `email`
+is never read from a profile; `anonymous: false` is explicit because the module's column
+default is `true`; `upgradingToken` links, never merges, never mints.
+
+#### Novel Pattern 9: Two-State Settings Source
+
+**Purpose:** Eric's ruling — anonymous is localStorage as today; signed in switches to the
+account — implemented as ONE store with two backends, never two stores.
+
+```ts
+// client/settings/store.ts — the subscribe seam every consumer already reads is unchanged
+type SettingsSource = 'local' | 'account';
+// on sign-in: if the account has no profile row → seed it from local (never wipe a callsign);
+// else load account → overwrite local. On every edit while signed in: write both. Sign-out: leave local.
+```
+
+**Rules:** consumers never know which backend is live; `net/account.ts` is the only module
+that flips the source; the anonymous path is byte-identical to today, pinned by the existing
+settings tests running with `source: 'local'`.
+
+#### Consistency Rules (additions)
+
+| Rule | Convention | Enforcement |
+|---|---|---|
+| One helper per door duty | `verifyToken` + `loadDeckFor` called from BOTH rooms; never reimplemented | pin test: both rooms import both; review |
+| Deck never from the client | `roomOptions.ts` rejects `deck`; accepts `deckId`; `deckOverride` only under `HC_DEV_OPTIONS` | sanitizer tests |
+| MatchRecord ≠ ResultsMsg | server-only type; the wire results row carries no deck field | pin test on `ResultsMsg` keys |
+| No `await` on the tick | no database call inside `update()` / `World.step()` | lint restriction on `account/` imports under `game/` + review |
+| One transaction per match | history + N atomic `xp` increments together | writer tests |
+| JWT payload is `{ id, tokenVersion }` | nothing else, ever; screens read `/api/account/me` | callback test asserts payload keys |
+| Curated auth map | exactly userdata + oauth-start + our callback | pin test on mounted path set |
+| Line ids everywhere | store, `deckId` wire, editor, sim speak `LineId`; display names only in `client/src/ui/` | type; review |
+| Module inert without `DATABASE_URL` | no `GameDatabase` construction, no routes, no SIGN IN | boot test |
+
+---
+
 ## Architecture Validation
 
 ### Validation Summary
@@ -1020,6 +1573,82 @@ document.
 
 ---
 
+### Architecture Validation — Account Store amendment (2026-09-09)
+
+#### Validation Summary
+
+| Check | Result | Notes |
+|---|---|---|
+| Decision Compatibility | PASS | D9 in-process ↔ 7-7 deferred (no new deployable); D12/D13/D16 all 0.18-only ↔ D10 upgrade sequenced FIRST; D8's "no Redis on Render" ↔ 0.18 auth keeps OAuth state in a signed cookie and the admin rate limiter in memory — no Redis anywhere; D11 no-disk ↔ zero-downtime deploys kept; D18 off-tick writer ↔ the zero-Colyseus-in-World law and the tick-error boundary |
+| GDD Coverage | PASS | Every GDD account clause has a home: two states / no guest tier (D17, Pattern 9); provider + opaque subject only (D13, Pattern 8); no email/name/password (schema: `email` NULL forever, no password for players); deck frozen at queue (Pattern 6); server-private deck state (Pattern 7 — `MatchRecord` never the wire); several decks per hull (`decks` table); own history to the player, every deck to Eric (D16 + `match_participants`); unlocks variety-never-power (store shape only — the win-band is the harness's job); privacy-policy delta inputs enumerated below; "no account required, playable in ~10 s" preserved (anonymous path byte-identical) |
+| Pattern Completeness | PASS | Door (creation of a seat+deck), writer (communication: port + queue), two-state settings (state), fourth error zone (errors), Drizzle via the module (data access), no bus (events) — each with one canonical shape and a pin |
+| Version Specificity | PASS | Every package pinned and registry-verified 2026-09-09 (D10). ONE flagged RC: `@colyseus/database` 0.18.3 depends on `drizzle-orm 1.0.0-rc.2` — the only pre-release in the tree; it is the module's choice, not ours, and is ledgered |
+| Epic Mapping | PASS with one consequence | E9 stories 1–7 each map to files (below). **E9 has no story for the 0.18 upgrade** (D10) — `gds-create-epics-and-stories` must add it as story 0, sequenced first, its own PR |
+| Document Completeness | PASS | No placeholders of this document's own; the two `[DRAFT]` tags (`tokenPrice`, the `matchesToCatalog` dial) are the GDD's declared open items, carried by name, never invented |
+
+#### E9 story → architecture mapping
+
+| E9 story | Home | Pattern |
+|---|---|---|
+| 0 (NEW) Colyseus 0.18 upgrade | every `@colyseus/*` on both sides; `ArenaRoom` `setTimestep`; schema 5 | D10; own PR; PV bump |
+| 1 OAuth sign-in + two-state posture | `account/auth.ts`, `oauthCallback.ts`, `session.ts`; `ui/signIn.ts`; `net/account.ts` | Pattern 8; D17 |
+| 2 Store + non-ops HTTP API | `account/db.ts`, `schema.ts`, `endpoints.ts`, `server/drizzle/`; `render.yaml` `databases:` | D11, D12; Step 5 env table |
+| 3 Deck editor | `ui/deckEditor.ts`; `shared/sim/deckRules.ts`, `catalog.ts`; `account/decks.ts` CRUD | D14; one legality function both sides |
+| 4 Deck selection at join + freeze | `roomOptions.ts` (`deckId`), both rooms' `onJoin`, `account/decks.ts` `loadDeckFor` | Pattern 6 |
+| 5 Tokens, XP, unlocks, the dial | `shared/sim/progression.ts`, `CONFIG.progression`; `account/progress.ts`; `writer.ts` | Pattern 7; atomic increments |
+| 6 Match history + Eric's view | `game/matchRecord.ts`, `account/history.ts`, `ui/history.ts`; `@colyseus/admin` mount | Pattern 7; D16 |
+| 7 Privacy paragraph | `client/src/privacy/policyCopy.ts` | inputs enumerated below |
+
+#### Privacy-paragraph inputs (what the store makes true, for E9 story 7)
+
+Signed-in accounts hold: a provider name and an opaque provider subject id; the chosen
+callsign, colour preference and last class; the settings store; decks; unlocks and progress
+(xp, tokens spent); per-match rows of the player's own deck, draws and picks with placement
+and kills. A session token is kept in the browser's localStorage for 30 days. Deleting the
+account removes all of the above and leaves match rows with no account reference. Nothing is
+stored for a player who does not sign in. The operator's admin console can read these tables.
+(Every sentence above is a claim about shipped behaviour — `policyCopy.ts`'s standing rule.)
+
+#### Issues Found & Resolved (this pass)
+
+- **Solo door bypass** (party): the arena creates its own room and never touches the queue,
+  so "load at queue" alone left a hole — resolved by one helper at both doors + sanitizer
+  rejection of `deck` (Pattern 6).
+- **Enemy-deck leak via `ResultsMsg`** (party): resolved by the server-only `MatchRecord` and a
+  key pin (Pattern 7).
+- **History rollback on mid-match deletion** (party): resolved by `ON DELETE SET NULL` and the
+  anonymous-write rule (D15/D18).
+- **Lost writes on deploy** (party): resolved by `flush()` on shutdown (Pattern 7).
+- **Module identity keyed by email** (measured): resolved by our own callback keyed on
+  `(provider, subject)` with linking (Pattern 8).
+- **Wildcard postMessage** (measured): resolved by the replaced callback + `HC_SITE_ORIGIN`.
+- **Silent SQLite fallback** (party): resolved by the no-URL-no-database pin (D9).
+
+#### Ledgered, not resolved (for deferred-work.md)
+
+- `drizzle-orm` is an RC inside `@colyseus/database` 0.18.3 — pin the module's exact version;
+  revisit when the module moves to a stable Drizzle.
+- Six new `sync: false` secrets in `render.yaml` — an unattended Blueprint sync reports
+  `error` and skips each until its value is set in the dashboard (cycle 127's
+  `HC_STAGING_KEY` observation, now ×7). The account module is inert until they exist; set
+  them BEFORE merging the account PR to `main`.
+- The admin console stores Eric's one password hash (D16 knowing exception).
+- `@colyseus/admin`'s own guidance — *"serve on separate hostname or behind network guard
+  until access controls tighten"* — is not followed at launch; it sits on the public host
+  behind its login (and the staging gate on dev). Revisit if it ever holds more than one
+  admin.
+- Story 7-7's revival brief gains a line: the account API is same-origin HTTP with a Bearer
+  token, so option A (full split) needs CORS on `/api/*` and `/auth/*`; options B and C need
+  nothing.
+
+#### Overall Status: PASS — the amendment is ready to guide E9 story creation
+
+#### Validation Date
+
+2026-09-09
+
+---
+
 ## Development Environment
 
 ### Prerequisites
@@ -1038,6 +1667,22 @@ npm run check               # lint + type-check + all tests — the gate before 
 npm run build               # build order: shared → client → server
 ```
 
+### Setup Commands — Account Store additions (2026-09-09)
+
+```bash
+# Local dev needs no Postgres: the module runs the real schema on PGlite (in-process Postgres).
+HC_DEV_DB=pglite HC_DEV_OPTIONS=1 npm run dev     # accounts ON locally, devSignIn endpoint mounted
+npm run dev                                        # accounts OFF (no DATABASE_URL) — the game is byte-identical to today
+npx drizzle-kit generate --config server/drizzle.config.ts   # after a schema.ts change: writes server/drizzle/NNNN_*.sql (commit it)
+```
+
+- Server tests run the account paths on the `pglite` dialect, so `npm run check` exercises
+  the real SQL with no service running.
+- Real OAuth needs one app per host (redirect URIs differ): set the `HC_OAUTH_*`, `JWT_SECRET`,
+  `SESSION_SECRET` and `HC_SITE_ORIGIN` values in the Render dashboard for `hullcracker-dev`
+  first; the module is inert until `DATABASE_URL` exists. Never put any of them in a `VITE_`
+  var or a `client/.env.*` file (not gitignored).
+
 ### AI Tooling (MCP Servers)
 
 No engine-specific MCP is applicable (custom TypeScript engine — see the closed MCP-engine
@@ -1045,7 +1690,7 @@ question in Engine & Framework). Recommended, engine-agnostic:
 
 | Tool | Purpose | Install type |
 |---|---|---|
-| **Context7** (upstash/context7) | Current-docs lookup for Colyseus 0.17 / PixiJS 8 APIs instead of training-data recall | MCP server |
+| **Context7** (upstash/context7) | Current-docs lookup for Colyseus 0.18 / PixiJS 8 APIs instead of training-data recall (0.17 → 0.18 per D10, 2026-09-09) | MCP server |
 | **PixiJS AI agent skills** (bundled with 8.19) | Client render assistance | Package (evaluate) |
 
 The repo's `project-context.md` (41 rules) plus this architecture document are the primary
@@ -1060,6 +1705,12 @@ AI-agent guidance — text, tests, and these two documents are the tooling inves
 3. Then the GDD epic sequence: **E1 → E2 → E3 → E6 → E4 → E5 → E7.**
 4. Recommended gate before E1 code: the **implementation-readiness** check (GDD ↔ Architecture
    ↔ Stories alignment).
+
+**Amended 2026-09-09 — E8/E9 order.** E1–E7 have shipped. Next: **E9 story 0 — Colyseus
+0.17 → 0.18** (its own PR, PV bump, full smoke pass), then E8 (the deck, plays anonymously on
+starter decks) and E9 (the account) as the ratified one-unit release; `gds-create-epics-and-
+stories` cuts E9's stories against the Account Store amendment, and the `databases:` entries
+in `render.yaml` land in the same PR as the code that reads them.
 
 ---
 

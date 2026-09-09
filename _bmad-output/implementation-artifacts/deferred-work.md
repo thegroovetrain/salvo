@@ -1789,3 +1789,37 @@ Four threads left open by the broadside zero-overlap arc ladder. None is a defec
 - source_spec: `_bmad-output/implementation-artifacts/spec-home-community-links.md`
   summary: `client/.env.local` (and every `.env.*` variant Vite loads) is NOT gitignored — only bare `.env` is — so a developer who follows the render.yaml invitation to set `VITE_*` vars locally can commit them; a real secret in one would ship to a public repo.
   evidence: Blind Hunter review, cycle 132 — `.gitignore` ignores `.env` only; Vite loads `.env.local`, `.env.[mode]`, `.env.[mode].local` (vite/dist/node/chunks loadEnv). Pre-existing, surfaced by the community-links vars being the first `VITE_*` a developer is invited to set locally.
+
+## 2026-09-09 — gds-game-architecture account-store amendment (E9): ledgered, not resolved
+
+Source: `_bmad-output/game-architecture.md`, "Architecture Validation — Account Store amendment (2026-09-09)". A planning pass, not a build cycle — nothing below is a defect in shipped code; each is a consequence of a decision Eric made that the E9 stories must carry.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D12)
+  status: OPEN — pin at build time
+  summary: `@colyseus/database` 0.18.3 depends on `drizzle-orm 1.0.0-rc.2`, the only pre-release in the tree. Pin the module's exact version in `server/package.json`; revisit when the module moves to a stable Drizzle.
+  evidence: `npm view @colyseus/database@0.18.3 dependencies`, 2026-09-09.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, Step 5 env table)
+  status: OPEN — ops step before the account PR reaches `main`
+  summary: Six new `sync: false` secrets (`JWT_SECRET`, `SESSION_SECRET`, `HC_OAUTH_GOOGLE_ID/SECRET`, `HC_OAUTH_DISCORD_ID/SECRET`) join `HC_STAGING_KEY` in `render.yaml`. An unattended Blueprint sync reports `error` and skips each until its value is set in the dashboard (cycle-127 observation, now ×7). The module is inert until `DATABASE_URL` exists, so the game is safe either way — but accounts on production will be OFF until every value is set by hand. Set them on `hullcracker-dev` first.
+  evidence: cycle 127 `HC_STAGING_KEY` sync behaviour (this file, 2026-08-22 section); `render.yaml` header.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D16)
+  status: ACCEPTED — knowing exception, Eric 2026-09-09
+  summary: `@colyseus/admin`'s login stores ONE password hash (Eric's bootstrap admin) in `colyseus_users`. The forge's "no own email/password storage" rejection was about PLAYERS and stands; this is the operator's console credential. Bootstrap is out of band, never a route.
+  evidence: `@colyseus/admin` 0.18.5 docs (session login + RBAC); `@colyseus/database` `colyseus_users.password_hash`.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D16)
+  status: OPEN — revisit if the console ever holds more than one admin
+  summary: `@colyseus/admin`'s own guidance — "serve on separate hostname or behind network guard until access controls tighten" — is NOT followed at launch: `/admin` sits on the public host behind its login (and behind the staging gate on dev). One admin, in-memory rate limiter, single instance.
+  evidence: docs.colyseus.io/admin production-safety notes, read 2026-09-09.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D9)
+  status: OPEN — one line for the 7-7 revival brief
+  summary: The account API is same-origin HTTP with a Bearer token (no cookie). If Story 7-7 is ever revived, option A (full cross-origin split) needs CORS on `/api/*` and `/auth/*` and a matching `HC_SITE_ORIGIN`; options B (assets-only CDN) and C (status quo) need nothing. Append to the 2026-08-21 7-7 section's revival brief when it is next touched.
+  evidence: this file, 2026-08-21 — Story 7-7 DEFERRED IN FULL, "three options, not two".
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, Epic Mapping)
+  status: OPEN — for `gds-create-epics-and-stories`
+  summary: E9 as written (epics.md, stories 1–7) has NO story for the Colyseus 0.17 → 0.18 upgrade that D10 makes a prerequisite. Add it as E9 story 0: its own PR, `PROTOCOL_VERSION` bump (schema 5 encoder), full headless-smoke pass, sequenced before any account code and before E8.
+  evidence: `npm view` 2026-09-09 — `@colyseus/database` and `@colyseus/admin` exist only with `@colyseus/core` 0.18.x peers.
