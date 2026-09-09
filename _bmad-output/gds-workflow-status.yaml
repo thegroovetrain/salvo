@@ -16,7 +16,7 @@
 # ledgers and the keys themselves remain in git history.)
 
 generated: '2026-07-15'
-last_updated: '2026-09-09'  # gds-gdd update folded catalog v3 in (GDD open note 12 closed; notes 19-21 opened); E8 stories via gds-create-epics-and-stories next. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
+last_updated: '2026-09-09'  # gds-gdd update folded catalog v3 in (GDD open note 12 closed; notes 19-22 opened); E8 stories via gds-create-epics-and-stories next. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -32,8 +32,8 @@ domain-research: false # optional
 create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/brief.md # complete 2026-07-15 (addendum + decision log alongside); superseding header added 2026-08-21 (Story 7-6, Eric ruling G2 "dated") — the body is the artifact of record
 
 # --- Phase 2: Design ---
-catalog-v3: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/catalog-v3.md # complete 2026-09-09 (Eric's sheet v2 walked line by line: 29 lines / 111 cards, 3 starters at 40, 44 rulings incl. the match consumable pool; [DRAFT] cells await the harness; gds-gdd update next)
-gdd: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md # complete 2026-07-16 (epics.md + decision-log.md alongside; PR #23); updated 2026-07-19 (three-class re-scope); reconciled 2026-08-21 (Story 7-6); updated 2026-09-03 (deck model v3 from forge/deck-model-v3/forged-idea.md — accounts, authored 40-card decks, consumable slots, heal-as-card, gun-only spawn; E8 The Deck + E9 The Account added); updated 2026-09-09 (catalog v3 folded in from catalog-v3.md — 29 lines / 111 cards, match consumable pool, Shift boost universal, radar buoy deleted, 09-04 structural rulings recorded; note 12 closed, notes 19-21 opened; E8 re-cut to 15 stories)
+catalog-v3: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/catalog-v3.md # complete 2026-09-09 (Eric's sheet v2 walked line by line: 29 lines / 114 cards [corrected from 111 on 2026-09-09], 3 starters at 40, 44 rulings incl. the match consumable pool; [DRAFT] cells await the harness; gds-gdd update next)
+gdd: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md # complete 2026-07-16 (epics.md + decision-log.md alongside; PR #23); updated 2026-07-19 (three-class re-scope); reconciled 2026-08-21 (Story 7-6); updated 2026-09-03 (deck model v3 from forge/deck-model-v3/forged-idea.md — accounts, authored 40-card decks, consumable slots, heal-as-card, gun-only spawn; E8 The Deck + E9 The Account added); updated 2026-09-09 (catalog v3 folded in from catalog-v3.md — 29 lines / 114 cards [the catalog's 111 was an arithmetic slip], match consumable pool, Shift boost universal, radar buoy deleted, 09-04 structural rulings recorded; note 12 closed, notes 19-22 opened; E8 re-cut to 15 stories)
 create-narrative: false # optional
 ux: _bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md # complete 2026-07-16 (EXPERIENCE.md peer contract + decision log + validation reports + mockups/ alongside); reconciled 2026-08-21 (Story 7-6, Eric rulings B1/C1-C4/D1-D5)
 prd: false # optional
