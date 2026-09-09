@@ -40,7 +40,7 @@ prd: false # optional
 
 # --- Phase 3: Technical ---
 generate-project-context: _bmad-output/project-context.md # complete 2026-07-17 (AI-agent implementation rules); 2026-08-21 (Story 7-6, Eric ruling G6): root DESIGN.md and TODOS.md are now DELETED, not merely deprecated
-game-architecture: _bmad-output/game-architecture.md # complete 2026-07-17 (custom TS engine ratified; 8 decisions, 5 novel patterns; validated PASS); portal/Chromebook sweep 2026-08-21 (Story 7-6, rulings G1/G3/G5)
+game-architecture: _bmad-output/game-architecture.md # complete 2026-07-17 (custom TS engine ratified; 8 decisions, 5 novel patterns; validated PASS); portal/Chromebook sweep 2026-08-21 (Story 7-6, rulings G1/G3/G5); account-store amendment 2026-09-09 (scoped pass for E9: D7 superseded, D8 amended, D9–D18 + Novel Patterns 6–9; Colyseus 0.18 upgrade = E9 story 0; validated PASS; gds-create-epics-and-stories for E8/E9 next)
 create-epics-and-stories: _bmad-output/planning-artifacts/epics.md # complete 2026-07-17 (8 epics / 59 stories; validated PASS); reconciled 2026-08-21 (Story 7-6, incl. NFR6 and the FR/UX-DR correction stamps)
 check-implementation-readiness: _bmad-output/planning-artifacts/implementation-readiness-report-2026-07-17.md # complete 2026-07-17 (READY — 0 critical; ~99% FR coverage; 14 non-blocking findings)
 
