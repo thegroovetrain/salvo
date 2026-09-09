@@ -56,9 +56,9 @@ TB · ML · BS.
 - Starter totals: TB **40**, ML **40**, BS **40** — all legal.
 - Equipment lines per starter: TB 3 (Light Torpedo, Heavy Torpedo, Machine Gun) · ML 3 (Naval
   Mines, Captive Mines, Flak Gun) · BS 3 (Horizontal Missile, Monitor Gun, Star Shells) — all at the ≤ 3 cap.
-- Catalog: **29 lines / 111 cards** — 11 equipment lines (55), 5 universal ladders (22), deck gun
+- Catalog: **29 lines / 114 cards** *(correction of record, gds-gdd update 2026-09-09: the first print said 111, but the components on this very line sum to 114 — 55 + 22 + 7 + 5 + 25 — and so does §1's cap column)* — 11 equipment lines (55), 5 universal ladders (22), deck gun
   3 lines (7), 5 add-ons (5), 5 consumables (25). Breadth target (~100 cards, ~25–30 lines): met.
-- Every starter carries the SAME 15 non-equipment universal cards bar the ladder mix: Hull Repair ×5, Deck Gun ×1, Turret ×1, Barrel ×2, Radar Sweep ×3, Reload ×3; the hull's tilt is Armor/Speed/Turning (TB 2/4/3 · ML 3/3/3 · BS 4/2/2) plus its 3 equipment lines and its 1 add-on.
+- Every starter carries the SAME 15 non-equipment universal cards bar the ladder mix: Hull Repair ×5, Deck Gun ×1, Turret ×1, Barrel ×2, Radar Sweep ×3, Reload ×3; the hull's tilt is Armor/Speed/Turning (TB 2/4/3 · ML 3/3/3 · BS 4/2/2) plus its 3 equipment lines and its add-on — TWO for the Battleship (Dazzle Shells + Heat Seeking; the sheet's rows 27–28), which is how BS 23 + 15 + 2 reaches 40 *(correction of record, gds-gdd update 2026-09-09: the first print said "its 1 add-on")*.
 - Unhomed at launch: Supercavitating Torpedo, Broadside Gun, Decoy Buoy, Phosphor Shells, and the Shield/Smoke/Chaff consumables — unlockables (or match-pool draws) only.
 - Sheet v1 → v2 diff: Hull Repair 2 → 5 on every hull (GDD note 10's ruling is back); Shield Block 2 → 0, Smoke 1 → 0, Chaff 1 → 0; Deck Gun 1 on every hull (was BS only); Dazzle Shells ×1 added to BS.
 
