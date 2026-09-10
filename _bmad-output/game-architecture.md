@@ -8,6 +8,7 @@ stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 status: 'complete'
 amendments:
   - '2026-09-09 — account store (E9): D7 superseded, D8 amended, D9–D18 added; scoped gds-game-architecture pass'
+  - '2026-09-10 — the deck (E8, upgrades v3): D2 amended, D19–D31 added, Novel Patterns 2–3 amended + 10–13 added; scoped gds-game-architecture pass'
 engine: 'Custom TypeScript (Colyseus 0.17 + PixiJS 8.19, npm-workspaces monorepo)'
 platform: 'Desktop browser (keyboard + mouse)'
 
@@ -42,6 +43,17 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/b
 > amendment governs. Headline: **Colyseus 0.17 → 0.18 is E9's story 0**, Render Postgres via
 > `render.yaml`, `@colyseus/database` + `@colyseus/auth` (OAuth only, curated) + `@colyseus/admin`,
 > the deck loaded at BOTH doors, and the sim never learning the store exists.
+
+> **AMENDMENT NOTICE — 2026-09-10 (The Deck, E8 / upgrades v3).** A second scoped
+> `gds-game-architecture` pass covers the systems catalog v3 (2026-09-09) and GDD epic *The Deck*
+> add: **D2 is AMENDED, D19–D31 ADDED, Novel Patterns 2–3 AMENDED and 10–13 ADDED**, with
+> matching Cross-cutting, Project Structure, Implementation Patterns and Validation blocks under
+> dated headings. Headline: **one boon engine with tiers as effect bundles**, a flat 9-slot
+> loadout (gun, Shift boost, three weapons, four consumables), the hidden match pool on a
+> room-private stream, wake drafting as a server-computed scalar the client folds, smoke as an
+> island for every sensor but radar, ONE ordnance target collector, a `held` input level for the
+> machine-gun stream, ONE damage gate (the shield lives there), no mine ceiling of any kind, and
+> total bot-tactic tables. Rulings Eric took live on 2026-09-10 are marked **(Eric)** in place.
 
 ## Executive Summary
 
@@ -426,7 +438,7 @@ section below.)*
 | # | Category | Decision | Rationale |
 |---|---|---|---|
 | D1 | Netcode / feel | Bounded fire-time compensation (RTT-clamped) + hits vs live server state; tick ratified at 20 Hz | Removes input-delay penalty (unfair) while preserving lead-the-target (the game); no rewind kills behind cover |
-| D2 | Boon effects | Hybrid: declarative descriptors + named shared behavior hooks (hooks pure/deterministic, parity-tested) | Two-home taxonomy made concrete; catalog stays data, exotic behavior stays deterministic in shared/ |
+| D2 (AMENDED 2026-09-10) | Boon effects | Hybrid: declarative descriptors + named shared behavior hooks (hooks pure/deterministic, parity-tested) — **amended by the Deck amendment: `stock` added, `slotReplace` deleted, lines carry tiers (D19)** | Two-home taxonomy made concrete; catalog stays data, exotic behavior stays deterministic in shared/ |
 | D3 | Perception | Signal registry + listening ring as bearing-only events | Add-a-signal = fill-in-a-row; invariant coverage by construction |
 | D4 | Match lifecycle | PROVISIONAL: sinking ships win-eligible until fully sunk; later-sinker wins; same-tick = draw. Sinking is a REVERSIBLE state | Design genuinely open (Eric, 2026-07-17); future heal may refloat — architecture commits to reversibility, not to the win rule |
 | D5 | Combat AI | Utility AI over observe() views, staggered ~250 ms; PvE drones on cheap threat-check tier; bot-vs-bot evaluation via the triple-duty harness | Structurally fair (bots lack the data to cheat); cost ceiling ≈ human lobby |
@@ -450,6 +462,8 @@ section below.)*
   agreement % and prediction-error bounds. Tick stays 20 Hz (50 ms).
 
 ### D2 — Boon Effect Model (detail)
+
+> **AMENDED 2026-09-10** — see *D2 — Boon Effect Model (AMENDED)* under the Deck amendment below. The descriptor engine stands; `slotReplace` is deleted, `stock` is added, and a catalog entry is a line with tiers (D19).
 
 - Each boon in the catalog: `{ id, category, effects: [...] }` in shared CONFIG.
 - Effect kinds and their homes:
@@ -723,6 +737,412 @@ section below.)*
 
 ---
 
+## Amendment 2026-09-10 — The Deck (E8, upgrades v3)
+
+> **Scope.** A scoped pass of the architecture workflow on the systems E8 (GDD epic *The
+> Deck*, catalog v3 of 2026-09-09) adds that D2, D3 and Novel Patterns 2–3 do not cover: the
+> tiered card model, the generic weapon and consumable slots, the match pool and the opening,
+> wake drafting, smoke as a sight occluder, the new ordnance classes and their signals, the
+> damage gate, and bot decks. **D2 is AMENDED (not superseded), Novel Patterns 2 and 3 are
+> AMENDED, and D19–D31 are ADDED.** Every other decision in this document stands, including the
+> whole 2026-09-09 account-store amendment (D9–D18) — D14's `shared/src/sim/catalog.ts` is the
+> SAME file D19 fills. Decisions marked **(Eric)** are rulings he took live on 2026-09-10; the
+> rest are recommendations he accepted. Nothing here invents a card or a number: every scalar
+> cited is catalog v3's, `[DRAFT]` where that document says so, and the code-seam facts were
+> read from `HEAD` (`PROTOCOL_VERSION` 49) on the same day.
+
+### Decision Summary (the deck)
+
+| # | Category | Decision | Rationale |
+|---|---|---|---|
+| D2 (AMENDED) | Boon effects | The descriptor engine STANDS (`stat` / `slotFill` / `doctrine` / `behavior`) and gains ONE kind, `stock`; `slotReplace` is DELETED; a catalog entry is now a LINE with TIERS, not a flat def | v3 has no replace flow (≤3 equipment lines per deck, three slots) and no rarity; the engine's homes are unchanged — `stat` still reaches only `effectiveStats()`, slot effects still run through the one shared `applySlotEffect` both sides replay |
+| D19 | Card model | **One engine, tiers as effect bundles**: a line is `{ id, kind, cap, tiers[] }`, tier N a bundle of D2's kinds, authored from a per-tier STEP TABLE so the catalog file reads like Eric's sheet; add-ons carry an explicit `appliesTo` list; the equipment reload step and the fractional-step floor are DERIVED in `clampStats`, never written by a card | Ladders, weapons, add-ons and consumables all ride one path; the sheet stays the authoring surface; order-independence of the fold becomes a pin |
+| D20 | Loadout | **One flat 9-slot array with roles**: `gun`, `boost`, `weapon ×3`, `consumable ×4`; one slot-state shape for all nine (a consumable is a stack that never reloads); the wire ammo array stays slot-aligned; the client keeps rebuilding slot contents by replaying the applied-card list | Every consumer (inputs, equipment tick, hotbar, wire) keeps its shape; class identity leaves the loadout entirely — every hull's loadout at 0:00 is identical |
+| D21 | Consumable activation | Consumables ride the TWO EXISTING input channels, split by `isWeapon`: key-fires on the ability counter (like the Shift boost), the aimed DECOY BUOY on the click counter with the mine's rear arc; a full slot row REFUSES the pick before the card leaves the deck, on one shared predicate both sides run | No new channel, no priming state, reconnect-safe by construction (slot state is `OwnShip`) |
+| D22 | Deck state | The deck is a **server-private multiset**; the match pool is rolled ONCE per room on a **server-private stream** (the zone-ring nonce pattern) and appended to every deck AFTER the legality check; **equal-weight draw** (copies in deck, nothing else); the level-zero draw carries a **usable-card guarantee**; the **mulligan is a spend sentinel**, honoured once, countdown only; the draw-pile counter is one self-private integer | Composition never rides the wire; the never-reroll pin gains exactly one asserted exception; the pool is unforgeable from anything a client holds |
+| D23 | Wake drafting | **Shared lift function, server-computed self-private scalar, client folds it**: `draftLift()` in `sim/wake.ts` over last tick's ribbons; `OwnShip.draft`; `draftedKinematics` is the THIRD per-tick step in the pinned fold `boosted → slowed → drafted → hooks`, identical on both sides | Prediction reads only own-ship state and the disclosed wake is a mask with no geometry, so client reproduction is impossible; a scalar carries no position; error is bounded by the lift |
+| D24 | Smoke occluder | **One `sightClear()` predicate** = island LOS ∧ no puff crossed (`segCircleHit`), at ALL FIVE sight-tier callers (true sight, the 3/8 detect rung, the muzzle-flash and wounded-smoke halos, the foghorn muffle); radar is untouched BY CONSTRUCTION (its gate is the height march); symmetric, so a puff hides its occupant and blinds an observer inside it; puffs travel as a new frame channel | Smoke is an island for every sensor but radar — one occlusion rule, not two; the GDD's `[DRAFT]` self-hiding falls out of symmetry rather than being a rule |
+| D25 | Collision | **One `hitTargets(kinds)` collector** with a per-ordnance TARGET MASK in CONFIG (`hull` / `mine` / `decoy` / `ordnance`); a burst detonates any mine inside it, **perception-blind** — *"any mine you can see"* is descriptive; chain detonations resolve in the same tick | The one-structure law; the shell step already consumes one target list (hulls + buoys) and simply widens; collision never depends on an observer |
+| D26 | Held fire | **A validated `held` LEVEL on `InputMsg`**; while true with a stream-kind slot primed and in arc, the server fires at the weapon's cadence from its pool; stream shells carry no per-shell fire time and take no back-date; the click counter is untouched | A level rides latest-wins and costs no intent-queue slots; re-emitting clicks would fight the consumed-not-queued latch and make the rate the client's |
+| D27 | Signals | Every new ordnance kind gets its own wire kind and registry rows, revealed at the sight boundary with position + velocity only; homing ordnance gets an update row; **gun-shell rules everywhere** — own-splash, flash, one Hit Call per shell resolution — for missile, monitor and flak; **the machine-gun stream flashes PER SHELL (Eric)**; the six declared exceptions stay six | The Gunnery Conversation's oracles extend by ordnance kind under their existing clauses; CHAFF is a second SOURCE of the jamming carve-out, not a new clause |
+| D28 | Damage gate | **ONE `applyDamage()`** replaces the THREE hull-hp writers found at `HEAD` (`applyStorm`, `hitShip`, `burnShip`); SHIELD BLOCK absorbs there, **from every source (Eric)**; repairs stay the separate hp-increase path | Verified: no chokepoint exists today, so the shield would otherwise be three `if`s; the assist ledger and the sink check get one caller |
+| D29 | Mines & decoys | **No per-player cap and NO room ceiling (Eric)** — `maxLive`, `globalCap` and oldest-eviction are DELETED; the only bound is pools × reloads, with a perf pin at the reachable peak; the DECOY BUOY's HP rides its view **owner-only** | *"A mine exists until triggered or destroyed"* holds absolutely; the ledgered *killed-vs-expired is indistinguishable* thread closes for the one buoy that survives |
+| D30 | Shift boost | A **permanent slot** (`boost`, slot 1) on every hull through the unchanged `Equipment` interface; **+25 % of the ladder-raised max (Eric)** — `bonus = factor × kin.maxSpeed` post-fold; its reload is an equipment reload, so the RELOAD ladder scales it through the one `cooldownScale` multiply | Closes GDD open note 21's base-vs-raised question; the speed-boost EQUIPMENT (card-fitted) is deleted, its module becomes the permanent row |
+| D31 | Bots | Bot decks are **authored in the player format** and legality-checked in a BOOT-TIME test; a **total consumable-tactic table** joins the total equipment-tactic table; the harness gains `authored` and `random-legal` deck arms with the pool rolled per match | No consumable and no weapon can ship without a bot rule — the type forces it, as it does today for equipment |
+
+### D2 — Boon Effect Model (AMENDED 2026-09-10)
+
+- Effect kinds after this amendment: `stat`, `slotFill`, `doctrine`, `behavior`, **`stock`** (new —
+  puts one copy of a consumable into the ship's consumable row). **`slotReplace` is DELETED**: a
+  legal deck holds at most three lines whose copy 1 fits an equipment slot (GDD note 13), so a
+  fourth weapon is unreachable and the replace flow with it. Its deletion is pinned, and with it
+  the two laws it carried become vacuous-but-kept: *the slot keeps its clock across replacement*
+  and *swap cheese is a NEVER* are asserted as "fitting a weapon never touches another slot's
+  timer", which is the only form either can still take.
+- `stat` effects are still read ONLY by `effectiveStats()`; `applySlotEffect` is still the single
+  slot-mutation path both sides run; `behavior` hooks stay pure and parity-tested. **The hook
+  registry ships EMPTY at `HEAD` and stays empty after v3**: drafting and the boost are per-tick
+  KINEMATICS STEPS in the pinned fold (D23, D30), not card-carried behaviours, so they do not enter
+  `HOOK_REGISTRY`.
+- Rarity is gone: `BoonRarity`, `CONFIG.deck.rareWeightBase` / `rareWeightPerDryLevel`,
+  `DeckState.levelsSinceRare`, and the `exclusive` validator rule are deleted. Acquisition is gone:
+  `acquire()`, `isAcquisitionDef`, `consumeAcquisition` and the per-category deck composition
+  (`EQUIPMENT_CATEGORY`, `UNIVERSAL_CATEGORIES`, `buildDeck`'s subdeck walk) are deleted — a deck is
+  a list of line ids and nothing derives it.
+
+### D19 — Card model (detail)
+
+```ts
+// shared/src/sim/catalog.ts — D14's file, now holding the whole v3 catalog. Wire contract: any change bumps PROTOCOL_VERSION.
+export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
+export interface CatalogLine {
+  readonly id: LineId;                       // camelCase, D14 — 'heavyTorpedo', 'hullRepair', 'deckGun'
+  readonly kind: LineKind;
+  readonly cap: number;                      // copies = tier ceiling; tiers.length === cap, pinned
+  readonly tiers: readonly (readonly BoonEffect[])[];   // tier N folds tiers[N-1]; copy 1 of an equipment line = [{ kind: 'slotFill', equipmentId }]
+  readonly appliesTo?: readonly EquipmentId[];          // addon only: the family, as an explicit list (ACOUSTIC HOMING → ['lightTorpedo','heavyTorpedo'])
+}
+// Authoring helper — the file reads like Eric's sheet; the generated bundles are what is frozen and pinned.
+export const CATALOG = freezeCatalog({
+  heavyTorpedo:   weapon('heavyTorpedo', { damage: +5, speed: +2.5, tubes: +0.5 }),        // 5 tiers: [slotFill] + 4 step bundles
+  armor:          ladder('armor', 4, { maxHp: +25 }, { healOnGrant: true }),
+  acousticHoming: addon('acousticHoming', ['lightTorpedo', 'heavyTorpedo'], 'homing'),    // one doctrine effect per target
+  hullRepair:     consumable('hullRepair', 5),                                             // 5 × [{ kind: 'stock', equipmentId: 'hullRepair' }]
+  // …
+});
+```
+
+- **The fold.** `effectiveStats(cls, cards: readonly LineId[])` — `cards` is the ship's applied
+  cards in pick order (a line id appears once per copy taken; it is what rides `OwnShip.boons`
+  today, renamed `cards`). Per line, copies held = count in `cards`; tiers `0..copies-1` fold in
+  order. **Order-independence is a PIN**: every v3 stat effect is an `add`, or a `mult` on a path
+  no other line adds to (the ×1.1 compounding rings and lit radius); `validateCatalog` refuses a
+  path with both an add-writer and a mult-writer across lines, and a property test asserts that
+  any permutation of a legal pick list yields byte-identical stats. Doctrine verbs are booleans and
+  cannot be order-sensitive.
+- **Held-ahead add-ons need no mechanism.** A doctrine verb lives on `EffectiveStats`, not on a
+  slot, so ACOUSTIC HOMING taken before either torpedo simply sets `homing` on both target
+  equipment rows and is true the tick a torpedo is fitted. `appliesTo` generates one `doctrine`
+  effect per listed equipment; SUPERCAVITATING is excluded by not being listed (R22) — no
+  family enum, no "never homes" flag.
+- **Two derivations move into `clampStats`, beside `cooldownScale` and the `rangeU` re-pins:**
+  the **equipment reload step** — `reloadMs = base × round3(1 − step × (tier − 1)) ×
+  cooldownScale` for a weapon line, `× (1 − step × tier)` for the deck gun whose tier I is a
+  real step (R14), with `step = CONFIG.catalog.reloadStepPerTier` (0.05) overridable per line —
+  and the **fractional-step floor**: integer stats (tubes, turrets, flares, held mines, barrels)
+  accumulate as floats in the fold and are floored ONCE at the end, so `1 + 0.5 × 2 = 2` at tier
+  III and nothing shows until a whole completes (Eric's standing rule). Neither is a stat path a
+  card can write; the seven `<equipment>.reloadMs` paths stay whitelisted-but-unwritten exactly as
+  today, so a future per-line reload card still composes BEFORE the step.
+- **`EffectiveStats.equipment` becomes a TOTAL record keyed by `EquipmentId`** (11 lines + `gun` +
+  `boost`), each row carrying its `tier` — replacing the hand-named `gun` / `torpedo` / `mine` …
+  fields. The three torpedoes are three equipment ids over one shared stat shape; a stat path is
+  `'<equipmentId>.<field>'` and `BOON_STAT_PATHS` is generated from the record, not typed by hand.
+  `sightRange`, the `rangeU` family, `mine.triggerRadius` (2/3 of blast, and the captive's ×3
+  swap) stay DERIVED and off the whitelist.
+- **What a card can never do under D19:** address a derived field, reload a consumable, fit a
+  fourth weapon, or put a copy of a line past its cap — the last is refused at the door by
+  `deckRules` (E9 Pattern 6) and again by `drawOffer`, which never offers a line at cap.
+
+### D20 — Loadout (detail)
+
+```ts
+// shared/src/sim/loadout.ts
+export const SLOT_ROLES = ['gun', 'boost', 'weapon', 'weapon', 'weapon', 'consumable', 'consumable', 'consumable', 'consumable'] as const;
+export const SLOT_COUNT = 9, SLOT_GUN = 0, SLOT_BOOST = 1, WEAPON_SLOTS = [2, 3, 4] as const, CONSUMABLE_SLOTS = [5, 6, 7, 8] as const;
+export interface LoadoutSlot { equipmentId: EquipmentId | null; state: EquipmentState | null }   // unchanged: { n, reloadMsLeft }
+export function loadoutFor(): LoadoutSlot[]   // gun + boost fitted, seven empty — the SAME for every hull; specialsFor() is deleted
+```
+
+- **One shape for nine slots.** A consumable stack is `{ n: copiesHeld, reloadMsLeft: 0 }` with
+  `maxAmmo = line cap`; its `tick` is a no-op and `tickReload` is never called for a
+  `consumable` role. `slotAmmo(ship)` still emits the slot-aligned wire array, now length 9.
+- **Fill rules, both on `applySlotEffect`:** `slotFill` takes the first EMPTY weapon slot (it
+  cannot fail for a legal deck — a property test over random legal decks pins that the full-row
+  no-op is unreachable); `stock` takes the slot already holding that consumable, else the first
+  empty consumable slot, else REFUSES (D21). The client replays `you.cards` through the same
+  function to rebuild `equipmentId` per slot and reads `n` from `ammo` — today's mechanism, no
+  new wire field for slot contents.
+- **Emptying:** a consumable slot whose `n` reaches 0 on activation clears to `equipmentId:
+  null` in the same tick, so a later pick of that line stocks fresh; a weapon slot never empties.
+- **The two permanents:** slot 0 is the deck gun (the `gun` equipment; DECK GUN / TURRET / BARREL
+  write `gun.damage`, `gun.maxAmmo`, `gun.barrels` as ladders); slot 1 is the Shift boost (D30).
+  The PvE fleet's `[gun, torpedo, mine]` fit becomes a fixed card list (`FLEET_FIT: LineId[]`,
+  heavy torpedo and naval mines at tier I) applied at spawn through `applyBoon` — the fleet takes
+  no special path, and `drones.test.ts`'s envelope pins are unaffected.
+- **Keys:** `Q`/`E`/`R` prime slots 2–4; `1`–`4` with the refit window CLOSED fire/prime slots
+  5–8; with it OPEN they still take cards (the digit's meaning is the window's state, a client
+  concern); `Digit5 → HEAL_CHOICE` is deleted with the sentinel; `Shift` is slot 1's ability key.
+
+### D21 — Consumable activation (detail)
+
+- `EQUIPMENT_IS_WEAPON`: `hullRepair`, `shieldBlock`, `smokeScreen`, `chaff` → `false` (the
+  ability channel: `actSeq` + `actSlot ∈ CONSUMABLE_SLOTS`, no aim, no latency compensation —
+  `activationControl` is already ability-only); `decoyBuoy` → `true` (the click channel: primed
+  by its digit, fired by click, `input.slot` carries the resolved prime, `arcs.ts` gives it the
+  mine's rear sector). Both are one `activate()` on the unchanged `Equipment` interface; a
+  consumable's `activate` decrements `n` and does its work.
+- **Full-row refusal is a SPEND rule, not an activation rule:** `spendCard` runs
+  `canStock(loadout, lineId)` BEFORE `consumeCard`; a refused pick is a silent no-op on the
+  server (the card stays in the offer — the never-rerolling offer is the mechanism) and the client
+  greys the card with the same predicate. No `denied` view is added: a fair client cannot reach
+  the case.
+- **Per consumable, the home of the effect:** HULL REPAIR — today's `spendHeal` body moves into
+  `hullRepair.activate` (instant + pooled, `tickRepairs` unchanged, afloat-only as today, so a
+  sinking hull can no longer heal and D4's reversibility question is not reopened); SHIELD BLOCK
+  — `ship.shield = { hpLeft: 100, until }`, read by D28's gate; SMOKE SCREEN — D24; CHAFF — a
+  `FakeSource` on the ship (D27); DECOY BUOY — a `decoys` store (D29) placed by `dropDecoy`.
+- **Sinking:** consumables obey the existing single sinking-activation gate (Novel Pattern 3) on
+  their channel; no per-consumable policy. The ONE policy statement is the gate's value, unchanged
+  by this pass.
+
+### D22 — Deck state, the pool, the draw, the opening (detail)
+
+- `DeckState { cards: readonly LineId[] }` — a multiset in insertion order, server-private, never on
+  the wire. Built at the seat: authored 40 (starter, or `loadDeckFor` — E9 Pattern 6) →
+  `checkDeck` (`deckRules.ts`: exactly `CONFIG.deck.size`, ≤ `maxEquipmentLines` lines whose copy
+  1 fits, every line ≤ cap, every line owned) → `+ room.pool` → 50.
+- **The pool** (`shared/src/sim/pool.ts`, pure): `rollMatchPool(rng, catalog, CONFIG.pool)` draws
+  `size` (10) consumable cards uniformly from the consumable lines, each line ≤ its cap WITHIN THE
+  POOL (R44). The `rng` is a **room-private stream** minted the way the storm rings are — a
+  per-room nonce, never derivable from `mapSeed` — rolled ONCE in room creation before any seat
+  (both doors, solo included), so every deck in the room gets the identical 10. Hidden: it never
+  rides the wire, never appears in `WelcomeMsg`, and reaches the store only as `MatchRecord.pool`
+  on the match row (Eric's metrics); a player's own history shows the pool cards they DREW and
+  nothing else — GDD note 20(a)'s reading, implemented as a filter on the record, ledgered as
+  unruled.
+- **The draw:** `drawOffer(deck, rng, catalog, opts?)` keeps its non-consuming shape and draws
+  `CONFIG.offer.size` DIFFERENT lines, weight = copies in deck and nothing else; a line at its cap
+  on the ship is never offered. `opts.guarantee` (level zero only): the first card is drawn
+  uniformly among USABLE cards — a consumable, or a line whose next tier is I — then the rest from
+  everything else. If a legal deck holds no usable card (a pure gunboat deck can), the guarantee is
+  vacuous and the draw is plain; pinned so nobody "fixes" it into a reroll.
+- **Level zero at countdown:** `Match`'s countdown-entry hook calls `grantPoint` for every
+  captain BEFORE `activate()`; the offer materializes then and is spendable during the countdown
+  (`spendPoint`'s guards are bank + afloat, both true). Bots receive it identically.
+- **The mulligan:** `SpendMsg.choice === MULLIGAN_CHOICE` (`-2`, beside the retired `-1`, in
+  `offers.ts`); `spendPoint` honours it iff `match.phase === 'countdown' ∧ !ship.mulliganed ∧
+  ship.offer !== null`; it redraws with the same guarantee, sets `mulliganed`, replaces the offer
+  and re-queues `pt`. Anything else is a silent no-op. The never-reroll pin (FR19) gains its ONE
+  asserted exception — a test proves a second mulligan and a live-phase mulligan both leave the
+  offer byte-identical.
+- **The counter:** `OwnShip.deckLeft: number` = `deck.cards.length`, self-private, the only
+  deck-derived number on the wire; it discloses nothing about composition. Exhaustion is the
+  existing degenerate path: an empty draw banks the level silently and queues no `pt`.
+
+### D23 — Wake drafting (detail)
+
+- **The lift** — `draftLift(ribbons, x, y, now, cfg): number` in `shared/src/sim/wake.ts`: the MAX
+  (not the sum — *"trails merge"*) over every OTHER hull's ribbon of a per-segment lift inside
+  `cfg.halfWidthU` of the segment, in `[0, cfg.lift]`; own ribbon and torpedo ribbons are
+  excluded. Both scalars are `CONFIG.wake.draft.{lift, halfWidthU}` — **`[DRAFT]`, Eric's to set,
+  no placeholder in this document.**
+- **The fold** — `draftedKinematics(kin, lift, active)` in `shared/src/sim/draft.ts`, the sibling of
+  `boost.ts` and `slow.ts`: raises the forward cap by `lift × kin.maxSpeed`, returns the input
+  reference when inactive. The pinned composition becomes `boosted → slowed → drafted →
+  hookKinematics`, asserted byte-identical at both call sites (`world.ts stepShips`,
+  `prediction.ts tickKin`).
+- **Server:** in `stepShips`, per ship, `ship.draft = draftLift(...)` is read from the ribbons as
+  they stood after LAST tick's `sampleWakes` (`stepShips` precedes `sampleWakes` in `STEP_ORDER`);
+  one tick old IS the definition, pinned. `OwnShip.draft?: number` — omitted when 0, the
+  `slowedUntil?` idiom, self-private.
+- **Client:** `prediction.setDraft(you.draft)` beside `setBoostStats`; `tickKin` folds it; replay
+  applies the latest scalar to every un-acked tick. Prediction error is bounded by `lift` per
+  tick and is exactly 0 outside a wake — at `draft = 0` both sides are byte-identical to `HEAD`,
+  which the parity test pins.
+- **Perception posture:** not a registry row, not an exception — own-ship state like
+  `slowedUntil`. Accepted and ledgered: the scalar tells a client "a wake is under you" even when
+  its hull is island-hidden; the kinematics would disclose the same thing one frame later.
+- **Bots** get it passively (no tactic); the harness reports time-in-draft per profile.
+
+### D24 — Smoke as a sight occluder (detail)
+
+- **Entity:** `SmokePuff { id, ownerId, x, y, bornAt, until }` in a new `world.smoke` store;
+  `puffRadius(puff, now)` in `shared/src/sim/smoke.ts` = `r0 + (r1 − r0) × min(1, age /
+  expandMs)` (`CONFIG.smokeScreen.{r0: 40, r1: 60, lifeMs: 30000, layMs: 5000, puffIntervalMs,
+  expandMs [DRAFT]}` — a NEW block; the existing `CONFIG.smoke` is WOUNDED smoke and is untouched).
+  `smokeScreen.activate` stamps `ship.smokeUntil`; a new `STEP_ORDER` row **`stepSmoke`** (after
+  `sampleWakes`, before `applyStorm`) drops a puff at the stern every interval while laying and
+  expires dead puffs.
+- **The predicate** — `sightClear(a, b, islands, puffs, now)` in `signals.ts` = `losClear(a, b,
+  islands) && !puffs.some(p => segCircleHit(a, b, p, puffRadius(p, now)))`, the shared LOS
+  primitive, mandatory. The SIX call sites of the five sight-tier sensors switch to it: `shipSees`
+  (the contact row), `pointSighted`, `pointDetected`, the `mz` halo, the `sm` halo, the foghorn's
+  one-step muffle. `blipGate` and `buoyGate` are untouched by construction — they never called
+  `losClear`. `ownZoneCovers` (a star-shell's firer-only truesight) has no island term today and
+  gains no smoke term: a lit zone ignores smoke exactly as it ignores islands — pinned, ledgered.
+- **Symmetry is the feature:** the segment test hides a target inside a puff, hides everything
+  behind it, and blinds an observer standing in one (every segment from inside starts inside the
+  circle). The GDD's `[DRAFT]` "hides its own occupant" is therefore not a rule but a consequence.
+- **Wire:** `SmokeView { id, x, y, t0 }` — no radius on the wire; the client runs the shared
+  `puffRadius`. A new `smoke` pseudo-row in the signal registry: visible iff the CENTRE is within
+  `sight + puffRadius` with ISLAND-ONLY LOS (a puff must stay visible from inside another puff or
+  it would vanish around you) OR `ownerId === me` (the mine's `own` posture). `FrameMsg.smoke?`.
+  Bots receive it through `observe()` and lose smoked contacts exactly as a client does.
+- **Cost bound:** live puffs ≤ (stacks in play) × `layMs / puffIntervalMs`; the LOS cost is one
+  `segCircleHit` per (observer, subject, puff). A perf pin runs perception at 20 observers × 200
+  puffs against the 50 ms tick.
+
+### D25 — Ordnance collision: one target collector (detail)
+
+```ts
+// server/src/game/world.ts
+export type TargetKind = 'hull' | 'mine' | 'decoy' | 'ordnance';
+export interface Target { readonly id: string; readonly kind: TargetKind; readonly poly: readonly Vec[] }   // shell.ts's HullTarget, widened
+hitTargets(mask: readonly TargetKind[]): readonly Target[]     // memoized per tick per mask; hulls = aliveHulls(), decoys = 12u squares, mines + ordnance = small polys
+```
+
+- **Every ordnance row declares its mask in CONFIG** (`hits: TargetKind[]`): deck gun, machine
+  gun, monitor → `hull | mine | decoy`; FLAK → `hull | mine | decoy | ordnance` (its whole point);
+  HORIZONTAL MISSILE → `hull | decoy` (islands stop it through terrain already, R42); all three
+  torpedoes and the captive's fish → `hull | decoy`. `stepShell`'s signature does not change; what
+  changes is what the caller passes. `burstVictims` widens to the same kinds, so a burst detonates
+  mines and a flak burst kills fish in its radius.
+- **Outcomes by kind:** `mine` → `detonateMine(mine)` at its own position with its own blast,
+  **perception-blind** (Eric: *"you can see"* is descriptive); chains resolve in the same tick
+  with a visited set, bounded by the mine count. `decoy` → a shell damages it (D29); a torpedo or
+  missile DETONATES on it — the physical block, homing or not. `ordnance` → the struck fish or
+  missile is removed; it emits no boom of its own (ledgered as a presentation gap).
+- **Ownership:** owner immunity stays for HULLS only. Own mines ARE hit by own shells (the
+  design's clear-your-own-field reading). The owner's fish against the owner's decoy, and own flak
+  against own torpedoes, are NOT exempt — the GDD's `[DRAFT]` reading, carried as-is; both are one
+  mask entry to change.
+- **Homing retarget:** the seeker's acquire set is `hitTargets(['hull','decoy'])` minus the owner's
+  hull; `lead.ts` is untouched. The monitor's plunging shell (R30) is `stepShell` with an
+  `arcing` flag that skips terrain (as the cannon did) and resolves shell-radius-vs-target at the
+  click; the missile's en-route direct hit uses `CONFIG.missile.contactDamage` (a build-time
+  DRAFT the catalog names; the gun's 6-dmg rule is the precedent).
+
+### D26 — The held-fire stream (detail)
+
+- `InputMsg.held: boolean` — REQUIRED; a non-boolean drops the whole message (the existing
+  whole-message law). It is a LEVEL: it rides `InputStore.latest`, costs no intent-queue slots and
+  is not rate-capped beyond the message cap.
+- `fireControl`, after the click pass: if `input.held ∧ EQUIPMENT[primed].stream ∧ inArc(aim) ∧
+  n > 0`, an accumulator `ship.streamAcc += dt` fires one shell per `CONFIG.machineGun.rateMs`,
+  spawned at `now` with **no `fireT` and no D1 back-date** (a stream is not a click). Release,
+  arc exit or an empty pool stops it; arc exit emits ONE `out-of-arc` denial at the transition,
+  then silence (GDD note 21's "cursor leaves the arc" case, answered here). `held` with a
+  non-stream slot primed is ignored, pinned.
+- **Ammo model is unchanged:** `ammo.ts` refills round-by-round with overshoot carry, so a
+  24-round pool on a 15 s reload refills one round per 0.625 s. Catalog v3's *"6 s of fire per
+  pool, 15 s reload"* reads as a MAGAZINE reload; both readings are `[DRAFT]` numbers, so the
+  architecture reserves ONE optional switch — `ammo.refill: 'round' | 'magazine'` per equipment
+  row, default `round` — and the build takes it only if the DRAFT numbers demand it. Ledgered.
+- Client: `mouse.ts` sets `held` = pointer down inside the primed stream's arc; `ownFire.ts`'s
+  click latch is untouched; no prediction (fire is server-resolved).
+
+### D27 — Signals for the new lines (detail)
+
+- **Wire kinds** (`BallisticEvent.k`): `shell` (the gun family — deck gun, machine gun, monitor,
+  flak: *in the air*, sight-gated), `torp` (all three torpedoes — one kind; speed is the velocity
+  already on the reveal; detect-gated as today, wake paints as today), **`missile`** (new: a flat
+  flyer, sight-gated like a shell because it flies) with **`missileU`** (its homing update row,
+  the `torpU` shape at the sight rung). The reveal gains ONE field, `w` — the weapon FAMILY needed
+  to draw it (a tracer is not a shell, a plunging shell arcs) — carrying no range-derivable value
+  and no identity. This is a deliberate, ledgered DISCLOSURE WIDENING: a sighted shell now says
+  which weapon fired it, where today it said only shell-or-torpedo.
+- **Gun-shell rules everywhere (Eric):** `sp` (own splash) for the gun family AND the missile and
+  monitor (never torpedoes); `hc` exactly one per shell resolution — per machine-gun shell, per
+  flak shell, per missile, per monitor shell — the broadside's per-shell reading generalized;
+  `mz` per shell for every gun-family weapon and the missile, **including the STREAM (Eric)** —
+  the broadside's `perShellFlash` opt-out becomes the rule for `stream` equipment, while the
+  multi-barrel deck gun's one-click salvo still collapses to one flash (amendments 19/20 intact).
+  Cost ledgered: 20 bots streaming at 4 Hz is 80 `mz`/s at the emitter; `flashBudget.ts` caps the
+  RENDER, and a measurement is owed before the number is trusted.
+- **CHAFF** is a `FakeSource { x, y, radius, count, until, seed }` on the ship — the jamming buoy's
+  `scatterJamFakes` generalized to a source that is not a buoy; fakes are emitted through the
+  observer's own `blipGate` and `blipShape` exactly as today, owner-exempt, epoch-rescattered per
+  sweep. The perception tests' fourth `verifyBlip` arm recomputes them from `(seed, epoch,
+  source)`. **The carve-out gains a second SOURCE, not a new clause; the six declared exceptions
+  stay six.**
+- **DECOY, SMOKE, SHIELD:** the decoy and the smoke puff are frame CHANNELS (`decoys`, `smoke`),
+  not events; the shield is `OwnShip.shield?` and emits nothing — a shooter's `hc` fires on the
+  hit and `dmg` (victim-private) reads 0, so the shooter gets no tell. Ledgered as a design
+  question; the default is the quieter one.
+
+### D28 — The damage gate (detail)
+
+```ts
+// server/src/game/world.ts — the ONE writer of ship.hp for damage. Verified at HEAD: three writers exist today
+// (applyStorm:2780, hitShip:3369, burnShip:3738); each becomes a caller.
+export type DamageSource = 'shell' | 'burst' | 'torpedo' | 'missile' | 'mine' | 'burn' | 'storm' | 'contact';
+private applyDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | null): number {
+  const dealt = this.absorbShield(victim, amount, this.now);   // Eric: every source, storm and burn included
+  victim.hp -= dealt;  this.tallyAssist(victim, byId, dealt);  this.checkSink(victim, byId, src);  this.queueDmg(victim, dealt);
+  return dealt;
+}
+```
+
+- Order inside the gate is fixed: shield → hp → assist ledger → sink check → `dmg`. Hit Calls and
+  booms are emitted by the CALLER on the hit, so a fully-absorbed hit still calls (D27).
+- `ship.shield = { hpLeft, until }`; expires at `until` or `hpLeft === 0`; a second shield while one
+  is up REPLACES it with a fresh 100 / 10 s — no stacking, `[DRAFT]`, ledgered. `OwnShip.shield?`.
+- Non-hull entities keep their own single writer each (`damageDecoy`); the law is ONE writer per
+  entity kind. Repairs (`payRepair`) are the hp-INCREASE path and stay separate.
+
+### D29 — Mines without caps, and the decoy (detail)
+
+- **Deleted (Eric: no ceiling):** `CONFIG.mine.maxLive` and its stat path, `CONFIG.mine.globalCap`,
+  both eviction branches in `addMine`, and the `maxLive` parameter itself. A mine exists until
+  triggered or destroyed, absolutely. The reachable bound is pools × reloads: 20 hulls × (6 naval
+  + 3 captive) per reload window; a perf pin runs `checkMineTriggers` and D25's collector at 500
+  live mines against the tick, and the harness reports the live-mine peak per match.
+- **Decoy store** replaces the buoy store: `DecoyState { id, ownerId, x, y, hp }`, dropped by
+  `dropDecoy` into the mine's rear arc, no lifetime. `DecoyView { id, x, y, own, hp? }` — `hp`
+  present ONLY when `own` (Eric); `materialize()` strips it for every other observer, the
+  `sunk.seen` per-observer idiom. Whether a decoy PAINTS on radar is unruled: the default is that
+  it does, through the buoy's existing footprint path, ledgered.
+- The radar buoy — equipment, `BuoyView`, `buoyGate`, the `gun`/`jamming` doctrines,
+  `ownBuoyScopeBlips` and the `src` blip tag — is deleted; `scatterJamFakes` survives as CHAFF's
+  generator (D27).
+
+### D30 — The Shift boost (detail)
+
+- Slot 1, permanent, the `boost` equipment row (`isWeapon: false`, the `actSeq` channel, `Shift`
+  → `actSlot: 1`); `boostUntil` is still its only writer. `boostedKinematics(kin, bonus, active)`
+  is unchanged; `bonus = CONFIG.boost.factor (0.25 [DRAFT]) × kin.maxSpeed` computed from the
+  POST-FOLD kinematics, so the SPEED ladder is inside it (Eric: ladder-raised max — a capped
+  Torpedo Boat boosts to 68.75 u/s). `boost.reloadMs` (20 s [DRAFT]) is an equipment reload and
+  takes `cooldownScale` through the one multiply (R40: 15 s under a maxed RELOAD).
+- **Consequence for the bots' trap:** the boost is still applied outside `EffectiveStats`, so the
+  ring-deadband's `max(rated, actual)` reading stays correct and gains nothing to re-derive.
+- **GDD note 19 is NOT resolved here:** the LIGHT TORPEDO at 45 u/s against a 68.75 u/s boosted
+  hull breaks *"torpedoes outrun every hull at base speed"* as written; the pin that enforces it
+  must be re-scoped by Eric (bow-launched fish only, or the number moves). Ledgered for
+  deferred-work.md; nothing in this pass guarantees it.
+
+### D31 — Bot decks and consumable tactics (detail)
+
+- `server/src/game/ai/decks.ts`: `BOT_DECKS: Readonly<Record<BotProfileId, readonly LineId[]>>` —
+  40 authored cards each in the player format, validated by `checkDeck` in a BOOT-TIME test (the
+  suite fails, never a room). A bot is seated through the same `addShip(deck)` path as a human and
+  receives the room's pool.
+- `server/src/game/ai/consumables.ts`: `CONSUMABLE_TACTICS: Readonly<Record<ConsumableId,
+  ConsumableTactic>>` — TOTAL, deep-frozen, `{ want(ctx), solve?(ctx) }` (only the decoy solves a
+  placement). `EQUIPMENT_TACTICS` stays total over the WIDENED `EquipmentId`, so the six new
+  weapons cannot compile without a row.
+- `spending.ts`: `HEAL_CHOICE` is gone; healing is `hullRepair`'s tactic on a stocked slot; the
+  pick scorer weights LINE ids including consumables; `canStock` is consulted so a bot never picks
+  a card it cannot hold; the mulligan policy defaults to never.
+- Harness: `--deck authored | random-legal` (legal against every cap, pool rolled per match from
+  the room stream); the bars E8 story 8 names are pinned there, not here.
+
+### What did NOT move
+
+- The master perception invariant keeps SIX declared exceptions; `frames.ts` stays the single
+  spatial chokepoint; nothing spatial leaves the server outside a registry row.
+- `effectiveStats()` is still the only path from (class + cards) to a derived number — widened
+  to a total per-equipment record, never bypassed. `HOOK_REGISTRY` stays EMPTY.
+- The `Tab` offer never rerolls, save the one asserted mulligan; the D1 fire-time back-date holds
+  for every CLICK; the eighths ladder, the storm, the account store (D9–D18) and Story 7-7's
+  deferral are untouched.
+- `PROTOCOL_VERSION` bumps once per wire-changing E8 story (catalog content, `InputMsg.held`, the
+  9-slot ammo array, `OwnShip.{deckLeft, draft, shield}`, the `missile`/`missileU`/`smoke`/
+  `decoys` rows, the reveal's `w`) — never for the harness or the bots.
+
+---
+
 ## Cross-cutting Concerns
 
 These patterns apply to ALL systems and must be followed by every implementation.
@@ -978,6 +1398,84 @@ if (!deck.ok) throw new ServerError(4001, deck.code);               // 'deck.ill
 
 ---
 
+### Cross-cutting Concerns — The Deck amendment (2026-09-10)
+
+The three-zone error strategy, the account layer's fourth zone, stdout-only logging, the
+no-event-bus law and the activation law all STAND. The deck adds no zone; it adds rows to the
+tick table, blocks to `CONFIG`, and self-private fields to the wire.
+
+#### Error Handling — refusals are silent no-ops, malformed input is a whole-message drop
+
+- **Spend path (D21, D22):** a pick the ship cannot stock, a mulligan outside its window or a
+  second mulligan, and a spend of a card at its cap are all SILENT NO-OPS on the server — the
+  offer is left byte-identical and the client, running the same shared predicates (`canStock`,
+  `MULLIGAN_CHOICE` gating), never presents the action. No new `denied` reason is added for any of
+  them; the `denied` view stays the ACTIVATION channel's feedback.
+- **Input (D26):** `held` joins the finite-checked field set; a message with a non-boolean `held`
+  is dropped whole, exactly like a non-finite `aim`. Nothing is ever partially applied.
+- **Doors (E9 Pattern 6, unchanged):** an illegal deck is refused at the door with its stable
+  code; the pool is appended only to a deck that passed, so a pool can never make a deck legal or
+  illegal.
+- **Tick law extended by two rows:** `stepSmoke` (D24) and the draft read inside `stepShips`
+  (D23) are pure over world state; neither may allocate per observer. `applyDamage` (D28) is not a
+  row — it is a function every damage row calls.
+
+#### Logging — two new events, the PII rule unchanged
+
+- `match.pool { matchId, count }` once per room at roll (count only, NEVER contents — the pool is
+  hidden by ruling and its contents reach only `MatchRecord.pool`); `deck.exhausted { matchId,
+  shipId }` once per ship the first time a draw returns nothing.
+- `match.end` stays byte-identical. The E9 rule stands: no callsigns, no deck contents, no tokens.
+
+#### Configuration — the catalog moves, seven equipment blocks are born, four die
+
+- **`shared/src/sim/catalog.ts` is the catalog** (D14 + D19): 29 lines, tiers, caps, `appliesTo`,
+  the three starters, `FLEET_FIT`. `BOON_CATALOG` in `boons.ts` is deleted. Catalog content is
+  wire contract; every content change bumps `PROTOCOL_VERSION` (unchanged rule).
+- **New `CONFIG` blocks, all gameplay-load-bearing, all in `shared/`:** `lightTorpedo`,
+  `heavyTorpedo`, `supercavTorpedo` (three ids over one torpedo shape), `machineGun` (with
+  `rateMs`, `stream: true`), `flak`, `monitor` (`arcing: true`), `missile` (with
+  `contactDamage`), `captiveMines`, `smokeScreen`, `shield`, `chaff`, `decoy`, `pool` (`size:
+  10`), `wake.draft` (`lift`, `halfWidthU` — `[DRAFT]`, no placeholder), `catalog`
+  (`reloadStepPerTier: 0.05`), and every ordnance row's `hits` mask (D25). `boost` gains `factor`
+  and loses its card-fitted identity.
+- **Deleted:** `CONFIG.radarBuoy`, `CONFIG.speedBoost` (as equipment), `CONFIG.mine.maxLive`,
+  `CONFIG.mine.globalCap`, `CONFIG.deck.rareWeightBase` / `rareWeightPerDryLevel`, `HEAL_CHOICE`.
+  `CONFIG.damageControl` splits: the paid heal's two numbers move to `hullRepair`; the FREE
+  per-level auto-heal's fields (`levelMissingPct`, `levelRegenMs`) STAY under `damageControl`
+  because GDD note 14 leaves that mechanism unruled until the balance pass — nothing here deletes
+  it.
+- Every `[DRAFT]` in catalog v3 is a `CONFIG` dial the harness tunes; none is invented here and
+  none is given a value this document did not read from the catalog.
+
+#### Events — still no bus; two frame channels replace one
+
+- `FrameMsg.buoys` is DELETED with the radar buoy; `FrameMsg.decoys?` and `FrameMsg.smoke?` are
+  added, each a pseudo-row of the signal registry with its own `visible()` / `materialize()`.
+  `OwnShip` gains `deckLeft`, `draft?`, `shield?`; `boons` is renamed `cards`. `InputMsg` gains
+  `held`. `SpendMsg` gains the `MULLIGAN_CHOICE` sentinel and loses `HEAL_CHOICE`.
+- Client one-way flow stands: `net/` mirrors the new fields into `state.ts`, `sim/prediction.ts`
+  reads `draft`, `render/` reads the two channels and the 9-slot ammo array. No render module
+  drives net or sim.
+
+#### Observability
+
+- `/metrics` gains `deck: { picks, mulligans, stockRefused, exhausted }`, `world: { minesLivePeak,
+  smokeLivePeak, streamShellsPerTick }` — the three numbers the perf pins in D24/D26/D29 are
+  written against.
+
+#### Debug & Development Tools
+
+- `deckOverride` (E9, `HC_DEV_OPTIONS` only) is the harness's and the smokes' deck input; it gains
+  a sibling **`poolOverride`** (line ids) under the same gate so a headless smoke can assert a
+  deterministic pool, and `matchOverride` learns a `mulligan` beat so the countdown path is
+  smoke-testable. Never mounted in production — the existing activation law.
+- The batch-sim harness's `--deck authored | random-legal` arms (D31) replace `--bots N`'s implicit
+  fixed fit; the `pacifist` storm control keeps its gun-only posture as a deck of zero equipment
+  lines, which is LEGAL by design (GDD: a gunboat deck is legal).
+
+---
+
 ## Project Structure
 
 ### Organization Pattern
@@ -1200,6 +1698,128 @@ salvo/
 
 ---
 
+### Project Structure — The Deck amendment (2026-09-10)
+
+The organization pattern and the one law (`shared` imports from neither side) STAND. The deck
+adds shared sim modules, replaces the equipment registry's membership, and adds two `ai/`
+tables — no new workspace, no new deployable, nothing under `account/`.
+
+#### New homes
+
+```
+salvo/
+├── shared/src/
+│   ├── index.ts                  # PROTOCOL_VERSION log entries per wire-changing E8 story
+│   ├── constants.ts              # + the equipment/consumable blocks, pool, wake.draft, catalog.reloadStepPerTier, hits masks; − radarBuoy, speedBoost, mine.maxLive/globalCap, deck.rareWeight*
+│   ├── types.ts                  # InputMsg.held; OwnShip.{cards, deckLeft, draft?, shield?}; ammo length 9; missile/missileU; SmokeView, DecoyView; FrameMsg.{smoke?, decoys?}; − BuoyView, HEAL_CHOICE
+│   └── sim/
+│       ├── catalog.ts            # THE catalog (D14 + D19): CatalogLine, CATALOG, starters, FLEET_FIT, the weapon()/ladder()/addon()/consumable() authoring helpers
+│       ├── boons.ts              # the ENGINE only: effect kinds (+ stock, − slotReplace), applyBoonStats, applySlotEffect, canStock, validateCatalog (add/mult exclusivity)
+│       ├── stats.ts              # EffectiveStats.equipment: total per-EquipmentId record with tier; clampStats: reload step, floor-once, cooldownScale, rangeU re-pins
+│       ├── loadout.ts            # 9 roles: SLOT_ROLES, WEAPON_SLOTS, CONSUMABLE_SLOTS; loadoutFor() identical for every hull; − specialsFor
+│       ├── deck.ts               # DeckState multiset; drawOffer(equal weight, guarantee opt); consumeCard; − levelsSinceRare, buildDeck's subdecks, consumeAcquisition
+│       ├── pool.ts               # NEW — rollMatchPool(rng, catalog, cfg): 10 consumables, caps within the pool (D22)
+│       ├── offers.ts             # BoonOffer + MULLIGAN_CHOICE (D22)
+│       ├── deckRules.ts          # (E9) checkDeck — unchanged contract, now consulted by drawOffer's cap rule too
+│       ├── draft.ts              # NEW — draftedKinematics(kin, lift, active): the third per-tick step (D23)
+│       ├── wake.ts               # + draftLift(ribbons, x, y, now, cfg) (D23)
+│       ├── smoke.ts              # NEW — SmokePuff type, puffRadius(puff, now) (D24)
+│       ├── shell.ts              # Target { id, kind, poly } replaces HullTarget; arcing flag; ordnance/mine/decoy outcomes (D25)
+│       ├── arcs.ts               # + the six new arcs (light twin-sector, heavy/supercav/monitor/missile/machine-gun bow sectors); decoy = the mine's rear sector
+│       ├── aim.ts                # + missile burst point, monitor landing point, machine-gun range clamp
+│       ├── boost.ts / slow.ts    # unchanged; the fold order is pinned with draft.ts in one test
+│       └── hooks.ts              # unchanged and STILL EMPTY
+├── server/src/
+│   ├── game/
+│   │   ├── world.ts              # applyDamage (D28); hitTargets (D25); stepSmoke row (D24); draft in stepShips (D23); stream fire in fireControl (D26); pool at addShip, mulligan in spendPoint, level zero at countdown (D22); − maxLive/globalCap plumbing, − buoys store, + decoys store, + smoke store
+│   │   ├── inputs.ts             # + held (boolean, whole-message drop)
+│   │   ├── signals.ts            # sightClear (D24) at the six sight call sites; + missile, missileU, smoke, decoy rows; − buoy row, buoyGate, ownBuoyScopeBlips; sp/hc/mz clauses widened by ordnance kind; FakeSource fakes (D27)
+│   │   ├── perception.ts         # PerceptionView.{smoke, decoys} replace buoys; the fourth verifyBlip arm recomputes CHAFF fakes
+│   │   ├── matchRecord.ts        # (E9) + pool: LineId[] on the match row; participants' brought/drawn/taken unchanged
+│   │   ├── match.ts              # countdown-entry hook → grantPoint for every captain (D22)
+│   │   ├── fakes.ts              # NEW — scatterFakes(seed, epoch, cx, cy, radius, count): radarBuoy.ts's generator, generalized for CHAFF (D27)
+│   │   ├── equipment/
+│   │   │   ├── index.ts          # Equipment interface UNCHANGED; registry membership: gun, boost, lightTorpedo, heavyTorpedo, supercavTorpedo, navalMines, captiveMines, missile, machineGun, flak, monitor, broadside, starShells, hullRepair, shieldBlock, smokeScreen, chaff, decoyBuoy — TOTAL over EquipmentId
+│   │   │   ├── ammo.ts           # unchanged; the optional refill:'magazine' switch is reserved, not built, until the DRAFT numbers demand it (D26)
+│   │   │   ├── guns.ts           # the deck gun (slot 0 permanent)
+│   │   │   ├── boost.ts          # the Shift boost (slot 1 permanent, D30)
+│   │   │   ├── torpedoCore.ts    # NEW — the shared launch/clearance/homing body the three torpedo rows call
+│   │   │   ├── lightTorpedo.ts / heavyTorpedo.ts / supercavTorpedo.ts   # NEW — three ids, one core
+│   │   │   ├── mines.ts          # naval mines: − addMine caps/eviction; detonateMine(mine) for D25
+│   │   │   ├── captiveMines.ts   # NEW — its own line: the swapped rings, the held fish
+│   │   │   ├── missile.ts / machineGun.ts / flak.ts / monitor.ts   # NEW — each declares its hits mask, stream/arcing flags via CONFIG
+│   │   │   ├── broadside.ts / starShells.ts   # unchanged bodies; tiers via stats
+│   │   │   └── consumables/
+│   │   │       ├── hullRepair.ts     # NEW — spendHeal's body (afloat-only)
+│   │   │       ├── shieldBlock.ts    # NEW — ship.shield = { hpLeft, until }
+│   │   │       ├── smokeScreen.ts    # NEW — ship.smokeUntil; puffs laid by stepSmoke
+│   │   │       ├── chaff.ts          # NEW — ship.fakeSource
+│   │   │       └── decoyBuoy.ts      # NEW — isWeapon, rear arc, dropDecoy
+│   │   │   (radarBuoy.ts DELETED)
+│   │   └── ai/
+│   │       ├── decks.ts          # NEW — BOT_DECKS per profile, 40 cards, boot-test legality (D31)
+│   │       ├── consumables.ts    # NEW — CONSUMABLE_TACTICS, total (D31)
+│   │       ├── equipment.ts      # EQUIPMENT_TACTICS total over the widened EquipmentId (six new rows)
+│   │       └── spending.ts       # line-id weights incl. consumables; canStock; − HEAL_CHOICE
+│   └── scripts/                  # batch-sim: --deck authored|random-legal, per-match pool; smokes: poolOverride
+└── client/src/
+    ├── input/keyboard.ts         # Shift → actSlot 1; 1–4 dual role by refit-window state; − Digit5
+    ├── input/mouse.ts            # held = pointer down in the primed stream's arc (D26)
+    ├── sim/prediction.ts         # setDraft; tickKin folds draftedKinematics in the pinned order (D23)
+    ├── net/snapshots.ts          # + missile/missileU interpolation
+    ├── render/
+    │   ├── projectiles.ts        # + missile, tracer, arcing shell (from the reveal's w)
+    │   ├── smokeScreen.ts        # NEW — puffs from FrameMsg.smoke via shared puffRadius (render/smoke.ts stays WOUNDED smoke)
+    │   ├── decoys.ts             # NEW — replaces buoys.ts; owner-only hp readout
+    │   ├── hotbar.ts             # 9 slots; consumable stacks show n
+    │   ├── hud.ts                # + deckLeft counter; − DAMAGE CONTROL rail
+    │   └── weaponArc.ts / aimPreview.ts   # the six new arcs; monitor arc preview
+    └── ui/upgradeMenu.ts         # mulligan during countdown; greyed cards via shared canStock; − key 5
+```
+
+#### System → Location Mapping (additions)
+
+| System (decision) | Home | Boundary note |
+|---|---|---|
+| Catalog lines, tiers, starters (D19) | `shared/src/sim/catalog.ts` | Data + authoring helpers; the ONLY catalog; content = wire contract |
+| The fold, reload step, floor-once (D19) | `shared/src/sim/stats.ts` `clampStats` | Derived post-fold; no stat path addresses either |
+| Slot roles + fill/stock (D20, D21) | `shared/src/sim/loadout.ts`, `boons.ts` `applySlotEffect` / `canStock` | One function, both sides replay it |
+| Pool, draw, mulligan (D22) | `shared/src/sim/pool.ts`, `deck.ts`, `offers.ts` ← `world.ts` | Pure; the rng streams are the server's; nothing rides the wire but `deckLeft` |
+| Drafting (D23) | `shared/src/sim/wake.ts` `draftLift` + `sim/draft.ts` ← `world.ts stepShips`, `prediction.ts tickKin` | The fold order is one pinned array; `OwnShip.draft` self-private |
+| Smoke occlusion (D24) | `shared/src/sim/smoke.ts` + `signals.ts` `sightClear` | The six sight call sites; radar never calls it |
+| Target collector + masks (D25) | `world.ts` `hitTargets` + `CONFIG.<ordnance>.hits` | Ordnance never enumerates entities itself |
+| Held stream (D26) | `inputs.ts` (validate) → `world.ts fireControl` | A level; no `fireT`; no D1 clamp |
+| New signal rows (D27) | `signals.ts` | Every spatial thing still leaves through a row; `verifyBlip` gains CHAFF's arm |
+| Damage gate (D28) | `world.ts` `applyDamage` | The ONE hull-hp damage writer; three callers at `HEAD` become four (+ decoy contact) |
+| Decoys, mines uncapped (D29) | `world.ts` stores; `equipment/mines.ts`, `consumables/decoyBuoy.ts` | `DecoyView.hp` stripped for non-owners in `materialize()` |
+| Boost (D30) | `equipment/boost.ts`, `shared/sim/boost.ts` | Post-fold `maxSpeed`; the RELOAD ladder scales it via `cooldownScale` |
+| Bot decks + tactics (D31) | `ai/decks.ts`, `ai/consumables.ts`, `ai/equipment.ts` | Boot-test legality; total records; `ai/` still never imports `world.js` |
+
+#### Naming Conventions (additions)
+
+| Element | Convention | Example |
+|---|---|---|
+| Equipment ids | camelCase, one per catalog equipment line, = the line id | `'lightTorpedo'`, `'captiveMines'`, `'decoyBuoy'` |
+| Consumable modules | `server/src/game/equipment/consumables/<id>.ts` | `consumables/shieldBlock.ts` |
+| Ordnance target masks | `CONFIG.<ordnance>.hits: TargetKind[]` | `flak.hits: ['hull','mine','decoy','ordnance']` |
+| Frame channels | plural noun on `FrameMsg` / `PerceptionView`, matching the registry pseudo-row | `smoke`, `decoys` (as `mines`, `litZones`) |
+| Spend sentinels | `SCREAMING_CHOICE` constants in `offers.ts`, negative integers | `MULLIGAN_CHOICE = -2` |
+| Tick rows | verb-first camelCase in `STEP_ORDER` | `stepSmoke` |
+
+#### Architectural Boundaries (three new placement rules)
+
+11. **Every catalog fact lives in `shared/src/sim/catalog.ts`.** No line, tier, cap, starter or
+    family list may be declared anywhere else — not in `constants.ts`, not in a server module, not
+    in client copy (display names excepted, per D14).
+12. **Damage to a hull enters through `applyDamage` and nowhere else.** A `ship.hp -=` outside it
+    is a defect of the same class as a spatial emit outside `frames.ts`; a lint restriction and a
+    grep pin enforce it.
+13. **An ordnance step never enumerates world entities.** It receives `hitTargets(mask)` from the
+    world and nothing else; adding a target kind is one union member + one collector branch, never
+    a per-weapon lookup.
+
+---
+
 ## Implementation Patterns
 
 These patterns ensure consistent implementation across all AI agents. Every pattern shows
@@ -1233,6 +1853,8 @@ passing invariant case fails CI by construction. Adding a signal = one row + its
 
 ### Novel Pattern 2: Boon Effects (two homes + hooks)
 
+> **AMENDED 2026-09-10** — the shape below predates catalog v3; the live shape (tiered lines, `stock`, no `slotReplace`, an EMPTY hook registry) is *Novel Pattern 2 (AMENDED)* in the Deck amendment further down.
+
 **Purpose:** an undecided catalog can express numeric upgrades, slot changes, and behavior
 changes without new mechanisms or per-side forks.
 
@@ -1262,6 +1884,8 @@ hooks execute identically on both sides (prediction survives). The parity test s
 iterates `HOOK_REGISTRY`. Applying a boon touches no other path.
 
 ### Novel Pattern 3: Equipment (unified fitted systems)
+
+> **AMENDED 2026-09-10** — the interface below is byte-identical today; membership (18 rows), the slot table (nine roles, two permanents) and the consumable/stream/arcing row kinds are *Novel Pattern 3 (AMENDED)* in the Deck amendment further down.
 
 **Purpose:** guns, torpedoes, mines, smoke, star shells, decoys, speed boosts — one
 interface: a piece of equipment on the ship that adds a capability.
@@ -1514,6 +2138,123 @@ settings tests running with `source: 'local'`.
 
 ---
 
+### Implementation Patterns — The Deck amendment (2026-09-10)
+
+Two existing patterns are amended and four are added. Each has ONE canonical shape; an agent
+writing a second shape for the same job is wrong.
+
+#### Novel Pattern 2 (AMENDED): Boon Effects — lines with tiers, and `stock`
+
+```ts
+// shared/src/sim/boons.ts — the engine. slotReplace is gone; stock is new.
+export type BoonEffect =
+  | { kind: 'stat'; path: BoonStatPath; add?: number; mult?: number }     // → effectiveStats() only
+  | { kind: 'slotFill'; equipmentId: EquipmentId }                        // → first empty WEAPON slot (copy 1 of a weapon line)
+  | { kind: 'stock'; equipmentId: EquipmentId }                           // → the consumable's slot, else first empty CONSUMABLE slot, else REFUSE
+  | { kind: 'doctrine'; weapon: EquipmentId; mode: string }               // → a boolean verb on that equipment's stats row
+  | { kind: 'behavior'; hookId: string; params: HookParams };             // → HOOK_REGISTRY (still empty)
+export function canStock(loadout: readonly LoadoutSlot[], line: CatalogLine): boolean;   // the ONE refusal predicate, both sides
+```
+
+**Rules:** a line's `tiers[N]` folds when copy N+1 is taken; the fold is order-independent by
+construction (`validateCatalog` forbids add+mult on one path across lines; a permutation test
+pins it). `stock` is refused BEFORE the card leaves the deck, by `canStock`, on both sides.
+Applying a card touches: `cards`, `stats`, the slot row, pools/timers via `reconcilePools` /
+`rescaleReloadTimers` — nothing else.
+
+#### Novel Pattern 3 (AMENDED): Equipment — nine roles, two permanents, consumables
+
+The `Equipment` interface is byte-identical. What changes is membership (18 rows, total over the
+widened `EquipmentId`) and the slot table (D20). A consumable row implements `tick` as a no-op and
+`activate` as "decrement `n`, do the thing"; a `stream` row (machine gun) is fired by `fireControl`'s
+held pass rather than by a click; an `arcing` row (monitor) skips terrain in `stepShell`. The
+one-structure law (a slot IS the runtime) and the single sinking-activation gate are unchanged.
+
+#### Novel Pattern 10: The Damage Gate
+
+**Purpose:** every hp loss on a hull passes one function, so the shield, the assist ledger, the
+sink check and the `dmg` event cannot drift apart.
+
+```ts
+// server/src/game/world.ts — callers: shell/burst hits, torpedo & missile strikes, mine blasts, phosphor burn, the storm bite, decoy contact
+const dealt = this.applyDamage(victim, amount, 'mine', mine.ownerId);   // returns what landed after the shield
+```
+
+**Rules:** callers emit their own `hc` / `boom` on the HIT, before calling (a fully-absorbed hit
+still calls); the gate never emits anything but `dmg`; `payRepair` is the only hp INCREASE path
+and never runs inside the gate. Pin: a grep test asserts exactly one `victim.hp -=` in `world.ts`.
+
+#### Novel Pattern 11: The Target Collector
+
+**Purpose:** ordnance collides with whatever the world says is hittable, by kind, without knowing
+the world's stores.
+
+```ts
+// server/src/game/world.ts
+const targets = this.hitTargets(CONFIG[eq].hits);           // memoized per tick per mask
+const out = stepShell(shell, dtMs, { ...ctx, targets });    // shared; outcome carries target.kind
+switch (out.kind) { case 'hull': …applyDamage…; case 'mine': this.detonateMine(out.id); case 'decoy': …; case 'ordnance': this.removeOrdnance(out.id); }
+```
+
+**Rules:** masks live in CONFIG on the ordnance row; the collector is the only place entity stores
+are enumerated for collision; chain detonation uses a per-tick visited set; owner immunity applies
+to `hull` only. A new target kind = one union member + one collector branch.
+
+#### Novel Pattern 12: Sight Occluders
+
+**Purpose:** smoke blocks exactly what an island blocks, minus radar, through one predicate.
+
+```ts
+// server/src/game/signals.ts
+export function sightClear(a: Vec, b: Vec, islands: readonly Island[], puffs: readonly SmokePuff[], now: number): boolean {
+  return losClear(a, b, islands) && !puffs.some(p => segCircleHit(a, b, p, puffRadius(p, now)));
+}
+```
+
+**Rules:** the six sight call sites call `sightClear`; `blipGate` / `buoyGate` never do; `ownZoneCovers`
+ignores both occluders; the `smoke` pseudo-row's own visibility is island-only + owner. Adding a
+second occluder kind (a future terrain feature) is one more term in this function, never a
+second predicate.
+
+#### Novel Pattern 13: The Held Stream
+
+**Purpose:** a weapon that fires while a key is held, without a second fire channel.
+
+```ts
+// shared/src/types.ts — InputMsg gains one LEVEL
+held: boolean;
+// server/src/game/world.ts fireControl — after the click pass
+if (input.held && EQUIPMENT[primed].stream && inArc && slot.state.n > 0) {
+  ship.streamAcc += dtMs;
+  while (ship.streamAcc >= rateMs && slot.state.n > 0) { ship.streamAcc -= rateMs; this.fireStreamShell(ship, slot); }   // fireT = now, no back-date
+} else ship.streamAcc = 0;
+```
+
+**Rules:** `held` with a non-stream prime is ignored; arc exit emits one denial then silence;
+stream shells emit `mz` per shell (Eric) and `hc` per shell; the click counter's semantics are
+untouched.
+
+#### Consistency Rules (additions)
+
+| Rule | Convention | Enforcement |
+|---|---|---|
+| One catalog | every line in `catalog.ts`; `BOON_CATALOG` gone | grep pin + type |
+| Order-independent fold | no path has add+mult across lines | `validateCatalog` + permutation property test |
+| Floor once | integer stats floored in `clampStats` only | stats tests per fractional line |
+| Reload composition | `base × step(tier) × cooldownScale`, rounded to 3 decimals | stats tests at every tier × every RELOAD rung |
+| Fill/stock on one function | `applySlotEffect` + `canStock`, both sides | client replay test = server loadout |
+| Pool is room-private | rolled on the nonce stream before any seat; never on the wire | perception/wire key pin; determinism test on the nonce |
+| One mulligan, countdown only | `MULLIGAN_CHOICE` honoured once; every other case a no-op | offer byte-identity tests |
+| Pinned kinematics fold | `boosted → slowed → drafted → hooks` at both call sites | one shared test runs both |
+| Smoke is an island for sight | six sight call sites use `sightClear`; radar gates never | perception invariant + a "smoked hull never in frame" property |
+| One hull-damage writer | `applyDamage` only | grep pin on `victim.hp -=` |
+| Masks in CONFIG | every ordnance row has `hits` | type: `Record<OrdnanceId, {hits}>` total |
+| Six exceptions | `sp`, `hc`, `mz`, `sunk`, `sm`, `fh` — unchanged | the master invariant's exception list is a literal |
+| Total tactic tables | `EQUIPMENT_TACTICS`, `CONSUMABLE_TACTICS` | `Record<…>` totality |
+| Bot decks legal | `checkDeck` over `BOT_DECKS` | boot-time test |
+
+---
+
 ## Architecture Validation
 
 ### Validation Summary
@@ -1649,6 +2390,98 @@ stored for a player who does not sign in. The operator's admin console can read 
 
 ---
 
+### Architecture Validation — The Deck amendment (2026-09-10)
+
+#### Validation Summary
+
+| Check | Result | Notes |
+|---|---|---|
+| Decision Compatibility | PASS | D19's total per-equipment record ↔ the `effectiveStats()` firewall (widened, never bypassed); D20's nine roles ↔ `InputMsg.slot` integer validation, `slotAmmo`, the hotbar; D21 ↔ the two existing input channels and the one sinking gate; D22's room-private pool stream ↔ the storm-ring nonce precedent and the E9 door (pool AFTER legality); D23 ↔ the pinned kinematics fold and the one-tick-old ribbon read (`stepShips` precedes `sampleWakes`); D24 ↔ radar's height-march gate (never `losClear`) — "smoke blocks sight only" is true by construction; D25 ↔ `stepShell`'s existing single target list; D26 ↔ latest-wins input semantics and the intent-queue cap; D27 ↔ the Gunnery Conversation's three oracles and the jamming carve-out; D28 ↔ the assist ledger (one caller); D29 ↔ the "mine exists until destroyed" rule; D30 ↔ the boost-outside-`EffectiveStats` trap the bots already handle; D31 ↔ the structural `ai/` boundary (bots still hold no `World`) |
+| GDD Coverage | PASS with named deferrals | Card model A, copies = tier ceiling, add-ons by family, tier I is the bare weapon, the deck gun's real tier I (D19); three generic weapon slots, four consumable slots, slot keeps its clock (vacuous, kept), swap cheese NEVER (D20); key-fires vs key-primes-click-fires, full-slot refusal, server-owned slot state (D21); legal deck at the door, equal weight, card leaves on take, exhaustion, draw-pile counter, the hidden pool, level zero at countdown, mulligan, weighted first draw (D22); wake drafting's prediction seam (D23 — the named delegation); smoke as a sight occluder incl. the `[DRAFT]` self-hiding (D24 — the named delegation); shoot-any-mine, flak vs ordnance, the decoy's physical block, homing retarget (D25); the held stream and its arc-exit behaviour (D26); per-line signals incl. note 21's design half, CHAFF on the carve-out (D27); Shield Block's scope (D28); no live-mine cap, the room ceiling's fate, decoy HP (D29); Shift universal and the base-vs-raised question (D30); bot decks, total consumable tactics, harness arms (D31). Deferred by name below: notes 14, 19, 20(a), the decoy's radar paint |
+| Pattern Completeness | PASS | Boon effects (creation of a build), equipment (the runtime), damage gate (state), target collector (collision), sight occluders (perception), held stream (input) — each with one canonical shape and a pin |
+| Version Specificity | PASS (n/a) | No new package. The Colyseus 0.18 upgrade (D10) is E9 story 0 and precedes nothing here; E8 builds on the same runtime E9 does |
+| Epic Mapping | PASS with one ordering consequence | E8 stories 1–15 each map to files below. **The damage gate (D28) and the target collector (D25) are prerequisites of stories 5, 12, 13 and 15 but belong to none of them** — `gds-create-epics-and-stories` should land them in story 4 (the slot rework touches `fireControl` anyway) or as a story 0 of E8, its own PR, no wire change |
+| Document Completeness | PASS | No placeholder of this document's own. Every `[DRAFT]` tag names a catalog v3 cell (turning step, boost numbers, machine-gun numbers, flak base, captive pool/clock, shield scope now RULED, smoke self-hiding now a consequence, draft lift + width, the magazine reading of the stream's ammo) and is carried, never filled |
+
+#### E8 story → architecture mapping
+
+| E8 story | Home | Pattern / decision |
+|---|---|---|
+| 1 Card model + catalog hooks | `shared/sim/catalog.ts`, `boons.ts`, `stats.ts` | D19; NP2 amended |
+| 2 Legal-deck rules, starters, freeze at queue | `shared/sim/deckRules.ts` (E9), `catalog.ts` starters; both doors | D22; E9 Pattern 6 |
+| 3 Equal-weight draw, card-leaves, exhaustion, counter | `shared/sim/deck.ts`; `OwnShip.deckLeft`; `render/hud.ts` | D22 |
+| 4 Deck gun + three weapon slots | `shared/sim/loadout.ts`; `equipment/index.ts`; `world.ts fireControl`; hotbar | D20; NP3 amended; **+ D25/D28 prerequisites (see Epic Mapping)** |
+| 5 Four consumable slots | `loadout.ts`; `boons.ts` `stock`/`canStock`; `inputs.ts`; `keyboard.ts`; `upgradeMenu.ts` | D20, D21 |
+| 6 Heal as a card; retire `5` | `consumables/hullRepair.ts`; `offers.ts` (− `HEAL_CHOICE`); `hud.ts` (− rail) | D21 |
+| 7 The opening: gun-and-Shift spawn, level zero, mulligan, weighted draw | `match.ts` hook; `world.ts spendPoint`; `deck.ts` guarantee; `offers.ts` `MULLIGAN_CHOICE` | D22 |
+| 8 Bot decks, consumable tactics, harness arms | `ai/decks.ts`, `ai/consumables.ts`, `ai/equipment.ts`, `ai/spending.ts`; `server/scripts/` | D31 |
+| 9 Own-deck results + the per-match record | `game/matchRecord.ts` (+ `pool`), `ui/results.ts` | E9 Pattern 7; D22 |
+| 10 The match consumable pool | `shared/sim/pool.ts`; `world.ts addShip`; room creation (both doors) | D22 |
+| 11 Ladders + deck gun content | `catalog.ts`; `stats.ts clampStats` (reload step, floor-once) | D19 |
+| 12 Equipment lines + add-ons | `equipment/*` (six new rows, `torpedoCore.ts`, `captiveMines.ts`); `signals.ts` rows; `shell.ts`; `arcs.ts`; `aim.ts`; `render/projectiles.ts` | D25, D26, D27 |
+| 13 Consumables content | `equipment/consumables/*`; `fakes.ts`; `smoke.ts`; `signals.ts` `sightClear` + `smoke`/`decoy` rows; `render/smokeScreen.ts`, `render/decoys.ts` | D24, D27, D28, D29 |
+| 14 Shift boost universal; retire the boost equipment | `equipment/boost.ts`; `loadout.ts` slot 1; `keyboard.ts` | D30 |
+| 15 Shoot-any-spotted-mine; wake drafting | `world.ts hitTargets`/`detonateMine`; `shared/sim/wake.ts` `draftLift`, `sim/draft.ts`; `prediction.ts` | D25, D23 |
+
+#### Issues Found & Resolved (this pass)
+
+- **No damage chokepoint exists** (measured at `HEAD`: `applyStorm`, `hitShip`, `burnShip` each
+  write `hp`): resolved by D28 — the shield would otherwise have been three independent `if`s.
+- **Prediction cannot see wakes** (measured: `prediction.ts` reads only own-ship state; the `wk`
+  event is a mask with no geometry): resolved by D23's server scalar rather than any client-side
+  reconstruction.
+- **"Smoke blocks sight only" was two rules waiting to drift**: resolved by D24 — radar's gate is
+  the height march and never `losClear`, so one predicate at the sight call sites cannot touch radar.
+- **A click is a counter, not a level** (measured: `fireSeq` cumulative, consumed once): a
+  re-emitted-click stream would fight the consumed-not-queued latch — resolved by D26's `held`.
+- **The full-slot refusal had no natural home**: resolved as a SPEND-path predicate shared by both
+  sides (D21), not an activation denial.
+- **The pool could have leaked through `WelcomeMsg.config` or the results row**: resolved by
+  rolling it on a room-private stream and recording it only on `MatchRecord.pool` (D22).
+- **The equipment reload step, written as a card effect, would have been order-sensitive against
+  `cooldownScale` and the per-line `reloadMs` paths**: resolved by deriving it from the tier count
+  in `clampStats` (D19).
+- **`HOOK_REGISTRY` looked like the home for drafting and the boost**: it is not — both are
+  unconditional per-tick steps, and putting them behind card-carried hooks would make them
+  removable by a deck. The registry stays empty (D2 amended).
+
+#### Ledgered, not resolved (for deferred-work.md)
+
+- GDD note 19: the LIGHT TORPEDO (45 u/s) against the boosted, ladder-raised Torpedo Boat
+  (68.75 u/s under D30) breaks the "torpedoes outrun every hull" pin as written — Eric re-scopes
+  the law or moves the number; nothing here guarantees it.
+- GDD note 14: the free per-level auto-heal stays built and its CONFIG stays under
+  `damageControl` until the balance pass rules on it.
+- GDD note 20(a): a player's history shows the pool cards they drew and nothing else — the
+  facilitator's reading, implemented as a filter on `MatchRecord`, awaiting Eric.
+- The reveal's new `w` (weapon family) field is a disclosure widening: a sighted shell now names
+  the weapon that fired it. Needed to draw a tracer vs a shell vs an arc; carries no range or
+  identity; declared here so it is not rediscovered as a leak.
+- Stream flash cost: 20 bots at 4 Hz is 80 `mz`/s at the emitter; `flashBudget.ts` caps the
+  render, but the wire and perception cost are unmeasured. Measure before trusting the 0.25 s
+  cadence.
+- The stream's ammo model: `ammo.ts` refills round-by-round; "6 s of fire, 15 s reload" reads as
+  a magazine. Both are `[DRAFT]`; the `refill: 'magazine'` switch is reserved, not built.
+- Shield: no tell to the shooter (an absorbed hit still calls); a second shield replaces rather
+  than stacks. Both defaults, both `[DRAFT]`.
+- Decoy: whether it paints on radar (default: yes, the buoy's footprint path); the owner's own
+  fish and own flak are NOT exempt from it (the GDD's DRAFT reading, carried).
+- A lit zone (`ownZoneCovers`) ignores smoke as it ignores islands — consistent, pinned, and a
+  design question if a star shell should not see into smoke.
+- A puff is visible with island-only LOS so it never vanishes around you; a destroyed torpedo or
+  missile emits no boom of its own — two presentation gaps.
+- Perf pins owed at build: perception at 20 observers × 200 puffs; `checkMineTriggers` + the
+  collector at 500 live mines; the parity test at `draft = 0`.
+- E8 ordering: D25 + D28 need a home before stories 5/12/13/15 (see Epic Mapping).
+
+#### Overall Status: PASS — the amendment is ready to guide E8 story creation
+
+#### Validation Date
+
+2026-09-10 (scoped pass; decisions taken live with Eric; code seams read at `HEAD`, `PROTOCOL_VERSION` 49).
+
+---
+
 ## Development Environment
 
 ### Prerequisites
@@ -1682,6 +2515,19 @@ npx drizzle-kit generate --config server/drizzle.config.ts   # after a schema.ts
   `SESSION_SECRET` and `HC_SITE_ORIGIN` values in the Render dashboard for `hullcracker-dev`
   first; the module is inert until `DATABASE_URL` exists. Never put any of them in a `VITE_`
   var or a `client/.env.*` file (not gitignored).
+
+### Setup Commands — Deck additions (2026-09-10)
+
+```bash
+# Batch-sim: deck arms (D31). The pool is rolled per match from the room stream in every arm.
+node server/scripts/batchSim.mjs --deck authored --matches 30      # the six authored bot decks
+node server/scripts/batchSim.mjs --deck random-legal --matches 30  # random decks legal against every cap
+# Headless smokes: deterministic pool + the countdown mulligan beat (HC_DEV_OPTIONS only)
+HC_DEV_OPTIONS=1 node server/scripts/matchSmoke.mjs --poolOverride hullRepair,shieldBlock,…
+```
+
+- No new env var, no new service, no new package: E8 runs on the runtime E9 story 0 (Colyseus
+  0.18) leaves behind, and every dial it adds is a shared `CONFIG` value.
 
 ### AI Tooling (MCP Servers)
 

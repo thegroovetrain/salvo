@@ -1823,3 +1823,67 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — Accoun
   status: OPEN — for `gds-create-epics-and-stories`
   summary: E9 as written (epics.md, stories 1–7) has NO story for the Colyseus 0.17 → 0.18 upgrade that D10 makes a prerequisite. Add it as E9 story 0: its own PR, `PROTOCOL_VERSION` bump (schema 5 encoder), full headless-smoke pass, sequenced before any account code and before E8.
   evidence: `npm view` 2026-09-09 — `@colyseus/database` and `@colyseus/admin` exist only with `@colyseus/core` 0.18.x peers.
+
+## 2026-09-10 — gds-game-architecture deck amendment (E8 / upgrades v3): ledgered, not resolved
+
+Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The Deck amendment (2026-09-10)". A planning pass, not a build cycle — nothing below is a defect in shipped code; each is a consequence of a decision Eric took on 2026-09-10 (D19–D31) or a GDD open note the pass could not close, that the E8 stories must carry.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, Epic Mapping)
+  status: OPEN — for `gds-create-epics-and-stories`
+  summary: The damage gate (D28: ONE `applyDamage`, replacing the three `hp` writers at `HEAD` — `applyStorm`, `hitShip`, `burnShip`) and the target collector (D25: `hitTargets(mask)`) are prerequisites of E8 stories 5, 12, 13 and 15 but belong to none of them. Land them in story 4 (the slot rework already touches `fireControl`) or as an E8 story 0, own PR, no wire change.
+  evidence: `server/src/game/world.ts` lines 2780 / 3369 / 3738 (`ship.hp -=` sites), read 2026-09-10.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D30)
+  status: OPEN — Eric ruling (GDD open note 19)
+  summary: D30 rules the Shift boost scales the LADDER-RAISED max, so a capped Torpedo Boat boosts to 68.75 u/s; catalog v3's LIGHT TORPEDO runs 45 u/s at tier I and 55 at V. The "torpedoes outrun every hull at base speed / can never self-hit" law and its pin no longer hold for that line as written. Eric re-scopes the law (bow-launched fish only; a beam-launched fish's self-hit geometry differs) or moves the number. The architecture guarantees nothing about it until he does.
+  evidence: catalog-v3.md R9/R18; gdd.md open note 19.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D27)
+  status: OPEN — declared disclosure widening, no ruling needed unless contested
+  summary: The ballistic reveal gains a weapon-FAMILY field (`w`) so the client can draw a tracer, a missile and a plunging arc differently. A sighted shell now names the weapon that fired it, where today it says only shell-or-torpedo. It carries no range-derivable value and no identity. Recorded so nobody rediscovers it as a leak.
+  evidence: `shared/src/types.ts` `BallisticEvent` at HEAD (pos + velocity only).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D27)
+  status: OPEN — measure before trusting the cadence
+  summary: Eric ruled the machine-gun stream flashes PER SHELL. At 4 Hz × 20 streaming bots that is ~80 `mz` events/s at the emitter. `flashBudget.ts` caps the RENDER; the wire and perception cost is unmeasured. Measure in the first E8 perf pass; the fix if it fails is the cadence (a `[DRAFT]` number), not the rule.
+  evidence: catalog-v3.md R20/R21 (`[DRAFT]` 0.25 s); epic-4 amendments 19/20 (the dedupe the stream opts out of).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D26)
+  status: OPEN — build-time, gated by the `[DRAFT]` numbers
+  summary: `ammo.ts` refills round-by-round with overshoot carry; catalog v3's "6 s of fire per pool, 15 s reload" reads as a MAGAZINE reload (the pool refills as a whole after a fixed time). The architecture reserves one optional switch — `ammo.refill: 'round' | 'magazine'` per equipment row, default `round` — and does NOT build it unless the confirmed numbers demand it.
+  evidence: `server/src/game/equipment/ammo.ts` `tickReload` (overshoot carry).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D28)
+  status: OPEN — two `[DRAFT]` defaults, Eric's to confirm
+  summary: SHIELD BLOCK gives the shooter no tell (an absorbed hit still emits `hc`; `dmg` is victim-private and reads 0), and a second shield while one is up REPLACES it with a fresh 100 / 10 s rather than stacking. Both are the quieter default; both are one line to change.
+  evidence: catalog-v3.md R37 (`[DRAFT]` scope — scope itself RULED 2026-09-10: all sources).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D25/D29)
+  status: OPEN — three decoy `[DRAFT]` readings carried as-is
+  summary: (a) Whether the DECOY BUOY paints on radar is unruled; the default is that it does, through the deleted radar buoy's footprint path. (b) The owner's own fish detonate on the owner's own decoy, and (c) own flak kills own torpedoes — the GDD's DRAFT reading that the owner is NOT exempt, carried; each is one mask entry in `CONFIG.<ordnance>.hits` to change.
+  evidence: gdd.md Consumables (DECOY BUOY `[DRAFT]` owner exemption); catalog-v3.md R36.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D24)
+  status: OPEN — consistent by construction; a design question only if contested
+  summary: A star shell's firer-only truesight (`ownZoneCovers`) has no island term today and gains no smoke term, so a lit zone sees INTO smoke exactly as it sees past islands. Pinned. If a flare should not pierce smoke, the fix is one term in `ownZoneCovers`, not a second predicate. Also pinned: a puff's own visibility uses island-only LOS (so it never vanishes around you), and a destroyed torpedo or missile emits no boom — a presentation gap.
+  evidence: `server/src/game/signals.ts` `ownZoneCovers` (no LOS term at HEAD).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D22)
+  status: OPEN — Eric reading (GDD open note 20a)
+  summary: A player's own match history shows the pool cards they DREW and nothing else, because the pool is hidden during play. Implemented as a filter on `MatchRecord` (which records the whole pool for Eric's metrics). Awaiting Eric's confirmation; the alternative (reveal the pool after the match) is a client change only.
+  evidence: gdd.md open note 20.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D23)
+  status: OPEN — accepted disclosure, ledgered
+  summary: `OwnShip.draft` tells a client "a wake is under you" even when the hull that laid it is island-hidden. Accepted: the kinematics would disclose the same thing one frame later, and the scalar carries no position. Not a perception exception (own-ship state, like `slowedUntil`).
+  evidence: D23; `client/src/sim/prediction.ts` reads only own-ship state at HEAD.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D24/D26/D29)
+  status: OPEN — perf pins owed at build
+  summary: Three pins the amendment names and the stories must write: perception at 20 observers × 200 smoke puffs against the 50 ms tick; `checkMineTriggers` + `hitTargets` at 500 live mines (no cap of any kind survives, Eric 2026-09-10); the kinematics parity test at `draft = 0` (both sides byte-identical to HEAD).
+  evidence: D24, D26, D29 cost paragraphs.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, Configuration)
+  status: OPEN — GDD open note 14, unchanged by this pass
+  summary: The free per-level auto-heal (cycle 129) stays built and its fields stay under `CONFIG.damageControl` while the paid heal's numbers move to `hullRepair`. Its fate is the balance pass's call once bots sail v3 decks; nothing here deletes or keeps it by decision.
+  evidence: gdd.md open note 14; `server/src/game/world.ts` `grantLevelHeal`.
