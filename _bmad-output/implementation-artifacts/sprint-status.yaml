@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
+# last_updated: 2026-09-11 (planning: gds-ux v3 pass for E8/E9 surfaces — DESIGN.md/EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; epics run for E8/E9 next; last build cycle 132, 0.17.132). Before that 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -141,6 +141,7 @@
 #   cycle 128 (0.17.128) BALANCE CYCLE 2 — MEASUREMENT ONLY, no CONFIG value moved: drones.* tunable, 29-arm evidence, XP assist-split + auto-heal SPEC for a later dev cycle — no amendment; PV 48; batch-sim-evidence-2026-08-22.md, spec-xp-assist-split-and-auto-heal.md
 #   cycle 129 (0.17.129) XP ASSIST SPLIT + PER-LEVEL AUTO-HEAL (one-dial 60s rolling counter, killer 1/10; free 10%-of-missing heal per level, own pool) — epic-7 amendment 44; PV 48; spec-xp-assist-split-and-auto-heal.md
 #   cycle 130 (0.17.130) BROADSIDE ZERO-OVERLAP ARC LADDER + per-turret arc display (mountSpread per-rung [28,25,22.5,15,6], traverse [6,7,7.5,9,14]) — batch-sim-evidence-2026-08-27.md; PV 48->49; spec-broadside-zero-overlap-arcs.md
+#   2026-09-11 (planning, no cycle) gds-ux v3 PASS — E8/E9 UX surfaces designed (bottom-centre HUD bar, 5-row refit card, countdown REDRAW, results LOADOUT, merged Ship & Deck screen, per-copy collection, named decks); PV unchanged at 49; ux-designs/…/.decision-log.md + validation-report.md
 #   cycle 132 (0.17.132) HOME COMMUNITY LINKS — DISCORD + REDDIT in the underplay row, env-templated (VITE_DISCORD_INVITE/VITE_SUBREDDIT), absence-gated, values left unset — no amendment; PV 49; spec-home-community-links.md
 # NOTE (2026-08-21, Story 7-6, Eric ruling F3): cycles 120/121 were AUTHORED on branches stamped
 # 0.17.110 / 0.17.111 / epic-7 amendments 29-30 and RENUMBERED at merge (PR #184 -> 0.17.120,
