@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — In-match HUD composite v3-1 (TRISTRAM base · A cooldown · fixed 5-row refit card)</title>
+<style>
+/* ============================================================
+   HULLCRACKER — IN-MATCH HUD COMPOSITE v3-1
+   The key-screen mock built from the 2026-09-11 rulings on
+   .working/hud-directions-v3-1.html:
+     BASE      = direction B "TRISTRAM" (HP globe left, helm globe
+                 right, slots between, consumable BELT, XP strip
+                 full width beneath, LV at head, bank chip at tail)
+     COOLDOWN  = direction A's radial clock-wipe + centred seconds
+                 numeral, on EVERY slot that cools (gun, Shift, Q E R)
+     DECK GUN  = SHOWN, keyless, head of the row, mid-reload
+     REFIT CARD= B's density; ICON · NAME · TIER (absolute loot ramp)
+                 · KIND · EXACTLY FIVE fixed stat rows (catalog max:
+                 NAVAL MINES' blast + trigger rings each own a row);
+                 no activation
+                 wording, no prose; unused rows blank; fixed height.
+   Chrome bar + kill feed + scenery: byte-identical to the board.
+   Draw-pile counter: none (deleted 2026-09-10).
+
+   FRAMES: two true 1366×768 game frames at scale(.75) = 1024×576,
+   then a 1:1 slot STATE STRIP. Inline CSS only. No JS. No network.
+   System fonts stand in for Geist / Geist Mono.
+
+   TOKENS (DESIGN.md frontmatter, verbatim):
+     void #050807 · fog-base #020604 · panel #0A0F0D ·
+     panel-deep #070B0A · card-scrim #030605 (rgba(3,6,5,.9)) ·
+     hairline #1B2621 · silver #C0C0C0 · text-primary #E2E8F0 ·
+     text-secondary #8B95A5 · text-muted #7A8496
+     phosphor #00FF88 (ready) · amber #FFB800 (selected / armed) ·
+     denied #FF3B3B · info #38BDF8 · storm-readout #B06EE8
+   LOOT-TIER RAMP (absolute): I #00FF88 · II #38BDF8 · III #B06EE8 ·
+     IV #FF3B3B · V #FFB800
+   ============================================================ */
+:root{
+  --void:#050807;--fog:#020604;--panel:#0A0F0D;--panel-deep:#070B0A;--hair:#1B2621;
+  --silver:#C0C0C0;--t1:#E2E8F0;--t2:#8B95A5;--t3:#7A8496;
+  --ph:#00FF88;--amber:#FFB800;--denied:#FF3B3B;--info:#38BDF8;--stormr:#B06EE8;--dmgm:#FF6666;
+  --own:#11A5D7;--ownfill:#084A61;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--void);color:var(--t1);font-family:var(--sans);line-height:1.5;padding:40px 20px 96px}
+.page{max-width:1320px;margin:0 auto}
+.kicker{font:11px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ph);margin-bottom:10px}
+h1{font-size:30px;font-weight:700;letter-spacing:.01em}
+.lede{color:var(--t2);font-size:14px;max-width:88ch;margin-top:10px}
+.lede strong{color:var(--t1)}
+.fixed{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+.fixed span{font:10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t2);border:1px solid var(--hair);padding:5px 9px}
+.fixed span b{color:var(--ph);font-weight:600}
+.fixed span b.am{color:var(--amber)}
+
+section.dir{margin-top:56px;border-top:1px solid var(--hair);padding-top:28px}
+.dh{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.dh .idx{font:600 15px var(--mono);color:var(--ph);letter-spacing:.15em}
+.dh h2{font-size:24px;font-weight:700;letter-spacing:.02em}
+.dh .pers{color:var(--t2);font-size:14px;font-style:italic}
+.rat{color:var(--t2);font-size:14px;max-width:100ch;margin:8px 0 18px}
+.rat strong{color:var(--t1)}
+.row{display:flex;gap:24px;align-items:flex-start}
+.scaler{width:1024px;height:576px;overflow:hidden;border:1px solid var(--hair);flex:none}
+.frame{position:relative;width:1366px;height:768px;transform:scale(.75);transform-origin:0 0;background:var(--fog);overflow:hidden}
+.side{width:262px;flex:none}
+.side h3{font:10px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin:0 0 4px 10px}
+.side p.sn{font-size:12px;color:var(--t2);margin:0 0 6px 10px}
+
+/* ---------- scenery (identical to the board) ---------- */
+.water{position:absolute;inset:0;background:
+  radial-gradient(circle at 683px 384px,rgba(200,255,235,.03) 0 180px,transparent 220px),
+  repeating-radial-gradient(circle at 683px 384px,transparent 0 109px,rgba(192,192,192,.05) 109px 110px),
+  #020604}
+.lyr{position:absolute;inset:0;pointer-events:none}
+.fog{position:absolute;inset:0;background:radial-gradient(circle at 683px 384px,rgba(2,10,6,0) 0 190px,rgba(2,10,6,.86) 240px,rgba(2,10,6,.9) 100%)}
+.sweep{position:absolute;left:133px;top:-166px;width:1100px;height:1100px;border-radius:50%;
+  background:conic-gradient(from 150deg at 50% 50%,rgba(0,255,136,.13),rgba(0,255,136,.035) 24deg,transparent 42deg)}
+.plate{font:9px var(--mono);letter-spacing:.18em;text-anchor:middle}
+
+/* ---------- FIXED top chrome: BR chrome bar + kill feed (exactly as the board) ---------- */
+.brchrome{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;align-items:baseline;gap:18px;
+  font:14px/1 var(--mono);letter-spacing:.14em;color:var(--t3);text-transform:uppercase;white-space:nowrap}
+.brchrome .n{color:var(--t1);font-weight:600}
+.brchrome .n.ph{color:var(--ph)}
+.brchrome .ring,.brchrome .ring .n{color:var(--stormr)}
+.brchrome .sep{color:rgba(122,132,150,.5)}
+.brchrome .kl{color:#F8118D;font-weight:600;text-shadow:0 0 10px rgba(248,17,141,.4)}
+.killfeed{position:absolute;top:16px;right:22px;text-align:right;font:13px/1.9 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--t2)}
+.killfeed .kn{font-weight:600}
+.killfeed .kl{text-shadow:0 0 10px rgba(248,17,141,.4)}
+
+/* ---------- shared slot grammar (DESIGN · Hotbar Slot) ---------- */
+.slot{position:relative;width:54px;height:54px;border:1px solid rgba(192,192,192,.28);background:transparent;
+  color:rgba(159,179,168,.85);display:flex;align-items:center;justify-content:center;flex:none}
+.slot>svg{width:28px;height:28px;display:block}
+.slot.ready{border-color:rgba(0,255,136,.4);color:rgba(0,255,136,.8);box-shadow:0 0 10px rgba(0,255,136,.15)}
+.slot.ability{clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,0 100%)}
+.slot.ability.ready{border-color:rgba(0,255,136,.65);box-shadow:0 0 14px rgba(0,255,136,.2)}
+.slot.empty{border-style:dashed;border-color:rgba(122,132,150,.45);color:rgba(122,132,150,.55);font:16px var(--mono)}
+.slot.sel{border-color:var(--amber);color:var(--amber);box-shadow:0 0 16px rgba(255,184,0,.4),inset 0 0 12px rgba(255,184,0,.12)}
+.slot.firing{border-color:var(--amber);color:var(--amber);box-shadow:0 0 16px rgba(255,184,0,.4),inset 0 0 12px rgba(255,184,0,.12)}
+.slot.firing .pool{position:absolute;left:0;right:0;bottom:0;height:42%;background:rgba(255,184,0,.16);border-top:1px solid var(--amber)}
+.slot.firing>svg{position:relative;z-index:1}
+.slot.denied{border:2px solid var(--denied);color:var(--denied);box-shadow:0 0 12px rgba(255,59,59,.4)}
+.slot.cool{background:rgba(3,6,5,.55)}
+.slot.cool>svg{opacity:.4}
+/* A's radial clock-wipe: a dark overlay uncovering clockwise from 12 o'clock (transparent = elapsed), large centred numeral */
+.cd{position:absolute;inset:0;background:conic-gradient(transparent 0 var(--p),rgba(3,6,5,.86) var(--p));display:flex;align-items:center;justify-content:center;
+  font:600 18px var(--mono);color:var(--t1);text-shadow:0 0 6px #000,0 0 2px #000;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.kc{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 3px;
+  border:1px solid rgba(122,132,150,.55);color:var(--t3);font:9px var(--mono);letter-spacing:0;white-space:nowrap}
+.kc.ghost{border-color:transparent;color:transparent}
+.kc.am{border-color:var(--amber);color:var(--void);background:var(--amber);font-weight:600}
+.kc.rd{border-color:var(--denied);color:var(--denied)}
+.badge{position:absolute;top:-7px;right:-7px;min-width:16px;height:16px;padding:0 4px;background:#030605;border:1px solid rgba(0,255,136,.5);
+  color:var(--ph);font:10px/14px var(--mono);text-align:center;letter-spacing:0}
+.tier{position:absolute;bottom:2px;right:4px;font:600 9px var(--mono);letter-spacing:.04em}
+.tier.t1{color:var(--ph)}.tier.t2{color:var(--info)}.tier.t3{color:var(--stormr)}
+.sw{display:flex;flex-direction:column;align-items:center;gap:5px}
+@keyframes breathe{0%,100%{box-shadow:0 0 6px rgba(0,255,136,.18),inset 0 0 6px rgba(0,255,136,.06)}50%{box-shadow:0 0 16px rgba(0,255,136,.45),inset 0 0 10px rgba(0,255,136,.14)}}
+.bank{width:30px;height:30px;flex:none;border:1px solid rgba(0,255,136,.65);background:rgba(3,7,5,.6);display:flex;align-items:center;justify-content:center;
+  font:600 13px var(--mono);color:var(--ph);animation:breathe 2.4s ease-in-out infinite}
+.cue{font:9px/1.5 var(--mono);letter-spacing:.14em;color:rgba(0,255,136,.8);text-transform:uppercase;white-space:nowrap}
+.cue span{color:var(--t2)}
+.hbar{position:relative;height:14px;border:1px solid rgba(192,192,192,.28);background:rgba(3,6,5,.55)}
+.hbar.xp{height:5px;background:rgba(0,255,136,.06);border-color:rgba(0,255,136,.25)}
+.hbar.xp i{position:absolute;left:0;top:0;bottom:0;background:var(--ph);box-shadow:0 0 6px rgba(0,255,136,.45)}
+
+/* ============ B · TRISTRAM base (gun slot added at the head of the row) ============ */
+.B-hud{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:790px}
+/* refit open: ONLY the slot groups dim (2026-09-11 ruling) — HP globe, helm globe and XP strip stay at full */
+.B-hud.dim .B-slots,.B-hud.dim .belt{opacity:.38}
+.B-main{display:flex;align-items:center;justify-content:center;gap:16px}
+.globe{position:relative;width:96px;height:96px;flex:none}
+.globe svg{width:96px;height:96px;display:block}
+.globe .gt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font:9px var(--mono);letter-spacing:.16em;color:var(--t2);text-transform:uppercase}
+.globe .gt b{font:600 18px var(--mono);color:var(--t1);letter-spacing:.02em;line-height:1.2}
+.globe .gt em{font-style:normal;color:var(--t2);font-size:10px}
+/* helm globe grown 96 → 104 so its HDG / KTS / W S A D labels seat at the 9 px floor (2026-09-11 ruling) */
+.globe.helm{width:104px;height:104px}.globe.helm svg{width:104px;height:104px}
+/* SHIELDED register (2026-09-11 ruling): the number reads hull + shield, may exceed max, wears the info token; ring untouched */
+.globe.shield .gt,.globe.shield .gt b,.globe.shield .gt em{color:var(--info)}
+.B-slots{display:flex;gap:8px}
+.belt{display:flex;gap:6px;padding:8px 8px 6px;border:1px solid rgba(192,192,192,.2);position:relative;align-items:flex-start}
+.belt .slot{width:44px;height:44px}.belt .slot>svg{width:22px;height:22px}
+.belt .badge{top:-6px;right:-6px}
+.B-xp{display:flex;align-items:center;gap:10px;margin-top:8px}
+.B-xp .lv{font:600 11px var(--mono);color:var(--ph);letter-spacing:.14em;white-space:nowrap}
+.B-xp .hbar.xp{flex:1;height:4px}
+.B-bank{display:flex;align-items:center;gap:8px}
+.B-bank .bank{width:24px;height:24px;font-size:11px}
+
+/* ============ REFIT WINDOW — fixed 4-row card at B density ============ */
+.refit{position:absolute;left:221px;top:388px;display:flex;gap:20px}
+.rc{position:relative;width:216px;height:226px;border:1px solid rgba(192,192,192,.28);background:var(--panel);padding:10px 12px 8px;text-align:center;display:flex;flex-direction:column;align-items:center}
+.rc .kc.big{position:absolute;top:-8px;left:-8px;width:22px;height:22px;background:var(--void);font-size:11px;color:var(--t2);border-color:rgba(192,192,192,.4)}
+.rc .ci{width:40px;height:40px;flex:none;border:1px solid rgba(192,192,192,.28);display:flex;align-items:center;justify-content:center;color:var(--ph)}
+.rc .ci svg{width:24px;height:24px}
+.rc .cn{margin-top:4px;font:600 15px/1.15 var(--sans);color:var(--t1);letter-spacing:.02em;text-transform:uppercase;white-space:nowrap}
+.rc .ck{margin-top:2px;font:10px var(--mono);letter-spacing:.2em;color:var(--t2);text-transform:uppercase}
+.rc .ladder{height:16px;margin-top:4px;display:flex;gap:3px;align-items:center;justify-content:center}
+.rc .ladder i{width:14px;height:7px;border:1px solid;display:block}
+.ladder i.r1{border-color:var(--ph)}.ladder i.r2{border-color:var(--info)}.ladder i.r3{border-color:var(--stormr)}.ladder i.r4{border-color:var(--denied)}.ladder i.r5{border-color:var(--amber)}
+.ladder i.on.r1{background:var(--ph)}.ladder i.on.r2{background:var(--info)}.ladder i.on.r3{background:var(--stormr)}
+.ladder i.next.r3{background:var(--stormr);box-shadow:0 0 8px rgba(176,110,232,.7)}
+.ladder i.next.r4{background:var(--denied);box-shadow:0 0 8px rgba(255,59,59,.7)}
+.ladder i.off{opacity:.35}
+.rc .tl{font:600 12px var(--mono);letter-spacing:.14em;margin-left:8px;white-space:nowrap}
+.t1{color:var(--ph)}.t2{color:var(--info)}.t3{color:var(--stormr)}.t4{color:var(--denied)}
+.rc .arr{color:var(--t3);margin:0 3px;font-weight:400}
+.rc .rows{width:100%;margin-top:6px;display:grid;grid-template-rows:repeat(5,17px)}
+.rc .rw{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid rgba(27,38,33,.95);padding:0 1px}
+.rc .rw .l{font:9px var(--mono);letter-spacing:.14em;color:var(--t2);text-transform:uppercase}
+.rc .rw .v{font:11px var(--mono);letter-spacing:.04em;color:var(--t1);font-variant-numeric:tabular-nums;white-space:nowrap}
+.rc .rw .v .nx{color:var(--ph)}
+.rc .rw .v .ar{color:var(--t3);margin:0 4px}
+.rc .foot{height:14px;margin-top:2px;font:600 9px var(--mono);letter-spacing:.24em;color:var(--t2);text-transform:uppercase;white-space:nowrap}
+/* armed (hover / pending) */
+.rc.armed{border-color:var(--amber);box-shadow:0 0 16px rgba(255,184,0,.35),inset 0 0 12px rgba(255,184,0,.06)}
+.rc.armed .kc.big{border-color:var(--amber);color:var(--amber);background:var(--void)}
+.rc.armed .cn,.rc.armed .ci{color:var(--amber)}
+.rc.armed .ci{border-color:rgba(255,184,0,.6)}
+/* greyed (refused: SLOTS FULL) — dual-coded: dim + reason word + hollow key chip */
+.rc.grey{opacity:.55}
+.rc.grey .kc.big{border-style:dashed;color:var(--t3)}
+.rc.grey .foot{border:1px solid rgba(139,149,165,.5);padding:0 8px;height:16px;line-height:14px;color:var(--silver)} /* reason word in silver so it reads on the dimmed card */
+
+/* callout beside the refit frame */
+.rowcount{margin:14px 0 0 10px;display:grid;grid-template-columns:auto 1fr auto;gap:6px 12px;align-items:center;font:10px var(--mono);letter-spacing:.12em;color:var(--t2);text-transform:uppercase}
+.rowcount .mini{display:grid;grid-template-rows:repeat(5,5px);gap:2px;width:44px}
+.rowcount .mini i{display:block;border:1px solid rgba(192,192,192,.35);height:5px}
+.rowcount .mini i.on{background:rgba(0,255,136,.55);border-color:var(--ph)}
+.rowcount b{color:var(--ph);font-weight:600;text-align:right}
+.rowcount .nm{color:var(--t1)}
+
+/* ============ STATE STRIP (1:1) ============ */
+.strip{margin-top:22px;border:1px solid var(--hair);background:var(--panel-deep);padding:26px 28px 22px;display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap}
+.st{display:flex;flex-direction:column;align-items:center;gap:10px;width:78px}
+.st .sl{font:9px var(--mono);letter-spacing:.22em;color:var(--t3);text-transform:uppercase;white-space:nowrap}
+.st .sl.am{color:var(--amber)}.st .sl.rd{color:var(--denied)}.st .sl.ph{color:var(--ph)}
+.st .sw{gap:6px}
+
+.foot-note{margin-top:56px;color:var(--t3);font-size:12px;max-width:100ch}
+</style>
+</head>
+<body>
+
+<!-- ============ shared symbols (icons, hulls, island, blip) — the board's glyphs, plus two card-only glyphs ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs>
+<symbol id="ic-gun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></symbol>
+<symbol id="ic-boost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M5 13l7-7 7 7M5 20l7-7 7 7"/></symbol>
+<symbol id="ic-torp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="9.5" width="17" height="5" rx="2.5"/><path d="M19 12h3M4.5 9.5l-2-3M4.5 14.5l-2 3"/></symbol>
+<symbol id="ic-mg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M3 12h5M10 12h5M17 12h4"/></symbol>
+<symbol id="ic-chaff" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="1.5"/><circle cx="6" cy="8" r="1.2"/><circle cx="17" cy="6" r="1.2"/><circle cx="19" cy="14" r="1.2"/><circle cx="8" cy="17" r="1.2"/><circle cx="14" cy="19" r="1.2"/><circle cx="4" cy="14" r="1"/><circle cx="12" cy="4" r="1"/><circle cx="20" cy="20" r=".9"/></symbol>
+<symbol id="ic-repair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"><path d="M12 4v16M4 12h16"/></symbol>
+<!-- card-only glyphs (not on the board): ARMOR plate, ACOUSTIC HOMING = torpedo + listening arcs -->
+<symbol id="ic-armor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="miter"><path d="M12 3l8 3v6c0 4.5-3.5 7.5-8 9-4.5-1.5-8-4.5-8-9V6z"/><path d="M12 3v18"/></symbol>
+<symbol id="ic-homing" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="9.5" width="13" height="5" rx="2.5"/><path d="M4 9.5l-2-3M4 14.5l-2 3"/><path d="M17 8.5a5 5 0 0 1 0 7M20 6a8.5 8.5 0 0 1 0 12"/></symbol>
+<symbol id="hull-own" viewBox="-40 -6 80 12"><polygon points="-38,-2.5 -28,-4.5 22,-4.5 38,0 22,4.5 -28,4.5 -38,2.5" fill="#084A61" stroke="#11A5D7" stroke-width="1.2"/></symbol>
+<symbol id="hull-c" viewBox="-40 -6 80 12"><polygon points="-38,-2.5 -28,-4.5 22,-4.5 38,0 22,4.5 -28,4.5 -38,2.5" fill="#660862" stroke="#E312D9" stroke-width="1.2"/></symbol>
+<symbol id="isle" viewBox="0 0 260 200"><polygon points="20,120 60,60 130,30 200,50 240,110 210,170 120,190 50,170" fill="#242F22" stroke="#4A6B33" stroke-width="1.5"/><polygon points="80,110 110,70 170,70 200,110 170,150 110,150" fill="#363C29" stroke="#7B8A3E" stroke-width="1.2"/><polygon points="120,110 140,90 165,100 160,125 130,130" fill="#484534" stroke="#AE9C58"/></symbol>
+<symbol id="blip" viewBox="0 0 30 18" fill="#00FF88"><rect x="0" y="6" width="6" height="6" opacity=".55"/><rect x="6" y="0" width="6" height="6" opacity=".8"/><rect x="6" y="6" width="6" height="6"/><rect x="12" y="6" width="6" height="6"/><rect x="18" y="6" width="6" height="6" opacity=".9"/><rect x="12" y="12" width="6" height="6" opacity=".7"/><rect x="24" y="6" width="6" height="6" opacity=".5"/></symbol>
+</defs>
+</svg>
+
+<div class="page">
+  <div class="kicker">Hullcracker.io · UX run 2026-07-16 · v3 update · in-match HUD composite · 2026-09-11</div>
+  <h1>HUD composite v3-1 — TRISTRAM base, A cooldown, fixed 5-row refit card</h1>
+  <p class="lede">The key screen built from the 2026-09-11 rulings. Frame 1 is the live HUD; frame 2 is the same HUD with the <strong>Tab</strong> refit window open (only the slot groups dimmed to 38%; globes and XP strip at full); below them, every slot state at 1:1. Everything above the bottom cluster — chrome bar, kill feed, ocean — is the direction board's, untouched.</p>
+  <div class="fixed">
+    <span>Base <b>B TRISTRAM</b> · cooldown <b>A radial wipe + numeral</b> · card density <b>B</b></span>
+    <span>Row: <b>Gun</b> (keyless) · <b>Shift</b> · <b>Q E R</b> · belt <b>1 2 3 4</b></span>
+    <span>Gun <b>1.2 s</b> of 5 · Shift <b>7 s</b> of 20 · Q <b>LIGHT TORPEDO II</b> · E <b>MACHINE GUN I</b> · R empty · 1 <b>HULL REPAIR ×3</b> · 2 <b>CHAFF ×1</b></span>
+    <span>HULL <b>212/250</b> · <b>LV 3</b> · 1 banked · HDG <b>271°</b> · <b>18 KTS</b></span>
+    <span>No draw-pile counter · no activation wording · <b class="am">card = 5 fixed stat rows</b></span>
+  </div>
+
+<!-- ======================================================================
+     1 · LIVE HUD
+     ====================================================================== -->
+<section class="dir" id="hud">
+  <div class="dh"><span class="idx">1</span><h2>LIVE HUD</h2><span class="pers">Torpedo Boat starter, mid-match: the deck gun 1.2 s from ready, Shift 7 s out, torpedo and machine gun up.</span></div>
+  <p class="rat">HP globe at the left end, helm globe at the right, the nine slots between: the keyless <strong>deck gun</strong> now heads the row so its 5 s reload is visible like every other cooldown, then Shift, then Q E R, then the framed consumable <strong>belt</strong>. Every cooling slot wears direction A's <strong>radial clock-wipe</strong> — a dark overlay uncovering clockwise from twelve — with the seconds numeral centred over the dimmed icon. Consumables never cool; they carry a count. XP is the full-width strip beneath, LV at its head, the banked chip at its tail.</p>
+  <div class="row">
+    <div class="scaler"><div class="frame">
+      <div class="water"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#isle" x="180" y="90" width="260" height="200"/>
+        <use href="#isle" x="1010" y="470" width="180" height="140" transform="rotate(30 1100 540)"/>
+        <use href="#hull-c" x="776" y="316" width="72" height="12" transform="rotate(-24 812 322)"/>
+        <use href="#hull-own" x="647" y="378" width="72" height="12" transform="rotate(181 683 384)"/>
+      </svg>
+      <div class="fog"></div><div class="sweep"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#blip" x="905" y="230" width="30" height="18" opacity=".9"/><use href="#blip" x="884" y="238" width="30" height="18" opacity=".4"/><use href="#blip" x="863" y="246" width="30" height="18" opacity=".18"/>
+        <use href="#blip" x="400" y="530" width="30" height="18" opacity=".75" transform="rotate(60 415 539)"/>
+        <text class="plate" x="812" y="302" fill="#E312D9">KRAKEN'S BANE</text>
+        <text class="plate" x="683" y="366" fill="#11A5D7">TIDEWRACK</text>
+      </svg>
+      <div class="brchrome"><span><span class="n ph">6</span> AFLOAT</span><span class="sep">·</span><span><span class="n ph">2</span> KILLS</span><span class="sep">·</span><span>T+<span class="n">04:12</span></span><span class="sep">·</span><span class="ring">RING CLOSES IN <span class="n">1:48</span></span><span class="sep">·</span><span class="kl">☠︎ ROSE</span></div>
+      <div class="killfeed">
+        <div><span class="kn" style="color:#5C8EFD">SALT SHAKER</span> SUNK BY <span class="kn kl" style="color:#F8118D">☠︎ ROSE</span></div>
+        <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#A1960D">MARIGOLD</span></div>
+        <div><span class="kn" style="color:#977AFD">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+      </div>
+
+      <div class="B-hud">
+        <div class="B-main">
+          <!-- HP globe -->
+          <div class="globe">
+            <svg viewBox="0 0 96 96">
+              <defs><clipPath id="gc1"><circle cx="48" cy="48" r="43"/></clipPath></defs>
+              <circle cx="48" cy="48" r="44" fill="rgba(3,6,5,.7)" stroke="rgba(192,192,192,.28)"/>
+              <rect clip-path="url(#gc1)" x="0" y="17.4" width="96" height="80" fill="rgba(0,255,136,.28)"/>
+              <line clip-path="url(#gc1)" x1="0" y1="17.4" x2="96" y2="17.4" stroke="#00FF88" stroke-width="1.5"/>
+              <circle cx="48" cy="48" r="44" fill="none" stroke="rgba(0,255,136,.35)"/>
+            </svg>
+            <div class="gt">HULL<b>212</b><em>/250</em></div>
+          </div>
+          <!-- Gun · Shift · Q E R -->
+          <div class="B-slots">
+            <div class="sw"><div class="slot cool"><svg><use href="#ic-gun"/></svg><div class="cd" style="--p:76%">1.2</div></div><span class="kc ghost">·</span></div>
+            <div class="sw"><div class="slot ability cool"><svg><use href="#ic-boost"/></svg><div class="cd" style="--p:65%">7</div></div><span class="kc">Shift</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><span class="kc">Q</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-mg"/></svg><span class="tier t1">I</span></div><span class="kc">E</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">R</span></div>
+          </div>
+          <!-- consumable belt -->
+          <div class="belt">
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-repair"/></svg><span class="badge">×3</span></div><span class="kc">1</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-chaff"/></svg><span class="badge">×1</span></div><span class="kc">2</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">3</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">4</span></div>
+          </div>
+          <!-- helm globe -->
+          <div class="globe helm">
+            <svg viewBox="0 0 104 104" font-family="ui-monospace,Menlo,monospace">
+              <circle cx="52" cy="52" r="48" fill="rgba(3,6,5,.7)" stroke="rgba(192,192,192,.28)"/>
+              <g stroke="rgba(192,192,192,.45)" stroke-width="1">
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(-70 52 52)"/><line x1="52" y1="5" x2="52" y2="11" transform="rotate(-52.5 52 52)"/>
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(-35 52 52)"/><line x1="52" y1="5" x2="52" y2="11" transform="rotate(-17.5 52 52)"/>
+                <line x1="52" y1="3" x2="52" y2="12" transform="rotate(0 52 52)" stroke="rgba(192,192,192,.7)"/>
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(17.5 52 52)"/><line x1="52" y1="5" x2="52" y2="11" transform="rotate(52.5 52 52)"/>
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(70 52 52)"/>
+              </g>
+              <rect x="48.5" y="3" width="7" height="10" fill="none" stroke="#00FF88" stroke-width="1" transform="rotate(35 52 52)"/>
+              <g transform="rotate(26 52 52)"><line x1="52" y1="50" x2="52" y2="21" stroke="#FFB800" stroke-width="2"/><polygon points="52,15 48,22 56,22" fill="#FFB800"/></g>
+              <text x="52" y="54" font-size="15" font-weight="600" fill="#E2E8F0" text-anchor="middle" letter-spacing="1">271°</text>
+              <text x="52" y="65" font-size="9" fill="#7A8496" text-anchor="middle" letter-spacing="2">HDG</text>
+              <text x="52" y="78" font-size="9" fill="#E2E8F0" text-anchor="middle" letter-spacing="1.5">18 <tspan fill="#7A8496" font-size="9">KTS</tspan></text>
+              <line x1="27" y1="88" x2="77" y2="88" stroke="rgba(192,192,192,.35)"/><line x1="52" y1="85" x2="52" y2="91" stroke="rgba(192,192,192,.55)"/>
+              <rect x="59" y="84" width="2" height="8" fill="#FFB800"/>
+              <text x="17" y="91" font-size="9" fill="#7A8496" text-anchor="middle">A</text><text x="87" y="91" font-size="9" fill="#7A8496" text-anchor="middle">D</text>
+              <text x="13" y="32" font-size="9" fill="#7A8496" text-anchor="middle">S</text><text x="91" y="32" font-size="9" fill="#7A8496" text-anchor="middle">W</text>
+            </svg>
+          </div>
+        </div>
+        <!-- XP strip under everything -->
+        <div class="B-xp">
+          <span class="lv">LV 3</span>
+          <div class="hbar xp"><i style="width:62%"></i></div>
+          <div class="B-bank"><div class="bank">1</div><span class="cue"><span>TAB TO REFIT</span></span></div>
+        </div>
+      </div>
+    </div></div>
+
+    <aside class="side">
+      <h3>What is on the bar</h3>
+      <p class="sn">Left→right: HULL globe · Gun (keyless, 1.2 s wipe) · Shift (chamfer, 7 s wipe) · Q torpedo II · E machine gun I · R empty · belt 1–4 · helm globe.</p>
+      <p class="sn">Wipe geometry: transparent = elapsed, dark = remaining, uncovering clockwise from twelve. Gun 76% elapsed, Shift 65%.</p>
+      <p class="sn">Belt slots are 44 px against 54 px weapons; counts ride the ammo badge. Tier numeral in the slot corner uses the same absolute ramp as the card.</p>
+      <p class="sn">XP tail: bank chip breathing (2.4 s) + the TAB cue; the LEVEL BANKED words are dropped — the chip's digit already says it.</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ======================================================================
+     2 · REFIT WINDOW OPEN
+     ====================================================================== -->
+<section class="dir" id="refit">
+  <div class="dh"><span class="idx">2</span><h2>REFIT WINDOW</h2><span class="pers">Tab open over the same HUD, slot groups at 38% (globes, helm and XP strip at full); four cards, keys 1–4, one fixed five-row face for every kind of card.</span></div>
+  <p class="rat">The face is <strong>ICON · NAME · TIER · KIND · five stat rows</strong> and nothing else — no activation wording, no sentences. Every card is the same height: the grid is sized to the catalog's largest card (NAVAL MINES, whose blast and trigger rings each take a row on top of reload, damage and mines held), and a card with fewer stats leaves its remaining rows blank. Tier rides the absolute loot ramp; cards without a tier (a consumable, an add-on) leave that line empty rather than inventing one. Card 1 is armed (hover); card 2 is refused in this illustrative state (all four belt slots full) — dual-coded with the reason word and a hollow key chip, never the dim alone.</p>
+  <div class="row">
+    <div class="scaler"><div class="frame">
+      <div class="water"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#isle" x="180" y="90" width="260" height="200"/>
+        <use href="#isle" x="1010" y="470" width="180" height="140" transform="rotate(30 1100 540)"/>
+        <use href="#hull-c" x="776" y="316" width="72" height="12" transform="rotate(-24 812 322)"/>
+        <use href="#hull-own" x="647" y="378" width="72" height="12" transform="rotate(181 683 384)"/>
+      </svg>
+      <div class="fog"></div><div class="sweep"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#blip" x="905" y="230" width="30" height="18" opacity=".9"/><use href="#blip" x="884" y="238" width="30" height="18" opacity=".4"/><use href="#blip" x="863" y="246" width="30" height="18" opacity=".18"/>
+        <use href="#blip" x="400" y="530" width="30" height="18" opacity=".75" transform="rotate(60 415 539)"/>
+        <text class="plate" x="812" y="302" fill="#E312D9">KRAKEN'S BANE</text>
+        <text class="plate" x="683" y="366" fill="#11A5D7">TIDEWRACK</text>
+      </svg>
+      <div class="brchrome"><span><span class="n ph">6</span> AFLOAT</span><span class="sep">·</span><span><span class="n ph">2</span> KILLS</span><span class="sep">·</span><span>T+<span class="n">04:12</span></span><span class="sep">·</span><span class="ring">RING CLOSES IN <span class="n">1:48</span></span><span class="sep">·</span><span class="kl">☠︎ ROSE</span></div>
+      <div class="killfeed">
+        <div><span class="kn" style="color:#5C8EFD">SALT SHAKER</span> SUNK BY <span class="kn kl" style="color:#F8118D">☠︎ ROSE</span></div>
+        <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#A1960D">MARIGOLD</span></div>
+        <div><span class="kn" style="color:#977AFD">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+      </div>
+
+      <!-- the four refit cards -->
+      <div class="refit">
+        <!-- 1 · LIGHT TORPEDO II → III · armed -->
+        <div class="rc armed">
+          <span class="kc big">1</span>
+          <div class="ci"><svg><use href="#ic-torp"/></svg></div>
+          <div class="cn">LIGHT TORPEDO</div>
+          <div class="ladder"><i class="r1 on"></i><i class="r2 on"></i><i class="r3 next"></i><i class="r4 off"></i><i class="r5 off"></i><span class="tl"><span class="t2">II</span><span class="arr">→</span><span class="t3">III</span></span></div>
+          <div class="ck">WEAPON</div>
+          <div class="rows">
+            <div class="rw"><span class="l">RELOAD</span><span class="v">23.8 S<span class="ar">→</span><span class="nx">22.5 S</span></span></div>
+            <div class="rw"><span class="l">DAMAGE</span><span class="v">45<span class="ar">→</span><span class="nx">50</span></span></div>
+            <div class="rw"><span class="l">SPEED</span><span class="v">47.5<span class="ar">→</span><span class="nx">50 U/S</span></span></div>
+            <div class="rw"><span class="l">TUBES</span><span class="v">1<span class="ar">→</span><span class="nx">2</span></span></div>
+            <div class="rw"></div>
+          </div>
+          <div class="foot"></div>
+        </div>
+        <!-- 2 · HULL REPAIR · consumable · refused: SLOTS FULL -->
+        <div class="rc grey">
+          <span class="kc big">2</span>
+          <div class="ci"><svg><use href="#ic-repair"/></svg></div>
+          <div class="cn">HULL REPAIR</div>
+          <div class="ladder"></div>
+          <div class="ck">CONSUMABLE</div>
+          <div class="rows">
+            <div class="rw"><span class="l">HULL</span><span class="v"><span class="nx">+50</span> NOW</span></div>
+            <div class="rw"><span class="l">HULL</span><span class="v"><span class="nx">+50</span> OVER 10 S</span></div>
+            <div class="rw"></div>
+            <div class="rw"></div>
+            <div class="rw"></div>
+          </div>
+          <div class="foot">SLOTS FULL</div>
+        </div>
+        <!-- 3 · ARMOR III → IV · upgrade -->
+        <div class="rc">
+          <span class="kc big">3</span>
+          <div class="ci"><svg><use href="#ic-armor"/></svg></div>
+          <div class="cn">ARMOR</div>
+          <div class="ladder"><i class="r1 on"></i><i class="r2 on"></i><i class="r3 on"></i><i class="r4 next"></i><span class="tl"><span class="t3">III</span><span class="arr">→</span><span class="t4">IV</span></span></div>
+          <div class="ck">UPGRADE</div>
+          <div class="rows">
+            <div class="rw"><span class="l">MAX HULL</span><span class="v">300<span class="ar">→</span><span class="nx">325</span></span></div>
+            <div class="rw"></div>
+            <div class="rw"></div>
+            <div class="rw"></div>
+            <div class="rw"></div>
+          </div>
+          <div class="foot"></div>
+        </div>
+        <!-- 4 · ACOUSTIC HOMING · add-on -->
+        <div class="rc">
+          <span class="kc big">4</span>
+          <div class="ci"><svg><use href="#ic-homing"/></svg></div>
+          <div class="cn">ACOUSTIC HOMING</div>
+          <div class="ladder"></div>
+          <div class="ck">ADD-ON</div>
+          <div class="rows">
+            <div class="rw"><span class="l">STEER</span><span class="v"><span class="nx">0.5 RAD/S</span></span></div>
+            <div class="rw"><span class="l">ACQUIRE</span><span class="v"><span class="nx">120 U</span></span></div>
+            <div class="rw"><span class="l">RANGE</span><span class="v"><span class="nx">1300 U</span></span></div>
+            <div class="rw"></div>
+            <div class="rw"></div>
+          </div>
+          <div class="foot"></div>
+        </div>
+      </div>
+
+      <!-- the same HUD; only the slot groups (gun · Shift · Q E R · belt) dim to 38% while the window is open -->
+      <div class="B-hud dim">
+        <div class="B-main">
+          <div class="globe">
+            <svg viewBox="0 0 96 96">
+              <defs><clipPath id="gc2"><circle cx="48" cy="48" r="43"/></clipPath></defs>
+              <circle cx="48" cy="48" r="44" fill="rgba(3,6,5,.7)" stroke="rgba(192,192,192,.28)"/>
+              <rect clip-path="url(#gc2)" x="0" y="17.4" width="96" height="80" fill="rgba(0,255,136,.28)"/>
+              <line clip-path="url(#gc2)" x1="0" y1="17.4" x2="96" y2="17.4" stroke="#00FF88" stroke-width="1.5"/>
+              <circle cx="48" cy="48" r="44" fill="none" stroke="rgba(0,255,136,.35)"/>
+            </svg>
+            <div class="gt">HULL<b>212</b><em>/250</em></div>
+          </div>
+          <div class="B-slots">
+            <div class="sw"><div class="slot cool"><svg><use href="#ic-gun"/></svg><div class="cd" style="--p:76%">1.2</div></div><span class="kc ghost">·</span></div>
+            <div class="sw"><div class="slot ability cool"><svg><use href="#ic-boost"/></svg><div class="cd" style="--p:65%">7</div></div><span class="kc">Shift</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><span class="kc">Q</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-mg"/></svg><span class="tier t1">I</span></div><span class="kc">E</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">R</span></div>
+          </div>
+          <div class="belt">
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-repair"/></svg><span class="badge">×3</span></div><span class="kc">1</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-chaff"/></svg><span class="badge">×1</span></div><span class="kc">2</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">3</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">4</span></div>
+          </div>
+          <div class="globe helm">
+            <svg viewBox="0 0 104 104" font-family="ui-monospace,Menlo,monospace">
+              <circle cx="52" cy="52" r="48" fill="rgba(3,6,5,.7)" stroke="rgba(192,192,192,.28)"/>
+              <g stroke="rgba(192,192,192,.45)" stroke-width="1">
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(-70 52 52)"/><line x1="52" y1="5" x2="52" y2="11" transform="rotate(-52.5 52 52)"/>
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(-35 52 52)"/><line x1="52" y1="5" x2="52" y2="11" transform="rotate(-17.5 52 52)"/>
+                <line x1="52" y1="3" x2="52" y2="12" transform="rotate(0 52 52)" stroke="rgba(192,192,192,.7)"/>
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(17.5 52 52)"/><line x1="52" y1="5" x2="52" y2="11" transform="rotate(52.5 52 52)"/>
+                <line x1="52" y1="5" x2="52" y2="11" transform="rotate(70 52 52)"/>
+              </g>
+              <rect x="48.5" y="3" width="7" height="10" fill="none" stroke="#00FF88" stroke-width="1" transform="rotate(35 52 52)"/>
+              <g transform="rotate(26 52 52)"><line x1="52" y1="50" x2="52" y2="21" stroke="#FFB800" stroke-width="2"/><polygon points="52,15 48,22 56,22" fill="#FFB800"/></g>
+              <text x="52" y="54" font-size="15" font-weight="600" fill="#E2E8F0" text-anchor="middle" letter-spacing="1">271°</text>
+              <text x="52" y="65" font-size="9" fill="#7A8496" text-anchor="middle" letter-spacing="2">HDG</text>
+              <text x="52" y="78" font-size="9" fill="#E2E8F0" text-anchor="middle" letter-spacing="1.5">18 <tspan fill="#7A8496" font-size="9">KTS</tspan></text>
+              <line x1="27" y1="88" x2="77" y2="88" stroke="rgba(192,192,192,.35)"/><line x1="52" y1="85" x2="52" y2="91" stroke="rgba(192,192,192,.55)"/>
+              <rect x="59" y="84" width="2" height="8" fill="#FFB800"/>
+              <text x="17" y="91" font-size="9" fill="#7A8496" text-anchor="middle">A</text><text x="87" y="91" font-size="9" fill="#7A8496" text-anchor="middle">D</text>
+              <text x="13" y="32" font-size="9" fill="#7A8496" text-anchor="middle">S</text><text x="91" y="32" font-size="9" fill="#7A8496" text-anchor="middle">W</text>
+            </svg>
+          </div>
+        </div>
+        <div class="B-xp">
+          <span class="lv">LV 3</span>
+          <div class="hbar xp"><i style="width:62%"></i></div>
+          <div class="B-bank"><div class="bank">1</div><span class="cue"><span>TAB TO REFIT</span></span></div>
+        </div>
+      </div>
+    </div></div>
+
+    <aside class="side">
+      <h3>Rows used · fixed 5-row grid</h3>
+      <p class="sn">Same card, same height, every kind. Filled = a stat row in use; hollow = left blank.</p>
+      <div class="rowcount">
+        <div class="mini"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div><span class="nm">LIGHT TORPEDO</span><b>4 / 5</b>
+        <div class="mini"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div><span class="nm">HULL REPAIR</span><b>2 / 5</b>
+        <div class="mini"><i class="on"></i><i></i><i></i><i></i><i></i></div><span class="nm">ARMOR</span><b>1 / 5</b>
+        <div class="mini"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div><span class="nm">ACOUSTIC HOMING</span><b>3 / 5</b>
+      </div>
+      <p class="sn" style="margin-top:14px">Card 216 × 226 px, 20 px gaps, row top at y=388 (the bar sits 8 px below the row; only its slot groups are at 38%).</p>
+      <p class="sn">Card 1 armed: amber outline + glow, amber key chip, name and icon flip amber. Card 2 refused: 55% + silver reason word + dashed hollow chip.</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ======================================================================
+     3 · STATE STRIP (1:1)
+     ====================================================================== -->
+<section class="dir" id="states">
+  <div class="dh"><span class="idx">3</span><h2>SLOT STATES</h2><span class="pers">One slot per state at 1:1 — 54 px weapon squares, 44 px belt squares — labelled with the state word only.</span></div>
+  <div class="strip">
+    <div class="st"><div class="sw"><div class="slot empty">—</div><span class="kc">R</span></div><span class="sl">EMPTY</span></div>
+    <div class="st"><div class="sw"><div class="slot ready"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><span class="kc">Q</span></div><span class="sl ph">READY</span></div>
+    <div class="st"><div class="sw"><div class="slot sel"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><span class="kc am">Q</span></div><span class="sl am">SELECTED</span></div>
+    <div class="st"><div class="sw"><div class="slot ability cool"><svg><use href="#ic-boost"/></svg><div class="cd" style="--p:65%">7</div></div><span class="kc">Shift</span></div><span class="sl">COOLING</span></div>
+    <div class="st"><div class="sw"><div class="slot firing"><div class="pool"></div><svg><use href="#ic-mg"/></svg><span class="tier t1">I</span></div><span class="kc am">E</span></div><span class="sl am">HELD FIRE</span></div>
+    <div class="st"><div class="sw"><div class="slot denied"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><span class="kc rd">Q</span></div><span class="sl rd">DENIED</span></div>
+    <div class="st"><div class="sw"><div class="belt" style="padding:0;border:0"><div class="slot ready"><svg><use href="#ic-repair"/></svg><span class="badge">×3</span></div></div><span class="kc">1</span></div><span class="sl ph">STOCKED</span></div>
+    <div class="st"><div class="sw"><div class="belt" style="padding:0;border:0"><div class="slot empty">—</div></div><span class="kc">3</span></div><span class="sl">EMPTY</span></div>
+    <!-- SHIELDED HP register: hull + shield summed into the number (may exceed max), info token, ring as is -->
+    <div class="st" style="width:96px">
+      <div class="globe shield">
+        <svg viewBox="0 0 96 96">
+          <defs><clipPath id="gc3"><circle cx="48" cy="48" r="43"/></clipPath></defs>
+          <circle cx="48" cy="48" r="44" fill="rgba(3,6,5,.7)" stroke="rgba(192,192,192,.28)"/>
+          <rect clip-path="url(#gc3)" x="0" y="17.4" width="96" height="80" fill="rgba(0,255,136,.28)"/>
+          <line clip-path="url(#gc3)" x1="0" y1="17.4" x2="96" y2="17.4" stroke="#00FF88" stroke-width="1.5"/>
+          <circle cx="48" cy="48" r="44" fill="none" stroke="rgba(0,255,136,.35)"/>
+        </svg>
+        <div class="gt">HULL<b>312</b><em>/250</em></div>
+      </div>
+      <span class="sl" style="color:var(--info)">SHIELDED</span>
+    </div>
+  </div>
+  <p class="foot-note">States as rendered on the bar: EMPTY dashed slate with the em dash; READY phosphor .4 outline + 10 px glow; SELECTED amber outline, 16 px glow, inset wash, filled amber key chip; COOLING scrim interior, icon at 40%, radial wipe uncovering clockwise, centred seconds numeral; HELD FIRE amber outline with the ammo pool draining along the floor; DENIED the 80 ms 2 px red edge pulse, frozen here; STOCKED the belt square with its count on the ammo badge; consumable EMPTY the same dashed square at belt size. Cooldown numerals show tenths under 2 s (the gun's 1.2) and whole seconds above. SHIELDED: the HP register reads hull + shield in the info token (312/250 — the sum may exceed max) and reverts on deplete/expire; the globe ring and fill are unchanged.</p>
+</section>
+
+</div>
+</body>
+</html>

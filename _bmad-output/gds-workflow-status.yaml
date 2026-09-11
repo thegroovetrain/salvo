@@ -16,7 +16,7 @@
 # ledgers and the keys themselves remain in git history.)
 
 generated: '2026-07-15'
-last_updated: '2026-09-10'  # gds-game-architecture deck amendment (E8 / upgrades v3): game-architecture.md D19–D31; E8 stories via gds-create-epics-and-stories next. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
+last_updated: '2026-09-11'  # gds-ux v3 pass (E8/E9 surfaces): DESIGN.md + EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; gds-create-epics-and-stories for E8/E9 next (halted at step 1 pending this). Before that: gds-game-architecture deck amendment 2026-09-10: game-architecture.md D19–D31; E8 stories via gds-create-epics-and-stories next. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -35,7 +35,7 @@ create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2
 catalog-v3: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/catalog-v3.md # complete 2026-09-09 (Eric's sheet v2 walked line by line: 29 lines / 114 cards [corrected from 111 on 2026-09-09], 3 starters at 40, 44 rulings incl. the match consumable pool; [DRAFT] cells await the harness; gds-gdd update next)
 gdd: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md # complete 2026-07-16 (epics.md + decision-log.md alongside; PR #23); updated 2026-07-19 (three-class re-scope); reconciled 2026-08-21 (Story 7-6); updated 2026-09-03 (deck model v3 from forge/deck-model-v3/forged-idea.md — accounts, authored 40-card decks, consumable slots, heal-as-card, gun-only spawn; E8 The Deck + E9 The Account added); updated 2026-09-09 (catalog v3 folded in from catalog-v3.md — 29 lines / 114 cards [the catalog's 111 was an arithmetic slip], match consumable pool, Shift boost universal, radar buoy deleted, 09-04 structural rulings recorded; note 12 closed, notes 19-22 opened; E8 re-cut to 15 stories)
 create-narrative: false # optional
-ux: _bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md # complete 2026-07-16 (EXPERIENCE.md peer contract + decision log + validation reports + mockups/ alongside); reconciled 2026-08-21 (Story 7-6, Eric rulings B1/C1-C4/D1-D5)
+ux: _bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md # complete 2026-07-16 (EXPERIENCE.md peer contract + decision log + validation reports + mockups/ alongside); reconciled 2026-08-21 (Story 7-6, Eric rulings B1/C1-C4/D1-D5); v3 update 2026-09-11 (E8/E9 surfaces: bottom-centre HUD bar, 5-row refit card, countdown offer + REDRAW, results LOADOUT, merged Ship & Deck screen w/ per-copy collection + named decks, account chip; mocks hud-composite-3 / countdown-results-1 / shipdeck-1; 4-lens validation-report; ~45 Eric rulings in .decision-log.md; OPEN: anonymous play on production)
 prd: false # optional
 
 # --- Phase 3: Technical ---
