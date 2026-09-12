@@ -15,7 +15,7 @@ inputDocuments:
 extensions:
   - name: epics-8-9-the-deck-and-the-account
     started: 2026-09-11
-    stepsCompleted: [1, 2, 3]
+    stepsCompleted: [1, 2, 3, 4]
     scope: append Epic 8 (The Deck) + Epic 9 (The Account); FR41+ / NFR20+ / AR19+ / UX-DR40+; Epic 0-7 text byte-identical (Eric ruling 2026-09-10)
 ---
 
@@ -1806,7 +1806,7 @@ So that everyone in the match plays by the same deck rules and nobody can bring 
 **When** the deck rules land
 **Then** `shared/src/sim/deckRules.ts` exposes ONE pure `checkDeck()` enforcing exactly two composition rules — exactly `CONFIG.deck.size` (40) cards, and no more than `CONFIG.deck.maxEquipmentLines` (3) lines whose copy 1 fits an equipment slot — plus the two ownership bounds (every line owned; copies ≤ cap), and nothing else: a pure-gunboat deck and a zero-heal deck both pass (FR41, AR40)
 **And** `catalog.ts` carries the three DEFAULT decks (Torpedo Boat / Battleship / Mine Layer) at Eric's delivered counts, each passing `checkDeck` against a fresh account's unlocks (the defaults' cards) — pinned — and `FLEET_FIT` (heavy torpedo + naval mines at tier I) for PvE hulls (FR56, FR45)
-**And** ONE shared `loadDeckFor(userId, deckId, hull)` is called at BOTH doors (`StandardQueueRoom.onJoin`, `ArenaRoom.onJoin`) and, with no account module present, always resolves the hull's default deck; it returns the 40 line ids into the seat reservation and the deck is FROZEN there — Solo vs AI has no queue, so its freeze point is the arena's `onJoin` (FR41, FR63, AR32)
+**And** ONE shared `loadDeckFor(userId, deckId, hull)` is called at BOTH doors (`StandardQueueRoom.onJoin`, `ArenaRoom.onJoin`) and, with no account module present, always resolves the hull's default deck — so EVERY Epic 8 path runs anonymously and signing in can never change what a captain can do in a match (FR61); it returns the 40 line ids into the seat reservation and the deck is FROZEN there — Solo vs AI has no queue, so its freeze point is the arena's `onJoin` (FR41, FR63, AR32)
 **And** `sanitizeRoomOptions` REJECTS any client-supplied `deck` key at both doors and accepts only `deckId` (unused until Epic 9); `deckOverride` (line ids) is honoured ONLY under `HC_DEV_OPTIONS=1`, gated exactly like `matchOverride` (AR32, AR55, NFR20)
 **And** `DeckState { cards: LineId[] }` is server-private, built at the seat, never on the wire (AR40)
 **And** the room's `pacifist` storm-control posture is expressible as a legal deck of zero equipment lines (AR55)
@@ -2161,7 +2161,7 @@ So that the game can keep things for me — and nothing about my match changes b
 **And** BOTH doors verify: `StandardQueueRoom` and `ArenaRoom` `static onAuth` call one `verifyToken(headers)` AFTER the PV gate and the staging gate — the gate order is fixed and pinned — attaching `{ userId }` or `null` (anonymous is a first-class result, never an error); the Bearer token rides matchmaking (FR63, AR28)
 **And** the client: a `SIGN IN` row (`GOOGLE · DISCORD`, Primary Button register, 30 px) renders on the anonymous home ONLY while `/liveness` reports `account: true` — ABSENT otherwise, never disabled; a popup closed/blocked or a provider error leaves the home anonymous and reports on the home status line in the `denied` register; signed in, the row is absent and the **Account Chip** (`LV n · n ⬢`, top-right by the settings gear, 34 px) stands, updating on sign-in, sign-out and every token spent; the signed-in home is today's home + the chip and NOTHING else — no `DECKS` link (UX-DR67, UX-DR68)
 **And** Settings gains SIGN OUT; `state.ts` gains one `account` slice written ONLY by `net/account.ts`; `/liveness` `account: true` is the client's only signal; the log gains `account.signin { provider, userId }`, `account.link`, `account.signout` under the PII rule (AR51, AR53, UX-DR69)
-**And** **the dev/staging host is ACCOUNT-ONLY** (Eric, FIRM — UX-DR73): behind a server env flag set on `hullcracker-dev` only (never on production, where anonymous play stays Eric's open question), an anonymous verification result at EITHER door is refused with a stable reason after the staging-key gate, the anonymous home renders the SIGN IN row and no mode buttons, and a mid-match reconnect is not re-gated (the resume token is the auth — the same posture as the PV and staging gates); the flag's absence leaves production byte-identical; pinned by a test at both doors
+**And** **the dev/staging host is ACCOUNT-ONLY** (Eric, FIRM — UX-DR73): behind a server env flag set on `hullcracker-dev` only (never on production, where anonymous play stays Eric's open question), an anonymous verification result at EITHER door is refused with a stable reason after the staging-key gate, the anonymous home renders the SIGN IN row and no mode buttons, and a mid-match reconnect is not re-gated (the resume token is the auth — the same posture as the PV and staging gates); the flag's absence leaves production byte-identical; pinned by a test at both doors (FR61, UX-DR73)
 **And** a signed-in player's MATCH is byte-identical to an anonymous player's (deck loading stays on the default path until 9.5); the `dev.hullcracker.io`-style staging name question (`deferred-work.md:1720`) is raised because OAuth redirect URIs must name the host; `PROTOCOL_VERSION` does NOT bump (HTTP only).
 
 ### Story 9.3: Two-State Settings and Profile
