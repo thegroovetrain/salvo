@@ -1749,3 +1749,372 @@ So that launch day is boring.
 **And** `loadTest.mjs` is BUILT — it does not exist. AR12's load-test leg died with epic-5 amendment 41's drone-fill deletion and Story 6-4 rebuilt only the bot-evaluation leg; this is the third epic to assume the capability present, so scope it as construction, not invocation. It then proves the deployed tier survives a connection spike, with `/metrics` confirming tick health under load (AR12, NFR10)
 **And** the unauthenticated solo-create cost vector is RULED (`deferred-work.md:1150`) — per-IP create throttle, global concurrent-solo ceiling, or explicit acceptance. **(AMENDED 2026-08-21: Story 7.7 is deferred, so there is no new topology to verify — the gate runs against the SINGLE Render web service, the topology every prior cycle already exercised.)** The original framing follows as history: the 7.7 split makes the game-server origin separately addressable, and because the split lands immediately before this gate, the gate is the FIRST verification the new topology gets
 **And** `npm run check` is green, `PROTOCOL_VERSION` is consistent, and the full pipeline (home to queue to match to death to ad break to requeue) passes a manual run on the production service (singular, per the 2026-08-21 deferral of Story 7.7; this read "both production services" when the split was still planned).
+
+
+## Epic 8: The Deck *(GDD E8 — upgrades v3 + catalog v3)*
+
+Pick a hull and sail its default deck: spawn with the deck gun and `Shift`, redraw the opening offer during the countdown, draw catalog v3's weapons into `Q`/`E`/`R`, stock and fire consumables on `1`–`4`, heal from a card, read your final loadout in results — identical rules for humans and bots, and every code path runs with no account module at all. Twenty-one stories in build order (Eric-approved 2026-09-11). Standing constraints on every story: the `Tab` offer is untouched; the passive XP tick stays the anti-snowball floor; the master perception invariant keeps exactly SIX declared exceptions; **NO FRIENDLY FIRE** (own ordnance never damages own hull — the one exception is shooting your own mines early); never invent a card, a number or a consumable — every `[DRAFT]` is Eric's; `PROTOCOL_VERSION` bumps once per wire-changing story and never for the harness or the bots; `npm run check` green is the gate for every landing; every story that changes a fact recorded in `gdd.md` or `game-architecture.md` adds the correction to the list Story 9.11 pays.
+
+### Story 8.0: Colyseus 0.18 Upgrade (floor story)
+
+As the operator (Eric),
+I want the game running on Colyseus 0.18 before any deck code lands,
+So that Epic 8 and Epic 9 build on a current runtime and the account modules that exist only on 0.18 are reachable.
+
+**This is a FLOOR story on the Story 0.1 precedent — no player-visible change.** A framework upgrade and a feature never share a PR (AR19).
+
+**Acceptance Criteria:**
+
+**Given** the game on Colyseus 0.17 at `PROTOCOL_VERSION` 49
+**When** the upgrade lands as its own PR
+**Then** every `@colyseus/*` package on both sides is at the pinned 0.18 target set (`colyseus` 0.18.5, `@colyseus/core` 0.18.12, `@colyseus/schema` 5.0.27, `@colyseus/tools` 0.18.3, `@colyseus/sdk` 0.18.2; `@colyseus/auth`, `database`, `admin`, `monitor`, `playground` added at their 0.18 versions but NOT mounted; `postgres` 3.4.9 and `drizzle-kit` 0.31.10 present; Node stays 22) and the exact pre-release `drizzle-orm` inside `@colyseus/database` is pinned (`deferred-work.md:1797`)
+**And** the measured touchpoints are converted: `setSimulationInterval` → `setTimestep` in `ArenaRoom.ts`, `setMetadata`'s replace semantics honoured, every `Client#id` use removed, Schema 4 → 5 on both sides with `ArenaState` under the 63-field cap
+**And** `PROTOCOL_VERSION` bumps (the schema encoder changed) and the join gate still refuses a mismatched pair
+**And** the Story 0.1 re-verification list runs green — the PV join gate, the JOINING guard, seat-reservation timing, `_enqueuedMessages`, reconnection with a rotated token (`deferred-work.md:29`'s SDK line is re-located and the persistence hook re-checked)
+**And** every headless smoke in `server/scripts/*.mjs` passes over real sockets, `npm run check` is green with the ~26 Colyseus-importing test files updated rather than deleted
+**And** a full manual match runs on the dev host, and the version stays on the `0.17.X` scheme (NFR28).
+
+### Story 8.1: The Card Model and Catalog Engine
+
+As a captain,
+I want cards to be ladder lines with tiers, add-ons that target a weapon family, and consumables that stock,
+So that a deck can describe everything catalog v3 says and the engine folds it in the same order for everyone.
+
+**Acceptance Criteria:**
+
+**Given** the shipped boon engine (`boons.ts`, `stats.ts`, `deck.ts`) with rarity, acquisition and the 29 v2 lines
+**When** D19 and the amended D2 land
+**Then** `shared/src/sim/catalog.ts` exists as THE catalog with `LINE_IDS` (29 camelCase ids, one per catalog v3 line) and per-line caps, each line `{ id, kind: equipment | ladder | addon | consumable, cap, tiers[] }` with `tiers.length === cap` pinned, authored through `weapon()` / `ladder()` / `addon()` / `consumable()` helpers so the file reads like Eric's sheet, the generated bundles frozen and pinned; **line content may be stubbed at base numbers here — Stories 8.12–8.16 fill the tiers** (FR42, AR29, AR36)
+**And** copy 1 of an equipment line is `[{ kind: 'slotFill', equipmentId }]` (tier I is the bare weapon); the ship ladders ARMOR / SPEED / TURNING / DECK GUN begin at Tier I EQUIPPED so the first card reads `I → II`, while RADAR SWEEP and RELOAD have no base tier; nothing reaches VI (FR42)
+**And** effect kinds are `stat` / `slotFill` / `doctrine` / `behavior` + the new `stock`; `slotReplace` is DELETED (pinned); `BoonRarity`, `CONFIG.deck.rareWeightBase` / `rareWeightPerDryLevel`, `DeckState.levelsSinceRare`, the `exclusive` validator rule, `acquire()`, `isAcquisitionDef`, `consumeAcquisition`, `EQUIPMENT_CATEGORY`, `UNIVERSAL_CATEGORIES`, `buildDeck`'s subdeck walk and `BOON_CATALOG` are DELETED; `HOOK_REGISTRY` ships EMPTY with a pin that it stays empty (AR35)
+**And** add-ons carry `appliesTo: EquipmentId[]` and generate one `doctrine` effect per listed equipment; a held-ahead add-on needs no mechanism because the verb lives on `EffectiveStats` (AR36)
+**And** the fold is `effectiveStats(cls, cards: LineId[])` (`OwnShip.boons` renamed `cards`, one id per copy); `validateCatalog` refuses add + mult on one path across lines; a permutation property test proves any legal pick order yields byte-identical stats (AR37, NFR22)
+**And** `clampStats` owns two derivations no card can write: the equipment reload step (`base × round3(1 − 0.05 × (tier − 1)) × cooldownScale`; the deck gun's real tier I uses `tier`) and the fractional-step floor (integer stats accumulate as floats and floor ONCE at the end); `EffectiveStats.equipment` is a TOTAL record keyed by the widened `EquipmentId` carrying `tier`; `BOON_STAT_PATHS` is GENERATED from it; `sightRange`, the `rangeU` family and `mine.triggerRadius` stay derived and off the whitelist (FR51, AR37)
+**And** `PROTOCOL_VERSION` bumps (catalog content and `cards` are wire contract); the deck/offer tests are updated, not deleted.
+
+### Story 8.2: Legal Decks, Default Decks, and the Door
+
+As a captain,
+I want to sail a legal 40-card deck that the server checked once when I entered,
+So that everyone in the match plays by the same deck rules and nobody can bring a deck the rules refuse.
+
+**Eric gate:** the default decks' COUNTS are Eric's — he has already re-cut them and delivers them when this story opens; the LINE composition in FR56 stands. An implementer may not invent a count.
+
+**Acceptance Criteria:**
+
+**Given** the catalog engine (8.1)
+**When** the deck rules land
+**Then** `shared/src/sim/deckRules.ts` exposes ONE pure `checkDeck()` enforcing exactly two composition rules — exactly `CONFIG.deck.size` (40) cards, and no more than `CONFIG.deck.maxEquipmentLines` (3) lines whose copy 1 fits an equipment slot — plus the two ownership bounds (every line owned; copies ≤ cap), and nothing else: a pure-gunboat deck and a zero-heal deck both pass (FR41, AR40)
+**And** `catalog.ts` carries the three DEFAULT decks (Torpedo Boat / Battleship / Mine Layer) at Eric's delivered counts, each passing `checkDeck` against a fresh account's unlocks (the defaults' cards) — pinned — and `FLEET_FIT` (heavy torpedo + naval mines at tier I) for PvE hulls (FR56, FR45)
+**And** ONE shared `loadDeckFor(userId, deckId, hull)` is called at BOTH doors (`StandardQueueRoom.onJoin`, `ArenaRoom.onJoin`) and, with no account module present, always resolves the hull's default deck; it returns the 40 line ids into the seat reservation and the deck is FROZEN there — Solo vs AI has no queue, so its freeze point is the arena's `onJoin` (FR41, FR63, AR32)
+**And** `sanitizeRoomOptions` REJECTS any client-supplied `deck` key at both doors and accepts only `deckId` (unused until Epic 9); `deckOverride` (line ids) is honoured ONLY under `HC_DEV_OPTIONS=1`, gated exactly like `matchOverride` (AR32, AR55, NFR20)
+**And** `DeckState { cards: LineId[] }` is server-private, built at the seat, never on the wire (AR40)
+**And** the room's `pacifist` storm-control posture is expressible as a legal deck of zero equipment lines (AR55)
+**And** a test proves a deck of 41, a deck with four equipment lines, and a deck with an unowned line are each refused with a stable `deck.illegal { rule }` reason and never silently substituted.
+
+### Story 8.3: The Draw
+
+As a captain,
+I want each level to offer four different cards drawn fairly from what is left in my deck,
+So that my build is shaped by what I brought, not by rarity weights or a pity timer.
+
+**Acceptance Criteria:**
+
+**Given** a frozen 40-card `DeckState` (8.2)
+**When** the v3 draw lands
+**Then** `drawOffer(deck, rng, catalog, opts?)` keeps its non-consuming shape and draws `CONFIG.offer.size` (4) DIFFERENT lines with weight = copies remaining and nothing else — no rarity, no class weight, no pity — and a line already at its cap on the ship is never offered (FR44, AR40)
+**And** a card leaves the deck when TAKEN (a ladder copy when fitted; a consumable on pick — Story 8.7 wires the stock path), exactly one card per `consumeCard`; reopening the refit window never rerolls (the FR19 pin stands; Story 8.10 adds its one exception)
+**And** exhaustion is the existing degenerate path: an empty draw banks the level silently, queues no `pt`, and logs `deck.exhausted { matchId, shipId }` ONCE per ship; the cycle-80 terminal offer-less level (`deferred-work.md:982`) is re-derived for 40-card decks and its behaviour pinned (FR44, AR51)
+**And** **there is NO draw-pile counter anywhere** and **`OwnShip.deckLeft` does NOT ride the wire** (Eric 2026-09-10/11 — a field with no consumer may not ride, per the Story 4.9 rule); `/metrics` gains `deck.exhausted` (FR44, AR41, AR54)
+**And** the retired dials are gone end to end with their tests RETIRED rather than adapted: the rarity pity inversion (`deferred-work.md:1459`), the drifted rare draw rate (`:459`), the doctrine-rival ping-pong (`:302`) — each stamped closed by deletion
+**And** the `Tab` offer's shape is byte-identical for the client: four card ids, spend by `1`–`4`, no hand, no second clock, no storefront verbs.
+
+### Story 8.4: The Damage Gate and the Ordnance Collector
+
+As a captain,
+I want every hit, burst, mine and storm tick to go through one door on the way to my hull, and every shot to find its targets through one finder,
+So that the shield, the decoy, uncapped mines and shoot-any-mine can exist without three copies of the same rule.
+
+**No wire change; its own PR (AR21).** Prerequisite of 8.7, 8.13, 8.14, 8.15, 8.16.
+
+**Acceptance Criteria:**
+
+**Given** `world.ts` at `HEAD` with three hull-hp writers (`applyStorm`, `hitShip`, `burnShip`)
+**When** D28 and D25 land
+**Then** ONE `applyDamage(victim, amount, src: DamageSource, byId)` replaces every hull-hp decrement, with the fixed inner order shield → hp → assist ledger → sink check → `dmg`; `payRepair` stays the only hp-INCREASE path and never runs inside it; a lint restriction + a grep pin assert exactly one `victim.hp -=` in `world.ts` (placement rule 12); `ship.shield` is read here (armed by Story 8.15) and a fully-absorbed hit still calls the gate (AR47)
+**And** **NO FRIENDLY FIRE is structural**: `applyDamage` refuses any damage whose source owner is the victim, for every `DamageSource` (Eric 2026-09-11); the pinned exception is that your own SHELLS may detonate your own MINES (below)
+**And** ONE `hitTargets(mask: TargetKind[])` collector (`TargetKind = hull | mine | decoy | ordnance`, `Target { id, kind, poly }` replacing `HullTarget`, memoized per tick per mask) is the only way an ordnance step finds anything; every ordnance row declares `CONFIG.<ordnance>.hits`; `stepShell`'s signature is unchanged and `burstVictims` widens to the same kinds; no ordnance step enumerates world entities (placement rule 13, AR44)
+**And** **shooting ANY mine you can see detonates it** — a shell or burst over a mine calls `detonateMine` at the mine's own position with its own blast, PERCEPTION-BLIND (Eric: *"you can see"* is descriptive), chains resolving the same tick with a visited set; own mines ARE hit by own shells (FR57, AR44)
+**And** **mines have no per-player cap and NO room ceiling**: `CONFIG.mine.maxLive` (and its stat path), `CONFIG.mine.globalCap`, both eviction branches in `addMine` and the `maxLive` parameter are DELETED; a mine exists until triggered or destroyed; a perf pin runs `checkMineTriggers` + the collector at 500 live mines inside the 50 ms tick; the same-owner cascade note (`deferred-work.md:496`) is re-derived under no cap (FR57, AR48, NFR23)
+**And** the three ledgered ordnance defects are DECIDED here, not inherited: a burst over a hull an earlier shell of the same click just sank (`:590`), a same-tick shell consumed by an already-sunk wreck (`:594`), and the per-tick hull snapshot staleness (`:249`) — each either fixed in the collector or explicitly pinned as accepted with the reason
+**And** `tickRepairs`' behaviour in the weapons-safe room is decided at this gate (`:564`) and pinned; `/metrics` gains `world.minesLivePeak`; the fold is byte-identical to `HEAD` for every existing test (parity by construction — no damage number moves).
+
+### Story 8.5: Nine Slots
+
+As a captain,
+I want every hull to start with the same nine empty-or-fixed slots — the deck gun, the boost, three weapon slots and four consumable slots,
+So that class identity lives in the hull and the deck, and the loadout can never overflow or need a "replace which" flow.
+
+**Acceptance Criteria:**
+
+**Given** the shipped 4-slot loadout with per-hull fits
+**When** D20 lands
+**Then** `loadout.ts` is one flat nine-slot array with roles `['gun','boost','weapon','weapon','weapon','consumable','consumable','consumable','consumable']` (`SLOT_GUN = 0`, `SLOT_BOOST = 1`, `WEAPON_SLOTS = [2,3,4]`, `CONSUMABLE_SLOTS = [5,6,7,8]`), one `LoadoutSlot { equipmentId, state: { n, reloadMsLeft } }` shape for all nine; `loadoutFor()` returns gun + boost fitted and seven EMPTY, IDENTICAL for every hull; `specialsFor()` is deleted; the PvE fleet's fit is `FLEET_FIT` applied at spawn through `applyBoon` with `drones.test.ts`'s envelope pins untouched (FR45, AR38)
+**And** `slotFill` takes the first EMPTY weapon slot and cannot fail for a legal deck (property-tested over random legal decks); a weapon slot never empties; the two carried laws are asserted as "fitting a weapon never touches another slot's timer" (swap cheese is a NEVER; the slot keeps its clock) (FR45, AR35)
+**And** the `slotAmmo` wire array is length 9 and the client rebuilds `equipmentId` per slot by replaying `you.cards` through the same fill function, reading `n` from `ammo` — no new wire field for slot contents (AR38)
+**And** keys: `Q`/`E`/`R` prime slots 2–4; a key on an EMPTY slot is denied (suppressed under the held start line, where the lock wins); a weapon key primes, the same key reverts to the gun, firing auto-reverts ON RELEASE never on press; `Shift` is slot 1's ability key (`actSlot: 1`), wired here to the existing boost module on a fixed row (Story 8.9 makes it universal and re-tunes it); the ability-FIFO cap and coalescing notes (`deferred-work.md:119`, `:116`) are re-derived for nine slots (FR45, UX-DR42, AR38)
+**And** the hotbar renders nine slots in the CURRENT bottom-left geometry as an interim (Story 8.6 replaces the geometry): the deck gun keyless at the head, the boost with a `Shift` chip, Q/E/R dashed-empty with a `—` glyph and NO words, four dashed belt squares; the "— awaiting refit —" copy is retired (UX-DR41)
+**And** the boarding/held start line locks the deck gun, `Shift` and seven EMPTY slots; the reveal survivor set is unchanged pending 8.6 (UX-DR54)
+**And** `PROTOCOL_VERSION` bumps (the ammo array widened).
+
+### Story 8.6: The HUD Bar
+
+As a captain,
+I want my whole ship's state — hull, engine, slots, belt and XP — in one bottom-centre bar,
+So that I read one place in a fight instead of three corners.
+
+**Acceptance Criteria:**
+
+**Given** the nine-slot interim hotbar (8.5) and the shipped bottom-right vitals cluster, XP rail and HP rail
+**When** Direction B "TRISTRAM" lands as ratified (Eric 2026-09-11, *"YES THIS IS PERFECT!"*)
+**Then** ONE bottom-centre Pixi cluster 18 px above the floor replaces the bottom-left stack and the bottom-right cluster — nothing renders bottom-left or on the right edge — ordered HP globe · gun (ghost chip) · `Shift` · Q E R · framed belt 1–4 · helm globe, XP strip full-width beneath; Afterimage register, only the two globes carry a `rgba(3,6,5,.7)` bed; the BR chrome bar and kill feed are UNCHANGED (UX-DR40)
+**And** the Hotbar Slot grammar is exact: 54×54, key chip centred BELOW, tier numeral 9 px/600 mono bottom-right on the absolute loot ramp ABOVE the wipe, the eight states (idle / ready weapon / ready Shift / selected / cooling / held fire / activated ≤ 80 ms / empty dashed `—` / denied); **the activated-ability chamfer is RETIRED** and its 9 px-cut token removed from DESIGN.md (UX-DR41)
+**And** the Cooldown Wipe replaces the conic perimeter track on every cooling slot: dark conic `rgba(3,6,5,.86)` uncovering CLOCKWISE from 12 o'clock, interior `.55` with the icon at 40 %, centred 18 px/600 tabular seconds numeral with a 6 px shadow, tenths under 2 s; dual-coded (UX-DR44)
+**And** the Belt is four 44×44 squares in ONE 1 px silver `.2` frame (padding 8/8/6, 6 px gaps) — the frame + key chips ARE the weapon/consumable distinction; stocked = phosphor outline + `×n` badge at −6 px; empty and depleted are the same dashed state, *"empty is empty"* (UX-DR43, UX-DR47)
+**And** the XP Strip (4 px, phosphor `.06` track, `LV n` at its head with `LV 0` a rendered state, bank chip 24×24 at its TAIL with the `TAB TO REFIT` cue, breathing 2.4 s → static after ~10 s) replaces the XP rail; the HP Globe (96 px, silver `.28` ring, phosphor fill from the floor with a 1.5 px waterline, `HULL n /max` 18 px/600 + 10 px, the rail's colour ramp and 1.1 Hz-capped pulse carried) replaces the HP rail; the Helm Globe (right end, `[ASSUMPTION: 132 px]`, HDG 15 px/600 · KTS 9 px, the 9-detent telegraph as a TICK ARC over the crown with a hollow ordered rung and a solid amber actual needle, rudder track along the floor, W/S and A/D 9 px chips that fade after the first inputs) replaces the telegraph cluster (UX-DR45, UX-DR46, UX-DR47)
+**And** every register is at or above the 9 px floor (raised into, never excepted); UI scale applies to the bar; the whole bar dies with the hull at the reveal while chrome bar + kill feed persist; bar occlusion astern is ACCEPTED with no rule and no token; the retired components (`xp-rail`, `hp-rail`, `damage-control-rail` — its retirement completes in 8.8 —, `telegraph-cluster`) are removed from DESIGN.md's `components:` and the added ones (`hud-bar`, `hp-globe`, `helm-globe`, `belt-slot`, `cooldown-wipe`, `xp-strip`) marked BUILT (UX-DR49, UX-DR58, UX-DR76)
+**And** the audio twins re-point (`heal` → HP globe + belt count later in 8.8, `point` → `TAB TO REFIT`) with `TONE_TWINS` still exhaustive at the type level; Tier 1 is the HP GLOBE's crimson pulse, Tier 3 the XP-STRIP wrap; the refit band's physical-vs-CSS scaling defect (`deferred-work.md:579`) is NOT inherited — the bar lays out in logical units (UX-DR49)
+**And** the hotbar-through-the-sinking-window and camera-hold behaviour (`:955`) is verified by eye on the dev host and recorded. Client-only; no PV change.
+
+### Story 8.7: Consumable Slots and the Refit Card v3
+
+As a captain,
+I want to stock a consumable from an offer into a belt slot and fire it with its number key, reading the card I'm choosing from five plain stat rows,
+So that consumables are real cards with real slots and the refit card tells me what I get without a paragraph.
+
+**Acceptance Criteria:**
+
+**Given** nine slots (8.5), the damage gate (8.4) and the bar (8.6)
+**When** D21 and the refit card v3 land
+**Then** `stock` takes the slot already holding that line, else the first empty consumable slot, else REFUSES; a stack is `{ n: copiesHeld, reloadMsLeft: 0 }`, `maxAmmo` = the line cap, `tick` a no-op, `tickReload` never called; **consumables have NO reload, ever**; a slot at `n = 0` clears the same tick; slot contents are server-owned ship state so a refresh or reconnect keeps them for free (FR46, AR38, AR39)
+**And** `spendCard` runs the shared `canStock(loadout, lineId)` BEFORE `consumeCard`; a refused pick is a silent server no-op that leaves the offer byte-identical (pinned) and the client greys the card BEFORE the press with the same predicate — dimmed face at `.55`, the reason word `SLOTS FULL` boxed in the foot at full alpha, a dashed hollow key chip; its digit or click SENDS NOTHING (FR46, AR39, UX-DR52)
+**And** the key-fires channel is the existing ability channel (`actSeq` + `actSlot ∈ CONSUMABLE_SLOTS`, no aim, no latency compensation) and the key-primes-then-click channel is the existing click channel (`input.slot` carries the prime); one `activate()` on the unchanged interface decrements `n`; consumables obey the single sinking-activation gate with no per-consumable policy; **which shape a card is, a player learns from the hover tooltip and How-to-Play ONLY — no glyph** (Eric 2026-09-11) (FR46, AR39, UX-DR43)
+**And** **digits carry TWO meanings by refit-window state, read at keydown**: OPEN = pick that card (a greyed digit sends nothing), CLOSED = fire that belt slot or prime the decoy; on ANY close the digits are INERT for a short grace (an implementer dial) so a mashed pick cannot spend a belt slot; while OPEN only the SLOT GROUPS dim to 38 %, mouse fire is suppressed, a held stream ends, Q/E/R/F/`Shift` suspend and the helm stays live; a pick LATCHES and the next offer renders in place (UX-DR53)
+**And** the Refit Card face is FIXED 216×226 with FIVE stat rows and NO prose — key chip · 40 px ICON · NAME · TIER rungs with `II → III` on the absolute loot ramp (slot BLANK on consumables and add-ons) · KIND word (WEAPON · UPGRADE · ADD-ON · CONSUMABLE) · five fixed 17 px `STAT current → next` rows (blast and trigger radii on separate rows) · a fixed 14 px reason-word foot; no activation wording, no explanatory clause; explanation is the hover tooltip (which also lists a weapon slot's line + tier and a belt slot's consumable + stock); the loot ramp I phosphor · II info · III storm-readout · IV denied · V amber is ABSOLUTE; placement is BAR-RELATIVE (row top 388 px at 1366×768 with a 96 px globe) and the own-hull keep-out is WAIVED — cards may cover a hull (UX-DR48, UX-DR50, UX-DR51, UX-DR53)
+**And** the `isOverlayFocused` convention (`deferred-work.md:201`) governs every new focusable; toasts read `card fitted` / `consumable stocked`; `PROTOCOL_VERSION` bumps if any wire field moved (the greyed state and `SLOTS FULL` are client-derived — none expected beyond 8.5's).
+
+### Story 8.8: Heal Is a Card
+
+As a captain,
+I want healing to be a HULL REPAIR card I stock and fire, not a `5` key I can press whenever I have a level,
+So that heals are scarce, finite, and part of my deck.
+
+**Acceptance Criteria:**
+
+**Given** consumable slots (8.7) and the shipped `spendHeal` / `HEAL_CHOICE` / DAMAGE CONTROL rail
+**When** the heal becomes a card
+**Then** `hullRepair` is the first consumable module (`server/src/game/equipment/consumables/hullRepair.ts`): `spendHeal`'s body moves into `hullRepair.activate` — 50 instant + 50 pooled at 5 hp/s, `tickRepairs` unchanged — **afloat-only**, so a sinking hull can no longer heal and D4's reversibility is not reopened (FR47, AR39)
+**And** `HEAL_CHOICE`, `Digit5` and the DAMAGE CONTROL rail are DELETED end to end (client keyboard, `offers.ts`, `hud.ts`, `upgradeMenu.ts`, the `damage-control-rail` token in DESIGN.md, the cycle-47 band pins RETIRED rather than adapted); `CONFIG.damageControl` SPLITS — the paid heal's two numbers move to `CONFIG.hullRepair`, and the FREE per-level auto-heal's fields (`levelMissingPct`, `levelRegenMs`) STAY exactly as built (Eric 2026-09-11: *"leave it as is for now"*), with the story first CHECKING whether `development` carries the per-level 10 %-over-5 s version or a passive 1 %/s out-of-combat version and recording which (FR47, AR52)
+**And** HULL REPAIR's card face reads its two numbers as stat rows; the `heal` audio twin re-points to the HP globe fill + belt count decrement; heal observability inside truesight stays as ruled (self-private) and is NOT widened here (`deferred-work.md:555`) (UX-DR49)
+**And** heals during the sudden-death collapse stay ALLOWED (Eric 2026-09-11, closing `:1030` / `:1684`); NFR6's ceiling arithmetic is restated on the card bound (≤ 4 stocked, ≤ 10 per deck) and ARMOR's 450 hp cap, and pinned
+**And** bots heal through HULL REPAIR's tactic (Story 8.18 owns the tactic table; this story adds the row stub so the total record compiles) and `spending.ts` no longer references `HEAL_CHOICE`
+**And** `PROTOCOL_VERSION` bumps (`SpendMsg` loses `HEAL_CHOICE`).
+
+### Story 8.9: The Shift Boost, Universal
+
+As a captain of any hull,
+I want a speed boost on `Shift` that no card gives or takes away,
+So that every hull has one escape and the card that used to be the boost is gone.
+
+**Acceptance Criteria:**
+
+**Given** slot 1 wired to the boost module (8.5) and the card-fitted `speedBoost` equipment
+**When** D30 lands
+**Then** the boost is a PERMANENT slot on every hull through the unchanged Equipment interface (`isWeapon: false`, `actSeq` channel, `Shift` → `actSlot: 1`); `bonus = CONFIG.boost.factor (0.25 [DRAFT]) × kin.maxSpeed` from POST-FOLD kinematics so the SPEED ladder is inside it (Eric: ladder-raised max — a capped Torpedo Boat boosts to 68.75 u/s), active 10 s, `boost.reloadMs` 20 s `[DRAFT]` taking `cooldownScale` through the one multiply; `boostUntil` stays its only writer; the boost stays OUTSIDE `EffectiveStats` so the bots' `max(rated, actual)` deadband reading stands (FR49, AR49)
+**And** the card-fitted speed-boost EQUIPMENT, its subdeck and `CONFIG.speedBoost` are DELETED; the `--tune` invariant `reloadMs >= durationMs` (`deferred-work.md:1503`) is enforced, not "by design" breakable, now that the boost is everyone's
+**And** the `Shift` input is a TAP: keydown edge on either Shift code, OS auto-repeat dropped, a held Shift is one press, `Shift+Tab` still reaches Tab; the Windows Sticky Keys hazard is ACCEPTED and documented in the input-capture rule (UX-DR42, NFR29)
+**And** the boost aims nothing; the slot wears the ready outline and the cooldown wipe like every other slot; the `weaponsSmoke.mjs` dead mine phases (`:92`) are rewritten for the new slot layout
+**And** FR7's "torpedoes outrun every hull" law is formally RETIRED as a requirement in the tests that pinned it — NO FRIENDLY FIRE (8.4) is the safety property now, and the Light Torpedo's speed (8.13) is not constrained by the boost (Eric 2026-09-11)
+**And** `PROTOCOL_VERSION` bumps (`CONFIG.boost` is read by the client's arc/HUD path).
+
+### Story 8.10: The Opening
+
+As a captain,
+I want to spawn with just my deck gun and `Shift`, get my first card offer during the countdown, and be allowed one free redraw of it,
+So that I have something to DO at 0:00 and the opening never lies to me twice.
+
+**Acceptance Criteria:**
+
+**Given** the draw (8.3), consumable slots (8.7) and the universal boost (8.9)
+**When** D22's opening lands
+**Then** every hull spawns with the deck gun and the Shift boost ONLY — Q/E/R and the belt empty (FR48)
+**And** `Match`'s countdown-entry hook calls `grantPoint` for every captain and bot BEFORE `activate()`, so level ZERO's offer materializes at countdown start and is spendable during the countdown or held (FR48, AR40)
+**And** the weighted first draw is the default: `drawOffer`'s `opts.guarantee` (level zero only) draws the first card uniformly among USABLE cards (a consumable, or a line whose next tier is I) and the rest from everything else; a legal deck with no usable card (a pure gunboat deck) makes the guarantee vacuous and the draw plain — pinned so nobody "fixes" it into a reroll (FR48, AR40)
+**And** the mulligan is `SpendMsg.choice === MULLIGAN_CHOICE` (`-2`, beside the retired `-1` in `offers.ts`), honoured iff `phase === 'countdown' ∧ !ship.mulliganed ∧ ship.offer !== null`, redrawing with the same guarantee and re-queuing `pt`; a second mulligan or a live-phase mulligan is a silent no-op that leaves the offer byte-identical (tests prove both); FR19's never-reroll pin gains exactly this one asserted exception; bots never redraw (FR48, AR40)
+**And** the client: the refit window AUTO-OPENS on the level-zero offer (an edge on the grant, never re-opened per frame), the card row lifts to 344 px to seat ONE `REDRAW` button (ratified copy) in the Primary Button register with one hollow 8 px pip (hollow = unspent), countdown only — gone when the water goes live, Tab still closes/reopens taking REDRAW with it; the bar reads Gun · Shift · seven dashed squares, `LV 0`, an empty strip, bank chip 1; the countdown tag stays `ALL STATIONS LOCKED` (UX-DR54)
+**And** `matchOverride` learns a `mulligan` beat so a headless smoke asserts the countdown path (AR55); `/metrics` gains `deck.picks` and `deck.mulligans`; the pinned-card spawn is NOT built (a later CONFIG-gated experiment)
+**And** `PROTOCOL_VERSION` bumps (`MULLIGAN_CHOICE` on `SpendMsg`).
+
+### Story 8.11: The Match Consumable Pool
+
+As a captain,
+I want every match to quietly deal the same ten random consumables into everyone's deck,
+So that some of what I can draw was dealt by the match, not authored by me, and nobody knows which ten.
+
+**Acceptance Criteria:**
+
+**Given** consumables (8.7) and the frozen deck (8.2)
+**When** D22's pool lands
+**Then** `shared/src/sim/pool.ts` `rollMatchPool(rng, catalog, CONFIG.pool)` draws `CONFIG.pool.size` (10) consumable cards uniformly from the five launch consumable lines, each ≤ its cap WITHIN THE POOL alone, on a ROOM-PRIVATE seeded stream (a per-room nonce never derivable from `mapSeed` — the storm-ring pattern), rolled ONCE at room creation before any seat at BOTH doors, so every captain and bot receives the identical ten (FR43, AR40)
+**And** the pool is appended to a deck ONLY AFTER `checkDeck` passed, holds consumables only, and can never make a deck legal or illegal or add an equipment line; deck at the door = 40 + 10 = 50 (FR43)
+**And** the pool's composition is HIDDEN: never on the wire, never in `WelcomeMsg`, never in any frame; it reaches persistence only as `MatchRecord.pool` (Story 8.19) and the log only as `match.pool { matchId, count }` — count, never contents (FR43, AR51, NFR20)
+**And** `poolOverride` (line ids) joins `deckOverride` under `HC_DEV_OPTIONS=1` so a headless smoke asserts a deterministic pool; the batch-sim harness rolls the pool per match in every arm (AR55)
+**And** the one-copy appearance rate and the offer-size math are re-measured at 50 cards and recorded (FR59's pinned bar is set here, measured in 8.18)
+**And** no PV change unless a wire field moved (none expected).
+
+### Story 8.12: Catalog v3 — Ladders and the Deck Gun
+
+As a captain,
+I want ARMOR, SPEED, TURNING, RADAR SWEEP and RELOAD as ladders, and my deck gun to grow through DECK GUN, TURRET and BARREL cards,
+So that my hull and my always-fitted gun improve the way catalog v3 says, tier by tier.
+
+**Acceptance Criteria:**
+
+**Given** the catalog engine (8.1) with stubbed lines
+**When** catalog v3 §4's universal ladders and deck-gun lines are filled in
+**Then** ARMOR cap 4 (+25 max hp per tier, heals the difference on grant), SPEED cap 4 (+2.5 u/s forward only), **TURNING (new)** cap 4 (+0.05 rad/s flat per tier `[DRAFT]`), RADAR SWEEP cap 5 (+3 rpm per tier to 30, the clamp stays — rate, never reach; the eighths ladder stays frozen), RELOAD (global) cap 5 at −5 % per tier → `cooldownScale` 0.75 at cap with its floor moved 0.1 → 0.75 by construction, scoping every equipment reload AND the Shift cooldown (FR51)
+**And** DECK GUN cap 4 (+1.25 damage AND −5 % own reload per tier — a REAL tier I step), DECK GUN TURRET cap 1 (pool 1 → 2), DECK GUN BARREL cap 2 (+1 parallel barrel per copy at 12 u spacing — kept as shipped, Eric 2026-09-11); the base gun is unchanged (FR52)
+**And** ARMOR / SPEED / TURNING / DECK GUN start at Tier I EQUIPPED so the first card reads `I → II`; RADAR SWEEP and RELOAD have no base tier (cards I–V); no ladder reaches VI (FR42, UX-DR51)
+**And** reload composition is `base × (1 − 0.05 × equipmentTier) × (1 − 0.05 × globalTiers)` with additive 5-point steps, the equipment step BEFORE the global ladder, so a line maxed on both runs at 60 % of base; the cycle-42 proportional in-flight rescale rule (`deferred-work.md:463`) survives into tier grants — pinned (FR51)
+**And** every ladder's card face renders its `STAT current → next` rows from the catalog (no hand copy); the results LOADOUT line (8.19) reads these five tiers
+**And** `PROTOCOL_VERSION` bumps (catalog content).
+
+### Story 8.13: Catalog v3 — Torpedoes and Mines
+
+As a captain,
+I want three torpedo lines, two mine lines, and the add-ons that home torpedoes and foul propellers,
+So that a Torpedo Boat and a Mine Layer sail the weapons their default decks promise.
+
+**Acceptance Criteria:**
+
+**Given** the engine (8.1), the collector (8.4) and slots (8.5)
+**When** these lines are filled in from catalog v3 §4
+**Then** `torpedoCore.ts` + three equipment rows exist — **LIGHT TORPEDO** (twin sector ±45° about both beams, 45 u/s, 40 dmg, 1 tube, 25 s, no max range), **HEAVY TORPEDO** (bow ±30°, 65 u/s, 50 dmg, 1 tube, 30 s), **SUPERCAVITATING TORPEDO** (bow ±15°, 195 u/s, 50 dmg, 45 s, a straight-runner that NEVER homes; speed and tubes fixed) — three ids over one shared stat shape, one `torp` wire kind, detect-gated, wake painting as today; tiers II–V per §4 with the fractional tube step flooring once (FR53, AR46)
+**And** the Light Torpedo's speed is NOT constrained by any hull's boosted max — NO FRIENDLY FIRE (8.4) is the safety property; the old outrun pin is gone (FR53); the captive fish's no-max-range tripwire (`deferred-work.md:1444`) is checked against every torpedo line and recorded
+**And** **NAVAL MINES** (rear ±60° to a 150 u leash, arm 3 s, trigger 32 / blast 48, 55 dmg, pool 2, 15 s; uncapped per 8.4; blast ×1.1 compounding with trigger = 2/3 blast) and **CAPTIVE MINES as its own line** (trigger 144 / blast 32, holding one un-upgraded torpedo dealing MINE damage at mine blast radius, cannot be self-detonated, fish no max range, pool 1 / 20 s `[DRAFT]`) are two equipment rows; the shipped captive doctrine is removed from the naval line (FR53)
+**And** **ACOUSTIC HOMING** (0.5 rad/s, acquire 120 u, dies at 1300 u; `appliesTo: ['lightTorpedo','heavyTorpedo']`, never the Supercavitating; one card homes every torpedo carried) and **FOULING MINES** (×0.75 both speed caps for 5 s, refresh not stack; Naval Mines ONLY) are add-ons; the homing acquire set is `hitTargets(['hull','decoy'])` minus the owner's hull with `lead.ts` untouched (FR54, AR44)
+**And** arcs land in `arcs.ts` (light twin-sector; heavy / supercav bow sectors) and the client's arc render and aim preview read the same functions; the straight-runner re-reveal thread (`:675`) is decided or explicitly carried
+**And** the Torpedo Boat and Mine Layer default decks (8.2) now resolve to real weapons end to end in a headless smoke; `PROTOCOL_VERSION` bumps (catalog content; `EquipmentId` widened).
+
+### Story 8.14: Catalog v3 — The Gun Family and the Missile
+
+As a captain,
+I want the Machine Gun's held stream, the Flak Gun's air-burst, the Monitor Gun's plunging shell, the Horizontal Missile with Heat Seeking, and the star-shell add-ons,
+So that a Battleship and a Torpedo Boat sail the rest of what their default decks promise, and every new shot tells the fog the same things a gun shell does.
+
+**Acceptance Criteria:**
+
+**Given** 8.13 and the held-fire input contract of D26
+**When** these lines are filled in from catalog v3 §4
+**Then** **MACHINE GUN** is a held-fire STREAM: `InputMsg.held: boolean` (REQUIRED; a non-boolean drops the whole message; a LEVEL on `InputStore.latest`), `fireControl` fires one shell per `CONFIG.machineGun.rateMs` at `now` with no `fireT` and no D1 back-date while `held ∧ stream ∧ inArc ∧ n > 0`; release, arc exit (ONE denial then silence), an empty pool, Tab opening or window blur stop it; `held` with a non-stream prime is ignored (pinned); bow ±90° (ruled), 4 dmg / 0.25 s / 250 u / 6 s per pool / 15 s `[DRAFT]`; round-by-round ammo with `ammo.refill: 'magazine'` RESERVED, not built; the Story 2.1 click-coalescing clause (`deferred-work.md:198`) is discharged here (FR53, FR58, AR45)
+**And** **FLAK GUN** (360°, one shell air-bursting at the click in a wide weak blast hitting hulls AND **enemy** ordnance — own ordnance is immune, Eric 2026-09-11; 10 dmg r40 u, 8 s `[DRAFT]`, mask `hull | mine | decoy | ordnance`), **MONITOR GUN** (bow ±10°, ARCING over islands via an `arcing` flag skipping terrain, 75 dmg, NO burst — shell radius vs target at the click, 50 s) and **HORIZONTAL MISSILE** (bow ±50°, 250 u/s, flat, islands BLOCK it, bursts r20 u at the click, an en-route hull is a direct hit at `CONFIG.missile.contactDamage`, 660 u, 30 s; NEW `missile` wire kind + `missileU`, sight-gated, revealed with position + velocity only) are equipment rows; **HEAT SEEKING** (the homing numbers on missiles), **DAZZLE SHELLS** (sight ×0.5 in the zone) and **PHOSPHOR SHELLS** (5 hp/s inside 0.8× lit radius) are add-ons that STACK; BROADSIDE GUN and STAR SHELLS stay as shipped (FR53, FR54, AR44, AR46)
+**And** gun-shell signal rules hold everywhere (Eric): `sp` for the gun family, missile and monitor (never torpedoes); `hc` exactly one per shell resolution; `mz` PER SHELL including the stream (the broadside's `perShellFlash` becomes the rule for `stream` equipment while the multi-barrel deck gun's salvo still collapses to one flash); the reveal gains ONE field `w` (weapon FAMILY, no range-derivable value, no identity) — a DECLARED disclosure widening, ledgered; the stream's `mz` cost is MEASURED at 20 streaming bots before the 0.25 s cadence is trusted (AR46, NFR21, NFR23)
+**And** arcs and aim points land in `arcs.ts` / `aim.ts` (monitor / missile / machine-gun bow sectors; missile burst point; monitor landing point; machine-gun range clamp); the client draws each; the slot's held-fire drain (amber fill along the floor while a stream drains) renders per UX-DR52; `render/projectiles.ts` and `net/snapshots.ts` interpolate the missile
+**And** the perception invariant suite iterates the new rows (a signal cannot exist without coverage) and still counts exactly SIX exceptions; the Battleship default deck resolves end to end in a headless smoke; `PROTOCOL_VERSION` bumps.
+
+### Story 8.15: Catalog v3 — Shield, Chaff, Decoy
+
+As a captain,
+I want a shield that eats the next hundred damage, chaff that fills enemy radar with fakes, and a decoy that draws and blocks torpedoes,
+So that the three deception-and-defence consumables exist and the radar buoy they replace is gone.
+
+**Acceptance Criteria:**
+
+**Given** the damage gate (8.4), consumables (8.7) and the shipped radar buoy + jamming machinery
+**When** these consumables are filled in from catalog v3 §4
+**Then** **SHIELD BLOCK** (key-fires) sets `ship.shield = { hpLeft: 100, until: now + 10 s }` read inside `applyDamage` FROM EVERY SOURCE, storm and burn included (Eric); a second shield REPLACES (Eric 2026-09-11); the shooter gets NO tell — their `hc` fires and the victim's `dmg` reads 0 (Eric 2026-09-11); the owner's HP register reads hull + shield PAST max — `HULL 312/250` — in a changed colour `[ASSUMPTION: info]`, reverting on deplete or expire, **NUMBER ONLY** — no globe ring, no hull ring (Eric 2026-09-11; the `shield-ring` token is retired from DESIGN.md); whether an absorbed hit plays a distinct VICTIM cue stays open (FR55, AR47, UX-DR46)
+**And** **CHAFF** (key-fires) puts a `FakeSource { x, y, radius: 120, count: 10, until: now + 15 s, seed }` on the ship; `scatterJamFakes` generalizes into `game/fakes.ts` `scatterFakes(seed, epoch, cx, cy, radius, count)`, emitted through the observer's own `blipGate` + `blipShape`, owner-exempt, epoch-rescattered per sweep, and **WATER-FILTERED** (rejection-sampled against island geometry — the ledgered jamming defect `deferred-work.md:1434` closes here); the perception tests' fourth `verifyBlip` arm recomputes fakes from seed + epoch + source; the jamming carve-out gains a second SOURCE, the six exceptions stay six; no on-water effect, no "chaff active" readout — the owner-side twin is the `×n` decrement (FR55, AR46, NFR21, UX-DR56)
+**And** **DECOY BUOY** (key primes, click fires into the mine's rear arc, blocked placement refused without spending) drops `DecoyState { id, ownerId, x, y, hp: 50 }` into a `decoys` store with no lifetime; `DecoyView { id, x, y, own, hp? }` with `hp` present ONLY when `own` (stripped by `materialize()` — the `sunk.seen` idiom); **it PAINTS on radar** through the buoy's footprint path (Eric 2026-09-11); enemy homing ordnance retargets onto it and any ENEMY torpedo or missile detonates on it; **the owner's own torpedoes and missiles PASS THROUGH the owner's own decoy** (Eric 2026-09-11); a shell damages it, gun or flak burst clears it; it renders in the OWNER's hue for all observers; the decoy-wake thread (`:728`) and the owner-death persistence tell (`:98`) are decided here (FR55, FR57, AR48, UX-DR56)
+**And** **the RADAR BUOY is DELETED end to end** — equipment, `BuoyView`, `buoyGate`, the `gun` / `jamming` doctrines, `ownBuoyScopeBlips`, the `src` blip tag, `FrameMsg.buoys`, `CONFIG.radarBuoy`, `radarBuoy.ts`, `render/buoys.ts` (→ `render/decoys.ts`), with its four ledgered threads (`:1409`, `:1419`, `:1424`, `:1429`, `:1449`) stamped closed by deletion; `FrameMsg.decoys?` is a registry pseudo-row; `PerceptionView.decoys` replaces `buoys` (FR57, AR48, AR53)
+**And** no damage-reduction concept exists anywhere (SHIELD absorbs, it does not reduce); `PROTOCOL_VERSION` bumps (`OwnShip.shield`, the `decoys` channel, `buoys` gone).
+
+### Story 8.16: Smoke Screen as a Sight Occluder
+
+As a captain,
+I want to lay a trail of smoke that hides me and whatever is behind it from eyes but not from radar,
+So that smoke is a real sight tool with one occlusion rule, not a special case per sensor.
+
+**Acceptance Criteria:**
+
+**Given** consumables (8.7) and the five sight-tier sensors
+**When** D24 lands
+**Then** `SmokePuff { id, ownerId, x, y, bornAt, until }` lives in a new `world.smoke` store; `puffRadius(puff, now)` in new `shared/src/sim/smoke.ts` = `r0 + (r1 − r0) × min(1, age / expandMs)`; NEW `CONFIG.smokeScreen.{r0: 40, r1: 60, lifeMs: 30000, layMs: 5000, puffIntervalMs, expandMs [DRAFT]}` — **the existing `CONFIG.smoke` is WOUNDED smoke and is untouched**; `smokeScreen.activate` (key-fires) stamps `ship.smokeUntil`; a new `STEP_ORDER` row `stepSmoke` (after `sampleWakes`, before `applyStorm`) drops a puff at the stern every interval while laying and expires dead puffs (FR55, AR43)
+**And** ONE predicate `sightClear(a, b, islands, puffs, now)` = `losClear(...) && !puffs.some(segCircleHit(...))` replaces `losClear` at exactly the SIX call sites of the five sight-tier sensors (`shipSees`, `pointSighted`, `pointDetected`, the `mz` halo, the `sm` halo, the foghorn's one-step muffle); `blipGate` and `buoyGate`/its successor are untouched BY CONSTRUCTION; `ownZoneCovers` gains no smoke term (a lit zone sees into smoke as it sees past islands — pinned, ledgered); the rule is SYMMETRIC — a puff hides its occupant, hides everything behind it and blinds an observer inside it (AR43)
+**And** the wire is `SmokeView { id, x, y, t0 }` with no radius (the client runs shared `puffRadius`), a `smoke` registry pseudo-row visible iff the CENTRE is within `sight + puffRadius` with ISLAND-ONLY LOS or `ownerId === me` (a puff stays visible from inside another puff), `FrameMsg.smoke?`; bots receive it via `observe()` (AR43, AR53)
+**And** the perf pin runs perception at 20 observers × 200 live puffs inside the 50 ms tick; `/metrics` gains `world.smokeLivePeak`; live puffs are bounded by stacks × `layMs / puffIntervalMs` (NFR23)
+**And** puffs render grey in the `{colors.wounded-smoke}` family and differ from wounded smoke by SHAPE — discrete expanding puffs laid astern, never a plume off a hull; `render/smokeScreen.ts` is NEW and `render/smoke.ts` stays wounded smoke; own puffs are always visible to the owner (UX-DR56)
+**And** the invariant suite iterates the `smoke` row and still counts SIX exceptions; `PROTOCOL_VERSION` bumps (the `smoke` channel).
+
+### Story 8.17: Wake Drafting
+
+As a captain,
+I want a small speed lift when I ride inside another ship's wake,
+So that formation and pursuit have a physical reward, felt in the helm and never announced on the HUD.
+
+**Eric gate:** `CONFIG.wake.draft.lift` and `halfWidthU` are `[DRAFT]` with NO placeholder — Eric sets both when this story opens.
+
+**Acceptance Criteria:**
+
+**Given** the shipped wake sampler and the kinematics fold `boosted → slowed → hooks`
+**When** D23 lands
+**Then** `draftLift(ribbons, x, y, now, cfg)` in `shared/src/sim/wake.ts` returns the MAX (never the sum) over every OTHER hull's ribbon (own and torpedo ribbons excluded) in `[0, cfg.lift]` within `cfg.halfWidthU`; `draftedKinematics(kin, lift, active)` in new `shared/src/sim/draft.ts` raises the forward cap by `lift × kin.maxSpeed`; the fold becomes `boosted → slowed → drafted → hookKinematics` and is asserted byte-identical at both call sites (`world.ts stepShips`, `prediction.ts tickKin`) (FR50, AR42)
+**And** the server reads ribbons as they stood after LAST tick's `sampleWakes` (one tick old IS the definition, pinned); `OwnShip.draft?: number` is self-private and omitted at 0; `prediction.setDraft(you.draft)` replays the latest scalar across un-acked ticks; a parity pin proves the tree is byte-identical to `HEAD` at `draft = 0` (NFR22)
+**And** drafting is not a registry row and not a perception exception; the "a wake is under you" scalar disclosure is DECLARED and ledgered (NFR21); trails merge, echoes don't — both hulls still paint; bots get it passively; the harness reports time-in-draft
+**And** drafting is FELT with NO HUD readout (UX-DR57); `PROTOCOL_VERSION` bumps (`OwnShip.draft`).
+
+### Story 8.18: Bots Sail Decks
+
+As a solo player,
+I want the nineteen AI captains to bring real 40-card decks, stock and spend consumables sensibly, and be measured on it,
+So that Solo vs AI plays the same game I do and the harness can tell whether catalog v3 is balanced.
+
+**Acceptance Criteria:**
+
+**Given** every prior Epic 8 story
+**When** D31 lands
+**Then** `ai/decks.ts` carries `BOT_DECKS: Record<BotProfileId, LineId[]>` — six authored 40-card decks in the player format — legality-checked by `checkDeck` in a BOOT-TIME test (the suite fails, never a room); a bot is seated through the same `addShip(deck)` path as a human and receives the room's pool (FR59, AR50)
+**And** `ai/consumables.ts` carries `CONSUMABLE_TACTICS: Record<ConsumableId, ConsumableTactic>` — TOTAL, deep-frozen, `{ want(ctx), solve?(ctx) }`, only the decoy solving a placement — and `EQUIPMENT_TACTICS` is total over the WIDENED `EquipmentId`, so no consumable and no weapon can compile without a bot rule; the tactic BODIES are facilitator proposals `[DRAFT]` (FR59, AR50)
+**And** `spending.ts` weights LINE ids including consumables, consults `canStock`, never mulligans by default, and **provably buys equipment lines** — the Story 7-5 gap (0 of 2,495 offers took an acquisition; `deferred-work.md:1414`) has a pinned bar that fails if a profile's hand goes dead; the `siege` table is RE-AUTHORED, not ported (`:1454`); the ML tables' dead `buoyGun` override goes with the buoy; temperament still modulates PROACTIVITY ONLY (FR59)
+**And** the batch-sim harness gains `--deck authored | random-legal` arms (replacing `--bots N`'s implicit fixed fit), rolls the pool per match, reports the live-mine peak and time-in-draft, and pins the bars: starter-vs-veteran win band, torpedo-less TB, pure gunboat, heal-take rate, levels wasted, one-copy appearance rate at 50 (FR59, AR50)
+**And** **balance cycle 1's class numbers are declared VOID** and a fresh baseline is run before any tier is tuned (Murat's flag, 2026-09-04); the blind-vacuum control is re-run in-cycle (`:1630`); the `encounterSpan.ts` killing-blow bias (`:1744`) is stated in the evidence file; the evidence lands as `batch-sim-evidence-<date>.md` (AR18, FR59)
+**And** `ai/` still never imports `world.js` (the ESLint ban and the `observeSpectator` pin hold); no PV change.
+
+### Story 8.19: Results LOADOUT and the Match Record
+
+As a captain,
+I want the results screen to show the loadout I ended with, and the server to keep a record of every deck in the match,
+So that I see what I built and Eric can see what everyone built — without anyone seeing an enemy's deck.
+
+**Acceptance Criteria:**
+
+**Given** the bar (8.6) and all catalog lines
+**When** the results and record land
+**Then** the results modal's BOONS ACCRUED / LAST OFFER blocks are RETIRED (their two-line cut taken — `deferred-work.md:964` closed) and replaced by ONE `LOADOUT` block (ratified copy): the hud-bar's slot row as it ended at scale .72 with tier numerals on the absolute ramp and `×n` stock badges (a depleted consumable reads EMPTY), and beneath it one line of the five ship ladders `ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II · RELOAD III` in ramp colours; modal ≈ 735 px at the floor is accepted; everything else on the modal stands (FR60, UX-DR55)
+**And** brought / drawn / taken appears NOWHERE in results (it is Epic 9 history content); enemy decks are shown to no player by any surface (FR60)
+**And** the room builds a server-only `MatchRecord` from `World` + `Match` (`game/matchRecord.ts`: per participant the deck brought, cards drawn and taken with `T+` stamps, placement, kills; the whole `pool`; `MatchEndSummary`) and calls `accountWriter.recordMatch(record)` at ONE site (the results hook), fire-and-forget, never awaited on the tick; the writer is a PORT the room is handed and this story ships the `NullWriter` (Epic 9 plugs in the store); **`MatchRecord` is NEVER `ResultsMsg`** — a pin asserts no `deck*` key on `ResultsMsg` (FR60, AR33, NFR20)
+**And** the `endedBy: 'lastHumanLeft'` reachability note (`:921`) is checked before the enum is persisted; no PV change (the record never rides the wire).
+
+### Story 8.20: How-to-Play and Copy Re-cut
+
+As a new player,
+I want How-to-Play to describe the game that now exists — decks, nine slots, consumables, `Shift`, REDRAW,
+So that the only place a feature is explained is not describing the old one.
+
+**Acceptance Criteria:**
+
+**Given** every Epic 8 feature landed
+**When** the copy pass runs
+**Then** How-to-Play's EQUIPMENT and UPGRADING sections are rewritten for the deck, the nine slots, consumable stocking and firing (which fire on the key, which prime then click), `Shift`, the level-zero offer and REDRAW, and the win condition survives; keys render as keycaps in the refit-card chip family; **still NO glossary** (Eric: *"NO FUCKING GLOSSARY"*) and no in-game explanatory copy anywhere (FR71, UX-DR59, UX-DR72)
+**And** the toasts read `card fitted` / `consumable stocked`; the bank-chip cue reads `TAB TO REFIT`; the `▲ LEVEL UP — TAB TO REFIT` toast twin is untouched (UX-DR45, UX-DR48)
+**And** the player-facing word for the built-in deck is `DEFAULT` wherever a player reads it (UX-DR77) — no `STARTER` string ships in client copy
+**And** `client/src/__tests__` pins the section set and the absence of a glossary heading, as Story 7.3's tests did; client-only, no PV change.
