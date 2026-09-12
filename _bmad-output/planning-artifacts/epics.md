@@ -15,7 +15,7 @@ inputDocuments:
 extensions:
   - name: epics-8-9-the-deck-and-the-account
     started: 2026-09-11
-    stepsCompleted: [1]
+    stepsCompleted: [1, 2]
     scope: append Epic 8 (The Deck) + Epic 9 (The Account); FR41+ / NFR20+ / AR19+ / UX-DR40+; Epic 0-7 text byte-identical (Eric ruling 2026-09-10)
 ---
 
@@ -550,8 +550,42 @@ FR37: Epic 6 — All non-human ships through the same input pipeline
 FR38: Epic 0 — Token-authenticated reconnection; disconnected ship keeps simulating (UX polish in Epic 6)
 FR39: Epic 7 — How to Play page (controls, sensors, storm, classes, boon economy, boon glossary, and the win condition stated explicitly)
 FR40: Epic 7 — Interstitial ad break at death→return-to-port, behind the Story 0.4 seam; never interrupts a live match
+FR41: Epic 8 — The 40-card authored deck, two legality rules, ownership bounds, frozen at the door
+FR42: Epic 8 — Card model (A): lines with tiers, copies = tier ceiling, Tier-I-equipped ship ladders, add-ons by `appliesTo`
+FR43: Epic 8 — The hidden 10-card match consumable pool
+FR44: Epic 8 — Equal-weight draw, card-leaves-on-take, exhaustion, NO draw-pile counter, the untouched Tab offer
+FR45: Epic 8 — Nine-slot loadout: deck gun · Shift · three generic weapon slots · four consumable slots; FLEET_FIT
+FR46: Epic 8 — Consumables: stock on pick, no reload, full-row refusal, two activation shapes, server-owned slots
+FR47: Epic 8 — Heal is a card (HULL REPAIR); `5` retired; heals in the collapse settled; free auto-heal stays as built
+FR48: Epic 8 — The opening: gun-and-Shift spawn, level zero at countdown, weighted first draw, one REDRAW
+FR49: Epic 8 — The universal Shift boost (+25 % of the ladder-raised max)
+FR50: Epic 8 — Wake drafting as a shared-sim base rule
+FR51: Epic 8 — Catalog v3: the five universal ladders and the reload composition rule
+FR52: Epic 8 — Catalog v3: the three deck-gun lines
+FR53: Epic 8 — Catalog v3: the eleven equipment lines; the outrun law retired (no friendly fire)
+FR54: Epic 8 — Catalog v3: the five add-ons
+FR55: Epic 8 — Catalog v3: the five consumables (shield replaces / no tell; decoy paints, own ordnance passes through)
+FR56: Epic 8 — The three default decks (line composition; counts held by Eric for the deck-rules story)
+FR57: Epic 8 — Mines uncapped, shoot-any-spotted-mine, radar buoy deleted, deception has live cases again
+FR58: Epic 8 — Arcs, flight and denial for the new register
+FR59: Epic 8 — Bots sail authored decks; total consumable tactics; harness arms and pinned bars
+FR60: Epic 8 — Results show the final LOADOUT only; MatchRecord emitted, never ResultsMsg
+FR61: Epic 8 — Anonymous vs signed-in, match side (Epic 8 works in full anonymously); staging account-only
+FR62: Epic 9 — Two states, OAuth-only (Google / Discord), opaque identity, second provider links
+FR63: Epic 9 — A deck enters a match only through the server (both doors; deckId never contents; SAIL DEFAULT DECK)
+FR64: Epic 9 — The merged Ship & Deck screen: several named decks per hull, shared legality, DEFAULT deck 1
+FR65: Epic 9 — Per-copy unlocks with tokens; account level from placement-scaled XP; `matchesToCatalog` open
+FR66: Epic 9 — Match history: own rows only; drawn pool cards only; every deck recorded for Eric's metrics
+FR67: Epic 9 — Two-state preferences and settings; SIGN OUT and DELETE ACCOUNT
+FR68: Epic 9 — Self-serve deletion, anonymised match rows retained
+FR69: Epic 9 — Eric's admin console (`@colyseus/admin`)
+FR70: Epic 9 — The privacy-policy paragraph on signed-in accounts
+FR71: Epic 9 — How-to-Play re-cut for decks, slots, consumables, Shift, REDRAW (no glossary, no in-game copy)
+FR72: Epic 9 — Key rebinding: localStorage anonymous, account setting signed in
 
 Cross-cutting NFRs (NFR1 frame budget, NFR3 latency proxies, NFR4 anti-cheat, NFR5 determinism, NFR11–NFR13, NFR16–NFR17) bind acceptance criteria in every epic; NFR2/NFR8/NFR18/NFR19 concentrate in Epic 7; NFR10/NFR14/NFR15 concentrate in Epic 0.
+
+**Epics 8–9 (added 2026-09-11):** NFR20–NFR23 (deck anti-cheat, the six-exception invariant, parity, perf pins) bind Epic 8; NFR24–NFR28 (PII, the account never takes the game down, storage, secrets, versioning/PV) bind Epic 9; NFR29 (accessibility scope: keyboard-only out of scope, 9 px floor raised into) and NFR30 (no account required) bind both. AR19–AR21 sequence the pair (Story 8.0 = Colyseus 0.18; the damage gate + target collector before Epic 8 stories 5/12/13/15); AR59–AR62 name the ledger threads each epic closes, carries or parks.
 
 ## Epic List
 
@@ -590,6 +624,18 @@ Two real modes with honest matches: no bot-fill, min-2 fill-or-timer, cap 20, ro
 ### Epic 7: Beta Launch Readiness
 The beta, self-published: 60 FPS on the reference i7 MacBook, fast cold load, GA4 + a certified CMP + a privacy policy, AdSense H5 Games Ads behind the seam, a How-to-Play page, the upgrade-cards v2 pass, the DESIGN.md real-time-era refresh, ~~split frontend/backend deploys at 0.1.0 / 0.1.0~~ (DEFERRED 2026-08-21 — beta ships one deployable at 0.17.X), and the release gate. Rescoped 2026-08-18 — the portal launch and the Chromebook reference device are retired.
 **FRs covered:** FR39, FR40 (hardens NFR1, NFR2, NFR7, NFR8, NFR9, NFR18, NFR19) · **Also:** AR11 (AdSense implementation), AR17, UX-DR29, UX-DR39
+
+**Extension 2026-09-11 — Epics 8 and 9 (Eric-approved structure).** The sequence continues **7 → 8 → 9**, shipped as ONE unit before the traffic push (*"go big or go home"*). Epic 8 is complete on its own and needs nothing from Epic 9: it plays in full anonymously on the default decks, and the pieces Epic 9 later leans on (the shared deck-legality rules, the door's deck loader, the match record) are built in Epic 8 with the default-deck / no-account path. The Colyseus 0.17 → 0.18 framework upgrade — which the architecture wrote as "E9 story 0, sequenced first" — is homed as **Story 8.0** (Eric 2026-09-11), on the Epic 0 / Story 0.1 pattern, so no epic depends on a later one; its own PR, its own PV bump, a full smoke pass, and it lands before any deck code.
+
+### Epic 8: The Deck *(GDD E8 — upgrades v3 + catalog v3)*
+Pick a hull and sail its default deck: spawn with the deck gun and `Shift`, redraw the opening offer during the countdown, draw catalog v3's weapons into `Q`/`E`/`R`, stock and fire consumables on `1`–`4`, heal from a card, and read your final loadout in results — identical rules for humans and bots, and every bit of it works without an account. Under it: the 40-card authored deck and its two legality rules, the hidden 10-card match pool, equal-weight draw, the nine-slot loadout, consumables on the existing Equipment interface, the level-zero opening with one REDRAW, the universal Shift boost, wake drafting, the damage gate and ordnance collector, smoke as a sight occluder, the held-fire stream, chaff's server-side fakes, uncapped mines and the decoy, bots that sail authored decks, and the catalog's 29 lines as content. Opens with Story 8.0, the Colyseus 0.18 upgrade.
+**FRs covered:** FR41–FR61 · **Also:** NFR20–NFR23, NFR29, AR19–AR21, AR35–AR50, AR52–AR60, UX-DR40–UX-DR59
+**Standing constraints:** the `Tab` offer is untouched; the passive XP tick stays the anti-snowball floor; the master perception invariant keeps exactly six exceptions; no friendly fire, ever; never invent a card, a number or a consumable — every `[DRAFT]` is Eric's, and the harness tunes but never re-designs.
+
+### Epic 9: The Account *(GDD E9)*
+Sign in with Google or Discord and keep things — named decks per hull built on the merged Ship & Deck screen, copies unlocked one at a time with tokens earned by playing, a history of your own decks match by match, your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules on the default deck. Under it: the first persistent store (Render Postgres behind an absence-gated in-process module), OAuth-only auth verified at both doors, the server-only deck loader and match-record writer, two-state settings, self-serve deletion, Eric's admin console, and the privacy paragraph.
+**FRs covered:** FR62–FR72 · **Also:** NFR24–NFR28, NFR30, AR22–AR34, AR51, AR61, UX-DR60–UX-DR78
+**Standing constraints:** store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; the account layer never takes the game down; Story 7-7 stays deferred and this adds no deployable; anonymous play on production is Eric's open question and is not pre-empted by any story.
 
 ## Epic 0: Stable Ground (Colyseus 0.17 Foundation)
 
