@@ -116,6 +116,8 @@ warnings: [oversized]
 - The 0.17.44 baseline is a LATE 0.17: `onDrop`/`onReconnect`, `maxMessagesPerSecond`, `"type":"module"` and the deprecations of `setState`/`setPatchRate`/`setSeatReservationTime` are already in place, so the true delta is small. Verified byte-identical between 0.17.44 and 0.18: `@colyseus/tools` `config()`/`listen()`, `matchMaker.*`, `IRoomCache`, `ISeatReservation`, `static onAuth(token, options, context)`, `allowReconnection`, `ClientState`/`CloseCode`/`ErrorCode`, `Presence`, `createRouter`, the reconnection-token format, `patchRate` 50 ms, the 15 s seat reservation.
 - Silent runtime breaks with no compiler help: `setMetadata` merge → replace; `ClientArray` gained a `_byId` index that `clients[i] = x` / `.length = 0` desync (use push/splice); msgpack library swap; `AuthContext.ip` may be `undefined` (no reader in this repo).
 - The client polls `room.state` duck-typed and imports no schema symbols, so Schema 5 has no client callback surface to migrate.
+- Correction of record (wave 1 count): `ArenaState` declares 15 `@type` fields, not the 14 the intent contract's parenthetical says (`PlayerMeta` 8 is right); the cap test pins the real number. `CHANGELOG.md` is deliberately untouched — it has had no per-cycle entry since 0.17.0; cycles are recorded in the two trackers.
+- Install note: `npm@10.9.3` crashes resolving this monorepo without a lockfile (vitest peer set), so wave 1 re-resolved only the Colyseus subtree inside the existing lockfile; `npm ci --include=dev` then passes from it, which is the proof Render's `npm install --include=dev` build will too.
 
 ## Verification
 

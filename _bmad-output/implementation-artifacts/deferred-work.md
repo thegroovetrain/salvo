@@ -27,7 +27,7 @@ Append-only log of work items deliberately deferred by bmad-dev-auto runs.
   evidence: Blind Hunter traced that nothing counts reconnections per session; CONFIG's "bounded liability" comment is per-incident only. Metrics visibility arrives with Story 0.3.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-2-reconnect-into-your-own-ship.md`
-  status: PARTIAL 2026-08-18 by Story 6-7 (Eric ruling R9/Q10, epic-6 amendment 48). The ORIGINAL window (socket dies between allowReconnection resolve and the JOIN_ROOM ack) REMAINS OPEN — an acking-aware server hold policy was offered and declined as a Colyseus-internals fight for a narrow window. What WAS closed is the fresh instance of the same fault class that refresh-resume created: persisting the token once at connect would leave a later refresh carrying a dead pre-resume token after any in-page resume rotated it. The token is now re-written on every ack and cleared on any failure. NOTE for whoever takes the original: the SDK invokes `onReconnect` and assigns the rotated token on the NEXT LINE (`@colyseus/sdk/build/Room.mjs:241` then `:243`), so a handler reading `room.reconnectionToken` sees the OLD value — persistence must not hang off that hook.
+  status: PARTIAL 2026-08-18 by Story 6-7 (Eric ruling R9/Q10, epic-6 amendment 48). The ORIGINAL window (socket dies between allowReconnection resolve and the JOIN_ROOM ack) REMAINS OPEN — an acking-aware server hold policy was offered and declined as a Colyseus-internals fight for a narrow window. What WAS closed is the fresh instance of the same fault class that refresh-resume created: persisting the token once at connect would leave a later refresh carrying a dead pre-resume token after any in-page resume rotated it. The token is now re-written on every ack and cleared on any failure. NOTE for whoever takes the original: the SDK invokes `onReconnect` and assigns the rotated token on the NEXT LINE (`@colyseus/sdk/build/Room.mjs:241` then `:243`), so a handler reading `room.reconnectionToken` sees the OLD value — persistence must not hang off that hook. — 2026-09-14 Story 8.0: the SDK line is RE-LOCATED to `@colyseus/sdk` 0.18.2 `build/Room.mjs:483` (`onReconnect.invoke()`) / `:485` (`reconnectionToken` assignment); ordering unchanged, the client's microtask persister stays, the window stays open.
   summary: Half-resume double-fault — if the socket dies between the server resolving allowReconnection and the client's JOIN_ROOM ack, the rotated reconnection token was never delivered, so the client's retries carry a stale token and fast-fail to DISCONNECTED while the ghost is held for another grace window; consider acking-aware hold policy or token-retry tolerance in Epic 6.7.
   evidence: Edge Case Hunter traced core's token rotation at reconnection resolve vs SDK token update on JOIN_ROOM ack; consequence is a failed resume degrading to pre-0.2 behavior (no seizure, no crash), hence deferred not patched.
 
@@ -1795,7 +1795,7 @@ Four threads left open by the broadside zero-overlap arc ladder. None is a defec
 Source: `_bmad-output/game-architecture.md`, "Architecture Validation — Account Store amendment (2026-09-09)". A planning pass, not a build cycle — nothing below is a defect in shipped code; each is a consequence of a decision Eric made that the E9 stories must carry.
 
 - source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D12)
-  status: OPEN — pin at build time
+  status: RESOLVED 2026-09-14 by Story 8.0 (cycle 133) — `@colyseus/database` is pinned EXACTLY at `0.18.3` in `server/package.json` (no caret), so the RC inside it cannot drift; revisit when the module moves to a stable Drizzle.
   summary: `@colyseus/database` 0.18.3 depends on `drizzle-orm 1.0.0-rc.2`, the only pre-release in the tree. Pin the module's exact version in `server/package.json`; revisit when the module moves to a stable Drizzle.
   evidence: `npm view @colyseus/database@0.18.3 dependencies`, 2026-09-09.
 
@@ -1887,3 +1887,25 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — GDD open note 14, unchanged by this pass
   summary: The free per-level auto-heal (cycle 129) stays built and its fields stay under `CONFIG.damageControl` while the paid heal's numbers move to `hullRepair`. Its fate is the balance pass's call once bots sail v3 decks; nothing here deletes or keeps it by decision.
   evidence: gdd.md open note 14; `server/src/game/world.ts` `grantLevelHeal`.
+
+## 2026-09-14 — Story 8.0 Colyseus 0.18 upgrade (cycle 133): ledgered, not resolved
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — for Story 9.1
+  summary: `postgres` and `drizzle-kit` were DEFERRED out of 8.0 by Eric ruling 2026-09-14 (epic-8 amendment 3); the AC's `drizzle-kit` 0.31.10 is the 0.44-era kit while `@colyseus/database` 0.18.3 hard-pins `drizzle-orm` 1.0.0-rc.2, whose matching kit is the `1.0.0-rc` line — 9.1 must install both at versions verified against the ORM the module ships with, never the AC's literal.
+  evidence: `npm view drizzle-kit@0.31.10` (no drizzle-orm peer), `npm view @colyseus/database@0.18.3 dependencies`, 2026-09-14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — tooling hazard
+  summary: `npm@10.9.3` CRASHES (`TypeError: Cannot read properties of null (reading 'edgesOut')` in arborist `build-ideal-tree.js`) when asked to resolve this monorepo WITHOUT a `package-lock.json` — the trigger is the `vitest` / `@vitest/browser-playwright` peer set, not Colyseus. Wave 1 had to do targeted lockfile surgery (mirror the workspace dependency blocks, delete only the `colyseus`/`@colyseus/*` `packages` entries, re-run `npm install`); `npm ci` then passes. Anyone regenerating the lockfile from scratch will hit this until npm or vitest moves.
+  evidence: reproduced twice during Story 8.0 wave 1, 2026-09-14; `npm ci --include=dev` exit 0 on the resulting lockfile.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — pre-existing, surfaced by the lockfile refresh
+  summary: `npm audit` reports 11 high/critical advisories, ALL in dev tooling (`vitest`, `vite`, `concurrently`, `postcss`, `nanoid`, `undici`, `shell-quote`, …), none in the Colyseus subtree or any production dependency. Not addressed by 8.0 (a framework upgrade and a dependency sweep never share a PR).
+  evidence: `npm audit` after `npm ci`, 2026-09-14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — design note, no action
+  summary: `@colyseus/core` 0.18's own `resolveClientIp` takes the FIRST `X-Forwarded-For` hop (`Transport.mjs:50`) while `server/src/rooms/soloThrottle.ts` deliberately takes the RIGHTMOST; that divergence is why `AuthContext.ip` (now typed `string | undefined`) must stay unread and the throttle keeps parsing headers itself.
+  evidence: wave 1 read of `node_modules/@colyseus/core/build/Transport.mjs`, 2026-09-14.
