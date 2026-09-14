@@ -16,7 +16,7 @@
 # ledgers and the keys themselves remain in git history.)
 
 generated: '2026-07-15'
-last_updated: '2026-09-11'  # gds-ux v3 pass (E8/E9 surfaces): DESIGN.md + EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; gds-create-epics-and-stories for E8/E9 next (halted at step 1 pending this). Before that: gds-game-architecture deck amendment 2026-09-10: game-architecture.md D19–D31; E8 stories via gds-create-epics-and-stories next. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
+last_updated: '2026-09-11'  # gds-create-epics-and-stories for E8/E9: epics.md extended IN PLACE (FR41-72, NFR20-30, AR19-63, UX-DR40-78 + v3 supersession register; Epic 8 The Deck 21 stories, Epic 9 The Account 11 stories; validated PASS; 18 Eric rulings folded, incl. NO FRIENDLY FIRE and the pre-queue legality gate); gds-sprint-planning for E8/E9 next. Before that: gds-ux v3 pass (E8/E9 surfaces): DESIGN.md + EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; gds-create-epics-and-stories for E8/E9 next (halted at step 1 pending this). Before that: gds-game-architecture deck amendment 2026-09-10: game-architecture.md D19–D31; E8 stories via gds-create-epics-and-stories next. Per-cycle history: sprint-status.yaml interstitial index + epic-N-context-amendments.md
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -41,7 +41,7 @@ prd: false # optional
 # --- Phase 3: Technical ---
 generate-project-context: _bmad-output/project-context.md # complete 2026-07-17 (AI-agent implementation rules); 2026-08-21 (Story 7-6, Eric ruling G6): root DESIGN.md and TODOS.md are now DELETED, not merely deprecated
 game-architecture: _bmad-output/game-architecture.md # complete 2026-07-17 (custom TS engine ratified; 8 decisions, 5 novel patterns; validated PASS); portal/Chromebook sweep 2026-08-21 (Story 7-6, rulings G1/G3/G5); account-store amendment 2026-09-09 (scoped pass for E9: D7 superseded, D8 amended, D9–D18 + Novel Patterns 6–9; Colyseus 0.18 upgrade = E9 story 0; validated PASS); deck amendment 2026-09-10 (scoped pass for E8 / upgrades v3: D2 amended, D19–D31 + Novel Patterns 10–13; 13 decisions incl. 5 Eric rulings; validated PASS; gds-create-epics-and-stories for E8/E9 next)
-create-epics-and-stories: _bmad-output/planning-artifacts/epics.md # complete 2026-07-17 (8 epics / 59 stories; validated PASS); reconciled 2026-08-21 (Story 7-6, incl. NFR6 and the FR/UX-DR correction stamps)
+create-epics-and-stories: _bmad-output/planning-artifacts/epics.md # complete 2026-07-17 (8 epics / 59 stories; validated PASS); reconciled 2026-08-21 (Story 7-6, incl. NFR6 and the FR/UX-DR correction stamps); extended 2026-09-11 (Epic 8 The Deck 21 stories + Epic 9 The Account 11 stories = 10 epics / 91 stories; FR41-72 / NFR20-30 / AR19-63 / UX-DR40-78 appended in place, Epic 0-7 text byte-identical; validated PASS)
 check-implementation-readiness: _bmad-output/planning-artifacts/implementation-readiness-report-2026-07-17.md # complete 2026-07-17 (READY — 0 critical; ~99% FR coverage; 14 non-blocking findings)
 
 # --- Phase 4: Production ---
