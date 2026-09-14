@@ -179,7 +179,7 @@ export interface FrameSink {
  * The fresh-page resume registers its real bindings only once the welcome has
  * resolved and the Game is built — but on a resume the server's `lastResults`
  * re-send is dispatched from the reconnection deferred's `.then`, which core
- * runs BEFORE it calls `onReconnect` (verified against @colyseus/core 0.17.44).
+ * runs BEFORE it calls `onReconnect` (verified against @colyseus/core 0.18.13).
  * So a captain resuming into the results window receives `results` and THEN
  * `welcome`, and without this the re-send would land on no handler at all and
  * the final table would simply never open.
@@ -438,8 +438,12 @@ async function acquireArena(
  * TWO WRITERS, AND THE PAIR IS THE POINT.
  *
  * The SDK invokes `onReconnect` INSIDE its JOIN_ROOM handler and assigns the
- * rotated token on the LINE AFTER (@colyseus/sdk 0.17.43 `build/Room.mjs:241`
- * then `:243`; `createSignal().invoke` runs its handlers synchronously via
+ * rotated token TWO LINES LATER (@colyseus/sdk 0.18.2 `build/Room.mjs`:483 is
+ * `this.onReconnect.invoke()`, :485 assigns `this.reconnectionToken` from the
+ * roomId + the freshly-decoded token. RE-VERIFIED FOR 0.18: the ORDER is
+ * unchanged — only the line numbers moved, from 0.17.43's :241/:243 — which is
+ * exactly what keeps the microtask below necessary. `createSignal().invoke`
+ * runs its handlers synchronously via
  * `forEach`), so a handler that reads `room.reconnectionToken` DIRECTLY sees the
  * OLD value every time — which is why the first cut of this hung the write off
  * frames instead. But a continuation SCHEDULED from that handler does not: a
@@ -479,7 +483,9 @@ function tokenPersister(room: Room): () => void {
  * connection is.
  */
 function outfitArena(room: Room): { sink: FrameSink; early: EarlyMessages } {
-  // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
+  // Story 0.2 re-enables the SDK's same-Room auto-reconnect (0.18.2 keeps the
+  // `room.reconnection.enabled` / `.maxRetries` shape verbatim — build/
+  // Reconnection.mjs `createReconnection`): on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection
   // token (all onMessage bindings survive), landing on onReconnect. The server
   // now holds the ship for CONFIG.net.reconnectGraceSeconds, so those retries

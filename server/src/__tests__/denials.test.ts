@@ -196,9 +196,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 48→49 bump (PV 49: the BROADSIDE\'s per-turret arc ladder is re-cut to ZERO OVERLAP at tier I — a behavioural CONFIG change both sides compile and both run through turretAimPoints) is enforced at matchmake', () => {
-  it('rejects pv-48 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(49);
+describe('pv join gate — the 49→50 bump (PV 50: Colyseus 0.18 — the @colyseus/schema 5 encoder and the 0.18 JOIN_ROOM handshake are both wire breaks, though no message SHAPE moved) is enforced at matchmake', () => {
+  it('rejects pv-49 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(50);
+    expect(protocolVersionError(49)).toMatch(/refresh/);
     expect(protocolVersionError(48)).toMatch(/refresh/);
     expect(protocolVersionError(47)).toMatch(/refresh/);
     expect(protocolVersionError(46)).toMatch(/refresh/);

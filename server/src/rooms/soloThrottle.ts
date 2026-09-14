@@ -82,9 +82,13 @@ export function resolveSoloCreateLimit(raw: string | undefined): number {
  * this returns null and the adapter FAILS OPEN with a logged warning, which is
  * correct for dev and moot in production (Render's edge always sets the
  * header). Note the socket remote address is NOT reachable from static onAuth
- * in @colyseus/core 0.17.44 — the matchmake route hands onAuth a WHATWG
+ * in @colyseus/core 0.18.13 — the matchmake route hands onAuth a WHATWG
  * Request built fresh from the node req (better-call getRequest), with no
- * socket on it; headers are all there is.
+ * socket on it; headers are all there is. 0.18 keeps that shape verbatim
+ * (`AuthContext = { token?, ip: string | undefined, headers: Headers, req? }`,
+ * Transport.d.ts:88-95). `ip` is now explicitly typed as possibly undefined;
+ * this module never reads it, deriving the address from `headers` itself so
+ * the RIGHTMOST-entry trust model above stays ours rather than core's.
  */
 export function clientIpFrom(forwardedFor: string | null | undefined): string | null {
   if (!forwardedFor) return null;

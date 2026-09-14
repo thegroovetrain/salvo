@@ -27,20 +27,26 @@ const pkg = JSON.parse(
 const isProd = process.env.NODE_ENV === 'production';
 
 export default config({
-  // Typed HTTP routes (Colyseus 0.17): served alongside the default
+  // Typed HTTP routes (Colyseus 0.18): served alongside the default
   // matchmaking routes. `/metrics` returns the process-local ops snapshot;
   // `/liveness` (Story 6.6) returns the DRIVER-backed, cross-process,
   // player-facing snapshot the home screen polls. The two numbers differ on
   // purpose — see the note at the top of metrics.ts.
   //
   // ONE `createRouter` CALL CARRYING BOTH ENDPOINTS, never `metricsRoutes
-  // .extend({...})`. Both build a router that serves both paths, but only
-  // core's `createRouter` assigns the module-level `__globalEndpoints`
-  // (@colyseus/core 0.17.44 build/router/index.mjs:71-74), and that global is
-  // what `@colyseus/playground` reads to list the server's routes. `.extend()`
-  // delegates straight to better-call's own router factory and never touches
-  // it — so the extended endpoint (i.e. /liveness, the one added second) was
-  // invisible in the dev playground while working perfectly over HTTP.
+  // .extend({...})`. Both build a router that serves both paths, but only the
+  // object handed to `config({ routes })` here becomes the server's OWN router
+  // — and that is what `@colyseus/playground` reads to list the server's routes
+  // (`Server.current?.router?.endpoints`, @colyseus/playground 0.18.4
+  // build/index.mjs:101). Under 0.17 the same rule had a different mechanism:
+  // core's `createRouter` assigned a module-level `__globalEndpoints` that the
+  // playground read, `.extend()` never touched it, and the endpoint added
+  // second (/liveness) was invisible in the dev playground while working
+  // perfectly over HTTP. 0.18 DELETED `__globalEndpoints` outright
+  // (@colyseus/core 0.18.13 build/router/index.mjs:79-92 — `createRouter` now
+  // only wraps better-call's factory with an openapi/onError default), so the
+  // invariant is restated rather than retired: both endpoints must live on the
+  // SAME router object, and colyseus018.test.ts / liveness.test.ts pin it.
   //
   // `metricsEndpoint` itself is untouched — same object, same path, same
   // method, same handler — and metrics.ts still exports its own `metricsRoutes`

@@ -445,7 +445,7 @@ function worldToneFloors(): Record<WorldFloorId, ToneFloor> {
 export type RoomUnbind = () => void;
 
 /**
- * A Colyseus 0.17 room SIGNAL (`onLeave`/`onError`/`onDrop`/`onReconnect`):
+ * A Colyseus room SIGNAL (`onLeave`/`onError`/`onDrop`/`onReconnect`):
  * callable to register, with its own `remove` for unregistration. Structural
  * rather than imported so the shape this module actually depends on is stated
  * here, and so a test double can satisfy it.
@@ -458,7 +458,7 @@ interface RoomSignal<Cb> {
 /**
  * Collect an SDK-returned unbind function, if we got one.
  *
- * `room.onMessage(type, cb)` returns `() => void` in @colyseus/sdk 0.17.43 —
+ * `room.onMessage(type, cb)` returns `() => void` in @colyseus/sdk 0.18.2 —
  * verified in `build/Room.d.ts`, not assumed from docs. The typeof guard is
  * for the future/test-double case where it does not: a binding we cannot undo
  * through the SDK is still covered by the latch (see bindRoom).

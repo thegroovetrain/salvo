@@ -23,7 +23,7 @@
 //
 // Harness: the bare `new ArenaRoom()` idiom (operability/regatta/zoneSeeds
 // tests) with core's own methods stubbed — @colyseus/core's __init never runs,
-// so lock/onMessage/setSimulationInterval/clock are injected. The REAL onCreate
+// so lock/onMessage/setTimestep/clock are injected. The REAL onCreate
 // runs, which is the point: the bot fleet's construction ORDER is what is under
 // test, and a hand-rolled construction would prove nothing about it.
 
@@ -123,7 +123,7 @@ function room(options: RoomOptions): SoloRoom {
   r.disconnect = vi.fn(() => Promise.resolve());
   r.broadcast = vi.fn();
   r.onMessage = vi.fn();
-  r.setSimulationInterval = vi.fn();
+  r.setTimestep = vi.fn();
   r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
   r.clients = [];
   r.onCreate(options);
@@ -180,7 +180,7 @@ describe('the solo room — construction', () => {
 
   it('THE TIMING PIN: every bot is in the water BEFORE the first tick and before any Match.update', () => {
     const r = soloRoom();
-    // Zero ticks have run: setSimulationInterval is stubbed, so onCreate is the
+    // Zero ticks have run: setTimestep is stubbed, so onCreate is the
     // only thing that has executed. A bot built even one tick later than this
     // would miss activate()'s participant snapshot.
     expect(r.world.tick).toBe(0);

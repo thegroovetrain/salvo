@@ -814,7 +814,7 @@ function arenaRoom(options: Record<string, unknown> = {}): {
   r.disconnect = vi.fn(() => Promise.resolve());
   r.broadcast = vi.fn();
   r.onMessage = vi.fn();
-  r.setSimulationInterval = vi.fn();
+  r.setTimestep = vi.fn();
   r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
   r.clients = [];
   r.setMetadata = vi.fn(() => Promise.resolve());
@@ -903,17 +903,22 @@ describe('ArenaRoom publishes its live human count (F12)', () => {
 // --- F11: one router, so the playground still lists /liveness ----------------
 
 describe('the HTTP router carries both endpoints (F11)', () => {
-  it('registers /metrics AND /liveness in core __globalEndpoints', async () => {
-    // core's createRouter is the ONLY thing that assigns __globalEndpoints,
-    // which @colyseus/playground reads to list the server's routes; better-
-    // call's `.extend()` builds its own router and never touches the global,
-    // so the endpoint added by extend was invisible in the dev playground.
-    const colyseus = await import('colyseus');
-    await import('../app.config.js');
-    // Read THROUGH the namespace: `__globalEndpoints` is a live `let` binding
-    // that createRouter reassigns, so destructuring it early captures the
-    // pre-app.config value and the test proves nothing.
-    const paths = Object.values(colyseus.__globalEndpoints).map((e) => (e as { path: string }).path);
+  it('registers /metrics AND /liveness on ONE router object', async () => {
+    // Story 8.0: Colyseus 0.18 DELETED the module-level `__globalEndpoints`
+    // this test used to read (@colyseus/core 0.18.13 build/router/index.mjs:
+    // 79-92 — `createRouter` now only wraps better-call's factory). The
+    // invariant it guarded is unchanged and simply has a new vehicle: the
+    // playground lists routes from `Server.current?.router?.endpoints`
+    // (@colyseus/playground 0.18.4 build/index.mjs:101), which is the ONE
+    // router built from app.config's `routes` — so both endpoints must live on
+    // that same router object, which is exactly what `.extend()` would break.
+    const appConfig = (await import('../app.config.js')).default as unknown as {
+      routes: { endpoints: Record<string, { path: string }> };
+    };
+    // BOTH declared in the one call (a second `createRouter` or an `.extend()`
+    // chain would leave one of these keys off this object entirely).
+    expect(Object.keys(appConfig.routes.endpoints).sort()).toEqual(['getLiveness', 'getMetrics']);
+    const paths = Object.values(appConfig.routes.endpoints).map((e) => e.path);
     expect(paths).toContain('/metrics');
     expect(paths).toContain('/liveness');
   });

@@ -224,7 +224,7 @@ describe('shared barrel', () => {
     // `mountSpreadRad`. No wire SHAPE change: both sides compile the ladder and
     // both run `turretAimPoints`, so a stale client previews and predicts a
     // barrage the server does not fire -- the same break class as PV 45.
-    expect(PROTOCOL_VERSION).toBe(49);
+    expect(PROTOCOL_VERSION).toBe(50);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat

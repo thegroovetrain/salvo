@@ -33,8 +33,9 @@ export const RESUME_TOKEN_KEY = 'hullcracker.resume';
  * Is this a token the SDK could even try?
  *
  * `Client.reconnect()` splits on `:` and THROWS on anything that is not
- * `roomId:token` (verified in @colyseus/sdk 0.17.43 `build/Client.mjs`), so the
- * shape is checked here rather than discovered as an exception on the boot path.
+ * `roomId:token` (verified in @colyseus/sdk 0.18.2 `build/Client.mjs`:131-134),
+ * so the shape is checked here rather than discovered as an exception on the
+ * boot path.
  * A malformed value reads as ABSENT — which is the same landing as an expired
  * one: the home screen.
  */
