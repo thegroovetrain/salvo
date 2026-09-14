@@ -1,6 +1,6 @@
 {
   "name": "hullcracker",
-  "version": "0.17.132",
+  "version": "0.17.133",
   "private": true,
   "workspaces": [
     "shared",
@@ -15,7 +15,8 @@
     "start": "node server/dist/index.js",
     "test": "npm test -w shared && npm test -w server && npm test -w client",
     "lint": "eslint .",
-    "check": "npm run lint && npx tsc --noEmit -p shared/tsconfig.json && npx tsc --noEmit -p server/tsconfig.json && npx tsc --noEmit -p client/tsconfig.json && npm test"
+    "check:hooks": "bash .claude/hooks/protect-claude-md.test.sh",
+    "check": "npm run lint && npx tsc --noEmit -p shared/tsconfig.json && npx tsc --noEmit -p server/tsconfig.json && npx tsc --noEmit -p client/tsconfig.json && npm test && npm run check:hooks"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
