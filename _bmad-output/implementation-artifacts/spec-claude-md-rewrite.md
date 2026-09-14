@@ -2,9 +2,10 @@
 title: 'CLAUDE.md rewrite to current best practices + hook-enforced edit moratorium'
 type: 'chore'
 created: '2026-09-14'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'ad1ed35'
+final_revision: '63167fd'
 followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
