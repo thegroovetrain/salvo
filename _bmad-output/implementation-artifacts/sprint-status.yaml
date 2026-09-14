@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-09-11 (planning: gds-create-epics-and-stories for E8/E9 — epics.md extended in place, Epic 8 The Deck 21 stories + Epic 9 The Account 11 stories, validated PASS; gds-sprint-planning next; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-ux v3 pass for E8/E9 surfaces — DESIGN.md/EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; epics run for E8/E9 next; last build cycle 132, 0.17.132). Before that 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
+# last_updated: 2026-09-14 (planning: gds-sprint-planning for E8/E9 — epic-8 The Deck 21 stories + epic-9 The Account 11 stories added as backlog, retros optional; 0 story files exist for either; every epic 0-7 status preserved byte-for-byte; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-create-epics-and-stories for E8/E9 — epics.md extended in place, Epic 8 The Deck 21 stories + Epic 9 The Account 11 stories, validated PASS; gds-sprint-planning next; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-ux v3 pass for E8/E9 surfaces — DESIGN.md/EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; epics run for E8/E9 next; last build cycle 132, 0.17.132). Before that 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -65,8 +65,8 @@
 # - Developer typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 #
-# Source epics: _bmad-output/planning-artifacts/epics.md (8 epics / 58 stories)
-# Epic sequence per GDD: E0 → E1 → E2 → E3 → E4 (Information Texture) → E5 (Living Ocean) → E6 (Lobbies) → E7 (Beta Launch Readiness)
+# Source epics: _bmad-output/planning-artifacts/epics.md (10 epics / 96 live stories; 97 headers incl. the retired 1.9)
+# Epic sequence per GDD: E0 → E1 → E2 → E3 → E4 (Information Texture) → E5 (Living Ocean) → E6 (Lobbies) → E7 (Beta Launch Readiness) → E8 (The Deck) → E9 (The Account); 8.0 → E8 → E9 ship as ONE release (AR20)
 #
 # ROSTER RE-SCOPE (2026-07-19): PROPAGATED. Three-class beta (TB/ML/BS; gunboat cut) is reflected
 # in epics.md — see _bmad-output/planning-artifacts/sprint-change-proposal-2026-07-19.md.
@@ -151,7 +151,7 @@
 # A32/A33 headers still read "cycle 110"/"cycle 111" and are stale.
 
 generated: 2026-07-17
-last_updated: 2026-08-27
+last_updated: 2026-09-14
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -257,6 +257,46 @@ development_status:
   # 7-1-chromebook-performance-pass + 7-2-ten-second-load MERGED into 7-1; 7-4 -> 7-3;
   # 7-5-design-md-real-time-refresh -> 7-6; 7-6-the-release-gate -> 7-8.
   epic-7-retrospective: done  # 2026-08-27 epic-7-retro-2026-08-27.md
+
+  # epic-8: The Deck (GDD E8 — upgrades v3 + catalog v3; 21 stories in build order, Eric-approved 2026-09-11)
+  epic-8: backlog
+  8-0-colyseus-0-18-upgrade: backlog  # floor story
+  8-1-the-card-model-and-catalog-engine: backlog
+  8-2-legal-decks-default-decks-and-the-door: backlog
+  8-3-the-draw: backlog
+  8-4-the-damage-gate-and-the-ordnance-collector: backlog
+  8-5-nine-slots: backlog
+  8-6-the-hud-bar: backlog
+  8-7-consumable-slots-and-the-refit-card-v3: backlog
+  8-8-heal-is-a-card: backlog
+  8-9-the-shift-boost-universal: backlog
+  8-10-the-opening: backlog
+  8-11-the-match-consumable-pool: backlog
+  8-12-catalog-v3-ladders-and-the-deck-gun: backlog
+  8-13-catalog-v3-torpedoes-and-mines: backlog
+  8-14-catalog-v3-the-gun-family-and-the-missile: backlog
+  8-15-catalog-v3-shield-chaff-decoy: backlog
+  8-16-smoke-screen-as-a-sight-occluder: backlog
+  8-17-wake-drafting: backlog
+  8-18-bots-sail-decks: backlog
+  8-19-results-loadout-and-the-match-record: backlog
+  8-20-how-to-play-and-copy-re-cut: backlog
+  epic-8-retrospective: optional
+
+  # epic-9: The Account (GDD E9; 11 stories in build order, Eric-approved 2026-09-11)
+  epic-9: backlog
+  9-1-the-account-store-foundation: backlog  # floor story
+  9-2-sign-in-with-google-or-discord: backlog
+  9-3-two-state-settings-and-profile: backlog
+  9-4-the-ship-and-deck-screen: backlog
+  9-5-named-decks-and-the-pre-queue-gate: backlog
+  9-6-tokens-xp-and-per-copy-unlocks: backlog
+  9-7-match-history-and-the-admin-console: backlog
+  9-8-delete-my-account: backlog
+  9-9-key-rebinding: backlog
+  9-10-the-privacy-paragraph: backlog
+  9-11-design-and-doc-reconciliation: backlog  # Epics 8-9
+  epic-9-retrospective: optional
 
 # action_items — one line per entry. Rationale, evidence and "what will bite the next
 # agent" live in epic-N-context-amendments.md, deferred-work.md and the retros.
