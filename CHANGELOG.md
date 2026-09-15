@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.18.1] - 2026-09-15
+
+Version scheme change (Eric ruling 2026-09-15): the `0.17.X` freeze is lifted with a one-time move to `0.18.1`; from here the patch number keeps counting landed build cycles (`0.18.2`, `0.18.3`, …) regardless of epic. No gameplay or wire change; interstitial cycle 136.
+
 ## [0.17.135] - 2026-09-15
 
 ### Changed
