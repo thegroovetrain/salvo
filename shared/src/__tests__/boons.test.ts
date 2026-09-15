@@ -435,3 +435,31 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
     expect(slotsWithCards('battleship', stats, reversed)[SLOT_EXTRA].equipmentId).toBe('heavyTorpedo');
   });
 });
+
+// ---------------------------------------------------------------------------
+// THE STUB SLOT GUARD (review gate, Story 8.1). A STUB line is authored in full
+// shape -- copy 1 carries a real `slotFill` -- with NO module behind it. The
+// server refused to fit one; the SHARED fold did not, so the client (and the
+// server own respawn replay, which goes through slotsWithCards) would fit a
+// phantom weapon into the extra slot off a card id that reached `cards` by any
+// path. The guard belongs in shared, where both sides read it.
+// ---------------------------------------------------------------------------
+describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
+  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+
+  it('slotsWithCards over a stub id leaves the loadout exactly loadoutFor', () => {
+    expect(slotsWithCards('torpedoBoat', stats, ['lightTorpedo'])).toEqual(loadoutFor('torpedoBoat', stats));
+    expect(slotsWithCards('battleship', stats, ['captiveMines', 'monitor', 'flak']))
+      .toEqual(loadoutFor('battleship', stats));
+  });
+
+  it('...and a LIVE line still fills it, so the guard is about stubs alone', () => {
+    expect(slotsWithCards('battleship', stats, ['navalMines'])[SLOT_EXTRA].equipmentId).toBe('navalMines');
+  });
+
+  it('applySlotEffect itself refuses a stub fill', () => {
+    const loadout = loadoutFor('torpedoBoat', stats);
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'missile' }, stats);
+    expect(loadout[SLOT_EXTRA].equipmentId).toBeNull();
+  });
+});

@@ -587,3 +587,57 @@ describe('equipment helpers', () => {
     expect(ticksToRefill(capped.equipment.broadside.reloadMs)).toBe(270); // 13500 ms
   });
 });
+
+// ---------------------------------------------------------------------------
+// THE RELOAD-STEP FLOOR. `reloadTierScale` is `1 - 0.05 x (tier - 1)`, which
+// goes to ZERO at tier 21 and NEGATIVE beyond it. Nothing in catalog v3 reaches
+// tier 6, but the multiplier is applied to EVERY row unconditionally and
+// `rescaleReloadTimers` divides by it -- a zero cadence is unlimited fire and a
+// negative one is a reload that never completes. So it is floored at 0.1, the
+// same defensive floor `cooldownScale` already carries one line above it.
+// ---------------------------------------------------------------------------
+describe('the equipment reload step FLOORS at x0.1 (hostile / over-capped tier)', () => {
+  /** An injected ladder on the deck gun with an absurd cap -- the shape a
+   *  malformed or far-future catalog could take. */
+  const deepLadder: Catalog = {
+    deckGun: {
+      id: 'deckGun', kind: 'ladder', cap: 25, appliesTo: ['gun'],
+      tiers: new Array<readonly []>(25).fill([]),
+    },
+  };
+
+  it('never reaches zero or a negative reload, however deep the tier', () => {
+    const base = effectiveStats(BASE).equipment.gun.reloadMs;
+    for (const copies of [19, 20, 24]) {
+      const gun = effectiveStats(BASE, stack('deckGun', copies), deepLadder).equipment.gun;
+      expect(gun.tier, `${copies}`).toBe(1 + copies);
+      expect(gun.reloadMs, `${copies}`).toBeGreaterThan(0);
+      expect(gun.reloadMs, `${copies}`).toBeCloseTo(base * 0.1, 6);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A ZERO-COPY LINE MOVES NO TIER. `applyLineTier` ran for EVERY line in the
+// catalog, held or not, writing `1` (a ladder at zero copies) or `max(1, 0)`
+// (an equipment line) over whatever the previous line had already written. In
+// production every line owns its own row so the write is a harmless no-op --
+// but it made the tier a fact about CATALOG ORDER rather than about the cards
+// held, and any injected or future catalog with two claimants loses the tier of
+// whichever one sorts first. A line nobody holds now writes nothing at all.
+// ---------------------------------------------------------------------------
+describe('a line held at ZERO copies never writes a tier', () => {
+  /** Two lines over one row: a held one-copy ladder, then an UNHELD deck gun. */
+  const twoClaimants: Catalog = {
+    deckGunTurret: { id: 'deckGunTurret', kind: 'ladder', cap: 1, appliesTo: ['gun'], tiers: [[]] },
+    deckGun: CATALOG.deckGun,
+  };
+
+  it('the held line keeps the tier it bought, whatever sorts after it', () => {
+    expect(effectiveStats(BASE, ['deckGunTurret'], twoClaimants).equipment.gun.tier).toBe(2);
+  });
+
+  it('...and an unheld catalog still reads every row at tier 1', () => {
+    expect(effectiveStats(BASE, [], twoClaimants).equipment.gun.tier).toBe(1);
+  });
+});

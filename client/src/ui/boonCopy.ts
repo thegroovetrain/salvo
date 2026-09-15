@@ -54,9 +54,12 @@
 // correctness, only for legibility.
 
 import {
+  CATALOG,
   CONFIG,
   LINE_IDS,
   effectiveStats,
+  isStubLine,
+  tierTargetOf,
   type CatalogLine,
   type EffectiveStats,
   type LineId,
@@ -181,20 +184,53 @@ interface StatLine {
   fmt?: (v: number) => string;
 }
 
+/** Seconds to one decimal — "30.0 s". The equipment rows' own format: a
+ *  weapon's reload is the only card number small enough that the tenth is the
+ *  whole story (a 5 % step off 30 s is 1.5 s), so it never prints bare. */
+function secs(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/**
+ * THE EQUIPMENT LINES' headline stat: THEIR OWN RELOAD.
+ *
+ * Copy 1 of an equipment line fits the weapon; every copy after it raises that
+ * weapon's TIER, and a tier is −5 % of its own reload (derived from the tier in
+ * sim/stats.ts clampStats, not authored as an effect). So the reload IS the
+ * number that moves, and the card prints it like any ladder — through the same
+ * live preview diff, so it can never promise a step the firewall would not
+ * produce. Copy 1 on a hull WITHOUT the weapon honestly prints no change: what
+ * that copy buys is the FIT, which the hover tooltip explains.
+ *
+ * Built from the catalog rather than typed out, and only for lines whose weapon
+ * EXISTS — a stub line has no row worth reading, so it stays silent and falls
+ * back to the fail-open stub rendering.
+ */
+function equipmentStatLines(): Partial<Record<LineId, StatLine>> {
+  const out: Partial<Record<LineId, StatLine>> = {};
+  for (const id of LINE_IDS) {
+    const line = CATALOG[id];
+    if (line.kind !== 'equipment' || isStubLine(id)) continue;
+    const target = tierTargetOf(line);
+    if (target === undefined) continue;
+    out[id] = { label: 'Reload', read: (s) => s.equipment[target].reloadMs, fmt: secs };
+  }
+  return out;
+}
+
 /**
  * The headline stat each line moves — the number the card prints as
  * `current → next`, and the WHOLE of what a stat card's face says (R2.17).
  *
- * PARTIAL over the catalog, and far more sparsely than in v2. Catalog v3's
- * eleven EQUIPMENT lines spend copy 1 on the weapon itself and leave tiers II–V
- * empty until Stories 8.12–8.16 author them, so they move no number yet; the
- * five consumables are stubs; the five add-ons are verbs. What is left is the
- * five universal ladders and the deck-gun family, which DO carry authored
- * content — and every label below is carried over verbatim from the v2 line
+ * PARTIAL over the catalog: the five consumables are stubs and the five add-ons
+ * are verbs, so neither has a number. What speaks is the five universal
+ * ladders, the deck-gun family, and every LIVE equipment line (its own reload,
+ * generated above). Each label below is carried over verbatim from the v2 line
  * this one replaces (see the `<-` notes), except TURNING, whose word is the
  * class-select stat label already shipped in ui/classSelect.ts.
  */
 const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
+  ...equipmentStatLines(),
   armor: { label: 'Max hull', read: (s) => s.maxHp }, // <- shipHull
   speed: { label: 'Top speed', read: (s) => s.kinematics.maxSpeed }, // <- shipSpeed
   turning: { label: 'Turning', read: (s) => s.kinematics.turnRate },
@@ -268,13 +304,13 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
     'Your gun throws extra shells on parallel tracks either side of the one you aimed, each bursting at its own point. An odd number puts one shell exactly on your click; an even number straddles it.',
   // --- the equipment lines whose weapons exist today -------------------------
   heavyTorpedo:
-    'Fits torpedo tubes to your open slot, loaded. Torpedoes run just under the surface and hit hard, but they run straight — you lead the target yourself.',
+    'Torpedoes run just under the surface and hit hard, but they run straight — you lead the target yourself. The first copy fits the tubes to your open slot, loaded, if you are not already carrying them; every copy after that is another tier, and each tier cuts their reload by 5%.',
   navalMines:
-    'Fits mine racks to your open slot, loaded. Mines drop astern and sit armed on the water until something crosses the trip ring around them.',
+    'Mines drop astern and sit armed on the water until something crosses the trip ring around them. The first copy fits the racks to your open slot, loaded, if you are not already carrying them; every copy after that is another tier, and each tier cuts their reload by 5%.',
   broadside:
-    'Fits a broadside battery to your open slot. It throws a fan of shells off whichever beam you clicked, port or starboard — never over the bow or the stern.',
+    'A broadside throws a fan of shells off whichever beam you clicked, port or starboard — never over the bow or the stern. The first copy fits the battery to your open slot, if you are not already carrying it; every copy after that is another tier, and each tier cuts its reload by 5%.',
   starShells:
-    'Fits a star shell mortar to your open slot. A flare lights a circle of ocean you see into as if it were your own sight — the one way to look somewhere you are not.',
+    'A flare lights a circle of ocean you see into as if it were your own sight — the one way to look somewhere you are not. The first copy fits the mortar to your open slot, if you are not already carrying it; every copy after that is another tier, and each tier cuts its reload by 5%.',
   // --- the add-ons whose verbs exist today -----------------------------------
   acousticHoming:
     'Your torpedoes listen for hulls. Once one is inside the acquisition band the fish steers slowly onto it, correcting a near miss for you. It is a gentle turn, not a chase: hard helm still shakes it.',

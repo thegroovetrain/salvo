@@ -192,13 +192,15 @@ describe('the laws that constrain the fix', () => {
     expect(smallest * 0.9).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
   });
 
-  // Keyed off the EFFECT SHAPE, not a tier: a line whose copies fit a weapon,
-  // bolt on a verb or stock a rack has no number to print, so it is exempt from
-  // the `current → next` contract and bound by the MINIMAL-face pin instead.
-  // In catalog v3 that is every equipment line, every add-on and every
-  // consumable — the stat lines left are the five ladders and the deck-gun
-  // family.
-  const VERBS = new Set<string>(LINES.filter((d) => d.kind !== 'ladder').map((d) => d.id));
+  // Keyed off the EFFECT SHAPE, not a tier: a line that only bolts on a verb or
+  // stocks a rack has no number to print, so it is exempt from the
+  // `current → next` contract and bound by the MINIMAL-face pin instead. A LIVE
+  // equipment line is NOT exempt — its copies past the first are tiers, and a
+  // tier is -5 % of that weapon's own reload, so it prints that. A STUB one has
+  // no built weapon to read.
+  const VERBS = new Set<string>(
+    LINES.filter((d) => d.kind !== 'ladder' && !(d.kind === 'equipment' && d.stub !== true)).map((d) => d.id),
+  );
 
   it('keeps the contract: every STAT line still prints its live current → next', () => {
     const missing = LINES.filter((d) => !VERBS.has(d.id))

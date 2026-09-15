@@ -89,6 +89,34 @@ describe('buildDeck — THE INTERIM DECK (Eric ruling 2026-09-15)', () => {
     expect(buildDeck()).toEqual(buildDeck());
   });
 
+  // THE CARRIED SEED (review gate, Story 8.1). A hull spawns HOLDING copy 1 of
+  // every equipment line whose weapon it already carries -- that IS v3's own
+  // semantics, copy 1 = the bare weapon. Without it the deck deals a copy 1
+  // the hull can never use: `slotFill` no-ops against an already-fitted
+  // weapon, so the pick costs a whole level and buys literally nothing.
+  it('removes ONE copy of each CARRIED line (the hull already holds copy 1)', () => {
+    const deck = buildDeck(CATALOG, ['heavyTorpedo']);
+    expect(tally(deck.cards).get('heavyTorpedo')).toBe(CATALOG.heavyTorpedo.cap - 1);
+    expect(deck.cards).toHaveLength(52);
+    // ...every OTHER line is untouched.
+    for (const id of NON_STUB) {
+      if (id === 'heavyTorpedo') continue;
+      expect(tally(deck.cards).get(id), id).toBe(CATALOG[id].cap);
+    }
+  });
+
+  it('seeds the three real hull fits: TB 52, BS 51, ML 52', () => {
+    expect(buildDeck(CATALOG, ['heavyTorpedo']).cards).toHaveLength(52);
+    expect(buildDeck(CATALOG, ['broadside', 'starShells']).cards).toHaveLength(51);
+    expect(buildDeck(CATALOG, ['navalMines']).cards).toHaveLength(52);
+  });
+
+  it('ignores a carried line it has no copies of (stub, junk, or repeated)', () => {
+    expect(buildDeck(CATALOG, ['lightTorpedo']).cards).toHaveLength(53); // stub: never dealt
+    expect(buildDeck(CATALOG, ['nope' as LineId]).cards).toHaveLength(53);
+    expect(buildDeck(CATALOG, ['heavyTorpedo', 'heavyTorpedo']).cards).toHaveLength(51);
+  });
+
   it('takes an injected catalog (the Story 8.2 seam) and honours `stub` in it', () => {
     const deck = buildDeck(catalogOf([testLine('a', 2), testLine('b', 3, true), testLine('c', 1)]));
     expect(deck.cards).toEqual(['a', 'a', 'c']);

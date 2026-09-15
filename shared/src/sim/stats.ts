@@ -446,8 +446,9 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
     boost: boostRow(STUB_ROWS.boost),
     lightTorpedo: torpedoRow(STUB_ROWS.lightTorpedo),
     // THE LEGACY RENAME: `heavyTorpedo` IS the shipped torpedo, CONFIG.torpedo
-    // verbatim (catalog-v3 R17's 65 u/s tier-I retune belongs to Story 8.13,
-    // which authors the line's real tiers — 8.1 moves no shipped number).
+    // verbatim — including catalog-v3 R17's 65 u/s tier-I speed, which Story
+    // 8.1 landed in CONFIG itself (epic-8 amendment 6). The line's tiers II-V
+    // are still Story 8.13's to author.
     heavyTorpedo: torpedoRow(CONFIG.torpedo),
     supercavTorpedo: torpedoRow(STUB_ROWS.supercavTorpedo),
     // ...and `navalMines` IS the shipped mine, CONFIG.mine verbatim.
@@ -506,7 +507,14 @@ const round3 = (v: number): number => Math.round(v * 1000) / 1000;
  */
 function reloadTierScale(tier: number): number {
   const steps = Math.max(0, tier - 1);
-  return round3(1 - CONFIG.catalog.reloadStepPerTier * steps);
+  // FLOORED AT 0.1, exactly like cooldownScale below. By CONSTRUCTION the
+  // deepest reachable tier is V (x0.80) — but this multiplier is applied to
+  // EVERY equipment row unconditionally, and an injected or future line with
+  // a cap past 20 would drive it to zero (unlimited fire — and
+  // rescaleReloadTimers multiplying an in-flight timer by 0) and then
+  // negative (a reload that never completes). Defence against malformed data,
+  // not a reachable configuration.
+  return Math.max(0.1, round3(1 - CONFIG.catalog.reloadStepPerTier * steps));
 }
 
 /** Floor every INTEGER equipment field once, after a fold that accumulated it

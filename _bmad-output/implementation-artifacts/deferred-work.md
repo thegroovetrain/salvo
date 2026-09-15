@@ -1975,3 +1975,18 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — agent-chosen placeholder, awaiting Eric's word
   summary: CLIENT `STAT_LINES` LABELS `turning` → 'Turning' AND `deckGun` → 'Gun damage' ARE AGENT-CHOSEN MINIMAL LABELS, not copy Eric has reviewed. They were picked to be unambiguous and short enough to fit the existing stat-line layout, but per the no-in-game-copy-unasked rule they should be confirmed (or replaced) by Eric before being treated as final UI text.
   evidence: client `STAT_LINES` table, Story 8.1 wave 2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — pre-existing structural gap, resolved by Story 8.5 (nine slots) and 8.2 (authored decks)
+  summary: WITH ONE EXTRA WEAPON SLOT, EVERY EQUIPMENT CARD AFTER THE FIRST FIT IS A NO-OP, and an add-on for a weapon the hull never fits sets a verb on a row nothing fires. Codex and Blind Hunter both flagged it at the 8.1 gate; it is the same "at most one acquisition can ever fire" gap the v2 deck had, so it is NOT resolved by obsolescence yet — it persists in the interim deck until the nine-slot array (8.5) and per-hull authored decks (8.2) land. Bots are exposed the same way (`ai/spending.ts` scores kind/weights without a slot-free check).
+  evidence: `shared/src/sim/boons.ts` applySlotEffect no-ops on an occupied extra slot; `world.ts` settleSpend still consumes the level; review gate 2026-09-15.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — hand to Story 8.13 (captive mines module)
+  summary: CAPTIVE-MINE READERS ARE KEYED TO THE NAVAL ROW: `captiveMines` carries `captive: true` at base in `stats.ts`, but every reader (`world.ts` mine trip/blast rules, `ai/equipment.ts` captive tactic, `client/src/render/equipmentInfo.ts`) reads `equipment.navalMines.captive`, which is always false in production, so the captive path is dead until 8.13 re-keys every site per the equipment that laid the mine. Tests keep the path alive by poking the naval row.
+  evidence: Blind Hunter finding 6, review gate 2026-09-15; `botTactics.test.ts` pokes `stats.equipment.navalMines.captive = true`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — Eric ruling needed with the bot retune
+  summary: BOT LINE WEIGHTS: `KIND_BASE` (ladder 1.8 / addon 1.6 / equipment 1.2 / consumable 1.0) in `ai/spending.ts` is an agent-invented table (inert today: every non-stub line is covered by the v2→v3 alias mapping), and the alias resolution is max-wins, so e.g. the raider's old `torpedoTube 2.5` now prices a copy-1 `heavyTorpedo` fit — a policy change with no ruling. Fold both into the bot retune alongside the stale `CONFIG.bots.boonWeights` entry above.
+  evidence: Blind Hunter finding 7 and Edge Case Hunter bot finding, review gate 2026-09-15.

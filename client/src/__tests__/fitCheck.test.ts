@@ -90,8 +90,9 @@ describe('fit-check — VISIBLE toast (every stack position prints a line)', () 
  * rack, has to delete its entry here — which is what turns "pending" back into a
  * real check rather than a permanent exemption.
  *
- * `equipment` — copy 1 is the weapon itself and tiers II–V are unauthored
- *   (Stories 8.12–8.16). The fit channel is the SLOT: the weapon appears.
+ * `equipment` (STUB ONLY) — a stub line's weapon does not exist, so there is no
+ *   row to read a holding off. A LIVE equipment line DOES print one: its own
+ *   reload, which every copy past the first cuts by 5 %.
  * `consumable` — the whole rack is Story 8.7.
  * `heatSeeking` — the only add-on whose weapon (the missile) is not built.
  * `turning` / `deckGun` — new v3 lines with no v2 text to carry: they DO print a
@@ -99,7 +100,7 @@ describe('fit-check — VISIBLE toast (every stack position prints a line)', () 
  *   matters; this list covers the hotbar/results HOLDING readout only.
  */
 const SILENT_EFFECT_LINE: readonly string[] = [
-  ...LINES.filter((l) => l.kind === 'equipment' || l.kind === 'consumable').map((l) => l.id),
+  ...LINES.filter((l) => (l.kind === 'equipment' && l.stub === true) || l.kind === 'consumable').map((l) => l.id),
   'heatSeeking',
 ];
 

@@ -41,6 +41,7 @@ import {
   isAfloat,
   isSinking,
   isSunk,
+  lineForEquipment,
   loadoutFor,
   slotsWithCards,
   hullEnvelope,
@@ -67,6 +68,7 @@ import {
   type BallisticEvent,
   type BoonBehaviorEffect,
   type Catalog,
+  type CatalogLine,
   type BoonOffer,
   type DeckState,
   type LineId,
@@ -1253,6 +1255,10 @@ export class World {
     const stats = effectiveStats(cls);
     // Per-hull loadout (Story 1.6): the class fit, or the universal drone fit.
     const loadout = loadoutFor(hullId, stats);
+    // THE SPAWN SEED (see carriedLines): the card lines this fit already holds.
+    // `stats` above needs no recompute — the seed is stat-neutral by
+    // construction (tier I IS the bare weapon), which the spawn tests pin.
+    const carried = World.carriedLines(loadout, this.catalog);
     const rec: ShipRecord = {
       id,
       name,
@@ -1277,11 +1283,11 @@ export class World {
       // THE DECK (2.8): over the fresh fit; fleet hulls never get one (pinned).
       // ECONOMY, so it keys on the FLEET reading — an AI captain (6.4) is a
       // participant that plays the game, and gets a deck like any other.
-      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.catalog),
+      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.catalog, carried),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
       xpMs: 0, level: 0, damageFrom: new Map(),
-      cards: [],
+      cards: [...carried],
       cardBehaviors: NO_BEHAVIORS,
       stats,
       state: { x: p.x, y: p.y, heading, speed: 0 },
@@ -1421,10 +1427,31 @@ export class World {
     return mulberry32((this.seed ^ 0x165667b1 ^ Math.imul(ordinal, 0x9e3779b9)) >>> 0);
   }
 
-  /** The equipment ids a loadout carries, in slot order — buildDeck's input. */
-  private static carriedEquipment(loadout: LoadoutSlot[]): EquipmentId[] {
-    const out: EquipmentId[] = [];
-    for (const slot of loadout) if (slot.equipmentId !== null) out.push(slot.equipmentId);
+  /**
+   * THE CARRIED LINES of a fit, in slot order — the spawn SEED and `buildDeck`'s
+   * input in one list.
+   *
+   * Copy 1 of an equipment line IS the bare weapon (catalog-v3 §4), so a hull
+   * that spawns with that weapon fitted is, by the catalog's own reading,
+   * already HOLDING copy 1 of its line. Seeding `ship.cards` with these ids is
+   * what makes the deck's next copy the line's TIER II — a real −5 % reload
+   * step — instead of a second tier I whose `slotFill` no-ops against the
+   * weapon it would fit, costing a whole level for nothing.
+   *
+   * It is STAT- AND FIT-NEUTRAL by construction: tier I is the row's base
+   * numbers and its ×1.00 reload, which is exactly what an unfitted line
+   * already reads, and a `slotFill` of already-fitted equipment is a no-op.
+   * Equipment no card fits (`gun`, `speedBoost`, `radarBuoy`) contributes
+   * nothing, and neither does a STUB line — the deck deals it no copies, so
+   * there is none to hold back.
+   */
+  private static carriedLines(loadout: LoadoutSlot[], catalog: Catalog): LineId[] {
+    const out: LineId[] = [];
+    for (const slot of loadout) {
+      if (slot.equipmentId === null) continue;
+      const line = lineForEquipment(slot.equipmentId, catalog);
+      if (line !== undefined && line.stub !== true) out.push(line.id);
+    }
     return out;
   }
 
@@ -1539,10 +1566,13 @@ export class World {
     // be split with someone who damaged this hull in the ready room.
     ship.damageFrom.clear();
     // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
-    // fresh build — respawn() below, waiting-phase only, preserves.
-    ship.cards = [];
+    // fresh build — respawn() below, waiting-phase only, preserves. "Wiped"
+    // means back to the SPAWN SEED (see carriedLines), which is what a fresh
+    // build is: copy 1 of every line this hull's own weapons stand for.
+    const carried = World.carriedLines(loadoutFor(ship.hullId, effectiveStats(ship.cls)), this.catalog);
+    ship.cards = [...carried];
     ship.cardBehaviors = NO_BEHAVIORS;
-    ship.stats = effectiveStats(ship.cls);
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
     ship.hp = ship.stats.maxHp;
     // The match-start `redeploy` edge (Story 5.1, amendment 3): legal from ANY
     // state — the common case is `alive -> alive` (a hull that never died being
@@ -1578,7 +1608,7 @@ export class World {
     // function of (mapSeed, join ordinal, draw count). Drones keep EMPTY_DECK.
     ship.deck = roleIsFleetHull(ship)
       ? EMPTY_DECK
-      : buildDeck(this.catalog);
+      : buildDeck(this.catalog, carried);
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.pveKills = {}; // ...and its telemetry sibling (amendment 44), same boundary
     ship.deaths = 0;
@@ -2023,8 +2053,7 @@ export class World {
   /**
    * Draw the FRONT offer — the single place a hand is ever drawn (the lazy-draw
    * bugfix). Fires ONLY when a level is banked and no offer is materialized, so
-   * exactly one draw happens per level over that level's lifetime and
-   * `levelsSinceRare` (the pity escalation) still advances once per draw.
+   * exactly one draw happens per level over that level's lifetime.
    *
    * DEGENERATE EMPTY DRAW: `offer` stays null and the bank stays put — the
    * queue never deadlocks (spendPoint's HEAL_CHOICE is still spendable, a card
@@ -2084,6 +2113,14 @@ export class World {
     // `this.catalog['constructor']` with Object.prototype.constructor —
     // not undefined, and with no `tiers` to iterate.
     const line = Object.hasOwn(this.catalog, lineId) ? this.catalog[lineId] : undefined;
+    // A STUB LINE IS REFUSED OUTRIGHT, before the push: its mechanism does not
+    // exist, so fitting it buys nothing — and the id would then ride the wire
+    // in `cards`, where the client's replay and this world's own respawn
+    // replay would both try to derive a loadout from it. The shared fold
+    // refuses the fill too (sim/boons.ts applySlotEffect); this keeps the id
+    // out of the build in the first place. Unreachable in play: a stub is
+    // never dealt into a deck.
+    if (line?.stub === true) return;
     ship.cards.push(lineId);
     ship.cardBehaviors = cardBehaviors(ship.cards, this.catalog);
     const prevStats = ship.stats;
@@ -2094,17 +2131,24 @@ export class World {
     }
     // hp invariant: a maxHp-LOWERING fit may not leave hp above the cap.
     ship.hp = Math.min(ship.hp, ship.stats.maxHp);
-    if (line !== undefined) {
-      for (const effect of line.tiers[boonStackCount(ship.cards, lineId) - 1] ?? []) {
-        if (effect.kind === 'slotFill' && !Object.hasOwn(EQUIPMENT, effect.equipmentId)) continue;
-        applySlotEffect(ship.loadout, effect, ship.stats);
-      }
-    }
+    if (line !== undefined) this.applyGrantSlots(ship, line, lineId);
     this.reconcilePools(ship, prevStats);
     this.rescaleReloadTimers(ship, prevStats);
     // A speed card raises the true attainable top speed the wake ring was
     // provisioned for (Story 4.12) — upsize in place, live samples preserved.
     this.reprovisionWake(ship);
+  }
+
+  /** THIS COPY's slot effects, applied incrementally to the live loadout (home
+   *  2 of applyCard — see there). The copy index is how many copies of the line
+   *  the ship holds AFTER the push, so `tiers[copy - 1]` is its step. The
+   *  EQUIPMENT-registry gate is belt-and-braces beside the shared catalog's
+   *  stub guard: an id with no built module can never be dispatched. */
+  private applyGrantSlots(ship: ShipRecord, line: CatalogLine, lineId: string): void {
+    for (const effect of line.tiers[boonStackCount(ship.cards, lineId) - 1] ?? []) {
+      if (effect.kind === 'slotFill' && !Object.hasOwn(EQUIPMENT, effect.equipmentId)) continue;
+      applySlotEffect(ship.loadout, effect, ship.stats, this.catalog);
+    }
   }
 
   /**
@@ -4526,8 +4570,8 @@ export class World {
     // this tick).
     // Boons AND the deck PERSIST across a waiting-phase respawn, so the fresh
     // loadout re-derives with their slot effects replayed — the SAME shared
-    // derivation the client runs (slotsWithBoons ≡ loadoutFor at zero boons,
-    // byte-identical).
+    // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
+    // and over the spawn SEED alone, byte-identical).
     ship.loadout = slotsWithCards(ship.hullId, ship.stats, ship.cards, this.catalog);
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing

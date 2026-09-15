@@ -22,8 +22,15 @@
 //
 // STUB LINES (`stub: true`) are lines whose MECHANISM does not exist yet. They
 // are authored in full shape so the catalog is complete and the ids are final,
-// and they are EXCLUDED from `buildDeck()` — so they can never be offered, and
-// no card in a live deck is a dead card (Eric ruling 2026-09-15: stay playable).
+// and they are EXCLUDED from `buildDeck()` — so they can never be offered (Eric
+// ruling 2026-09-15: stay playable). A stub is also refused by the slot fold
+// (sim/boons.ts) and by the server's grant, so an id that reaches a card list
+// by any other route still fits nothing.
+//
+// NO DEAD CARD IN A LIVE DECK is the rule the stub exclusion serves, and it
+// takes one more thing: a hull spawns HOLDING copy 1 of every equipment line
+// whose weapon it already carries, and `buildDeck(catalog, carried)` deals that
+// copy one short (see sim/deck.ts).
 //
 // CATALOG CONTENT IS WIRE CONTRACT: adding, removing or changing any entry
 // REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Line ids ride the
@@ -127,10 +134,32 @@ export interface CatalogLine {
  *  (tests inject their own); production passes CATALOG. */
 export type Catalog = Readonly<Record<string, CatalogLine>>;
 
-/** Freeze the catalog AND every line inside it (the HOOK_REGISTRY /
- *  SIGNAL_REGISTRY deep-freeze discipline). */
-const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
-  for (const key of Object.keys(rows) as (keyof T)[]) Object.freeze(rows[key]);
+/**
+ * Freeze the catalog AND EVERY DEPTH BELOW IT (the HOOK_REGISTRY /
+ * SIGNAL_REGISTRY deep-freeze discipline, carried all the way down).
+ *
+ * Freezing the LINE ROWS alone was not enough: `effectiveStats` reads these
+ * effect objects on every fold, on BOTH sides, so a single stray write to
+ * `CATALOG.armor.tiers[0][0].add` is a permanent, silent, cross-match stat
+ * change — and a desync, because only the side that ran the write has it. The
+ * whole tree is shared read-only data; it is frozen as such.
+ */
+function deepFreezeLine(line: CatalogLine): CatalogLine {
+  for (const tier of line.tiers) {
+    for (const effect of tier) Object.freeze(effect);
+    Object.freeze(tier);
+  }
+  Object.freeze(line.tiers);
+  if (line.appliesTo !== undefined) Object.freeze(line.appliesTo);
+  return Object.freeze(line);
+}
+
+/** Deep-freeze every line of a built catalog, then the catalog itself. */
+const deepFreezeRows = (rows: Record<string, CatalogLine>): Catalog => {
+  for (const key of Object.keys(rows)) {
+    const line = rows[key];
+    if (line !== undefined) deepFreezeLine(line);
+  }
   return Object.freeze(rows);
 };
 
@@ -146,7 +175,11 @@ function ladder(
   effects: readonly BoonEffect[],
   extra: { healOnGrant?: true; appliesTo?: readonly EquipmentId[] } = {},
 ): CatalogLine {
-  return { id, kind: 'ladder', cap, tiers: Object.freeze(new Array<readonly BoonEffect[]>(cap).fill(effects)), ...extra };
+  // A FRESH ARRAY PER TIER (never one shared `effects` reference repeated):
+  // shared tier arrays make `tiers[0] === tiers[1]`, so any future per-tier
+  // edit — or any deep-freeze reasoning — silently applies to all of them.
+  const tiers = Array.from({ length: cap }, () => [...effects] as readonly BoonEffect[]);
+  return { id, kind: 'ladder', cap, tiers, ...extra };
 }
 
 /**
@@ -156,13 +189,13 @@ function ladder(
  */
 function weapon(id: LineId, equipmentId: EquipmentId, stub?: true): CatalogLine {
   const tiers: readonly BoonEffect[][] = [[{ kind: 'slotFill', equipmentId }], [], [], [], []];
-  const line: CatalogLine = { id, kind: 'equipment', cap: 5, tiers: Object.freeze(tiers) };
+  const line: CatalogLine = { id, kind: 'equipment', cap: 5, tiers };
   return stub === undefined ? line : { ...line, stub };
 }
 
 /** A one-copy add-on: one `doctrine` verb per equipment it applies to. */
 function addon(id: LineId, appliesTo: readonly DoctrineWeapon[], mode: string, stub?: true): CatalogLine {
-  const tiers = Object.freeze([Object.freeze(appliesTo.map((eq) => doctrineEffect(eq, mode)))]);
+  const tiers = [appliesTo.map((eq) => doctrineEffect(eq, mode))];
   const line: CatalogLine = { id, kind: 'addon', cap: 1, tiers, appliesTo };
   return stub === undefined ? line : { ...line, stub };
 }
@@ -171,7 +204,9 @@ function addon(id: LineId, appliesTo: readonly DoctrineWeapon[], mode: string, s
  *  rack itself is Story 8.7. */
 function consumable(id: LineId & ConsumableId): CatalogLine {
   const stock: BoonStockEffect = { kind: 'stock', equipmentId: id };
-  return { id, kind: 'consumable', cap: 5, tiers: Object.freeze(new Array<readonly BoonEffect[]>(5).fill([stock])), stub: true };
+  // A fresh tier array AND a fresh effect object per copy (see `ladder`).
+  const tiers = Array.from({ length: 5 }, () => [{ ...stock }] as readonly BoonEffect[]);
+  return { id, kind: 'consumable', cap: 5, tiers, stub: true };
 }
 
 /**
@@ -338,6 +373,26 @@ export function tierTargetOf(line: CatalogLine): EquipmentId | undefined {
   return undefined;
 }
 
+/**
+ * The EQUIPMENT LINE that fits a piece of equipment — the inverse of
+ * `tierTargetOf` over the `equipment` lines, and the ONE place the
+ * (EquipmentId -> LineId) mapping is derived. Undefined for a piece of
+ * equipment no card fits (`gun`, `boost`, and the two legacy ids
+ * `speedBoost`/`radarBuoy`).
+ *
+ * It is what lets the spawn seed know which cards a hull is ALREADY holding,
+ * and what lets the shared slot fold refuse to fit a STUB weapon, without
+ * either of them restating the mapping. `validateCatalog` pins it single-valued
+ * (no two lines may target one row), so the first match is the only match.
+ */
+export function lineForEquipment(eq: EquipmentId, catalog: Catalog = CATALOG): CatalogLine | undefined {
+  for (const key of Object.keys(catalog)) {
+    const line = catalog[key];
+    if (line !== undefined && line.kind === 'equipment' && tierTargetOf(line) === eq) return line;
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Authoring-time validation. Pure and throw-free: every validator returns a
 // list of human-readable problems (empty = valid). Run over CATALOG in tests,
@@ -401,6 +456,26 @@ function validateFlags(line: CatalogLine): string[] {
   return errs;
 }
 
+/** The two per-KIND shape rules (helper of validateShape).
+ *
+ *  A LADDER's `appliesTo` names the ONE equipment row whose tier its copies
+ *  advance, and `tierTargetOf` reads `appliesTo[0]` — so a second entry is
+ *  silently ignored, which is how a reader comes to believe a ladder moves two
+ *  weapons' tiers when it moves one.
+ *
+ *  Copy 1 of an EQUIPMENT line IS the weapon (catalog-v3 §4). Without a
+ *  slotFill on tier I the line fits nothing, has no tier target, and every copy
+ *  of it is a dead card. */
+function validateKindShape(line: CatalogLine): string[] {
+  if (line.kind === 'ladder' && (line.appliesTo?.length ?? 0) > 1) {
+    return [`${line.id}: a ladder may name at most ONE appliesTo equipment`];
+  }
+  if (line.kind === 'equipment' && !(line.tiers[0] ?? []).some((e) => e.kind === 'slotFill')) {
+    return [`${line.id}: an equipment line needs a slotFill on copy 1`];
+  }
+  return [];
+}
+
 /** Problems with a line's kind/cap/tiers row. THE `tiers.length === cap` PIN
  *  lives here: copy k applies tiers[k-1], so a short ladder would silently give
  *  the last copies nothing and a long one would author unreachable steps. */
@@ -409,6 +484,7 @@ function validateShape(line: CatalogLine): string[] {
   if (!LINE_KINDS.includes(line.kind)) errs.push(`${line.id}: unknown kind '${line.kind}'`);
   if (!Number.isInteger(line.cap) || line.cap < 1) errs.push(`${line.id}: cap must be an integer ≥ 1`);
   if (line.tiers.length !== line.cap) errs.push(`${line.id}: tiers.length ${line.tiers.length} ≠ cap ${line.cap}`);
+  errs.push(...validateKindShape(line));
   errs.push(...validateFlags(line));
   return errs;
 }
@@ -467,9 +543,49 @@ function everyStatEffect(catalog: Catalog): [CatalogLine, BoonStatEffect][] {
 }
 
 /**
+ * THE CROSS-LINE RULES — the two mistakes no single line can see.
+ *
+ *  1. ONE TIER OWNER PER EQUIPMENT ROW. `equipment[id].tier` is written by
+ *     whichever line claims that row, and the fold walks the catalog in key
+ *     order — so two claimants means the LATER one overwrites the earlier, and
+ *     which card actually moves the tier becomes a fact about catalog order.
+ *     It also makes `lineForEquipment` ambiguous.
+ *  2. NO LIVE ADD-ON ON DEAD EQUIPMENT. An add-on bolts a verb onto the
+ *     equipment it names; if EVERY line it names is a stub, the card is dealt
+ *     into live decks (it is not a stub itself) and buys nothing. An add-on
+ *     with at least one live target is fine — ACOUSTIC HOMING names the light
+ *     torpedo (stub) AND the heavy one (live), and is a real card today.
+ */
+function validateCrossLine(catalog: Catalog): string[] {
+  const errs: string[] = [];
+  const owners = new Map<string, string>();
+  for (const key of Object.keys(catalog)) {
+    const line = catalog[key];
+    if (line === undefined) continue;
+    const target = tierTargetOf(line);
+    if (target !== undefined) {
+      const owner = owners.get(target);
+      if (owner !== undefined) errs.push(`two lines advance the tier of '${target}' (${owner}, ${line.id})`);
+      else owners.set(target, line.id);
+    }
+    if (line.kind !== 'addon' || line.stub === true) continue;
+    const targets = line.appliesTo ?? [];
+    const live = targets.filter((eq) => {
+      const owner = lineForEquipment(eq, catalog);
+      return owner === undefined || owner.stub !== true;
+    });
+    if (targets.length > 0 && live.length === 0) {
+      errs.push(`${line.id}: live add-on applies only to STUB equipment (${targets.join(', ')})`);
+    }
+  }
+  return errs;
+}
+
+/**
  * Validate a whole catalog: every line valid, every key equal to its line's id,
- * and NO stat path receiving both `add` and `mult`. Returns problems, empty =
- * valid. The production CATALOG passes (pinned in catalog.test.ts).
+ * NO stat path receiving both `add` and `mult`, and the cross-line rules above.
+ * Returns problems, empty = valid. The production CATALOG passes — pinned in
+ * catalog.test.ts AND enforced AT MODULE LOAD at the foot of this file.
  */
 export function validateCatalog(catalog: Catalog = CATALOG): string[] {
   const errs: string[] = [];
@@ -480,6 +596,7 @@ export function validateCatalog(catalog: Catalog = CATALOG): string[] {
     errs.push(...validateLine(line));
   }
   errs.push(...validateNoAddMultCollision(catalog));
+  errs.push(...validateCrossLine(catalog));
   return errs;
 }
 
@@ -489,3 +606,13 @@ export function catalogCardCount(catalog: Catalog = CATALOG): number {
   for (const key of Object.keys(catalog)) n += catalog[key]?.cap ?? 0;
   return n;
 }
+
+/**
+ * THE CATALOG IS VALIDATED AT LOAD (the sim/arcs.ts `sectorArcFor` and
+ * sim/stats.ts broadside-ladder convention): an authoring error throws where it
+ * is authored, on the first import, on BOTH sides — rather than surfacing as a
+ * dead card, a silently overwritten tier or a desync in a live match. The test
+ * suite pins the same call, so a broken edit fails the gate twice.
+ */
+const CATALOG_PROBLEMS = validateCatalog(CATALOG);
+if (CATALOG_PROBLEMS.length > 0) throw new Error(CATALOG_PROBLEMS.join('\n'));

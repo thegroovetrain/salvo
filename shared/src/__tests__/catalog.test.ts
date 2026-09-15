@@ -127,6 +127,32 @@ describe('catalog v3 identity', () => {
     expect(Object.isFrozen(CATALOG)).toBe(true);
     for (const id of LINE_IDS) expect(Object.isFrozen(CATALOG[id])).toBe(true);
   });
+
+  // THE CATALOG IS SHARED, MUTABLE-BY-DEFAULT DATA. `effectiveStats` reads the
+  // effect objects on EVERY fold, on both sides — so one stray write to a tier
+  // array or an effect object is a permanent, silent, cross-match stat change
+  // (and a desync, because only one side ran the code that wrote it). Freezing
+  // the rows alone left every array and every effect object below them open.
+  it('is deep-frozen at EVERY depth: tiers, each tier array, each effect, appliesTo', () => {
+    for (const id of LINE_IDS) {
+      const line = CATALOG[id];
+      expect(Object.isFrozen(line.tiers), id).toBe(true);
+      for (const tier of line.tiers) {
+        expect(Object.isFrozen(tier), id).toBe(true);
+        for (const e of tier) expect(Object.isFrozen(e), id).toBe(true);
+      }
+      if (line.appliesTo !== undefined) expect(Object.isFrozen(line.appliesTo), id).toBe(true);
+    }
+  });
+
+  it('gives every ladder tier its OWN array, and refuses a mutation of an effect', () => {
+    expect(CATALOG.armor.tiers[0]).not.toBe(CATALOG.armor.tiers[1]);
+    expect(() => {
+      (CATALOG.armor.tiers[0][0] as unknown as { add: number }).add = 999;
+    }).toThrow();
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']).maxHp)
+      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).maxHp + 25);
+  });
 });
 
 describe('validateCatalog', () => {
@@ -178,6 +204,40 @@ describe('validateCatalog', () => {
       },
     };
     expect(validateCatalog(bad).join(' | ')).toContain("stat path 'maxHp' takes add");
+  });
+
+  // --- THE CROSS-LINE / SHAPE RULES (review gate, Story 8.1) ---------------
+  // Four authoring mistakes the validator could not see, each of which ships a
+  // card that silently does nothing (or a tier that silently gets overwritten).
+  // Every one of them proves the PRODUCTION catalog still passes, above.
+
+  it('refuses a NON-STUB add-on whose every target line is a STUB (a dead card)', () => {
+    const bad: Catalog = {
+      heavyTorpedo: { id: 'heavyTorpedo', kind: 'equipment', cap: 1, stub: true, tiers: [[{ kind: 'slotFill', equipmentId: 'heavyTorpedo' }]] },
+      acousticHoming: { id: 'acousticHoming', kind: 'addon', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[{ kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' }]] },
+    };
+    expect(validateCatalog(bad).join(' | ')).toContain('acousticHoming: live add-on applies only to STUB equipment');
+    // ...and the production acousticHoming is fine: it also names heavyTorpedo,
+    // which is live, even though lightTorpedo is still a stub.
+    expect(validateCatalog()).toEqual([]);
+  });
+
+  it('refuses TWO lines advancing the tier of the same equipment row', () => {
+    const bad: Catalog = {
+      heavyTorpedo: CATALOG.heavyTorpedo,
+      deckGun: { id: 'deckGun', kind: 'ladder', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[]] },
+    };
+    expect(validateCatalog(bad).join(' | ')).toContain("two lines advance the tier of 'heavyTorpedo'");
+  });
+
+  it('refuses a LADDER that names more than one appliesTo equipment', () => {
+    const bad: CatalogLine = { id: 'deckGun', kind: 'ladder', cap: 1, appliesTo: ['gun', 'broadside'], tiers: [[]] };
+    expect(validateLine(bad).join(' ')).toContain('deckGun: a ladder may name at most ONE appliesTo equipment');
+  });
+
+  it('refuses an EQUIPMENT line whose copy 1 does not fit anything', () => {
+    const bad: CatalogLine = { id: 'monitor', kind: 'equipment', cap: 2, tiers: [[], []] };
+    expect(validateLine(bad).join(' ')).toContain('monitor: an equipment line needs a slotFill on copy 1');
   });
 
   it('refuses a healOnGrant line with no positive maxHp add', () => {

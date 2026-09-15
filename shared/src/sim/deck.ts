@@ -3,11 +3,17 @@
 //
 // THE INTERIM DECK (Eric ruling 2026-09-15, amendment 5 — STAY PLAYABLE). Until
 // Story 8.2 builds default decks, deck legality and the forge, `buildDeck()`
-// takes EVERY NON-STUB LINE AT ITS CAP and is identical for every hull. That is
-// not the shipped design; it is the smallest deck that keeps a staging match
-// playable while the card MODEL lands. A STUB line — one whose mechanism is not
-// built yet — is excluded here, which is the single point at which "authored but
-// unbuilt" becomes "unofferable", so no card in a live deck is ever a dead card.
+// takes EVERY NON-STUB LINE AT ITS CAP, LESS the copies the hull already holds
+// (`carried`). That is not the shipped design; it is the smallest deck that
+// keeps a staging match playable while the card MODEL lands.
+//
+// TWO RULES KEEP A DEAD CARD OUT OF A LIVE DECK, and they are the only two:
+//   - a STUB line — one whose mechanism is not built yet — is excluded here,
+//     the single point at which "authored but unbuilt" becomes "unofferable";
+//   - a CARRIED line is dealt one copy short, because copy 1 of an equipment
+//     line IS the bare weapon and a hull that spawns with that weapon is
+//     already holding it. Dealing it anyway deals a card whose `slotFill`
+//     no-ops against its own fitted weapon — a whole level spent on nothing.
 //
 // THE DRAW DOES NOT TAKE CARDS OUT (the lazy-draw bugfix): drawOffer only READS
 // the pool — every drawn line stays in the deck, and exactly ONE card leaves it
@@ -41,15 +47,33 @@ export interface DeckState {
 
 /**
  * Build the INTERIM deck: every NON-STUB line repeated `cap` times, in CATALOG
- * order (deterministic composition), identical for every hull. Story 8.2
- * replaces this with authored per-hull decks + the match consumable pool.
+ * order (deterministic composition), MINUS one copy of every line in
+ * `carried`. Story 8.2 replaces this with authored per-hull decks + the match
+ * consumable pool.
+ *
+ * WHY `carried` (review gate, Story 8.1). Catalog v3's own semantics are that
+ * COPY 1 OF AN EQUIPMENT LINE IS THE BARE WEAPON — so a hull that spawns with
+ * a weapon already fitted is, by that reading, already HOLDING copy 1 of its
+ * line. Dealing it that copy anyway deals a DEAD CARD: `slotFill` is a no-op
+ * against equipment already fitted, so the pick spends a whole level and moves
+ * nothing. The caller seeds `ship.cards` with the same ids, which is what makes
+ * the next copy the line's tier II (a real −5 % reload step) rather than a
+ * second wasted tier I.
+ *
+ * Interim sizes, from the three shipped fits: Torpedo Boat 52, Battleship 51
+ * (broadside + star shells), Mine Layer 52. REPEATS in `carried` remove a copy
+ * each; an id with nothing dealt (a stub, junk) removes nothing — fail-closed,
+ * never negative.
  */
-export function buildDeck(catalog: Catalog = CATALOG): DeckState {
+export function buildDeck(catalog: Catalog = CATALOG, carried: readonly LineId[] = []): DeckState {
+  const held = new Map<string, number>();
+  for (const id of carried) held.set(id, (held.get(id) ?? 0) + 1);
   const cards: LineId[] = [];
   for (const key of Object.keys(catalog)) {
     const line = catalog[key];
     if (line === undefined || line.stub === true) continue;
-    for (let i = 0; i < Math.max(0, Math.floor(line.cap)); i += 1) cards.push(line.id);
+    const copies = Math.max(0, Math.floor(line.cap) - (held.get(key) ?? 0));
+    for (let i = 0; i < copies; i += 1) cards.push(line.id);
   }
   return { cards };
 }

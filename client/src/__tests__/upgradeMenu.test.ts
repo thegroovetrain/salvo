@@ -342,11 +342,14 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
       expect(card.kind.length).toBeGreaterThan(0);
       expect(card.count).toMatch(/^\d+\/\d+$/);
       expect(card.name).toBe(boonName(card.id, 0)); // the sheet's name for the line
-      // A LADDER card prints its live `current → next` sentence; an equipment
-      // line's four upgrade tiers are unauthored (Stories 8.12-8.16), so its
-      // face is legitimately name + kind + count alone (R2.17).
-      if (CATALOG[card.id].kind === 'ladder') expect(card.description.length).toBeGreaterThan(0);
-      else expect(card.description).toBe('');
+      // A LADDER card prints its live `current → next` sentence, and so does a
+      // LIVE equipment line (its reload — every copy past the first is a tier,
+      // and a tier is -5 %). An add-on, a consumable and an unbuilt weapon have
+      // no number, so their face is name + kind + count alone (R2.17).
+      const line = CATALOG[card.id];
+      const speaks = line.kind === 'ladder' || (line.kind === 'equipment' && line.stub !== true);
+      if (speaks) expect(card.description.length, card.id).toBeGreaterThan(0);
+      else expect(card.description, card.id).toBe('');
     }
     // Story 2.1 ("1-4 cards, no repair"): the view carries ONLY cards — the
     // canHeal/healHp fields left with the REPAIR spend and never came back.

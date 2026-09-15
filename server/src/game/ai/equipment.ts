@@ -10,11 +10,13 @@
 // ACQUIRED mines (acquireMine) had no idea what a mine was, and `bulwark`
 // carried star shells natively while being flagged never to fire them.
 //
-// `EQUIPMENT_TACTICS` is a `Partial<Record<EquipmentId, EquipmentTactic>>` — the
-// same one-interface-one-registry completeness gate the server's own
-// equipment rows use (game/equipment/index.ts): a future equipment cannot
-// ship without a bot tactic, because this Record fails to type-check without
-// its row.
+// `EQUIPMENT_TACTICS` is a `Partial<Record<EquipmentId, EquipmentTactic>>` —
+// PARTIAL, deliberately, since catalog v3 widened `EquipmentId` to thirteen ids
+// whose modules do not all exist yet (Stories 8.13-8.16). So it is NOT the
+// compile-forced completeness gate the server's equipment rows are
+// (game/equipment/index.ts): a bot simply has no knowledge of a weapon with no
+// row here, and `want()` is never asked about one it cannot carry. The gate
+// comes back when the registry does — a tactic per BUILT module.
 //
 // TEMPERAMENT MODULATES PROACTIVITY ONLY (ruled). There is ONE mine tactic
 // shared by everyone; `trapper` lays as a standing plan and `siege` lays only

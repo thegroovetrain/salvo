@@ -79,7 +79,9 @@ describe('buildFrame — shape and clock', () => {
       // on the boostUntil terms. REQUIRED (never omitted), so a pool-less hull
       // still carries an explicit 0 rather than a missing key.
       repairHp: 0,
-      cards: [], // fitted card LINE ids — self-private (Story 8.1)
+      // Fitted card LINE ids — self-private (Story 8.1). A Torpedo Boat
+      // SPAWNS holding copy 1 of its own weapon's line (the carried seed).
+      cards: ['heavyTorpedo'],
       // Story 2.6, self-private too: levels completed + progress toward the
       // next as a 0..1 fraction of CONFIG.xp.levelMs. One 50ms step of passive
       // accrual has already landed (the world defaults to the active policy).

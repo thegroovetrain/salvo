@@ -44,7 +44,7 @@ import {
   type BoonStatEffect,
   type DoctrineWeapon,
 } from './effects.js';
-import { CATALOG, cardCounts, tierTargetOf, type Catalog, type CatalogLine } from './catalog.js';
+import { CATALOG, cardCounts, lineForEquipment, tierTargetOf, type Catalog, type CatalogLine } from './catalog.js';
 import {
   broadsideMountSpread,
   broadsideTraverse,
@@ -106,6 +106,12 @@ function applyDoctrineEffect(stats: EffectiveStats, e: BoonDoctrineEffect): void
  * number then buys.
  */
 function applyLineTier(stats: EffectiveStats, line: CatalogLine, copies: number): void {
+  // A LINE NOBODY HOLDS WRITES NOTHING. Every row is already seeded at tier 1
+  // by baseEquipment, so a zero-copy write could only ever restate that — or,
+  // where two lines name one row, OVERWRITE the tier the held one just bought
+  // with the base, making the result a fact about catalog order. Pinned in
+  // stats.test.ts.
+  if (copies <= 0) return;
   const target = tierTargetOf(line);
   if (target === undefined) return;
   // An UNFITTED equipment line sits at tier 1, not tier 0: tier I IS the bare
@@ -224,8 +230,21 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  * equipment for another, so the branch and its degenerate-self-replace guard
  * went with the mechanism.
  */
-export function applySlotEffect(loadout: LoadoutSlot[], effect: BoonEffect, stats: EffectiveStats): void {
+export function applySlotEffect(
+  loadout: LoadoutSlot[],
+  effect: BoonEffect,
+  stats: EffectiveStats,
+  catalog: Catalog = CATALOG,
+): void {
   if (effect.kind !== 'slotFill') return; // not a slot home
+  // NEVER FIT A STUB WEAPON. A stub line carries a real `slotFill` on copy 1
+  // with NO module behind it, and this is the ONE gate both sides share: the
+  // client replays cards through slotsWithCards and the server replays them
+  // again on respawn, so a guard living only in the server's grant path leaves
+  // a phantom weapon fittable on both of those routes. Catalog-driven, so a
+  // line stops being guarded the moment its `stub` flag comes off.
+  const line = lineForEquipment(effect.equipmentId, catalog);
+  if (line?.stub === true) return;
   const slot = loadout[SLOT_EXTRA];
   if (slot === undefined || slot.equipmentId !== null) return; // occupied (or malformed): no-op
   if (loadout.some((s) => s.equipmentId === effect.equipmentId)) return; // already fitted: no-op
@@ -264,7 +283,7 @@ export function slotsWithCards(
     const copy = (seen.get(id) ?? 0) + 1;
     seen.set(id, copy);
     if (copy > line.cap) continue; // past the physical cap: buys nothing
-    for (const e of line.tiers[copy - 1] ?? []) applySlotEffect(loadout, e, stats);
+    for (const e of line.tiers[copy - 1] ?? []) applySlotEffect(loadout, e, stats, catalog);
   }
   return loadout;
 }

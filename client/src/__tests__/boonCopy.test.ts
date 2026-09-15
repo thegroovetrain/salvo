@@ -99,9 +99,34 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
     }
   });
 
-  it('prints NOTHING for a weapon, an add-on or a consumable', () => {
+  // AN EQUIPMENT LINE IS NOT SILENT. Copy 1 fits the weapon and every copy
+  // after it is a TIER, and a tier is -5% of that weapon's own reload (derived
+  // in clampStats) — so the face prints the number that actually moves. Only
+  // the lines with no built mechanism, and the verb cards, stay silent.
+  it('prints a live RELOAD diff for every LIVE equipment line', () => {
+    const live = SILENT_CARDS.filter((l) => l.kind === 'equipment' && l.stub !== true);
+    expect(live.map((l) => l.id)).toEqual(['heavyTorpedo', 'navalMines', 'broadside', 'starShells']);
+    for (const line of live) {
+      expect(boonDescription(line, TB), line.id).toMatch(/^Reload: \d+\.\d s → \d+\.\d s\.$/);
+    }
+  });
+
+  it('prints NOTHING for an add-on, a consumable or an unbuilt weapon', () => {
+    const silent = SILENT_CARDS.filter((l) => l.kind !== 'equipment' || l.stub === true);
     expect(SILENT_CARDS).toHaveLength(21);
-    for (const line of SILENT_CARDS) expect(boonDescription(line, TB), line.id).toBe('');
+    expect(silent).toHaveLength(17);
+    for (const line of silent) expect(boonDescription(line, TB), line.id).toBe('');
+  });
+
+  // THE NUMBER THE CARD SELLS. A Torpedo Boat SPAWNS holding copy 1 of HEAVY
+  // TORPEDO, so the next one it is offered is tier II: 30.0 s -> 28.5 s, the
+  // -5% step, computed through the real firewall like every other face.
+  it('copy 2 of HEAVY TORPEDO prints the tier II step: 30.0 s → 28.5 s', () => {
+    const held = { cls: 'torpedoBoat' as const, cards: ['heavyTorpedo'] };
+    expect(boonDescription(CATALOG.heavyTorpedo, held)).toBe('Reload: 30.0 s → 28.5 s.');
+    // ...and copy 1, on a hull without the weapon, honestly prints no change:
+    // it buys the FIT, which the hover tooltip is what explains.
+    expect(boonDescription(CATALOG.heavyTorpedo, TB)).toBe('Reload: 30.0 s → 30.0 s.');
   });
 
   // THE STUB PIN (Eric ruling 2026-09-15, amendment 5): thirteen lines are
@@ -317,9 +342,11 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   });
 
   it('fails open to \'\' for a line with neither a holding line nor a headline stat', () => {
-    // An equipment line's upgrade tiers are unauthored (Stories 8.12-8.16), so
-    // it reports its `◆ NAME` row alone — the honest readout.
-    expect(boonEffectLine('heavyTorpedo', bare)).toBe('');
+    // A STUB equipment line has no built weapon to read a holding off, so it
+    // reports its `◆ NAME` row alone — the honest readout. A LIVE one prints
+    // the reload it is actually carrying.
+    expect(boonEffectLine('monitor', bare)).toBe('');
     expect(boonEffectLine('notARealCard', bare)).toBe('');
+    expect(boonEffectLine('heavyTorpedo', bare)).toBe('Reload: 30.0 s');
   });
 });

@@ -2,7 +2,7 @@
 title: 'Story 8.1: The Card Model and Catalog Engine'
 type: 'feature'
 created: '2026-09-15'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'effb4474a3f4741af0e8995b58bce51bc9ba8bb9'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -119,8 +119,27 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-15 — Review pass (Blind Hunter + Edge Case Hunter at session model, plus Codex `gpt-5.6-sol` cross-model review — verdicts fix-first ×2, findings applied in this pass)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 1, medium 4, low 3)
+- defer: 3: (high 0, medium 2, low 1)
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` (all three reviewers) interim deck dealt a hull copy 1 of a weapon it already carries — a dead card (TB + heavyTorpedo, BS + broadside/starShells, ML + navalMines) → a hull now spawns HOLDING copy 1 of each carried equipment line (v3's own semantics) and `buildDeck(catalog, carried)` deals the remaining copies; the next copy is a real tier step
+  - `[medium]` `[patch]` (Blind Hunter) `CATALOG` was not deep-frozen (shared ladder effect array, mutable effect objects — a mutation reached `effectiveStats`) → fresh array per tier, every tier and effect frozen, pinned at every depth
+  - `[medium]` `[patch]` (Codex + Blind Hunter + Edge Case Hunter) stub slot-fill guard lived only on the server, so the client replay and the server's own respawn replay could fit a phantom weapon → guard moved into shared `applySlotEffect`; `applyCard` refuses to push a stub id
+  - `[medium]` `[patch]` (Edge Case Hunter) reload multiplier reached 0 / negative at injected tiers ≥ 20 → floored at 0.1 like `cooldownScale`
+  - `[medium]` `[patch]` (Edge Case Hunter) validator gaps: live add-on whose targets are ALL stub equipment (per-target would fail the shipped `acousticHoming`, which names one stub and one live torpedo), duplicate tier targets, multi-target ladders, equipment line without a slot fill, zero-copy tier overwrite making the fold catalog-order dependent → five rules + `applyLineTier` early return, each pinned
+  - `[low]` `[patch]` (Blind Hunter) `validateCatalog` was test-only → runs on the production `CATALOG` at module load
+  - `[low]` `[patch]` (Blind Hunter) equipment card copy promised a fit that copies II–V do not perform and hid the −5 % reload step they do → four explanation strings corrected; equipment faces print reload `current → next`
+  - `[low]` `[patch]` (Blind Hunter + Edge Case Hunter) stale comments contradicting the code (`stats.ts` "8.1 moves no shipped number", `ai/equipment.ts` "total Record", `world.ts` `levelsSinceRare` / `slotsWithBoons`) and the dead `carriedEquipment` helper → corrected; helper reused by the seed
+- deferred (ledgered in `deferred-work.md`): full-extra-slot no-op + add-ons for unfitted weapons (pre-existing until 8.2/8.5); captive-mine readers keyed to the naval row (8.13); bot `KIND_BASE` table and alias max-wins policy (Eric, with the bot retune)
+- traced clean by the reviewers: fit-order replay parity, every `Partial` registry dispatch, `rescaleReloadTimers` under a tier step, `drawOffer` weighting/distinctness/exhaustion, single floor pass, anti-cheat (`cards` only under `you`), no `boons` left on the wire, PV 51
+
 ## Design Notes
 
+- **Orchestrator ruling at the review gate (Eric may veto): a hull spawns HOLDING copy 1 of each equipment line it already carries** (TB `['heavyTorpedo']`, BS `['broadside','starShells']`, ML `['navalMines']`) and the interim deck deals the remaining copies. This is v3's own semantics (copy 1 = the bare weapon) and removes the dead card all three reviewers found; the seed is stat-neutral and fit-neutral (pinned). The spec's earlier "identical for every hull" wording is superseded by this.
 - `catalog.ts` sits BELOW `stats.ts`/`boons.ts` (imports only types + `CONFIG`); the fold resolves ids through it, killing the injectable-catalog parameter thread (`World.boonCatalog`, `catalog = BOON_CATALOG` defaults). Tests inject alternative catalogs through a `resolveCards(ids, catalog)` seam kept exported for that purpose.
 - Stub flag lives on the line (`stub: true`) and is a build-time fact, not wire; `buildDeck` and the "no dead cards" pin both read `isStubLine`. When 8.12–8.16 fill a line they flip the flag and the pins tighten automatically.
 - Deck gun tier arithmetic: weapons use `(tier − 1)`, the deck gun uses `tier` — pin both in one table test to kill the off-by-one.

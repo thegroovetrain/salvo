@@ -35,7 +35,8 @@ describe('botMetrics — builds, picks, offers, placement', () => {
     expect(s.picks).toHaveLength(1);
     expect(s.picks[0].id).toBe('intelSweep'); // the CARD, not the spender
     expect(s.picks[0].s).toBeGreaterThan(0); // stamped in sim-seconds
-    expect(s.boons).toEqual(['intelSweep']); // the build mirror agrees
+    // The build mirror agrees — over the SPAWN SEED the hull already holds.
+    expect(s.boons).toEqual(['heavyTorpedo', 'intelSweep']);
   });
 
   it('counts an offer hand ONCE across the ticks it sits open (reference diff)', () => {
