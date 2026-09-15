@@ -84,3 +84,4 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 6. **`torpedo` → `heavyTorpedo`, `mine` → `navalMines`** (Eric 2026-09-15); 8.13 adds light/supercav torpedoes and captive mines as new modules.
 7. **The 29 `LINE_IDS` are locked** (Eric 2026-09-15) — see amendment 7 for the list; ids are wire contract.
 8. **Interim refit card shows the kind word in neutral colour** (Eric 2026-09-15); no tier ramp and no `◆n` category count until 8.6/8.7.
+9. **Version freeze lifted** (Eric 2026-09-15): one-time 0.18.1 at cycle 136, then +1 patch per landed cycle across epics; supersedes the 0.17.X ruling.

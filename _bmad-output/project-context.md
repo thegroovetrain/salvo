@@ -30,7 +30,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **Engine:** Custom browser engine — no Unity/Unreal/Godot. TypeScript monorepo (npm workspaces), Node v22.
 - **Workspaces (strict layering):** `shared` (pure deterministic sim, zero deps) → `server` (Colyseus 0.18, @colyseus/schema 5.x, @colyseus/tools, Express 4) and `client` (PixiJS 8.19, @colyseus/sdk 0.18, Vite 6).
 - **Language/tooling:** TypeScript ~5.7, ESLint 10 + typescript-eslint (complexity ≤ 10 enforced), Vitest (2.x shared/server, 4.x client + jsdom), tsx for server dev.
-- **Version:** frozen at `0.17.X` until all epics complete; X = landed build cycles, +1 per cycle (Eric ruling 2026-08-01). `VERSION` + root `package.json`, single-sourced into the client by Vite.
+- **Version:** `0.18.X` from cycle 136 (Eric ruling 2026-09-15, epic-8 amendment 9): one-time move to 0.18.1, then X = +1 per landed build cycle across epics; the 2026-08-01 `0.17.X` freeze is superseded. `VERSION` + root `package.json`, single-sourced into the client by Vite.
 - **Deploy:** Render, two environments from one `render.yaml` (a Blueprint with autoSync ON): `hullcracker` from `main` = production https://hullcracker.io/; `hullcracker-dev` from `development` = staging. Feature work branches from `development`, is QA'd on the staging host, and only then merges to `main`.
 
 ## Critical Implementation Rules
@@ -84,7 +84,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Browser-only target. Build order matters: shared → client → server (`npm run build`).
 - The server must boot from `server/` (or with `--tsconfig server/tsconfig.json`) — Colyseus schema decorators need that tsconfig.
 - Dev-only room options (`matchOverride`/`zoneOverride`) are honored only under `HC_DEV_OPTIONS=1`; production behavior must never depend on them, and `sanitizeRoomOptions()` gates everything client-supplied.
-- Versioning: frozen at `0.17.X` until all epics complete; X = landed build cycles, +1 per cycle (Eric ruling 2026-08-01). `VERSION` + root `package.json`, single-sourced into the client by Vite at build time.
+- Versioning: `0.18.X` from cycle 136 — +1 per landed build cycle across epics (Eric ruling 2026-09-15); the `0.17.X` freeze is superseded. `VERSION` + root `package.json`, single-sourced into the client by Vite at build time.
 - Deploy is Render auto-deploy on push to a service's own branch: `main` -> production (https://hullcracker.io/), `development` -> the staging host. BRANCH FROM `development`, NOT `main` — merging to `main` deploys the public game, and the staging QA pass is the gate in front of it. `render.yaml` is the live Blueprint source for BOTH services: make config changes there, never in the Render dashboard or API. Ports: game server `:2567`, Vite `:5173`. NEVER start the dev server — the user manages it; curl-check `:5173` before any browser-based work.
 
 ### Critical Don't-Miss Rules
